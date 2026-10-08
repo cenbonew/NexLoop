@@ -1295,6 +1295,12 @@
         "ref": "docs/implementation/offering-host-main-evidence.json",
         "summary": "主线 Host Contextv2 与 request_scope 类型/拒绝范围检查、124 Runtime 与8实际离线SDK测试全部通过；构建通过；core53/真实PG供给装配待完成，保留in_progress。",
         "recorded_at": "2026-10-08T12:28:23.614115Z"
+      },
+      {
+        "type": "commit",
+        "ref": "58d33d2c1fa3c30763ddfb887fc9ffbe2d71a854",
+        "summary": "主线供给Contextv2与服务request_scope检查；124 Runtime及8离线SDK通过，尚待core53装配。",
+        "recorded_at": "2026-10-08T12:28:40.920089Z"
       }
     ]
   },
