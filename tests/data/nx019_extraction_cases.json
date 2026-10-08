@@ -561,6 +561,7 @@
     ],
     "forbidden": [
      {
+      "quote": "暂不续费",
       "modality": "asserted"
      }
     ]
@@ -974,6 +975,7 @@
     ],
     "forbidden": [
      {
+      "quote": "我还在考虑要不要续费",
       "modality": "asserted"
      }
     ]
