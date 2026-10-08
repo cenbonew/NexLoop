@@ -114,7 +114,21 @@
     "name": "入站幂等",
     "given": "同provider_event_id重投",
     "expected": "一条消息，一个必要Run/业务意图",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "6a43cbd2646b3ee394045fd6d8dc1da61ba2783f",
+        "summary": "native.webchat原始provider_event_id持久去重，主线13 PG/bootstrap +7前端通过；实际Message→Run→Pi→HTTPS JSON→receipt；仅本地提交。",
+        "recorded_at": "2026-10-08T13:42:19.560638+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/native55-main-evidence.json",
+        "summary": "真实native HTTP同原始provider_event_id/不同Transport-Key保持一条Message/必要Run/Intent及额度；SIGKILL Backend事务与全交付另测。外部渠道与浏览器reload pending不在此次范围。",
+        "recorded_at": "2026-10-08T13:42:19.560638+00:00"
+      }
+    ]
   },
   {
     "id": "AT-014",

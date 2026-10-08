@@ -1349,6 +1349,12 @@
         "ref": "docs/implementation/head54-fixture-correction-main-evidence.json",
         "summary": "主线定向74通过，原授权与故障断言保持；完整CI重跑以及native event/Human范围说明仍待完成。",
         "recorded_at": "2026-10-08T13:38:41.908896+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6a43cbd2646b3ee394045fd6d8dc1da61ba2783f",
+        "summary": "native.webchat原始provider_event_id持久去重，主线13 PG/bootstrap +7前端通过；实际Message→Run→Pi→HTTPS JSON→receipt；仅本地提交。",
+        "recorded_at": "2026-10-08T13:42:19.560638+00:00"
       }
     ]
   },
@@ -1401,6 +1407,18 @@
         "ref": "67c1d97b11ecd079f617578b27a2460acfdcdee5",
         "summary": "Three actual precise PG/CLI fault cases passed in main; preparation checkpoint before NX-016 completion.",
         "recorded_at": "2026-10-08T11:48:40.258718+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6a43cbd2646b3ee394045fd6d8dc1da61ba2783f",
+        "summary": "native.webchat原始provider_event_id持久去重，主线13 PG/bootstrap +7前端通过；实际Message→Run→Pi→HTTPS JSON→receipt；仅本地提交。",
+        "recorded_at": "2026-10-08T13:42:19.560638+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/native55-main-evidence.json",
+        "summary": "AT-013 native入口已实际验证；NX-017仍not_started等待NX-016完成，非整组故障验收完成。",
+        "recorded_at": "2026-10-08T13:42:19.560638+00:00"
       }
     ]
   },
