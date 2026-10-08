@@ -33,6 +33,7 @@ from test_conversation_effect_receipts import schemas as receipt_schemas
 def human_declarations(tenant,human):
     specs=[('eios:action:'+name+':1',ResourceType.ACTION) for name in [CREATE,MESSAGE,READ]]
     specs.append(('eios:function:'+FUNCTION+':1',ResourceType.FUNCTION))
+    specs.append(('eios:function:nexloop.conversation.scope_denial:1',ResourceType.FUNCTION))
     merged={};original=None
     def translate(value):
         if isinstance(value,dict):return {k:translate(v) for k,v in value.items()}
@@ -63,7 +64,7 @@ def human_declarations(tenant,human):
 def assembled_message(business_plan,admin,tmp_path,request):
     f=business_plan;original=f['f'];tenant=original['tenant'];manifest=f['manifest']
     # The specialized context fixture publishes its own immutable profile.
-    publish_context='context_message' not in request.fixturenames
+    publish_context=not {'context_message','offering_denial_plan'}.intersection(request.fixturenames)
     base=next(a for a in manifest['actions'] if a['definition']['stable_name']=='Consumer.create')
     schemas={s['type_name']:s for s in manifest['object_types']};assignment=message_assignment_schema()
     schemas[assignment.type_name]=assignment.model_dump(mode='json')

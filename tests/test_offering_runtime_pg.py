@@ -9,6 +9,13 @@ from nexloop_eios.authorization import AuthorizationUnavailable
 from nexloop_eios.effect_execution import EffectExecutionUnavailable
 from nexloop_eios.service_offerings import json_export_example
 from datetime import UTC,datetime,timedelta
+from test_scope_denials import denial_plan,record_source_declarations
+
+@pytest.fixture
+def offering_denial_plan(monkeypatch,request):
+    # Explicit typed Source record permission and real publisher/Governor; READ alone is insufficient.
+    record_source_declarations(monkeypatch)
+    return request.getfixturevalue('denial_plan')
 
 
 def accepted(f,tmp_path):
@@ -64,9 +71,9 @@ def test_runtime_source_cannot_create_catalog(context_message):
         context_message['source'].create_object(action_name='ServiceOffering.create',action_version=1,intent_id='forbidden-model-catalog',type_name='ServiceOffering',properties=json_export_example(valid_until=(datetime.now(UTC)+timedelta(minutes=3)).isoformat()))
 
 
-def test_typed_outside_terms_refused_with_current_scope_and_no_intent(context_message,admin,tmp_path):
+def test_typed_outside_terms_refused_with_current_scope_and_no_intent(offering_denial_plan,admin,tmp_path):
     from nexloop_eios.service_offerings import CatalogScopeDenied
-    f=context_message;assert f['relay'].run_once()=='queued'
+    f=offering_denial_plan;assert f['relay'].run_once()=='queued'
     with active_worker(f,tmp_path) as (worker,activation,command,text):
         for guarantees,discounts in [(['profit-guarantee'],[]),([],['50%-discount'])]:
             with pytest.raises(CatalogScopeDenied) as denied:
@@ -129,12 +136,12 @@ def test_actual_admit_write_then_current_catalog_read_expiry_rolls_back_attempt(
     assert admin.execute('select sum(reserved_units) from control.nexloop_effect_control_ledger').fetchone()==(1,)
 
 
-def test_actual_https_scope_denial_is_bounded_current_read_no_receipt(context_message,admin,tmp_path):
+def test_actual_https_scope_denial_is_bounded_current_read_no_receipt(offering_denial_plan,admin,tmp_path):
     import threading,httpx,secrets
     from test_agent_host import files
     from test_trusted_configuration_pg import private
     from nexloop_eios.runtime_control import create_runtime_guard_server
-    f=context_message;assert f['relay'].run_once()=='queued'
+    f=offering_denial_plan;assert f['relay'].run_once()=='queued'
     with active_worker(f,tmp_path) as (worker,activation,command,text):
         tls=tmp_path/'scope-tls';tls.mkdir(mode=0o700);files(tls)
         key=private(tmp_path,'scope-transport-key',secrets.token_hex(32))

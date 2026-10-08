@@ -1,0 +1,87 @@
+{
+  "scope": "candidate cold-chain, actual isolated PG + genuine opaque Runtime bridge and HUMAN Cookie HTTP; frontend unit/build; no whole-Pi denial test yet",
+  "frozen_source_sha256": {
+    "packages/eios-core/src/nexloop_eios/scope_denials.py": "d73e423e8cdbab38ff1fafe5a4cb3e1bda2812990bd1f9455f02ce780f9a1eab",
+    "packages/eios-core/src/nexloop_eios/conversation_scope_denials.py": "384950df4e83786a810661b461b43568a07a442b04548b69a004bac1bdc10cf6",
+    "packages/eios-core/src/nexloop_eios/runtime_activation.py": "e58adde5d7bad7d811782b2b1f5de0dbe73ed6f9941b41c0726b6a9cd3f05edd",
+    "packages/eios-core/src/nexloop_eios/backend.py": "1e3118dda54347cd56518e5372a34acb56ce9348d2e4ef2a405f684516c51fb7",
+    "packages/eios-core/src/nexloop_eios/web_chat_http.py": "441572a7db1a5048311ec1217db1f27fb67c0ea70efbf84d529eae49f8aea74f",
+    "docs/drafts/0056_scope_denials.sql.draft": "15b306f0452fbf24d94b18fab013eda2ecf4f76906a5eb280de8501fcc05b8a4",
+    "apps/web/src/chat-api.ts": "2ccbaaa265da43af2ae65d7b7113d25a10910ec2f4fa0b4ffb43f186370b956a",
+    "apps/web/src/MessageReceipt.tsx": "a1d7ed18369aa07a2d4278208f58bd0d52ff77e8005a223f0e7f9fd5145ba1ec",
+    "apps/web/test/scope-denial.test.mjs": "41a60e016ed90d56105e69fea90c126d99d667c5f3a86241b0d36cdababbe9f6",
+    "tests/test_scope_denials.py": "cd6fc05b4abcd96239d7fe755de2e881aa3390bd59e219ee5daf41d54e670f2f",
+    "tests/test_context_artifacts.py": "077e457ba8a47374e77bd881b0fa3a5c48e446944ec1f64c0f7f848fc2b962cb",
+    "tests/local_message_assembly_fixture.py": "caccb76827ea69579f918d70bf973f5a03418475832079d712a1ab1247020cba"
+  },
+  "history": [
+    {
+      "session": 38297,
+      "result": "1 setup error 2.56s",
+      "reason": "legacy context fixture duplicate ServiceOffering/Binding object_type publication; no0056 reached"
+    },
+    {
+      "session": 75824,
+      "result": "1 setup error 3.40s",
+      "reason": "safe diagnostic located trusted_configuration.validate_manifest line51"
+    },
+    {
+      "session": 30857,
+      "result": "1 failed5.91s",
+      "reason": "SQLrecord contract check used old string-only effect_parameters_valid on nested request_scope"
+    },
+    {
+      "session": 8419,
+      "result": "1 failed10.50s",
+      "reason": "safe allowlisted SQLscope denial contract unavailable; no secret error text"
+    },
+    {
+      "session": 1519,
+      "result": "1 passed7.78s"
+    },
+    {
+      "session": 80461,
+      "result": "2 passed13.37s"
+    },
+    {
+      "session": 56095,
+      "result": "2 passed14.13s",
+      "added": "strict sameRun/scope differentparameters409"
+    },
+    {
+      "session": 1717,
+      "result": "4 passed24.19s"
+    },
+    {
+      "session": 55833,
+      "result": "4 passed22.42s",
+      "added": "immutable denial records"
+    },
+    {
+      "session": 86201,
+      "result": "4 passed21.03s",
+      "scope": "terminal record claim association positive; followed by stricter Function schema/UTC final revision"
+    },
+    {
+      "session": 93038,
+      "result": "4 passed21.72s",
+      "scope": "final fixed strict Function schemas + terminal record claim association + UTC writer"
+    }
+  ],
+  "command": "PYTHONPATH=docs/tmp/nx016-scope-explanation-candidate/packages/eios-core/src:docs/tmp/nx016-scope-explanation-candidate/tests .venv/bin/python -m pytest docs/tmp/nx016-scope-explanation-candidate/tests/test_scope_denials.py -q --tb=short --junitxml=docs/tmp/nx016-scope-explanation-candidate/docs/scope-cold-chain.xml",
+  "frontend": [
+    "Node24 node --test apps/web/test/scope-denial.test.mjs: 3 passed",
+    "TypeScript --noEmit candidate tsconfig: exit0",
+    "candidate Vite8 build: exit0 67modules; output ignored candidate dist only"
+  ],
+  "limits": [
+    "0056 draft installed only into designated fresh disposable test PG after formalhead0054 bootstrap; notcatalogued or production migration",
+    "No whole actualPi Tool→PGdenial→HumanHTTP proof yet",
+    "Independent SourceRecord/Humanownership/TTL-after-insert/revocation adversarial suite awaits security reviewer",
+    "No real model/provider/network/channel calls or stage readiness claim",
+    "No main files or Git modified",
+    "Human projection checks record Action terminal/succeeded, principal/request binding and outcome_id; does not recompute exact terminal outcome_digest from PG timestamp JSON; explanation is not effect success"
+  ],
+  "teardown": "All owned pytest PG instances exited via original fixtures; no test children live",
+  "freeze": true
+}

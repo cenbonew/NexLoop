@@ -219,5 +219,12 @@ class RuntimeActivationPort:
                 response={'run_id':command['run_id'],'receipt':receipt}
             return response
         except EffectIntentConflict:raise
-        except CatalogScopeDenied:raise
+        except CatalogScopeDenied:
+            # Original attempted submission transaction has already rolled back.
+            # Recompute independent current Source record EXECUTE + catalog READ
+            # and original opaque Run guard before committing an operational fact.
+            from nexloop_eios.scope_denials import record_runtime_scope_denial
+            denial=record_runtime_scope_denial(self,activation_ref=activation_ref,command=command,
+                parameters=parameters,request_scope=request_scope)
+            raise CatalogScopeDenied(denial['scope']) from None
         except Exception:raise EffectIntentUnavailable('effect intent unavailable') from None

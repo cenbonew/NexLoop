@@ -1,0 +1,69 @@
+{
+  "scope": "Actual frozen Pi/RuntimeAdapter/native kernel owner/SQLite FULL -> actual TLS Guard/RuntimeEffectClient -> restricted EIOS PG Source record Action/Governor -> same HUMAN password Cookie Function HTTP query. Synthetic provider only.",
+  "history": [
+    {
+      "session": 43841,
+      "result": "Node24 TypeScript build exit0"
+    },
+    {
+      "session": 61930,
+      "result": "1 failed10.95s",
+      "reason": "existing shared completed helper fixed5s exceeded by genuine multi-step scope refusal; no authorization assertions weakened"
+    },
+    {
+      "session": 70507,
+      "result": "1 passed14.49s",
+      "change": "newcase own20s absolute completion deadline, exact same proof/evidence assertions"
+    },
+    {
+      "session": 75401,
+      "result": "4 passed1 failed35.03s",
+      "reason": "actual read-only inspect returned bounded dependency503 under competing model/tool authorization; all full-suite success withheld"
+    },
+    {
+      "session": 71136,
+      "result": "5 passed35.17s exit0",
+      "change": "only read-only503 recheck within same20s absolute deadline,200required eventually,no start/tool resubmission or identity fallback"
+    }
+  ],
+  "command": "PATH=/Users/chenbowen/.nvm/versions/node/v24.13.0/bin:$PATH PYTHONPATH=docs/tmp/nx016-scope-explanation-candidate/packages/eios-core/src:docs/tmp/nx016-scope-explanation-candidate/tests .venv/bin/python -m pytest docs/tmp/nx016-scope-explanation-candidate/tests/test_scope_denials.py -q --tb=short --junitxml=docs/tmp/nx016-scope-explanation-candidate/docs/scope-five-chain.xml",
+  "compiled_profile_negatives": {
+    "command": "Node24 node --test candidate/apps/agent-host/test/synthetic-scope-profile.test.mjs",
+    "result": "6 passed268.7ms",
+    "cases": [
+      "realprofile forbids override",
+      "explicit message-driven test only",
+      "extra keys",
+      "unsafeint",
+      "duplicate terms",
+      "invalid offeringid"
+    ]
+  },
+  "asserted_evidence": [
+    "actual two distinct Pi tool_call_id values and equal outside_catalog_terms ToolResults isError true",
+    "actual Host persistence journal_mode wal synchronous2",
+    "Runtime outcome failed; not effect successful",
+    "one immutable rejection row with actual terminal record claim",
+    "zero Intent/effect_outbox/sharedreservedunits",
+    "actual same HUMAN passwordlogin Cookie HTTP independently rechecks published Function/Conversation currentownership; receipt isnull and newscope equalsPi result",
+    "no rawguard key inSQLite"
+  ],
+  "final_sha256": {
+    "apps/agent-host/src/runtime-host.ts": "291a45cf3ea800f471db319fb82e7b753946026f5203107f1f256e3afe6c6924",
+    "apps/agent-host/src/runtime-effect-tools.ts": "7bc298dab2fd697515fd2a9fccd86a5b6cf4479c927fc482ec1f9109b64781f9",
+    "apps/agent-host/test/synthetic-scope-profile.test.mjs": "87305707f8668d26a97318df3944456c13f70b02eb53a13582725f986e51bf55",
+    "tests/test_scope_denials.py": "0ce60e61f716eaafbdb4fefe89d6d91fc4d1d1d565b76facd551d587b91a7f9b",
+    "docs/drafts/0056_scope_denials.sql.draft": "15b306f0452fbf24d94b18fab013eda2ecf4f76906a5eb280de8501fcc05b8a4",
+    "packages/eios-core/src/nexloop_eios/scope_denials.py": "d73e423e8cdbab38ff1fafe5a4cb3e1bda2812990bd1f9455f02ce780f9a1eab",
+    "packages/eios-core/src/nexloop_eios/conversation_scope_denials.py": "384950df4e83786a810661b461b43568a07a442b04548b69a004bac1bdc10cf6"
+  },
+  "limits": [
+    "No realprovider orstage/productready claim",
+    "No actualvisualbrowser scope-denial UI yet; actualHTTP plus3component unit only",
+    "Candidate0056draft remains uncatalogued; tested after realhead0054clean bootstrap only",
+    "Independent reviewer cases recorded separately when terminal",
+    "Read-only transport503 canbe transient; boundedrecheck evidence does not guarantee backend alwayswithin2s latency"
+  ],
+  "cleanup": "All owned PG/Host/Guard subprocesses closed by contextmanagers; pytest exit0; no owned live children",
+  "cold_chain_evidence": "scope-denial-evidence.json; original4test source archived frozen-cold-test-scope-denials.py whoseSHA matches originalevidence"
+}

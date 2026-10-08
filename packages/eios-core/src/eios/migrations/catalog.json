@@ -275,6 +275,11 @@
       "version": "0055",
       "name": "0055_native_web_inbound.sql",
       "sha256": "d7aa84ada8abcdf46f3a0b2f40e2ac468e24d2da295799b07d569810eeda0db2"
+    },
+    {
+      "version": "0056",
+      "name": "0056_scope_denials.sql",
+      "sha256": "15b306f0452fbf24d94b18fab013eda2ecf4f76906a5eb280de8501fcc05b8a4"
     }
   ]
 }

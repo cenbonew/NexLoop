@@ -38,3 +38,16 @@ export function serviceReceipt(value:unknown):MessageServiceReceipt{
   return {message_id:messageId,run,receipt};
 }
 export async function readServiceReceipt(messageId:string){const result=serviceReceipt(await request(`/api/v1/messages/${encodeURIComponent(id(messageId))}/receipt`));if(result.message_id!==messageId)throw new Error('响应无效');return result;}
+
+export type DeliveryScope={service_code:'local.json-export';deliverable:'固定私有目录内可核验的 JSON 文本导出文件';price_amount:'0';currency:'CNY';guarantees:[];discounts:[];limitations:['不提供目录外保证或折扣','不代表第三方渠道送达、付款或问题解决'];evidence_kind:'fsynced_json_export'};
+export type MessageScopeDenial={message_id:string;denial:null|{record_id:string;code:'outside_catalog_terms';scope:DeliveryScope;recorded_at:string}};
+function exact(value:Record<string,unknown>,keys:string[]){if(Object.keys(value).length!==keys.length||keys.some(key=>!Object.hasOwn(value,key)))throw new Error('响应无效');}
+export function scopeDenial(value:unknown):MessageScopeDenial{
+  const v=object(value);exact(v,['message_id','denial']);const messageId=id(v.message_id);
+  if(v.denial===null)return {message_id:messageId,denial:null};
+  const d=object(v.denial);exact(d,['record_id','code','scope','recorded_at']);
+  const s=object(d.scope);exact(s,['service_code','deliverable','price_amount','currency','guarantees','discounts','limitations','evidence_kind']);
+  if(d.code!=='outside_catalog_terms'||typeof d.recorded_at!=='string'||!Number.isFinite(Date.parse(d.recorded_at))||s.service_code!=='local.json-export'||s.deliverable!=='固定私有目录内可核验的 JSON 文本导出文件'||s.price_amount!=='0'||s.currency!=='CNY'||s.evidence_kind!=='fsynced_json_export'||!Array.isArray(s.guarantees)||s.guarantees.length!==0||!Array.isArray(s.discounts)||s.discounts.length!==0||JSON.stringify(s.limitations)!==JSON.stringify(['不提供目录外保证或折扣','不代表第三方渠道送达、付款或问题解决']))throw new Error('响应无效');
+  return {message_id:messageId,denial:{record_id:id(d.record_id),code:'outside_catalog_terms',scope:s as DeliveryScope,recorded_at:d.recorded_at}};
+}
+export async function readScopeDenial(messageId:string){const value=scopeDenial(await request(`/api/v1/messages/${encodeURIComponent(id(messageId))}/scope-denial`));if(value.message_id!==messageId)throw new Error('响应无效');return value;}

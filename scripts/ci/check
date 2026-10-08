@@ -16,6 +16,8 @@ node --test --test-reporter=junit --test-reporter-destination=.ci-results/deepse
 uv run --frozen python scripts/check_test_report.py .ci-results/deepseek-sdk.xml
 pnpm exec vitest run apps/web/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/web.xml
 uv run --frozen python scripts/check_test_report.py .ci-results/web.xml
+node --test --test-reporter=junit --test-reporter-destination=.ci-results/scope-ui.xml apps/agent-host/test/synthetic-scope-profile.node-test.mjs apps/web/test/scope-denial.node-test.mjs
+uv run --frozen python scripts/check_test_report.py .ci-results/scope-ui.xml
 uv run --frozen pytest -q --junitxml=.ci-results/python.xml
 uv run --frozen python scripts/check_test_report.py .ci-results/python.xml
 # Frozen Pi source and actual SQLite are required. Missing files/tools fail.

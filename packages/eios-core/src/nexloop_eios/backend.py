@@ -212,6 +212,9 @@ class BrowserServices:
     def read_message_run(self, *, message_id):
         return self._backend._invoke_browser(self._inspected_session, 'read_message_run', message_id=message_id)
 
+    def read_message_scope_denial(self, *, message_id):
+        return self._backend._invoke_browser(self._inspected_session, 'read_message_scope_denial', message_id=message_id)
+
     def read_message_service_receipt(self, *, message_id):
         return self._backend._invoke_browser(self._inspected_session, 'read_message_service_receipt', message_id=message_id)
 
@@ -272,7 +275,7 @@ class Backend:
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.conversation_messages import ConversationMessagePort
         allowed = {'create_conversation', 'list_conversations', 'accept_message', 'accept_native_message',
-            'read_messages', 'read_events', 'read_message_run', 'read_message_service_receipt'}
+            'read_messages', 'read_events', 'read_message_run', 'read_message_service_receipt', 'read_message_scope_denial'}
         with self._lock:
             self._assert_open()
             if operation not in allowed:
@@ -281,6 +284,9 @@ class Backend:
             if operation == 'read_message_run':
                 from nexloop_eios.conversation_runtime_bridge import ConversationRunReader
                 return ConversationRunReader(self._pool, session, self._signer).read_message_run(**arguments)
+            if operation == 'read_message_scope_denial':
+                from nexloop_eios.conversation_scope_denials import ConversationScopeDenialPort
+                return ConversationScopeDenialPort(self._pool, session, self._signer).read_message_scope_denial(**arguments)
             if operation == 'read_message_service_receipt':
                 from nexloop_eios.conversation_effect_receipts import ConversationEffectReceiptPort
                 return ConversationEffectReceiptPort(self._pool, session, self._signer).read_message_service_receipt(**arguments)

@@ -134,6 +134,10 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
             return error('invalid_request', 422)
         return await invoke(request, 'read_message_run', message_id=message_id)
 
+    @routes.get('/messages/{message_id}/scope-denial')
+    async def scope_denial(message_id: str, request: Request):
+        return await invoke(request, 'read_message_scope_denial', message_id=message_id)
+
     @routes.get('/messages/{message_id}/receipt')
     async def message_receipt(message_id: str, request: Request):
         if not re.fullmatch(r'[0-9a-f]{64}', message_id):

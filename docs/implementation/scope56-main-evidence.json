@@ -1,0 +1,77 @@
+{
+  "task": "NX-016",
+  "acceptance": "AT-010 backend/Pi/Human HTTP scope; actual browser pending",
+  "recorded_at": "2026-10-08T14:08:40.959693+00:00",
+  "bootstrap_revision": "0056",
+  "source_sha256": {
+    "packages/eios-core/src/eios/migrations/0056_scope_denials.sql": "15b306f0452fbf24d94b18fab013eda2ecf4f76906a5eb280de8501fcc05b8a4",
+    "packages/eios-core/src/nexloop_eios/scope_denials.py": "d73e423e8cdbab38ff1fafe5a4cb3e1bda2812990bd1f9455f02ce780f9a1eab",
+    "packages/eios-core/src/nexloop_eios/conversation_scope_denials.py": "384950df4e83786a810661b461b43568a07a442b04548b69a004bac1bdc10cf6",
+    "packages/eios-core/src/nexloop_eios/runtime_activation.py": "e58adde5d7bad7d811782b2b1f5de0dbe73ed6f9941b41c0726b6a9cd3f05edd",
+    "packages/eios-core/src/nexloop_eios/backend.py": "3ec2b756f4417e46a58181ba4bda12839c9e78ef624cf261fff77194cd9ae46e",
+    "packages/eios-core/src/nexloop_eios/web_chat_http.py": "323203c9d899c1eebdba13dd0c64e96694b789b15e30108d41cf5e5a78c6a686",
+    "apps/agent-host/src/runtime-host.ts": "291a45cf3ea800f471db319fb82e7b753946026f5203107f1f256e3afe6c6924",
+    "apps/agent-host/src/runtime-effect-tools.ts": "7bc298dab2fd697515fd2a9fccd86a5b6cf4479c927fc482ec1f9109b64781f9",
+    "apps/web/src/MessageReceipt.tsx": "a1d7ed18369aa07a2d4278208f58bd0d52ff77e8005a223f0e7f9fd5145ba1ec",
+    "apps/web/src/chat-api.ts": "a4329d278057be0723a60d53447c3adaeddcf213f3299626ceb270b7e87b23c0",
+    "tests/test_scope_denials.py": "ae98faf641a08e140b17bd04085ce4a76d477c01aa6122d83e6620e39b9852d9",
+    "tests/test_scope_denial_authority.py": "94f2f09feb850e6c369fae2f45482156af0a05c3f591eb30bfd7294400e713a0",
+    "tests/test_offering_runtime_pg.py": "71e0dcb9789fd0496a38b8f707ea2db32078569db70fa28e1d83505ab2cd4cbb",
+    "tests/local_message_assembly_fixture.py": "31b2944dc6422c687cf938b2bbaff6bf4eed3066c606ea89c4e60257f4a1f892",
+    "scripts/ci/check": "640dfd07f4449f0d0bcef742b7b0a0ddc76f8723c1e2d50fa5d375f194b515c0"
+  },
+  "main_history": [
+    {
+      "command": "uv run --frozen pytest -q tests/test_bootstrap.py tests/test_scope_denials.py tests/test_scope_denial_authority.py tests/test_native_web_inbound.py tests/test_native_web_delivery.py tests/test_offering_runtime_pg.py --tb=short --junitxml=.ci-results/scope56-main-first.xml",
+      "session": 77095,
+      "passed": 40,
+      "failed": 2,
+      "seconds": 163.07,
+      "reason": "old outside-scope fixtures lack explicit new record Action publication/Source EXECUTE; no write authority inferred from catalog READ"
+    },
+    {
+      "same_modules": true,
+      "session": 9206,
+      "passed": 40,
+      "errors": 2,
+      "seconds": 158.42,
+      "reason": "dynamic offering denial fixture not recognized by existing Context profile selection; duplicate Context Action refused before business operation"
+    },
+    {
+      "command": "uv run --frozen pytest -q tests/test_offering_runtime_pg.py --tb=short --junitxml=.ci-results/offering56-main.xml",
+      "session": 98533,
+      "passed": 16,
+      "warnings": 2,
+      "seconds": 62.11,
+      "change": "explicit real record publication/Source config; Context fixture recognizes denial profile; original business assertions unchanged"
+    }
+  ],
+  "compatibility": {
+    "command": "pnpm exec vitest run apps/agent-host/test apps/web/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/scope56-runtime-web.xml && node --test --test-reporter=junit --test-reporter-destination=.ci-results/scope56-node.xml tests/offline-deepseek-request.test.mjs tests/offline-deepseek-alias.test.mjs apps/agent-host/test/synthetic-scope-profile.node-test.mjs apps/web/test/scope-denial.node-test.mjs",
+    "session": 70639,
+    "vitest_passed": 131,
+    "node_passed": 17,
+    "zero_critical_skips": true
+  },
+  "builds": {
+    "session": 71044,
+    "host_build": 0,
+    "web_build": 0,
+    "node_config_ui": 9
+  },
+  "invariants": [
+    "clean bootstrap applies registered56 exactly once; removed candidate manual draft install",
+    "real Source record EXECUTE distinct from catalog READ; actual Governor reserve/write/terminal/tail atomic",
+    "actual Pi two distinct tool IDs persist one refusal; no Intent/outbox/quota; runtime failure never claimed service fulfillment",
+    "current actual Human Function/ownership; foreign real Human denied; current revocation and after-insert TTL rollback",
+    "immutable old receipt Function and migrations1..55; native55 endpoint and separate identities preserved",
+    "real model profile forbids synthetic scope override"
+  ],
+  "versions_lock": "only 0055 -> 0056; upstream/package mapping/images unchanged",
+  "limits": [
+    "full CI after55/56 integration pending",
+    "actual visual browser scope/positive delivery and current-head real model pending",
+    "new Function validates terminal record outcome_id and request bindings; full canonical terminal outcome_digest recomputation not added; never a fulfillment projection",
+    "NX-016 remains in_progress; no production migration/deployment/push"
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "scope": "Independent actual EIOS/PG/HTTP candidate0056 authority negatives; not formal migration catalog integration or whole Pi UI loop.",
+  "directory": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-scope-explanation-review",
+  "command": "PYTHONPATH=\"$PWD/packages/eios-core/src:$PWD/tests\" /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_scope_denial_authority.py -q --tb=short",
+  "final": {
+    "session": 64382,
+    "exit_code": 0,
+    "passed": 8,
+    "duration_seconds": 26.14,
+    "skipped": 0,
+    "test_sha256": "94f2f09feb850e6c369fae2f45482156af0a05c3f591eb30bfd7294400e713a0"
+  },
+  "runs": [
+    {
+      "session": 3517,
+      "passed": 4,
+      "duration_seconds": 13.81
+    },
+    {
+      "session": 65124,
+      "passed": 6,
+      "duration_seconds": 18.91
+    },
+    {
+      "session": 45483,
+      "failed": 1,
+      "duration_seconds": 2.8,
+      "cause": "Second-human setup attempted immutable existing maximum_accounts change1->2; actual configurator rejected. Fixed typed initial allowance before first identity, not SQL or permission bypass."
+    },
+    {
+      "session": 63340,
+      "failed": 1,
+      "duration_seconds": 2.91,
+      "cause": "After two actual initial identities allowance exhausted; subsequent manifest tried enable=true. Fixed manifest preserves disabled allowance; no reopening."
+    },
+    {
+      "session": 77559,
+      "passed": 1,
+      "duration_seconds": 2.76
+    },
+    {
+      "session": 44354,
+      "passed": 7,
+      "duration_seconds": 21.41
+    },
+    {
+      "session": 15890,
+      "passed": 8,
+      "duration_seconds": 26.21,
+      "note": "Outcome-mismatch assertion then tightened to fixed403; final64382 supersedes."
+    }
+  ],
+  "proofs": [
+    "Real signed catalog READ shortTTL1.2s; AFTER INSERT sequence and pg_sleep2 prove record insert occurred; denial/Actionclaim/Intent/quota all rollback.",
+    "nexloop_api/domain_worker/action_worker direct denial tableSELECT/INSERT denied42501.",
+    "Real logged-in Human Function grant and Conversation.READ revocation each produce403.",
+    "Two actual50 initial Human accounts; second actual Function bundle and Conversation.READ fullproof succeed, foreign Message ownership returns403.",
+    "Actual governed record terminal claim outcome_id technical fault causes fixed403, no projected record_id."
+  ],
+  "limitations": [
+    "No external model/provider call.",
+    "No formal catalog56 registration/full mainCI/whole Pi Human UI loop.",
+    "New Function checks terminal principal/request/outcome_id; exact canonical outcome_digest recomputation remains explicit owner limitation."
+  ],
+  "cleanup": "All fixtures own fresh disposable PGDATA; pytest finally cleanup completed; no live child process from these suites.",
+  "source_sha256": {
+    "docs/drafts/0056_scope_denials.sql.draft": "15b306f0452fbf24d94b18fab013eda2ecf4f76906a5eb280de8501fcc05b8a4",
+    "packages/eios-core/src/nexloop_eios/scope_denials.py": "d73e423e8cdbab38ff1fafe5a4cb3e1bda2812990bd1f9455f02ce780f9a1eab",
+    "packages/eios-core/src/nexloop_eios/conversation_scope_denials.py": "384950df4e83786a810661b461b43568a07a442b04548b69a004bac1bdc10cf6"
+  }
+}

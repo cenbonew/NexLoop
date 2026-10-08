@@ -5,7 +5,7 @@ import {defineTool,type ToolRegistration} from '@earendil-works/pi-durable';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 
 export type EffectRequestScope={offering_id:string;offering_revision:number;requested_guarantees:readonly string[];requested_discounts:readonly string[]};
-function requestScope(value:unknown):EffectRequestScope{
+export function requestScope(value:unknown):EffectRequestScope{
   const row=exact(value,['offering_id','offering_revision','requested_guarantees','requested_discounts']);
   if(typeof row.offering_id!=='string'||!sha.test(row.offering_id)||typeof row.offering_revision!=='number'||!Number.isSafeInteger(row.offering_revision)||row.offering_revision<1)throw new RuntimeError('runtime_effect_unavailable');
   const terms=(value:unknown):string[]=>{if(!Array.isArray(value)||value.length>16||value.some(term=>typeof term!=='string'||[...term].length<1||[...term].length>128||/\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(term))||new Set(value).size!==value.length)throw new RuntimeError('runtime_effect_unavailable');return [...value] as string[];};
