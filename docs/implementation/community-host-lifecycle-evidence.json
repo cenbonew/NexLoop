@@ -1,0 +1,222 @@
+{
+  "passed": true,
+  "scope": "Host foundation kernel-owner only, not Pi Run recovery",
+  "project": "nexloop-test-9c645462eb5901557d4871f4",
+  "first_report": {
+    "passed": true,
+    "mode": "test",
+    "world": "test",
+    "product_ready": false,
+    "model_validation": "not_run",
+    "smoke": {
+      "mode": "test",
+      "world": "test",
+      "scope": "postgres_local_artifact_write_read",
+      "passed": true,
+      "product_ready": false,
+      "model_validation": "not_run",
+      "checks": {
+        "backend_startup": true,
+        "service_authentication": true,
+        "artifact_write": true,
+        "artifact_read": true
+      },
+      "artifact": {
+        "artifact_id": "48bccfbfcf09c0a1276d571220ba3fdc",
+        "sha256": "17a9ddb631674b432ab73b9e966b2acf987bd8c98640104ef30c120f114b1cc9",
+        "size_bytes": 26,
+        "world": "test"
+      }
+    },
+    "doctor": {
+      "checks": {
+        "catalog": true,
+        "postgres": true,
+        "artifact_directory": true,
+        "model_configuration": true
+      },
+      "details": {
+        "expected_revision": "0032",
+        "database_role": "nexloop_api",
+        "database_catalog": {
+          "lineage": "nexloop-eios-v1",
+          "revision": "0032",
+          "migration_count": 32
+        },
+        "model": {
+          "provider": "test",
+          "model_id": "deterministic-test",
+          "base_url": "",
+          "validation_mode": "test_only_real_validation_blocked",
+          "credential_source": "none"
+        }
+      },
+      "foundation_checks_passed": true,
+      "product_ready": false,
+      "not_verified": [
+        "governed_instance_write",
+        "real_effect_action",
+        "pi_run_recovery",
+        "artifact_write_smoke",
+        "community_compose"
+      ]
+    },
+    "cache": {
+      "passed": true,
+      "mode": "test",
+      "product_ready": false,
+      "cache_authoritative": false,
+      "checks": {
+        "default_user_denied": true,
+        "authenticated": true,
+        "ping": true,
+        "cache_write": true,
+        "cache_read": true,
+        "foreign_key_denied": true,
+        "admin_command_denied": true,
+        "wrong_password_denied": true,
+        "unknown_ca_denied": true,
+        "wrong_hostname_denied": true
+      }
+    },
+    "host": {
+      "passed": true,
+      "mode": "test",
+      "product_ready": false,
+      "business_authority": false,
+      "checks": {
+        "reachable": true,
+        "authenticated": true,
+        "owner_lock": true,
+        "product_unready": true,
+        "anonymous_denied": true,
+        "wrong_key_denied": true,
+        "browser_origin_denied": true
+      }
+    },
+    "http_checks": {
+      "liveness": true,
+      "foundation_ready_product_unready": true,
+      "anonymous_denied": true,
+      "wrong_service_denied": true,
+      "authorized_artifact_read": true,
+      "api_host_control": true
+    }
+  },
+  "post_reopen_report": {
+    "passed": true,
+    "mode": "test",
+    "world": "test",
+    "product_ready": false,
+    "model_validation": "not_run",
+    "smoke": {
+      "mode": "test",
+      "world": "test",
+      "scope": "postgres_local_artifact_write_read",
+      "passed": true,
+      "product_ready": false,
+      "model_validation": "not_run",
+      "checks": {
+        "backend_startup": true,
+        "service_authentication": true,
+        "artifact_write": true,
+        "artifact_read": true
+      },
+      "artifact": {
+        "artifact_id": "5943bdf1e15e225d08345e8174654215",
+        "sha256": "17a9ddb631674b432ab73b9e966b2acf987bd8c98640104ef30c120f114b1cc9",
+        "size_bytes": 26,
+        "world": "test"
+      }
+    },
+    "doctor": {
+      "checks": {
+        "catalog": true,
+        "postgres": true,
+        "artifact_directory": true,
+        "model_configuration": true
+      },
+      "details": {
+        "expected_revision": "0032",
+        "database_role": "nexloop_api",
+        "database_catalog": {
+          "lineage": "nexloop-eios-v1",
+          "revision": "0032",
+          "migration_count": 32
+        },
+        "model": {
+          "provider": "test",
+          "model_id": "deterministic-test",
+          "base_url": "",
+          "validation_mode": "test_only_real_validation_blocked",
+          "credential_source": "none"
+        }
+      },
+      "foundation_checks_passed": true,
+      "product_ready": false,
+      "not_verified": [
+        "governed_instance_write",
+        "real_effect_action",
+        "pi_run_recovery",
+        "artifact_write_smoke",
+        "community_compose"
+      ]
+    },
+    "cache": {
+      "passed": true,
+      "mode": "test",
+      "product_ready": false,
+      "cache_authoritative": false,
+      "checks": {
+        "default_user_denied": true,
+        "authenticated": true,
+        "ping": true,
+        "cache_write": true,
+        "cache_read": true,
+        "foreign_key_denied": true,
+        "admin_command_denied": true,
+        "wrong_password_denied": true,
+        "unknown_ca_denied": true,
+        "wrong_hostname_denied": true
+      }
+    },
+    "host": {
+      "passed": true,
+      "mode": "test",
+      "product_ready": false,
+      "business_authority": false,
+      "checks": {
+        "reachable": true,
+        "authenticated": true,
+        "owner_lock": true,
+        "product_unready": true,
+        "anonymous_denied": true,
+        "wrong_key_denied": true,
+        "browser_origin_denied": true
+      }
+    },
+    "http_checks": {
+      "liveness": true,
+      "foundation_ready_product_unready": true,
+      "anonymous_denied": true,
+      "wrong_service_denied": true,
+      "authorized_artifact_read": true,
+      "api_host_control": true
+    }
+  },
+  "actual_node_version": "24.13.0",
+  "exclusive_kernel_owner_confirmed": true,
+  "second_launcher_refused": true,
+  "sigkill_exit_code": 137,
+  "api_observed_host_unreachable": true,
+  "same_owner_inode_and_diagnostic_preserved": true,
+  "owner_metadata": {
+    "inode": 143982,
+    "device": 65025,
+    "uid": 10001,
+    "mode": 384,
+    "marker": "owner-probe"
+  },
+  "pi_run_recovery_verified": false,
+  "product_ready": false
+}

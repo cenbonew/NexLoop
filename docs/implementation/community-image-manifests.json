@@ -1,0 +1,19 @@
+{
+  "command": "docker buildx imagetools inspect <reference>",
+  "images": {
+    "postgres": {
+      "reference": "docker.io/library/postgres:18.4-bookworm",
+      "digest": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+      "status": "resolved_manifest_only_not_runtime_verified"
+    },
+    "python-build-base": {
+      "reference": "docker.io/library/python:3.12.10-slim-bookworm",
+      "digest": "sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db",
+      "status": "resolved_manifest_only_not_runtime_verified"
+    }
+  },
+  "container_build_verified": false,
+  "container_runtime_verified": false,
+  "postgres_raw_manifest_verified": true,
+  "python_raw_manifest_retry": "failed: registry EOF; prior human-readable manifest inspection succeeded"
+}

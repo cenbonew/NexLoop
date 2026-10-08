@@ -1,0 +1,72 @@
+{
+  "recorded_at": "2026-10-07T21:27:42.160359+00:00",
+  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "exit_code": 0,
+  "python_tests_passed": 860,
+  "python_duration_seconds": 183.37,
+  "pi_sqlite_conformance_passed": 24,
+  "pi_source_packages_built": [
+    "chord",
+    "pi-telemetry",
+    "pi-ai",
+    "pi-durable"
+  ],
+  "frontend_built": true,
+  "agent_host_built": true,
+  "critical_skips": 0,
+  "bootstrap_revision": "0032",
+  "published_32_migrations_unchanged": true,
+  "uv_lock_unchanged": true,
+  "versions_lock_change": "Added @nexloop/agent-host; upstream/image/SQL pins unchanged",
+  "pnpm_lock_change": "Added Host workspace importer, no new runtime dependencies",
+  "first_test_failures": [],
+  "targeted_tests": [
+    {
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_agent_host.py --tb=short",
+      "passed": 8,
+      "duration_seconds": 0.61,
+      "variant": "initial"
+    },
+    {
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_agent_host.py --tb=short",
+      "passed": 8,
+      "duration_seconds": 0.64,
+      "variant": "final old/new rotated key log assertion strengthened after full CI started; Host source unchanged"
+    }
+  ],
+  "actual_node_process_os_lock_second_owner_denial": true,
+  "actual_sigkill_owner_reopen_preserves_inode_and_files": true,
+  "actual_internal_auth_key_rotation_and_origin_host_private_file_negatives": true,
+  "no_run_admission_or_business_authority_claim": true,
+  "pi_run_kill_reopen_verified": false,
+  "browser_dom_frontend_verified": false,
+  "container_runtime_verified": false,
+  "docker_probe": {
+    "command": "docker info --format '{{.ServerVersion}}'",
+    "exit_code": 1,
+    "reason": "daemon unavailable after open -a Docker"
+  },
+  "isolated_install_evidence": {
+    "wheel_sha256": "e71a440ae40772cc4e159fa4039ee0474f7ca84b86d03ed61f04e1a7fad63cec",
+    "noneditable_install": true,
+    "isolated_module_origins_verified": true,
+    "bootstrap_revision": "0032",
+    "actual_restricted_pg_artifact_smoke": true,
+    "installed_console_help_passed": 5,
+    "installed_sandbox_test_loop": true,
+    "dependency_install": "offline, frozen exported requirements, require-hashes, no-deps"
+  },
+  "git_staged_blobs": 0,
+  "tested_input_sha256": {
+    ".gitignore": "c6ae3e72a3b4609c53584ca142a28b827891189ebc4963de774f3da39566a597",
+    "scripts/agent_host.py": "108697a2e6a52bbf186d1312de64218aae2641297f16c65871f7ef0e0d834616",
+    "scripts/ci/check": "5562771b8a4785b21e5a683dbd6410aea762396ec32b9f173233fd90d4c0b6b4",
+    "tests/test_agent_host.py": "b96e074565a875af31329beaa5c7d914ed945d83c905b6deefc9a29366779441",
+    "pnpm-lock.yaml": "748da1e2791617bd3200531dec1b246dc844f3c4b52031dafa7cb1bd139cc412",
+    "versions.lock.json": "f995a9e47f59800abd2c3940aa6af383a407368160b29ba30a5b3bca21265d25",
+    "apps/agent-host/README.md": "b0a694021857d60e4f53873a295e97e9e8b350b4a1d39b264d3b73d9a692aa04",
+    "apps/agent-host/package.json": "28c859e3a55901d21a82e6e77d80b429b11b6a142facbcefc7753f702363ed31",
+    "apps/agent-host/tsconfig.json": "d09ebc93534040997b758d56ef4cc500752f1ac7ce3a1334c9e34f100fee1c2f",
+    "apps/agent-host/src/main.ts": "8b94c6d203c7d6494b5804ebf24c23d4bb8985658dbb9f98c0a12469fd6a129a"
+  }
+}

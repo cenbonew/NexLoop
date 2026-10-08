@@ -1,0 +1,9 @@
+# Canonical contract generation / NX-010 extension
+
+Added scripts/generate_contracts.py, two generated artifacts under packages/contracts/generated/, tests/test_contract_generation.py and a mandatory drift check in scripts/ci/check. The six canonical schemas are embedded byte-semantically unchanged in an OpenAPI 3.1 component document with source hashes; no route implementation is claimed (paths is empty). TypeScript structural types include nested required fields, literal enums/constants and nullable unions. Format, range, pattern and conditional world checks remain authoritative JSON Schema runtime rules, not TypeScript compile-time guarantees.
+
+Initial generation refused nullable anyOf fields rather than silently producing unknown; added explicit union handling and regenerated. `uv run --frozen pytest -xq tests/test_contract_generation.py --tb=short` passed 2 cases in 0.49s, including actual strict TypeScript compiler execution and exact canonical/component equality. Final code removes an unused test variable/import. The full local CI result is recorded in contract-generation-ci.json.
+
+Docker revalidation: docker info still cannot reach the configured Desktop daemon. Native UI state read timed out; docker desktop logs --priority 2 completed with an empty error log. These checks did not identify a safe corrective action or prove any container execution. No Desktop restart, unrelated service stop, server mutation or environment migration was performed.
+
+This work improves the existing NX-010 gate and provides concrete contract input for later NX-011; NX-009 remains incomplete and NX-011 is not promoted. Same-origin login, HTTP Host, internal run-bound auth, Pydantic route models, Pi Run recovery and S2 remain required. versions.lock.json and dependency locks are unchanged. No credential is used, staged, committed or published.

@@ -1,0 +1,314 @@
+{
+  "passed": true,
+  "scope": "disposable-community-run-credential-bootstrap-foundation",
+  "project": "nexloop-test-3abccb89028e4b3bf91f364e",
+  "origin": "https://localhost:53369",
+  "worker": {
+    "passed": true,
+    "checks": {
+      "restricted_role": true,
+      "governed_orphan_removed": true,
+      "durable_resume_idempotent": true
+    },
+    "mode": "test",
+    "world": "test",
+    "product_ready": false,
+    "business_action_grants": false
+  },
+  "containers": [
+    {
+      "service": "check-test",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "10001:10001",
+      "state": "exited",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_core_config",
+          "destination": "/private/config",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_artifacts",
+          "destination": "/var/lib/nexloop/artifacts",
+          "read_write": true
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_cache_client",
+          "destination": "/private/cache-client",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_host_client",
+          "destination": "/private/host-client",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_browser_client",
+          "destination": "/private/browser-client",
+          "read_write": false
+        }
+      ],
+      "networks": []
+    },
+    {
+      "service": "host-test",
+      "image_id": "sha256:7fee429a5abd859bcecd01b125bbf9b2bb20f97094b9c0155c7b0fca90566789",
+      "user": "10001:10001",
+      "state": "running",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_host_server",
+          "destination": "/private/host-server",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_host_runtime",
+          "destination": "/private/runtime",
+          "read_write": true
+        }
+      ],
+      "networks": []
+    },
+    {
+      "service": "worker-test",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "10001:10001",
+      "state": "exited",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_worker_config",
+          "destination": "/private/worker",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_artifacts",
+          "destination": "/var/lib/nexloop/artifacts",
+          "read_write": true
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    },
+    {
+      "service": "api-test",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "10001:10001",
+      "state": "running",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_browser_server",
+          "destination": "/private/browser-server",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_core_config",
+          "destination": "/private/config",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_artifacts",
+          "destination": "/var/lib/nexloop/artifacts",
+          "read_write": true
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_host_client",
+          "destination": "/private/host-client",
+          "read_write": false
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test",
+        "nexloop-test-3abccb89028e4b3bf91f364e_local_web"
+      ]
+    },
+    {
+      "service": "browser-bootstrap",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "0:0",
+      "state": "exited",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_browser_server",
+          "destination": "/private/browser-server",
+          "read_write": true
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_browser_client",
+          "destination": "/private/browser-client",
+          "read_write": true
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    },
+    {
+      "service": "worker-bootstrap",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "0:0",
+      "state": "exited",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_core_config",
+          "destination": "/private/config",
+          "read_write": false
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_worker_config",
+          "destination": "/private/worker",
+          "read_write": true
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    },
+    {
+      "service": "bootstrap",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "0:0",
+      "state": "exited",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_artifacts",
+          "destination": "/var/lib/nexloop/artifacts",
+          "read_write": true
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_core_config",
+          "destination": "/private/config",
+          "read_write": true
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    },
+    {
+      "service": "valkey",
+      "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+      "user": "10001:10001",
+      "state": "running",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_cache_server",
+          "destination": "/private/cache-server",
+          "read_write": false
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    },
+    {
+      "service": "postgres",
+      "image_id": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+      "user": "",
+      "state": "running",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_pg_data",
+          "destination": "/var/lib/postgresql",
+          "read_write": true
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    },
+    {
+      "service": "host-bootstrap",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "0:0",
+      "state": "exited",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_host_server",
+          "destination": "/private/host-server",
+          "read_write": true
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_host_client",
+          "destination": "/private/host-client",
+          "read_write": true
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_host_runtime",
+          "destination": "/private/runtime",
+          "read_write": true
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    },
+    {
+      "service": "cache-bootstrap",
+      "image_id": "sha256:1de05c49db8822129306bc62fc2ed17de013db2ebf7d2274d44a705023ca78d7",
+      "user": "0:0",
+      "state": "exited",
+      "exit_code": 0,
+      "mounts": [
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_cache_server",
+          "destination": "/private/cache-server",
+          "read_write": true
+        },
+        {
+          "volume": "nexloop-test-3abccb89028e4b3bf91f364e_cache_client",
+          "destination": "/private/cache-client",
+          "read_write": true
+        }
+      ],
+      "networks": [
+        "nexloop-test-3abccb89028e4b3bf91f364e_core_test"
+      ]
+    }
+  ],
+  "external_verified_https_login": true,
+  "browser_readiness_available": true,
+  "product_ready": false,
+  "model_validation": "not_run",
+  "secrets_logged": false,
+  "full_ci": "944 Python/24 Pi SQLite/four Pi and web/Host builds passed",
+  "versions_lock_changed": true,
+  "migration_sql_changed": true,
+  "resources_retained": true,
+  "bootstrap_catalog": {
+    "lineage": "nexloop-eios-v1",
+    "revision": "0034",
+    "migration_count": 34
+  },
+  "agent_write_in_container_verified": false,
+  "agent_write_native_pg_evidence": "agent-governed-write-evidence.json",
+  "owned_stop": {
+    "all_stopped": true,
+    "volumes_retained": true,
+    "exit_codes": {
+      "check-test": 0,
+      "host-test": 0,
+      "worker-test": 0,
+      "api-test": 0,
+      "browser-bootstrap": 0,
+      "worker-bootstrap": 0,
+      "bootstrap": 0,
+      "valkey": 0,
+      "postgres": 0,
+      "host-bootstrap": 0,
+      "cache-bootstrap": 0
+    }
+  },
+  "run_write_in_container_verified": false,
+  "run_write_native_pg_evidence": "run-credential-evidence.json"
+}

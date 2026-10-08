@@ -1,0 +1,266 @@
+# Fresh isolated community core test only. No production or real model dispatch.
+name: ${NEXLOOP_TEST_PROJECT:?unique disposable test project required}
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?verified digest reference required}
+    environment:
+      POSTGRES_USER: nexloop_bootstrap
+      POSTGRES_DB: nexloop_test
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_bootstrap_password
+      PGDATA: /var/lib/postgresql/18/docker
+    command: [postgres, -c, log_statement=none, -c, log_parameter_max_length=0, -c, log_parameter_max_length_on_error=0, -c, log_min_error_statement=panic]
+    secrets: [pg_bootstrap_password]
+    volumes: [pg_data:/var/lib/postgresql]
+    networks: [core_test]
+    healthcheck:
+      test: [CMD, pg_isready, -U, nexloop_bootstrap, -d, nexloop_test]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    labels:
+      nexloop.purpose: disposable-community-test
+  bootstrap:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '0:0'
+    command: [bootstrap]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    secrets: [bootstrap_dsn]
+    volumes: [core_config:/private/config, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+  cache-bootstrap:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '0:0'
+    command: [cache-bootstrap]
+    secrets: [cache-cert.pem, cache-key.pem, cache.acl, cache-credentials.json]
+    volumes: [cache_server:/private/cache-server, cache_client:/private/cache-client]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+  valkey:
+    image: ${VALKEY_IMAGE:?verified Valkey digest reference required}
+    user: '10001:10001'
+    command: [valkey-server, /private/cache-server/valkey.conf]
+    depends_on:
+      cache-bootstrap:
+        condition: service_completed_successfully
+    volumes: [cache_server:/private/cache-server:ro]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/data, /tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+  host-bootstrap:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '0:0'
+    command: [host-bootstrap]
+    secrets: [host-cert.pem, host-key.pem, host-control.key]
+    volumes: [host_server:/private/host-server, host_client:/private/host-client, host_runtime:/private/runtime]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+  host-test:
+    image: ${HOST_IMAGE:?locally built Host image required}
+    user: '10001:10001'
+    depends_on:
+      host-bootstrap:
+        condition: service_completed_successfully
+      api-test:
+        condition: service_healthy
+    volumes: [host_server:/private/host-server:ro, host_runtime:/private/runtime]
+    network_mode: service:api-test
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, node, -e, "const https=require('node:https'),fs=require('node:fs');const r=https.get({hostname:'127.0.0.1',port:8100,path:'/health/live',ca:fs.readFileSync('/private/host-server/server.crt'),timeout:2000},s=>{s.resume();s.on('end',()=>process.exit(s.statusCode===200?0:1))});r.on('timeout',()=>r.destroy());r.on('error',()=>process.exit(1));"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    labels:
+      nexloop.purpose: disposable-community-test
+  browser-bootstrap:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '0:0'
+    command: [browser-bootstrap]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    secrets: [bootstrap_dsn, browser-input.json, browser-cert.pem, browser-key.pem]
+    volumes: [browser_server:/private/browser-server, browser_client:/private/browser-client]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+  worker-bootstrap:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '0:0'
+    command: [worker-bootstrap]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    secrets: [bootstrap_dsn]
+    volumes: [core_config:/private/config:ro, worker_config:/private/worker]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+  worker-test:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [worker-test]
+    depends_on:
+      worker-bootstrap:
+        condition: service_completed_successfully
+    volumes: [worker_config:/private/worker:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  api-test:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [api-test]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      host-bootstrap:
+        condition: service_completed_successfully
+      browser-bootstrap:
+        condition: service_completed_successfully
+    volumes: [core_config:/private/config:ro, artifacts:/var/lib/nexloop/artifacts, host_client:/private/host-client:ro, browser_server:/private/browser-server:ro]
+    networks: [core_test, local_web]
+    ports: ["127.0.0.1:${WEB_PORT:?explicit private local test port required}:8443"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import http.client,ssl; ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); ctx.load_verify_locations(cafile='/private/browser-server/server.crt'); c=http.client.HTTPSConnection('127.0.0.1',8443,context=ctx,timeout=2); c.request('GET','/health/live'); assert c.getresponse().status==200; c.close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    labels:
+      nexloop.purpose: disposable-community-test
+  check-test:
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [check-http-test]
+    depends_on:
+      worker-test:
+        condition: service_completed_successfully
+      api-test:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+      host-test:
+        condition: service_healthy
+    volumes: [core_config:/private/config:ro, artifacts:/var/lib/nexloop/artifacts, cache_client:/private/cache-client:ro, host_client:/private/host-client:ro, browser_client:/private/browser-client:ro]
+    network_mode: service:api-test
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+networks:
+  core_test:
+    internal: true
+  local_web:
+    driver: bridge
+volumes:
+  pg_data:
+    labels:
+      nexloop.purpose: disposable-community-test
+  core_config:
+    labels:
+      nexloop.purpose: disposable-community-test
+  artifacts:
+    labels:
+      nexloop.purpose: disposable-community-test
+  cache_server:
+    labels:
+      nexloop.purpose: disposable-community-test
+  cache_client:
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  host_server:
+    labels:
+      nexloop.purpose: disposable-community-test
+  host_client:
+    labels:
+      nexloop.purpose: disposable-community-test
+  host_runtime:
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  browser_server:
+    labels:
+      nexloop.purpose: disposable-community-test
+  browser_client:
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  worker_config:
+    labels:
+      nexloop.purpose: disposable-community-test
+
+secrets:
+  pg_bootstrap_password:
+    file: ${SECRET_DIR:?private test secrets directory required}/pg_bootstrap_password
+  bootstrap_dsn:
+    file: ${SECRET_DIR:?private test secrets directory required}/bootstrap_dsn
+  cache-cert.pem:
+    file: ${SECRET_DIR:?private test secrets directory required}/cache-cert.pem
+  cache-key.pem:
+    file: ${SECRET_DIR:?private test secrets directory required}/cache-key.pem
+  cache.acl:
+    file: ${SECRET_DIR:?private test secrets directory required}/cache.acl
+  cache-credentials.json:
+    file: ${SECRET_DIR:?private test secrets directory required}/cache-credentials.json
+  host-cert.pem:
+    file: ${SECRET_DIR:?private test secrets directory required}/host-cert.pem
+  host-key.pem:
+    file: ${SECRET_DIR:?private test secrets directory required}/host-key.pem
+  host-control.key:
+    file: ${SECRET_DIR:?private test secrets directory required}/host-control.key
+  browser-input.json:
+    file: ${SECRET_DIR:?private test secrets directory required}/browser-input.json
+  browser-cert.pem:
+    file: ${SECRET_DIR:?private test secrets directory required}/browser-cert.pem
+  browser-key.pem:
+    file: ${SECRET_DIR:?private test secrets directory required}/browser-key.pem

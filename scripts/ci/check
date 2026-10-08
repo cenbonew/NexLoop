@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+uv sync --frozen
+uv run --frozen python scripts/check_publication.py
+uv run --frozen python scripts/check_pi_source.py
+uv run --frozen python scripts/generate_contracts.py --check
+uv run --frozen python docs/handoff/tools/validate_handoff.py --planning planning
+[[ "$(node -p 'process.versions.node.split(".")[0]')" == 24 ]]
+pnpm install --frozen-lockfile
+pnpm --filter @nexloop/web build
+pnpm build:pi
+pnpm --filter @nexloop/agent-host build
+mkdir -p .ci-results
+uv run --frozen pytest -q --junitxml=.ci-results/python.xml
+uv run --frozen python scripts/check_test_report.py .ci-results/python.xml
+# Frozen Pi source and actual SQLite are required. Missing files/tools fail.
+[[ -f vendor/pi/packages/durable/test/nexloop-sqlite-conformance.test.ts ]]
+[[ -f pnpm-lock.yaml ]]
+pnpm exec vitest run vendor/pi/packages/durable/test/nexloop-sqlite-conformance.test.ts --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/pi.xml
+uv run --frozen python scripts/check_test_report.py .ci-results/pi.xml
+
+pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/runtime.xml
+uv run --frozen python scripts/check_test_report.py .ci-results/runtime.xml

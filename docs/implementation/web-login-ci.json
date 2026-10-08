@@ -1,0 +1,52 @@
+{
+  "recorded_at": "2026-10-07T21:18:25.553225+00:00",
+  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "exit_code": 0,
+  "python_tests_passed": 852,
+  "python_duration_seconds": 190.42,
+  "pi_sqlite_conformance_passed": 24,
+  "pi_source_packages_built": [
+    "chord",
+    "pi-telemetry",
+    "pi-ai",
+    "pi-durable"
+  ],
+  "critical_skips": 0,
+  "bootstrap_revision": "0032",
+  "published_32_migrations_unchanged": true,
+  "uv_lock_unchanged": true,
+  "versions_lock_change": "Added @nexloop/web exact frontend dependencies; frozen upstreams and images unchanged",
+  "pnpm_lock_change": "Added React19/Vite frontend workspace dependencies",
+  "first_test_failures": [],
+  "browser_first_failure": "net::ERR_CERT_AUTHORITY_INVALID on local test certificate; no warning bypass or disabled verification",
+  "browser_dom_frontend_verified": false,
+  "visual_fidelity_verified": false,
+  "actual_https_static_assets_and_pg_login_session_csrf_logout_verified": true,
+  "isolated_install_evidence": {
+    "wheel_sha256": "e71a440ae40772cc4e159fa4039ee0474f7ca84b86d03ed61f04e1a7fad63cec",
+    "noneditable_install": true,
+    "isolated_module_origins_verified": true,
+    "bootstrap_revision": "0032",
+    "actual_restricted_pg_artifact_smoke": true,
+    "installed_console_help_passed": 5,
+    "installed_sandbox_test_loop": true,
+    "dependency_install": "offline, frozen exported requirements, require-hashes, no-deps"
+  },
+  "git_staged_blobs": 0,
+  "tested_input_sha256": {
+    "apps/web/index.html": "9ca1e9984542ab93ae44e7d2ccfebf67db50a3a2799eeacafdc7f4aa4b2a9b04",
+    "apps/web/package.json": "386f955cb559cdd36c23e1da915e68d8b3e277b448e04865285f8c2489e7b5e0",
+    "apps/web/tsconfig.json": "0ba8e81fa316895c60169944bcdadacf998a48c86ed19d4439634b6035cc41e4",
+    "apps/web/src/App.tsx": "954f544db04ca64a51defadb996a2dcdc1668a1ea1c3111b749d9cfd063da783",
+    "apps/web/src/main.tsx": "ded04a2568ff5fe558d68e3359d72d0354eebec48a2c0b6220529245725af732",
+    "apps/web/src/Login.tsx": "0a34f067614e1eae9ee3c29ca25656ebb6315d18766dfcc08f4dde997b4c470c",
+    "apps/web/src/styles.css": "06bb1772b9eb48acbdd790cc9c62aefc43004ed877b2a99a080ca4f9eb77c662",
+    "apps/web/src/Account.tsx": "e2bfc3784944f035e0467604a50be58701697dca96a231f0875fa1220b8a0a12",
+    "apps/web/src/api.ts": "f5574b7b9c3d79d23584ca5f2aef94d9d0e4bfd01e9d772bf41a30c6e7d7b691",
+    "scripts/ci/check": "9b8f772aa5274d4d04e6374c04998732b7cbd23db7774843df89339ea2083542",
+    "pnpm-lock.yaml": "f4be169c7bb938f01d218f1e9aa2205dbbbb04208c25650689fb6fe229d20333",
+    "versions.lock.json": "da10f7b6c54efcf88fa6579c6ff3b7af639b5708267ec2495bca644d1268bf74",
+    "packages/eios-core/src/nexloop_eios/http_api.py": "caf49ea20b7cafb17339eddb1047efb6f007940b77238bdaa7efcbd06a72b224",
+    "tests/test_web_frontend.py": "afcb5b6dfd2549c2d320da3858d5e516be38b1dbe6dcd880b88cdc2f6b010cbd"
+  }
+}

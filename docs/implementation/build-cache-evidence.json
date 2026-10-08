@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "scope": "local-build-cache-only-no-container",
+  "dependency_layer_cached": true,
+  "wheel_changed_and_copy_not_cached": true,
+  "seconds": 1.36,
+  "current_tested_head": "0035",
+  "cache_probe_wheel_head": "0034",
+  "dependency_hash": "d34777b66434c8395d4fa3eab47c6e7bfccf6cfee8a8ece9b94410194e2ff783",
+  "image_pushed": false,
+  "resources_retained": true
+}

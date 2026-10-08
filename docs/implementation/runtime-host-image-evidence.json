@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "uid": 10001,
+  "node": "24.13.0",
+  "runtime_host_imported": true,
+  "pi_adapter_imported": true,
+  "journal_mode": "wal",
+  "synchronous": 2,
+  "scope": "Linux actual tested image package and SQLite only; no authority or model claims",
+  "tested_image_id": "sha256:ee59cfcba107933a9215118082bbd2fd9111c8ece3b3a8a7502af8e44f45d782",
+  "runtime_archive_sha256": "a131aeaa13c453353b5762cff3d314ed77bfc7bb09dee55f4d3d16c98a093b21",
+  "image_published": false
+}

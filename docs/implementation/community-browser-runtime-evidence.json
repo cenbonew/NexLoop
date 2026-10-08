@@ -1,0 +1,327 @@
+{
+  "recorded_at": "2026-10-07T23:24:22.113424+00:00",
+  "scope": "NX-009/NX-011 fresh canonical test browser and packaged frontend HTTPS",
+  "launcher": {
+    "passed": true,
+    "purpose": "disposable-community-test",
+    "project": "nexloop-test-c780ac0b52b999605f6d55d7",
+    "container_built": true,
+    "core_test_runtime_verified": true,
+    "actual_api_http_verified": true,
+    "actual_cache_tls_acl_verified": true,
+    "actual_host_control_verified": true,
+    "actual_https_frontend_login_verified": true,
+    "web_origin": "https://localhost:57428",
+    "product_ready": false,
+    "model_validation": "not_run",
+    "resources_retained": true
+  },
+  "services": {
+    "postgres": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+      "user": "",
+      "read_only_rootfs": false,
+      "health": "healthy"
+    },
+    "bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:ea402073e066e19adfd0315ec0dd2b9e6f258c2bedd58f386e2e124a916d9056",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "world": "test",
+        "catalog": {
+          "lineage": "nexloop-eios-v1",
+          "revision": "0032",
+          "migration_count": 32
+        },
+        "already_initialized": false,
+        "product_ready": false
+      }
+    },
+    "cache-bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:ea402073e066e19adfd0315ec0dd2b9e6f258c2bedd58f386e2e124a916d9056",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "product_ready": false,
+        "cache_authoritative": false
+      }
+    },
+    "host-bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:ea402073e066e19adfd0315ec0dd2b9e6f258c2bedd58f386e2e124a916d9056",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "product_ready": false,
+        "business_authority": false
+      }
+    },
+    "browser-bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:ea402073e066e19adfd0315ec0dd2b9e6f258c2bedd58f386e2e124a916d9056",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "synthetic_identity": true,
+        "business_action_grants": false,
+        "product_ready": false
+      }
+    },
+    "api-test": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:ea402073e066e19adfd0315ec0dd2b9e6f258c2bedd58f386e2e124a916d9056",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "health": "healthy"
+    },
+    "host-test": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:73e5f9684027846577bff12934e7de5c9a92dfa6bdb72db37ac10540bf6b120a",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "health": "healthy"
+    },
+    "check-test": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:ea402073e066e19adfd0315ec0dd2b9e6f258c2bedd58f386e2e124a916d9056",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "world": "test",
+        "product_ready": false,
+        "model_validation": "not_run",
+        "smoke": {
+          "mode": "test",
+          "world": "test",
+          "scope": "postgres_local_artifact_write_read",
+          "passed": true,
+          "product_ready": false,
+          "model_validation": "not_run",
+          "checks": {
+            "backend_startup": true,
+            "service_authentication": true,
+            "artifact_write": true,
+            "artifact_read": true
+          },
+          "artifact": {
+            "artifact_id": "2828af990e321c840ec6af727dd25ed4",
+            "sha256": "17a9ddb631674b432ab73b9e966b2acf987bd8c98640104ef30c120f114b1cc9",
+            "size_bytes": 26,
+            "world": "test"
+          }
+        },
+        "doctor": {
+          "checks": {
+            "catalog": true,
+            "postgres": true,
+            "artifact_directory": true,
+            "model_configuration": true
+          },
+          "details": {
+            "expected_revision": "0032",
+            "database_role": "nexloop_api",
+            "database_catalog": {
+              "lineage": "nexloop-eios-v1",
+              "revision": "0032",
+              "migration_count": 32
+            },
+            "model": {
+              "provider": "test",
+              "model_id": "deterministic-test",
+              "base_url": "",
+              "validation_mode": "test_only_real_validation_blocked",
+              "credential_source": "none"
+            }
+          },
+          "foundation_checks_passed": true,
+          "product_ready": false,
+          "not_verified": [
+            "governed_instance_write",
+            "real_effect_action",
+            "pi_run_recovery",
+            "artifact_write_smoke",
+            "community_compose"
+          ]
+        },
+        "cache": {
+          "passed": true,
+          "mode": "test",
+          "product_ready": false,
+          "cache_authoritative": false,
+          "checks": {
+            "default_user_denied": true,
+            "authenticated": true,
+            "ping": true,
+            "cache_write": true,
+            "cache_read": true,
+            "foreign_key_denied": true,
+            "admin_command_denied": true,
+            "wrong_password_denied": true,
+            "unknown_ca_denied": true,
+            "wrong_hostname_denied": true
+          }
+        },
+        "host": {
+          "passed": true,
+          "mode": "test",
+          "product_ready": false,
+          "business_authority": false,
+          "checks": {
+            "reachable": true,
+            "authenticated": true,
+            "owner_lock": true,
+            "product_unready": true,
+            "anonymous_denied": true,
+            "wrong_key_denied": true,
+            "browser_origin_denied": true
+          }
+        },
+        "browser": {
+          "passed": true,
+          "mode": "test",
+          "synthetic_identity": true,
+          "business_action_grants": false,
+          "product_ready": false,
+          "checks": {
+            "frontend_html": true,
+            "frontend_asset": true,
+            "frontend_no_credentials": true,
+            "wrong_password_denied": true,
+            "missing_origin_denied": true,
+            "login": true,
+            "secure_cookie": true,
+            "session_reload": true,
+            "human_cookie_not_service_authority": true,
+            "wrong_csrf_denied": true,
+            "logout": true,
+            "logged_out_session_denied": true
+          }
+        },
+        "http_checks": {
+          "liveness": true,
+          "foundation_ready_product_unready": true,
+          "anonymous_denied": true,
+          "wrong_service_denied": true,
+          "authorized_artifact_read": true,
+          "api_host_control": true
+        }
+      }
+    },
+    "valkey": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+      "user": "10001:10001",
+      "read_only_rootfs": true
+    }
+  },
+  "product_ready": false,
+  "synthetic_identity": true,
+  "business_action_grants": false,
+  "browser_dom_on_compose_verified": false,
+  "external_https_evidence": "docs/implementation/community-browser-external-https-evidence.json",
+  "acceptance_not_promoted": [
+    "AT-051"
+  ],
+  "published_endpoint": {
+    "origin": "https://localhost:57428",
+    "host_ip": "127.0.0.1",
+    "container_tls_port": 8443
+  },
+  "identity_dsn_and_rate_key_not_on_check_or_host": true,
+  "credentials_absent_from_logs": true,
+  "data_network_internal": true,
+  "separate_api_entry_network": true,
+  "credential_free_context_files": [
+    ".dockerignore",
+    "Dockerfile",
+    "nexloop_eios_core-0.1.0-py3-none-any.whl",
+    "requirements.txt",
+    "web/assets/index-BOl_kJRL.js",
+    "web/assets/index-TZwWnYqJ.css",
+    "web/index.html"
+  ],
+  "build_sha256": {
+    ".dockerignore": "1077ab8bd07824df85a3c5e09eac1faaa82412f099e145713f01ac9b01523de6",
+    "Dockerfile": "b0ebad09dd1771f174d50118a36fd1e9c7b95e5855632a6abd8c1700c892fc41",
+    "nexloop_eios_core-0.1.0-py3-none-any.whl": "67c8366e317a79c8235adbc885cb22e2e79ec722a3ec34d057449ba5839a806f",
+    "requirements.txt": "d34777b66434c8395d4fa3eab47c6e7bfccf6cfee8a8ece9b94410194e2ff783",
+    "web/assets/index-BOl_kJRL.js": "cd1bbd56bbf74b99160d2220c9581edb0ca66d9a78e190ee6ebc54216d53988c",
+    "web/assets/index-TZwWnYqJ.css": "397cae4d237316569c93700dd38d8f503d74aa25a10db0a65f6d3ca3f3d7dc55",
+    "web/index.html": "c3a6ce2925fada2b6540420d7b672a9ed5cc151dddaaf04956e6e7dc27f80f0a"
+  },
+  "source_sha256": {
+    "packages/eios-core/src/nexloop_eios/browser_test_profile.py": "4532980f302d3a15ceba599357fb1d2a11a675882f3dd9deab3e2a3f105504eb",
+    "packages/eios-core/src/nexloop_eios/container_entrypoint.py": "b19987360c88d219cdcf6ad64e6f2de8972c695eb4758dfdd8a96062b42934f1",
+    "scripts/community_test.py": "5579996328b465f9270542a2dfb9b5304def5a202fd518474cfc19fb56a78d44",
+    "scripts/prepare_community_build.py": "6b4e1a85beb0d81a1a0a6eb49704f96fc5c5db324e6e254fbd35493d04de22e0",
+    "deploy/community/compose.test.yaml": "4ec022a6d59fe273f364a8ef492b9297dc7f75647cc6bdcafbef3899da08c6ef",
+    "deploy/community/Dockerfile": "b0ebad09dd1771f174d50118a36fd1e9c7b95e5855632a6abd8c1700c892fc41",
+    "tests/test_browser_test_profile.py": "06cad8b027f11f80230b4d2c95cff564833f38a33994cc76aa21c0c92dce96fd",
+    "tests/test_community_launcher.py": "af57a4d53be2bde823ad08a920391f94e25219232826fdaa48e2d55aadd57fcc",
+    "tests/test_community_container_contract.py": "684e8ba31b5d84f44184596640ec342c88b24589cccfb513ec0cf0e0d27cdc73"
+  },
+  "first_failures": [
+    "Initial YAML insertion matched nested api-test dependency:3failed24passed; corrected27passed; launcher refused before container creation",
+    "Internal-only API network passed container checks but host published HTTPS connection was refused; separate API entry bridge added with loopback binding; fresh project host HTTPS passed"
+  ],
+  "limitations": [
+    "Compose HTTPX/HTTPS/static-asset proof; no new DOM/browser fidelity claim",
+    "Worker and full community/two-host release still incomplete",
+    "Product readiness503; Pi Run recovery/real effects unaccepted",
+    "Readiness missing_capabilities label still includes browser_session despite verified login; needs truthful capability reporting",
+    "Single-day self-signed explicit test trust is not stage PKI"
+  ],
+  "owned_services_stopped_cleanly": [
+    "host-test",
+    "api-test",
+    "valkey",
+    "postgres"
+  ],
+  "private_inputs_volumes_images_retained": true,
+  "full_ci": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "passed": {
+      "python": 893,
+      "pi": 24
+    },
+    "python_duration_seconds": 224.48,
+    "python_warnings": 1,
+    "critical_skips": 0,
+    "frontend_built": true,
+    "host_built": true,
+    "pi_source_packages_built": 4,
+    "scope_note": "Final API entry bridge correction separately verified by subsequent29 focused and actual fresh Compose/host HTTPS checks."
+  },
+  "final_focused": {
+    "passed": 29,
+    "duration_seconds": 33.93,
+    "exit_code": 0
+  },
+  "dependency_locks_unchanged": true,
+  "migration_head": "0032",
+  "versions_lock_changed": false
+}

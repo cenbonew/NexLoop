@@ -1,0 +1,209 @@
+{
+  "recorded_at": "2026-10-07T22:57:39.637164+00:00",
+  "scope": "NX-009 Host container + NX-011 control foundation",
+  "launcher": {
+    "passed": true,
+    "purpose": "disposable-community-test",
+    "project": "nexloop-test-9c645462eb5901557d4871f4",
+    "container_built": true,
+    "core_test_runtime_verified": true,
+    "actual_api_http_verified": true,
+    "actual_cache_tls_acl_verified": true,
+    "actual_host_control_verified": true,
+    "product_ready": false,
+    "model_validation": "not_run",
+    "resources_retained": true
+  },
+  "services": {
+    "postgres": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+      "user": "",
+      "read_only_rootfs": false,
+      "published_ports": false,
+      "model_environment_present": false,
+      "health": "healthy"
+    },
+    "bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:4a7babe0916f97fa68b42b3043e60142e55d903c9ec08e41741c1078a4a4a6bf",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "world": "test",
+        "catalog": {
+          "lineage": "nexloop-eios-v1",
+          "revision": "0032",
+          "migration_count": 32
+        },
+        "already_initialized": false,
+        "product_ready": false
+      }
+    },
+    "cache-bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:4a7babe0916f97fa68b42b3043e60142e55d903c9ec08e41741c1078a4a4a6bf",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "product_ready": false,
+        "cache_authoritative": false
+      }
+    },
+    "host-bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:4a7babe0916f97fa68b42b3043e60142e55d903c9ec08e41741c1078a4a4a6bf",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "product_ready": false,
+        "business_authority": false
+      }
+    },
+    "api-test": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:4a7babe0916f97fa68b42b3043e60142e55d903c9ec08e41741c1078a4a4a6bf",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "health": "healthy"
+    },
+    "host-test": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:83879b1f4475c86ff9df2e65bd735f9685fd19bb39769670431877603aa62869",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "health": "healthy"
+    },
+    "check-test": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:4a7babe0916f97fa68b42b3043e60142e55d903c9ec08e41741c1078a4a4a6bf",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false
+    },
+    "valkey": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false
+    }
+  },
+  "product_ready": false,
+  "pi_run_recovery_verified": false,
+  "acceptance_not_promoted": [
+    "AT-051",
+    "AT-030",
+    "AT-031",
+    "AT-033",
+    "AT-034",
+    "AT-052"
+  ],
+  "host_has_only_server_and_runtime_mounts": true,
+  "api_has_only_host_client_material": true,
+  "host_control_key_and_tls_key_absent_from_logs": true,
+  "host_context_whitelist": [
+    ".dockerignore",
+    "Dockerfile",
+    "agent-host-main.js",
+    "agent_host.py",
+    "package.json"
+  ],
+  "host_build_sha256": {
+    "Dockerfile": "fc6331c1f50b72a04d619b0662159a789fe4ab40d651355da5c54cafb0849044",
+    ".dockerignore": "210094b4346f809370a5e7a11b0f474c3e3cb4d89304529ab05eaf90c0e6274f",
+    "package.json": "75310bff016b194c22167683f733bcd0991ba7d1d2a288c77763698eafecf4e8",
+    "agent_host.py": "47593ff2948a36f7857b6fdfa6bc4a930118680728d5903bc9ac0cbc2dbd1ec0",
+    "agent-host-main.js": "026859fa4ad2a1cb026d6c93798da2bebd9ed98c1f1504dbca2175408258b35a"
+  },
+  "core_build_sha256": {
+    ".dockerignore": "4aa6afbc18d7b7570f5478410d0bb489bebd218aa28439e7cb1bf578245ce516",
+    "Dockerfile": "b787aea1237e7b5a579b93f19c119e0fc5047eec70ee6f2770208249c3e294d3",
+    "nexloop_eios_core-0.1.0-py3-none-any.whl": "f51d53b0b32ca0d3a5b85fc0d8fb8b86667ef5825da2fd90e40c4778b058cc43",
+    "requirements.txt": "d34777b66434c8395d4fa3eab47c6e7bfccf6cfee8a8ece9b94410194e2ff783"
+  },
+  "host_actual_versions": {
+    "node": "24.13.0",
+    "python": "Python 3.12.10"
+  },
+  "network_internal": true,
+  "source_sha256": {
+    "scripts/community_test.py": "476ba4e42ab0ca6a2117745ca91e245039fd45b1ea260beb4396857a0bf51805",
+    "scripts/prepare_host_build.py": "7d2113c8d4e82f8f474e48000eb7cf5adc99c54a0b4823ca7fa8050eb5cbb645",
+    "scripts/agent_host.py": "47593ff2948a36f7857b6fdfa6bc4a930118680728d5903bc9ac0cbc2dbd1ec0",
+    "deploy/community/Host.Dockerfile": "fc6331c1f50b72a04d619b0662159a789fe4ab40d651355da5c54cafb0849044",
+    "deploy/community/compose.test.yaml": "443599ed643fbee5db9877e42397a04330b55f2d8ddf8205a50321b82610de46",
+    "packages/eios-core/src/nexloop_eios/host_test_profile.py": "fd7698824a28662f3c422915d307f67c3798ec340c375f5c2943ca0e43cbae67",
+    "packages/eios-core/src/nexloop_eios/container_entrypoint.py": "c9ccc4a33bffebefee6b42e01ba97f678719ac0f3a92f25d7bb4a43899e6ff55",
+    "apps/agent-host/src/main.ts": "9bfaaca48928cbc838aaffbf31cec243b74a3f5359203204bd732d28db8a5f6a",
+    "tests/test_community_launcher.py": "bde92d52d30b2fb8389d2c497f1838b67d74adfcd5770cc2bc23ede2b63d893c",
+    "tests/test_community_container_contract.py": "c3571c2052ce7c712de7e28c2b64244893c723e688800e1a580658d879452edf"
+  },
+  "node_image": {
+    "reference": "docker.io/library/node@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f",
+    "raw_official_index_sha256_verified": true,
+    "selected_platform_config_layers_sha256_verified": true,
+    "original_multiarch_repo_digest_preserved": true,
+    "runtime_platform": "linux/arm64"
+  },
+  "lifecycle_evidence": "docs/implementation/community-host-lifecycle-evidence.json",
+  "first_failure": "Focused fake failure case used a tuple JSON key:1failed22passed; corrected23passed.",
+  "limitations": [
+    "No full frontend/browser/Worker community stack yet",
+    "Host control identity grants no governed business/Run authority",
+    "No Pi Run/SQLite recovery, PG leases or external effects",
+    "Single-day private test TLS is not stage PKI"
+  ],
+  "owned_services_stopped_cleanly": [
+    "host-test",
+    "api-test",
+    "valkey",
+    "postgres"
+  ],
+  "private_inputs_runtime_volumes_images_retained": true,
+  "full_ci": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "passed": {
+      "python": 887,
+      "pi": 24
+    },
+    "python_duration_seconds": 210.46,
+    "python_warnings": 1,
+    "critical_skips": 0,
+    "frontend_built": true,
+    "host_built": true,
+    "pi_source_packages_built": 4
+  },
+  "dependency_locks_unchanged": true,
+  "migration_head": "0032",
+  "versions_lock_changes": [
+    "images.node-host-base"
+  ]
+}

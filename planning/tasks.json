@@ -316,6 +316,12 @@
         "ref": "docs/implementation/community-core-ci.json",
         "summary": "Minimal extracted core complete: independent clean bootstrap/installed wheel, governed Consumer preference edit and Relation with actual PG negatives; full product/S2 incomplete.",
         "recorded_at": "2026-10-07T18:30:58.807269+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c8e26245275fbf6b751e70ef5b1beac6eedf256d",
+        "summary": "NX-006..NX-008: 抽取EIOS core、本地Artifact与独立迁移角色; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:48.726868+00:00"
       }
     ]
   },
@@ -417,6 +423,12 @@
         "ref": "docs/implementation/community-core-ci.json",
         "summary": "Minimal local Artifact adapter complete: governed atomic hash/size read/write, retention, pending/temp/final orphan recovery including actual SIGKILL; runtime-owner integration deferred to runtime tasks.",
         "recorded_at": "2026-10-07T18:30:58.807269+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c8e26245275fbf6b751e70ef5b1beac6eedf256d",
+        "summary": "NX-006..NX-008: 抽取EIOS core、本地Artifact与独立迁移角色; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:48.726868+00:00"
       }
     ]
   },
@@ -530,6 +542,12 @@
         "ref": "docs/implementation/s1-task-completion-audit.md",
         "summary": "Current full CI source hashes verified; 19 focused fresh PG/import/CI boundary cases passed. Task role/catalog/no-fallback or minimal local CI deliverable complete; product S1/S2 acceptance remains incomplete.",
         "recorded_at": "2026-10-07T17:27:07.253463+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c8e26245275fbf6b751e70ef5b1beac6eedf256d",
+        "summary": "NX-006..NX-008: 抽取EIOS core、本地Artifact与独立迁移角色; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:48.726868+00:00"
       }
     ]
   },

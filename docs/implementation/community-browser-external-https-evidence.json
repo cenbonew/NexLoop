@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "scope": "actual host loopback published HTTPS with verified certificate; no DOM claim",
+  "checks": {
+    "actual_host_https_html": true,
+    "actual_host_https_liveness": true,
+    "actual_host_https_login": true,
+    "session_reload": true,
+    "cookie_not_service_authority": true,
+    "logout": true,
+    "logout_session_denied": true
+  },
+  "origin": "https://localhost:57428",
+  "synthetic_identity": true,
+  "business_action_grants": false,
+  "product_ready": false
+}

@@ -1,0 +1,13 @@
+# NX-011 CSRF recovery and actual HTTPS process
+
+POST/api/v1/auth/csrf requires exact configured Origin/Host and current authenticated cookie, then invokes the frozen refresh_csrf service. It replaces the private persisted digest and returns the fresh token with no-store/nosniff, keeping the Session cookie unchanged. Missing/cross Origin, absent/revoked Session and old CSRF cannot perform logout. This supports client reload without storing the CSRF token in a readable cookie or local persistence.
+
+The loopback-only test API console now accepts paired private service-owned TLS certificate/key files, verified with existing no-symlink/owner/mode/size guards before Uvicorn startup. TLS is optional for existing core console; browser testing uses HTTPS, never disabled certificate verification. Partial TLS options fail closed. No deployed certificate or original service is changed.
+
+Actual focused command: `uv run --frozen pytest -xq tests/test_browser_http.py tests/test_http_api.py --tb=short`:13 passed in10.26s. Added negative cases for disabled PG login policy (no authentication mutation), malformed/oversized/body-type requests with no credential echo, and invalid private HMAC key leaving browser unavailable and state cleared at shutdown.
+
+Actual network command: `uv run --frozen pytest -xq tests/test_browser_https_process.py tests/test_browser_http.py --tb=short`:8 passed in7.36s. No first failure. The test creates one-day local-only localhost/SAN certificate/key in its owned temporary directory via openssl, starts the actual native Python API console in a separate process with a dedicated restricted identity DSN and independent fresh PG, and uses httpx over a real loopback TLS socket with an explicit trusted test certificate. Real HTTPS login/cookie/session/reload-CSRF/logout and readiness503 are verified. Old CSRF denies logout, fresh succeeds, Session then rejects. SIGTERM confirms process termination, listener inaccessible and zero identity connections. Captured process logs are checked for absence of random test password and raw Session/CSRF tokens. No browser DOM or production TLS claim is made.
+
+Full local CI: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`; final result/hashes in browser-https-ci.json. versions.lock.json remains0032 unchanged; all32 SQL and dependency/upstream/image pins unchanged. Actual installed wheel/console provenance remains mandatory.
+
+HTTP tenant-switch/server multi-realm transport, frontend, Host/internal run auth and S2/Pi real-run recovery remain incomplete. Overall readiness remains503 and NX-011 staysin_progress. No product acceptance promoted, persistent migration, server/original-system mutation, model/channel call, staging/commit/push or deployment.

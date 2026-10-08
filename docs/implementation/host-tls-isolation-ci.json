@@ -1,0 +1,63 @@
+{
+  "recorded_at": "2026-10-07T21:48:14.393273+00:00",
+  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "exit_code": 0,
+  "python_tests_passed": 874,
+  "python_duration_seconds": 184.47,
+  "pi_sqlite_conformance_passed": 24,
+  "pi_source_packages_built": [
+    "chord",
+    "pi-telemetry",
+    "pi-ai",
+    "pi-durable"
+  ],
+  "frontend_built": true,
+  "agent_host_built": true,
+  "critical_skips": 0,
+  "bootstrap_revision": "0032",
+  "published_32_migrations_unchanged": true,
+  "versions_lock_change": "none",
+  "dependency_locks_unchanged": true,
+  "first_test_failures": [
+    {
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py::test_host_probe_does_not_honor_ambient_tls_key_logging --tb=short",
+      "failed": 1,
+      "duration_seconds": 0.52,
+      "reason": "Old create_default_context inherited SSLKEYLOGFILE and created a synthetic TLS session key log; no real credential/model used"
+    }
+  ],
+  "targeted_command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short",
+  "targeted_initial_after_fix_passed": 28,
+  "targeted_initial_after_fix_duration_seconds": 7.39,
+  "targeted_final_passed": 28,
+  "targeted_final_duration_seconds": 7.46,
+  "ambient_tls_session_key_log_not_created": true,
+  "actual_host_ca_and_hostname_verification_preserved": true,
+  "actual_host_closed_listener_checks_use_correct_trusted_certificate": true,
+  "no_real_model_credentials_read_or_used": true,
+  "product_ready": false,
+  "run_admission_verified": false,
+  "pi_run_kill_reopen_verified": false,
+  "browser_dom_frontend_verified": false,
+  "container_runtime_verified": false,
+  "docker_observation": "Backend processes present, socket absent, info unavailable, UI AppleEvent timed out; manual startup question pending",
+  "isolated_install_evidence": {
+    "wheel_sha256": "cd44bf746fff9ef9c17dee01e9f7fe8b23b397ea74c9ebe8ad5f704a6e408eaf",
+    "noneditable_install": true,
+    "isolated_module_origins_verified": true,
+    "bootstrap_revision": "0032",
+    "actual_restricted_pg_artifact_smoke": true,
+    "installed_console_help_passed": 5,
+    "installed_sandbox_test_loop": true,
+    "dependency_install": "offline, frozen exported requirements, require-hashes, no-deps"
+  },
+  "git_staged_blobs": 0,
+  "tested_input_sha256": {
+    "packages/eios-core/src/nexloop_eios/host_control.py": "ae497360ff5f75cba1fa18c8ff2498bd95febf578447d5c444c340209ad1b72e",
+    "tests/test_host_control.py": "ef4c8baf50e345691d59ce342baba70294f4c3c42566bc5c91888fa971fbd72d",
+    "tests/test_agent_host.py": "4da379477ccb99b15e7186767794d229f0086aff9fca1c343ad0897188b87bae",
+    "versions.lock.json": "072f14af7a0490417d9c4bff176a1c3bb7eba7fb4f2297f2a8839a4eac5a200d",
+    "uv.lock": "4fc111a1125fd42d5c65ba7954da37494c5c6e88ab8692928806d8de69d61a06",
+    "pnpm-lock.yaml": "748da1e2791617bd3200531dec1b246dc844f3c4b52031dafa7cb1bd139cc412"
+  }
+}

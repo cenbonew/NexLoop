@@ -1,0 +1,251 @@
+{
+  "recorded_at": "2026-10-07T22:40:47.012814+00:00",
+  "scope": "NX-009 isolated Valkey TLS/ACL Compose extension",
+  "launcher": {
+    "passed": true,
+    "purpose": "disposable-community-test",
+    "project": "nexloop-test-d47770502fea64fccaca4af6",
+    "container_built": true,
+    "core_test_runtime_verified": true,
+    "actual_api_http_verified": true,
+    "actual_cache_tls_acl_verified": true,
+    "product_ready": false,
+    "model_validation": "not_run",
+    "resources_retained": true
+  },
+  "services": {
+    "postgres": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+      "user": "",
+      "read_only_rootfs": false,
+      "published_ports": false,
+      "model_environment_present": false,
+      "health": "healthy"
+    },
+    "bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:3c10839edd70c6b35b4b721719fcb0f8626b4a336c6f089eab22d3a669172553",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "world": "test",
+        "catalog": {
+          "lineage": "nexloop-eios-v1",
+          "revision": "0032",
+          "migration_count": 32
+        },
+        "already_initialized": false,
+        "product_ready": false
+      }
+    },
+    "api-test": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:3c10839edd70c6b35b4b721719fcb0f8626b4a336c6f089eab22d3a669172553",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "health": "healthy"
+    },
+    "check-test": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:3c10839edd70c6b35b4b721719fcb0f8626b4a336c6f089eab22d3a669172553",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "world": "test",
+        "product_ready": false,
+        "model_validation": "not_run",
+        "smoke": {
+          "mode": "test",
+          "world": "test",
+          "scope": "postgres_local_artifact_write_read",
+          "passed": true,
+          "product_ready": false,
+          "model_validation": "not_run",
+          "checks": {
+            "backend_startup": true,
+            "service_authentication": true,
+            "artifact_write": true,
+            "artifact_read": true
+          },
+          "artifact": {
+            "artifact_id": "b7db6970b2f2219236293d24ddc06cc9",
+            "sha256": "17a9ddb631674b432ab73b9e966b2acf987bd8c98640104ef30c120f114b1cc9",
+            "size_bytes": 26,
+            "world": "test"
+          }
+        },
+        "doctor": {
+          "checks": {
+            "catalog": true,
+            "postgres": true,
+            "artifact_directory": true,
+            "model_configuration": true
+          },
+          "details": {
+            "expected_revision": "0032",
+            "database_role": "nexloop_api",
+            "database_catalog": {
+              "lineage": "nexloop-eios-v1",
+              "revision": "0032",
+              "migration_count": 32
+            },
+            "model": {
+              "provider": "test",
+              "model_id": "deterministic-test",
+              "base_url": "",
+              "validation_mode": "test_only_real_validation_blocked",
+              "credential_source": "none"
+            }
+          },
+          "foundation_checks_passed": true,
+          "product_ready": false,
+          "not_verified": [
+            "governed_instance_write",
+            "real_effect_action",
+            "pi_run_recovery",
+            "artifact_write_smoke",
+            "community_compose"
+          ]
+        },
+        "cache": {
+          "passed": true,
+          "mode": "test",
+          "product_ready": false,
+          "cache_authoritative": false,
+          "checks": {
+            "default_user_denied": true,
+            "authenticated": true,
+            "ping": true,
+            "cache_write": true,
+            "cache_read": true,
+            "foreign_key_denied": true,
+            "admin_command_denied": true,
+            "wrong_password_denied": true,
+            "unknown_ca_denied": true,
+            "wrong_hostname_denied": true
+          }
+        },
+        "http_checks": {
+          "liveness": true,
+          "foundation_ready_product_unready": true,
+          "anonymous_denied": true,
+          "wrong_service_denied": true,
+          "authorized_artifact_read": true
+        }
+      }
+    },
+    "cache-bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:3c10839edd70c6b35b4b721719fcb0f8626b4a336c6f089eab22d3a669172553",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "product_ready": false,
+        "cache_authoritative": false
+      }
+    },
+    "valkey": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false
+    }
+  },
+  "product_ready": false,
+  "acceptance_not_promoted": [
+    "AT-051"
+  ],
+  "network_internal": true,
+  "cache_server_client_volumes_separate": true,
+  "actual_valkey_binary_version": "Valkey server v=8.1.10 sha=00000000:1 malloc=jemalloc-5.3.0 bits=64 build=2cb63ac0e4567989",
+  "valkey_image": {
+    "reference": "docker.io/valkey/valkey@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+    "architecture": "arm64",
+    "repo_digest_verified": true,
+    "arm64_manifest_digest": "sha256:6bd0360157519e3de7c49f6bae7d2bdfab574083bd7d266182db36b1646b0936"
+  },
+  "official_oci_import": {
+    "original_index_digest_preserved": true,
+    "all_selected_config_and_layer_sha256_verified": true,
+    "docker_load_platform": "linux/arm64",
+    "anonymous_registry_token_persisted": false,
+    "daemon_configuration_changed": false
+  },
+  "build_sha256": {
+    ".dockerignore": "4aa6afbc18d7b7570f5478410d0bb489bebd218aa28439e7cb1bf578245ce516",
+    "Dockerfile": "b787aea1237e7b5a579b93f19c119e0fc5047eec70ee6f2770208249c3e294d3",
+    "nexloop_eios_core-0.1.0-py3-none-any.whl": "f9486b1c69aaf3f01ceb67ffe309ec45d4c6c76b687ce9675ba6ff326dc6de18",
+    "requirements.txt": "d34777b66434c8395d4fa3eab47c6e7bfccf6cfee8a8ece9b94410194e2ff783"
+  },
+  "source_sha256": {
+    "scripts/community_test.py": "55cefe45da032d475755d80c12ef0062d9a9fb0bb3b40504df0ba7d5654cd7a6",
+    "packages/eios-core/src/nexloop_eios/cache_test_profile.py": "22b578acc92dc5954e9b1d0f1ef519e0fb25afccc9343ca7c6d485e08840f3aa",
+    "packages/eios-core/src/nexloop_eios/container_entrypoint.py": "454ce87ec8d204b61fff4a9ed5dccc625ef8dc6bf10ea85462647086239d0704",
+    "deploy/community/compose.test.yaml": "37f7166092736fe7f3f8e3317403891bc7be4b43459169f05c68f6481369d4a2",
+    "tests/test_cache_test_profile.py": "5d98b708fd3e914b524ee321ab5509aeb9c31ab98dbf4dc1c1dfb6bde1639753",
+    "tests/test_community_launcher.py": "9f7507b6e8b30c858ef173fe2066c4c4b967ee7f44c03513a33fe5039454cbb2",
+    "tests/test_community_container_contract.py": "97868c093f629cbf28ca54bed854a05b50fd8cdf8c218370b8ef2394b5b4d52c"
+  },
+  "first_failures": [
+    "Direct registry connection timeout; buildx token request EOF",
+    "First Compose project failed before container creation on Valkey pull; direct daemon pull confirmed auth EOF",
+    "RESP fragmented bulk test failed1/pass1; bounded full-payload loop fixed; focused21 passed",
+    "OCI downloader blocked unlisted CloudFront redirect; official Docker allowlist verified, exact host added, fresh download verified/imported"
+  ],
+  "limitations": [
+    "No full browser/frontend/Host/Worker community configuration yet",
+    "No Pi Run recovery or real effect acceptance",
+    "No model/channel validation",
+    "Single-day disposable test TLS certificate; not stage PKI"
+  ],
+  "owned_services_stopped_with_exit0": [
+    "valkey",
+    "api-test",
+    "postgres"
+  ],
+  "private_inputs_volumes_images_retained": true,
+  "full_ci": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "passed": {
+      "python": 883,
+      "pi": 24
+    },
+    "python_duration_seconds": 193.62,
+    "python_warnings": 1,
+    "critical_skips": 0,
+    "frontend_built": true,
+    "host_built": true,
+    "pi_source_packages_built": 4
+  },
+  "dependency_locks_unchanged": true,
+  "migration_head": "0032",
+  "versions_lock_changes": [
+    "images.valkey.reference",
+    "images.valkey.digest",
+    "images.valkey.status"
+  ]
+}

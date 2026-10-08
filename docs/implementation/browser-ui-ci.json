@@ -1,0 +1,110 @@
+{
+  "recorded_at": "2026-10-07T22:14:42.693932+00:00",
+  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "exit_code": 0,
+  "python_tests_passed": 874,
+  "python_duration_seconds": 185.07,
+  "pi_sqlite_conformance_passed": 24,
+  "pi_source_packages_built": [
+    "chord",
+    "pi-telemetry",
+    "pi-ai",
+    "pi-durable"
+  ],
+  "frontend_built": true,
+  "agent_host_built": true,
+  "critical_skips": 0,
+  "bootstrap_revision": "0032",
+  "published_32_migrations_unchanged": true,
+  "dependency_locks_unchanged": true,
+  "versions_lock_change": "web status upgraded to actual verified HTTPS browser login/reload/logout/responsive fidelity; versions/upstreams/images unchanged",
+  "browser_toolchain": {
+    "chromium": "149.0.7827.55",
+    "playwright_cli": "0.1.7",
+    "playwright_core": "1.60.0-alpha-1775951570000",
+    "node": "24.13.0"
+  },
+  "actual_browser_workflows": {
+    "desktop": {
+      "wrong_password": true,
+      "login": true,
+      "reload": true,
+      "csrf_logout": true,
+      "secure_httponly_strict": true,
+      "no_web_storage": true,
+      "cookie_removed": true,
+      "logout_reload": true
+    },
+    "mobile": {
+      "wrong_password": true,
+      "login": true,
+      "reload": true,
+      "csrf_logout": true,
+      "secure_httponly_strict": true,
+      "no_web_storage": true,
+      "cookie_removed": true,
+      "logout_reload": true
+    }
+  },
+  "viewports": {
+    "concept": [
+      1586,
+      992
+    ],
+    "desktop": [
+      1586,
+      992
+    ],
+    "mobile": [
+      390,
+      844
+    ]
+  },
+  "profile_only_localhost_loopback_public_certificate_trust": true,
+  "unknown_self_signed_certificate_actually_rejected": true,
+  "tls_verification_not_disabled": true,
+  "browser_dom_frontend_verified": true,
+  "visual_fidelity_verified": true,
+  "copy_diff_matched_items": 10,
+  "desktop_footer_offset_fixed_pixels": 12,
+  "mobile_horizontal_overflow": false,
+  "native_https_preview_test": {
+    "passed": 1,
+    "duration_seconds": 561.89,
+    "includes_manual_browser_wait": true
+  },
+  "owned_preview_private_credentials_removed": true,
+  "owned_browser_and_native_services_closed": true,
+  "first_failures": [
+    "CLI socket EINVAL from long macOS TMPDIR; subsequent owned-profile busy refusal; own orphan stopped after terminal evidence",
+    "Native WebUI chooser unsupported by CLI upload; only own stopped empty profile configured",
+    "VM dynamic import unavailable; input read by local private script with output redaction",
+    "Local report parser required JSON whitespace; actual workflow had passed; JSON parsing and expanded checks rerun passed",
+    "Negative-test PID ownership precheck failed before execution; known-session TLS denial rerun passed"
+  ],
+  "product_ready": false,
+  "run_admission_verified": false,
+  "pi_run_kill_reopen_verified": false,
+  "container_runtime_verified": false,
+  "isolated_install_evidence": {
+    "wheel_sha256": "cd44bf746fff9ef9c17dee01e9f7fe8b23b397ea74c9ebe8ad5f704a6e408eaf",
+    "noneditable_install": true,
+    "isolated_module_origins_verified": true,
+    "bootstrap_revision": "0032",
+    "actual_restricted_pg_artifact_smoke": true,
+    "installed_console_help_passed": 5,
+    "installed_sandbox_test_loop": true,
+    "dependency_install": "offline, frozen exported requirements, require-hashes, no-deps"
+  },
+  "git_staged_blobs": 0,
+  "tested_input_sha256": {
+    "apps/web/src/styles.css": "c8232b61e358f0b5d01399b01806b1aa4a67245fd13183e45ba58cbc058cd107",
+    "apps/web/index.html": "d177918b513aa2ea4f306e4b91582be2de8dedf4e7851ac5ca0fb6e5eb721ac4",
+    "tests/test_web_frontend.py": "f955eee7fb34f68699759782bbd3e3df9150da5ef2011342b98bcf20db8e458d",
+    ".gitignore": "4e35d28a061322cbe8b6c832137c3179533db309fc3c079b69655d78cc251180",
+    "versions.lock.json": "e8087382785fccf00861fdef0e95c936085a3324639b28ea418c8a44c38edb1c",
+    "docs/design/login-desktop.png": "bdcfa7105c92b4a12e6e2676cdf2390f98140bffd8114fe9c18b7f790bcc4dbe",
+    "docs/design/login-mobile.png": "a68c91aa6fa15b305b4cb556debdea18299aed46597c41fcfb44713321168c70",
+    "docs/design/nexloop-login-concept.png": "64f480040a90472b23b2354059d846a0a93909ed8110f901372e43441dd9e85b"
+  }
+}
