@@ -1357,6 +1357,12 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/adr019-provider-config-evidence.json",
+        "summary": "Preparatory variable/secret-file/Compose+build alignment, Root62 tests plus2 actual builds passed. Real endpoint/text support/dimension/index unverified; no task completion.",
+        "recorded_at": "2026-10-08T11:09:47.628126+00:00"
       }
     ]
   },

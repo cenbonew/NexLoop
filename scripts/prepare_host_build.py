@@ -16,7 +16,7 @@ def prepare_host(output):
     output=Path(output).absolute();base=ROOT/'.ci-results'
     if base.is_symlink() or output.is_symlink() or output.exists() or not output.resolve().is_relative_to(base.resolve()):
         raise ValueError('new ignored Host build directory required')
-    env={k:v for k,v in os.environ.items() if not k.startswith(('MODEL_','COMPOSE_'))}
+    env={k:v for k,v in os.environ.items() if not k.startswith(('MODEL_','EMBEDDING_','COMPOSE_'))}
     version=subprocess.run(['node','-p','process.versions.node'],env=env,cwd=ROOT,capture_output=True,text=True,check=True,timeout=10).stdout.strip()
     if version!='24.13.0':raise ValueError('locked Node24.13.0 build required')
     subprocess.run(['pnpm','build:pi'],env=env,cwd=ROOT,capture_output=True,check=True,timeout=120)

@@ -1,0 +1,132 @@
+{
+  "recorded_at": "2026-10-08T11:09:47.628126+00:00",
+  "task": "NX-021",
+  "scope": "ADR-019 provider configuration and build/Compose isolation only; no endpoint or index implementation",
+  "variables": [
+    "EMBEDDING_API_KEY",
+    "EMBEDDING_MODEL",
+    "EMBEDDING_MODE",
+    "EMBEDDING_LOCATION",
+    "EMBEDDING_DIMENSION",
+    "EMBEDDING_CREDENTIALS_FILE"
+  ],
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "9fd89a5c8fe76c3073b85ffef522446f7e71fde65751ea2fab751d56e162ec56"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/provider_credentials.py",
+      "sha256": "d496355b27c6472f2397e391006a682cdc2f815333118c51071789392c8f3405"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/embedding_profile.py",
+      "sha256": "80daed65aaaed2a14fc56aef6b37e7aa854487c6280c665225fd6e491fb5e5d1"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/model_profile.py",
+      "sha256": "2b91d9254e8f1d25129a51f3d9631caacb0abe4b7e28415137440fbefd471e14"
+    },
+    {
+      "path": "tests/test_embedding_profile.py",
+      "sha256": "a3f4b0cd61e3144a71d0b4b0c99c526d809a36910f661dac3d1828588be89825"
+    },
+    {
+      "path": "scripts/community_test.py",
+      "sha256": "a7eacd0192be816d99e519226ad264854d89b2d8e6c93dd3a3e0ff50473e4686"
+    },
+    {
+      "path": "tests/test_community_launcher.py",
+      "sha256": "33937edaa8e6f6d867829ab00fdd4ce30eb8aff7c67b137b4e15a9c29f12b180"
+    },
+    {
+      "path": "deploy/community/README.md",
+      "sha256": "0c7794b0f1670f637e1ebe49b7470f3ef7168ce183fd3b074e066449ee65cc44"
+    },
+    {
+      "path": "scripts/prepare_community_build.py",
+      "sha256": "051d5eec34b0aeb18c7903fb1c95bdb2c68fe9066d902c6c3ee1034cc72e4a3b"
+    },
+    {
+      "path": "scripts/prepare_host_build.py",
+      "sha256": "bd6f423a7eb891745f9ece8c2a9f18ca97fae23ce86d7205f70b8865e0f84aa0"
+    },
+    {
+      "path": "tests/test_build_provider_environment.py",
+      "sha256": "57e8fc688862f1322db2342675bbedc32ebfac07ee2dc74720486ce26538477e"
+    }
+  ],
+  "credential_policy": "MODEL and EMBEDDING share bounded owned regular file with no group/world permissions/no symlink/no hardlink/no FIFO; nonempty secret file takes precedence. Local empty file may fall back to env; stage rejects env fallback. No implicit .env read.",
+  "community": "Disposable Compose graph has no embedding consumer/service; no invented service was added. Docker orchestration and actual uv/Web/Pi/Host build child processes now filter all MODEL_/EMBEDDING_ environment variables. Node launcher retains its existing explicit environment whitelist.",
+  "commands": [
+    {
+      "command": "uv run --frozen pytest -q tests/test_model_profile.py tests/test_embedding_profile.py tests/test_community_launcher.py --junitxml=.ci-results/adr019-provider-config.xml",
+      "result": "First40passed22setup errors2.34s; Root omitted Node24 selection, so actual locked Node check rejected; not provider failure"
+    },
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_model_profile.py tests/test_embedding_profile.py tests/test_community_launcher.py --junitxml=.ci-results/adr019-provider-config-node24.xml --tb=short",
+      "result": "62passed579.14s; no warnings/skips/errors"
+    },
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_build_provider_environment.py --junitxml=.ci-results/adr019-build-provider-env.xml --tb=short",
+      "result": "2passed19.59s; actual offline uv/Pi/Host/Vite builds and production closure executed; first run passed"
+    }
+  ],
+  "reports": [
+    {
+      "path": ".ci-results/adr019-provider-config-node24.xml",
+      "sha256": "72a47796ec49b4bc2a32bd014fef19612d6d9c9504b85e58ed88381a9ac7a661",
+      "tests": 62,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": ".ci-results/adr019-build-provider-env.xml",
+      "sha256": "c792229ee7717e8121625cc53fc5680f97bc7bfba4cad2e51957a2aef877eb37",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "candidate_history": [
+    {
+      "result": "35 passed 0.11s",
+      "scope": "initial MODEL+embedding readers"
+    },
+    {
+      "result": "36 passed 0.11s",
+      "scope": "community environment boundary included"
+    },
+    {
+      "result": "1 failed 0.09s",
+      "scope": "public template inline comment test",
+      "reason": "blank EMBEDDING variable inline comments initially parsed as nonempty value"
+    },
+    {
+      "result": "37 passed 0.11s",
+      "scope": "inline-comment fix"
+    },
+    {
+      "result": "38 passed 0.11s",
+      "scope": "final hardlink credential refusal included"
+    },
+    {
+      "result": "39 passed 0.16s",
+      "scope": "real FIFO child process rejects both MODEL and EMBEDDING credential paths without blocking; five-second timeout with kill/reap on failure"
+    }
+  ],
+  "source_review_fixes": [
+    "Root found credential FIFO can block before regular-file fstat; added O_NONBLOCK and real FIFO subprocess timeout/cleanup test",
+    "Root found build preparation still inherited provider variables; all helper child environments now filtered and actual build execution observed"
+  ],
+  "limitations": [
+    "No real .env or credential read, no embedding endpoint invocation",
+    "No dimension measured or EMBEDDING_DIMENSION written",
+    "Configured dimension remains unverified; no index is created",
+    "NX-021 remains not_started pending S2 completion and NX-018; first endpoint/text-support/dimension measurement still required"
+  ],
+  "versions_lock_changes": "none in this configuration checkpoint; existing head0052 retained",
+  "push_performed": false
+}

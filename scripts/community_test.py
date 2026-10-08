@@ -140,7 +140,7 @@ def verify_project(output):
 
 def run_project(output):
     output=Path(output).absolute();m=verify_project(output)
-    env={k:v for k,v in os.environ.items() if not k.startswith(('MODEL_','COMPOSE_')) and k not in {'NEXLOOP_TEST_PROJECT','POSTGRES_IMAGE','VALKEY_IMAGE','BACKEND_IMAGE','HOST_IMAGE','WEB_PORT','SECRET_DIR'}}
+    env={k:v for k,v in os.environ.items() if not k.startswith(('MODEL_','EMBEDDING_','COMPOSE_')) and k not in {'NEXLOOP_TEST_PROJECT','POSTGRES_IMAGE','VALKEY_IMAGE','BACKEND_IMAGE','HOST_IMAGE','WEB_PORT','SECRET_DIR'}}
     def docker(args,timeout=30):
         result=subprocess.run(['docker',*args],cwd=ROOT,env=env,capture_output=True,text=True,timeout=timeout)
         if result.returncode:raise RuntimeError('Docker operation unavailable or failed')

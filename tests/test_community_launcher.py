@@ -111,3 +111,18 @@ def test_reads_complete_multiline_container_report(project, monkeypatch, http_ev
         result = module.run_project(output)
         assert result['core_test_runtime_verified'] and result['actual_api_http_verified'] and not result['product_ready']
     assert any(args[1] == 'logs' for args in calls)
+
+
+def test_provider_environment_not_inherited_by_disposable_compose(monkeypatch,tmp_path):
+    module=launcher();calls=[]
+    names=['MODEL_API_KEY','MODEL_CREDENTIALS_FILE','EMBEDDING_API_KEY','EMBEDDING_MODEL',
+           'EMBEDDING_MODE','EMBEDDING_LOCATION','EMBEDDING_DIMENSION','EMBEDDING_CREDENTIALS_FILE','COMPOSE_FILE']
+    for name in names:monkeypatch.setenv(name,'synthetic-unused-provider-value')
+    monkeypatch.setattr(module,'verify_project',lambda output:{'project':'isolated-filter-test'})
+    def subprocess_boundary(args,**kwargs):
+        assert not set(names)&set(kwargs['env'])
+        calls.append(args)
+        return subprocess.CompletedProcess(args,0,'existing-owned-container\n' if args[1]=='ps' else 'Docker-version\n','')
+    monkeypatch.setattr(module.subprocess,'run',subprocess_boundary)
+    with pytest.raises(ValueError):module.run_project(tmp_path)
+    assert len(calls)==2 and not any('build' in args or 'up' in args for args in calls)

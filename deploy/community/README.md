@@ -27,3 +27,23 @@ Valkey8.1.10 is now part of the isolated test graph. Its pinned official image r
 The Host image has its own five-file credential-free build context: compiled main, supported Python launcher, explicit module metadata, Dockerfile and whitelist ignore. It uses the locked Node24.13.0 and Python3.12.10 bases; it receives only private Host server material and runtime volume. No PG DSN, Artifact signer, cache key or MODEL_ environment enters Host. It shares the API network namespace and listens only on loopback with TLS. API/check receive a separate client control-key/CA volume, never the server TLS key. The kernel owner lock, second-owner refusal, SIGKILL/reopen inode preservation and API detection/recovery were actually verified in the owned disposable Docker volume. These are Host foundation checks, not Pi Run recovery or business authorization. See `docs/implementation/community-host-runtime-evidence.json` and `community-host-lifecycle-evidence.json`. All three runtime initializers are fresh-only; the launcher refuses existing project resources.
 
 The current graph packages the actual public frontend and provisions a fixed explicit synthetic test login through canonical EIOS models. Browser bootstrap writes authentication configuration only and grants no business Action authority. Server identity DSN/rate/TLS files and client test-login/CA files are separate; the check job cannot read the identity DSN. API serves HTTPS8443 inside the container and publishes only127.0.0.1 at the fresh port stored in the private manifest. Only API attaches to local_web; PostgreSQL/Valkey remain internal. Host shares API namespace, retaining its own restricted mounts. A caller must explicitly trust the generated public test certificate. Actual host HTTPS login was verified; no new Compose DOM claim. See `docs/implementation/community-browser-runtime-progress.md` and its evidence. WEB_PORT and three private browser inputs are now part of the generated/verified manifest.
+
+
+ADR-019 embedding configuration uses only `EMBEDDING_API_KEY`, `EMBEDDING_MODEL`,
+`EMBEDDING_MODE`, `EMBEDDING_LOCATION`, `EMBEDDING_DIMENSION` and
+`EMBEDDING_CREDENTIALS_FILE`, matching the public `.env.example`. The trusted
+Python configuration reader shares MODEL credential handling: a nonempty owned
+private secret file wins; an empty file may fall back to an explicitly selected
+local environment, while stage accepts only a nonempty secret file. No local
+`.env` is loaded implicitly. Stage must not mount embedding credentials into the
+Node Runtime or frontend. Endpoint hosts are selected by the maintainer's
+trusted allowlist, never by a browser or Run.
+
+This community Compose graph remains a deterministic disposable core test and
+has no embedding service or index. Its launcher strips all `MODEL_*` and
+`EMBEDDING_*` variables before invoking Docker. The configuration reader makes
+no provider call: a configured dimension is still unverified, and a blank
+dimension is explicitly unmeasured. NX-021 must verify the real endpoint, text
+input compatibility and returned dimension before any index is created; the
+index dimension must then be pinned separately. No live embedding validation
+or NX-021 completion is claimed here.
