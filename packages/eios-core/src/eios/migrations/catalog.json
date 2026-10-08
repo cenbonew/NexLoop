@@ -255,6 +255,11 @@
       "version": "0051",
       "name": "0051_local_json_delivery.sql",
       "sha256": "d475cadb8a165c4089d39394f7c18852c3efe18010afe2621ae66f6fc3d15849"
+    },
+    {
+      "version": "0052",
+      "name": "0052_context_artifact_binding.sql",
+      "sha256": "ab28e7be0f7ce7317ee2614df5bcb935c37555d5514fce3f8b74f02a18216491"
     }
   ]
 }

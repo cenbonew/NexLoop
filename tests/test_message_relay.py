@@ -63,6 +63,10 @@ def test_independent_cli_governed_assignment_and_persist_before_ack(relay_plan,a
     assert result.stdout=='Message relay ready\n{"status":"queued"}\n'
     item=admin.execute('select run_id,request_id,expires_at from authz.nexloop_message_run_issuances where message_id=%s',(f['f']['message']['id'],)).fetchone()
     assert item is not None
+    payload=admin.execute('select normalized_input from runtime.jobs where tenant_id=%s',(f['f']['tenant'],)).fetchone()[0]
+    pack=json.loads(payload['input']);assert pack['schema_version']=='nexloop.context-pack.v1'
+    assert pack['user_statement']['body']==f['f']['message']['body']
+    assert payload['run_command']['context_manifest_ref']=='artifact:'+pack['bindings']['artifact_id']
     with RunCredentialVault(f['vault']) as vault:
         record=vault.read(vault.message_key(f['f']['tenant'],'real',f['f']['message']['id']))
     assert str(item[0])==record.run_id and item[1]==record.request_id and item[2].astimezone(UTC)==datetime.fromisoformat(record.expires_at)

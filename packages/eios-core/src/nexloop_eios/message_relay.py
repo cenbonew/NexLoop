@@ -119,7 +119,8 @@ class MessageRelay:
             item=self.port.call('claim',consumer_id=self.recipe['consumer_id'],lease_seconds=30)
             if item is None: return 'idle'
             message_id=item['message_id']; fence=item['fence']
-            bridge=ConversationRuntimeBridge(self.route)
+            from nexloop_eios.context_runtime_bridge import ContextConversationRuntimeBridge
+            bridge=ContextConversationRuntimeBridge(self.route)
             if item.get('route_fence') is not None:
                 recovered=bridge._call('ack',message_id=message_id,fence=item['route_fence'],allow_missing=True)
                 if recovered is not None:
@@ -157,15 +158,17 @@ class MessageRelay:
                 'trigger_event_id':canonical_event_id(item['tenant_id'],'real',item['source_event_id']),
                 'role_ref':self.recipe['role_ref'],'consumer_ref':'consumer:'+self.recipe['consumer_id'],
                 'goal_version_ref':'goal:'+goal+':revision:1:step:1:control:'+str(self.recipe['control_revision']),
-                'context_manifest_ref':self.recipe['context_manifest_ref'],'runtime_profile':self.recipe['runtime_profile'],
+                'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':self.recipe['runtime_profile'],
                 'credential_ref':'run:'+record.run_id,'budget':self.recipe['budget'],'not_after':record.expires_at,
                 'runtime_owner_epoch':self.recipe['runtime_owner_epoch']}
-            bridge.bind_message(message_id=message_id,run_token=record.token,command=command,queue=self.recipe['queue'])
+            context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command)
+            command['context_manifest_ref']=context['artifact_ref']
+            bridge.bind_message(message_id=message_id,run_token=record.token,command=command,input=context['input'],queue=self.recipe['queue'])
             owned=self.port.call('own_route',message_id=message_id,fence=fence)
             run=self.route._backend.authenticate_run(record.token,world='real',run_id=record.run_id)._session
             bridge._call('authorize',message_id=message_id,fence=owned['route_fence'],run_proofs=bridge._authority._run_proofs(run))
             self.route.accept_runtime_event(queue=self.recipe['queue'],source_id='webchat',event_id=command['trigger_event_id'],
-                run_token=record.token,command=command,input=item['body'])
+                run_token=record.token,command=command,input=context['input'])
             bridge._call('ack',message_id=message_id,fence=owned['route_fence'],allow_missing=False)
             self.port.call('release',message_id=message_id,fence=fence)
             return 'queued'

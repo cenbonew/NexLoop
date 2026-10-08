@@ -88,7 +88,17 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 if result.get('authorized') is not True or result.get('run_id')!=body['command'].get('run_id') or type(result.get('ever_execution_authorized')) is not bool:
                     self.send(403,{'authorized':False});return
                 # Never serialize the backend object or a raw EIOS identity row.
-                self.send(200,{'authorized':True,'run_id':result['run_id'],'ever_execution_authorized':result['ever_execution_authorized']})
+                projected={'authorized':True,'run_id':result['run_id'],'ever_execution_authorized':result['ever_execution_authorized']}
+                if 'context_artifact' in result:
+                    import re
+                    artifact=result['context_artifact']
+                    if (type(artifact) is not dict or set(artifact)!={'artifact_ref','sha256','command_binding_digest'}
+                        or any(type(v) is not str for v in artifact.values())
+                        or re.fullmatch('artifact:[a-f0-9]{32}',artifact['artifact_ref']) is None
+                        or any(re.fullmatch('[a-f0-9]{64}',artifact[key]) is None for key in ('sha256','command_binding_digest'))):
+                        self.send(503,{'authorized':False});return
+                    projected['context_artifact']=artifact
+                self.send(200,projected)
             except Exception:
                 self.send(503,{'authorized':False})
             finally:slots.release()

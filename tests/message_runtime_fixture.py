@@ -18,6 +18,7 @@ from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.backend import open_backend
 from nexloop_eios.effect_contexts import CONFIGURE,BIND,EFFECT,effect_plan_schemas,registrar_schema
+from nexloop_eios.context_artifacts import ACTION as CONTEXT_BIND,context_binding_schema
 from nexloop_eios.browser_identity import open_browser_identity
 from nexloop_eios.browser_sessions import PostgresBrowserSessionUnitOfWork
 from nexloop_eios.browser_authorization import authenticate_browser_business
@@ -41,13 +42,14 @@ def message_plan(admin,pg,tmp_path):
     base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
     refs={name:definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
     for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
-    actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',),READ:('Conversation',),ROUTE:('Conversation',)})
+    actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),CONTEXT_BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',),READ:('Conversation',),ROUTE:('Conversation',)})
     for name,types in actions.items():
         body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));body.pop('contract_digest',None)
         body['stable_name']=name;body['object_types']=[refs[k].model_dump(mode='json') for k in types]
         body['governance']['change_scope']['object_types']=body['object_types']
         capname='ontology.object.create' if name.endswith('.create') else name;body['capability_binding']['capability_name']=capname
         if name in (CONFIGURE,BIND):body['input_schema']=registrar_schema('configure' if name==CONFIGURE else 'bind')
+        if name==CONTEXT_BIND:body['input_schema']=context_binding_schema()
         if name==EFFECT:
             body['governance']['change_scope']['target_systems']=['service']
             body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
@@ -58,7 +60,17 @@ def message_plan(admin,pg,tmp_path):
     owner_token=seed_multi_uuid(admin,tenant,targets(['Consumer.create','EffectControl.create',CONFIGURE,QUEUE,OWNERSHIP,ROUTE]),suffix='-owner')
     planner_token=seed_multi_uuid(admin,tenant,targets(['Goal.create','PlanStep.create',BIND]),suffix='-planner')
     executor_token=seed_multi_uuid(admin,tenant,targets([EFFECT,'nexloop.service.query']),suffix='-executor')
-    source_tokens=[seed_multi_uuid(admin,tenant,targets([EFFECT]),suffix='-source-'+letter) for letter in ('A','B')]
+    from context_source_declarations import source_declarations
+    source_tokens=[]
+    for letter in ('A','B'):
+        binding,rows=source_declarations(tenant,identity_suffix='-source-'+letter)
+        token=secrets.token_urlsafe(48);source_tokens.append(token)
+        expiry=next(r['payload']['expires_at'] for r in rows if r['kind']=='authentication')
+        admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
+            (hashlib.sha256(token.encode()).hexdigest(),tenant,binding.credential_id,Jsonb(binding.model_dump(mode='json')),['real'],'nexloop-core','active',expiry))
+        for row in rows:
+            admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s) on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload',
+                (tenant,row['kind'],row['key'],Jsonb(row['payload'])))
     worker_token=seed_multi_uuid(admin,tenant,targets([QUEUE]),suffix='-runtime-worker')
     with ExitStack() as stack:
         config=dict(signing_key_file=key,signing_key_id='runtime-effect')

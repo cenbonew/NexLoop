@@ -1,0 +1,541 @@
+{
+  "recorded_at": "2026-10-08T10:47:41.364626+00:00",
+  "task": "NX-016",
+  "scope": "merged main head0052 focused implementation checkpoint, not full local CI or task completion",
+  "changed_sources": [
+    {
+      "path": "README.md",
+      "sha256": "5f5a4d45f122869b4613885af2b93d554ce71e389208e427984bb8f678f78e2d"
+    },
+    {
+      "path": "apps/agent-host/src/context-input.ts",
+      "sha256": "141f57c1fa1343417aca973d038392f7153e09a332bee132644672a85241ac2b"
+    },
+    {
+      "path": "apps/agent-host/src/runtime-host.ts",
+      "sha256": "6a896bce6c330c8f3cb0a44f44aa26fa3589c0c2e3f5e69a53740f83e145ad23"
+    },
+    {
+      "path": "docs/implementation/context-artifact-protocol.md",
+      "sha256": "e9381b9c0cb79b46f2eae4067f681611ab49cee3de72cc3d5645554cc397eb12"
+    },
+    {
+      "path": "packages/eios-core/src/eios/migrations/0052_context_artifact_binding.sql",
+      "sha256": "ab28e7be0f7ce7317ee2614df5bcb935c37555d5514fce3f8b74f02a18216491"
+    },
+    {
+      "path": "packages/eios-core/src/eios/migrations/catalog.json",
+      "sha256": "f27c9d4e3378dcbf5cd61b7e530457a92265b78cb7e815751c1fdd917c5e3141"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/backend.py",
+      "sha256": "5fcd38ece59c0f3dd4ce2b9606580b667e2c8207d207bb29d981b272615d3f3c"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/context_artifacts.py",
+      "sha256": "3ab1e6699ee17ca891cf50ca870e4416414766ff082bf371a597243c97c9ccbc"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/context_pack.py",
+      "sha256": "49df2bbff6d209f342879da11e9f2578b3755a18d34ec1c607a29de37572434e"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/context_runtime_bridge.py",
+      "sha256": "9e6538f15fa628dca98d5febcfbfedc246aa75ebabd44ee17883c06e05af2515"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/message_relay.py",
+      "sha256": "7f5ae0c7e0790f59c30c6168c16b32d2ea4dead1b8b8214217e6f281d7b8aa7e"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/runtime_activation.py",
+      "sha256": "a9091d322abebd2ba9fe838333714fc11b34727d2fc1960df2c8fff9d8490423"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/runtime_control.py",
+      "sha256": "059815d1dc197015963770a778925201484625d35702f945e3564ce07f62d277"
+    },
+    {
+      "path": "tests/context_artifact_process.py",
+      "sha256": "874863e036ebeca1e122a0f77969847ad35c56a649f7fb3d5e4116ab0df45918"
+    },
+    {
+      "path": "tests/context_source_declarations.py",
+      "sha256": "936a25929a7c3f36b0217d1b10ce485758a288cfc5ef5ffb6db331abc102da2c"
+    },
+    {
+      "path": "tests/local_message_assembly_fixture.py",
+      "sha256": "78f216ee78f64fb3b8ad8c7d2b523ce38b9aec32ad3131dc305e3371ccc5f033"
+    },
+    {
+      "path": "tests/message_driven_assembly_fixture.py",
+      "sha256": "4f1f278aa8af9b6dcc3d5ab865fa5b950556feb89aa0aeb001e032c55abb6863"
+    },
+    {
+      "path": "tests/message_runtime_fixture.py",
+      "sha256": "43d22d829ce35dc3d20e90fed9000706b63b42972da65592160efda059e74381"
+    },
+    {
+      "path": "tests/test_context_artifacts.py",
+      "sha256": "9b3aa17107362611207ea210ae7ed804b19ad9460110c8b313b85b5092201bbc"
+    },
+    {
+      "path": "tests/test_context_host_export.py",
+      "sha256": "3b1780cfadea3b2b46c03ecf92d756e03d73dd98e73f5ae81679c2b5bdb214fd"
+    },
+    {
+      "path": "tests/test_context_host_recovery.py",
+      "sha256": "e94277f6e165b4524ce500d42132f48c11b82db5389d0da2b02647aac3909729"
+    },
+    {
+      "path": "tests/test_context_input.py",
+      "sha256": "e3f494cfce15101f512cd4157bcb3d23de7097cafe81478c7670ef3744d1accc"
+    },
+    {
+      "path": "tests/test_context_mode_configuration.py",
+      "sha256": "8c00220f39574380b1de1a2c853e0a63521ce706721ac270e6a58a3bd228b5f9"
+    },
+    {
+      "path": "tests/test_context_pack.py",
+      "sha256": "6279316af77db7606770770f1034d7b15c132ff7685663e5f060fb4cd3c6c0ca"
+    },
+    {
+      "path": "tests/test_local_message_delivery_assembly.py",
+      "sha256": "c64024354e981cadd62b417eb0b37262c7e55307ee5180615c37986bab5f4cfe"
+    },
+    {
+      "path": "tests/test_message_driven_delivery.py",
+      "sha256": "333c830fa4447cc8c83471e0e724fdc4528447ce9d77ae58f064a4d463e2d945"
+    },
+    {
+      "path": "tests/test_message_relay.py",
+      "sha256": "2a2ae2543fb6fe86f340eda2765050047b4d8a2bbbd00d6673a1798363c9951f"
+    },
+    {
+      "path": "versions.lock.json",
+      "sha256": "f6870c71ff0a6113ada904a77b143d554d4e6d8a989f0a428671ef7a369d897a"
+    }
+  ],
+  "migration52_sha256": "ab28e7be0f7ce7317ee2614df5bcb935c37555d5514fce3f8b74f02a18216491",
+  "old_migrations": [
+    {
+      "name": "0001_durable_core.sql",
+      "identical": true,
+      "sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13"
+    },
+    {
+      "name": "0002_roles_and_tenant_boundary.sql",
+      "identical": true,
+      "sha256": "fe3509f7139ff86049306169dd2a0b69b83c384ce4560aefaac45f0bcc945f12"
+    },
+    {
+      "name": "0003_default_authority_hardening.sql",
+      "identical": true,
+      "sha256": "6b31b0f801ba7dcc363a4a6bfa9757d69f8560df571d11059f16ca016bfd0cea"
+    },
+    {
+      "name": "0004_service_authority_facts.sql",
+      "identical": true,
+      "sha256": "474869705bd0b4833184393f9dd816f9d09a9c557f3ce0e3df41adfa13405063"
+    },
+    {
+      "name": "0005_local_artifact_governance.sql",
+      "identical": true,
+      "sha256": "657ecf256a7165d1fd3de4d2db0eccc86c80da41d7994d9add2c5b142fb6331a"
+    },
+    {
+      "name": "0006_local_artifact_retention.sql",
+      "identical": true,
+      "sha256": "3b210483dbdabd431c67ad815a1dd6932437d1795d1254edb223c7634c900fc0"
+    },
+    {
+      "name": "0007_action_claims.sql",
+      "identical": true,
+      "sha256": "77e4620ae04f4c633a9f23cad3f3a013b12a6fc3230619b6b4ee2dbdbd596498"
+    },
+    {
+      "name": "0008_action_definitions.sql",
+      "identical": true,
+      "sha256": "6222969ea0888146acdd8f9784db1acae7122a97b1e33895cb1e54ec88ff9aa2"
+    },
+    {
+      "name": "0009_action_schema_bundle.sql",
+      "identical": true,
+      "sha256": "5a03e3ed359241a57da22e5c5815d19ebbd0344703180acf4bf592c9b07425b4"
+    },
+    {
+      "name": "0010_governed_object_create.sql",
+      "identical": true,
+      "sha256": "65217d09cf7a28fd8a73a550a7b002693759fd83d32c77612e2099177c2acb3a"
+    },
+    {
+      "name": "0011_authorized_object_read.sql",
+      "identical": true,
+      "sha256": "96326d62c9b07141dba99a0025a9d527c59fae4f8a581141259b287c470d53ba"
+    },
+    {
+      "name": "0012_backend_signer_attestation.sql",
+      "identical": true,
+      "sha256": "41a342e1d52d55acc9d4067fd0002b66531efacfb0802116148b12e4544e943f"
+    },
+    {
+      "name": "0013_expired_pending_artifacts.sql",
+      "identical": true,
+      "sha256": "2e47ecb22de46dcfd4fab3ed8da0999188af8d299ef519c02eb7dcb9d1287a09"
+    },
+    {
+      "name": "0014_artifact_cleanup_candidates.sql",
+      "identical": true,
+      "sha256": "66c9b24d64696a9e114ee83c9088c70b225a2ff25eda97f7cf04d8d62d3d645d"
+    },
+    {
+      "name": "0015_governed_object_edit.sql",
+      "identical": true,
+      "sha256": "b61d9a23eff101db74b70c0969b3290a8e76aea9495e7dd8195cc1652ddebac0"
+    },
+    {
+      "name": "0016_governed_relation_link.sql",
+      "identical": true,
+      "sha256": "b184e8d00c09bbf5a8c5ca8f214d07155ff3d495c2afedfb48b0ee142e81cf3f"
+    },
+    {
+      "name": "0017_temporary_artifact_cleanup.sql",
+      "identical": true,
+      "sha256": "09d032b486e3e3c982d944e27de39afed65759fccadd68339adb29dc30ab0525"
+    },
+    {
+      "name": "0018_final_artifact_orphan_sweeps.sql",
+      "identical": true,
+      "sha256": "45955fca3a58300495773d5c396d7d037d99b25fcb7e1cee26e71be950f2d561"
+    },
+    {
+      "name": "0019_browser_identity_rate_limits.sql",
+      "identical": true,
+      "sha256": "3d39d00b72349f54da3555850e24b0d9916b8ca9e79bb5083f0dbbeb3fcad751"
+    },
+    {
+      "name": "0020_browser_identity_operator_binding.sql",
+      "identical": true,
+      "sha256": "e99da5659d4f590e21ca914c141f44934b61bad3a568af00ba2df1e3094b6c49"
+    },
+    {
+      "name": "0021_browser_identity_canonical_reads.sql",
+      "identical": true,
+      "sha256": "78b9a8ea2e538690bf171c0dadec4be497913951e1c844f64f426907cdcbc6b2"
+    },
+    {
+      "name": "0022_browser_account_failures.sql",
+      "identical": true,
+      "sha256": "090ab560a7872e35b756910e03410708a17f767ada20271e1475883733fba690"
+    },
+    {
+      "name": "0023_browser_account_failure_receipts.sql",
+      "identical": true,
+      "sha256": "d2db448a87d766a6fea3fc1a067f0fac4853807229c82483e39cafc35bd0da75"
+    },
+    {
+      "name": "0024_browser_account_password_save.sql",
+      "identical": true,
+      "sha256": "5bd609e1fce8fdfd92598de7efa65f84aab80a8800c4046251858bf226feb8f4"
+    },
+    {
+      "name": "0025_browser_authentication_evidence.sql",
+      "identical": true,
+      "sha256": "65b18316bcd314ec0b76cade68561ddd7d3bdb1ebcd70eb62a0b4809c5dee7b5"
+    },
+    {
+      "name": "0026_browser_session_creation.sql",
+      "identical": true,
+      "sha256": "cab68a088526ff91c46291550d17ecdd8e017d0c1abf5aef66b03c3ab8e07dca"
+    },
+    {
+      "name": "0027_browser_session_reads.sql",
+      "identical": true,
+      "sha256": "b7cf168e3004ffa97144e9767939f198c2f6b793aba41a7e8e34818e4ceadaaa"
+    },
+    {
+      "name": "0028_browser_session_touch.sql",
+      "identical": true,
+      "sha256": "a5ac35da36ed6a43e53a8a54aecd1ac9b1081b0ab43fed5c87bb5ceea6dd487c"
+    },
+    {
+      "name": "0029_browser_session_revoke.sql",
+      "identical": true,
+      "sha256": "b2f25a4ecf780d4374038a2eedb8cbaea966621a1b7746377f18fb28a06638d9"
+    },
+    {
+      "name": "0030_browser_login_session_replacement.sql",
+      "identical": true,
+      "sha256": "a902a6ad9e6aebeebe8e302fd90706ce15fc3d7f3db014740026b596e16b99c4"
+    },
+    {
+      "name": "0031_browser_tenant_rotation.sql",
+      "identical": true,
+      "sha256": "c1373145e760e8b233b974fa3346b9c33f90c0ed95b9402aa573f8d7e8cc861f"
+    },
+    {
+      "name": "0032_identity_browser_rate_operator.sql",
+      "identical": true,
+      "sha256": "2ec5a01ab18baa7a997b89a9da3eebfaa55bd58f2b78e4512267edfeae904b7f"
+    },
+    {
+      "name": "0033_authenticated_agent_invocation.sql",
+      "identical": true,
+      "sha256": "01a2fd7ace8339ba012aabb90ecdc8799047fb3725b4d269fb2e6dcaabb33405"
+    },
+    {
+      "name": "0034_run_bound_credentials.sql",
+      "identical": true,
+      "sha256": "33c180bf49ffd1db5c6495000e969703a1f62e280239bd4bce9a51c70a0be592"
+    },
+    {
+      "name": "0035_durable_inbox_outbox_queue.sql",
+      "identical": true,
+      "sha256": "4e4ee091dc2024820d53b684bb43ed05b2d367460eabfb6a7fc41a613ed18a55"
+    },
+    {
+      "name": "0036_runtime_task_lease_guard.sql",
+      "identical": true,
+      "sha256": "b7323b730c677528bac5c15fd0f46f80b4a229d840bb2b772b837ad0aa61e381"
+    },
+    {
+      "name": "0037_runtime_activation_registry.sql",
+      "identical": true,
+      "sha256": "8d408764e669345b896b9bf2ebf90925727dc6cd95d99c0f08138569e4b85d00"
+    },
+    {
+      "name": "0038_runtime_input_binding.sql",
+      "identical": true,
+      "sha256": "d1835f89f682b1ef2d729e59b4205d64d24cfb7ad2894bc824fd7cb3686c33ca"
+    },
+    {
+      "name": "0039_runtime_execution_marker.sql",
+      "identical": true,
+      "sha256": "6232b48223d4cbe1e0bfe26ef7fcfbc61a086a7f926d800b4f30688706d4c666"
+    },
+    {
+      "name": "0040_effect_intents.sql",
+      "identical": true,
+      "sha256": "64a5e630269dc9946eee1c71cd5311c642a52ff7ab3a259f7309dea4db3cebb1"
+    },
+    {
+      "name": "0041_effect_context_registrar.sql",
+      "identical": true,
+      "sha256": "5896ad202a2a08775c1daa5eda03abdc99d8a100443d57b4cd98189d0d4a8eef"
+    },
+    {
+      "name": "0042_effect_execution_ledger.sql",
+      "identical": true,
+      "sha256": "7c2c015f0a905f3c5fb1fbe3de08abfbb97eacf500b89d3b5e050d615825595b"
+    },
+    {
+      "name": "0043_runtime_effect_context_binding.sql",
+      "identical": true,
+      "sha256": "2719550a2c7befb37e76ae1e589f54072f49940e655e4bac8ce3447a2691b0cc"
+    },
+    {
+      "name": "0044_effect_provider_binding.sql",
+      "identical": true,
+      "sha256": "04b88ecb763988adfc30f8fffa507c358f6d85e76ffe6ebf5e5e19a389647183"
+    },
+    {
+      "name": "0045_browser_business_authority.sql",
+      "identical": true,
+      "sha256": "4b7a63137b2c7f8022d72c63ebf4f9cecce962e70be2ab545d56687481abde41"
+    },
+    {
+      "name": "0046_conversation_messages.sql",
+      "identical": true,
+      "sha256": "2ccfcd410bbb364e8288cb0e082bcd687256c7d74a9c1d080ec5cf7e8240850b"
+    },
+    {
+      "name": "0047_message_runtime_bridge.sql",
+      "identical": true,
+      "sha256": "006722783de8d07c0db6d15c574578de93b0a8da3448eef9f172a1cbc22b2106"
+    },
+    {
+      "name": "0048_conversation_effect_receipts.sql",
+      "identical": true,
+      "sha256": "0c66a4cc67b35eefbb29a755cc6b2e6e3e7b827c2becd5d1b45dc172e96a1114"
+    },
+    {
+      "name": "0049_message_run_issuance.sql",
+      "identical": true,
+      "sha256": "84f2b374fd5199e35c600b09e04a86f468d192a570f353a156ba618a4e1ef939"
+    },
+    {
+      "name": "0050_trusted_configuration.sql",
+      "identical": true,
+      "sha256": "7dc93e59b7593ddfad90a8ef04fdf715366f9ca4c004b545297951dccbf8ba93"
+    },
+    {
+      "name": "0051_local_json_delivery.sql",
+      "identical": true,
+      "sha256": "d475cadb8a165c4089d39394f7c18852c3efe18010afe2621ae66f6fc3d15849"
+    }
+  ],
+  "reports": [
+    {
+      "path": ".ci-results/context-head0052.xml",
+      "sha256": "50a6412de2302a852bcb1efb8fb9102c78a36ef84579b246493b14b598e87548",
+      "tests": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": ".ci-results/context-head0052-runtime.xml",
+      "sha256": "1bd3370ff011ccb33797ba7e3ea5f1b0bc86c9853c7017981e151e485d370316",
+      "tests": 61,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": ".ci-results/context-head0052-integrated.xml",
+      "sha256": "0090908fce88cfd713b00f3400d7f51a1ec5375807fe71748684d05b688d00a3",
+      "tests": 79,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "commands": [
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm --filter @nexloop/agent-host build && uv run --frozen pytest -q tests/test_context_pack.py tests/test_context_artifacts.py tests/test_context_input.py tests/test_context_mode_configuration.py tests/test_context_host_export.py tests/test_context_host_recovery.py --junitxml=.ci-results/context-head0052.xml",
+      "result": "build exit0;57passed67.50s/7deprecationwarnings; first main run"
+    },
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/context-head0052-runtime.xml",
+      "result": "61passed3.14s; expected Node SQLite ExperimentalWarning"
+    },
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_context_pack.py tests/test_context_artifacts.py tests/test_context_input.py tests/test_context_mode_configuration.py tests/test_context_host_export.py tests/test_context_host_recovery.py tests/test_message_relay.py tests/test_local_message_delivery_assembly.py tests/test_message_driven_delivery.py --junitxml=.ci-results/context-head0052-integrated.xml",
+      "result": "79passed137.85s/9deprecationwarnings; first integrated main run after seven compatibility fixtures/tests changed"
+    }
+  ],
+  "candidate_first_failures": {
+    "core": [
+      {
+        "command": "PYTHONPATH=docs/tmp/context-artifact-slice/packages/eios-core/src:docs/tmp/context-artifact-slice/tests .venv/bin/python -m pytest docs/tmp/context-artifact-slice/tests/test_context_pack.py -q",
+        "session": "initial_pure",
+        "result": "8 passed in 0.32s"
+      },
+      {
+        "command": "PYTHONPATH=docs/tmp/context-artifact-slice/packages/eios-core/src:docs/tmp/context-artifact-slice/tests .venv/bin/python -m pytest docs/tmp/context-artifact-slice/tests/test_context_artifacts.py -q",
+        "session": "53370",
+        "result": "1 setup error in 2.11s: immutable existing credential binding; fixture replaced with separately configured credential, same real Source principal"
+      },
+      {
+        "session": "37499",
+        "result": "1 failed in 2.44s: fixture READ grant replaced CREATE on same Artifact resource; configured both actual operations"
+      },
+      {
+        "session": "64988",
+        "result": "1 failed in 2.56s: 0052 confused route issuer_principal with Source; fixed actual MessageAssignment source identity/revision + actual Run identity"
+      },
+      {
+        "session": "21178",
+        "result": "1 passed in 3.22s"
+      },
+      {
+        "session": "51728",
+        "result": "3 passed, 5 failed in 17.01s: test claim payload key and forbidden empty ScopeAuthority scopes; real grant revocation replaced scope mutation"
+      },
+      {
+        "session": "41129",
+        "result": "7 passed, 1 failed in 16.50s: test normalized_input key changed by overly broad replacement"
+      },
+      {
+        "session": "24179",
+        "result": "16 passed in 16.54s: 8 pure + 8 actual PG"
+      },
+      {
+        "session": "19614",
+        "result": "20 passed, 1 failed in 28.03s: test confused Backend metadata with public HTTPS allowlist; actual HTTPS added"
+      },
+      {
+        "command": "PYTHONPATH=docs/tmp/context-artifact-slice/packages/eios-core/src:docs/tmp/context-artifact-slice/tests .venv/bin/python -m pytest docs/tmp/context-artifact-slice/tests/test_context_pack.py docs/tmp/context-artifact-slice/tests/test_context_artifacts.py -q",
+        "session": "82404",
+        "result": "21 passed in 29.57s"
+      },
+      {
+        "session": "16115",
+        "result": "1 passed, 1 failed in 6.97s: restricted transaction count read was correctly denied; replaced with actual signed same-transaction receipt query, no table-read bypass"
+      },
+      {
+        "command": "PYTHONPATH=docs/tmp/context-artifact-slice/packages/eios-core/src:docs/tmp/context-artifact-slice/tests .venv/bin/python -m pytest docs/tmp/context-artifact-slice/tests/test_context_artifacts.py -q -k 'tail_artifact or three_process'",
+        "session": "72904",
+        "result": "2 passed in 6.88s",
+        "limitations": "Three-process evidence valid; original TTL-specific conclusion withdrawn due restricted SELECT false positive. Superseded by fixed 46097."
+      },
+      {
+        "session": "root_independent_prior",
+        "result": "2 passed in 6.78s; tail conclusion withdrawn: restricted Artifact SELECT inside pg_sleep caused 42501 before actual sleep, swallowed as unavailable"
+      },
+      {
+        "session": "26520",
+        "result": "2 passed in 8.98s after fixing deadline source and explicit wait_completed/PGclock; before adding fixed SQL tail-rejection observation"
+      },
+      {
+        "command": "PYTHONPATH=docs/tmp/context-artifact-slice/packages/eios-core/src:docs/tmp/context-artifact-slice/tests .venv/bin/python -m pytest docs/tmp/context-artifact-slice/tests/test_context_pack.py docs/tmp/context-artifact-slice/tests/test_context_artifacts.py -q --junitxml=docs/tmp/context-artifact-slice/docs/implementation/context-artifact-focused.xml",
+        "session": "46097",
+        "result": "23 passed in 37.10s; 8 pure + 15 actual PG; wait_completed + PGclock expiry + actual final SQL authorize/tool 42501 fixed context error observed; full write/marker/quota baseline rollback"
+      }
+    ],
+    "host": [
+      "22001 collection error .13s: core lacks contracts dir, copy stopped before fixtures; copied main contracts/core fixtures separately",
+      "18559 1 failed 3.97s: test lease3/default requesttimeout2 rejected correctly; explicit timeout1 corrected",
+      "93747 1 passed1failed19.57s: test incorrectly demanded per-guard physical blob reread; contract checks authoritative metadata/current READ. Final negative deletes actual technical metadata, preserves SQLite and asserts zero new intent."
+    ],
+    "compatibility": [
+      {
+        "session": "2982",
+        "result": "2 setup errors 2.49s",
+        "reason": "typed Application duplicate resources and stale snapshot digest after metadata mutation"
+      },
+      {
+        "session": "28245",
+        "result": "1 passed 1 setup error 4.46s",
+        "reason": "specialized context fixture duplicated its real published Action after shared fixture upgrade"
+      },
+      {
+        "session": "60015",
+        "result": "42 passed 1 failed 80.74s",
+        "reason": "actual Host required Node24, command inherited Node20; no provider execution"
+      },
+      {
+        "session": "48427",
+        "result": "22 passed 72.40s",
+        "scope": "20 real relay plus local delivery and two-message body delivery; Node24 build completed"
+      }
+    ]
+  },
+  "verification": [
+    "Actual guarded Source Artifact CREATE/READ and governed context binding; no queue ACK before durable binding",
+    "All49-issued Message Runs require ContextArtifact in actual model/tool Guard; obsolete inner EXECUTE revoked",
+    "Immutable canonical pack remains Pi input; synthetic extraction requires explicit protocol and fresh PG whole-input attestation",
+    "Actual TTL expiry after accepted signed Intent rolls back all transaction writes and quota",
+    "Three actual subprocesses replay/model/tool without previous lock cycles",
+    "SIGKILL actual Host/Worker then fresh fence reopens same SQLite FULL submission; deleted Artifact metadata rejects recovery with zero new Intent",
+    "Actual HTTPS JSON export retains original Human Message and same Human governed receipt",
+    "Old relay/local assembly/two-message exact-body and replay paths work with genuine Source grants"
+  ],
+  "versions_lock_changes": {
+    "bootstrap_revision": {
+      "before": "0051",
+      "after": "0052"
+    },
+    "upstream_sources": "unchanged",
+    "packages_other_than_core": "unchanged",
+    "images": "unchanged"
+  },
+  "remaining": [
+    "Full current-head local CI not yet run",
+    "Real model verification pending configured credential; no real model key read or model request in this checkpoint",
+    "Production stage assembly and complete reliability matrix still pending",
+    "No S3 ContextEngine/semantic/embedding completion claim",
+    "Every guard checks current metadata and READ authority, not physical blob reread"
+  ],
+  "push_performed": false
+}

@@ -152,6 +152,9 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'read_object',
             type_name=type_name, object_id=object_id, fields=fields)
 
+    def prepare_message_context(self, *, message_id, run_token, command):
+        return self._backend._invoke(self._session, 'prepare_message_context', message_id=message_id,run_token=run_token,command=command)
+
     def put_artifact(self, *, request_id, payload, media_type, retention_until):
         return self._backend._invoke(self._session, 'put_artifact',
             request_id=request_id, payload=payload, media_type=media_type,
@@ -343,6 +346,9 @@ class Backend:
                 return collector.collect(**arguments) if operation=='collect_orphans' else collector.resume(**arguments)
             artifacts = LocalArtifactService(
                 PostgresArtifactRepository(self._pool, session, self._signer), self._store)
+            if operation == 'prepare_message_context':
+                from nexloop_eios.context_artifacts import ContextArtifactProducer
+                return ContextArtifactProducer(AuthenticatedServices(self,session)).prepare(**arguments)
             if operation == 'put_artifact':
                 return artifacts.put(**arguments)
             if operation == 'read_artifact':

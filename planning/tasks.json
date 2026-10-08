@@ -1217,6 +1217,12 @@
         "ref": "6223c21cdaebdf44d706dc8d3cc5b4f3834682d2",
         "summary": "Independent premerge core52/Host evidence checkpoint only; candidate code remains ignored and task remains in_progress",
         "recorded_at": "2026-10-08T10:35:04.300168+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/context-head0052-evidence.json",
+        "summary": "Merged head0052 ContextArtifact mandatory binding, strict Host attestation and true file delivery/recovery. Main79passed137.85s and Runtime61passed3.14s; immutable SQL1–51. Full current-head CI, stage and real-model verification pending; stays in_progress.",
+        "recorded_at": "2026-10-08T10:47:41.364626+00:00"
       }
     ]
   },

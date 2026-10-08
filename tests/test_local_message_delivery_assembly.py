@@ -88,6 +88,9 @@ def test_explicit_configuration_to_same_human_real_json_delivery(assembled_messa
             relay += sum((['--'+name+'-credential-file',str(credentials['assembly-'+label])] for name,label in [('route','route'),('source','source'),('planner','planner'),('executor','executor')]),[])
             assert once('nexloop_eios.message_relay_cli',relay,hidden)=='Message relay ready\n{"status":"queued"}\n'
             routed=client.get('/api/v1/messages/'+message_id+'/receipt').json();run=routed['run'];assert run and routed['receipt'] is None
+            payload=admin.execute('select normalized_input from runtime.jobs where job_id=%s',(run['task_id'],)).fetchone()[0]
+            pack=json.loads(payload['input']);assert pack['schema_version']=='nexloop.context-pack.v1' and pack['user_statement']['body']==message['body']
+            assert payload['run_command']['context_manifest_ref']=='artifact:'+pack['bindings']['artifact_id']
             assert admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='MessageAssignment'",(tenant,)).fetchone()==(1,)
             # Independent real runtime CLI owns the actual TLS guard. Node only
             # receives opaque activation metadata; no DB/Run/provider secrets.
@@ -95,6 +98,7 @@ def test_explicit_configuration_to_same_human_real_json_delivery(assembled_messa
             guard_port=free_port();guard_key=private(tmp_path,'assembly-guard-key',secrets.token_hex(32))
             guard_tls=tmp_path/'guard-tls';guard_tls.mkdir(mode=0o700);files(guard_tls)
             host_config=effect_configuration(guard_tls,guard_port,guard_key)
+            cfg=json.loads(host_config.read_text());cfg.pop('deterministic_effect_message');cfg.update(deterministic_message_from_input=True,context_input_protocol='nexloop.context-pack.v1');host_config.write_text(json.dumps(cfg))
             with reaped_host(runtime,host_key,host_config) as (_,host_client,_):
                 worker=['--database-url-file',str(domain_dsn),*common,'--service-credential-file',str(credentials['assembly-runtime-worker']),
                     '--artifact-root',str(tmp_path/'runtime-worker-artifacts'),'--world','real','--queue','operations',
@@ -141,7 +145,7 @@ def test_explicit_configuration_to_same_human_real_json_delivery(assembled_messa
                 assert receipt['provider_state']=='fulfilled' and receipt['governed_claim_finalized'] is True and receipt['business_action_success'] is True
                 product=json.loads((delivery_root/(intent+'.export.json')).read_text())
                 assert product['intent_id']==intent and product['format']=='nexloop.json-export.v1'
-                assert product['document']['body']=='one governed runtime service' and len(list(delivery_root.glob('*.export.json')))==1
+                assert product['document']['body']==message['body'] and len(list(delivery_root.glob('*.export.json')))==1
             assert once('nexloop_eios.message_relay_cli',relay,hidden)=='Message relay ready\n{"status":"idle"}\n'
             assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s',(tenant,)).fetchone()==(1,)
             assert admin.execute('select count(*) from runtime.nexloop_effect_attempts where tenant_id=%s',(tenant,)).fetchone()==(1,)

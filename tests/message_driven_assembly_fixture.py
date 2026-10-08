@@ -14,6 +14,8 @@ from eios.ontology.definitions import ActionDefinition,FunctionDefinition
 from eios.ontology.version_resolution import CapabilityContractSnapshot
 from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.effect_contexts import BIND,registrar_schema
+from nexloop_eios.context_artifacts import ACTION as CONTEXT_BIND,context_binding_schema
+from context_source_declarations import source_declarations
 from nexloop_eios.conversation_messages import CREATE,MESSAGE,READ
 from nexloop_eios.conversation_runtime_bridge import ROUTE
 from nexloop_eios.conversation_effect_receipts import FUNCTION,QUERY_CAPABILITY
@@ -67,7 +69,7 @@ def message_driven_assembly(business_plan,admin,tmp_path):
         'schema_digest':schema_contract_digest(ObjectTypeDefinition.model_validate_json(json.dumps(schema)))} for name,schema in schemas.items()}
     actions={a['definition']['stable_name']:a for a in manifest['actions']}
     names={'Goal.create':['Goal'],'PlanStep.create':['PlanStep'],CREATE:['Conversation'],MESSAGE:['Message'],READ:['Conversation'],
-        ROUTE:['Conversation'],QUEUE:['Consumer'],'nexloop.service.query':['Consumer'],BIND:['Consumer','Goal','PlanStep','EffectControl']}
+        CONTEXT_BIND:['Consumer','Goal','PlanStep','EffectControl'],ROUTE:['Conversation'],QUEUE:['Consumer'],'nexloop.service.query':['Consumer'],BIND:['Consumer','Goal','PlanStep','EffectControl']}
     for name,types in names.items():
         body=json.loads(json.dumps(base['definition']));body.pop('contract_digest',None)
         body['stable_name']=name;body['object_types']=[refs[t] for t in types]
@@ -75,6 +77,7 @@ def message_driven_assembly(business_plan,admin,tmp_path):
         capability_name='ontology.object.create' if name.endswith('.create') else name
         body['capability_binding']['capability_name']=capability_name
         if name==BIND:body['input_schema']=registrar_schema('bind')
+        if name==CONTEXT_BIND:body['input_schema']=context_binding_schema()
         definition=ActionDefinition.model_validate_json(json.dumps(body))
         actions[name]={'definition':definition.model_dump(mode='json'),
             'capability':{**base['capability'],'capability_name':capability_name,'has_side_effects':True}}
@@ -93,7 +96,9 @@ def message_driven_assembly(business_plan,admin,tmp_path):
     secrets_map=json.loads(original['paths']['secrets'].read_text());credentials=list(manifest['service_credentials'])
     facts={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};tokens={}
     for label,permissions in specs.items():
-        binding,end,rows=declared_service(tenant,permissions,'-'+label);tokens[label]=secrets.token_urlsafe(48);secrets_map[label]=tokens[label]
+        binding,end,rows=declared_service(tenant,permissions,'-'+label)
+        if label=='assembly-source':binding,rows=source_declarations(tenant)
+        tokens[label]=secrets.token_urlsafe(48);secrets_map[label]=tokens[label]
         credentials.append({'reference':label,'binding':binding.model_dump(mode='json'),'worlds':['real'],'expires_at':end.isoformat(),'status':'active'})
         facts.update({(r['kind'],tuple(r['key'])):r for r in rows})
     human_facts,human_app=human_declarations(tenant,f['human']);facts.update({(r['kind'],tuple(r['key'])):r for r in human_facts})

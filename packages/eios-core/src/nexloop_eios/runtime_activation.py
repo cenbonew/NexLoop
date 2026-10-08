@@ -73,12 +73,13 @@ class RuntimeActivationPort:
             proofs.append(self._proof(run,target))
         return proofs
 
-    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,**parameters):
+    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,context_artifact_proof=None,**parameters):
         if not isinstance(queue,str) or re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}',queue) is None:raise ValueError('queue unavailable')
         if proof is None:proof=self._proof(self.session,f'eios:action:NexLoop.queue.{queue}:1')
         payload=canonical_payload({'queue':queue,'verb':verb,**parameters})
         if len(payload.encode())>limit:raise ValueError('bounded activation required')
         claims={'protocol':protocol,'key_id':self.signer.key_id,**proof,'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
+        if context_artifact_proof is not None:claims['context_artifact_proof']=context_artifact_proof
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload
 
@@ -157,9 +158,19 @@ class RuntimeActivationPort:
             first=self._call(queue,'resolve',**parameters)
             with self.pool.connection() as db,db.transaction():
                 verify_application_role(db);run=_identity(db,first['_run_digest'],self.session.world)
-            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run))
+            context_proof=self._context_read_proof(first)
+            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof)
             return {key:value for key,value in result.items() if not key.startswith('_')}
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
+
+    def _context_read_proof(self,resolved):
+        if '_context_source_digest' not in resolved:return None
+        from nexloop_eios.context_artifacts import artifact_authority_proof
+        from eios.authz.operations import Operation
+        with self.pool.connection() as connection,connection.transaction():
+            verify_application_role(connection)
+            source=_identity(connection,resolved['_context_source_digest'],self.session.world)
+        return artifact_authority_proof(self.pool,source,Operation.READ)
 
     def effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None):
         """Trusted Host bridge; actual owned activation selects the Run.
@@ -188,7 +199,7 @@ class RuntimeActivationPort:
                 run=_identity(db,resolved['_run_digest'],self.session.world)
                 if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
                 def guard():
-                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run)))
+                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved)))
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
                 guard()
                 receipt=EffectIntentPort(self.pool,run,self.signer)._execute_in_transaction(

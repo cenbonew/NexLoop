@@ -14,6 +14,8 @@ from eios.ontology.definitions import ActionDefinition,FunctionDefinition
 from eios.ontology.version_resolution import CapabilityContractSnapshot
 from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.effect_contexts import BIND,registrar_schema
+from nexloop_eios.context_artifacts import ACTION as CONTEXT_BIND,context_binding_schema
+from context_source_declarations import source_declarations
 from nexloop_eios.conversation_messages import CREATE,MESSAGE,READ
 from nexloop_eios.conversation_runtime_bridge import ROUTE
 from nexloop_eios.conversation_effect_receipts import FUNCTION,QUERY_CAPABILITY
@@ -58,8 +60,10 @@ def human_declarations(tenant,human):
 
 
 @pytest.fixture
-def assembled_message(business_plan,admin,tmp_path):
+def assembled_message(business_plan,admin,tmp_path,request):
     f=business_plan;original=f['f'];tenant=original['tenant'];manifest=f['manifest']
+    # The specialized context fixture publishes its own immutable profile.
+    publish_context='context_message' not in request.fixturenames
     base=next(a for a in manifest['actions'] if a['definition']['stable_name']=='Consumer.create')
     schemas={s['type_name']:s for s in manifest['object_types']};assignment=message_assignment_schema()
     schemas[assignment.type_name]=assignment.model_dump(mode='json')
@@ -68,6 +72,7 @@ def assembled_message(business_plan,admin,tmp_path):
     actions={a['definition']['stable_name']:a for a in manifest['actions']}
     names={'Goal.create':['Goal'],'PlanStep.create':['PlanStep'],CREATE:['Conversation'],MESSAGE:['Message'],READ:['Conversation'],
         ROUTE:['Conversation'],QUEUE:['Consumer'],'nexloop.service.query':['Consumer'],BIND:['Consumer','Goal','PlanStep','EffectControl']}
+    if publish_context:names[CONTEXT_BIND]=['Consumer','Goal','PlanStep','EffectControl']
     for name,types in names.items():
         body=json.loads(json.dumps(base['definition']));body.pop('contract_digest',None)
         body['stable_name']=name;body['object_types']=[refs[t] for t in types]
@@ -75,6 +80,7 @@ def assembled_message(business_plan,admin,tmp_path):
         capability_name='ontology.object.create' if name.endswith('.create') else name
         body['capability_binding']['capability_name']=capability_name
         if name==BIND:body['input_schema']=registrar_schema('bind')
+        if name==CONTEXT_BIND:body['input_schema']=context_binding_schema()
         definition=ActionDefinition.model_validate_json(json.dumps(body))
         actions[name]={'definition':definition.model_dump(mode='json'),
             'capability':{**base['capability'],'capability_name':capability_name,'has_side_effects':True}}
@@ -93,7 +99,20 @@ def assembled_message(business_plan,admin,tmp_path):
     secrets_map=json.loads(original['paths']['secrets'].read_text());credentials=list(manifest['service_credentials'])
     facts={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};tokens={}
     for label,permissions in specs.items():
-        binding,end,rows=declared_service(tenant,permissions,'-'+label);tokens[label]=secrets.token_urlsafe(48);secrets_map[label]=tokens[label]
+        binding,end,rows=declared_service(tenant,permissions,'-'+label)
+        if label=='assembly-source' and publish_context:
+            binding,rows=source_declarations(tenant)
+            # Separate immutable credential/application from the specialized
+            # context_message profile while retaining the actual Source principal.
+            app_id=binding.caller_application_id+':assembly'
+            credential_id=binding.credential_id+':assembly'
+            binding=binding.model_copy(update={'caller_application_id':app_id,'credential_id':credential_id})
+            for row in rows:
+                if row['kind']=='application':row['key']=[app_id,'1'];row['payload']['application_id']=app_id
+                if row['kind']=='authentication':
+                    row['key']=[credential_id];row['payload'].update(caller_application_id=app_id,credential_id=credential_id)
+                row['payload'].pop('snapshot_digest',None)
+        tokens[label]=secrets.token_urlsafe(48);secrets_map[label]=tokens[label]
         credentials.append({'reference':label,'binding':binding.model_dump(mode='json'),'worlds':['real'],'expires_at':end.isoformat(),'status':'active'})
         facts.update({(r['kind'],tuple(r['key'])):r for r in rows})
     human_facts,human_app=human_declarations(tenant,f['human']);facts.update({(r['kind'],tuple(r['key'])):r for r in human_facts})
