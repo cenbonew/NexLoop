@@ -1227,6 +1227,12 @@
         "ref": "docs/implementation/precise-fault-evidence.json",
         "summary": "Prepared main precise PG fault coverage2passed13.08s plusRuntime61passed2.84s. NX-016 dependency pending; no task completion or full reliability-matrix claim.",
         "recorded_at": "2026-10-08T10:13:51.635971+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2a319ba902e1f5793825761eb5503cca7f00a8a4",
+        "summary": "Precise fault coverage checkpoint; task promotion waits NX-016 and remaining reliability matrix",
+        "recorded_at": "2026-10-08T10:14:03.164985+00:00"
       }
     ]
   },
