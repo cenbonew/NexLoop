@@ -1,0 +1,17 @@
+{
+  "name": "nexloop-runtime-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build:pi": "pnpm --filter @earendil-works/chord build && pnpm --filter @earendil-works/pi-telemetry build && pnpm --filter @earendil-works/pi-ai build && pnpm --filter @earendil-works/pi-durable build"
+  },
+  "devDependencies": {
+    "typescript": "6.0.2",
+    "@types/node": "24.10.1",
+    "vitest": "4.1.11"
+  }
+}

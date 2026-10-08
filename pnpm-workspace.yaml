@@ -1,0 +1,12 @@
+packages:
+  - vendor/pi/packages/*
+  - apps/agent-host
+  - apps/web
+
+onlyBuiltDependencies:
+  - esbuild
+
+overrides:
+  "@smithy/types": 4.18.0
+  vite: 8.0.16
+  rolldown: 1.0.3

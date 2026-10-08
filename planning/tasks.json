@@ -45,6 +45,12 @@
         "ref": "docs/s0/source-reuse-inventory.json",
         "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
         "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "1d5b8523eb8c254b767e3ea82d26fc60a26c2d14",
+        "summary": "NX-002: 核验EIOS来源与依赖图; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:44.381418+00:00"
       }
     ]
   },
