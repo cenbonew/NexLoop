@@ -1538,6 +1538,12 @@
         "ref": "docs/implementation/NX-018-core57-message-regression.json",
         "summary": "core0057真实PG Message/原生重复事件/Offering Run授权回归26passed，零失败/跳过，源码冻结380路径无变更；仍in_progress。",
         "recorded_at": "2026-10-08T15:55:37.487954+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ed0048b7eb7d337185df3bf47b26ca1ee10b86d8",
+        "summary": "core0057真实消息/原生重复事件/Offering执行回归26passed，仍实施中。",
+        "recorded_at": "2026-10-08T15:56:43.712441+00:00"
       }
     ]
   },
@@ -1634,6 +1640,12 @@
         "ref": "b77d89eed90af0412a98f040c92a3438b980bcef",
         "summary": "Preparatory embedding variables/private credential reader/build isolation; no endpoint, measured dimension or index completion",
         "recorded_at": "2026-10-08T11:10:29.133392+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "0e6bb531d97242ccaa3bfc4a0ed87e0b76b987eb",
+        "summary": "仅ADR-019配置准备：公开模板全空/六变量名/文件优先与构建隔离36passed；尚未执行embedding端点验证，任务仍not_started。",
+        "recorded_at": "2026-10-08T15:56:43.712441+00:00"
       }
     ]
   },
