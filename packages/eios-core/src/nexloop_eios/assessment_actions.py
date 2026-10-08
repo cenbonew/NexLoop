@@ -180,8 +180,8 @@ class AuthorizedAssessmentProjection:
     """
     def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
     def current(self,object_id,*,valid_at=None):
-        at=valid_at or datetime.now(UTC)
-        if at.tzinfo is None:raise ValueError('timezone required')
+        at=datetime.now(UTC) if valid_at is None else valid_at
+        if not isinstance(at,datetime) or at.tzinfo is None:raise ValueError('timezone required')
         # Keep existing protected reader row locks for the entire composed projection.
         # No direct business SELECT or caller-controlled GUC is introduced.
         from contextlib import contextmanager

@@ -53,3 +53,15 @@ def test_backend_current_property_revocation_denies_fresh_projection(assessment,
         from datetime import datetime,UTC
         with pytest.raises(ActionAuthorizationDenied,match='^object/property read denied$'):
             services.read_relationship_assessment_history(object_id=obj,known_at=datetime.now(UTC),valid_at=datetime.now(UTC))
+
+@pytest.mark.parametrize('invalid',[0,False,'','2026-10-09T00:00:00Z'])
+def test_backend_invalid_valid_time_cannot_silently_select_current(assessment,pg,admin,tmp_path,invalid):
+    from datetime import datetime,UTC
+    port,creator,p,obj,token=assessment
+    with open_backend(**backend_options(port,pg,tmp_path)) as backend:
+        services=backend.authenticate(token,world='real')
+        with pytest.raises(ValueError,match='^timezone required$'):
+            services.read_relationship_assessment(object_id=obj,valid_at=invalid)
+        with pytest.raises(ValueError,match='^timezone required$'):
+            services.read_relationship_assessment_history(object_id=obj,known_at=datetime.now(UTC),valid_at=invalid)
+        assert admin.execute('select count(*) from ontology.nexloop_assessment_revisions where assessment_id=%s',(obj,)).fetchone()[0]==1

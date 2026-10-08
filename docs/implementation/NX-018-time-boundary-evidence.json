@@ -1,0 +1,31 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T16:30:43.046690+00:00",
+  "command": "PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_assessment_candidate.py tests/test_assessment_backend.py --tb=short --junitxml=.ci-results/nx018-time-boundary-main.xml",
+  "environment": "Node24.13.0, uv Python3.12, disposable PostgreSQL18.4",
+  "result": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "38",
+    "time": "54.336",
+    "timestamp": "2026-10-09T00:22:05.864708+08:00",
+    "hostname": "MacBook-Pro-4.local"
+  },
+  "report_sha256": "21b2d198095a340f902124483175151df9abdf1ca7d97e236e846187f92a8545",
+  "source_check": {
+    "paths": 6,
+    "changed": 0,
+    "timing": "SHA snapshot created after completed test; checked before commit, not a pre-test freeze"
+  },
+  "scope": "Both current and historical Backend assessment reads reject non-datetime valid_at values before authority or audit mutation; 0, False, empty string and datetime string each tested.",
+  "first_failures_and_retries": [
+    "First main run 38 passed, exit0; no skipped tests."
+  ],
+  "versions_lock_change": "none; bootstrap remains0060",
+  "limitations": [
+    "AT-009 remains not_run; NX-018 stays in_progress. Context Artifact source READ revocation gap confirmed separately and pending fix."
+  ]
+}
