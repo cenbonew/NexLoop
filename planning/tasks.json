@@ -1658,6 +1658,24 @@
         "ref": "d5055f256a5ef986028760590284c58f3c2639c5",
         "summary": "origin/main synchronized with verified 0064 checkpoints under three publication gates; 0065 Schema checkpoint is isolated on feature branch for PR.",
         "recorded_at": "2026-10-08T22:56:38.364937+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "0fe87986e493fd48f2c1e75d13c6c5859a14bbe6",
+        "summary": "Pushed origin/main handoff checkpoint after three publication gates and installed hook PASS; origin/main..main count0. Includes verified0065 via PR1 and both handoff documents. NX-018 stays in_progress; executable Role policy/formal current READ/relationship integration incomplete. First document push failed with TLS SSL_ERROR_SYSCALL; identical scan and push retry succeeded.",
+        "recorded_at": "2026-10-08T23:01:50.910354+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-018-handoff.md",
+        "summary": "Owner-requested stop: concrete completed behavior, actual PG33+Pi1 evidence, three implementation gaps and frozen independent candidates; no new S3 tasks.",
+        "recorded_at": "2026-10-08T23:01:50.910354+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/HANDOFF-codex-to-claude.md",
+        "summary": "Done-task/code/test index, actual Node/Python/PG fixture environment, global0065 migration catalog, historical full CI first failure and targeted resolution, remainingnot_run acceptance and retained PG PID89849 port49624.",
+        "recorded_at": "2026-10-08T23:01:50.910354+00:00"
       }
     ]
   },

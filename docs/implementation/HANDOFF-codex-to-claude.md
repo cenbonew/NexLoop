@@ -4,7 +4,7 @@
 
 ## Git 与真相源
 
-交接编写时已同步的 origin/main：`273bce7813e3cfe5589c965637c2d2f553dafb7d`，含 PR #1 的0065受治理回执恢复。本文与 planning 证据还会作为后续提交同步；最终含本文的 tip 请执行 `git rev-parse origin/main`，本次最终回复也给出最终 hash。文档不能包含自身提交的 hash，以上是明确的已推送代码快照。
+交接编写时已同步的 origin/main：`0fe87986e493fd48f2c1e75d13c6c5859a14bbe6`，含 PR #1 的0065受治理回执恢复及已推送的两份交接文档。推送后的 planning 证据及本文快照更新还会作为后续提交同步；最终含本文的 tip 请执行 `git rev-parse origin/main`，本次最终回复也给出最终 hash。文档不能包含自身提交的 hash，以上是明确的已推送代码快照。
 
 `planning/tasks.json` / `acceptance-tests.json` / `traceability.json` 是实时状态；public handoff 冻结在 docs/handoff，唯一 live JSON Schema 在 packages/contracts，唯一版本锁 versions.lock.json。先读 AGENTS、ADR-019 和 docs/handoff 的 ADR-019 修订段落。候选、未执行命令与 mock 通过不得冒充主线验收。NX-018 的逐项接续见 `docs/implementation/NX-018-handoff.md`。
 
