@@ -1,0 +1,55 @@
+{
+  "scope": "NX-016 actual governed EDIT current authority at commit; main registered0054 PostgreSQL and current original ACL",
+  "command": "uv run --frozen pytest -q tests/test_bootstrap.py tests/test_edit_commit_tail.py tests/test_generic_partial_edit_audit.py tests/test_object_edits.py --junitxml=.ci-results/edit-tail54-main.xml --tb=short > /tmp/nexloop-edit-tail54-main.log 2>&1",
+  "result": {
+    "session": 65238,
+    "exit_code": 0,
+    "passed": 18,
+    "duration_seconds": 27.16,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "previous_published_migrations_unchanged": 53,
+  "history": {
+    "executor": "queue_security_review isolated owned PG, not main root execution",
+    "original53_reproduction": {
+      "session": 69972,
+      "result": "1failed2deselected4.03s",
+      "observation": "genuine signed Action/object/property narrowed1.2s proofs; real UPDATE trigger sleeps2s; old53 commits fields/revision/terminalclaim despite expiry"
+    },
+    "enhanced_test_first_failure": {
+      "session": 76797,
+      "result": "5failed",
+      "observation": "owned audit sequence lacked nexloop_owner USAGE; sequence evidence detects too-early42501, not accepted as successful expiry test",
+      "fix": "grant only owned audit sequence USAGE in test metadata"
+    },
+    "final_candidate": {
+      "session": 71117,
+      "passed": 6,
+      "duration_seconds": 17.63,
+      "skipped": 0,
+      "xfail": 0
+    },
+    "legacy_xfail_comparison": "kept only in ignored candidate docs, never part of main green tests"
+  },
+  "actual_proof": [
+    "every action/object/property/permit/lease expiry case reaches actual fields UPDATE and terminalclaim UPDATE (nontransactional owned audit sequences both is_called)",
+    "SQL42501 at write tail rolls back object properties and revision, restores original active claim completeJSON incllease/fence",
+    "ordinary edit preserves other published properties",
+    "original full signature/Action/subject/Grant/property/schema/claim/fence chain retained; current Action/object/property proofs rechecked after write",
+    "tail compares locked current Action/schema, current signer and all proof/permit/lease deadlines after last wait"
+  ],
+  "source_sha256": {
+    "packages/eios-core/src/eios/migrations/0054_governed_edit_commit_tail.sql": "a207e912048306500812b20cf068a1f0a65056babaa21fdaa9503d8fddc33fc4",
+    "packages/eios-core/src/eios/migrations/catalog.json": "a9e8753d6afc9383b69f14dca876635774bc5c9e89f9c1e7a4b3825c0ddd8e7e",
+    "versions.lock.json": "1c50ef56ccfc673cef6f247e7b33c3a0886bfcc9ea079d0e8740dc3700621ac0",
+    "tests/test_edit_commit_tail.py": "b3da3277232ef3c526913c49aae9399f31c643e522b375d44a15fc9ffcd21758"
+  },
+  "main_report_sha256": "6d152fd316623de2ed700fa946d716e0241193adf213a63b12c517d8741a3cad",
+  "versions_lock_change": "only bootstrap_revision0053->0054; upstream commits/Pi npm mapping/images unchanged",
+  "limits": [
+    "Focused18 is not full current-head CI",
+    "No persistent migration/deployment, original production DB or real model/channel calls"
+  ]
+}

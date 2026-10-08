@@ -1325,6 +1325,12 @@
         "ref": "9946a767c5fe0f6d47f62377ac9914f45eb98024",
         "summary": "真实Message Hostv2与通用Runtime供给fixture和47联合回归；测试观察产物移入tmp_path，原断言保留。",
         "recorded_at": "2026-10-08T12:59:08.960124Z"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/edit-tail54-main-evidence.json",
+        "summary": "注册54后主线18passed27.16s：当前Action/object/property/permit/claimlease期限在真实写后失效，fields/revision/terminalclaim完整回滚；正常部分编辑保留字段。53误提交复现及审计sequence首次权限失败均保留；原53迁移immutable，非整头CI。",
+        "recorded_at": "2026-10-08T13:00:03.931069Z"
       }
     ]
   },
