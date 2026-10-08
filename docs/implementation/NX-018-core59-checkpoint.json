@@ -1,0 +1,57 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T16:07:40.850180+00:00",
+  "bootstrap_revision": "0059",
+  "source_freeze": {
+    "paths": 376,
+    "changed": 0
+  },
+  "preserved_migrations": "0001..0057 catalog entries and published checksums unchanged",
+  "versions_lock_change": "bootstrap_revision0057→0059 only; upstream/package/image locks unchanged",
+  "suites": [
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_assessment_candidate.py tests/test_consumer_profile_pg.py tests/test_bootstrap.py tests/test_role_mapping.py tests/test_consumer_resolution_pg.py tests/test_published_action_input.py --tb=short --junitxml=.ci-results/nx018-core59-combined-main.xml",
+      "report": ".ci-results/nx018-core59-combined-main.xml",
+      "sha256": "1d4c1277b67554f69ba8094a02168b060001c5a5daa340ba64c229966ef569ed",
+      "result": {
+        "tests": "61",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "time": "84.412"
+      }
+    },
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_business_setup_pg.py tests/test_local_message_delivery_assembly.py tests/test_native_web_delivery.py tests/test_offering_runtime_pg.py tests/test_effect_dispatch.py --tb=short --junitxml=.ci-results/nx018-core59-runtime-regression.xml",
+      "report": ".ci-results/nx018-core59-runtime-regression.xml",
+      "sha256": "25692a71a802f421cd7d3c2e3cd2818e6029f80636bd613bbbf87218b5c70474",
+      "result": {
+        "tests": "38",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "time": "188.927"
+      }
+    }
+  ],
+  "scope": [
+    "Governed RelationshipAssessment create/correct atomic head/audit/terminal, exact registered relation definition/version/endpoints, current definition/source Message Object+Property READ, resolved user_statement versus hypothesis/pending evidence separation.",
+    "Assessment signed protected read repeats current Object/Property/definition authority and expiry after actual PG row-lock wait; NULL proof expiries rejected.",
+    "Fresh Consumer initial schema with six fields and protected reads; actual Generic CREATE/EDIT SQL guards reject invalid timezone and fabricated nonempty reference arrays; original objects unchanged.",
+    "Combined new bootstrap + role mapping/identity/input contracts and native actual JSON delivery/effect conflict regression."
+  ],
+  "limitations": [
+    "AT-004 remains not_run: role-aware Run selection/dispatch wiring still incomplete; frozen primitive alone is not complete acceptance.",
+    "AT-009 remains not_run: protected historical bitemporal projection, process recovery and product Context wiring remain pending.",
+    "Nonempty external_id_refs/contact_preferences intentionally unavailable until actual verified identity/contact authority adapter; no cross-channel verified identity claim.",
+    "Fresh Consumer declaration does not upgrade existing published v1; NX-044 genuine human-governed compatible schema evolution still required.",
+    "Assessment full Message literal provenance is a thin supported path, not general source-span extraction or verified fact.",
+    "No full local CI or deployment success claim."
+  ],
+  "first_failures_and_retries": [
+    "Assessment v2 candidate: misplaced correction guard and stale catalog/session fixtures corrected; final22passed. Read-tail minimal patch4passed first execution.",
+    "Profile initial7green was invalid negative evidence because stale creator authentication masked rejection. Fresh creator actually wrote invalid +08:00, exposing absent guard. Added actual SQL guard; corrected duplicate intent keys; final7passed with specific SQLSTATE23514 and unchanged business objects.",
+    "Main core0058 combined57passed; main core0059 combined61passed and runtime38passed first runs, zero skipped. Runtime suite emits4 httpx verify-string deprecation warnings."
+  ]
+}

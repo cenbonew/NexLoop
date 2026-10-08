@@ -285,6 +285,16 @@
       "version": "0057",
       "name": "0057_role_mapping_and_create_tail.sql",
       "sha256": "7d157de40a4ddc604fd517c9bb4995cf2bdae8657d2bfe13c4ee6faaa2f34c7c"
+    },
+    {
+      "version": "0058",
+      "name": "0058_relationship_assessment.sql",
+      "sha256": "2d94b04ebdf79992fd6117d8ce812f67f5b916eec6dc783eed86ff475c72f061"
+    },
+    {
+      "version": "0059",
+      "name": "0059_consumer_profile_guards.sql",
+      "sha256": "d33daa3f946ccb5561665e3fa73344d792b0d5f311cfd79c889539fdf79938f1"
     }
   ]
 }
