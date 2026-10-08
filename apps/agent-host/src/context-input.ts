@@ -2,6 +2,8 @@
 import {createHash} from 'node:crypto';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 export const CONTEXT_PROTOCOL='nexloop.context-pack.v1';
+export const CONTEXT_PROTOCOL_V2='nexloop.context-pack.v2';
+export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2;
 export type ContextAttestation={artifact_ref:string;sha256:string;command_binding_digest:string};
 const fields=['schema_version','run_id','request_id','tenant_id','world_id','mode','consumer_ref','goal_version_ref','role_ref','runtime_owner_epoch','runtime_profile','trigger_event_id','budget','not_after'] as const;
 const hex64=/^[a-f0-9]{64}$/,hex32=/^[a-f0-9]{32}$/,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -35,12 +37,14 @@ export function validateContextAttestation(command:RunCommand,value:unknown):Con
   if(attestation.artifact_ref!==command.context_manifest_ref||attestation.command_binding_digest!==contextCommandDigest(command))return fail();
   return attestation as ContextAttestation;
 }
-export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown):{body:string;run_id:string}{
+export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string}{
   const command=validateRunCommand(untrustedCommand);
   if(typeof input!=='string'||Buffer.byteLength(input,'utf8')>65536)return fail();
   let parsed:unknown;try{parsed=JSON.parse(input);}catch{return fail();}
-  const pack=exact(parsed,['schema_version','bindings','user_statement','formal_facts','current_constraints']);
-  if(pack.schema_version!==CONTEXT_PROTOCOL)return fail();
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return fail();
+  const protocol=(parsed as Record<string,unknown>).schema_version;
+  if(protocol!==CONTEXT_PROTOCOL&&protocol!==CONTEXT_PROTOCOL_V2||expectedProtocol!==undefined&&protocol!==expectedProtocol)return fail();
+  const pack=exact(parsed,protocol===CONTEXT_PROTOCOL_V2?['schema_version','bindings','user_statement','formal_facts','current_constraints','supply']:['schema_version','bindings','user_statement','formal_facts','current_constraints']);
   const binding=exact(pack.bindings,['tenant_id','world_id','run_id','source_principal','context_id','namespace','artifact_id','command_digest']);
   const tenant=text(binding.tenant_id,36,uuid),run=text(binding.run_id,36,uuid),source=text(binding.source_principal,512);
   text(binding.context_id,36,uuid);text(binding.namespace,64,hex64);text(binding.artifact_id,32,hex32);text(binding.command_digest,64,hex64);
@@ -70,6 +74,19 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   if(!date||!Number.isFinite(Date.parse(until)))return fail();
   const parsedDate=new Date(until),calendar=[parsedDate.getUTCFullYear(),parsedDate.getUTCMonth()+1,parsedDate.getUTCDate(),parsedDate.getUTCHours(),parsedDate.getUTCMinutes(),parsedDate.getUTCSeconds()];
   if(calendar.some((value,index)=>value!==Number(date[index+1])))return fail();
+  if(protocol===CONTEXT_PROTOCOL_V2){
+    const supply=exact(pack.supply,['offering_id','offering_revision','binding_id','binding_revision','provenance','properties']);
+    const offering=text(supply.offering_id,64,hex64);integer(supply.offering_revision);
+    text(supply.binding_id,64,hex64);integer(supply.binding_revision);
+    if(supply.provenance!=='eios:object:'+offering)return fail();
+    const properties=exact(supply.properties,['service_code','title','delivery_action','content_kind','price_amount','currency','eligibility','allowed_guarantees','allowed_discounts','evidence_kind','active','valid_until']);
+    text(properties.title,256);
+    if(properties.service_code!=='local.json-export'||properties.delivery_action!==constraints.action||properties.content_kind!=='json-message-export'||properties.price_amount!=='0'||properties.currency!=='CNY'||properties.eligibility!=='current_consumer_plan'||properties.evidence_kind!=='fsynced_json_export'||properties.active!==true||!Array.isArray(properties.allowed_guarantees)||properties.allowed_guarantees.length!==0||!Array.isArray(properties.allowed_discounts)||properties.allowed_discounts.length!==0)return fail();
+    const offeringUntil=text(properties.valid_until,64),offerDate=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|\+00:00)$/.exec(offeringUntil);
+    if(!offerDate||!Number.isFinite(Date.parse(offeringUntil)))return fail();
+    const calendarDate=new Date(offeringUntil),parts=[calendarDate.getUTCFullYear(),calendarDate.getUTCMonth()+1,calendarDate.getUTCDate(),calendarDate.getUTCHours(),calendarDate.getUTCMinutes(),calendarDate.getUTCSeconds()];
+    if(parts.some((value,index)=>value!==Number(offerDate[index+1])))return fail();
+  }
   // Canonical exact input rejects duplicate keys and alternative encodings.
   // Pack has no self-hash; whole-input digest is supplied only by actual guard.
   if(canonicalContextJSON(pack)!==input)return fail();
@@ -77,4 +94,11 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   text(attestation.sha256,64,hex64);text(attestation.command_binding_digest,64,hex64);
   if(attestation.artifact_ref!==artifact||attestation.command_binding_digest!==digest||attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex'))return fail();
   return {body,run_id:run};
+}
+
+/** Provider input stays the complete original pack, including supply authority
+ * description. This validation grants no permission; fresh PG guard is required. */
+export function validateContextProviderInput(input:unknown,command:unknown,attestation:unknown,expectedProtocol?:ContextProtocol):string{
+  validateContextInput(input,command,attestation,expectedProtocol);
+  return input as string;
 }

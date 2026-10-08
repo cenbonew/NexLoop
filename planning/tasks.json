@@ -1289,6 +1289,12 @@
         "ref": "c933f9f9f29487e958c237c7afbbe1dee20eae5f",
         "summary": "记录与当前源码 SHA 一致的真实 DeepSeek core52 授权交付成功证据；未提前完成 NX-016。",
         "recorded_at": "2026-10-08T12:22:17.910198Z"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/offering-host-main-evidence.json",
+        "summary": "主线 Host Contextv2 与 request_scope 类型/拒绝范围检查、124 Runtime 与8实际离线SDK测试全部通过；构建通过；core53/真实PG供给装配待完成，保留in_progress。",
+        "recorded_at": "2026-10-08T12:28:23.614115Z"
       }
     ]
   },

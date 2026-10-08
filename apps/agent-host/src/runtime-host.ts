@@ -1,5 +1,5 @@
 /** Optional internal Run admission. Backend retains all EIOS/PG credentials. */
-import {CONTEXT_PROTOCOL,validateContextInput,validateContextAttestation,type ContextAttestation} from './context-input.js';
+import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
 import {type IncomingMessage} from 'node:http';
 import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context} from '@earendil-works/pi-ai';
@@ -36,8 +36,9 @@ export class RuntimeHost{
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
     if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
-    if(config.context_input_protocol!==undefined&&(config.context_input_protocol!==CONTEXT_PROTOCOL||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
-    const contextMode=config.context_input_protocol===CONTEXT_PROTOCOL;
+    if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
+    const contextProtocol=config.context_input_protocol===CONTEXT_PROTOCOL_V2?CONTEXT_PROTOCOL_V2:CONTEXT_PROTOCOL;
+    const contextMode=config.context_input_protocol===CONTEXT_PROTOCOL||config.context_input_protocol===CONTEXT_PROTOCOL_V2;
     this.guard=new URL(String(config.guard_url));
     if(this.guard.protocol!=='https:'||this.guard.hostname!=='127.0.0.1'||!this.guard.port||Number(this.guard.port)<1024||Number(this.guard.port)>65535||this.guard.username||this.guard.password||this.guard.search||this.guard.hash||this.guard.pathname!=='/internal/v1/runtime/authorize')throw new Error('runtime guard refused');
     if(typeof config.guard_ca_file!=='string'||typeof config.guard_key_file!=='string')throw new Error('runtime guard files required');
@@ -59,7 +60,7 @@ export class RuntimeHost{
           response.on('end',()=>{try{const result=record(JSON.parse(Buffer.concat(chunks).toString('utf8')));if(response.statusCode!==200||result.authorized!==true||result.run_id!==command.run_id||typeof result.ever_execution_authorized!=='boolean'||(['model','tool'].includes(operation)&&result.ever_execution_authorized!==true))throw new Error();if(contextMode){
             const attestation=validateContextAttestation(command,result.context_artifact);
             const original=input??active?.input;
-            if(original!==undefined)validateContextInput(original,command,attestation);
+            if(original!==undefined)validateContextProviderInput(original,command,attestation,contextProtocol);
             if(active){active.context=attestation;active.command=command;}
           }
           resolve({ever_execution_authorized:result.ever_execution_authorized});}catch{reject(new RuntimeError('runtime_authorization_denied'));}});
@@ -100,7 +101,7 @@ export class RuntimeHost{
           if(typeof run!=='string')throw new RuntimeError('runtime_context_invalid');
           const bound=this.activations.get(run);
           if(!bound?.command||!bound.context)throw new RuntimeError('runtime_context_invalid');
-          message=validateContextInput(raw,bound.command,bound.context).body;
+          message=validateContextInput(raw,bound.command,bound.context,contextProtocol).body;
         }
         if(!message||[...message].length>8192||message.includes('\u0000'))throw new RuntimeError('deterministic_input_invalid');
         const current=context.messages.slice(index+1);

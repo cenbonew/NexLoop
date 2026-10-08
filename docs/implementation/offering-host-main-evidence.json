@@ -1,0 +1,37 @@
+{
+  "scope": "NX-016 Host typed Contextv2 and bounded request_scope; main core remains0052, no catalog53 activation claim",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm --filter @nexloop/agent-host build && pnpm exec vitest run apps/agent-host/test --exclude docs/tmp/** --reporter=default --reporter=junit --outputFile=.ci-results/offering-runtime-main.xml && node --test --test-reporter=junit --test-reporter-destination=.ci-results/offering-sdk-main.xml tests/offline-deepseek-request.test.mjs tests/offline-deepseek-alias.test.mjs",
+  "session": 81311,
+  "exit_code": 0,
+  "real_provider_calls": 0,
+  "results": {
+    "runtime": {
+      "tests": 124,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "dcbe39ccdc41494c8e16842bd0ab9b6634a28fa4b937d90a2449792a2a5e455b"
+    },
+    "actual_offline_sdk": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "872a6c5f8d08df3cae5a7f1b19c014803b787c564d49d8ccf93767ecfa0e2736"
+    }
+  },
+  "source_sha256": {
+    "apps/agent-host/src/context-input.ts": "9066bb7db873e1f18ee76717d462b669eee14245e557fd211e756c67016b2241",
+    "apps/agent-host/src/runtime-host.ts": "881ef25916a8946660f70b46c25ec785f8cf51836cb4faeb7c6e15ee51d8aad7",
+    "apps/agent-host/src/runtime-effect-tools.ts": "af40747067d4517547ae432af9d4b0e67b04e9af823296455bae5189f1709285",
+    "apps/agent-host/test/context-supply.test.ts": "24c64ff58f678765c68d2a57870a2e23bbe4d4481515e2b296e7f52b2f470faa",
+    "apps/agent-host/test/real-context-profile.test.ts": "ebac09fde71b0d3e75ed67cb5a6188ac3c6cabf344b0fcd89b9db9a5b0c564da",
+    "apps/agent-host/test/runtime-effect-scope.test.ts": "d9045cb361a2e003ae4a0d310403eaad34994386654578d1050dfe8efa47b657"
+  },
+  "first_failure": "none in this main integration; prior candidate failures recorded separately",
+  "limits": [
+    "Host validation and synthetic HTTPS bridge tests do not establish real PG catalog dispatch",
+    "Existing v1 remains explicitly selected; v2 activation requires subsequent core53 configuration integration",
+    "No schema mutation, grant creation, production deployment or real model call"
+  ]
+}

@@ -4,11 +4,20 @@ import {Type} from '@earendil-works/pi-ai';
 import {defineTool,type ToolRegistration} from '@earendil-works/pi-durable';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 
+export type EffectRequestScope={offering_id:string;offering_revision:number;requested_guarantees:readonly string[];requested_discounts:readonly string[]};
+function requestScope(value:unknown):EffectRequestScope{
+  const row=exact(value,['offering_id','offering_revision','requested_guarantees','requested_discounts']);
+  if(typeof row.offering_id!=='string'||!sha.test(row.offering_id)||typeof row.offering_revision!=='number'||!Number.isSafeInteger(row.offering_revision)||row.offering_revision<1)throw new RuntimeError('runtime_effect_unavailable');
+  const terms=(value:unknown):string[]=>{if(!Array.isArray(value)||value.length>16||value.some(term=>typeof term!=='string'||[...term].length<1||[...term].length>128||/\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(term))||new Set(value).size!==value.length)throw new RuntimeError('runtime_effect_unavailable');return [...value] as string[];};
+  return {offering_id:row.offering_id,offering_revision:row.offering_revision,requested_guarantees:terms(row.requested_guarantees),requested_discounts:terms(row.requested_discounts)};
+}
 type Material=(path:string,maximum:number)=>Buffer;
 export type EffectReceipt={intent_id:string;receipt_id:string;state:string;payload_digest:string;provider_payload_digest:string;scope:'effect_intent';business_action_success:boolean};
 type Configuration={guardURL:URL;caPath:string;keyPath:string;privateMaterial:Material;activationForRun:(runId:string)=>string|undefined};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha=/^[a-f0-9]{64}$/;
+const catalogScope={service_code:'local.json-export',deliverable:'固定私有目录内可核验的 JSON 文本导出文件',price_amount:'0',currency:'CNY',guarantees:[],discounts:[],limitations:['不提供目录外保证或折扣','不代表第三方渠道送达、付款或问题解决'],evidence_kind:'fsynced_json_export'} as const;
+function validateRejectedScope(value:unknown):void{const row=exact(value,Object.keys(catalogScope));for(const [name,expected] of Object.entries(catalogScope)){if(Array.isArray(expected)){if(!Array.isArray(row[name])||JSON.stringify(row[name])!==JSON.stringify(expected))throw new Error();}else if(row[name]!==expected)throw new Error();}}
 function exact(value:unknown,keys:readonly string[]):Record<string,unknown>{
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.getPrototypeOf(value)!==Object.prototype)throw new RuntimeError('runtime_effect_unavailable');
   const row=value as Record<string,unknown>;
@@ -31,9 +40,10 @@ export class RuntimeEffectClient{
       if(!ref||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(ref)||Date.parse(valid.not_after)<=Date.now())throw new Error();
       let argumentsBody:Record<string,unknown>;
       if(operation==='submit'){
-        const row=exact(arguments_,['message']);
+        const hasScope=arguments_!==null&&typeof arguments_==='object'&&Object.hasOwn(arguments_,'request_scope');
+        const row=exact(arguments_,hasScope?['message','request_scope']:['message']);
         if(typeof row.message!=='string'||[...row.message].length<1||[...row.message].length>8192)throw new Error();
-        argumentsBody={parameters:{message:row.message}};
+        argumentsBody={parameters:{message:row.message},...(hasScope?{request_scope:requestScope(row.request_scope)}:{})};
       }else if(operation==='find'){
         const row=exact(arguments_,['intent_id']);
         if(typeof row.intent_id!=='string'||!uuid.test(row.intent_id))throw new Error();
@@ -61,6 +71,7 @@ export class RuntimeEffectClient{
               if(result&&typeof result==='object'&&(result as Record<string,unknown>).code==='intent_payload_conflict')reject(new RuntimeError('intent_payload_conflict'));else fail();
               return;
             }
+            if(response.statusCode===403){const denied=exact(result,['code','scope']);if(denied.code!=='outside_catalog_terms')throw new Error();validateRejectedScope(denied.scope);reject(new RuntimeError('outside_catalog_terms'));return;}
             if(response.statusCode!==200)throw new Error();
             const envelope=exact(result,['run_id','receipt']);
             if(envelope.run_id!==valid.run_id)throw new Error();
@@ -76,7 +87,7 @@ export class RuntimeEffectClient{
         request.setTimeout(2000,()=>request.destroy());request.on('error',fail);request.end(body);
       });
     }catch(error){
-      if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')throw error;
+      if(error instanceof RuntimeError&&['intent_payload_conflict','outside_catalog_terms'].includes(error.code))throw error;
       throw new RuntimeError('runtime_effect_unavailable');
     }
   }
@@ -84,11 +95,11 @@ export class RuntimeEffectClient{
     const bound=validateRunCommand(command);
     const invoke=async(operation:'submit'|'find',args:unknown)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(await this.call(bound,operation,args))}]};}
-      catch(error){if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
+      catch(error){if(error instanceof RuntimeError&&error.code==='outside_catalog_terms')return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'outside_catalog_terms',scope:catalogScope})}]};if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
     return [
       defineTool({name:'nexloop.service.request',description:'Persist a governed service intent in the current plan slot. accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
-        parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
+        parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt for an existing service intent. Does not send or create a new effect.',
         parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),
     ];
