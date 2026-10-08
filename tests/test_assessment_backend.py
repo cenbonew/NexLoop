@@ -32,8 +32,13 @@ def test_authenticated_backend_actual_create_correct_projection_replay_and_close
         current=services.read_relationship_assessment(object_id=obj)
         assert current['formal']==[] and current['evidence'][0]['revision']==2
         assert current['evidence'][0]['properties']['conclusion']==correction['properties']['conclusion']
+        first,second=[row[0] for row in admin.execute('select recorded_at from ontology.nexloop_assessment_revisions where assessment_id=%s order by revision',(obj,)).fetchall()]
+        past=services.read_relationship_assessment_history(object_id=obj,known_at=first,valid_at=second)
+        present=services.read_relationship_assessment_history(object_id=obj,known_at=second,valid_at=second)
+        assert past['formal']==[] and past['evidence'][0]['revision']==1
+        assert present['formal']==[] and present['evidence'][0]['revision']==2
         assert admin.execute('select count(*) from ontology.nexloop_assessment_revisions where assessment_id=%s',(obj,)).fetchone()[0]==2
-    for call in (lambda:services.read_relationship_assessment(object_id=obj),lambda:services.create_relationship_assessment(**args),lambda:services.correct_relationship_assessment(**correction)):
+    for call in (lambda:services.read_relationship_assessment(object_id=obj),lambda:services.create_relationship_assessment(**args),lambda:services.correct_relationship_assessment(**correction),lambda:services.read_relationship_assessment_history(object_id=obj,known_at=first,valid_at=second)):
         with pytest.raises(BackendClosed):call()
 
 
@@ -45,3 +50,6 @@ def test_backend_current_property_revocation_denies_fresh_projection(assessment,
         services=backend.authenticate(token,world='real')
         with pytest.raises(ActionAuthorizationDenied,match='^object/property read denied$'):
             services.read_relationship_assessment(object_id=obj)
+        from datetime import datetime,UTC
+        with pytest.raises(ActionAuthorizationDenied,match='^object/property read denied$'):
+            services.read_relationship_assessment_history(object_id=obj,known_at=datetime.now(UTC),valid_at=datetime.now(UTC))

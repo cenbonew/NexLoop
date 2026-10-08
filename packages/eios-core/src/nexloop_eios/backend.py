@@ -164,6 +164,10 @@ class AuthenticatedServices:
     def read_relationship_assessment(self, *, object_id, valid_at=None):
         return self._backend._invoke(self._session, 'read_relationship_assessment', object_id=object_id, valid_at=valid_at)
 
+    def read_relationship_assessment_history(self, *, object_id, known_at, valid_at, evidence_message_id=None):
+        return self._backend._invoke(self._session, 'read_relationship_assessment_history',
+            object_id=object_id, known_at=known_at, valid_at=valid_at, evidence_message_id=evidence_message_id)
+
     def prepare_message_context(self, *, message_id, run_token, command,offering_id,binding_id):
         return self._backend._invoke(self._session, 'prepare_message_context', message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
 
@@ -373,6 +377,9 @@ class Backend:
                 if operation=='correct_relationship_assessment':
                     return GovernedAssessmentCorrector(self._pool,session,self._signer).correct(**arguments)
                 return AuthorizedAssessmentProjection(self._pool,session,self._signer).current(**arguments)
+            if operation=='read_relationship_assessment_history':
+                from nexloop_eios.assessment_history import AuthorizedAssessmentHistory
+                return AuthorizedAssessmentHistory(self._pool,session,self._signer).as_of(**arguments)
             if operation in ('collect_orphans','resume_orphans'):
                 collector=FinalOrphanCollector(self._pool,session,self._signer,self._store)
                 return collector.collect(**arguments) if operation=='collect_orphans' else collector.resume(**arguments)

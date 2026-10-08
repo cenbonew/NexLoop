@@ -134,6 +134,16 @@ def test_real_human_message_correction_updates_current_basis(assembled_message,a
   got=port.correct(action_name='RelationshipAssessment.correct',action_version=1,intent_id='actual-human-correction',object_id=obj,expected_revision=1,properties=values)
   current=projection.current(obj);assert got['revision']==2 and current['formal'][0]['properties']==values and current['evidence']==[]
   assert current['formal'][0]['epistemic_kind']=='user_statement'
+  from nexloop_eios.assessment_history import AuthorizedAssessmentHistory
+  historical=AuthorizedAssessmentHistory(pool,port.session,signer)
+  tx1=admin.execute('select recorded_at from ontology.nexloop_assessment_revisions where assessment_id=%s and revision=1',(obj,)).fetchone()[0]
+  tx2=admin.execute('select recorded_at from ontology.nexloop_assessment_revisions where assessment_id=%s and revision=2',(obj,)).fetchone()[0]
+  assert historical.as_of(obj,known_at=tx1,valid_at=tx2)['evidence'][0]['epistemic_kind']=='hypothesis'
+  observed=historical.as_of(obj,known_at=tx2,valid_at=tx2,evidence_message_id=mid)
+  assert observed['formal'][0]['revision']==2 and observed['formal'][0]['properties']==values
+  assert observed['evidence']==[]
+  with pytest.raises(psycopg.errors.InsufficientPrivilege):historical.as_of(obj,known_at=tx2,valid_at=tx2)
+
   with pytest.raises(psycopg.errors.InsufficientPrivilege):
    port.correct(action_name='RelationshipAssessment.correct',action_version=1,intent_id='bad-source-hash',object_id=obj,expected_revision=2,properties=values|{'corrects_revision':2,'evidence_content_hash':'f'*64})
   assert projection.current(obj)==current
@@ -150,6 +160,8 @@ def test_real_human_message_correction_updates_current_basis(assembled_message,a
   fresh=authenticate_service(pool,token,world='real')
   with pytest.raises((AuthorizationUnavailable,ActionAuthorizationDenied,psycopg.errors.InsufficientPrivilege)):
    AuthorizedAssessmentProjection(pool,fresh,signer).current(obj)
+  with pytest.raises((AuthorizationUnavailable,ActionAuthorizationDenied,psycopg.errors.InsufficientPrivilege)):
+   AuthorizedAssessmentHistory(pool,fresh,signer).as_of(obj,known_at=tx2,valid_at=tx2,evidence_message_id=mid)
 
 
 def test_actual_revoke_after_proof_denies_without_revision(assessment,admin,monkeypatch):
@@ -312,3 +324,121 @@ def test_legitimate_hmac_definition_lock_wait_rechecks_current_expiry(assessment
    assert ready.wait(5),'actual signed command did not arrive'
    time.sleep(.5);assert not future.done(),'actual read did not wait for owned definition row lock'
   with pytest.raises(psycopg.errors.InsufficientPrivilege):future.result(timeout=5)
+
+def test_protected_history_selects_actual_recorded_revision_and_valid_range(assessment,admin):
+ from nexloop_eios.assessment_history import AuthorizedAssessmentHistory
+ from datetime import timedelta
+ port,creator,p,obj,token=assessment;history=AuthorizedAssessmentHistory(port.pool,port.session,port.signer)
+ first=admin.execute('select recorded_at from ontology.nexloop_assessment_revisions where assessment_id=%s and revision=1',(obj,)).fetchone()[0]
+ before=history.as_of(obj,known_at=first-timedelta(microseconds=1),valid_at=first);assert before=={'formal':[],'evidence':[]}
+ original=history.as_of(obj,known_at=first,valid_at=first);assert original['formal']==[] and original['evidence'][0]['revision']==1
+ valid_from=first+timedelta(days=1)
+ values=p|{'conclusion':'corrected hypothesis','valid_from':valid_from.isoformat(),'corrects_revision':1}
+ port.correct(action_name='RelationshipAssessment.correct',action_version=1,intent_id='history-correction',object_id=obj,expected_revision=1,properties=values)
+ second=admin.execute('select recorded_at from ontology.nexloop_assessment_revisions where assessment_id=%s and revision=2',(obj,)).fetchone()[0]
+ assert second>first
+ assert history.as_of(obj,known_at=first,valid_at=valid_from)==original
+ current=history.as_of(obj,known_at=second,valid_at=valid_from)
+ assert current['formal']==[] and current['evidence'][0]['revision']==2 and current['evidence'][0]['properties']==values
+ with port.pool.connection() as c:
+  with pytest.raises(psycopg.errors.InsufficientPrivilege):c.execute('select * from ontology.nexloop_assessment_revisions')
+
+def _restricted_dsn(port):
+ with port.pool.connection() as connection:
+  assert connection.info.user=='nexloop_api'
+  return connection.info.dsn
+
+def _real_correction_process(dsn,token,key_id,material,arguments,pipe,mode):
+ from contextlib import contextmanager
+ from nexloop_eios.assembly import open_core
+ from nexloop_eios.authorization import authenticate_service
+ from nexloop_eios.postgres_artifacts import AuthoritySigner
+ import nexloop_eios.assessment_actions as actions
+ with open_core(dsn) as actual_pool:
+  activated=False;original=actions.canonical_payload
+  def observe(value):
+   nonlocal activated
+   text=original(value)
+   if value.get('protocol')=='nexloop-assessment-correct-v1':
+    activated=True
+    if mode=='race':pipe.send('SIGNED_READY');assert pipe.recv()=='GO'
+   return text
+  actions.canonical_payload=observe
+  class Connection:
+   def __init__(self,raw):self.raw=raw
+   def __getattr__(self,name):return getattr(self.raw,name)
+   @contextmanager
+   def transaction(self):
+    with self.raw.transaction():yield
+    if mode=='kill_after_commit' and activated:
+     pipe.send('ACTUAL_COMMIT_NO_RECEIPT');pipe.recv()
+  class Pool:
+   @contextmanager
+   def connection(self):
+    with actual_pool.connection() as raw:yield Connection(raw)
+  pool=Pool();session=authenticate_service(pool,token,world='real')
+  port=actions.GovernedAssessmentCorrector(pool,session,AuthoritySigner(key_id,material))
+  try:result=port.correct(**arguments)
+  except Exception as error:pipe.send({'error_type':type(error).__name__})
+  else:pipe.send({'receipt':result})
+
+
+def test_actual_two_process_same_revision_only_one_atomic_winner(assessment,admin):
+ import multiprocessing
+ port,creator,p,obj,token=assessment;ctx=multiprocessing.get_context('spawn');children=[];pipes=[]
+ try:
+  for number in (1,2):
+   parent,child=ctx.Pipe();args=dict(action_name='RelationshipAssessment.correct',action_version=1,intent_id='actual-race-'+str(number),object_id=obj,expected_revision=1,properties=p|{'conclusion':'contender '+str(number),'corrects_revision':1})
+   process=ctx.Process(target=_real_correction_process,args=(_restricted_dsn(port),token,port.signer.key_id,port.signer.material,args,child,'race'));process.start();children.append(process);pipes.append(parent)
+  for pipe in pipes:assert pipe.poll(15) and pipe.recv()=='SIGNED_READY'
+  for pipe in pipes:pipe.send('GO')
+  results=[]
+  for pipe in pipes:assert pipe.poll(15);results.append(pipe.recv())
+  for process in children:process.join(10);assert process.exitcode==0
+  assert sum('receipt' in result for result in results)==1
+  assert [r['error_type'] for r in results if 'error_type' in r]==['SerializationFailure']
+  assert admin.execute('select count(*) from ontology.nexloop_assessment_revisions where assessment_id=%s',(obj,)).fetchone()==(2,)
+  assert admin.execute('select nexloop_revision from ontology.objects where object_id=%s',(obj,)).fetchone()==(2,)
+  states=admin.execute("select claim->>'state' from runtime.nexloop_action_claims where intent_id like 'actual-race-%%' order by 1").fetchall();assert states==[('active',),('terminal',)]
+ finally:
+  for process in children:
+   if process.is_alive():process.kill();process.join(10)
+  for pipe in pipes:pipe.close()
+
+
+def test_actual_sigkill_after_commit_before_receipt_reopen_replays_once(assessment,admin):
+ import multiprocessing,os,signal
+ port,creator,p,obj,token=assessment;ctx=multiprocessing.get_context('spawn');parent,child=ctx.Pipe()
+ args=dict(action_name='RelationshipAssessment.correct',action_version=1,intent_id='actual-committed-kill',object_id=obj,expected_revision=1,properties=p|{'conclusion':'committed before receipt','corrects_revision':1})
+ process=ctx.Process(target=_real_correction_process,args=(_restricted_dsn(port),token,port.signer.key_id,port.signer.material,args,child,'kill_after_commit'));process.start()
+ try:
+  assert parent.poll(15) and parent.recv()=='ACTUAL_COMMIT_NO_RECEIPT'
+  assert admin.execute('select properties,nexloop_revision from ontology.objects where object_id=%s',(obj,)).fetchone()==(args['properties'],2)
+  assert admin.execute("select claim->>'state' from runtime.nexloop_action_claims where intent_id='actual-committed-kill'").fetchone()==('terminal',)
+  os.kill(process.pid,signal.SIGKILL);process.join(10);assert process.exitcode==-signal.SIGKILL
+  from nexloop_eios.assembly import open_core
+  from nexloop_eios.authorization import authenticate_service
+  with open_core(_restricted_dsn(port)) as reopened:
+   replay=GovernedAssessmentCorrector(reopened,authenticate_service(reopened,token,world='real'),port.signer).correct(**args)
+  assert replay=={'object_id':obj,'type_name':'RelationshipAssessment','world':'real','revision':2}
+  assert admin.execute('select count(*) from ontology.nexloop_assessment_revisions where assessment_id=%s',(obj,)).fetchone()==(2,)
+ finally:
+  if process.is_alive():process.kill();process.join(10)
+  parent.close()
+
+@pytest.mark.parametrize('fault',['object','property','definition'])
+def test_signed_history_null_expiry_cannot_expose_revision(assessment,admin,monkeypatch,fault):
+ import json
+ import nexloop_eios.assessment_history as actions
+ from nexloop_eios.assessment_history import AuthorizedAssessmentHistory
+ port,creator,p,obj,token=assessment;original=actions.canonical_payload
+ tx=admin.execute('select recorded_at from ontology.nexloop_assessment_revisions where assessment_id=%s and revision=1',(obj,)).fetchone()[0]
+ def null(value):
+  if value.get('protocol')=='nexloop-assessment-history-v1':
+   value=json.loads(json.dumps(value))
+   if fault=='object':value['expires_at']=None
+   elif fault=='property':value['property_authorities'][0]['expires_at']=None
+   else:next(q for q in value['assessment_authorities'] if q['target_resource'].startswith('eios:link_type:'))['expires_at']=None
+  return original(value)
+ monkeypatch.setattr(actions,'canonical_payload',null)
+ with pytest.raises(psycopg.errors.InsufficientPrivilege):AuthorizedAssessmentHistory(port.pool,port.session,port.signer).as_of(obj,known_at=tx,valid_at=tx)

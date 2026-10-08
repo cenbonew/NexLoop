@@ -1,0 +1,36 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T16:21:27.124355+00:00",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_assessment_candidate.py tests/test_assessment_backend.py tests/test_bootstrap.py tests/test_role_mapping.py tests/test_consumer_profile_pg.py --tb=short --junitxml=.ci-results/nx018-core60-history-main.xml",
+  "result": {
+    "tests": "61",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "time": "85.533"
+  },
+  "report_sha256": "f58381c91dbeebf63ef45c8687cedf69b9127f8920e1c91fc3502fd3a27d5e33",
+  "source_freeze": {
+    "paths": 379,
+    "changed": 0
+  },
+  "preserved_migrations": "0001..0059 unchanged",
+  "versions_lock_change": "bootstrap_revision0059→0060 only",
+  "scope": [
+    "Protected immutable assessment audit recorded_at selection plus valid_at current classification; genuine registered definition, endpoints and chosen historical Message source current Object/Property READ and hash checked.",
+    "Unified authenticated Backend history entrypoint, current Property revoke denied with fresh identity and backend lifecycle closure rejected.",
+    "Actual two spawned restricted-PG processes compete on expected_revision1: only one commits head2/audit2/terminal, other SerializationFailure.",
+    "Actual committed correction killed before Python receipt; restricted connection reopen original intent replays with no additional audit."
+  ],
+  "first_failures_and_retries": [
+    "Candidate process setup initially2fail: ConnectionPool.conninfo was empty; corrected actual restricted connection.info.dsn plus user assertion, focused2passed and full32passed.",
+    "Main first combined run61passed, no skipped critical tests."
+  ],
+  "limitations": [
+    "known_at selects server audit recorded_at; does not claim commit timestamp/LSN or complete retroactive temporal interval evaluation.",
+    "Caller must already possess a source Message reference for historical user_statement; no raw audit bulk or source-discovery endpoint.",
+    "History/readonly projection does not itself assemble product Context or implement all relation topology lifecycle. AT-009 remains not_run.",
+    "Role-aware v3 Context/real shared-intent runs and nonempty identity/contact reference adapters remain separate pending work. NX-018 remains in_progress."
+  ]
+}
