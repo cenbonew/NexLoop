@@ -1331,6 +1331,12 @@
         "ref": "docs/implementation/edit-tail54-main-evidence.json",
         "summary": "注册54后主线18passed27.16s：当前Action/object/property/permit/claimlease期限在真实写后失效，fields/revision/terminalclaim完整回滚；正常部分编辑保留字段。53误提交复现及审计sequence首次权限失败均保留；原53迁移immutable，非整头CI。",
         "recorded_at": "2026-10-08T13:00:03.931069Z"
+      },
+      {
+        "type": "commit",
+        "ref": "a4a2f157ed37cfd4183918db66a84f1d83a52e9b",
+        "summary": "追加54治理EDIT末尾完整许可/期限重核，真实写后回滚18focused通过，旧53迁移保持immutable。",
+        "recorded_at": "2026-10-08T13:00:04.507975Z"
       }
     ]
   },
