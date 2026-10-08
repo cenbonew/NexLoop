@@ -1520,6 +1520,18 @@
         "ref": "14028f38a38a26a8bf861b800d99f80dbd7e20ed",
         "summary": "实施前真实代码差距检查：治理N:M映射/身份歧义/关系更正。仅in_progress检查点，未完成功能。",
         "recorded_at": "2026-10-08T15:32:53.883371+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b090b000bde31adaf92342b97a8110cb3e757cd6",
+        "summary": "真实PG同名双消费者/双Human会话身份歧义与当前READ撤权验证；角色治理检查点不表示NX-018完成。",
+        "recorded_at": "2026-10-08T15:53:36.607073+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/NX-018-core57-checkpoint.json",
+        "summary": "Consumer主线15项及core0057角色/授权回归93项通过，0关键跳过；AT-004/009仍未完成。",
+        "recorded_at": "2026-10-08T15:53:36.607073+00:00"
       }
     ]
   },

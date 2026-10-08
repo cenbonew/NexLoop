@@ -97,7 +97,21 @@
     "name": "身份歧义",
     "given": "同名不同人的两条会话",
     "expected": "保留候选，不自动合并",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "b090b000bde31adaf92342b97a8110cb3e757cd6",
+        "summary": "真实PG同名双消费者/双Human会话身份歧义与当前READ撤权验证；角色治理检查点不表示NX-018完成。",
+        "recorded_at": "2026-10-08T15:53:36.607073+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/NX-018-core57-checkpoint.json",
+        "summary": "Consumer主线15项及core0057角色/授权回归93项通过，0关键跳过；AT-004/009仍未完成。",
+        "recorded_at": "2026-10-08T15:53:36.607073+00:00"
+      }
+    ]
   },
   {
     "id": "AT-009",
