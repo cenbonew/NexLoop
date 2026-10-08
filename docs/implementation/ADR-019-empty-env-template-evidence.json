@@ -1,0 +1,18 @@
+{
+  "task": "NX-021",
+  "scope": "ADR-019 configuration preparation only; NX-021 remains not_started until dependencies. No embedding request/index or measured dimension claimed.",
+  "recorded_at": "2026-10-08T15:56:34.978421+00:00",
+  "change": ".env.example inline explanatory comments moved above assignments so every value is literally empty. Six documented names and credential precedence unchanged.",
+  "first_command": "PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_embedding_profile.py tests/test_launcher_model_environment.py tests/test_build_provider_environment.py --tb=short --junitxml=.ci-results/embedding-template-config-regression.xml",
+  "first_result": "26 passed, 1 failed, 9 setup errors: shell retained Node20; locked Node24 guard correctly rejected builds.",
+  "rerun_command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_embedding_profile.py tests/test_launcher_model_environment.py tests/test_build_provider_environment.py --tb=short --junitxml=.ci-results/embedding-template-config-regression-node24.xml",
+  "rerun_result": {
+    "tests": "36",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "time": "20.702"
+  },
+  "report_sha256": "3b075fd58e844fe52ffef68db2a64969d0fb43e6ade5027f901e65ab71ff1582",
+  "versions_lock_change": null
+}
