@@ -23,9 +23,16 @@ pnpm exec vitest run apps/web/test --exclude 'docs/tmp/**' --reporter=default --
 uv run --frozen python scripts/check_test_report.py .ci-results/web.xml
 node --test --test-reporter=junit --test-reporter-destination=.ci-results/scope-ui.xml apps/agent-host/test/synthetic-scope-profile.node-test.mjs apps/web/test/scope-denial.node-test.mjs
 uv run --frozen python scripts/check_test_report.py .ci-results/scope-ui.xml
-# Parallel by test; files that build into the workspace share one xdist group and run serially.
+# Phase 1 (serial): tests that rebuild apps/web/dist, apps/agent-host/dist, vendor/pi dist or
+# install the core wheel. They rewrite shared workspace files, so nothing may run beside them.
+WORKSPACE_BUILD_TESTS=(tests/test_build_provider_environment.py tests/test_community_container_contract.py
+  tests/test_community_launcher.py tests/test_wheel_install.py)
+uv run --frozen pytest -q -p no:xdist "${WORKSPACE_BUILD_TESTS[@]}" --junitxml=.ci-results/python-build.xml
+uv run --frozen python scripts/check_test_report.py .ci-results/python-build.xml
+# Phase 2 (parallel by test): everything else; each test owns its PGDATA, port and temp dirs.
 # NEXLOOP_CI_PYTEST_WORKERS=0 runs serially for diagnosis.
-uv run --frozen pytest -q -n "${NEXLOOP_CI_PYTEST_WORKERS:-6}" --dist loadgroup --junitxml=.ci-results/python.xml
+ignore_args=(); for t in "${WORKSPACE_BUILD_TESTS[@]}"; do ignore_args+=(--ignore="$t"); done
+uv run --frozen pytest -q -n "${NEXLOOP_CI_PYTEST_WORKERS:-6}" --dist load "${ignore_args[@]}" --junitxml=.ci-results/python.xml
 uv run --frozen python scripts/check_test_report.py .ci-results/python.xml
 # Frozen Pi source and actual SQLite are required. Missing files/tools fail.
 [[ -f vendor/pi/packages/durable/test/nexloop-sqlite-conformance.test.ts ]]
