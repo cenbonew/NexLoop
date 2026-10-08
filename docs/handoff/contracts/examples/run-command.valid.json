@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "run_id": "33333333-3333-4333-8333-333333333333",
+  "tenant_id": "11111111-1111-4111-8111-111111111111",
+  "world_id": "test-demo-001",
+  "mode": "test",
+  "request_id": "test-run-request-000001",
+  "trigger_event_id": "44444444-4444-4444-8444-444444444444",
+  "role_ref": "nl:Role/customer-care",
+  "consumer_ref": "eios:Consumer/22222222-2222-4222-8222-222222222222",
+  "goal_version_ref": "nl:GoalVersion/retention-v1",
+  "context_manifest_ref": "nl:ContextManifest/77777777-7777-4777-8777-777777777777",
+  "runtime_profile": "pi-durable-v1",
+  "credential_ref": "credential:ephemeral-test-reference",
+  "budget": {
+    "maximum_model_turns": 8,
+    "maximum_tool_calls": 12,
+    "active_timeout_seconds": 300,
+    "maximum_cost": "0.50",
+    "currency": "USD"
+  },
+  "not_after": "2026-10-07T08:05:00Z",
+  "runtime_owner_epoch": 1
+}

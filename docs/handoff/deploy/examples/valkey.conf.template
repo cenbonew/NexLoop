@@ -1,0 +1,19 @@
+# Cache/notifications only. No authoritative queue, policy, or idempotency here.
+bind 0.0.0.0
+protected-mode yes
+port 0
+tls-port 6379
+tls-cert-file /run/tls/server.crt
+tls-key-file /run/tls/server.key
+tls-ca-cert-file /run/tls/ca.crt
+tls-auth-clients no
+aclfile /run/secrets/valkey.acl
+save ""
+appendonly no
+maxmemory __VALKEY_MAXMEMORY__
+maxmemory-policy allkeys-lru
+loglevel notice
+logfile ""
+# The ACL file disables default and gives separate cache/pubsub users minimum
+# command + key/channel patterns. Never +@all, CONFIG, MODULE or public access.
+# TLS encrypts traffic; server-side ACL still requires a strong user password.

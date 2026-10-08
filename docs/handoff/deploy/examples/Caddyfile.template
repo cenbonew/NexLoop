@@ -1,0 +1,28 @@
+{
+    auto_https disable_redirects
+    admin off
+}
+http://{$PUBLIC_HOST}:8080 {
+    redir https://{$PUBLIC_HOST}:{$HTTPS_PORT}{uri} permanent
+}
+https://{$PUBLIC_HOST}:8443 {
+    tls internal
+    encode gzip
+    handle /internal/* {
+        respond "Not found" 404
+    }
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+    handle {
+        reverse_proxy web:8080
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+    }
+}
+# Trust this private CA only on authorized clients. Never publish /data CA keys.
+# API proxy trust and client-IP handling must implement the audited EIOS contract;
+# do not blindly trust forwarded headers. No direct browser access to /internal.

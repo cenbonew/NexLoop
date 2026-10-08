@@ -1,0 +1,49 @@
+{
+  "recorded_at": "2026-10-08T09:20:03.210048+00:00",
+  "dry_run_completed": true,
+  "user_authorized": true,
+  "top_level_generated_directories": [
+    ".ci-results",
+    "output",
+    "apps/agent-host/.ci-results",
+    "apps/agent-host/dist",
+    "apps/web/dist",
+    "vendor/pi/packages/ai/dist",
+    "vendor/pi/packages/chord/dist",
+    "vendor/pi/packages/durable/dist",
+    "vendor/pi/packages/telemetry/dist",
+    "docs/tmp/model-provider-candidate/apps/agent-host/dist",
+    "docs/tmp/nx016-candidate/apps/agent-host/.ci-results",
+    "docs/tmp/nx016-candidate/apps/agent-host/dist",
+    "docs/tmp/nx016-candidate/apps/web/dist",
+    "docs/tmp/nx017-candidate/apps/agent-host/dist"
+  ],
+  "root_ci_results_before_cleanup": "51G reported by du",
+  "host_staging_fix": "prepare_host_build now uses TemporaryDirectory; actual Node24 closure preparation left zero new staging directories and verified6contextfiles",
+  "retained": [
+    "All source files",
+    "Ignored candidate source under docs/tmp (only its compiled output removed)",
+    ".env",
+    "Installed node_modules/.venv",
+    "Docker volumes and stopped owned test containers"
+  ],
+  "gitignore_added": [
+    "dist/",
+    "output/",
+    "build/",
+    "coverage/",
+    "htmlcov/",
+    "*.sqlite*",
+    "*.tsbuildinfo",
+    ".coverage",
+    ".coverage.*",
+    ".mypy_cache/",
+    ".ruff_cache/",
+    ".vite/",
+    ".DS_Store"
+  ],
+  "ci_results_ignore": "Existing unanchored .ci-results/ rule verified for root and nested Host/candidate paths",
+  "ci_output_policy": "Local CI recreates ignored .ci-results reports and dist builds; staging closures clean automatically; no source fixture relocated",
+  "status": "deleted",
+  "all_listed_directories_absent": true
+}

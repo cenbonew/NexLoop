@@ -1,0 +1,1492 @@
+[
+  {
+    "id": "NX-001",
+    "stage": "S0",
+    "title": "建立干净仓库与交接基线",
+    "dependencies": [],
+    "modules": [
+      "M01",
+      "M23"
+    ],
+    "deliverable": "冻结项目名、目录、文档与私有附件排除；不发布旧仓库历史",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/s0/publication-baseline.md",
+        "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
+        "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-002",
+    "stage": "S0",
+    "title": "核验EIOS来源与依赖图",
+    "dependencies": [
+      "NX-001"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M17"
+    ],
+    "deliverable": "source-path清单、授权写路径、Migration Catalog与可复用接口",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/s0/source-reuse-inventory.json",
+        "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
+        "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-003",
+    "stage": "S0",
+    "title": "核验Pi与Evo锁定版本",
+    "dependencies": [
+      "NX-001"
+    ],
+    "modules": [
+      "M12",
+      "M14",
+      "M17"
+    ],
+    "deliverable": "实际包API、License、SQLite配置与conformance入口",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/s0/pi-evo-audit.md",
+        "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
+        "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-004",
+    "stage": "S0",
+    "title": "只读盘点双机环境",
+    "dependencies": [
+      "NX-001"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "OS/资源/端口/网络/SSH/现有服务inventory，无secret输出",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/s0/server-inventory.md",
+        "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
+        "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-005",
+    "stage": "S0",
+    "title": "冻结契约和许可方案",
+    "dependencies": [
+      "NX-002",
+      "NX-003"
+    ],
+    "modules": [
+      "M11",
+      "M17",
+      "M23"
+    ],
+    "deliverable": "接口、事实归属、上游来源锁与许可文件计划",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/s0/contracts-and-licensing.md",
+        "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
+        "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-006",
+    "stage": "S1",
+    "title": "抽取可独立启动EIOS core",
+    "dependencies": [
+      "NX-005"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M17"
+    ],
+    "deliverable": "通用core、domain pack边界、干净DB bootstrap测试",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "packages/eios-core/PROVENANCE.json",
+        "summary": "73 selected upstream sources; independent clean PostgreSQL bootstrap, fail-closed restricted assembly and 168 Python tests passed; broader storage/governance assembly incomplete",
+        "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/foundation-ci.json",
+        "summary": "Foundation CI exit 0: 168 Python tests with disposable PG, four frozen Pi packages built, 24 actual SQLite FULL conformance cases; S1/S2 not complete",
+        "recorded_at": "2026-10-07T14:39:55.553813+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/S1-progress.md",
+        "summary": "Actual role hardening, append-only revision 0003, filesystem Artifact adapter and strict local CI; PG metadata/live authorization and whole slice remain incomplete",
+        "recorded_at": "2026-10-07T14:48:44.800580+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/s1-foundation-ci.json",
+        "summary": "Strict local CI exit 0: 223 Python and 24 actual SQLite FULL cases; actual PG boundary tests, 30 filesystem Artifact cases, and index/worktree publication regression tests. Whole governed slice still incomplete.",
+        "recorded_at": "2026-10-07T14:54:59.892460+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/artifact-governance-progress.md",
+        "summary": "Actual PG service fact resolver and signed Artifact reserve/publish/read with live revalidation, fencing and child-process fsync/reopen; whole slice and PG GC remain incomplete",
+        "recorded_at": "2026-10-07T15:21:21.044507+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-governance-ci.json",
+        "summary": "Strict local CI: 246 Python, 24 SQLite FULL, four Pi package builds; 23 actual PG authorization/Artifact cases include tenant suspension, revoke/restore, fencing and fsync/process-exit recovery. Whole slice and GC incomplete.",
+        "recorded_at": "2026-10-07T15:29:19.610301+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-retention-ci.json",
+        "summary": "Strict CI: 252 Python + 24 SQLite FULL and four Pi builds. Actual PG standalone retention, revoked deletion denial, unlink/rollback fenced recovery, pending protection and cross-connection reference-writer lock. Runtime-bound terminal-owner GC remains incomplete.",
+        "recorded_at": "2026-10-07T15:33:10.089105+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/eios-action-core-ci.json",
+        "summary": "85 verified frozen-source records; ActionGovernor/claim/approval closure. Strict CI 471 Python + 24 SQLite FULL + four Pi builds. Action unit contracts 59+159; live PG Action assembly still required.",
+        "recorded_at": "2026-10-07T15:37:49.127030+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/postgres-action-claims-ci.json",
+        "summary": "Actual restricted PG ActionClaimPort: 9 concurrency/fencing/replay/payload/revocation race cases. Strict local CI 480 Python + 24 SQLite FULL + four Pi builds. Live business Action/instance assembly and API prerequisites remain incomplete.",
+        "recorded_at": "2026-10-07T15:43:44.297533+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/model-configuration-ci.json",
+        "summary": "Secret-safe model profile loader: secret-file priority, stage restrictions, blank-key test label and DeepSeek egress allowlist; no real provider call. Action result failure sanitized. Strict CI 494 Python + 24 Pi FULL + four source builds. Whole core/Host slice incomplete.",
+        "recorded_at": "2026-10-07T15:47:52.527183+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/doctor-progress.md",
+        "summary": "Read-only foundation doctor verifies actual PG restricted identity/catalog and existing private Artifact directory; explicit product_ready false. Four isolated/unit doctor cases executed; community startup remains incomplete.",
+        "recorded_at": "2026-10-07T15:49:09.472607+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/governor-composition-ci.json",
+        "summary": "Actual frozen Governor + PG claim + database clock produces typed permit for synthetic no-approval Action; approval-required rejects before reserve. Strict CI 500 Python + 24 Pi FULL + four builds. Published registry/business slice remains incomplete.",
+        "recorded_at": "2026-10-07T15:52:33.442292+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/published-actions-ci.json",
+        "summary": "Published Action/capability PG snapshots, immutable version/retirement epoch, live EIOS signed read and server-scope Governor/PG claim composition: 8 PG tests. Strict CI 508 Python + 24 SQLite FULL + four Pi builds. Schema publication/dispatch/business slice incomplete.",
+        "recorded_at": "2026-10-07T15:59:01.578476+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/action-schema-ci.json",
+        "summary": "Action bundle pins existing EIOS object_type_versions and actual upstream schema_contract_digest; missing/mismatched schema fails, stored versions immutable. Strict CI 511 Python + 24 Pi FULL + four builds. Business dispatcher and S2 acceptance incomplete.",
+        "recorded_at": "2026-10-07T16:03:53.426079+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/governed-create-ci.json",
+        "summary": "First actual restricted PG Consumer create through published Action/schema, frozen Governor/claim and live authority definer; atomic object/terminal commit, replay one row, direct DML refused and revoke-before-dispatch denial. CI 514 Python + 24 Pi FULL + four builds. Full S2 still incomplete.",
+        "recorded_at": "2026-10-07T16:12:40.441498+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/authorized-reads-ci.json",
+        "summary": "Real service object READ and separate PROPERTY READ with live EIOS facts; actual preference projection/property-only revoke, raw SELECT denial and tenant B row isolation. Explicit upstream vocabulary adaptation/provenance. CI 518 Python + 24 Pi FULL + four builds; complete business/runtime slice still incomplete.",
+        "recorded_at": "2026-10-07T16:21:19.892493+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/create-crash-recovery-ci.json",
+        "summary": "Real SIGKILL after governed create commit and fresh restricted-process replay; 519 Python/24 SQLite cases passed. Full task/S2 incomplete.",
+        "recorded_at": "2026-10-07T16:26:22.890000+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/backend-composition-ci.json",
+        "summary": "Mandatory restricted PG/private Artifact backend composition and authenticated governed service facade; 524 Python/24 SQLite tests passed. Full task incomplete.",
+        "recorded_at": "2026-10-07T16:30:05.199995+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/backend-startup-ci.json",
+        "summary": "Read-only active signing-key startup challenge denies missing/inactive/mismatched keys before Artifact creation; 528 Python/24 SQLite cases passed after exact-count correction; full tasks incomplete.",
+        "recorded_at": "2026-10-07T16:34:24.881167+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/approval-resolver-ci.json",
+        "summary": "Extracted explicit Approval resolver without implicit Memory authority; restored two excluded snapshot cases; 543 Python/24 SQLite passed. Real PG approvals/full extraction gates incomplete.",
+        "recorded_at": "2026-10-07T16:50:42.958788+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-smoke-ci.json",
+        "summary": "Installed test-world Artifact smoke performs real restricted PG/fsync write-read; real-only credential denied; 551 Python/24 SQLite passed after sequential uv sync. Complete clean startup/Compose gates incomplete.",
+        "recorded_at": "2026-10-07T16:56:08.763642+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/doctor-private-config-ci.json",
+        "summary": "Read-only doctor validates private-file DSN precedence and zero connect calls on invalid file; explicit test mode ignores inherited model credentials; 553 Python/24 SQLite passed. Full clean-install/Compose gates incomplete.",
+        "recorded_at": "2026-10-07T17:00:46.518477+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/core-wheel-ci.json",
+        "summary": "Noneditable wheel preserves licenses/provenance and source/SQL hashes; isolated installed module origins, actual packaged PG bootstrap and restricted Artifact smoke; 555 Python/24 SQLite passed. Full community/AT-051 gates incomplete.",
+        "recorded_at": "2026-10-07T17:08:23.220673+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/core-sandbox-ci.json",
+        "summary": "Owned fresh PG bootstrap, actual persisted test-service authorization, restricted Artifact write/read, confirmed shutdown/cleanup; noneditable installed command verified; 558 Python/24 SQLite passed. Full S1/S2 and AT-051 remain incomplete.",
+        "recorded_at": "2026-10-07T17:25:26.386904+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/governed-object-edit-ci.json",
+        "summary": "Real EIOS governed preference patch, exact object/property EDIT authority, stable intent replay, CAS revision conflict and decision-to-SQL revocation denial; 565 Python/24 SQLite passed. Relation/full retained-core contract remains incomplete.",
+        "recorded_at": "2026-10-07T17:38:37.516017+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/governed-relation-link-ci.json",
+        "summary": "Real governed Relation CREATE and exact endpoint EDIT; immutable schema/Action binding, pair concurrency, cardinality/conflict and dispatch revocation/world denial; 578 Python/24 SQLite passed. Full retained-core/S1 acceptance still pending scope audit.",
+        "recorded_at": "2026-10-07T17:52:28.363720+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-core-ci.json",
+        "summary": "Minimal extracted core complete: independent clean bootstrap/installed wheel, governed Consumer preference edit and Relation with actual PG negatives; full product/S2 incomplete.",
+        "recorded_at": "2026-10-07T18:30:58.807269+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-007",
+    "stage": "S1",
+    "title": "实现本地Artifact adapter",
+    "dependencies": [
+      "NX-006"
+    ],
+    "modules": [
+      "M09",
+      "M13",
+      "M23"
+    ],
+    "deliverable": "hash、授权、原子文件写、retention、孤儿清理测试",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/S1-progress.md",
+        "summary": "Actual role hardening, append-only revision 0003, filesystem Artifact adapter and strict local CI; PG metadata/live authorization and whole slice remain incomplete",
+        "recorded_at": "2026-10-07T14:48:44.800580+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/s1-foundation-ci.json",
+        "summary": "Strict local CI exit 0: 223 Python and 24 actual SQLite FULL cases; actual PG boundary tests, 30 filesystem Artifact cases, and index/worktree publication regression tests. Whole governed slice still incomplete.",
+        "recorded_at": "2026-10-07T14:54:59.892460+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/artifact-governance-progress.md",
+        "summary": "Actual PG service fact resolver and signed Artifact reserve/publish/read with live revalidation, fencing and child-process fsync/reopen; whole slice and PG GC remain incomplete",
+        "recorded_at": "2026-10-07T15:21:21.044507+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-governance-ci.json",
+        "summary": "Strict local CI: 246 Python, 24 SQLite FULL, four Pi package builds; 23 actual PG authorization/Artifact cases include tenant suspension, revoke/restore, fencing and fsync/process-exit recovery. Whole slice and GC incomplete.",
+        "recorded_at": "2026-10-07T15:29:19.610301+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-retention-ci.json",
+        "summary": "Strict CI: 252 Python + 24 SQLite FULL and four Pi builds. Actual PG standalone retention, revoked deletion denial, unlink/rollback fenced recovery, pending protection and cross-connection reference-writer lock. Runtime-bound terminal-owner GC remains incomplete.",
+        "recorded_at": "2026-10-07T15:33:10.089105+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/backend-composition-ci.json",
+        "summary": "Mandatory restricted PG/private Artifact backend composition and authenticated governed service facade; 524 Python/24 SQLite tests passed. Full task incomplete.",
+        "recorded_at": "2026-10-07T16:30:05.199995+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/backend-startup-ci.json",
+        "summary": "Read-only active signing-key startup challenge denies missing/inactive/mismatched keys before Artifact creation; 528 Python/24 SQLite cases passed after exact-count correction; full tasks incomplete.",
+        "recorded_at": "2026-10-07T16:34:24.881167+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/pending-artifact-recovery-ci.json",
+        "summary": "Expired pending Artifact cleanup only after actual lease expiry; fenced upload transaction covers physical fsync and commit; 531 Python/24 SQLite cases passed. Owner-bound/full orphan lifecycle incomplete.",
+        "recorded_at": "2026-10-07T16:39:49.472158+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-cleanup-pages-ci.json",
+        "summary": "Scoped signed READ cleanup pages and bounded DELETE batches; independent READ-only discovery cannot delete; 538 Python/24 SQLite passed; full orphan/owner lifecycle incomplete.",
+        "recorded_at": "2026-10-07T16:45:39.643153+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-smoke-ci.json",
+        "summary": "Installed test-world Artifact smoke performs real restricted PG/fsync write-read; real-only credential denied; 551 Python/24 SQLite passed after sequential uv sync. Complete clean startup/Compose gates incomplete.",
+        "recorded_at": "2026-10-07T16:56:08.763642+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/core-sandbox-ci.json",
+        "summary": "Owned fresh PG bootstrap, actual persisted test-service authorization, restricted Artifact write/read, confirmed shutdown/cleanup; noneditable installed command verified; 558 Python/24 SQLite passed. Full S1/S2 and AT-051 remain incomplete.",
+        "recorded_at": "2026-10-07T17:25:26.386904+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/temporary-artifact-cleanup-ci.json",
+        "summary": "Domain-worker-only actual PG/EIOS DELETE temp cleanup, bounded pages, revocation/role and namespace negatives; physical partial failure fsync/retry; 585 Python/24 SQLite passed. Final orphan and runtime-owner lifecycle remain incomplete.",
+        "recorded_at": "2026-10-07T18:00:41.671950+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/final-artifact-orphan-ci.json",
+        "summary": "Final orphan maintenance requires distinct EIOS grant and worker role; durable plan, metadata absence/table locks, inode/hash recheck, actual SIGKILL after fsync and absent recovery; 594 Python/24 SQLite passed. Runtime-owner lifecycle remains incomplete.",
+        "recorded_at": "2026-10-07T18:11:46.275282+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-core-ci.json",
+        "summary": "Minimal local Artifact adapter complete: governed atomic hash/size read/write, retention, pending/temp/final orphan recovery including actual SIGKILL; runtime-owner integration deferred to runtime tasks.",
+        "recorded_at": "2026-10-07T18:30:58.807269+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-008",
+    "stage": "S1",
+    "title": "建设DB角色与新迁移目录",
+    "dependencies": [
+      "NX-006"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M16"
+    ],
+    "deliverable": "受限角色/RLS、独立catalog、禁止Memory fallback",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/S1-progress.md",
+        "summary": "Actual role hardening, append-only revision 0003, filesystem Artifact adapter and strict local CI; PG metadata/live authorization and whole slice remain incomplete",
+        "recorded_at": "2026-10-07T14:48:44.800580+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/s1-foundation-ci.json",
+        "summary": "Strict local CI exit 0: 223 Python and 24 actual SQLite FULL cases; actual PG boundary tests, 30 filesystem Artifact cases, and index/worktree publication regression tests. Whole governed slice still incomplete.",
+        "recorded_at": "2026-10-07T14:54:59.892460+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/artifact-governance-progress.md",
+        "summary": "Actual PG service fact resolver and signed Artifact reserve/publish/read with live revalidation, fencing and child-process fsync/reopen; whole slice and PG GC remain incomplete",
+        "recorded_at": "2026-10-07T15:21:21.044507+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-governance-ci.json",
+        "summary": "Strict local CI: 246 Python, 24 SQLite FULL, four Pi package builds; 23 actual PG authorization/Artifact cases include tenant suspension, revoke/restore, fencing and fsync/process-exit recovery. Whole slice and GC incomplete.",
+        "recorded_at": "2026-10-07T15:29:19.610301+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/postgres-action-claims-ci.json",
+        "summary": "Actual restricted PG ActionClaimPort: 9 concurrency/fencing/replay/payload/revocation race cases. Strict local CI 480 Python + 24 SQLite FULL + four Pi builds. Live business Action/instance assembly and API prerequisites remain incomplete.",
+        "recorded_at": "2026-10-07T15:43:44.297533+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/published-actions-ci.json",
+        "summary": "Published Action/capability PG snapshots, immutable version/retirement epoch, live EIOS signed read and server-scope Governor/PG claim composition: 8 PG tests. Strict CI 508 Python + 24 SQLite FULL + four Pi builds. Schema publication/dispatch/business slice incomplete.",
+        "recorded_at": "2026-10-07T15:59:01.578476+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/action-schema-ci.json",
+        "summary": "Action bundle pins existing EIOS object_type_versions and actual upstream schema_contract_digest; missing/mismatched schema fails, stored versions immutable. Strict CI 511 Python + 24 Pi FULL + four builds. Business dispatcher and S2 acceptance incomplete.",
+        "recorded_at": "2026-10-07T16:03:53.426079+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/governed-create-ci.json",
+        "summary": "First actual restricted PG Consumer create through published Action/schema, frozen Governor/claim and live authority definer; atomic object/terminal commit, replay one row, direct DML refused and revoke-before-dispatch denial. CI 514 Python + 24 Pi FULL + four builds. Full S2 still incomplete.",
+        "recorded_at": "2026-10-07T16:12:40.441498+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/authorized-reads-ci.json",
+        "summary": "Real service object READ and separate PROPERTY READ with live EIOS facts; actual preference projection/property-only revoke, raw SELECT denial and tenant B row isolation. Explicit upstream vocabulary adaptation/provenance. CI 518 Python + 24 Pi FULL + four builds; complete business/runtime slice still incomplete.",
+        "recorded_at": "2026-10-07T16:21:19.892493+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/create-crash-recovery-ci.json",
+        "summary": "Real SIGKILL after governed create commit and fresh restricted-process replay; 519 Python/24 SQLite cases passed. Full task/S2 incomplete.",
+        "recorded_at": "2026-10-07T16:26:22.890000+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/backend-composition-ci.json",
+        "summary": "Mandatory restricted PG/private Artifact backend composition and authenticated governed service facade; 524 Python/24 SQLite tests passed. Full task incomplete.",
+        "recorded_at": "2026-10-07T16:30:05.199995+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/backend-startup-ci.json",
+        "summary": "Read-only active signing-key startup challenge denies missing/inactive/mismatched keys before Artifact creation; 528 Python/24 SQLite cases passed after exact-count correction; full tasks incomplete.",
+        "recorded_at": "2026-10-07T16:34:24.881167+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/pending-artifact-recovery-ci.json",
+        "summary": "Expired pending Artifact cleanup only after actual lease expiry; fenced upload transaction covers physical fsync and commit; 531 Python/24 SQLite cases passed. Owner-bound/full orphan lifecycle incomplete.",
+        "recorded_at": "2026-10-07T16:39:49.472158+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-cleanup-pages-ci.json",
+        "summary": "Scoped signed READ cleanup pages and bounded DELETE batches; independent READ-only discovery cannot delete; 538 Python/24 SQLite passed; full orphan/owner lifecycle incomplete.",
+        "recorded_at": "2026-10-07T16:45:39.643153+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/core-sandbox-ci.json",
+        "summary": "Owned fresh PG bootstrap, actual persisted test-service authorization, restricted Artifact write/read, confirmed shutdown/cleanup; noneditable installed command verified; 558 Python/24 SQLite passed. Full S1/S2 and AT-051 remain incomplete.",
+        "recorded_at": "2026-10-07T17:25:26.386904+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/s1-task-completion-audit.md",
+        "summary": "Current full CI source hashes verified; 19 focused fresh PG/import/CI boundary cases passed. Task role/catalog/no-fallback or minimal local CI deliverable complete; product S1/S2 acceptance remains incomplete.",
+        "recorded_at": "2026-10-07T17:27:07.253463+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-009",
+    "stage": "S1",
+    "title": "交付单机Compose与doctor",
+    "dependencies": [
+      "NX-007",
+      "NX-008"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "无需TOS/GitHub/真实key/服务器访问的显式test模式单机可启动",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-core-ci.json",
+        "summary": "Core-test Compose graph, clean-only private bootstrap, restricted Artifact/doctor job and public-only wheel context; 603 Python/24 SQLite passed; Docker daemon unavailable, no container build/run or AT-051.",
+        "recorded_at": "2026-10-07T18:30:58.807269+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-launcher-ci.json",
+        "summary": "Private disposable launcher prepares/verifies actual random secrets and public-only build context; existing resources/config tamper denied; 611 Python/24 SQLite and four Pi builds passed. Actual run refused at unavailable Docker daemon; no container build/run, task remains incomplete.",
+        "recorded_at": "2026-10-07T18:35:56.858535+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-runtime-evidence.json",
+        "summary": "Docker28.1.1 now available; fresh pinned-image Compose bootstrap0032 and UID10001 restricted nexloop_api EIOS Artifact write/read + doctor passed. First launcher failed on multiline JSON; parser fixed,9 focused passed, second fresh-project launcher exit0. Internal network/no host ports verified; exact owned PG containers stopped, volumes retained. Core-only: full API/frontend/Host Compose and AT-051 remain incomplete. Full CI875 Python/24 SQLite/four Pi + frontend/Host builds passed; zero critical skips.",
+        "recorded_at": "2026-10-07T22:20:03.951519+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-api-runtime-evidence.json",
+        "summary": "Fresh Compose now runs actual UID10001 API and shares its loopback namespace with check-test. PG bootstrap0032/governed Artifact + HTTP read/digest/liveness200/foundation503/anonymous401/wrong-token401 passed.15 focused tests passed; strict missing/failed HTTP evidence denied. Actual /proc listener127.0.0.1 only, no admin mount/model env/host ports; clean own shutdown retains volumes. Full frontend/Host/Worker/Valkey and AT-051 remain incomplete. Full CI877 Python/24 SQLite/four Pi + web/Host builds passed; zero critical skips; dependency locks/versions unchanged.",
+        "recorded_at": "2026-10-07T22:26:32.103018+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-cache-runtime-evidence.json",
+        "summary": "Pinned official Valkey8.1.10 multiarch digest; raw index/config/layers verified and standard arm64 OCI import preserves RepoDigest after daemon token EOF. Fresh Compose6 services passed PG0032/Artifact/API +10 actual TLS/ACL checks, UID10001/private split server-client volumes/no host ports/admin exposure. RESP fragmented1fail fixed;21 focused +CI883 Python/24 SQLite/four Pi/web/Host builds passed, zero skips. Exact owned3 services stopped exit0; private volumes retained. Full frontend/Host/Worker and AT-051 remain incomplete.",
+        "recorded_at": "2026-10-07T22:43:56.909359+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-host-runtime-evidence.json",
+        "summary": "Fresh8-service Compose adds actual Node24.13/Python3.12.10 Host in separate five-file secret-free context. API->Host verified TLS/auth/owner, anonymous/wrong-key/Origin denied; no DB/model/server-key leakage. Linux kernel second owner refused; exact owned Host SIGKILL137/reopen preserves inode/files, API detects outage, all checks rerun pass.23 focused +CI887 Python/24 SQLite/four Pi/web/Host builds passed, zero skips.4 owned services stopped exit0, volumes retained. No Pi Run recovery/lease/S2 acceptance; full community frontend/Worker remains incomplete.",
+        "recorded_at": "2026-10-07T23:00:28.615272+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-browser-runtime-evidence.json",
+        "summary": "Fresh canonical explicit synthetic Human IAM bootstrap uses protected restricted PG identity; no business grants/cookie service authority. Public-only frontend build (Vite dotenv/config disabled), actual HTTPS login/session/CSRF/logout and secure cookie pass on9-service Compose and host127-loopback. First YAML3fail fixed; internal-only port refused then API-only entry bridge corrected; final29 focused +actual fresh host HTTPS passed. CI893 Python/24 SQLite/four Pi/web/Host builds pass; zero skips, no lock/SQL change.4 owned services stopped exit0, volumes retained. Worker, truthful readiness labels, full community and S2 remain incomplete.",
+        "recorded_at": "2026-10-07T23:26:57.863783+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/domain-worker-evidence.json",
+        "summary": "Actual bounded Domain Worker process via restricted EIOS orphan-maintenance port: real PG cleanup, protected artifacts, idempotent durable resume, API-role/credential denial passed;23 focused plus4 final browser-degradation tests. Browser capability readiness rechecks live restricted identity port, product readiness503. Compose Worker, scheduler leases/discovery and Run dispatch/recovery pending; no S2 promotion. Locks/32SQL unchanged. Full CI exit0:897 Python/24 actual Pi SQLite/four Pi + web/Host builds, zero critical skips.",
+        "recorded_at": "2026-10-07T23:33:00.836257+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-worker-runtime-evidence.json",
+        "summary": "Actual fresh11-service Compose: separately scoped restricted Worker removes physical orphan/resumes durable plan; PG/Artifact/doctor, API HTTPS, Host TLS/owner/auth, Valkey TLS/ACL and browser login/session/CSRF pass. External verified host HTTPS and current browser readiness pass. Full CI904 Python/24 Pi SQLite/four Pi+web/Host builds,zero critical skips. First Node20 setup22errors corrected; specific denial assertion corrected;36focused+4final passed. All11 owned containers stopped exit0,volumes retained. S1 scope audited in S1-exit-audit.md; no S2/Run/product/deployment claim. Locks/32SQL unchanged.",
+        "recorded_at": "2026-10-07T23:45:55.998721+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/S1-exit-audit.md",
+        "summary": "Requirement-by-requirement S1 delivery audit against frozen docs15: independent foundation/identity/contracts/localCI proven; queue/Run recovery belongs to S2; remaining full-product AT001/002/003 not promoted.",
+        "recorded_at": "2026-10-07T23:45:55.998721+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-agent-foundation-evidence.json",
+        "summary": "Fresh pinned11-service Compose rebuilt with0033: actual clean bootstrap/doctor/restricted Artifact, HTTPS browser, Host/cache and Worker pass. External CA-verified HTTPS login/readiness pass. All owned containers stopped exit0,volumes retained. Native Agent tests separate; no Agent-in-container/Run/S2 completion claim.",
+        "recorded_at": "2026-10-08T00:10:10.143011+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-010",
+    "stage": "S1",
+    "title": "搭建最小本地CI脚本",
+    "dependencies": [
+      "NX-005",
+      "NX-008"
+    ],
+    "modules": [
+      "M22",
+      "M23"
+    ],
+    "deliverable": "冻结依赖、unit/contract/PG检查，关键skip阻断",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/S1-progress.md",
+        "summary": "Actual role hardening, append-only revision 0003, filesystem Artifact adapter and strict local CI; PG metadata/live authorization and whole slice remain incomplete",
+        "recorded_at": "2026-10-07T14:48:44.800580+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/s1-foundation-ci.json",
+        "summary": "Strict local CI exit 0: 223 Python and 24 actual SQLite FULL cases; actual PG boundary tests, 30 filesystem Artifact cases, and index/worktree publication regression tests. Whole governed slice still incomplete.",
+        "recorded_at": "2026-10-07T14:54:59.892460+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/artifact-governance-progress.md",
+        "summary": "Actual PG service fact resolver and signed Artifact reserve/publish/read with live revalidation, fencing and child-process fsync/reopen; whole slice and PG GC remain incomplete",
+        "recorded_at": "2026-10-07T15:21:21.044507+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-governance-ci.json",
+        "summary": "Strict local CI: 246 Python, 24 SQLite FULL, four Pi package builds; 23 actual PG authorization/Artifact cases include tenant suspension, revoke/restore, fencing and fsync/process-exit recovery. Whole slice and GC incomplete.",
+        "recorded_at": "2026-10-07T15:29:19.610301+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/artifact-retention-ci.json",
+        "summary": "Strict CI: 252 Python + 24 SQLite FULL and four Pi builds. Actual PG standalone retention, revoked deletion denial, unlink/rollback fenced recovery, pending protection and cross-connection reference-writer lock. Runtime-bound terminal-owner GC remains incomplete.",
+        "recorded_at": "2026-10-07T15:33:10.089105+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/s1-task-completion-audit.md",
+        "summary": "Current full CI source hashes verified; 19 focused fresh PG/import/CI boundary cases passed. Task role/catalog/no-fallback or minimal local CI deliverable complete; product S1/S2 acceptance remains incomplete.",
+        "recorded_at": "2026-10-07T17:27:07.253463+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/contract-generation-ci.json",
+        "summary": "Canonical six-schema TypeScript/OpenAPI component generation added to strict drift gate; actual tsc and exact schema parity passed; full CI 613 Python/24 SQLite/four Pi builds. NX-009 container and NX-011 API/Host remain incomplete.",
+        "recorded_at": "2026-10-07T18:40:51.698276+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-011",
+    "stage": "S1",
+    "title": "实现API/前端/Host基础结构",
+    "dependencies": [
+      "NX-009",
+      "NX-010"
+    ],
+    "modules": [
+      "M01",
+      "M20"
+    ],
+    "deliverable": "健康检查、同源登录、内部鉴权、契约生成",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/http-foundation-ci.json",
+        "summary": "Independent HTTP foundation while NX-009 container verification blocked: actual loopback API process, fresh PG/signer/Artifact checks, real governed service Artifact read/revocation; 619 Python/24 SQLite/four Pi builds passed. Login/frontend/Host/internal auth not complete; overall readiness remains 503.",
+        "recorded_at": "2026-10-07T18:47:35.649710+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-session-source-ci.json",
+        "summary": "Frozen Human browser-session service added with 135 exact upstream unit cases, all 87 prior source records preserved; full CI 755 Python/24 SQLite/four Pi builds passed. Durable PG sessions, browser login/CSRF/frontend/Host still incomplete; task remains in_progress.",
+        "recorded_at": "2026-10-07T18:54:56.554556+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-rate-limit-ci.json",
+        "summary": "Frozen EIOS IdentityRateLimiter port backed by protected PG function: real concurrent allowance, durable reopen, clock expiry, tenant/operator/policy/role/direct-table negatives; 762 Python/24 SQLite/four Pi builds passed. Session UoW/login/frontend/Host incomplete; 0019 appended, prior18 SQL unchanged.",
+        "recorded_at": "2026-10-07T19:02:19.850362+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-operator-binding-ci.json",
+        "summary": "Corrected rate-limit trusted operator to actual database session_user, including configured-spoof/raw-model and Python-bypass SQL negatives; 764 Python/24 SQLite/four Pi builds passed. 0020 appended, prior19 SQL unchanged. Full browser Session UoW/login/CSRF/frontend/Host remains incomplete.",
+        "recorded_at": "2026-10-07T19:07:25.442399+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-identity-read-ci.json",
+        "summary": "Dedicated restricted identity pool and protected canonical Subject/membership/LocalAccount reads with real PG/hash/reopen/tenant/revoke/elevation/malformed negatives; 771 Python/24 SQLite/four Pi builds passed. 0021 appended, prior20 SQL unchanged. Session UoW/login/CSRF/frontend/Host incomplete.",
+        "recorded_at": "2026-10-07T19:22:38.232797+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-account-failure-ci.json",
+        "summary": "Protected dedicated-identity local-account failure/audit port: real PG lock/reopen/concurrency/15-30-60 policy and negative boundaries; 776 Python/24 SQLite/four Pi builds passed. 0022 appended, prior21 SQL unchanged. Password-service time compatibility, save/evidence/Session UoW/login/frontend/Host incomplete.",
+        "recorded_at": "2026-10-07T19:37:30.337930+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-password-verification-ci.json",
+        "summary": "Explicit durable failure receipt connects frozen password verification without timestamp rewrite or committed-counter retry; real PG negatives and exact frozen tests passed; 814 Python/24 SQLite/four Pi builds. 0023 appended, prior22 SQL unchanged. Full save/evidence/Session UoW/login/frontend/Host remain incomplete.",
+        "recorded_at": "2026-10-07T19:54:21.600080+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-password-save-ci.json",
+        "summary": "Restricted existing-account password-state save: actual PG rehash/reset/reopen, CAS concurrent one-commit, identity/admin/active-lock/app/operator/raw NULL-time negatives. Final CI819 Python/24 SQLite/four Pi builds;0024 appended, prior23 SQL unchanged. Evidence issuance, Session UoW/login/frontend/Host remain incomplete.",
+        "recorded_at": "2026-10-07T20:05:19.095359+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-evidence-ci.json",
+        "summary": "Actual frozen password authentication now issues canonical PG Evidence: proof digest only, DB clock TTL, exact latest identity/App revisions, reopen, wrong proof/expiry/revoke/unique concurrent negatives. CI823 Python/24 SQLite/four Pi builds;0025 appended,prior24SQL unchanged. No standalone consume; atomic Session/login/CSRF/frontend/Host incomplete.",
+        "recorded_at": "2026-10-07T20:14:20.126926+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-session-creation-ci.json",
+        "summary": "Actual password-to-new-Session with protected canonical identity/membership revalidation, atomic Evidence consume/Session insert, replay/concurrent one-commit and real deferred commit-fault rollback verified. CI826 Python/24 SQLite/four Pi builds;0026 appended,prior25SQL unchanged. Session lookup/touch/rotation/revoke/replacement, HTTP login/CSRF/frontend/Host incomplete.",
+        "recorded_at": "2026-10-07T20:21:40.555265+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-session-read-ci.json",
+        "summary": "Read-only repeatable-snapshot canonical Session lookup; real frozen service token inspect, fresh-pool reopen, no writes, Subject/account/membership/App drift and wrong realm denied. CI833 Python/24 SQLite/four Pi builds;0027 appended,prior26SQL unchanged. Touch/rotation/revoke/replacement, HTTP login/CSRF/frontend/Host remain incomplete.",
+        "recorded_at": "2026-10-07T20:28:35.925544+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-session-touch-ci.json",
+        "summary": "Protected PG touch holds canonical authority locks, exact binding/revision and monotonic DB-clock time; actual frozen authenticate/CSRF refresh, old-CSRF denial and expired fixture no-revival verified. CI836 Python/24 SQLite/four Pi builds;0028 appended,prior27SQL unchanged. Rotation/revoke/replacement and HTTP login/CSRF/frontend/Host remain incomplete.",
+        "recorded_at": "2026-10-07T20:33:33.303252+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-session-revoke-ci.json",
+        "summary": "Protected PG Session revoke: actual frozen service current CSRF/logout, old-token denial, stale/future negatives and concurrent single revision increment verified. CI838 Python/24 SQLite/four Pi builds;0029 appended,prior28SQL unchanged. Rotation/replacement, HTTP login/logout/CSRF/frontend/Host remain incomplete.",
+        "recorded_at": "2026-10-07T20:38:01.500690+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-session-replacement-ci.json",
+        "summary": "Actual frozen reauthentication replacement: source token/revision guard and canonical revoke + fresh Evidence/new Session atomic; deferred commit fault restores old Session and unconsumed Evidence. CI840 Python/24 SQLite/four Pi builds;0030 appended,prior29SQL unchanged. Cross-tenant rotation/HTTP/frontend/Host incomplete; Docker probe still unavailable.",
+        "recorded_at": "2026-10-07T20:42:34.325995+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-tenant-rotation-ci.json",
+        "summary": "Actual frozen tenant-switch A-B-A preserves original credential tenant/absolute expiry and one credential row; target touch works, target revoke/wrong CSRF/original credential epoch deny, commit fault restores source. CI843 Python/24 SQLite/four Pi builds;0031 appended,prior30SQL unchanged. HTTP/login/logout/CSRF/frontend/Host and other rotation kinds remain unverified.",
+        "recorded_at": "2026-10-07T20:48:40.371048+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-http-ci.json",
+        "summary": "Actual PG/TestClient fixed-realm login/session/logout: Secure HttpOnly SameSite cookie, exact Origin/Host, current CSRF revoke, PG login rate policy, unknown tenant field denial and cookie replacement verified. Password/PG work offloaded. CI846 Python/24 SQLite/four Pi builds;0032 appended,prior31SQL unchanged. Network/TLS/browser/frontend/Host and full HTTP flows incomplete; readiness503.",
+        "recorded_at": "2026-10-07T20:55:25.347522+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-https-ci.json",
+        "summary": "Actual native HTTPS subprocess with explicitly trusted local test cert: login/Secure cookie/session/reload-CSRF/logout and old-CSRF denial verified; SIGTERM closes listener/identity connections, logs contain no random credentials. Policy/private-key/malformed-input negatives. CI851 Python/24 SQLite/four Pi builds;versions/head0032/all32SQL unchanged. Browser DOM/frontend/multi-realm HTTP/Host incomplete.",
+        "recorded_at": "2026-10-07T21:01:37.583829+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/web-login-progress.md",
+        "summary": "React19/Vite real-session login candidate built; actual HTTPS static assets and PG login/session/CSRF/logout pass. Browser rejected local cert; DOM/mobile/fidelity acceptance pending, no TLS bypass. NX-011 remains in_progress.",
+        "recorded_at": "2026-10-07T21:17:25.258005+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/web-login-ci.json",
+        "summary": "Real frontend build/static HTTPS + canonical PG auth verified; CI852 Python/24 SQLite/four Pi builds, zero critical skips. Browser DOM/fidelity blocked by local certificate trust and unaccepted; NX-011 remains in_progress.",
+        "recorded_at": "2026-10-07T21:18:25.553225+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/agent-host-ci.json",
+        "summary": "Actual Node24 Host inherits OS flock through execve; second process refused, SIGKILL/reopen preserves owner inode/files. Private internal key rotation/auth/Origin/Host negatives verified. CI860 Python/24 SQLite/four Pi builds + web/Host builds; final focused8 cases passed. No Run admission/Pi recovery/S2 acceptance; NX-011 remains in_progress.",
+        "recorded_at": "2026-10-07T21:27:42.160359+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/host-control-ci.json",
+        "summary": "Actual Python API/Node Host HTTPS control probe: CA/IP-SAN validation, key rotation, Host shutdown, proxy/redirect isolation verified. Host mandatory private TLS + inherited OS owner lock. CI873 Python/24 SQLite/four Pi builds + web/Host builds, no critical skips. Product readiness503; no Run admission/Pi recovery/S2 acceptance; NX-011 in_progress.",
+        "recorded_at": "2026-10-07T21:39:23.823334+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/host-tls-isolation-ci.json",
+        "summary": "Reproduced/fixed SSLKEYLOGFILE inheritance in real Host TLS probe; explicit verified client context creates no session-key log. Correct-CA listener shutdown checks strengthened. First1 failure, final28 focused pass; CI874 Python/24 SQLite/four Pi builds. Locks/32SQL unchanged, no S2/Pi/browser/container acceptance; NX-011 in_progress.",
+        "recorded_at": "2026-10-07T21:48:14.393273+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser-ui-ci.json",
+        "summary": "Actual Chromium profile-only constrained test certificate; verified HTTPS real-PG wrong-password/login/reload/CSRF logout/anonymous reload at desktop1586x992 and mobile390x844. Secure HttpOnly Strict cookie, no Web Storage; unknown certificate denied. Final concept/render view_image+10-copy/layout fidelity passed after footer12px fix. CI874 Python/24 SQLite/four Pi builds; Docker dependency/S2 unaccepted, NX-011 in_progress.",
+        "recorded_at": "2026-10-07T22:14:42.693932+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-host-runtime-evidence.json",
+        "summary": "Fresh8-service Compose adds actual Node24.13/Python3.12.10 Host in separate five-file secret-free context. API->Host verified TLS/auth/owner, anonymous/wrong-key/Origin denied; no DB/model/server-key leakage. Linux kernel second owner refused; exact owned Host SIGKILL137/reopen preserves inode/files, API detects outage, all checks rerun pass.23 focused +CI887 Python/24 SQLite/four Pi/web/Host builds passed, zero skips.4 owned services stopped exit0, volumes retained. No Pi Run recovery/lease/S2 acceptance; full community frontend/Worker remains incomplete.",
+        "recorded_at": "2026-10-07T23:00:28.615272+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-browser-runtime-evidence.json",
+        "summary": "Fresh canonical explicit synthetic Human IAM bootstrap uses protected restricted PG identity; no business grants/cookie service authority. Public-only frontend build (Vite dotenv/config disabled), actual HTTPS login/session/CSRF/logout and secure cookie pass on9-service Compose and host127-loopback. First YAML3fail fixed; internal-only port refused then API-only entry bridge corrected; final29 focused +actual fresh host HTTPS passed. CI893 Python/24 SQLite/four Pi/web/Host builds pass; zero skips, no lock/SQL change.4 owned services stopped exit0, volumes retained. Worker, truthful readiness labels, full community and S2 remain incomplete.",
+        "recorded_at": "2026-10-07T23:26:57.863783+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/domain-worker-evidence.json",
+        "summary": "Actual bounded Domain Worker process via restricted EIOS orphan-maintenance port: real PG cleanup, protected artifacts, idempotent durable resume, API-role/credential denial passed;23 focused plus4 final browser-degradation tests. Browser capability readiness rechecks live restricted identity port, product readiness503. Compose Worker, scheduler leases/discovery and Run dispatch/recovery pending; no S2 promotion. Locks/32SQL unchanged. Full CI exit0:897 Python/24 actual Pi SQLite/four Pi + web/Host builds, zero critical skips.",
+        "recorded_at": "2026-10-07T23:33:00.836257+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-worker-runtime-evidence.json",
+        "summary": "Actual fresh11-service Compose: separately scoped restricted Worker removes physical orphan/resumes durable plan; PG/Artifact/doctor, API HTTPS, Host TLS/owner/auth, Valkey TLS/ACL and browser login/session/CSRF pass. External verified host HTTPS and current browser readiness pass. Full CI904 Python/24 Pi SQLite/four Pi+web/Host builds,zero critical skips. First Node20 setup22errors corrected; specific denial assertion corrected;36focused+4final passed. All11 owned containers stopped exit0,volumes retained. S1 scope audited in S1-exit-audit.md; no S2/Run/product/deployment claim. Locks/32SQL unchanged.",
+        "recorded_at": "2026-10-07T23:45:55.998721+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/S1-exit-audit.md",
+        "summary": "Requirement-by-requirement S1 delivery audit against frozen docs15: independent foundation/identity/contracts/localCI proven; queue/Run recovery belongs to S2; remaining full-product AT001/002/003 not promoted.",
+        "recorded_at": "2026-10-07T23:45:55.998721+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/community-agent-foundation-evidence.json",
+        "summary": "Fresh pinned11-service Compose rebuilt with0033: actual clean bootstrap/doctor/restricted Artifact, HTTPS browser, Host/cache and Worker pass. External CA-verified HTTPS login/readiness pass. All owned containers stopped exit0,volumes retained. Native Agent tests separate; no Agent-in-container/Run/S2 completion claim.",
+        "recorded_at": "2026-10-08T00:10:10.143011+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-012",
+    "stage": "S2",
+    "title": "打通自主Agent受治理实例写",
+    "dependencies": [
+      "NX-011"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M17"
+    ],
+    "deliverable": "service/agent许可、ceiling、撤权与负向测试，不直写DB",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-012-agent-write-gap.md",
+        "summary": "Started authoritative Agent write gap audit: SERVICE governed writes already exist; server-derived invocation absent, agent fact loaders fail closed, release/application ceiling requires actual restricted PG implementation and negative tests. No completion claim.",
+        "recorded_at": "2026-10-07T23:45:55.998721+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/agent-governed-write-evidence.json",
+        "summary": "Real restricted PG AGENT Consumer.create and stable receipt;25 cases including root/live-parent success, actor/scope/world/grant/ceiling/property/missing dependency/caller invocation negatives and revoke-after-signature-before-SQL. Parent snapshots compare current release/Agent/application and lock at dispatch. Final CI929 Python/24 Pi SQLite/four Pi+web/Host builds,zero critical skips. Head0033 added,old32 SQL unchanged. Run-bound credential/audience remains required, NX012 incomplete; no external/model/Pi Run claim.",
+        "recorded_at": "2026-10-08T00:10:10.143011+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/run-credential-evidence.json",
+        "summary": "Server-issued Run UUID/fixed audience/world/published Action allowlist/PG-clock1–300s expiry; actual restricted Agent write and current source/parent revocation at dispatch.15 native PG Run cases and final CI944 Python/24 SQLite/four Pi/web/Host passed. First CI943+1 old assertion fixed; rerun passed. Fresh11-service0034 Compose/external HTTPS passed; owned containers stopped0,volumes retained. Old33SQL unchanged. NX012 backend scope/docs07 section4 done; Host/Pi Run and queue remain later S2.",
+        "recorded_at": "2026-10-08T00:37:18.077975+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-013",
+    "stage": "S2",
+    "title": "建设事件Inbox/Outbox与持久队列",
+    "dependencies": [
+      "NX-008",
+      "NX-011"
+    ],
+    "modules": [
+      "M09",
+      "M16"
+    ],
+    "deliverable": "入站ACK持久化、去重、lease/fence、回收",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-013-queue-source-audit.md",
+        "summary": "Read actual ledger/memory JobStore and recovery contract: existing invocations/jobs/events must be extended; no runtime Memory fallback. Queue implementation and acceptance still pending.",
+        "recorded_at": "2026-10-08T00:37:18.077975+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/durable-queue-evidence.json",
+        "summary": "Existing EIOS ledger extended with atomic Inbox/event dedupe/Outbox; separate restricted API/domainworker/scheduler credentials, PG-clock bounded leases/attempts, SKIP LOCKED, fence/reclaim/deadletter and receipt replay.42 new real PG cases including spawn SIGKILL, valid-signed proof expiry after lock wait and final DML lease expiry rollback. FinalCI986 Python/24 SQLite/four Pi/web/Host passed; fresh11-service0035 Compose/external HTTPS passed. Original34SQL unchanged. Actual cache-layer probe1.36s. No channel/Pi Run/real-effect claim.",
+        "recorded_at": "2026-10-08T01:01:08.700959+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-014",
+    "stage": "S2",
+    "title": "封装Pi RuntimeAdapter与持久恢复",
+    "dependencies": [
+      "NX-003",
+      "NX-011",
+      "NX-013"
+    ],
+    "modules": [
+      "M17"
+    ],
+    "deliverable": "稳定run/requestId、SQLite FULL、单owner、恢复测试",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-014-runtime-source-audit.md",
+        "summary": "Read frozen Pi actual Harness APIs: requestId lacks payload comparison, open recovery requires explicit resume, Node SQLite defaults NORMAL; existing Host has no Run admission. Source audit complete; RuntimeAdapter implementation/recovery not yet proved.",
+        "recorded_at": "2026-10-08T01:01:08.700959+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/pi-runtime-evidence.json",
+        "summary": "18 real frozen Pi Harness/SQLite cases;10 actual PG Run/lease guard cases;3 actual PG/Pi/OS flock cases including SIGKILL/reopen same receipt and live revoke/lease denial. New0036 only, original35SQL unchanged. Native test transport only: formal Host HTTP admission and business reconciliation remain pending; task in_progress.",
+        "recorded_at": "2026-10-08T01:23:35.484912+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/pi-runtime-evidence.json",
+        "summary": "Final fixed local CI exit0:996 Python583.51s/24SQLite/18actualPiRuntime2.33s/four frozen Pi packages/Web/Host build, zero critical skips. New3PG/Pi/OSowner cases separately passed5.27s; current999collected. Fresh11-service0036 Compose foundation passed and owned containers stopped exit0 with volumes retained. Host Run admission/opaque authority restart recovery/business reconciliation still pending.",
+        "recorded_at": "2026-10-08T01:30:53.301396+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/runtime-activation-evidence.json",
+        "summary": "RealPG activation30pass; restricted API actualRun credential enrollment, independentWorker only currentownedlease/fence, backend reopen viaopaque ref with complete current EIOS Action proofs. Formal Host HTTPS+PG guard/owner,59 focusedpass51.03s; stronger in-flight Generation SIGKILL+backend/Hostreopen4pass7.73s retainsreceipt/submission/taskID/FULL/WAL. Complete frozenPi prodclosure actualLinuximage import/FULL passed; original36SQL unchanged/new0037 only. Workerautomaticrecovery/atomicqueueenrollment/businessGateway remain pending.",
+        "recorded_at": "2026-10-08T02:00:41.838483+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/runtime-activation-evidence.json",
+        "summary": "Final local CI1050 Python918.94s/24SQLite/18RuntimeAdapter2.35s/fourPi/Web/Host build passed, zero critical skips. Same tested image actualLinuxRuntimeHost/PiAdapter imports and FULL/WAL verified; fresh11-service0037Compose foundation/externalHTTPS passed; owned stop dry-run+execute all11exit0 with volumes retained. Stronger in-flight Generation+backend/Host SIGKILL recovery4cases passedseparately. WorkerRun dispatcher/atomicenrollment/activeRunstartup andbusinessActionreconcile stillpending; NX014in_progress.",
+        "recorded_at": "2026-10-08T02:07:21.688413+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/runtime-dispatch-evidence.json",
+        "summary": "Atomic queue+actual Run enrollment commit-before-ACK; new0038 immutable input binding, old37SQL/catalog unchanged. Fixed PG50 cases54.74s; formalHost/guard/bootstrap/doctor/wheel37 cases33.96s; actualPi20 cases2.39s includes returned Tool isError/error diagnostic failure. ActualrestrictedWorker12 cases23.55s incl inflight SIGKILL, backend/Host reopen, automaticreclaim same submission/Generation IDs; HTTP TLS totaldeadline, PG10s/3s. Runtime_only, no businessAction success; constant-worker process/stageassembly and AT039 reconciliation stillpending. FullCI currentlyrunning; taskin_progress.",
+        "recorded_at": "2026-10-08T02:29:42.375964+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/runtime-dispatch-evidence.json",
+        "summary": "Final fixed head0038 local CI exit0:1076 Python842.13s/24 actualSQLite/20 actualPiRuntime2.41s; fourPi/Web/Host builds, zero critical skips. Atomic inboundRun+queue and restrictedWorker actualPG/Host in-flight SIGKILL/reopenedbackend recovery proved; original37SQL/catalog identical. NX014 in_progress: persistentWorker process/stage startupassembly and businessAction reconciliation remain; AT039 not_run. No model/channel/production action or stagedfiles.",
+        "recorded_at": "2026-10-08T02:44:47.313274+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/runtime-worker-evidence.json",
+        "summary": "Own Runtime deliverable complete:stableRun/request,actualSQLiteFULL/WAL,singleOSowner,standaloneauthenticatedWorker,inflightSIGKILL/reopen same submission andGeneration,currentlease/sourcefence. Final fixedhead0040fullCI exit0:1146Python1068.32s/24SQLite/25PiRuntime1.92s,zero criticalskips. Prior CI failures preserved and corrected without auth relaxation. Runtime_only;AT039 businessreconciliation remainsnot_run;stage40image/deploymentnotproved.",
+        "recorded_at": "2026-10-08T04:24:30.543964+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-015",
+    "stage": "S2",
+    "title": "建设业务意图与Action结果核对",
+    "dependencies": [
+      "NX-012",
+      "NX-013"
+    ],
+    "modules": [
+      "M17"
+    ],
+    "deliverable": "幂等payload冲突、unknown、provider查询、撤权重验",
+    "status": "done",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/effect-provider-progress.md",
+        "summary": "Actual fixed-origin production HTTP transport plus independent persistent synthetic fault provider:18 passed9.57s, including client SIGKILL/query-first zero redispatch, committed accept timeout, conflict, HTTPS and numeric-address/TLS checks. Initial transport7pass1fail HTTP202 protocol fixed. This is synthetic provider transport evidence only: full PG governedIntent/outbox/dispatch/currentcontrol/fence/reconcile and actualservice/channel fulfillment remain pending; AT033-037 not yet passed.",
+        "recorded_at": "2026-10-08T03:49:34.633636+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/effect-intent-evidence.json",
+        "summary": "Head0040 stableIntent/admission actual restricted PG EIOS Backend14passed12.52s:twoactualRunprincipals currentauthorised sharedintent,payload409,atomicoutbox/budgetrollback,currentrevoke,Runrequired,SQLschemafailclosed. Provider24passed12.80s actualHTTP/HTTPS persistent syntheticfaultserver,zero redispatchafterclientkill/timeout. Headprereq22passed18.74s afterfix Rootheadlist andnewruntimeFORCERLS;old39SQL/checksumsunchanged. FullCIpending;productioncontextregistrar,executorclaims/attempt/query-firstPGreconcile andactualfulfillment stillincomplete;AT033-037notpassed.",
+        "recorded_at": "2026-10-08T04:05:20.560690+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/effect-intent-evidence.json",
+        "summary": "Final fixedhead0040fullCI exit0:1146Python1068.32s/24SQLite/25RuntimeAdapter1.92s,zero criticalskips. ActualIntent/backend14 andproductiontransport/persistent syntheticprovider24included. Not fullbusinesscompletion:registrar/executorclaim/attempt/query-firstPGledger/actualservicefulfillmentremain;NX015 in_progress.",
+        "recorded_at": "2026-10-08T04:24:30.543964+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/effect-context-evidence.json",
+        "summary": "Actualgovernedcontextregistrar+realBackend:intent/context26passed32.90s,headroles/bootstrap/wheel22passed19.79s. Consumer/Goal/Step/ControlcreatedonlyrealGovernedActions;distinctA/BsameStep shareIntent/outbox/sharedquotaonce;thirdactualActionholderwithoutStepdelegationdenied;actualGoaleditstale androwlockwaitproofexpirywholetransactionrollback. New0041only;old40SQL/catalogshaunchanged. Productionpublishtool/credentialrotation,effectworker/attempt/query-firstPGreconcile/actualfulfillmentremain;NX015 in_progress;AT033-037/039notpassed;no0041fullCI/deploymentclaim.",
+        "recorded_at": "2026-10-08T04:35:02.335843+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/effect-execution-evidence.json",
+        "summary": "0042 actual PG dispatch/recovery 11 passed; bootstrap/package boundaries 22 passed; SQL role boundaries 5 passed. Synthetic external provider only; full current-head CI pending.",
+        "recorded_at": "2026-10-08T04:57:03.345776+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/effect-execution-evidence.json",
+        "summary": "AT033/036/037 actual PG and independent durable synthetic provider verified. 12 effect dispatch tests50s and44 regression41.21s passed; Pi tool retry/business reconciliation and complete current-head CI pending.",
+        "recorded_at": "2026-10-08T05:04:58.060197+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/provider-binding-evidence.json",
+        "summary": "0043 bridge9passed16.63s/actualPiTool1passed4.22s; 0044 durable provider identity6passed13.08s; actual cross-Pi/effectWorker recovery1passed9.89s. Complete frozen-head CI pending; NX015 remainsin_progress.",
+        "recorded_at": "2026-10-08T05:18:21.360079+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/head0044-first-ci-failure-evidence.json",
+        "summary": "First frozen0044 fullCI1201passed/1failed1261.82s: sole obsolete0042 test expectation; no frozen-source drift. Expectation now checks actual release lock; focused5passed4.07s, fullCIrerunpending.",
+        "recorded_at": "2026-10-08T05:42:30.185427+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/head0044-collection-failure-evidence.json",
+        "summary": "Frozen0044 Python1202pass1231.93s/SQLite24pass/runtime33pass; CIexit1 solely isolatedcandidate Vitest collection2moduleerrors. Excluded docs/tmp; focusedruntime33pass; correctedfullCIpending. NX015 remainsin_progress.",
+        "recorded_at": "2026-10-08T06:04:27.513157+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/head0044-complete-evidence.json",
+        "summary": "Frozen0044 complete localCI exit0:1202Python1236.28s/24actualSQLite/33Runtime,zero criticalskips,698sourcesnodrift. Real PG payload409/unknown/queryfirst/provideridentity/currentrevoke/actualPi rebuilttool and crossHost+EffectWorker killreopen reconciliation verified with independent persistent synthetic provider; actual model/channel/deployment remain unverified. Two initialCI failures and exact fixes preserved.",
+        "recorded_at": "2026-10-08T06:27:00.283108+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-016",
+    "stage": "S2",
+    "title": "实现WebChat与真实服务Action",
+    "dependencies": [
+      "NX-014",
+      "NX-015"
+    ],
+    "modules": [
+      "M07",
+      "M09",
+      "M17"
+    ],
+    "deliverable": "消息发送和服务交付receipt，合成/受控real分开",
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/web-chat-progress.json",
+        "summary": "NX015 dependency nowdone. Parallel isolated candidate genuineBrowser9/service19/Message13/WebHTTP7/Backend33/roles2passed; 47realmessageRunbridge and48actualFunctionreceipt stillpending. Candidate notmerged/notNX016completion; noactualmodel/channel/visual/deployment claim.",
+        "recorded_at": "2026-10-08T06:28:32.830990+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/head0048-complete-evidence.json",
+        "summary": "Corrected full head0048 local CI:1265 Python+24 Pi+33 Runtime; zero errors/failures/skips,731 source hashes unchanged. Candidate49–51 and production assembly remain pending; NX-016 stays in_progress.",
+        "recorded_at": "2026-10-08T08:30:51.587338+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-017",
+    "stage": "S2",
+    "title": "通过可靠性脊柱故障测试",
+    "dependencies": [
+      "NX-016"
+    ],
+    "modules": [
+      "M16",
+      "M17"
+    ],
+    "deliverable": "外部成功后kill不重复，DB/缓存/owner故障证据",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-018",
+    "stage": "S3",
+    "title": "建立消费者、关系和角色映射",
+    "dependencies": [
+      "NX-017"
+    ],
+    "modules": [
+      "M02",
+      "M05",
+      "M06"
+    ],
+    "deliverable": "N:M职责、身份歧义、EIOS对象与读取投影",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-019",
+    "stage": "S3",
+    "title": "实现原文证据和提取器",
+    "dependencies": [
+      "NX-018"
+    ],
+    "modules": [
+      "M09",
+      "M10"
+    ],
+    "deliverable": "原文/span/hash、分类Claim、条件否定与时间语义",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-020",
+    "stage": "S3",
+    "title": "实现对象解析/冲突/变更提案",
+    "dependencies": [
+      "NX-019",
+      "NX-012"
+    ],
+    "modules": [
+      "M11"
+    ],
+    "deliverable": "expected revision、幂等应用、晚到证据、更正链",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-021",
+    "stage": "S3",
+    "title": "实现记忆/关键词/向量检索",
+    "dependencies": [
+      "NX-020"
+    ],
+    "modules": [
+      "M13"
+    ],
+    "deliverable": "租户/属性/world过滤、profile版本、索引更新和删除",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-022",
+    "stage": "S3",
+    "title": "实现Goal/KR与持续对齐",
+    "dependencies": [
+      "NX-018"
+    ],
+    "modules": [
+      "M03",
+      "M04"
+    ],
+    "deliverable": "父目标版本、Agent子目标、预算/控制revision",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-023",
+    "stage": "S3",
+    "title": "实现Context Engine与语义只读adapter",
+    "dependencies": [
+      "NX-021",
+      "NX-022",
+      "NX-003"
+    ],
+    "modules": [
+      "M14"
+    ],
+    "deliverable": "实际请求快照、必需约束、Evo只读映射与歧义",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-024",
+    "stage": "S3",
+    "title": "实现策略/计划/复评调度",
+    "dependencies": [
+      "NX-023",
+      "NX-013"
+    ],
+    "modules": [
+      "M15",
+      "M16"
+    ],
+    "deliverable": "no_action、等待重评估、计划失效、有限Run预算",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-025",
+    "stage": "S3",
+    "title": "通过知识与目标闭环测试",
+    "dependencies": [
+      "NX-020",
+      "NX-024"
+    ],
+    "modules": [
+      "M04",
+      "M10",
+      "M11",
+      "M14"
+    ],
+    "deliverable": "明确拒绝优先、重复提取、关键注入/冲突/版本用例",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-026",
+    "stage": "S4",
+    "title": "实现承诺与价值履行",
+    "dependencies": [
+      "NX-025"
+    ],
+    "modules": [
+      "M18"
+    ],
+    "deliverable": "条件/期限/责任/证据，发送与完成分开",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-027",
+    "stage": "S4",
+    "title": "接入商业事件与费用指标",
+    "dependencies": [
+      "NX-026"
+    ],
+    "modules": [
+      "M08",
+      "M19"
+    ],
+    "deliverable": "签名事件、核验状态、币种/窗口、real/test分开",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-028",
+    "stage": "S4",
+    "title": "完成负责人工作台与人工接管",
+    "dependencies": [
+      "NX-024",
+      "NX-026",
+      "NX-027"
+    ],
+    "modules": [
+      "M20"
+    ],
+    "deliverable": "所有薄切片页面与暂停/对账/证据交互",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-029",
+    "stage": "S4",
+    "title": "实现保留/删除/导出闭环",
+    "dependencies": [
+      "NX-021",
+      "NX-028"
+    ],
+    "modules": [
+      "M01",
+      "M13",
+      "M23"
+    ],
+    "deliverable": "Artifact/Pi/索引/备份删除水位与权限测试",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-030",
+    "stage": "S4",
+    "title": "实现审计指标与告警",
+    "dependencies": [
+      "NX-028"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "无原文普通日志、unknown/队列/备份/成本可观测",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-031",
+    "stage": "S4",
+    "title": "运行1000消费者与并发矩阵",
+    "dependencies": [
+      "NX-029",
+      "NX-030"
+    ],
+    "modules": [
+      "M14",
+      "M16",
+      "M22"
+    ],
+    "deliverable": "固定seed数据、1/2/4/8并发、CI同机影响报告",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-032",
+    "stage": "S5",
+    "title": "完成双机TLS与隔离部署",
+    "dependencies": [
+      "NX-031",
+      "NX-004"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "DATA_HOST 数据/APP_HOST 应用、端口与角色实际验证、无旧服务修改",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-033",
+    "stage": "S5",
+    "title": "建立本地Git队列与隔离CI",
+    "dependencies": [
+      "NX-010",
+      "NX-032"
+    ],
+    "modules": [
+      "M22",
+      "M23"
+    ],
+    "deliverable": "rootless/secret/内网隔离、受信ref与不可变SHA",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-034",
+    "stage": "S5",
+    "title": "实现发布归档与GitHub同步",
+    "dependencies": [
+      "NX-033"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "镜像校验、release manifest、GitHub断连不阻断本地",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-035",
+    "stage": "S5",
+    "title": "完成备份/PITR与恢复演练",
+    "dependencies": [
+      "NX-032",
+      "NX-034"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "恢复隔离实例、删除水位、外部效应窗口、实际RPO/RTO",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-036",
+    "stage": "S5",
+    "title": "完成开源文档和供应链检查",
+    "dependencies": [
+      "NX-034",
+      "NX-035"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "README双语、许可/NOTICE/SBOM/贡献/安全/操作手册",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-037",
+    "stage": "S5",
+    "title": "v0.1受控真实闭环验收",
+    "dependencies": [
+      "NX-036",
+      "NX-017",
+      "NX-025",
+      "NX-027"
+    ],
+    "modules": [
+      "M01",
+      "M17",
+      "M20",
+      "M22"
+    ],
+    "deliverable": "真实Provider/交付证据、全部S1–S5验收、已知限制",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-038",
+    "stage": "S6",
+    "title": "实现Evo轨迹诊断与候选任务",
+    "dependencies": [
+      "NX-037"
+    ],
+    "modules": [
+      "M12",
+      "M14",
+      "M22"
+    ],
+    "deliverable": "冻结输入、归因、预算、候选隔离",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-039",
+    "stage": "S6",
+    "title": "实现独立评估与语义版本发布",
+    "dependencies": [
+      "NX-038"
+    ],
+    "modules": [
+      "M12",
+      "M22"
+    ],
+    "deliverable": "硬门槛、留出、成本/性能限制和回退",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-040",
+    "stage": "S6",
+    "title": "开放兼容Schema受控演进",
+    "dependencies": [
+      "NX-039"
+    ],
+    "modules": [
+      "M11",
+      "M12"
+    ],
+    "deliverable": "迁移/索引/工具兼容、权限不变、破坏变更关闭",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-041",
+    "stage": "S7",
+    "title": "建立模拟世界与Action替身",
+    "dependencies": [
+      "NX-037"
+    ],
+    "modules": [
+      "M21",
+      "M22"
+    ],
+    "deliverable": "数据/凭据/效应强隔离与来源",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-042",
+    "stage": "S7",
+    "title": "实现消费者孪生与校准",
+    "dependencies": [
+      "NX-041",
+      "NX-039"
+    ],
+    "modules": [
+      "M21"
+    ],
+    "deliverable": "版本化行为模型、独立真实数据校准，不伪装概率",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-043",
+    "stage": "S7",
+    "title": "实现策略实验和受控线上验证",
+    "dependencies": [
+      "NX-042"
+    ],
+    "modules": [
+      "M19",
+      "M22"
+    ],
+    "deliverable": "候选筛选、影子/holdout、真实商业结果和停止条件",
+    "status": "not_started",
+    "evidence": []
+  }
+]

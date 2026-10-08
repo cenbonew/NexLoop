@@ -1,0 +1,5 @@
+# Fail closed for accidental repository-root builds. Use the prepared public build context.
+**
+!deploy/
+!deploy/community/
+!deploy/community/Dockerfile

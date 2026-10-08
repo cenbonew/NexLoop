@@ -1,0 +1,46 @@
+# Design template; requires audited images, private config, certs, and bootstrap.
+name: nexloop-infra
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?set audited PostgreSQL+pgvector image digest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexloop_stage}
+      POSTGRES_USER: nexloop_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_bootstrap_password
+      PGDATA: /var/lib/postgresql/18/docker
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    ports:
+      - "${DATA_BIND_IP:?private bind IP required}:${PG_PUBLISHED_PORT:-55432}:5432"
+    volumes:
+      - ${DATA_ROOT:?private data root required}/postgres:/var/lib/postgresql
+      - ${CONFIG_DIR:?private config directory required}/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ${CONFIG_DIR:?private config directory required}/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ${SECRET_DIR:?private secret directory required}/postgres-server.crt:/run/tls/server.crt:ro
+      - ${SECRET_DIR:?private secret directory required}/postgres-server.key:/run/tls/server.key:ro
+    secrets: [pg_bootstrap_password]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexloop_bootstrap -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 60s
+    security_opt: ["no-new-privileges:true"]
+  valkey:
+    image: ${VALKEY_IMAGE:?set audited TLS-capable Valkey image digest}
+    restart: unless-stopped
+    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+    ports:
+      - "${DATA_BIND_IP:?private bind IP required}:${VALKEY_PUBLISHED_PORT:-56379}:6379"
+    volumes:
+      - ${CONFIG_DIR:?private config directory required}/valkey.conf:/etc/valkey/valkey.conf:ro
+      - ${SECRET_DIR:?private secret directory required}/valkey.acl:/run/secrets/valkey.acl:ro
+      - ${SECRET_DIR:?private secret directory required}/valkey-server.crt:/run/tls/server.crt:ro
+      - ${SECRET_DIR:?private secret directory required}/valkey-server.key:/run/tls/server.key:ro
+      - ${SECRET_DIR:?private secret directory required}/db-ca.crt:/run/tls/ca.crt:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+secrets:
+  pg_bootstrap_password:
+    file: ${SECRET_DIR:?private secret directory required}/pg_bootstrap_password

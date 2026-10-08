@@ -1,0 +1,61 @@
+# Incorporate into the public implementation repository .gitignore and release checks.
+# .gitignore is NOT a secret scanner; previously committed data must also be removed.
+local-only/
+.env
+.env.*
+!.env.example
+!env.example
+secrets/
+private/
+*.key
+*.pem
+!tests/fixtures/synthetic-certificates/*.pem
+runtime-data/
+artifacts-private/
+backups/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.dump
+*.tar.enc
+# Do not publish merged private handoff versions containing LAN inventory.
+NexLoop_完整交接文档_*.md
+NexLoop_完整交接文档_*.html
+
+docs/tmp/
+
+# Private pre-existing machine inventory
+/docs/server-baseline.md
+
+__pycache__/
+.venv/
+.pytest_cache/
+node_modules/
+*.egg-info/
+
+/vendor/pi/packages/*/dist/
+
+.ci-results/
+.hypothesis/
+
+/apps/web/dist/
+
+/apps/agent-host/dist/
+
+/output/playwright/
+/.playwright-cli/
+
+# Repository-owned generated test/build output at any depth.
+dist/
+output/
+build/
+coverage/
+htmlcov/
+*.sqlite*
+*.tsbuildinfo
+.coverage
+.coverage.*
+.mypy_cache/
+.ruff_cache/
+.vite/
+.DS_Store

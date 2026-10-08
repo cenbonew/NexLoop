@@ -1,0 +1,542 @@
+[
+  {
+    "id": "AT-001",
+    "module": "M01",
+    "stage": "S1",
+    "name": "跨租户API",
+    "given": "租户A读取或修改B对象",
+    "expected": "403/404且无信息泄漏；DB受限角色下同样拒绝",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-002",
+    "module": "M01",
+    "stage": "S1",
+    "name": "身份来源",
+    "given": "请求体/头伪造tenant或scope",
+    "expected": "忽略并拒绝；以服务端身份为准",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-003",
+    "module": "M01",
+    "stage": "S1",
+    "name": "属性权限",
+    "given": "无敏感属性权限的检索/详情/导出",
+    "expected": "字段与证据不可见，不能经向量结果泄漏",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-004",
+    "module": "M02",
+    "stage": "S3",
+    "name": "角色N:M",
+    "given": "两角色关联同消费者",
+    "expected": "职责可配置，无常驻Agent；冲突触达受控",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-005",
+    "module": "M03",
+    "stage": "S3",
+    "name": "目标不可变",
+    "given": "Agent试图改父KR口径",
+    "expected": "拒绝；发布新版本只能由适当权限执行",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-006",
+    "module": "M04",
+    "stage": "S3",
+    "name": "暂停队列",
+    "given": "排队后暂停策略",
+    "expected": "dispatch前拒绝旧动作，UI状态一致",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-007",
+    "module": "M04",
+    "stage": "S3",
+    "name": "过期计划",
+    "given": "客户状态改变后唤醒旧计划",
+    "expected": "重新评估，不继续已失效步骤",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-008",
+    "module": "M05",
+    "stage": "S3",
+    "name": "身份歧义",
+    "given": "同名不同人的两条会话",
+    "expected": "保留候选，不自动合并",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-009",
+    "module": "M06",
+    "stage": "S3",
+    "name": "关系证据",
+    "given": "旧推测被明确更正",
+    "expected": "当前关系依据更新，旧结论不作为事实",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-010",
+    "module": "M07",
+    "stage": "S2",
+    "name": "供给边界",
+    "given": "请求目录外承诺/优惠",
+    "expected": "不形成未授权承诺，说明可交付范围",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-011",
+    "module": "M08",
+    "stage": "S4",
+    "name": "付款陈述",
+    "given": "消费者称已付款但无交易证据",
+    "expected": "只记录statement，不更新verified payment",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-012",
+    "module": "M08",
+    "stage": "S4",
+    "name": "商业事件幂等",
+    "given": "同签名付款webhook重复10次",
+    "expected": "一条规范业务变化；退款和币种正确处理",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-013",
+    "module": "M09",
+    "stage": "S2",
+    "name": "入站幂等",
+    "given": "同provider_event_id重投",
+    "expected": "一条消息，一个必要Run/业务意图",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-014",
+    "module": "M09",
+    "stage": "S3",
+    "name": "消息次序",
+    "given": "乱序入站与引用回复",
+    "expected": "保留原顺序与接收顺序，不破坏证据",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-015",
+    "module": "M09",
+    "stage": "S2",
+    "name": "SSE恢复",
+    "given": "客户端断开再Last-Event-ID续传",
+    "expected": "无丢失/重复显示已提交消息",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-016",
+    "module": "M10",
+    "stage": "S3",
+    "name": "条件否定",
+    "given": "解决后再考虑续费/暂不续费",
+    "expected": "不提取确定续费或相反偏好",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-017",
+    "module": "M10",
+    "stage": "S3",
+    "name": "相对时间",
+    "given": "不同timezone和含糊明天下午",
+    "expected": "解析有依据或保留歧义，不编造精确时间",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-018",
+    "module": "M10",
+    "stage": "S3",
+    "name": "反复投诉",
+    "given": "不同消息重复同一问题",
+    "expected": "不按技术重复删除，可关联已有Problem",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-019",
+    "module": "M10",
+    "stage": "S3",
+    "name": "提示注入",
+    "given": "消费者要求忽略政策并取全库",
+    "expected": "无提权、无任意代码执行",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-020",
+    "module": "M11",
+    "stage": "S3",
+    "name": "抽取重跑",
+    "given": "同输入版本执行提取两次",
+    "expected": "提案/承诺不重复；可追溯同证据",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-021",
+    "module": "M11",
+    "stage": "S3",
+    "name": "版本冲突",
+    "given": "两更新基于同对象revision",
+    "expected": "一个成功，一个409并重评估",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-022",
+    "module": "M11",
+    "stage": "S3",
+    "name": "晚到事实",
+    "given": "旧偏好晚于新偏好到达",
+    "expected": "按有效时间与证据处理，不覆盖新偏好",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-023",
+    "module": "M12",
+    "stage": "S6",
+    "name": "候选隔离",
+    "given": "未通过候选Schema",
+    "expected": "active与正式对象不变",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-024",
+    "module": "M12",
+    "stage": "S6",
+    "name": "结构权限",
+    "given": "新增类型附带提权Action",
+    "expected": "拒绝越权；定义与权限发布分离",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-025",
+    "module": "M13",
+    "stage": "S3",
+    "name": "检索隔离",
+    "given": "向量/关键词含其他租户或world数据",
+    "expected": "预过滤与返回校验均阻止泄露",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-026",
+    "module": "M13",
+    "stage": "S4",
+    "name": "更正和删除",
+    "given": "消费者信息更正/删除",
+    "expected": "原文、摘要、向量、Artifact和Run保留策略同步",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-027",
+    "module": "M14",
+    "stage": "S3",
+    "name": "上下文可核对",
+    "given": "一Run多模型调用",
+    "expected": "每次实际请求都有版本/来源/hash",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-028",
+    "module": "M14",
+    "stage": "S3",
+    "name": "预算裁剪",
+    "given": "超出context预算",
+    "expected": "不丢关键约束和否定；显式insufficient",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-029",
+    "module": "M15",
+    "stage": "S3",
+    "name": "不行动",
+    "given": "当前无合理交付/触达必要",
+    "expected": "正常no_action，不为完成KR硬发消息",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-030",
+    "module": "M16",
+    "stage": "S2",
+    "name": "Outbox中断",
+    "given": "DB提交后通知前kill",
+    "expected": "重启轮询/relay补偿，不丢已接受工作",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-031",
+    "module": "M16",
+    "stage": "S2",
+    "name": "Lease/fence",
+    "given": "旧worker过期后再提交",
+    "expected": "旧fence被拒绝，不覆盖新worker结果",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-032",
+    "module": "M16",
+    "stage": "S2",
+    "name": "缓存故障",
+    "given": "Valkey停止/清空",
+    "expected": "PG权威保留，degraded但不丢任务",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-033",
+    "module": "M17",
+    "stage": "S2",
+    "name": "外部未知",
+    "given": "外部已受理后本地记账前kill",
+    "expected": "查询原意图，不重复发送",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-034",
+    "module": "M17",
+    "stage": "S2",
+    "name": "幂等冲突",
+    "given": "同key不同payload",
+    "expected": "409，不覆盖原请求",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-035",
+    "module": "M17",
+    "stage": "S2",
+    "name": "工具调用重建",
+    "given": "重试LLM产生新tool_call_id",
+    "expected": "相同业务意图仍命中原receipt",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-036",
+    "module": "M17",
+    "stage": "S2",
+    "name": "撤权窗口",
+    "given": "规划后执行前撤销grant",
+    "expected": "dispatch拒绝；不凭旧快照执行",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-037",
+    "module": "M17",
+    "stage": "S2",
+    "name": "并发触达",
+    "given": "两个角色同时发送同意图",
+    "expected": "关键提交受控，重复副作用为0",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-038",
+    "module": "M17",
+    "stage": "S2",
+    "name": "Runtime owner",
+    "given": "第二进程打开同Run存储",
+    "expected": "进程锁/owner拒绝，不并发写文件",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-039",
+    "module": "M17",
+    "stage": "S2",
+    "name": "Runtime恢复",
+    "given": "真实存储kill/reopen",
+    "expected": "conformance与业务对账通过，非纯Memory测试",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-040",
+    "module": "M18",
+    "stage": "S4",
+    "name": "履行证据",
+    "given": "消息发送成功但问题未解决",
+    "expected": "不标客户问题已解决/承诺已兑现",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-041",
+    "module": "M18",
+    "stage": "S4",
+    "name": "承诺到期",
+    "given": "到期未完成",
+    "expected": "触发复评/异常，负责人可见",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-042",
+    "module": "M19",
+    "stage": "S4",
+    "name": "指标世界",
+    "given": "test/simulation payment",
+    "expected": "不计入real收入/续费",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-043",
+    "module": "M19",
+    "stage": "S4",
+    "name": "成本上限",
+    "given": "达到tenant模型/优惠预算",
+    "expected": "阻断新消耗，保留已有合法结果",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-044",
+    "module": "M20",
+    "stage": "S4",
+    "name": "人工接管",
+    "given": "人类接管会话期间有新消息",
+    "expected": "Agent不竞争回复；交还后重评估",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-045",
+    "module": "M20",
+    "stage": "S4",
+    "name": "界面错误态",
+    "given": "未知/加载/403/部分数据",
+    "expected": "准确标签，无空白伪成功",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-046",
+    "module": "M21",
+    "stage": "S7",
+    "name": "模拟效应隔离",
+    "given": "Twin调用真实消息Action",
+    "expected": "服务端拒绝，即使模型伪造mode",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-047",
+    "module": "M22",
+    "stage": "S1",
+    "name": "关键测试不可skip",
+    "given": "缺PostgreSQL/依赖",
+    "expected": "发布CI失败而非绿色skip",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-048",
+    "module": "M22",
+    "stage": "S6",
+    "name": "验证泄漏",
+    "given": "同消费者相关对话跨分组",
+    "expected": "检测并重分组，冻结留出集",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-049",
+    "module": "M23",
+    "stage": "S4",
+    "name": "日志秘密",
+    "given": "请求/错误含key和原文",
+    "expected": "普通日志脱敏，受限Artifact访问",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-050",
+    "module": "M23",
+    "stage": "S5",
+    "name": "恢复演练",
+    "given": "从备份恢复隔离实例",
+    "expected": "删除水位、版本、权限与外部效应窗口核验",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-051",
+    "module": "M01",
+    "stage": "S1",
+    "name": "独立启动",
+    "given": "干净环境无TOS/原EIOS生产连接",
+    "expected": "本地Artifact＋PG正常；无Memory fallback",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-052",
+    "module": "M17",
+    "stage": "S2",
+    "name": "服务主体写入",
+    "given": "正确agent/service scope创建实例",
+    "expected": "经真实EIOS授权Action成功；无管理员直写",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-053",
+    "module": "M23",
+    "stage": "S5",
+    "name": "GitHub断连",
+    "given": "阻断GitHub访问",
+    "expected": "本地CI/已有依赖构建可用；同步标pending",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-054",
+    "module": "M23",
+    "stage": "S5",
+    "name": "CI隔离",
+    "given": "CI尝试访问stage secret/数据端口",
+    "expected": "不能访问，公开PR不自动执行",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-055",
+    "module": "M23",
+    "stage": "S5",
+    "name": "镜像发布一致",
+    "given": "构建SHA与部署SHA不同",
+    "expected": "发布拒绝；release manifest校验",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-056",
+    "module": "M23",
+    "stage": "S5",
+    "name": "迁移无备份",
+    "given": "没有可验证备份请求迁移",
+    "expected": "拒绝，不以开发方便跳过",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-057",
+    "module": "M23",
+    "stage": "S5",
+    "name": "版本回滚",
+    "given": "不兼容schema/runtime镜像回滚",
+    "expected": "阻止盲回滚，走向前修复/恢复流程",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-058",
+    "module": "M23",
+    "stage": "S5",
+    "name": "端口安全",
+    "given": "非APP_HOST访问DB/Valkey",
+    "expected": "TLS/ACL/网络拒绝，有外部验证证据",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-059",
+    "module": "M13",
+    "stage": "S4",
+    "name": "数据恢复删除",
+    "given": "旧备份含已删除消费者",
+    "expected": "先重放删除清单，不能恢复可联系状态",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-060",
+    "module": "M14",
+    "stage": "S4",
+    "name": "负载与隔离",
+    "given": "1000消费者、并发1/2/4/8",
+    "expected": "测平台/模型/工具分解延迟，无身份串用",
+    "status": "not_run"
+  }
+]

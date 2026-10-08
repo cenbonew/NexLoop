@@ -1,0 +1,147 @@
+# Design template. Commands and images are S1 implementation targets, not shipped binaries.
+name: nexloop-app
+x-backend: &backend
+  image: ${BACKEND_IMAGE:?set audited backend image digest}
+  restart: unless-stopped
+  read_only: true
+  init: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  networks: [app]
+  volumes:
+    - ${DATA_ROOT:?private data root required}/artifacts:/var/lib/nexloop/artifacts
+    - ${SECRET_DIR:?private secret directory required}/db-ca.crt:/run/tls/db-ca.crt:ro
+x-backend-env: &backend-env
+  NEXLOOP_ENV: stage
+  DATABASE_URL_FILE: /run/secrets/database_url
+  VALKEY_CREDENTIALS_FILE: /run/secrets/valkey_credentials
+  VALKEY_HOST: ${DATA_HOST:?database host required}
+  VALKEY_PORT: ${VALKEY_PUBLISHED_PORT:-56379}
+  VALKEY_TLS_CA_FILE: /run/tls/db-ca.crt
+  ARTIFACT_ROOT: /var/lib/nexloop/artifacts
+  REAL_DISPATCH_ENABLED: ${REAL_DISPATCH_ENABLED:-false}
+  AGENT_HOST_INTERNAL_URL: http://agent-host:${AGENT_HOST_PORT:-8100}
+  MODEL_PROVIDER: ${MODEL_PROVIDER:?choose tested provider or explicit test provider}
+  MODEL_ID: ${MODEL_ID:?choose tested model ID}
+  MODEL_BASE_URL: ${MODEL_BASE_URL:?allowlisted provider base URL}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:?choose tested embedding provider or explicit test provider}
+  EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:?choose tested embedding model ID}
+  EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:?fixed embedding dimension required}
+services:
+  api:
+    <<: *backend
+    command: ["nexloop-api"]
+    environment:
+      <<: *backend-env
+      API_PROCESSES: ${API_PROCESSES:-2}
+      ARTIFACT_SIGNING_KEY_FILE: /run/secrets/artifact_signing_key
+      SESSION_SIGNING_KEY_FILE: /run/secrets/session_signing_key
+    secrets:
+      - source: api_dsn
+        target: database_url
+      - valkey_credentials
+      - artifact_signing_key
+      - session_signing_key
+  domain-worker:
+    <<: *backend
+    command: ["nexloop-domain-worker"]
+    environment:
+      <<: *backend-env
+    secrets:
+      - source: domain_worker_dsn
+        target: database_url
+      - valkey_credentials
+  action-worker:
+    <<: *backend
+    command: ["nexloop-action-worker"]
+    environment:
+      <<: *backend-env
+    secrets:
+      - source: action_worker_dsn
+        target: database_url
+      - valkey_credentials
+    # Real channel credentials are scoped/mounted by the selected Connector Pack,
+    # not injected globally. This template is dispatch-disabled by default.
+  scheduler:
+    <<: *backend
+    command: ["nexloop-scheduler"]
+    environment:
+      <<: *backend-env
+    secrets:
+      - source: scheduler_dsn
+        target: database_url
+      - valkey_credentials
+  agent-host:
+    image: ${AGENT_HOST_IMAGE:?set audited runtime image digest}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    command: ["node", "/app/dist/server.js"]
+    environment:
+      NEXLOOP_ENV: stage
+      TOOL_GATEWAY_BASE_URL: http://api:8000/internal/v1
+      RUNTIME_ROOT: /var/lib/nexloop/runtime
+      AGENT_HOST_PORT: ${AGENT_HOST_PORT:-8100}
+      AGENT_CONCURRENCY: ${AGENT_CONCURRENCY:-4}
+      RUNTIME_CLIENT_CREDENTIALS_FILE: /run/secrets/runtime_client_credentials
+      MODEL_CREDENTIALS_FILE: /run/secrets/model_credentials   # takes precedence over MODEL_API_KEY
+      MODEL_API_KEY: ${MODEL_API_KEY:-}                          # local-dev fallback only; empty on stage
+      MODEL_PROVIDER: ${MODEL_PROVIDER:?choose tested provider or explicit test provider}
+      MODEL_ID: ${MODEL_ID:?choose tested model ID}
+      MODEL_BASE_URL: ${MODEL_BASE_URL:?allowlisted provider base URL}
+    volumes:
+      - ${DATA_ROOT:?private data root required}/runtime:/var/lib/nexloop/runtime
+    secrets: [runtime_client_credentials, model_credentials]
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [app]
+    expose: ["${AGENT_HOST_PORT:-8100}"]
+    stop_grace_period: 60s
+  web:
+    image: ${WEB_IMAGE:?set audited web image digest}
+    restart: unless-stopped
+    read_only: true
+    volumes:
+      - ${CONFIG_DIR:?private config directory required}/web-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    security_opt: ["no-new-privileges:true"]
+    networks: [app]
+  gateway:
+    image: ${GATEWAY_IMAGE:?set audited Caddy image digest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?trusted LAN hostname or IP}
+      HTTPS_PORT: ${HTTPS_PORT:-8443}
+    ports:
+      - "${APP_BIND_IP:?private app bind IP required}:${HTTPS_PORT:-8443}:8443"
+      - "${APP_BIND_IP:?private app bind IP required}:${HTTP_REDIRECT_PORT:-8080}:8080"
+    volumes:
+      - ${CONFIG_DIR:?private config directory required}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DATA_ROOT:?private data root required}/caddy:/data
+    tmpfs: [/config]
+    security_opt: ["no-new-privileges:true"]
+    networks: [app]
+networks:
+  app:
+    driver: bridge
+secrets:
+  api_dsn:
+    file: ${SECRET_DIR:?private secret directory required}/api_dsn
+  domain_worker_dsn:
+    file: ${SECRET_DIR:?private secret directory required}/domain_worker_dsn
+  action_worker_dsn:
+    file: ${SECRET_DIR:?private secret directory required}/action_worker_dsn
+  scheduler_dsn:
+    file: ${SECRET_DIR:?private secret directory required}/scheduler_dsn
+  valkey_credentials:
+    file: ${SECRET_DIR:?private secret directory required}/valkey_credentials
+  artifact_signing_key:
+    file: ${SECRET_DIR:?private secret directory required}/artifact_signing_key
+  session_signing_key:
+    file: ${SECRET_DIR:?private secret directory required}/session_signing_key
+  runtime_client_credentials:
+    file: ${SECRET_DIR:?private secret directory required}/runtime_client_credentials
+  model_credentials:
+    file: ${SECRET_DIR:?private secret directory required}/model_credentials

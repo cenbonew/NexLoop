@@ -1,0 +1,359 @@
+{
+  "scope": "planned_traceability_not_execution_evidence",
+  "modules": [
+    {
+      "id": "M01",
+      "name": "企业、身份与租户",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-001",
+        "NX-002",
+        "NX-006",
+        "NX-008",
+        "NX-011",
+        "NX-012",
+        "NX-029",
+        "NX-037"
+      ],
+      "acceptance_ids": [
+        "AT-001",
+        "AT-002",
+        "AT-003",
+        "AT-051"
+      ]
+    },
+    {
+      "id": "M02",
+      "name": "运营角色与责任",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-018"
+      ],
+      "acceptance_ids": [
+        "AT-004"
+      ]
+    },
+    {
+      "id": "M03",
+      "name": "目标、OKR 与指标定义",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-022"
+      ],
+      "acceptance_ids": [
+        "AT-005"
+      ]
+    },
+    {
+      "id": "M04",
+      "name": "持续对齐、干预与矫正",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-022",
+        "NX-025"
+      ],
+      "acceptance_ids": [
+        "AT-006",
+        "AT-007"
+      ]
+    },
+    {
+      "id": "M05",
+      "name": "消费者身份与档案",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-018"
+      ],
+      "acceptance_ids": [
+        "AT-008"
+      ]
+    },
+    {
+      "id": "M06",
+      "name": "关系状态与生命周期",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-018"
+      ],
+      "acceptance_ids": [
+        "AT-009"
+      ]
+    },
+    {
+      "id": "M07",
+      "name": "价值、产品、服务与权益目录",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-016"
+      ],
+      "acceptance_ids": [
+        "AT-010"
+      ]
+    },
+    {
+      "id": "M08",
+      "name": "交易与商业状态",
+      "phase": "v0.1 薄切片",
+      "task_ids": [
+        "NX-027"
+      ],
+      "acceptance_ids": [
+        "AT-011",
+        "AT-012"
+      ]
+    },
+    {
+      "id": "M09",
+      "name": "触点、对话与联系偏好",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-007",
+        "NX-013",
+        "NX-016",
+        "NX-019"
+      ],
+      "acceptance_ids": [
+        "AT-013",
+        "AT-014",
+        "AT-015"
+      ]
+    },
+    {
+      "id": "M10",
+      "name": "对话清洗与结构化提取",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-019",
+        "NX-025"
+      ],
+      "acceptance_ids": [
+        "AT-016",
+        "AT-017",
+        "AT-018",
+        "AT-019"
+      ]
+    },
+    {
+      "id": "M11",
+      "name": "本体实例、关系与证据变更",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-002",
+        "NX-005",
+        "NX-006",
+        "NX-008",
+        "NX-012",
+        "NX-020",
+        "NX-025",
+        "NX-040"
+      ],
+      "acceptance_ids": [
+        "AT-020",
+        "AT-021",
+        "AT-022"
+      ]
+    },
+    {
+      "id": "M12",
+      "name": "本体结构与语义模型演进",
+      "phase": "v0.2；v0.1 留契约",
+      "task_ids": [
+        "NX-003",
+        "NX-038",
+        "NX-039",
+        "NX-040"
+      ],
+      "acceptance_ids": [
+        "AT-023",
+        "AT-024"
+      ]
+    },
+    {
+      "id": "M13",
+      "name": "长期记忆与知识管理",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-007",
+        "NX-021",
+        "NX-029"
+      ],
+      "acceptance_ids": [
+        "AT-025",
+        "AT-026",
+        "AT-059"
+      ]
+    },
+    {
+      "id": "M14",
+      "name": "上下文构建与语义访问",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-003",
+        "NX-023",
+        "NX-025",
+        "NX-031",
+        "NX-038"
+      ],
+      "acceptance_ids": [
+        "AT-027",
+        "AT-028",
+        "AT-060"
+      ]
+    },
+    {
+      "id": "M15",
+      "name": "运营策略、计划与重规划",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-024"
+      ],
+      "acceptance_ids": [
+        "AT-029"
+      ]
+    },
+    {
+      "id": "M16",
+      "name": "事件、任务与唤醒",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-008",
+        "NX-013",
+        "NX-017",
+        "NX-024",
+        "NX-031"
+      ],
+      "acceptance_ids": [
+        "AT-030",
+        "AT-031",
+        "AT-032"
+      ]
+    },
+    {
+      "id": "M17",
+      "name": "Action 治理与可靠执行",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-002",
+        "NX-003",
+        "NX-005",
+        "NX-006",
+        "NX-012",
+        "NX-014",
+        "NX-015",
+        "NX-016",
+        "NX-017",
+        "NX-037"
+      ],
+      "acceptance_ids": [
+        "AT-033",
+        "AT-034",
+        "AT-035",
+        "AT-036",
+        "AT-037",
+        "AT-038",
+        "AT-039",
+        "AT-052"
+      ]
+    },
+    {
+      "id": "M18",
+      "name": "承诺与价值交付",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-026"
+      ],
+      "acceptance_ids": [
+        "AT-040",
+        "AT-041"
+      ]
+    },
+    {
+      "id": "M19",
+      "name": "效果、商业结果与成本",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-027",
+        "NX-043"
+      ],
+      "acceptance_ids": [
+        "AT-042",
+        "AT-043"
+      ]
+    },
+    {
+      "id": "M20",
+      "name": "负责人工作台",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-011",
+        "NX-028",
+        "NX-037"
+      ],
+      "acceptance_ids": [
+        "AT-044",
+        "AT-045"
+      ]
+    },
+    {
+      "id": "M21",
+      "name": "消费者数字孪生",
+      "phase": "v0.3",
+      "task_ids": [
+        "NX-041",
+        "NX-042"
+      ],
+      "acceptance_ids": [
+        "AT-046"
+      ]
+    },
+    {
+      "id": "M22",
+      "name": "实验与评估",
+      "phase": "v0.1 回归；v0.2/v0.3 完整",
+      "task_ids": [
+        "NX-010",
+        "NX-031",
+        "NX-033",
+        "NX-037",
+        "NX-038",
+        "NX-039",
+        "NX-041",
+        "NX-043"
+      ],
+      "acceptance_ids": [
+        "AT-047",
+        "AT-048"
+      ]
+    },
+    {
+      "id": "M23",
+      "name": "审计、可观测与运行追溯",
+      "phase": "v0.1",
+      "task_ids": [
+        "NX-001",
+        "NX-004",
+        "NX-005",
+        "NX-007",
+        "NX-009",
+        "NX-010",
+        "NX-029",
+        "NX-030",
+        "NX-032",
+        "NX-033",
+        "NX-034",
+        "NX-035",
+        "NX-036"
+      ],
+      "acceptance_ids": [
+        "AT-049",
+        "AT-050",
+        "AT-053",
+        "AT-054",
+        "AT-055",
+        "AT-056",
+        "AT-057",
+        "AT-058"
+      ]
+    }
+  ]
+}

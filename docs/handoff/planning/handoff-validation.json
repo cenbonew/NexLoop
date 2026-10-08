@@ -1,0 +1,376 @@
+{
+  "scope": "static_handoff_document_validation_only",
+  "generated_at": "2026-10-08T09:28:09.558594+00:00",
+  "passed": true,
+  "counts": {
+    "modules": 23,
+    "implementation_tasks": 43,
+    "product_acceptance_scenarios": 60,
+    "json_schemas": 6,
+    "schema_negative_tests": 11,
+    "static_checks": 69
+  },
+  "checks": [
+    {
+      "check": "json:contracts/action-intent.schema.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/context-manifest.schema.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/event-envelope.schema.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/evolution-candidate.schema.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/examples/action-intent.valid.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/examples/context-manifest.valid.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/examples/event-envelope.valid.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/examples/evolution-candidate.valid.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/examples/ontology-mutation.valid.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/examples/run-command.valid.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/ontology-mutation.schema.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:contracts/run-command.schema.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:planning/acceptance-tests.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:planning/dependency-candidates.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:planning/modules.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:planning/reader-validation.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:planning/tasks.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "json:planning/traceability.json",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "module_catalog_unique_and_count",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "task_catalog_unique_and_count",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "acceptance_catalog_unique_and_count",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "tasks_modules_valid",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "acceptance_modules_valid",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "all_modules_have_tasks",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "all_modules_have_acceptance",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "dependencies_exist",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "task_dependency_DAG",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "dependency_stage_order",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "task_status_vocabulary",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "acceptance_status_vocabulary",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "done_tasks_have_evidence",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "passed_or_failed_cases_have_evidence",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "evidence_entries_well_formed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "schema_and_example:action-intent",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "schema_and_example:context-manifest",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "schema_and_example:event-envelope",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "schema_and_example:evolution-candidate",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "schema_and_example:ontology-mutation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "schema_and_example:run-command",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:real_world_mismatch",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:nonreal_world_mismatch",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:invalid_date",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:extra_identity_escalation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:missing_expected_resources",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:invalid_digest",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:raw_sql_operation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:missing_property_revision",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:unbounded_turns",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:plaintext_secret_field",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "negative_schema:candidate_self_approves",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "yaml_parse:deploy/examples/compose.app.yaml",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:api",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:domain-worker",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:action-worker",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:scheduler",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:agent-host",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:web",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:gateway",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "yaml_parse:deploy/examples/compose.infra.yaml",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:postgres",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "image_requires_explicit_ref:valkey",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "markdown_local_links",
+      "passed": true,
+      "detail": "24 checked; "
+    },
+    {
+      "check": "private_host_addresses_confined_to_private_annex",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "no_invented_image_digests",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "upstream_commit_format:eios_source_commit",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "upstream_commit_format:pi_source_commit",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "upstream_commit_format:evo_source_commit",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "manifest_integrity",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "format_checker_covers_date_time",
+      "passed": true,
+      "detail": "install rfc3339-validator; schemas also carry a regex pattern as a fallback"
+    }
+  ],
+  "not_executed": [
+    "application_implementation",
+    "EIOS_source_extraction_or_integration",
+    "Pi_storage_conformance",
+    "container_compose_runtime_validation",
+    "server_login_or_inventory",
+    "network_TLS_ACL_tests",
+    "real_model_or_connector_calls",
+    "business_acceptance_tests",
+    "backup_restore_drill"
+  ],
+  "notes": [
+    "A successful result does not establish production readiness, security compliance, deployment success, or business growth.",
+    "Task/acceptance statuses use fixed vocabularies; done/passed entries must carry evidence.",
+    "Dependency locks and image digests are deliberately unresolved candidates."
+  ]
+}

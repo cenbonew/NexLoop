@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:ontology-mutation",
+  "title": "ontology-mutation",
+  "description": "NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "proposal_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "real",
+        "simulation",
+        "shadow",
+        "test"
+      ]
+    },
+    "extraction_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "source_content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "extractor_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ontology_schema_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "business_intent_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "risk_class": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "rationale_summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "epistemic_kind": {
+      "enum": [
+        "user_statement",
+        "verified_fact",
+        "preference",
+        "constraint",
+        "intent",
+        "need_problem",
+        "commitment",
+        "hypothesis",
+        "correction"
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "enum": [
+              "create_object",
+              "set_property",
+              "invalidate_property",
+              "link_relation",
+              "end_relation",
+              "supersede_claim"
+            ]
+          },
+          "target_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "type_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "property_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {},
+          "relation_type_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "to_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+            },
+            "minItems": 1,
+            "maxItems": 256
+          }
+        },
+        "required": [
+          "op",
+          "target_ref",
+          "expected_revision",
+          "evidence_refs"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "create_object"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "type_ref",
+                "value"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "set_property"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "property_name",
+                "value"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "invalidate_property"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "property_name"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "link_relation"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "relation_type_ref",
+                "to_ref"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "enum": [
+                    "end_relation",
+                    "supersede_claim"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 256
+    },
+    "conflict_policy": {
+      "const": "reject_and_reassess"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "proposal_id",
+    "tenant_id",
+    "world_id",
+    "mode",
+    "extraction_ref",
+    "source_content_hash",
+    "extractor_version",
+    "ontology_schema_revision",
+    "business_intent_ref",
+    "risk_class",
+    "rationale_summary",
+    "epistemic_kind",
+    "operations",
+    "conflict_policy",
+    "created_at"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "real"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "world_id": {
+            "const": "real"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "world_id": {
+            "not": {
+              "const": "real"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

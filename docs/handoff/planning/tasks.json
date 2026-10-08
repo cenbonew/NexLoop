@@ -1,0 +1,672 @@
+[
+  {
+    "id": "NX-001",
+    "stage": "S0",
+    "title": "建立干净仓库与交接基线",
+    "dependencies": [],
+    "modules": [
+      "M01",
+      "M23"
+    ],
+    "deliverable": "冻结项目名、目录、文档与私有附件排除；不发布旧仓库历史",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-002",
+    "stage": "S0",
+    "title": "核验EIOS来源与依赖图",
+    "dependencies": [
+      "NX-001"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M17"
+    ],
+    "deliverable": "source-path清单、授权写路径、Migration Catalog与可复用接口",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-003",
+    "stage": "S0",
+    "title": "核验Pi与Evo锁定版本",
+    "dependencies": [
+      "NX-001"
+    ],
+    "modules": [
+      "M12",
+      "M14",
+      "M17"
+    ],
+    "deliverable": "实际包API、License、SQLite配置与conformance入口",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-004",
+    "stage": "S0",
+    "title": "只读盘点双机环境",
+    "dependencies": [
+      "NX-001"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "OS/资源/端口/网络/SSH/现有服务inventory，无secret输出",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-005",
+    "stage": "S0",
+    "title": "冻结契约和许可方案",
+    "dependencies": [
+      "NX-002",
+      "NX-003"
+    ],
+    "modules": [
+      "M11",
+      "M17",
+      "M23"
+    ],
+    "deliverable": "接口、事实归属、上游来源锁与许可文件计划",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-006",
+    "stage": "S1",
+    "title": "抽取可独立启动EIOS core",
+    "dependencies": [
+      "NX-005"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M17"
+    ],
+    "deliverable": "通用core、domain pack边界、干净DB bootstrap测试",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-007",
+    "stage": "S1",
+    "title": "实现本地Artifact adapter",
+    "dependencies": [
+      "NX-006"
+    ],
+    "modules": [
+      "M09",
+      "M13",
+      "M23"
+    ],
+    "deliverable": "hash、授权、原子文件写、retention、孤儿清理测试",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-008",
+    "stage": "S1",
+    "title": "建设DB角色与新迁移目录",
+    "dependencies": [
+      "NX-006"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M16"
+    ],
+    "deliverable": "受限角色/RLS、独立catalog、禁止Memory fallback",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-009",
+    "stage": "S1",
+    "title": "交付单机Compose与doctor",
+    "dependencies": [
+      "NX-007",
+      "NX-008"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "无需TOS/GitHub/真实key/服务器访问的显式test模式单机可启动",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-010",
+    "stage": "S1",
+    "title": "搭建最小本地CI脚本",
+    "dependencies": [
+      "NX-005",
+      "NX-008"
+    ],
+    "modules": [
+      "M22",
+      "M23"
+    ],
+    "deliverable": "冻结依赖、unit/contract/PG检查，关键skip阻断",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-011",
+    "stage": "S1",
+    "title": "实现API/前端/Host基础结构",
+    "dependencies": [
+      "NX-009",
+      "NX-010"
+    ],
+    "modules": [
+      "M01",
+      "M20"
+    ],
+    "deliverable": "健康检查、同源登录、内部鉴权、契约生成",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-012",
+    "stage": "S2",
+    "title": "打通自主Agent受治理实例写",
+    "dependencies": [
+      "NX-011"
+    ],
+    "modules": [
+      "M01",
+      "M11",
+      "M17"
+    ],
+    "deliverable": "service/agent许可、ceiling、撤权与负向测试，不直写DB",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-013",
+    "stage": "S2",
+    "title": "建设事件Inbox/Outbox与持久队列",
+    "dependencies": [
+      "NX-008",
+      "NX-011"
+    ],
+    "modules": [
+      "M09",
+      "M16"
+    ],
+    "deliverable": "入站ACK持久化、去重、lease/fence、回收",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-014",
+    "stage": "S2",
+    "title": "封装Pi RuntimeAdapter与持久恢复",
+    "dependencies": [
+      "NX-003",
+      "NX-011",
+      "NX-013"
+    ],
+    "modules": [
+      "M17"
+    ],
+    "deliverable": "稳定run/requestId、SQLite FULL、单owner、恢复测试",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-015",
+    "stage": "S2",
+    "title": "建设业务意图与Action结果核对",
+    "dependencies": [
+      "NX-012",
+      "NX-013"
+    ],
+    "modules": [
+      "M17"
+    ],
+    "deliverable": "幂等payload冲突、unknown、provider查询、撤权重验",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-016",
+    "stage": "S2",
+    "title": "实现WebChat与真实服务Action",
+    "dependencies": [
+      "NX-014",
+      "NX-015"
+    ],
+    "modules": [
+      "M07",
+      "M09",
+      "M17"
+    ],
+    "deliverable": "消息发送和服务交付receipt，合成/受控real分开",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-017",
+    "stage": "S2",
+    "title": "通过可靠性脊柱故障测试",
+    "dependencies": [
+      "NX-016"
+    ],
+    "modules": [
+      "M16",
+      "M17"
+    ],
+    "deliverable": "外部成功后kill不重复，DB/缓存/owner故障证据",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-018",
+    "stage": "S3",
+    "title": "建立消费者、关系和角色映射",
+    "dependencies": [
+      "NX-017"
+    ],
+    "modules": [
+      "M02",
+      "M05",
+      "M06"
+    ],
+    "deliverable": "N:M职责、身份歧义、EIOS对象与读取投影",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-019",
+    "stage": "S3",
+    "title": "实现原文证据和提取器",
+    "dependencies": [
+      "NX-018"
+    ],
+    "modules": [
+      "M09",
+      "M10"
+    ],
+    "deliverable": "原文/span/hash、分类Claim、条件否定与时间语义",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-020",
+    "stage": "S3",
+    "title": "实现对象解析/冲突/变更提案",
+    "dependencies": [
+      "NX-019",
+      "NX-012"
+    ],
+    "modules": [
+      "M11"
+    ],
+    "deliverable": "expected revision、幂等应用、晚到证据、更正链",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-021",
+    "stage": "S3",
+    "title": "实现记忆/关键词/向量检索",
+    "dependencies": [
+      "NX-020"
+    ],
+    "modules": [
+      "M13"
+    ],
+    "deliverable": "租户/属性/world过滤、profile版本、索引更新和删除",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-022",
+    "stage": "S3",
+    "title": "实现Goal/KR与持续对齐",
+    "dependencies": [
+      "NX-018"
+    ],
+    "modules": [
+      "M03",
+      "M04"
+    ],
+    "deliverable": "父目标版本、Agent子目标、预算/控制revision",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-023",
+    "stage": "S3",
+    "title": "实现Context Engine与语义只读adapter",
+    "dependencies": [
+      "NX-021",
+      "NX-022",
+      "NX-003"
+    ],
+    "modules": [
+      "M14"
+    ],
+    "deliverable": "实际请求快照、必需约束、Evo只读映射与歧义",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-024",
+    "stage": "S3",
+    "title": "实现策略/计划/复评调度",
+    "dependencies": [
+      "NX-023",
+      "NX-013"
+    ],
+    "modules": [
+      "M15",
+      "M16"
+    ],
+    "deliverable": "no_action、等待重评估、计划失效、有限Run预算",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-025",
+    "stage": "S3",
+    "title": "通过知识与目标闭环测试",
+    "dependencies": [
+      "NX-020",
+      "NX-024"
+    ],
+    "modules": [
+      "M04",
+      "M10",
+      "M11",
+      "M14"
+    ],
+    "deliverable": "明确拒绝优先、重复提取、关键注入/冲突/版本用例",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-026",
+    "stage": "S4",
+    "title": "实现承诺与价值履行",
+    "dependencies": [
+      "NX-025"
+    ],
+    "modules": [
+      "M18"
+    ],
+    "deliverable": "条件/期限/责任/证据，发送与完成分开",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-027",
+    "stage": "S4",
+    "title": "接入商业事件与费用指标",
+    "dependencies": [
+      "NX-026"
+    ],
+    "modules": [
+      "M08",
+      "M19"
+    ],
+    "deliverable": "签名事件、核验状态、币种/窗口、real/test分开",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-028",
+    "stage": "S4",
+    "title": "完成负责人工作台与人工接管",
+    "dependencies": [
+      "NX-024",
+      "NX-026",
+      "NX-027"
+    ],
+    "modules": [
+      "M20"
+    ],
+    "deliverable": "所有薄切片页面与暂停/对账/证据交互",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-029",
+    "stage": "S4",
+    "title": "实现保留/删除/导出闭环",
+    "dependencies": [
+      "NX-021",
+      "NX-028"
+    ],
+    "modules": [
+      "M01",
+      "M13",
+      "M23"
+    ],
+    "deliverable": "Artifact/Pi/索引/备份删除水位与权限测试",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-030",
+    "stage": "S4",
+    "title": "实现审计指标与告警",
+    "dependencies": [
+      "NX-028"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "无原文普通日志、unknown/队列/备份/成本可观测",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-031",
+    "stage": "S4",
+    "title": "运行1000消费者与并发矩阵",
+    "dependencies": [
+      "NX-029",
+      "NX-030"
+    ],
+    "modules": [
+      "M14",
+      "M16",
+      "M22"
+    ],
+    "deliverable": "固定seed数据、1/2/4/8并发、CI同机影响报告",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-032",
+    "stage": "S5",
+    "title": "完成双机TLS与隔离部署",
+    "dependencies": [
+      "NX-031",
+      "NX-004"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "DATA_HOST 数据/APP_HOST 应用、端口与角色实际验证、无旧服务修改",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-033",
+    "stage": "S5",
+    "title": "建立本地Git队列与隔离CI",
+    "dependencies": [
+      "NX-010",
+      "NX-032"
+    ],
+    "modules": [
+      "M22",
+      "M23"
+    ],
+    "deliverable": "rootless/secret/内网隔离、受信ref与不可变SHA",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-034",
+    "stage": "S5",
+    "title": "实现发布归档与GitHub同步",
+    "dependencies": [
+      "NX-033"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "镜像校验、release manifest、GitHub断连不阻断本地",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-035",
+    "stage": "S5",
+    "title": "完成备份/PITR与恢复演练",
+    "dependencies": [
+      "NX-032",
+      "NX-034"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "恢复隔离实例、删除水位、外部效应窗口、实际RPO/RTO",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-036",
+    "stage": "S5",
+    "title": "完成开源文档和供应链检查",
+    "dependencies": [
+      "NX-034",
+      "NX-035"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "README双语、许可/NOTICE/SBOM/贡献/安全/操作手册",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-037",
+    "stage": "S5",
+    "title": "v0.1受控真实闭环验收",
+    "dependencies": [
+      "NX-036",
+      "NX-017",
+      "NX-025",
+      "NX-027"
+    ],
+    "modules": [
+      "M01",
+      "M17",
+      "M20",
+      "M22"
+    ],
+    "deliverable": "真实Provider/交付证据、全部S1–S5验收、已知限制",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-038",
+    "stage": "S6",
+    "title": "实现Evo轨迹诊断与候选任务",
+    "dependencies": [
+      "NX-037"
+    ],
+    "modules": [
+      "M12",
+      "M14",
+      "M22"
+    ],
+    "deliverable": "冻结输入、归因、预算、候选隔离",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-039",
+    "stage": "S6",
+    "title": "实现独立评估与语义版本发布",
+    "dependencies": [
+      "NX-038"
+    ],
+    "modules": [
+      "M12",
+      "M22"
+    ],
+    "deliverable": "硬门槛、留出、成本/性能限制和回退",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-040",
+    "stage": "S6",
+    "title": "开放兼容Schema受控演进",
+    "dependencies": [
+      "NX-039"
+    ],
+    "modules": [
+      "M11",
+      "M12"
+    ],
+    "deliverable": "迁移/索引/工具兼容、权限不变、破坏变更关闭",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-041",
+    "stage": "S7",
+    "title": "建立模拟世界与Action替身",
+    "dependencies": [
+      "NX-037"
+    ],
+    "modules": [
+      "M21",
+      "M22"
+    ],
+    "deliverable": "数据/凭据/效应强隔离与来源",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-042",
+    "stage": "S7",
+    "title": "实现消费者孪生与校准",
+    "dependencies": [
+      "NX-041",
+      "NX-039"
+    ],
+    "modules": [
+      "M21"
+    ],
+    "deliverable": "版本化行为模型、独立真实数据校准，不伪装概率",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-043",
+    "stage": "S7",
+    "title": "实现策略实验和受控线上验证",
+    "dependencies": [
+      "NX-042"
+    ],
+    "modules": [
+      "M19",
+      "M22"
+    ],
+    "deliverable": "候选筛选、影子/holdout、真实商业结果和停止条件",
+    "status": "not_started",
+    "evidence": []
+  }
+]

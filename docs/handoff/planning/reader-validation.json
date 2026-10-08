@@ -1,0 +1,15 @@
+{
+  "scope": "static_reader_render_only",
+  "render_method": "system Chromium set_content",
+  "environment_notes": [
+    "Bundled browser missing; system Chromium used",
+    "file navigation blocked; supplied generated HTML string",
+    "Anchor checker quoting corrected; long-word wrapping corrected after mobile check"
+  ],
+  "project_tests_executed": false,
+  "articles": 25,
+  "navigation_entries": 25,
+  "desktop_horizontal_overflow": false,
+  "missing_anchor_ids": [],
+  "mobile_horizontal_overflow": false
+}

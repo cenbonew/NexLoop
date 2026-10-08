@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "intent_id": "55555555-5555-4555-8555-555555555555",
+  "tenant_id": "11111111-1111-4111-8111-111111111111",
+  "world_id": "test-demo-001",
+  "mode": "test",
+  "run_id": "33333333-3333-4333-8333-333333333333",
+  "action_name": "nexloop.message.send",
+  "contract_version": "1",
+  "actor_ref": "eios:Agent/customer-care",
+  "consumer_ref": "eios:Consumer/22222222-2222-4222-8222-222222222222",
+  "goal_version_ref": "nl:GoalVersion/retention-v1",
+  "plan_step_ref": "nl:PlanStep/service-followup-001",
+  "idempotency_key": "demo-test-intent-service-followup-001",
+  "payload_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "expected_versions": [
+    {
+      "resource_ref": "eios:Consumer/22222222-2222-4222-8222-222222222222",
+      "revision": 3
+    },
+    {
+      "resource_ref": "nl:Control/customer-care",
+      "revision": 1
+    }
+  ],
+  "requested_at": "2026-10-07T08:00:00Z",
+  "not_after": "2026-10-07T08:05:00Z",
+  "evidence_refs": [
+    "nl:Message/demo-001"
+  ],
+  "parameters": {
+    "message_ref": "nl:Message/outbound-demo-001",
+    "channel_ref": "connector:demo-inbox"
+  },
+  "decision_rationale": "客户报告问题，先提供服务，不发送促销。"
+}

@@ -1,0 +1,9 @@
+# Render placeholders from trusted inventory only; reject any leftovers.
+# Owner/bootstrap is for local controlled bootstrap and health only.
+local all all scram-sha-256
+hostssl __NEXLOOP_DB__ __AUTHORIZED_APP_ROLE_LIST__ __APP_OBSERVED_SOURCE_CIDR__ scram-sha-256
+host all all 0.0.0.0/0 reject
+host all all ::/0 reject
+# ROLE_LIST is an explicit comma-separated audited list, not all.
+# APP_OBSERVED_SOURCE_CIDR must reflect actual NAT/source behavior, then test.
+# Do not add LAN-wide access simply to make connections pass.
