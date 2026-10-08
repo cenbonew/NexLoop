@@ -1253,6 +1253,18 @@
         "ref": "docs/implementation/real-model-probe-result.json",
         "summary": "Trusted real-provider typed Contextv1 compatibility passes66 Runtime tests; one actual configured DeepSeek Run failed runtime_model_unavailable, no tool/delivery. Real validation blocked at unknown failure stage; credentials cleaned.",
         "recorded_at": "2026-10-08T11:48:26.105754+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "438eb6e05722a7ce225a3fbecbf9c16518b5d658",
+        "summary": "Actual Human browser→governed local JSON fulfilled; SSE reconnect warning fixed and main Web build passed.",
+        "recorded_at": "2026-10-08T11:48:40.258718+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "fb3a7dc5a77cdbd2b64543946e152f8c62a24f58",
+        "summary": "Typed real-provider Contextv1 compatibility tested; actual configured DeepSeek generation failed, validation remains blocked.",
+        "recorded_at": "2026-10-08T11:48:40.258718+00:00"
       }
     ]
   },
@@ -1299,6 +1311,12 @@
         "ref": "docs/implementation/nx017-precise-admission-fault-evidence.json",
         "summary": "3 new precise owned-PG/CLI faults passed independently and in main; no task completion before NX-016.",
         "recorded_at": "2026-10-08T11:46:02.802381+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "67c1d97b11ecd079f617578b27a2460acfdcdee5",
+        "summary": "Three actual precise PG/CLI fault cases passed in main; preparation checkpoint before NX-016 completion.",
+        "recorded_at": "2026-10-08T11:48:40.258718+00:00"
       }
     ]
   },
