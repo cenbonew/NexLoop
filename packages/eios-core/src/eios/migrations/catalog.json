@@ -270,6 +270,11 @@
       "version": "0054",
       "name": "0054_governed_edit_commit_tail.sql",
       "sha256": "a207e912048306500812b20cf068a1f0a65056babaa21fdaa9503d8fddc33fc4"
+    },
+    {
+      "version": "0055",
+      "name": "0055_native_web_inbound.sql",
+      "sha256": "d7aa84ada8abcdf46f3a0b2f40e2ac468e24d2da295799b07d569810eeda0db2"
     }
   ]
 }

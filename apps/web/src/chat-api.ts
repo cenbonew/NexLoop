@@ -1,3 +1,4 @@
+import {nativeAttempt,type PendingNativeMessage} from './native-message';
 import {ApiError,refreshCsrf} from './api';
 
 export type Conversation={id:string;consumer_id:string;world_id:string;revision:number;execution_profile?:'deterministic-test'|'real-provider'|'disabled'};
@@ -16,7 +17,7 @@ async function write(path:string,body:unknown,key:string):Promise<unknown>{const
 export async function listConversations(after=''){return page(await request('/api/v1/conversations'+(after?'?after='+encodeURIComponent(id(after)):'')),conversation);}
 export async function createConversation(key:string){return conversation(await write('/api/v1/conversations',{},key));}
 export async function readMessages(conversationId:string,after=0){return page(await request(`/api/v1/conversations/${encodeURIComponent(id(conversationId))}/messages?after=${after}`),message);}
-export async function sendMessage(conversationId:string,body:string,key:string){const v=object(await write(`/api/v1/conversations/${encodeURIComponent(id(conversationId))}/messages`,{body},key));if(typeof v.created!=='boolean')throw new Error('响应无效');return {message:message(v.message),created:v.created};}
+export async function sendMessage(item:PendingNativeMessage){const attempt=nativeAttempt(item);const v=object(await write(attempt.path,attempt.body,attempt.transportKey));if(typeof v.created!=='boolean'||v.provider_namespace!=='native.webchat'||v.provider_event_id!==item.providerEventId)throw new Error('响应无效');const committed=message(v.message);if(committed.conversation_id!==item.conversationId||committed.body!==item.body)throw new Error('响应无效');return {message:committed,created:v.created};}
 export function subscribe(conversationId:string,after:number,onCommitted:(event:CommittedEvent)=>void,onUnavailable:()=>void,onAvailable:()=>void=()=>{}):()=>void{
   const source=new EventSource(`/api/v1/conversations/${encodeURIComponent(id(conversationId))}/events?after=${after}`,{withCredentials:true});
   source.addEventListener('committed',raw=>{try{const event=raw as MessageEvent;const v=object(JSON.parse(event.data));if(typeof v.id!=='string'||! /^[1-9][0-9]*$/.test(v.id)||v.id!==event.lastEventId||v.type!=='message.accepted')throw new Error('响应无效');const data=message(v.data);if(String(data.sequence)!==v.id||data.conversation_id!==conversationId)throw new Error('响应无效');onCommitted({id:v.id,type:'message.accepted',data});}catch{source.close();onUnavailable();}});

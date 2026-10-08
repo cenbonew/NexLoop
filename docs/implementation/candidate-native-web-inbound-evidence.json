@@ -1,0 +1,64 @@
+{
+  "candidate_only": true,
+  "task": "NX-017",
+  "acceptance": "AT-013 native.webchat scope",
+  "source_sha256": {
+    "packages/eios-core/src/eios/migrations/0055_native_web_inbound.sql": "d7aa84ada8abcdf46f3a0b2f40e2ac468e24d2da295799b07d569810eeda0db2",
+    "packages/eios-core/src/eios/migrations/catalog.json": "6e8ca2e55c76a9ec8dcf8ae66489102fabd03cb714f39ecb7bd5d8339a8c8345",
+    "packages/eios-core/src/nexloop_eios/native_web_inbound.py": "0104dd899f3b6c497834921e989a48def9c5501c603cb13e6df06609c0277ab0",
+    "packages/eios-core/src/nexloop_eios/backend.py": "ad1c816faa8560fe8f279f6c881a301793bbecbad39e15d42b6a7c1b3da9db2c",
+    "packages/eios-core/src/nexloop_eios/web_chat_http.py": "fb32264f44949d6176c0e09c4b0935fe3b4fcc3d33f575ab44c1d43501eff7f9",
+    "tests/test_native_web_inbound.py": "5f41aedc26b9516f936cfc2c4787266881e61ac061d7a113d1ebd3bc1bbb4c06",
+    "tests/test_native_web_delivery.py": "9ab7b773c01e5b44b0798c33e5603d13dc055754ef7e995ada53a7a8886abeb4"
+  },
+  "results": [
+    {
+      "session": 44333,
+      "result": "2 passed",
+      "seconds": 3.35
+    },
+    {
+      "session": 26913,
+      "result": "collection failed: AuthoritySigner incorrect import; no business invocation"
+    },
+    {
+      "session": 96668,
+      "result": "5 passed 2 failed",
+      "seconds": 60.13,
+      "cause": "spawn BrowserSession SecretDigest immutable pickle failure before business invocation"
+    },
+    {
+      "session": 48534,
+      "result": "7 passed 2 failed",
+      "seconds": 60.3,
+      "cause": "serialized session intentionally excludes digest fields; child validation failed before business invocation"
+    },
+    {
+      "session": 56506,
+      "result": "2 passed 6 deselected",
+      "seconds": 6.97,
+      "fix": "restricted identity BrowserSessionService.inspect actual session token over multiprocessing IPC"
+    },
+    {
+      "session": 4814,
+      "result": "9 passed 2 warnings",
+      "seconds": 49.27
+    }
+  ],
+  "final_command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest -q tests/test_native_web_inbound.py tests/test_native_web_delivery.py --tb=short",
+  "cwd": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx017-native-inbound-candidate",
+  "scope": [
+    "raw provider UUID is durably bound to authenticated Human namespace/tenant/world/conversation/message; transport idempotency independent",
+    "real HTTP 202/replay/409 and actor namespace payload rejection",
+    "two actual Humans isolation",
+    "Backend actual governed admission SIGKILL before/after commit",
+    "actual native HTTP -> relay -> PG Run -> durable Pi synthetic profile -> governed effect -> owned HTTPS LocalJsonDelivery -> Human receipt; two bodies, duplicate provider IDs with changed transport keys preserve Message/Run/Intent/budget",
+    "legacy preoccupied derived key fails closed without native ledger"
+  ],
+  "limitations": [
+    "SIGKILL window is Backend transaction, not HTTP response process; full chain is separately exercised",
+    "native web only; no external provider connector",
+    "explicit deterministic synthetic profile; no real model validation"
+  ],
+  "cleanup": "all fixture processes reaped and independent PG context closed by test finalizers; no production access, key read, main edits or Git actions"
+}

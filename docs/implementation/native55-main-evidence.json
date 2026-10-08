@@ -1,0 +1,59 @@
+{
+  "task": "NX-016",
+  "acceptance": "AT-013 native.webchat evidence; NX-017 preparation, not task completion",
+  "recorded_at": "2026-10-08T13:41:48.162761+00:00",
+  "bootstrap_revision": "0055",
+  "source_sha256": {
+    "packages/eios-core/src/eios/migrations/0055_native_web_inbound.sql": "d7aa84ada8abcdf46f3a0b2f40e2ac468e24d2da295799b07d569810eeda0db2",
+    "packages/eios-core/src/nexloop_eios/native_web_inbound.py": "0104dd899f3b6c497834921e989a48def9c5501c603cb13e6df06609c0277ab0",
+    "packages/eios-core/src/nexloop_eios/backend.py": "ad1c816faa8560fe8f279f6c881a301793bbecbad39e15d42b6a7c1b3da9db2c",
+    "packages/eios-core/src/nexloop_eios/web_chat_http.py": "fb32264f44949d6176c0e09c4b0935fe3b4fcc3d33f575ab44c1d43501eff7f9",
+    "apps/web/src/native-message.ts": "7be6b8e4358908b52467228c1b545d389478127ac8ee95fda6158ab86a2fd6d5",
+    "apps/web/src/WebChat.tsx": "d2cb10e6425456882c2e79ab31d62758f06a8fb7fc809c54861adcd0f9397ecf",
+    "apps/web/src/chat-api.ts": "52f639692929fae79fc31e5ae1d2c5d798b6d128596e34176846a0cc2161c4e6",
+    "apps/web/test/native-message.test.ts": "c5ef7da3332115ed0785625d3d7f27d1125d2bcd79af26c4c0339bd10afea0cb",
+    "tests/test_native_web_inbound.py": "5f41aedc26b9516f936cfc2c4787266881e61ac061d7a113d1ebd3bc1bbb4c06",
+    "tests/test_native_web_delivery.py": "9ab7b773c01e5b44b0798c33e5603d13dc055754ef7e995ada53a7a8886abeb4",
+    "scripts/ci/check": "c9db77350de3e68d6b13b46d0b2ef7582f6bc0835ebc73a0a22a3e3492187976"
+  },
+  "commands": [
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_bootstrap.py tests/test_native_web_inbound.py tests/test_native_web_delivery.py --tb=short --junitxml=.ci-results/native55-main.xml",
+      "session": 78665,
+      "passed": 13,
+      "seconds": 49.51,
+      "warnings": 2
+    },
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm exec vitest run apps/web/test/native-message.test.ts --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/native55-web.xml",
+      "session": 34470,
+      "passed": 7,
+      "seconds": 0.151
+    },
+    {
+      "command": "pnpm exec tsc -p apps/web/tsconfig.json --noEmit && pnpm --filter @nexloop/web build",
+      "session": 12627,
+      "exit_code": 0
+    }
+  ],
+  "initial_frontend_selection": {
+    "session": 12627,
+    "result": "21 passed across main and two ignored candidate copies; repeated with explicit docs/tmp exclusion; only 7 main tests counted"
+  },
+  "candidate_failures": "docs/implementation/candidate-native-web-inbound-evidence.json",
+  "invariants": [
+    "actual current Human/Governor path; no formal business direct SQL",
+    "raw provider UUID with fixed server namespace/principal/tenant/world; durable mapping before ACK",
+    "transport identity retained independently; payload conflicts and legacy unregistered replay fail closed",
+    "original governed Message and Action receipts preserved",
+    "same logical event with different transport retains Message/Run/Intent/budget; actual Pi/PG/HTTPS fsynced JSON proof"
+  ],
+  "versions_lock": "bootstrap_revision only 0054 -> 0055; first54 migration manifest entries immutable; upstream commits/npm/image digests unchanged",
+  "limitations": [
+    "native WebChat only; no third-party connector claims",
+    "kill cases actual Backend transaction; HTTP/full real delivery independently tested",
+    "pending event retained across mounted UI retries; cross-tab/reload pending recovery not implemented",
+    "actual browser and current-head real model pending",
+    "full CI not rerun after54 fixture repair or55 integration; no done/ready/push"
+  ]
+}

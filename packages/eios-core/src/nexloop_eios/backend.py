@@ -197,6 +197,10 @@ class BrowserServices:
         return self._backend._invoke_browser(self._inspected_session, 'accept_message',
             conversation_id=conversation_id, idempotency_key=idempotency_key, body=body)
 
+    def accept_native_message(self, *, conversation_id, idempotency_key, provider_event_id, body):
+        return self._backend._invoke_browser(self._inspected_session, 'accept_native_message',
+            conversation_id=conversation_id, idempotency_key=idempotency_key, provider_event_id=provider_event_id, body=body)
+
     def read_messages(self, *, conversation_id, after_sequence=0, limit=50):
         return self._backend._invoke_browser(self._inspected_session, 'read_messages',
             conversation_id=conversation_id, after_sequence=after_sequence, limit=limit)
@@ -267,7 +271,7 @@ class Backend:
     def _invoke_browser(self, inspected_session, operation, **arguments):
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.conversation_messages import ConversationMessagePort
-        allowed = {'create_conversation', 'list_conversations', 'accept_message',
+        allowed = {'create_conversation', 'list_conversations', 'accept_message', 'accept_native_message',
             'read_messages', 'read_events', 'read_message_run', 'read_message_service_receipt'}
         with self._lock:
             self._assert_open()
@@ -280,6 +284,9 @@ class Backend:
             if operation == 'read_message_service_receipt':
                 from nexloop_eios.conversation_effect_receipts import ConversationEffectReceiptPort
                 return ConversationEffectReceiptPort(self._pool, session, self._signer).read_message_service_receipt(**arguments)
+            if operation == 'accept_native_message':
+                from nexloop_eios.native_web_inbound import NativeWebMessagePort
+                return NativeWebMessagePort(self._pool, session, self._signer).accept_native_message(**arguments)
             return getattr(ConversationMessagePort(self._pool, session, self._signer), operation)(**arguments)
 
     def _invoke(self, session, operation, **arguments):

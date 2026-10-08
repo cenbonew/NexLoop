@@ -68,7 +68,7 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
                     value = {**value, 'execution_profile': execution_profile}
                 elif method == 'list_conversations':
                     value = {**value, 'items': [{**item, 'execution_profile': execution_profile} for item in value['items']]}
-            return JSONResponse(value, status_code=202 if write and method == 'accept_message' else 200,
+            return JSONResponse(value, status_code=202 if write and method in ('accept_message','accept_native_message') else 200,
                 headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
         except ConversationConflict:
             return error('conversation_payload_conflict', 409)
@@ -152,6 +152,21 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
             return error('request_timeout', 408)
         except (ValueError, UnicodeError):
             return error('invalid_request', 422)
+
+    @routes.post('/conversations/{conversation_id}/native-messages')
+    async def native_send(conversation_id: str, request: Request):
+        try:
+            value = await body(request, {'schema_version','provider_event_id','body'})
+            if value['schema_version'] != 'nexloop.native-message.v1' or type(value['provider_event_id']) is not str or not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',value['provider_event_id']):
+                raise ValueError()
+            if type(value['body']) is not str or not 0 < len(value['body']) <= 8192 or not value['body'].strip():
+                raise ValueError()
+            return await invoke(request, 'accept_native_message', write=True,conversation_id=conversation_id,
+                body=value['body'],provider_event_id=value['provider_event_id'],idempotency_key=key(request))
+        except TimeoutError:
+            return error('request_timeout',408)
+        except (ValueError,UnicodeError):
+            return error('invalid_request',422)
 
     @routes.get('/conversations/{conversation_id}/events')
     async def events(conversation_id: str, request: Request):
