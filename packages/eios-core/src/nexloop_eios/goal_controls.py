@@ -41,6 +41,18 @@ REASONS={'NXC01':'control_paused','NXC02':'control_revision_stale','NXC03':'goal
     'NXB03':'budget_unconfigured','NXM01':'observation_conflict'}
 
 
+def goal_version_ref(goal_id,version):
+    """Contract `goal_version_ref` (run-command/action-intent/context-manifest)."""
+    if not _ID.fullmatch(str(goal_id)) or type(version) is not int or version<1:raise ValueError('goal id/version required')
+    return f'goal:{goal_id}@{version}'
+
+
+def parse_goal_version_ref(ref):
+    match=re.fullmatch(r'goal:([a-z0-9][a-z0-9._-]{0,127})@([1-9][0-9]{0,8})',ref) if type(ref) is str else None
+    if match is None:raise ValueError('goal version reference required')
+    return match.group(1),int(match.group(2))
+
+
 class ControlDenied(Exception):
     def __init__(self,reason):
         super().__init__(reason)
@@ -215,7 +227,8 @@ class ControlPlane:
     def compute_key_result(self,*,goal_id,goal_version,kr_key,as_of=None):
         return self._call('select authz.nexloop_compute_key_result(%s,%s,%s,%s,%s,%s)',(goal_id,goal_version,kr_key,as_of))
 
-    def bind_run(self,*,run_id,goal_id,goal_version):
+    def bind_run(self,*,run_id,goal_id=None,goal_version=None,goal_ref=None):
+        if goal_ref is not None:goal_id,goal_version=parse_goal_version_ref(goal_ref)
         return self._call('select authz.nexloop_bind_run_goal(%s,%s,%s,%s,%s)',(uuid.UUID(str(run_id)),goal_id,goal_version))
 
     def read_goal(self,goal_id,version=None):

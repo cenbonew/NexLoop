@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
-from nexloop_eios.goal_controls import ControlDenied,ControlPlane,GoalGovernedActions
+from nexloop_eios.goal_controls import ControlDenied,ControlPlane,GoalGovernedActions,goal_version_ref,parse_goal_version_ref
 from nexloop_eios.object_actions import GovernedObjectCreator
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from authority_fixture import replace_fact
@@ -209,7 +209,9 @@ def test_at007_goal_revision_and_customer_change_invalidate_old_plan(env,admin):
     assert planned['goals']==[{'goal_id':'agent-plan','version':1}] and planned['objects'][0]['revision']==1
     assert control.assert_dispatch(planned)['snapshot_revision']==planned['control_revision']
     run=uuid.uuid4()
-    assert control.bind_run(run_id=run,goal_id='agent-plan',goal_version=proposal['version'])['goal_version']==1
+    ref=goal_version_ref('agent-plan',proposal['version'])
+    assert ref=='goal:agent-plan@1' and parse_goal_version_ref(ref)==('agent-plan',1)
+    assert control.bind_run(run_id=run,goal_ref=ref)['goal_version']==1
     # Customer state changes through a governed EIOS edit while the step waits.
     GovernedObjectEditor(env.reader.pool,editor_session,env.reader.signer).edit(action_name='Consumer.edit',action_version=1,intent_id='consumer-changed',
         type_name='Consumer',object_id=consumer,expected_revision=1,properties={'preference':'no-contact'})
@@ -309,3 +311,11 @@ def test_tenant_isolation_of_goal_reads(env,admin):
     assert foreign.snapshot()['control_revision']==0
     with pytest.raises(psycopg.Error,match='key result unavailable'):foreign.compute_key_result(goal_id='q4-stage',goal_version=1,kr_key='renewal')
     assert admin.execute("select count(*) from control.nexloop_goals where tenant_id='synthetic-b'").fetchone()==(0,)
+
+
+def test_goal_version_ref_matches_contract_pattern():
+    import re
+    pattern=json.load(open('packages/contracts/run-command.schema.json'))['properties']['goal_version_ref']['pattern']
+    assert re.fullmatch(pattern,goal_version_ref('q4-stage',12))
+    for bad in ('goal:Q4@1','goal:q4@0','q4@1','goal:q4@1 '):
+        with pytest.raises(ValueError):parse_goal_version_ref(bad)
