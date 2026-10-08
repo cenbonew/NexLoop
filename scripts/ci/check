@@ -12,6 +12,8 @@ pnpm --filter @nexloop/web build
 pnpm build:pi
 pnpm --filter @nexloop/agent-host build
 mkdir -p .ci-results
+node --test --test-reporter=junit --test-reporter-destination=.ci-results/deepseek-sdk.xml tests/offline-deepseek-request.test.mjs tests/offline-deepseek-alias.test.mjs
+uv run --frozen python scripts/check_test_report.py .ci-results/deepseek-sdk.xml
 uv run --frozen pytest -q --junitxml=.ci-results/python.xml
 uv run --frozen python scripts/check_test_report.py .ci-results/python.xml
 # Frozen Pi source and actual SQLite are required. Missing files/tools fail.

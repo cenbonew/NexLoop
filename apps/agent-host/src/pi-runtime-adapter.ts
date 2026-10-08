@@ -1,3 +1,4 @@
+import { providerToolNames } from './provider-tool-names.js';
 /** Frozen Pi harness adapter. No DB/admin/channel credentials or CodingTools. */
 import {createHash} from 'node:crypto';
 import {constants,closeSync,fsyncSync,lstatSync,mkdirSync,openSync} from 'node:fs';
@@ -145,7 +146,8 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       };
       const registrations=[...(this.options.tools??[]),...(this.options.toolsForRun?.(structuredClone(command))??[])];
       if(registrations.some(tool=>!/^nexloop\.[A-Za-z0-9_.-]+$/.test(tool.name))||new Set(registrations.map(tool=>tool.name)).size!==registrations.length)throw new RuntimeError('runtime_tool_refused');
-      const tools=registrations.map(tool=>({...tool,execute:async(args,api,context)=>{await consume('tool');const gatewayApi=new Proxy(api,{get:(target,key)=>{if(key==='models')throw new RuntimeError('runtime_tool_model_access_refused');const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}});try{return await tool.execute(args,gatewayApi,context);}catch{throw new RuntimeError('runtime_tool_unavailable');}}} satisfies ToolRegistration));
+      const wireNames=providerToolNames(registrations.map(tool=>tool.name),command.runtime_profile==='deepseek-flash'&&this.options.model.provider==='deepseek');
+      const tools=registrations.map((tool,index)=>({...tool,name:wireNames[index]!,execute:async(args,api,context)=>{await consume('tool');const gatewayApi=new Proxy(api,{get:(target,key)=>{if(key==='models')throw new RuntimeError('runtime_tool_model_access_refused');const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}});try{return await tool.execute(args,gatewayApi,context);}catch{throw new RuntimeError('runtime_tool_unavailable');}}} satisfies ToolRegistration));
       const checkCost=(message:AssistantMessage)=>{
         const cost=message.usage?.cost?.total,policy=this.options.costPolicy;
         if(typeof cost!=='number'||!Number.isFinite(cost)||cost<0||!policy)throw new RuntimeError('runtime_model_cost_unavailable');

@@ -1,0 +1,64 @@
+{
+  "scope": "offline synthetic SDK and Pi conformance; not live provider or EIOS authorization evidence",
+  "implementation": "DeepSeek profile only stable registry wire alias; canonical execute closure preserved; deterministic profile unchanged",
+  "diagnosis": "Dotted names violate documented DeepSeek tool-name contract; does not establish original unavailable failure cause",
+  "first_failures": [
+    "Initial diagnostic wrong cwd MODULE_NOT_FOUND; fixed candidate working directory",
+    "Bare pi-ai import unresolved from tests; fixed explicit installed trusted dependency path; no network or key loaded"
+  ],
+  "commands": [
+    {
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && node /Users/chenbowen/253383134/NexLoop/node_modules/typescript/bin/tsc -p apps/agent-host/tsconfig.json",
+      "exit_code": 0
+    },
+    {
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && node --test tests/offline-deepseek-request.test.mjs tests/offline-deepseek-alias.test.mjs",
+      "session": 24586,
+      "exit_code": 0,
+      "passed": 8,
+      "duration_ms": 377.718167
+    }
+  ],
+  "evidence": [
+    "Actual SDK requests constructed with both dotted and wire names; no auth rejects before fetch",
+    "Actual SDK forced choice safe alias declaration agrees; no RuntimeAdapter forced-choice entry exists",
+    "Actual synthetic SSE parsed through SDK into durable Pi tool execution and next model historical calls",
+    "Wire alias executes original canonical closure once; canonical/unknown responses execute zero and runtime fails",
+    "Whole canonical pack retained; SQLite FULL2/WAL, one submission; reopen creates no request"
+  ],
+  "limits": [
+    "Synthetic SSE responses are protocol test fixtures, not supplier success",
+    "No EIOS business writes in unit callbacks; current authority integration remains existing real PG evidence",
+    "No real credential/file read, network, main or vendor edit",
+    "Stable alias collision or >128 chars fails closed; current provider choice API remains unexposed"
+  ],
+  "sha256": {
+    "apps/agent-host/src/provider-tool-names.ts": "1ce185a6126b5911ac1be6fbf1e29d56c6e3085e369f9fa778528597c27cf806",
+    "apps/agent-host/src/pi-runtime-adapter.ts": "ac090912c10ddc780b98c9f4d43c1ed9114e88aac2153556c7821152546ea421",
+    "apps/agent-host/dist/provider-tool-names.js": "3a2528c159240c81c8f2dd15cc76412eb039e0b21add3dd4370c6fcf6dcd0c77",
+    "apps/agent-host/dist/pi-runtime-adapter.js": "f29888eeca3750eaf1ebf3cf6b514d2e0fd34af9aeff7e9aeb5a05fd72e6c11d",
+    "tests/offline-deepseek-request.test.mjs": "0e0d95451bf1f6fb72c7be1c9969f57e02d47a9d9c5332080b0b46dd252cbc2e",
+    "tests/offline-deepseek-alias.test.mjs": "369cb2fab888a83accd8198366f6a1736efe481f012d63f138e87528d62c22fe",
+    "tests/offline-context-pack.json": "91999b722d4cd0893c892c51616ff6b762ae73ee250a40dc749790c7a8ad896a"
+  },
+  "official_protocol_reference": {
+    "url": "https://api-docs.deepseek.com/api/create-chat-completion/",
+    "checked_at": "2026-10-08T12:12:36.622140+00:00",
+    "requirement": "Function names allow letters, digits, underscore and dash, max128; dotted canonical EIOS names require a wire alias.",
+    "first_real_failure_cause_proven": false
+  },
+  "root_main_verification": {
+    "session": 59567,
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm --filter @nexloop/agent-host build && node --test tests/offline-deepseek-request.test.mjs tests/offline-deepseek-alias.test.mjs && pnpm exec vitest run apps/agent-host/test --exclude docs/tmp/** --reporter=default --reporter=junit --outputFile=.ci-results/deepseek-tool-alias-main.xml",
+    "offline_sdk_tests": 8,
+    "offline_sdk_seconds": 0.359690417,
+    "runtime_tests": 66,
+    "runtime_seconds": 2.94,
+    "reports": {
+      "deepseek-tool-alias-main.xml": "59dd2215e49be869acad2e4d7a8102df57793fc960d64a81eacb7d0bcc330c94",
+      "deepseek-sdk-main.xml": "91b9f8300b08dd3d48419469c2a387a426d08fbbee24a6a15ef913156dbe98cd"
+    },
+    "new_ci_gate": "node --test --test-reporter=junit --test-reporter-destination=.ci-results/deepseek-sdk.xml tests/offline-deepseek-request.test.mjs tests/offline-deepseek-alias.test.mjs; check_test_report enforces zero skips",
+    "no_actual_network_or_private_env_read": true
+  }
+}

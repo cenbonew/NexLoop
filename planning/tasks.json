@@ -1265,6 +1265,12 @@
         "ref": "fb3a7dc5a77cdbd2b64543946e152f8c62a24f58",
         "summary": "Typed real-provider Contextv1 compatibility tested; actual configured DeepSeek generation failed, validation remains blocked.",
         "recorded_at": "2026-10-08T11:48:40.258718+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/offline-deepseek-alias-evidence.json",
+        "summary": "Root8 actual offline frozen SDK/Pi/SQLite alias conformance and66 Runtime tests passed; canonical EIOS execute/auth/budget preserved. New CI gate. Real supplier result pending a controlled rerun after technical fix.",
+        "recorded_at": "2026-10-08T12:12:36.622140+00:00"
       }
     ]
   },
