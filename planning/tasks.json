@@ -1283,6 +1283,12 @@
         "ref": "docs/implementation/real-model-alias-rerun-result.json",
         "summary": "真实 DeepSeek 两轮模型响应、一次工具调用，经 Pi SQLite FULL/WAL、EIOS 授权与 LocalJsonDelivery HTTPS 完成文件交付及最终 Claim；稳定消息重放无额外效应。隔离 core52 合成业务验证通过，0053 供给目录尚未纳入；保留首次真实模型失败记录。",
         "recorded_at": "2026-10-08T12:22:06.383892Z"
+      },
+      {
+        "type": "commit",
+        "ref": "c933f9f9f29487e958c237c7afbbe1dee20eae5f",
+        "summary": "记录与当前源码 SHA 一致的真实 DeepSeek core52 授权交付成功证据；未提前完成 NX-016。",
+        "recorded_at": "2026-10-08T12:22:17.910198Z"
       }
     ]
   },
