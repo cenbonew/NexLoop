@@ -1229,6 +1229,12 @@
         "ref": "aa65e9a51eb8d4fe271e110e5cb4e16289c5879e",
         "summary": "Head0052 actual ContextArtifact/guarded Host implementation checkpoint; main79 tests andRuntime61passed; task remains in_progress, no full-CI/stage/model completion claim",
         "recorded_at": "2026-10-08T10:52:02.993120+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/head0052-full-ci-evidence.json",
+        "summary": "Root frozen1107-source full CI exit0:1563 Python+24 Pi+61 Runtime passed, zero skip/error/failure; checkpoint only, no task completion.",
+        "recorded_at": "2026-10-08T11:43:50.559399+00:00"
       }
     ]
   },
@@ -1257,6 +1263,12 @@
         "ref": "2a319ba902e1f5793825761eb5503cca7f00a8a4",
         "summary": "Precise fault coverage checkpoint; task promotion waits NX-016 and remaining reliability matrix",
         "recorded_at": "2026-10-08T10:14:03.164985+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/head0052-full-ci-evidence.json",
+        "summary": "Root frozen1107-source full CI exit0:1563 Python+24 Pi+61 Runtime passed, zero skip/error/failure; checkpoint only, no task completion.",
+        "recorded_at": "2026-10-08T11:43:50.559399+00:00"
       }
     ]
   },

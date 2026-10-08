@@ -1,0 +1,60 @@
+{
+  "recorded_at": "2026-10-08T11:43:50.559399+00:00",
+  "tested_head": "9dbbead43c4327a9dc8b4287ac8a0de028d34d89",
+  "source_snapshot": {
+    "files": 1107,
+    "sha256": "6a1219f13d8b774d441502a9b71e37a0373cbc747b06fd58f5fcfc0d19582610",
+    "changed": []
+  },
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && bash scripts/ci/check",
+  "execution": {
+    "root_session_id": 3995,
+    "exit_code": 0,
+    "first_run_on_this_head": true,
+    "first_failures": []
+  },
+  "reports": {
+    "python": {
+      "tests": 1563,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1651.005,
+      "sha256": "a02b19e9f9d70b1ddb9c2ca8ad04bb2a9b2f5bb91246f96c301496f1a1c8365f"
+    },
+    "pi": {
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.229052458,
+      "sha256": "502acd3cb176cd943904fac896a7f0e752e3ed56782fff7bb539a56996f557d4"
+    },
+    "runtime": {
+      "tests": 61,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.685386125,
+      "sha256": "2c2d978607e9850a78b32caf84a675a252de60104b558121595a9bae52553858"
+    }
+  },
+  "ci_log_sha256": "3515c1a277485b2895e7968787729a4a309d6b24c460726bbfa0b4a153612d61",
+  "gates": [
+    "publication:zero violations",
+    "Pi frozen source integrity",
+    "8 generated target contracts exact",
+    "handoff 46 tasks/70 acceptance/75 static checks",
+    "frozen dependency installs",
+    "production Web/Pi/Host builds",
+    "all 1648 tests passed with zero skip/error/failure"
+  ],
+  "scope": "actual head0052 sources; does not include later isolated offering/reconnect/fault/real-model candidate changes",
+  "limitations": [
+    "NX-016 supply catalogue/runtime enforcement candidate pending",
+    "NX-017 remaining stage-dependent fault matrix not completed",
+    "no stage deployment/full product readiness claimed",
+    "no real model or embedding invocation in this CI"
+  ],
+  "versions_lock_change": "none during full CI; existing bootstrap0052 baseline"
+}
