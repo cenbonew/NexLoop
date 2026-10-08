@@ -1,0 +1,49 @@
+{
+  "recorded_at": "2026-10-08T10:08:13.683248+00:00",
+  "task": "NX-016",
+  "status": "in_progress",
+  "head": "0051",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 && bash scripts/ci/check",
+  "session": 44267,
+  "exit_code": 0,
+  "reports": {
+    "python": {
+      "counts": {
+        "tests": 1419,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "ca3961682e2329ca8f81e8186d55d4d80e6839487a9ff52d32bef9ac6a0bb70c",
+      "seconds": 1453.454
+    },
+    "pi": {
+      "counts": {
+        "tests": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "aa9c6fc749b464ff76ae2713e76c0f6499b597172d4b080142d1e7ba3dca0a66",
+      "seconds": 0.071790542
+    },
+    "runtime": {
+      "counts": {
+        "tests": 61,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "08db8c8d1f0e61e4ba5d49dbdb1c854b81c1cdd2469f200e32410b58214cd67b",
+      "seconds": 4.357122709
+    }
+  },
+  "frozen_source_files": 1062,
+  "source_hash_changes": [],
+  "limitations": [
+    "ContextArtifact0052 candidate not merged or covered",
+    "Precise NX017 fault and launcher/message-driven candidates tested independently but not merged",
+    "Real model validation not performed; no credential read or provider call",
+    "No task completion or deployment claim"
+  ]
+}
