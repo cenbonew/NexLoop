@@ -1,0 +1,111 @@
+{
+  "scope": "native-real-postgres-synthetic-agent-authority",
+  "tasks": {
+    "NX-012": "in_progress"
+  },
+  "product_ready": false,
+  "acceptance_ids": [
+    "AT-052"
+  ],
+  "agent_cases_passed": 25,
+  "cases": [
+    "test_real_pg_agent_governed_instance_write_with_durable_receipt",
+    "test_agent_denials_leave_business_rows_empty[release-revoked]",
+    "test_agent_denials_leave_business_rows_empty[agent-disabled]",
+    "test_agent_denials_leave_business_rows_empty[ceiling-empty]",
+    "test_agent_denials_leave_business_rows_empty[missing-release]",
+    "test_agent_denials_leave_business_rows_empty[wrong-scope]",
+    "test_agent_denials_leave_business_rows_empty[wrong-actor]",
+    "test_agent_denials_leave_business_rows_empty[grant-empty]",
+    "test_agent_denials_leave_business_rows_empty[incomplete-chain]",
+    "test_caller_cannot_replace_authenticated_agent_invocation",
+    "test_release_revocation_after_authenticated_session_invalidates_dispatch",
+    "test_agent_revocation_after_signature_before_sql_rejects_effect[release]",
+    "test_agent_revocation_after_signature_before_sql_rejects_effect[grant]",
+    "test_agent_revocation_after_signature_before_sql_rejects_effect[credential]",
+    "test_child_agent_cannot_expand_parent_release_ceiling",
+    "test_agent_credential_wrong_world_denied",
+    "test_agent_cannot_write_property_outside_published_action_schema",
+    "test_current_parent_release_chain_allows_governed_child_write",
+    "test_stale_embedded_parent_cannot_authorize_child[release-revoked]",
+    "test_stale_embedded_parent_cannot_authorize_child[agent-disabled]",
+    "test_stale_embedded_parent_cannot_authorize_child[application-revoked]",
+    "test_stale_embedded_parent_cannot_authorize_child[missing-parent]",
+    "test_parent_revoked_between_signed_claim_and_sql_denies_child",
+    "test_service_cannot_read_agent_release_authority_port",
+    "test_agent_credential_cannot_bind_different_subject_even_same_principal"
+  ],
+  "full_ci": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "python_passed": 929,
+    "python_seconds": 258.71,
+    "pi_sqlite_passed": 24,
+    "pi_packages_built": 4,
+    "frontend_host_builds": "passed",
+    "critical_skips": 0
+  },
+  "initial_ci": {
+    "python_passed": 921,
+    "python_seconds": 247.23,
+    "final_current_proof": false,
+    "reason": "live parent changes/tests added during initial run"
+  },
+  "first_failures": [
+    {
+      "command_scope": "bootstrap/backend/worker",
+      "failed": 1,
+      "passed": 16,
+      "reason": "old catalog count32 assertion",
+      "fix": "head33 assertion"
+    },
+    {
+      "command_scope": "agent/bootstrap",
+      "failed": 1,
+      "passed": 11,
+      "reason": "invalid empty authorized scope fixture",
+      "fix": "valid but unauthorized scope"
+    },
+    {
+      "command_scope": "live-parent agent",
+      "failed": 1,
+      "passed": 22,
+      "reason": "revoked application erroneously still eligible",
+      "fix": "revoked/ineligible typed fixture"
+    }
+  ],
+  "reruns": [
+    {
+      "passed": 49,
+      "seconds": 35.02
+    },
+    {
+      "passed": 17,
+      "seconds": 13.59
+    },
+    {
+      "passed": 29,
+      "seconds": 20.92
+    }
+  ],
+  "database_role": "nexloop_api",
+  "business_mutations": "published EIOS Consumer.create Action only",
+  "no_admin_business_write": true,
+  "root_and_current_parent_agent_writes_verified": true,
+  "current_parent_authority_locked_at_dispatch": true,
+  "credentials_logged": false,
+  "versions_lock_change": {
+    "packages.nexloop-eios-core.bootstrap_revision": {
+      "before": "0032",
+      "after": "0033"
+    }
+  },
+  "original_sql_checksums_unchanged": 32,
+  "remaining": [
+    "server-issued short-lived run-bound credentials/audience under NX-012",
+    "NX-013 inbox/outbox/leases/fences",
+    "NX-014 actual Pi RuntimeAdapter Run recovery",
+    "NX-015\u2013017 actual effect/unknown reconciliation/reliability"
+  ],
+  "model_channel_validation": "not_run"
+}

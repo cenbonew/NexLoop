@@ -630,6 +630,12 @@
         "ref": "docs/implementation/community-agent-foundation-evidence.json",
         "summary": "Fresh pinned11-service Compose rebuilt with0033: actual clean bootstrap/doctor/restricted Artifact, HTTPS browser, Host/cache and Worker pass. External CA-verified HTTPS login/readiness pass. All owned containers stopped exit0,volumes retained. Native Agent tests separate; no Agent-in-container/Run/S2 completion claim.",
         "recorded_at": "2026-10-08T00:10:10.143011+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7e6f066ea0f0c21352bb3b6fcb7e1467fd190866",
+        "summary": "NX-009..NX-011: 交付单机Compose、本地CI与API基础结构; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:49.902849+00:00"
       }
     ]
   },
@@ -689,6 +695,12 @@
         "ref": "docs/implementation/contract-generation-ci.json",
         "summary": "Canonical six-schema TypeScript/OpenAPI component generation added to strict drift gate; actual tsc and exact schema parity passed; full CI 613 Python/24 SQLite/four Pi builds. NX-009 container and NX-011 API/Host remain incomplete.",
         "recorded_at": "2026-10-07T18:40:51.698276+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7e6f066ea0f0c21352bb3b6fcb7e1467fd190866",
+        "summary": "NX-009..NX-011: 交付单机Compose、本地CI与API基础结构; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:49.902849+00:00"
       }
     ]
   },
@@ -880,6 +892,12 @@
         "ref": "docs/implementation/community-agent-foundation-evidence.json",
         "summary": "Fresh pinned11-service Compose rebuilt with0033: actual clean bootstrap/doctor/restricted Artifact, HTTPS browser, Host/cache and Worker pass. External CA-verified HTTPS login/readiness pass. All owned containers stopped exit0,volumes retained. Native Agent tests separate; no Agent-in-container/Run/S2 completion claim.",
         "recorded_at": "2026-10-08T00:10:10.143011+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7e6f066ea0f0c21352bb3b6fcb7e1467fd190866",
+        "summary": "NX-009..NX-011: 交付单机Compose、本地CI与API基础结构; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:49.902849+00:00"
       }
     ]
   },

@@ -160,6 +160,16 @@
       "version": "0032",
       "name": "0032_identity_browser_rate_operator.sql",
       "sha256": "2ec5a01ab18baa7a997b89a9da3eebfaa55bd58f2b78e4512267edfeae904b7f"
+    },
+    {
+      "version": "0033",
+      "name": "0033_authenticated_agent_invocation.sql",
+      "sha256": "01a2fd7ace8339ba012aabb90ecdc8799047fb3725b4d269fb2e6dcaabb33405"
+    },
+    {
+      "version": "0034",
+      "name": "0034_run_bound_credentials.sql",
+      "sha256": "33c180bf49ffd1db5c6495000e969703a1f62e280239bd4bce9a51c70a0be592"
     }
   ]
 }
