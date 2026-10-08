@@ -1181,6 +1181,12 @@
         "ref": "8a50fd58fce1d98e49be6b567b040365f49a9215",
         "summary": "NX-016: 0051 complete local CI checkpoint, task remains in_progress",
         "recorded_at": "2026-10-08T10:08:49.303883+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/local-model-launcher-evidence.json",
+        "summary": "Local model launcher explicit opt-in merged; actual Node exec/provider selector and owned Host regression17passed1.69s. Dummy credentials only; task remains in_progress.",
+        "recorded_at": "2026-10-08T10:09:50.512303+00:00"
       }
     ]
   },

@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-10-08T10:09:50.512303+00:00",
+  "task": "NX-016",
+  "status": "in_progress",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 && uv run --frozen pytest -q tests/test_launcher_model_environment.py tests/test_agent_host.py",
+  "result": "17 passed in 1.69s",
+  "first_main_run": true,
+  "candidate_results": [
+    "5 passed0.63s initial",
+    "9 passed1.07s portable",
+    "Root independent9 passed0.95s"
+  ],
+  "source_sha256": {
+    "scripts/agent_host.py": "0730729a29cd2faf046e09361d1f1c20589f9ac501ceec2bd08b861c3a1bdc01",
+    "tests/test_launcher_model_environment.py": "283cdd1a89ab0fa5d83e5e17903785f571ce9305b809bb7a4e22e6240687c5ab",
+    "docs/implementation/local-model-key.md": "abd520a84066dbd0de2cb01bae414d3e0b08148e15fec28034d757c1b06fec65"
+  },
+  "behavior": "Explicit local model key opt-in with private stage=false profile; stage rejects env inheritance and uses private file; other secrets dropped.",
+  "limits": [
+    "No real key or .env read",
+    "No provider network call",
+    "No new task completion",
+    "versions.lock.json unchanged"
+  ]
+}

@@ -6,6 +6,8 @@ is not a RuntimeAdapter and grants no business or Run execution authority.
 """
 import argparse
 import fcntl
+import json
+import re
 import os
 from pathlib import Path
 import stat
@@ -47,6 +49,41 @@ def acquire_owner(root):
         raise
 
 
+def _private_json(path):
+    descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        info=os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o600 or info.st_nlink!=1 or not 0<info.st_size<=32768:raise ValueError()
+        raw=os.read(descriptor,32769)
+        if len(raw)>32768:raise ValueError()
+        def pairs(items):
+            out={}
+            for name,value in items:
+                if name in out:raise ValueError()
+                out[name]=value
+            return out
+        def constant(unused):raise ValueError()
+        value=json.loads(raw,object_pairs_hook=pairs,parse_constant=constant)
+        if type(value) is not dict:raise ValueError()
+        return value
+    finally:os.close(descriptor)
+
+
+def local_model_environment(runtime_config_file):
+    # Local opt-in is bound to actual private Host model configuration. Stage
+    # can never inherit a model key, even when a mounted file would win.
+    if runtime_config_file is None:raise ValueError()
+    runtime=_private_json(runtime_config_file)
+    if runtime.get('runtime_profile')!='deepseek-flash' or type(runtime.get('model_configuration_file')) is not str:raise ValueError()
+    model_path=Path(runtime['model_configuration_file'])
+    if not model_path.is_absolute():raise ValueError()
+    model=_private_json(model_path)
+    if model.get('stage') is not False:raise ValueError()
+    key=os.environ.get('MODEL_API_KEY','').strip()
+    if key and (len(key)>8192 or re.fullmatch(r'[\x21-\x7e]+',key) is None):raise ValueError()
+    return {'MODEL_API_KEY':key} if key else {}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--node', type=Path, required=True)
@@ -56,6 +93,7 @@ def main():
     parser.add_argument('--tls-certificate-file', type=Path, required=True)
     parser.add_argument('--tls-key-file', type=Path, required=True)
     parser.add_argument('--runtime-config-file', type=Path)
+    parser.add_argument('--allow-local-model-key', action='store_true', help='Explicit local-only MODEL_API_KEY inheritance; requires private stage=false model configuration')
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error('unprivileged local port required')
@@ -68,9 +106,10 @@ def main():
         if entry.is_symlink() or not entry.is_file():
             raise ValueError('built Agent Host required')
         root, fd = acquire_owner(args.runtime_root)
-        # Deliberate allowlist: no DB, admin, channel or model credentials enter
-        # this foundation. A future Provider must use its separately audited port.
+        # No broad inheritance: optional local model key is the sole secret
+        # exception, scoped to private stage=false Host model configuration.
         env = {key: os.environ[key] for key in ('PATH', 'LANG', 'LC_ALL', 'TMPDIR') if key in os.environ}
+        if args.allow_local_model_key:env.update(local_model_environment(args.runtime_config_file))
         os.execve(node, [str(node), str(entry), str(root), str(fd),
                         str(args.internal_key_file.absolute()), str(args.port),
                         str(args.tls_certificate_file.absolute()), str(args.tls_key_file.absolute()),
