@@ -1,0 +1,15 @@
+# ActionGovernor/PostgreSQL composition
+
+NX-006 core integration progress. No completed governed business-write/effect acceptance.
+
+Changed code: nexloop_eios/action_governor.py; tests/test_postgres_action_claims.py. The trusted-backend factory composes the actual frozen ActionGovernor with PostgresActionClaimPort, PostgreSQL time and explicit unavailable approval ports/authority. It does not select the upstream default Memory verifier. No-approval Actions can reach the real restricted PG reservation after frozen identity/capability/scope/policy/precondition checks; required/supplied approvals fail closed while authoritative approval storage is unavailable.
+
+Real PostgreSQL composition test creates a synthetic published ActionDefinition/capability/schema reference, constructs a real empty Action-specific PolicyEvidenceSet for its declared empty policy_refs, and receives an actual frozen ActionExecutionPermit backed by a durable restricted-role claim. The independent EIOS authorization resolver still evaluates the real configured world policy, scopes, controls, grants, application ceiling and live credential/tenant epoch. No fabricated policy allow or approval/human session is supplied. A second test proves required approval denial precedes any reservation (zero claims in actual PG).
+
+The definition/capability/schema references in this test are synthetic configuration inputs, not persisted published registry evidence. This is a real composition/PG integration test, not proof of live schema/definition resolution or Consumer instance creation. Production callers must resolve these immutable contracts from authoritative published stores before using the trusted-backend factory. No untrusted runtime endpoint accepts definitions or caller-asserted granted scopes. Existing raw ontology store writes remain inaccessible to restricted application roles.
+
+Executed command: uv run --frozen pytest -xq tests/test_postgres_action_claims.py --tb=short. First run: 10 passed, one fixture failure because the actual frozen ActionDefinition requires object_types. Added the exact synthetic Consumer schema reference and matching change_scope; retry: 12 passed in 10.01s. Full current-input CI result follows below.
+
+versions.lock.json unchanged (bootstrap 0007; upstream pins/image unresolved fields unchanged). No production access/write, credential read/call, staging, commit or push. Core remains in_progress. Remaining: authoritative published definition/capability/schema stores and live revision dispatch checks, governed instance write functions and external-effect reconciliation, full API/Host/Compose, Pi Run recovery, Runtime-bound Artifact lifecycle and S2 ATs. Approval-required paths remain unavailable until their real authoritative storage is assembled; this does not block no-approval independent code.
+
+Final strict current-input local CI: exit 0, 500 Python cases in 44.15s, 24 Pi SQLite FULL cases, four Pi builds, zero skips/errors/failures. Source/test/JUnit hashes in governor-composition-ci.json.

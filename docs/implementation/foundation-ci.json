@@ -1,0 +1,52 @@
+{
+  "recorded_at": "2026-10-07T14:39:55.553813+00:00",
+  "scope": "foundation only; not S1/S2 completion",
+  "command": "source \"$HOME/.nvm/nvm.sh\" && nvm use && scripts/ci/check",
+  "exit_code": 0,
+  "checks": {
+    "publication": {
+      "passed": true,
+      "scanned_paths": 563,
+      "violations": 0
+    },
+    "pi_integrity": {
+      "passed": true,
+      "source_files": 303,
+      "generated_files": 43
+    },
+    "handoff": {
+      "passed": true,
+      "static_checks": 69,
+      "schemas": 6,
+      "negative_contract_cases": 11
+    },
+    "python": {
+      "passed": 168,
+      "failed": 0,
+      "database": "disposable actual PostgreSQL 18.4 clusters; no existing instance"
+    },
+    "pi_source_build": {
+      "passed_packages": [
+        "chord",
+        "pi-telemetry",
+        "pi-ai",
+        "pi-durable"
+      ]
+    },
+    "pi_sqlite_conformance": {
+      "passed": 24,
+      "failed": 0,
+      "backend": "actual node:sqlite",
+      "journal_mode": "wal",
+      "synchronous": 2
+    }
+  },
+  "not_proven": [
+    "governed service/agent instance write",
+    "real-effect Action",
+    "Harness kill/reopen with business reconciliation",
+    "S2 failure matrix",
+    "Compose startup",
+    "real-model validation"
+  ]
+}

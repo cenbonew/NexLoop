@@ -1,0 +1,21 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "license": "MIT",
+  "scope": "Frozen pure session/evidence contract tests; in-memory doubles are test-only, not runtime persistence",
+  "tests": [
+    {
+      "source_path": "tests/identity/test_sessions.py",
+      "destination": "tests/test_upstream_identity_sessions.py",
+      "upstream_sha256": "755cb2e60d853cef534bd17c5f80f4afe8cc037bea27ca19f466b4d4250382df",
+      "nexloop_sha256": "755cb2e60d853cef534bd17c5f80f4afe8cc037bea27ca19f466b4d4250382df",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/identity/test_local_accounts.py",
+      "destination": "tests/test_upstream_local_accounts.py",
+      "upstream_sha256": "fe02bb941c8aa4a512d244679390b1dec60d6ac29c6885a5fa6678884327996c",
+      "nexloop_sha256": "fe02bb941c8aa4a512d244679390b1dec60d6ac29c6885a5fa6678884327996c",
+      "adaptations": []
+    }
+  ]
+}

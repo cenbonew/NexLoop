@@ -1,0 +1,65 @@
+{
+  "scope": "candidate isolated technical provisioning and initial identity; no production deployment or business object setup",
+  "source_sha256": {
+    "packages/eios-core/src/nexloop_eios/trusted_configuration.py": "d155bfd4fb0aad3c907685d88e99ed119afafcdf259ab974f82a35b60e735e11",
+    "packages/eios-core/src/nexloop_eios/initial_identity.py": "795c3c51cb24947b74df790393dfb28a1a37381af3e8da489fa2a38c2227cdf8",
+    "packages/eios-core/src/eios/migrations/0050_trusted_configuration.sql": "7dc93e59b7593ddfad90a8ef04fdf715366f9ca4c004b545297951dccbf8ba93",
+    "tests/test_trusted_configuration.py": "05c7be299d48679996fc9508174e1c7c837fdc0b9b8700572e4eae0a9b0f4c7c",
+    "tests/test_trusted_configuration_pg.py": "7efceac14d80f6bf62043cd2e0387d5b3ac0e65f8cceb322d53e652adb0e0937"
+  },
+  "import_origin": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src/nexloop_eios/trusted_configuration.py",
+  "command": "PYTHONPATH=\"$PWD/packages/eios-core/src:$PWD/tests\" /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_trusted_configuration.py tests/test_trusted_configuration_pg.py -q --tb=short",
+  "runs": [
+    {
+      "session": 56413,
+      "result": "18 passed,14 errors",
+      "seconds": 13.18,
+      "cause": "0050 PLpgSQL CASE expression in IF condition required parentheses"
+    },
+    {
+      "session": 31362,
+      "result": "18 passed,14 errors",
+      "seconds": 12.71,
+      "cause": "fixture Artifact resource lacked eios canonical prefix"
+    },
+    {
+      "session": 46095,
+      "result": "1 failed",
+      "cause": "fixture hex publication key was passed to Backend raw32byte signer reader"
+    },
+    {
+      "session": 62886,
+      "result": "2 passed,1 failed",
+      "seconds": 2.99,
+      "cause": "initial Subject insert hit frozen tenant RLS/FK first-creation cycle; narrow INSERT receipt policy added only in0050"
+    },
+    {
+      "session": 59391,
+      "result": "32 passed",
+      "seconds": 13.01
+    },
+    {
+      "session": 14261,
+      "result": "34 passed",
+      "seconds": 14.54
+    }
+  ],
+  "evidence": [
+    "fresh per-test PGDATA and random Unix-socket port; cleanup from exact owned TemporaryDirectory",
+    "parameter logging max_length and max_length_on_error both0 verified on fresh connection",
+    "actual restricted configurator role publication and unchanged manifest/secret replay constraints",
+    "actual normal Backend authentication and complete EIOS ArtifactREAD chain",
+    "explicit initial HUMAN+Membership+LocalAccount through identity operator and actual password login",
+    "privatekey null/wrong/public-digest-only rejection; CLI missing/wrongkey rejection",
+    "quota closed/wrongpassword replay/crosstenant and6 application role denies",
+    "actual account insertion failure rolls back receipt,subject,membership,account,quota",
+    "ordinary identity cannot directly insert Subject/read receipt"
+  ],
+  "limits": [
+    "No business Grants automatically created",
+    "Consumer/Goal/Step/Control/Ownership/Assignment still require separately governed Actions",
+    "Bootstrap administrator used only to install fresh disposable lineage and test failure trigger, never for production port writes",
+    "No production target, external model or channel call",
+    "Schema incremental versions beyond1 and post-initial IdentityCRUD remain unsupported"
+  ]
+}

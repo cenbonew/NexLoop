@@ -1,0 +1,43 @@
+{
+  "scope": "restricted-domain-worker-foundation",
+  "product_ready": false,
+  "tasks": {
+    "NX-009": "in_progress",
+    "NX-011": "in_progress"
+  },
+  "focused_tests": {
+    "command": "uv run pytest -q tests/test_domain_worker.py tests/test_http_api.py tests/test_browser_test_profile.py tests/test_final_artifact_orphans.py",
+    "passed": 23,
+    "seconds": 19.89,
+    "first_failures": 0
+  },
+  "final_browser_degradation_tests": {
+    "command": "uv run pytest -q tests/test_browser_test_profile.py",
+    "passed": 4,
+    "seconds": 3.57,
+    "first_failures": 0
+  },
+  "full_ci": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "python_passed": 897,
+    "python_seconds": 226.13,
+    "pi_sqlite_passed": 24,
+    "pi_packages_built": 4,
+    "web_host_builds": "passed",
+    "critical_skips": 0,
+    "warnings": [
+      "existing Starlette TestClient deprecation",
+      "Node experimental SQLite notice"
+    ]
+  },
+  "versions_lock_changed": false,
+  "migration_sql_changed": false,
+  "acceptance_promoted": [],
+  "limitations": [
+    "No Compose Worker service or separate maintenance credential provisioning",
+    "No scheduler leases or abandoned-sweep discovery",
+    "No Host Run dispatch or actual Pi Run recovery",
+    "No S2 acceptance or real-model/channel verification"
+  ]
+}

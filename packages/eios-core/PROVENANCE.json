@@ -1,0 +1,643 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "license": "MIT (owner authorized NexLoop publication)",
+  "files": [
+    {
+      "source_path": "src/eios/__init__.py",
+      "destination": "packages/eios-core/src/eios/__init__.py",
+      "upstream_sha256": "1bdfdcf769e5969f57d191c88c46086328bf0f5cef7da0ba8e14dcc658673a3f",
+      "adaptations": [],
+      "nexloop_sha256": "1bdfdcf769e5969f57d191c88c46086328bf0f5cef7da0ba8e14dcc658673a3f"
+    },
+    {
+      "source_path": "src/eios/actions/__init__.py",
+      "destination": "packages/eios-core/src/eios/actions/__init__.py",
+      "upstream_sha256": "8cc5b88b17455d9dc3ec4e1f5f0bdc4980804f80e0e74d5b428152bc152c1df5",
+      "nexloop_sha256": "8cc5b88b17455d9dc3ec4e1f5f0bdc4980804f80e0e74d5b428152bc152c1df5",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/actions/governance.py",
+      "destination": "packages/eios-core/src/eios/actions/governance.py",
+      "upstream_sha256": "d186b1516c3eae6b5595126b7531ca86459842bbeccc27b9aa7459523f406b16",
+      "nexloop_sha256": "d186b1516c3eae6b5595126b7531ca86459842bbeccc27b9aa7459523f406b16",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/actions/in_memory.py",
+      "destination": "packages/eios-core/src/eios/actions/in_memory.py",
+      "upstream_sha256": "6d9debfd391edd8cfd21ffa99b5868572fd9580998250afe93396d5138dff7c4",
+      "nexloop_sha256": "6d9debfd391edd8cfd21ffa99b5868572fd9580998250afe93396d5138dff7c4",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/actions/models.py",
+      "destination": "packages/eios-core/src/eios/actions/models.py",
+      "upstream_sha256": "45c169ea7f358a86408f40e82fc015e4b4fb662988e1cc9ab9d5a4eb7b2e778c",
+      "nexloop_sha256": "45c169ea7f358a86408f40e82fc015e4b4fb662988e1cc9ab9d5a4eb7b2e778c",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/actions/ports.py",
+      "destination": "packages/eios-core/src/eios/actions/ports.py",
+      "upstream_sha256": "831fab40e8ac00d3d5fa59ec78a0bd382ea0f90cff9bfc657c181024b7a2156c",
+      "nexloop_sha256": "831fab40e8ac00d3d5fa59ec78a0bd382ea0f90cff9bfc657c181024b7a2156c",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/actions/preconditions.py",
+      "destination": "packages/eios-core/src/eios/actions/preconditions.py",
+      "upstream_sha256": "55464ea053214aaa5b97f44f0837f0119fea00a2c2a4cec8cbbe354ec3e28895",
+      "nexloop_sha256": "55464ea053214aaa5b97f44f0837f0119fea00a2c2a4cec8cbbe354ec3e28895",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/actions/write_attempts.py",
+      "destination": "packages/eios-core/src/eios/actions/write_attempts.py",
+      "upstream_sha256": "33a4fa6c696cdb40b41fb1e61dd39c1ec7532cc39dbab6a74c8ee869be525ad9",
+      "nexloop_sha256": "33a4fa6c696cdb40b41fb1e61dd39c1ec7532cc39dbab6a74c8ee869be525ad9",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/adapters/__init__.py",
+      "destination": "packages/eios-core/src/eios/adapters/__init__.py",
+      "upstream_sha256": "05cc885ff19d8b02b6149838730afd75ba70f8e6fd0b9fd868bfafd701820753",
+      "adaptations": [],
+      "nexloop_sha256": "05cc885ff19d8b02b6149838730afd75ba70f8e6fd0b9fd868bfafd701820753"
+    },
+    {
+      "source_path": "src/eios/adapters/local/artifacts.py",
+      "destination": "packages/eios-core/src/eios/adapters/local/artifacts.py",
+      "upstream_sha256": "711241d1fae4fb522d0b133cdaf7a901463964569849fe147cf0ac7b1833864d",
+      "adaptations": [],
+      "nexloop_sha256": "711241d1fae4fb522d0b133cdaf7a901463964569849fe147cf0ac7b1833864d"
+    },
+    {
+      "source_path": "src/eios/adapters/postgres/__init__.py",
+      "destination": "packages/eios-core/src/eios/adapters/postgres/__init__.py",
+      "upstream_sha256": "71d2f2d4ef2e27dd2a59b5928d087b4e1c5d956e12110c02d50cc3b0b6bf35bc",
+      "adaptations": [],
+      "nexloop_sha256": "71d2f2d4ef2e27dd2a59b5928d087b4e1c5d956e12110c02d50cc3b0b6bf35bc"
+    },
+    {
+      "source_path": "src/eios/adapters/postgres/database.py",
+      "destination": "packages/eios-core/src/eios/adapters/postgres/database.py",
+      "upstream_sha256": "dcf8f35a52e07a3c732577c4eafcc50741df1812d4a0751f1a5a0421f1deb4e0",
+      "adaptations": [],
+      "nexloop_sha256": "dcf8f35a52e07a3c732577c4eafcc50741df1812d4a0751f1a5a0421f1deb4e0"
+    },
+    {
+      "source_path": "src/eios/adapters/postgres/migrations.py",
+      "destination": "packages/eios-core/src/eios/adapters/postgres/migrations.py",
+      "upstream_sha256": "ba8c95fba125beaa94958027955b6afe7bfe8026d6d3f7ba8b8a0c42c5762f94",
+      "adaptations": [
+        "Independent NexLoop advisory-lock name; original checksum runner retained"
+      ],
+      "nexloop_sha256": "06b7852c734bfa2c95dc2ab59c537afc2169e28ff351fffe1db22b6b79af2351"
+    },
+    {
+      "source_path": "src/eios/adapters/postgres/ontology_registry.py",
+      "destination": "packages/eios-core/src/eios/adapters/postgres/ontology_registry.py",
+      "upstream_sha256": "f2fab11c7489f7b4909efe552d4902f1464f20f675f1736b0808d4a0c38b6c96",
+      "adaptations": [],
+      "nexloop_sha256": "f2fab11c7489f7b4909efe552d4902f1464f20f675f1736b0808d4a0c38b6c96"
+    },
+    {
+      "source_path": "src/eios/adapters/postgres/ontology_store.py",
+      "destination": "packages/eios-core/src/eios/adapters/postgres/ontology_store.py",
+      "upstream_sha256": "f705b8d1f1dbfe15f213c3282ff75e841e4d53e7b11706b4e59880f0d7c535ed",
+      "adaptations": [],
+      "nexloop_sha256": "f705b8d1f1dbfe15f213c3282ff75e841e4d53e7b11706b4e59880f0d7c535ed"
+    },
+    {
+      "source_path": "src/eios/approvals/__init__.py",
+      "destination": "packages/eios-core/src/eios/approvals/__init__.py",
+      "upstream_sha256": "a3334e08632f6e82c6fc26af99b3e58cc405b80347f788e31fd84a13c87b04c8",
+      "nexloop_sha256": "a3334e08632f6e82c6fc26af99b3e58cc405b80347f788e31fd84a13c87b04c8",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/approvals/models.py",
+      "destination": "packages/eios-core/src/eios/approvals/models.py",
+      "upstream_sha256": "08adc84cc26aba9bd7498c60592a52ee4f434afeb40e6a4b5fbf703cba954be9",
+      "nexloop_sha256": "08adc84cc26aba9bd7498c60592a52ee4f434afeb40e6a4b5fbf703cba954be9",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/approvals/ports.py",
+      "destination": "packages/eios-core/src/eios/approvals/ports.py",
+      "upstream_sha256": "7847dd1776241e42ef7c8137899667838177fa732f97748d5e924372a7808e10",
+      "nexloop_sha256": "7847dd1776241e42ef7c8137899667838177fa732f97748d5e924372a7808e10",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/authz/__init__.py",
+      "destination": "packages/eios-core/src/eios/authz/__init__.py",
+      "upstream_sha256": "8c3ef384b567d15d127eb840d7ef5143d81cd6777d20b966e6d465d915e893d5",
+      "adaptations": [],
+      "nexloop_sha256": "8c3ef384b567d15d127eb840d7ef5143d81cd6777d20b966e6d465d915e893d5"
+    },
+    {
+      "source_path": "src/eios/authz/_fact_resolver.py",
+      "destination": "packages/eios-core/src/eios/authz/_fact_resolver.py",
+      "upstream_sha256": "e4cdce52f68940996328fcc553bceb9dae381daec83f5c16cf680728a9316181",
+      "adaptations": [],
+      "nexloop_sha256": "e4cdce52f68940996328fcc553bceb9dae381daec83f5c16cf680728a9316181"
+    },
+    {
+      "source_path": "src/eios/authz/applications.py",
+      "destination": "packages/eios-core/src/eios/authz/applications.py",
+      "upstream_sha256": "118a669ab66f62e50c7d4bd1f35d01c3d8b5ffc7879e86f0ebebf16baa50df5c",
+      "adaptations": [
+        "NexLoop adds object/property/relation to service application/scope resource vocabulary; all frozen intersection/ceiling semantics preserved"
+      ],
+      "nexloop_sha256": "1a72390857e0463f958506a5d531ca42e33d028a09a3b5ed1b8c4a6434b88f66"
+    },
+    {
+      "source_path": "src/eios/authz/audit.py",
+      "destination": "packages/eios-core/src/eios/authz/audit.py",
+      "upstream_sha256": "0843ea7804366a38101e2a900b08ee19364b0018495622cf308f81ea917c3f28",
+      "adaptations": [],
+      "nexloop_sha256": "0843ea7804366a38101e2a900b08ee19364b0018495622cf308f81ea917c3f28"
+    },
+    {
+      "source_path": "src/eios/authz/cache.py",
+      "destination": "packages/eios-core/src/eios/authz/cache.py",
+      "upstream_sha256": "be5ad682895dff58cb012c3047f62a1a0fdb26818b8de0954e3c0271172ce861",
+      "adaptations": [],
+      "nexloop_sha256": "be5ad682895dff58cb012c3047f62a1a0fdb26818b8de0954e3c0271172ce861"
+    },
+    {
+      "source_path": "src/eios/authz/context.py",
+      "destination": "packages/eios-core/src/eios/authz/context.py",
+      "upstream_sha256": "8a41de4ed583605d2a8c9dccbeffb7d839a7b4d3f6a0df2b912de70b8400c45f",
+      "adaptations": [],
+      "nexloop_sha256": "8a41de4ed583605d2a8c9dccbeffb7d839a7b4d3f6a0df2b912de70b8400c45f"
+    },
+    {
+      "source_path": "src/eios/authz/decisions.py",
+      "destination": "packages/eios-core/src/eios/authz/decisions.py",
+      "upstream_sha256": "76c18c79794035508aae9b0826ee37902620980e984acb0642b2f2216b180ff1",
+      "nexloop_sha256": "76c18c79794035508aae9b0826ee37902620980e984acb0642b2f2216b180ff1",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/authz/errors.py",
+      "destination": "packages/eios-core/src/eios/authz/errors.py",
+      "upstream_sha256": "02ddc5c6ce12a0c9c57bb737647bf62d004806252dacf327db19a276701072c7",
+      "adaptations": [],
+      "nexloop_sha256": "02ddc5c6ce12a0c9c57bb737647bf62d004806252dacf327db19a276701072c7"
+    },
+    {
+      "source_path": "src/eios/authz/facts.py",
+      "destination": "packages/eios-core/src/eios/authz/facts.py",
+      "upstream_sha256": "fbe62a4e92e71be7fc4c14efad73e0cdb4465bbbf6fb0183bac6150ea198dfd8",
+      "adaptations": [],
+      "nexloop_sha256": "fbe62a4e92e71be7fc4c14efad73e0cdb4465bbbf6fb0183bac6150ea198dfd8"
+    },
+    {
+      "source_path": "src/eios/authz/grants.py",
+      "destination": "packages/eios-core/src/eios/authz/grants.py",
+      "upstream_sha256": "8f42e1e9f866af667cb6fcad86924a3be040de79ce9343d2ca24dc1658e08c1b",
+      "adaptations": [
+        "NexLoop adds object/property/relation to service application/scope resource vocabulary; all frozen intersection/ceiling semantics preserved"
+      ],
+      "nexloop_sha256": "cff51aa4a79c19c000309af662f9ba0ea42059076721176584662c002ffa93f3"
+    },
+    {
+      "source_path": "src/eios/authz/intersection.py",
+      "destination": "packages/eios-core/src/eios/authz/intersection.py",
+      "upstream_sha256": "ffa9d500c59d27db3d0f3a5315671c33ffdc619798baabb73e1d0de77e960ff3",
+      "adaptations": [],
+      "nexloop_sha256": "ffa9d500c59d27db3d0f3a5315671c33ffdc619798baabb73e1d0de77e960ff3"
+    },
+    {
+      "source_path": "src/eios/authz/operations.py",
+      "destination": "packages/eios-core/src/eios/authz/operations.py",
+      "upstream_sha256": "9fa20e0b41b5e2cf9ecec8435ebc938474a9d660ac6fe9792d0b5c2b3c9dc2ca",
+      "adaptations": [],
+      "nexloop_sha256": "9fa20e0b41b5e2cf9ecec8435ebc938474a9d660ac6fe9792d0b5c2b3c9dc2ca"
+    },
+    {
+      "source_path": "src/eios/authz/policy/__init__.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/__init__.py",
+      "upstream_sha256": "401340c630c5d873fa2744e904eede98d91c79e49efbd8dd960a894900460a58",
+      "adaptations": [],
+      "nexloop_sha256": "401340c630c5d873fa2744e904eede98d91c79e49efbd8dd960a894900460a58"
+    },
+    {
+      "source_path": "src/eios/authz/policy/canonical.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/canonical.py",
+      "upstream_sha256": "ecc4c69d54bdcbf75f45cf44d25168f13ae6c146c101ea40a8d488129111f6de",
+      "adaptations": [],
+      "nexloop_sha256": "ecc4c69d54bdcbf75f45cf44d25168f13ae6c146c101ea40a8d488129111f6de"
+    },
+    {
+      "source_path": "src/eios/authz/policy/evaluator.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/evaluator.py",
+      "upstream_sha256": "542e1b864251ec97375794de06a278dd74a8ffca8d89fe6c7ed704923affe541",
+      "adaptations": [],
+      "nexloop_sha256": "542e1b864251ec97375794de06a278dd74a8ffca8d89fe6c7ed704923affe541"
+    },
+    {
+      "source_path": "src/eios/authz/policy/models.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/models.py",
+      "upstream_sha256": "b58089a9722847185581dda7213f68ee6a5f2ed8f02b6d5d2752ea8c52eb5029",
+      "adaptations": [],
+      "nexloop_sha256": "b58089a9722847185581dda7213f68ee6a5f2ed8f02b6d5d2752ea8c52eb5029"
+    },
+    {
+      "source_path": "src/eios/authz/policy/parser.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/parser.py",
+      "upstream_sha256": "418177e9205c5af3045c3de252b0fe2e44770b54e44c721814ecde862717d04b",
+      "adaptations": [],
+      "nexloop_sha256": "418177e9205c5af3045c3de252b0fe2e44770b54e44c721814ecde862717d04b"
+    },
+    {
+      "source_path": "src/eios/authz/policy/plans.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/plans.py",
+      "upstream_sha256": "c478bb8890be0fe3b49985ce7f7909b9e163163476f068cbc851ab096da77f7f",
+      "adaptations": [],
+      "nexloop_sha256": "c478bb8890be0fe3b49985ce7f7909b9e163163476f068cbc851ab096da77f7f"
+    },
+    {
+      "source_path": "src/eios/authz/policy/registry.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/registry.py",
+      "upstream_sha256": "41f3fa9fa392fbfa311e181bd0a8ad2b9ece306b1820573d0cac09bf53da5de3",
+      "adaptations": [],
+      "nexloop_sha256": "41f3fa9fa392fbfa311e181bd0a8ad2b9ece306b1820573d0cac09bf53da5de3"
+    },
+    {
+      "source_path": "src/eios/authz/policy/sql_compiler.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/sql_compiler.py",
+      "upstream_sha256": "c4556e1d2d209c12fbf71eaa29ae5bcc098bbe8f5cbee0c13ed32125abbe1644",
+      "adaptations": [],
+      "nexloop_sha256": "c4556e1d2d209c12fbf71eaa29ae5bcc098bbe8f5cbee0c13ed32125abbe1644"
+    },
+    {
+      "source_path": "src/eios/authz/policy/validator.py",
+      "destination": "packages/eios-core/src/eios/authz/policy/validator.py",
+      "upstream_sha256": "d942be63679baaa464f31fd461b4d313e0270b87c348c39e169de609fdc77374",
+      "adaptations": [],
+      "nexloop_sha256": "d942be63679baaa464f31fd461b4d313e0270b87c348c39e169de609fdc77374"
+    },
+    {
+      "source_path": "src/eios/authz/property_security.py",
+      "destination": "packages/eios-core/src/eios/authz/property_security.py",
+      "upstream_sha256": "50aac5dfb434416904de95d9ba5d96810cc01604fe0418da98c7aebf7f3398c2",
+      "adaptations": [],
+      "nexloop_sha256": "50aac5dfb434416904de95d9ba5d96810cc01604fe0418da98c7aebf7f3398c2"
+    },
+    {
+      "source_path": "src/eios/authz/resources.py",
+      "destination": "packages/eios-core/src/eios/authz/resources.py",
+      "upstream_sha256": "2d90876ab4a25c035d5405423c90fd1e54ceda399d2284a3448a9c92ee7f3c52",
+      "adaptations": [],
+      "nexloop_sha256": "2d90876ab4a25c035d5405423c90fd1e54ceda399d2284a3448a9c92ee7f3c52"
+    },
+    {
+      "source_path": "src/eios/authz/service.py",
+      "destination": "packages/eios-core/src/eios/authz/service.py",
+      "upstream_sha256": "9c4911a637f166dc97bdfda7098f3672e255df5f8eb65ba470139ece45d66bbc",
+      "adaptations": [],
+      "nexloop_sha256": "9c4911a637f166dc97bdfda7098f3672e255df5f8eb65ba470139ece45d66bbc"
+    },
+    {
+      "source_path": "src/eios/capabilities/__init__.py",
+      "destination": "packages/eios-core/src/eios/capabilities/__init__.py",
+      "upstream_sha256": "4d7375a1bd18b06f13872f55a6db27121006cb431d6f5c2de4e441d14c170a1a",
+      "adaptations": [],
+      "nexloop_sha256": "4d7375a1bd18b06f13872f55a6db27121006cb431d6f5c2de4e441d14c170a1a"
+    },
+    {
+      "source_path": "src/eios/capabilities/base.py",
+      "destination": "packages/eios-core/src/eios/capabilities/base.py",
+      "upstream_sha256": "d1fc78ef509a09cc6b5e227d20cc1e4704646ce067a240a6c62a3af67540b1e3",
+      "nexloop_sha256": "d1fc78ef509a09cc6b5e227d20cc1e4704646ce067a240a6c62a3af67540b1e3",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/capabilities/models.py",
+      "destination": "packages/eios-core/src/eios/capabilities/models.py",
+      "upstream_sha256": "bb0c26c5196105dd1084f292f2b67dc4a4b06994f60a66544c0b5b9a4d7a08d6",
+      "adaptations": [],
+      "nexloop_sha256": "bb0c26c5196105dd1084f292f2b67dc4a4b06994f60a66544c0b5b9a4d7a08d6"
+    },
+    {
+      "source_path": "src/eios/capabilities/packs.py",
+      "destination": "packages/eios-core/src/eios/capabilities/packs.py",
+      "upstream_sha256": "9a5cc94b5c0438c070ee0e0918734a442e236ff97065a911db966db99a374f84",
+      "nexloop_sha256": "9a5cc94b5c0438c070ee0e0918734a442e236ff97065a911db966db99a374f84",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/capabilities/registry.py",
+      "destination": "packages/eios-core/src/eios/capabilities/registry.py",
+      "upstream_sha256": "d0b5e3724e081cccf8418423116fa6088b40c2e2c2004e4af6e0ef988f0dfe15",
+      "nexloop_sha256": "d0b5e3724e081cccf8418423116fa6088b40c2e2c2004e4af6e0ef988f0dfe15",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/composition/__init__.py",
+      "destination": "packages/eios-core/src/eios/composition/__init__.py",
+      "upstream_sha256": "e75f0723388e6659c6e114041aae2b8e1968257341521618b92ef6a93608b30a",
+      "nexloop_sha256": "0d4218c8ef592122de97cda23840ec6dc4d2aed2e510f15651775e2001b300dc",
+      "adaptations": [
+        "Remove upstream eager StorageBundle/build_storage import; no production/default storage assembly"
+      ]
+    },
+    {
+      "source_path": "src/eios/composition/action_approval.py",
+      "destination": "packages/eios-core/src/eios/composition/action_approval.py",
+      "upstream_sha256": "ae1f962c7346a4552d228b897701fc5053c965ca54b65f23d6c6edd3bcb78277",
+      "nexloop_sha256": "d9aac7151719bb27bc2bf027aa8c12dc0127d4619a79da83e57a45cabdfca853",
+      "adaptations": [
+        "Require explicit callable authority verifier; remove implicit in-memory verifier default; preserve snapshot/subject/freshness validation"
+      ]
+    },
+    {
+      "source_path": "src/eios/control/__init__.py",
+      "destination": "packages/eios-core/src/eios/control/__init__.py",
+      "upstream_sha256": "2b248803bf57525d3d8ca1d02529fb2255e0501a8e2c0221cbaa0a9255a041e3",
+      "adaptations": [],
+      "nexloop_sha256": "2b248803bf57525d3d8ca1d02529fb2255e0501a8e2c0221cbaa0a9255a041e3"
+    },
+    {
+      "source_path": "src/eios/control/catalog.py",
+      "destination": "packages/eios-core/src/eios/control/catalog.py",
+      "upstream_sha256": "ccc46467a090bd2abb5388c2e465b6e56fd1b7bad0ea2fa91faa90d3a70acb3d",
+      "nexloop_sha256": "ccc46467a090bd2abb5388c2e465b6e56fd1b7bad0ea2fa91faa90d3a70acb3d",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/control/errors.py",
+      "destination": "packages/eios-core/src/eios/control/errors.py",
+      "upstream_sha256": "c98ebda8a02cff19fbd4094cfc6f13ba84ce8ac5e7ff58f5e5bfe39b9ced882c",
+      "adaptations": [],
+      "nexloop_sha256": "c98ebda8a02cff19fbd4094cfc6f13ba84ce8ac5e7ff58f5e5bfe39b9ced882c"
+    },
+    {
+      "source_path": "src/eios/control/models.py",
+      "destination": "packages/eios-core/src/eios/control/models.py",
+      "upstream_sha256": "7575ee229a06491205ffc2110a7053b888b49d05f3711f4e9786a61252d5cc70",
+      "adaptations": [],
+      "nexloop_sha256": "7575ee229a06491205ffc2110a7053b888b49d05f3711f4e9786a61252d5cc70"
+    },
+    {
+      "source_path": "src/eios/control/policy.py",
+      "destination": "packages/eios-core/src/eios/control/policy.py",
+      "upstream_sha256": "549408eb764ef2dd035d66b07c9db8c6a8c3fe417694b8575b9d53e337ac586d",
+      "adaptations": [],
+      "nexloop_sha256": "549408eb764ef2dd035d66b07c9db8c6a8c3fe417694b8575b9d53e337ac586d"
+    },
+    {
+      "source_path": "src/eios/control/ports.py",
+      "destination": "packages/eios-core/src/eios/control/ports.py",
+      "upstream_sha256": "a07761520c98bb5a11203a5636e7f6ccec9270e2d7997cb6345d80757876315e",
+      "nexloop_sha256": "a07761520c98bb5a11203a5636e7f6ccec9270e2d7997cb6345d80757876315e",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/__init__.py",
+      "destination": "packages/eios-core/src/eios/identity/__init__.py",
+      "upstream_sha256": "d152831dc3f0bba82b7992e6a3a7d68385956389de40acd3e58708f99ce67a24",
+      "adaptations": [],
+      "nexloop_sha256": "d152831dc3f0bba82b7992e6a3a7d68385956389de40acd3e58708f99ce67a24"
+    },
+    {
+      "source_path": "src/eios/identity/admin_lifecycle.py",
+      "destination": "packages/eios-core/src/eios/identity/admin_lifecycle.py",
+      "upstream_sha256": "1b79b3a2c5a07f48b2de912e32a0ff52943681fbb10f77e0277ff0287b179597",
+      "nexloop_sha256": "1b79b3a2c5a07f48b2de912e32a0ff52943681fbb10f77e0277ff0287b179597",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/delivery.py",
+      "destination": "packages/eios-core/src/eios/identity/delivery.py",
+      "upstream_sha256": "c293bb90072abc17637385342626feae4b3c07b8c5412876b91974f4b436da91",
+      "nexloop_sha256": "c293bb90072abc17637385342626feae4b3c07b8c5412876b91974f4b436da91",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/errors.py",
+      "destination": "packages/eios-core/src/eios/identity/errors.py",
+      "upstream_sha256": "7bb53c9f6f3cb52e8c44b24a8ec5782422e06904729934302bc9d0866bfbdc90",
+      "nexloop_sha256": "7bb53c9f6f3cb52e8c44b24a8ec5782422e06904729934302bc9d0866bfbdc90",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/evidence.py",
+      "destination": "packages/eios-core/src/eios/identity/evidence.py",
+      "upstream_sha256": "091bf6074739a46f1a81476dfcc4f2ebf7295a6bf6871ea948c589165ae50b37",
+      "nexloop_sha256": "091bf6074739a46f1a81476dfcc4f2ebf7295a6bf6871ea948c589165ae50b37",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/models.py",
+      "destination": "packages/eios-core/src/eios/identity/models.py",
+      "upstream_sha256": "00372c9a720e087d1603fe3bd661206791dfebd1edaf1886415c75b665da75ce",
+      "adaptations": [],
+      "nexloop_sha256": "00372c9a720e087d1603fe3bd661206791dfebd1edaf1886415c75b665da75ce"
+    },
+    {
+      "source_path": "src/eios/identity/ports.py",
+      "destination": "packages/eios-core/src/eios/identity/ports.py",
+      "upstream_sha256": "dd6ba2af4e9a93d07b018e8bc32eab0726da258326642d5909a65f86c1d68f73",
+      "nexloop_sha256": "dd6ba2af4e9a93d07b018e8bc32eab0726da258326642d5909a65f86c1d68f73",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/rate_limits.py",
+      "destination": "packages/eios-core/src/eios/identity/rate_limits.py",
+      "upstream_sha256": "07beb7ef1a0bf0a29267c2c28eeff559f12dc5097831d756f8d0bbc6f0bb80f9",
+      "nexloop_sha256": "07beb7ef1a0bf0a29267c2c28eeff559f12dc5097831d756f8d0bbc6f0bb80f9",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/settings.py",
+      "destination": "packages/eios-core/src/eios/identity/settings.py",
+      "upstream_sha256": "33975a21053f92278674b1b599caac47549de4b0c73bbdadd00b1b9b2966bfc3",
+      "nexloop_sha256": "33975a21053f92278674b1b599caac47549de4b0c73bbdadd00b1b9b2966bfc3",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/kernel/__init__.py",
+      "destination": "packages/eios-core/src/eios/kernel/__init__.py",
+      "upstream_sha256": "38d53d581a64d58ef79a54a9ba02725035b9ba886036f5cd5a64a335aa4c3ff4",
+      "adaptations": [],
+      "nexloop_sha256": "38d53d581a64d58ef79a54a9ba02725035b9ba886036f5cd5a64a335aa4c3ff4"
+    },
+    {
+      "source_path": "src/eios/kernel/ports/__init__.py",
+      "destination": "packages/eios-core/src/eios/kernel/ports/__init__.py",
+      "upstream_sha256": "33b8b98ce45f217ed1abb404eefa11a8617062e641ce8ce9c7b16ae691725f44",
+      "adaptations": [],
+      "nexloop_sha256": "33b8b98ce45f217ed1abb404eefa11a8617062e641ce8ce9c7b16ae691725f44"
+    },
+    {
+      "source_path": "src/eios/kernel/ports/artifacts.py",
+      "destination": "packages/eios-core/src/eios/kernel/ports/artifacts.py",
+      "upstream_sha256": "df56da8f33e1dec76562053bac5624852ddb8c2fc890d3ffd08a63ccd386d883",
+      "adaptations": [],
+      "nexloop_sha256": "df56da8f33e1dec76562053bac5624852ddb8c2fc890d3ffd08a63ccd386d883"
+    },
+    {
+      "source_path": "src/eios/kernel/ports/repositories.py",
+      "destination": "packages/eios-core/src/eios/kernel/ports/repositories.py",
+      "upstream_sha256": "141611bb7f3a32cef9b770dcb2d1ca66b0132acc643c98bc5022d7cc8e95278a",
+      "adaptations": [],
+      "nexloop_sha256": "141611bb7f3a32cef9b770dcb2d1ca66b0132acc643c98bc5022d7cc8e95278a"
+    },
+    {
+      "source_path": "src/eios/migrations/0001_durable_core.sql",
+      "destination": "packages/eios-core/src/eios/migrations/0001_durable_core.sql",
+      "upstream_sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13",
+      "adaptations": [],
+      "nexloop_sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13"
+    },
+    {
+      "source_path": "src/eios/ontology/__init__.py",
+      "destination": "packages/eios-core/src/eios/ontology/__init__.py",
+      "upstream_sha256": "5225f871279c10dd5ab27ab72e5ebc745bb9546975a7d97a7b0d08b454eb3a61",
+      "adaptations": [],
+      "nexloop_sha256": "5225f871279c10dd5ab27ab72e5ebc745bb9546975a7d97a7b0d08b454eb3a61"
+    },
+    {
+      "source_path": "src/eios/ontology/action_write_context.py",
+      "destination": "packages/eios-core/src/eios/ontology/action_write_context.py",
+      "upstream_sha256": "7f094357088f740ae060c16a21d1a960fb173edaf55b3147426e5da9d53f2e1e",
+      "adaptations": [],
+      "nexloop_sha256": "7f094357088f740ae060c16a21d1a960fb173edaf55b3147426e5da9d53f2e1e"
+    },
+    {
+      "source_path": "src/eios/ontology/atomic_projection.py",
+      "destination": "packages/eios-core/src/eios/ontology/atomic_projection.py",
+      "upstream_sha256": "1007d8f851789dfadbd2e2dd4debef065b5409984ccadd02a6adb8a89fdef60a",
+      "adaptations": [],
+      "nexloop_sha256": "1007d8f851789dfadbd2e2dd4debef065b5409984ccadd02a6adb8a89fdef60a"
+    },
+    {
+      "source_path": "src/eios/ontology/definition_registry.py",
+      "destination": "packages/eios-core/src/eios/ontology/definition_registry.py",
+      "upstream_sha256": "5db95a343b25a45ed98fff9cc79c15de7c180b6d3933453b3f2e5f258318bc3f",
+      "nexloop_sha256": "5db95a343b25a45ed98fff9cc79c15de7c180b6d3933453b3f2e5f258318bc3f",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/ontology/definitions.py",
+      "destination": "packages/eios-core/src/eios/ontology/definitions.py",
+      "upstream_sha256": "738d10e63d3f01db1e36cb48cc9293d24d045b8df6d33ac76b88681169adc44b",
+      "adaptations": [],
+      "nexloop_sha256": "738d10e63d3f01db1e36cb48cc9293d24d045b8df6d33ac76b88681169adc44b"
+    },
+    {
+      "source_path": "src/eios/ontology/markings.py",
+      "destination": "packages/eios-core/src/eios/ontology/markings.py",
+      "upstream_sha256": "aa4e3472d28b30675b768c7dd0d7a75bb9a15d14b83e5e66645cf9aceafe8c17",
+      "adaptations": [],
+      "nexloop_sha256": "aa4e3472d28b30675b768c7dd0d7a75bb9a15d14b83e5e66645cf9aceafe8c17"
+    },
+    {
+      "source_path": "src/eios/ontology/models.py",
+      "destination": "packages/eios-core/src/eios/ontology/models.py",
+      "upstream_sha256": "6b3958f07cf22868adbbc7dd7dcb21a7bceb7f5f4a49d7e453ed6a7e66e6254f",
+      "adaptations": [],
+      "nexloop_sha256": "6b3958f07cf22868adbbc7dd7dcb21a7bceb7f5f4a49d7e453ed6a7e66e6254f"
+    },
+    {
+      "source_path": "src/eios/ontology/registry.py",
+      "destination": "packages/eios-core/src/eios/ontology/registry.py",
+      "upstream_sha256": "d3bdaeb70afcccd280274dd557c383e438260af3c8ad090054e133450f9bd49c",
+      "adaptations": [],
+      "nexloop_sha256": "d3bdaeb70afcccd280274dd557c383e438260af3c8ad090054e133450f9bd49c"
+    },
+    {
+      "source_path": "src/eios/ontology/semantics.py",
+      "destination": "packages/eios-core/src/eios/ontology/semantics.py",
+      "upstream_sha256": "22d668581cfe1f90c0143552479e508027e2096cabe2dd3c9838da4f1d475ec4",
+      "adaptations": [],
+      "nexloop_sha256": "22d668581cfe1f90c0143552479e508027e2096cabe2dd3c9838da4f1d475ec4"
+    },
+    {
+      "source_path": "src/eios/ontology/store.py",
+      "destination": "packages/eios-core/src/eios/ontology/store.py",
+      "upstream_sha256": "5f82ead98cd774928e002e772bdc844023ec93e202658129426c44ee982d39bf",
+      "adaptations": [],
+      "nexloop_sha256": "5f82ead98cd774928e002e772bdc844023ec93e202658129426c44ee982d39bf"
+    },
+    {
+      "source_path": "src/eios/ontology/version_resolution.py",
+      "destination": "packages/eios-core/src/eios/ontology/version_resolution.py",
+      "upstream_sha256": "a578cd4e420b8663434e4d38b2d90c164e8aa42777760b2ed7217954558564e3",
+      "nexloop_sha256": "a578cd4e420b8663434e4d38b2d90c164e8aa42777760b2ed7217954558564e3",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/persistence/__init__.py",
+      "destination": "packages/eios-core/src/eios/persistence/__init__.py",
+      "upstream_sha256": "0022a800d101bd17068d6c8cc410431154559fd588cbc884635112902d8798f9",
+      "adaptations": [],
+      "nexloop_sha256": "0022a800d101bd17068d6c8cc410431154559fd588cbc884635112902d8798f9"
+    },
+    {
+      "source_path": "src/eios/persistence/settings.py",
+      "destination": "packages/eios-core/src/eios/persistence/settings.py",
+      "upstream_sha256": "48a0834a4676a8ee23e4fe6a9712690228ce6a2541d94453d47845ac8b5c60e9",
+      "adaptations": [
+        "PostgreSQL required; no Memory mode/default; DSN required"
+      ],
+      "nexloop_sha256": "32fd12fe6ff8b7ed241b4c0235d657ed83c587b41d6d6e497173613665070039"
+    },
+    {
+      "source_path": "src/eios/runtime/__init__.py",
+      "destination": "packages/eios-core/src/eios/runtime/__init__.py",
+      "upstream_sha256": "6bc43589d1142991f2ed4a6d7751328bead9f708ab91ba71fd6888ddcf6a312c",
+      "adaptations": [],
+      "nexloop_sha256": "6bc43589d1142991f2ed4a6d7751328bead9f708ab91ba71fd6888ddcf6a312c"
+    },
+    {
+      "source_path": "src/eios/runtime/artifacts.py",
+      "destination": "packages/eios-core/src/eios/runtime/artifacts.py",
+      "upstream_sha256": "91aaa76be4a7be321b5892e8498b36a9c04af37c53539ca094d8f908c1396cca",
+      "adaptations": [],
+      "nexloop_sha256": "91aaa76be4a7be321b5892e8498b36a9c04af37c53539ca094d8f908c1396cca"
+    },
+    {
+      "source_path": "src/eios/runtime/audit.py",
+      "destination": "packages/eios-core/src/eios/runtime/audit.py",
+      "upstream_sha256": "2d24e5ddc96a49ed9064fd28a5164d15c65fe7ee54af7940e49d95ff60c83591",
+      "adaptations": [],
+      "nexloop_sha256": "2d24e5ddc96a49ed9064fd28a5164d15c65fe7ee54af7940e49d95ff60c83591"
+    },
+    {
+      "source_path": "src/eios/runtime/job_semantics.py",
+      "destination": "packages/eios-core/src/eios/runtime/job_semantics.py",
+      "upstream_sha256": "60d82e3609e62cb7f57c52907409f5a2c381708ba8af0daf3640dee35ce5bce6",
+      "adaptations": [],
+      "nexloop_sha256": "60d82e3609e62cb7f57c52907409f5a2c381708ba8af0daf3640dee35ce5bce6"
+    },
+    {
+      "source_path": "src/eios/runtime/jobs.py",
+      "destination": "packages/eios-core/src/eios/runtime/jobs.py",
+      "upstream_sha256": "fde07ef9cf589a284e8ac2fa6cbfcf66815b58d1bcd9a516926fc563afa8d065",
+      "adaptations": [],
+      "nexloop_sha256": "fde07ef9cf589a284e8ac2fa6cbfcf66815b58d1bcd9a516926fc563afa8d065"
+    },
+    {
+      "source_path": "src/eios/identity/sessions.py",
+      "destination": "packages/eios-core/src/eios/identity/sessions.py",
+      "upstream_sha256": "330f4602de729695644669ac56940b19c6e53f5bf95ad56c708235de6c90511c",
+      "nexloop_sha256": "330f4602de729695644669ac56940b19c6e53f5bf95ad56c708235de6c90511c",
+      "adaptations": []
+    },
+    {
+      "source_path": "src/eios/identity/local_accounts.py",
+      "destination": "packages/eios-core/src/eios/identity/local_accounts.py",
+      "upstream_sha256": "de0c5d9cd50244ebf872fb9b89d0e927574386344b8a5b720f81631c7c23bb48",
+      "nexloop_sha256": "71c0c586be2065817b4d193218d7de49ebcc65aadebd88b887ca53486edecd7f",
+      "adaptations": [
+        "Optional explicit durable failure-result verifier port; no timestamp fabrication or retry after an unverified committed outcome; default frozen in-package contract retained for upstream unit conformance"
+      ]
+    }
+  ]
+}

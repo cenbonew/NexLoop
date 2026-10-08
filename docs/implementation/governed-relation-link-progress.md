@@ -1,0 +1,25 @@
+# Governed Relation linking
+
+NX-006's missing Relation-establishment contract now has a restricted real-PG path. Full core/task and S1/S2 acceptance remain subject to their complete scope; no AT is promoted from this checkpoint.
+
+## Actual implementation
+
+GovernedRelationLinker.link and authenticated Backend.link_relation use actual frozen RelationTypeDefinition, typed relation metadata validation, the published EIOS ActionGovernor and PostgreSQL ActionClaimPort. Frozen ActionDefinition/ActionChangeScope only admit object-type references; they are not misused to carry relation references. A new immutable control.nexloop_relation_action_bindings directory binds one published Action contract digest to one exact relation schema version/digest. The actual schema is returned by the protected Action bundle reader. Python verifies the digest and source/target type scope; SQL verifies the live binding/definition/schema and exact endpoint schema versions.
+
+Supported capability is ontology.relation.link, low risk/no approval/no Action-specific policy references, PostgreSQL target and no field-scoped change contract. Unsupported contracts deny. In addition to live Action EXECUTE, the caller needs Relation CREATE for the named type and exact Object EDIT authority on both endpoints. Each uses actual EIOS twelve-fact resolution; no Memory oracle or fake human. Proof resolution precedes durable claim reservation and terminal replay. Signed nexloop-relation-link-v1 binds identity/tenant/world, request digest, immutable published contract/schema/binding, claim/fence and endpoint proofs. Protected SQL keeps current fact/credential/realm locks through the business commit. No application role gains raw DML.
+
+Migration 0016 appends immutable Relation schema and binding revision triggers, FORCE RLS, relation world and a pair uniqueness index. A PostgreSQL transaction advisory lock scoped to tenant/world/relation type serializes pair/cardinality checks across backend processes. Both endpoint rows must exist in the authenticated world and exact declared schema versions. Relation insertion and terminal Action outcome commit atomically. Stable intent replay returns the original receipt. A different intent for the same unchanged pair is an idempotent success referencing one existing relation; different metadata or schema is a conflict, never overwrite. one_to_one/many_to_one constrain source occupancy; one_to_one/one_to_many constrain target occupancy; many_to_many permits independent pairs. Identical source/target endpoints are locked/proved once.
+
+This adds link creation, not unlink, metadata edits, inverse materialization, relation read/list projections, endpoint deletion propagation, general schema publication or approval/delegation execution. No claim of generic exactly-once/external Action recovery is made. Test fixture setup only publishes schema/authority configuration; all endpoint creation and relation business writes use governed restricted services. Administrative business queries are read-only test evidence.
+
+## Executed commands and first failure
+
+`uv run --frozen pytest -xq tests/test_bootstrap.py --tb=short`: 4 passed in 1.53s for the new clean catalog.
+
+`uv run --frozen pytest -xq tests/test_relation_actions.py tests/test_object_edits.py --tb=short` initially failed in PostgreSQL: SELECT DISTINCT ordered by expressions outside its select list. Changed the endpoint loop to a deterministic JSON value order; old migration bytes remain unchanged. The first repaired run passed 15 cases in 12.31s. Expanded same-pair concurrency, conflict, dispatch-race revocation, missing binding and cross-world tests then passed 20 cases in 16.62s. No skipped critical test. The multi-resource synthetic authority configuration was extracted into tests/multi_authority_fixture.py without altering the runtime authorization provider.
+
+Strict local CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final results, input/JUnit hashes, isolated wheel evidence and rebuilt wheel hash are in governed-relation-link-ci.json. Source and prior migrations are checked against the preceding governed-object-edit checkpoint.
+
+Changed: relation_actions.py; backend.py link facade; action_definitions.py exact optional relation bundle verification; 0016 SQL/catalog; versions.lock.json bootstrap 0015 -> 0016; relation tests/shared fixture and edit/bootstrap/doctor/sandbox/wheel expectations; report/CI/planning evidence. Upstream commits, dependency locks, Pi source mapping and unresolved image digests unchanged. No original production DB/source mutation, real model/channel call, Git staging/commit/push or deployment.
+
+Remaining independent product work includes full Artifact owner/orphan lifecycle, Compose/HTTP/Host, service/agent release/delegation contracts, queues/RuntimeAdapter/Pi Run recovery and governed external effects. These are implementation gaps, not a reason to stop independent work. External channel/embedding provider inputs affect only their related future validations.

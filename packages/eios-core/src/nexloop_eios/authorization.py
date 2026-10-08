@@ -1,0 +1,172 @@
+"""Live PostgreSQL fact adapter for the frozen EIOS resolver/intersection.
+
+Service credential authentication stays distinct from browser sessions. No caller
+can supply an authoritative tenant/principal/application or manufacture a sealed
+resolved context. Agent invocation comes only from live credential configuration; delegation fails closed.
+"""
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import datetime
+import hashlib
+import json
+import secrets
+
+from eios.authz import facts as F
+from eios.authz.errors import AuthorizationUnavailable
+from eios.authz.operations import Operation
+from eios.authz.resources import ResourceType
+from eios.authz.service import AuthorizationDecisionService
+from eios.identity.models import FrozenJsonMap
+from nexloop_eios.assembly import verify_application_role
+
+WITNESS = 'nexloop-postgres-authority-v1'
+
+
+@dataclass(frozen=True)
+class RunContext:
+    run_id:str
+    audience:str
+    allowed_resources:tuple[str,...]
+
+
+@dataclass(frozen=True)
+class ServiceSession:
+    authentication: F.CredentialAuthenticationBinding
+    world: str
+    expires_at: datetime
+    token_digest: str = field(repr=False)
+    directory_hash: str = field(repr=False)
+
+    agent_invocation: F.AgentInvocationBinding | None = None
+    run_context: RunContext | None = None
+
+    def query(self, *, resource_id: str, resource_type: ResourceType,
+              operation: Operation, request_id=None):
+        return F.AuthorizationFactQuery(
+            tenant_id=self.authentication.tenant_id, authentication=self.authentication,
+            agent_invocation=self.agent_invocation,
+            target=F.AuthorizationTarget(tenant_id=self.authentication.tenant_id,
+                resource_id=resource_id,resource_type=resource_type,operation=operation),
+            request_attributes=FrozenJsonMap({'world':self.world,**({} if self.run_context is None else {'run_id':self.run_context.run_id,'audience':self.run_context.audience})}),
+            request_id=request_id or secrets.token_hex(16),trace_id=secrets.token_hex(16),
+        )
+
+
+def _identity(connection, digest, world):
+    row=connection.execute('select authz.nexloop_service_identity_snapshot(%s,%s)',(digest,world)).fetchone()
+    if not row or not row[0]:
+        raise AuthorizationUnavailable('service identity unavailable')
+    binding=F.CredentialAuthenticationBinding.model_validate_json(json.dumps(row[0]['binding']))
+    raw=row[0].get('agent_invocation')
+    invocation=None if raw is None else F.AgentInvocationBinding.model_validate_json(json.dumps(raw))
+    if (binding.subject_kind.value=='agent')!=(invocation is not None):raise AuthorizationUnavailable('agent invocation binding unavailable')
+    if invocation is not None and (invocation.tenant_id!=binding.tenant_id or invocation.actor_principal_id!=binding.subject_principal_id or invocation.agent_id!=binding.subject_id):raise AuthorizationUnavailable('agent invocation identity mismatch')
+    raw_run=row[0].get('run_context');run=None
+    if raw_run is not None:
+        import uuid
+        if set(raw_run)!={'run_id','audience','allowed_resources'} or raw_run['audience']!='nexloop-agent-host':raise AuthorizationUnavailable('invalid Run context')
+        if str(uuid.UUID(raw_run['run_id']))!=raw_run['run_id']:raise AuthorizationUnavailable('invalid Run ID')
+        resources=raw_run['allowed_resources']
+        if type(resources) is not list or not 1<=len(resources)<=32 or len(set(resources))!=len(resources):raise AuthorizationUnavailable('invalid Run resources')
+        run=RunContext(raw_run['run_id'],raw_run['audience'],tuple(resources))
+    return ServiceSession(binding,world,datetime.fromisoformat(row[0]['expires_at']),digest,row[0]['directory_hash'],invocation,run)
+
+
+def authenticate_service(pool, token: str, *, world: str, run_id=None, audience=None):
+    if not isinstance(token,str) or not 32<=len(token)<=512:
+        raise AuthorizationUnavailable('service authentication denied')
+    digest=hashlib.sha256(token.encode()).hexdigest()
+    try:
+        with pool.connection() as connection,connection.transaction():
+            verify_application_role(connection)
+            session=_identity(connection,digest,world)
+            if session.run_context is None:
+                if run_id is not None or audience is not None:raise AuthorizationUnavailable('root credential is not Run authority')
+            elif session.run_context.run_id!=run_id or session.run_context.audience!=audience:
+                raise AuthorizationUnavailable('Run target binding denied')
+            return session
+    except Exception:
+        # Do not leak token/digest/SQL parameters via chained diagnostics.
+        raise AuthorizationUnavailable('service authentication denied') from None
+
+
+class PostgresAuthorityUnitOfWork:
+    repeatable_read=True
+    read_only=True
+
+    def __init__(self, connection, session, query, entries):
+        self.connection,self.session,self.query=connection,session,query
+        self._loaded=set()
+        self.entries=entries
+        self._now=connection.execute('select clock_timestamp()').fetchone()[0]
+
+    def trusted_now(self):return self._now
+
+    def verify_repository_witness(self, *, fact_kind, snapshot_digest, repository_witness):
+        return (fact_kind,snapshot_digest,repository_witness) in self._loaded
+
+    def _load(self, kind, key, model):
+        row=self.connection.execute('select authz.nexloop_load_authority_fact_snapshot(%s,%s,%s,%s)',
+                (self.session.token_digest,self.session.world,kind,list(key))).fetchone()
+        if not row or row[0] is None:return None
+        self.entries.append({'kind':kind,'key':list(key),'record_hash':row[0]['record_hash']})
+        payload=dict(row[0]['payload']);payload['repository_witness']=WITNESS
+        # Stored snapshot checksum remains checked by the original EIOS model.
+        fact=model.model_validate_json(json.dumps(payload))
+        self._loaded.add((model.__name__,fact.snapshot_digest,fact.repository_witness))
+        return fact
+
+    def load_subject(self,tenant_id,subject_id):return self._load('subject',[subject_id],F.SubjectFacts)
+    def load_membership(self,tenant_id,subject_id,principal_id):return self._load('membership',[subject_id,principal_id],F.MembershipFacts)
+    def load_actor(self,tenant_id,actor_principal_id):return self._load('actor',[actor_principal_id],F.ActorFacts)
+    def load_credential_authentication(self,binding):return self._load('authentication',[binding.credential_id],F.CredentialAuthenticationFacts)
+    def load_caller_application(self,tenant_id,application_id,version):return self._load('application',[application_id,version],F.ApplicationFacts)
+    def load_subject_authority(self,tenant_id,subject_kind,principal_id):return self._load('subject_authority',[principal_id],F.SubjectAuthorityFacts)
+    def load_resource_graph(self,target):return self._load('resource_graph',[target.resource_id],F.ResourceGraphFacts)
+    def load_grants(self,tenant_id,subject_kind,principal_id,graph):return self._load('grants',[principal_id,graph.root.resource.resource_id],F.GrantFacts)
+    def _target(self,kind,query,model):return self._load(kind,[query.authentication.subject_principal_id,query.target.resource_id,query.target.operation.value],model)
+    def load_scope_authority(self,query):return self._target('scope',query,F.ScopeAuthorityFacts)
+    def load_controls(self,query,graph):return self._target('controls',query,F.ControlFacts)
+    def load_policies(self,query,graph):return self._target('policies',query,F.PolicyFacts)
+    def load_revision_source(self,query):return self._load('revision',['catalog'],F.RevisionSourceFacts)
+    def load_browser_authentication(self,binding):raise AuthorizationUnavailable('browser fact adapter not configured')
+    def load_delegated_authentication(self,binding):raise AuthorizationUnavailable('delegation fact adapter not configured')
+    def load_agent(self,tenant_id,agent_id):return self._load('agent',[agent_id],F.AgentFacts)
+    def load_agent_release(self,tenant_id,release_id):return self._load('agent_release',[release_id],F.AgentReleaseFacts)
+    def load_agent_application(self,tenant_id,application_id,version):return self._load('agent_application',[application_id,version],F.ApplicationFacts)
+
+
+class PostgresAuthorityProvider:
+    def __init__(self,pool,session: ServiceSession,entries=None):
+        self.pool,self.session=pool,session
+        self._entry_sink=entries
+
+    @contextmanager
+    def open_unit_of_work(self,query):
+        from nexloop_eios.browser_authorization import BrowserBusinessSession,browser_authority_unit_of_work
+        if isinstance(self.session,BrowserBusinessSession):
+            with browser_authority_unit_of_work(self,query) as unit:
+                yield unit
+            return
+        if (query.authentication != self.session.authentication or query.tenant_id != self.session.authentication.tenant_id
+                or query.request_attributes.get('world') != self.session.world or query.agent_invocation != self.session.agent_invocation
+                or (self.session.run_context is not None and (query.request_attributes.get('run_id')!=self.session.run_context.run_id or query.request_attributes.get('audience')!=self.session.run_context.audience))):
+            raise AuthorizationUnavailable('server identity binding mismatch')
+        try:
+            with self.pool.connection() as connection,connection.transaction():
+                connection.execute('set transaction isolation level repeatable read read only')
+                verify_application_role(connection)
+                live=_identity(connection,self.session.token_digest,self.session.world)
+                if (live.authentication != self.session.authentication
+                        or live.directory_hash != self.session.directory_hash
+                        or live.agent_invocation != self.session.agent_invocation):
+                    raise AuthorizationUnavailable('service credential binding is stale')
+                yield PostgresAuthorityUnitOfWork(connection,self.session,query,[] if self._entry_sink is None else self._entry_sink)
+        except F.AuthorizationFactDenied:
+            raise
+        except Exception:
+            raise AuthorizationUnavailable('PostgreSQL authority facts unavailable') from None
+
+
+def authorization_service(pool,session):
+    return AuthorizationDecisionService(resolver=F.AuthorizationFactsResolver(PostgresAuthorityProvider(pool,session)))

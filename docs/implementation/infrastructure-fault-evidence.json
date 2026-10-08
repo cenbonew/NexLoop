@@ -1,0 +1,90 @@
+{
+  "recorded_at": "2026-10-08T06:11:55.818589+00:00",
+  "scope": "isolated candidate only; actual disposable PostgreSQL and locked Valkey; synthetic durable external provider",
+  "task": "NX-017",
+  "status": "candidate_evidence_not_task_done",
+  "product_ready": false,
+  "migration_head_during_tests": "0046",
+  "command": "PYTHONPATH=\"$PWD/docs/tmp/nx016-candidate/packages/eios-core/src:$PWD/docs/tmp/nx016-candidate/tests\" .venv/bin/python -m pytest -q docs/tmp/nx016-candidate/tests/test_infrastructure_faults.py",
+  "cwd": "/Users/chenbowen/253383134/NexLoop",
+  "result": {
+    "passed": 3,
+    "failed": 0,
+    "seconds": 11.16,
+    "exit_code": 0,
+    "session": 99201
+  },
+  "first_failure": {
+    "command": "PYTHONPATH=\"$PWD/docs/tmp/nx016-candidate/packages/eios-core/src:$PWD/docs/tmp/nx016-candidate/tests\" .venv/bin/python -m pytest -q docs/tmp/nx016-candidate/tests/test_infrastructure_faults.py::test_actual_owned_valkey_flush_stop_restart_is_disposable",
+    "failed": 1,
+    "seconds": 6.5,
+    "session": 56916,
+    "cause": "Docker reassigned the ephemeral published host port on restart; same owned CID remained unchanged. Test fixture was still using the old port.",
+    "fix": "OwnedValkey.start re-inspects the same verified CID and updates only the actual mapped host port. No product source or assertions relaxed."
+  },
+  "test_file": "tests/test_infrastructure_faults.py",
+  "test_sha256": "c61162e5dc9187dc3eca69e896e61fe85bb14395e15b68e9852da275747d37be",
+  "upstream_image": {
+    "reference": "docker.io/valkey/valkey:8.1.10-alpine",
+    "digest": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+    "pull": "never; local image inspect matched the locked digest"
+  },
+  "actual_coverage": [
+    {
+      "test": "test_actual_owned_valkey_flush_stop_restart_is_disposable",
+      "evidence": "Actual SET/GET/FLUSHDB, actual owned container stop, connection failure, same CID restart, empty cache."
+    },
+    {
+      "test": "test_actual_pg_crash_after_provider_accept_recovers_original_intent_get_only",
+      "evidence": "Independent provider committed accepted in FULL SQLite before the fixture PGDATA was stopped with pg_ctl immediate; actual PG socket connection failed. Actual Worker returned record_unavailable/unknown and business_action_success=false without any second POST. Same PGDATA restarted with crash recovery; fresh restricted Worker queried original intent and finalized real EIOS Action claim. effects=1, POST=1, GET=1, shared reserved_units=1, reservation=1."
+    },
+    {
+      "test": "test_actual_valkey_stop_and_flush_do_not_replace_pg_effect_authority",
+      "evidence": "The test itself SET a synthetic notification hint; actual Valkey FLUSHDB/stop makes that cache unavailable. Actual EffectDispatcher has no Valkey client and continues exclusively protected PostgreSQL polling and original-provider GET reconciliation. Final provider POST=1/GET=1 and quota=1. This proves the current PG Worker independence from real cache availability, not any production cache adapter reconnect or notification-delivery recovery."
+    }
+  ],
+  "ownership_and_cleanup": {
+    "valkey": "Only UUID-named containers created by this fixture; every stop/start/remove checked exact CID and nexloop.fault-owner label. No volumes or host mounts. finally docker rm --force completed, including the first failed test.",
+    "pg": "Only pg fixture mkdtemp nexloop-pg-* directory beneath tempfile.gettempdir; socket/data/PG_VERSION and pg_ctl status verified before stop. stopped_owned_pg restarted the same PGDATA in finally, then the pg fixture performed its own fast-stop and exact-directory cleanup. No production or persistent PG endpoint touched.",
+    "runtime_identifiers": "Transient CID and PGDATA paths were intentionally not persisted; ownership validation and finally execution are covered by the passing actual test code.",
+    "post_run_container_check": {
+      "command": "docker ps -a --filter label=nexloop.fault-owner --format '{{.Names}} {{.Status}}'",
+      "exit_code": 0,
+      "output": "",
+      "conclusion": "No containers with this dedicated fault-test ownership label remain."
+    }
+  },
+  "limitations": [
+    "No real customer provider or model credentials were used.",
+    "Valkey is a disposable notification hint; actual effect Worker uses protected PG polling and does not rely on Valkey authorization or business state.",
+    "This does not establish the entire NX-017 failure matrix or deployment readiness.",
+    "No production Valkey notification adapter is assembled or exercised. The synthetic cache SET is performed directly by test code; adapter reconnect, replay and production notification loss remain unverified."
+  ],
+  "source_changes": "Added main tests/test_infrastructure_faults.py and this evidence; main business source/SQL/versions unchanged.",
+  "main_verification": {
+    "recorded_at": "2026-10-08T06:58:43.227331+00:00",
+    "bootstrap_revision": "0044",
+    "command": "uv run --frozen pytest tests/test_infrastructure_faults.py -q --tb=short",
+    "first_run": {
+      "session": 7280,
+      "passed": 2,
+      "failed": 1,
+      "seconds": 9.15,
+      "reason": "Stopped Docker TCP proxy returned EOF instead of socket ConnectionRefused; fixture assumed only OSError"
+    },
+    "correction": "Treat transport EOF as ConnectionError; unavailable assertion preserved. Repository-root naming/comments corrected.",
+    "final_run": {
+      "session": 75272,
+      "passed": 3,
+      "seconds": 10.95,
+      "exit_code": 0
+    },
+    "test_sha256": "b051fc97aaed36c161e5db4a7813e6869d4c6d48d935affc14234dadad20212d",
+    "container_cleanup": {
+      "command": "docker ps -a --filter label=nexloop.fault-owner --format '{{.Names}} {{.Status}}'",
+      "exit_code": 0,
+      "output": ""
+    },
+    "scope": "Actual main0044 core, owned disposablePG and Valkey only; preparing NX017, not entire task completion."
+  }
+}

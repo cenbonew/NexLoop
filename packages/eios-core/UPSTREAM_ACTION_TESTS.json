@@ -1,0 +1,23 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "evidence_scope": "upstream unit contract; explicitly synthetic claim/approval spies and in-memory oracle, not PostgreSQL production execution",
+  "tests": [
+    {
+      "source_path": "tests/domain_expansion/test_action_claims.py",
+      "destination": "tests/upstream/test_eios_action_claim_contracts.py",
+      "upstream_sha256": "d6779929964ffa7e01a332ff91da96a2a52ff9ecc0032617d2536a2c51a683ec",
+      "nexloop_sha256": "d6779929964ffa7e01a332ff91da96a2a52ff9ecc0032617d2536a2c51a683ec",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/domain_expansion/test_action_governance.py",
+      "destination": "tests/upstream/test_eios_action_governance.py",
+      "upstream_sha256": "a610d56b46ad957e86032a5d355656c5df16b3c5fd464916a58d28d4d1ab769f",
+      "nexloop_sha256": "719ecc1e891470257236c0465692f7399c13fcf4e07817741be221c3b9cdc2d6",
+      "adaptations": [
+        "Source AST path points to packages/eios-core/src",
+        "Restore formerly excluded two ApprovalEvidenceResolver snapshot cases; provide explicit synthetic in-memory authority oracle only in upstream unit test"
+      ]
+    }
+  ]
+}

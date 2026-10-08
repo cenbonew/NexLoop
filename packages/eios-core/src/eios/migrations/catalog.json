@@ -1,0 +1,95 @@
+{
+  "lineage": "nexloop-eios-v1",
+  "migrations": [
+    {
+      "version": "0001",
+      "name": "0001_durable_core.sql",
+      "sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13"
+    },
+    {
+      "version": "0002",
+      "name": "0002_roles_and_tenant_boundary.sql",
+      "sha256": "fe3509f7139ff86049306169dd2a0b69b83c384ce4560aefaac45f0bcc945f12"
+    },
+    {
+      "version": "0003",
+      "name": "0003_default_authority_hardening.sql",
+      "sha256": "6b31b0f801ba7dcc363a4a6bfa9757d69f8560df571d11059f16ca016bfd0cea"
+    },
+    {
+      "version": "0004",
+      "name": "0004_service_authority_facts.sql",
+      "sha256": "474869705bd0b4833184393f9dd816f9d09a9c557f3ce0e3df41adfa13405063"
+    },
+    {
+      "version": "0005",
+      "name": "0005_local_artifact_governance.sql",
+      "sha256": "657ecf256a7165d1fd3de4d2db0eccc86c80da41d7994d9add2c5b142fb6331a"
+    },
+    {
+      "version": "0006",
+      "name": "0006_local_artifact_retention.sql",
+      "sha256": "3b210483dbdabd431c67ad815a1dd6932437d1795d1254edb223c7634c900fc0"
+    },
+    {
+      "version": "0007",
+      "name": "0007_action_claims.sql",
+      "sha256": "77e4620ae04f4c633a9f23cad3f3a013b12a6fc3230619b6b4ee2dbdbd596498"
+    },
+    {
+      "version": "0008",
+      "name": "0008_action_definitions.sql",
+      "sha256": "6222969ea0888146acdd8f9784db1acae7122a97b1e33895cb1e54ec88ff9aa2"
+    },
+    {
+      "version": "0009",
+      "name": "0009_action_schema_bundle.sql",
+      "sha256": "5a03e3ed359241a57da22e5c5815d19ebbd0344703180acf4bf592c9b07425b4"
+    },
+    {
+      "version": "0010",
+      "name": "0010_governed_object_create.sql",
+      "sha256": "65217d09cf7a28fd8a73a550a7b002693759fd83d32c77612e2099177c2acb3a"
+    },
+    {
+      "version": "0011",
+      "name": "0011_authorized_object_read.sql",
+      "sha256": "96326d62c9b07141dba99a0025a9d527c59fae4f8a581141259b287c470d53ba"
+    },
+    {
+      "version": "0012",
+      "name": "0012_backend_signer_attestation.sql",
+      "sha256": "41a342e1d52d55acc9d4067fd0002b66531efacfb0802116148b12e4544e943f"
+    },
+    {
+      "version": "0013",
+      "name": "0013_expired_pending_artifacts.sql",
+      "sha256": "2e47ecb22de46dcfd4fab3ed8da0999188af8d299ef519c02eb7dcb9d1287a09"
+    },
+    {
+      "version": "0014",
+      "name": "0014_artifact_cleanup_candidates.sql",
+      "sha256": "66c9b24d64696a9e114ee83c9088c70b225a2ff25eda97f7cf04d8d62d3d645d"
+    },
+    {
+      "version": "0015",
+      "name": "0015_governed_object_edit.sql",
+      "sha256": "b61d9a23eff101db74b70c0969b3290a8e76aea9495e7dd8195cc1652ddebac0"
+    },
+    {
+      "version": "0016",
+      "name": "0016_governed_relation_link.sql",
+      "sha256": "b184e8d00c09bbf5a8c5ca8f214d07155ff3d495c2afedfb48b0ee142e81cf3f"
+    },
+    {
+      "version": "0017",
+      "name": "0017_temporary_artifact_cleanup.sql",
+      "sha256": "09d032b486e3e3c982d944e27de39afed65759fccadd68339adb29dc30ab0525"
+    },
+    {
+      "version": "0018",
+      "name": "0018_final_artifact_orphan_sweeps.sql",
+      "sha256": "45955fca3a58300495773d5c396d7d037d99b25fcb7e1cee26e71be950f2d561"
+    }
+  ]
+}

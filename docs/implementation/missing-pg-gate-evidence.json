@@ -1,0 +1,30 @@
+{
+  "acceptance_id": "AT-047",
+  "passed": true,
+  "missing_postgres_command": [
+    "uv",
+    "run",
+    "--frozen",
+    "pytest",
+    "-q",
+    "-x",
+    "tests/test_db_boundary.py",
+    "--junitxml=.ci-results/missing-pg-gate.xml"
+  ],
+  "environment_override": {
+    "NEXLOOP_TEST_PG_BIN": "/nexloop-intentionally-missing-pg-binary"
+  },
+  "test_exit_code": 1,
+  "missing_postgres_failed_without_skip": true,
+  "gate_command": [
+    "uv",
+    "run",
+    "--frozen",
+    "python",
+    "scripts/check_test_report.py",
+    ".ci-results/missing-pg-gate.xml"
+  ],
+  "gate_exit_code": 1,
+  "report_gate_rejected": true,
+  "no_database_started": true
+}

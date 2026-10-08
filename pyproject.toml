@@ -1,0 +1,25 @@
+[project]
+name = "nexloop"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["nexloop-eios-core"]
+
+[tool.uv.sources]
+nexloop-eios-core = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/eios-core"]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6,<7",
+ "pytest>=8,<9",
+ "jsonschema>=4,<5",
+ "pyyaml>=6,<7",
+ "rfc3339-validator>=0.1,<1",
+ "httpx>=0.28,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["performance: upstream algorithmic complexity checks"]

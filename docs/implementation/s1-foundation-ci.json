@@ -1,0 +1,539 @@
+{
+  "recorded_at": "2026-10-07T14:54:59.892460+00:00",
+  "command": "source \"$HOME/.nvm/nvm.sh\" && nvm use && scripts/ci/check",
+  "exit_code": 0,
+  "scope": "S1 foundation; whole product slice incomplete",
+  "python_tests_passed": 223,
+  "pi_sqlite_conformance_passed": 24,
+  "critical_skips": 0,
+  "pi_source_packages_built": [
+    "chord",
+    "pi-telemetry",
+    "pi-ai",
+    "pi-durable"
+  ],
+  "database": "actual isolated PostgreSQL clusters",
+  "filesystem_artifact_tests": 30,
+  "authorization_evidence": "PG role/default-ACL negative tests; filesystem access policy tests use explicit unit doubles, not live PG resolver",
+  "bootstrap_lineage": "nexloop-eios-v1",
+  "bootstrap_revision": "0003",
+  "product_acceptance_not_proven": [
+    "AT-051",
+    "AT-013",
+    "AT-030",
+    "AT-031",
+    "AT-033",
+    "AT-034",
+    "AT-039",
+    "AT-052"
+  ],
+  "upstream_commits_changed": false,
+  "image_digests_resolved": false,
+  "junit_sha256": {
+    "python": "8ef2897d84dfb467097139fd268fd6e9eec97a1362f3ac609555b29418dc3292",
+    "pi": "cd8e823502cb06d449ae3e875987fd4cda434e573d97c9e47316ac4807250b95"
+  },
+  "publication": {
+    "candidate_paths": 574,
+    "staged_blobs": 0,
+    "violations": 0
+  },
+  "tested_inputs": [
+    {
+      "path": ".env.example",
+      "sha256": "607f01e25287769d56b688bf71004051dfa256176219ac9cb148e76e638c5d08"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "e75e41589cc6827e5387308ae3b3e8d961c9240e276aa2c50ef58d9a188a87f2"
+    },
+    {
+      "path": ".nvmrc",
+      "sha256": "55ce66383dffcaf804e6d3b03993b0d332cb5d7c38e26e9f92fb78ab040dc70c"
+    },
+    {
+      "path": ".python-version",
+      "sha256": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
+    },
+    {
+      "path": "package.json",
+      "sha256": "005538edffdd2bf131c7a7b3b6d3b0f36ad661ac2baed2e24ab45d5b33a4a059"
+    },
+    {
+      "path": "packages/contracts/action-intent.schema.json",
+      "sha256": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90"
+    },
+    {
+      "path": "packages/contracts/context-manifest.schema.json",
+      "sha256": "19169b0f27a8ac5599573032fba4f2dff50f552a26f3ed2dcf9b501f28534ad2"
+    },
+    {
+      "path": "packages/contracts/event-envelope.schema.json",
+      "sha256": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7"
+    },
+    {
+      "path": "packages/contracts/evolution-candidate.schema.json",
+      "sha256": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56"
+    },
+    {
+      "path": "packages/contracts/examples/action-intent.valid.json",
+      "sha256": "167bd59a07465d03e680010807aaa76f4bd76f489a25cc06a37d86fb2070a6c0"
+    },
+    {
+      "path": "packages/contracts/examples/context-manifest.valid.json",
+      "sha256": "10db2adab82ea1540afefcf4b6c35ccbfdaac13ec0425cc02cdbc31b910ec265"
+    },
+    {
+      "path": "packages/contracts/examples/event-envelope.valid.json",
+      "sha256": "528420b5f3755e303716a85a87cd88e781e36485a8cb93ec2337de6999a43731"
+    },
+    {
+      "path": "packages/contracts/examples/evolution-candidate.valid.json",
+      "sha256": "64f5f36491a31e1bcaa61e3e0a8603c5fbde24936e64b3e6a182daffbc403a1f"
+    },
+    {
+      "path": "packages/contracts/examples/ontology-mutation.valid.json",
+      "sha256": "06c2e6d2977ddc849e832f6948aa124a14aa9c08cd7fd46c1bdfde9e50386bd5"
+    },
+    {
+      "path": "packages/contracts/examples/run-command.valid.json",
+      "sha256": "c861196f061d4b4e11ed39f364d841fcafb60f2a28b8eb5935dfd4182f6d67cb"
+    },
+    {
+      "path": "packages/contracts/ontology-mutation.schema.json",
+      "sha256": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc"
+    },
+    {
+      "path": "packages/contracts/run-command.schema.json",
+      "sha256": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22"
+    },
+    {
+      "path": "packages/eios-core/pyproject.toml",
+      "sha256": "eb466338589f30af999bf2024398d3b790176f1665a5dd1d7dd50e28b56d85fc"
+    },
+    {
+      "path": "packages/eios-core/src/eios/__init__.py",
+      "sha256": "1bdfdcf769e5969f57d191c88c46086328bf0f5cef7da0ba8e14dcc658673a3f"
+    },
+    {
+      "path": "packages/eios-core/src/eios/adapters/__init__.py",
+      "sha256": "05cc885ff19d8b02b6149838730afd75ba70f8e6fd0b9fd868bfafd701820753"
+    },
+    {
+      "path": "packages/eios-core/src/eios/adapters/local/artifacts.py",
+      "sha256": "711241d1fae4fb522d0b133cdaf7a901463964569849fe147cf0ac7b1833864d"
+    },
+    {
+      "path": "packages/eios-core/src/eios/adapters/postgres/__init__.py",
+      "sha256": "71d2f2d4ef2e27dd2a59b5928d087b4e1c5d956e12110c02d50cc3b0b6bf35bc"
+    },
+    {
+      "path": "packages/eios-core/src/eios/adapters/postgres/database.py",
+      "sha256": "dcf8f35a52e07a3c732577c4eafcc50741df1812d4a0751f1a5a0421f1deb4e0"
+    },
+    {
+      "path": "packages/eios-core/src/eios/adapters/postgres/migrations.py",
+      "sha256": "06b7852c734bfa2c95dc2ab59c537afc2169e28ff351fffe1db22b6b79af2351"
+    },
+    {
+      "path": "packages/eios-core/src/eios/adapters/postgres/ontology_registry.py",
+      "sha256": "f2fab11c7489f7b4909efe552d4902f1464f20f675f1736b0808d4a0c38b6c96"
+    },
+    {
+      "path": "packages/eios-core/src/eios/adapters/postgres/ontology_store.py",
+      "sha256": "f705b8d1f1dbfe15f213c3282ff75e841e4d53e7b11706b4e59880f0d7c535ed"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/__init__.py",
+      "sha256": "8c3ef384b567d15d127eb840d7ef5143d81cd6777d20b966e6d465d915e893d5"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/_fact_resolver.py",
+      "sha256": "e4cdce52f68940996328fcc553bceb9dae381daec83f5c16cf680728a9316181"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/applications.py",
+      "sha256": "118a669ab66f62e50c7d4bd1f35d01c3d8b5ffc7879e86f0ebebf16baa50df5c"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/audit.py",
+      "sha256": "0843ea7804366a38101e2a900b08ee19364b0018495622cf308f81ea917c3f28"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/cache.py",
+      "sha256": "be5ad682895dff58cb012c3047f62a1a0fdb26818b8de0954e3c0271172ce861"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/context.py",
+      "sha256": "8a41de4ed583605d2a8c9dccbeffb7d839a7b4d3f6a0df2b912de70b8400c45f"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/decisions.py",
+      "sha256": "76c18c79794035508aae9b0826ee37902620980e984acb0642b2f2216b180ff1"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/errors.py",
+      "sha256": "02ddc5c6ce12a0c9c57bb737647bf62d004806252dacf327db19a276701072c7"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/facts.py",
+      "sha256": "fbe62a4e92e71be7fc4c14efad73e0cdb4465bbbf6fb0183bac6150ea198dfd8"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/grants.py",
+      "sha256": "8f42e1e9f866af667cb6fcad86924a3be040de79ce9343d2ca24dc1658e08c1b"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/intersection.py",
+      "sha256": "ffa9d500c59d27db3d0f3a5315671c33ffdc619798baabb73e1d0de77e960ff3"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/operations.py",
+      "sha256": "9fa20e0b41b5e2cf9ecec8435ebc938474a9d660ac6fe9792d0b5c2b3c9dc2ca"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/__init__.py",
+      "sha256": "401340c630c5d873fa2744e904eede98d91c79e49efbd8dd960a894900460a58"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/canonical.py",
+      "sha256": "ecc4c69d54bdcbf75f45cf44d25168f13ae6c146c101ea40a8d488129111f6de"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/evaluator.py",
+      "sha256": "542e1b864251ec97375794de06a278dd74a8ffca8d89fe6c7ed704923affe541"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/models.py",
+      "sha256": "b58089a9722847185581dda7213f68ee6a5f2ed8f02b6d5d2752ea8c52eb5029"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/parser.py",
+      "sha256": "418177e9205c5af3045c3de252b0fe2e44770b54e44c721814ecde862717d04b"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/plans.py",
+      "sha256": "c478bb8890be0fe3b49985ce7f7909b9e163163476f068cbc851ab096da77f7f"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/registry.py",
+      "sha256": "41f3fa9fa392fbfa311e181bd0a8ad2b9ece306b1820573d0cac09bf53da5de3"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/sql_compiler.py",
+      "sha256": "c4556e1d2d209c12fbf71eaa29ae5bcc098bbe8f5cbee0c13ed32125abbe1644"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/policy/validator.py",
+      "sha256": "d942be63679baaa464f31fd461b4d313e0270b87c348c39e169de609fdc77374"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/property_security.py",
+      "sha256": "50aac5dfb434416904de95d9ba5d96810cc01604fe0418da98c7aebf7f3398c2"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/resources.py",
+      "sha256": "2d90876ab4a25c035d5405423c90fd1e54ceda399d2284a3448a9c92ee7f3c52"
+    },
+    {
+      "path": "packages/eios-core/src/eios/authz/service.py",
+      "sha256": "9c4911a637f166dc97bdfda7098f3672e255df5f8eb65ba470139ece45d66bbc"
+    },
+    {
+      "path": "packages/eios-core/src/eios/capabilities/__init__.py",
+      "sha256": "4d7375a1bd18b06f13872f55a6db27121006cb431d6f5c2de4e441d14c170a1a"
+    },
+    {
+      "path": "packages/eios-core/src/eios/capabilities/base.py",
+      "sha256": "d1fc78ef509a09cc6b5e227d20cc1e4704646ce067a240a6c62a3af67540b1e3"
+    },
+    {
+      "path": "packages/eios-core/src/eios/capabilities/models.py",
+      "sha256": "bb0c26c5196105dd1084f292f2b67dc4a4b06994f60a66544c0b5b9a4d7a08d6"
+    },
+    {
+      "path": "packages/eios-core/src/eios/capabilities/packs.py",
+      "sha256": "9a5cc94b5c0438c070ee0e0918734a442e236ff97065a911db966db99a374f84"
+    },
+    {
+      "path": "packages/eios-core/src/eios/capabilities/registry.py",
+      "sha256": "d0b5e3724e081cccf8418423116fa6088b40c2e2c2004e4af6e0ef988f0dfe15"
+    },
+    {
+      "path": "packages/eios-core/src/eios/control/__init__.py",
+      "sha256": "2b248803bf57525d3d8ca1d02529fb2255e0501a8e2c0221cbaa0a9255a041e3"
+    },
+    {
+      "path": "packages/eios-core/src/eios/control/catalog.py",
+      "sha256": "ccc46467a090bd2abb5388c2e465b6e56fd1b7bad0ea2fa91faa90d3a70acb3d"
+    },
+    {
+      "path": "packages/eios-core/src/eios/control/errors.py",
+      "sha256": "c98ebda8a02cff19fbd4094cfc6f13ba84ce8ac5e7ff58f5e5bfe39b9ced882c"
+    },
+    {
+      "path": "packages/eios-core/src/eios/control/models.py",
+      "sha256": "7575ee229a06491205ffc2110a7053b888b49d05f3711f4e9786a61252d5cc70"
+    },
+    {
+      "path": "packages/eios-core/src/eios/control/policy.py",
+      "sha256": "549408eb764ef2dd035d66b07c9db8c6a8c3fe417694b8575b9d53e337ac586d"
+    },
+    {
+      "path": "packages/eios-core/src/eios/control/ports.py",
+      "sha256": "a07761520c98bb5a11203a5636e7f6ccec9270e2d7997cb6345d80757876315e"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/__init__.py",
+      "sha256": "d152831dc3f0bba82b7992e6a3a7d68385956389de40acd3e58708f99ce67a24"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/admin_lifecycle.py",
+      "sha256": "1b79b3a2c5a07f48b2de912e32a0ff52943681fbb10f77e0277ff0287b179597"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/delivery.py",
+      "sha256": "c293bb90072abc17637385342626feae4b3c07b8c5412876b91974f4b436da91"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/errors.py",
+      "sha256": "7bb53c9f6f3cb52e8c44b24a8ec5782422e06904729934302bc9d0866bfbdc90"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/evidence.py",
+      "sha256": "091bf6074739a46f1a81476dfcc4f2ebf7295a6bf6871ea948c589165ae50b37"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/models.py",
+      "sha256": "00372c9a720e087d1603fe3bd661206791dfebd1edaf1886415c75b665da75ce"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/ports.py",
+      "sha256": "dd6ba2af4e9a93d07b018e8bc32eab0726da258326642d5909a65f86c1d68f73"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/rate_limits.py",
+      "sha256": "07beb7ef1a0bf0a29267c2c28eeff559f12dc5097831d756f8d0bbc6f0bb80f9"
+    },
+    {
+      "path": "packages/eios-core/src/eios/identity/settings.py",
+      "sha256": "33975a21053f92278674b1b599caac47549de4b0c73bbdadd00b1b9b2966bfc3"
+    },
+    {
+      "path": "packages/eios-core/src/eios/kernel/__init__.py",
+      "sha256": "38d53d581a64d58ef79a54a9ba02725035b9ba886036f5cd5a64a335aa4c3ff4"
+    },
+    {
+      "path": "packages/eios-core/src/eios/kernel/ports/__init__.py",
+      "sha256": "33b8b98ce45f217ed1abb404eefa11a8617062e641ce8ce9c7b16ae691725f44"
+    },
+    {
+      "path": "packages/eios-core/src/eios/kernel/ports/artifacts.py",
+      "sha256": "df56da8f33e1dec76562053bac5624852ddb8c2fc890d3ffd08a63ccd386d883"
+    },
+    {
+      "path": "packages/eios-core/src/eios/kernel/ports/repositories.py",
+      "sha256": "141611bb7f3a32cef9b770dcb2d1ca66b0132acc643c98bc5022d7cc8e95278a"
+    },
+    {
+      "path": "packages/eios-core/src/eios/migrations/0001_durable_core.sql",
+      "sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13"
+    },
+    {
+      "path": "packages/eios-core/src/eios/migrations/0002_roles_and_tenant_boundary.sql",
+      "sha256": "fe3509f7139ff86049306169dd2a0b69b83c384ce4560aefaac45f0bcc945f12"
+    },
+    {
+      "path": "packages/eios-core/src/eios/migrations/0003_default_authority_hardening.sql",
+      "sha256": "6b31b0f801ba7dcc363a4a6bfa9757d69f8560df571d11059f16ca016bfd0cea"
+    },
+    {
+      "path": "packages/eios-core/src/eios/migrations/__init__.py",
+      "sha256": "b04a1836e785fb53ba95c904cea142c7a33398d5f40c89bb09f0b5c907374b57"
+    },
+    {
+      "path": "packages/eios-core/src/eios/migrations/catalog.json",
+      "sha256": "88c3045843243ab7624bfe895cf93167ffdde6dd9ba6b1fa3fb0069a18bfbb5d"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/__init__.py",
+      "sha256": "5225f871279c10dd5ab27ab72e5ebc745bb9546975a7d97a7b0d08b454eb3a61"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/action_write_context.py",
+      "sha256": "7f094357088f740ae060c16a21d1a960fb173edaf55b3147426e5da9d53f2e1e"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/atomic_projection.py",
+      "sha256": "1007d8f851789dfadbd2e2dd4debef065b5409984ccadd02a6adb8a89fdef60a"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/definitions.py",
+      "sha256": "738d10e63d3f01db1e36cb48cc9293d24d045b8df6d33ac76b88681169adc44b"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/markings.py",
+      "sha256": "aa4e3472d28b30675b768c7dd0d7a75bb9a15d14b83e5e66645cf9aceafe8c17"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/models.py",
+      "sha256": "6b3958f07cf22868adbbc7dd7dcb21a7bceb7f5f4a49d7e453ed6a7e66e6254f"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/registry.py",
+      "sha256": "d3bdaeb70afcccd280274dd557c383e438260af3c8ad090054e133450f9bd49c"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/semantics.py",
+      "sha256": "22d668581cfe1f90c0143552479e508027e2096cabe2dd3c9838da4f1d475ec4"
+    },
+    {
+      "path": "packages/eios-core/src/eios/ontology/store.py",
+      "sha256": "5f82ead98cd774928e002e772bdc844023ec93e202658129426c44ee982d39bf"
+    },
+    {
+      "path": "packages/eios-core/src/eios/persistence/__init__.py",
+      "sha256": "0022a800d101bd17068d6c8cc410431154559fd588cbc884635112902d8798f9"
+    },
+    {
+      "path": "packages/eios-core/src/eios/persistence/settings.py",
+      "sha256": "32fd12fe6ff8b7ed241b4c0235d657ed83c587b41d6d6e497173613665070039"
+    },
+    {
+      "path": "packages/eios-core/src/eios/runtime/__init__.py",
+      "sha256": "6bc43589d1142991f2ed4a6d7751328bead9f708ab91ba71fd6888ddcf6a312c"
+    },
+    {
+      "path": "packages/eios-core/src/eios/runtime/artifacts.py",
+      "sha256": "91aaa76be4a7be321b5892e8498b36a9c04af37c53539ca094d8f908c1396cca"
+    },
+    {
+      "path": "packages/eios-core/src/eios/runtime/audit.py",
+      "sha256": "2d24e5ddc96a49ed9064fd28a5164d15c65fe7ee54af7940e49d95ff60c83591"
+    },
+    {
+      "path": "packages/eios-core/src/eios/runtime/job_semantics.py",
+      "sha256": "60d82e3609e62cb7f57c52907409f5a2c381708ba8af0daf3640dee35ce5bce6"
+    },
+    {
+      "path": "packages/eios-core/src/eios/runtime/jobs.py",
+      "sha256": "fde07ef9cf589a284e8ac2fa6cbfcf66815b58d1bcd9a516926fc563afa8d065"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/__init__.py",
+      "sha256": "be5aa454a9f2518ea6a523c7e1b67fadefbce23eadff5a2320978e89e679dc0a"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/assembly.py",
+      "sha256": "455b54a440380f5dd2473a9fce5aca47ba302ac89666f5e4c9fdcbfadf87ad43"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/bootstrap.py",
+      "sha256": "c5071cc577dcb84ca2b95fa70aefb436904f0d14bbb3c78cb9de80201f706c5e"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/local_artifacts.py",
+      "sha256": "f929a709c431247ca5f0ab36e4adff15deee11780c1cd07ec57b85c0424a3a62"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "sha256": "c62aa8439eb22ac17d949ee2860828b14c0142325a22b58c389cdcf762245e2c"
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "sha256": "21919ff77c05b191f6c4c75c0816939230e503801d11bbdb220de09c551b9c16"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "3a95e90a69a10977efd811c296dcb161a6c8dd77285634c107b746ebe8c9f378"
+    },
+    {
+      "path": "scripts/audit_eios.py",
+      "sha256": "09b37f7728b8896d6181dc6064d0951af69195fb2bf9a6786680cd5a61b20c37"
+    },
+    {
+      "path": "scripts/check_pi_source.py",
+      "sha256": "65ae7cc0601651e0920a6d8e6bc9c1badb3a01d04c1ed48ca4f1871853c396be"
+    },
+    {
+      "path": "scripts/check_publication.py",
+      "sha256": "249bb11e7637a630160fcaf67dcf66876bebff49ddb44be17b8bf94c4eb84101"
+    },
+    {
+      "path": "scripts/check_test_report.py",
+      "sha256": "080358376525bedf26eea794d875e791cd7bd03fac9273b644cec6ab97cbe4c8"
+    },
+    {
+      "path": "scripts/ci/check",
+      "sha256": "1853ccf96a88c8313971a9224610ea3c4c59593e81d72c9fc2041cb2990bf525"
+    },
+    {
+      "path": "scripts/vendor_eios.py",
+      "sha256": "c49aee8e4823133489c3272bff7a2e0b1cdee4f96c2721599d8b89951be04114"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "f910881f1dea56f3b44c4ac6be9e50bdea8d76baf5df6d273ce39254cf04148a"
+    },
+    {
+      "path": "tests/test_assembly.py",
+      "sha256": "01518d7aec9381dc6bb4d884f9b3706835c587535ea6a815802ecea38e3c764f"
+    },
+    {
+      "path": "tests/test_bootstrap.py",
+      "sha256": "d39b6b93e5abb34c167e43340f07e267ce8ad637a76501295b9f9bb589aafafe"
+    },
+    {
+      "path": "tests/test_ci_gate.py",
+      "sha256": "ff6ec96c890b8b34169257ceafe228295766b207cb545e52fa636e0173125d57"
+    },
+    {
+      "path": "tests/test_contracts.py",
+      "sha256": "db6e5a5480ba19da9c43483fa0759f3ad2bf4cea40d382e8244e880ea80b1128"
+    },
+    {
+      "path": "tests/test_db_boundary.py",
+      "sha256": "2f813d82ac0125d46c5a5d7d4e8e3827249593997dcd5bd9af0ca6c85bf03262"
+    },
+    {
+      "path": "tests/test_local_artifacts.py",
+      "sha256": "6adf208d0720d4f80555a8585bac1e386d92387e2d6333ac2109288696d1e341"
+    },
+    {
+      "path": "tests/test_publication.py",
+      "sha256": "ee8aceb42bf62d3fbeae5b6004e229fc4380b1152e5f0503f093ee722bbbafe0"
+    },
+    {
+      "path": "tests/test_vendor_imports.py",
+      "sha256": "59193231592e3895f173fce150c8ed8cec6bb37c02476e58cddf8d4fa7d852d5"
+    },
+    {
+      "path": "tests/upstream/test_eios_application_restrictions.py",
+      "sha256": "46829200e673e344477c558ba3bc65aae2bf6d3a75b0288fa13674d985798dc6"
+    },
+    {
+      "path": "tests/upstream/test_eios_policy_domain.py",
+      "sha256": "7e1307f205ac52008cc96ed008c7cae0f902490918a3ecae2f2363508842c63d"
+    },
+    {
+      "path": "tests/upstream/test_eios_policy_effects.py",
+      "sha256": "cb7d1b327df1db1288fa03b13633af24cd942c31f933ab9d4a9ae3cd82de2004"
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "908b606a9fb2dcaa92d3180fd7128ac5f50ab0d437ae274253c8e627b3cea7b1"
+    },
+    {
+      "path": "vendor/pi/GENERATED.json",
+      "sha256": "4f056a2d2edc10a20a1953aab01a8cc167eb7bb41f1cab70cb5b0c2cb6fbf6f2"
+    },
+    {
+      "path": "vendor/pi/PROVENANCE.json",
+      "sha256": "b0fa63e67a6a0a8d8e1db7a611bc9039f4ed434145b8344757ca560e1e262809"
+    },
+    {
+      "path": "versions.lock.json",
+      "sha256": "52a7081f4f42a70ca911c5c1905d2cb3b7cbb0aa944c459bcf6b9ee05c22ab00"
+    }
+  ]
+}

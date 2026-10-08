@@ -131,6 +131,12 @@
         "ref": "docs/s0/contracts-and-licensing.md",
         "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
         "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "9cc1076974fa8c26bfa07fb6215aa729362ecfeb",
+        "summary": "NX-005: 冻结契约和许可方案; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:47.208211+00:00"
       }
     ]
   },
