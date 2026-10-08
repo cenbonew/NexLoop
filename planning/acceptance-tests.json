@@ -127,6 +127,12 @@
         "ref": "docs/implementation/native55-main-evidence.json",
         "summary": "真实native HTTP同原始provider_event_id/不同Transport-Key保持一条Message/必要Run/Intent及额度；SIGKILL Backend事务与全交付另测。外部渠道与浏览器reload pending不在此次范围。",
         "recorded_at": "2026-10-08T13:42:19.560638+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "1a15eec2af100db544881ef5e76e3ade8e77675a",
+        "summary": "Core56实际DeepSeek native provider_event_id重投保持同Message/Run/Intent/receipt及单次实际JSON交付；原raw UUID非Transport-Key仍为业务去重锚。",
+        "recorded_at": "2026-10-08T15:17:41.561520+00:00"
       }
     ]
   },

@@ -1150,7 +1150,7 @@
       "M17"
     ],
     "deliverable": "消息发送和服务交付receipt，合成/受控real分开",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "test_report",
@@ -1367,6 +1367,30 @@
         "ref": "docs/implementation/scope56-main-evidence.json",
         "summary": "真实Pi/PG/HTTPS/Human权限、当前撤权及写后TTL回滚；完整CI、视觉浏览器及当前头真实模型仍待完成。",
         "recorded_at": "2026-10-08T14:09:16.836738+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "1a15eec2af100db544881ef5e76e3ade8e77675a",
+        "summary": "WebChat原事件持久去重、受治理scope denial及真实JSON交付；当前Core56真实DeepSeek1pass16.31s；完整基线1636pass/1表示断言fail后相关25pass，Pi24/Runtime124实际补跑通过；不宣称第二次单轮全量CI绿色。",
+        "recorded_at": "2026-10-08T15:17:41.561520+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/head0056-ci-resolution-evidence.json",
+        "summary": "保存首次全量失败、精确微秒表示根因、typed instant equality修复及整Relay/CLI模式标签25通过、0skip；剩余门禁实际执行。",
+        "recorded_at": "2026-10-08T15:17:41.561520+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/real-model-core56-public-evidence.json",
+        "summary": "当前冻结Core56实际模型两轮/一工具请求、fsynced HTTPS JSON交付、真实Human回执与重投同业务结果；先失败后通过，49files零key泄漏。",
+        "recorded_at": "2026-10-08T15:17:41.561520+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-016-core56-verification.md",
+        "summary": "记录实际浏览器范围拒绝/reload/正向交付与manual显式私有配置验证入口；readiness503、外部渠道、未ACK事件跨reload等界限明确。",
+        "recorded_at": "2026-10-08T15:17:41.561520+00:00"
       }
     ]
   },
