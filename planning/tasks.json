@@ -1363,6 +1363,12 @@
         "ref": "docs/implementation/adr019-provider-config-evidence.json",
         "summary": "Preparatory variable/secret-file/Compose+build alignment, Root62 tests plus2 actual builds passed. Real endpoint/text support/dimension/index unverified; no task completion.",
         "recorded_at": "2026-10-08T11:09:47.628126+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b77d89eed90af0412a98f040c92a3438b980bcef",
+        "summary": "Preparatory embedding variables/private credential reader/build isolation; no endpoint, measured dimension or index completion",
+        "recorded_at": "2026-10-08T11:10:29.133392+00:00"
       }
     ]
   },
