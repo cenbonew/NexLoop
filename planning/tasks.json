@@ -1550,6 +1550,18 @@
         "ref": "ed0048b7eb7d337185df3bf47b26ca1ee10b86d8",
         "summary": "core0057真实消息/原生重复事件/Offering执行回归26passed，仍实施中。",
         "recorded_at": "2026-10-08T15:56:43.712441+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "60a7362d91f19ebdf0909b8d42bb9d3b09a14739",
+        "summary": "关系定义版本绑定/证据原子更正与读取tail、Consumer六字段fresh声明与SQL守卫；组合61+真实native/effect38passed，仍in_progress。",
+        "recorded_at": "2026-10-08T16:09:25.214546+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/NX-018-core59-checkpoint.json",
+        "summary": "core0059独立PG bootstrap与完整当前权限proof，0001..0057原checksum保留；AT004/009与非空身份/联系引用仍未完成。",
+        "recorded_at": "2026-10-08T16:09:25.214681+00:00"
       }
     ]
   },
