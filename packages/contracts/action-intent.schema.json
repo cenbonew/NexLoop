@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:action-intent",
+  "title": "action-intent",
+  "description": "NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "intent_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "real",
+        "simulation",
+        "shadow",
+        "test"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "action_name": {
+      "type": "string",
+      "pattern": "^nexloop\\.[a-z][a-z0-9_.]+$"
+    },
+    "contract_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "consumer_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "goal_version_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "plan_step_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 200
+    },
+    "payload_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "expected_versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "resource_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "resource_ref",
+          "revision"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 256
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "not_after": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+      },
+      "minItems": 1,
+      "maxItems": 256
+    },
+    "parameters": {
+      "type": "object"
+    },
+    "decision_rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    }
+  },
+  "required": [
+    "schema_version",
+    "intent_id",
+    "tenant_id",
+    "world_id",
+    "mode",
+    "run_id",
+    "action_name",
+    "contract_version",
+    "actor_ref",
+    "consumer_ref",
+    "goal_version_ref",
+    "plan_step_ref",
+    "idempotency_key",
+    "payload_digest",
+    "expected_versions",
+    "requested_at",
+    "not_after",
+    "evidence_refs",
+    "parameters",
+    "decision_rationale"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "real"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "world_id": {
+            "const": "real"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "world_id": {
+            "not": {
+              "const": "real"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

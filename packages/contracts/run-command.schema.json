@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:run-command",
+  "title": "run-command",
+  "description": "NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "real",
+        "simulation",
+        "shadow",
+        "test"
+      ]
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 200
+    },
+    "trigger_event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "role_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "consumer_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "goal_version_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "context_manifest_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "runtime_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "credential_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maximum_model_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "maximum_tool_calls": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "active_timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "maximum_cost": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d{1,8})?$"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      },
+      "required": [
+        "maximum_model_turns",
+        "maximum_tool_calls",
+        "active_timeout_seconds",
+        "maximum_cost",
+        "currency"
+      ]
+    },
+    "not_after": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "runtime_owner_epoch": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "tenant_id",
+    "world_id",
+    "mode",
+    "request_id",
+    "trigger_event_id",
+    "role_ref",
+    "consumer_ref",
+    "goal_version_ref",
+    "context_manifest_ref",
+    "runtime_profile",
+    "credential_ref",
+    "budget",
+    "not_after",
+    "runtime_owner_epoch"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "real"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "world_id": {
+            "const": "real"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "world_id": {
+            "not": {
+              "const": "real"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "lock_version": 1,
+  "upstream_sources": {
+    "eios": {
+      "repository": "https://github.com/cenbonew/NEX-EIOS",
+      "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+      "integration": "vendored_selected_sources",
+      "required_original_revision": "0332"
+    },
+    "pi": {
+      "repository": "https://github.com/earendil-works/pi",
+      "commit": "adae8246453a2928a268ccecb9fb55125d96d0af",
+      "integration": "frozen_source_build_required"
+    },
+    "evoontology": {
+      "repository": "https://github.com/ruc-datalab/EvoOntology",
+      "commit": "f64413dae88d88645b1f2c069cf4e17308ad0f89",
+      "integration": "selective_reuse"
+    }
+  },
+  "packages": {
+    "@earendil-works/pi-durable": {
+      "source_declared_version": "1.0.4",
+      "registry_candidate_version": "1.0.4",
+      "registry_git_head": "7c10bd4337495ee613f2224843ecdf349b80d1df",
+      "registry_integrity": "sha512-i22unyhavxrTF/KS/JcBOKprQRgepufOIztnqBKZXJCWbEHsXDzcINtjmmBSbFB/3S+4FWIl3eJ5FMbRe33Ybg==",
+      "frozen_tree": "b32bdd869cd4325e402d9a67156a0a22452667fe",
+      "registry_tree": "3b5dadefd8d3a9b64401f63b6f74cc32bc2ddea3",
+      "mapping_verified": true,
+      "registry_matches_frozen_source": false,
+      "selected_artifact": "vendor/pi frozen-source workspace",
+      "status": "frozen_source_build_and_storage_conformance_passed",
+      "dependency_lock": "pnpm-lock.yaml",
+      "source_provenance": "vendor/pi/PROVENANCE.json",
+      "generated_provenance": "vendor/pi/GENERATED.json",
+      "model_catalog_revision": "sha256-439c53478c84ed27a58f8b54e1c3bd45810e5a969515b4e3666a3898d51ee22f",
+      "conformance_tests_passed": 24
+    },
+    "evoontology": {
+      "source_version": "1.1.0",
+      "license": "MIT",
+      "installed": false
+    },
+    "nexloop-eios-core": {
+      "version": "0.1.0",
+      "source_commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+      "provenance": "packages/eios-core/PROVENANCE.json",
+      "lineage": "nexloop-eios-v1",
+      "bootstrap_revision": "0000",
+      "dependency_lock": "uv.lock"
+    },
+    "node": {
+      "version": "24.13.0",
+      "archive_sha256": "c59a517e9147f25c6167426875a571432f1478c1d7ee7ecc10baa46b0d0e8545"
+    },
+    "fastapi": {
+      "version": "0.142.2",
+      "dependency_lock": "uv.lock",
+      "purpose": "Python HTTP API foundation"
+    },
+    "uvicorn": {
+      "version": "0.54.0",
+      "dependency_lock": "uv.lock",
+      "purpose": "Python HTTP API foundation"
+    },
+    "@nexloop/web": {
+      "version": "0.1.0",
+      "dependency_lock": "pnpm-lock.yaml",
+      "dependencies": {
+        "react": "19.3.0",
+        "react-dom": "19.3.0",
+        "@tanstack/react-query": "5.104.1",
+        "vite": "8.0.16",
+        "typescript": "6.0.2"
+      },
+      "status": "verified_https_browser_login_reload_logout_and_responsive_fidelity"
+    },
+    "@nexloop/agent-host": {
+      "version": "0.1.0",
+      "dependency_lock": "pnpm-lock.yaml",
+      "runtime": "Node.js 24",
+      "dependencies": {
+        "@earendil-works/pi-durable": "workspace:*",
+        "@earendil-works/pi-ai": "workspace:*",
+        "@earendil-works/chord": "workspace:*"
+      },
+      "dev_dependencies": {
+        "@types/node": "24.10.1",
+        "typescript": "6.0.2"
+      },
+      "status": "verified_formal_https_run_admission_sqlite_full_recovery_and_durable_worker_runtime_only",
+      "model_profile_status": "frozen DeepSeek profile, private secret precedence and bounded output verified offline; real provider validation pending"
+    },
+    "@earendil-works/pi-ai": {
+      "source_declared_version": "1.0.4",
+      "source_commit": "adae8246453a2928a268ccecb9fb55125d96d0af",
+      "selected_artifact": "vendor/pi/packages/ai frozen-source workspace",
+      "registry_artifact_used": false,
+      "version_correspondence_verified": true,
+      "source_provenance": "vendor/pi/PROVENANCE.json",
+      "generated_provenance": "vendor/pi/GENERATED.json",
+      "dependency_lock": "pnpm-lock.yaml"
+    },
+    "@earendil-works/chord": {
+      "source_declared_version": "1.0.4",
+      "source_commit": "adae8246453a2928a268ccecb9fb55125d96d0af",
+      "selected_artifact": "vendor/pi/packages/chord frozen-source workspace",
+      "registry_artifact_used": false,
+      "version_correspondence_verified": true,
+      "source_provenance": "vendor/pi/PROVENANCE.json",
+      "generated_provenance": "vendor/pi/GENERATED.json",
+      "dependency_lock": "pnpm-lock.yaml"
+    }
+  },
+  "images": {
+    "postgres": {
+      "reference": "docker.io/library/postgres:18.4-bookworm",
+      "digest": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+      "status": "verified_isolated_core_test_compose_runtime"
+    },
+    "valkey": {
+      "reference": "docker.io/valkey/valkey:8.1.10-alpine",
+      "digest": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+      "status": "verified_official_index_arm64_oci_import_and_isolated_compose_tls_acl_runtime"
+    },
+    "backend": {
+      "digest": "",
+      "status": "unresolved_not_deployable"
+    },
+    "agent-host": {
+      "digest": "",
+      "status": "unresolved_not_deployable"
+    },
+    "web": {
+      "digest": "",
+      "status": "unresolved_not_deployable"
+    },
+    "gateway": {
+      "digest": "",
+      "status": "unresolved_not_deployable"
+    },
+    "python-build-base": {
+      "reference": "docker.io/library/python:3.12.10-slim-bookworm",
+      "digest": "sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db",
+      "status": "verified_digest_pinned_core_container_build"
+    },
+    "node-host-base": {
+      "reference": "docker.io/library/node:24.13.0-bookworm-slim",
+      "digest": "sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f",
+      "status": "verified_official_index_arm64_host_build_and_container_runtime"
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:evolution-candidate",
+  "title": "evolution-candidate",
+  "description": "NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "candidate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "parent_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dimension": {
+      "enum": [
+        "semantic_content",
+        "semantic_tool",
+        "ontology_schema"
+      ]
+    },
+    "primary_hypothesis": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 4000
+    },
+    "patch_artifact_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "input_snapshot_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "design_case_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "maxItems": 256
+    },
+    "validation_case_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "maxItems": 256
+    },
+    "evaluator_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "maximum_rounds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32
+    },
+    "allowed_change_scope": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "maxItems": 256
+    },
+    "status": {
+      "enum": [
+        "proposed",
+        "evaluating",
+        "rejected",
+        "accepted_for_release",
+        "incomplete"
+      ]
+    },
+    "publication_permit_ref": {
+      "type": "null"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "tenant_id",
+    "parent_revision",
+    "candidate_revision",
+    "dimension",
+    "primary_hypothesis",
+    "patch_artifact_ref",
+    "input_snapshot_digest",
+    "design_case_ids",
+    "validation_case_ids",
+    "evaluator_version",
+    "model_profile",
+    "maximum_rounds",
+    "allowed_change_scope",
+    "status",
+    "publication_permit_ref",
+    "created_at"
+  ]
+}

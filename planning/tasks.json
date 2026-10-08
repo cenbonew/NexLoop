@@ -101,6 +101,12 @@
         "ref": "docs/s0/server-inventory.md",
         "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
         "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d894a9ac7af40798413c98153d0722b55d28f2cb",
+        "summary": "NX-004: 只读盘点双机环境; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:46.885831+00:00"
       }
     ]
   },

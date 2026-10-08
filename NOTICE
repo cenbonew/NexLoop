@@ -1,0 +1,15 @@
+NexLoop contains or plans selective reuse of:
+
+NEX-EIOS, cenbonew/NEX-EIOS, commit 1e363db982daeca74058453ad12fc4a6cac333da.
+The owner expressly authorized open-source publication for NexLoop. Frozen
+upstream has no LICENSE/NOTICE. Selected owner-authored code is distributed
+under NexLoop's MIT license. Source file hashes and adaptations are recorded
+in docs/s0 and packages/eios-core/PROVENANCE.json. No git history is imported.
+Third-party code must retain its own license; dependencies are not relicensed.
+
+Pi, earendil-works/pi, commit adae8246453a2928a268ccecb9fb55125d96d0af.
+MIT, copyright (c) 2025 Mario Zechner. See licenses/Pi-MIT.txt.
+EvoOntology, ruc-datalab/EvoOntology, commit f64413dae88d88645b1f2c069cf4e17308ad0f89.
+MIT, copyright (c) 2026 Meiduo Chong. See licenses/EvoOntology-MIT.txt.
+
+These notices do not imply all three upstream projects are already integrated.

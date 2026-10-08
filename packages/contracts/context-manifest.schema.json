@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:context-manifest",
+  "title": "context-manifest",
+  "description": "NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "context_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "real",
+        "simulation",
+        "shadow",
+        "test"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "call_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "goal_version_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "policy_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ontology_schema_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "semantic_snapshot_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "context_strategy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "embedding_profile_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "evidence_kind": {
+            "enum": [
+              "verified_fact",
+              "user_statement",
+              "hypothesis",
+              "policy",
+              "schema",
+              "memory",
+              "current_message"
+            ]
+          },
+          "access_decision_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          }
+        },
+        "required": [
+          "ref",
+          "revision",
+          "content_hash",
+          "evidence_kind",
+          "access_decision_ref"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 256
+    },
+    "prompt_artifact_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "request_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "input_token_budget": {
+      "type": "integer",
+      "minimum": 256
+    },
+    "output_token_budget": {
+      "type": "integer",
+      "minimum": 128
+    },
+    "redaction_policy_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "context_id",
+    "tenant_id",
+    "world_id",
+    "mode",
+    "run_id",
+    "call_sequence",
+    "goal_version_ref",
+    "policy_revision",
+    "ontology_schema_revision",
+    "semantic_snapshot_ref",
+    "context_strategy_version",
+    "model_provider",
+    "model_id",
+    "embedding_profile_ref",
+    "sources",
+    "prompt_artifact_ref",
+    "request_digest",
+    "input_token_budget",
+    "output_token_budget",
+    "redaction_policy_ref",
+    "created_at"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "real"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "world_id": {
+            "const": "real"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "world_id": {
+            "not": {
+              "const": "real"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
