@@ -1211,6 +1211,12 @@
         "ref": "docs/implementation/context-premerge-independent-evidence.json",
         "summary": "Root independently verified isolated core52 23 tests (15 actual PG), compiled Host parser23 and actual guarded Pi→file→Human receipt1. Candidate not merged; old-fixture compatibility, recovery and full new-head CI pending. NX-016 stays in_progress.",
         "recorded_at": "2026-10-08T10:34:48.408688+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6223c21cdaebdf44d706dc8d3cc5b4f3834682d2",
+        "summary": "Independent premerge core52/Host evidence checkpoint only; candidate code remains ignored and task remains in_progress",
+        "recorded_at": "2026-10-08T10:35:04.300168+00:00"
       }
     ]
   },
