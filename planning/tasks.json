@@ -1574,6 +1574,12 @@
         "ref": "845e7242a8dbec743309c73e891c192fdeccd2b5",
         "summary": "正式0060历史查询+真实Backend装配；当前来源撤权/双spawn竞争/COMMIT后SIGKILL及原intent恢复，组合61passed，保留时序与Context未装配限制。",
         "recorded_at": "2026-10-08T16:21:27.676204+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b534369eef8c04e4c497d0eb9f95069b17e6ad48",
+        "summary": "Strict Backend current/history valid_at type boundary; 38 actual PostgreSQL regression tests passed, NX-018 remains in_progress. Evidence docs/implementation/NX-018-time-boundary-evidence.json.",
+        "recorded_at": "2026-10-08T16:30:49.754201+00:00"
       }
     ]
   },
