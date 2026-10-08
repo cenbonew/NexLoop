@@ -36,7 +36,7 @@ export class RuntimeHost{
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
     if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
-    if(config.context_input_protocol!==undefined&&(config.context_input_protocol!==CONTEXT_PROTOCOL||config.runtime_profile!=='deterministic-test'||config.deterministic_message_from_input!==true))throw new Error('runtime configuration refused');
+    if(config.context_input_protocol!==undefined&&(config.context_input_protocol!==CONTEXT_PROTOCOL||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
     const contextMode=config.context_input_protocol===CONTEXT_PROTOCOL;
     this.guard=new URL(String(config.guard_url));
     if(this.guard.protocol!=='https:'||this.guard.hostname!=='127.0.0.1'||!this.guard.port||Number(this.guard.port)<1024||Number(this.guard.port)>65535||this.guard.username||this.guard.password||this.guard.search||this.guard.hash||this.guard.pathname!=='/internal/v1/runtime/authorize')throw new Error('runtime guard refused');

@@ -1,0 +1,105 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "runtime_task_status": "failed",
+  "runtime_outcome": "failed",
+  "runtime_code": "runtime_failed",
+  "runtime_receipt": {
+    "request_id": "message-02c50b740a176857ffef247af38bb3a754da28092da3f4e43b907733f6d4d7b2",
+    "persistence": {
+      "synchronous": 2,
+      "journal_mode": "wal"
+    },
+    "submission_id": 10,
+    "conversation_id": 2
+  },
+  "run_id": "02771f79-58c7-46ce-b279-dcfc8ac87f44",
+  "scope": "one actual model Run; synthetic user input; owned PG",
+  "status": "blocked",
+  "blocking_reason": "actual trusted DeepSeek provider generation returned error; sanitized boundary does not preserve supplier HTTP status or exception cause",
+  "model_observation": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "stopReason": "error",
+    "usage": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "totalTokens": 0,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "errorMessage": "runtime_model_unavailable",
+    "durationMs": 138
+  },
+  "entry_kinds": [
+    "pi.user",
+    "pi.system",
+    "pi.assistant"
+  ],
+  "private_material_scan": {
+    "owned_files_scanned": 41,
+    "credential_found": false,
+    "temporary_key_removed": true
+  },
+  "first_failures": [
+    "64367 1failed2.27s: Path import missing before credential load/provider call; corrected import",
+    "98818 1failed6.00s: genuine provider generation error, no retry/new model Run"
+  ],
+  "commands": [
+    "Node24 tsc -p apps/agent-host/tsconfig.json (23889 exit0)",
+    "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_real_deepseek_delivery.py -q -x --tb=short"
+  ],
+  "budget": {
+    "model_turns": 2,
+    "tool_calls": 2,
+    "active_timeout_seconds": 120,
+    "maximum_cost_reservation": "0.62",
+    "per_request_reservation": "0.31",
+    "currency": "USD",
+    "pricing": "frozen estimate; not a live billing guarantee"
+  },
+  "source_sha256": {
+    "apps/agent-host/src/runtime-host.ts": "f6d93efc279ff2eb27e950fc6d73f8519c70d4140109bd85e80f586465fa892f",
+    "apps/agent-host/dist/main.js": "671a432f6e3705ab212db3e398f12ea4722236e574e71f13cfe8ff88c64f54bd",
+    "tests/test_real_deepseek_delivery.py": "4b55761991a9315e862b4586db4a6a418f11c32312ddf546c68d736e72441147",
+    "apps/agent-host/dist/runtime-host.js": "5fcd7f1fedad56a126745237d4575f51638ecc16f4084750973b47c2b90b7d26"
+  },
+  "recorded_at": "2026-10-08T11:44:30.285066+00:00",
+  "limits": [
+    "No successful real model/tool/51file-delivery evidence; tool/effectWorker steps did not execute",
+    "No raw provider diagnostics or secret material emitted/persisted in evidence",
+    "Usage0 is observed SDK usage, not supplier billing guarantee",
+    "All own CLI/Host processes and PG closed; no main/Git changes"
+  ],
+  "failure_stage": "unavailable_stage_unknown",
+  "http_request_evidence": "No request/response observer or supplier HTTP status survives current boundary. Genuine provider selection and failed Generation are confirmed; actual HTTP emission is not proven.",
+  "static_diagnostic_refs": [
+    "apps/agent-host/src/pi-runtime-adapter.ts:165: fresh current auth/budget consume before Models.streamSimple, exceptions fixed",
+    "apps/agent-host/src/runtime-provider-boundary.ts:11: provider error text mapped to runtime_model_unavailable",
+    "vendor/pi/packages/ai/src/api/openai-completions.ts:341: API key resolution before HTTP",
+    "vendor/pi/packages/ai/src/api/openai-completions.ts:376: actual HTTP operation occurs after transcript/options construction",
+    "vendor/pi/packages/ai/src/api/openai-completions.ts:707: error catch covers both pre-request and network/provider errors"
+  ],
+  "root_main_compatibility_verification": {
+    "session": 31163,
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm --filter @nexloop/agent-host build && pnpm exec vitest run apps/agent-host/test --exclude docs/tmp/** --reporter=default --reporter=junit --outputFile=.ci-results/real-context-v1-main.xml",
+    "passed": 66,
+    "seconds": 3.09,
+    "junit_sha256": "fc0c83d83e23e5f40fbb1616b86402bff8d670a8fc8c0c473f34cc2b0bed3163",
+    "source_sha256": "f6d93efc279ff2eb27e950fc6d73f8519c70d4140109bd85e80f586465fa892f",
+    "scope": "constructor explicitly permits trusted real-provider typed v1 input; complete pack/current PG guard kept; wire/config passing does not prove model delivery"
+  },
+  "root_private_env_permission_fix": {
+    "prior_mode": "0644",
+    "current_mode": "0600",
+    "contents_modified": false,
+    "credential_values_emitted": false
+  }
+}
