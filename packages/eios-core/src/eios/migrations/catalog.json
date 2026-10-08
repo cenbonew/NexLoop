@@ -300,6 +300,11 @@
       "version": "0060",
       "name": "0060_assessment_history.sql",
       "sha256": "9546b8b04aba3d9f8f603c3745a6a4cfb3afc1d5e466dce5a1495c7f4017441e"
+    },
+    {
+      "version": "0061",
+      "name": "0061_consumer_identity_link.sql",
+      "sha256": "e5183d4319db024c0a5c19467e9f8b09af0856018840c0c11e450fb2f0cd4821"
     }
   ]
 }

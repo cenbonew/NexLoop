@@ -1,0 +1,41 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T16:36:19.108882+00:00",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_verified_identity_pg.py tests/test_consumer_profile_pg.py tests/test_bootstrap.py tests/test_assessment_backend.py tests/test_browser_business_authorization.py --tb=short --junitxml=.ci-results/nx018-core61-identity-main.xml",
+  "result": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "33",
+    "time": "65.259",
+    "timestamp": "2026-10-09T00:34:10.690433+08:00",
+    "hostname": "MacBook-Pro-4.local"
+  },
+  "report_sha256": "38cd98820c6908ac2a696af35a62c3e86a69d02622ec77b22b878b397586060e",
+  "source_freeze": {
+    "paths": 399,
+    "changed": 0,
+    "timing": "created before corrected main run, checked before commit"
+  },
+  "preserved_migrations": "0001..0060 unchanged",
+  "versions_lock_change": "bootstrap_revision0060→0061 only",
+  "scope": [
+    "Actual Human BrowserServices.link_authenticated_identity() resolves current session on every invocation; no caller tenant/account/Consumer selection.",
+    "Local-account reference derived from actual current Subject/account/world/tenant and owned Consumer; dedicated current EIOS Action/EDIT proofs/immutable transaction provenance guard.",
+    "Seven genuine session/account/member/world/tenant/account/different-tenant current-HMAC cases directly rejected by restricted SQL authority; Consumer and receipt values unchanged.",
+    "Profile guard rejects arbitrary/duplicate/removal/whole-key deletion/JSON-null while governed partial locale EDIT retains linked identity; protected Object/Property READ revocation regression."
+  ],
+  "first_failures_and_retries": [
+    "Main first command exit4: incorrect test_browser_business_authority.py filename, no tests ran. Corrected to test_browser_business_authorization.py; actual33passed65.33s exit0.",
+    "Candidate old guard: actual owner-only disposable trigger key-deletion probe1failed3.23s (expected CheckViolation absent). This is not a public governed deletion API.",
+    "Candidate fixed v4 identity+profile14passed42.09s; adopted source reviewed and tested again through clean0061 main Bootstrap/BrowserServices."
+  ],
+  "limitations": [
+    "Local Browser account linkage is not external email/channel/person identity verification.",
+    "Account/member revocation negative cases use canonical control metadata fault injection on owned disposable PG; product administrative governed revocation ports remain NX-044 gap.",
+    "No contact-preferences authority or external channel import adapter.",
+    "AT-004/AT-009 remain not_run; Context source READ copy protection and actual relationship Context consumption pending. NX-018 remains in_progress."
+  ]
+}

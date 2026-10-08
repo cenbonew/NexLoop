@@ -201,6 +201,10 @@ class BrowserServices:
     def __init__(self, backend, inspected_session):
         self._backend, self._inspected_session = backend, inspected_session
 
+    def link_authenticated_identity(self):
+        return self._backend._invoke_browser(
+            self._inspected_session, 'link_authenticated_identity')
+
     def create_conversation(self, *, idempotency_key):
         return self._backend._invoke_browser(self._inspected_session, 'create_conversation',
             idempotency_key=idempotency_key)
@@ -290,13 +294,16 @@ class Backend:
     def _invoke_browser(self, inspected_session, operation, **arguments):
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.conversation_messages import ConversationMessagePort
-        allowed = {'create_conversation', 'list_conversations', 'accept_message', 'accept_native_message',
+        allowed = {'link_authenticated_identity', 'create_conversation', 'list_conversations', 'accept_message', 'accept_native_message',
             'read_messages', 'read_events', 'read_message_run', 'read_message_service_receipt', 'read_message_scope_denial'}
         with self._lock:
             self._assert_open()
             if operation not in allowed:
                 raise ValueError('unsupported browser operation')
             session = authenticate_browser_business(self._pool, inspected_session, world='real')
+            if operation == 'link_authenticated_identity':
+                from nexloop_eios.identity_link import BrowserConsumerIdentityLink
+                return BrowserConsumerIdentityLink(self._pool, session, self._signer).link()
             if operation == 'read_message_run':
                 from nexloop_eios.conversation_runtime_bridge import ConversationRunReader
                 return ConversationRunReader(self._pool, session, self._signer).read_message_run(**arguments)
