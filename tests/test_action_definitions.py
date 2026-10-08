@@ -23,10 +23,16 @@ def published_action(admin,pg,request):
     token,_=seed_authority(admin,'synthetic-a','eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
     inputs=governance_inputs();definition=inputs['action_definition'];capability=inputs['capability_snapshot']
     schema=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True,
-      properties=(PropertyDefinition(property_name='preference',value_type=PropertyValueType.STRING),) if getattr(request,'param',None)=='with-preference' else ())
+      properties=(PropertyDefinition(property_name='preference',value_type=PropertyValueType.STRING),) if getattr(request,'param',None) in ('with-preference','strict-input','external-input') else ())
     ref=definition.object_types[0].model_copy(update={'schema_digest':'f'*64 if getattr(request,'param',None)=='wrong-schema-digest' else schema_contract_digest(schema)})
     governance=definition.governance.model_copy(update={'change_scope':definition.governance.change_scope.model_copy(update={'object_types':(ref,)})})
     definition=definition.model_copy(update={'object_types':(ref,),'governance':governance})
+    if getattr(request,'param',None) in ('strict-input','external-input'):
+        contract={'type':'object','properties':{'request_id':{'type':'string'},'type_name':{'const':'Consumer'},
+          'properties':{'type':'object','properties':{'preference':{'enum':['service']}},'required':['preference'],'additionalProperties':False}},
+          'required':['request_id','type_name','properties'],'additionalProperties':False}
+        if request.param=='external-input':contract={'$ref':'https://schemas.invalid/nexloop-never-fetch.json'}
+        definition=definition.model_copy(update={'input_schema':contract,'contract_digest':None})
     if getattr(request,'param',None)!='missing-schema':
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',
           ('synthetic-a','Consumer',1,Jsonb(schema.model_dump(mode='json'))))

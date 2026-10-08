@@ -1,0 +1,21 @@
+{
+  "task": "NX-012",
+  "recorded_at": "2026-10-08T16:00:42.556937+00:00",
+  "scope": "Published Action input_schema full recursive validation before claim reservation, with nonretrievable external schema registry and sanitized errors; same actual EIOS grants/Governor still required. Does not replace SQL business guards or implement human approval authority.",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_published_action_input.py tests/test_action_definitions.py tests/test_role_mapping.py tests/test_consumer_resolution_pg.py tests/test_agent_governed_write.py --tb=short --junitxml=.ci-results/nx012-published-input-main.xml",
+  "result": {
+    "tests": "68",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "time": "65.561"
+  },
+  "report_sha256": "59b173ce955ed7785ee81fb6333e3f64a74afe209518e8a4488d516a6e49ddb4",
+  "source_freeze": {
+    "paths": 370,
+    "changed": 0
+  },
+  "first_failure": null,
+  "discovery": "An isolated Consumer-profile candidate demonstrated that upstream primitive Action parameters/required keys did not enforce a nested input_schema enum. This main regression directly tests legitimate published contracts and real restricted PG; invalid nested enum/type/missing/unknown fields produce zero claims or business writes; valid creation replays one persisted object/claim; external ref triggers no network request.",
+  "versions_lock_change": null
+}

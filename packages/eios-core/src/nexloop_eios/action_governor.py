@@ -45,6 +45,21 @@ def govern_published_action(pool,session,signer,*,claim_request,request,object_r
     from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
     reference=claim_request.binding.action_reference
     definition,capability=PostgresActionDefinitionReader(pool,session,signer).get(reference.stable_name,reference.version)
+    # Upstream's parameter gate does not recursively validate input_schema.
+    # Validate the actual published JSON contract before reserving an intent.
+    # No network/file schema resolution, and no rejected payload in errors.
+    from jsonschema import Draft202012Validator
+    from referencing import Registry
+    from referencing.exceptions import NoSuchResource
+    def no_external_schema(uri):
+        raise NoSuchResource(ref=uri)
+    try:
+        schema=definition.model_dump(mode='json')['input_schema']
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema,registry=Registry(retrieve=no_external_schema),
+            format_checker=Draft202012Validator.FORMAT_CHECKER).validate(request)
+    except Exception:
+        raise ActionAuthorizationDenied('published Action input rejected') from None
     if definition.governance.policy_refs:
         raise ActionAuthorizationDenied('authoritative Action policy evidence unavailable')
     with pool.connection() as c,c.transaction():
