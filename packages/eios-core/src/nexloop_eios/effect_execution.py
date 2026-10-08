@@ -106,7 +106,10 @@ class EffectExecutionPort:
                 'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json'),
                 'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
         if catalog is not None:claims['catalog_envelope']=catalog
-        if role is not None:claims['role_envelope']=role
+        if role is not None:
+            claims['role_envelope']=role
+            from nexloop_eios.role_runs import formal_reads_for_role
+            claims['formal_reads']=formal_reads_for_role(self.pool,self.signer,self.session,role)
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,(PROTOCOL+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload

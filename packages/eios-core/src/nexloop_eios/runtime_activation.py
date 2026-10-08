@@ -85,7 +85,10 @@ class RuntimeActivationPort:
         from nexloop_eios.role_runs import role_envelope_for_run
         if context_role_envelope is None and parameters.get('run_digest') is not None:
             context_role_envelope=role_envelope_for_run(self.pool,self.signer,self.session.world,parameters['run_digest'])
-        if context_role_envelope is not None:claims['context_role_envelope']=context_role_envelope
+        if context_role_envelope is not None:
+            claims['context_role_envelope']=context_role_envelope
+            from nexloop_eios.role_runs import formal_reads_for_role
+            claims['formal_reads']=formal_reads_for_role(self.pool,self.signer,self.session,context_role_envelope)
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload
 
@@ -202,7 +205,8 @@ class RuntimeActivationPort:
                 arguments={'intent_id':intent_id}
             text,digest=_command(command)
             if type(activation_ref) is not str or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError()
-            with self.pool.connection() as db,db.transaction():
+            from nexloop_eios.role_runs import request_envelope_scope
+            with request_envelope_scope(),self.pool.connection() as db,db.transaction():
                 verify_application_role(db)
                 queue=db.execute('select authz.nexloop_runtime_activation_hint(%s,%s,%s)',
                     (self.session.token_digest,self.session.world,activation_ref)).fetchone()[0]
