@@ -1319,6 +1319,12 @@
         "ref": "docs/implementation/message-runtime53-main-evidence.json",
         "summary": "主线53 Message Hostv2/UUID generic Runtime联合47passed155.51s；真实治理供给、Source READ、消息正文交付/重投/FULL恢复及model-response窗口通过；测试产物转tmp_path再1passed。首次43pass1fail及候选瞬态拒绝保留，未声称整头54通过。",
         "recorded_at": "2026-10-08T12:59:08.196767Z"
+      },
+      {
+        "type": "commit",
+        "ref": "9946a767c5fe0f6d47f62377ac9914f45eb98024",
+        "summary": "真实Message Hostv2与通用Runtime供给fixture和47联合回归；测试观察产物移入tmp_path，原断言保留。",
+        "recorded_at": "2026-10-08T12:59:08.960124Z"
       }
     ]
   },
