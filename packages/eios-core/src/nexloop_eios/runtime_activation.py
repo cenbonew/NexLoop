@@ -74,7 +74,7 @@ class RuntimeActivationPort:
             proofs.append(self._proof(run,target))
         return proofs
 
-    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,context_artifact_proof=None,context_catalog_envelope=None,**parameters):
+    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,context_artifact_proof=None,context_catalog_envelope=None,context_role_envelope=None,**parameters):
         if not isinstance(queue,str) or re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}',queue) is None:raise ValueError('queue unavailable')
         if proof is None:proof=self._proof(self.session,f'eios:action:NexLoop.queue.{queue}:1')
         payload=canonical_payload({'queue':queue,'verb':verb,**parameters})
@@ -82,6 +82,10 @@ class RuntimeActivationPort:
         claims={'protocol':protocol,'key_id':self.signer.key_id,**proof,'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
         if context_artifact_proof is not None:claims['context_artifact_proof']=context_artifact_proof
         if context_catalog_envelope is not None:claims['context_catalog_envelope']=context_catalog_envelope
+        from nexloop_eios.role_runs import role_envelope_for_run
+        if context_role_envelope is None and parameters.get('run_digest') is not None:
+            context_role_envelope=role_envelope_for_run(self.pool,self.signer,self.session.world,parameters['run_digest'])
+        if context_role_envelope is not None:claims['context_role_envelope']=context_role_envelope
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload
 
@@ -161,7 +165,7 @@ class RuntimeActivationPort:
             with self.pool.connection() as db,db.transaction():
                 verify_application_role(db);run=_identity(db,first['_run_digest'],self.session.world)
             context_proof=self._context_read_proof(first)
-            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first))
+            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']))
             return {key:value for key,value in result.items() if not key.startswith('_')}
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
@@ -207,7 +211,7 @@ class RuntimeActivationPort:
                 run=_identity(db,resolved['_run_digest'],self.session.world)
                 if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
                 def guard():
-                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved)))
+                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,resolved['_run_digest'])))
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
                 guard()
                 receipt=EffectIntentPort(self.pool,run,self.signer)._execute_in_transaction(

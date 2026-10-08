@@ -1,0 +1,70 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T22:14:40.578399+00:00",
+  "commands": [
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_role_runs_first.py tests/test_role_runtime_checkpoint.py tests/test_role_context_pack.py tests/test_role_formal_source_read.py tests/test_role_post_accept.py tests/test_context_source_read_reproduction.py tests/test_bootstrap.py --tb=short --junitxml=.ci-results/nx018-core63-role-main.xml",
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm --filter @nexloop/agent-host build",
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm exec vitest run --root apps/agent-host test/context-role.test.ts test/context-supply.test.ts",
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_role_pi_effect_checkpoint.py --tb=short --junitxml=.ci-results/nx018-core63-role-pi-main.xml"
+  ],
+  "reports": [
+    {
+      "path": ".ci-results/nx018-core63-role-main.xml",
+      "result": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "61",
+        "time": "161.979",
+        "timestamp": "2026-10-09T06:09:48.493448+08:00",
+        "hostname": "MacBook-Pro-4.local"
+      },
+      "sha256": "b67ae049159daa11d2c3d0fa33c981eb3219b38a3e5644bfeaa9926591c2dd43"
+    },
+    {
+      "path": ".ci-results/nx018-core63-role-pi-main.xml",
+      "result": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "1",
+        "time": "48.192",
+        "timestamp": "2026-10-09T06:13:20.443994+08:00",
+        "hostname": "MacBook-Pro-4.local"
+      },
+      "sha256": "d2158f1db5bdc5e0bbc3d9fd10094fc4c2feac2a4dce16f61cbe7c69a65f807f"
+    }
+  ],
+  "host_tests": "56 passed; 2 test files",
+  "source_freeze": {
+    "paths": 437,
+    "changed": 0,
+    "timing": "created before main PG/Pi runs, checked after terminal"
+  },
+  "versions_lock_change": "bootstrap_revision 0062→0063 only; published 0001..0062 retained",
+  "first_failures_and_retries": [
+    {
+      "result": "Node runner exit1",
+      "reason": "node --import tsx was incorrect: repository uses Vitest and has no tsx."
+    },
+    {
+      "result": "Vitest root filter exit1: 475 tests passed, 5 candidate-clone suites could not import build outputs",
+      "reason": "Root filters also matched ignored docs/tmp clones. Scoped --root apps/agent-host rerun passed56."
+    }
+  ],
+  "scope": [
+    "Actual catalog bootstrap; Source independently authorized Role/Link/Plan/Offering/formal references; authenticated service_trigger v3 reaches real Pi input.",
+    "Two sequential actual Pi Runs share one intent, one budget reservation, one owned loopback provider POST/effect then GET fulfilled; SQLite WAL/FULL.",
+    "Current Role revision/activity and Source READ govern admission, submit and dispatch. Legacy0062 Message READ preserved."
+  ],
+  "limitations": [
+    "Deterministic test provider and owned loopback effect, not real commercial channel/model evidence.",
+    "Post-accept Role revocation still prevents original formal Action terminal; separate receipt recovery candidate is being corrected before integration.",
+    "Role scope/ceiling_ref metadata is not arbitrary compiled policy. Independent audit reader of service trigger unsupported.",
+    "Parallel Host throughput unverified; candidate exploration hit default2s authorization deadline.",
+    "NX-018 in_progress; AT-004/009 not_run; not complete suite CI."
+  ]
+}

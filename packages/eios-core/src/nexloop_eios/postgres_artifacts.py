@@ -139,10 +139,16 @@ class PostgresArtifactRepository:
     def get(self,artifact_id):
         params={'artifact_id':artifact_id};permit=self.issue_permit(Operation.READ,params)
         with self._transaction() as c:
-            dependency=c.execute('select authz.nexloop_context_artifact_read_dependency(%s,%s,%s,%s)',
+            dependency=c.execute('select authz.nexloop_context_artifact_read_dependency_v2(%s,%s,%s,%s)',
                 (self.session.token_digest,self.session.world,permit,canonical_payload(params))).fetchone()[0]
-        if dependency is not None:
-            params['context_dependency']=context_message_read_envelope(self.pool,self.session,self.signer,dependency)
+        if dependency is not None and dependency['kind']=='role':
+            from nexloop_eios.service_offerings import _read_envelope
+            from types import SimpleNamespace
+            holder=SimpleNamespace(_session=self.session,_backend=SimpleNamespace(_pool=self.pool,_signer=self.signer))
+            params['context_dependency']={'kind':'role','run_id':dependency['run_id'],'event_id':dependency['event_id'],
+              'reads':{name:_read_envelope(holder,row['type_name'],row['object_id'],row['fields']) for name,row in dependency['reads'].items()}}
+        elif dependency is not None:
+            params['context_dependency']=context_message_read_envelope(self.pool,self.session,self.signer,dependency['message_id'])
         permit=self.issue_permit(Operation.READ,params)
         with self._transaction() as c:
             row=c.execute('select authz.nexloop_read_local_artifact(%s,%s,%s,%s)',

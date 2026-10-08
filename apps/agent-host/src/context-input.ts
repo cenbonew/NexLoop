@@ -3,7 +3,8 @@ import {createHash} from 'node:crypto';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 export const CONTEXT_PROTOCOL='nexloop.context-pack.v1';
 export const CONTEXT_PROTOCOL_V2='nexloop.context-pack.v2';
-export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2;
+export const CONTEXT_PROTOCOL_V3='nexloop.context-pack.v3';
+export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3;
 export type ContextAttestation={artifact_ref:string;sha256:string;command_binding_digest:string};
 const fields=['schema_version','run_id','request_id','tenant_id','world_id','mode','consumer_ref','goal_version_ref','role_ref','runtime_owner_epoch','runtime_profile','trigger_event_id','budget','not_after'] as const;
 const hex64=/^[a-f0-9]{64}$/,hex32=/^[a-f0-9]{32}$/,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -43,8 +44,8 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   let parsed:unknown;try{parsed=JSON.parse(input);}catch{return fail();}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return fail();
   const protocol=(parsed as Record<string,unknown>).schema_version;
-  if(protocol!==CONTEXT_PROTOCOL&&protocol!==CONTEXT_PROTOCOL_V2||expectedProtocol!==undefined&&protocol!==expectedProtocol)return fail();
-  const pack=exact(parsed,protocol===CONTEXT_PROTOCOL_V2?['schema_version','bindings','user_statement','formal_facts','current_constraints','supply']:['schema_version','bindings','user_statement','formal_facts','current_constraints']);
+  if(protocol!==CONTEXT_PROTOCOL&&protocol!==CONTEXT_PROTOCOL_V2&&protocol!==CONTEXT_PROTOCOL_V3||expectedProtocol!==undefined&&protocol!==expectedProtocol)return fail();
+  const pack=exact(parsed,protocol===CONTEXT_PROTOCOL_V3?['schema_version','bindings','formal_facts','current_constraints','supply','role_binding','trigger_statement']:protocol===CONTEXT_PROTOCOL_V2?['schema_version','bindings','user_statement','formal_facts','current_constraints','supply']:['schema_version','bindings','user_statement','formal_facts','current_constraints']);
   const binding=exact(pack.bindings,['tenant_id','world_id','run_id','source_principal','context_id','namespace','artifact_id','command_digest']);
   const tenant=text(binding.tenant_id,36,uuid),run=text(binding.run_id,36,uuid),source=text(binding.source_principal,512);
   text(binding.context_id,36,uuid);text(binding.namespace,64,hex64);text(binding.artifact_id,32,hex32);text(binding.command_digest,64,hex64);
@@ -54,9 +55,16 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   if(binding.namespace!==createHash('sha256').update(tenant+'\u0000real','utf8').digest('hex'))return fail();
   const artifactId=createHash('sha256').update(canonicalContextJSON([tenant,'real',source,'context:'+run]),'utf8').digest('hex').slice(0,32);
   if(binding.artifact_id!==artifactId)return fail();
-  const statement=exact(pack.user_statement,['message_id','conversation_id','sequence','body','provenance']);
-  const message=text(statement.message_id,64,hex64);text(statement.conversation_id,64,hex64);integer(statement.sequence);
-  const body=text(statement.body,8192);if(statement.provenance!=='eios:object:'+message)return fail();
+  let body:string;
+  if(protocol===CONTEXT_PROTOCOL_V3){
+    const trigger=exact(pack.trigger_statement,['kind','event_id','source_principal','body','provenance']);
+    const event=text(trigger.event_id,36,uuid);text(trigger.source_principal,512);body=text(trigger.body,8192);
+    if(trigger.kind!=='service_trigger'||event!==command.trigger_event_id||trigger.source_principal!==source||trigger.provenance!=='eios:role-trigger:'+event)return fail();
+  }else{
+    const statement=exact(pack.user_statement,['message_id','conversation_id','sequence','body','provenance']);
+    const message=text(statement.message_id,64,hex64);text(statement.conversation_id,64,hex64);integer(statement.sequence);
+    body=text(statement.body,8192);if(statement.provenance!=='eios:object:'+message)return fail();
+  }
   if(!Array.isArray(pack.formal_facts)||pack.formal_facts.length!==4)return fail();
   const facts=new Map<string,{id:string;revision:number}>();
   for(const item of pack.formal_facts){
@@ -74,7 +82,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   if(!date||!Number.isFinite(Date.parse(until)))return fail();
   const parsedDate=new Date(until),calendar=[parsedDate.getUTCFullYear(),parsedDate.getUTCMonth()+1,parsedDate.getUTCDate(),parsedDate.getUTCHours(),parsedDate.getUTCMinutes(),parsedDate.getUTCSeconds()];
   if(calendar.some((value,index)=>value!==Number(date[index+1])))return fail();
-  if(protocol===CONTEXT_PROTOCOL_V2){
+  if(protocol===CONTEXT_PROTOCOL_V2||protocol===CONTEXT_PROTOCOL_V3){
     const supply=exact(pack.supply,['offering_id','offering_revision','binding_id','binding_revision','provenance','properties']);
     const offering=text(supply.offering_id,64,hex64);integer(supply.offering_revision);
     text(supply.binding_id,64,hex64);integer(supply.binding_revision);
@@ -86,6 +94,24 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     if(!offerDate||!Number.isFinite(Date.parse(offeringUntil)))return fail();
     const calendarDate=new Date(offeringUntil),parts=[calendarDate.getUTCFullYear(),calendarDate.getUTCMonth()+1,calendarDate.getUTCDate(),calendarDate.getUTCHours(),calendarDate.getUTCMinutes(),calendarDate.getUTCSeconds()];
     if(parts.some((value,index)=>value!==Number(offerDate[index+1])))return fail();
+  }
+  if(protocol===CONTEXT_PROTOCOL_V3){
+    const role=exact(pack.role_binding,['binding','definition','definition_provenance','mapping_provenance','grants_authority']);
+    const selected=exact(role.binding,['run_id','tenant_id','world','consumer_id','link_id','role_id','step_id','link_revision','role_revision','step_revision','role_ref','scope','expires_at']);
+    const roleId=text(selected.role_id,64,hex64),link=text(selected.link_id,64,hex64);
+    text(selected.run_id,36,uuid);text(selected.tenant_id,36,uuid);text(selected.consumer_id,64,hex64);text(selected.step_id,64,hex64);
+    integer(selected.link_revision);integer(selected.role_revision);integer(selected.step_revision);text(selected.scope,8192);
+    if(selected.run_id!==run||selected.tenant_id!==tenant||selected.world!=='real'||selected.consumer_id!==facts.get('Consumer')!.id||selected.step_id!==facts.get('PlanStep')!.id||selected.step_revision!==facts.get('PlanStep')!.revision||selected.role_ref!==command.role_ref||selected.role_ref!=='role:'+roleId+':mapping:'+link||role.grants_authority!==false||role.definition_provenance!=='eios:object:'+roleId||role.mapping_provenance!=='eios:object:'+link)return fail();
+    const definition=exact(role.definition,['name','responsibility','ceiling_ref','active','valid_from','valid_until']);
+    text(definition.name,8192);text(definition.responsibility,8192);text(definition.ceiling_ref,8192);
+    const utc=(value:unknown):number=>{
+      const raw=text(value,64),match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|\+00:00)$/.exec(raw);
+      if(!match||!Number.isFinite(Date.parse(raw)))return fail();
+      const date=new Date(raw),parts=[date.getUTCFullYear(),date.getUTCMonth()+1,date.getUTCDate(),date.getUTCHours(),date.getUTCMinutes(),date.getUTCSeconds()];
+      if(parts.some((part,index)=>part!==Number(match[index+1])))return fail();return date.getTime();
+    };
+    const from=utc(definition.valid_from),to=utc(definition.valid_until),expires=utc(selected.expires_at);
+    if(definition.active!==true||from>=to||from>Date.now()||to<=Date.now()||expires<=Date.now()||expires>to)return fail();
   }
   // Canonical exact input rejects duplicate keys and alternative encodings.
   // Pack has no self-hash; whole-input digest is supplied only by actual guard.

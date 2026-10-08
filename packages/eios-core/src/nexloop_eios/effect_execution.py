@@ -88,6 +88,7 @@ class EffectExecutionPort:
 
     def _signed(self,verb,*,target,**parameters):
         catalog=parameters.pop('catalog_envelope',None)
+        role=parameters.pop('role_envelope',None)
         proof,_=self._proof(self.session,target)
         name,version=target.removeprefix('eios:action:').rsplit(':',1)
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(name,int(version))
@@ -97,6 +98,7 @@ class EffectExecutionPort:
                 'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json'),
                 'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
         if catalog is not None:claims['catalog_envelope']=catalog
+        if role is not None:claims['role_envelope']=role
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,(PROTOCOL+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload
@@ -206,6 +208,10 @@ class EffectExecutionPort:
         proof,_=self._proof(run,SEND)
         return proof
 
+    def _role_envelope(self,metadata):
+        from nexloop_eios.role_runs import role_envelope_for_run
+        return role_envelope_for_run(self.pool,self.signer,self.session.world,metadata['_run_digest'])
+
     def _catalog_envelope(self,metadata):
         # Private owned resolve, then genuine original Run and Source proofs.
         from nexloop_eios.service_offerings import catalog_envelope_from_hint
@@ -252,7 +258,7 @@ class EffectExecutionPort:
             identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity)
             proof=self._origin_proof(metadata)
             claim=M.ActionClaim.model_validate_json(canonical_payload(metadata['action_claim']))
-            result=self._call('admit',target=SEND,**identity,origin_proof=proof,catalog_envelope=self._catalog_envelope(metadata),provider_profile_digest=_profile(provider_profile_digest),
+            result=self._call('admit',target=SEND,**identity,origin_proof=proof,catalog_envelope=self._catalog_envelope(metadata),role_envelope=self._role_envelope(metadata),provider_profile_digest=_profile(provider_profile_digest),
                 action_claim_revision=claim.claim_revision,action_fencing_token=claim.fencing_token)
             # Commit has completed before these trusted frozen parameters escape.
             return {key:result[key] for key in ('parameters','provider_payload_digest')}
@@ -294,7 +300,7 @@ class EffectExecutionPort:
                 # Both phases are same connection + transaction. SQL pins xid,
                 # observation_id and exact new Action/effect fence between them.
                 _,_,request=self._claim_command(db,metadata,30)
-                renewed=self._execute(db,'finalize',target=SEND,**identity,phase='reserve',provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,
+                renewed=self._execute(db,'finalize',target=SEND,**identity,phase='reserve',provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,role_envelope=self._role_envelope(metadata),
                     origin_proof=origin,observation_id=observed['observation_id'],attempt_revision=metadata['attempt_revision'],
                     action_request_text=canonical_payload(metadata['frozen_request']),
                     action_claim=self._action_envelope(request,'reserve'))
@@ -311,7 +317,7 @@ class EffectExecutionPort:
                     expected_claim_revision=claim.claim_revision,fencing_token=claim.fencing_token,
                     outcome=M.TerminalOutcomeReference(outcome_id=metadata['receipt_id'],outcome_revision=1,
                         status=M.TerminalOutcomeStatus.SUCCEEDED,outcome_digest=M.canonical_request_digest(outcome),finalized_at=now))
-                result=self._execute(db,'finalize',target=SEND,**identity,phase='commit',origin_proof=origin,provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,
+                result=self._execute(db,'finalize',target=SEND,**identity,phase='commit',origin_proof=origin,provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,role_envelope=self._role_envelope(metadata),
                     observation_id=observed['observation_id'],attempt_revision=metadata['attempt_revision'],
                     action_request_text=canonical_payload(metadata['frozen_request']),outcome_text=canonical_payload(outcome),
                     action_claim=self._action_envelope(command,'finalize'))

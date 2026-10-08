@@ -29,15 +29,15 @@ class PrivatePlan(dict):
     __str__=__repr__
 
 
-def seed_multi_uuid(admin,tenant,targets,*,suffix):
+def seed_multi_uuid(admin,tenant,targets,*,suffix,extra_scopes=()):
     """Multi-resource genuine stored EIOS service authority for this UUID tenant."""
-    scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets);records={};apps=[]
+    scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets)|frozenset(extra_scopes);records={};apps=[]
     for target,kind,op in targets:
-        auth,expiry,rows=authority_records(tenant,target,world='real',resource_type=kind,operation=op,identity_suffix=suffix)
+        auth,expiry,rows=authority_records(tenant,target,world='real',resource_type=kind,operation=op,operations=tuple(operation for resource,resource_kind,operation in targets if resource==target and resource_kind==kind),identity_suffix=suffix)
         for name,key,fact in rows:
             if name=='application':apps.append(fact)
             records[(name,tuple(key))]=(name,key,fact)
-    app=apps[0].model_copy(update={'resources':tuple(ResourceRestriction(tenant_id=tenant,resource_type=kind.value,resource_id=target) for target,kind,op in targets),
+    app=apps[0].model_copy(update={'resources':tuple(ResourceRestriction(tenant_id=tenant,resource_type=kind.value,resource_id=target) for target,kind in sorted({(target,kind) for target,kind,op in targets},key=lambda pair:pair[0])),
         'operations':tuple(OperationRestriction(operation=op) for op in sorted({op for _,_,op in targets},key=lambda op:op.value))})
     auth=auth.model_copy(update={'requested_scopes':scopes,'caller_application_digest':app.version_digest})
     for index,(name,key,fact) in list(records.items()):
