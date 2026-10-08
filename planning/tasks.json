@@ -1568,6 +1568,12 @@
         "ref": "1b1e2724df992409bae09ae0fec4a5af73d700c8",
         "summary": "统一真实Backend治理create/correct/current读投影端口与生命周期关闭/当前Property撤权验证，37passed；首次测试异常类型断言已纠正，仍in_progress。",
         "recorded_at": "2026-10-08T16:13:10.818838+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "845e7242a8dbec743309c73e891c192fdeccd2b5",
+        "summary": "正式0060历史查询+真实Backend装配；当前来源撤权/双spawn竞争/COMMIT后SIGKILL及原intent恢复，组合61passed，保留时序与Context未装配限制。",
+        "recorded_at": "2026-10-08T16:21:27.676204+00:00"
       }
     ]
   },
