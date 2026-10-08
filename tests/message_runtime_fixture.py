@@ -136,6 +136,10 @@ def message_plan(admin,pg,tmp_path):
         port=ConversationMessagePort(api._pool,human,api._signer)
         conversation=port.create_conversation(idempotency_key='synthetic-message-conversation-key')
         message=port.accept_message(conversation_id=conversation['id'],idempotency_key='synthetic-message-payload-key',body='synthetic bounded user statement')['message']
+        from message_offering_fixture import install_message_catalog
+        catalog=install_message_catalog(admin,api,tenant,consumer,source_tokens[0],suffix='-source-A')
+        source_tokens[0]=catalog['source_token'];source=catalog['source']
+        owner=api.authenticate(owner_token,world='real');planner=api.authenticate(planner_token,world='real');worker=backend_worker.authenticate(worker_token,world='real')
         run=source.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])
         planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,consumer_revision=1,control_revision=1,run_id=run.run_id,run_token=run.token,executor_token=executor_token)
         source_event_id=conversation['id']+':'+str(message['sequence'])
@@ -145,6 +149,6 @@ def message_plan(admin,pg,tmp_path):
             'context_manifest_ref':'artifact:synthetic-message','runtime_profile':'deterministic-test','credential_ref':'run_credential:'+run.run_id,
             'budget':{'maximum_model_turns':8,'maximum_tool_calls':8,'active_timeout_seconds':60,'maximum_cost':'1.0','currency':'USD'},
             'not_after':run.expires_at.isoformat(),'runtime_owner_epoch':1}
-        yield PrivatePlan(api=api,owner=owner,owner_token=owner_token,planner_token=planner_token,source_token=source_tokens[0],worker=worker,worker_token=worker_token,
+        yield PrivatePlan(offering_id=catalog['offering_id'],offering_binding_id=catalog['offering_binding_id'],api=api,owner=owner,owner_token=owner_token,planner_token=planner_token,source_token=source_tokens[0],worker=worker,worker_token=worker_token,
             command=command,run=run,bridge=ConversationRuntimeBridge(owner),port=port,reader=ConversationRunReader(api._pool,human,api._signer),
             consumer=consumer,tenant=tenant,conversation=conversation,message=message,issued=issued,identity=identity,uow=uow,pg=pg,step=step,goal=goal,control=control,signing_key=config['signing_key_file'],executor_token=executor_token)

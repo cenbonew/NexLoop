@@ -1,0 +1,68 @@
+{
+  "scope": "NX-016 main registered53 actual Message Hostv2 and genuine generic Runtime authorized delivery/recovery, synthetic principals/business only",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_message_relay_configuration.py tests/test_message_relay.py tests/test_message_driven_delivery.py tests/test_local_message_delivery_assembly.py tests/test_runtime_effect_bridge.py tests/test_runtime_effect_tools.py tests/test_runtime_effect_recovery.py tests/test_model_response_commit_window.py --junitxml=.ci-results/message-runtime53-main.xml --tb=short > /tmp/nexloop-message-runtime53-main.log 2>&1",
+  "result": {
+    "session": 90631,
+    "passed": 47,
+    "duration_seconds": 155.51,
+    "exit_code": 0,
+    "warnings": 2
+  },
+  "first_failures": [
+    {
+      "exit_code": 4,
+      "reason": "wrong test filename test_effect_execution.py, no tests executed; corrected to test_effect_execution_sql.py and existing test_runtime_effect_tools.py"
+    },
+    {
+      "session": 22393,
+      "passed": 43,
+      "failed": 1,
+      "duration_seconds": 113.83,
+      "reason": "UUID runtime fixture lacked new governed catalog binding/current Source READ, so actual rebuilt-tool process exited before its business receipt barrier",
+      "fix": "independent maintainer governed catalog and real fresh Source READ+EXECUTE credentials before Run issuance; same original rebuilt-tool test passes in main47"
+    }
+  ],
+  "candidate_history": {
+    "scope": "separate agent-owned snapshot, not root execution",
+    "message_final_combined": "34passed1failed115.97s; failed two-message case then focusedpassed33.71s; unknown runtime_authorization_denied transient cause not claimed fixed",
+    "runtime_fixture": "11passed37.58s on frozen main53 snapshot"
+  },
+  "source_sha256": {
+    "tests/context_source_declarations.py": "7af5b65d4542ef7aa225b934bcf4672c9a8b5978bb1006c6150cf47e542311e3",
+    "tests/message_offering_fixture.py": "c8ef15b097e8b78bf473cd1b36bf21c93c195bfc1fc295dba18a6c070e6203f2",
+    "tests/local_message_assembly_fixture.py": "f1f1afa06da94bbc581622852434f31f9919a531eeaf97db39559e081d0c8761",
+    "tests/message_driven_assembly_fixture.py": "e3bc156206ed7d4954eb523c5463f3dfe5259bde8d954a0c0bd986e91e5b2123",
+    "tests/message_runtime_fixture.py": "c02f2d4bd8c6a1697d0417c54b6a8f12b525958e4bb7b10a762566b69662457b",
+    "tests/runtime_effect_fixture.py": "3165b8b1380bab96d54ec1c5f3e1ed4fddadccec7b8b8b2e8d737674cfaae2c3",
+    "tests/test_local_message_delivery_assembly.py": "3216385139b47a05d6522611664e64008d243d767b5a27c9408f69cd7daed413",
+    "tests/test_message_driven_delivery.py": "703ce57e9023e55321514c54e68faa502b2fb08c62527cbe919437fc83b78360",
+    "tests/test_message_relay.py": "de7bc499e632022f45c11ab4bcbc88eb24903637b87c9cfb3d02acae6c7f6e00",
+    "tests/test_message_relay_configuration.py": "a5ec6cae16e4222be1e051a77d4f3a1d6f518a86fe6567a38e4f88d2178b1d75",
+    "tests/test_generic_partial_edit_audit.py": "a6cff1285a90fa7dd8846abc3ee5f5ef3ed5e4b31b1509da2cd6a920ad87fc02"
+  },
+  "main_report_sha256": "511079cd45bc23fb5d0f70d42e8031b4f7a4b006cafc41133fd972171bf04746",
+  "test_artifact_cleanup": {
+    "change": "partial-edit observation moved from repository root to pytest tmp_path",
+    "dry_run": "verified own two synthetic Goal/EffectControl observations before unlink",
+    "deleted": "partial-edit-observation.json",
+    "retest": {
+      "session": 82533,
+      "passed": 1,
+      "duration_seconds": 1.59,
+      "exit_code": 0,
+      "report_sha256": "f025554657295a5fe315fbc4b33a3f3b995f49922fbd831e1627c9f3803b2449"
+    }
+  },
+  "coverage": [
+    "actual private technical publisher and Human password/login session; no Human impersonation",
+    "separate maintainer governed Offering and Binding CREATE; Source exact object/17 property READ and no directory CREATE/EDIT",
+    "typed supplyv2 whole pack sent to actual Pi/SQLite FULL, current genuine PG guard on model/tools",
+    "two actual user-message JSON exports and current Human final receipt; stable message repost keeps original IDs/counts",
+    "actual owned subprocess death/reopen and model response commit window; original assertions kept"
+  ],
+  "limits": [
+    "47 test run used registered head53; laterhead54 requires separate/full CI",
+    "No real model or external channel calls in this suite",
+    "Full current-head CI, currenthead browser DOM and deployment not yet established"
+  ]
+}

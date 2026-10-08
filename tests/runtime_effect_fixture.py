@@ -17,6 +17,7 @@ from eios.ontology.models import ObjectTypeDefinition
 from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.backend import open_backend
+from nexloop_eios.service_offerings import offering_schemas,json_export_example,OFFERING_FIELDS,BINDING_FIELDS
 from nexloop_eios.effect_contexts import CONFIGURE,BIND,EFFECT,effect_plan_schemas,registrar_schema
 from authority_fixture import authority_records,seed_authority
 from test_postgres_action_claims import governance_inputs
@@ -54,6 +55,36 @@ def seed_multi_uuid(admin,tenant,targets,*,suffix):
     for name,key,fact in records.values():admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s) on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload',
         (tenant,name,key,Jsonb(fact.model_dump(mode='json'))))
     return token
+
+
+def install_runtime_catalog(admin,tenant,api,consumer,sources,expiry):
+    """Config-only publication followed by genuine maintainer governed CREATE.
+
+    Source gets exact directory READ plus original EFFECT, never CREATE/EDIT.
+    Replace only synthetic pre-Run technical credentials, then real fresh auth.
+    """
+    base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
+    schemas=offering_schemas()
+    for schema in schemas:
+        admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))
+        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));body.pop('contract_digest',None)
+        reference=definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)})
+        body['stable_name']=schema.type_name+'.create';body['object_types']=[reference.model_dump(mode='json')];body['governance']['change_scope']['object_types']=body['object_types'];body['capability_binding']['capability_name']='ontology.object.create'
+        published=type(definition).model_validate_json(json.dumps(body))
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+schema.type_name+'.create:1',Jsonb(published.model_dump(mode='json')),Jsonb(capability.model_copy(update={'capability_name':'ontology.object.create','has_side_effects':True}).model_dump(mode='json'))))
+    keeper_token=seed_multi_uuid(admin,tenant,[('eios:action:'+schema.type_name+'.create:1',ResourceType.ACTION,Operation.EXECUTE) for schema in schemas],suffix='-catalog-maintainer')
+    offered=api.authenticate(keeper_token,world='real').create_object(action_name='ServiceOffering.create',action_version=1,intent_id='runtime-effect-catalog-offering',type_name='ServiceOffering',properties=json_export_example(valid_until=expiry))
+    tokens=[]
+    for letter,source in zip(('A','B'),sources,strict=True):
+        keeper=api.authenticate(keeper_token,world='real')
+        binding=keeper.create_object(action_name='ConsumerServiceOffering.create',action_version=1,intent_id='runtime-effect-catalog-binding-'+letter,type_name='ConsumerServiceOffering',properties={'consumer_id':consumer,'offering_id':offered['object_id'],'offering_revision':1,'source_principal':source._session.authentication.subject_principal_id,'active':True})
+        targets=[('eios:action:'+EFFECT+':1',ResourceType.ACTION,Operation.EXECUTE)]
+        for receipt,fields in ((offered,OFFERING_FIELDS),(binding,BINDING_FIELDS)):
+            target=receipt['type_name']+'/'+receipt['object_id'];targets.append(('eios:object:'+target,ResourceType.OBJECT,Operation.READ))
+            targets.extend(('eios:property:'+target+'/'+field,ResourceType.PROPERTY,Operation.READ) for field in fields)
+        admin.execute('delete from authz.nexloop_service_credentials where tenant_id=%s and credential_id=%s',(tenant,source._session.authentication.credential_id))
+        tokens.append(seed_multi_uuid(admin,tenant,targets,suffix='-source-'+letter))
+    return tokens,[api.authenticate(token,world='real') for token in tokens]
 
 
 @pytest.fixture
@@ -100,6 +131,8 @@ def runtime_effect_plan(admin,pg,tmp_path):
         goal=create(planner,'Goal',{'consumer_id':consumer,'state':'active','valid_until':expiry})
         step=create(planner,'PlanStep',{'consumer_id':consumer,'goal_id':goal,'control_id':control,'submitter_principals':sorted(source._session.authentication.subject_principal_id for source in sources),
             'action_name':EFFECT,'state':'ready'})
+        source_tokens,sources=install_runtime_catalog(admin,tenant,api,consumer,sources,expiry)
+        owner=api.authenticate(owner_token,world='real');planner=api.authenticate(planner_token,world='real');executor=api.authenticate(executor_token,world='real')
         owner.configure_effect_control(control_id=control,control_revision=1,executor_token=executor_token)
         runs=[source.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1']) for source in sources]
         for run in runs:planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,consumer_revision=1,control_revision=1,run_id=run.run_id,run_token=run.token,executor_token=executor_token)

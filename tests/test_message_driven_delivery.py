@@ -93,7 +93,7 @@ def test_two_user_messages_export_their_exact_body_and_replay_once(message_drive
                 assert once('nexloop_eios.message_relay_cli',relay,hidden)=='Message relay ready\n{"status":"queued"}\n'
                 routed=client.get('/api/v1/messages/'+message_id+'/receipt').json();run=routed['run'];assert run and routed['receipt'] is None
                 payload=admin.execute('select normalized_input from runtime.jobs where job_id=%s',(run['task_id'],)).fetchone()[0]
-                pack=json.loads(payload['input']);assert pack['schema_version']=='nexloop.context-pack.v1' and pack['user_statement']['body']==message['body']
+                pack=json.loads(payload['input']);assert pack['schema_version']=='nexloop.context-pack.v2' and pack['user_statement']['body']==message['body']
                 assert payload['run_command']['context_manifest_ref']=='artifact:'+pack['bindings']['artifact_id']
                 assert admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='MessageAssignment'",(tenant,)).fetchone()==(index+1,)
                 # Independent real runtime CLI owns the actual TLS guard. Node only
@@ -102,7 +102,7 @@ def test_two_user_messages_export_their_exact_body_and_replay_once(message_drive
                 guard_port=free_port();guard_key=private(tmp_path,'assembly-guard-key',secrets.token_hex(32))
                 guard_tls=tmp_path/('guard-tls-'+str(index));guard_tls.mkdir(mode=0o700);files(guard_tls)
                 host_config=effect_configuration(guard_tls,guard_port,guard_key)
-                config=json.loads(host_config.read_text());config.pop('deterministic_effect_message');config['deterministic_message_from_input']=True;config['context_input_protocol']='nexloop.context-pack.v1'
+                config=json.loads(host_config.read_text());config.pop('deterministic_effect_message');config['deterministic_message_from_input']=True;config['context_input_protocol']='nexloop.context-pack.v2'
                 host_config.write_text(json.dumps(config))
                 with reaped_host(runtime,host_key,host_config) as (_,host_client,_):
                     worker=['--database-url-file',str(domain_dsn),*common,'--service-credential-file',str(credentials['assembly-runtime-worker']),
@@ -113,7 +113,8 @@ def test_two_user_messages_export_their_exact_body_and_replay_once(message_drive
                     # effect_configuration generates the guard TLS certificate pair
                     # at its actual documented test-owned location.
                     runtime_output=once('nexloop_eios.runtime_worker',worker,hidden)
-                    assert '"status": "succeeded"' in runtime_output or '"status":"succeeded"' in runtime_output
+                    task_diagnostic=admin.execute('select status,result from runtime.jobs where job_id=%s',(run['task_id'],)).fetchone()
+                    assert '"status": "succeeded"' in runtime_output or '"status":"succeeded"' in runtime_output, {'task_status':task_diagnostic[0],'code':task_diagnostic[1].get('code'),'runtime_outcome':task_diagnostic[1].get('runtime_outcome')}
                     task=admin.execute('select result from runtime.jobs where job_id=%s',(run['task_id'],)).fetchone()[0]
                     assert task['scope']=='runtime_only' and task['business_action_success'] is False
                     assert task['runtime_receipt']['request_id']==run['request_id'] and task['runtime_receipt']['persistence']=={'journal_mode':'wal','synchronous':2}

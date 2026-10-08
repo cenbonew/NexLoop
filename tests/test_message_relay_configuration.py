@@ -6,7 +6,7 @@ from nexloop_eios.message_relay_cli import _recipe,arguments
 
 
 def recipe():
-    return {'consumer_id':'a'*64,'control_id':'b'*64,'control_revision':1,'consumer_revision':1,
+    return {'offering_id':'c'*64,'offering_binding_id':'d'*64,'consumer_id':'a'*64,'control_id':'b'*64,'control_revision':1,'consumer_revision':1,
         'valid_until':(datetime.now(UTC)+timedelta(seconds=100)).isoformat(),'role_ref':'role:operations',
         'context_manifest_ref':'context:relay','runtime_profile':'pi-durable',
         'budget':{'maximum_model_turns':2,'maximum_tool_calls':4,'active_timeout_seconds':30,'maximum_cost':'0','currency':'USD'},

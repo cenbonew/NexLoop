@@ -1313,6 +1313,12 @@
         "ref": "27090dc39612f21d1b03ee9eef08ed4b4b8b5f0e",
         "summary": "正式0053 catalog、供给治理/当前READ与发送、目录维护CLI、通用部分编辑属性保留；主线47 focused通过；完整消息回归和整头CI待完成。",
         "recorded_at": "2026-10-08T12:40:16.699179Z"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/message-runtime53-main-evidence.json",
+        "summary": "主线53 Message Hostv2/UUID generic Runtime联合47passed155.51s；真实治理供给、Source READ、消息正文交付/重投/FULL恢复及model-response窗口通过；测试产物转tmp_path再1passed。首次43pass1fail及候选瞬态拒绝保留，未声称整头54通过。",
+        "recorded_at": "2026-10-08T12:59:08.196767Z"
       }
     ]
   },

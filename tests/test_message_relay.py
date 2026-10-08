@@ -21,6 +21,10 @@ from message_runtime_fixture import message_plan
 from test_conversation_effect_receipts import receipt_plan
 
 
+def effect_configuration(*args):
+    path=base_effect_configuration(*args);body=json.loads(path.read_text());body.pop('deterministic_effect_message');body.update(deterministic_message_from_input=True,context_input_protocol='nexloop.context-pack.v2');path.write_text(json.dumps(body));return path
+
+
 @pytest.fixture
 def relay_plan(receipt_plan,admin,tmp_path):
     f=receipt_plan
@@ -35,7 +39,7 @@ def relay_plan(receipt_plan,admin,tmp_path):
     targets=[('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in ('Goal.create','PlanStep.create','MessageAssignment.create','nexloop.plan.bind_effect_context')]
     planner_token=seed_multi_uuid(admin,f['tenant'],targets,suffix='-relay-planner')
     # All service objects below are newly authenticated after canonical config.
-    recipe={'consumer_id':f['consumer'],'control_id':f['control'],'control_revision':1,'consumer_revision':1,
+    recipe={'offering_id':f['offering_id'],'offering_binding_id':f['offering_binding_id'],'consumer_id':f['consumer'],'control_id':f['control'],'control_revision':1,'consumer_revision':1,
         'valid_until':(datetime.now(UTC)+timedelta(seconds=150)).isoformat(),'role_ref':'role:source',
         'context_manifest_ref':'artifact:message-relay','runtime_profile':'deterministic-test',
         'budget':{'maximum_model_turns':8,'maximum_tool_calls':8,'active_timeout_seconds':60,'maximum_cost':'1.0','currency':'USD'},
@@ -64,7 +68,7 @@ def test_independent_cli_governed_assignment_and_persist_before_ack(relay_plan,a
     item=admin.execute('select run_id,request_id,expires_at from authz.nexloop_message_run_issuances where message_id=%s',(f['f']['message']['id'],)).fetchone()
     assert item is not None
     payload=admin.execute('select normalized_input from runtime.jobs where tenant_id=%s',(f['f']['tenant'],)).fetchone()[0]
-    pack=json.loads(payload['input']);assert pack['schema_version']=='nexloop.context-pack.v1'
+    pack=json.loads(payload['input']);assert pack['schema_version']=='nexloop.context-pack.v2'
     assert pack['user_statement']['body']==f['f']['message']['body']
     assert payload['run_command']['context_manifest_ref']=='artifact:'+pack['bindings']['artifact_id']
     with RunCredentialVault(f['vault']) as vault:
@@ -174,7 +178,7 @@ import secrets,sqlite3
 from nexloop_eios.runtime_dispatch import RuntimeDispatcher
 from nexloop_eios.host_control import HostControlConfiguration
 from nexloop_eios.conversation_messages import ConversationDenied
-from test_message_runtime_effect_e2e import (files,fresh_worker,guard_server,actual_host,effect_configuration,
+from test_message_runtime_effect_e2e import (files,fresh_worker,guard_server,actual_host,effect_configuration as base_effect_configuration,
     tool_evidence,ExecutorConfiguration,settle,await_available)
 from support.effect_provider import effect_provider
 from authority_fixture import replace_fact
@@ -213,7 +217,7 @@ def test_cli_same_message_actual_pi_effect_and_human_receipt(relay_plan,admin,tm
                     assert database.execute('select count(*) from conversations where id=?',(persistence['conversation_id'],)).fetchone()==(1,)
                 calls,receipts=tool_evidence(runtime/command['run_id']/'runtime.sqlite')
                 requests=[call for call in calls if call['name']=='nexloop.service.request']
-                assert [call['id'] for call in requests]==['service-request-first','service-request-rebuilt']
+                assert [call['id'] for call in requests]==['message-service-first','message-service-rebuilt']
                 assert len(receipts)==3 and receipts[0]==receipts[1]==receipts[2]
                 intent=receipts[0]['intent_id'];receipt_id=receipts[0]['receipt_id']
                 before=f['receipt_query']()['receipt']
