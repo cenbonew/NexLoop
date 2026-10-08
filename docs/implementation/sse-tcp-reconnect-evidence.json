@@ -1,0 +1,34 @@
+{
+  "task": "NX-016..NX-017",
+  "acceptance": "AT-015 partial: actual TCP replay; mounted browser DOM disconnect pending",
+  "recorded_at": "2026-10-08T15:32:36.390641+00:00",
+  "main_run": {
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_sse_tcp_reconnect.py tests/test_web_chat_http.py tests/test_conversation_messages.py --tb=short --junitxml=.ci-results/sse-tcp-main.xml",
+    "command_note": "Actual command excluding temporary stdout/stderr redirection only.",
+    "session": 59113,
+    "exit_code": 0,
+    "passed": 21,
+    "seconds": 31.95,
+    "warnings": 1,
+    "critical_skips": 0,
+    "junit_sha256": "a662b161865deceb2fcc59fea53189536be56bda6383c703021f0087c2ecb348"
+  },
+  "source_sha256": {
+    "tests/test_sse_tcp_reconnect.py": "27adc514a40b2b6de0528fa0d17793b3a37b6342b4efd80f0e9cfeb98a19283c"
+  },
+  "proofs": [
+    "Independent API CLI default 180-second SSE lifetime, genuine Human login/current EIOS Function authority, owned TLS socket read committed message1 then actively disconnect.",
+    "Actual governed message3/4 writes during disconnected interval. Last-Event-ID1 reconnect returns precisely messages2/3/4; Last-Event-ID4 reconnect returns heartbeat only.",
+    "HTTP projection and restricted PG outbox reflect exactly4 committed messages; no model or persistent environment touched."
+  ],
+  "candidate_history": [
+    "First candidate1passed3.34s; bounded HTTP/chunk lengths, EOF explicit failure and exact socket reads added, then1passed3.25s.",
+    "Separate candidate Node production parser/actual callback/QueryClient received actual frames and deduplicated cache; initial dependency resolution failure corrected. Not mounted DOM verification."
+  ],
+  "limits": [
+    "AT-015 remains not_run until actual mounted browser disconnect/reconnect demonstrates no duplicate displayed row.",
+    "Node callback extraction checks are diagnostic only and are not added as implementation-mirroring regression tests.",
+    "No full repository CI or real model/provider call claimed."
+  ],
+  "versions_lock_changed": false
+}
