@@ -1355,6 +1355,18 @@
         "ref": "6a43cbd2646b3ee394045fd6d8dc1da61ba2783f",
         "summary": "native.webchat原始provider_event_id持久去重，主线13 PG/bootstrap +7前端通过；实际Message→Run→Pi→HTTPS JSON→receipt；仅本地提交。",
         "recorded_at": "2026-10-08T13:42:19.560638+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4f5b3177d763e59693954e81e21042d0606607ff",
+        "summary": "正式0056 bootstrap、受治理拒绝记录与独立Human Function/UI；主线PG首40+16供给重跑、131 Runtime/web+17 Node通过；保留两次夹具失败，不宣告任务完成。",
+        "recorded_at": "2026-10-08T14:09:16.836738+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/scope56-main-evidence.json",
+        "summary": "真实Pi/PG/HTTPS/Human权限、当前撤权及写后TTL回滚；完整CI、视觉浏览器及当前头真实模型仍待完成。",
+        "recorded_at": "2026-10-08T14:09:16.836738+00:00"
       }
     ]
   },
