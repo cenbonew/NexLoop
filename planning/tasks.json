@@ -1592,6 +1592,18 @@
         "ref": "c6e5065118642a2bda06d2a7f08428fcf91dab0f",
         "summary": "Actual58-test clean0062 PG/context/ordinaryArtifact/bootstrap main regression; current Source producer and current-reader Message Object/body/actor READ, accepted-body correction invalidates old copy. No full CI or AT-004/009 completion claim. NX-018 in_progress.",
         "recorded_at": "2026-10-08T16:49:11.264866+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "02d921ce26d84107956c2c237c8c23503d7df9a0",
+        "summary": "Role v3 current Source authority, clean catalog0063; main PG61 + Host56 + actual two Pi Runs1 passed. Receipt recovery after Role revocation remains pending; no full AT-004/009 completion.",
+        "recorded_at": "2026-10-08T22:15:02.266016+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/NX-018-core63-role-evidence.json",
+        "summary": "Frozen437 source paths unchanged; main61+56+1 passed with first runner failures retained; bootstrap0062→0063 only.",
+        "recorded_at": "2026-10-08T22:15:02.266016+00:00"
       }
     ]
   },
