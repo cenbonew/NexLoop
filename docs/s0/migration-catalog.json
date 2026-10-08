@@ -1,0 +1,1994 @@
+[
+  {
+    "source_path": "src/eios/migrations/0001_durable_core.sql",
+    "sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0002_ontology_event_schema_version.sql",
+    "sha256": "40331613c2710ab4ef18b92e89409a6b2bc92a9835b98cc400fd0f613bbd8e72",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0003_runtime_audit_action_index.sql",
+    "sha256": "c2c67629b3b826a623cae67e40efcba71b74d2001e7b555268b6eb3f8382a485",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0004_async_runtime.sql",
+    "sha256": "332b011ad85fd268e16ea3da5a25df69876cc042372440daceb6561245e7b524",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0005_tos_artifact_lifecycle.sql",
+    "sha256": "a75619a4b749c7529e29b57b61facf44af52dad5f7490d0e6dbfe98c17f542b3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0006_artifact_gc_claim_safety.sql",
+    "sha256": "c19f1afcfe14d339548eea2947651a504008f27403238ff7ab6a4dc4094896fc",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0007_access_control.sql",
+    "sha256": "423f50b6dc03d29fdfb680edc0a1e606fdf703de1c0737f231f2289fc0c3b5f7",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0008_runtime_engine.sql",
+    "sha256": "4f3fb5bb385955c0d9ec0687a1f1fe4d2af4379db833385794a77f8fdf40fa74",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0009_domain_expansion.sql",
+    "sha256": "c93e5f4ba6ef0e0b9dea0bbb36377570d071b74d46bc0a18fccfbac659377bd9",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0010_memory_projection.sql",
+    "sha256": "7d544cd4360351335c607290e543b08b532155303d89487790b43acf4ba2a50d",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0011_integration_connectors.sql",
+    "sha256": "fdbe9936b5b3147b354718c778125548f3e4be238fa38be9e8b264d1e9d1f740",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0012_audit_access_denial_actions.sql",
+    "sha256": "4582a25a90c7a9a8f58447bf785c9af5c58b9a1df0633bcb832bdc904b8b02f1",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0013_object_property_indexes.sql",
+    "sha256": "878e28c1a6e8a20ad263cd62656ebe78055426b3d038e11b4eed17f3bc9c5263",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0014_approval_subject_envelope.sql",
+    "sha256": "08bd9de18041dd8e7a1a4b44ca69247c778b5552e658761c958d1a82b6716d3c",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0015_approval_cumulative_decisions.sql",
+    "sha256": "9f72003e65dab8a17df9dbc128e212f4c0e5b6ca1eafdfccf829a40ddcd9bcf2",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0016_dataset_assets.sql",
+    "sha256": "569bfe39e966546be3038be40bcfc0265558dfbca0ceea03f1015db9fb4d547f",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0017_pipeline_receipts_health.sql",
+    "sha256": "76c54709ce77bbd7ff36c40c139d5cbbcc466b788d5823d228145b282550e99d",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0018_connector_scheduling.sql",
+    "sha256": "fcd850b7a19f0fcfbdcfa8fce6617706acc9553efe4af90f16b5f051b491a304",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0019_relation_lifecycle.sql",
+    "sha256": "3e729b82afd8e5bf4fea0a62250a9dfb6995e31dbb58b41f160e49f784efc188",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0020_function_result_cache.sql",
+    "sha256": "14034cd738dde49352b1cff9f089cc5398ef1d8003cac8360d3b8e5ee6206155",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0021_security_markings_base.sql",
+    "sha256": "78904413bef3191836694109f72f164ae9181a73efceb997793914a3022a57df",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0022_object_markings.sql",
+    "sha256": "84aaf6db8c5b88de7c67160e63084596b16bbe5d95e947f24ba2d03465e24f75",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0023_approval_sla_expiry.sql",
+    "sha256": "4aae794813330313c82ef4ad18d97e9a67a5d940cf104a068b9ea1b761fffaff",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0024_runtime_lineage_edges.sql",
+    "sha256": "e393b5a9d115f2e2107697449472ba74f637556d655a5f992daf7034f4c0edcc",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0025_action_batch_and_notifications.sql",
+    "sha256": "b1198a8840bac88a73df66b1b51c33fba72d13266c31fd152b2bb04167e20359",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0026_relation_valid_time.sql",
+    "sha256": "e896af3ef8c8e0d51ae59e8639a098bd255068bdd3cf35e463db0a771ccf94a1",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0027_pipeline_versions.sql",
+    "sha256": "9a504c8ff409bc00691d5afbd360134297a34612829e9fda6b3ebd947c5bf6a8",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0028_object_set_revision_members.sql",
+    "sha256": "b3a493222df556f04605e4a8c6fd5f153bf470c9407eb701f5af3613b743c47a",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0029_transform_versions.sql",
+    "sha256": "3d1ce84464b8af42bf36cd61c353e97bc8ec830ef159bd0fea315b6309149ba2",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0030_access_directory.sql",
+    "sha256": "4bde5c0218ee1e446c497dda4b02f628537e68290c39f7516c29d6fc62d9ae21",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0031_login_users.sql",
+    "sha256": "a1454c5e67aba1cb19e405b69cfc96d4e9e628d45b1dbbd189660e53d54e9f35",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0032_dataset_bindings.sql",
+    "sha256": "a2d301d3ae896310f51adcf7d34a2ed0de9b7134cda02b02bba581695032449e",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0033_audit_ontology_authoring_actions.sql",
+    "sha256": "3bea1d0eb64b459dc5209f8bf12f76684448530e7249f0619d5903b38b239523",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0034_connector_schedule_cadence.sql",
+    "sha256": "67bb8c5c29f89d6bf6dc954ee8568c1a01637e2cc219941a6c0df88606c9f6e1",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0035_retire_demo_collection_ontology.sql",
+    "sha256": "c7f4173276d9be107e2a847b6f2c3c9b12924719e37c681d1e31ef3bf4db4665",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0036_connector_sessions.sql",
+    "sha256": "d0a71d34c479b7fc44a46e8020fb8646838c751586e6e62af91bdfd5b4e809ec",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0037_retire_collection_cycle_objects.sql",
+    "sha256": "ebbaa61b8cb685772fd650c7890d2c18f6ccb51d834bde6abb771c0a5e779951",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0038_alert_center.sql",
+    "sha256": "acdcc58e85b7b64ecdd92c2ed79b71c49f12a8d098d4aa8de947a4828a801205",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0039_inventory_window_prune.sql",
+    "sha256": "e013d7b43bbf8eb124b12b2007a205e6f7e4be34411ebe30451e386644aee977",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0040_external_write_attempts.sql",
+    "sha256": "83f9e1a665bfa6c22708583ffd81ee962f258efaac1d0e89a8e9bc8cd56af6a3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0041_retire_provider_neutral_court_types.sql",
+    "sha256": "f7eb0c3b00fc63f9bd165df3e410a7ab42acf724149070daf0190e968ef3f9fe",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0042_expunge_collection_cycle_type.sql",
+    "sha256": "3acd32bd664a332842bd15a8b1f14fbbf994f6b2d6986dd08a2937d3250fbf0d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0043_portal_access_key_lifecycle.sql",
+    "sha256": "1ceac5edf87bd85f547cdedad5547cbd20dc9ef58bef304d8df10908718e18c9",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0044_portal_create_principal.sql",
+    "sha256": "21501587a5620da78816e1dd86ce39e3eae5b909af06e2659f05a31f83b08daf",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0045_portal_disable_principal.sql",
+    "sha256": "438a6b37f9240ed8c8ef49e2c36cb7abb1effbfbb65aee0ff59025386e8bbaef",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0046_data_protection_ledgers.sql",
+    "sha256": "af48625a9aeffe71923fab76508c2b0473922bdee919a7e6d7089b7ef5d922f6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0047_sports8_append_partitions.sql",
+    "sha256": "17365669b1a53450fc24b8b040a6a562f8e03f15be15e9dcbc7b92cf4420a8e5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0048_orchestration_center.sql",
+    "sha256": "a7da5fa73284c1c1974d251e2e6da96aff7a1109f27f847d20862414e962375d",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0049_external_write_attempt_target_key.sql",
+    "sha256": "b78d892112314cc8ba4203af761811f51d836a7186c7baa19cf2d3b65575d1f9",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0050_connector_session_runtime_grant.sql",
+    "sha256": "ac26983bf27e937452219e9fb3df37f41417cb14b62bcd013edb917618cff9b1",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0051_write_ledger_ttl.sql",
+    "sha256": "cad311695a96c36103a827307f09b447ff88a5fcb4f9ec2bca4816c45738319d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0052_identity_subjects.sql",
+    "sha256": "03928d3309d62182db3d1f5603775e39ddb82f60e1c9a3a152e3302dc0568185",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0053_identity_sessions.sql",
+    "sha256": "4654f58611f08f794bc1ee41bec900cd4b22c3cd5fef94f85097cfb2b16e7700",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0054_groups_roles_grants.sql",
+    "sha256": "229a3fc70cf5ae1b282b532fa76876ebdd3666c151962a55f0e435d58775d625",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0055_authorization_resources.sql",
+    "sha256": "168306efe7a301a94b23c78ba7a77f7f4e16b662a2e92a8355753d81f0837921",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0056_application_agent_authority.sql",
+    "sha256": "e0a979e2fcf50199f79e6b699950812006689d4892b2a5bceb8523a4c12954f7",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0057_policy_registry.sql",
+    "sha256": "f560ed4e6cd1efdf29c7a11179cbb1ef84bb6f0339021d575f7179c0b6e13759",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0058_authorization_decisions.sql",
+    "sha256": "97301ef4aafdfba4943074ff8ae034df490ec7467f0dd58423065aa9511aef06",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0059_authorization_audit.sql",
+    "sha256": "741b3f76bd58ea9a71579602de4c7ea0ed3976719b6704c4403605f3c7d58501",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0060_delegation_job_authority.sql",
+    "sha256": "f3157a34c1b67b36294ab015f5a2f7a946898cc51ddc1916077032ea64bde983",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0061_authorization_governance.sql",
+    "sha256": "c8e26ac7fcf622b4dc29171458ee809659934d6f35dfe51fd9e51e152a3f5988",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0062_enforcement_cutover.sql",
+    "sha256": "acf9893653b5fedef1f714f3267932d60c70d297376119417e966c95048861ab",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0063_local_account_admin_lifecycle.sql",
+    "sha256": "1312cd1aa92195a9be9341be885c89c26d9c98b22ce55bf7e683b4eee76cccc1",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0064_orchestrator_action_authority.sql",
+    "sha256": "a709542e098b6bb47f2285d6d7601a608046d612fd5cb27d3e85f9c0c2bb3137",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0065_delegated_yundong8_authority.sql",
+    "sha256": "76a313510800ddc9e4e39ffc19a938576c0d99f4e98b520ba4243f65b418a5fb",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0066_action_execution_authority_context.sql",
+    "sha256": "95efd774b666e96a614c8b8792654bb0c6872f6733fbf203d1822275c89f131e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0067_delegated_authority_closure.sql",
+    "sha256": "090e996fc6ad6e87e492b923b380c421139f4e267db3e71b0c53f96b1b24518b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0068_delegated_worker_approval_fence.sql",
+    "sha256": "ec890f0735c4e2a3a0008ef982a63689c5e0b3d69507efa5d4167f0ac2c5c606",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0069_service_principal_tenant_binding.sql",
+    "sha256": "f93c30adfb30ba84dda666cf21c94750cf5c55b7e0e45741a7b1fde93aab49ea",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0070_external_write_attempt_target_key.sql",
+    "sha256": "19d0b83424c061c6cae80bf835f1f464ff06e40654ef122e7a265dfa7542f982",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0071_connector_session_runtime_grant.sql",
+    "sha256": "394764595e1dda38bea89adf148b80e2acf5d55f26eeb010a6a88aef76d7a660",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0072_write_ledger_ttl.sql",
+    "sha256": "ddc27026aab9079d63e5da2c0bfad7ba75c641557ed093c9f4ce7250eba0b89c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0073_approval_human_authority.sql",
+    "sha256": "830c90728a1a69e6144e9ee2382f4dff6ce7906041ba127a5d7b9c6b32d4c799",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0074_effect_worker_revision.sql",
+    "sha256": "62f2b6110454ba81c144ed25c9301ff555a5fa3d39eb3e11c7e7cf2e1ac2b671",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0075_property_security.sql",
+    "sha256": "bdcdc4065a974a9b74bf06ec634f5516a70873850c9f502e3339e76ba329f0e4",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0076_ontology_only_edit_via_actions.sql",
+    "sha256": "843c755f8a70a70c1de0ea09562ff37dc25bd6dc43e38fca71956fa34ae9bb7a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0077_portal_ontology_read_routes.sql",
+    "sha256": "3689d41309dd98e6a063b35f6d6f06917d31b75112848f0a0b02403699b160c0",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0078_ledger_prune_event_type_names.sql",
+    "sha256": "50a35d8b362b56ef87b7e81be9019b1f48e1974a4c4bda36d99374116643c514",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0079_revoke_direct_invocation_writes.sql",
+    "sha256": "45cf833eedfc0811740724276280c7e310cd7410b5e009a154022eafb531110f",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0080_revoke_writerless_table_privileges.sql",
+    "sha256": "50ba961c008294702a70f2681c71372b717d7e13b0e31067f9e793639302403f",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0081_revoke_legacy_runtime_table_privileges.sql",
+    "sha256": "2c5efdc382577148bb2f9de4e654590cd3a2c9ec88faeedc36db37cc8ca7fb1d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0082_share_admin_routes.sql",
+    "sha256": "436c68c3af235112c34686e504749e2323d1fc6f46d4c76b9b65cc4a99fe5406",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0083_tennis_easyclub_read_capability.sql",
+    "sha256": "c136bcb34506afe9058f066d990826202a05f3a8436f0bd495d55623bf17d09e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0084_api_key_archive.sql",
+    "sha256": "9a240a7698923113a5dd294fbca865c242a9f731cafdbe1abecc7048801f3ab0",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0085_mirror_policy_authority.sql",
+    "sha256": "bb45343d761456a67f26a8cd11f842f1248057a246ac85a9e9e40cdc2912b0de",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0086_collation_stable_audit_shape.sql",
+    "sha256": "6c83c06c074c74a657556f23433cb02d0aeab530030112d4499009c2b4e152eb",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0087_scheduler_revision_proof.sql",
+    "sha256": "67bb03f6426871d6e94504298f83d618d51232d4493d28bffa3cbbe7ec4d0c03",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0088_spawn_replay_parent_independent.sql",
+    "sha256": "e8c5fd59292d31670d2ebb2976fce20ed8a0f3b9a421faae6b55a9f026b32600",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0089_approval_subject_context.sql",
+    "sha256": "8377b8fc14bf0679a8439c6f5168d24aa3e480ba0e8b81a53cc654f31de0a89c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0090_approval_subject_context_without_step_row.sql",
+    "sha256": "b97e091281336b597d21019af22aed1a3935910eefa470a8b63146946505f121",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0091_root_use_consumption_restored.sql",
+    "sha256": "7cce44faec92d0be23f4fe6cc08942c7dde2a8363fe68254e5ab437f74eb7e9b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0092_authorization_lineage_repair.sql",
+    "sha256": "70b66d98169ada3bb4cd36f9278c4a11f9bcac091465623a9286505431fed039",
+    "decision": "review_for_extraction",
+    "reason": "Generic candidate; requires dependency and authorization review"
+  },
+  {
+    "source_path": "src/eios/migrations/0093_authorization_revision_performance.sql",
+    "sha256": "d66ce43158950e9e7b480d48f48df581d3882e5568f43bd3e64b0c69472921c8",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0094_collector_write_definers.sql",
+    "sha256": "a14ed7741de3364e3d89ec7723f1dbceea4ec3ef4e7901a2679c80d2d3f98ed5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0095_revoke_collector_table_writes.sql",
+    "sha256": "aeaa44cab5a1f7f1d09473626b3be93f065b57f6d994f2bb33b5aff49528fa2a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0096_binding_write_definers.sql",
+    "sha256": "ba815e577c2537b1981c1cebcffb2b8e7addba168aa61fedf2e278ca980e65e5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0097_revoke_binding_table_writes.sql",
+    "sha256": "0f09aa4d1230d236a2151e992b924f68fcc4209f77ac96dfb2e7bb12189a4893",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0098_inventory_prune_covers_every_channel.sql",
+    "sha256": "4bb2076c9173188a2295a825693eab7d1eb7b230f7af3f2099d4e1cbab9636e1",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0099_ontology_write_definers.sql",
+    "sha256": "48edacc84a2d160e18f283fe90e9ef51b54de1d6afca23177288d13e890c35a4",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0100_revoke_ontology_table_writes.sql",
+    "sha256": "b7d8938fb26ddd0f19296ebea01c92ef97050009b452ab4b7ef7feabe03c4156",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0101_pruner_proof_covers_every_prune.sql",
+    "sha256": "cae885fd4d1679b6ed0ceed953164a9f716741a39cea18ad402e889a44fafdca",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0102_tennis_realtime_control_plane.sql",
+    "sha256": "9f4db004648354b7e5dcebf68b9aa0c43c58cdd077f5b69e0cfcc9c281c4eab1",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0103_tennis_realtime_observability.sql",
+    "sha256": "de7a3b9dcf977a90ec894bd38d611397ab7d131c6bfdce8aaf60314222eddec9",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0104_tennis_realtime_report.sql",
+    "sha256": "0da99e58f6eda02d2446ad0c1a189db0380d00c6d90120c8cd804ebf826b107c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0105_tennis_realtime_monitor.sql",
+    "sha256": "1bcf4b7f7472a9c59df31295ca64841a0509266f638ca22a9f58c90b62359ba7",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0106_tennis_controlled_sample_execution.sql",
+    "sha256": "e509819e39bb719daa9be09f2b89fc8c7c3414f884a90dd76e50d848513fa343",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0107_tennis_realtime_final_hardening.sql",
+    "sha256": "82391894265f31f07987a0c7f8326de3906fc6370052d8867bced9d7e229a1b7",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0108_tennis_realtime_owner_hardening.sql",
+    "sha256": "26f6df178c6131cc23b53b65784fdcc30b4543e86d363417e3fdacebacc1f6e6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0109_tennis_window_shrink_contract.sql",
+    "sha256": "50c0b4800c9fcbfbfc8d6127aa114299c6760b9f6376ca3ed00d534eb2ca8db7",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0110_sports8_session_coordinator.sql",
+    "sha256": "1074e90026f2dd8e3c4e6c0cba5ff48c5ab38e791578464d76d12c8c78852aa9",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0111_sports8_named_login_identity.sql",
+    "sha256": "74d2092f8ba0fd0ce3e49a6cfb6666031a48e8e2927b86c226487aa8304a52ad",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0112_tennis_court_day_venue_contract.sql",
+    "sha256": "d01efefa86f94b0f52f07661c12fb1549800887602e8fff3ec419df0ff3c5527",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0113_tennis_projection_shadow_parity.sql",
+    "sha256": "a65201b5e56d3dbc566508b98a084eef5f4702eb54450c09262523c2d8849f20",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0114_tennis_projection_baseline_pair.sql",
+    "sha256": "38bde16b6d918e1bbd29fddd3ee1da0d5da713dc4e794ab081b48651b403d39e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0115_tennis_projection_end_of_day.sql",
+    "sha256": "60854366291d682963213b4419c266312272fae7ceea13d5aa94d8321ffefab5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0116_tennis_risk_first_cadence.sql",
+    "sha256": "4815ee645f74c6ef74ab5a653a47059de5b2e0fcc649fa68886309202d24f465",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0117_connector_schedule_backoff_overflow.sql",
+    "sha256": "37074118373e5376513509f243118e590f0a6a51b7b3d70d0c1b8e1bc57a76dd",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0118_tennis_collector_raw_elapsed.sql",
+    "sha256": "ed1303a3b7c115e7553c0ec0ff7f6237a2020f50c80fddece12a6a05a88e3703",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0119_tennis_collector_success_closure.sql",
+    "sha256": "a89b7693023fb1be03199adf81cae46e8995697847244c5ea9058fe4ccbd1c6a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0120_tennis_collector_seven_second_closure.sql",
+    "sha256": "3dcd95f151ab8155e9d9779fcf1fc5d981c860d153e0462932addf32c0ec126f",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0121_tennis_collector_dual_concurrency.sql",
+    "sha256": "93b3e45d729591370f90f12053c007a05cfe3c377ccc07960b01c762379605bf",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0122_tennis_collector_run_span_gate.sql",
+    "sha256": "196cdc57ab0526fd14c8593faadab6bfd7661919f02ddf5b5c3649792e56ee02",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0123_lineage_records_key_index.sql",
+    "sha256": "eefff69a47eb7bde45d4217aad880bc4ecf8c6c7f5023a7bd741b219498e2045",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0124_monitor_projection_cursor_modes.sql",
+    "sha256": "c192fee09841124b2de2cd6868cfd9e5d59ae4fe4f61ce7397dd5eaeec72f1f3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0125_tennis_projection_window_tolerant_binding.sql",
+    "sha256": "16e84f5a8f1098e04fd740f23b782193f96f8ea1f8d6d1729ffd922de815f311",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0126_coach_availability_route_projection.sql",
+    "sha256": "ad5e7864e48d085499c22bb30375aec1cf21b19b6218ecaf517134056714f04a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0127_api_key_scope_update.sql",
+    "sha256": "5ff8941ebe954a5a26dcb4eff64619c90e19d21d27abbf48206131390af073cc",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0128_schedule_change_route_projection.sql",
+    "sha256": "0062f8904dc0c656358e7a5b4879f8ec4fc8138876ee2b74a8185c405f638c1c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0129_tos_incremental_sync.sql",
+    "sha256": "5f2777bfb7405b35896d28a22dce657b3300a8e645b31bc4bfb9438a3233224e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0130_teaching_assignment_route_projection.sql",
+    "sha256": "4a07b17c76b79098b063baa0601e6b8ba9f8356d06b535fc89dc8f1befe53d6e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0131_alert_copy_chinese.sql",
+    "sha256": "caf1cffced4c78a105ce6664620d66a97ca946c31e7455596a437cef7dedd202",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0132_easyclub_triple_concurrency.sql",
+    "sha256": "2f8bf5e6a21392c4d98f6376f7bea079f9dbf2d0d8212b78bfe1d10f11e03926",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0133_calendar_visibility_noop.sql",
+    "sha256": "77c737199e48fa9b1b78028cde7ebd6ab5ca3131eb38433c3f12f2663929c66c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0134_tos_sync_gaps.sql",
+    "sha256": "3b576bd14c078d3b39b1f28120eab8f4b892696f15ff477edfa68caa8bc433b8",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0135_tos_webhook_delivery.sql",
+    "sha256": "83a23183a0e0bdbd98cfadf252e6b3bc181bc2aedb01795c368ac25effff409f",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0136_tennis_window_retire_stale_projections.sql",
+    "sha256": "556969e358c59c45a6ce430395318aea4581ef5df5b69bf5b9f0b478a0c0fda3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0137_tos_webhook_subscription_update.sql",
+    "sha256": "008bb4f135cae155718caf6b803f15a9317fe8d39645a08e018866834651c97b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0138_tos_webhook_idempotency_fingerprint.sql",
+    "sha256": "dee3b757b19931cbfe902ad2c979efedd8d58b05f946bdab2091672fe148f6f4",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0139_tos_ops_alert_reports.sql",
+    "sha256": "ec2957e7216065ff178330835a72197885cda2c64e3a2562ab782c8a86c5f847",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0140_tennis_effect_issuer_runtime_usage.sql",
+    "sha256": "fca54cff9e5dd4515298fa96fa13b76f3e354f299dd6ebc09320a8159825ee01",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0141_tennis_control_plane_sports8_session_read.sql",
+    "sha256": "27c08769a750e7161a7fe34d89ba189ee25c95dbed14477b8a030ece9916c787",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0142_orchestration_alert_recording.sql",
+    "sha256": "56043091bf4d41ac5f1ec8ab635b6e8987cf21fadb99e27c912ac551bcae6690",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0143_tos_alert_forwarding.sql",
+    "sha256": "8b8c72f0732d91bc3df83c5725f329446a3e44404cdeabcbd556e82009f982a9",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0144_alert_claim_scalar_cursor.sql",
+    "sha256": "0ced7437d861d95b06a76ef80a7d59efccb5d460a67005af75c81a4edc6bf428",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0145_tennis_directory_collection_gate.sql",
+    "sha256": "c75f6fb278ee0bf655dfed1f283bc8d65d3800949540f71e74e9dae624b2c9c9",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0146_course_package_route_projection.sql",
+    "sha256": "8bc1053fdf36832d94f2339596c261ee5d650d038a1b0cada219ccaf913eb659",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0147_tos_sync_ledger_route_projection.sql",
+    "sha256": "f3eda6048f991081f801f0dc79ee02c7b632f6f5876ff3901d247a10e823afa4",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0148_sports8_session_read_binding.sql",
+    "sha256": "937d07fe5001415dc852a38e563cd07e357fd28afdc9d4b6b8e539305bb77c4a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0149_authorization_facts_delegation_binding.sql",
+    "sha256": "f68041ec3f58b168347b0fdcdf74b43b7a2ec56400a6a55abf4ec903a50f7479",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0150_delegation_expiry_instant_comparison.sql",
+    "sha256": "251f883f35af8f88f3163f6cd1d8dc724c37cc77b8ecb9ab2968581cc8ea52eb",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0151_authorization_facts_tenant_guc.sql",
+    "sha256": "7cc0049b3f25ed8a4e71c4e844f488dc8736dee95dc5f4a2dc48a6db00f85e53",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0152_delegation_scope_ceiling.sql",
+    "sha256": "7d6b6b105309ddb6d05e5f4868d068ccd6b333cec82b184ea9df0d890da7278a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0153_delegated_agent_actor_principal.sql",
+    "sha256": "e6ac113325c251dcc0770fba98f23a878697010c5022f1285b97baeb9d238864",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0154_external_effect_route_scope_binding.sql",
+    "sha256": "181cec42554908696b17558cfec802868208a2ee12b886c40d14325a4f981515",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0155_external_effect_dedicated_scope_catalog.sql",
+    "sha256": "642f81e41e65e6af12a7a38ef25eb7762c65b03df34fc0bb3e7c48b9f13187f6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0156_external_effect_scope_authority_resource_type.sql",
+    "sha256": "b9ab5d9caa7df17fd98360bd770f4773ae8ca66dad3fea1555c05bf0825837d2",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0157_external_effect_authorization_enrollment.sql",
+    "sha256": "641ced2dcb586160e0e64ba54c6679849694296413bde762b64899425095cad8",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0158_external_effect_enrollment_tenant_guc.sql",
+    "sha256": "b6affdb942e9891603020e32859ac2c142fd0b095f1b760718e42a0d632c64df",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0159_type_level_application_and_policy_bounds.sql",
+    "sha256": "4a44af70ca1a3f0a3b8bc8eeb7dba82d02baf9a8852698c57dda43bd80274bea",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0160_external_effect_policy_baseline.sql",
+    "sha256": "e344752a48e3105bceba491cd7ae7bce6bd318e3edeb339573671c1fbb22b1ee",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0161_external_effect_policy_activation.sql",
+    "sha256": "0507a4f078961cc8d0583ceea848e6550b21957ff7684408a4df84d27c70021e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0162_publish_type_level_application_bound.sql",
+    "sha256": "01b0c71ba03f58c6b81c20d981cadfff01887b008eba8a2941e4caf7a8b0f41e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0163_service_delegation_anchor.sql",
+    "sha256": "af5e16981dc733cbc0a61cfd8561893a2ff30aff6cc301a681426d9db5ccf4bd",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0164_delegated_decision_batch_bind_grant.sql",
+    "sha256": "9085cec0ad11bb8fb4a4cadacfd5a94e0aedb119bf7ab635ca1c742aa41ae4d6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0165_decision_vector_bind_tenant_guc.sql",
+    "sha256": "4ded432968183d8c3723a61378cf776ee4640607343e5882a61c090b8fa2f67e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0166_service_anchored_delegation.sql",
+    "sha256": "094ecc88c494e6eb9aadd0e9739336086dcc3a63441f7ac4b1bf93015a381c57",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0167_service_principal_write_grants.sql",
+    "sha256": "b9d3ecfa077b6fe7f14b09d501b1ec03b2e2912cb2193a71b20d9d78d52942a7",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0168_mirror_scope_vocabulary_bridge.sql",
+    "sha256": "a15756e00557b7b1fbf271024047595e5861dbbb077d9ea54b6535fb4336eb60",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0169_mirror_scope_bridge_bindings.sql",
+    "sha256": "af1f03e19e991fd24c22040ae54957e25083ba94b8f0e3caa23abb344edecd32",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0170_anchor_execution_identity_sweep.sql",
+    "sha256": "e29561858d67ecfcda2d10da694fb084c2b9678f08e9efacbe37f7f75539cba3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0171_distinct_mirror_policy_approver.sql",
+    "sha256": "f233c003768ac3b28c1ca543a1fec24ee20eac8036e33967d945bd8255d1f577",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0172_canonical_vector_collation.sql",
+    "sha256": "ee5c9cb984972a2009ffb3fbc6a78375b0cb68db8926ef5e40147a4b307932ca",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0173_anchor_batch_bind_session_gate.sql",
+    "sha256": "94b838ae03e0aafe25586f766025256c3ab3a7a9f48c5885325138eb8ae095f8",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0174_audit_shape_agent_chain_digest.sql",
+    "sha256": "bf0691717d725020dcb591c143dfe3c585104a729aed4d6560b90d0fc54fd0c3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0175_audit_shape_scope_digest.sql",
+    "sha256": "7a7348ad8840e05bdd9669322fbdddfa78704ce50cd91aca0ccb6a6e39c2a273",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0176_control_evidence_not_in_ceiling.sql",
+    "sha256": "1d52bcb6ee8d03ef42489e81cfba62eb2027e3973c07c30207f53c63995fd135",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0177_claim_skips_expired_queue_head.sql",
+    "sha256": "5b12a51c8ce865fed06a755fc56c9cd706327aecd7121a0a26927af0f47ac5db",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0178_context_gate_grouped_diagnostics.sql",
+    "sha256": "f6547b996530192a6e73a7f1199101044e05cb9c0bb1550d4acf363d0e77309c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0179_anchor_job_authority_session_gate.sql",
+    "sha256": "cdeae1d18164261eb743d8dc9130c81a79ca6e7e9f6175093451e5949635fd83",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0180_job_status_reports_expired_queue.sql",
+    "sha256": "629278c6d01a7411f2e42c1310e501e4d9680f64ad796af35577ffdab85bdaa0",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0181_run_step_state_gate_diagnostics.sql",
+    "sha256": "f484a16bc659bab943eb2753b6738afbdf900b27827a9577f23e9882499929f6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0182_reclaim_and_status_exclude_expired_jobs.sql",
+    "sha256": "fa7f68af93704fabef8b26aa592a2c4524461ce0275ea61f86ee5730a266d992",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0183_resolver_allows_waiting_action.sql",
+    "sha256": "50892af8d244fb2ddae59b6e8e27161f13ce0cd906682272536d8a27284b7ed4",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0184_decision_liveness_resource_slice_tolerance.sql",
+    "sha256": "42becd9f9b0561b596b756440f5698fad66d422f35ea67b523f0bce500256800",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0185_effect_authority_attempt_id_precedence.sql",
+    "sha256": "8cb953fa538ab964b4f5324592e4c3292785a3485c04bc7e71d13d3872d22aa4",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0186_effect_authority_head_diagnostics.sql",
+    "sha256": "62dd9cd7b5f664fc505fff69b5e324d7dd238e7f153384e450ef4ee1817f1c68",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0187_starter_effect_binding_diagnostics.sql",
+    "sha256": "4c4c37eacb44b02dff1ec7cec9198b467d282703ff6da93b4d4855c1e5ef2385",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0188_starter_diagnostics_escape_observed.sql",
+    "sha256": "8bbc05200f9ef4d18e32bba0ee5700515e864af61def746a5dc6191caf951ad0",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0189_starter_binds_app_tenant_guc.sql",
+    "sha256": "766141f7fdf49ba4267a643d7cd8e232658220f061aecb27781599bdbe4b723c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0190_decision_liveness_session_source_tolerance.sql",
+    "sha256": "ca0e26bc84a3e0bedd0529ea7f734eae600196c0f63de0d802f547182691277d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0191_observed_denial_warns_inner_message.sql",
+    "sha256": "6a8c2b477e4666f9794e0489563ed70e2077c1477c783665ade04f04b8ee5cde",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0192_revalidate_warns_inner_message.sql",
+    "sha256": "b88f09dec70b5f4a00d607afd2c5b68a13b6c1aa9645e406f5f5311e308adc7b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0193_job_authority_accepts_starter_identity.sql",
+    "sha256": "63a0fbccbc93263f079c6474662bfa60fba090c96be9524ac71a59abb906a2ce",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0194_reconcile_stamps_facility_block.sql",
+    "sha256": "50d85d7ae10d8467237e947f4199518a947773e58ff4b0414a61315dda82bb39",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0195_mirror_sweep_redrive_rpc.sql",
+    "sha256": "95d7b38afc44381c39b073529b77136ff3ea08540057bbcf3055f2df947e971c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0196_work_run_steps_allow_redrive.sql",
+    "sha256": "dbe9e1856893b8a7b1d1529e239fc252ae9c7aad1c1cad2ccfd038aeacdcf53d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0197_calendar_etag_revision_scoped.sql",
+    "sha256": "4c85aac3ead539b2815713393203fd8f4153f3ab6c990d1297b9e2f2719c0549",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0198_redrive_injects_episode_trace.sql",
+    "sha256": "5e329fa81da1d8725a6e86ade34622e0b58d6b6b9ca143810ff3a873ae48145b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0199_direct_issue_canonical_approval_digest.sql",
+    "sha256": "25490e420a6272787fe059d6fdc73c9362cc868ce220ac816869adadbde09a78",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0200_delegation_renewal_read_grants.sql",
+    "sha256": "d9739586f38bfbb8945c358065c3a34983ba9ed32ffdafe87513a12064e8fe90",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0201_tennis_note_label_config.sql",
+    "sha256": "e1f17e3861e1daabcd0fef429adf702eec6533c2a6e822fc1a2f63a182114b2e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0202_reconcile_evidence_reason_code.sql",
+    "sha256": "3fbbc89c4152152203833db8e8158f8a79074df096adf3288b31f6a3f23f58c7",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0203_effect_outcome_reason_code.sql",
+    "sha256": "e41c26623020e69efc092c42162187e315092ede3feefb209053573614b4490c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0204_redrive_damping_anchors_on_failure.sql",
+    "sha256": "e3a36c3b0d2fae81416afa5cf247988148e73a447ea58f3b2e111e18665f1416",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0205_tos_integration_routes.sql",
+    "sha256": "6c5219f51440a7c2991a73763fd23a25ad78a2aaa36f089a4aae8bfd16e0833b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0206_mirror_settlement_compensation.sql",
+    "sha256": "f896f60ffa61de1f5f3ce49af648c7f4b8e913bc403d81ea78721d7c29f5c245",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0207_data_protection_grant_drift_repair.sql",
+    "sha256": "da50c9b302cb76113b7163310026a0e291a8d42503e57c32b37bd67339e1e374",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0208_easyclub_archive_channel.sql",
+    "sha256": "3da8d7c40830f56b84b421fc784e620c8264d37f27d80ab65c77ee3174b0c683",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0209_mirror_defer_completed_effect.sql",
+    "sha256": "38de523dd591d67922d0079d975636a42d1935a135d0be83c1683681cb02438a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0210_change_backlog_superseded.sql",
+    "sha256": "036ff43d614a6a3a6416da470cce9a4c8d8896900e9f20d406fa0d0cee8e0c47",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0211_teaching_assignment_retire.sql",
+    "sha256": "690322df5f57a69407faccd7bce3ed51c50accfefdfd659d3ad826847ef4c018",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0212_stale_change_event_resolution.sql",
+    "sha256": "ae95a642b434949de2485f1575fbda8372a3a8ff48203145bd8fcf644a751453",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0213_tennis_on_demand_window.sql",
+    "sha256": "41246000650e57fb84e3585a7d6dac11ca42410ed3982a61df54cf4fc28a472a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0214_easyclub_order_prune_whitelist.sql",
+    "sha256": "00cf94ffcd7ad323b87e94bf2d6dbb98eff34a6ad0fc24b39e1f8158d6fdc3f0",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0215_tennis_on_demand_route_projection.sql",
+    "sha256": "b346b4defedeed58644c61ae5db4425b244596427ea280495b577a16aad3c4a8",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0216_alert_identity_subject_scope.sql",
+    "sha256": "63e80fb0523ae63a994bcdae2eaa955d66ecbd4513aedb3d972f27c60f6e4a9a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0217_on_demand_registry_cleanup_bound.sql",
+    "sha256": "3bdf01498c789434d6b74eb978d4f921022c966c06b6c809c6ca4c8cbaf115a9",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0218_settle_tennis_mirror_effect_by_marker.sql",
+    "sha256": "f0f80b14d807bda5d761a23577a3616f588f1bf2a033098973e96a2393b923c2",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0219_on_demand_prune_whitelist.sql",
+    "sha256": "00b09f9a14aaea73e778b1cc06da9864813ac10caab641968fa10f278d5f8165",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0220_isolate_poison_slot_in_change_batch.sql",
+    "sha256": "dae2641f2332bf57529cee2c7653217594589e5d19052f128551e4b2ecb28927",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0221_alert_forwarding_survives_dead_subscription.sql",
+    "sha256": "f4cacf2d4c9d062a99889b93420e52788c486dbc13d6eed0b0d3d6bca699e7c5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0222_tennis_note_label_scenarios.sql",
+    "sha256": "f7292c5ec2f29fd9852d4a8836985dc8d0df296ebe31145220ee2e3a4825a49e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0223_compensation_reason_from_run_state.sql",
+    "sha256": "5ae78d9447135ab38b8059a26be4a32823940ab4e3c81b9ca56f9f9be41f9040",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0224_reconciliation_state_readback_and_sibling.sql",
+    "sha256": "4d68a79f558b3c50896031bd1a5fe8a1e59d0cae19f8e0d6d999b4e77c2d2e04",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0225_transient_failure_stays_redrivable.sql",
+    "sha256": "22a01843f5e1fc067c2d8c18ea7e2a5f42efe51e0b35dca936fbfcb4814f71de",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0226_constitution_hard_gate.sql",
+    "sha256": "5ae44045a48221e6bec28e3c747e785d478f5eba2760928ea6f6bc8d6a3585b5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0227_piercing_alerts_never_stay_read.sql",
+    "sha256": "93e122d6959c2ef3e6fbdcc559459047c33c9060ccffb683f10d26b9e3be1d45",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0228_bucket_audit_alert_definer.sql",
+    "sha256": "0290736e79eb0ae441bea13dabdf9427beb73a6171ffbeca0bd07ce9c3495878",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0229_ops_monitoring_projection_and_telemetry.sql",
+    "sha256": "8a2404cc2c2ab4d9c87ffc00aaa5f5ed508573b128a1f64a89363f21e9a2d4e4",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0230_renewal_reads_effect_class_registrations.sql",
+    "sha256": "3bc0e7d818201931099362e649f5591f8be48df91cb94ca3f4ce9c00df6cfb0d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0231_guard_device_plane.sql",
+    "sha256": "97d039c0e44dc97eb48f7013783e007b51e189d763ddc1161f5ff0f46012e8bd",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0232_tennis_lesson_preview_route_projection.sql",
+    "sha256": "9400f2d7f153ca8e982a883a2fdc571fd85a042eba760a0479ab797fa8297361",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0233_renewal_signing_chain_acl.sql",
+    "sha256": "fa824f90e984f0fa5625f09f56dfbfbff73171f0814ed1974f888bfaa9c34802",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0234_renewal_fact_reads.sql",
+    "sha256": "67512755359cbb45f44c0d34291d0aaafba304f6dba9693db78b7fec8f2c36ea",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0235_sync_value_daily_rollup.sql",
+    "sha256": "54b3ab4cc19a5a7a2cce304dcb154c75b031c3925a0d64023dc34f20b6e69add",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0236_sync_value_rule_version.sql",
+    "sha256": "70556fc3111f206371feb80f6c7554944a3e80afbfbafe565cb4556e6a04d84d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0237_idempotency_remember_upsert.sql",
+    "sha256": "bb933aba9b0c2226d11d8c8c08d82a3ba09435b7d1166e9f87793469ecae974b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0238_invocation_ledger_write_channel.sql",
+    "sha256": "bc49e610f3e3d59f4f34c92999a6fbc01541eb1698340ab551758a7b768e9d30",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0239_codify_permanent_month_partitions.sql",
+    "sha256": "27f69017031b28ffbb11dbb7098294ef0e72474f2c82aab5b434261b079f105e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0240_retention_enrollment_permanent_new.sql",
+    "sha256": "1f76e22dbcea55d706b84d16a99c5e94d466999584a608aae53bb6248d1e4571",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0241_readback_rejected_terminal.sql",
+    "sha256": "fc6942d7aae916cb465e85f3acb4b5eafcad72c76d32edb5bf5bee276203d7f8",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0242_readback_backfill_under_rls.sql",
+    "sha256": "5715970931b4f64b6f6566d563917dda0ad8178b1ecaf90149c4fac87fc47a16",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0243_model_settings_routes.sql",
+    "sha256": "75d1b6e8909d025ce49eeb827f012e28acd4d2a271a3ab528d62b04d09e5a5d5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0244_stale_intent_expiry.sql",
+    "sha256": "c1b9b2a16076c49164c7518c0cbbc4f72de92d6cb37e6ed20afaa90dbfa1e1b3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0245_archive_ledger_channel_identity.sql",
+    "sha256": "7993085e5b7e49051acb0a9322bede7f7267dd51164f64d408a447fa0ffb8882",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0246_sync_value_order_count.sql",
+    "sha256": "6d763631ed11393a55d48caf5b184061bfbcda402040f31552052862c5596d53",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0247_readback_rejected_residue.sql",
+    "sha256": "a1d886df8449ef0302141e39ae812398aeb2214fff119408d3caaa7d61b46c20",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0248_settle_stale_mirror_intent.sql",
+    "sha256": "1c77d557cafff09efe7ee3591d75973e28034e7d8d0fc479728ed45850de7f80",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0249_stalled_mirror_intent_diagnostics.sql",
+    "sha256": "0391aac8d423783d21ecd2d2bfad4a9f558794e2b1b5450b1b9f45790cf66cf3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0250_retire_double_prefixed_yundong8_root.sql",
+    "sha256": "a55de3288c6834e57f20132b3e5ed1e19affc6c1f4743c3eb72506e7268ccd8d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0251_yundong8_effect_worker_operations_usage.sql",
+    "sha256": "1a65fb03afa5b4a0eb7132eeb84d877c431dd612f9531dc0a43324aa8896151d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0252_root_delegation_health_read.sql",
+    "sha256": "5e1e1ebd4214b7fcc0edb1756866d84a344c989e598156f5c3cb7bbbad3c7152",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0253_unclosed_effect_intent_read.sql",
+    "sha256": "6caa67adc2ddb120c36b6b23bc899370fad1a57d660f2e510aaac9976612119d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0254_orchestration_alert_exit.sql",
+    "sha256": "63978f19453a8fc2116c1003ee8b5a1b3d325df88c520da99d22266bbaed3d74",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0255_tos_alert_resolution_push.sql",
+    "sha256": "bdeac4ba5220b4bc8a60ef5a83089a26435aadf2ce923e27874e742a025d7645",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0256_tennis_slot_occupancy_read.sql",
+    "sha256": "b76857e7790525f87c850f1db73b4aabca1e268a413a7358e86122361e638a3c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0257_slot_occupancy_role_gate.sql",
+    "sha256": "d1117869d09421ecd36324793ad44a67688f8058617dae1de5a86a6d27a08344",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0258_retire_types_without_venue_id.sql",
+    "sha256": "7c58e9f98fb804a085492ce4acd797cc8242cab74a04be8bdd0b2f699165505c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0259_pending_alert_reality_exit.sql",
+    "sha256": "07a0a78fd2ae60ed4c5758e4d8343e44e3c86653286d991d9f157a4b0587e9f5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0260_retire_orphan_scope_catalog.sql",
+    "sha256": "21200b7251265e34735a9d1d8a9e91d0c9ec518995a44feda773ddacc46c7db2",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0261_alert_forwarding_reason_grain.sql",
+    "sha256": "73f211620bf9cf61f5ece7926eda1d2565be8ac625614f4e52f833522f4520ff",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0262_feishu_endpoint_kind.sql",
+    "sha256": "1f95d7845effa90453b00e48cdcf96c64ee92ceb0a1e8f680c6c6e79741931b3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0263_idle_delivery_backoff.sql",
+    "sha256": "40340f29ae691cf6ef9157ea19ecd48cf8d4b02fc295f7472f62422dd5cf91f6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0264_webhook_durable_pagination.sql",
+    "sha256": "14359c6617c24deaaa7b4c10591d349ae7dc239a5df2e6ed948061a286b8a664",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0265_invocation_retention.sql",
+    "sha256": "4bccea0075858824b44488159b24a30c262d2ff7fd38588c5bb26d65da6d6e91",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0266_cycle_head_history.sql",
+    "sha256": "57ca8f654842ee19d5085df4f116b3214a2ee9a67b702bc01a7baef7344e9fe6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0267_session_idle_seven_days.sql",
+    "sha256": "5cac78e64bb9bbddcc2bced85f9e1d7f4199b5775c98bab334ad7fd67727f9e3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0268_capability_resolver_authoritative_application.sql",
+    "sha256": "609cba931a1a33aa418e8c3f50d0d41a4f475799597e8265bcc1650c7afe52cd",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0269_echo_execution_authority_enablement.sql",
+    "sha256": "84592e0c630fa50a8a89af319db45ec3ac5bd590d65e5d04bf7277db216f915a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0270_capability_terminal_replay.sql",
+    "sha256": "c60c892f335103a97afabe58e23c00ef2e61ead77e4567fddf2306fa377823ea",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0271_easyclub_lineage_alert_recovery.sql",
+    "sha256": "74a9985a449aa02b3c042d4a41fb62472505a125bae1fbc972b28359f3552ae1",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0272_raw_stale_terminal.sql",
+    "sha256": "076e551935a40e568a730e42092b37b032c98dfd5f559ec011409048a47a1eb4",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0273_mirror_incremental_feed_finalize.sql",
+    "sha256": "8310105a90d2ae9adcf7425d56360508e8bb7712aee5ed328bcecdd21f2fa2eb",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0274_mirror_source_lineage_and_absent_attempt.sql",
+    "sha256": "507cbddb9608eb2af21ae8382152e39d003cc8ff0ce8aa76218d8288f6c3ae8b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0275_hour_coalesced_backlog_terminal.sql",
+    "sha256": "774364705f9db20964721c9fab88c15d27d7e03fb9645d1f6d462d9efbb76dcd",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0276_mirror_runs_created_trace.sql",
+    "sha256": "bc4920661d9772470d15b52dbf8a16774ffb58f7582ea57d828a3c741d7e8167",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0277_note_label_read_recovered_reason.sql",
+    "sha256": "192ab85e95e3c7de1958410d3b0a8774edc3685a564565bf69ca077af9fb3655",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0278_on_demand_gate_per_leg.sql",
+    "sha256": "136f8a6ca5fba7e56db611cf4c450dedfd92c1386fb0fa38542d07e20855cf05",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0279_hour_coalesced_run_suppression.sql",
+    "sha256": "5614f65c679dc3a6821f067922bc2546cc2864637add527a820e7f271fa719c3",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0280_on_demand_receipt_freshness.sql",
+    "sha256": "6637f5f45cacbf15f006c0a2e0c5804bf4e5eba0584892393efddb6d03d6c80c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0281_park_hour_coalesced_run_suppression.sql",
+    "sha256": "1c0ddcda9380491d6bbac63a11b5bbb0ffc2bb3010b4c0907dcc25a315e85403",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0282_on_demand_daily_budget_400.sql",
+    "sha256": "ba04828f6c9d4104f26fd53e881a21b4c3fd5db3f74204d89c94277a2c8db60b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0283_manual_mirror_sync_requests.sql",
+    "sha256": "5dc01b024023bc31b31aac3b5802180cba9bcedd8ffc4ca3214a554eb11ebca5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0284_sync_ledger_lookup_keys.sql",
+    "sha256": "06adeb72f920f79f6157afccab0c2e5fe248593502d2eaa06ed4b2626483fc79",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0285_sync_ledger_page_indexes.sql",
+    "sha256": "08844a84586a8aadc605a720f57c86c41a88992a1f6fc4441621f2208f7d7ac5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0286_constitution_hard_gate_repair.sql",
+    "sha256": "2386467e0f2c0f708d71daf983f18068d708cfe09788915da35589c60478b446",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0287_tennis_lesson_arrange_plane.sql",
+    "sha256": "3499c73138da85b221bd0fcd8d2ee84d447775913c3940d4a2caaef6c7ce23c5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0288_course_package_history.sql",
+    "sha256": "cc36ba01f8eaf1f95bbf9b104ec7737a936c97aa94b6e546e09916534f03a5a6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0289_revoke_runtime_attempt_writes.sql",
+    "sha256": "01f5f22b553126c007de403b6bc157ae2c6ad8e631ce2d8884c6db47baf0116c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0290_feishu_collector_alert_routes.sql",
+    "sha256": "76d93b7ebfcef3f07c813d354ebef2012e2b10c4e40877358e17f527618195eb",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0291_health_report_id_index.sql",
+    "sha256": "5fa19990aa43a995ded886d0b8caa7e0ffe3e10345e656593c2735be7c2fd30f",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0292_monitor_projection_backlog_hash_join.sql",
+    "sha256": "ad06dddeadebd907de41a759fd563248a7e989d1c9055d05f750c704528465a0",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0293_tennis_claim_risk_priority.sql",
+    "sha256": "7a1374913311fcd5dcd2321c2c3d00183f86c20bd710817081489a1020b252cf",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0294_tennis_work_run_lease_renewal.sql",
+    "sha256": "f029739a80a669f630f9e5bad1d10187472f6d173e767d1292559340e0f9c691",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0295_renewal_reads_delegation_grant_items.sql",
+    "sha256": "ef914a2df8a30e898386d343f414837d64dbade3b32ac70aa2f07256f309d47d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0296_feishu_lesson_alert_routes.sql",
+    "sha256": "58214ea19bd5b6857533998c2a361af77928d7cf77b6a5522d56f2fe5ac75a0d",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0297_tennis_lesson_request_read.sql",
+    "sha256": "f83ea408f017500205c609032fa1ec7f36f2b1a465bc3bfcbef4bc04158d13c1",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0298_tennis_lesson_claim_keys.sql",
+    "sha256": "88209b15723f5000709ebbf7291f29d7fca527a520f8923edf18f14b05595b8e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0299_tennis_manual_sync_request_read.sql",
+    "sha256": "f0a29fb349e084b1bfb4dfd4ab614bf8e221d67e97a784554d93e0095d658db6",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0300_tennis_lesson_channel_presence.sql",
+    "sha256": "27cc189844997303175b11d0779e0e879b36feed40110c08bf8b1cfe37254a9b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0301_feishu_alert_routes_extend.sql",
+    "sha256": "c314491178ca643380ee33fcf65f3c9f03f75dc268443acc7fd7a4a23a1e29b9",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0302_t014_orphan_head_exit.sql",
+    "sha256": "5e2ab39e7cce2420be272226bca2c5d78ea1a25a3ceae878f8ffd0cf89f51203",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0303_tennis_lesson_cancel_not_enabled.sql",
+    "sha256": "a70560994398a6b1e3ca56185f803e057cc6ba870633b7e6d96d0d7c6498551e",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0304_tennis_lesson_cancel_plane.sql",
+    "sha256": "482712da6ca220d2202a50df7e5a681ec867c67444a7837541541cc445ae8c88",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0305_tennis_lesson_cancel_accept.sql",
+    "sha256": "fc855456f0392562251269e8e9a947070712156021dba851e622bc06273b9cec",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0306_t282_hour_coalesced_lineage_guard.sql",
+    "sha256": "bfca1aeb25cddeff51b66cd0de0c1611e31f23ae171780cca898eafebbd0fecb",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0307_tennis_lesson_cancel_retest_close.sql",
+    "sha256": "25db9398ef11da9a4938de71a6fefd14d240b68a607aec3fa2cb473d6f53ceed",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0308_alert_auto_resolved_read_origin.sql",
+    "sha256": "7cf74533bcdf607dacdd77e119a57ba0643d2fc21435c0d450a192e5736e513a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0309_tennis_lesson_request_signal.sql",
+    "sha256": "ddd9f441cd6e604abf0a8efd5fc9d1577f3a0b1db59fa3364a7cc22733e612cd",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0310_tennis_lesson_arranged_heads_read.sql",
+    "sha256": "8582d2be89453ab5b5547621f8a21bd6ff320cf536bd6786bac4a2a794a6d21b",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0311_tennis_lesson_cancelled_heads_read.sql",
+    "sha256": "7716a864444292eb484d44cd85abdd5084b257251de71f59f5d1093f9690e87c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0312_audit_allowlist_property_decision_and_sensitive_read.sql",
+    "sha256": "441ddeb0413f47cd0b6f9df0f4e9eb7a6bee1f1e1187ce921e60814c9988739f",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0313_api_key_capability_execution.sql",
+    "sha256": "e45248956b4d42a24c20bd2a5f4892dfd86e3084fac7ba6e947baa829312f922",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0314_tennis_on_demand_budget_read.sql",
+    "sha256": "9978c5c7d877241fcf01ecc510004efdb703cd2d8f44b1728f1d31926390473a",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0315_audit_event_credential.sql",
+    "sha256": "b561faf86482049bd9235abca4f4af3858202501efe6065c11946a74e584b77f",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0316_app_definition_repin_grant.sql",
+    "sha256": "275386897c8905de4305da5af5f246fee532ab1bae3c0f35708abc7c38600aa5",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0317_collector_stall_fix.sql",
+    "sha256": "fa0fd359f6fa79b2ceb1735c06bfa052929a84c002f0c2cb77fe41e001e387da",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0318_api_key_relation_pin_guard.sql",
+    "sha256": "5f4f4b691924a71ed7b9d7c1f51ee1e6762931dbddd452cebaaabe193742b7ca",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0319_authorized_definition_owners.sql",
+    "sha256": "5c62292118d785800b75e5e281382765a29679648dd675a2256fa0430c5307d1",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0320_feishu_alert_push_state.sql",
+    "sha256": "e37cd75b39eeee65d45f29d6289506f9ae54ce652d00eed8d7ac7ad2ec24f736",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0321_route_scope_per_capability.sql",
+    "sha256": "08bc364635b85565e5c1947761b0c4f9cd3bd8c92bdb8465f8c84bc264f262fe",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0322_retention_empty_partition.sql",
+    "sha256": "ac877e85e030bd1011c59513c98561c8a158d4b87b67cff7b583ad4086377294",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0323_capability_authority_publication.sql",
+    "sha256": "bf5b612d4568752755866b7dac08cccd300564180214fdc7ae340b8014f6ce40",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0324_api_key_instance_writes.sql",
+    "sha256": "8ff694d3ceb38fdb7ca881f6ee5a912b284dcb5e5b0a169e962c045223bd04ff",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0325_connector_alert_exit_and_daily_count.sql",
+    "sha256": "ac3d87461c109a119515c39c4c1a8524c35375530ac10a7f70461b06de700ed9",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0326_api_key_relation_writes.sql",
+    "sha256": "da3f76bb31be858e13c9e37a434e1ee0f5cb9b362b5f4e181a65f33ceb34e342",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0327_authorization_target_derivation.sql",
+    "sha256": "6ed45774ef4fa064b20953c94a36618d2cdbbf67409e4cb678206f7766c719b2",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0328_binding_ownership_and_registry_scopes.sql",
+    "sha256": "c76553e3cca5f44988e1fd774a66abe28debbd0e0bf5b7328064dbb775c341cf",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0329_registry_write_publication_guard.sql",
+    "sha256": "3788d76eb3ab49f4e835344b4873ca16e8a870c60724ce630291bd7295156340",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0330_policy_activation_state.sql",
+    "sha256": "0f4ce069d109568f4ae88c597d9162c65fc0d5771949d889848227928457055c",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0331_tennis_waiting_lease_release.sql",
+    "sha256": "1d13f6e5a0f5a28ebbba60bc9dbc62b4155528e8c2faaa743797f94900911447",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  },
+  {
+    "source_path": "src/eios/migrations/0332_redrive_damping_anchor.sql",
+    "sha256": "018ce7505278db4d41090976b126809346da2755d3c2d7308d263c614cbb5576",
+    "decision": "exclude_from_bootstrap",
+    "reason": "Domain/vendor coupling in SQL body"
+  }
+]

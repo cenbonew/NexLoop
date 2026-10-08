@@ -16,6 +16,12 @@
         "ref": "docs/s0/publication-baseline.md",
         "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
         "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "35deb7d9818e4c19993fb31de83fd9aab32d8c26",
+        "summary": "NX-001: 建立干净仓库与交接基线; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:44.127215+00:00"
       }
     ]
   },
