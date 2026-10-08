@@ -1187,6 +1187,12 @@
         "ref": "docs/implementation/local-model-launcher-evidence.json",
         "summary": "Local model launcher explicit opt-in merged; actual Node exec/provider selector and owned Host regression17passed1.69s. Dummy credentials only; task remains in_progress.",
         "recorded_at": "2026-10-08T10:09:50.512303+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e801ff4d7d71640f5a925bc28706485c818ff4b9",
+        "summary": "Explicit local model key launcher checkpoint;17 tests passed; NX-016 remains in_progress",
+        "recorded_at": "2026-10-08T10:10:03.102466+00:00"
       }
     ]
   },
