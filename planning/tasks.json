@@ -957,6 +957,12 @@
         "ref": "de670c38c652f4d6169d71c47dee87d5f2664ba6",
         "summary": "实际双租户HTTP与伪造身份头/请求体边界，当前30项相关测试通过。补强证据；未部署/push。",
         "recorded_at": "2026-10-08T15:38:46.770935+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "387e0552d863b825cfccbb26552cf0ca7b16063c",
+        "summary": "完整published input_schema校验在claim之前；实际PG非法nested输入零写入/零claim，现有角色/Consumer/Agent回归共68passed；不替代SQL守卫或人类审核。",
+        "recorded_at": "2026-10-08T16:01:10.069739+00:00"
       }
     ]
   },
