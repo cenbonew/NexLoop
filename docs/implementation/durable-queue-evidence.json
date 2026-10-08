@@ -1,0 +1,115 @@
+{
+  "scope": "native-real-postgres-technical-inbox-outbox-queue",
+  "passed": true,
+  "queue_cases_passed": 42,
+  "groups": {
+    "test_durable_queue": [
+      "test_accept_atomic_ledger_and_replay_after_reopen",
+      "test_same_event_different_contract_conflicts[payload]",
+      "test_same_event_different_contract_conflicts[contract]",
+      "test_same_event_different_contract_conflicts[max_attempts]",
+      "test_outbox_insert_failure_rolls_back_acceptance",
+      "test_concurrent_event_deduplication",
+      "test_concurrent_claims_are_distinct_and_pg_polling_needs_no_cache",
+      "test_expired_lease_reclaims_with_new_fence_and_old_worker_denied",
+      "test_other_worker_cannot_finish_lease",
+      "test_due_retry_budget_renew_and_deadletter",
+      "test_expired_final_attempt_is_deadlettered",
+      "test_outbox_reclaim_and_old_fence_ack_denied",
+      "test_queue_boundaries_and_live_grant_denial[tenant]",
+      "test_queue_boundaries_and_live_grant_denial[world]",
+      "test_queue_boundaries_and_live_grant_denial[resource]",
+      "test_database_roles_cannot_cross_ports[claim]",
+      "test_database_roles_cannot_cross_ports[accept]",
+      "test_revoked_scheduler_cannot_finish_and_raw_tables_denied",
+      "test_independent_domain_worker_claims_and_finishes_own_lease",
+      "test_completion_receipt_replay_and_conflicting_result"
+    ],
+    "test_queue_process_recovery": [
+      "test_committed_event_survives_sigkill_and_scheduler_reopen",
+      "test_outbox_leased_process_sigkill_reclaims_with_new_fence",
+      "test_sigkill_during_accept_transaction_has_no_ack_or_partial_ledger"
+    ],
+    "test_queue_permit_expiry": [
+      "test_validly_signed_unbounded_queue_permit_denied[missing]",
+      "test_validly_signed_unbounded_queue_permit_denied[future]",
+      "test_queue_permit_expiring_while_waiting_for_inbox_lock_denied"
+    ],
+    "test_queue_commit_lease": [
+      "test_expiry_during_last_writes_rolls_back_lease_transaction[claim]",
+      "test_expiry_during_last_writes_rolls_back_lease_transaction[finish]",
+      "test_expiry_during_last_writes_rolls_back_lease_transaction[renew]",
+      "test_expiry_during_last_writes_rolls_back_lease_transaction[outbox_claim]",
+      "test_expiry_during_last_writes_rolls_back_lease_transaction[outbox_ack]"
+    ],
+    "test_backend_queue": [
+      "test_backend_api_domain_worker_and_scheduler_complete_real_ledger",
+      "test_backend_api_cannot_dispatch_worker_ports[claim_task]",
+      "test_backend_api_cannot_dispatch_worker_ports[claim_outbox]",
+      "test_backend_queue_rechecks_live_authority",
+      "test_backend_closed_queue_handles_are_denied[inspect_task]",
+      "test_backend_closed_queue_handles_are_denied[accept_event]",
+      "test_backend_closed_queue_handles_are_denied[claim_task]",
+      "test_backend_closed_queue_handles_are_denied[finish_task]",
+      "test_backend_closed_queue_handles_are_denied[renew_task]",
+      "test_backend_closed_queue_handles_are_denied[claim_outbox]",
+      "test_backend_closed_queue_handles_are_denied[acknowledge_outbox]"
+    ]
+  },
+  "full_ci": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "python_passed": 986,
+    "python_seconds": 332.03,
+    "pi_sqlite_passed": 24,
+    "pi_packages_built": 4,
+    "frontend_host_builds": "passed",
+    "critical_skips": 0
+  },
+  "first_failures": [
+    {
+      "scope": "queue",
+      "failed": 17,
+      "passed": 1,
+      "reason": "synthetic provision advanced realm epoch after authentication",
+      "fix": "refresh configured test sessions after provisioning; live production checks unchanged"
+    },
+    {
+      "scope": "queue-first-case",
+      "failed": 1,
+      "reason": "extensions.gen_random_uuid owner privilege",
+      "fix": "pg_catalog.gen_random_uuid in new0035"
+    },
+    {
+      "scope": "process",
+      "failed": 3,
+      "reason": "same UUID owner privilege",
+      "rerun": "3passed7.75s"
+    }
+  ],
+  "focused_final": {
+    "passed": 46,
+    "seconds": 58.87,
+    "includes_existing_bootstrap": 4
+  },
+  "final_old_fence_after_new_result": {
+    "passed": 1,
+    "seconds": 2.24
+  },
+  "new_head": "0035",
+  "old_sql_unchanged": 34,
+  "acceptance_scope": {
+    "AT-030": "real process SIGKILL after event commit before wakeup; PG polling and Outbox recover",
+    "AT-031": "real task worker old fence denied including after new result; final lease-expiry rollback"
+  },
+  "partial_scope": [
+    "AT-013 one channel message/necessary Pi Run not integrated",
+    "AT-034 public HTTP409 not integrated",
+    "AT-033 external unknown reconciliation not implemented"
+  ],
+  "host_pi_run_integrated": false,
+  "queue_in_container_verified": false,
+  "product_ready": false,
+  "model_validation": "not_run",
+  "channel_validation": "not_run"
+}

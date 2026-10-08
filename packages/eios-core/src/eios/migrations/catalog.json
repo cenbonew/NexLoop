@@ -170,6 +170,16 @@
       "version": "0034",
       "name": "0034_run_bound_credentials.sql",
       "sha256": "33c180bf49ffd1db5c6495000e969703a1f62e280239bd4bce9a51c70a0be592"
+    },
+    {
+      "version": "0035",
+      "name": "0035_durable_inbox_outbox_queue.sql",
+      "sha256": "4e4ee091dc2024820d53b684bb43ed05b2d367460eabfb6a7fc41a613ed18a55"
+    },
+    {
+      "version": "0036",
+      "name": "0036_runtime_task_lease_guard.sql",
+      "sha256": "b7323b730c677528bac5c15fd0f46f80b4a229d840bb2b772b837ad0aa61e381"
     }
   ]
 }

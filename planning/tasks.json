@@ -933,6 +933,12 @@
         "ref": "docs/implementation/run-credential-evidence.json",
         "summary": "Server-issued Run UUID/fixed audience/world/published Action allowlist/PG-clock1–300s expiry; actual restricted Agent write and current source/parent revocation at dispatch.15 native PG Run cases and final CI944 Python/24 SQLite/four Pi/web/Host passed. First CI943+1 old assertion fixed; rerun passed. Fresh11-service0034 Compose/external HTTPS passed; owned containers stopped0,volumes retained. Old33SQL unchanged. NX012 backend scope/docs07 section4 done; Host/Pi Run and queue remain later S2.",
         "recorded_at": "2026-10-08T00:37:18.077975+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "a1c3407cf0888e562e3c06dedd2b474f96a2879f",
+        "summary": "NX-012: 打通自主Agent受治理实例写; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:50.215053+00:00"
       }
     ]
   },

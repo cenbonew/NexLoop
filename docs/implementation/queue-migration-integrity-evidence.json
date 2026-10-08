@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "baseline": "previous actual tested0034 wheel",
+  "original_sql_checksums_unchanged": 34,
+  "checksums_verified": 35,
+  "new_head": "0035",
+  "new_migrations_added": 1
+}
