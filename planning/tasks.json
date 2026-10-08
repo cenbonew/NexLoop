@@ -1604,6 +1604,12 @@
         "ref": "docs/implementation/NX-018-core63-role-evidence.json",
         "summary": "Frozen437 source paths unchanged; main61+56+1 passed with first runner failures retained; bootstrap0062→0063 only.",
         "recorded_at": "2026-10-08T22:15:02.266016+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b1a8f009baa65c99387f7655760cb9559c586cbc",
+        "summary": "Documentation checkpoint: late lock-wait proof expiry review remains pending; no completion/acceptance claim. Published0063 unchanged.",
+        "recorded_at": "2026-10-08T22:16:31.432778+00:00"
       }
     ]
   },
