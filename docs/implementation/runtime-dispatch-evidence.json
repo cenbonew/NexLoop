@@ -1,0 +1,119 @@
+{
+  "recorded_at": "2026-10-08T02:44:47.313274+00:00",
+  "scope": "NX-014 increment; runtime only",
+  "product_ready": false,
+  "migration_head": "0038",
+  "atomic_accept": {
+    "fixed_sql_joint_regression": {
+      "passed": 40,
+      "seconds": 48.6
+    },
+    "specialized_negative_tests": {
+      "passed": 14,
+      "seconds": 22.6
+    },
+    "root_focused_pg": {
+      "passed": 50,
+      "seconds": 54.74
+    },
+    "first_failure": "0038 wrapper result variable ambiguous; concurrent SQL change caused MigrationDrift; fixed immutable SQL then re-run passed"
+  },
+  "pi_runtime": {
+    "passed": 20,
+    "seconds": 2.39,
+    "real_harness": true,
+    "sqlite": "WAL/FULL",
+    "negative_probe": "returned Tool isError=true was incorrectly succeeded before fix; scan persisted ToolResultEntry now checks isError/error diagnostics"
+  },
+  "prerequisites": {
+    "passed": 37,
+    "seconds": 33.96,
+    "report": ".ci-results/runtime-dispatch-prerequisites.xml",
+    "first_failure": "Root forgot nvm use before Python launch:3 Host failures/34 passed; fixed Node24 rerun37 passed"
+  },
+  "migration_integrity": "docs/implementation/dispatch-migration-integrity-evidence.json",
+  "worker": {
+    "passed": 12,
+    "seconds": 23.55,
+    "actual_pg_host_pi": true,
+    "inflight_sigkill_recovery": true,
+    "transport_tls_boundaries": 4,
+    "postgres_statement_timeout": "10s",
+    "postgres_lock_timeout": "3s",
+    "postgres_role": "nexloop_domain_worker",
+    "loop_budget_is_not_absolute_pg_total_deadline": true,
+    "first_failures": [
+      "Client initially rejected actual Node chunked response",
+      "Receipt IDs are JSON numbers, not only strings",
+      "Test incorrectly called worker Backend.shutdown rather than private _shutdown plus pool.close; corrected test only"
+    ]
+  },
+  "full_ci": {
+    "passed": true,
+    "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "python": {
+      "passed": 1076,
+      "seconds": 842.13,
+      "warnings": 1,
+      "warning": "Starlette TestClient/httpx deprecation; no failure"
+    },
+    "sqlite_conformance": {
+      "passed": 24
+    },
+    "runtime_adapter": {
+      "passed": 20,
+      "seconds": 2.41
+    },
+    "builds": [
+      "frozen Pi chord",
+      "frozen Pi ai",
+      "frozen Pi tui",
+      "frozen Pi durable",
+      "Web",
+      "Agent Host"
+    ],
+    "critical_skips": 0,
+    "reports": [
+      {
+        "path": ".ci-results/python.xml",
+        "sha256": "340baadd23c5ba829fddd83a7fddb6d496a22fdaa7e47c610043c82ec1b94658"
+      },
+      {
+        "path": ".ci-results/pi.xml",
+        "sha256": "8928389b5024dcfb76d18b95f6717f533fad9aedd499ce1291e1ab870ddfe0fb"
+      },
+      {
+        "path": ".ci-results/runtime.xml",
+        "sha256": "3820e0e36a2064f473d76a5b95634d57d57125d3bfc6c5aba9663332ed02c5d8"
+      }
+    ]
+  },
+  "limitations": [
+    "AT-039 business reconciliation remains not_run",
+    "No actual model/channel request or production migration",
+    "Current head0038 Host image and Compose validation not yet rerun"
+  ],
+  "commands": [
+    "uv run pytest -q tests/test_runtime_atomic_accept.py tests/test_runtime_activation.py -x --tb=short",
+    "uv run pytest tests/test_runtime_atomic_accept.py -q",
+    "uv run pytest -q tests/test_bootstrap.py tests/test_db_boundary.py tests/test_runtime_atomic_accept.py tests/test_runtime_activation.py",
+    "source ~/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && pnpm exec vitest run apps/agent-host/test/pi-runtime-adapter.test.ts",
+    "source ~/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_runtime_host_admission.py tests/test_runtime_guard_transport.py tests/test_core_sandbox.py tests/test_doctor.py tests/test_compose_bootstrap.py tests/test_wheel_install.py --junitxml=.ci-results/runtime-dispatch-prerequisites.xml",
+    "source ~/.nvm/nvm.sh && nvm use 24.13.0 && uv run pytest -q tests/test_runtime_dispatch.py --tb=short",
+    "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check"
+  ],
+  "publication": {
+    "paths": 919,
+    "index_blobs": 0,
+    "violations": 0
+  },
+  "planning_validation": {
+    "passed": true,
+    "static_checks": 69,
+    "tasks": 43,
+    "acceptance_scenarios": 60,
+    "schemas": 6,
+    "schema_negative_tests": 11
+  }
+}

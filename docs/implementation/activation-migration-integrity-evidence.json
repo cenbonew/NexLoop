@@ -1,0 +1,272 @@
+{
+  "recorded_at": "2026-10-08T01:44:53.059717+00:00",
+  "passed": true,
+  "baseline": ".ci-results/community-pi-foundation-20261008/build/nexloop_eios_core-0.1.0-py3-none-any.whl",
+  "baseline_wheel_sha256": "b0496b18ce9e69a76c5348a75894379e2db4c5494f9a1336d9eccbdeb64a2a50",
+  "lineage": "nexloop-eios-v1",
+  "original_sql_checksums_unchanged": 36,
+  "original_sql_bytes_identical": 36,
+  "all_catalog_checksums_verified": 37,
+  "new_head": "0037",
+  "new_migrations_added": 1,
+  "migrations": [
+    {
+      "version": "0001",
+      "name": "0001_durable_core.sql",
+      "sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0002",
+      "name": "0002_roles_and_tenant_boundary.sql",
+      "sha256": "fe3509f7139ff86049306169dd2a0b69b83c384ce4560aefaac45f0bcc945f12",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0003",
+      "name": "0003_default_authority_hardening.sql",
+      "sha256": "6b31b0f801ba7dcc363a4a6bfa9757d69f8560df571d11059f16ca016bfd0cea",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0004",
+      "name": "0004_service_authority_facts.sql",
+      "sha256": "474869705bd0b4833184393f9dd816f9d09a9c557f3ce0e3df41adfa13405063",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0005",
+      "name": "0005_local_artifact_governance.sql",
+      "sha256": "657ecf256a7165d1fd3de4d2db0eccc86c80da41d7994d9add2c5b142fb6331a",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0006",
+      "name": "0006_local_artifact_retention.sql",
+      "sha256": "3b210483dbdabd431c67ad815a1dd6932437d1795d1254edb223c7634c900fc0",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0007",
+      "name": "0007_action_claims.sql",
+      "sha256": "77e4620ae04f4c633a9f23cad3f3a013b12a6fc3230619b6b4ee2dbdbd596498",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0008",
+      "name": "0008_action_definitions.sql",
+      "sha256": "6222969ea0888146acdd8f9784db1acae7122a97b1e33895cb1e54ec88ff9aa2",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0009",
+      "name": "0009_action_schema_bundle.sql",
+      "sha256": "5a03e3ed359241a57da22e5c5815d19ebbd0344703180acf4bf592c9b07425b4",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0010",
+      "name": "0010_governed_object_create.sql",
+      "sha256": "65217d09cf7a28fd8a73a550a7b002693759fd83d32c77612e2099177c2acb3a",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0011",
+      "name": "0011_authorized_object_read.sql",
+      "sha256": "96326d62c9b07141dba99a0025a9d527c59fae4f8a581141259b287c470d53ba",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0012",
+      "name": "0012_backend_signer_attestation.sql",
+      "sha256": "41a342e1d52d55acc9d4067fd0002b66531efacfb0802116148b12e4544e943f",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0013",
+      "name": "0013_expired_pending_artifacts.sql",
+      "sha256": "2e47ecb22de46dcfd4fab3ed8da0999188af8d299ef519c02eb7dcb9d1287a09",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0014",
+      "name": "0014_artifact_cleanup_candidates.sql",
+      "sha256": "66c9b24d64696a9e114ee83c9088c70b225a2ff25eda97f7cf04d8d62d3d645d",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0015",
+      "name": "0015_governed_object_edit.sql",
+      "sha256": "b61d9a23eff101db74b70c0969b3290a8e76aea9495e7dd8195cc1652ddebac0",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0016",
+      "name": "0016_governed_relation_link.sql",
+      "sha256": "b184e8d00c09bbf5a8c5ca8f214d07155ff3d495c2afedfb48b0ee142e81cf3f",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0017",
+      "name": "0017_temporary_artifact_cleanup.sql",
+      "sha256": "09d032b486e3e3c982d944e27de39afed65759fccadd68339adb29dc30ab0525",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0018",
+      "name": "0018_final_artifact_orphan_sweeps.sql",
+      "sha256": "45955fca3a58300495773d5c396d7d037d99b25fcb7e1cee26e71be950f2d561",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0019",
+      "name": "0019_browser_identity_rate_limits.sql",
+      "sha256": "3d39d00b72349f54da3555850e24b0d9916b8ca9e79bb5083f0dbbeb3fcad751",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0020",
+      "name": "0020_browser_identity_operator_binding.sql",
+      "sha256": "e99da5659d4f590e21ca914c141f44934b61bad3a568af00ba2df1e3094b6c49",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0021",
+      "name": "0021_browser_identity_canonical_reads.sql",
+      "sha256": "78b9a8ea2e538690bf171c0dadec4be497913951e1c844f64f426907cdcbc6b2",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0022",
+      "name": "0022_browser_account_failures.sql",
+      "sha256": "090ab560a7872e35b756910e03410708a17f767ada20271e1475883733fba690",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0023",
+      "name": "0023_browser_account_failure_receipts.sql",
+      "sha256": "d2db448a87d766a6fea3fc1a067f0fac4853807229c82483e39cafc35bd0da75",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0024",
+      "name": "0024_browser_account_password_save.sql",
+      "sha256": "5bd609e1fce8fdfd92598de7efa65f84aab80a8800c4046251858bf226feb8f4",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0025",
+      "name": "0025_browser_authentication_evidence.sql",
+      "sha256": "65b18316bcd314ec0b76cade68561ddd7d3bdb1ebcd70eb62a0b4809c5dee7b5",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0026",
+      "name": "0026_browser_session_creation.sql",
+      "sha256": "cab68a088526ff91c46291550d17ecdd8e017d0c1abf5aef66b03c3ab8e07dca",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0027",
+      "name": "0027_browser_session_reads.sql",
+      "sha256": "b7cf168e3004ffa97144e9767939f198c2f6b793aba41a7e8e34818e4ceadaaa",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0028",
+      "name": "0028_browser_session_touch.sql",
+      "sha256": "a5ac35da36ed6a43e53a8a54aecd1ac9b1081b0ab43fed5c87bb5ceea6dd487c",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0029",
+      "name": "0029_browser_session_revoke.sql",
+      "sha256": "b2f25a4ecf780d4374038a2eedb8cbaea966621a1b7746377f18fb28a06638d9",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0030",
+      "name": "0030_browser_login_session_replacement.sql",
+      "sha256": "a902a6ad9e6aebeebe8e302fd90706ce15fc3d7f3db014740026b596e16b99c4",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0031",
+      "name": "0031_browser_tenant_rotation.sql",
+      "sha256": "c1373145e760e8b233b974fa3346b9c33f90c0ed95b9402aa573f8d7e8cc861f",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0032",
+      "name": "0032_identity_browser_rate_operator.sql",
+      "sha256": "2ec5a01ab18baa7a997b89a9da3eebfaa55bd58f2b78e4512267edfeae904b7f",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0033",
+      "name": "0033_authenticated_agent_invocation.sql",
+      "sha256": "01a2fd7ace8339ba012aabb90ecdc8799047fb3725b4d269fb2e6dcaabb33405",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0034",
+      "name": "0034_run_bound_credentials.sql",
+      "sha256": "33c180bf49ffd1db5c6495000e969703a1f62e280239bd4bce9a51c70a0be592",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0035",
+      "name": "0035_durable_inbox_outbox_queue.sql",
+      "sha256": "4e4ee091dc2024820d53b684bb43ed05b2d367460eabfb6a7fc41a613ed18a55",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0036",
+      "name": "0036_runtime_task_lease_guard.sql",
+      "sha256": "b7323b730c677528bac5c15fd0f46f80b4a229d840bb2b772b837ad0aa61e381",
+      "catalog_checksum_verified": true,
+      "baseline_wheel_bytes_identical": true
+    },
+    {
+      "version": "0037",
+      "name": "0037_runtime_activation_registry.sql",
+      "sha256": "8d408764e669345b896b9bf2ebf90925727dc6cd95d99c0f08138569e4b85d00",
+      "catalog_checksum_verified": true
+    }
+  ]
+}

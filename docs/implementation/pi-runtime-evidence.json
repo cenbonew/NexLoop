@@ -1,0 +1,94 @@
+{
+  "recorded_at": "2026-10-08T01:22:57.950420+00:00",
+  "scope": "native-frozen-Pi-runtime-and-real-PG-authority; product Host route pending",
+  "passed": true,
+  "task": "NX-014",
+  "task_complete": false,
+  "pi_runtime": {
+    "passed": 18,
+    "seconds": 2.29,
+    "command": "source ~/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && pnpm exec vitest run apps/agent-host/test/pi-runtime-adapter.test.ts",
+    "storage": "actual Node24 SQLite WAL, synchronous FULL=2, never MemoryStorage",
+    "provider": "deterministic test; no external model calls"
+  },
+  "pg_runtime_authority": {
+    "passed": 10,
+    "seconds": 9.95,
+    "cases": "current Run identity, exact persisted command, finished task, source revocation, PG-clock lease expiry"
+  },
+  "pg_pi_owner_bridge": {
+    "passed": 3,
+    "seconds": 5.27,
+    "command": "source ~/.nvm/nvm.sh && nvm use && uv run --frozen pytest tests/test_runtime_pg_bridge.py -q --junitxml=.ci-results/runtime-pg-bridge.xml",
+    "transport": "private synthetic Unix socket, backend retains Run token/DSN/signer",
+    "checks": [
+      "actual Generation guard",
+      "actual inherited flock rejects second process",
+      "SIGKILL and reacquire same owner",
+      "same SQLite inode and receipt after reopen",
+      "source Agent revoke blocks actual Tool",
+      "PG lease expiry blocks actual Tool",
+      "Run token absent from runtime files"
+    ]
+  },
+  "first_failures": [
+    {
+      "scope": "Pi suite collection",
+      "reason": "missing Host workspace dependencies and Pi dist",
+      "fix": "workspace links, frozen install and build Pi before Host"
+    },
+    {
+      "scope": "runtime PG fixture",
+      "reason": "tenant mismatch, missing schema reference, stale explicit contract digest",
+      "fix": "typed synthetic published definition/schema and recomputed contract digest"
+    },
+    {
+      "scope": "14 Pi cases",
+      "passed": 12,
+      "failed": 2,
+      "reason": "Pi catches hook exceptions, beforeRequest budget guard failed open",
+      "fix": "guard actual provider stream and actual tool execution; validate cost before terminal done/result"
+    },
+    {
+      "scope": "18 Pi cases",
+      "passed": 17,
+      "failed": 1,
+      "reason": "faux provider fixture recalculated usage costs to zero",
+      "fix": "nonzero test pricing through frozen calculateCost; final18pass"
+    },
+    {
+      "scope": "PG/Pi bridge collection",
+      "reason": "scripts import unavailable",
+      "fix": "load actual launcher via importlib; final3pass"
+    }
+  ],
+  "new_head": "0036",
+  "previous_migrations_unchanged": 35,
+  "full_ci": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "python_passed": 996,
+    "python_seconds": 583.51,
+    "pi_sqlite_passed": 24,
+    "pi_runtime_passed": 18,
+    "pi_runtime_seconds": 2.33,
+    "pi_packages_built": 4,
+    "frontend_host_builds": "passed",
+    "critical_skips": 0,
+    "collection_note": "Full CI collected before three new bridge cases; these separately passed5.27s with JUnit. Current collect-only999 cases."
+  },
+  "acceptance": {
+    "AT-038": "passed native actual flock process contention and SIGKILL recovery",
+    "AT-039": "partial SQLite recovery only; business reconciliation not complete",
+    "AT-034": "partial adapter request conflict; public HTTP409 not complete"
+  },
+  "limitations": [
+    "Host main.ts and five-file Docker build context still foundation only; no production Run admission route",
+    "Unix socket is native test integration transport only",
+    "terminal business result requires separately governed fenced Action/queue commit",
+    "no real external effect/unknown reconcile or channel integrated",
+    "real DeepSeek cost bound and model validation not verified",
+    "Current native bridge retains RunCredential token in backend memory; backend restart recovery by opaque credential_ref requires a new governed resolution port or backend-only sealed vault, not yet implemented."
+  ],
+  "product_ready": false
+}

@@ -1,0 +1,115 @@
+{
+  "recorded_at": "2026-10-08T04:24:30.543964+00:00",
+  "task": "NX-014",
+  "product_ready": false,
+  "migration_head": "0039",
+  "worker_cli": {
+    "passed": 19,
+    "seconds": 52.49,
+    "actual_pg_separate_cli_tls_host": true,
+    "cases": [
+      "normal completion",
+      "idle/inflight SIGTERM",
+      "SIGKILL Host then Worker; reopen both same submission",
+      "credential rotation/current DB revoke",
+      "wrong SQL role",
+      "invalid private files/CA/bind fail without claim",
+      "strict marker false/true missing storage",
+      "safe partial directory/empty SQLite reclaim"
+    ],
+    "first_failures": [
+      "Fixture lease2 below supported3 and status queued instead of pending:4passed5failed42.38s; corrected",
+      "KillWorker before Host caused durable guard failure:11passed1failed23.72s; corrected intended Host-first kill window"
+    ],
+    "pre_ci_focused_seconds": 53.57
+  },
+  "dispatcher": {
+    "passed": 17,
+    "seconds": 29.58,
+    "scope": "runtime_only",
+    "business_action_success": false,
+    "durable_terminal_receipt": true,
+    "unknown_has_no_receipt": true
+  },
+  "sql_marker_guard_bootstrap": {
+    "passed": 28,
+    "seconds": 20.09,
+    "includes": "actual marker monotonicity, stale source denial, final lease-expiry rollback, restricted direct read/delete/inner calls denied"
+  },
+  "prerequisites": {
+    "passed": 10,
+    "seconds": 21.37,
+    "report": ".ci-results/runtime-worker-prerequisites.xml",
+    "scope": "actual preTLS8connection bound; installedwheel command help; formalHost; nativePG/Pi bridge",
+    "first_failure": "Root guessed nonexistent test_pi_runtime_pg.py; zero tests ran and exit4; corrected to discovered test_runtime_pg_bridge.py"
+  },
+  "pi_runtime_adapter": {
+    "passed": 25,
+    "seconds": 2.5,
+    "actual_frozen_harness_sqlite": true,
+    "partial_initialization_cases_are_explicit_synthetic_states": true
+  },
+  "migration_integrity": "docs/implementation/runtime-worker-migration-integrity-evidence.json",
+  "full_ci": {
+    "exit_code": 0,
+    "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "python": {
+      "passed": 1146,
+      "seconds": 1068.32,
+      "warnings": 1
+    },
+    "sqlite": {
+      "passed": 24
+    },
+    "pi_runtime": {
+      "passed": 25,
+      "seconds": 1.92
+    },
+    "zero_critical_skips": true,
+    "head": "0040",
+    "reports": {
+      "python": "182e78647fff5f5d80cd064a3c46e469c9042a4bded83ec47f6c9352eb59e742",
+      "pi": "ad874219b4771c3cc8c8f3b776ffd598dc6c534a06dbe79f9f6d1820da8fdfe5",
+      "runtime": "3d65e1461a037cf88ac4c356cd64bcfb744ee252ad3c24f9e62c5a26b21f860a"
+    }
+  },
+  "limitations": [
+    "AT-039 includes business reconciliation and remains not_run",
+    "Current runtime profile deterministic-test; real model/channel not called",
+    "Stage deployment/current images not yet revalidated at head0039",
+    "HTTP absolute deadline and PG individual timeout do not imply a strict whole-dispatch wallclock guarantee"
+  ],
+  "full_ci_first_attempt": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 1,
+    "python": {
+      "passed": 1103,
+      "failed": 1,
+      "seconds": 1067.14,
+      "warnings": 1
+    },
+    "failed_test": "test_cli_reclaim_safe_partial_initialization_same_run_full[empty_sqlite]",
+    "cause": "Test observed running then issued external Host inspect; Worker completed meanwhile and current lease correctly denied inspection. No permission relaxation; persist receipt observed by Worker while lease active and verify authoritative PG terminal result.",
+    "remaining_checks": "SQLite conformance/RuntimeAdapter CI legs did not execute after Python failure; focused Pi25 already passed"
+  },
+  "commands": [
+    "source ~/.nvm/nvm.sh && nvm use && uv run pytest tests/test_runtime_worker.py -q",
+    "source ~/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_runtime_dispatch.py --tb=short",
+    "source ~/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_runtime_execution_markers.py tests/test_runtime_guard_transport.py tests/test_bootstrap.py --tb=short",
+    "source ~/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_runtime_guard_transport.py::test_connection_limit_applies_before_tls_and_releases_slots tests/test_wheel_install.py tests/test_runtime_host_admission.py tests/test_runtime_pg_bridge.py --tb=short --junitxml=.ci-results/runtime-worker-prerequisites.xml",
+    "source ~/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && pnpm exec vitest run apps/agent-host/test/pi-runtime-adapter.test.ts",
+    "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check"
+  ],
+  "full_ci_second_attempt": {
+    "exit_code": 1,
+    "python": {
+      "passed": 925,
+      "failed": 16,
+      "errors": 167,
+      "seconds": 885.7,
+      "warnings": 1
+    },
+    "cause": "Root isolation instructions prohibited catalog registration but allowed0040 SQL in migration package. Actual loader scans every SQL file, so unregistered draft caused source checksum mismatch across bootstrap dependent tests. Draft moved outside package; next complete CI will validate registered0040 stable source instead of claiming head0039 passed.",
+    "log": ".ci-results/runtime-worker-full-ci-rerun.log"
+  }
+}

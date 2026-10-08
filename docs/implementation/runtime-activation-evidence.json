@@ -1,0 +1,79 @@
+{
+  "recorded_at": "2026-10-08T01:54:05.470247+00:00",
+  "scope": "native real PG activation and formal HTTPS Host plus tested Linux runtime package",
+  "passed": true,
+  "task": "NX-014",
+  "task_complete": false,
+  "head": "0037",
+  "original_sql_unchanged": 36,
+  "activation_cases": {
+    "passed": 30,
+    "seconds": 29.72,
+    "command": "uv run pytest tests/test_runtime_activation.py -q"
+  },
+  "focused_final": {
+    "passed": 59,
+    "seconds": 51.03,
+    "junit": ".ci-results/runtime-activation-focused.xml"
+  },
+  "inflight_host_recovery": {
+    "passed": 4,
+    "seconds": 7.73,
+    "command": "source ~/.nvm/nvm.sh && nvm use && uv run --frozen pytest tests/test_runtime_host_admission.py -q --tb=short --junitxml=.ci-results/runtime-host-inflight-recovery.xml",
+    "same_receipt_submission_generation_id": true,
+    "actual_pg_guard_and_backend_reopen": true,
+    "real_sigkill": true,
+    "sqlite_wal_full": true
+  },
+  "first_failures": [
+    {
+      "scope": "activation",
+      "failed": 24,
+      "passed": 1,
+      "reason": "hint trusted tenant GUC missing, then Backend operation argument name collision",
+      "fix": "current identity-derived transaction tenant and narrow operation alias; final30pass"
+    },
+    {
+      "scope": "Host+bootstrap",
+      "failed": 3,
+      "passed": 4,
+      "reason": "start/resume actual Adapter guard omitted enrolled input; count36",
+      "fix": "carry enrolled input for repeated start/resume checks; count37;7pass"
+    },
+    {
+      "scope": "packaging",
+      "reason": "pnpm legacy self link escaped deployment",
+      "fix": "only known verified self link rewritten relative to stage root; all other escapes rejected"
+    }
+  ],
+  "full_ci": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "python_passed": 1050,
+    "python_seconds": 918.94,
+    "pi_sqlite_passed": 24,
+    "pi_runtime_passed": 18,
+    "pi_runtime_seconds": 2.35,
+    "pi_packages_built": 4,
+    "frontend_host_builds": "passed",
+    "critical_skips": 0,
+    "separate_stronger_host_recovery": "4 cases passed7.73s, actual in-flight Generation SIGKILL plus backend/Host reopen"
+  },
+  "acceptance": {
+    "AT-038": "existing native owner process evidence reinforced by formal Host SIGKILL",
+    "AT-039": "real runtime portion verified; business reconciliation pending",
+    "AT-033": "not_run external unknown",
+    "AT-034": "not_run public409"
+  },
+  "compose_default_run_admission_enabled": false,
+  "real_model_called": false,
+  "real_external_effect_called": false,
+  "raw_token_persisted": false,
+  "product_ready": false,
+  "pending": [
+    "independent Run Worker dispatcher and active-run startup reconciliation",
+    "atomic inbound queue enrollment",
+    "governed tool Gateway and effect outcome reconcile",
+    "real model trusted maximum request cost and credentials"
+  ]
+}

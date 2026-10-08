@@ -180,6 +180,21 @@
       "version": "0036",
       "name": "0036_runtime_task_lease_guard.sql",
       "sha256": "b7323b730c677528bac5c15fd0f46f80b4a229d840bb2b772b837ad0aa61e381"
+    },
+    {
+      "version": "0037",
+      "name": "0037_runtime_activation_registry.sql",
+      "sha256": "8d408764e669345b896b9bf2ebf90925727dc6cd95d99c0f08138569e4b85d00"
+    },
+    {
+      "version": "0038",
+      "name": "0038_runtime_input_binding.sql",
+      "sha256": "d1835f89f682b1ef2d729e59b4205d64d24cfb7ad2894bc824fd7cb3686c33ca"
+    },
+    {
+      "version": "0039",
+      "name": "0039_runtime_execution_marker.sql",
+      "sha256": "6232b48223d4cbe1e0bfe26ef7fcfbc61a086a7f926d800b4f30688706d4c666"
     }
   ]
 }

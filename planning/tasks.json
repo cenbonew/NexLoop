@@ -968,6 +968,12 @@
         "ref": "docs/implementation/durable-queue-evidence.json",
         "summary": "Existing EIOS ledger extended with atomic Inbox/event dedupe/Outbox; separate restricted API/domainworker/scheduler credentials, PG-clock bounded leases/attempts, SKIP LOCKED, fence/reclaim/deadletter and receipt replay.42 new real PG cases including spawn SIGKILL, valid-signed proof expiry after lock wait and final DML lease expiry rollback. FinalCI986 Python/24 SQLite/four Pi/web/Host passed; fresh11-service0035 Compose/external HTTPS passed. Original34SQL unchanged. Actual cache-layer probe1.36s. No channel/Pi Run/real-effect claim.",
         "recorded_at": "2026-10-08T01:01:08.700959+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "58af32e5dfcab2eddce647114f615ddd577e2984",
+        "summary": "NX-013: 建设事件Inbox/Outbox与持久队列; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:50.564643+00:00"
       }
     ]
   },

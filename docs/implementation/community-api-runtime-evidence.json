@@ -1,0 +1,189 @@
+{
+  "recorded_at": "2026-10-07T22:25:06.035089+00:00",
+  "scope": "NX-009 isolated API HTTP Compose extension",
+  "launcher": {
+    "passed": true,
+    "purpose": "disposable-community-test",
+    "project": "nexloop-test-692874152fad313611a66462",
+    "container_built": true,
+    "core_test_runtime_verified": true,
+    "actual_api_http_verified": true,
+    "product_ready": false,
+    "model_validation": "not_run",
+    "resources_retained": true
+  },
+  "services": {
+    "postgres": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+      "user": "",
+      "read_only_rootfs": false,
+      "published_ports": false,
+      "model_environment_present": false,
+      "health": "healthy"
+    },
+    "bootstrap": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:75dd7cd028e4ea145092bdce933bd54e59f43747eb324e8be4a9ff3081654993",
+      "user": "0:0",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "world": "test",
+        "catalog": {
+          "lineage": "nexloop-eios-v1",
+          "revision": "0032",
+          "migration_count": 32
+        },
+        "already_initialized": false,
+        "product_ready": false
+      }
+    },
+    "api-test": {
+      "state": "running",
+      "exit_code": 0,
+      "image_id": "sha256:75dd7cd028e4ea145092bdce933bd54e59f43747eb324e8be4a9ff3081654993",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "health": "healthy"
+    },
+    "check-test": {
+      "state": "exited",
+      "exit_code": 0,
+      "image_id": "sha256:75dd7cd028e4ea145092bdce933bd54e59f43747eb324e8be4a9ff3081654993",
+      "user": "10001:10001",
+      "read_only_rootfs": true,
+      "published_ports": false,
+      "model_environment_present": false,
+      "report": {
+        "passed": true,
+        "mode": "test",
+        "world": "test",
+        "product_ready": false,
+        "model_validation": "not_run",
+        "smoke": {
+          "mode": "test",
+          "world": "test",
+          "scope": "postgres_local_artifact_write_read",
+          "passed": true,
+          "product_ready": false,
+          "model_validation": "not_run",
+          "checks": {
+            "backend_startup": true,
+            "service_authentication": true,
+            "artifact_write": true,
+            "artifact_read": true
+          },
+          "artifact": {
+            "artifact_id": "9ba4fa91c9beaac0e980c5e93aaed9f9",
+            "sha256": "17a9ddb631674b432ab73b9e966b2acf987bd8c98640104ef30c120f114b1cc9",
+            "size_bytes": 26,
+            "world": "test"
+          }
+        },
+        "doctor": {
+          "checks": {
+            "catalog": true,
+            "postgres": true,
+            "artifact_directory": true,
+            "model_configuration": true
+          },
+          "details": {
+            "expected_revision": "0032",
+            "database_role": "nexloop_api",
+            "database_catalog": {
+              "lineage": "nexloop-eios-v1",
+              "revision": "0032",
+              "migration_count": 32
+            },
+            "model": {
+              "provider": "test",
+              "model_id": "deterministic-test",
+              "base_url": "",
+              "validation_mode": "test_only_real_validation_blocked",
+              "credential_source": "none"
+            }
+          },
+          "foundation_checks_passed": true,
+          "product_ready": false,
+          "not_verified": [
+            "governed_instance_write",
+            "real_effect_action",
+            "pi_run_recovery",
+            "artifact_write_smoke",
+            "community_compose"
+          ]
+        },
+        "http_checks": {
+          "liveness": true,
+          "foundation_ready_product_unready": true,
+          "anonymous_denied": true,
+          "wrong_service_denied": true,
+          "authorized_artifact_read": true
+        }
+      }
+    }
+  },
+  "product_ready": false,
+  "acceptance_not_promoted": [
+    "AT-051"
+  ],
+  "api_listener_verified": "127.0.0.1:8000 inside owned namespace only",
+  "check_shares_api_network_namespace": true,
+  "network_internal": true,
+  "image_inputs": {
+    "postgres_image": "docker.io/library/postgres@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+    "python_image": "docker.io/library/python@sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db",
+    "build_sha256": {
+      ".dockerignore": "4aa6afbc18d7b7570f5478410d0bb489bebd218aa28439e7cb1bf578245ce516",
+      "Dockerfile": "b787aea1237e7b5a579b93f19c119e0fc5047eec70ee6f2770208249c3e294d3",
+      "nexloop_eios_core-0.1.0-py3-none-any.whl": "fe7aa785c2f4c66e279a23e63eaa20f220e5bf8ef6f60b25f6b779a02b947d2f",
+      "requirements.txt": "d34777b66434c8395d4fa3eab47c6e7bfccf6cfee8a8ece9b94410194e2ff783"
+    },
+    "compose_sha256": "92d691629224734cdc0302736348c308235c0d998a15596a14c6ca79ed7e55c5"
+  },
+  "source_sha256": {
+    "scripts/community_test.py": "182d8534011118ea58b8ef737e09484d7cd0feb5610ce8cdc65899398aa0abc7",
+    "packages/eios-core/src/nexloop_eios/container_entrypoint.py": "df40fe744b47b2190494bf747007497252c1594f11cb421d1d004f6bdb9e0828",
+    "deploy/community/compose.test.yaml": "92d691629224734cdc0302736348c308235c0d998a15596a14c6ca79ed7e55c5",
+    "tests/test_community_launcher.py": "8238d676fca51c990d12552b4e9de6dc8bed47c464666fcf85dd861e0b5fb473",
+    "tests/test_community_container_contract.py": "135d18a323935115bbbfa9326ec80989c61c287e948f20c2b09c137ca8381600"
+  },
+  "limitations": [
+    "No host-facing frontend/login, Host or Worker in Compose yet",
+    "No real model or channel validation",
+    "No S2 Run recovery or external effect acceptance",
+    "Plain HTTP only within owned shared loopback test namespace; not a stage transport"
+  ],
+  "owned_api_and_postgres_stopped_cleanly": true,
+  "private_inputs_volumes_and_images_retained": true,
+  "full_ci": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "exit_code": 0,
+    "passed": {
+      "python": 877,
+      "pi": 24
+    },
+    "python_duration_seconds": 196.7,
+    "python_warnings": 1,
+    "critical_skips": 0,
+    "frontend_built": true,
+    "host_built": true,
+    "pi_source_packages_built": 4
+  },
+  "versions_lock_changed": false,
+  "dependency_locks_unchanged": true,
+  "planning_validator_static_checks": 69,
+  "publication_scan": {
+    "paths": 826,
+    "index_blobs": 0,
+    "violations": 0
+  }
+}

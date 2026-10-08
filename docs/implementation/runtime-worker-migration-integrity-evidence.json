@@ -1,0 +1,13 @@
+{
+  "recorded_at": "2026-10-08T03:11:39.228496+00:00",
+  "passed": true,
+  "baseline": "docs/implementation/dispatch-migration-integrity-evidence.json",
+  "original_catalog_entries_and_sql_sha256_unchanged": 38,
+  "all_catalog_checksums_verified": 39,
+  "new_head": "0039",
+  "new_migration": {
+    "version": "0039",
+    "name": "0039_runtime_execution_marker.sql",
+    "sha256": "6232b48223d4cbe1e0bfe26ef7fcfbc61a086a7f926d800b4f30688706d4c666"
+  }
+}

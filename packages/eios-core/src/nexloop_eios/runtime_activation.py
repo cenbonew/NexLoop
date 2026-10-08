@@ -1,0 +1,203 @@
+"""Durable opaque Run activation through current EIOS queue and Run authority.
+
+API possession of an actual Run credential enrolls its immutable task binding.
+Workers can only activate/recover enrolled Runs for their own current lease.
+No raw credential, DSN or prompt is persisted or returned to Host.
+"""
+from datetime import UTC,datetime,timedelta
+import hashlib,hmac,re,uuid
+from eios.authz import facts as F
+from eios.authz.errors import AuthorizationUnavailable
+from eios.authz.operations import Operation
+from eios.authz.resources import ResourceType
+from eios.authz.service import AuthorizationDecisionService
+from nexloop_eios.authorization import PostgresAuthorityProvider,_identity,authenticate_service
+from nexloop_eios.assembly import verify_application_role
+from nexloop_eios.postgres_artifacts import canonical_payload
+from nexloop_eios.run_credentials import AUDIENCE
+
+_OPERATIONS={'start','resume','inspect','cancel','model','tool'}
+
+def _input_digest(value):
+    if not isinstance(value,str) or len(value.encode())>131072:raise ValueError('bounded input required')
+    return hashlib.sha256(value.encode()).hexdigest()
+
+def _command(value):
+    # Match the live RunCommand shape and bounds before signing; all identity
+    # still comes from the stored Run/task binding, never these caller fields.
+    keys={'schema_version','run_id','tenant_id','world_id','mode','request_id','trigger_event_id','role_ref','consumer_ref','goal_version_ref','context_manifest_ref','runtime_profile','credential_ref','budget','not_after','runtime_owner_epoch'}
+    if type(value) is not dict or set(value)!=keys or value['schema_version']!='1.0':raise ValueError('Run command unavailable')
+    for key in ('run_id','tenant_id','trigger_event_id'):
+        if not isinstance(value[key],str) or re.fullmatch(r'[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}',value[key]) is None:raise ValueError('Run ID unavailable')
+        uuid.UUID(value[key])
+    if value['mode'] not in ('real','simulation','shadow','test') or not isinstance(value['world_id'],str) or not value['world_id'] or (value['mode']=='real')!=(value['world_id']=='real'):raise ValueError('world unavailable')
+    if not isinstance(value['request_id'],str) or not 16<=len(value['request_id'])<=200:raise ValueError('request unavailable')
+    for key in ('role_ref','consumer_ref','goal_version_ref','context_manifest_ref','credential_ref'):
+        if not isinstance(value[key],str) or not 1<=len(value[key])<=512 or re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*:\S+',value[key]) is None:raise ValueError('reference unavailable')
+    if not isinstance(value['runtime_profile'],str) or not value['runtime_profile']:raise ValueError('profile unavailable')
+    if type(value['runtime_owner_epoch']) is not int or not 1<=value['runtime_owner_epoch']<=9007199254740991:raise ValueError('owner unavailable')
+    budget=value['budget']
+    if type(budget) is not dict or set(budget)!={'maximum_model_turns','maximum_tool_calls','active_timeout_seconds','maximum_cost','currency'}:raise ValueError('budget unavailable')
+    for key,maximum in [('maximum_model_turns',64),('maximum_tool_calls',128),('active_timeout_seconds',3600)]:
+        if type(budget[key]) is not int or not 1<=budget[key]<=maximum:raise ValueError('budget unavailable')
+    if not isinstance(budget['maximum_cost'],str) or re.fullmatch(r'\d+(?:\.\d{1,8})?',budget['maximum_cost'],flags=re.ASCII) is None:raise ValueError('cost unavailable')
+    if not isinstance(budget['currency'],str) or re.fullmatch('[A-Z]{3}',budget['currency']) is None:raise ValueError('currency unavailable')
+    if not isinstance(value['not_after'],str) or re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})',value['not_after'],flags=re.ASCII) is None:raise ValueError('expiry unavailable')
+    stamp=value['not_after']
+    if stamp[-1]!='Z' and (int(stamp[-5:-3])>23 or int(stamp[-2:])>59):raise ValueError('expiry unavailable')
+    expiry=datetime.fromisoformat(stamp.replace('Z','+00:00'))
+    if expiry.tzinfo is None or expiry<=datetime.now(UTC):raise ValueError('expiry unavailable')
+    text=canonical_payload(value)
+    if len(text.encode())>65536:raise ValueError('bounded command required')
+    return text,hashlib.sha256(text.encode()).hexdigest()
+
+class RuntimeActivationPort:
+    def __init__(self,pool,session,signer):
+        if session.run_context is not None:raise AuthorizationUnavailable('runtime activation unavailable')
+        self.pool,self.session,self.signer=pool,session,signer
+
+    def _proof(self,session,target):
+        entries=[];query=session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
+        decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,session,entries)).resolve(query))
+        if not decision.allowed or not decision.authoritative or decision.obligations:raise AuthorizationUnavailable('runtime activation unavailable')
+        return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,'credential_id':session.authentication.credential_id,
+            'directory_hash':session.directory_hash,'world':session.world,'resource_id':target,'action_resource':target,'operation':'execute',
+            'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),'facts':sorted(entries,key=lambda r:(r['kind'],r['key']))}
+
+    def _run_proofs(self,run):
+        from nexloop_eios.action_definitions import PostgresActionDefinitionReader
+        if run.run_context is None:raise AuthorizationUnavailable('runtime activation unavailable')
+        reader=PostgresActionDefinitionReader(self.pool,run,self.signer);proofs=[]
+        for target in sorted(run.run_context.allowed_resources):
+            name,version=target.removeprefix('eios:action:').rsplit(':',1);reader.get(name,int(version))
+            proofs.append(self._proof(run,target))
+        return proofs
+
+    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,**parameters):
+        if not isinstance(queue,str) or re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}',queue) is None:raise ValueError('queue unavailable')
+        if proof is None:proof=self._proof(self.session,f'eios:action:NexLoop.queue.{queue}:1')
+        payload=canonical_payload({'queue':queue,'verb':verb,**parameters})
+        if len(payload.encode())>limit:raise ValueError('bounded activation required')
+        claims={'protocol':protocol,'key_id':self.signer.key_id,**proof,'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
+        text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
+        return text,signature,payload
+
+    def _execute(self,db,envelope,*,queue_command=False):
+        # Only this private backend method accepts an existing connection.
+        statement=('select authz.nexloop_queue_command(%s,%s,%s,%s,%s)' if queue_command else
+            'select authz.nexloop_runtime_activation_command(%s,%s,%s,%s,%s)')
+        return db.execute(statement,(self.session.token_digest,self.session.world,*envelope)).fetchone()[0]
+
+    def _call(self,queue,verb,**parameters):
+        envelope=self._signed(queue,verb,**parameters)
+        with self.pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            return self._execute(db,envelope)
+
+    def accept(self,*,queue,source_id,event_id,run_token,command,input,max_attempts=3):
+        try:
+            text,digest=_command(command);input_hash=_input_digest(input)
+            if type(max_attempts) is not int or not 1<=max_attempts<=10:raise ValueError()
+            if any(not isinstance(v,str) or not 1<=len(v)<=255 for v in (source_id,event_id)):raise ValueError()
+            run=authenticate_service(self.pool,run_token,world=self.session.world,run_id=command['run_id'],audience=AUDIENCE)
+            if run_token in text or run_token in input:raise ValueError('credential payload rejected')
+            proofs=self._run_proofs(run)
+            proof=self._proof(self.session,f'eios:action:NexLoop.queue.{queue}:1')
+            accept=self._signed(queue,'accept',proof=proof,protocol='nexloop-queue-command-v1',limit=262144,
+                source_id=source_id,event_id=event_id,payload={'run_command':command,'input':input},max_attempts=max_attempts)
+            with self.pool.connection() as db,db.transaction():
+                verify_application_role(db)
+                accepted=self._execute(db,accept,queue_command=True)
+                # Sign only after the actual definer-produced task ID exists.
+                # Both existing definers recheck current EIOS authority after
+                # lock waits; registration rechecks every Run proof at return.
+                enrollment=self._signed(queue,'register',proof=proof,task_id=accepted['task_id'],run_digest=run.token_digest,
+                    command_text=text,command_digest=digest,input_digest=input_hash,run_proofs=proofs)
+                registered=self._execute(db,enrollment)
+                result={**accepted,**registered}
+            # The transaction context commits before any acceptance leaves us.
+            return result
+        except Exception as error:
+            import psycopg
+            from nexloop_eios.durable_queue import QueueConflict
+            if isinstance(error,psycopg.Error) and error.diag.message_primary in {'queue_payload_conflict','activation enrollment conflict'}:
+                raise QueueConflict('runtime_event_conflict') from None
+            raise AuthorizationUnavailable('runtime activation unavailable') from None
+
+    def register(self,*,queue,task_id,run_token,command,input):
+        try:
+            text,digest=_command(command);run=authenticate_service(self.pool,run_token,world=self.session.world,run_id=command['run_id'],audience=AUDIENCE)
+            return self._call(queue,'register',task_id=task_id,run_digest=run.token_digest,command_text=text,command_digest=digest,
+                input_digest=_input_digest(input),run_proofs=self._run_proofs(run))
+        except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
+
+    def create(self,*,queue,task_id,fence,run_id,command,input,owner_epoch):
+        try:
+            text,digest=_command(command)
+            if type(fence) is not int or fence<1 or type(owner_epoch) is not int or owner_epoch!=command['runtime_owner_epoch'] or run_id!=command['run_id']:raise ValueError()
+            first=self._call(queue,'create',task_id=task_id,fence=fence,run_id=run_id,command_text=text,command_digest=digest,input_digest=_input_digest(input),owner_epoch=owner_epoch)
+            # Full current EIOS Run chain is checked before the reference leaves
+            # backend. Technical registration alone grants no formal Action.
+            self.authorize(activation_ref=first['activation_ref'],command=command,operation='start',input=input)
+            return first
+        except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
+
+    def authorize(self,*,activation_ref,command,operation,input=None):
+        try:
+            text,digest=_command(command)
+            if operation not in _OPERATIONS or not isinstance(activation_ref,str) or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError()
+            if operation in ('start','resume') and input is None:raise ValueError()
+            input_hash=None if input is None else _input_digest(input)
+            # This private hint exposes only a queue for the caller's owned,
+            # active task. It neither authenticates a Run nor returns authority.
+            with self.pool.connection() as db,db.transaction():
+                verify_application_role(db)
+                queue=db.execute('select authz.nexloop_runtime_activation_hint(%s,%s,%s)',(self.session.token_digest,self.session.world,activation_ref)).fetchone()[0]
+            parameters=dict(activation_ref=activation_ref,command_text=text,command_digest=digest,input_digest=input_hash,operation=operation)
+            first=self._call(queue,'resolve',**parameters)
+            with self.pool.connection() as db,db.transaction():
+                verify_application_role(db);run=_identity(db,first['_run_digest'],self.session.world)
+            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run))
+            return {key:value for key,value in result.items() if not key.startswith('_')}
+        except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
+
+    def effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None):
+        """Trusted Host bridge; actual owned activation selects the Run.
+
+        Admission and the final lease/source recheck share one transaction.
+        An expired lease after a lock wait rolls back Intent and quota writes.
+        No raw Run credential, private digest or executor authority is returned.
+        """
+        from nexloop_eios.effect_intents import EffectIntentPort,EffectIntentConflict,EffectIntentUnavailable
+        try:
+            if tool_operation not in ('submit','find'):raise ValueError()
+            if tool_operation=='submit':
+                if type(parameters) is not dict or intent_id is not None:raise ValueError()
+                arguments={'parameters':parameters}
+            else:
+                if parameters is not None or type(intent_id) is not str or str(uuid.UUID(intent_id))!=intent_id:raise ValueError()
+                arguments={'intent_id':intent_id}
+            text,digest=_command(command)
+            if type(activation_ref) is not str or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError()
+            with self.pool.connection() as db,db.transaction():
+                verify_application_role(db)
+                queue=db.execute('select authz.nexloop_runtime_activation_hint(%s,%s,%s)',
+                    (self.session.token_digest,self.session.world,activation_ref)).fetchone()[0]
+                binding=dict(activation_ref=activation_ref,command_text=text,command_digest=digest,input_digest=None,operation='tool')
+                resolved=self._execute(db,self._signed(queue,'resolve',**binding))
+                run=_identity(db,resolved['_run_digest'],self.session.world)
+                if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
+                def guard():
+                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run)))
+                    if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
+                guard()
+                receipt=EffectIntentPort(self.pool,run,self.signer)._execute_in_transaction(
+                    db,tool_operation,action_version=1,runtime_refs={'consumer_ref':command['consumer_ref'],
+                        'goal_version_ref':command['goal_version_ref']},**arguments)
+                guard()
+                keys={'intent_id','receipt_id','state','payload_digest','provider_payload_digest','scope','business_action_success'}
+                if type(receipt) is not dict or set(receipt)!=keys or receipt['scope']!='effect_intent' or receipt['business_action_success'] is not False:raise ValueError()
+                response={'run_id':command['run_id'],'receipt':receipt}
+            return response
+        except EffectIntentConflict:raise
+        except Exception:raise EffectIntentUnavailable('effect intent unavailable') from None
