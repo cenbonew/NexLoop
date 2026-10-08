@@ -321,7 +321,21 @@
     "name": "缓存故障",
     "given": "Valkey停止/清空",
     "expected": "PG权威保留，degraded但不丢任务",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "d12cf1081920393370e1263e1a99f1dd6e4a4554",
+        "summary": "实际TLS/ACL Valkey FLUSHDB/停止/同CID固定端点重启，PG接受/领取/完成仍权威；实际Worker配置cache禁用/可用/停止均完成PG/Pi任务。",
+        "recorded_at": "2026-10-08T15:29:35.052093+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/NX-017-cache-fault-evidence.json",
+        "summary": "当前主线cache/runtime/queue/browser/profile 67pass109.01s，零skip；cache degraded独立报告，overall readiness仍503；不冒称Compose部署或完整pending重建。",
+        "recorded_at": "2026-10-08T15:29:35.052093+00:00"
+      }
+    ]
   },
   {
     "id": "AT-033",

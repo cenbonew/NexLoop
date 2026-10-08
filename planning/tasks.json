@@ -1406,7 +1406,7 @@
       "M17"
     ],
     "deliverable": "外部成功后kill不重复，DB/缓存/owner故障证据",
-    "status": "not_started",
+    "status": "done",
     "evidence": [
       {
         "type": "test_report",
@@ -1455,6 +1455,18 @@
         "ref": "docs/implementation/native55-main-evidence.json",
         "summary": "AT-013 native入口已实际验证；NX-017仍not_started等待NX-016完成，非整组故障验收完成。",
         "recorded_at": "2026-10-08T13:42:19.560638+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d12cf1081920393370e1263e1a99f1dd6e4a4554",
+        "summary": "可丢弃TLS/ACL Valkey提示集成；当前主线67+27+4真实测试通过，PG权威/租约/fence/精确kill恢复保留。仅本地提交，无持久部署或完整当前CI声明。",
+        "recorded_at": "2026-10-08T15:29:35.052093+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/NX-017-cache-fault-evidence.json",
+        "summary": "98 passed/0 critical skips；外部fsync后SIGKILL查询原意图不重发、PG入站与效应dispatch故障、Pi分配和模型返回窗口恢复、Valkey清空/停止/同端点重启。首次失败与边界保留。",
+        "recorded_at": "2026-10-08T15:29:35.052093+00:00"
       }
     ]
   },
