@@ -1562,6 +1562,12 @@
         "ref": "docs/implementation/NX-018-core59-checkpoint.json",
         "summary": "core0059独立PG bootstrap与完整当前权限proof，0001..0057原checksum保留；AT004/009与非空身份/联系引用仍未完成。",
         "recorded_at": "2026-10-08T16:09:25.214681+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "1b1e2724df992409bae09ae0fec4a5af73d700c8",
+        "summary": "统一真实Backend治理create/correct/current读投影端口与生命周期关闭/当前Property撤权验证，37passed；首次测试异常类型断言已纠正，仍in_progress。",
+        "recorded_at": "2026-10-08T16:13:10.818838+00:00"
       }
     ]
   },
