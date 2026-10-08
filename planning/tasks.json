@@ -1532,6 +1532,12 @@
         "ref": "docs/implementation/NX-018-core57-checkpoint.json",
         "summary": "Consumer主线15项及core0057角色/授权回归93项通过，0关键跳过；AT-004/009仍未完成。",
         "recorded_at": "2026-10-08T15:53:36.607073+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/NX-018-core57-message-regression.json",
+        "summary": "core0057真实PG Message/原生重复事件/Offering Run授权回归26passed，零失败/跳过，源码冻结380路径无变更；仍in_progress。",
+        "recorded_at": "2026-10-08T15:55:37.487954+00:00"
       }
     ]
   },

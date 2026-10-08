@@ -1,0 +1,19 @@
+{
+  "task": "NX-018",
+  "recorded_at": "2026-10-08T15:55:37.487954+00:00",
+  "scope": "Actual core0057 fresh bootstrap: business setup, local Message delivery assembly, native duplicate event delivery and Offering/runtime authorization regression. Does not prove role-aware Run selection or full CI.",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_business_setup_pg.py tests/test_local_message_delivery_assembly.py tests/test_native_web_delivery.py tests/test_offering_runtime_pg.py --tb=short --junitxml=.ci-results/nx018-create-tail-message-regression.xml",
+  "report": ".ci-results/nx018-create-tail-message-regression.xml",
+  "report_sha256": "10b7e0d84059bc14da2f84ddea545bdc1495c1b5d37e7f772760f3839512d96c",
+  "result": {
+    "tests": "26",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "time": "123.700"
+  },
+  "source_freeze_paths": 380,
+  "source_freeze_changed": 0,
+  "first_failure": null,
+  "warnings": "4 httpx string-verify deprecation warnings; no failed or skipped tests."
+}
