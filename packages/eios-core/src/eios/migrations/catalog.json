@@ -325,6 +325,11 @@
       "version": "0065",
       "name": "0065_receipt_reconciliation.sql",
       "sha256": "8ac8ee9071b6696ba0d2cd5d7267603f61583cb213282b7f39994c838ccecd39"
+    },
+    {
+      "version": "0066",
+      "name": "0066_nx019_claims.sql",
+      "sha256": "bf2c747ef39148fc3e1411b4b82a933498d1af8f6a2d2323e90937960e2cc4ae"
     }
   ]
 }
