@@ -1,0 +1,74 @@
+{
+  "task": "NX-011..NX-012",
+  "acceptance_ids": [
+    "AT-001",
+    "AT-002"
+  ],
+  "recorded_at": "2026-10-08T15:38:33.674558+00:00",
+  "scope": "Conversation/Message HTTP API and restricted PostgreSQL role in owned disposable database; two actual independently configured Human tenant principals; not a generic object CRUD API audit",
+  "test_script": {
+    "path": "tests/test_identity_http_pg.py",
+    "sha256": "b3201f3a30afa1b3c626d29e61cd4ab5d5aac8ea81c893ae4fb6880b40fd0c8a"
+  },
+  "commands": [
+    {
+      "command": "PYTHONPATH=packages/eios-core/src:tests .venv/bin/python -m pytest -q docs/tmp/identity-http-candidate/tests/test_identity_http_pg.py --confcutdir=docs/tmp/identity-http-candidate/tests --tb=short",
+      "attempts": [
+        {
+          "result": "2 failed",
+          "seconds": 3.83,
+          "cause": "second tenant attempted different key material for existing global signer key_id; production configurator correctly denied fixture preparation"
+        },
+        {
+          "result": "1 failed, 1 passed",
+          "seconds": 8.37,
+          "session": 83030,
+          "cause": "audit SELECT used revision instead of actual nexloop_revision; identity spoof test passed"
+        },
+        {
+          "result": "2 passed",
+          "seconds": 8.47,
+          "session": 99921,
+          "exit_code": 0
+        }
+      ]
+    }
+  ],
+  "assertions": {
+    "AT-001": [
+      "B actual genuine Human governs own Conversation and Message containing unique synthetic private statement",
+      "A actual HTTPS GET B messages/events/Message receipt and POST B Conversation Message all403/404 with no private body or B identifiers in response",
+      "B actual ontology object properties/revisions unchanged; A claim count unchanged",
+      "direct business SELECT denied under nexloop_api role"
+    ],
+    "AT-002": [
+      "actual HTTPS body tenant_id/scope/actor/world_id injection422 and zero Message creation",
+      "forged X-Tenant-ID/X-Tenant/X-Scope/X-Actor/X-World headers ignored: accepted Message remains authenticated A tenant/principal/real world in actual PG",
+      "same forged headers cannot read real B Conversation"
+    ]
+  },
+  "limitations": [
+    "No generic object detail/edit HTTP API exists in this validation; scoped Conversation/Message objects only.",
+    "AT-003 search/export/vector sensitive property/evidence remains unverified; this report does not mark it passed.",
+    "No frontend fake authorization, model call, production connection or main/planning edit."
+  ],
+  "fixture_preparation": "actual trusted apply_manifest/initial Human identity/governed business setup for both tenants, shared disposable signer key because key_id is global; no authoritative grants seeded directly and no business data SQL mutation",
+  "main_run": {
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_identity_http_pg.py tests/test_browser_business_authorization.py tests/test_action_definitions.py --tb=short --junitxml=.ci-results/identity-http-main.xml",
+    "command_scope": "Actual command excluding temporary stdout/stderr file redirection only.",
+    "session": 8121,
+    "exit_code": 0,
+    "passed": 30,
+    "seconds": 37.43,
+    "skipped": 0,
+    "junit_sha256": "d5335676b1de05b53cf78b519e1cb0d767e5c46cf65f296e18c0402d83418094"
+  },
+  "artifact_cleanup": {
+    "owned_directory_parent": "apps/agent-host/.ci-results",
+    "removed_prefix": "host-runtime-stage-",
+    "removed_count": 137,
+    "lsof_open_file_count": 0,
+    "method": "Prior exact path dry-run; no symlinks; verified contained root; JUnit reports preserved.",
+    "ignore_changed": false
+  }
+}
