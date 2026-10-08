@@ -4,7 +4,7 @@ import {constants,closeSync,fsyncSync,lstatSync,mkdirSync,openSync} from 'node:f
 import {join,resolve} from 'node:path';
 import {BACKGROUND_CONTEXT} from '@earendil-works/chord/context';
 import {lazyStream,type Model,type Api,type Models,type AssistantMessageEventStream,type AssistantMessage} from '@earendil-works/pi-ai';
-import {Harness,ToolResultEntry,createRegistry,defineDoc,type ConversationId,type SubmissionId,type ModelRef,type ToolRegistration} from '@earendil-works/pi-durable';
+import {Harness,GenerationTask,hook,ToolResultEntry,createRegistry,defineDoc,type ConversationId,type SubmissionId,type ModelRef,type ToolRegistration} from '@earendil-works/pi-durable';
 import {openNodeSqliteDatabase} from '@earendil-works/pi-durable/storage/sqlite/node';
 import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
 import {safeProviderMessage,safeProviderStream} from './runtime-provider-boundary.js';
@@ -15,6 +15,10 @@ export type PiRuntimeOptions={
   /** Trusted Host registry factory; each closure receives its immutable Run binding. */
   toolsForRun?:(command:RunCommand)=>readonly ToolRegistration[];
   costPolicy?:{kind:'deterministic_zero';currency:string}|{kind:'bounded_request';currency:string;maximum_request_cost:string};
+  /** Trusted code-only diagnostic observer; never an authorization gate.
+   * Not exposed through Host JSON/HTTP. Bounded metadata only, no model body,
+   * tool parameters, HookApi or backend credential. */
+  observeModelResponse?:(event:{run_id:string;response_digest:string;tool_call_ids:readonly string[]})=>Promise<void>;
   assertOwner:()=>void;
   /** Trusted server implementation must check current identity, PG lease/fence and control revisions. */
   authorize:(command:RunCommand,operation:RuntimeOperation)=>Promise<{ever_execution_authorized:boolean}>;
@@ -148,7 +152,14 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
         if(policy.kind==='deterministic_zero'&&cost!==0)throw new RuntimeError('runtime_model_cost_mismatch');
         if(policy.kind==='bounded_request'&&(cost*100000000>Number.MAX_SAFE_INTEGER||BigInt(Math.ceil(cost*100000000))>moneyUnits(policy.maximum_request_cost)))throw new RuntimeError('runtime_model_cost_mismatch');
       };
-      registry.install({name:'nexloop-governed',tools});
+      const observer=this.options.observeModelResponse;
+      registry.install({name:'nexloop-governed',tools,...(observer?{hooks:[hook(GenerationTask,{afterResponse:async message=>{
+        const ids=message.content.filter(item=>item.type==='toolCall').map(item=>item.id);
+        // Explicit bound for the diagnostic metadata. No message/reference API
+        // crosses this callback; frozen Pi's hook exception semantics apply.
+        if(ids.length>64||ids.some(id=>Buffer.byteLength(id,'utf8')>256))throw new RuntimeError('runtime_response_observer_refused');
+        await observer(Object.freeze({run_id:command.run_id,response_digest:createHash('sha256').update(canonical(message)).digest('hex'),tool_call_ids:Object.freeze([...ids])}));
+      }})]}:{})});
       const guardedModels=new Proxy(this.options.models,{get:(target,property)=>{
         const value=Reflect.get(target,property,target);
         if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{await consume('model');try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost);}catch{throw new RuntimeError('runtime_model_unavailable');}}));

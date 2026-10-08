@@ -1,0 +1,38 @@
+{
+  "recorded_at": "2026-10-08T10:13:51.635971+00:00",
+  "task": "NX-017",
+  "status": "dependency_pending",
+  "commands": [
+    "pnpm --filter @nexloop/agent-host build",
+    "uv run --frozen pytest -q tests/test_model_response_commit_window.py tests/test_local_effect_worker_kill.py",
+    "pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**'"
+  ],
+  "results": [
+    "Build exit0",
+    "2 passed13.08s;first main run passed",
+    "61 passed2.84s;Node SQLite ExperimentalWarning"
+  ],
+  "source_sha256": {
+    "apps/agent-host/src/pi-runtime-adapter.ts": "22999fde29707c4e9c68f6685c48707fbd55f2cc473583dc329f2e135b526c61",
+    "tests/pi-response-window-driver.mjs": "623281d749be78655394b0c7e7fe133d35e6ff0799bb677cbc4f0a52a0e4ca03",
+    "tests/test_model_response_commit_window.py": "b38fe026a61ff58cc0aa69e816c9b49e4917fef9a752f5caeb053d0fcfcedfa6",
+    "tests/test_local_effect_worker_kill.py": "02b09ff4ad0997ab76488e93b98a3ad4a653da4fc351ec6111bafa0e43b3ff72"
+  },
+  "candidate_first_failures": [
+    "Package link declaration resolution; isolated links corrected",
+    "Candidate fixture collection; unchanged disposable fixture copied",
+    "SQLite indexed kind interpreted incorrectly; actual decoded record.kind asserted",
+    "Named Node SQLite warning rejected by empty stderr assertion; explicit named warning suppression only"
+  ],
+  "independent_candidate_result": "2 passed13.78s",
+  "proofs": [
+    "Real afterResponse terminal return before SQLite Assistant/ToolTask commit; SIGKILL/reopen same FULL2 WAL inode, regenerated distinct tool ID retains original intent/receipt",
+    "Independent production EffectWorker SIGKILL after actual export fsync before HTTP reply; original service live, new Worker GET only, POST/attempt/quota1"
+  ],
+  "limits": [
+    "Deterministic model only; genuine governed PG and actual local file effect",
+    "Observer bounded metadata and constructor-only diagnostic; not authorization gate or public Host configuration",
+    "NX-016 dependency remains in_progress; NX-017 not promoted",
+    "versions.lock.json unchanged"
+  ]
+}
