@@ -2,6 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 uv sync --frozen
+# Dependency phase (network allowed): warm the PEP 517 build backend once, so the offline
+# wheel/packaging tests below never depend on a pre-populated developer uv cache.
+warm_wheel_dir=$(mktemp -d)
+uv build --package nexloop-eios-core --wheel --out-dir "$warm_wheel_dir" >/dev/null
+rm -rf "$warm_wheel_dir"
 uv run --frozen python scripts/check_publication.py
 uv run --frozen python scripts/check_pi_source.py
 uv run --frozen python scripts/generate_contracts.py --check
