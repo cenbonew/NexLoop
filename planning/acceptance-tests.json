@@ -6,7 +6,21 @@
     "name": "跨租户API",
     "given": "租户A读取或修改B对象",
     "expected": "403/404且无信息泄漏；DB受限角色下同样拒绝",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "de670c38c652f4d6169d71c47dee87d5f2664ba6",
+        "summary": "真实两个tenant/Human配置、B治理Conversation/Message；A实际HTTPS读/改B对象均403/404无B正文/ID，B属性/revision与Aclaim不变；受限PG拒直接读取。仅当前Conversation/Message API，不泛称未来generic CRUD。",
+        "recorded_at": "2026-10-08T15:38:46.770935+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/identity-http-main-evidence.json",
+        "summary": "主线当前30passed37.43s，零关键skip；首次signer配置/审计列名错误与候选重跑保留。AT003检索/导出/向量仍未验证。",
+        "recorded_at": "2026-10-08T15:38:46.770935+00:00"
+      }
+    ]
   },
   {
     "id": "AT-002",
@@ -15,7 +29,21 @@
     "name": "身份来源",
     "given": "请求体/头伪造tenant或scope",
     "expected": "忽略并拒绝；以服务端身份为准",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "de670c38c652f4d6169d71c47dee87d5f2664ba6",
+        "summary": "真实Human HTTPS body伪造tenant/scope/actor/world422无写；伪造headers不能改变服务端身份，实际Message保持Atenant/Aprincipal/real，仍不能读B。",
+        "recorded_at": "2026-10-08T15:38:46.770935+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/identity-http-main-evidence.json",
+        "summary": "主线当前30passed37.43s，零关键skip；首次signer配置/审计列名错误与候选重跑保留。AT003检索/导出/向量仍未验证。",
+        "recorded_at": "2026-10-08T15:38:46.770935+00:00"
+      }
+    ]
   },
   {
     "id": "AT-003",

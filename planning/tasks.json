@@ -904,6 +904,12 @@
         "ref": "7e6f066ea0f0c21352bb3b6fcb7e1467fd190866",
         "summary": "NX-009..NX-011: 交付单机Compose、本地CI与API基础结构; retrospective local implementation checkpoint",
         "recorded_at": "2026-10-08T09:29:49.902849+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "de670c38c652f4d6169d71c47dee87d5f2664ba6",
+        "summary": "实际双租户HTTP与伪造身份头/请求体边界，当前30项相关测试通过。补强证据；未部署/push。",
+        "recorded_at": "2026-10-08T15:38:46.770935+00:00"
       }
     ]
   },
@@ -945,6 +951,12 @@
         "ref": "a1c3407cf0888e562e3c06dedd2b474f96a2879f",
         "summary": "NX-012: 打通自主Agent受治理实例写; retrospective local implementation checkpoint",
         "recorded_at": "2026-10-08T09:29:50.215053+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "de670c38c652f4d6169d71c47dee87d5f2664ba6",
+        "summary": "实际双租户HTTP与伪造身份头/请求体边界，当前30项相关测试通过。补强证据；未部署/push。",
+        "recorded_at": "2026-10-08T15:38:46.770935+00:00"
       }
     ]
   },
