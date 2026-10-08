@@ -1,0 +1,126 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "runtime_task_status": "succeeded",
+  "runtime_outcome": "succeeded",
+  "runtime_code": null,
+  "runtime_receipt": {
+    "request_id": "message-23cca6338fc23ec6bf2fe0bc2f1f7d71cd0fa3808b70c9412253aa61fc45cb41",
+    "persistence": {
+      "synchronous": 2,
+      "journal_mode": "wal"
+    },
+    "submission_id": 10,
+    "conversation_id": 2
+  },
+  "run_id": "2b33c9ac-aad9-421b-bc5a-d6f653a5cf4d",
+  "scope": "one actual model Run; synthetic user input; owned PG",
+  "actual_export_sha256": "696bd6e07f6e98ee454f52c62f025cf12a0e51bba2a30ac843ff72d9540e12eb",
+  "final_human_receipt": {
+    "scope": "service_delivery",
+    "state": "fulfilled",
+    "intent_id": "7399c233-56bd-491c-aaf1-b9715f4b4e5d",
+    "receipt_id": "9554b7c1-0efa-4d9f-97cd-b19fadd2761a",
+    "provider_state": "fulfilled",
+    "business_action_success": true,
+    "governed_claim_finalized": true
+  },
+  "tool_requests": 1,
+  "actual_provider_delivery": "LocalJsonDelivery HTTPS",
+  "model_validation": "passed",
+  "secret_scan": {
+    "own_files_scanned": 49,
+    "leaks": 0,
+    "temporary_key_removed": true
+  },
+  "sqlite": [
+    {
+      "sha256": "614a136e21eb5bf948bdd9c9dbd756e671e988dd26ca6e60b1c040dd19255981",
+      "entries": 5,
+      "submissions": 1,
+      "assistant_records": 2
+    }
+  ],
+  "protocol_scope": "core52; no offering53 claim",
+  "provider_failure_stage": null,
+  "actual_model_responses": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "stop_reason": "toolUse",
+      "usage": {
+        "input": 1387,
+        "output": 64,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "reasoning": 0,
+        "totalTokens": 1451,
+        "cost": {
+          "input": 0.0004161,
+          "output": 7.68e-05,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.0004929
+        }
+      },
+      "duration_ms": 837,
+      "tool_names": [
+        "nexloop_service_request"
+      ]
+    },
+    {
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "stop_reason": "stop",
+      "usage": {
+        "input": 221,
+        "output": 130,
+        "cacheRead": 1408,
+        "cacheWrite": 0,
+        "reasoning": 0,
+        "totalTokens": 1759,
+        "cost": {
+          "input": 6.63e-05,
+          "output": 0.000156,
+          "cacheRead": 8.448e-06,
+          "cacheWrite": 0,
+          "total": 0.000230748
+        }
+      },
+      "duration_ms": 1186,
+      "tool_names": []
+    }
+  ],
+  "commands": [
+    {
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && node /Users/chenbowen/253383134/NexLoop/node_modules/typescript/bin/tsc -p apps/agent-host/tsconfig.json",
+      "exit_code": 0
+    },
+    {
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest -q tests/test_real_deepseek_alias_delivery.py --tb=short",
+      "session": 27919,
+      "exit_code": 0,
+      "passed": 1,
+      "duration_seconds": 9.53,
+      "warnings": 1
+    }
+  ],
+  "first_failure_history": "Previous pre-alias actual Run failed runtime_model_unavailable; preserved real-model-probe-result.json. New authorized Run passed first execution; no retry.",
+  "cleanup": {
+    "owned_pg_stopped": true,
+    "owned_children_reaped": true,
+    "temporary_provider_key_removed": true
+  },
+  "sha256": {
+    "tests/test_real_deepseek_alias_delivery.py": "1999f37f5fc2f11b256041503910a591d2f36ed21ede43e77fc0699dc49717a1",
+    "apps/agent-host/src/provider-tool-names.ts": "1ce185a6126b5911ac1be6fbf1e29d56c6e3085e369f9fa778528597c27cf806",
+    "apps/agent-host/src/pi-runtime-adapter.ts": "ac090912c10ddc780b98c9f4d43c1ed9114e88aac2153556c7821152546ea421",
+    "apps/agent-host/src/runtime-host.ts": "f6d93efc279ff2eb27e950fc6d73f8519c70d4140109bd85e80f586465fa892f",
+    "apps/agent-host/dist/main.js": "671a432f6e3705ab212db3e398f12ea4722236e574e71f13cfe8ff88c64f54bd",
+    "apps/agent-host/dist/pi-runtime-adapter.js": "f29888eeca3750eaf1ebf3cf6b514d2e0fd34af9aeff7e9aeb5a05fd72e6c11d",
+    "apps/agent-host/dist/runtime-host.js": "5fcd7f1fedad56a126745237d4575f51638ecc16f4084750973b47c2b90b7d26"
+  },
+  "cost_observation": "SDK frozen rate estimate only, not live provider invoice",
+  "actual_model_turns": 2,
+  "sdk_estimated_cost_usd": 0.000723648
+}

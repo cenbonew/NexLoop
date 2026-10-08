@@ -1277,6 +1277,12 @@
         "ref": "5bd3e580addac7f1762b3ae3ad4433731fe6a99c",
         "summary": "DeepSeek wire aliases preserve canonical EIOS execution, proven by8 offline actual SDK/Pi tests and66 Runtime regression tests; no real supplier success claimed.",
         "recorded_at": "2026-10-08T12:14:18.279018+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/real-model-alias-rerun-result.json",
+        "summary": "真实 DeepSeek 两轮模型响应、一次工具调用，经 Pi SQLite FULL/WAL、EIOS 授权与 LocalJsonDelivery HTTPS 完成文件交付及最终 Claim；稳定消息重放无额外效应。隔离 core52 合成业务验证通过，0053 供给目录尚未纳入；保留首次真实模型失败记录。",
+        "recorded_at": "2026-10-08T12:22:06.383892Z"
       }
     ]
   },
