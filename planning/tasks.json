@@ -1483,8 +1483,15 @@
       "M06"
     ],
     "deliverable": "N:M职责、身份歧义、EIOS对象与读取投影",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-017-cache-fault-evidence.json",
+        "summary": "NX-017实际98项故障/缓存回归及提交完成后开始：治理N:M角色、同名身份歧义、关系证据更正；候选设计尚非完成。",
+        "recorded_at": "2026-10-08T15:30:10.417836+00:00"
+      }
+    ]
   },
   {
     "id": "NX-019",

@@ -87,7 +87,21 @@
     "name": "供给边界",
     "given": "请求目录外承诺/优惠",
     "expected": "不形成未授权承诺，说明可交付范围",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "1a15eec2af100db544881ef5e76e3ade8e77675a",
+        "summary": "现有Core56实际受治理PG/Pi范围拒绝与真实Human HTTP/browser拒绝/reload记录，目录外保证/折扣不生成Intent/额度/效应；界面明确授权范围。",
+        "recorded_at": "2026-10-08T15:30:10.417836+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/browser56/scope-browser56-summary.json",
+        "summary": "真实Human登录/原始消息/范围拒绝/reload同拒绝投影；deterministic provider测试，非真实模型作出范围判断声明。关联scope56-main-evidence保存首次失败与重跑。",
+        "recorded_at": "2026-10-08T15:30:10.417836+00:00"
+      }
+    ]
   },
   {
     "id": "AT-011",
