@@ -701,6 +701,12 @@
         "ref": "7e6f066ea0f0c21352bb3b6fcb7e1467fd190866",
         "summary": "NX-009..NX-011: 交付单机Compose、本地CI与API基础结构; retrospective local implementation checkpoint",
         "recorded_at": "2026-10-08T09:29:49.902849+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "63d90d35ebe1056817c10eaab0dc44e671399652",
+        "summary": "NX-010: live validator report and build output isolated from source; static handoff snapshot unchanged by normal live validation",
+        "recorded_at": "2026-10-08T09:36:02.973125+00:00"
       }
     ]
   },

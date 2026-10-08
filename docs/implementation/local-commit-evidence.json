@@ -1,0 +1,134 @@
+{
+  "recorded_at": "2026-10-08T09:32:35.413616+00:00",
+  "implementation_commits": [
+    {
+      "hash": "35deb7d9818e4c19993fb31de83fd9aab32d8c26",
+      "tasks": [
+        "NX-001"
+      ],
+      "title": "建立干净仓库与交接基线",
+      "paths": 74,
+      "validation_passed": true
+    },
+    {
+      "hash": "1d5b8523eb8c254b767e3ea82d26fc60a26c2d14",
+      "tasks": [
+        "NX-002"
+      ],
+      "title": "核验EIOS来源与依赖图",
+      "paths": 7,
+      "validation_passed": true
+    },
+    {
+      "hash": "53b3c1f7d76de7b8966f1c9a3e56b98f2c27a8a7",
+      "tasks": [
+        "NX-003"
+      ],
+      "title": "核验Pi与Evo锁定版本",
+      "paths": 370,
+      "validation_passed": true
+    },
+    {
+      "hash": "d894a9ac7af40798413c98153d0722b55d28f2cb",
+      "tasks": [
+        "NX-004"
+      ],
+      "title": "只读盘点双机环境",
+      "paths": 2,
+      "validation_passed": true
+    },
+    {
+      "hash": "9cc1076974fa8c26bfa07fb6215aa729362ecfeb",
+      "tasks": [
+        "NX-005"
+      ],
+      "title": "冻结契约和许可方案",
+      "paths": 22,
+      "validation_passed": true
+    },
+    {
+      "hash": "c8e26245275fbf6b751e70ef5b1beac6eedf256d",
+      "tasks": [
+        "NX-006",
+        "NX-007",
+        "NX-008"
+      ],
+      "title": "抽取EIOS core、本地Artifact与独立迁移角色",
+      "paths": 233,
+      "validation_passed": true
+    },
+    {
+      "hash": "7e6f066ea0f0c21352bb3b6fcb7e1467fd190866",
+      "tasks": [
+        "NX-009",
+        "NX-010",
+        "NX-011"
+      ],
+      "title": "交付单机Compose、本地CI与API基础结构",
+      "paths": 151,
+      "validation_passed": true
+    },
+    {
+      "hash": "a1c3407cf0888e562e3c06dedd2b474f96a2879f",
+      "tasks": [
+        "NX-012"
+      ],
+      "title": "打通自主Agent受治理实例写",
+      "paths": 13,
+      "validation_passed": true
+    },
+    {
+      "hash": "58af32e5dfcab2eddce647114f615ddd577e2984",
+      "tasks": [
+        "NX-013"
+      ],
+      "title": "建设事件Inbox/Outbox与持久队列",
+      "paths": 15,
+      "validation_passed": true
+    },
+    {
+      "hash": "a7a90de675f3c8cfb887bab3656a34614e0d5706",
+      "tasks": [
+        "NX-014"
+      ],
+      "title": "封装Pi RuntimeAdapter与持久恢复",
+      "paths": 47,
+      "validation_passed": true
+    },
+    {
+      "hash": "e3c6fdd8928a4c3d4f4cab2c1adb61e0988d6743",
+      "tasks": [
+        "NX-015"
+      ],
+      "title": "建设业务意图与Action结果核对",
+      "paths": 58,
+      "validation_passed": true
+    },
+    {
+      "hash": "3b2ead23ad60463471108a346562f6222ce63fb2",
+      "tasks": [
+        "NX-016"
+      ],
+      "title": "保存WebChat和真实本地交付的已测集成检查点",
+      "paths": 72,
+      "validation_passed": true
+    },
+    {
+      "hash": "63d90d35ebe1056817c10eaab0dc44e671399652",
+      "tasks": [
+        "NX-010"
+      ],
+      "title": "隔离实时校验报告与构建运行产物",
+      "paths": 7,
+      "validation_passed": true
+    }
+  ],
+  "completed_tasks_with_commit_evidence": 15,
+  "in_progress_checkpoint": "NX-016 remainsin_progress;154Python+61Node passed, full0051CI pending",
+  "validation": "passed after every implementation commit and after live-output policy fix;69checks",
+  "publication": "Git-visible working tree and staged blobs have no private paths/address/key violations; owner-requested grep empty outside frozen public handoff, actual private addresses absent insidehandoff too",
+  "artifact_cleanup": "docs/implementation/generated-artifact-cleanup.json",
+  "push": "not performed; prohibited without owner instruction",
+  "metadata_commit_rule": "Final evidence-only commit records implementation hashes and does not self-reference its own unknown hash.",
+  "cleanup_rechecked": true
+}
