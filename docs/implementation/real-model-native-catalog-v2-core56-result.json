@@ -1,0 +1,47 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "runtime_task_status": "succeeded",
+  "runtime_outcome": "succeeded",
+  "runtime_code": null,
+  "runtime_receipt": {
+    "request_id": "message-1b6b4f61985109706d01aa54f733c375690c218a883bdd4bafbf274b5d7d7ac1",
+    "persistence": {
+      "synchronous": 2,
+      "journal_mode": "wal"
+    },
+    "submission_id": 10,
+    "conversation_id": 2
+  },
+  "run_id": "c1dca933-9253-4072-9817-c50479bf6db9",
+  "scope": "one actual model Run; synthetic user input; owned PG",
+  "validation_stage": "end_to_end_passed",
+  "actual_export_sha256": "bf1bdb693912756828f6c6e6e66d21af8057e5332ef9addca017e90a660bbf92",
+  "final_human_receipt": {
+    "scope": "service_delivery",
+    "state": "fulfilled",
+    "intent_id": "a13efece-30bf-49c5-a1e1-55c532c1598b",
+    "receipt_id": "0524c6ce-ee36-4212-a903-f5def8a3c9eb",
+    "provider_state": "fulfilled",
+    "business_action_success": true,
+    "governed_claim_finalized": true
+  },
+  "tool_requests": 1,
+  "actual_provider_delivery": "LocalJsonDelivery HTTPS",
+  "model_validation": "passed",
+  "secret_scan": {
+    "own_files_scanned": 49,
+    "leaks": 0,
+    "temporary_key_removed": true
+  },
+  "sqlite": [
+    {
+      "sha256": "a14ab2645eca7963c413cef0360538a5c98ccdd1f49209b0098e1de2a681cdea",
+      "entries": 5,
+      "submissions": 1,
+      "assistant_records": 2
+    }
+  ],
+  "protocol_scope": "owned snapshot core56 main8610de7; actual catalog53/partial-edit54/native55/scope-denial56; real call pending",
+  "provider_failure_stage": null
+}

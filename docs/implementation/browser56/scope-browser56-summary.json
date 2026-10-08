@@ -1,0 +1,68 @@
+{
+  "revision": 56,
+  "evidence_kind": "Root actual interactive browser; independent readback of captured DOM",
+  "scope_preview_session": 57766,
+  "result": "Root reports successful actual Human login/native message/scope query and reload same message; both DOM files confirm same statement and same scope-denial display",
+  "cleanup": "Root explicitly stopped preview57766; terminalexit0",
+  "snapshots": [
+    {
+      "file": "docs/implementation/browser-evidence/nexloop-browser56-scope-dom.txt",
+      "sha256": "7d8e5542317998b376730d5fae23cf1c7ea78d1d104e4567af01c03bfa01f4fb",
+      "observable": [
+        "actual logged-in browser",
+        "submitted synthetic user statement remains visible",
+        "outside-authorized-scope message",
+        "JSON-only allowed service /0 CNY/no guarantees or discounts",
+        "no provider fulfillment success asserted"
+      ]
+    },
+    {
+      "file": "docs/implementation/browser-evidence/nexloop-browser56-scope-reload-dom.txt",
+      "sha256": "7d8e5542317998b376730d5fae23cf1c7ea78d1d104e4567af01c03bfa01f4fb",
+      "observable": [
+        "actual logged-in browser",
+        "submitted synthetic user statement remains visible",
+        "outside-authorized-scope message",
+        "JSON-only allowed service /0 CNY/no guarantees or discounts",
+        "no provider fulfillment success asserted"
+      ]
+    }
+  ],
+  "first_failures": [
+    {
+      "attempt": "first90secondpreview",
+      "result": "certificate page only before deadline; no application acceptance claim"
+    },
+    {
+      "attempt": "second90secondpreview",
+      "result": "actual Human login/native HTTP202 achieved; preview stopped before query; no scope-UI acceptance"
+    },
+    {
+      "attempt": "240secondscopepreview selector",
+      "result": "invalid selector first attempt; subsequent actual snapshot reference retry succeeded",
+      "exact_error": "not supplied by Root; no invented command/trace"
+    }
+  ],
+  "limits": [
+    "explicit deterministic outside-catalog profit-guarantee scope; not model semantic interpretation",
+    "DOM readiness banner remains unavailable and execution mode waiting verification; not production ready claim",
+    "DOM does not contain raw message_id/provider_event_id, so same-message durable binding is Root browser report plus existing PG tests rather than DOM-alone identity proof",
+    "No extra PG assertions or model calls performed during evidence collection"
+  ],
+  "other_activity": {
+    "positive_preview": {
+      "session": 67380,
+      "state": "Root reported running; no final result yet"
+    },
+    "real_model": {
+      "session": 34223,
+      "state": "Root reported running; no outcome claimed",
+      "preparation_failures": [
+        "ModuleNotFoundError dotenv before call",
+        "wrongcwd .env FileNotFoundError before call"
+      ],
+      "note": "Root reports both preparation failures had no model call; this agent did not inspect key or privatelogs"
+    }
+  },
+  "safety": "only original DOM text read; publicsummary excludes passwords/privateIPs/sessioncredentials; no main files changed"
+}

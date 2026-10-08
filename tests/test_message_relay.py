@@ -305,7 +305,10 @@ def test_exact_issue_replay_and_conflict_keeps_first_expiry(relay_plan,admin):
     assert port.call('issue',**{**parameters,'ttl_seconds':1})==original
     with pytest.raises(MessageRelayUnavailable):port.call('issue',**{**parameters,'token_digest':'a'*64})
     assert admin.execute('select count(*) from authz.nexloop_message_run_issuances').fetchone()==(1,)
-    assert admin.execute('select expires_at from authz.nexloop_message_run_issuances').fetchone()[0].astimezone(UTC).isoformat()==original['expires_at']
+    stored_expiry=admin.execute('select expires_at from authz.nexloop_message_run_issuances').fetchone()[0]
+    replay_expiry=datetime.fromisoformat(original['expires_at'])
+    assert replay_expiry.tzinfo is not None
+    assert stored_expiry.astimezone(UTC)==replay_expiry.astimezone(UTC)
 
 
 def test_cli_source_revocation_zero_new_issuance_or_queue(relay_plan,admin):

@@ -127,6 +127,8 @@ def main():
     p.add_argument('--mode',choices=['test'],required=True)
     p.add_argument('--port',type=int,default=8000)
     p.add_argument('--web-root',type=Path)
+    # Deployment label only; successful model calls/readiness need actual evidence.
+    p.add_argument('--execution-profile',choices=['deterministic-test','real-provider','disabled'])
     p.add_argument('--host-origin');p.add_argument('--host-control-key-file',type=Path);p.add_argument('--host-ca-file',type=Path)
     p.add_argument('--tls-certificate-file',type=Path);p.add_argument('--tls-key-file',type=Path)
     p.add_argument('--identity-database-url-file',type=Path);p.add_argument('--browser-rate-key-file',type=Path)
@@ -154,7 +156,7 @@ def main():
         except ValueError:p.error('explicit loopback Host origin required')
     import uvicorn
     # Foundation console is localhost-only; no accidental LAN/plaintext login.
-    uvicorn.run(create_app(ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control)),
+    uvicorn.run(create_app(ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,execution_profile=a.execution_profile)),
         host='127.0.0.1',port=a.port,access_log=False,log_level='warning',**tls)
     return 0
 

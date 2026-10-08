@@ -1,0 +1,110 @@
+{
+  "task": "NX-016",
+  "recorded_at": "2026-10-08T14:35:36.394032+00:00",
+  "tested_main_commit": "8610de73b2715d24f91654f33c11a0e7b3dd0c43",
+  "core_bootstrap_revision": "0056",
+  "scope": "one bounded actual DeepSeek Run with synthetic input on an owned disposable PostgreSQL instance; native ingress, frozen Pi Durable, governed EIOS admission, actual LocalJsonDelivery HTTPS JSON export and authenticated Human receipt",
+  "source_parity": {
+    "manifest": "source-parity-sha256.json",
+    "sha256": "4c89e323048e28dfeea3fa74c7d1421f0fe0b24efd91b23c1368ef3bd113d397",
+    "paths": 238,
+    "preparation": "supplied preparation verified by Root",
+    "independent_read_only_recheck": "238 entries matched both current main and candidate snapshot; zero mismatches"
+  },
+  "command": {
+    "cwd": "owned ignored candidate snapshot",
+    "executed_sanitized": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && NEXLOOP_REAL_MODEL_CONFIGURATION_FILE=<owned-private-configuration> PYTHONPATH=packages/eios-core/src:tests <repository-venv-python> -m pytest -q tests/test_real_deepseek_native_catalog_delivery.py --tb=no > <owned-local-log> 2>&1",
+    "sanitization": "Private configuration, local absolute filesystem paths and redirected log path are represented by role placeholders; no command is claimed to have used these literal placeholders."
+  },
+  "attempts": [
+    {
+      "result": "failed",
+      "exit_code": 1,
+      "duration_seconds": 13.11,
+      "tests_failed": 1,
+      "warnings": 1,
+      "stage": "exact tool arguments assertion",
+      "cause": "The previous assertion accepted only the message field; the actual tool call correctly supplied the current required request_scope. SQLite read-only reconstruction proved exact message, one request and one receipt, but the old exact argument comparison failed. Delivery setup had not started.",
+      "evidence": "real-model-native-catalog-v2-core56-first-failure.json"
+    },
+    {
+      "result": "passed",
+      "exit_code": 0,
+      "duration_seconds": 16.31,
+      "tests_passed": 1,
+      "warnings": 1,
+      "stage": "end_to_end_passed",
+      "session": 40443,
+      "fix": "Strict full argument equality now requires exact message plus current catalog offering identity/revision and empty requested_guarantees/requested_discounts; assertions were not weakened."
+    }
+  ],
+  "actual_evidence": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "runtime_task_status": "succeeded",
+    "runtime_outcome": "succeeded",
+    "runtime_code": null,
+    "runtime_receipt": {
+      "request_id": "message-1b6b4f61985109706d01aa54f733c375690c218a883bdd4bafbf274b5d7d7ac1",
+      "persistence": {
+        "synchronous": 2,
+        "journal_mode": "wal"
+      },
+      "submission_id": 10,
+      "conversation_id": 2
+    },
+    "run_id": "c1dca933-9253-4072-9817-c50479bf6db9",
+    "scope": "one actual model Run; synthetic user input; owned PG",
+    "validation_stage": "end_to_end_passed",
+    "actual_export_sha256": "bf1bdb693912756828f6c6e6e66d21af8057e5332ef9addca017e90a660bbf92",
+    "final_human_receipt": {
+      "scope": "service_delivery",
+      "state": "fulfilled",
+      "intent_id": "a13efece-30bf-49c5-a1e1-55c532c1598b",
+      "receipt_id": "0524c6ce-ee36-4212-a903-f5def8a3c9eb",
+      "provider_state": "fulfilled",
+      "business_action_success": true,
+      "governed_claim_finalized": true
+    },
+    "tool_requests": 1,
+    "actual_provider_delivery": "LocalJsonDelivery HTTPS",
+    "model_validation": "passed",
+    "secret_scan": {
+      "own_files_scanned": 49,
+      "leaks": 0,
+      "temporary_key_removed": true
+    },
+    "sqlite": [
+      {
+        "sha256": "a14ab2645eca7963c413cef0360538a5c98ccdd1f49209b0098e1de2a681cdea",
+        "entries": 5,
+        "submissions": 1,
+        "assistant_records": 2
+      }
+    ],
+    "protocol_scope": "owned snapshot core56 main8610de7; actual catalog53/partial-edit54/native55/scope-denial56; real call pending",
+    "provider_failure_stage": null
+  },
+  "warning": "httpx verify=<str> deprecation; no skipped test",
+  "limitations": [
+    "This is current core0056 actual model validation, separate from historical core0052 evidence.",
+    "The raw result protocol_scope contains stale literal real call pending from its finalizer; actual terminal validation_stage=end_to_end_passed and model_validation=passed prove this execution. The raw record is preserved unchanged.",
+    "No production deployment, external channel delivery or generic exactly-once claim."
+  ],
+  "credential_handling": {
+    "temporary_test_key_removed": true,
+    "external_root_configuration_and_key_removed": "Root confirmed",
+    "files_scanned": 49,
+    "leaks": 0
+  },
+  "test_script": {
+    "path": "tests/test_real_deepseek_native_catalog_delivery.py",
+    "sha256": "6c086024121681163dee11861752254c23265878c8c14d9545b9488cfd260a99"
+  },
+  "runtime_versions": {
+    "node": "v24.13.0",
+    "python": "3.12.10",
+    "python_environment": "repository local venv",
+    "evidence": "read-only actual node --version and .venv/bin/python --version after nvm use 24"
+  }
+}

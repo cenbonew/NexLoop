@@ -1,0 +1,33 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "runtime_task_status": "succeeded",
+  "runtime_outcome": "succeeded",
+  "runtime_code": null,
+  "runtime_receipt": {
+    "request_id": "message-ddb77030a18293e8c38bbca33f8b4246b78e127629c737c1370bc98c2bb28f1b",
+    "persistence": {
+      "synchronous": 2,
+      "journal_mode": "wal"
+    },
+    "submission_id": 10,
+    "conversation_id": 2
+  },
+  "run_id": "24c0499a-a74b-47f9-9eb8-1efc589ab9aa",
+  "scope": "one actual model Run; synthetic user input; owned PG",
+  "secret_scan": {
+    "own_files_scanned": 41,
+    "leaks": 0,
+    "temporary_key_removed": true
+  },
+  "sqlite": [
+    {
+      "sha256": "dc48c905ae627f10048cff5c3bc14d94447f2e482be2e7349ee3018f0627fed3",
+      "entries": 5,
+      "submissions": 1,
+      "assistant_records": 2
+    }
+  ],
+  "protocol_scope": "owned snapshot core56 main8610de7; actual catalog53/partial-edit54/native55/scope-denial56; real call pending",
+  "provider_failure_stage": null
+}

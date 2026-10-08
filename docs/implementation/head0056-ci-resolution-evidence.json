@@ -1,0 +1,55 @@
+{
+  "task": "NX-016",
+  "baseline_head": "8610de73b2715d24f91654f33c11a0e7b3dd0c43",
+  "baseline_source_paths": 1163,
+  "baseline_source_changes": 0,
+  "full_ci_command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && bash scripts/ci/check",
+  "full_ci_exit": 1,
+  "full_python": {
+    "passed": 1636,
+    "failed": 1,
+    "skipped": 0,
+    "warnings": 13,
+    "seconds": 1869.98
+  },
+  "failure": {
+    "case": "test_message_relay.py::test_exact_issue_replay_and_conflict_keeps_first_expiry",
+    "actual": "2026-10-08T14:55:32.825940+00:00",
+    "expected": "2026-10-08T14:55:32.82594+00:00",
+    "cause": "Same timestamp instant; PostgreSQL JSON trims fractional trailing zero, Python isoformat preserves six digits. No expiry extension or replay identity change."
+  },
+  "targeted_rerun": {
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_message_relay.py tests/test_http_api_execution_profile.py --tb=short --junitxml=.ci-results/head56-relay-profile.xml",
+    "passed": 25,
+    "skipped": 0,
+    "warnings": 1,
+    "seconds": 68.16,
+    "session": 81558
+  },
+  "remaining_gates": {
+    "pi": {
+      "passed": 24,
+      "skipped": 0,
+      "command": "pnpm exec vitest run vendor/pi/packages/durable/test/nexloop-sqlite-conformance.test.ts --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/head56-pi-tail.xml"
+    },
+    "runtime": {
+      "passed": 124,
+      "skipped": 0,
+      "command": "pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/head56-runtime-tail.xml"
+    },
+    "session": 1888,
+    "exit_code": 0
+  },
+  "baseline_before_python_gates": {
+    "sdk": 8,
+    "web": 7,
+    "scope_node": 9,
+    "skipped": 0
+  },
+  "limitations": [
+    "The monolithic full CI exited1; this record does not claim a second monolithic full CI pass. The sole failure was fixed and the full relevant Relay module plus new CLI profile checks passed; skipped tail gates were executed separately.",
+    "Readiness remains503 because operational readiness proof is incomplete; execution profile is an explicit deployment label, not a model validation success claim.",
+    "Manual real model verification is opt-in tests/verification_real_model.py; collection-only passed1; the changed report destination and wording were not a new provider call. Actual provider evidence binds the tested candidate runner SHA."
+  ],
+  "versions_lock_changes": "none"
+}

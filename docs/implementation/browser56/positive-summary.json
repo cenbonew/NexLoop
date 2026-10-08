@@ -1,0 +1,19 @@
+{
+  "head": "8610de73b2715d24f91654f33c11a0e7b3dd0c43",
+  "core_revision": 56,
+  "provider": "deterministic-test",
+  "actual_browser": "ego-browser TaskSpace7 same goal; finished keep none",
+  "actual_results": [
+    "Human login",
+    "native text Message persist-before-ACK",
+    "governed fulfillment receipt rendered"
+  ],
+  "dom_sha256": "fa49ee1397143e7e9933ac9f8e3d19f52f1c477fbe0857be28688cd5bba2fbb7",
+  "preview_session": 67380,
+  "preview_result": "1 passed, 2 warnings, 106.93s",
+  "limitations": [
+    "UI readiness remains unavailable and execution profile pending verification",
+    "not real model UI",
+    "DOM alone is not DB count proof"
+  ]
+}
