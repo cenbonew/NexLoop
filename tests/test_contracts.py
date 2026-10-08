@@ -6,7 +6,7 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]/'packages/contracts'
-NAMES = ['action-intent','context-manifest','event-envelope','evolution-candidate','ontology-mutation','run-command']
+NAMES = sorted(p.name.removesuffix('.schema.json') for p in ROOT.glob('*.schema.json'))
 
 
 def contract(name):

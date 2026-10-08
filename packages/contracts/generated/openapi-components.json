@@ -192,6 +192,437 @@
           }
         ]
       },
+      "CandidateDefinition": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:candidate-definition",
+        "title": "candidate-definition",
+        "description": "ADR-019. A proposed new ontology definition or instance that did not match the recalled schema/instances. Staged for merge or human review; never applied directly. Server-derived identity required. Not an existing upstream API.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          },
+          "candidate_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "world_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "real",
+              "simulation",
+              "shadow",
+              "test"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "object_type",
+              "property",
+              "vocabulary_value",
+              "alias",
+              "object_instance"
+            ]
+          },
+          "extraction_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "source_content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "extractor_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ontology_schema_revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "proposed": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "owner_type_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+              },
+              "property_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+              },
+              "canonical_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+              },
+              "type_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+              },
+              "value_type": {
+                "enum": [
+                  "string",
+                  "integer",
+                  "decimal",
+                  "boolean",
+                  "date",
+                  "datetime",
+                  "enum",
+                  "ref"
+                ]
+              },
+              "closed_vocabulary": {
+                "type": "boolean"
+              },
+              "property_group": {
+                "enum": [
+                  "demographics",
+                  "needs_intent",
+                  "purchase_behavior",
+                  "preference",
+                  "pain_point",
+                  "spending_power",
+                  "sentiment_attitude",
+                  "lifestyle",
+                  "channel_tech",
+                  "other"
+                ]
+              },
+              "value": {},
+              "alias_text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "identifying_properties": {
+                "type": "object"
+              },
+              "strong_identifier": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "display_name"
+            ]
+          },
+          "recall": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+                },
+                "method": {
+                  "enum": [
+                    "vector",
+                    "fts",
+                    "trgm",
+                    "strong_id",
+                    "rule"
+                  ]
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "ref",
+                "method",
+                "score"
+              ]
+            }
+          },
+          "merge_scores": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "lexical_similarity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "core_term_containment": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "vector_cluster": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "rule_whitelist": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "weighted_total": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "best_match_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+              },
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "config_version": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "status": {
+            "enum": [
+              "staged",
+              "merged",
+              "pending_review",
+              "published",
+              "rejected",
+              "superseded"
+            ]
+          },
+          "dependent_claim_refs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1024,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+          }
+        },
+        "required": [
+          "schema_version",
+          "candidate_id",
+          "tenant_id",
+          "world_id",
+          "mode",
+          "kind",
+          "extraction_ref",
+          "source_content_hash",
+          "extractor_version",
+          "ontology_schema_revision",
+          "proposed",
+          "recall",
+          "status",
+          "dependent_claim_refs",
+          "evidence_refs",
+          "created_at"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "real"
+                }
+              },
+              "required": [
+                "mode"
+              ]
+            },
+            "then": {
+              "properties": {
+                "world_id": {
+                  "const": "real"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "world_id": {
+                  "not": {
+                    "const": "real"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "property"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proposed": {
+                  "required": [
+                    "name",
+                    "owner_type_ref",
+                    "value_type",
+                    "closed_vocabulary",
+                    "property_group"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "object_type"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proposed": {
+                  "required": [
+                    "name"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "vocabulary_value"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proposed": {
+                  "required": [
+                    "property_ref",
+                    "value"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "alias"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proposed": {
+                  "required": [
+                    "canonical_ref",
+                    "alias_text"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "object_instance"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proposed": {
+                  "required": [
+                    "type_ref",
+                    "identifying_properties",
+                    "strong_identifier"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "merged",
+                    "pending_review"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "merge_scores"
+              ]
+            }
+          }
+        ]
+      },
       "ContextManifest": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:context-manifest",
@@ -999,6 +1430,188 @@
           }
         ]
       },
+      "ReviewDecision": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:review-decision",
+        "title": "review-decision",
+        "description": "ADR-019. A human reviewer's decision on a candidate-definition. Reviewer identity is server-derived from an authenticated human session; the decision itself is a governed human Action and is audited. Not an existing upstream API.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          },
+          "decision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "world_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "real",
+              "simulation",
+              "shadow",
+              "test"
+            ]
+          },
+          "candidate_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "reviewer_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "merge_into",
+              "reject"
+            ]
+          },
+          "merge_target_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "expected_candidate_status": {
+            "const": "pending_review"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "publication": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schema_revision_before": {
+                "type": "string",
+                "minLength": 1
+              },
+              "schema_revision_after": {
+                "type": "string",
+                "minLength": 1
+              },
+              "published_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+                },
+                "maxItems": 64
+              },
+              "applied_claim_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gate_failures": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "maxItems": 64
+              }
+            },
+            "required": [
+              "schema_revision_before"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "decision_id",
+          "tenant_id",
+          "world_id",
+          "mode",
+          "candidate_ref",
+          "reviewer_ref",
+          "decision",
+          "rationale",
+          "expected_candidate_status",
+          "decided_at"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "real"
+                }
+              },
+              "required": [
+                "mode"
+              ]
+            },
+            "then": {
+              "properties": {
+                "world_id": {
+                  "const": "real"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "world_id": {
+                  "not": {
+                    "const": "real"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "merge_into"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "merge_target_ref"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "reject"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "publication": false
+              }
+            }
+          }
+        ]
+      },
       "RunCommand": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:run-command",
@@ -1173,10 +1786,12 @@
   },
   "x-canonical-source-sha256": {
     "action-intent.schema.json": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90",
+    "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
     "context-manifest.schema.json": "19169b0f27a8ac5599573032fba4f2dff50f552a26f3ed2dcf9b501f28534ad2",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
+    "review-decision.schema.json": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57",
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22"
   }
 }

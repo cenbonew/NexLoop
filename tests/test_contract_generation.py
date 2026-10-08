@@ -11,6 +11,11 @@ def test_generation_reproducible_and_exact_runtime_schemas():
     assert result.returncode==0,result.stdout+result.stderr
     document=json.loads((ROOT/'packages/contracts/generated/openapi-components.json').read_text())
     assert document['openapi']=='3.1.0' and document['paths']=={}
+    paths=list((ROOT/'packages/contracts').glob('*.schema.json'))
+    canonical_ids=[json.loads(p.read_text())['$id'] for p in paths]
+    assert len(set(canonical_ids))==len(paths)
+    assert set(document['x-canonical-source-sha256'])=={p.name for p in paths}
+    assert set(document['components']['schemas'])=={''.join(x.title() for x in p.name.removesuffix('.schema.json').split('-')) for p in paths}
     for name,schema in document['components']['schemas'].items():
         canonical=next(json.loads(p.read_text()) for p in (ROOT/'packages/contracts').glob('*.schema.json') if ''.join(x.title() for x in p.stem.removesuffix('.schema').split('-'))==name)
         assert schema==canonical

@@ -322,9 +322,11 @@ source = { editable = "packages/eios-core" }
 dependencies = [
     { name = "argon2-cffi" },
     { name = "fastapi" },
+    { name = "jsonschema" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
     { name = "pydantic" },
+    { name = "rfc3339-validator" },
     { name = "uvicorn" },
 ]
 
@@ -332,9 +334,11 @@ dependencies = [
 requires-dist = [
     { name = "argon2-cffi", specifier = ">=25,<26" },
     { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "jsonschema", specifier = ">=4,<5" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "psycopg-pool", specifier = ">=3.2,<4" },
     { name = "pydantic", specifier = ">=2.12,<3" },
+    { name = "rfc3339-validator", specifier = ">=0.1,<1" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
 ]
 

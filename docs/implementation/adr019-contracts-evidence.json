@@ -1,0 +1,56 @@
+{
+  "recorded_at": "2026-10-08T11:00:31.159303+00:00",
+  "task": "NX-044",
+  "scope": "ADR-019 target contract types and wire-validation checkpoint; no review Action implementation",
+  "files": [
+    {
+      "path": "scripts/generate_contracts.py",
+      "sha256": "7699d7041da48018fe3d66a14a4ea56705037065ef86433958de7b8be8616042"
+    },
+    {
+      "path": "packages/contracts/generated/contracts.ts",
+      "sha256": "41234b7a771c07bf83259b060a1f5904ea1352db243b3502f36ef166f763e6e4"
+    },
+    {
+      "path": "packages/contracts/generated/openapi-components.json",
+      "sha256": "40a466b29ac3dc3bf2980c8657f2dbc6dcbca3bd206d4d9bd1dab47786fb0ede"
+    },
+    {
+      "path": "packages/eios-core/src/nexloop_eios/contracts.py",
+      "sha256": "18b21cce5131768d5c34da58c116ad0563640d34b1aeb29cb7f7cdd922f98049"
+    },
+    {
+      "path": "packages/eios-core/pyproject.toml",
+      "sha256": "073d8b451790a0772e219390e41d25081cbb41cbd37157f8a9bf3b54f1abac62"
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "0bcc8c575cd7f2063a17d16f5450239dc53e56839633ed1059b895a26339f8c9"
+    },
+    {
+      "path": "tests/test_contracts.py",
+      "sha256": "4c21ed5158cecbffd082421a47d0d8da3b3ad8e657fa0314960ab5599371d9c6"
+    },
+    {
+      "path": "tests/test_contract_generation.py",
+      "sha256": "ac613bf57d791929097521e37aa3f192239bf1b627d02c7fb0ff60342c1a4e88"
+    },
+    {
+      "path": "tests/test_review_contracts.py",
+      "sha256": "21b777fe2d15dd487ec73d560e13bdb06948d7e348d06ff015398cbe94e2dff3"
+    }
+  ],
+  "schemas": 8,
+  "command": "uv run --frozen python scripts/generate_contracts.py --check && uv run --frozen pytest -q tests/test_contracts.py tests/test_contract_generation.py tests/test_review_contracts.py --junitxml=.ci-results/adr019-contracts.xml",
+  "result": "54 passed in 1.22s; all8 generated schemas match; no skips/failures/warnings",
+  "junit_sha256": "aa9cd7fe402e5aeb5b9ab7156813113e38ced6b6d73c106f8fc7b17a677e6a04",
+  "first_failure_and_repair": [
+    "Initial candidate 43 tests passed, but independent source review found existing Pydantic instance/copy and nested mutation could bypass canonical rules",
+    "Candidate repair first53passed1failed1.26s: before validator misread unsetNone during instance revalidation; wrap validator corrected this",
+    "Candidate final54passed1.24s; Root54passed1.22s; rejects NaN/Infinity/nonJSON and genuinely revalidates mutated models"
+  ],
+  "runtime_dependencies": "jsonschema and rfc3339-validator promoted from dev-only to core runtime requirements; uv.lock regenerated and frozen sync passed",
+  "semantic_boundary": "Parsing published status/reviewer_ref is output-data validation, never authorization. Authenticated HUMAN ontology.schema.review, same-tenant/same-kind merge resolution and EIOS schema publication gates remain NX-044/NX-045/NX-046 backend work after NX-018/gap audit. No actual schema mutation or AT-061–070 success claimed.",
+  "versions_lock": "no change in this contract checkpoint; core head0052 retained",
+  "push": false
+}

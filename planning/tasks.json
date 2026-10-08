@@ -1773,6 +1773,12 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/adr019-contracts-evidence.json",
+        "summary": "Preparatory ADR019 target TS/Pydantic exact wire contracts:Root54passed1.22s; no governed review/publish implementation, NX018 and gap audit still prerequisites.",
+        "recorded_at": "2026-10-08T11:00:31.159303+00:00"
       }
     ]
   },
