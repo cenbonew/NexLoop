@@ -74,6 +74,12 @@
         "ref": "docs/s0/pi-evo-audit.md",
         "summary": "Frozen-source or live read-only evidence; publication and target contracts audited",
         "recorded_at": "2026-10-07T14:15:11.763675+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "53b3c1f7d76de7b8966f1c9a3e56b98f2c27a8a7",
+        "summary": "NX-003: 核验Pi与Evo锁定版本; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:46.681579+00:00"
       }
     ]
   },

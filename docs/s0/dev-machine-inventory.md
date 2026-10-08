@@ -1,0 +1,7 @@
+# Development machine inventory
+
+Observed 2026-10-07: macOS arm64; uv 0.7.8; pnpm 10.32.1; Homebrew PostgreSQL 18.4. `uv python pin 3.12` created `.python-version`; `.nvmrc` declares 24. `nvm install 24` failed after falling back to source compilation (missing Xcode/CLT). Retried `nvm install -b 24.13.0 && nvm use 24.13.0`; node --version returned v24.13.0. nvm emitted an empty-checksum warning, so the downloaded archive was independently verified against official SHASUMS256.txt: SHA-256 c59a517e9147f25c6167426875a571432f1478c1d7ee7ecc10baa46b0d0e8545. `.nvmrc` now pins 24.13.0. Existing Node default is 20; it must not run Pi's node:sqlite adapter (requires >=22.19).
+
+Docker client exists; `docker info --format '{{.ServerVersion}}'` failed because Docker Desktop daemon was not running. PG integration will use its own disposable PGDATA, socket and port, with bootstrap admin confined to migration/setup and restricted application roles for all business operations. No existing PG instance was modified. Installed pgvector reported by handoff has not been linked or loaded by this inventory.
+
+Model provider is the owner's fixed DeepSeek/deepseek-flash decision. Root .env was created with an empty MODEL_API_KEY. No credential was read or emitted. Deterministic provider is mandatory until credential injection; real-model validation cannot pass without it. Embedding provider remains a separate S3 input; no DeepSeek embedding endpoint is assumed.
