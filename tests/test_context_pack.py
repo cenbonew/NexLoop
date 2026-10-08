@@ -24,7 +24,7 @@ def test_canonical_pack_preserves_statement_and_explicit_fact_boundary():
 @pytest.mark.parametrize('section,field,value',[
  ('user_statement','sequence',9007199254740992),('current_constraints','budget_units',9007199254740992),
  ('current_constraints','reserved_units',9007199254740992),('current_constraints','allow_effect',False),
- ('bindings','run_id',str(uuid.uuid4())),('user_statement','provenance','eios:object:'+'d'*64)])
+ ('bindings','run_id','00000000-0000-4000-8000-00000000c0de'),('user_statement','provenance','eios:object:'+'d'*64)])
 def test_invalid_pack_rejected(section,field,value):
     snapshot,command=inputs();snapshot[section][field]=value
     with pytest.raises(Exception):encode_pack(snapshot,command)
