@@ -640,5 +640,95 @@
     "given": "1000消费者、并发1/2/4/8",
     "expected": "测平台/模型/工具分解延迟，无身份串用",
     "status": "not_run"
+  },
+  {
+    "id": "AT-061",
+    "module": "M11",
+    "stage": "S3",
+    "name": "全匹配自动应用",
+    "given": "类型/属性/值均在Schema内且实例唯一定位的Claim",
+    "expected": "无人工审核；经受治理Action写入属性值并有receipt；无候选定义生成",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-062",
+    "module": "M11",
+    "stage": "S3",
+    "name": "封闭词表新值",
+    "given": "已有枚举属性出现Schema外的新值",
+    "expected": "生成candidate-definition(vocabulary_value)进审核；属性值不写入；Claim为awaiting_definition",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-063",
+    "module": "M11",
+    "stage": "S3",
+    "name": "开放属性新值",
+    "given": "已有数值/文本属性出现新值（如预算2000）",
+    "expected": "自动写入，不进审核；保留证据与有效时间",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-064",
+    "module": "M10",
+    "stage": "S3",
+    "name": "隐性推断隔离",
+    "given": "模型从显性Claim推导的隐性结论",
+    "expected": "epistemic_kind=hypothesis，写入假设层；不进审核队列；不出现在Context正式属性与规划依据",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-065",
+    "module": "M11",
+    "stage": "S3",
+    "name": "新实例分流",
+    "given": "对话出现库中不存在的实例：一例带强标识、一例仅名称",
+    "expected": "强标识自动创建实例；仅名称生成object_instance候选进审核",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-066",
+    "module": "M12",
+    "stage": "S3",
+    "name": "候选粘合",
+    "given": "两条候选属性：一条与已有定义相似度达阈值，一条未达",
+    "expected": "达阈值→merged并记别名、Claim改指向后自动应用；未达→pending_review；阈值与权重来自配置版本",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-067",
+    "module": "M12",
+    "stage": "S3",
+    "name": "审核批准发布",
+    "given": "授权人类对候选approve；另一次由模型主体/无权限人类发起",
+    "expected": "前者经EIOS schema注册链发布、硬门槛执行、等待Claim全部应用、候选published并有审计；后者被拒且无副作用",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-068",
+    "module": "M12",
+    "stage": "S3",
+    "name": "审核拒绝",
+    "given": "授权人类对候选reject",
+    "expected": "候选rejected；依赖Claim保留为原文证据、resolution_state=rejected_definition；不进本体、不进Context正式属性；同文本冷却期不再排队",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-069",
+    "module": "M14",
+    "stage": "S3",
+    "name": "发布回流",
+    "given": "候选发布/合并后再次出现同类对话",
+    "expected": "召回命中新定义或别名并走自动应用；不生成重复候选",
+    "status": "not_run"
+  },
+  {
+    "id": "AT-070",
+    "module": "M20",
+    "stage": "S3",
+    "name": "最小审核工作台",
+    "given": "审核人打开队列并处理一条候选",
+    "expected": "可见原文span/召回结果/粘合分数/依赖Claim数；三种决定可用；每个决定有审计记录；无权限用户看不到队列",
+    "status": "not_run"
   }
 ]

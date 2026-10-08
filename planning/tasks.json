@@ -1287,38 +1287,60 @@
       "M09",
       "M10"
     ],
-    "deliverable": "原文/span/hash、分类Claim、条件否定与时间语义",
+    "deliverable": "按 ADR-019 §3.1：话题切分（仅顾客实质回应）、原文/span/hash、九类 epistemic_kind Claim、显性/隐性分开（隐性=hypothesis）、条件否定与时间语义",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
   },
   {
     "id": "NX-020",
     "stage": "S3",
     "title": "实现对象解析/冲突/变更提案",
     "dependencies": [
+      "NX-012",
       "NX-019",
-      "NX-012"
+      "NX-021"
     ],
     "modules": [
       "M11"
     ],
-    "deliverable": "expected revision、幂等应用、晚到证据、更正链",
+    "deliverable": "按 ADR-019 §3.3：四层匹配判定（类型/实例/属性/值）；全匹配与部分匹配自动应用（开放属性新值、强标识新实例）；不匹配生成 candidate-definition 并挂起依赖 Claim；expected revision、幂等应用、晚到证据、更正链",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
   },
   {
     "id": "NX-021",
     "stage": "S3",
     "title": "实现记忆/关键词/向量检索",
     "dependencies": [
-      "NX-020"
+      "NX-018"
     ],
     "modules": [
       "M13"
     ],
-    "deliverable": "租户/属性/world过滤、profile版本、索引更新和删除",
+    "deliverable": "按 ADR-019 §3.2：Schema（类型/属性/别名/词表）与实例两套混合索引（向量+FTS+pg_trgm）；embedding 使用 .env 的 EMBEDDING_* 配置，第一步实测维度并固定 EMBEDDING_DIMENSION；租户/属性/world 过滤、profile 版本、索引更新与删除、发布/合并回流",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
   },
   {
     "id": "NX-022",
@@ -1347,9 +1369,16 @@
     "modules": [
       "M14"
     ],
-    "deliverable": "实际请求快照、必需约束、Evo只读映射与歧义",
+    "deliverable": "实际请求快照、必需约束、Evo只读映射与歧义；审核中（awaiting_definition）与 hypothesis 的 Claim 不进入 Context 正式属性区（ADR-019 决定 2/5）",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
   },
   {
     "id": "NX-024",
@@ -1373,7 +1402,8 @@
     "title": "通过知识与目标闭环测试",
     "dependencies": [
       "NX-020",
-      "NX-024"
+      "NX-024",
+      "NX-046"
     ],
     "modules": [
       "M04",
@@ -1383,7 +1413,14 @@
     ],
     "deliverable": "明确拒绝优先、重复提取、关键注入/冲突/版本用例",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
   },
   {
     "id": "NX-026",
@@ -1421,14 +1458,22 @@
     "dependencies": [
       "NX-024",
       "NX-026",
-      "NX-027"
+      "NX-027",
+      "NX-046"
     ],
     "modules": [
       "M20"
     ],
     "deliverable": "所有薄切片页面与暂停/对账/证据交互",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
   },
   {
     "id": "NX-029",
@@ -1663,5 +1708,76 @@
     "deliverable": "候选筛选、影子/holdout、真实商业结果和停止条件",
     "status": "not_started",
     "evidence": []
+  },
+  {
+    "id": "NX-044",
+    "stage": "S3",
+    "title": "审批与Schema发布路径对齐ADR-019",
+    "dependencies": [
+      "NX-012",
+      "NX-015",
+      "NX-018"
+    ],
+    "modules": [
+      "M11",
+      "M12",
+      "M17"
+    ],
+    "deliverable": "先对已实现的 action_definitions/authorization/object_edits 做差距检查并写 docs/implementation/NX-044-gap.md；新增人类审核 Action（approve/merge_into/reject，权限 ontology.schema.review，服务端解析 reviewer）；经 EIOS schema 注册链的人工批准发布路径（新类型/属性/词表值/别名），发布前执行 docs/08 §5 硬门槛；候选状态机与 review-decision 持久化；非授权主体与模型主体审核被拒的负向测试",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-045",
+    "stage": "S3",
+    "title": "候选定义暂存、粘合与审核队列",
+    "dependencies": [
+      "NX-020",
+      "NX-021",
+      "NX-044"
+    ],
+    "modules": [
+      "M11",
+      "M12"
+    ],
+    "deliverable": "按 ADR-019 §3.4：候选表（PostgreSQL，非缓存）、同文本去重、四项粘合特征（词相似度/核心词包含/向量聚类/业务白名单）与可配置阈值、merged→别名映射+Claim 改指向+自动应用、未达阈值→pending_review 队列 API；模拟/shadow 候选不进 real 队列",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-046",
+    "stage": "S3",
+    "title": "最小审核工作台与回流",
+    "dependencies": [
+      "NX-045"
+    ],
+    "modules": [
+      "M20",
+      "M14"
+    ],
+    "deliverable": "按 ADR-019 §3.5–3.6：队列页、候选详情（原文 span、召回结果、粘合分数、依赖 Claim 数）、三种决定；approve 后发布并应用等待 Claim，reject 后 Claim 保留为证据；发布/合并写回召回索引，二次对话不再产生重复候选",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "adr/ADR-019-extraction-recall-review.md",
+        "summary": "Owner-approved specification baseline only: human-only schema review, hypothesis/awaiting_definition formal-context isolation, revised S3 dependencies; implementation remains pending after S2 and NX-018.",
+        "recorded_at": "2026-10-08T10:59:22.973318+00:00"
+      }
+    ]
   }
 ]

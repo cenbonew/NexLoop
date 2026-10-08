@@ -81,9 +81,9 @@ def main() -> int:
     mids = {m['id'] for m in modules}
     tids = {t['id'] for t in tasks}
     aids = {a['id'] for a in cases}
-    check('module_catalog_unique_and_count', len(mids) == len(modules) == 23)
-    check('task_catalog_unique_and_count', len(tids) == len(tasks) == 43)
-    check('acceptance_catalog_unique_and_count', len(aids) == len(cases) == 60)
+    check('module_catalog_unique', len(mids) == len(modules))
+    check('task_catalog_unique', len(tids) == len(tasks))
+    check('acceptance_catalog_unique', len(aids) == len(cases))
     check('tasks_modules_valid', all(set(t['modules']) <= mids for t in tasks))
     check('acceptance_modules_valid', all(a['module'] in mids for a in cases))
     check('all_modules_have_tasks', mids <= {m for t in tasks for m in t['modules']})

@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:candidate-definition",
+  "title": "candidate-definition",
+  "description": "ADR-019. A proposed new ontology definition or instance that did not match the recalled schema/instances. Staged for merge or human review; never applied directly. Server-derived identity required. Not an existing upstream API.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "candidate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "real",
+        "simulation",
+        "shadow",
+        "test"
+      ]
+    },
+    "kind": {
+      "enum": [
+        "object_type",
+        "property",
+        "vocabulary_value",
+        "alias",
+        "object_instance"
+      ]
+    },
+    "extraction_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+    },
+    "source_content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "extractor_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ontology_schema_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposed": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "owner_type_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+        },
+        "property_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+        },
+        "canonical_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+        },
+        "type_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "enum",
+            "ref"
+          ]
+        },
+        "closed_vocabulary": {
+          "type": "boolean"
+        },
+        "property_group": {
+          "enum": [
+            "demographics",
+            "needs_intent",
+            "purchase_behavior",
+            "preference",
+            "pain_point",
+            "spending_power",
+            "sentiment_attitude",
+            "lifestyle",
+            "channel_tech",
+            "other"
+          ]
+        },
+        "value": {},
+        "alias_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "identifying_properties": {
+          "type": "object"
+        },
+        "strong_identifier": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "display_name"
+      ]
+    },
+    "recall": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+          },
+          "method": {
+            "enum": [
+              "vector",
+              "fts",
+              "trgm",
+              "strong_id",
+              "rule"
+            ]
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "ref",
+          "method",
+          "score"
+        ]
+      }
+    },
+    "merge_scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lexical_similarity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "core_term_containment": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "vector_cluster": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rule_whitelist": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "weighted_total": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "best_match_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "config_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "staged",
+        "merged",
+        "pending_review",
+        "published",
+        "rejected",
+        "superseded"
+      ]
+    },
+    "dependent_claim_refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1024,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "tenant_id",
+    "world_id",
+    "mode",
+    "kind",
+    "extraction_ref",
+    "source_content_hash",
+    "extractor_version",
+    "ontology_schema_revision",
+    "proposed",
+    "recall",
+    "status",
+    "dependent_claim_refs",
+    "evidence_refs",
+    "created_at"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "real"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "world_id": {
+            "const": "real"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "world_id": {
+            "not": {
+              "const": "real"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "property"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "proposed": {
+            "required": [
+              "name",
+              "owner_type_ref",
+              "value_type",
+              "closed_vocabulary",
+              "property_group"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "object_type"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "proposed": {
+            "required": [
+              "name"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "vocabulary_value"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "proposed": {
+            "required": [
+              "property_ref",
+              "value"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "alias"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "proposed": {
+            "required": [
+              "canonical_ref",
+              "alias_text"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "object_instance"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "proposed": {
+            "required": [
+              "type_ref",
+              "identifying_properties",
+              "strong_identifier"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "merged",
+              "pending_review"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "merge_scores"
+        ]
+      }
+    }
+  ]
+}

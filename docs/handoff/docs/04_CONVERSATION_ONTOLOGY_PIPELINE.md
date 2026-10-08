@@ -48,6 +48,8 @@
 
 ## 6. Mutation Proposal 生命周期
 
+> **ADR-019（2026-10-08）修订：** 提案生成前先做四层匹配判定（类型/实例/属性/值）；全匹配与部分匹配自动应用，不匹配生成 `candidate-definition` 并挂起依赖 Claim（`awaiting_definition`），经粘合或人工审核后再应用。详见 `adr/ADR-019-extraction-recall-review.md` §3。
+
 `proposed → validated → applying → applied`；分支包括 `needs_resolution`、`conflict`、`rejected`、`superseded`。`applying` 超时须查询 EIOS receipt，不能简单转回 proposed 再次写入。
 
 提案字段以 `contracts/ontology-mutation.schema.json` 为准：expected revisions、`operations`、`evidence_refs`、`business_intent_ref`、`schema_version`、`source_content_hash`、`risk_class`（low/medium/high）和 `rationale_summary`。允许的操作为 `create_object`、`set_property`、`invalidate_property`（失效属性）、`link_relation`、`end_relation`、`supersede_claim`（更正）；不接受任意 SQL、脚本、权限定义或文件路径。
@@ -74,6 +76,8 @@ Agent：“我会在明天下午前给你处理进展。”
 付款状态不改变。承诺不标 fulfilled。后续 plan 加入跟进，不生成两周后的无条件促销发送。缺 Commitment 类型时保存 Claim、阻止无依据正式写入，并提出 Schema 缺口，不丢弃原文。
 
 ## 9. 结构演进与实例变化分流
+
+> **ADR-019 修订：** 结构变化在 v0.1 增加一条**人工批准**入口：候选类型/属性/词表值/别名由持有 `ontology.schema.review` 权限的人类审核后，经 EIOS schema 注册链发布；自动发布仍不开放。
 
 日常 Claim/实例更正是实时知识闭环，不走“必须评分提高”的演进门槛。语义访问改进由 Evo 流程处理。真正新增对象类型/属性/关系定义是 EIOS Schema 流程，需要兼容、迁移、工具和索引影响检查。新概念不能自行取得管理权限。
 

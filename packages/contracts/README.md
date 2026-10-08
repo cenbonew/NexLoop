@@ -10,6 +10,8 @@
 | context-manifest.schema.json | 每次实际模型请求的来源、版本与工件清单 |
 | run-command.schema.json | 内部RuntimeAdapter启动命令；凭据只传reference |
 | evolution-candidate.schema.json | 冻结的候选演进与评估输入；不能自携发布许可 |
+| candidate-definition.schema.json | ADR-019：未匹配到 Schema/实例的候选定义（类型/属性/词表值/别名/实例），只能暂存、粘合或进人工审核 |
+| review-decision.schema.json | ADR-019：人类审核决定（approve/merge_into/reject），reviewer 由服务端会话解析，审核是受治理人类 Action |
 
 ## Schema之外必须实现的语义检查
 
@@ -26,3 +28,7 @@ JSON Schema验证不是授权。tenant/actor/world从已认证服务端上下文
 ## 示例与检查
 
 `examples/*.valid.json`全部是合成test场景，不包含真实消费者、真实密钥或可用生产URL。占位hash只是格式样例。运行`python tools/validate_handoff.py`仅验证交接包结构；部署前还必须实现语义、权限和真实PG契约测试。
+
+## ADR-019 附加语义检查
+
+`candidate-definition` 永远不能被直接应用；`status=published` 只能由 `review-decision.approve` 经 EIOS schema 注册链产生。`review-decision.reviewer_ref` 必须是已认证的人类主体且持有 `ontology.schema.review` 权限，服务端重算并忽略客户端传入值。`merge_into` 的 `merge_target_ref` 必须与候选 `kind` 同类且同租户。`reject` 不得携带 `publication`。模拟/shadow 世界的候选不进入 real 审核队列。

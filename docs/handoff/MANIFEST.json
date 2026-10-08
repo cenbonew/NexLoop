@@ -29,13 +29,18 @@
     },
     {
       "path": "contracts/README.md",
-      "bytes": 2555,
-      "sha256": "a274a8ce3ce579e9bbde35bcb4bf372cc45d7f3b62665e52ff08c0e8f059c756"
+      "bytes": 3400,
+      "sha256": "c00b9d3c749d3b5843e357767baa7c6225ee2e68a168df7924830061a674b127"
     },
     {
       "path": "contracts/action-intent.schema.json",
       "bytes": 4044,
       "sha256": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90"
+    },
+    {
+      "path": "contracts/candidate-definition.schema.json",
+      "bytes": 9161,
+      "sha256": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f"
     },
     {
       "path": "contracts/context-manifest.schema.json",
@@ -58,6 +63,11 @@
       "sha256": "167bd59a07465d03e680010807aaa76f4bd76f489a25cc06a37d86fb2070a6c0"
     },
     {
+      "path": "contracts/examples/candidate-definition.valid.json",
+      "bytes": 1545,
+      "sha256": "1abdc1c0167b5a838a8ffe6f45f85455a5730c8deb0572f007320c9c6eafae18"
+    },
+    {
       "path": "contracts/examples/context-manifest.valid.json",
       "bytes": 1198,
       "sha256": "10db2adab82ea1540afefcf4b6c35ccbfdaac13ec0425cc02cdbc31b910ec265"
@@ -78,6 +88,11 @@
       "sha256": "06c2e6d2977ddc849e832f6948aa124a14aa9c08cd7fd46c1bdfde9e50386bd5"
     },
     {
+      "path": "contracts/examples/review-decision.valid.json",
+      "bytes": 590,
+      "sha256": "5184b74b260f7c8faa7971319f5d3ee70f911158469c15a45565d2ec88892018"
+    },
+    {
       "path": "contracts/examples/run-command.valid.json",
       "bytes": 868,
       "sha256": "c861196f061d4b4e11ed39f364d841fcafb60f2a28b8eb5935dfd4182f6d67cb"
@@ -86,6 +101,11 @@
       "path": "contracts/ontology-mutation.schema.json",
       "bytes": 7837,
       "sha256": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc"
+    },
+    {
+      "path": "contracts/review-decision.schema.json",
+      "bytes": 3886,
+      "sha256": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57"
     },
     {
       "path": "contracts/run-command.schema.json",
@@ -159,8 +179,8 @@
     },
     {
       "path": "docs/04_CONVERSATION_ONTOLOGY_PIPELINE.md",
-      "bytes": 7125,
-      "sha256": "e21c6aa874263cd53fc4b495e04469e46fe2c94793735fdb9c467c1a66a3d980"
+      "bytes": 7704,
+      "sha256": "824a519d6368fa1595ea4cd220636ef0b21cc1272b2a76d3350dbbec8968eed0"
     },
     {
       "path": "docs/05_CONTEXT_AND_PLANNING.md",
@@ -179,8 +199,8 @@
     },
     {
       "path": "docs/08_EVOONTOLOGY_INTEGRATION.md",
-      "bytes": 4539,
-      "sha256": "4bf9ed74765879b2e2adeb17d1597eea0ddf9882d59df194712840455557f3f4"
+      "bytes": 4700,
+      "sha256": "23f967778833bdafd1e31d2f72240f43b7531c4b3fffc66764766e8fa3e73c45"
     },
     {
       "path": "docs/09_API_AND_EVENT_CONTRACTS.md",
@@ -219,8 +239,8 @@
     },
     {
       "path": "docs/16_ADR.md",
-      "bytes": 3474,
-      "sha256": "2e42b4faeca7d7b0edd072a00a5bb8207a1094ff270d1bbb1439b9dce54c0534"
+      "bytes": 3851,
+      "sha256": "e9c187d82378f49f20c7a0fbe5cfbdc2f82835e489df13762eff597860eba44a"
     },
     {
       "path": "docs/17_OPERATIONS_RUNBOOK.md",
@@ -274,9 +294,9 @@
     },
     {
       "path": "tools/validate_handoff.py",
-      "bytes": 12223,
-      "sha256": "5e46ee3fac31f6f408693be5bfc9507b4cdc045fb1cae990b9b48d2ed1149eb2"
+      "bytes": 12175,
+      "sha256": "e474d7b576981d5bae0b8ffdc13ce19a25fd6f7d3e7dba833e5737acccd31885"
     }
   ],
-  "file_count_excluding_manifest": 54
+  "file_count_excluding_manifest": 58
 }
