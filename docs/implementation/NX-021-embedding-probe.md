@@ -16,7 +16,7 @@
 | 默认维度 | **2048**（不传 `dimensions`） |
 | 可选维度 | 只接受 `dimensions=1024` 或 `2048`；256 / 512 / 100 / 3072 → 400 `InvalidParameter`（param=`dimensions`） |
 | 1024 与 2048 关系 | 1024 向量与 2048 向量前 1024 维余弦 0.9997（嵌套式降维）；两者 L2 范数约 1.0（0.9995 / 1.0015），可直接用余弦距离 |
-| 确定性 | 同一文本两次请求逐元素完全一致（max_abs_diff=0.0） |
+| 确定性 | 默认 2048 维：同一文本两次请求逐元素完全一致（max_abs_diff=0.0）。**更正**：`dimensions=1024` 时重复请求**不逐位相同**，第二步真实验证两次实测余弦 0.999665 / 0.999142、max_abs_diff 0.0039 / 0.0063（量化级噪声）。索引与查询不得假设逐位确定，只能比较相似度 |
 | 批量 | **无批量语义**：`input` 内多个 text 项被**融合成一个向量**（两条短语 → 一个 2048 维向量，tokens 累加）。批量上限因此为 1 条文本/请求，批量必须由调用方逐条并发/串行 |
 | 单条耗时 | 短语 n=8：min 0.174s / median 0.223s / max 0.268s；首个请求 0.365s（含 TLS 建连）；约 6000 字符 0.603s；约 24000 字符 2.585s（仍 200，未见显式长度错误，是否截断未验证） |
 | 编码 | `encoding_format=base64` → `embedding` 为字符串 |
@@ -44,8 +44,10 @@
 
 ## 可复测方式
 
-第二步提交后，真实端点调用只在显式 opt-in 时执行（CI 默认不调用、不读 `.env`）：
+真实端点调用只在显式 opt-in 时执行：`tests/verification_real_embedding.py` 不在默认 CI 收集范围（与 `verification_real_model.py` 同一约定），不读隐式 `.env`、无 skip。负责人在私有 `.env` 填好 `EMBEDDING_DIMENSION` 后：
 
 ```bash
-NEXLOOP_REAL_EMBEDDING_ENV_FILE=/path/to/private/.env PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_recall_real_embedding.py
+LANG=en_US.UTF-8 NEXLOOP_REAL_EMBEDDING_ENV_FILE=/path/to/private/.env PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/verification_real_embedding.py
 ```
+
+本线实测时负责人 `.env` 尚无 `EMBEDDING_DIMENSION`，以进程环境变量 `EMBEDDING_DIMENSION=1024` 提供（不改负责人文件），结果见 `NX-021-recall.md`。
