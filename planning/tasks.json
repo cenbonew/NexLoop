@@ -1241,6 +1241,12 @@
         "ref": "8b40cad38e7f36a84618be574026f511fb07dd88",
         "summary": "Frozen head0052 full-CI checkpoint:1648 actual passes; task states unchanged.",
         "recorded_at": "2026-10-08T11:44:38.173725+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/web-chat-head0052-evidence.json",
+        "summary": "Root actual Human DOM→real ContextArtifact/PiFULL→51 local JSON→fulfilled receipt; reload single message/run/intent/attempt. Actual SSE replay and reconnect UI fixed, main build passed; task not completed.",
+        "recorded_at": "2026-10-08T11:47:26.669027+00:00"
       }
     ]
   },

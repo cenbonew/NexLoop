@@ -1,0 +1,156 @@
+{
+  "scope": "head0052 original production asset snapshot, real Human/PG/Artifact/Pi/51local JSON; synthetic model only",
+  "http_login": 200,
+  "http_receipt": 200,
+  "conversation_id": "2befde6d18cf27149a568d0f32bab26242c86ba0162f692e1af0f73ffabc7f76",
+  "message_id": "d6fc2dfea4bfc2a1789fef3295aac3840641ba17b5a5e3af4f36b502b02bc51f",
+  "receipt": {
+    "run": {
+      "run_id": "a480b8af-e1d5-4f32-b4f9-13967d16e9d2",
+      "status": "queued",
+      "task_id": "task_0e351644-1c47-44a8-8519-4ca7cf78483a",
+      "request_id": "message-d27b69b1a6fe9f71c0706d2f5ae73ebb5f9f7b0c23eb083646548b0208235c27"
+    },
+    "receipt": {
+      "scope": "service_delivery",
+      "state": "fulfilled",
+      "intent_id": "a6f3aa3b-515f-4929-ad28-6bd94e91b0c6",
+      "receipt_id": "d6ca536c-f85c-47b1-b0ec-738e78f67263",
+      "provider_state": "fulfilled",
+      "business_action_success": true,
+      "governed_claim_finalized": true
+    },
+    "message_id": "d6fc2dfea4bfc2a1789fef3295aac3840641ba17b5a5e3af4f36b502b02bc51f"
+  },
+  "counts": {
+    "messages": 1,
+    "runs": 1,
+    "intents": 1,
+    "attempts": 1
+  },
+  "runtime_results": [
+    {
+      "scope": "runtime_only",
+      "run_id": "a480b8af-e1d5-4f32-b4f9-13967d16e9d2",
+      "runtime_outcome": "succeeded",
+      "runtime_receipt": {
+        "request_id": "message-d27b69b1a6fe9f71c0706d2f5ae73ebb5f9f7b0c23eb083646548b0208235c27",
+        "persistence": {
+          "synchronous": 2,
+          "journal_mode": "wal"
+        },
+        "submission_id": 10,
+        "conversation_id": 2
+      },
+      "business_action_success": false
+    }
+  ],
+  "sqlite_counts": {
+    "conversations": 1,
+    "submissions": 1
+  },
+  "sqlite_sha256": "5c9dec1886cc01f5f2307ee1ea87f9b32a4cef0f8f9a2c68beebc558013bedab",
+  "product_sha256": "1c1f69153fdadf46a229cf1c940f79019ff1967242356bd2ffc7016e43142173",
+  "product_body_matches_message": true,
+  "delivery_durability_scope": "actual production51 server calls file fsync then directory fsync before governed fulfilled receipt; observed final file/hash, not hardware persistence guarantee",
+  "readiness": "actual503 product_ready=false unchanged; frontend original no onopen clear caused latched reconnect warning",
+  "root_browser_evidence": [
+    "Human DOM password login",
+    "send one unique message",
+    "governed fulfilled DOM receipt",
+    "reload same single message and receipt, no resubmission"
+  ],
+  "sse_evidence": "sse-reconnect-evidence.json",
+  "fixture_parameters": "owned synthetic Control TTL1200s/Plan1000s/budget3; not production defaults",
+  "recorded_at": "2026-10-08T11:31:37.786986+00:00",
+  "root_browser": {
+    "tool": "ego-browser",
+    "space_id": 4,
+    "page": "p1",
+    "protocol": "actual DOM click/fill/login/create/send/read receipt/reload; no injected auth or business response",
+    "dom_sha256": {
+      "fulfilled-dom.txt": "b6046e7640b2799f4068fa7e042103abc6cb2c071801dd86895ad381d064d527",
+      "reloaded-fulfilled-dom.txt": "fc5ed82f5688efff8772f0845453bc515eedec94debbfb6e09c32e499fd30752"
+    }
+  },
+  "initial_findings": [
+    "First navigation rejected owned disposable self-signed TLS certificate; proceeded through browser visible certificate exception for this origin only.",
+    "Initial viewport omitted create-conversation button; full-page DOM revealed it. Initial ready503 is real product_ready=false, not a login denial.",
+    "Transient read/access notice during asynchronous message commit disappeared; no permission bypass or repeated send.",
+    "Receipt click observed pending state; waited actual fulfilled status.",
+    "SSE warning stays after a successful reconnect; separate original HTTP replay passed, UI correction remains pending."
+  ],
+  "sse": {
+    "scope": "real Human Cookie/current Query proof, actual committed PG SSE; not browser-network capture",
+    "conversation_id": "2befde6d18cf27149a568d0f32bab26242c86ba0162f692e1af0f73ffabc7f76",
+    "first_event_ids": [
+      "1"
+    ],
+    "reconnect_from_zero_ids": [
+      "1"
+    ],
+    "reconnect_after_last_ids": [],
+    "http_statuses": [
+      200,
+      200,
+      200
+    ]
+  },
+  "unverified": [
+    "stage deployment",
+    "full product readiness",
+    "offering-catalog enforce boundary (separate candidate work in progress)",
+    "real model invocation attempted separately: runtime_model_unavailable, no real-model delivery established"
+  ],
+  "fixture_run": {
+    "scope": "owned head0052 actual browser fixture, synthetic publisher/identity/model only",
+    "first_failure": {
+      "session": "7486",
+      "result": "1 failed 4.04s",
+      "reason": "evidence reader used nonexistent runtime.nexloop_message_events; actual processes cleaned"
+    },
+    "rerun": {
+      "session": "38142",
+      "result": "exit0, real preview and teardown complete",
+      "junit": "result.xml"
+    },
+    "browser_root_evidence": [
+      "fulfilled-dom.txt",
+      "reloaded-fulfilled-dom.txt",
+      "candidate-reconnect-dom.json"
+    ],
+    "delivery": "delivery-evidence.json",
+    "sse": "sse-reconnect-evidence.json",
+    "candidate_patch": "frontend-reconnect.patch",
+    "teardown": {
+      "api_listener_closed": true,
+      "provider_listener_closed": true,
+      "owned_pg_root_removed": true,
+      "private_preview_removed": true,
+      "host_kernel_owner_lock_released": true
+    },
+    "fixture_source_sha256": "575bef445f84cf3ec7c071a8f015e22c0a78cbee90bf63385b6487917cb75b02",
+    "boundary": "original production asset snapshot delivered one unique real-governed local JSON; subsequent reconnect fix built only ignored copy, main/fullCI unchanged; no real model/channel claim; readiness remains503"
+  },
+  "frontend_reconnect": {
+    "root_browser": {
+      "scope": "isolated candidate frontend assets; actual finite SSE and reconnect",
+      "observed_unavailable": true,
+      "observed_recovered": true,
+      "messages_after": 1,
+      "ready503_not_overridden": true,
+      "recovered_snapshot": "[p1 \"NexLoop\" | space \"NexLoop NX-016 actual delivery acceptance\"(4): 1 managed, 0 untracked — p1* \"NexLoop\"]\nroot\n  container\n    text \"NexLoop\"\n    container\n      heading\n        text \"已登录 NexLoop\"\n      paragraph\n        text \"当前工作空间\"\n      paragraph\n        text \"df3f4a40-afea-422f-b294-201a2e87d48e\"\n      paragraph\n        text \"运营服务暂不可用，请稍后重试。\"\n      button [ref=36]\n        text \"退出登录\"\n      container \"消费者对话\"\n        heading\n          text \"消费者对话\"\n        paragraph\n          text \"执行模式：\"\n          text \"确定性测试（不代表真实模型或真实渠道）\"\n        paragraph\n          text \"企业服务入口 ·\"\n          text \"业务世界：real\"\n        text \"你的对话\"\n        combobox [ref=37]\n          text \"2befde6d18cf27149a568d0f32bab26242c86ba0162f692e1af0f73ffabc7f76\"\n        button [ref=38]\n          text \"建立服务对话\"\n        paragraph\n          text \"仅显示已提交消息。“已接受”表示消息入库，尚不代表服务已履行。执行模式以服务端配置标签为准；可查询实际治理回执，未取得回执时不推断履�...\"\n        ordered_list\n          list_item\n            text \"发送者：\"\n            text \"explicit-principal-bc506d09-1116-4b55-803e-f04dc44125ec\"\n            text \"2026/10/8 19:27:34\"\n            paragraph\n              text \"请生成并交付本次服务请求的 JSON 记录。浏览器验收 NX-016-0052-20261008。\"\n            text \"消息已接受\"\n            button [ref=39]\n              text \"查询处理与交付回执\"\n        button [ref=40]\n          text \"核对已提交消息\"\n        form\n          text \"消息\"\n          textbox [ref=41]\n          paragraph\n            text \"仅支持文本；附件、停止促销及删除请求专用处理尚未接通。\"\n          button [ref=42]\n            text \"发送消息\"\n    text \"NexLoop · 持续运营\"\n  container\n    button [ref=43]\n      image\n    button [ref=44]\n      image\n    button [ref=45]\n      svg_root\n    button [ref=46]\n      image\n    button [ref=47]\n      image\n    button [ref=48]\n      image\n    paragraph\n      text \"请输入需要翻译的文本。\"\n"
+    },
+    "main_build": {
+      "session": 71428,
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && pnpm --filter @nexloop/web build",
+      "exit_code": 0
+    },
+    "main_source_sha256": {
+      "apps/web/src/chat-api.ts": "69c4e7e7c52bb4e35c837186607cdddbf2a0bcd7172b198246798a5cab3fc05a",
+      "apps/web/src/WebChat.tsx": "44ca7dae7b9e7d3054edcee115ccb961a409a6ee1d4b142926a703c9340717dd"
+    },
+    "only_actual_open_clears_warning": true,
+    "http_unavailable_errors_still_degraded": true
+  }
+}

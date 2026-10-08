@@ -17,10 +17,10 @@ export async function listConversations(after=''){return page(await request('/ap
 export async function createConversation(key:string){return conversation(await write('/api/v1/conversations',{},key));}
 export async function readMessages(conversationId:string,after=0){return page(await request(`/api/v1/conversations/${encodeURIComponent(id(conversationId))}/messages?after=${after}`),message);}
 export async function sendMessage(conversationId:string,body:string,key:string){const v=object(await write(`/api/v1/conversations/${encodeURIComponent(id(conversationId))}/messages`,{body},key));if(typeof v.created!=='boolean')throw new Error('响应无效');return {message:message(v.message),created:v.created};}
-export function subscribe(conversationId:string,after:number,onCommitted:(event:CommittedEvent)=>void,onUnavailable:()=>void):()=>void{
+export function subscribe(conversationId:string,after:number,onCommitted:(event:CommittedEvent)=>void,onUnavailable:()=>void,onAvailable:()=>void=()=>{}):()=>void{
   const source=new EventSource(`/api/v1/conversations/${encodeURIComponent(id(conversationId))}/events?after=${after}`,{withCredentials:true});
   source.addEventListener('committed',raw=>{try{const event=raw as MessageEvent;const v=object(JSON.parse(event.data));if(typeof v.id!=='string'||! /^[1-9][0-9]*$/.test(v.id)||v.id!==event.lastEventId||v.type!=='message.accepted')throw new Error('响应无效');const data=message(v.data);if(String(data.sequence)!==v.id||data.conversation_id!==conversationId)throw new Error('响应无效');onCommitted({id:v.id,type:'message.accepted',data});}catch{source.close();onUnavailable();}});
-  source.addEventListener('unavailable',()=>{source.close();onUnavailable();});source.onerror=onUnavailable;
+  source.addEventListener('unavailable',()=>{source.close();onUnavailable();});source.onerror=onUnavailable;source.onopen=onAvailable;
   return ()=>source.close();
 }
 export function chatError(error:unknown){if(error instanceof ApiError){if(error.status===403)return '你没有此对话的访问权限。';if(error.status===401)return '登录已失效，请重新登录。';if(error.status===409)return '此请求编号已有不同内容，请核对原消息。';if(error.status===422)return '消息格式无效，请检查输入。';}return '服务暂不可用；消息是否已接受需核对，重试会使用同一请求编号。';}
