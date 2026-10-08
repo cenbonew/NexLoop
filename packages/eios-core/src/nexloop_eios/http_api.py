@@ -26,6 +26,7 @@ class ApiConfiguration:
     host_control:HostControlConfiguration|None=None
     execution_profile:str|None=None
     conversation_stream_seconds:int=180
+    cache_wakeup:object|None=None
 
 
 def create_app(config:ApiConfiguration):
@@ -91,7 +92,8 @@ def create_app(config:ApiConfiguration):
         return JSONResponse(status_code=503,content={'ready':False,'product_ready':False,
             'foundation':foundation,'browser_session_available':browser_available,
             'host':probe_host(config.host_control) if config.host_control else None,
-            'missing_capabilities':missing},headers={'Cache-Control':'no-store'})
+            'missing_capabilities':missing,
+            'cache':config.cache_wakeup.health(probe=True) if config.cache_wakeup is not None else {'configured':False,'available':False,'degraded':False,'authoritative':False}},headers={'Cache-Control':'no-store'})
     @app.get('/api/v1/artifacts/{artifact_id}')
     def artifact(artifact_id:str,request:Request):
         def error(code,status):
@@ -127,6 +129,7 @@ def main():
     p.add_argument('--mode',choices=['test'],required=True)
     p.add_argument('--port',type=int,default=8000)
     p.add_argument('--web-root',type=Path)
+    p.add_argument('--cache-configuration-file',type=Path)
     # Deployment label only; successful model calls/readiness need actual evidence.
     p.add_argument('--execution-profile',choices=['deterministic-test','real-provider','disabled'])
     p.add_argument('--host-origin');p.add_argument('--host-control-key-file',type=Path);p.add_argument('--host-ca-file',type=Path)
@@ -154,9 +157,14 @@ def main():
         if any(v is None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):p.error('complete Host control configuration required')
         try:host_control=HostControlConfiguration(a.host_origin,a.host_control_key_file,a.host_ca_file)
         except ValueError:p.error('explicit loopback Host origin required')
+    from nexloop_eios.valkey_wakeup import ValkeyWakeup
+    cache=None
+    if a.cache_configuration_file is not None:
+        try:cache=ValkeyWakeup.from_file(a.cache_configuration_file)
+        except Exception:p.error('private cache configuration unavailable')
     import uvicorn
     # Foundation console is localhost-only; no accidental LAN/plaintext login.
-    uvicorn.run(create_app(ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,execution_profile=a.execution_profile)),
+    uvicorn.run(create_app(ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,execution_profile=a.execution_profile,cache_wakeup=cache)),
         host='127.0.0.1',port=a.port,access_log=False,log_level='warning',**tls)
     return 0
 

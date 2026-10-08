@@ -111,21 +111,31 @@ class RuntimeHostClient:
 
 
 class RuntimeDispatcher:
-    def __init__(self,worker,configuration,*,queue,lease_seconds=30,total_timeout=30,request_timeout=2,poll_seconds=.05):
+    def __init__(self,worker,configuration,*,queue,lease_seconds=30,total_timeout=30,request_timeout=2,poll_seconds=.05,cache_wakeup=None):
         if (type(lease_seconds) is not int or not 3<=lease_seconds<=300
             or not isinstance(total_timeout,(int,float)) or not 0<total_timeout<=300
             or not isinstance(request_timeout,(int,float)) or not 0<request_timeout<=lease_seconds/3
             or not isinstance(poll_seconds,(int,float)) or not 0<poll_seconds<=1):raise ValueError('bounded dispatch configuration required')
         if not isinstance(queue,str) or re.fullmatch('[A-Za-z][A-Za-z0-9_-]{0,63}',queue) is None:raise ValueError('queue required')
+        if cache_wakeup is not None and cache_wakeup.config.timeout>min(lease_seconds,total_timeout)/6:
+            raise ValueError('cache deadline exceeds dispatch lease budget')
         self.worker,self.queue=worker,queue
+        self.cache_wakeup=cache_wakeup
         self.client=RuntimeHostClient(configuration)
         self.lease_seconds,self.total_timeout,self.request_timeout,self.poll_seconds=lease_seconds,total_timeout,request_timeout,poll_seconds
 
     def run_once(self):
         started=time.monotonic();deadline=started+self.total_timeout
+        cache_queue=None
+        if self.cache_wakeup is not None:
+            from nexloop_eios.durable_queue import PostgresDurableQueue
+            # Actual authenticated server context; no client-supplied identities.
+            cache_queue=PostgresDurableQueue(self.worker._backend._pool,self.worker._session,self.worker._backend._signer,queue=self.queue)
+            self.cache_wakeup.peek(cache_queue) # advisory; always poll PG
         try:job=self.worker.claim_task(queue=self.queue,lease_seconds=self.lease_seconds)
         except Exception:raise RuntimeDispatchError('runtime_queue_unavailable') from None
         if job is None:return {'claimed':False}
+        if cache_queue is not None:self.cache_wakeup.publish(cache_queue,job['task_id'])
         task_id,fence=job['task_id'],job['fence'];renew_at=time.monotonic()+self.lease_seconds/3
         command=None
         def authority():

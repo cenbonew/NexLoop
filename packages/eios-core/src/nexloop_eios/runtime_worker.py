@@ -52,6 +52,7 @@ def _arguments(argv):
     for option in ('database-url-file','signing-key-file','service-credential-file','artifact-root',
         'host-control-key-file','host-ca-file','guard-key-file','guard-certificate-file','guard-tls-key-file'):
         parser.add_argument('--'+option,type=Path,required=True)
+    parser.add_argument('--cache-configuration-file',type=Path)
     parser.add_argument('--signing-key-id',default='active')
     parser.add_argument('--world',required=True);parser.add_argument('--queue',required=True)
     parser.add_argument('--host-origin',required=True);parser.add_argument('--guard-port',type=int,required=True)
@@ -71,6 +72,8 @@ def _arguments(argv):
 def run(arguments,stop):
     # Validate all private files and the fixed loopback destination before any
     # backend opens or guard listener claims work. No ambient env fallback.
+    from nexloop_eios.valkey_wakeup import ValkeyWakeup
+    cache=ValkeyWakeup.from_file(arguments.cache_configuration_file) if arguments.cache_configuration_file else None
     dsn=read_private_text(arguments.database_url_file,maximum=16384)
     read_private_text(arguments.service_credential_file,maximum=16384)
     key=read_private_text(arguments.host_control_key_file,maximum=64)
@@ -86,7 +89,7 @@ def run(arguments,stop):
         guard=_FreshGuard(backend,arguments.service_credential_file,arguments.world)
         # Preflight current authentication and dispatch config before binding.
         RuntimeDispatcher(guard.service(),host,queue=arguments.queue,lease_seconds=arguments.lease_seconds,
-            total_timeout=arguments.total_timeout,request_timeout=arguments.request_timeout,poll_seconds=arguments.poll_seconds)
+            total_timeout=arguments.total_timeout,request_timeout=arguments.request_timeout,poll_seconds=arguments.poll_seconds,cache_wakeup=cache)
         server=None;thread=None;thread_started=False
         try:
             server=create_runtime_guard_server(guard,port=arguments.guard_port,key_file=arguments.guard_key_file,
@@ -98,14 +101,16 @@ def run(arguments,stop):
                 try:
                     # File rotation/current realm facts are read afresh each tick.
                     dispatcher=RuntimeDispatcher(guard.service(),host,queue=arguments.queue,lease_seconds=arguments.lease_seconds,
-                        total_timeout=arguments.total_timeout,request_timeout=arguments.request_timeout,poll_seconds=arguments.poll_seconds)
+                        total_timeout=arguments.total_timeout,request_timeout=arguments.request_timeout,poll_seconds=arguments.poll_seconds,cache_wakeup=cache)
                     if stop.is_set():break
                     result=dispatcher.run_once()
                     if arguments.once:
                         # Strict allowlist; no task/Run/ref/payload/exception text.
                         status=result.get('status','idle')
                         if status not in {'idle','succeeded','failed','retry_wait','dead_lettered','lease_lost'}:status='unavailable'
-                        print(json.dumps({'claimed':result.get('claimed') is True,'status':status},separators=(',',':')),flush=True)
+                        summary={'claimed':result.get('claimed') is True,'status':status}
+                        if cache is not None:summary['cache']=cache.health()
+                        print(json.dumps(summary,separators=(',',':')),flush=True)
                         return 0
                 except Exception:
                     if arguments.once:

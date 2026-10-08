@@ -1,0 +1,191 @@
+{
+  "task": "NX-017",
+  "acceptance": "AT-032",
+  "recorded_at": "2026-10-08T15:28:20.129631+00:00",
+  "scope": "Main focused cache/runtime/queue/browser regression evidence, not task completion or full local CI.",
+  "base_commit": "d8b2e1bd4f09901d7dae02c786a887f3f5e9cb72",
+  "main_run": {
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_valkey_wakeup_product.py tests/test_runtime_worker.py tests/test_durable_queue.py tests/test_browser_http.py tests/test_http_api_execution_profile.py --tb=short --junitxml=.ci-results/nx017-main-cache-rerun.xml",
+    "command_scope": "Actual executable test command, excluding only temporary stdout/stderr redirection for public portability.",
+    "session": 56409,
+    "exit_code": 0,
+    "passed": 67,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "wall_seconds": 109.01,
+    "junit_seconds": 108.943,
+    "junit_ref": ".ci-results/nx017-main-cache-rerun.xml",
+    "junit_sha256": "d069c14d897d08e9dec80947d6efc9ef14f7bd36e167137cff9cf5ea3e82095c",
+    "counts": {
+      "test_valkey_wakeup_product": 16,
+      "test_runtime_worker": 19,
+      "test_durable_queue": 20,
+      "test_browser_http": 7,
+      "test_http_api_execution_profile": 5
+    },
+    "warnings": [
+      "Existing Starlette TestClient/httpx deprecation"
+    ]
+  },
+  "main_first_failure": {
+    "session": 33607,
+    "exit_code": 4,
+    "collected": 0,
+    "cause": "Command named nonexistent tests/test_runtime_worker_cli.py. No test execution or product failure.",
+    "artifact_ref": ".ci-results/nx017-main-cache.xml",
+    "correction": "Use actual tests/test_runtime_worker.py plus browser_http and http_api_execution_profile."
+  },
+  "candidate_first_failures": [
+    {
+      "scope": "preparation",
+      "result": "bad nested candidate path, no test collected, exit4"
+    },
+    {
+      "session": 45497,
+      "result": "1failed2.56s",
+      "cause": "test fixture read published ephemeral port while owned container stopped; cleanup also tried port lookup",
+      "fix": "separate exact CID/label verification from running port lookup; verified stopped owned first CID removed"
+    },
+    {
+      "session": 33881,
+      "result": "1failed3.52s",
+      "cause": "product recent-task rebuild checked leased, but actual PG job status is running",
+      "fix": "correct actual status enum; no SQL/assertion weakening"
+    },
+    {
+      "session": 27809,
+      "result": "25passed1failed32.24s",
+      "cause": "Python TLS fallback accepted certificate CN localhost although SAN IP-only",
+      "fix": "SAN-only hostname_checks_common_name=False"
+    },
+    {
+      "session": 83707,
+      "result": "2passed3errors4.28s",
+      "cause": "new CLI test omitted authority fixture import",
+      "fix": "explicit existing real authority fixture import"
+    },
+    {
+      "session": 24849,
+      "result": "3passed3failed12.16s",
+      "cause": "isolated candidate lacked Host pnpm node_modules workspace link; actual Node exited",
+      "fix": "readonly parent workspace dependency symlink; current compiled Host copied into ignored candidate"
+    },
+    {
+      "scope": "literal-IP repair preparation",
+      "result": "root cwd wrong test path, exit4 no tests"
+    },
+    {
+      "session": 68541,
+      "result": "14passed1failed20.25s",
+      "cause": "macOS owned saturated listener returns ConnectionResetError instead of TimeoutError",
+      "fix": "report actual unavailable TCP connect; separate real accepted-TCP/stalled-TLS establishment test proves slow-connection bound. Assertions preserve committed ACK and pending task."
+    }
+  ],
+  "candidate_scope_history": [
+    {
+      "session": 80669,
+      "passed": 50,
+      "wall_seconds": 99.37,
+      "scope": "Old pre-literal-IP repair candidate source; preserved, not current main proof."
+    },
+    {
+      "session": 68541,
+      "passed": 14,
+      "failed": 1,
+      "wall_seconds": 20.25,
+      "scope": "macOS owned saturated listener reset observed; not falsely labeled timeout."
+    },
+    {
+      "session": 6822,
+      "passed": 16,
+      "wall_seconds": 21.96,
+      "scope": "Literal-IP repair cache plus actual CLI cases; focused candidate proof, not entire repository CI."
+    }
+  ],
+  "actual_proofs": [
+    "Actual owned TLS/ACL Valkey FLUSHDB/stop/same-CID restart on fixed endpoint; original adapter configuration unchanged reconnects and restores hints.",
+    "Product code publishes short TTL opaque hints after governed PG commit, not test-side fabricated SET. Cache stopped still accepts/replays same PG task.",
+    "Current governed PG claim/inspect/finish preserves authoritative work: two queue jobs succeeded, zero formal ontology objects written by the cache path.",
+    "Actual standalone RuntimeWorker private CLI config: cache disabled, available and stopped variants each finish real PG task and actual Node24 Pi SQLite FULL single submission. Runtime success is not business fulfillment.",
+    "API readiness independently exposes cache configured/available/degraded/authoritative=false. Actual TestClient response shows cache degradation and recovery while product_ready remains false.",
+    "TLS SAN-only, wrong credentials, public credential file, foreign key, CONFIG and FLUSHDB client permissions denied.",
+    "Literal IP host only; hostname/multiple-address configurations rejected before resolution. Actual literal Valkey works with getaddrinfo forbidden. One socket family, one numeric connect, deadline starts before connect and remains through TLS/RESP.",
+    "Actual owned accepted TCP with stalled TLS handshake and trickled TLS response respect cache deadline; original PG committed ACK/pending task remain. Saturated TCP listener actually returned macOS reset, reported as unavailable rather than slow-SYN timeout.",
+    "RuntimeDispatcher preflight rejects cache timeout above min(lease,total budget)/6 before claim; actual short-lease task stays pending/fence0 with no runtime.sqlite. Default PG polling always continues regardless hint value/failure."
+  ],
+  "source_sha256": {
+    "packages/eios-core/src/nexloop_eios/valkey_wakeup.py": "87870b75d4ed86d24b3e0c434c2a9c99554fb3353c108f8dbc064fa5afd8785c",
+    "packages/eios-core/src/nexloop_eios/runtime_worker.py": "e8404d11712e783f8ced6f3661471f84d68aa5012253de8c6d0016f23683dc1c",
+    "packages/eios-core/src/nexloop_eios/runtime_dispatch.py": "48c9f1854fde1108798a5d1fb0a875b2a59a01f14480addfdc94ab744071e499",
+    "packages/eios-core/src/nexloop_eios/http_api.py": "23404d347d5857d81d2528bf7889da05edface4993a32d84041f2b8633ad8f34",
+    "tests/test_valkey_wakeup_product.py": "3e5e63e8b13dfc7983f9b01a34338839c04124fc15ec302e68a35559e1fe39f3"
+  },
+  "versions_lock": {
+    "changed_by_cache_work": false,
+    "sha256": "4345b0aff19ac5ef5a141ad34aafeaf7b8aee9af5d63436a242fe42aafda0c37",
+    "note": "No cache SQL/bootstrap/upstream/package/image changes."
+  },
+  "limits": [
+    "Focused67 is not full repository CI or completion of NX-017.",
+    "No persistent deployment, Compose cache secret mount rollout or production database access.",
+    "Readiness cache HTTP proof uses FastAPI TestClient and actual TLS cache; not an independent Human browser acceptance.",
+    "Deterministic provider only in Worker/Pi tests; business_action_success=false, not actual model/channel/effect fulfillment.",
+    "Cache hint reconstruction covers actual claimed work and bounded recent task IDs rechecked by governed inspect, not full pending snapshot/historical notification replay.",
+    "Standalone AdvisoryQueueScheduler may sequentially maintain up to64 hints; entire helper tick has no realtime guarantee. Actual RuntimeDispatcher does not use that maintenance loop.",
+    "host requires explicit unscoped literal IPv4/IPv6; server_name is TLS verification name only. No model/environment hostnames are automatically resolved or deployment addresses guessed.",
+    "No generic exactly-once claim, no authority, credential, lease or business body stored in Valkey."
+  ],
+  "cleanup": "Owned cache containers were exact CID/ownership-label verified and removed; disposable PG and owned processes handled by fixtures. No unrelated service stopped.",
+  "reliability_runs": [
+    {
+      "session": 11027,
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_queue_commit_lease.py tests/test_effect_dispatch.py tests/test_local_effect_worker_kill.py tests/test_runtime_effect_bridge.py --tb=short --junitxml=.ci-results/nx017-fault-regression.xml",
+      "command_scope": "Actual executable command, temporary stdout/stderr redirection omitted for public portability.",
+      "exit_code": 0,
+      "passed": 27,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "wall_seconds": 99.32,
+      "junit_seconds": 99.251,
+      "warnings": 0,
+      "junit_ref": ".ci-results/nx017-fault-regression.xml",
+      "junit_sha256": "809ce53d7f9c648135731540b68c454e7669b1131cb284d84505d8f7130df478",
+      "tests_sha256": {
+        "tests/test_queue_commit_lease.py": "04702359f490ce616f70b1f01cdf0029bf51b1f7d95dff058b11a82bfdbdc98e",
+        "tests/test_effect_dispatch.py": "0678e77b6312878a3c6815d3caf5c2fe6bb302887a2d79460fa6796fef8220b9",
+        "tests/test_local_effect_worker_kill.py": "02b09ff4ad0997ab76488e93b98a3ad4a653da4fc351ec6111bafa0e43b3ff72",
+        "tests/test_runtime_effect_bridge.py": "4c22f845e4feddb5a4a66500242065d604b3e7bc63b589e9696ab046f53adb3e"
+      }
+    },
+    {
+      "session": 4432,
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_precise_pg_admission_outage.py tests/test_runtime_allocated_before_pi_kill.py tests/test_model_response_commit_window.py --tb=short --junitxml=.ci-results/nx017-admission-recovery.xml",
+      "command_scope": "Actual executable command, temporary stdout/stderr redirection omitted for public portability.",
+      "exit_code": 0,
+      "passed": 4,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "wall_seconds": 24.15,
+      "junit_seconds": 24.083,
+      "warnings": 2,
+      "junit_ref": ".ci-results/nx017-admission-recovery.xml",
+      "junit_sha256": "fe6dc1e71f04e069e827d80de920fe8d39d4ba80a0534ab5fa48f97d9ca5169f",
+      "tests_sha256": {
+        "tests/test_precise_pg_admission_outage.py": "90c878c3b6adad07ee3cf8c43dcab6a0965cc9f298a46d0f742fe2bb4e39c5ff",
+        "tests/test_runtime_allocated_before_pi_kill.py": "420b13b2a261a942e31c7221ef280a99138c6bbeaf436736cbe6cda2719bdcc6",
+        "tests/test_model_response_commit_window.py": "b38fe026a61ff58cc0aa69e816c9b49e4917fef9a752f5caeb053d0fcfcedfa6"
+      }
+    }
+  ],
+  "current_focused_total": {
+    "passed": 98,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "scope": "Three actual current-main focused commands, not one full repository CI invocation."
+  },
+  "independent_readonly_review": "Root reported no new authorization, cache-completion, leakage or per-operation deadline issue. Entire64-hint tick latency and undeployed Compose remain limitations."
+}
