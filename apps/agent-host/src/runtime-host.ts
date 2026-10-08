@@ -5,8 +5,9 @@ import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall} from '@eare
 import {PiRuntimeAdapter} from './pi-runtime-adapter.js';
 import {RuntimeEffectClient} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
+import {selectTrustedModel,validateEstimatedReservation} from './trusted-model-profile.js';
 
-type Material=(path:string,maximum:number)=>Buffer;
+type Material=(path:string,maximum:number,allowEmpty?:boolean)=>Buffer;
 function record(value:unknown):Record<string,unknown>{
   if(!value||typeof value!=='object'||Array.isArray(value))throw new RuntimeError('invalid_runtime_request');
   return value as Record<string,unknown>;
@@ -24,10 +25,13 @@ export class RuntimeHost{
   private readonly caPath:string;
   private readonly keyPath:string;
   private pending=0;
+  private readonly runtimeProfile:string;
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_message'].includes(key))||config.runtime_profile!=='deterministic-test')throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_message','model_configuration_file','maximum_request_cost'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
+    if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
     this.guard=new URL(String(config.guard_url));
@@ -54,7 +58,19 @@ export class RuntimeHost{
       });
     };
     this.authorizeAdmission=guard;
-    const models=createModels(),faux=fauxProvider();models.setProvider(faux.provider);
+    const models=createModels({authContext:{env:async()=>undefined,fileExists:async()=>false}}),faux=fauxProvider();models.setProvider(faux.provider);
+    let selection:{models:typeof models|import('@earendil-works/pi-ai').Models;model:{provider:string;modelId:string};runtimeProfile:string;costPolicy:import('./pi-runtime-adapter.js').PiRuntimeOptions['costPolicy']}={models,model:{provider:'faux',modelId:'faux-1'},runtimeProfile:'deterministic-test',costPolicy:{kind:'deterministic_zero',currency:'USD'}};
+    if(config.runtime_profile==='deepseek-flash'){
+      const modelConfig=record(JSON.parse(privateMaterial(config.model_configuration_file as string,32768).toString('utf8')));
+      if(Object.keys(modelConfig).some(key=>!['MODEL_PROVIDER','MODEL_ID','MODEL_BASE_URL','MODEL_CREDENTIALS_FILE','stage'].includes(key))||typeof modelConfig.stage!=='boolean'||Object.entries(modelConfig).some(([key,value])=>key!=='stage'&&typeof value!=='string'))throw new Error('runtime configuration refused');
+      const environment:Record<string,string|undefined>={};
+      for(const key of ['MODEL_PROVIDER','MODEL_ID','MODEL_BASE_URL','MODEL_CREDENTIALS_FILE'])environment[key]=modelConfig[key] as string|undefined;
+      if(!modelConfig.stage)environment.MODEL_API_KEY=process.env.MODEL_API_KEY;
+      const selected=selectTrustedModel(environment,privateMaterial,modelConfig.stage);
+      if(selected.runtimeProfile==='deepseek-flash'){if(!selected.estimatedReservationFloor)throw new Error('runtime estimated cost reservation unavailable');validateEstimatedReservation(config.maximum_request_cost,selected.estimatedReservationFloor);}
+      selection={...selected,costPolicy:selected.runtimeProfile==='deterministic-test'?{kind:'deterministic_zero',currency:'USD'}:{kind:'bounded_request',currency:'USD',maximum_request_cost:config.maximum_request_cost as string}};
+    }
+    this.runtimeProfile=selection.runtimeProfile;
     // Explicit test profile only; no model secret or real-provider success claim.
     if(config.effect_tools===true&&typeof config.deterministic_effect_message==='string'){
       // Explicit deterministic acceptance profile, never a real model claim.
@@ -76,7 +92,7 @@ export class RuntimeHost{
     }else faux.setResponses(Array.from({length:64},()=>fauxAssistantMessage('Deterministic test runtime completion')));
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
       activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
-    this.adapter=new PiRuntimeAdapter({root,models,model:{provider:'faux',modelId:'faux-1'},tools:[],toolsForRun:effects?command=>effects.toolsForRun(command):undefined,costPolicy:{kind:'deterministic_zero',currency:'USD'},assertOwner,
+    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command):undefined,costPolicy:selection.costPolicy,assertOwner,
       authorize:async(command,operation)=>guard(command,operation)});
   }
   private readonly authorizeAdmission:(command:RunCommand,operation:string,input?:string,ref?:string)=>Promise<{ever_execution_authorized:boolean}>;
@@ -85,7 +101,7 @@ export class RuntimeHost{
     const expected=operation==='start'||operation==='resume'?['activation_ref','command','input']:['activation_ref','command'];
     if(Object.keys(body).sort().join(',')!==expected.sort().join(',')||typeof body.activation_ref!=='string'||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(body.activation_ref))throw new RuntimeError('invalid_runtime_request');
     const command=validateRunCommand(body.command);
-    if(command.runtime_profile!=='deterministic-test'||((operation==='start'||operation==='resume')&&typeof body.input!=='string'))throw new RuntimeError('invalid_runtime_request');
+    if(command.runtime_profile!==this.runtimeProfile||((operation==='start'||operation==='resume')&&typeof body.input!=='string'))throw new RuntimeError('invalid_runtime_request');
     if(this.pending>=8)throw new RuntimeError('runtime_busy');this.pending++;
     try{
       await this.authorizeAdmission(command,operation,body.input as string|undefined,body.activation_ref);

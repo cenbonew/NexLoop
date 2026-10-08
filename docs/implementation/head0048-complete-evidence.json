@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-10-08T08:30:07.730656+00:00",
+  "head": "0048",
+  "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "exit_code": 0,
+  "reports": {
+    "python": {
+      "counts": {
+        "passed": 1265,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "e2dfc1316226d8083ebbfe5cb9e1c88c1c3a47d75ed3111e69737c5ef9ea1508"
+    },
+    "pi": {
+      "counts": {
+        "passed": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "99b03102e5f1ba001cc034dc332ffb0d4bd89d4bb2413c1d72d16d1aac2ff95e"
+    },
+    "runtime": {
+      "counts": {
+        "passed": 33,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "827e24885034fa7401dce1d720756b5992cb23d3923fbba8b9e294718a23eaaf"
+    }
+  },
+  "python_seconds": 1387.33,
+  "python_warnings": 1,
+  "source_files_checked": 731,
+  "source_drift": [],
+  "first_run_collection_issue": "Candidate Pi symlink duplicated 24 tests; first 48-test collection retained separately and excluded from final evidence. Corrected full rerun collected exactly 24.",
+  "product_ready": false,
+  "limitations": [
+    "Candidate 0049/0050/0051 not merged or covered by this main CI",
+    "Real model and customer channel validation not established",
+    "Stage deployment not established"
+  ]
+}

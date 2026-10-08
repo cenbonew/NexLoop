@@ -1,0 +1,83 @@
+{
+  "recorded_at": "2026-10-08T08:44:24.173165+00:00",
+  "head": "0048",
+  "commands": [
+    "source ~/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/head0048-community-20261008",
+    "source ~/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py verify --output .ci-results/head0048-community-20261008",
+    "source ~/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/head0048-community-20261008",
+    "docker run --rm --network none --entrypoint python <owned-backend-image> -c <catalog-only-probe>"
+  ],
+  "results": {
+    "passed": true,
+    "purpose": "disposable-community-test",
+    "project": "nexloop-test-8a7b59ce1c499fc1f0064abb",
+    "container_built": true,
+    "core_test_runtime_verified": true,
+    "actual_api_http_verified": true,
+    "actual_cache_tls_acl_verified": true,
+    "actual_host_control_verified": true,
+    "actual_https_frontend_login_verified": true,
+    "actual_governed_worker_verified": true,
+    "web_origin": "https://localhost:58822",
+    "product_ready": false,
+    "model_validation": "not_run",
+    "resources_retained": true
+  },
+  "packaged_catalog": {
+    "revision": "0048",
+    "count": 48
+  },
+  "local_images": {
+    "backend_image": {
+      "local_image_id": "sha256:a96480236087e812f76f10c88b0e08e8139a6de30a7fd7ac05f5410fb9165cf5",
+      "repo_digests": [
+        "nexloop-test-8a7b59ce1c499fc1f0064abb@sha256:a96480236087e812f76f10c88b0e08e8139a6de30a7fd7ac05f5410fb9165cf5"
+      ],
+      "architecture": "arm64",
+      "user": "10001:10001"
+    },
+    "host_image": {
+      "local_image_id": "sha256:ab62a5c4751a09a39cf4660253e294902f10c271a233cc6e5df6cb9af3ca140c",
+      "repo_digests": [
+        "nexloop-test-8a7b59ce1c499fc1f0064abb@sha256:ab62a5c4751a09a39cf4660253e294902f10c271a233cc6e5df6cb9af3ca140c"
+      ],
+      "architecture": "arm64",
+      "user": "10001:10001"
+    }
+  },
+  "public_build_sha256": {
+    ".dockerignore": "1077ab8bd07824df85a3c5e09eac1faaa82412f099e145713f01ac9b01523de6",
+    "Dockerfile": "39f05eeaeb46c575c5e574633f5923c413cf6281b9555dadbb2329efcd73dfc3",
+    "nexloop_eios_core-0.1.0-py3-none-any.whl": "e037179d6a45f956409239cfb1702aa0a0091223c16937e42ed4e846e75c2278",
+    "requirements.txt": "d34777b66434c8395d4fa3eab47c6e7bfccf6cfee8a8ece9b94410194e2ff783",
+    "web/assets/index-B-nq9p0P.js": "5b3e7268283a72852db6f6209f9836434b561bb4cdc9786e8d0ab30d3e7dcabc",
+    "web/assets/index-COz0shA4.css": "bd854a542cee1fe8caa70adddbbdf77aabfc20ef1ca4eb62064218580e55cb9c",
+    "web/index.html": "ba7986ee03fc47560c9a1255ade106726f2dddf031682d443a9bf4d62003010c"
+  },
+  "host_build_sha256": {
+    "Dockerfile": "7c41e99934d7a9df3ca8fa7a5c6e3af5968f0833fef66e547ebccd3c47050789",
+    ".dockerignore": "89f36a3ce57560da41e814e49689461d663b49fdc8eee46c7fb4db56d18856ac",
+    "package.json": "75310bff016b194c22167683f733bcd0991ba7d1d2a288c77763698eafecf4e8",
+    "runtime.tar": "c7ec2f11c3912ae410df7e9176416965067b23101a87f579090a172b4b3207c1",
+    "agent_host.py": "d41e7d0f321e0dedffac9dbe5fe4f160a14e19e80df4a79d5c6e284c7b183d37",
+    "agent-host-main.js": "c067acee1708b9834463712c72a263300f020d5a781859b7a8f83ab4fc9c75b8"
+  },
+  "compose_sha256": "e50fe90cdb38d54a94d9ee29d2a18270d3eff8b496f4e24aa62b106b04b0fada",
+  "source_files_checked": 731,
+  "post_ci_metadata_change": {
+    "planning/tasks.json": "Root appended corrected full CI evidence after terminal; status remains in_progress"
+  },
+  "code_source_drift": [],
+  "first_attempt": "prepare/verify/run each exit0. Evidence-generation first assertion failed because it included the intentionally updated planning/tasks.json; second audit allows only this exact metadata path and passes.",
+  "version_lock_change": "none; local image IDs are not published OCI registry digests, no stage release claim",
+  "limitations": [
+    "Foundation test profile has synthetic canonical Human and no browser business grants",
+    "No candidate49/50/51 or model-candidate in these images",
+    "No production message/effect closure or stage deployment established"
+  ],
+  "owned_cleanup": {
+    "action": "Owned Compose project stopped after graph checksum and exact label/service review; all containers/volumes retained",
+    "first_review": "Initial guessed init service names mismatched actual bootstrap service names; assertion aborted before any mutation. Reread exact services via verified Compose graph, labels matched and stop succeeded.",
+    "unrelated_resources_touched": false
+  }
+}

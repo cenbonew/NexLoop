@@ -1,0 +1,96 @@
+{
+  "task": "NX-016 candidate governed message relay / private Run vault",
+  "recorded_at": "2026-10-08T08:09:34.308164+00:00",
+  "scope": "candidate head0049; synthetic independent PG/HTTP provider and frozen deterministic Pi; main0048 not changed",
+  "history": [
+    {
+      "session": 53338,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "result": "1 setup error",
+      "seconds": 0.33,
+      "cause": "message_plan fixture dependency not explicitly imported",
+      "fix": "owned test imports actual message_plan"
+    },
+    {
+      "session": 71253,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py::test_independent_cli_governed_assignment_and_persist_before_ack -q -x --tb=short",
+      "result": "1 failed",
+      "seconds": 2.61,
+      "cause": "same PG expiry instant compared as +08:00 vs UTC strings",
+      "fix": "normalize actual PG datetime astimezone(UTC); no deadline weakening"
+    },
+    {
+      "session": 93933,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "result": "4 passed,1 failed",
+      "seconds": 13.34,
+      "cause": "default Node20 correctly rejected by existing real Host source/version gate",
+      "fix": "explicit nvm use24"
+    },
+    {
+      "session": 58302,
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "result": "4 passed,1 failed",
+      "seconds": 13.76,
+      "cause": "candidate Host TS differs from main frozen actual compiled Host; strict parity gate refused",
+      "fix": "Root moved unrelated model experiment to independent candidate and restored actual main48 Host sources; source gate unchanged"
+    },
+    {
+      "session": 38134,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short -k 'not actual_pi'",
+      "result": "16 passed,1 deselected",
+      "seconds": 34.53,
+      "scope": "targeted non-Pi evidence while actual Host parity was being corrected; deselection not complete E2E acceptance"
+    },
+    {
+      "session": 99412,
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "result": "19 passed",
+      "seconds": 45.33
+    },
+    {
+      "session": 40662,
+      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "result": "20 passed",
+      "seconds": 49.9,
+      "scope": "final adds actual SourceGrant revocation technical ACK proof"
+    },
+    {
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_run_credential_vault.py tests/test_message_relay_configuration.py -q --tb=short",
+      "result": "29 passed",
+      "seconds": 0.43,
+      "scope": "offline file durability/configuration proofs, separate from real PG/CLI suite"
+    }
+  ],
+  "source_sha256": {
+    "docs/drafts/0049_message_run_issuance.sql.draft": "84f2b374fd5199e35c600b09e04a86f468d192a570f353a156ba618a4e1ef939",
+    "packages/eios-core/src/eios/migrations/0049_message_run_issuance.sql": "84f2b374fd5199e35c600b09e04a86f468d192a570f353a156ba618a4e1ef939",
+    "packages/eios-core/src/nexloop_eios/message_relay.py": "e7bcb2805e00e420ce96ef2270bbc729dc8a712c65a541245ee8e973bfb24a99",
+    "packages/eios-core/src/nexloop_eios/message_relay_cli.py": "0833084ab159198a38c62875a193b1bbb33695b15e614aca1acbc3f531c7827b",
+    "packages/eios-core/src/nexloop_eios/run_credential_vault.py": "38cd7be46096a347f84d243ff9b61c8d74040739a32c1fcefe40feb8e1d8e368",
+    "packages/eios-core/src/nexloop_eios/message_assignment_contract.py": "7eafcaf9a64f9aa9f1b7492f57326b4c8450a774e7391040d4bcd621eb98e0fc",
+    "tests/test_message_relay.py": "76433f2a9b567f197991d1cc4ce14d76d6afad0c18030af586ea2848884aeb90",
+    "tests/test_run_credential_vault.py": "51c68c842c455430093e533c7a7a77ae8d4d16a143f39d6d8182a70386759786",
+    "tests/test_message_relay_configuration.py": "950762ecf820e3a24c62987a956773be9184b23258c43825e645dcb1ca96d47a"
+  },
+  "real_evidence": [
+    "CLI actual governed per-message Goal/Step/MessageAssignment; existing shared control budget unchanged",
+    "Private PREPARED fsync before digest-only PG issuance; same Run/request/token after actual SIGKILL",
+    "Actual SIGKILL windows PREPARED-beforecommit, PGcommit-beforeISSUED, bind-beforeaccept, queuecommit-beforeACK",
+    "Actual committed queue ACK recovery with revoked Run or revoked SourceGrant and deleted private vault record",
+    "Actual0047/0049 concurrent route claims one live owner",
+    "Same Human Message -> standalone relay CLI -> stable Run/queue -> real TLS PG guarded frozen Pi Tool -> independent HTTP EffectWorker -> current Human published Function receipt",
+    "Actual synthetic provider POST1/GET1/effects1; shared budget1; FULL runtime SQLite single Conversation/Submission",
+    "Signed protected PG NULL/type rejection, different actual Source/crossConsumer, actual one-second TTL expiry preserving first Run/deadline",
+    "No raw token in PG queue/issuance ledger, CLI output or Pi files"
+  ],
+  "limits": [
+    "No real external channel/model credentials used; provider is explicit synthetic durable HTTP fault service",
+    "No main integration/full-CI completion asserted from candidate focused pass",
+    "Per-message recipe requires preprovisioned current published Actions/canonical facts/private credentials/shared control; candidate0050 configurator tests pending Root owner",
+    "Technical ACK after withdrawal does not renew Run execution authority",
+    "Filesystem vault loss before queue commit remains failclosed; no guessed bearer/new Run recovery",
+    "Source/SQL/catalog now frozen pending Root0050; no live child PG remains"
+  ],
+  "versions_lock": "Root updated candidate bootstrap head49 only; this agent did not edit versions/catalog/planning/main/old0001-0048"
+}

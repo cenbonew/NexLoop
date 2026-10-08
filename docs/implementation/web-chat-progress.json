@@ -1,0 +1,56 @@
+{
+  "recorded_at": "2026-10-08T07:33:38.220401+00:00",
+  "task": "NX-016",
+  "status": "in_progress",
+  "candidate_only": false,
+  "candidate_directory": "docs/tmp/nx016-candidate",
+  "main_head": "0048",
+  "work": [
+    "Genuine current Browser Human authority, governed Conversation/Message",
+    "Durable fenced message-to-Run bridge and independent authorized readonly Function receipt",
+    "Production HTTPS/static WebChat and actual browser visual acceptance",
+    "Actual Pi + independent synthetic provider + same-Human receipt E2E"
+  ],
+  "executed_commands": [
+    {
+      "cwd": "docs/tmp/nx016-candidate",
+      "result": "9passed11.99s; addeddeadline test initially8passed1failed, appended45 tailrecheck fix",
+      "command_normalized": "PYTHONPATH=packages/eios-core/src:tests <root-venv>/bin/python -m pytest tests/test_browser_business_authorization.py -q"
+    },
+    {
+      "cwd": "docs/tmp/nx016-candidate",
+      "result": "19passed17.19s",
+      "command_normalized": "PYTHONPATH=packages/eios-core/src:tests <root-venv>/bin/python -m pytest tests/test_action_definitions.py -q"
+    },
+    {
+      "cwd": "docs/tmp/nx016-candidate",
+      "result": "initial8passed13.10s; reviewedtailproof/nullbound fixes; final13passed18.94s",
+      "command_normalized": "PYTHONPATH=packages/eios-core/src:tests <root-venv>/bin/python -m pytest tests/test_conversation_messages.py -q"
+    },
+    {
+      "cwd": "docs/tmp/nx016-candidate",
+      "result": "7passed11.35s; first3setuperrors from transientcatalogdraft, later6pass1failure fixture includedrouter, thenfixed",
+      "command_normalized": "PYTHONPATH=packages/eios-core/src:tests <root-venv>/bin/python -m pytest tests/test_web_chat_http.py -q"
+    },
+    {
+      "cwd": "docs/tmp/nx016-candidate",
+      "result": "2passed1.83s; all restrictedrole/RLS checks retained",
+      "command_normalized": "PYTHONPATH=packages/eios-core/src:tests <root-venv>/bin/python -m pytest tests/test_db_boundary.py -q"
+    }
+  ],
+  "limits": [
+    "Trusted production provisioning and continuous message relay not yet implemented",
+    "Independent real local delivery service not yet implemented; current provider I/O evidence synthetic",
+    "Head0048 full CI pending",
+    "Actual model/channel validation and deployment unvalidated"
+  ],
+  "versions_lock": "bootstrap_revision0048; upstream/packages/images retained",
+  "command_note": "Candidate commands are display-normalized; full command/session evidence remains in candidate owner reports. Main corrected CI exact command is recorded in head0044-complete-evidence.json.",
+  "main_checks": [
+    "58 passed 98.57s new PG/HTTP/bridge/effect/fault tests",
+    "41 passed 36.75s bootstrap/roles/doctor/wheel regressions",
+    "portable actual Pi/effect E2E 1 passed 6.62s",
+    "two actual Human/Consumer isolation 4 passed 9.97s",
+    "HTTPS/frontend normal fixture 1 passed 2.88s; separate actual browser visual verification"
+  ]
+}

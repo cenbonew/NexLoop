@@ -1,0 +1,73 @@
+{
+  "task": "NX-016 candidate business initialization",
+  "recorded_at": "2026-10-08T08:30:40.454415+00:00",
+  "head": "candidate0050",
+  "history": [
+    {
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_configuration.py -q --tb=short",
+      "result": "20 passed",
+      "seconds": 0.26,
+      "scope": "offline syntax/private file/log validation"
+    },
+    {
+      "session": 59952,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
+      "result": "1 collection error",
+      "seconds": 0.24,
+      "cause": "wrong ResourceRestriction import eios.identity.models"
+    },
+    {
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
+      "result": "1 collection error",
+      "seconds": 0.22,
+      "cause": "incorrect guessed import eios.authz.models; corrected after actual existing source confirms eios.authz.applications"
+    },
+    {
+      "session": 38174,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
+      "result": "4 passed",
+      "seconds": 7.23
+    },
+    {
+      "session": 28177,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_configuration.py tests/test_business_setup_pg.py -q -x --tb=short",
+      "result": "25 passed,1 failed",
+      "seconds": 9.63,
+      "cause": "test attempted existing immutable service credential status change through0050 publisher; publisher correctly rejected",
+      "fix": "actual code0050 read confirms credential metadata immutable; negative uses typed canonical Owner GrantFacts withdrawal through actual publisher, with zero business creation assertion intact"
+    },
+    {
+      "session": 17636,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_configuration.py tests/test_business_setup_pg.py -q -x --tb=short",
+      "result": "28 passed",
+      "seconds": 12.23,
+      "scope": "20 offline +8 real PG/standalone CLI"
+    }
+  ],
+  "source_sha256": {
+    "packages/eios-core/src/nexloop_eios/business_setup.py": "8ec958d6e3d2fde14e1e6d56f1ca649f6c8e24c51b1359045147ad699e12b3f8",
+    "tests/test_business_setup_configuration.py": "4807f4298da7d263cef404b98963b9f558e12eafa4c3561f49c3220e0dede92e",
+    "tests/test_business_setup_pg.py": "3b1d6fe20e289c3c970f4bba0b5bd6d03d1b1a5062350226ca6476de3406dfea"
+  },
+  "proofs": [
+    "Actual restricted0050 apply_manifest publishes explicit typed contracts/Owner+Executor facts; fixture does not INSERT business or authority tables",
+    "Actual protected initial_identity creates canonical Human, membership and account before business setup",
+    "Standalone CLI genuine Governor Consumer.create / EffectControl.create / configure_effect_control / ConversationOwnershipRegistrar",
+    "Same requestUUID stable step intents replay same Consumer/control/ownership IDs; shared budget1 reserved0",
+    "Changed control payload rejected without overwrite",
+    "Self-named nonexistent Human ownership rejected; earlier independent governed steps recovered on canonical corrected recipe",
+    "Actual foreign tenant Executor configured through publisher rejects before zero business writes",
+    "Owner Consumer.create grant withdrawal through actual publisher yields zero business creation",
+    "0644/symlink private recipe fails before business action",
+    "Optional verify-current without explicit instance READ grant fails closed; default receipts output expected revisions only",
+    "Synthetic private credentials absent CLI stdout/stderr"
+  ],
+  "limits": [
+    "Each existing governed step commits independently, not a claimed atomic all-business transaction",
+    "Missing canonical Human can leave earlier authorized Consumer/control steps; CLI reports failure and stable intents allow recovery",
+    "Default expected revisions are conditions for later0049 current proof, not current READ claims",
+    "No real model/channel validation; no production or .env access",
+    "This test proves initial0050 -> governed business setup; full new uniform setup -> Message -> Relay -> Pi/HTTP/Human chain still awaits assembly; prior0049 chain does not substitute this evidence"
+  ],
+  "unchanged": "main repository, old0001-0050 sources, catalog, versions.lock.json and planning untouched by this agent; no live PG remains"
+}

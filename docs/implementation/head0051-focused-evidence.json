@@ -1,0 +1,38 @@
+{
+  "recorded_at": "2026-10-08T09:07:34.044222+00:00",
+  "head": "0051",
+  "task": "NX-016",
+  "status": "in_progress",
+  "reports": {
+    "head0051-focused": {
+      "counts": {
+        "passed": 154,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "c9bf991f0476c4b641f8bf7edc20b16eaf8892c34eabbbfb1ea52f9e7536c5be"
+    },
+    "head0051-node": {
+      "counts": {
+        "passed": 61,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "sha256": "da1f815a9c13da9b48a6230f73a953b5a84503e1affa4d6e05c3ce1901c56b28"
+    }
+  },
+  "python_seconds": 160.17,
+  "node_seconds": 3.07,
+  "warnings": 1,
+  "first_failures": {
+    "main_python": "148passed2failed160.77s: expiry ISO trailing zero formatting; concurrent vault lock create ENOENT",
+    "fixes": "Compare exact aware expiry instant; EXCL create/EEXIST open with unchanged1s boundedlock plus inode checks",
+    "rerun": "154pass; four new lock tamper negatives; standalone vault20pass and50actual independent process races passed"
+  },
+  "artifact_retention": "At owner request raw .ci-results content and compiled output will be deleted after these hashes/results are recorded; not retained elsewhere",
+  "full_ci": "not_run for0051; previous0048 complete1265+24+33 passed",
+  "model_validation": "not_run; only deterministic model in actual chain",
+  "product_ready": false
+}

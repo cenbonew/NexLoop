@@ -1,0 +1,107 @@
+{
+  "recorded_at": "2026-10-08T07:20:47.030851+00:00",
+  "task": "NX-016",
+  "main_current_source": true,
+  "scope": "isolated synthetic real PostgreSQL + EIOS Human password login + production HTTPS API/static + Ego browser",
+  "commands": [
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use && pnpm --dir apps/web build",
+      "session": "35441",
+      "exit_code": 0,
+      "result": "Node24.13.0, TypeScript noEmit, Vite8.0.16 67 modules 102ms"
+    },
+    {
+      "command": "NEXLOOP_WEB_CHAT_PREVIEW=1 uv run pytest tests/test_web_chat_frontend.py -q --tb=short",
+      "session": "90725",
+      "exit_code": 0,
+      "result": "1 passed 19.02s; initial preview ended to expose actual synthetic login identity from Root-approved fixture"
+    },
+    {
+      "command": "NEXLOOP_WEB_CHAT_PREVIEW=1 uv run pytest tests/test_web_chat_frontend.py -q --tb=short",
+      "session": "11291",
+      "exit_code": 0,
+      "result": "1 passed 191.58s; actual browser interactions complete"
+    },
+    {
+      "command": "uv run pytest tests/test_web_chat_frontend.py -q --tb=short",
+      "session": "23067",
+      "exit_code": 0,
+      "result": "1 passed in 2.88s; no preview hold, portable authoritative receipt/static HTTPS test"
+    }
+  ],
+  "browser_results": {
+    "real_password_ui_login": true,
+    "actual_ui_message_committed": true,
+    "actual_browser_fetch_idempotency": {
+      "first": 202,
+      "replay": 202,
+      "conflict_changed_body": 409
+    },
+    "receipt_accepted_text": "服务意图已接受，尚未确认履行。",
+    "unACKed_message_text": "消息已接受，尚未确认进入处理队列。",
+    "current_function_grant_revoke": "403 and UI access-denied alert",
+    "narrow_viewport": {
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "horizontalOverflow": false
+    }
+  },
+  "first_browser_failures": [
+    {
+      "error": "net::ERR_CERT_AUTHORITY_INVALID",
+      "resolution": "Page-only temporary Security.setIgnoreCertificateErrors for owned synthetic self-signed localhost test certificate; restored false at completion. No system trust modified."
+    },
+    {
+      "error": "background UI request failed after browser round detached test-certificate exemption",
+      "resolution": "Re-enabled Page-scoped exemption in action round; actual same-origin authenticated API reads succeeded. Not classified as production authorization failure."
+    },
+    {
+      "error": "Locator substring matched status and button",
+      "resolution": "Used actual role button exact accessible name grounded in preceding snapshot."
+    }
+  ],
+  "screenshots": [
+    {
+      "path": ".ci-results/web-chat-wide.png",
+      "sha256": "11d318c271395da42c2e66dd043df3de9c0edb32a4b349487e9533c7e502397c",
+      "manually_viewed": true
+    },
+    {
+      "path": ".ci-results/web-chat-wide-committed.png",
+      "sha256": "c21967090bed475458e2ebfd72960abe724b1a16c84d68ae41465976ae825260",
+      "manually_viewed": false
+    },
+    {
+      "path": ".ci-results/web-chat-narrow.png",
+      "sha256": "bf1bdb7faed0f84bdf00b0980efc52842a6082e6d3c19747fb2d6216f2eef842",
+      "manually_viewed": true
+    },
+    {
+      "path": ".ci-results/web-chat-revoked.png",
+      "sha256": "ac494a12da8e49e037b90e5a02713503d183e79e07573964509df9a7943e24d2",
+      "manually_viewed": false
+    }
+  ],
+  "source_sha256": {
+    "tests/test_web_chat_frontend.py": "b53407b0714b6e79e37320b280c14f05e1f74fc887e2ab6e179430c3d510267f",
+    "apps/web/src/WebChat.tsx": "659146e54decf9263bfb014ced000d5bd743d8da4bed5c75f3949376a86476a5",
+    "apps/web/src/MessageReceipt.tsx": "9a9abcb011e4eca46af6a709b55c48cf6ab8f1d0b510f49a4ddb93fb04627f63",
+    "apps/web/src/chat-api.ts": "680c2b4e598cd477e1cc433cb5a2019551a767f83dc552840ea1375fd7698a73"
+  },
+  "cleanup": {
+    "task_finish_exactly_once": true,
+    "emulation_cleared": true,
+    "certificate_ignore_restored_false": true,
+    "owned_https_child_stopped": true,
+    "owned_https_listener_closed_test_asserted": true,
+    "private_preview_control_files_removed": true,
+    "postgres_disposable_fixture_exited": true
+  },
+  "limits": [
+    "No actual model or channel delivery; trusted deterministic-test label verified",
+    "No browser UI retry-button error/recovery scenario claimed; same-key actual browser HTTP replay/conflict verified",
+    "Readiness unavailable and short configured SSE lifetime correctly showed unavailable in isolated fixture; no deployment-ready claim",
+    "No generic exactly-once claim"
+  ],
+  "root_review": "Root viewed narrow screenshot; no horizontal overflow; explicit deterministic-test and accepted/unconfirmed status labels."
+}

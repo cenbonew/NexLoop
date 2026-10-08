@@ -1,0 +1,15 @@
+{
+  "merged_files": {
+    "apps/agent-host/src/main.ts": "34dc83ceb99f9e681437f9283943abf93037ba5173658050abfaa6fcd2c1fcfa",
+    "apps/agent-host/src/runtime-host.ts": "6ba1e182c6ceb56d8c383e1dcdf3519c11ba697f425c95339ea778fb545e7f28",
+    "apps/agent-host/src/trusted-model-profile.ts": "f88d52b06985d53adf347a8b634bc27ba0dd721a3a6612c28e77f32ece1a88b0",
+    "apps/agent-host/src/private-material.ts": "f51aff575edcf56ddd557493241acc840e1180b4f1013bf1582aceb42442b324",
+    "apps/agent-host/test/trusted-model-profile.test.ts": "db62a768f2c2af39e9c8010a2da5f98c9ea06d63176615780390f4f5f5d55538",
+    "apps/agent-host/test/private-material.test.ts": "7b9a17fbbc646512b27a09f80c7d85f025365a4b3404f5b3481068af8ccfd74a",
+    "apps/agent-host/test/runtime-host-model.test.ts": "5e70373ec3314997a540ff90c413ad868762adb167c908ba6fd95e2bad58020c"
+  },
+  "version_lock_change": "Host actual workspace dependencies corrected; Pi AI/Chord declared versions verified at frozen commit; no registry artifact selected; images/upstream commits unchanged",
+  "first_preflight": "Incorrect constructor-test filename rejected before any source copy. Read actual files, revalidated unchanged backups, then copied seven exact reviewed files.",
+  "verification": "Candidate61 Node tests passed; main build/regression pending",
+  "real_model_validation": "not_run; no real credential read or network call"
+}

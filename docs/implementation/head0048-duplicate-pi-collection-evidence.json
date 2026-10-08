@@ -1,0 +1,35 @@
+{
+  "recorded_at": "2026-10-08T07:58:46.486302+00:00",
+  "head": "0048",
+  "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check > .ci-results/nx016-head0048-full-ci.log 2>&1",
+  "session": "53235",
+  "exit_code": 0,
+  "python": {
+    "passed": 1265,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 1372.445
+  },
+  "runtime": {
+    "passed": 33,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "pi": {
+    "passed": 48,
+    "expected_authoritative": 24,
+    "problem": "Candidate frozen Pi symlink introduced during parallel work caused duplicate collection; collection provenance not accepted as final release evidence"
+  },
+  "source_files": 731,
+  "source_drift": [],
+  "correction": "Exclude docs/tmp/** for Pi conformance command, matching existing Runtime exclusion; focused24 then fullCI rerun",
+  "reports_sha256": {
+    "runtime.xml": "8843b81eb7c8cf8e751e168636eea117d15b0bb3cd0602f8971fa716ee20ce62",
+    "python.xml": "f5ad9ee4010abaf85efb50b0f549d08f4136bc16c012f07da034cbf0486a39d6",
+    "nx016-head0048-full-ci.log": "130ecd9f34a2346749315d0512c41687cc387d61d04d55a2244205a0e94e3a2e",
+    "pi.xml": "62f7abfe5a1824f8ca00ca9b7cc87c87e0b4dcdd2d5310b7338f7f9898e194ac",
+    "head0048-source-manifest.json": "955d5526b16d48d0085e7d96d7ef4a78238c8e78a8a3b4d641549fba7a3a8150"
+  }
+}

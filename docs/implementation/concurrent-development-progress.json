@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-10-08T08:40:50.557947+00:00",
+  "task_id": "NX-016",
+  "status": "in_progress",
+  "main_head": "0048",
+  "candidate_head": "0051",
+  "main_full_ci": "docs/implementation/head0048-complete-evidence.json",
+  "concurrent_work": {
+    "message_relay": "20 actual PG tests passed, four real SIGKILL windows, governed per-message planning; prior provider synthetic",
+    "trusted_configuration_identity": "34 pure/actual PG tests passed; restricted technical publisher and canonical explicit Human identity",
+    "business_setup": "28 tests passed including 8 actual PG/standalone CLI; no SQL seeded business objects",
+    "local_json_delivery": "27 offline tests passed; first GET read-only snapshot tests failed4 then fixed. Three actual PG tests passed including normal real file effect and two service SIGKILL/reopen windows; revocation/lease/tail negatives still running",
+    "model_host": "60 offline Node tests passed and Node24build; independent audit hardening still in progress, no real provider call",
+    "production_assembly": "preparing explicit private configuration and full new-setup→message→relay→Pi→real local delivery test; not yet proven"
+  },
+  "publication_scan": {
+    "command": "uv run python scripts/check_publication.py",
+    "public_paths": 1016,
+    "index_blobs": 0,
+    "violations": 0,
+    "literal_192168_hits": "Only documentation quotes of requested scan command; no actual private address in Git-visible candidate paths.",
+    "recursive_requested_grep": "Started but stopped its owned process because literal docs/tmp exclude does not correctly exclude the nested raw handoff directory; replaced by Git-visible-file scan. Not claimed completed."
+  },
+  "versions_lock_change": "None in main during this update; remains0048. Candidate-only head0051 is not release metadata.",
+  "product_ready": false,
+  "missing_validation": [
+    "Uniform fresh production assembly",
+    "Remaining real recovery authorization negatives",
+    "Real model invocation",
+    "Stage deployment and matching deployed image digest"
+  ],
+  "git_actions": "No stage/commit/push"
+}

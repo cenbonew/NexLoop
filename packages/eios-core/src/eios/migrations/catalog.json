@@ -220,6 +220,41 @@
       "version": "0044",
       "name": "0044_effect_provider_binding.sql",
       "sha256": "04b88ecb763988adfc30f8fffa507c358f6d85e76ffe6ebf5e5e19a389647183"
+    },
+    {
+      "version": "0045",
+      "name": "0045_browser_business_authority.sql",
+      "sha256": "4b7a63137b2c7f8022d72c63ebf4f9cecce962e70be2ab545d56687481abde41"
+    },
+    {
+      "version": "0046",
+      "name": "0046_conversation_messages.sql",
+      "sha256": "2ccfcd410bbb364e8288cb0e082bcd687256c7d74a9c1d080ec5cf7e8240850b"
+    },
+    {
+      "version": "0047",
+      "name": "0047_message_runtime_bridge.sql",
+      "sha256": "006722783de8d07c0db6d15c574578de93b0a8da3448eef9f172a1cbc22b2106"
+    },
+    {
+      "version": "0048",
+      "name": "0048_conversation_effect_receipts.sql",
+      "sha256": "0c66a4cc67b35eefbb29a755cc6b2e6e3e7b827c2becd5d1b45dc172e96a1114"
+    },
+    {
+      "version": "0049",
+      "name": "0049_message_run_issuance.sql",
+      "sha256": "84f2b374fd5199e35c600b09e04a86f468d192a570f353a156ba618a4e1ef939"
+    },
+    {
+      "version": "0050",
+      "name": "0050_trusted_configuration.sql",
+      "sha256": "7dc93e59b7593ddfad90a8ef04fdf715366f9ca4c004b545297951dccbf8ba93"
+    },
+    {
+      "version": "0051",
+      "name": "0051_local_json_delivery.sql",
+      "sha256": "d475cadb8a165c4089d39394f7c18852c3efe18010afe2621ae66f6fc3d15849"
     }
   ]
 }

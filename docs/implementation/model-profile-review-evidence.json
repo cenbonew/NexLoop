@@ -1,0 +1,36 @@
+{
+  "source_sha256": {
+    "apps/agent-host/src/trusted-model-profile.ts": "f88d52b06985d53adf347a8b634bc27ba0dd721a3a6612c28e77f32ece1a88b0",
+    "apps/agent-host/src/private-material.ts": "f51aff575edcf56ddd557493241acc840e1180b4f1013bf1582aceb42442b324",
+    "apps/agent-host/src/main.ts": "34dc83ceb99f9e681437f9283943abf93037ba5173658050abfaa6fcd2c1fcfa",
+    "apps/agent-host/src/runtime-host.ts": "6ba1e182c6ceb56d8c383e1dcdf3519c11ba697f425c95339ea778fb545e7f28",
+    "apps/agent-host/test/trusted-model-profile.test.ts": "db62a768f2c2af39e9c8010a2da5f98c9ea06d63176615780390f4f5f5d55538",
+    "apps/agent-host/test/private-material.test.ts": "7b9a17fbbc646512b27a09f80c7d85f025365a4b3404f5b3481068af8ccfd74a"
+  },
+  "scope": "isolated candidate, no provider calls",
+  "node": "24.13.0",
+  "tests": {
+    "count": 61,
+    "result": "passed",
+    "session": 56699,
+    "duration_ms": 3220,
+    "report": "model-profile-review-full.junit.xml"
+  },
+  "build_command": "Node24 node ROOT/node_modules/typescript/bin/tsc -p apps/agent-host/tsconfig.json",
+  "test_command": "Node24 node ROOT/node_modules/vitest/vitest.mjs run apps/agent-host/test/trusted-model-profile.test.ts apps/agent-host/test/private-material.test.ts --reporter=verbose --reporter=junit --outputFile=model-profile-review.junit.xml",
+  "limits": [
+    "fixed output token cap4096",
+    "frozen USD estimated full-context reservation floor0.30491520, not live billing guarantee",
+    "original Run budget unchanged",
+    "private file priority and no ambient credential fallback except explicitly local MODEL_API_KEY",
+    "no real model or production/channel credential read/call",
+    "full launched Host/HTTPS/PG/provider path not validated in this review"
+  ],
+  "failures": [
+    {
+      "session": 70637,
+      "result": "16passed1failed426ms",
+      "cause": "same-id attacker endpoint forwarded; fixed clone/deepfreeze/always dispatch trusted model"
+    }
+  ]
+}

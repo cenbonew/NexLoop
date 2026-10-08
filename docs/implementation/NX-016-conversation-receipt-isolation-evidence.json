@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "candidate_only": true,
+  "task_id": "NX-016",
+  "cwd": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate",
+  "source_sha256": {
+    "tests/multi_browser_conversation_fixture.py": "a7c03b6d96d7b8039405de719f36e7ad3cf3972ec5e7138359eff310f2808bd4",
+    "tests/test_conversation_receipt_isolation.py": "5b6f930d3dc63ca5a0a05d885f56e53699a2d3a4fea91ecfb0ff265f7faa139d"
+  },
+  "executions": [
+    {
+      "session_id": 78913,
+      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
+      "result": "1 error in 2.19s",
+      "cause": "fixture expected HTTP create 201; actual existing router returns 200; corrected to actual contract"
+    },
+    {
+      "session_id": 99899,
+      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
+      "result": "1 error in 2.20s",
+      "cause": "genuine resolver rejected incomplete per-target scope catalog for Browser requested action.execute + function.execute"
+    },
+    {
+      "session_id": 79871,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py::test_two_real_humans_read_own_messages_not_other_consumer_receipt -q --tb=short",
+      "result": "1 error in 2.28s",
+      "cause": "safe actual exception stack diagnosis, subsequently removed"
+    },
+    {
+      "session_id": 66703,
+      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py::test_two_real_humans_read_own_messages_not_other_consumer_receipt -q --tb=short",
+      "result": "1 error in 2.24s",
+      "cause": "actual canonical facts UOW diagnosis: requested scope unknown to catalog; no fake allowed decision; diagnostics subsequently removed"
+    },
+    {
+      "session_id": 73188,
+      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
+      "result": "3 passed, 1 warning in 7.64s",
+      "fix": "typed resealed ScopeAuthorityFacts configured supported catalog scopes action.execute/function.execute, same as actual 48 fixture"
+    },
+    {
+      "session_id": 73008,
+      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q --tb=short",
+      "result": "4 passed, 1 warning in 9.81s",
+      "final": true
+    }
+  ],
+  "scope": "same tenant two distinct actual HUMAN Subject/Membership/LocalAccount, two separate Argon2 password HTTP logins/Evidence/cookie sessions and two governed Consumers/Ownership/Conversation/Messages",
+  "proven": [
+    "each real cookie Human can read own actual Message and authorized null/current Function projection",
+    "Human A admitted Source Run and real governed accepted Intent projected to owned Message",
+    "same-tenant Human B has independent valid Function+READ grants yet A receipt/Run identifiers denied 403",
+    "A cannot read B actual Message receipt, B cannot read A Conversation messages",
+    "actual B Message Source-Consumer=A or Message-Consumer=B command variants both reject against actual Source Run Plan A, no route/job persists",
+    "one Run already bound to A Message cannot be rebound to a second real A Message even same Consumer/current authority"
+  ],
+  "warnings": [
+    "existing StarletteDeprecationWarning for httpx TestClient; dependencies unchanged"
+  ],
+  "identity_setup": "canonical authentication-directory configuration only in designated disposable PG; independently typed objects, no model_copy identity or fabricated Human binding; actual password/Evidence/session/login paths executed",
+  "limitations": [
+    "no product identity-registration API exists or is claimed",
+    "accepted synthetic effect Intent only; isolation cases invoke no external provider or real channel",
+    "candidate tests not merged/published by this agent"
+  ],
+  "changed_files": [
+    "tests/multi_browser_conversation_fixture.py",
+    "tests/test_conversation_receipt_isolation.py"
+  ],
+  "sql_catalog_changed": false,
+  "production_source_changed": false,
+  "shared_fixture_changed": false,
+  "versions_lock_changed": false,
+  "planning_changed": false,
+  "recorded_at": "2026-10-08T07:26:29Z"
+}

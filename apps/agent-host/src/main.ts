@@ -1,7 +1,8 @@
 /** Internal Host; optional backend-governed runtime admission, no DB credentials. */
 import {type IncomingMessage, type ServerResponse} from 'node:http';
 import {createServer} from 'node:https';
-import {constants, closeSync, fstatSync, lstatSync, openSync, readSync} from 'node:fs';
+import {closeSync, fstatSync, lstatSync} from 'node:fs';
+import {readPrivateMaterial} from './private-material.js';
 import {join, resolve} from 'node:path';
 import {randomUUID, timingSafeEqual} from 'node:crypto';
 
@@ -18,22 +19,7 @@ async function serve() {
       && held.isFile() && current.isFile() && held.uid === process.getuid!() && held.nlink === 1
       && (held.mode & 0o777) === 0o600 && current.dev === held.dev && current.ino === held.ino;
   }
-  function privateMaterial(path:string, maximum:number) {
-    const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try {
-      const info = fstatSync(descriptor);
-      if (!info.isFile() || info.uid !== process.getuid!() || (info.mode & 0o777) !== 0o600 || info.nlink !== 1 || info.size < 1 || info.size > maximum) throw new Error('private material refused');
-      const value = Buffer.alloc(maximum+1);
-      let length=0;
-      while (length <= maximum) {
-        const count=readSync(descriptor,value,length,value.length-length,null);
-        if (count===0) break;
-        length+=count;
-      }
-      if (length===0 || length > maximum) throw new Error('private material refused');
-      return value.subarray(0,length);
-    } finally { closeSync(descriptor); }
-  }
+  const privateMaterial=readPrivateMaterial;
   function readKey() {
     const value = privateMaterial(keyPath!,64).toString('utf8');
     if (!/^[0-9a-f]{64}$/.test(value)) throw new Error('internal key refused');

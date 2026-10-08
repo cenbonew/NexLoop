@@ -1,0 +1,60 @@
+{
+  "scope": "candidate-only actual governed local JSON export; deterministic model, not real model or external channel",
+  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_local_message_delivery_assembly.py -q -x --tb=short",
+  "first_failure": {
+    "session": 28099,
+    "result": "1 error",
+    "seconds": 1.37,
+    "cause": "strict CapabilityContractSnapshot kind requires typed enum; fixture corrected through model_validate_json"
+  },
+  "final": {
+    "session": 36591,
+    "result": "1 passed",
+    "seconds": 7.28,
+    "warnings": [
+      "httpx verify=str deprecation"
+    ],
+    "node": "24.13.0"
+  },
+  "chain": [
+    "actual protected50 typed publication",
+    "actual initial HUMAN",
+    "actual governed business_setup CLI",
+    "real password-login HTTPS cookie/session",
+    "real governed Message HTTP",
+    "per-message governed Goal/PlanStep/MessageAssignment by independent49 relay CLI",
+    "actual Node24 Pi SQLite WAL/FULL single submission and Runtime Worker TLS PG guard",
+    "independent51 LocalJsonDelivery HTTPS actual immutable JSON export",
+    "independent Effect Worker actual PG Action claim finalize",
+    "same current Human48 Function HTTP receipt"
+  ],
+  "product": {
+    "sha256": "568cd99dc4e749812a023afdfed379e219c4a4af8c7b53e0633fd850031d4e3d",
+    "size": 257,
+    "format": "nexloop.json-export.v1",
+    "intent_id": "66dac4a2-9c17-4ae3-b876-236089a7f61e",
+    "body": "one governed runtime service"
+  },
+  "cleanup": {
+    "cli_process_counts": {
+      "http_api": 0,
+      "runtime_worker": 0,
+      "effect_worker": 0,
+      "local_json_delivery": 0,
+      "message_relay_cli": 0
+    },
+    "host": "context exited with communicate; fallback kill/reap installed",
+    "postgres": "owned fixture finally pg_ctl fast stop and removes exact mkdtemp, suite teardown completed"
+  },
+  "limitations": [
+    "http_api CLI remains test-only and product_ready false",
+    "context_manifest_ref is explicit test placeholder, no persisted ContextArtifact claim",
+    "local export proves real local file effect, no external channel",
+    "no real model semantics proven"
+  ],
+  "source_sha256": {
+    "docs/operator/private-message-delivery-assembly.md": "1cd7d061cbabe1982287e7f23607bb0264218e1c3a1521f073027643f8036865",
+    "tests/local_message_assembly_fixture.py": "e364d05fb3eef46469f13afd06ba2b952288986b254cf42354a60672c5354bca",
+    "tests/test_local_message_delivery_assembly.py": "28b85f45508084d20b46db70d4d456c8bd11dd8a921289c5abddf756e8bbb6c2"
+  }
+}

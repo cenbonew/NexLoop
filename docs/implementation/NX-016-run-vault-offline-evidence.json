@@ -1,0 +1,44 @@
+{
+  "scope": "candidate-only private-file evidence, not PostgreSQL issuance or production relay",
+  "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_run_credential_vault.py -q --tb=short",
+  "history": [
+    {
+      "result": "9 passed",
+      "seconds": 0.18,
+      "scope": "initial offline permission/reopen/expiry cases"
+    },
+    {
+      "result": "10 passed, 1 failed",
+      "seconds": 0.18,
+      "cause": "independent concurrent prepare did not both complete; lock opened nonblocking"
+    },
+    {
+      "result": "11 passed",
+      "seconds": 0.2,
+      "correction": "after verifying regular private lock file explicitly enable blocking before flock; concurrent processes preserve one record"
+    },
+    {
+      "result": "16 passed",
+      "seconds": 0.25,
+      "correction": "Root review: monotonic bounded LOCK_NB polling; duplicate keys and NaN reject; real paused owner timeout proof"
+    },
+    {
+      "result": "29 passed",
+      "seconds": 0.39,
+      "scope": "16 vault +13 strict recipe/CLI configuration cases"
+    }
+  ],
+  "evidence": [
+    "actual subprocess SIGKILL after PREPARED fsync and reopen same record",
+    "two independent concurrent processes same Run",
+    "first deadline immutable",
+    "expired requires_governed_replan keeps Run",
+    "0700/0600/euid and symlink/inode/corruption refusal"
+  ],
+  "blocked": [
+    "0049 protected issuer draft implemented but not registered or PG-tested",
+    "MessageAssignment formal schema/Action must be provisioned by candidate50",
+    "no PG relay acceptance or crash protocol evidence"
+  ],
+  "secrets": "synthetic private bearer only; no .env, production, channel credential, PG or Host runtime access"
+}
