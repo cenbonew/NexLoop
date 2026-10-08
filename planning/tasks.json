@@ -1271,6 +1271,12 @@
         "ref": "docs/implementation/offline-deepseek-alias-evidence.json",
         "summary": "Root8 actual offline frozen SDK/Pi/SQLite alias conformance and66 Runtime tests passed; canonical EIOS execute/auth/budget preserved. New CI gate. Real supplier result pending a controlled rerun after technical fix.",
         "recorded_at": "2026-10-08T12:12:36.622140+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "5bd3e580addac7f1762b3ae3ad4433731fe6a99c",
+        "summary": "DeepSeek wire aliases preserve canonical EIOS execution, proven by8 offline actual SDK/Pi tests and66 Runtime regression tests; no real supplier success claimed.",
+        "recorded_at": "2026-10-08T12:14:18.279018+00:00"
       }
     ]
   },
