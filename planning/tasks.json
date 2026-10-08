@@ -1205,6 +1205,12 @@
         "ref": "755aafffda6e30aac970cd32d3b7a919636c6563",
         "summary": "User-message-driven synthetic delivery checkpoint; actualPG9 and Runtime61 passed; task remains in_progress",
         "recorded_at": "2026-10-08T10:12:02.491227+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/context-premerge-independent-evidence.json",
+        "summary": "Root independently verified isolated core52 23 tests (15 actual PG), compiled Host parser23 and actual guarded Pi→file→Human receipt1. Candidate not merged; old-fixture compatibility, recovery and full new-head CI pending. NX-016 stays in_progress.",
+        "recorded_at": "2026-10-08T10:34:48.408688+00:00"
       }
     ]
   },
