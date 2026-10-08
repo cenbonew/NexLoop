@@ -124,7 +124,10 @@ def context_message(assembled_message,admin,tmp_path):
     with open_backend(database_url=dsn.read_text(),artifact_root=root,signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration') as backend,RunCredentialVault(vault_root) as vault:
         route=backend.authenticate(f['tokens']['assembly-route'],world='real');source=backend.authenticate(new_source,world='real');planner=backend.authenticate(f['tokens']['assembly-planner'],world='real')
         relay=MessageRelay(route=route,source=source,planner=planner,executor_token=f['tokens']['assembly-executor'],vault=vault,recipe=f['recipe'])
-        yield PrivateConfiguration(f=f,original=o,manifest=manifest,message=message,relay=relay,backend=backend,source=source,route=route,planner=planner,root=root,vault=vault,dsn=dsn,source_token=new_source,editor=backend.authenticate(edit_token,world='real'))
+        candidate=PrivateConfiguration(f=f,original=o,manifest=manifest,message=message,relay=relay,backend=backend,source=source,route=route,planner=planner,root=root,vault=vault,dsn=dsn,source_token=new_source,editor=backend.authenticate(edit_token,world='real'))
+        from context_copy_authority_fixture import configure_message_read
+        configure_message_read(candidate,admin,allow=True)
+        yield candidate
 
 
 def test_real_pack_artifact_and_queue_input_persist_before_ack(context_message,admin):

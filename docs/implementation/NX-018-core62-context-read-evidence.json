@@ -1,0 +1,114 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T16:49:03.006959+00:00",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_context_source_read_reproduction.py tests/test_context_artifacts.py tests/test_postgres_artifacts.py tests/test_bootstrap.py --tb=short --junitxml=.ci-results/nx018-core62-context-read-main.xml",
+  "result": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "58",
+    "time": "144.374",
+    "timestamp": "2026-10-09T00:44:44.460724+08:00",
+    "hostname": "MacBook-Pro-4.local"
+  },
+  "warnings": [
+    "2 existing httpx verify=<str> TLS deprecation warnings"
+  ],
+  "report_sha256": "c4c37b310662fab158dfd16002d923f2314adecf7d1488e2400e8a8d3380576a",
+  "source_freeze": {
+    "paths": 402,
+    "changed": 0,
+    "timing": "created before main run, checked before commit"
+  },
+  "preserved_migrations": "0001..0061 unchanged",
+  "versions_lock_change": "bootstrap_revision0061→0062 only",
+  "scope": [
+    "Current reader must independently satisfy Artifact READ plus source Message Object/body/actor READ; no use of origin Source credentials.",
+    "Producer snapshot and governed bind require current Source Message Object/body/actor READ before body projection and again at transaction tail; missing permission yields no Artifact, context binding or jobs.",
+    "Current protected Message body/actor must equal immutable accepted outbox and bound Context; actual governed Message.edit correction rejects new reads of old copy.",
+    "Unbound Context media and unknown protocol refused; bound records classified before media; upload fsync/hash readback stays private inside upload transaction.",
+    "Normal ordinary Artifact and legacy v2 pack/Runtime/TLS/three process recovery pass with real PG and fsynced local store."
+  ],
+  "first_failures_and_retries": [
+    {
+      "session": 24982,
+      "result": "1 failed 3.91s",
+      "reason": "新fixture per-resource scope catalog不含Source完整requested scopes，已修。"
+    },
+    {
+      "session": 9278,
+      "result": "1 failed 2.67s",
+      "reason": "candidate-only diagnostic确认unknown requested scope；authorization.py已恢复原样。"
+    },
+    {
+      "session": 75912,
+      "result": "1 failed 4.68s",
+      "reason": "误预期Runtime fresh success，实际Runtime已拒绝；旧Artifact copy成功观察已到达。"
+    },
+    {
+      "session": 79530,
+      "result": "17 passed 1 error 75.23s",
+      "reason": "运行中修改candidate DRAFT schema/catalog，bootstrap exact lineage drift。操作顺序错误已明确保留，之后冻结代码重跑。"
+    },
+    {
+      "session": 93789,
+      "result": "7 passed 1 failed 27.11s",
+      "reason": "GovMessage correction test导入不存在eios.ontology.schema，修为actualmodels。"
+    },
+    {
+      "session": 42015,
+      "result": "8 passed 3 failed 36.65s",
+      "reason": "零队列readonly断言猜错runtime.nexloop_tasks；改实际runtime.jobs，生产拒绝与前面零binding/Artifact已通过。"
+    },
+    {
+      "result": "evidence writer failed",
+      "reason": "PATH python3 lacks datetime.UTC；改uv run --frozen python，不影响测试/代码。"
+    }
+  ],
+  "main_first_run": "58passed, 0errors/failures/skips, exit0, 144.44s",
+  "limitations": [
+    "Authorization SQL is read linearization point; blob bytes are read after SQL transaction, no distributed atomic-read claim.",
+    "Role service_trigger v3 and relationship Context v4 require explicit separate typed source protection; unknown protocol currently fails closed.",
+    "No independent historical retention authorization added; old copy after current source change is denied.",
+    "S2 monolithic full CI has not been reexecuted here; this is targeted actual58-test main regression.",
+    "NX-018 stays in_progress, AT-004/009 stay not_run."
+  ],
+  "candidate_first_failures": [
+    {
+      "session": 24982,
+      "result": "1 failed 3.91s",
+      "reason": "新fixture per-resource scope catalog不含Source完整requested scopes，已修。"
+    },
+    {
+      "session": 9278,
+      "result": "1 failed 2.67s",
+      "reason": "candidate-only diagnostic确认unknown requested scope；authorization.py已恢复原样。"
+    },
+    {
+      "session": 75912,
+      "result": "1 failed 4.68s",
+      "reason": "误预期Runtime fresh success，实际Runtime已拒绝；旧Artifact copy成功观察已到达。"
+    },
+    {
+      "session": 79530,
+      "result": "17 passed 1 error 75.23s",
+      "reason": "运行中修改candidate DRAFT schema/catalog，bootstrap exact lineage drift。操作顺序错误已明确保留，之后冻结代码重跑。"
+    },
+    {
+      "session": 93789,
+      "result": "7 passed 1 failed 27.11s",
+      "reason": "GovMessage correction test导入不存在eios.ontology.schema，修为actualmodels。"
+    },
+    {
+      "session": 42015,
+      "result": "8 passed 3 failed 36.65s",
+      "reason": "零队列readonly断言猜错runtime.nexloop_tasks；改实际runtime.jobs，生产拒绝与前面零binding/Artifact已通过。"
+    },
+    {
+      "result": "evidence writer failed",
+      "reason": "PATH python3 lacks datetime.UTC；改uv run --frozen python，不影响测试/代码。"
+    }
+  ]
+}

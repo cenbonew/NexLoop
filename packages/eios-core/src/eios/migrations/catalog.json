@@ -305,6 +305,11 @@
       "version": "0061",
       "name": "0061_consumer_identity_link.sql",
       "sha256": "e5183d4319db024c0a5c19467e9f8b09af0856018840c0c11e450fb2f0cd4821"
+    },
+    {
+      "version": "0062",
+      "name": "0062_context_copy_read_dependencies.sql",
+      "sha256": "0a04799844e2d395c2f025fa66e2ed26c010d1d07c878a5dd7d4d417c91bcd20"
     }
   ]
 }

@@ -139,6 +139,12 @@ class PostgresArtifactRepository:
     def get(self,artifact_id):
         params={'artifact_id':artifact_id};permit=self.issue_permit(Operation.READ,params)
         with self._transaction() as c:
+            dependency=c.execute('select authz.nexloop_context_artifact_read_dependency(%s,%s,%s,%s)',
+                (self.session.token_digest,self.session.world,permit,canonical_payload(params))).fetchone()[0]
+        if dependency is not None:
+            params['context_dependency']=context_message_read_envelope(self.pool,self.session,self.signer,dependency)
+        permit=self.issue_permit(Operation.READ,params)
+        with self._transaction() as c:
             row=c.execute('select authz.nexloop_read_local_artifact(%s,%s,%s,%s)',
                     (self.session.token_digest,self.session.world,permit,canonical_payload(params))).fetchone()[0]
         return reference(row)
@@ -191,6 +197,9 @@ class LocalArtifactService:
         with self.repository.upload_transaction(claim) as ref:
             self.store.put(tenant_id=ref.tenant_id,world=ref.world,
                 artifact_id=ref.artifact_id,payload=payload,media_type=media_type)
+            # Trusted upload integrity readback remains inside CREATE/finalize transaction;
+            # it does not expose unbound Context bytes through a public READ API.
+            if self.store.read(ref)!=payload:raise ArtifactIntegrityError('upload integrity mismatch')
         return ref
 
     def read(self,artifact_id,*,start=0,stop=None):
@@ -223,3 +232,14 @@ class LocalArtifactService:
         namespace=BlobReference(session.authentication.tenant_id,session.world,'0'*32,'0'*64,0,'application/octet-stream')
         with self.repository.temporary_cleanup_transaction(params) as guard:
             return self.store.collect_temporary_page(namespace,older_than=older_than,limit=limit,after=after,guard=guard)
+
+def context_message_read_envelope(pool,session,signer,message_id):
+    """Internal typed current-reader proof; carries no permission from a binding owner."""
+    from nexloop_eios.object_reads import AuthorizedObjectReader
+    reader=AuthorizedObjectReader(pool,session,signer)
+    claims=reader._authority(ResourceType.OBJECT,'Message/'+message_id)
+    claims.update(protocol='nexloop-object-read-v1',key_id=signer.key_id,type_name='Message',object_id=message_id,
+        fields=['actor','body'],property_authorities=[reader._authority(ResourceType.PROPERTY,'Message/'+message_id+'/'+field) for field in ('actor','body')])
+    text=canonical_payload(claims)
+    return {'text':text,'signature':hmac.new(signer.material,('nexloop-object-read-v1:'+text).encode(),'sha256').hexdigest()}
+

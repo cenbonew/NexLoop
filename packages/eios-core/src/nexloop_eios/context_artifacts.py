@@ -52,6 +52,8 @@ class ContextArtifactProducer:
         claims={'protocol':'nexloop-context-artifact-v1','key_id':self.signer.key_id,**proof,
          'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'definition':definition.model_dump(mode='json'),
          'capability':capability.model_dump(mode='json'),'artifact_proofs':[self._artifact_proof(Operation.CREATE),self._artifact_proof(Operation.READ)],'run_proofs':self.authority._run_proofs(run)}
+        from nexloop_eios.postgres_artifacts import context_message_read_envelope
+        claims['message_read_envelope']=context_message_read_envelope(self.pool,self.session,self.signer,parameters['message_id'])
         from nexloop_eios.service_offerings import _catalog_envelope
         claims['catalog_envelope']=dict(zip(('text','signature','payload'),_catalog_envelope(self.services,offering_id=parameters['offering_id'],binding_id=parameters['binding_id'],consumer_id=parameters['command']['consumer_ref'].removeprefix('consumer:'),request_scope={'offering_id':parameters['offering_id'],'offering_revision':parameters['offering_revision'],'requested_guarantees':[],'requested_discounts':[]})))
         if parameters['verb']=='bind':
@@ -81,7 +83,8 @@ class ContextArtifactProducer:
                 # Both calls execute the real existing Artifact authorization chain.
                 retention=datetime.fromisoformat(snapshot['current_constraints']['valid_until'])
                 ref=self.services.put_artifact(request_id='context:'+command['run_id'],payload=text.encode(),media_type=MEDIA,retention_until=retention)
-                if self.services.read_artifact(ref.artifact_id)!=text.encode():raise ValueError()
+                # put_artifact verifies fsynced bytes within the trusted upload transaction.
+                # Unbound Context copies are never readable through the generic READ API.
                 payload={**parameters,'verb':'bind','pack_text':text,'pack_digest':ref.sha256,'artifact_id':ref.artifact_id}
                 request_hash=M.canonical_request_digest({'message_id':message_id,'command_binding':command_binding(command),'pack_digest':ref.sha256})
                 claim_id='context-artifact:'+request_hash;payload['claim_id']=claim_id
