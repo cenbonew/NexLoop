@@ -315,6 +315,11 @@
       "version": "0063",
       "name": "0063_role_runtime.sql",
       "sha256": "13f1ea09c6d79c3d62b18b43c9d549139ff5d2b7787d70b0ee6bd0530405671d"
+    },
+    {
+      "version": "0064",
+      "name": "0064_role_authority_deadlines.sql",
+      "sha256": "6aeb62e555596f8ce51357033d2594793b4e0bf05809c02da2d49a462df49779"
     }
   ]
 }

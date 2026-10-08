@@ -22,10 +22,16 @@ Two sequential actual short Pi Runs can share a PlanStep and businessIntent, pro
 
 Main fixtures use catalog bootstrap rather than manual DRAFT SQL. Only owned source is committed; generated Node/Pi build outputs remain ignored. This checkpoint does not implement receipt reconciliation after Role revocation or relationship Context v4.
 
-V2 Producer requires explicit configured control_id, compared against the actual existing governed EffectPlan. Snapshot/bind carry own Source Object READ for all four formal references and EffectControl Property READ for allow_effect/budget_units/executor_principal/valid_until, with current signed TTL checks before disclosure and after writes. Source grants must be independently supplied by a legitimate Configurator; Role never supplies them.
+Role v3 Producer requires explicit configured control_id, compared against the actual existing governed EffectPlan. Snapshot/bind carry own Source Object READ for all four formal references and EffectControl Property READ for allow_effect/budget_units/executor_principal/valid_until, with current signed TTL checks before disclosure and after writes. Source grants must be independently supplied by a legitimate Configurator; Role never supplies them.
 
 ## Pending lock-wait boundary review
 
 After this checkpoint's main tests passed, source review identified final-boundary cases not exercised by those tests: a later Artifact authority check may wait after earlier Role or source READ checks, and successive READ checks may outlive an earlier proof. A separate append-only migration candidate is being developed with actual PostgreSQL lock-wait tests and a final non-locking expiry check over all already verified proofs and business validity. This is a pending correctness boundary, not a passed acceptance result. Do not infer production readiness or full AT-004 completion from the positive loopback test. Published 0063 bytes/checksum remain immutable.
 
 Receipt recovery and relationship Context candidates have analogous nested-proof/query-lineage expiry gaps under review. Neither candidate is integrated into main yet. Their frozen positive tests do not establish these missing boundaries.
+
+## 0064 deadline checkpoint and remaining scope
+
+Append 0064 closes the demonstrated lock-wait deadline gaps without modifying 0063. Main catalog verification: 40 PG tests and one actual two-Run Pi/effect test passed; see `NX-018-core64-role-deadline-evidence.json`. Existing authority helpers still run before the final pure deadline gate. The earlier pending expiry review is now covered for the tested Role paths.
+
+M02 is still incomplete: `ceiling_ref` and link `scope` presently describe responsibility and do not resolve executable Role limits. Source permission alone does not satisfy that requirement. Governed versioned ceiling/scope policies and their intersection with current Source/Run/Plan rights are being implemented separately. Current snapshot/bind formal READ also does not establish downstream formal-source permission revocation propagation; those current gates are pending. These are implementation gaps, not external-input blockers.

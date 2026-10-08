@@ -1,0 +1,66 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T22:41:37.152294+00:00",
+  "commands": [
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_role_tail.py tests/test_role_formal_source_read.py tests/test_role_runtime_checkpoint.py tests/test_role_post_accept.py tests/test_effect_execution_sql.py tests/test_bootstrap.py --tb=short --junitxml=.ci-results/nx018-core64-main.xml",
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_role_pi_effect_checkpoint.py --tb=short --junitxml=.ci-results/nx018-core64-pi-main.xml"
+  ],
+  "reports": [
+    {
+      "path": ".ci-results/nx018-core64-main.xml",
+      "result": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "40",
+        "time": "188.245",
+        "timestamp": "2026-10-09T06:34:42.832803+08:00",
+        "hostname": "MacBook-Pro-4.local"
+      },
+      "sha256": "b663f85c69393be2a21061e3c79929d148858ba7fc8a917f66f2bf6758483652"
+    },
+    {
+      "path": ".ci-results/nx018-core64-pi-main.xml",
+      "result": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "1",
+        "time": "46.106",
+        "timestamp": "2026-10-09T06:39:25.385989+08:00",
+        "hostname": "MacBook-Pro-4.local"
+      },
+      "sha256": "0d26bb453ae5fea597f08d3f6d6acd53bdc6cfe5abb37b50fdd2e2bedb20ed60"
+    }
+  ],
+  "first_main_failures_and_retries": [],
+  "source_freeze": {
+    "paths": 437,
+    "changed": 0,
+    "timing": "created before main runs, checked after both terminal"
+  },
+  "preserved_migrations": "0001..0063 entries/checksums unchanged",
+  "candidate_sql_sha256": "5194395f070a5f7b8e456e7ef429c5ea87ef5b7bdb29a4b4635f3c1457f89428",
+  "main_sql_sha256": "6aeb62e555596f8ce51357033d2594793b4e0bf05809c02da2d49a462df49779",
+  "versions_lock_change": "bootstrap_revision0063→0064 only",
+  "scope": [
+    "Final no-lock deadline aggregation follows current authority/Artifact/Role helpers, rejects earliest verified Action/Run/origin/Object/Property/Artifact proof expiry after a later lock wait.",
+    "Checks actual already-validated Role/Context/Control/Goal/Offering validity and bound Artifact retention; no invented ConsumerServiceOffering expiry.",
+    "Protected owner-only aliases preserve existing actual authority helpers. Actual restricted app roles cannot invoke helpers; bind deadline failure yields zero Context bindings/jobs.",
+    "Actual catalog bootstrap with no manual DRAFT install; real Pi remains WAL/FULL, two short Runs share one governed intent/provider effect."
+  ],
+  "candidate_evidence_boundaries": [
+    "Separate frozen candidate actual6-case published63/append counterexample comparison. Source READ/Run proof signatures only tightened, no permissions invented. Role expiry supplied to actual governed Role create; owned test transaction30s lock timeout only, product3s unchanged.",
+    "Candidate first failures corrected wrong Run proof field, lowercase SQL aliases and wrong queue table; Main40+1 passed first attempt.",
+    "Candidate counterexample uses old063 catalog; Main hardened tests do not claim old063 behavior after0064 installed."
+  ],
+  "open_gaps": [
+    "Role ceiling_ref and link scope currently metadata, not executable Role policy/resource ceiling; independent governed policy/scope implementation in progress.",
+    "Snapshot/bind formal Source READ does not yet prove full downstream model/submit/dispatch revocation propagation; independent current formal gate work in progress.",
+    "Receipt recovery and relationship Context corrections not yet integrated; AT-004/009 not_run; NX-018 not complete.",
+    "Owned deterministic provider/loopback effect only; no real commercial channel/model validation in this batch."
+  ]
+}
