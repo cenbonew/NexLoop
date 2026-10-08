@@ -1391,6 +1391,12 @@
         "ref": "docs/implementation/NX-016-core56-verification.md",
         "summary": "记录实际浏览器范围拒绝/reload/正向交付与manual显式私有配置验证入口；readiness503、外部渠道、未ACK事件跨reload等界限明确。",
         "recorded_at": "2026-10-08T15:17:41.561520+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "29922e56e6855b01190e729a17f244cfb25d637b",
+        "summary": "SSE实际独立TLS/TCP断链与Last-Event-ID补齐已提交消息，主线21passed31.95s；AT015浏览器DOM验收仍未完成，任务已完成范围不扩大。",
+        "recorded_at": "2026-10-08T15:32:53.883371+00:00"
       }
     ]
   },
@@ -1467,6 +1473,12 @@
         "ref": "docs/implementation/NX-017-cache-fault-evidence.json",
         "summary": "98 passed/0 critical skips；外部fsync后SIGKILL查询原意图不重发、PG入站与效应dispatch故障、Pi分配和模型返回窗口恢复、Valkey清空/停止/同端点重启。首次失败与边界保留。",
         "recorded_at": "2026-10-08T15:29:35.052093+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "29922e56e6855b01190e729a17f244cfb25d637b",
+        "summary": "SSE实际独立TLS/TCP断链与Last-Event-ID补齐已提交消息，主线21passed31.95s；AT015浏览器DOM验收仍未完成，任务已完成范围不扩大。",
+        "recorded_at": "2026-10-08T15:32:53.883371+00:00"
       }
     ]
   },
@@ -1490,6 +1502,12 @@
         "ref": "docs/implementation/NX-017-cache-fault-evidence.json",
         "summary": "NX-017实际98项故障/缓存回归及提交完成后开始：治理N:M角色、同名身份歧义、关系证据更正；候选设计尚非完成。",
         "recorded_at": "2026-10-08T15:30:10.417836+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "14028f38a38a26a8bf861b800d99f80dbd7e20ed",
+        "summary": "实施前真实代码差距检查：治理N:M映射/身份歧义/关系更正。仅in_progress检查点，未完成功能。",
+        "recorded_at": "2026-10-08T15:32:53.883371+00:00"
       }
     ]
   },

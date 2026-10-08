@@ -166,7 +166,21 @@
     "name": "SSE恢复",
     "given": "客户端断开再Last-Event-ID续传",
     "expected": "无丢失/重复显示已提交消息",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "29922e56e6855b01190e729a17f244cfb25d637b",
+        "summary": "实际API/TLS TCP关闭后Last-Event-ID补齐PG已提交2/3/4，after4无重投；当前21pass。浏览器DOM断链无重复显示仍未验证，状态保持not_run。",
+        "recorded_at": "2026-10-08T15:32:53.883371+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/sse-tcp-reconnect-evidence.json",
+        "summary": "保留候选与主线实际范围，Node生产接收器cache去重诊断不等同mountedDOM。",
+        "recorded_at": "2026-10-08T15:32:53.883371+00:00"
+      }
+    ]
   },
   {
     "id": "AT-016",
