@@ -52,6 +52,10 @@ The implementation repository's GitHub remote is PUBLIC. Before the first commit
 
 Build and test in isolation. Unreviewed external PRs must not run with LAN or secret access. An image's deployed SHA/digest must match its tested release manifest.
 
+After each completed task and local commit, run `scripts/ci/prepush-scan.sh` before GitHub synchronization. Install it as `.git/hooks/pre-push`; a nonzero exit blocks the push. The three required gates check tracked private/runtime paths, every unpushed commit for the owner's restricted LAN host/address/fingerprint identifiers, and added diff lines for credential values (environment variable references are allowed). Any hit blocks publication: remove it from unpushed history with interactive rebase or filter-repo, then rescan.
+
+Small changes developed on main may use `git push origin main` after all gates pass. Cross-task refactors, Schema changes and deployment configuration changes use feature branches and PRs; scan their outgoing history too and include scan output in the PR description. After merging, synchronize main and verify `git rev-list --count origin/main..main` is zero. Record the resulting `origin/main` hash in the corresponding task evidence. Never use mirror pushes, push local-only branches, or force push main.
+
 ## Completion report
 
 Report changed files, task/acceptance IDs, exact commands actually executed, results including first failures/retries, observed limitations and remaining blockers. Separate test/demo/real evidence. Missing credentials block only the relevant external validation; continue useful independent work and never invent success.
@@ -60,4 +64,4 @@ Keep this file small. Put detailed specs, API contracts, runbooks and ADRs in th
 
 ## Local commit discipline
 
-Each completed task must have a local commit and commit evidence in `planning/tasks.json`; commit messages use `NX-0xx: <task title>` or an adjacent task range. Append the implementation commit hash, then validate the live planning copy. An in-progress checkpoint does not imply task completion. Keep test/build output ignored and clean owned staging directories after preparation. Never push without the project owner’s explicit instruction.
+Each completed task must have a local commit and commit evidence in `planning/tasks.json`; commit messages use `NX-0xx: <task title>` or an adjacent task range. Append the implementation commit hash, then validate the live planning copy. An in-progress checkpoint does not imply task completion. Keep test/build output ignored and clean owned staging directories after preparation. GitHub synchronization follows the owner-authorized Deployment policy above.
