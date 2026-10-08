@@ -26,17 +26,20 @@ from nexloop_eios.context_artifacts import ACTION,context_binding_schema,Context
 from nexloop_eios.runtime_dispatch import RuntimeDispatcher,HostControlConfiguration
 
 
-def source_declarations(tenant):
+def source_declarations(tenant,catalog_targets=(),*,custom_specs=None,identity_suffix="-assembly-source"):
     specs=[('eios:action:nexloop.service.request:1',ResourceType.ACTION,Operation.EXECUTE),('eios:action:'+ACTION+':1',ResourceType.ACTION,Operation.EXECUTE),
      ('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.CREATE),('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.READ)]
-    records={};scopes={'action.execute','artifact.create','artifact.read'}
+    if custom_specs is not None:specs=list(custom_specs)
+    specs.extend((target,kind,Operation.READ) for target,kind in catalog_targets)
+    records={};scopes={kind.value+'.'+op.value for unused,kind,op in specs}
     for target,kind,op in specs:
-        binding,expiry,rows=authority_records(tenant,target,operation=op,resource_type=kind,operations=(Operation.CREATE,Operation.READ) if kind is ResourceType.ARTIFACT else None,identity_suffix='-assembly-source')
+        binding,expiry,rows=authority_records(tenant,target,operation=op,resource_type=kind,operations=(Operation.CREATE,Operation.READ) if kind is ResourceType.ARTIFACT else None,identity_suffix=identity_suffix)
         for name,key,fact in rows:records[name,tuple(key)]=(name,key,fact)
+    if catalog_targets:scopes.update(('object.read','property.read'))
     app=next(row[2] for row in records.values() if row[0]=='application')
     resources=[ResourceRestriction(tenant_id=tenant,resource_type=kind.value,resource_id=target) for target,kind in sorted(set((t,k) for t,k,_ in specs),key=lambda p:p[0])]
     digest=F.canonical_authority_digest({'resources':[r.model_dump(mode='json') for r in resources]})
-    app=app.model_copy(update={'application_id':app.application_id+':context','resources':tuple(resources),'operations':tuple(OperationRestriction(operation=op) for op in (Operation.EXECUTE,Operation.CREATE,Operation.READ)),'version_digest':digest,'record_digest':digest})
+    app=app.model_copy(update={'application_id':app.application_id+':context','resources':tuple(resources),'operations':tuple(OperationRestriction(operation=op) for op in sorted({op for unused,kind,op in specs},key=lambda value:value.value)),'version_digest':digest,'record_digest':digest})
     binding=binding.model_copy(update={'credential_id':binding.credential_id+':context','caller_application_id':app.application_id,'caller_application_digest':digest,'requested_scopes':frozenset(scopes)})
     role=next(row[2].roles[0] for row in records.values() if row[0]=='subject_authority')
     for index,(name,key,fact) in list(records.items()):
@@ -57,7 +60,49 @@ def context_message(assembled_message,admin,tmp_path):
     body=copy.deepcopy(base['definition']);body.pop('contract_digest',None);body['stable_name']=ACTION
     body['input_schema']=context_binding_schema();body['capability_binding']['capability_name']=ACTION
     definition=ActionDefinition.model_validate_json(json.dumps(body));manifest['actions'].append({'definition':definition.model_dump(mode='json'),'capability':{**base['capability'],'capability_name':ACTION}})
-    binding,rows=source_declarations(tenant)
+    # Candidate catalog maintenance uses its own real governed service identity.
+    from nexloop_eios.service_offerings import offering_schemas,json_export_example,OFFERING_FIELDS,BINDING_FIELDS
+    from test_business_setup_pg import declared_service
+    from test_postgres_action_claims import governance_inputs
+    from eios.ontology.semantics import schema_contract_digest
+    from nexloop_eios.trusted_configuration import apply_manifest
+    import secrets
+    inputs=governance_inputs();original=inputs['action_definition'];cap=inputs['capability_snapshot']
+    schemas=offering_schemas()
+    manifest['object_types'].extend(schema.model_dump(mode='json') for schema in schemas)
+    for schema in schemas:
+        for operation in ('create','edit'):
+            name=schema.type_name+'.'+operation
+            d=json.loads(json.dumps(original.model_dump(mode='json')).replace('synthetic-a',tenant));d.pop('contract_digest',None)
+            ref={**d['object_types'][0],'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)}
+            d['stable_name']=name;d['object_types']=[ref];d['governance']['change_scope']['object_types']=[ref]
+            capability=cap.model_dump(mode='json')
+            if operation=='edit':d['capability_binding']['capability_name']='ontology.object.edit';capability['capability_name']='ontology.object.edit'
+            manifest['actions'].append({'definition':type(original).model_validate_json(json.dumps(d)).model_dump(mode='json'),'capability':capability})
+    maintainer,expiry,maintainer_facts=declared_service(tenant,[x.type_name+'.'+op for x in schemas for op in ('create','edit')],'-catalog-maintainer')
+    maintainer_token=secrets.token_urlsafe(48)
+    merged={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};merged.update({(r['kind'],tuple(r['key'])):r for r in maintainer_facts});manifest['authority_facts']=list(merged.values())
+    manifest['service_credentials'].append({'reference':'catalog-maintainer','binding':maintainer.model_dump(mode='json'),'worlds':['real'],'expires_at':expiry.isoformat(),'status':'active'})
+    secret_map=json.loads(o['paths']['secrets'].read_text());secret_map['catalog-maintainer']=maintainer_token;o['paths']['secrets'].write_text(json.dumps(secret_map))
+    manifest.update(manifest_id=str(uuid.uuid4()),expected_revision=admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(tenant,)).fetchone()[0])
+    apply_manifest(manifest,database_url_file=o['paths']['dsn'],signing_key_file=o['paths']['signing'],signing_key_id='explicit-configuration',service_secrets_file=o['paths']['secrets'])
+    with open_backend(database_url=make_conninfo(o['pg'],user='nexloop_api'),artifact_root=tmp_path/'catalog-maintenance',signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration') as catalog_backend:
+        keeper=catalog_backend.authenticate(maintainer_token,world='real')
+        offering=keeper.create_object(action_name='ServiceOffering.create',action_version=1,intent_id='context-offering',type_name='ServiceOffering',properties=json_export_example(valid_until=(datetime.now(UTC)+timedelta(minutes=5)).isoformat()))
+        link=keeper.create_object(action_name='ConsumerServiceOffering.create',action_version=1,intent_id='context-offering-binding',type_name='ConsumerServiceOffering',properties={'consumer_id':f['recipe']['consumer_id'],'offering_id':offering['object_id'],'offering_revision':1,'source_principal':tenant+'-assembly-source-principal','active':True})
+    catalog_targets=[]
+    for obj,fields in ((offering,OFFERING_FIELDS),(link,BINDING_FIELDS)):
+        target=obj['type_name']+'/'+obj['object_id'];catalog_targets.append(('eios:object:'+target,ResourceType.OBJECT))
+        catalog_targets.extend(('eios:property:'+target+'/'+field,ResourceType.PROPERTY) for field in fields)
+    edit_specs=[('eios:action:'+schema.type_name+'.edit:1',ResourceType.ACTION,Operation.EXECUTE) for schema in schemas]
+    edit_specs.extend((target,kind,Operation.EDIT) for target,kind in catalog_targets)
+    edit_binding,edit_rows=source_declarations(tenant,custom_specs=edit_specs,identity_suffix='-catalog-maintainer')
+    edit_token=secrets.token_urlsafe(48)
+    merged={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};merged.update({(r['kind'],tuple(r['key'])):r for r in edit_rows});manifest['authority_facts']=list(merged.values())
+    manifest['service_credentials'].append({'reference':'catalog-editor','binding':edit_binding.model_dump(mode='json'),'worlds':['real'],'expires_at':expiry.isoformat(),'status':'active'})
+    secret_map=json.loads(o['paths']['secrets'].read_text());secret_map['catalog-editor']=edit_token;o['paths']['secrets'].write_text(json.dumps(secret_map))
+    binding,rows=source_declarations(tenant,catalog_targets)
+    f['recipe'].update(offering_id=offering['object_id'],offering_binding_id=link['object_id'])
     merged={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};merged.update({(r['kind'],tuple(r['key'])):r for r in rows});manifest['authority_facts']=list(merged.values())
     import secrets
     new_source=secrets.token_urlsafe(48)
@@ -82,7 +127,7 @@ def context_message(assembled_message,admin,tmp_path):
     with open_backend(database_url=dsn.read_text(),artifact_root=root,signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration') as backend,RunCredentialVault(vault_root) as vault:
         route=backend.authenticate(f['tokens']['assembly-route'],world='real');source=backend.authenticate(new_source,world='real');planner=backend.authenticate(f['tokens']['assembly-planner'],world='real')
         relay=MessageRelay(route=route,source=source,planner=planner,executor_token=f['tokens']['assembly-executor'],vault=vault,recipe=f['recipe'])
-        yield PrivateConfiguration(f=f,original=o,manifest=manifest,message=message,relay=relay,backend=backend,source=source,route=route,planner=planner,root=root,vault=vault,dsn=dsn,source_token=new_source)
+        yield PrivateConfiguration(f=f,original=o,manifest=manifest,message=message,relay=relay,backend=backend,source=source,route=route,planner=planner,root=root,vault=vault,dsn=dsn,source_token=new_source,editor=backend.authenticate(edit_token,world='real'))
 
 
 def test_real_pack_artifact_and_queue_input_persist_before_ack(context_message,admin):
@@ -306,7 +351,7 @@ def test_actual_three_process_replay_model_tool_do_not_invert_locks(context_mess
                  'signing_key_file':str(f['original']['paths']['backend_signing']),
                  'service_token':f['source_token'] if operation=='producer' else f['f']['tokens']['assembly-runtime-worker'],
                  'run_token':record.token,'message_id':f['message']['id'],'command':command,'input':text,'sha256':sha,
-                 'activation_ref':activation['activation_ref'],'operation':operation,'start_file':str(start_file)}
+                 'activation_ref':activation['activation_ref'],'operation':operation,'start_file':str(start_file),'offering_id':f['f']['recipe']['offering_id'],'binding_id':f['f']['recipe']['offering_binding_id']}
                 config=private(tmp_path,'parallel-'+operation+'.json',json.dumps(values))
                 environment={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LC_ALL','TMPDIR','PYTHONPATH')}
                 child=subprocess.Popen([sys.executable,str(Path(__file__).with_name('context_artifact_process.py')),str(config)],env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)

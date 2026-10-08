@@ -16,6 +16,7 @@ from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
+from nexloop_eios.service_offerings import CatalogScopeDenied
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 from nexloop_eios.authorization import PostgresAuthorityProvider
 from nexloop_eios.assembly import verify_application_role
@@ -35,7 +36,7 @@ class EffectIntentPort:
         if session.run_context is None:raise EffectIntentUnavailable('effect intent unavailable')
         self.pool,self.session,self.signer=pool,session,signer
 
-    def _execute_in_transaction(self,db,verb,*,action_version,runtime_refs=None,**arguments):
+    def _execute_in_transaction(self,db,verb,*,action_version,runtime_refs=None,request_scope=None,**arguments):
         try:
             if type(action_version) is not int or not 1<=action_version<=2147483647:raise ValueError()
             definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(ACTION,action_version)
@@ -74,10 +75,18 @@ class EffectIntentPort:
                 'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json')}
             text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-effect-intent-v1:'+text).encode(),'sha256').hexdigest()
             verify_application_role(db)
+            hint=db.execute('select authz.nexloop_effect_catalog_hint(%s,%s,%s,%s,%s)',
+              (session.token_digest,session.world,text,signature,payload)).fetchone()[0]
+            from nexloop_eios.service_offerings import catalog_envelope_from_hint,preflight_scope
+            claims['catalog_envelope']=catalog_envelope_from_hint(self.pool,self.signer,session.world,hint,request_scope=request_scope)
+            preflight_scope(self.pool,session.world,hint,claims['catalog_envelope'])
+            text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-effect-intent-v1:'+text).encode(),'sha256').hexdigest()
             return db.execute('select authz.nexloop_effect_intent_command(%s,%s,%s,%s,%s)',
                 (session.token_digest,session.world,text,signature,payload)).fetchone()[0]
         except Exception as error:
-            if isinstance(error,psycopg.Error) and error.diag.message_primary=='effect_payload_conflict':
+            from nexloop_eios.service_offerings import CatalogScopeDenied
+            if isinstance(error,CatalogScopeDenied):raise
+            if isinstance(error,psycopg.Error) and error.diag.message_primary in ('effect_payload_conflict','effect catalog conflict'):
                 raise EffectIntentConflict('intent_payload_conflict') from None
             raise EffectIntentUnavailable('effect intent unavailable') from None
 
@@ -88,10 +97,11 @@ class EffectIntentPort:
             with self.pool.connection() as db,db.transaction():
                 return self._execute_in_transaction(db,verb,action_version=action_version,**arguments)
         except (EffectIntentConflict,EffectIntentUnavailable):raise
+        except CatalogScopeDenied:raise
         except Exception:raise EffectIntentUnavailable('effect intent unavailable') from None
 
-    def submit(self,*,parameters,action_version=1):
-        return self._call('submit',action_version=action_version,parameters=parameters)
+    def submit(self,*,parameters,action_version=1,request_scope=None):
+        return self._call('submit',action_version=action_version,parameters=parameters,request_scope=request_scope)
 
     def find(self,*,intent_id,action_version=1):
         try:identifier=str(uuid.UUID(intent_id))

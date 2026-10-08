@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import ssl
 import threading
+from nexloop_eios.service_offerings import CatalogScopeDenied
 from nexloop_eios.private_configuration import read_private_text
 
 
@@ -60,7 +61,7 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 if self.path.startswith('/internal/v1/runtime/effects/'):
                     operation=self.path.rsplit('/',1)[1]
                     field='parameters' if operation=='submit' else 'intent_id'
-                    if (type(body) is not dict or set(body)!={'activation_ref','command',field}
+                    if (type(body) is not dict or set(body) not in ({'activation_ref','command',field}, {'activation_ref','command',field,'request_scope'} if operation=='submit' else {'activation_ref','command',field})
                         or type(body['command']) is not dict or type(body['activation_ref']) is not str
                         or (operation=='submit' and type(body[field]) is not dict)
                         or (operation=='find' and type(body[field]) is not str)):
@@ -68,7 +69,9 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     from nexloop_eios.effect_intents import EffectIntentConflict,EffectIntentUnavailable
                     try:
                         result=worker.runtime_effect_tool(activation_ref=body['activation_ref'],command=body['command'],
-                            tool_operation=operation,**{field:body[field]})
+                            tool_operation=operation,**{field:body[field]},**({'request_scope':body['request_scope']} if 'request_scope' in body else {}))
+                    except CatalogScopeDenied as denial:
+                        self.send(403,{'code':'outside_catalog_terms','scope':denial.scope});return
                     except EffectIntentConflict:
                         self.send(409,{'code':'intent_payload_conflict'});return
                     except EffectIntentUnavailable:

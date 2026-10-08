@@ -11,6 +11,7 @@ from eios.authz.errors import AuthorizationUnavailable
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
+from nexloop_eios.service_offerings import CatalogScopeDenied
 from nexloop_eios.authorization import PostgresAuthorityProvider,_identity,authenticate_service
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
@@ -73,13 +74,14 @@ class RuntimeActivationPort:
             proofs.append(self._proof(run,target))
         return proofs
 
-    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,context_artifact_proof=None,**parameters):
+    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,context_artifact_proof=None,context_catalog_envelope=None,**parameters):
         if not isinstance(queue,str) or re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}',queue) is None:raise ValueError('queue unavailable')
         if proof is None:proof=self._proof(self.session,f'eios:action:NexLoop.queue.{queue}:1')
         payload=canonical_payload({'queue':queue,'verb':verb,**parameters})
         if len(payload.encode())>limit:raise ValueError('bounded activation required')
         claims={'protocol':protocol,'key_id':self.signer.key_id,**proof,'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
         if context_artifact_proof is not None:claims['context_artifact_proof']=context_artifact_proof
+        if context_catalog_envelope is not None:claims['context_catalog_envelope']=context_catalog_envelope
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload
 
@@ -159,7 +161,7 @@ class RuntimeActivationPort:
             with self.pool.connection() as db,db.transaction():
                 verify_application_role(db);run=_identity(db,first['_run_digest'],self.session.world)
             context_proof=self._context_read_proof(first)
-            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof)
+            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first))
             return {key:value for key,value in result.items() if not key.startswith('_')}
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
@@ -172,7 +174,13 @@ class RuntimeActivationPort:
             source=_identity(connection,resolved['_context_source_digest'],self.session.world)
         return artifact_authority_proof(self.pool,source,Operation.READ)
 
-    def effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None):
+    def _context_catalog_envelope(self,resolved):
+        if '_context_catalog' not in resolved:return None
+        from nexloop_eios.service_offerings import catalog_envelope_from_hint
+        return catalog_envelope_from_hint(self.pool,self.signer,self.session.world,
+          {'_source_digest':resolved['_context_source_digest'],'supply':resolved['_context_catalog'],'consumer_id':resolved['_context_consumer_id']})
+
+    def effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None,request_scope=None):
         """Trusted Host bridge; actual owned activation selects the Run.
 
         Admission and the final lease/source recheck share one transaction.
@@ -184,9 +192,9 @@ class RuntimeActivationPort:
             if tool_operation not in ('submit','find'):raise ValueError()
             if tool_operation=='submit':
                 if type(parameters) is not dict or intent_id is not None:raise ValueError()
-                arguments={'parameters':parameters}
+                arguments={'parameters':parameters,'request_scope':request_scope}
             else:
-                if parameters is not None or type(intent_id) is not str or str(uuid.UUID(intent_id))!=intent_id:raise ValueError()
+                if request_scope is not None or parameters is not None or type(intent_id) is not str or str(uuid.UUID(intent_id))!=intent_id:raise ValueError()
                 arguments={'intent_id':intent_id}
             text,digest=_command(command)
             if type(activation_ref) is not str or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError()
@@ -199,7 +207,7 @@ class RuntimeActivationPort:
                 run=_identity(db,resolved['_run_digest'],self.session.world)
                 if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
                 def guard():
-                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved)))
+                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved)))
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
                 guard()
                 receipt=EffectIntentPort(self.pool,run,self.signer)._execute_in_transaction(
@@ -211,4 +219,5 @@ class RuntimeActivationPort:
                 response={'run_id':command['run_id'],'receipt':receipt}
             return response
         except EffectIntentConflict:raise
+        except CatalogScopeDenied:raise
         except Exception:raise EffectIntentUnavailable('effect intent unavailable') from None

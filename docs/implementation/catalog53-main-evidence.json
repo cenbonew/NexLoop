@@ -1,0 +1,77 @@
+{
+  "scope": "NX-016 real registered head0053 single clean PostgreSQL bootstrap; governed catalog and genuine generic/Message source current authority; focused component checkpoint",
+  "head_revision": "0053",
+  "old_published_migrations": {
+    "verified_unchanged": 52,
+    "previous_catalog_entries_identical": true
+  },
+  "result": {
+    "passed": 47,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "duration_seconds": 74.41,
+    "warnings": 2,
+    "exit_code": 0,
+    "session": 7217
+  },
+  "command": "uv run --frozen pytest -q tests/test_bootstrap.py tests/test_service_offering_scope.py tests/test_service_offering_pg.py tests/test_offering_runtime_pg.py tests/test_generic_partial_edit_audit.py tests/test_catalog_setup.py tests/test_catalog_setup_pg.py --junitxml=.ci-results/catalog53-main-rerun.xml --tb=short > /tmp/nexloop-catalog53-main-final.log 2>&1",
+  "first_failures": [
+    {
+      "exit_code": 4,
+      "reason": "wrong test filename test_catalog_setup_configuration.py; no tests ran; corrected to test_catalog_setup.py"
+    },
+    {
+      "session": 56619,
+      "exit_code": 1,
+      "passed": 19,
+      "setup_errors": 24,
+      "duration_seconds": 18.77,
+      "reason": "new SQL file not yet appended to exact catalog manifest; checksum verifier correctly refused bootstrap",
+      "fix": "append only exact0053 manifest entry, keep prior52 entries and file bytes unchanged"
+    }
+  ],
+  "coverage": [
+    "actual clean bootstrap exact reopen and checksum verification",
+    "current signed object/17-property Source READ and authenticated bindings",
+    "actual Message and legitimate generic Run service submit and LocalJsonDelivery HTTPS export plus final claim",
+    "scope rejection without intent/quota/attempt side effects",
+    "permission/revision withdrawal and current signed-proof expiry rollback at write tail",
+    "generic Goal/EffectControl partial EDIT retains unchanged properties; runtime Source catalog EDIT denied",
+    "catalog CLI stable replay and conflict; no auto schema/grants; registration explicitly not dispatch authorization"
+  ],
+  "source_sha256": {
+    "packages/eios-core/src/eios/migrations/0053_service_offering_catalog.sql": "7f43cfbd5cf25da2572296cdb7ac82d2423a1010d4daab3edc6a51e580631df2",
+    "packages/eios-core/src/eios/migrations/catalog.json": "fca7f51e88cadda36d390e146b5261e093a1669370a560668be481a9f4328e70",
+    "versions.lock.json": "8b3d1eb613ad2a10d6297bf6e59332965f109272c43bd1b235f1b71472890fcc",
+    "packages/eios-core/src/nexloop_eios/message_relay.py": "8b1f7a3ab3acfc6b2513a0c51b3e5da5ecb4b0dff1e9a295f54d49c1619f3253",
+    "packages/eios-core/src/nexloop_eios/backend.py": "468d78ead48277e9e46bf6a8295eb0964f4b4022e836434576621845e35811c2",
+    "packages/eios-core/src/nexloop_eios/effect_intents.py": "e56adc588cbb98cce8899e0243e377fe6ec1f1d10cf1c4ad1160119164cc6a57",
+    "packages/eios-core/src/nexloop_eios/context_artifacts.py": "35305a443f2aa83637471eee8529e04d0837a7d6c40881a4816823378756b2b3",
+    "packages/eios-core/src/nexloop_eios/runtime_control.py": "062cf22e916c2e0d4a13b4576e2b4bd3c4df6caf2091233b49454dbbc566d0ef",
+    "packages/eios-core/src/nexloop_eios/runtime_activation.py": "88ca59d6c42022143428afca968104ed3c02347bc614ab09d82e58f688d4a002",
+    "packages/eios-core/src/nexloop_eios/service_offerings.py": "0b9979e6c17f55f754c06b3c8dabab001a5c504671a085b78753f51cd110cf53",
+    "packages/eios-core/src/nexloop_eios/context_pack.py": "4c9383cf319d587167ea3c4d81d3258496620eb4eb03f6e6c55f8082508a9f3d",
+    "packages/eios-core/src/nexloop_eios/effect_execution.py": "fa57bdca2c19fd121e22a554eac4a8f5fee07e24f3e94c4a8e4d778f4d97fabe",
+    "packages/eios-core/src/nexloop_eios/catalog_setup.py": "69b9ae6bbf3b4329489353dc03139643e35419c569a625ac6850c129272e34a5",
+    "tests/test_context_artifacts.py": "4a7f2c6ffbde31de2e25895f5308641e637a324beec6b6c75d48b958d4ec67f9",
+    "tests/test_service_offering_pg.py": "bacff6152c0917009a2644cd50e39c769be211f7175ce006bba1b3213d6c0d52",
+    "tests/test_offering_runtime_pg.py": "7bcfe949a8820f0bbef96c3d72d19bc4c6dc1a49fc152f8cf84d9cdf13633e10",
+    "tests/test_generic_partial_edit_audit.py": "0d1b7372a52b8d233fcb6a92bfa1cbb37adfee905a24e0061edbc762dfeaf3eb",
+    "tests/test_service_offering_scope.py": "86bcee510013a43d2a4aa2b060a0599eeb86ea20b4c83029864cdb75ad2961b8",
+    "tests/context_artifact_process.py": "59d4c1092ad6da41269bf43049e99afb6a054e9363d13026c80a644a975e731f",
+    "tests/generic_offering_fixture.py": "ccf640ad683d4298f57c34576d2ecbe36c66aa3adaf9f7c619fab6d77a389b6e",
+    "tests/effect_execution_fixture.py": "808cfba91a2e1905497dc2be22f19550c2c7e5c3db3235b471f5491b05b5e4e3",
+    "tests/test_effect_contexts.py": "5faf8368e34eb55a940699c4bcf886fb9154b52743a9f61059ed76a3094546f5",
+    "tests/test_catalog_setup.py": "9cb1b24dbea7cc724bf66d05aac7127f71b616416f7701eba2d23ce41fd4a61b",
+    "tests/test_catalog_setup_pg.py": "a186c6b5ed2782e2cc123f81ca7007dfcc2f1f99e05cf72d96efde919a77b5bd"
+  },
+  "report_sha256": "a652ab247a35f669759151a6783698248f6292932a18dcfc9950ad3a2b169f54",
+  "limits": [
+    "Full new-head CI and assembled Hostv2 browser/message recovery pending",
+    "generic non49 model Contextv2 assembly not implemented; generic SEND path still requires current governed catalog",
+    "Tests use synthetic configured principals/business data on owned real PG; no production database, real model or outside channel call",
+    "Persistent environment migration/deployment not performed"
+  ],
+  "versions_lock_change": "only nexloop-eios-core.bootstrap_revision0052->0053; upstream_sources/packages Pi mapping/images unchanged"
+}

@@ -36,9 +36,9 @@ def message_assignment_schema():
 def validate_recipe(recipe):
     expected={'consumer_id','control_id','control_revision','consumer_revision',
         'valid_until','role_ref','context_manifest_ref','runtime_profile','budget',
-        'runtime_owner_epoch','queue'}
+        'runtime_owner_epoch','queue','offering_id','offering_binding_id'}
     if type(recipe) is not dict or set(recipe)!=expected: raise MessageRelayUnavailable()
-    for field in ('consumer_id','control_id'):
+    for field in ('consumer_id','control_id','offering_id','offering_binding_id'):
         if type(recipe[field]) is not str or not re.fullmatch('[a-f0-9]{64}',recipe[field]): raise MessageRelayUnavailable()
     for field in ('control_revision','consumer_revision','runtime_owner_epoch'):
         if type(recipe[field]) is not int or not 1<=recipe[field]<=9007199254740991: raise MessageRelayUnavailable()
@@ -161,7 +161,7 @@ class MessageRelay:
                 'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':self.recipe['runtime_profile'],
                 'credential_ref':'run:'+record.run_id,'budget':self.recipe['budget'],'not_after':record.expires_at,
                 'runtime_owner_epoch':self.recipe['runtime_owner_epoch']}
-            context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command)
+            context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
             command['context_manifest_ref']=context['artifact_ref']
             bridge.bind_message(message_id=message_id,run_token=record.token,command=command,input=context['input'],queue=self.recipe['queue'])
             owned=self.port.call('own_route',message_id=message_id,fence=fence)

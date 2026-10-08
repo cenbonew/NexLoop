@@ -24,6 +24,7 @@ from nexloop_eios.effect_intents import EffectIntentUnavailable
 from authority_fixture import seed_authority
 from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
+from generic_offering_fixture import install_generic_catalog
 
 @pytest.fixture
 def plan(admin,pg,tmp_path):
@@ -76,6 +77,10 @@ def plan(admin,pg,tmp_path):
         def new_step(number):return create(planner,'PlanStep','real-plan-step-'+str(number),{'consumer_id':consumer,'goal_id':goal,'control_id':control,
             'submitter_principals':sorted([submitter_session.authentication.subject_principal_id,second_session.authentication.subject_principal_id]),'action_name':EFFECT,'state':'ready'})
         step=new_step(1)
+        catalog=install_generic_catalog(admin,backend,consumer_id=consumer,valid_until=expiry,submitter=submitter,second_submitter=backend.authenticate(second_token,world='real'))
+        submitter=catalog['submitter'];submitter_token=catalog['submitter_token'];second_token=catalog['second_token']
+        owner=backend.authenticate(owner_token,world='real');planner=backend.authenticate(planner_token,world='real')
+        goal_editor=backend.authenticate(goal_editor_token,world='real')
         issued=submitter.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])
         run=backend.authenticate_run(issued.token,world='real',run_id=issued.run_id)
         yield dict(backend=backend,owner=owner,planner=planner,executor=executor_session,executor_token=executor_token,run=run,control=control,goal=goal,

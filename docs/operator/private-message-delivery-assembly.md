@@ -1,4 +1,4 @@
-# 私有消息交付装配（候选，尚未执行全链）
+# 私有消息交付装配（0053 候选，尚未完成整头验收）
 
 本文装配现有实际接口，不代表正式部署或 product_ready。以独立数据库和显式私有配置为前提；不得对原生产实例 bootstrap/migrate。所有口令、DSN、签名材料、TLS key 和 Run vault 均为服务账户所有，目录 0700、文件 0600，不进入 Git、argv 值、日志、prompt、Host SQLite。公开 manifest 只有声明；service-secrets JSON 是私有文件。下列大写变量仅代表文件路径或公开配置引用，不代表凭据值。
 
@@ -33,6 +33,22 @@ python -m nexloop_eios.business_setup \
 
 输出 consumer_id/control_id、ownership_id 和 expected_consumer_revision/expected_control_revision。这些是已提交治理操作的预期 revision，不声称当前 revision。各步独立提交；相同 recipe 重试复用稳定 IDs，变更 payload 冲突不会覆盖。可选 --verify-current 需要额外真实 instance READ 与 property grants；默认流程不会自行授权 READ。后续 relay 必须再次核验当前 revision。
 
+## 2.1. 正式供给目录与 Source READ
+
+独立数据库须通过精确 catalog 登记 0053。技术配置先显式发布 ServiceOffering、ConsumerServiceOffering schemas 及对应 CREATE/EDIT Actions；这些是维护者配置的固定应用类型，不是模型候选审核。目录维护主体与 delivery Source 必须是同 tenant 的不同真实服务主体。目录 CLI 不发布 schema、不授予权限、不伪造 Human。
+
+```sh
+python -m nexloop_eios.catalog_setup \
+  --database-url-file "$API_DSN_FILE" --signing-key-file "$SIGNING_RAW_FILE" --signing-key-id "$KEY_ID" \
+  --maintainer-credential-file "$CATALOG_MAINTAINER_CREDENTIAL_FILE" \
+  --source-credential-file "$SOURCE_CREDENTIAL_FILE" \
+  --recipe-file "$CATALOG_RECIPE_FILE" --artifact-root "$CATALOG_ARTIFACT_ROOT"
+```
+
+私有 recipe 严格只有 schema_version=1.0、稳定 UUID request_id、已治理 Consumer 的 consumer_id 和 UTC valid_until。CLI 经真实 Governor 创建免费本地 JSON 供给与该 Source 的 Consumer 关联；相同请求复用 IDs，不同 payload 不覆盖。输出 configured 仅表示登记，dispatch_authorized=false；不是 Consumer 存在、当前授权或可交付证明。
+
+拿到 offering_id/binding_id 后，由可信技术配置者通过既有 manifest 发布流程显式配置 Source 对这两个正式对象及 12+5 个属性的 READ，以及原有 service EXECUTE/Artifact CREATE+READ。凭据和 application digest 必须匹配当前配置；重新 authenticate 后才签发新 Run。Source 不得获得目录 CREATE/EDIT。relay recipe 配置 offering_id 和 offering_binding_id；实际生产器检查当前绑定、revision、有效期和 Source READ，不能用登记 receipt 跳过授权。目录维护者的撤权、SKU 失效或 revision 改动必须导致当前模型/工具/发送拒绝。
+
 ## 3. TLS API 与短生命周期 Runtime
 
 现有 http_api CLI 只接受 `--mode test`，尚不是正式生产 profile launcher。create_app 可装配真实 BrowserConfiguration，API 仍提供真实密码登录、受治理消息写、PG SSE replay 与 Human Function receipt。其 /health/ready 故意保持 product_ready=false，并列出 host_dispatch 缺口；健康探针不能当全链成功证明。
@@ -56,11 +72,11 @@ python -m nexloop_eios.runtime_worker \
   --guard-certificate-file "$GUARD_CERT_FILE" --guard-tls-key-file "$GUARD_TLS_KEY_FILE"
 ```
 
-Host 私有配置只能选择已信任 runtime profile；Host 不持有 DB、Run raw token 或 provider credential。缺 MODEL_API_KEY 时 deterministic profile 只提供测试证据，不证明真实模型调用。Node 必须 24；compiled entrypoint 必须匹配已测试 source manifest。Runtime root 单 OS owner，SQLite FULL/WAL；Pi done 仅 runtime_outcome，不代表业务交付成功。
+Host 私有配置只能选择已信任 runtime profile；Host 不持有 DB、Run raw token 或业务 delivery provider credential。缺 MODEL_API_KEY 时 deterministic profile 只提供测试证据，不证明真实模型调用。Node 必须 24；compiled entrypoint 必须匹配已测试 source manifest。0053 消息链须显式选择 context_input_protocol=nexloop.context-pack.v2；完整 pack 交给模型，不能仅抽出用户文本。Runtime root 单 OS owner，SQLite FULL/WAL；Pi done 仅 runtime_outcome，不代表业务交付成功。
 
 ## 4. 持续消息 relay 与 vault
 
-relay 私有 recipe 包含初始化 receipt 得到的 consumer/control 及 expected revisions、明确 valid_until、固定 role/context/profile、预算、owner epoch 和 queue。不是所有消息共享一个静态 Plan：每条真实 Message 都经 Planner 创建独立 Goal、PlanStep、MessageAssignment；shared control 仅复用 Owner 已治理预算，不自动扩额。
+relay 私有 recipe 包含初始化 receipt 得到的 consumer/control 及 expected revisions、明确 valid_until、固定 role/context/profile、预算、owner epoch、queue、正式 offering_id 与 offering_binding_id。不是所有消息共享一个静态 Plan：每条真实 Message 都经 Planner 创建独立 Goal、PlanStep、MessageAssignment；shared control 仅复用 Owner 已治理预算，不自动扩额。
 
 ```sh
 python -m nexloop_eios.message_relay_cli \

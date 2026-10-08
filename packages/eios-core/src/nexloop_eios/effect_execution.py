@@ -87,6 +87,7 @@ class EffectExecutionPort:
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))},decision
 
     def _signed(self,verb,*,target,**parameters):
+        catalog=parameters.pop('catalog_envelope',None)
         proof,_=self._proof(self.session,target)
         name,version=target.removeprefix('eios:action:').rsplit(':',1)
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(name,int(version))
@@ -95,6 +96,7 @@ class EffectExecutionPort:
         claims={'protocol':PROTOCOL,'key_id':self.signer.key_id,**proof,
                 'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json'),
                 'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
+        if catalog is not None:claims['catalog_envelope']=catalog
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,(PROTOCOL+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload
@@ -204,6 +206,24 @@ class EffectExecutionPort:
         proof,_=self._proof(run,SEND)
         return proof
 
+    def _catalog_envelope(self,metadata):
+        # Private owned resolve, then genuine original Run and Source proofs.
+        from nexloop_eios.service_offerings import catalog_envelope_from_hint
+        with self.pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            run=_identity(db,metadata['_run_digest'],self.session.world)
+        if run.run_context is None or run.run_context.run_id!=metadata['origin_run_id']:raise ValueError()
+        proof,_=self._proof(run,SEND)
+        payload=canonical_payload({'verb':'find','intent_id':metadata['intent_id'],'action_version':1})
+        claims={'protocol':'nexloop-effect-intent-v1','key_id':self.signer.key_id,**proof,
+            'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
+        text=canonical_payload(claims)
+        signature=hmac.new(self.signer.material,('nexloop-effect-intent-v1:'+text).encode(),'sha256').hexdigest()
+        with self.pool.connection() as db,db.transaction():
+            hint=db.execute('select authz.nexloop_effect_catalog_hint(%s,%s,%s,%s,%s)',
+                (run.token_digest,run.world,text,signature,payload)).fetchone()[0]
+        return catalog_envelope_from_hint(self.pool,self.signer,run.world,hint)
+
     def claim_effect(self,*,lease_seconds=30):
         try:
             _lease(lease_seconds)
@@ -232,7 +252,7 @@ class EffectExecutionPort:
             identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity)
             proof=self._origin_proof(metadata)
             claim=M.ActionClaim.model_validate_json(canonical_payload(metadata['action_claim']))
-            result=self._call('admit',target=SEND,**identity,origin_proof=proof,provider_profile_digest=_profile(provider_profile_digest),
+            result=self._call('admit',target=SEND,**identity,origin_proof=proof,catalog_envelope=self._catalog_envelope(metadata),provider_profile_digest=_profile(provider_profile_digest),
                 action_claim_revision=claim.claim_revision,action_fencing_token=claim.fencing_token)
             # Commit has completed before these trusted frozen parameters escape.
             return {key:result[key] for key in ('parameters','provider_payload_digest')}
@@ -267,13 +287,14 @@ class EffectExecutionPort:
             try:
                 origin=self._origin_proof(metadata)
                 self._proof(self.session,SEND)
+                catalog=self._catalog_envelope(metadata)
             except (AuthorizationUnavailable,psycopg.errors.InsufficientPrivilege):
                 return self._public_observation(observed)
             with self.pool.connection() as db,db.transaction():
                 # Both phases are same connection + transaction. SQL pins xid,
                 # observation_id and exact new Action/effect fence between them.
                 _,_,request=self._claim_command(db,metadata,30)
-                renewed=self._execute(db,'finalize',target=SEND,**identity,phase='reserve',provider_profile_digest=provider_profile_digest,
+                renewed=self._execute(db,'finalize',target=SEND,**identity,phase='reserve',provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,
                     origin_proof=origin,observation_id=observed['observation_id'],attempt_revision=metadata['attempt_revision'],
                     action_request_text=canonical_payload(metadata['frozen_request']),
                     action_claim=self._action_envelope(request,'reserve'))
@@ -290,7 +311,7 @@ class EffectExecutionPort:
                     expected_claim_revision=claim.claim_revision,fencing_token=claim.fencing_token,
                     outcome=M.TerminalOutcomeReference(outcome_id=metadata['receipt_id'],outcome_revision=1,
                         status=M.TerminalOutcomeStatus.SUCCEEDED,outcome_digest=M.canonical_request_digest(outcome),finalized_at=now))
-                result=self._execute(db,'finalize',target=SEND,**identity,phase='commit',origin_proof=origin,provider_profile_digest=provider_profile_digest,
+                result=self._execute(db,'finalize',target=SEND,**identity,phase='commit',origin_proof=origin,provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,
                     observation_id=observed['observation_id'],attempt_revision=metadata['attempt_revision'],
                     action_request_text=canonical_payload(metadata['frozen_request']),outcome_text=canonical_payload(outcome),
                     action_claim=self._action_envelope(command,'finalize'))

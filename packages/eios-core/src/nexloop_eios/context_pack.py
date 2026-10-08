@@ -28,7 +28,7 @@ REV={'type':'integer','minimum':1,'maximum':9007199254740991}
 FACT=_object_schema({'type':{'enum':['Consumer','Goal','PlanStep','EffectControl']},
  'id':ID,'revision':REV,'provenance':{'type':'string','pattern':'^eios:object:[a-f0-9]{64}$'}})
 PACK_SCHEMA=_object_schema({
- 'schema_version':{'const':'nexloop.context-pack.v1'},
+ 'schema_version':{'const':'nexloop.context-pack.v2'},
  'bindings':_object_schema({'tenant_id':{'type':'string','format':'uuid'},'world_id':{'const':'real'},
   'run_id':{'type':'string','format':'uuid'},'source_principal':{'type':'string','minLength':1,'maxLength':512},
   'context_id':{'type':'string','format':'uuid'},'namespace':{'type':'string','pattern':'^[a-f0-9]{64}$'},'artifact_id':{'type':'string','pattern':'^[a-f0-9]{32}$'},'command_digest':{'type':'string','pattern':'^[a-f0-9]{64}$'}}),
@@ -39,6 +39,7 @@ PACK_SCHEMA=_object_schema({
   'allow_effect':{'const':True},'budget_units':{'type':'integer','minimum':0,'maximum':9007199254740991},
   'reserved_units':{'type':'integer','minimum':0,'maximum':9007199254740991},'valid_until':{'type':'string','format':'date-time'},
   'executor_principal':{'type':'string','minLength':1,'maxLength':512}}),
+ 'supply':_object_schema({'offering_id':ID,'offering_revision':REV,'binding_id':ID,'binding_revision':REV,'provenance':{'type':'string','pattern':'^eios:object:[a-f0-9]{64}$'},'properties':_object_schema({'service_code':{'const':'local.json-export'},'title':{'type':'string','minLength':1,'maxLength':256},'delivery_action':{'const':'nexloop.service.request:1'},'content_kind':{'const':'json-message-export'},'price_amount':{'const':'0'},'currency':{'const':'CNY'},'eligibility':{'const':'current_consumer_plan'},'allowed_guarantees':{'type':'array','maxItems':0},'allowed_discounts':{'type':'array','maxItems':0},'evidence_kind':{'const':'fsynced_json_export'},'active':{'const':True},'valid_until':{'type':'string','format':'date-time'}})}),
 })
 
 
@@ -59,6 +60,7 @@ def encode_pack(snapshot,command):
     if body['current_constraints']['reserved_units']>body['current_constraints']['budget_units']:raise ValueError('context_budget_invalid')
     for field in ('tenant_id','world_id','run_id'):
         if body['bindings'][field]!=command[field]:raise ValueError('context_command_invalid')
+    if body['supply']['provenance']!='eios:object:'+body['supply']['offering_id']:raise ValueError('context_supply_invalid')
     text=canonical_payload(body)
     if len(text.encode())>MAX_PACK_BYTES:raise ValueError('context_pack_too_large')
     return text

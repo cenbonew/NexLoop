@@ -58,9 +58,9 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'create_runtime_activation', queue=queue,
             task_id=task_id, fence=fence, run_id=run_id, command=command, input=input, owner_epoch=owner_epoch)
 
-    def runtime_effect_tool(self, *, activation_ref, command, tool_operation, parameters=None, intent_id=None):
+    def runtime_effect_tool(self, *, activation_ref, command, tool_operation, parameters=None, intent_id=None, request_scope=None):
         return self._backend._invoke(self._session, 'runtime_effect_tool', activation_ref=activation_ref,
-            command=command, tool_operation=tool_operation, parameters=parameters, intent_id=intent_id)
+            command=command, tool_operation=tool_operation, parameters=parameters, intent_id=intent_id, request_scope=request_scope)
 
     def authorize_runtime_activation(self, *, activation_ref, command, operation, input=None):
         return self._backend._invoke(self._session, 'authorize_runtime_activation',
@@ -125,9 +125,9 @@ class AuthenticatedServices:
             step_revision=step_revision, goal_revision=goal_revision, consumer_revision=consumer_revision,
             control_revision=control_revision, run_id=run_id, run_token=run_token, executor_token=executor_token)
 
-    def submit_effect_intent(self, *, parameters, action_version=1):
+    def submit_effect_intent(self, *, parameters, action_version=1,request_scope=None):
         return self._backend._invoke(self._session, 'submit_effect_intent',
-            parameters=parameters, action_version=action_version)
+            parameters=parameters, action_version=action_version,request_scope=request_scope)
 
     def find_effect_receipt(self, *, intent_id, action_version=1):
         return self._backend._invoke(self._session, 'find_effect_receipt',
@@ -152,8 +152,8 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'read_object',
             type_name=type_name, object_id=object_id, fields=fields)
 
-    def prepare_message_context(self, *, message_id, run_token, command):
-        return self._backend._invoke(self._session, 'prepare_message_context', message_id=message_id,run_token=run_token,command=command)
+    def prepare_message_context(self, *, message_id, run_token, command,offering_id,binding_id):
+        return self._backend._invoke(self._session, 'prepare_message_context', message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
 
     def put_artifact(self, *, request_id, payload, media_type, retention_until):
         return self._backend._invoke(self._session, 'put_artifact',

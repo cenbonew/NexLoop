@@ -52,12 +52,14 @@ class ContextArtifactProducer:
         claims={'protocol':'nexloop-context-artifact-v1','key_id':self.signer.key_id,**proof,
          'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'definition':definition.model_dump(mode='json'),
          'capability':capability.model_dump(mode='json'),'artifact_proofs':[self._artifact_proof(Operation.CREATE),self._artifact_proof(Operation.READ)],'run_proofs':self.authority._run_proofs(run)}
+        from nexloop_eios.service_offerings import _catalog_envelope
+        claims['catalog_envelope']=dict(zip(('text','signature','payload'),_catalog_envelope(self.services,offering_id=parameters['offering_id'],binding_id=parameters['binding_id'],consumer_id=parameters['command']['consumer_ref'].removeprefix('consumer:'),request_scope={'offering_id':parameters['offering_id'],'offering_revision':parameters['offering_revision'],'requested_guarantees':[],'requested_discounts':[]})))
         if parameters['verb']=='bind':
             claims.update(artifact_proofs=[self._artifact_proof(Operation.CREATE),self._artifact_proof(Operation.READ)],claim_binding=claim_binding)
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-context-artifact-v1:'+text).encode(),'sha256').hexdigest()
         return db.execute('select authz.nexloop_context_artifact_command(%s,%s,%s,%s,%s)',(self.session.token_digest,'real',text,signature,body)).fetchone()[0]
 
-    def prepare(self,*,message_id,run_token,command):
+    def prepare(self,*,message_id,run_token,command,offering_id,binding_id):
         """Actual snapshot→Artifact CREATE/READ→governed bind; no queue ACK here."""
         try:
             with self.backend._lock:
@@ -68,8 +70,10 @@ class ContextArtifactProducer:
                 from jsonschema import Draft202012Validator
                 Draft202012Validator(context_binding_schema(),format_checker=Draft202012Validator.FORMAT_CHECKER).validate({'message_id':message_id,'run_id':command['run_id']})
                 if definition.preconditions or definition.governance.policy_refs or definition.governance.approval_mode.value!='none' or definition.governance.risk_level.value!='low':raise ValueError()
+                from nexloop_eios.service_offerings import read_catalog
+                catalog=read_catalog(self.services,offering_id=offering_id,binding_id=binding_id,consumer_id=command['consumer_ref'].removeprefix('consumer:'))
                 binding_text=canonical_payload(command_binding(command));binding_digest=hashlib.sha256(binding_text.encode()).hexdigest()
-                parameters={'verb':'snapshot','message_id':message_id,'command':command,'run_digest':run.token_digest,
+                parameters={'offering_id':offering_id,'binding_id':binding_id,'offering_revision':catalog['revision'],'verb':'snapshot','message_id':message_id,'command':command,'run_digest':run.token_digest,
                  'artifact_identity_text':canonical_payload([self.session.authentication.tenant_id,'real',self.session.authentication.subject_principal_id,'context:'+command['run_id']]),'command_binding_text':binding_text,'command_binding_digest':binding_digest}
                 with self.pool.connection() as db,db.transaction():snapshot=self._call(db,parameters,run,definition,capability)
                 text=encode_pack(snapshot,command)

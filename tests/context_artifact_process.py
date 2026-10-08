@@ -14,7 +14,7 @@ try:
             time.sleep(.005)
         for _ in range(8):
             if config['operation']=='producer':
-                receipt=services.prepare_message_context(message_id=config['message_id'],run_token=config['run_token'],command=config['command'])
+                receipt=services.prepare_message_context(message_id=config['message_id'],run_token=config['run_token'],command=config['command'],offering_id=config['offering_id'],binding_id=config['binding_id'])
                 assert receipt['sha256']==config['sha256'] and receipt['input']==config['input']
             elif config['operation']=='model':
                 receipt=services.authorize_runtime_activation(activation_ref=config['activation_ref'],command=config['command'],operation='model')
