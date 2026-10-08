@@ -1,7 +1,7 @@
 /** Optional internal Run admission. Backend retains all EIOS/PG credentials. */
 import {request as httpsRequest} from 'node:https';
 import {type IncomingMessage} from 'node:http';
-import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
+import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context} from '@earendil-works/pi-ai';
 import {PiRuntimeAdapter} from './pi-runtime-adapter.js';
 import {RuntimeEffectClient} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
@@ -29,11 +29,12 @@ export class RuntimeHost{
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_message','model_configuration_file','maximum_request_cost'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_message','deterministic_message_from_input','model_configuration_file','maximum_request_cost'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
-    if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
+    if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
+    if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
     this.guard=new URL(String(config.guard_url));
     if(this.guard.protocol!=='https:'||this.guard.hostname!=='127.0.0.1'||!this.guard.port||Number(this.guard.port)<1024||Number(this.guard.port)>65535||this.guard.username||this.guard.password||this.guard.search||this.guard.hash||this.guard.pathname!=='/internal/v1/runtime/authorize')throw new Error('runtime guard refused');
     if(typeof config.guard_ca_file!=='string'||typeof config.guard_key_file!=='string')throw new Error('runtime guard files required');
@@ -72,7 +73,33 @@ export class RuntimeHost{
     }
     this.runtimeProfile=selection.runtimeProfile;
     // Explicit test profile only; no model secret or real-provider success claim.
-    if(config.effect_tools===true&&typeof config.deterministic_effect_message==='string'){
+    if(config.deterministic_message_from_input===true){
+      // Explicit synthetic byte-preserving test protocol, not semantic reasoning.
+      // Use each conversation's genuine latest user message, never a global
+      // response index or an ambient/private configured business output.
+      const response=(context:Context)=>{
+        let index=context.messages.length-1;while(index>=0&&context.messages[index]?.role!=='user')index--;
+        const user=context.messages[index];
+        if(user?.role!=='user')throw new RuntimeError('deterministic_input_missing');
+        const message=typeof user.content==='string'?user.content:user.content.map(part=>{
+          if(part.type!=='text')throw new RuntimeError('deterministic_input_invalid');return part.text;
+        }).join('');
+        if(!message||[...message].length>8192||message.includes('\u0000'))throw new RuntimeError('deterministic_input_invalid');
+        const current=context.messages.slice(index+1);
+        const submitted=current.filter(item=>item.role==='toolResult'&&item.toolName==='nexloop.service.request');
+        if(submitted.length<2)return fauxAssistantMessage(fauxToolCall('nexloop.service.request',{message},
+          {id:submitted.length===0?'message-service-first':'message-service-rebuilt'}),{stopReason:'toolUse'});
+        const found=current.some(item=>item.role==='toolResult'&&item.toolName==='nexloop.service.find');
+        if(found)return fauxAssistantMessage('Synthetic message-driven protocol completion; no semantic inference.');
+        const previous=submitted.at(-1);
+        if(previous?.role!=='toolResult'||previous.isError)throw new RuntimeError('deterministic_effect_receipt_missing');
+        const text=previous.content.find(part=>part.type==='text');let receipt:unknown;
+        try{receipt=JSON.parse(text?.type==='text'?text.text:'');}catch{throw new RuntimeError('deterministic_effect_receipt_missing');}
+        const intent=record(receipt).intent_id;if(typeof intent!=='string')throw new RuntimeError('deterministic_effect_receipt_missing');
+        return fauxAssistantMessage(fauxToolCall('nexloop.service.find',{intent_id:intent},{id:'message-service-find'}),{stopReason:'toolUse'});
+      };
+      faux.setResponses(Array.from({length:64},()=>response));
+    }else if(config.effect_tools===true&&typeof config.deterministic_effect_message==='string'){
       // Explicit deterministic acceptance profile, never a real model claim.
       // Distinct tool-call IDs exercise the stable backend business key.
       faux.setResponses([

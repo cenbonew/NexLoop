@@ -1,0 +1,40 @@
+{
+  "recorded_at": "2026-10-08T10:11:50.209952+00:00",
+  "task": "NX-016",
+  "status": "in_progress",
+  "changes": [
+    "apps/agent-host/src/runtime-host.ts",
+    "tests/message_driven_assembly_fixture.py",
+    "tests/test_message_driven_delivery.py",
+    "tests/test_message_driven_profile_configuration.py"
+  ],
+  "source_sha256": {
+    "apps/agent-host/src/runtime-host.ts": "56f15caf1af56b98e741c4053c9a6f4e571f29767131fc37883723fd47733181",
+    "tests/message_driven_assembly_fixture.py": "78fefcac848ca6122d9a49a112b2d284aee1767545d90fdf363e542331f2678d",
+    "tests/test_message_driven_delivery.py": "2bf051ec34eace1a168ef3a7781cee58577540a856c6bccc585cb68228ff754d",
+    "tests/test_message_driven_profile_configuration.py": "973e4c344b76c3b5e1aeba50257834da2ddab140788e234332ab187b9cf9461e"
+  },
+  "commands": [
+    "pnpm --filter @nexloop/agent-host build",
+    "uv run --frozen pytest -q tests/test_message_driven_profile_configuration.py tests/test_message_driven_delivery.py tests/test_local_message_delivery_assembly.py",
+    "pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**'"
+  ],
+  "results": [
+    "Build exit0",
+    "9 passed19.26s;2 httpx verify=str deprecations",
+    "61 passed2.92s;Node SQLite ExperimentalWarning"
+  ],
+  "first_candidate_failures": [
+    "ES2022 findLastIndex unsupported; replaced bounded reverse scan",
+    "Negative stderr assertion rejected named Node SQLite warning; explicit named suppression only"
+  ],
+  "root_independent_candidate": "9 passed20.38s;2 httpx warnings",
+  "main_first_run_passed": true,
+  "scope": "Actual user bytes enter Pi tool arguments and governed local JSON exports; same event reuses Message/Run/intent/receipt. Explicit synthetic protocol only.",
+  "limits": [
+    "No semantic model inference or real credential/provider call",
+    "ContextArtifact remains candidate, old placeholder still in current assembly",
+    "Task not completed",
+    "versions.lock.json unchanged"
+  ]
+}

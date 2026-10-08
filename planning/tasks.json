@@ -1193,6 +1193,12 @@
         "ref": "e801ff4d7d71640f5a925bc28706485c818ff4b9",
         "summary": "Explicit local model key launcher checkpoint;17 tests passed; NX-016 remains in_progress",
         "recorded_at": "2026-10-08T10:10:03.102466+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/message-driven-provider-evidence.json",
+        "summary": "Main actual PG message-driven byte-preserving synthetic delivery9passed19.26s and Runtime61passed2.92s. No real model semantics; context candidate pending; in_progress.",
+        "recorded_at": "2026-10-08T10:11:50.209952+00:00"
       }
     ]
   },
