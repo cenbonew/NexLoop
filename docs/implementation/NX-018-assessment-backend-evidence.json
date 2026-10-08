@@ -1,0 +1,21 @@
+{
+  "task": "NX-018",
+  "recorded_at": "2026-10-08T16:13:10.245995+00:00",
+  "scope": "Actual open_backend authentication and unified lifecycle-serialized create/correct/current-projection entrypoints. EIOS current Action/Object/Property/definition/source checks retained. No public HTTP/workbench/history/Context wiring claim.",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_assessment_backend.py tests/test_assessment_candidate.py tests/test_backend.py --tb=short --junitxml=.ci-results/nx018-assessment-backend-rerun.xml",
+  "result": {
+    "tests": "37",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "time": "45.908"
+  },
+  "sha256": "9a1e99accf3029002ec1049679a0a6a3c40fa2642897edbbc02a418e4385ca83",
+  "first_run": "36 passed,1failed46.88s: test expected AuthorizationUnavailable but actual current denied Property READ correctly raises ActionAuthorizationDenied; corrected specific expectation only, product source unchanged.",
+  "assertions": [
+    "Actual create/replay one persisted outcome, correction/replay current hypothesis revision2 remains only evidence.",
+    "Current Property READ revocation rejects freshly authenticated Backend projection.",
+    "Backend shutdown rejects read/create/correct calls before storage use."
+  ],
+  "versions_lock_change": null
+}

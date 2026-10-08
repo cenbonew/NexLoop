@@ -152,6 +152,18 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'read_object',
             type_name=type_name, object_id=object_id, fields=fields)
 
+    def create_relationship_assessment(self, *, action_name, action_version, intent_id, properties):
+        return self._backend._invoke(self._session, 'create_relationship_assessment',
+            action_name=action_name, action_version=action_version, intent_id=intent_id, properties=properties)
+
+    def correct_relationship_assessment(self, *, action_name, action_version, intent_id, object_id, expected_revision, properties):
+        return self._backend._invoke(self._session, 'correct_relationship_assessment',
+            action_name=action_name, action_version=action_version, intent_id=intent_id,
+            object_id=object_id, expected_revision=expected_revision, properties=properties)
+
+    def read_relationship_assessment(self, *, object_id, valid_at=None):
+        return self._backend._invoke(self._session, 'read_relationship_assessment', object_id=object_id, valid_at=valid_at)
+
     def prepare_message_context(self, *, message_id, run_token, command,offering_id,binding_id):
         return self._backend._invoke(self._session, 'prepare_message_context', message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
 
@@ -354,6 +366,13 @@ class Backend:
                 return GovernedObjectEditor(self._pool, session, self._signer).edit(**arguments)
             if operation == 'read_object':
                 return AuthorizedObjectReader(self._pool, session, self._signer).get(**arguments)
+            if operation in ('create_relationship_assessment','correct_relationship_assessment','read_relationship_assessment'):
+                from nexloop_eios.assessment_actions import GovernedAssessmentCreator,GovernedAssessmentCorrector,AuthorizedAssessmentProjection
+                if operation=='create_relationship_assessment':
+                    return GovernedAssessmentCreator(self._pool,session,self._signer).create(**arguments)
+                if operation=='correct_relationship_assessment':
+                    return GovernedAssessmentCorrector(self._pool,session,self._signer).correct(**arguments)
+                return AuthorizedAssessmentProjection(self._pool,session,self._signer).current(**arguments)
             if operation in ('collect_orphans','resume_orphans'):
                 collector=FinalOrphanCollector(self._pool,session,self._signer,self._store)
                 return collector.collect(**arguments) if operation=='collect_orphans' else collector.resume(**arguments)
