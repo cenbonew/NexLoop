@@ -1281,6 +1281,12 @@
         "ref": "8b40cad38e7f36a84618be574026f511fb07dd88",
         "summary": "Frozen head0052 full-CI checkpoint:1648 actual passes; task states unchanged.",
         "recorded_at": "2026-10-08T11:44:38.173725+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/nx017-precise-admission-fault-evidence.json",
+        "summary": "3 new precise owned-PG/CLI faults passed independently and in main; no task completion before NX-016.",
+        "recorded_at": "2026-10-08T11:46:02.802381+00:00"
       }
     ]
   },

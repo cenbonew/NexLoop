@@ -1,0 +1,55 @@
+{
+  "task": "NX-017",
+  "recorded_at": "2026-10-08T11:26:21.465554+00:00",
+  "candidate": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx017-fault-candidate",
+  "actual_command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_precise_pg_admission_outage.py tests/test_runtime_allocated_before_pi_kill.py -q --tb=short",
+  "final_result": "3 passed,2 httpx deprecation warnings,16.02s",
+  "session": 50117,
+  "source_sha256": {
+    "tests/test_precise_pg_admission_outage.py": "90c878c3b6adad07ee3cf8c43dcab6a0965cc9f298a46d0f742fe2bb4e39c5ff",
+    "tests/test_runtime_allocated_before_pi_kill.py": "420b13b2a261a942e31c7221ef280a99138c6bbeaf436736cbe6cda2719bdcc6"
+  },
+  "first_failures": [
+    "Wrong cwd collection: candidatefile not found0tests .08s.",
+    "20725 HTTPfail3.79: mistaken error-envelope message string as accepted Message; actual503 failclosed.",
+    "85839 HTTPfail3.00: stale PG pool firstrequest503 afterrestart; bounded10s exactkeyretry.",
+    "20402 allocationfail12.18: ownedTLSproxy omitted Content-Type, actualHost correctly refused inspect; fixed explicitapplication/json."
+  ],
+  "focused_results": [
+    "92962 PG2passed9.67s",
+    "52650 allocation1passed7.18s"
+  ],
+  "proofs": [
+    "Actual EffectWorker pre-admit checkpoint→immediate exact-ownedPGDATAstop→provider POST/effects/PGattempt0; restoredsamePG/currentSource sameintent onePOST.",
+    "ActualTLSHTTPmessage503 noacceptedACK; recoveredPG Message/outbox/job0; exactkeyretry oneMessage/replay sameID.",
+    "ActualRuntimeWorker task+activation committed→ownedTLS start transport paused beforeforwarding realHost→marker0/SQLiteabsent→SIGKILL CLI→freshWorker higherfence sameRun/request singleconversation/submission FULL2wal."
+  ],
+  "limits": [
+    "No production/SQL/catalog/lock/planning/main changes.",
+    "OwnedTLSbarrier neverauthenticates/grantspermission/manufacturessuccess; recovery is actualHost/Backend.",
+    "PGzeroPOST provider independentdurablesynthetic; real51 successkill main test separate.",
+    "Browserstablekey scope, no externalprovider_event_idadapter; no inventedValkeyproductionclient/degradedsignal.",
+    "Not proof mainCI3995completed or hardwarepowerloss."
+  ],
+  "cleanup": "All owned childprocesses/TLSthreads reaped, disposablePG stopped; no live tests/processes.",
+  "independent_root_verification": {
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=docs/tmp/nx017-fault-candidate/packages/eios-core/src:docs/tmp/nx017-fault-candidate/tests uv run --frozen pytest -q docs/tmp/nx017-fault-candidate/tests/test_precise_pg_admission_outage.py docs/tmp/nx017-fault-candidate/tests/test_runtime_allocated_before_pi_kill.py --junitxml=.ci-results/nx017-precise-fault-independent.xml --tb=short",
+    "session": 28726,
+    "result": "3 passed, 2 httpx deprecation warnings in 15.64s",
+    "junit_ref": ".ci-results/nx017-precise-fault-independent.xml",
+    "junit_sha256": "4ecc8c92c112601a0be6f6b89ca4936f45457cd4269838ec1fe65ccfafaa529a"
+  },
+  "root_main_verification": {
+    "recorded_at": "2026-10-08T11:46:02.802381+00:00",
+    "session": 72568,
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_precise_pg_admission_outage.py tests/test_runtime_allocated_before_pi_kill.py --junitxml=.ci-results/nx017-precise-fault-main.xml --tb=short",
+    "passed": 3,
+    "seconds": 16.69,
+    "warnings": 2,
+    "junit_sha256": "76828302a9e87a6c410480305441a9caf1abb186768a229bb94fde2d24c8b869",
+    "source_hashes": {
+      "tests/test_precise_pg_admission_outage.py": "90c878c3b6adad07ee3cf8c43dcab6a0965cc9f298a46d0f742fe2bb4e39c5ff",
+      "tests/test_runtime_allocated_before_pi_kill.py": "420b13b2a261a942e31c7221ef280a99138c6bbeaf436736cbe6cda2719bdcc6"
+    }
+  }
+}
