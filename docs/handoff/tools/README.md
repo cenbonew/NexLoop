@@ -23,3 +23,5 @@ uv run --with jsonschema --with pyyaml --with rfc3339-validator python tools/val
 - `evidence` 为对象数组，每项至少含 `type`（`command | test_report | file | commit | note`）、`ref`（路径/命令/commit）、`summary`、`recorded_at`（ISO 8601）。
 
 在实现仓库中以 `--planning planning` 指向仓库根的实时副本（其余检查仍读取 `docs/handoff/` 冻结副本）。Codex 推进任务时直接更新这两个文件并重跑检查器；不要为了“保持初始状态”把已执行进度改回 `not_started`。
+
+使用 `--planning planning` 时，结果写到指定实时目录的 `handoff-validation.json`，该运行报告在实现仓库中被忽略，不再改写冻结交接包的报告。

@@ -40,10 +40,11 @@
     ".mypy_cache/",
     ".ruff_cache/",
     ".vite/",
-    ".DS_Store"
+    ".DS_Store",
+    "/planning/handoff-validation.json"
   ],
   "ci_results_ignore": "Existing unanchored .ci-results/ rule verified for root and nested Host/candidate paths",
-  "ci_output_policy": "Local CI recreates ignored .ci-results reports and dist builds; staging closures clean automatically; no source fixture relocated",
+  "ci_output_policy": "Local CI recreates ignored .ci-results reports and dist builds; staging closures clean automatically; no source fixture relocated; live validate_handoff --planning now writes ignored planning/handoff-validation.json and leaves frozen snapshot unchanged",
   "status": "deleted",
   "all_listed_directories_absent": true
 }

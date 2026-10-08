@@ -199,7 +199,9 @@ def main() -> int:
       'not_executed':['application_implementation','EIOS_source_extraction_or_integration','Pi_storage_conformance','container_compose_runtime_validation','server_login_or_inventory','network_TLS_ACL_tests','real_model_or_connector_calls','business_acceptance_tests','backup_restore_drill'],
       'notes':['A successful result does not establish production readiness, security compliance, deployment success, or business growth.','Task/acceptance statuses use fixed vocabularies; done/passed entries must carry evidence.','Dependency locks and image digests are deliberately unresolved candidates.']
     }
-    REPORT.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    # Live implementation checks must not mutate the frozen handoff report.
+    report_path = planning_dir / 'handoff-validation.json'
+    report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps({'passed':report['passed'],'counts':report['counts'],'failures':[c for c in checks if not c['passed']]},ensure_ascii=False,indent=2))
     return 0 if report['passed'] else 1
 

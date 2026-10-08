@@ -264,8 +264,8 @@
     },
     {
       "path": "tools/README.md",
-      "bytes": 1728,
-      "sha256": "48894935e9b96655ea49d6b57fac41097d1d732ffa2fa6fda3551cd72c6b0999"
+      "bytes": 1911,
+      "sha256": "8747baaecb9abecbd218e6a741ad3950966fc3c0c459ede268dad1ee890c8658"
     },
     {
       "path": "tools/build_merged_docs.py",
@@ -274,8 +274,8 @@
     },
     {
       "path": "tools/validate_handoff.py",
-      "bytes": 12083,
-      "sha256": "b44c6568f9f647f6976aa5f4d845901d798ee28249591bb122ab11b3050adcb0"
+      "bytes": 12223,
+      "sha256": "5e46ee3fac31f6f408693be5bfc9507b4cdc045fb1cae990b9b48d2ed1149eb2"
     }
   ],
   "file_count_excluding_manifest": 54
