@@ -8,6 +8,7 @@ No public reserve is called before an independent effect transaction.
 from datetime import UTC,datetime,timedelta
 import hashlib
 import hmac
+import json
 
 import psycopg
 import uuid
@@ -28,6 +29,13 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 
 SEND='eios:action:nexloop.service.request:1'
 QUERY='eios:action:nexloop.service.query:1'
+RECONCILE='eios:action:nexloop.service.receipt_reconcile:1'
+
+def receipt_reconcile_schema():
+    return {'type':'object','properties':{'intent_id':{'type':'string','format':'uuid'},
+        'effect_fence':{'type':'integer','minimum':1},'query_id':{'type':'string','format':'uuid'}},
+        'required':['intent_id','effect_fence','query_id'],'additionalProperties':False}
+
 PROTOCOL='nexloop-effect-execution-v1'
 
 
@@ -264,14 +272,6 @@ class EffectExecutionPort:
             return {key:result[key] for key in ('parameters','provider_payload_digest')}
         except Exception:raise EffectExecutionUnavailable() from None
 
-    def authorize_effect_query(self,*,intent_id,fence,provider_profile_digest):
-        try:
-            identity=_identity_arguments(intent_id,fence)
-            metadata=self._resolve(identity)
-            result=self._call('query',target=QUERY,**identity,attempt_revision=metadata['attempt_revision'],provider_profile_digest=_profile(provider_profile_digest))
-            return {'provider_payload_digest':result['provider_payload_digest']}
-        except Exception:raise EffectExecutionUnavailable() from None
-
     def record_effect_unknown(self,*,intent_id,fence):
         try:
             identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity)
@@ -289,6 +289,14 @@ class EffectExecutionPort:
                 provider_payload_digest=provider_payload_digest,provider_state=provider_state,provider_reference=provider_reference)
             # Independent READ observation is durable evidence, not finalization.
             if provider_state!='fulfilled':return self._public_observation(observed)
+            return self._finalize_known_observation(intent_id=intent_id,fence=fence,observed=observed,
+                provider_profile_digest=provider_profile_digest,provider_payload_digest=provider_payload_digest,
+                provider_state=provider_state,provider_reference=provider_reference)
+        except Exception:raise EffectExecutionUnavailable() from None
+
+    def _finalize_known_observation(self,*,intent_id,fence,observed,provider_profile_digest,provider_payload_digest,provider_state,provider_reference):
+        try:
+            identity=_identity_arguments(intent_id,fence)
             metadata=self._resolve(identity)
             try:
                 origin=self._origin_proof(metadata)
@@ -322,6 +330,83 @@ class EffectExecutionPort:
                     action_request_text=canonical_payload(metadata['frozen_request']),outcome_text=canonical_payload(outcome),
                     action_claim=self._action_envelope(command,'finalize'))
             return self._public_observation(result)
+        except Exception:raise EffectExecutionUnavailable() from None
+
+    def _recovery_execute(self,db,verb,target,**parameters):
+        return db.execute('select authz.nexloop_receipt_reconcile_command(%s,%s,%s,%s,%s)',
+            (self.session.token_digest,self.session.world,*self._signed(verb,target=target,**parameters))).fetchone()[0]
+
+    def authorize_effect_query(self,*,intent_id,fence,provider_profile_digest):
+        try:
+            identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity)
+            args=dict(**identity,attempt_revision=metadata['attempt_revision'],provider_profile_digest=_profile(provider_profile_digest))
+            text,signature,payload=self._signed('query',target=QUERY,**args)
+            with self.pool.connection() as db,db.transaction():
+                result=self._recovery_execute(db,'admit_query',QUERY,**identity,
+                    provider_profile_digest=provider_profile_digest,query_envelope=dict(text=text,signature=signature,payload=payload))
+            return {key:result[key] for key in ('provider_payload_digest','query_id')}
+        except Exception:raise EffectExecutionUnavailable() from None
+
+    def record_effect_query_observation(self,*,intent_id,fence,query_id,provider_profile_digest,provider_payload_digest,provider_state,provider_reference):
+        try:
+            identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity);_uuid(query_id)
+            args=dict(**identity,attempt_revision=metadata['attempt_revision'],provider_profile_digest=_profile(provider_profile_digest),
+                provider_payload_digest=provider_payload_digest,provider_state=provider_state,provider_reference=provider_reference)
+            text,signature,payload=self._signed('observe',target=QUERY,**args)
+            with self.pool.connection() as db,db.transaction():
+                observed=self._recovery_execute(db,'observe_query',QUERY,**identity,query_id=query_id,
+                    observation_envelope=dict(text=text,signature=signature,payload=payload))
+            # Durable GET evidence is committed even when independent recovery authority is absent.
+            if provider_state!='fulfilled':return self._public_observation(observed)
+            # Preserve normal execution finalization when its original current authority remains valid.
+            # Failed normal finalization rolls back its transaction before the independent recovery Action.
+            try:
+                normal=self._finalize_known_observation(intent_id=intent_id,fence=fence,observed=observed,
+                    provider_profile_digest=provider_profile_digest,provider_payload_digest=provider_payload_digest,
+                    provider_state=provider_state,provider_reference=provider_reference)
+                if normal['business_action_success']:return normal
+            except EffectExecutionUnavailable:pass
+            try:return self.reconcile_effect_receipt(intent_id=intent_id,fence=fence,query_id=query_id)
+            except EffectExecutionUnavailable:return self._public_observation(observed)
+        except Exception:raise EffectExecutionUnavailable() from None
+
+    def reconcile_effect_receipt(self,*,intent_id,fence,query_id):
+        try:
+            target=RECONCILE
+            identity=_identity_arguments(intent_id,fence);_uuid(query_id);metadata=self._resolve(identity)
+            definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get('nexloop.service.receipt_reconcile',1)
+            request=dict(**identity,query_id=query_id)
+            with self.pool.connection() as db,db.transaction():
+                now=db.execute('select clock_timestamp()').fetchone()[0]
+                invocation='receipt-reconcile:'+intent_id
+                command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,
+                    action_stable_name=definition.stable_name,idempotency_key=invocation),
+                    binding=M.ClaimBindingPayload(invocation_id=invocation,action_reference=definition.reference(),
+                        request_digest=M.canonical_request_digest(request),capability_binding=capability.binding(),
+                        adapter_id='nexloop.receipt.reconcile',target_system='service'),requested_at=now,
+                    lease_expires_at=now+timedelta(seconds=25))
+                holder={}
+                def reserve(actual):
+                    outcome={'intent_id':intent_id,'receipt_id':metadata['receipt_id'],'provider_state':'fulfilled',
+                        'provider_payload_digest':metadata['provider_payload_digest']}
+                    # Actual provider reference comes only from protected owned durable query lineage.
+                    # Resolve now includes the persisted reference for recovery outcome hashing.
+                    outcome['provider_reference']=metadata['provider_reference']
+                    query_proof=json.loads(self._signed('query_authority',target=QUERY)[0])
+                    row=self._recovery_execute(db,'recover',target,**identity,query_id=query_id,query_proof=query_proof,
+                        original_request_text=canonical_payload(metadata['frozen_request']),recovery_request_text=canonical_payload(request),
+                        outcome_text=canonical_payload(outcome),recovery_reserve=self._action_envelope(actual,'reserve'))
+                    holder['row']=row
+                    return M.ActionClaimResult.model_validate_json(canonical_payload(row['recovery_claim_result']))
+                governor=ActionGovernor(claim_port=_AtomicReserve(reserve),approval_port=UnavailableApprovalPort(),authority_verifier=UnavailableApprovalAuthority(),clock=lambda:db.execute('select clock_timestamp()').fetchone()[0])
+                evidence=M.PolicyEvidenceSet(tenant_id=self.session.authentication.tenant_id,invocation_id=invocation,
+                    action_reference=definition.reference(),required_policy_references=(),evidence=(),evaluated_at=now)
+                permit=governor.govern(tenant_id=self.session.authentication.tenant_id,invocation_id=invocation,
+                    action_reference=definition.reference(),action_definition=definition,capability_snapshot=capability,
+                    request=request,claim_request=command,granted_scopes=self.session.authentication.requested_scopes,
+                    policy_evidence=evidence,approval_evidence=None)
+                if type(permit) is not M.ActionExecutionPermit:raise ValueError()
+            return self._public_observation(holder['row'])
         except Exception:raise EffectExecutionUnavailable() from None
 
     def read_effect_receipt(self,*,intent_id):

@@ -77,7 +77,9 @@ class EffectDispatcher:
             except Exception: pass
             return {'claimed': True, 'status': 'unknown', 'business_action_success': False}
         try:
-            result = self.ledger.record_effect_observation(**identity,
+            record = self.ledger.record_effect_query_observation if job['stage'] == 'reconcile' else self.ledger.record_effect_observation
+            query_args = {'query_id': admitted['query_id']} if job['stage'] == 'reconcile' else {}
+            result = record(**identity, **query_args,
                 provider_profile_digest=self.provider_profile_digest,
                 provider_payload_digest=receipt.payload_digest,
                 provider_state=receipt.state,
