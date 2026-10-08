@@ -707,6 +707,12 @@
         "ref": "63d90d35ebe1056817c10eaab0dc44e671399652",
         "summary": "NX-010: live validator report and build output isolated from source; static handoff snapshot unchanged by normal live validation",
         "recorded_at": "2026-10-08T09:36:02.973125+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d1c4292f73763178e76b8dacdc37c8b5fc74a9db",
+        "summary": "GitHub publication gates and installed pre-push hook; disposable repository tests cover removed historical identifiers/credential values, feature refs, tracked private files and safe variable references. Current main all three gates PASS.",
+        "recorded_at": "2026-10-08T22:54:00.049101+00:00"
       }
     ]
   },
