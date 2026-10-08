@@ -54,7 +54,7 @@ def test_actual_bound_pack_goes_through_pg_guard_and_exports_original_statement(
     guard_tls=tmp_path/'guard-tls';guard_tls.mkdir(mode=0o700);files(guard_tls)
     guard_key=private(tmp_path,'guard-key',secrets.token_hex(32));port=free_port()
     config=effect_configuration(guard_tls,port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message')
-    body.update(deterministic_message_from_input=True,context_input_protocol='nexloop.context-pack.v1');config.write_text(json.dumps(body))
+    body.update(deterministic_message_from_input=True,context_input_protocol='nexloop.context-pack.v2');config.write_text(json.dumps(body))
     hidden=list(tokens.values())+[f['source_token']]
     with context_host(runtime,host_key,config) as host:
         args=['--database-url-file',str(domain_dsn),*common,'--service-credential-file',str(credential['assembly-runtime-worker']),

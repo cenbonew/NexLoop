@@ -6,10 +6,12 @@ def inputs():
     tenant,run,context=map(str,(uuid.uuid4(),uuid.uuid4(),uuid.uuid4()))
     command={key:'value' for key in ('schema_version','request_id','consumer_ref','goal_version_ref','role_ref','runtime_profile','trigger_event_id')}
     command.update(run_id=run,tenant_id=tenant,world_id='real',mode='real',runtime_owner_epoch=1,budget={},not_after='2026-10-08T22:00:00Z',credential_ref='run:'+run,context_manifest_ref='artifact:placeholder')
-    snapshot={'schema_version':'nexloop.context-pack.v1','bindings':{'tenant_id':tenant,'world_id':'real','run_id':run,'source_principal':'source','context_id':context,'namespace':'e'*64,'artifact_id':'f'*32,'command_digest':'a'*64},
+    snapshot={'schema_version':'nexloop.context-pack.v2','bindings':{'tenant_id':tenant,'world_id':'real','run_id':run,'source_principal':'source','context_id':context,'namespace':'e'*64,'artifact_id':'f'*32,'command_digest':'a'*64},
      'user_statement':{'message_id':'b'*64,'conversation_id':'c'*64,'sequence':1,'body':'用户原文；不是已核实事实','provenance':'eios:object:'+'b'*64},
      'formal_facts':[{'type':kind,'id':str(i)*64,'revision':1,'provenance':'eios:object:'+str(i)*64} for i,kind in enumerate(('Consumer','EffectControl','Goal','PlanStep'),1)],
      'current_constraints':{'action':'nexloop.service.request:1','allow_effect':True,'budget_units':2,'reserved_units':0,'valid_until':'2026-10-08T22:00:00Z','executor_principal':'executor'}}
+    from nexloop_eios.service_offerings import json_export_example
+    snapshot['supply']={'offering_id':'7'*64,'offering_revision':1,'binding_id':'8'*64,'binding_revision':1,'provenance':'eios:object:'+'7'*64,'properties':json_export_example(valid_until='2026-10-08T22:00:00Z')}
     return snapshot,command
 
 def test_canonical_pack_preserves_statement_and_explicit_fact_boundary():

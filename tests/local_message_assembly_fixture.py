@@ -130,12 +130,15 @@ def assembled_message(business_plan,admin,tmp_path,request):
         'valid_until':expiry,'role_ref':'role:explicit-source','context_manifest_ref':'artifact:owned-local-demo',
         'runtime_profile':'deterministic-test','budget':{'maximum_model_turns':8,'maximum_tool_calls':8,'active_timeout_seconds':60,'maximum_cost':'1.0','currency':'USD'},
         'runtime_owner_epoch':1,'queue':'operations'}
-    from message_offering_fixture import install_message_catalog
-    from nexloop_eios.backend import open_backend
-    from psycopg.conninfo import make_conninfo
-    with open_backend(database_url=make_conninfo(original['pg'],user='nexloop_api'),artifact_root=tmp_path/'message-catalog',signing_key_file=original['paths']['backend_signing'],signing_key_id='explicit-configuration') as backend:
-        catalog=install_message_catalog(admin,backend,tenant,public['consumer_id'],tokens['assembly-source'],suffix='-assembly-source',manifest=updated,paths=original['paths'])
-    recipe.update(offering_id=catalog['offering_id'],offering_binding_id=catalog['offering_binding_id'])
-    tokens['assembly-source']=catalog['source_token'];updated=catalog['manifest']
+    register_catalog=getattr(request,'param',True)
+    assert type(register_catalog) is bool
+    if register_catalog:
+        from message_offering_fixture import install_message_catalog
+        from nexloop_eios.backend import open_backend
+        from psycopg.conninfo import make_conninfo
+        with open_backend(database_url=make_conninfo(original['pg'],user='nexloop_api'),artifact_root=tmp_path/'message-catalog',signing_key_file=original['paths']['backend_signing'],signing_key_id='explicit-configuration') as backend:
+            catalog=install_message_catalog(admin,backend,tenant,public['consumer_id'],tokens['assembly-source'],suffix='-assembly-source',manifest=updated,paths=original['paths'])
+        recipe.update(offering_id=catalog['offering_id'],offering_binding_id=catalog['offering_binding_id'])
+        tokens['assembly-source']=catalog['source_token'];updated=catalog['manifest']
     files={label:private(tmp_path,label,token) for label,token in tokens.items()}
     yield PrivateConfiguration(base=f,original=original,setup=public,recipe=recipe,credential_files=files,tokens=tokens,manifest=updated)

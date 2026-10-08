@@ -6,12 +6,12 @@ ROOT=Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize('extra',[
  {'context_input_protocol':None},
  {'context_input_protocol':True},
- {'context_input_protocol':'nexloop.context-pack.v2'},
- {'context_input_protocol':'nexloop.context-pack.v1','deterministic_message_from_input':False},
- {'context_input_protocol':'nexloop.context-pack.v1','deterministic_message_from_input':None},
- {'context_input_protocol':'nexloop.context-pack.v1','effect_tools':False},
- {'context_input_protocol':'nexloop.context-pack.v1','deterministic_effect_message':'legacy fixed'},
- {'context_input_protocol':'nexloop.context-pack.v1','runtime_profile':'deepseek-flash','model_configuration_file':'/unused/private-model','maximum_request_cost':'1'},
+ {'context_input_protocol':'nexloop.context-pack.v3'},
+ {'context_input_protocol':'nexloop.context-pack.v2','deterministic_message_from_input':False},
+ {'context_input_protocol':'nexloop.context-pack.v2','deterministic_message_from_input':None},
+ {'context_input_protocol':'nexloop.context-pack.v2','effect_tools':False},
+ {'context_input_protocol':'nexloop.context-pack.v2','deterministic_effect_message':'legacy fixed'},
+ {'context_input_protocol':'nexloop.context-pack.v2','runtime_profile':'deepseek-flash','model_configuration_file':'/unused/private-model','maximum_request_cost':'1'},
 ])
 def test_context_mode_is_explicit_strict_and_synthetic_only(tmp_path,extra):
     config=tmp_path/'config.json';config.write_text(json.dumps({'runtime_profile':'deterministic-test','guard_url':'https://127.0.0.1:9999/internal/v1/runtime/authorize',

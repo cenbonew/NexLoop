@@ -139,6 +139,8 @@ def message_plan(admin,pg,tmp_path):
         from message_offering_fixture import install_message_catalog
         catalog=install_message_catalog(admin,api,tenant,consumer,source_tokens[0],suffix='-source-A')
         source_tokens[0]=catalog['source_token'];source=catalog['source']
+        human=authenticate_browser_business(api._pool,issued.session,world='real')
+        port=ConversationMessagePort(api._pool,human,api._signer)
         owner=api.authenticate(owner_token,world='real');planner=api.authenticate(planner_token,world='real');worker=backend_worker.authenticate(worker_token,world='real')
         run=source.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])
         planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,consumer_revision=1,control_revision=1,run_id=run.run_id,run_token=run.token,executor_token=executor_token)

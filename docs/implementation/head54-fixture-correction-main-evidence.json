@@ -1,0 +1,52 @@
+{
+  "task": "NX-016",
+  "bootstrap_revision": "0054",
+  "recorded_at": "2026-10-08T13:38:26.202712+00:00",
+  "source_sha256": {
+    "tests/local_message_assembly_fixture.py": "ec100bae4272f1e88f8f9373cac7910f35fd686769d1a4361695d496159d4b7d",
+    "tests/message_runtime_fixture.py": "17f70646c3dc191d7a09f64c0cf52bdffad3f1b0a753475a6a5bdf34c42fefef",
+    "tests/test_context_artifacts.py": "077e457ba8a47374e77bd881b0fa3a5c48e446944ec1f64c0f7f848fc2b962cb",
+    "tests/test_context_host_export.py": "62c7e9f295da459af1c4b7a0597999c20445706bec7961c7df48624ffd6e821a",
+    "tests/test_context_host_recovery.py": "91646f8c598128d8b08e9c33f14c0a54d8d2c19a3a2685e81e05786722981808",
+    "tests/test_context_mode_configuration.py": "6bdf1964cb894ef56cb247fb25e55fe6a1b2770eaf1467b0dffe9d9361bb23bb",
+    "tests/test_context_pack.py": "2a7366ac258a9e1a4c1744a7d477dad435f74f9bf97688340c59f4dcf3847a4c",
+    "tests/test_local_json_delivery_pg.py": "bcda1318ef7f534cfc53412d5741134f0598fb67acb7dda97e7229f96a855f01",
+    "tests/test_offering_runtime_pg.py": "8f0276c672743a550ad48c735f9f24c9c525e78339008b1c39f3a2efe6c0136d"
+  },
+  "first_full_ci": {
+    "passed": 1565,
+    "failed": 17,
+    "errors": 33,
+    "seconds": 1666.19,
+    "evidence": "docs/implementation/head0054-full-ci-first-evidence.json"
+  },
+  "corrected_main_runs": [
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_offering_runtime_pg.py --tb=short --junitxml=.ci-results/offering54-fixture-corrected.xml",
+      "session": 63086,
+      "passed": 16,
+      "seconds": 62.13,
+      "warnings": 2
+    },
+    {
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && uv run --frozen pytest -q tests/test_context_pack.py tests/test_context_mode_configuration.py tests/test_context_artifacts.py tests/test_context_host_export.py tests/test_context_host_recovery.py tests/test_local_json_delivery_pg.py tests/test_local_effect_worker_kill.py tests/test_message_runtime_bridge.py --tb=short --junitxml=.ci-results/head54-fixture-regression.xml",
+      "session": 95314,
+      "passed": 58,
+      "seconds": 236.63,
+      "warnings": 7
+    }
+  ],
+  "changes": [
+    "reuse actual governed catalog; preserve single active binding",
+    "valid typed Context v2 with unchanged boundary assertions",
+    "explicit bounded fault-test lease/deadline, actual kill/reopen assertions preserved",
+    "real Source current catalog READ before Run",
+    "actual Human fresh authentication after catalog publication",
+    "explicit no-catalog fixture branch and zero catalog objects assertion"
+  ],
+  "versions_lock": "unchanged; published migrations 1..54 immutable",
+  "limitations": [
+    "Full CI has not been rerun after fixture fixes",
+    "native55 and governed denial56 not merged; task remains in_progress"
+  ]
+}

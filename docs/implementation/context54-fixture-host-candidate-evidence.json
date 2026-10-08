@@ -1,0 +1,86 @@
+{
+  "scope": "Independent read-only snapshot of frozen main54; no main changes",
+  "commands": [
+    "PYTHONPATH=\"$PWD/docs/tmp/nx017-context54-audit/packages/eios-core/src:$PWD/docs/tmp/nx017-context54-audit/tests\" .venv/bin/python -m pytest docs/tmp/nx017-context54-audit/tests/test_context_artifacts.py --maxfail=1 -q --tb=short"
+  ],
+  "runs": [
+    {
+      "session": 69760,
+      "result": "1 setup error2.55s",
+      "actual": "test_context_artifacts.py88 apply_manifest ConfigurationRejected"
+    },
+    {
+      "session": 14822,
+      "result": "1 setup error2.24s",
+      "diagnostic": "Only synthetic schema names printed: duplicate ServiceOffering:1/ConsumerServiceOffering:1 schemas and *.create:1 actions. Diagnostic candidate-only trusted_configuration edit restored byte-identical to frozen main afterward."
+    }
+  ],
+  "cause": "assembled_message new message_offering_fixture already publishes catalog; context_message unconditionally appends same schemas/create Actions.",
+  "minimal_fix": "Reuse existing assembled recipe Offering/Binding and published definitions. Append only missing edit Actions, separate genuine maintainer EDIT and current source context/artifact/catalog READ config; reauthenticate real Source after config epoch. Do not blindly create a second active ConsumerServiceOffering for same Source/Consumer: genuine generic Run selection intentionally fails ambiguous matches.",
+  "not_proved": "No proposed fixture correction has yet run. Root current full CI remains untouched/live.",
+  "historical_control": {
+    "session": 71247,
+    "result": "15 passed67.09s",
+    "scope": "Older registered53 snapshot only, not current54 evidence"
+  },
+  "cleanup": "All own sessions terminal; conftest stops/removes only each test-owned PGDATA. No model/production/key access.",
+  "final_scope": "Isolated frozen main54 snapshot; only tests fixture/config corrections, no production module changes",
+  "additional_runs": [
+    {
+      "session": 60267,
+      "command": "PYTHONPATH=\"$PWD/docs/tmp/nx017-context54-audit/packages/eios-core/src:$PWD/docs/tmp/nx017-context54-audit/tests\" .venv/bin/python -m pytest docs/tmp/nx017-context54-audit/tests/test_context_artifacts.py --maxfail=1 -q --tb=short",
+      "result": "15 passed",
+      "seconds": 66.65
+    },
+    {
+      "session": 71198,
+      "result": "1 failed",
+      "seconds": 6.3,
+      "reason": "Host export test selectedv1 despite mandatory actualpackv2; runtime retry_wait, no success claimed"
+    },
+    {
+      "session": 22647,
+      "result": "1passed1failed",
+      "seconds": 37.07,
+      "reason": "v2 export passed; recovery failed before barrier seen within15s; process alive, no kill success claimed."
+    },
+    {
+      "session": 74957,
+      "result": "1failed1deselected",
+      "seconds": 15.57,
+      "reason": "Reached realbarrier+SIGKILL; fresh once retry_wait."
+    },
+    {
+      "session": 9786,
+      "result": "1failed1deselected",
+      "seconds": 15.59,
+      "reason": "public jobstate retry_wait/attempts2/code runtime_transport_unavailable/outcomeunknown."
+    },
+    {
+      "session": 99036,
+      "result": "1failed1deselected",
+      "seconds": 16.1,
+      "reason": "Sanitized diagnostic inspect200,resume202 then inspect TimeoutError at fixed1second, no rawbody/key/headers logged."
+    },
+    {
+      "session": 72899,
+      "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=\"$PWD/docs/tmp/nx017-context54-audit/packages/eios-core/src:$PWD/docs/tmp/nx017-context54-audit/tests\" .venv/bin/python -m pytest docs/tmp/nx017-context54-audit/tests/test_context_host_export.py docs/tmp/nx017-context54-audit/tests/test_context_host_recovery.py -q -x --tb=short",
+      "result": "3 passed",
+      "seconds": 59.47,
+      "skip": 0
+    }
+  ],
+  "final_changes": [
+    "context_message reuses existing actualGovOffering/Binding schemas/createActions, adds onlymissingeditActions and genuine independentmaintainerEDIT/currentSourceREAD; nosecondbinding",
+    "Host export/recovery select formalcontext-pack.v2",
+    "Faulttest boundedlease6/request2 remains originalDispatcher maximumrequest<=lease/3; wait6.2 foractualexpire/reclaim; realbarrier+SIGKILL, originalsubmission/fence/full/oneeffect/quota1 andartifactdeletednegative assertionsunchanged"
+  ],
+  "files": {
+    "test_context_artifacts.py": "077e457ba8a47374e77bd881b0fa3a5c48e446944ec1f64c0f7f848fc2b962cb",
+    "test_context_host_export.py": "62c7e9f295da459af1c4b7a0597999c20445706bec7961c7df48624ffd6e821a",
+    "test_context_host_recovery.py": "91646f8c598128d8b08e9c33f14c0a54d8d2c19a3a2685e81e05786722981808"
+  },
+  "patch_sha256": "bce95df1bc07c2fdcd8f53658ca78eacddf698744ed50dc1e252b315a1bb8c0b",
+  "source_diagnostics_restored": true,
+  "final_cleanup": "All owned PG/Host/Worker processes terminal; fixtures stop/remove exact owned PGDATA. No live child; main/source/catalog/version/planning/CIinputs not modified."
+}

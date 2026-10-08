@@ -69,27 +69,23 @@ def context_message(assembled_message,admin,tmp_path):
     import secrets
     inputs=governance_inputs();original=inputs['action_definition'];cap=inputs['capability_snapshot']
     schemas=offering_schemas()
-    manifest['object_types'].extend(schema.model_dump(mode='json') for schema in schemas)
+    existing_types={(row['type_name'],row['version']):row for row in manifest['object_types']}
     for schema in schemas:
-        for operation in ('create','edit'):
+        assert existing_types[schema.type_name,schema.version]==schema.model_dump(mode='json')
+    existing_actions={(row['definition']['stable_name'],row['definition']['version']) for row in manifest['actions']}
+    for schema in schemas:
+        for operation in ('edit',):
             name=schema.type_name+'.'+operation
+            if (name,1) in existing_actions:continue
             d=json.loads(json.dumps(original.model_dump(mode='json')).replace('synthetic-a',tenant));d.pop('contract_digest',None)
             ref={**d['object_types'][0],'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)}
             d['stable_name']=name;d['object_types']=[ref];d['governance']['change_scope']['object_types']=[ref]
             capability=cap.model_dump(mode='json')
             if operation=='edit':d['capability_binding']['capability_name']='ontology.object.edit';capability['capability_name']='ontology.object.edit'
             manifest['actions'].append({'definition':type(original).model_validate_json(json.dumps(d)).model_dump(mode='json'),'capability':capability})
-    maintainer,expiry,maintainer_facts=declared_service(tenant,[x.type_name+'.'+op for x in schemas for op in ('create','edit')],'-catalog-maintainer')
-    maintainer_token=secrets.token_urlsafe(48)
-    merged={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};merged.update({(r['kind'],tuple(r['key'])):r for r in maintainer_facts});manifest['authority_facts']=list(merged.values())
-    manifest['service_credentials'].append({'reference':'catalog-maintainer','binding':maintainer.model_dump(mode='json'),'worlds':['real'],'expires_at':expiry.isoformat(),'status':'active'})
-    secret_map=json.loads(o['paths']['secrets'].read_text());secret_map['catalog-maintainer']=maintainer_token;o['paths']['secrets'].write_text(json.dumps(secret_map))
-    manifest.update(manifest_id=str(uuid.uuid4()),expected_revision=admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(tenant,)).fetchone()[0])
-    apply_manifest(manifest,database_url_file=o['paths']['dsn'],signing_key_file=o['paths']['signing'],signing_key_id='explicit-configuration',service_secrets_file=o['paths']['secrets'])
-    with open_backend(database_url=make_conninfo(o['pg'],user='nexloop_api'),artifact_root=tmp_path/'catalog-maintenance',signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration') as catalog_backend:
-        keeper=catalog_backend.authenticate(maintainer_token,world='real')
-        offering=keeper.create_object(action_name='ServiceOffering.create',action_version=1,intent_id='context-offering',type_name='ServiceOffering',properties=json_export_example(valid_until=(datetime.now(UTC)+timedelta(minutes=5)).isoformat()))
-        link=keeper.create_object(action_name='ConsumerServiceOffering.create',action_version=1,intent_id='context-offering-binding',type_name='ConsumerServiceOffering',properties={'consumer_id':f['recipe']['consumer_id'],'offering_id':offering['object_id'],'offering_revision':1,'source_principal':tenant+'-assembly-source-principal','active':True})
+    # Reuse the real governed catalog created by assembled_message.
+    offering={'type_name':'ServiceOffering','object_id':f['recipe']['offering_id']}
+    link={'type_name':'ConsumerServiceOffering','object_id':f['recipe']['offering_binding_id']}
     catalog_targets=[]
     for obj,fields in ((offering,OFFERING_FIELDS),(link,BINDING_FIELDS)):
         target=obj['type_name']+'/'+obj['object_id'];catalog_targets.append(('eios:object:'+target,ResourceType.OBJECT))
@@ -98,8 +94,9 @@ def context_message(assembled_message,admin,tmp_path):
     edit_specs.extend((target,kind,Operation.EDIT) for target,kind in catalog_targets)
     edit_binding,edit_rows=source_declarations(tenant,custom_specs=edit_specs,identity_suffix='-catalog-maintainer')
     edit_token=secrets.token_urlsafe(48)
+    expiry=next(row['payload']['expires_at'] for row in edit_rows if row['kind']=='authentication')
     merged={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};merged.update({(r['kind'],tuple(r['key'])):r for r in edit_rows});manifest['authority_facts']=list(merged.values())
-    manifest['service_credentials'].append({'reference':'catalog-editor','binding':edit_binding.model_dump(mode='json'),'worlds':['real'],'expires_at':expiry.isoformat(),'status':'active'})
+    manifest['service_credentials'].append({'reference':'catalog-editor','binding':edit_binding.model_dump(mode='json'),'worlds':['real'],'expires_at':expiry,'status':'active'})
     secret_map=json.loads(o['paths']['secrets'].read_text());secret_map['catalog-editor']=edit_token;o['paths']['secrets'].write_text(json.dumps(secret_map))
     binding,rows=source_declarations(tenant,catalog_targets)
     f['recipe'].update(offering_id=offering['object_id'],offering_binding_id=link['object_id'])

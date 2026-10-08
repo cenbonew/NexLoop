@@ -1,0 +1,224 @@
+{
+  "task": "NX-016",
+  "status": "failed",
+  "head": "47e24a92e43787f70fe0a227d30e5faa0c831414",
+  "bootstrap_revision": "0054",
+  "command": "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && bash scripts/ci/check",
+  "exit_code": 1,
+  "python": {
+    "passed": 1565,
+    "failed": 17,
+    "errors": 33,
+    "seconds": 1666.19,
+    "warnings": 5
+  },
+  "offline_sdk": {
+    "passed": 8
+  },
+  "tracked_inputs": 1139,
+  "changed_inputs": [],
+  "failure_tests": [
+    {
+      "test": "tests.test_context_artifacts::test_real_pack_artifact_and_queue_input_persist_before_ack",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_actual_model_tool_guard_checks_artifact_read_revocation",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_missing_current_permission_never_acknowledges[artifact.create]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_missing_current_permission_never_acknowledges[artifact.read]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_missing_current_permission_never_acknowledges[action.execute]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_runtime_pack_and_reference_tampering_rejected",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_available_artifact_corruption_detected_not_memory_fallback",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_direct_binding_tables_and_old_activation_inner_are_denied",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_current_artifact_metadata_denies_model_tool_and_rolls_back_marker[status]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_current_artifact_metadata_denies_model_tool_and_rolls_back_marker[expiry]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_current_artifact_metadata_denies_model_tool_and_rolls_back_marker[sha256]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_opaque_guard_projection_has_only_actual_artifact_attestation",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_foreign_real_authenticated_worker_cannot_authorize_original_context",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_real_effect_intent_tail_artifact_expiry_rolls_back_every_write",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_artifacts::test_actual_three_process_replay_model_tool_do_not_invert_locks",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_host_export::test_actual_bound_pack_goes_through_pg_guard_and_exports_original_statement",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_host_recovery::test_sigkill_context_host_and_worker_reopen_same_bound_pack[None]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_host_recovery::test_sigkill_context_host_and_worker_reopen_same_bound_pack[artifact_deleted]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_context_mode_configuration::test_context_mode_is_explicit_strict_and_synthetic_only[extra2]",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_context_pack::test_canonical_pack_preserves_statement_and_explicit_fact_boundary",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_context_pack::test_revision_safe_limit_and_no_unknown_secret_fields",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_effect_worker_kill::test_actual_fulfilled_file_before_reply_independent_worker_sigkill_recovers_only_get",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_https_governed_post_fsync_readonly_get_and_original_claim_receipt",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_sigkill_reopen_recovers_original_intent_without_second_post_or_quota[.manifest.json]",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_sigkill_reopen_recovers_original_intent_without_second_post_or_quota[.export.json]",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_active_original_claim_recovery_does_not_occupy_new_effect_lease",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_recovery_current_authority_revocation_denies_real_new_claim_and_file[source_send]",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_recovery_current_authority_revocation_denies_real_new_claim_and_file[executor_send]",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_recovery_current_authority_revocation_denies_real_new_claim_and_file[source_run_expired]",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_expired_effect_lease_post_does_not_materialize_any_manifest",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_same_signed_guard_tail_expiry_does_not_claim_business_success",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_recovery_reserve_tail_expiry_rolls_back_claim_attempt_and_marker",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_local_json_delivery_pg::test_actual_sigkill_after_recovery_reserve_commit_same_intent_recovers_no_new_quota",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_message_runtime_bridge::test_actual_message_run_admission_and_current_owned_safe_read",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_actual_action_worker_scope_and_governed_https_export[message]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_actual_action_worker_scope_and_governed_https_export[generic]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_runtime_source_cannot_create_catalog",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_typed_outside_terms_refused_with_current_scope_and_no_intent",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_real_insert_then_catalog_read_proof_expires_rolls_back_quota",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_actual_admit_write_then_current_catalog_read_expiry_rolls_back_attempt",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_actual_https_scope_denial_is_bounded_current_read_no_receipt",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_genuine_generic_run_governed_catalog_no_message_or_artifact_required",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_genuine_generic_run_missing_catalog_is_denied",
+      "kind": "failure"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_governed_catalog_edit_current_revision_denies_model_tool_no_quota[patch0]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_governed_catalog_edit_current_revision_denies_model_tool_no_quota[patch1]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_governed_catalog_edit_current_revision_denies_model_tool_no_quota[patch2]",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_governed_catalog_edit_after_accept_denies_send_before_any_attempt",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_genuine_generic_same_slot_changed_terms_never_creates_new_intent",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_signed_catalog_cross_consumer_and_unrelated_source_denied",
+      "kind": "error"
+    },
+    {
+      "test": "tests.test_offering_runtime_pg::test_catalog_partial_edit_preserves_fields_and_runtime_or_revoked_editor_cannot_edit",
+      "kind": "error"
+    }
+  ],
+  "subsequent_ci_stages": "not_run after Python failure",
+  "report_sha256": "2b4f49261466bdc4aa7909b44eea38bd252278d8686030366dc58a6af093cd85"
+}

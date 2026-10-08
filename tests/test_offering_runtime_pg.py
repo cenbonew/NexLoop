@@ -173,10 +173,13 @@ def test_genuine_generic_run_governed_catalog_no_message_or_artifact_required(co
     assert admin.execute('select count(*) from runtime.nexloop_effect_catalog_bindings').fetchone()==(1,)
 
 
+@pytest.mark.parametrize('assembled_message',[False],indirect=True)
 def test_genuine_generic_run_missing_catalog_is_denied(assembled_message,admin,tmp_path):
     from pathlib import Path
     from nexloop_eios.effect_intents import EffectIntentUnavailable
     f=assembled_message;o=f['original']
+    assert 'offering_id' not in f['recipe'] and 'offering_binding_id' not in f['recipe']
+    assert admin.execute("select count(*) from ontology.objects where type_name in ('ServiceOffering','ConsumerServiceOffering')").fetchone()==(0,)
     with open_backend(database_url=make_conninfo(o['pg'],user='nexloop_api'),artifact_root=tmp_path/'generic-no-catalog',signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration') as backend:
         source=backend.authenticate(f['tokens']['assembly-source'],world='real');planner=backend.authenticate(f['tokens']['assembly-planner'],world='real')
         generic,run_id=generic_plan_run(source,planner,f['recipe'],f['tokens']['assembly-executor'])

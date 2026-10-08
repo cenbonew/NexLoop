@@ -65,7 +65,11 @@ def delivery_plan(business_plan,admin,tmp_path):
         api=stack.enter_context(open_backend(database_url=make_conninfo(f['f']['pg'],user='nexloop_api'),artifact_root=tmp_path/'local-api',**opts))
         worker=stack.enter_context(open_backend(database_url=make_conninfo(f['f']['pg'],user='nexloop_action_worker'),artifact_root=tmp_path/'local-worker',**opts))
         provider_backend=stack.enter_context(open_backend(database_url=make_conninfo(f['f']['pg'],user='nexloop_action_worker'),artifact_root=tmp_path/'local-provider',**opts))
-        planner_service=api.authenticate(planner_token,world='real');source_service=api.authenticate(source_token,world='real')
+        from message_offering_fixture import install_message_catalog
+        catalog=install_message_catalog(admin,api,tenant,setup['consumer_id'],source_token,
+            suffix='-local-source',manifest=manifest,paths=p)
+        manifest=catalog['manifest'];source_token=catalog['source_token']
+        planner_service=api.authenticate(planner_token,world='real');source_service=catalog['source']
         expires=(datetime.now(UTC)+timedelta(seconds=180)).isoformat()
         goal=planner_service.create_object(action_name='Goal.create',action_version=1,intent_id='local-goal',type_name='Goal',
             properties={'consumer_id':setup['consumer_id'],'state':'active','valid_until':expires})['object_id']
