@@ -8,15 +8,18 @@ from authority_fixture import authority_records
 from nexloop_eios.authorization import authenticate_service
 
 
-def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real'):
-    scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets)
+def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra_scopes=()):
+    scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets)|frozenset(extra_scopes)
     records={}; apps=[]
     for target,kind,op in targets:
         auth,expiry,rows=authority_records('synthetic-a',target,world=world,resource_type=kind,operation=op,identity_suffix=identity_suffix)
         for k,key,fact in rows:
             if k=='application':apps.append(fact)
+            previous=records.get((k,tuple(key)))
+            if k=='grants' and previous is not None:
+                fact=fact.model_copy(update={'grants':tuple(dict.fromkeys(previous[2].grants+tuple(g.model_copy(update={'grant_id':g.grant_id+'-'+op.value}) for g in fact.grants)))})
             records[(k,tuple(key))]=(k,key,fact)
-    app=apps[0].model_copy(update={'resources':tuple(ResourceRestriction(tenant_id='synthetic-a',resource_type=kind.value,resource_id=target) for target,kind,op in targets),
+    app=apps[0].model_copy(update={'resources':tuple(ResourceRestriction(tenant_id='synthetic-a',resource_type=kind.value,resource_id=target) for target,kind in dict.fromkeys((target,kind) for target,kind,op in targets)),
         'operations':tuple(OperationRestriction(operation=op) for op in sorted({op for _,_,op in targets},key=lambda op:op.value))})
     auth=auth.model_copy(update={'requested_scopes':scopes,'caller_application_digest':app.version_digest})
     for mapkey,(kind,key,fact) in list(records.items()):

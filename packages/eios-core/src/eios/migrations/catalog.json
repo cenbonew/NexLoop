@@ -280,6 +280,11 @@
       "version": "0056",
       "name": "0056_scope_denials.sql",
       "sha256": "15b306f0452fbf24d94b18fab013eda2ecf4f76906a5eb280de8501fcc05b8a4"
+    },
+    {
+      "version": "0057",
+      "name": "0057_role_mapping_and_create_tail.sql",
+      "sha256": "7d157de40a4ddc604fd517c9bb4995cf2bdae8657d2bfe13c4ee6faaa2f34c7c"
     }
   ]
 }

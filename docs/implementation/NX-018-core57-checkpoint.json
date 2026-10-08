@@ -1,0 +1,48 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T15:53:27.619490+00:00",
+  "bootstrap_revision": "0057",
+  "source_freeze": {
+    "paths": 380,
+    "changed": 0
+  },
+  "suites": [
+    {
+      "command": "PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_consumer_resolution_pg.py tests/test_conversation_messages.py --tb=short --junitxml=.ci-results/nx018-consumer-main.xml",
+      "node_setup": "source ~/.nvm/nvm.sh && nvm use 24",
+      "report": ".ci-results/nx018-consumer-main.xml",
+      "sha256": "82b0e1b08cb70da356a9b4489679e343958345de699bde4712e422ac2a2b5529",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "command": "PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_bootstrap.py tests/test_role_mapping.py tests/test_action_definitions.py tests/test_object_edits.py tests/test_agent_governed_write.py tests/test_backend.py tests/test_relation_actions.py --tb=short --junitxml=.ci-results/nx018-role-core57-main.xml",
+      "node_setup": "source ~/.nvm/nvm.sh && nvm use 24",
+      "report": ".ci-results/nx018-role-core57-main.xml",
+      "sha256": "61ac6be21af91cf240e213ef3b952e85750f1825497830629edb7aef17cec155",
+      "tests": 93,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "scope": [
+    "ConsumerNameResolver: two same-name Consumers remain ambiguous; authenticated conversation bindings stay distinct; current Object/Property READ revocation denies projection.",
+    "RoleMappingPort: governed N:M configuration with ontology.roles.manage and current permission checks, validity, immutable endpoints and commit-tail rollback."
+  ],
+  "limitations": [
+    "Role mapping is not yet wired to Run selection or conflict delivery; AT-004 remains not_run.",
+    "Relationship assessment candidate is not promoted: relation definition/version binding and formal Context integration require further implementation; AT-009 remains not_run.",
+    "Consumer profile is a fresh-tenant initial schema projection, not an existing v1 schema upgrade."
+  ],
+  "first_failures_and_retries": [
+    "Role candidate fixture iterations corrected duplicate authority resources, stale readers, typed hydration, contract digests and revision column; final isolated candidate 35 passed.",
+    "Consumer candidate initially failed duplicate manifest facts and immutable allowance changes; fresh initial fixture corrected, final isolated candidate 2 passed. No actual schema-v2 SQL execution success is claimed.",
+    "git apply --check used wrong default path stripping and failed without mutations; git apply -p0 --check then apply succeeded.",
+    "Main Consumer 15 and core0057 93 suites passed on their first main runs."
+  ],
+  "migration_sha256": "7d157de40a4ddc604fd517c9bb4995cf2bdae8657d2bfe13c4ee6faaa2f34c7c"
+}
