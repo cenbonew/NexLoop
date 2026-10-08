@@ -1,0 +1,42 @@
+{
+  "recorded_at": "2026-10-08T04:35:02.335843+00:00",
+  "task": "NX-015",
+  "status": "in_progress",
+  "product_ready": false,
+  "migration_head": "0041",
+  "context_and_intents": {
+    "command": "uv run pytest -q tests/test_effect_contexts.py tests/test_effect_intents.py --tb=short",
+    "passed": 26,
+    "seconds": 32.9,
+    "actual_backend_pg_governed_business_objects": true,
+    "coverage": [
+      "A/Bdistinctactualsubjects shareactualStep+intent+outbox+sharedquotaonce",
+      "thirdsubjectwithActionbutwithoutStepdelegationdenied",
+      "sharedbudgetacrossactualSteps",
+      "actualGoalgovernededitinvalidatesbinding",
+      "actualrowlockwaitcausesshortenedrealproofexpirywholetransactionrollback",
+      "atomicclaim/context/runlink/finalize"
+    ]
+  },
+  "head_prerequisites": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_bootstrap.py tests/test_core_sandbox.py tests/test_doctor.py tests/test_db_boundary.py tests/test_compose_bootstrap.py tests/test_wheel_install.py --tb=short --junitxml=.ci-results/effect-context-head-prerequisites.xml",
+    "passed": 22,
+    "seconds": 19.79,
+    "report_sha256": "37c9b5aa8e254dbedfec7471ef6c7072ebe62fc0a7de11aac10d9e8bd5c02ece"
+  },
+  "first_failures": [
+    "SQL CASE expression required parentheses; corrected0041 beforefreeze",
+    "FrozenJsonMap nested tuple/list comparison differed from published JSON; usemodel_dump(mode=json)",
+    "strictActionClaimResult parsed withmodel_validate_json ratherthanstrictPythonmodel_validate",
+    "negativeSourcefixtureusedcachedexecutoridentity afterauthorityDirectorychanges:7passed1failed;freshrealBackend.authenticate fixed;final26passed"
+  ],
+  "migration_integrity": "docs/implementation/effect-context-migration-integrity-evidence.json",
+  "full_ci": "not_run_at0041;lastfullCI0040passed1146Python24SQLite25PiRuntime",
+  "limitations": [
+    "publishedschemas/authorityconfiguration stillsyntheticfixture;productiongovernedpublishingtoolnotassembled",
+    "credentialrotationnotassembled",
+    "actualeffectdispatch/PGquery-firstattempt/finalizationpending",
+    "AT033-037andAT039notyetproved",
+    "0041images/deploymentnotverified"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "recorded_at": "2026-10-08T06:04:27.512264+00:00",
+  "migration_head": "0044",
+  "full_ci_session": 22409,
+  "exit_code": 1,
+  "python": {
+    "passed": 1202,
+    "seconds": 1231.93
+  },
+  "sqlite_conformance": {
+    "passed": 24
+  },
+  "runtime": {
+    "passed": 33,
+    "candidate_collection_failed": 2
+  },
+  "failure": "Vitest substring collection also selected isolated docs/tmp candidate tests missing frozen dependencies",
+  "fix": "scripts/ci/check excludes docs/tmp/** from agent-host vitest collection; authoritative runtime suite33passed; full corrected CI pending",
+  "focused_retry": {
+    "session": 63847,
+    "passed": 33,
+    "exit_code": 0
+  },
+  "reports_sha256": {
+    "runtime.xml": "f328ff7759dc9929225031a9c90ca36cbb1f8ca66de242de7491d9eb430c85b5",
+    "python.xml": "f6c5d230acca11a457feab78edb04c5f2e035c6f95ac925a06ad85d75c1ca254",
+    "pi.xml": "c91e7dea4f3eda4f28cb29c8a08a486ac7ae6ca4d93e0b80f8edf563d553062b",
+    "effect-execution-full-ci-rerun.log": "0fc48867a4ae53e1c536ea1d06540b6101f49c62169ca7f995db9eb11d7680b5"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "recorded_at": "2026-10-08T06:27:00.283108+00:00",
+  "migration_head": "0044",
+  "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check > .ci-results/effect-execution-full-ci-corrected.log 2>&1",
+  "session": 59409,
+  "exit_code": 0,
+  "counts": {
+    "python.xml": 1202,
+    "pi.xml": 24,
+    "runtime.xml": 33
+  },
+  "python_seconds": 1236.28,
+  "warnings": 1,
+  "critical_skips": 0,
+  "frozen_sources_checked": 698,
+  "source_drift": [],
+  "reports_sha256": {
+    "python.xml": "c3d74885e3f93a88d4dcb4d59cf15716acfaed26592821d1702406e5693f507c",
+    "pi.xml": "3c83fc49b3f6a54fa1b7e0efca106793711224fca446870d870a5eb111024939",
+    "runtime.xml": "905881cd2727461fd077bc37fc521db0ba7ba42b8e68bed5d4916bca99773618",
+    "effect-execution-full-ci-corrected.log": "44ed09e4e83a3a765e426075fc82d77e7e62dfa497781c7925fce80fbcd2ef11",
+    "head0044-corrected-source-manifest.json": "7213e7bb92865b690ef8d379ec64792c2f8871c68037a9efa5e9f316690d4423"
+  },
+  "selected_actual_recovery_cases": [
+    "test_same_pi_run_survives_host_and_effect_worker_kill_query_first",
+    "test_actual_pi_rebuilt_tool_call_hits_original_business_receipt"
+  ],
+  "first_failures": [
+    {
+      "session": 16781,
+      "reason": "obsolete hardcoded0042 expectation",
+      "retry": "release lock expectation focused5pass4.07s"
+    },
+    {
+      "session": 22409,
+      "reason": "Vitest substring collection included ignored docs/tmp candidate tests",
+      "retry": "exclude docs/tmp/**; runtime33pass; full corrected CIexit0"
+    }
+  ],
+  "scope": "Actual restricted PG EIOS, frozen Pi FULL SQLite, TLS tool bridge and independent persistent synthetic provider recovery. Real external model/channel and deployment not verified.",
+  "versions_lock_change": "bootstrap_revision0044; upstream/packages/images unchanged during this correction"
+}

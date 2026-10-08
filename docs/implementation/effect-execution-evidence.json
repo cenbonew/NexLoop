@@ -1,0 +1,55 @@
+{
+  "recorded_at": "2026-10-08T05:04:58.060197+00:00",
+  "task": "NX-015",
+  "status": "in_progress",
+  "product_ready": false,
+  "migration_head": "0042",
+  "dispatch": {
+    "command": "uv run pytest tests/test_effect_dispatch.py -q",
+    "passed": 12,
+    "seconds": 50.0,
+    "session": 57888,
+    "exit_code": 0,
+    "evidence_scope": "real isolated PostgreSQL, independent spawned Worker and durable synthetic HTTP provider; not actual external channel",
+    "concurrency": {
+      "distinct_authenticated_subjects": 2,
+      "independent_backend_instances": 2,
+      "independent_spawned_workers": 2,
+      "provider_posts": 1,
+      "provider_effects": 1,
+      "shared_reserved_units": 1,
+      "receipt_shared": true
+    }
+  },
+  "head_prerequisites": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_bootstrap.py tests/test_core_sandbox.py tests/test_doctor.py tests/test_db_boundary.py tests/test_compose_bootstrap.py tests/test_wheel_install.py --tb=short --junitxml=.ci-results/effect-execution-head-prerequisites.xml",
+    "passed": 22,
+    "seconds": 20.3,
+    "report_sha256": "1a85c4f985ce7761ddf51db99985441a46e47102d4e365e042ed72b8ebf856c4"
+  },
+  "sql_boundary": {
+    "command": "uv run pytest -q tests/test_effect_execution_sql.py",
+    "passed": 5,
+    "seconds": 4.27
+  },
+  "first_failures": [
+    "8 fixture errors: context_id corrected to actual context_ref",
+    "Query Action capability binding rejected has_side_effects=False; synthetic published Action corrected to frozen EIOS contract",
+    "8 dispatch cases: 7 passed, 1 failed in 34.57s due to missing Worker provider_state; fixed return fields, 11-case rerun passed",
+    "AT037 first focused failure 2.86s: actual SQL40001 concurrent candidate invalidation",
+    "initial bounded retry: 11 passed/1 failed49.56s because frozen Governor wrapped native40001; privately preserve only actualSQL SerializationFailure, retry entire fresh transaction; focused1passed2.88s and full12passed50s"
+  ],
+  "full_ci": "not_run_at0042; last complete CI at0040",
+  "limitations": [
+    "production governance publishing tool and credential rotation remain incomplete",
+    "actual channel and actual model validation not performed",
+    "images and deployment not verified at0042",
+    "acceptance gaps tracked separately; NX-015 remains in_progress"
+  ],
+  "bridge_regression": {
+    "command": "uv run pytest -q tests/test_effect_contexts.py tests/test_effect_intents.py tests/test_runtime_guard_transport.py --tb=short --junitxml=.ci-results/effect-bridge-regression.xml",
+    "passed": 44,
+    "seconds": 41.21,
+    "first_command_error": "tests/test_runtime_control.py does not exist; no tests ran; corrected test file to test_runtime_guard_transport.py"
+  }
+}

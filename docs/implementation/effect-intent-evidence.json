@@ -1,0 +1,60 @@
+{
+  "recorded_at": "2026-10-08T04:24:30.543964+00:00",
+  "task": "NX-015",
+  "status": "in_progress",
+  "product_ready": false,
+  "migration_head": "0040",
+  "provider_transport_and_fault_fixture": {
+    "passed": 24,
+    "seconds": 12.8,
+    "command": "uv run pytest tests/test_effect_provider_transport.py tests/test_effect_provider_fixture.py -q",
+    "evidence_kind": "actualHTTP/HTTPS syntheticfaultprovider notactualchannel",
+    "first_attempt": "transport7passed1failed5.15s:POST202wasrejected;fixedandrerun"
+  },
+  "intents": {
+    "passed": 14,
+    "seconds": 12.52,
+    "command": "uv run pytest -q tests/test_effect_intents.py --tb=short",
+    "actual_pg_authenticated_backend": true,
+    "planner_controls": "disposable syntheticfixture;productionregistrarunassembledfailclosed"
+  },
+  "head_prerequisites": {
+    "passed": 22,
+    "seconds": 18.74,
+    "report": ".ci-results/effect-intent-head-prerequisites.xml",
+    "report_sha256": "3baf01bdbd29b1c61de6d8c4dc03a8ba72e8e0e925bfc93b8047d1e9b58cb1ce",
+    "first_attempt": "20passed2failed19.59s:Rootbootstraplistbulkreplaceerrorfixed;newruntimeFORCERLSmissingfixedinunpublished0040"
+  },
+  "migration_integrity": "docs/implementation/effect-intent-migration-integrity-evidence.json",
+  "full_ci": {
+    "exit_code": 0,
+    "command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "python": {
+      "passed": 1146,
+      "seconds": 1068.32,
+      "warnings": 1
+    },
+    "sqlite": {
+      "passed": 24
+    },
+    "pi_runtime": {
+      "passed": 25,
+      "seconds": 1.92
+    },
+    "zero_critical_skips": true,
+    "head": "0040",
+    "reports": {
+      "python": "182e78647fff5f5d80cd064a3c46e469c9042a4bded83ec47f6c9352eb59e742",
+      "pi": "ad874219b4771c3cc8c8f3b776ffd598dc6c534a06dbe79f9f6d1820da8fdfe5",
+      "runtime": "3d65e1461a037cf88ac4c356cd64bcfb744ee252ad3c24f9e62c5a26b21f860a"
+    }
+  },
+  "limitations": [
+    "governedcontextregistrarpending",
+    "executorclaim/fence/attempt/query-firstPGreconcilepending",
+    "AT033-037notyetpassed",
+    "AT039businessreconciliationnotyetproved",
+    "head40images/deploymentnotverified",
+    "realmodel/channelnotcalled"
+  ]
+}

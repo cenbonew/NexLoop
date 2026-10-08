@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-10-08T05:41:17.100508+00:00",
+  "migration_head": "0044",
+  "full_ci_command": "source ~/.nvm/nvm.sh && nvm use && scripts/ci/check > .ci-results/effect-execution-full-ci.log 2>&1",
+  "session": 16781,
+  "exit_code": 1,
+  "python_passed": 1201,
+  "python_failed": 1,
+  "seconds": 1261.82,
+  "failure": "test_42_actual_bootstrap_and_publication_checksum required old0042 while actual catalog was0044",
+  "frozen_source_changes": [],
+  "reports": {
+    "python.xml": "55fd2e8546ddadb89318387bde644706497c2d51789436875cb6004d501c3e10",
+    "effect-execution-full-ci.log": "d766d601196a97c059c02e88c4a04610f307919690d78eb186ec681fdfaa2cdc"
+  },
+  "correction": "Only stale test head expectation now compares against actual release versions.lock; original ledger/RLS/role negative assertions unchanged. Full CI retry pending.",
+  "focused_retry": {
+    "command": "uv run pytest -q tests/test_effect_execution_sql.py --tb=short",
+    "passed": 5,
+    "seconds": 4.07,
+    "session": 47358,
+    "exit_code": 0
+  },
+  "full_retry": "running; scripts/ci/check > .ci-results/effect-execution-full-ci-rerun.log 2>&1"
+}

@@ -1,0 +1,318 @@
+"""NX-015 execution test draft; deliberately NOT collected or executed.
+
+head0040 full CI is fixed. This draft reads existing real admission/provider APIs
+and proposes the missing restricted executor interface; nothing below is passed.
+Do not rename into tests until real registrar/executor/protected PG ports exist.
+
+Existing reusable interfaces:
+  tests/test_effect_intents.py::intents -> (ports, runs, context, backend, root)
+  ports[i].submit_effect_intent(parameters=..., action_version=1)
+  ports[i].find_effect_receipt(intent_id=..., action_version=1)
+  backend.authenticate_run(raw_run_token, world='real', run_id=actual_run_id)
+  support.effect_provider.effect_provider(path), .control('pause'|'release'|
+      'snapshot'), .wait('accepted_committed')
+  HttpEffectProvider(EffectProviderConfiguration(origin, test_loopback_http=True))
+
+MISSING actual interface proposed for agreement, not a mock implementation:
+  EffectDispatcher(actual_authenticated_executor, provider,
+                   lease_seconds=3).run_once()
+  The executor is authenticated with its OWN service credential and actual
+  nexloop_action_worker DSN. run_once performs atomic claim + real Governor
+  permit, dispatch-time current source/control checks, dispatching attempt commit,
+  real HTTP, and fence-protected result commit. Reclaim queries before dispatch.
+  Actual draft methods: claim_effect(lease_seconds=...),
+    prepare_effect_dispatch(intent_id,fence), authorize_effect_query(intent_id,fence),
+    record_effect_observation(intent_id,fence,provider_payload_digest,
+                              provider_state,provider_reference),
+    record_effect_unknown(intent_id,fence). All are missing protected PG ports.
+  Returned result: {claimed:bool,status:<actual ledger status>,
+                    business_action_success:bool}, not a provider success echo.
+  record_effect_observation returns strict state/business_action_success/
+  governed_claim_finalized; accepted != observed_fulfilled != governed fulfilled.
+  Exact method/module/results must be aligned with implementation before running.
+
+Required future real fixture governed_effect_executor:
+  .ports: two actual Run-bound submitter AuthenticatedServices
+  .runs: actual issued credentials, for technical source revocation tests
+  .context_id, .tenant, .executor_principal: authenticated real identities
+  .executor_configuration(): private dict {database_url, artifact_root,
+     signing_key_file, signing_key_id, service_token, world} for child IPC only
+  .current_executor(): fresh open_backend/authenticate context manager, OWN token
+  .revoke_control(): changes EffectControl via published governed edit Action
+  .dispatch_barrier(): IPC observation only, before actual authorization check;
+     MUST NOT return a fake permit or skip authorization.
+
+Registrar source is still draft. head0040 `intents` registers Consumer via real
+create_object but seeds context directly and pins tenant+'-executor-principal'
+without registering an actual executor. Do not silently use that string as an
+execution identity. Configure real planner/owner/executor/submitters and published
+contracts first, then issue fresh Runs and bind via actual registrar. Session
+refresh after authority configuration is mandatory. A synthetic seeded-context
+compatibility test is separately labelled and cannot satisfy registrar closure.
+
+Required ledger additions beyond0040:
+  protected Action claim/attempt/lease commands with actual executor authorization;
+  dispatching/unknown/query evidence and provider ref persisted in PG;
+  atomic Action reservation + effect outbox fence ownership (or explicit proven
+  recovery protocol, never two independent commits claimed atomic);
+  source/current controls SQL proof checks after lock waits and before return.
+  Existing0007 principal check remains; submitter A/B never impersonate executor.
+
+Direct admin SQL below observes TECHNICAL rows or modifies synthetic authority
+only. Business Consumer/Goal/PlanStep/EffectControl writes use governed Actions.
+No production read/write, no raw tokens in argv/env/logs/fixture constants.
+"""
+from contextlib import contextmanager
+import multiprocessing
+import signal
+import time
+
+import pytest
+from nexloop_eios.backend import open_backend
+from nexloop_eios.effect_provider import HttpEffectProvider,EffectProviderConfiguration
+from support.effect_provider import effect_provider
+
+
+def _run_worker(configuration,origin,pipe,hold_terminal_ack=False):
+    # Import must fail if production executor is absent. There is intentionally
+    # no fallback, no Memory port and no object that manufactures success.
+    from nexloop_eios.effect_dispatch import EffectDispatcher  # NOT IMPLEMENTED
+    private=dict(configuration);token=private.pop('service_token');world=private.pop('world')
+    try:
+        with open_backend(**private) as backend:
+            executor=backend.authenticate(token,world=world)
+            provider=HttpEffectProvider(EffectProviderConfiguration(origin,test_loopback_http=True,timeout=1))
+            pipe.send({'event':'worker_ready'})
+            result=EffectDispatcher(executor,provider,lease_seconds=3).run_once()
+            if hold_terminal_ack and result.get('business_action_success') is True:
+                pipe.send({'event':'terminal_committed'});pipe.recv()
+            # Allowlist only technical IDs/status; no parameters/raw error text.
+            pipe.send({'event':'settled','claimed':result['claimed'],
+                       'status':result.get('status'),
+                       'business_action_success':result.get('business_action_success'),
+                       'provider_state':result.get('provider_state')})
+    except Exception:
+        pipe.send({'event':'worker_unavailable'})
+        raise RuntimeError('effect_worker_unavailable') from None
+    finally:pipe.close()
+
+
+@contextmanager
+def independent_worker(fixture,origin,*,hold_terminal_ack=False):
+    context=multiprocessing.get_context('spawn');parent,child=context.Pipe()
+    process=context.Process(target=_run_worker,args=(fixture.executor_configuration(),origin,child,hold_terminal_ack))
+    process.start();child.close()
+    try:
+        assert parent.poll(15) and parent.recv()=={'event':'worker_ready'}
+        yield process,parent
+    finally:
+        if process.is_alive():process.kill()
+        process.join(10);parent.close();assert not process.is_alive()
+
+
+def accepted(fixture):
+    first=fixture.ports[0].submit_effect_intent(parameters={'message':'one governed service'})
+    replay=fixture.ports[1].submit_effect_intent(parameters={'message':'one governed service'})
+    assert first==replay and first['state']=='accepted'
+    return first
+
+
+def test_provider_commit_then_worker_sigkill_recovers_query_first(governed_effect_executor,admin,tmp_path):
+    fixture=governed_effect_executor;receipt=accepted(fixture);intent=receipt['intent_id']
+    with effect_provider(tmp_path/'independent-provider.sqlite') as provider:
+        provider.control('pause')
+        with independent_worker(fixture,provider.origin) as (old,pipe):
+            assert provider.wait('accepted_committed')['intent_id']==intent
+            # Provider barrier alone is insufficient: actual PG must show a
+            # committed attempt before sending and no terminal local outcome.
+            intent_row=admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()
+            lease=admin.execute('select state,fence from runtime.nexloop_effect_outbox where intent_id=%s',(intent,)).fetchone()
+            assert intent_row==('dispatching',) and lease[0]=='leased'
+            # Adapt exact protected attempt table/name once append-only SQL is
+            # implemented; never omit this commit-before-network evidence.
+            attempt=admin.execute('select state,provider_key,action_fence from runtime.nexloop_effect_attempts where intent_id=%s',(intent,)).fetchone()  # NOT IMPLEMENTED
+            assert attempt[0]=='dispatching' and attempt[1]==intent and attempt[2]
+            assert not pipe.poll(), 'local outcome escaped paused provider response'
+            old.kill();old.join(10);assert old.exitcode==-signal.SIGKILL
+        before=provider.control('snapshot');assert before['effects']==1
+        assert before['requests']==[('POST',intent,202)]
+        provider.control('release')
+        time.sleep(3.1)  # actual Action lease expiry, not barrier timing guess
+        with independent_worker(fixture,provider.origin) as (new,pipe):
+            assert pipe.poll(15);settled=pipe.recv();new.join(10)
+            assert new.exitcode==0 and settled['claimed'] is True
+            assert settled['status']=='dispatching' and settled['provider_state']=='accepted'
+            assert settled['business_action_success'] is False
+        after=provider.control('snapshot')
+        assert after['effects']==1 and after['requests']==before['requests']+[('GET',intent,200)]
+        current=fixture.ports[0].find_effect_receipt(intent_id=intent)
+        assert current['intent_id']==intent and current['receipt_id']==receipt['receipt_id']
+        # Provider only ACCEPTED; never infer fulfilled/confirmed. Exact new
+        # receipt execution shape is a production API decision still required.
+        observed=admin.execute('select provider_state from runtime.nexloop_effect_observations where intent_id=%s order by observed_at desc limit 1',(intent,)).fetchone()
+        assert observed==('accepted',)
+        assert current['state'] not in {'fulfilled','confirmed'}
+        assert admin.execute('select fence from runtime.nexloop_effect_outbox where intent_id=%s',(intent,)).fetchone()[0]>lease[1]
+
+
+@pytest.mark.parametrize('revocation',['source_run','source_grant','control'])
+def test_dispatch_rechecks_current_source_and_control_zero_send(governed_effect_executor,admin,tmp_path,revocation):
+    fixture=governed_effect_executor;receipt=accepted(fixture)
+    with effect_provider(tmp_path/'provider.sqlite') as provider:
+        # This is a synchronization hook before the real authorization command,
+        # not a mocked authorization response or an unconditional permit.
+        with fixture.dispatch_barrier() as barrier:
+            with independent_worker(fixture,provider.origin) as (worker,pipe):
+                barrier.wait_before_authorize()
+                if revocation=='source_run':
+                    # Revoke ALL linked submissions; don't mistake A revoked/B
+                    # still valid for an absolute deny policy. Acceptance does
+                    # not grant permanent authority; delegation rules are explicit.
+                    for run in fixture.runs:
+                        admin.execute("update authz.nexloop_run_credentials set status='revoked' where run_id=%s",(run.run_id,))
+                elif revocation=='source_grant':fixture.revoke_all_source_grants()  # actual authority config, pending fixture
+                else:fixture.revoke_control()  # published governed edit, pending registrar
+                barrier.release()
+                assert pipe.poll(15);result=pipe.recv();worker.join(10)
+                assert worker.exitcode==0 and result['status']=='admission_unavailable'
+                assert result['business_action_success'] is False
+        snapshot=provider.control('snapshot');assert snapshot['effects']==0 and snapshot['requests']==[]
+        state=admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(receipt['intent_id'],)).fetchone()[0]
+        assert state not in {'fulfilled','confirmed'}
+
+
+# Remaining exact tests to implement once production ports are fixed:
+# 1. Two concurrent actual executor connections: one claim, one IN_PROGRESS;
+#    both submitter A/B share receipt but raw0007 claim stays owned by executor.
+# 2. Delayed response A, lease expiry B, B queries original key; A's OLD fence
+#    finalize rejected by real protected PG port and B receipt/revision unchanged.
+# 3. Provider GET unavailable or accepted-pending: unknown/evidence preserved,
+#    no new POST; no-idempotency/no-query provider explicitly blocks recovery.
+# 4. Before dispatching commit SIGKILL/SQL failure: no POST, no ACK; same lease
+#    grant cannot authorize external write until required PG commit is proven.
+# 5. Revoke executor own grant/source/context controls before dispatch: POST0;
+#    current schema/Consumer/Goal/Step/Control revisions checked in SQL too.
+# 6. Current ports conflict test observes EffectIntentConflict.http_status=409;
+#    actual HTTP409 is still missing because no intent HTTP endpoint assembled.
+# 7. Application roles direct ledger read/write and signed inner-function EXECUTE
+#    denied, malicious forged executor/source/payload and stale proof fail closed.
+#
+# Promoting this file requires: fix exact missing API/table/status shapes above,
+# add real registrar/executor fixture, run independently under clean PG, then
+# report real first failures/retries. Do not mark AT033-037 passed from this draft
+# or the already-passed provider transport tests.
+
+
+def test_query_only_after_revoke_observes_fulfillment_without_claim_success(governed_effect_executor,admin,tmp_path):
+    fixture=governed_effect_executor;receipt=accepted(fixture);intent=receipt['intent_id']
+    with effect_provider(tmp_path/'provider-query-only.sqlite') as provider:
+        provider.control('pause')
+        with independent_worker(fixture,provider.origin) as (old,pipe):
+            assert provider.wait('accepted_committed')['intent_id']==intent
+            old.kill();old.join(10);assert old.exitcode==-signal.SIGKILL
+        provider.control('release');provider.control('fulfill',intent_id=intent)
+        # Actual controlled query READ authority remains available to executor;
+        # revoke EXECUTE/source/control permission before B can finalize claim.
+        # The fixture must establish this independent READ scope in real EIOS,
+        # not reuse the old execution grant or return a fake query permit.
+        fixture.revoke_all_source_grants()  # pending actual fixture implementation
+        before=provider.control('snapshot');time.sleep(3.1)
+        with independent_worker(fixture,provider.origin) as (new,pipe):
+            assert pipe.poll(15);result=pipe.recv();new.join(10)
+            assert new.exitcode==0 and result['claimed'] is True
+            assert result['status']=='observed_fulfilled'
+            assert result['business_action_success'] is False
+        after=provider.control('snapshot')
+        assert after['effects']==1 and after['requests']==before['requests']+[('GET',intent,200)]
+        state=admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()[0]
+        assert state=='observed_fulfilled'  # future append-only SQL: head0040 lacks this state
+        # New record_observation must persist READ evidence atomically but not
+        # create a succeeded terminal Action claim under revoked EXECUTE.
+        claim=admin.execute("select claim->>'state',claim->'terminal_outcome' from runtime.nexloop_action_claims where action_name=%s and intent_id=%s",
+            ('nexloop.service.request',intent)).fetchone()
+        assert claim is not None and claim[0]!='terminal'
+        assert claim[1] is None
+
+
+def test_fulfilled_query_finalizes_actual_claim_and_receipt_atomically(governed_effect_executor,admin,tmp_path):
+    fixture=governed_effect_executor;receipt=accepted(fixture);intent=receipt['intent_id']
+    with effect_provider(tmp_path/'provider-complete.sqlite') as provider:
+        provider.control('pause')
+        with independent_worker(fixture,provider.origin) as (old,pipe):
+            assert provider.wait('accepted_committed')['intent_id']==intent
+            old.kill();old.join(10);assert old.exitcode==-signal.SIGKILL
+        provider.control('release');provider.control('fulfill',intent_id=intent)
+        time.sleep(3.1)  # initial actual Action/effect lease has expired
+        with independent_worker(fixture,provider.origin) as (new,pipe):
+            assert pipe.poll(15);result=pipe.recv();new.join(10)
+            assert new.exitcode==0 and result['status']=='fulfilled'
+            assert result['business_action_success'] is True
+        # Success requires actual terminal original stable Action binding,
+        # authoritative fulfilled provider evidence and same atomic PG outcome.
+        row=admin.execute("select principal_id,claim from runtime.nexloop_action_claims where tenant_id=%s and world='real' and action_name=%s and intent_id=%s",
+            (fixture.tenant,'nexloop.service.request',intent)).fetchone()
+        assert row[0]==fixture.executor_principal and row[1]['state']=='terminal'
+        assert row[1]['binding']['invocation_id']==intent
+        assert row[1]['terminal_outcome']['status']=='succeeded'
+        assert row[1]['terminal_outcome']['outcome_id']==receipt['receipt_id']
+        assert row[1]['claim_revision']>=2  # true current reserve after expiry
+        assert admin.execute('select state,governed_claim_finalized from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()==('fulfilled',True)
+        assert provider.control('snapshot')['requests']==[('POST',intent,202),('GET',intent,200)]
+
+
+def test_fulfillment_transaction_fault_does_not_leave_terminal_claim(governed_effect_executor,admin,tmp_path):
+    fixture=governed_effect_executor;receipt=accepted(fixture);intent=receipt['intent_id']
+    with effect_provider(tmp_path/'provider-finalize-fault.sqlite') as provider:
+        provider.control('pause')
+        with independent_worker(fixture,provider.origin) as (old,pipe):
+            assert provider.wait('accepted_committed')['intent_id']==intent
+            old.kill();old.join(10);assert old.exitcode==-signal.SIGKILL
+        provider.control('release');provider.control('fulfill',intent_id=intent)
+        # Failure injection is a disposable technical ledger trigger, not a
+        # mock authorization/receipt and not SQL business-object mutation.
+        admin.execute("create function public.synthetic_finalization_fault() returns trigger language plpgsql as $$begin if new.state='fulfilled' then raise exception 'synthetic finalization rollback';end if;return new;end$$")
+        admin.execute('create trigger synthetic_finalization_fault before update on runtime.nexloop_effect_intents for each row execute function public.synthetic_finalization_fault()')
+        before=admin.execute("select claim from runtime.nexloop_action_claims where tenant_id=%s and action_name=%s and intent_id=%s",
+            (fixture.tenant,'nexloop.service.request',intent)).fetchone()[0]
+        time.sleep(3.1)
+        with independent_worker(fixture,provider.origin) as (new,pipe):
+            assert pipe.poll(15);result=pipe.recv();new.join(10)
+            assert new.exitcode==0 and result['status']=='record_unavailable'
+            assert result['business_action_success'] is False
+        after=admin.execute("select claim from runtime.nexloop_action_claims where tenant_id=%s and action_name=%s and intent_id=%s",
+            (fixture.tenant,'nexloop.service.request',intent)).fetchone()[0]
+        assert after==before  # reserve and terminal finalize rolled back together
+        assert admin.execute('select state,governed_claim_finalized from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()==('observed_fulfilled',False)
+        assert provider.control('snapshot')['effects']==1
+
+
+def test_old_effect_fence_cannot_overwrite_new_query_observation(governed_effect_executor,admin,tmp_path):
+    from nexloop_eios.effect_execution import EffectExecutionUnavailable  # NOT INSTALLED
+    fixture=governed_effect_executor;receipt=accepted(fixture);intent=receipt['intent_id']
+    with effect_provider(tmp_path/'provider-fenced.sqlite') as provider:
+        transport=HttpEffectProvider(EffectProviderConfiguration(provider.origin,test_loopback_http=True,timeout=1))
+        with fixture.current_executor() as old:
+            prior=old.claim_effect(lease_seconds=3)
+            frozen=old.prepare_effect_dispatch(intent_id=intent,fence=prior['fence'])
+            accepted_receipt=transport.dispatch(intent_id=intent,payload_digest=frozen['provider_payload_digest'],parameters=frozen['parameters'])
+            assert accepted_receipt.state=='accepted'
+            # Independent old Worker lost its lease after the actual provider
+            # effect but before record. A new authenticated executor must query.
+            time.sleep(3.1)
+            with fixture.current_executor() as current:
+                recovered=current.claim_effect(lease_seconds=3)
+                assert recovered['stage']=='reconcile' and recovered['fence']>prior['fence']
+                authorized=current.authorize_effect_query(intent_id=intent,fence=recovered['fence'])
+                queried=transport.query(intent_id=intent,payload_digest=authorized['provider_payload_digest'])
+                result=current.record_effect_observation(intent_id=intent,fence=recovered['fence'],
+                    provider_payload_digest=queried.payload_digest,provider_state=queried.state,provider_reference=queried.provider_reference)
+                assert result['state']=='dispatching' and result['provider_state']=='accepted'
+                assert result['business_action_success'] is False and result['governed_claim_finalized'] is False
+                before=admin.execute('select attempt_revision,effect_fence,provider_reference,state from runtime.nexloop_effect_attempts where intent_id=%s',(intent,)).fetchone()
+                with pytest.raises(EffectExecutionUnavailable):
+                    old.record_effect_observation(intent_id=intent,fence=prior['fence'],
+                        provider_payload_digest=accepted_receipt.payload_digest,provider_state=accepted_receipt.state,
+                        provider_reference=accepted_receipt.provider_reference)
+                assert admin.execute('select attempt_revision,effect_fence,provider_reference,state from runtime.nexloop_effect_attempts where intent_id=%s',(intent,)).fetchone()==before
+        snapshot=provider.control('snapshot')
+        assert snapshot['effects']==1 and snapshot['requests']==[('POST',intent,202),('GET',intent,200)]

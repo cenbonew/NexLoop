@@ -195,6 +195,31 @@
       "version": "0039",
       "name": "0039_runtime_execution_marker.sql",
       "sha256": "6232b48223d4cbe1e0bfe26ef7fcfbc61a086a7f926d800b4f30688706d4c666"
+    },
+    {
+      "version": "0040",
+      "name": "0040_effect_intents.sql",
+      "sha256": "64a5e630269dc9946eee1c71cd5311c642a52ff7ab3a259f7309dea4db3cebb1"
+    },
+    {
+      "version": "0041",
+      "name": "0041_effect_context_registrar.sql",
+      "sha256": "5896ad202a2a08775c1daa5eda03abdc99d8a100443d57b4cd98189d0d4a8eef"
+    },
+    {
+      "version": "0042",
+      "name": "0042_effect_execution_ledger.sql",
+      "sha256": "7c2c015f0a905f3c5fb1fbe3de08abfbb97eacf500b89d3b5e050d615825595b"
+    },
+    {
+      "version": "0043",
+      "name": "0043_runtime_effect_context_binding.sql",
+      "sha256": "2719550a2c7befb37e76ae1e589f54072f49940e655e4bac8ce3447a2691b0cc"
+    },
+    {
+      "version": "0044",
+      "name": "0044_effect_provider_binding.sql",
+      "sha256": "04b88ecb763988adfc30f8fffa507c358f6d85e76ffe6ebf5e5e19a389647183"
     }
   ]
 }

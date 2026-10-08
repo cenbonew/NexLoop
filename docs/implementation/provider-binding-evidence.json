@@ -1,0 +1,50 @@
+{
+  "recorded_at": "2026-10-08T05:18:21.360079+00:00",
+  "task": "NX-015",
+  "status": "in_progress",
+  "product_ready": false,
+  "migration_head": "0044",
+  "provider_binding": {
+    "command": "uv run pytest -q tests/test_effect_provider_binding.py",
+    "passed": 6,
+    "seconds": 13.08,
+    "coverage": [
+      "actual provider A accepted; new authenticated Backend with provider B cannot query or observe same intent/digest fulfillment",
+      "original A new Backend reconciles GET only and finalizes actual original claim",
+      "invalid/missing provider profile rejected before external IO",
+      "historical attempt missing durable binding fails closed",
+      "restricted roles cannot read binding ledger/execute inner command; FORCE RLS",
+      "credentials rotation does not change profile; endpoint/CA changes do",
+      "four-second binding trigger wait crosses three-second lease and rolls entire transaction back"
+    ]
+  },
+  "cross_runtime_recovery": {
+    "command": "source ~/.nvm/nvm.sh && nvm use 24 && uv run pytest tests/test_runtime_effect_recovery.py -q",
+    "passed": 1,
+    "seconds": 9.89,
+    "scope": "actual SQLiteFULL Host/Pi+effectWorker SIGKILL; fresh current queue fence/activation; same Run/request/conversation/submission; original provider GET only; actual PG ActionClaim terminal/receipt governed finalized; POST1/effects1",
+    "first_failure": "1failed5.07s: test barrier stopped before first ToolResult due to two model guard calls per Generation; moved test barrier to next Generation; no production authority change"
+  },
+  "combined_regression": {
+    "command": "uv run pytest tests/test_effect_dispatch.py tests/test_effect_worker_cli.py -q",
+    "passed": 22,
+    "seconds": 71.6,
+    "session": 61012,
+    "exit_code": 0,
+    "first_failure": "21passed1failed75.08s while unpublished044 SQL/catalog checksum changed during live suite; existing bootstrap Backend correctly rejected current-catalog mismatch. After final freeze22passed."
+  },
+  "full_ci": "running final frozen-source complete CI; last complete source CI0040",
+  "migration_integrity": "docs/implementation/provider-binding-migration-integrity-evidence.json",
+  "limitations": [
+    "actual model and actual customer channel calls not executed",
+    "governance production publishing tool and credential rotation tooling still unassembled",
+    "new image digests unresolved; no stage deployment"
+  ],
+  "pi_tools_and_cross_recovery_final": {
+    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && uv run pytest tests/test_runtime_effect_recovery.py tests/test_runtime_effect_tools.py -q",
+    "passed": 2,
+    "seconds": 12.96,
+    "session": 16074,
+    "exit_code": 0
+  }
+}

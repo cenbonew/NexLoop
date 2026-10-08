@@ -1,0 +1,12 @@
+{
+  "recorded_at": "2026-10-08T05:18:21.360079+00:00",
+  "passed": true,
+  "old_catalog_entries_and_sql_sha256_unchanged": 43,
+  "all_catalog_checksums_verified": 44,
+  "new_head": "0044",
+  "new_migration": {
+    "version": "0044",
+    "name": "0044_effect_provider_binding.sql",
+    "sha256": "04b88ecb763988adfc30f8fffa507c358f6d85e76ffe6ebf5e5e19a389647183"
+  }
+}

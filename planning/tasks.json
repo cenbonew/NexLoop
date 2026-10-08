@@ -1039,6 +1039,12 @@
         "ref": "docs/implementation/runtime-worker-evidence.json",
         "summary": "Own Runtime deliverable complete:stableRun/request,actualSQLiteFULL/WAL,singleOSowner,standaloneauthenticatedWorker,inflightSIGKILL/reopen same submission andGeneration,currentlease/sourcefence. Final fixedhead0040fullCI exit0:1146Python1068.32s/24SQLite/25PiRuntime1.92s,zero criticalskips. Prior CI failures preserved and corrected without auth relaxation. Runtime_only;AT039 businessreconciliation remainsnot_run;stage40image/deploymentnotproved.",
         "recorded_at": "2026-10-08T04:24:30.543964+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "a7a90de675f3c8cfb887bab3656a34614e0d5706",
+        "summary": "NX-014: 封装Pi RuntimeAdapter与持久恢复; retrospective local implementation checkpoint",
+        "recorded_at": "2026-10-08T09:29:51.090645+00:00"
       }
     ]
   },

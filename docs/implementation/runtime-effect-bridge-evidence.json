@@ -1,0 +1,53 @@
+{
+  "recorded_at": "2026-10-08T05:09:37.386033+00:00",
+  "task": "NX-015",
+  "status": "in_progress",
+  "product_ready": false,
+  "migration_head": "0043",
+  "bridge": {
+    "command": "uv run pytest -q tests/test_runtime_effect_bridge.py",
+    "passed": 9,
+    "seconds": 16.63,
+    "coverage": [
+      "actual owned opaque activation + real registered Run + governed context",
+      "wrong initial Consumer/Goal declaration rejected",
+      "current source revoked",
+      "final lease expiry rolls back intent/outbox/shared budget/execution marker",
+      "actual HTTPS409/403 mapping and public receipt allowlist"
+    ],
+    "first_failure": "7 cases failed9.30s because old synthetic tenant was not UUID; actual UUID-tenant factory fixes fixture, not authorization"
+  },
+  "head_prerequisites": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_bootstrap.py tests/test_core_sandbox.py tests/test_doctor.py tests/test_db_boundary.py tests/test_compose_bootstrap.py tests/test_wheel_install.py --tb=short --junitxml=.ci-results/runtime-effect-head-prerequisites.xml",
+    "passed": 22,
+    "seconds": 21.0,
+    "report_sha256": "1b495277482fe772ac200618f46bf35f464e0b0688ad5a349983a60e603369fc"
+  },
+  "effect_worker_cli_at0042": {
+    "command": "uv run pytest tests/test_effect_worker_cli.py -q",
+    "passed": 10,
+    "seconds": 23.1,
+    "scope": "actual separate PythonCLI/restricted PG/verified synthetic TLS/independent durable synthetic provider",
+    "first_failure": "enhanced suite9passed1failed21.53s because authority epoch correctly invalidated old Source Run; fresh real Run + planner rebind then focused1passed3.37s and final10passed"
+  },
+  "pi_tools": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && uv run pytest -q tests/test_runtime_effect_tools.py --tb=short",
+    "passed": 1,
+    "seconds": 4.22,
+    "scope": "actual frozen Pi, FULL SQLite, separate Host/TLS/current activation and restricted PostgreSQL; distinct tool_call_id values share original receipt; no external send",
+    "first_failure": "ES2022 build rejected findLast; replaced slice.reverse.find before PG execution"
+  },
+  "full_ci": "not_run_at0043; last complete source CI0040",
+  "limitations": [
+    "real external channel/model verification not performed",
+    "governance production publishing and credential rotation remain unassembled",
+    "runtime cross-business conformance still being tested",
+    "new image digests unresolved/no stage deployment"
+  ],
+  "node_regression": {
+    "command": "source ~/.nvm/nvm.sh && nvm use && pnpm exec vitest run apps/agent-host/test/runtime-effect-tools.test.ts apps/agent-host/test/pi-runtime-adapter.test.ts",
+    "passed": 33,
+    "files": 2,
+    "seconds": 3.02
+  }
+}

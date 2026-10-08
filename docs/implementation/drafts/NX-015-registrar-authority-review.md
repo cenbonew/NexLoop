@@ -1,0 +1,85 @@
+# NX-015 registrar 与 effect worker 权限草案审查
+
+更正身份事实：已核0010_governed_object_create.sql，object_id是encode(sha256(...),'hex')生成的64hex，不是UUID。稳定Step/Control/Consumer身份使用实际object_id，Run/intent UUID保持其真实契约；不为方便适配重写对象ID。
+
+## provider observation 与 governed claim finalization
+
+独立query授权可以在源Run过期/撤权后持久化原attempt的provider observation，但READ/query不能finalize需要EXECUTE的ActionClaim。receipt应区分observed_fulfilled和governed_claim_finalized=false/blocked，不得据此将整体Action宣称succeeded；不自动续期claim、换源身份或重新发送。
+
+具备有效源与executor完整当前权限时，新protected result definer在同一短事务锁原attempt/claim/control，验证provider key/digest/证据及fence/revision。可由private backend同连接组装并调用既有signed nexloop_action_claim_command(finalize)，与receipt/event/outbox更新同事务；不能调用公共PostgresActionClaimPort.finalize独立commit后再写receipt。提交前完整源/executor proof与原lease时效重查，失败全回滚。现有0010将真实对象写与claim terminal同事务提供实际模式，但外部效应结果必须另核provider证据，不能复制成直接业务写捷径。
+
+若EXECUTE权限失效，另一次独立query-authorized事务仅落observation，不谎称前述事务已finalize。之后恢复治理权必须显式核准，再原子消费已存observation与claim结果，不再次发provider。原activeclaim lease已过期时，任何续租/reacquire仍需真实EXECUTE协议与完整权限，不能由READ权推进。预算/控制变化影响是否允许治理结果提交的政策须明确，不应丢弃已发生外部事实。
+
+2026-10-08，固定head0040 CI运行期间，只读design与既有0034/0037/RuntimeActivation内核；仅新增本审查文档，不修改source/SQL/tests/planning，不读取.env或生产凭据，不执行效应。
+
+## 041 registrar 设计边界
+
+已读NX-015-context-registrar-design.md：实际Consumer/Goal/PlanStep/EffectControl ontology对象与revision、server固定service.request:primary槽、真正独立planner/owner权限、真实Run内存认证与共享control budget账本，方向满足0040已明确缺口。设计不等于实现，draftcode出现后还须逐行核。
+
+必须由实际Step object_id（当前create为64hex SHA256）和服务器固定槽识别业务意图，Goal/contract/control版本只影响semantic与冲突，不生成新槽。Run不可提交slot/intent/新Step，planner也不能以变更goalversion在原Step另发。新Step代表新真实业务意图，需要显式supersedes并处理旧unknown，而非重新规划按钮暗中加发。
+
+registrar只允许真实planner Action current proof；Run必须实际authenticate_run而非UUID lookup、自报source/principal或RunCommand上下文。核实际source subject、credential/profile/release/epoch/TTL/allowed Action resources与Step受托主体，tenant/world与持久Consumer/Goal/Step链一致。Executor来自owner治理的EffectControl实际对象与当前EIOS principal/Action权限，不接受planner参数重选；rawtoken仅后台内存，不能落context/日志/receipt。
+
+共享预算账本键应是actual EffectControl object_id与消费归属，所有context/Step共用同一reservation总额。不能给每context复制预算，也不能以control_revision作为新账本key使改revision重置reserved。总额度变化以当前actualcontrol检查，降低额度、unknown占用、refund、supersedes分别定义，不自动释放未确认效应额度。锁顺序需统一actual对象object_id→sharedquota→context→intent/claim，注册与受理/dispatch一致，避免future cross-port锁环。
+
+## effect worker 复核原提交 Run 的可复用内核
+
+既有0037与RuntimeActivationPort提供受限双身份范式，不需要rawtoken持久化，也不需要fake source session：
+
+1. worker用自身当前service credential认证，protected hint/resolve只允许其正在拥有的effect lease/fence、当前tenant/world与pinned executor的intent。任意Run UUID不能解析源身份；上下文/提交Run绑定由既有trusted admission记录确定。
+2. private resolve可向可信Python backend返回原Run token_digest（不是rawtoken），但该字段必须在公开端口/Host/日志前删除。正如0037 `_run_digest`，只有完整current workerproof与ownedtask/fence后才解析，不授任意identity lookup。
+3. 后台通过authorization._identity(db,stored_run_digest,world)读取真实已签发Run的服务身份；用PostgresAuthorityProvider、AuthorizationFactsResolver、AuthorizationDecisionService生成源Run该Action的当前完整fact vector。不能仅比较注册时source_digest/字符串principal。
+4. 新signed begin_dispatch把worker proof、源Run proof、intent/context/Action/parameters/control digest、当前effect fence/revision整体绑定。SQL复用nexloop_lock_credential(originRunDigest,world,target)、nexloop_service_identity_snapshot与nexloop_assert_action_authority，锁后和提交前重复；同样检查真实worker Action授权、pinnedexecutor、当前对象/control/quota/TTL。源proof缺失、过期、scope缩减、发布改变均拒绝。
+5. 外发claim由真实executor主体保留现有0007 principal/fence绑定，源Run复核是另一项授权条件，不将worker伪装为source，也不去掉principal限制。同一短事务持久dispatching/provider稳定key与attempt才返回可调用provider的结果。
+
+这些private接口需要独立effectlease约束，不能直接拿Runtime queue权或runtime_activation_ref当新业务执行权。原Run是否允许多提交者选择必须固定：从真正获准且登记同context的submission中按明确协议选择，不允许worker“找一个没撤权的Run”绕过原意图源撤权。当前源码未提供正式effect dispatch授权接口，上述是精确复用建议而非已装配成功。
+
+## query 与撤权/TTL
+
+源Run TTL过期、消费者禁触达或源撤权须阻新dispatch；但已离开系统的unknown仍需要独立受限query/reconcile权限。query只读取原provider key、核匹配证据并记录原attempt，不能获得send能力。否则完全沿用源Run EXECUTE链会使Run结束后unknown永久无法核对；反过来放宽query链后直接retry也会绕过撤权。安全retry必须provider证明未受理，再次新的当前EXECUTE/controls/预算许可，不靠查询结果自动发送。
+
+## 待真实验证
+
+跨ctx/Step并发共享额度不超额、controlrevision变化不重置reserved；Run/worker/planner各自撤权与TTL、跨tenant/world/source、任意RunIDlookup拒绝；不同版本原槽仍409；旧effectfence拒绝；源Run过期后query可在独立权下对账但send仍拒绝；源/workerproof锁等待过期全部回滚。缺production registrar不得用adminseed代替闭环。当前只执行cat/rg/sed读取上述design与既有内核，未跑测试或更改fixedCI实现。
+
+## 041/042 实际候选文件首次复核
+
+已读取0041 SQL、effect_contexts Python与候选tests。HMAC/protocol/payload digest/25秒expiry在owned context查询前校验；registrar独立root service Action、真实Run Actionproof与固定executor Actionproof分开，tenant/world交叉检查，Run不能registrar。发布definition/reference/capability与支持的精确输入schema比较，actual对象schema bundle/current revision约束。Python真实同连接reserve→register→signedfinalize→register最终检查，失败事务回滚；当前仅syntaxcompile报告，没有实际PG通过证据，不批准候选为完成。
+
+共享control ledger以actual control_id为键，configure conflict update保留reserved_units，revision变化不新预算账本；bind从actualStep object_id派生固定槽、existing revision变化拒绝同context，而非新建intent。040wrapper先完整认证再helper锁共享ledger/context，reservation按intent唯一追加与额度增量同事务。helper的owner/executor identity snapshot不等于持续完整Actiongrant，后续dispatch必须独立完整current源/executor proof，不能只借helper授外发。
+
+建议真实PG增加同planner requesthash绑定不同合法Run的terminalclaim replay仍同context/不新增quota、跨tenant/world/schema与proof最终tenant GUC、actual修订及锁等待TTL全rollback。当前没有查到具体可复核三身份授权绕过；这是有限源码审查，不是测试通过结论。
+
+042当前仅ledger表/状态/RLS，尚无claim/admit/query/result函数，不可当作Actionledger可用。observation CHECK显式nonnull已防SQLNULL漏检，tenant/world compositeFK约束正确，providerkey固定intent文本。具体问题已告Root：governed_completion_state仅单向限制govtrue→fulfilled/confirmed，仍允许fulfilled/confirmed且govfalse；需双向一致或显式协议保证，避免按state读取者误认治理已完成。observed_fulfilled应固定govfalse，独立query不得推进原EXECUTEclaim。
+
+## 042 draft 受限 SQL spine 实际实现（未注册/未执行）
+
+Root授权后，本审查Agent仅编辑042草稿SQL与本文，未修改已发布40/41、source/catalog/tests/planning。新增实际authz.nexloop_effect_execution_command及owner-only nestedclaim校验helper；不是更多计划，也没有未跑报pass。
+
+协议outer nexloop-effect-execution-v1，session_user必须nexloop_action_worker且真实root executor/pinnedprincipal。hint用独立已发布query Action current EXECUTEproof选择自己的pending/expired候选，只给冻结契约/参数和has_attempt，不给Run digest/执行权。claim无attempt须sendAction当前proof，真实signed EIOS reserve与effect lease同事务；有attempt只query claim，不变原EXECUTEclaim。resolve先当前own effect lease/fence，再给私有_run_digest，源Run首次claim固定最早submission，不选择另一个未撤权源。
+
+admit完整当前源Run与executor Action proof、实际plan/control/sharedquota和准确双lease/fence，短事务写dispatching/原providerkey/attempt后才返回。Python必须事务commit后才HTTP；任何existingattempt拒绝admit并query-first。query/observe/unknown用独立nexloop.service.query:1 EXECUTE，源过期仍能存证而不借query续Action或发provider；fulfilled仅observed_fulfilled,false。accepted按Root两维决定intent dispatching、attempt provider_accepted、provider_state accepted,false，outbox query_pending再查，不能把已知accepted伪称服务完成。
+
+finalize仅fulfilled observation+完整双EXECUTEproof，private同事务reserve/commit两phase；SQL finalization_xid必须相同txid_current，新Actionfence与effect fence匹配，真实signed EIOS finalize、receipt/event/outbox同时提交。仍active同executor claim保留真实in_progress返回，另返回验证后的actualclaim，不伪造claimed disposition。canonical action_request_text校验JSON=frozen_request并hash匹配嵌claim；避免40 semantic::jsonb::text digest与M.canonical_request_digest不同空格的真实兼容问题。结果outcome_text限定实际provider evidence/receipt字段且hash匹配。最后完整外/内/source proof、原Action/effect lease检查失败整体回滚。
+
+042也新增query授权的历史terminalreceipt replay：只有persisted governed flag+真实terminal succeeded claim/outbox/attempt一致才返回业务true，不依赖过期lease、不执行新finalize、不再次POST。observations/attempts/events FORCE RLS、tenant/world compositeFK、应用直接DML全撤，querynot_found不自动授权retry。draft暂不支持自动safe retry/取消/补偿；未获现实PG验证，不称完整NX-015已完成。实际执行仅apply_patch及读文件/rg/wc，无迁移、provider或测试。
+
+Root最终收窄历史读取为read_effect_receipt(intent_id)：signed query payload必须显式terminal_only=true，currentqueryAction+pinnedexecutor/tenantworld及实际terminal一致性全部检查；非terminal或false/null/其他verb一律拒绝。普通query仍要求ownedlease与准确fence/revision，不由缺字段推导历史读权限。回包只allowlist IDs/state/provider_state/governed/business flags，不泄露参数、原Run digest或主体事实。仅修draft，与PythonAgent对齐，仍未注册/运行。
+
+## Root授权正式迁入后的首轮实际验证
+
+已正式复制042 SQL到packages/eios-core/src/eios/migrations/0042_effect_execution_ledger.sql并catalog追加42；迁入脚本逐条核旧1–41实际checksum匹配，未修改。首次hash为25e4e828177841fd8fe89b542ae29f4ec1fde7d7fef693bf9059ec19cf500639。
+
+实际执行 `uv run pytest -q tests/test_effect_execution_sql.py`：首次5 passed in 4.29s，无首次失败。新专属测试真实隔离PG clean bootstrap42/exact reopen/checksum与三个ledger FORCERLS、仅action_worker command EXECUTE、四applicationroles直接读/删/helper及无效command拒绝。该证据仅语法/bootstrap/角色边界，不是provider dispatch、原子finalization或AT-033/036/037成功。PythonPort/dispatch真实整合由执行Agent继续，发现SQL运行错误再修新42并刷新checksum；旧40/41保持immutable。
+
+send路径追加实际41shared control reservation(intent/tenant/control)存在性检查后，42候选hash刷新为7c2c015f0a905f3c5fb1fbe3de08abfbb97eacf500b89d3b5e050d615825595b；旧1–41逐项checksum仍匹配。上述专属命令真实重跑5 passed in 4.27s，无失败。正式与draft同步，不将首轮旧hash结果冒称新hash唯一依据。
+
+## 整合源码独立 fresh 复核
+
+已读取实际effect_execution.py与effect_dispatch.py以及当前042。claim用真实Governor private reserve在同连接事务调用原signed EIOS definer，commit后才admit/HTTP；prepare返回frozen参数，Runtime不选择provider。source proof只能由当前ownedresolve私有digest派生真实_identity，不接受tool自报Run。queryonly使用独立publishedquery Action EXECUTE，无法触发admit/finalize或renew源EXECUTE；原Run/source失权时observation已独立commit为false，后续双EXECUTE失败不能留下terminalclaim。
+
+finalize两phase在真实同db.transaction内，signedreserve返回actualclaim并核key/binding/state，commitsignedfinalize同时PGreceipt/event/outbox；SQL要求samexid与准确双fence/lease、原fulfilled observation/digest/reference。历史read_effect_receipt只显式terminal_only=true；当前query撤权、未发布query、非pinnedexecutor/跨tenantworld拒绝，非terminal不能借无fence读任意intent。只有实际persisted govtrue、terminal succeeded claim与匹配receipt、fulfilledattempt/outbox一致才返回历史true；ACKloss读取不做新send或新finalize。
+
+执行Agent报告首次8项7 passed/1 failed in 34.57s，失败为Worker公开结果漏provider_state，Root已修；未发现该轮SQL失败。新增ACKloss/currentqueryrevoke/nonterminal无lease后三项实际11case正在跑，结果待执行方终态，不提前标通过。本审查没有重跑这些suite，也未改其运行中的SQL。现未发现可复核QUERY→SEND绕过、atomicfinalize拆事务成功或terminalread伪造治理成功路径。
+
+执行Agent随后报告固定正式42整合suite终态11 passed in 48.95s、exit0；新增三项ACKloss窄终态读取/query撤权/非terminal无lease拒绝均使用ActualBackend与真实PG。该结果归属执行Agent，本审查未执行该suite；42SQL没有新增失败或修改需求。它与上述独立5项边界证据分别保留，等待Root最终head42完整CI。
