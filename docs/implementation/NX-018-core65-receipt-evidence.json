@@ -1,0 +1,62 @@
+{
+  "task": "NX-018",
+  "status": "in_progress",
+  "recorded_at": "2026-10-08T22:56:24.401904+00:00",
+  "commands": [
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_role_post_accept.py tests/test_receipt_reconcile_roles.py tests/test_receipt_tail.py tests/test_receipt_revoke_wait.py tests/test_receipt_terminal_rows.py tests/test_role_tail.py tests/test_bootstrap.py --tb=short --junitxml=.ci-results/nx018-core65-main.xml",
+    "source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_role_pi_effect_checkpoint.py --tb=short --junitxml=.ci-results/nx018-core65-pi.xml"
+  ],
+  "reports": [
+    {
+      "path": ".ci-results/nx018-core65-main.xml",
+      "result": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "33",
+        "time": "327.811",
+        "timestamp": "2026-10-09T06:44:44.032557+08:00",
+        "hostname": "MacBook-Pro-4.local"
+      },
+      "sha256": "e1907aad3655eba809f5547e279b684decb92a3d3ba2820103991a3a25f3df33"
+    },
+    {
+      "path": ".ci-results/nx018-core65-pi.xml",
+      "result": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "1",
+        "time": "46.900",
+        "timestamp": "2026-10-09T06:54:31.041552+08:00",
+        "hostname": "MacBook-Pro-4.local"
+      },
+      "sha256": "94997fec7183a3cb4f399e6f0b12e20ef42e3eb39a862dc968bccd4fe78f37ee"
+    }
+  ],
+  "first_main_failures_and_retries": [],
+  "source_freeze": {
+    "paths": 442,
+    "changed": 0,
+    "timing": "before PG and Pi runs, checked after both terminal"
+  },
+  "preserved_migrations": "0001..0064 unchanged",
+  "versions_lock_change": "bootstrap_revision 0064 -> 0065 only",
+  "main_sql_sha256": "8ac8ee9071b6696ba0d2cd5d7267603f61583cb213282b7f39994c838ccecd39",
+  "scope": [
+    "Dedicated QUERY admission persists before GET; durable observation is bound to original attempt, principal, credential, payload/profile, fence and independent current QUERY authority. It is not cryptographic proof of an arbitrary provider response.",
+    "Role.end blocks new SEND but independently authorized receipt recovery can settle an observed fulfilled effect through governed EIOS Action reservation/current contract/authority. Original lease ownership is preserved; its expiry exception applies only to receipt recovery.",
+    "Original Action, attempt, intent, outbox and recovery claim terminal writes require exactly one affected row and occur atomically with immutable recovery audit. Owned fault fixtures prove rollback, current permission/lease expiry and post-lock deadline rejection.",
+    "Two actual Pi Runs retain WAL/FULL SQLite and one shared governed business intent. Owned durable loopback provider proves one POST and one GET; active-Role normal finalization still works."
+  ],
+  "candidate_failures_and_retries": [
+    "Frozen candidates retained initial immutable-contract mutation and incorrect expected-error fixture failures; corrected tests use published version rollover and actual governed current permissions. Added original terminal-row fault cases passed on first candidate run. Root catalog runs use no manual DRAFT installations."
+  ],
+  "open_gaps": [
+    "Role ceiling/scope execution policy and full downstream formal Source READ closure remain separate pending integration.",
+    "Relationship corrected Context v4 and current human review/extraction work are not included. NX-018 remains in_progress; AT-004/009 unchanged.",
+    "No real commercial channel/model validation; no generic exactly-once claim."
+  ]
+}

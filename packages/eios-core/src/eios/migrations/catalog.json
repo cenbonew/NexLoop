@@ -320,6 +320,11 @@
       "version": "0064",
       "name": "0064_role_authority_deadlines.sql",
       "sha256": "6aeb62e555596f8ce51357033d2594793b4e0bf05809c02da2d49a462df49779"
+    },
+    {
+      "version": "0065",
+      "name": "0065_receipt_reconciliation.sql",
+      "sha256": "8ac8ee9071b6696ba0d2cd5d7267603f61583cb213282b7f39994c838ccecd39"
     }
   ]
 }

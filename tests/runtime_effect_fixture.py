@@ -98,7 +98,7 @@ def runtime_effect_plan(admin,pg,tmp_path):
     base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
     refs={name:definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
     for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
-    actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',)})
+    actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',),'nexloop.service.receipt_reconcile':('Consumer',)})
     for name,types in actions.items():
         body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));body.pop('contract_digest',None)
         body['stable_name']=name;body['object_types']=[refs[k].model_dump(mode='json') for k in types]
@@ -108,13 +108,21 @@ def runtime_effect_plan(admin,pg,tmp_path):
         if name==EFFECT:
             body['governance']['change_scope']['target_systems']=['service']
             body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
+        if name=='nexloop.service.query':
+            constraints=globals().get('_INITIAL_QUERY_CONSTRAINTS',{})
+            body['governance'].update(constraints.get('governance',{}))
+            body.update(constraints.get('definition',{}))
+        if name=='nexloop.service.receipt_reconcile':
+            body['governance']['change_scope']['target_systems']=['service']
+            body['governance']['idempotency']['key_fields']=['intent_id']
+            body['input_schema']={'type':'object','properties':{'intent_id':{'type':'string'},'effect_fence':{'type':'integer'},'query_id':{'type':'string'}},'required':['intent_id','effect_fence','query_id'],'additionalProperties':False}
         published=type(definition).model_validate_json(json.dumps(body));cap=capability.model_copy(update={'capability_name':capname,'has_side_effects':True})
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
             (tenant,'real','eios:action:'+name+':1',Jsonb(published.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
     def targets(names):return [('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in names]
     owner_token=seed_multi_uuid(admin,tenant,targets(['Consumer.create','EffectControl.create',CONFIGURE,QUEUE]),suffix='-owner')
     planner_token=seed_multi_uuid(admin,tenant,targets(['Goal.create','PlanStep.create',BIND]),suffix='-planner')
-    executor_token=seed_multi_uuid(admin,tenant,targets([EFFECT,'nexloop.service.query']),suffix='-executor')
+    executor_token=seed_multi_uuid(admin,tenant,targets([EFFECT,'nexloop.service.query','nexloop.service.receipt_reconcile']),suffix='-executor')
     source_tokens=[seed_multi_uuid(admin,tenant,targets([EFFECT]),suffix='-source-'+letter) for letter in ('A','B')]
     worker_token=seed_multi_uuid(admin,tenant,targets([QUEUE]),suffix='-runtime-worker')
     with ExitStack() as stack:

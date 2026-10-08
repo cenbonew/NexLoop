@@ -1640,6 +1640,24 @@
         "ref": "docs/implementation/NX-018-core64-role-deadline-evidence.json",
         "summary": "Source437 SHA unchanged, published0001..0063 preserved, bootstrap0064. No critical skips or completion claim; AT004/009 remain not_run.",
         "recorded_at": "2026-10-08T22:41:47.476467+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "75ff5da74b4e6b96d128b3f9b30aff1f2c7faf65",
+        "summary": "0065 receipt recovery checkpoint: actual clean catalog PostgreSQL 33 passed, real Pi 1 passed, no critical skips; 442 source freeze unchanged. NX-018 still in_progress pending policy/source READ/relationship Context gaps.",
+        "recorded_at": "2026-10-08T22:56:38.364937+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-018-core65-receipt-evidence.json",
+        "summary": "Actual Root commands, test report digests, catalog preservation, candidate failures and evidence boundaries.",
+        "recorded_at": "2026-10-08T22:56:38.364937+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d5055f256a5ef986028760590284c58f3c2639c5",
+        "summary": "origin/main synchronized with verified 0064 checkpoints under three publication gates; 0065 Schema checkpoint is isolated on feature branch for PR.",
+        "recorded_at": "2026-10-08T22:56:38.364937+00:00"
       }
     ]
   },
