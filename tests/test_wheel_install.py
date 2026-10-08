@@ -15,6 +15,9 @@ from psycopg.conninfo import make_conninfo
 from authority_fixture import seed_authority
 from eios.authz.operations import Operation
 
+# Builds or installs into the shared workspace: never run concurrently with each other.
+pytestmark = pytest.mark.xdist_group('workspace-build')
+
 ROOT=Path(__file__).resolve().parents[1]
 
 

@@ -6,6 +6,9 @@ import shutil
 import subprocess
 import pytest
 
+# Builds or installs into the shared workspace: never run concurrently with each other.
+pytestmark = pytest.mark.xdist_group('workspace-build')
+
 ROOT=Path(__file__).resolve().parents[1]
 
 

@@ -18,7 +18,9 @@ pnpm exec vitest run apps/web/test --exclude 'docs/tmp/**' --reporter=default --
 uv run --frozen python scripts/check_test_report.py .ci-results/web.xml
 node --test --test-reporter=junit --test-reporter-destination=.ci-results/scope-ui.xml apps/agent-host/test/synthetic-scope-profile.node-test.mjs apps/web/test/scope-denial.node-test.mjs
 uv run --frozen python scripts/check_test_report.py .ci-results/scope-ui.xml
-uv run --frozen pytest -q --junitxml=.ci-results/python.xml
+# Parallel by test; files that build into the workspace share one xdist group and run serially.
+# NEXLOOP_CI_PYTEST_WORKERS=0 runs serially for diagnosis.
+uv run --frozen pytest -q -n "${NEXLOOP_CI_PYTEST_WORKERS:-6}" --dist loadgroup --junitxml=.ci-results/python.xml
 uv run --frozen python scripts/check_test_report.py .ci-results/python.xml
 # Frozen Pi source and actual SQLite are required. Missing files/tools fail.
 [[ -f vendor/pi/packages/durable/test/nexloop-sqlite-conformance.test.ts ]]

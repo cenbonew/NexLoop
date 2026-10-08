@@ -13,11 +13,12 @@ members = ["packages/eios-core"]
 [dependency-groups]
 dev = [
     "hypothesis>=6,<7",
- "pytest>=8,<9",
- "jsonschema>=4,<5",
- "pyyaml>=6,<7",
- "rfc3339-validator>=0.1,<1",
- "httpx>=0.28,<1",
+    "pytest>=8,<9",
+    "jsonschema>=4,<5",
+    "pyyaml>=6,<7",
+    "rfc3339-validator>=0.1,<1",
+    "httpx>=0.28,<1",
+    "pytest-xdist>=3.6,<4",
 ]
 
 [tool.pytest.ini_options]
