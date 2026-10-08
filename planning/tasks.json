@@ -1610,6 +1610,12 @@
         "ref": "b1a8f009baa65c99387f7655760cb9559c586cbc",
         "summary": "Documentation checkpoint: late lock-wait proof expiry review remains pending; no completion/acceptance claim. Published0063 unchanged.",
         "recorded_at": "2026-10-08T22:16:31.432778+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "9f3830c86ba11853affeb552158783acabd10908",
+        "summary": "Additional actual main effect SQL/intent/Host admission regression23 passed36.64s, zero critical skips; initial incorrect test filename exit4 retained in report. Source437 hashes unchanged. Lock-wait tail boundaries remain pending.",
+        "recorded_at": "2026-10-08T22:18:41.568659+00:00"
       }
     ]
   },
