@@ -38,7 +38,7 @@ def test_real_deepseek_over_frozen_synthetic_dataset(tmp_path):
         except ExtractionRejected as error:
             entry.update(outcome='output_rejected',reason=str(error));report['cases'].append(entry);continue
         except Exception as error:
-            entry.update(outcome='provider_unavailable',reason=type(error).__name__);report['cases'].append(entry);continue
+            entry.update(outcome='provider_unavailable',reason=type(error).__name__,code=getattr(error,'code','unclassified'));report['cases'].append(entry);continue
         assert_invariants(_Result(claims),messages)
         expected=case['expected']
         violations=[pattern for pattern in expected.get('forbidden',[]) if any(matches(c,pattern) for c in claims)]

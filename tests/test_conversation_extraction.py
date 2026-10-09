@@ -20,12 +20,12 @@ DATASET=json.loads((Path(__file__).parent/'data'/'nx019_extraction_cases.json').
 CASES={case['id']:case for case in DATASET['cases']}
 
 
-def materialize(case,*,tenant='synthetic-a',conversation='c'*64,consumer='d'*64):
+def materialize(case,*,tenant='synthetic-a',conversation='c'*64,consumer='d'*64,world=None):
     base=datetime.fromisoformat(DATASET['default_base_time'].replace('Z','+00:00'))
     messages=[SourceMessage(message_id=hashlib.sha256(f"nx019:{case['id']}:{index}".encode()).hexdigest(),sequence=index,speaker=item['speaker'],body=item['body'],
         accepted_at=datetime.fromisoformat(item['accepted_at'].replace('Z','+00:00')) if 'accepted_at' in item else base+timedelta(minutes=index-1))
         for index,item in enumerate(case['messages'],start=1)]
-    context=ExtractionContext(tenant_id=tenant,world='real',conversation_id=conversation,consumer_id=consumer,timezone=case['timezone'])
+    context=ExtractionContext(tenant_id=tenant,world=world or case.get('world','real'),conversation_id=conversation,consumer_id=consumer,timezone=case['timezone'])
     payload=build_user_payload(messages,context)
     provider=DeterministicExtractionProvider({hashlib.sha256(payload.encode()).hexdigest():case['provider_response']})
     return messages,context,provider
@@ -65,6 +65,7 @@ def test_frozen_synthetic_case(case_id):
         return
     result=extract(messages,context,provider)
     assert provider.calls==1
+    variants(case,result)
     assert_invariants(result,messages)
     assert [[t['first_sequence'],t['last_sequence']] for t in result.topics]==expected['topics']
     assert sorted(item['reason'] for item in result.rejected)==sorted(expected.get('rejected',[]))
@@ -73,7 +74,8 @@ def test_frozen_synthetic_case(case_id):
     for want in expected['claims']:
         candidates=[c for c in result.claims if c['source_sequence']==want['source_sequence'] and c['quote']==want['quote'] and c['predicate']==want['predicate']]
         assert len(candidates)==1,want;claim=candidates[0];found.append(claim)
-        for key in ('epistemic_kind','polarity','modality','condition','speaker','subject_kind','resolution_state'):
+        if want.get('subject_is_session_consumer'):assert claim['subject_ref']==context.consumer_id
+        for key in ('epistemic_kind','polarity','modality','condition','speaker','subject_kind','subject_text','subject_ref','resolution_state'):
             if key in want:assert claim[key]==want[key],(key,claim[key],want[key])
         for key,value in want.get('valid_time',{}).items():assert claim['valid_time'].get(key)==value,(key,claim['valid_time'])
         assert set(want.get('flags_include',[]))<=set(claim['guard_flags']),claim['guard_flags']
@@ -85,15 +87,42 @@ def test_frozen_synthetic_case(case_id):
         assert not any(matches(claim,forbidden) for claim in result.claims),forbidden
     for left,right in expected.get('same_correlation',[]):
         assert found[left]['correlation_key']==found[right]['correlation_key'] and found[left]['claim_id']!=found[right]['claim_id']
+    for correction,target in expected.get('corrects_pairs',[]):
+        assert found[correction]['corrects_claim_id']==found[target]['claim_id']
+    for claim in result.claims:
+        if claim['corrects_claim_id'] is not None:assert claim['epistemic_kind']=='correction'
     if expected.get('payload_roundtrip'):
         rows=json.loads(build_user_payload(messages,context))['conversation_data']
         assert [row['text'] for row in rows]==[m.body for m in messages]
 
 
+def keys(result):
+    return ({c['claim_id'] for c in result.claims},{c['correlation_key'] for c in result.claims},{t['topic_key'] for t in result.topics})
+
+
+def variants(case,result):
+    """Isolation/concurrency variants declared by the case itself."""
+    if 'twin_world' in case:
+        twin=extract(*materialize(case,world=case['twin_world']))
+        assert all(not (a&b) for a,b in zip(keys(result),keys(twin)))
+    if 'tenants' in case:
+        runs=[extract(*materialize(case,tenant=tenant)) for tenant in case['tenants']]
+        assert all(not (a&b) for a,b in zip(keys(runs[0]),keys(runs[1])))
+    if 'consumers' in case:
+        runs=[extract(*materialize(case,consumer=consumer)) for consumer in case['consumers']]
+        assert not ({c['correlation_key'] for c in runs[0].claims}&{c['correlation_key'] for c in runs[1].claims})
+    if 'concurrent' in case:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(case['concurrent']) as pool:
+            runs=list(pool.map(lambda _:extract(*materialize(case)),range(case['concurrent'])))
+        assert all(r.claims==result.claims and r.input_digest==result.input_digest and r.topics==result.topics for r in runs)
+
+
 def test_dataset_is_frozen_synthetic_and_covers_required_semantics():
-    assert DATASET['synthetic'] is True and len(CASES)>=30
+    assert DATASET['synthetic'] is True and DATASET['version']==2 and len(CASES)>=100 and len(CASES)==len(DATASET['cases'])
     categories={c for case in DATASET['cases'] for c in case['categories']}
-    assert {'conditional_negation','relative_time','timezone','repeated_complaint','prompt_injection','hypothesis','idempotency','topic_segmentation'}<=categories
+    assert {'conditional_negation','relative_time','timezone','repeated_complaint','prompt_injection','hypothesis','idempotency','topic_segmentation',
+            'pronoun','same_name','contradiction','correction','retraction','simulation_isolation','concurrency','cross_tenant'}<=categories
     for case in DATASET['cases']:
         assert all(m['speaker'] in ('consumer','agent') for m in case['messages'])
 
