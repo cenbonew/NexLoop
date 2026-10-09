@@ -103,8 +103,16 @@ def check_http_container():
 
 def main():
     parser=argparse.ArgumentParser(description='Community test bootstrap/PG-Artifact diagnostic jobs')
-    parser.add_argument('job',choices=['bootstrap','check-test','api-test','check-http-test','cache-bootstrap','host-bootstrap','browser-bootstrap','worker-bootstrap','worker-test'])
+    parser.add_argument('job',choices=['bootstrap','check-test','api-test','check-http-test','cache-bootstrap','host-bootstrap','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder'])
     args=parser.parse_args()
+    if args.job=='outbound-recorder':
+        # Long-running restricted service (opt-in compose profile). Its private files are
+        # provisioned by trusted configuration (service-grants + business-actions), never here.
+        from nexloop_eios.outbound_messages import main as recorder
+        root=Path('/private/outbound')
+        return recorder(['--database-url-file',str(root/'api_dsn'),'--signing-key-file',str(root/'artifact_key'),'--signing-key-id',
+            read_private_text(root/'signing_key_id',maximum=64).strip(),'--service-credential-file',str(root/'service_credential'),
+            '--artifact-root','/var/lib/nexloop/artifacts','--world','real'])
     from nexloop_eios.cache_test_profile import initialize_cache_test_profile
     from nexloop_eios.host_test_profile import initialize_host_test_profile
     from nexloop_eios.browser_test_profile import bootstrap_browser_container

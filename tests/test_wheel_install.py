@@ -78,7 +78,7 @@ with psycopg.connect(sys.stdin.read(),autocommit=True) as c:
     assert json.loads(child.stdout)['revision']==BOOTSTRAP_REVISION
     clean_environment={key:value for key,value in os.environ.items() if key not in ('PYTHONPATH','PYTHONHOME')}
     clean_environment['PYTHONNOUSERSITE']='1'
-    console_commands=('nexloop-doctor','nexloop-artifact-smoke','nexloop-core-sandbox','nexloop-compose-bootstrap','nexloop-api','nexloop-runtime-worker','nexloop-effect-worker')
+    console_commands=('nexloop-doctor','nexloop-artifact-smoke','nexloop-core-sandbox','nexloop-compose-bootstrap','nexloop-api','nexloop-runtime-worker','nexloop-effect-worker','nexloop-outbound-recorder')
     for command in console_commands:
         help_result=subprocess.run([str(python.parent/command),'--help'],cwd=owned,
             env=clean_environment,capture_output=True,text=True,timeout=15)
