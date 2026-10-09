@@ -89,6 +89,8 @@ class RuntimeActivationPort:
             claims['context_role_envelope']=context_role_envelope
             from nexloop_eios.role_runs import formal_reads_for_role
             claims['formal_reads']=formal_reads_for_role(self.pool,self.signer,self.session,context_role_envelope)
+            from nexloop_eios.role_policies import policy_envelope_for_role
+            claims['context_policy_envelope']=policy_envelope_for_role(self.pool,self.signer,self.session,context_role_envelope)
         if context_relationship_envelopes is not None:claims['context_relationship_envelopes']=context_relationship_envelopes
         if context_formal_reads is not None:claims['context_formal_reads']=context_formal_reads
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
@@ -253,6 +255,10 @@ class RuntimeActivationPort:
                 resolved=self._execute(db,self._signed(queue,'resolve',**binding))
                 run=_identity(db,resolved['_run_digest'],self.session.world)
                 if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
+                # Same-Run tool requests serialize here, before the first guard, in one lock
+                # order (same key as the 0085 submit lock, reentrant in this transaction); this
+                # removes the 0039 execution-marker / row-lock cycle between concurrent guards.
+                db.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))',('nexloop-role-effect:'+run.run_context.run_id,))
                 def guard():
                     result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,resolved['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(resolved),context_formal_reads=self._context_formal_envelopes(resolved)))
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()

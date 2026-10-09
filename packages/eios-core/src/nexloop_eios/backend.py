@@ -8,18 +8,52 @@ import os
 import stat
 import hmac
 import secrets
+from collections import deque
 from threading import Condition, local
+import time
+
+
+_request_state = local()
+
+
+def request_depth():
+    """Current thread's backend request nesting depth (0 = outside any request)."""
+    return getattr(_request_state, 'depth', 0)
+
+
+class BackendBusy(RuntimeError):
+    """Explicit, retryable: no request capacity freed within the wait budget."""
 
 
 class LifecycleLock:
-    """Requests share; shutdown is exclusive.
+    """Requests share; shutdown is exclusive; concurrent requests are bounded.
 
     `with lock:` is a reentrant shared hold for one request, so independent guard
-    requests no longer queue behind each other while shutdown still waits for
-    every in-flight commit/fsync before closing the pool or Artifact FD.
+    requests do not queue behind each other while shutdown still waits for every
+    in-flight commit/fsync before closing the pool or Artifact FD.
+
+    A request holds one pooled connection for its transaction and takes at most one
+    more for nested authority/proof work (verified by tests/support/pool_depth_plugin).
+    capacity = max(1, pool_max_size // 2) therefore lets every admitted request finish
+    instead of all requests starving the pool. A request waiting for capacity gives up
+    after wait_seconds with BackendBusy, before it has built any proof or touched SQL,
+    so the wait can never extend a proof or bypass a final deadline check.
+
+    Admission is FIFO: outermost requests are admitted strictly in arrival order, so a
+    request's wait is bounded by its queue position and the service rate instead of by
+    who wins a notify_all race; a timed-out waiter leaves the queue and never blocks
+    the requests behind it. BackendBusy therefore signals real overload (retryable).
     """
 
-    def __init__(self):
+    def __init__(self, capacity=None, wait_seconds=10.0):
+        if capacity is not None and (type(capacity) is not int or capacity < 1):
+            raise ValueError('request capacity must be a positive integer')
+        if not 0 < wait_seconds <= 300:
+            raise ValueError('request capacity wait must be bounded')
+        self._capacity = capacity
+        self._wait_seconds = wait_seconds
+        self._active = 0
+        self._queue = deque()
         self._condition = Condition()
         self._readers = 0
         self._writer = False
@@ -29,19 +63,43 @@ class LifecycleLock:
     def __enter__(self):
         depth = getattr(self._held, 'depth', 0)
         with self._condition:
-            # A thread already inside a request re-enters without waiting.
-            while depth == 0 and (self._writer or self._writer_waiting):
-                self._condition.wait()
+            if depth == 0:
+                # A thread already inside a request re-enters without waiting.
+                deadline = time.monotonic() + self._wait_seconds
+                ticket = object()
+                self._queue.append(ticket)
+                try:
+                    while not self._admissible(ticket):
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise BackendBusy('backend request capacity unavailable')
+                        self._condition.wait(remaining)
+                except BaseException:
+                    # Leave the queue so the requests behind are not blocked.
+                    try:self._queue.remove(ticket)
+                    except ValueError:pass
+                    self._condition.notify_all()
+                    raise
+                self._queue.popleft()
+                self._active += 1
+                self._condition.notify_all()
             self._readers += 1
         self._held.depth = depth + 1
+        _request_state.depth = getattr(_request_state, 'depth', 0) + 1
         return self
+
+    def _admissible(self, ticket):
+        return (self._queue[0] is ticket and not self._writer and not self._writer_waiting
+                and (self._capacity is None or self._active < self._capacity))
 
     def __exit__(self, *_):
         self._held.depth -= 1
+        _request_state.depth -= 1
         with self._condition:
             self._readers -= 1
-            if self._readers == 0:
-                self._condition.notify_all()
+            if self._held.depth == 0:
+                self._active -= 1
+            self._condition.notify_all()
 
     @contextmanager
     def exclusive(self):
@@ -312,7 +370,7 @@ class ReviewServices:
 class Backend:
     def __init__(self, pool, store, signer):
         self._pool, self._store, self._signer = pool, store, signer
-        self._lock = LifecycleLock()
+        self._lock = LifecycleLock(capacity=max(1, getattr(pool, 'max_size', 2) // 2))
         self._closed = False
 
     def _assert_open(self):
@@ -407,6 +465,20 @@ class Backend:
                 from nexloop_eios.native_web_inbound import NativeWebMessagePort
                 return NativeWebMessagePort(self._pool, session, self._signer).accept_native_message(**arguments)
             return getattr(ConversationMessagePort(self._pool, session, self._signer), operation)(**arguments)
+
+    def run_request(self, operation):
+        """Public request entry for trusted in-process callers (e.g. HTTP decision handlers).
+
+        Runs operation(pool, signer) under the shared lifecycle hold (bounded request
+        capacity; shutdown waits for it) and one O1 authority_request_scope. The callable
+        must not retain pool/signer beyond the call. Raises BackendBusy when no request
+        capacity frees up in time, BackendClosed after shutdown.
+        """
+        if not callable(operation):
+            raise TypeError('operation must be callable')
+        with self._lock, authority_request_scope():
+            self._assert_open()
+            return operation(self._pool, self._signer)
 
     def _invoke(self, session, operation, **arguments):
         # Shared request hold: shutdown cannot close a file FD or connection pool

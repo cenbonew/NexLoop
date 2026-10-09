@@ -16,6 +16,8 @@ from nexloop_eios.role_mapping import role_mapping_schemas,RoleMappingPort
 from nexloop_eios.role_runs import bind_role_run,ROLE_FIELDS,LINK_FIELDS,STEP_FIELDS
 from nexloop_eios.role_policies import CEILING_FIELDS,SCOPE_FIELDS
 # Same bounded budget as runtime_effect_fixture Run commands; must stay within the ceiling.
+# Per-Run distinct-submission ceiling; effect_units tests raise EffectControl budget instead.
+ROLE_EFFECT_UNITS=1
 ROLE_BUDGET={'maximum_model_turns':8,'maximum_tool_calls':8,'active_timeout_seconds':60,'maximum_cost':'1.0','currency':'USD'}
 from nexloop_eios.service_offerings import OFFERING_FIELDS,BINDING_FIELDS
 from test_postgres_action_claims import governance_inputs
@@ -25,7 +27,7 @@ from runtime_effect_fixture import runtime_effect_plan
 @pytest.fixture
 def role_runtime_plan(monkeypatch,admin,request):
     original=fixture.install_runtime_catalog;issue=AuthenticatedServices.issue_run_credential;accept=AuthenticatedServices.accept_runtime_event;create_activation=AuthenticatedServices.create_runtime_activation
-    roles={};policies={};bindings={};packs={};catalogs={};binding_sources={};current_sources=[];end_tokens=[]
+    roles={};policies={};policy_editors=[];bindings={};packs={};catalogs={};binding_sources={};current_sources=[];end_tokens=[]
     def install(admin,tenant,api,consumer,sources,expiry):
         tokens,sources=original(admin,tenant,api,consumer,sources,expiry)
         base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
@@ -48,6 +50,12 @@ def role_runtime_plan(monkeypatch,admin,request):
         edit_def=edit_def.model_copy(update={'stable_name':'ConsumerRoleLink.edit','contract_digest':None,'capability_binding':edit_def.capability_binding.model_copy(update={'capability_name':'consumer.edit'})})
         edit_cap=CapabilityContractSnapshot.model_validate_json(json.dumps(edit_cap)).model_copy(update={'capability_name':'consumer.edit'})
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:ConsumerRoleLink.edit:1',Jsonb(edit_def.model_dump(mode='json')),Jsonb(edit_cap.model_dump(mode='json'))))
+        for kind in ('RoleExecutionCeiling','RoleAssignmentScope'):
+            policy_def,policy_cap=admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s",(tenant,'eios:action:'+kind+'.create:1')).fetchone()
+            policy_def=ActionDefinition.model_validate_json(json.dumps(policy_def))
+            policy_def=policy_def.model_copy(update={'stable_name':kind+'.edit','contract_digest':None,'capability_binding':policy_def.capability_binding.model_copy(update={'capability_name':'ontology.object.edit'})})
+            policy_cap=CapabilityContractSnapshot.model_validate_json(json.dumps(policy_cap)).model_copy(update={'capability_name':'ontology.object.edit'})
+            admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+kind+'.edit:1',Jsonb(policy_def.model_dump(mode='json')),Jsonb(policy_cap.model_dump(mode='json'))))
         from nexloop_eios.role_context_artifacts import ACTION as CONTEXT,role_context_binding_schema
         context_body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));context_body.pop('contract_digest',None)
         actual_ref=admin.execute("select definition->'object_types' from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s",(tenant,'eios:action:'+fixture.EFFECT+':1')).fetchone()[0]
@@ -67,7 +75,7 @@ def role_runtime_plan(monkeypatch,admin,request):
             from nexloop_eios.role_policies import RolePolicyPort
             goal=admin.execute("select properties->>'goal_id' from ontology.objects where tenant_id=%s and object_id=%s",(tenant,step)).fetchone()[0]
             ceiling=RolePolicyPort(api.authenticate(keeper_token,world='real')).create(kind='RoleExecutionCeiling',intent_id='role-policy-ceiling-'+str(index),properties=dict(active=True,
-                action_resources=['eios:action:'+fixture.EFFECT+':1'],consumer_ids=[consumer],goal_ids=[goal],step_ids=[step],budget=dict(ROLE_BUDGET),effect_units=1,**valid))['object_id']
+                action_resources=['eios:action:'+fixture.EFFECT+':1'],consumer_ids=[consumer],goal_ids=[goal],step_ids=[step],budget=dict(ROLE_BUDGET),effect_units=ROLE_EFFECT_UNITS,**valid))['object_id']
             roleport=RoleMappingPort(api.authenticate(keeper_token,world='real'))
             role=roleport.create_role(intent_id='runtime-role-'+str(index),name='source-role-'+str(index),responsibility='governed service responsibility',ceiling_ref=ceiling,**valid)['object_id']
             scope=RolePolicyPort(api.authenticate(keeper_token,world='real')).create(kind='RoleAssignmentScope',intent_id='role-policy-scope-'+str(index),properties=dict(active=True,
@@ -91,6 +99,12 @@ def role_runtime_plan(monkeypatch,admin,request):
         for selected in roles.values():
             end_targets.extend([('eios:object:ConsumerRoleLink/'+selected['link_id'],ResourceType.OBJECT,Operation.EDIT),('eios:property:ConsumerRoleLink/'+selected['link_id']+'/active',ResourceType.PROPERTY,Operation.EDIT)])
         end_tokens.append(fixture.seed_multi_uuid(admin,tenant,end_targets,suffix='-role-end-manager',extra_scopes=('ontology.roles.manage',)))
+        edit_targets=[('eios:action:RoleExecutionCeiling.edit:1',ResourceType.ACTION,Operation.EXECUTE),('eios:action:RoleAssignmentScope.edit:1',ResourceType.ACTION,Operation.EXECUTE)]
+        for selected in policies.values():
+            for kind,obj,fields in (('RoleExecutionCeiling',selected['ceiling_id'],CEILING_FIELDS),('RoleAssignmentScope',selected['scope_id'],SCOPE_FIELDS)):
+                edit_targets.append(('eios:object:'+kind+'/'+obj,ResourceType.OBJECT,Operation.EDIT))
+                edit_targets.extend(('eios:property:'+kind+'/'+obj+'/'+f,ResourceType.PROPERTY,Operation.EDIT) for f in fields)
+        policy_editors.append(fixture.seed_multi_uuid(admin,tenant,edit_targets,suffix='-role-policy-editor',extra_scopes=('ontology.roles.manage',)))
         current_sources.extend(api.authenticate(token,world="real") for token in newtokens)
         return newtokens,current_sources
     def issued(self,**kwargs):
@@ -132,4 +146,12 @@ def role_runtime_plan(monkeypatch,admin,request):
         link=bindings[run_id]['link_id']
         return RoleMappingPort(manager).end(intent_id='end-runtime-map:'+run_id,link_id=link,expected_revision=1)
     plan['end_role']=end_role
+    def edit_policy(index,kind,patch):
+        principal=plan['sources'][index]._session.authentication.subject_principal_id
+        selected=policies[principal];object_id=selected['ceiling_id' if kind=='RoleExecutionCeiling' else 'scope_id']
+        current=admin.execute('select properties,nexloop_revision from ontology.objects where tenant_id=%s and object_id=%s',(plan['tenant'],object_id)).fetchone()
+        editor=plan['api'].authenticate(policy_editors[0],world='real')
+        from nexloop_eios.role_policies import RolePolicyPort
+        return RolePolicyPort(editor).edit(kind=kind,intent_id='edit-'+kind+'-'+str(index)+'-'+'-'.join(sorted(patch)),object_id=object_id,expected_revision=current[1],properties={**current[0],**patch})
+    plan['edit_policy']=edit_policy;plan['role_policies']=policies
     return plan

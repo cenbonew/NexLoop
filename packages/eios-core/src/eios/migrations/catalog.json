@@ -420,6 +420,21 @@
       "version": "0084",
       "name": "0084_property_grant_derivation.sql",
       "sha256": "e132017c6e52bdc98fba11ba68750c535ca6baa39532941a42d93e629f2b8245"
+    },
+    {
+      "version": "0085",
+      "name": "0085_nx018_role_policy_dispatch.sql",
+      "sha256": "bbad04498dc5d98e6d3b1d245d7c2712e9622f6d7b6574cf7eeba54e6cf2753d"
+    },
+    {
+      "version": "0086",
+      "name": "0086_nx018_evidence_read_derivation.sql",
+      "sha256": "240328e24daafe5a5be870dd3f941bfa8d92cab7429f78696ae8d4c8655514f4"
+    },
+    {
+      "version": "0087",
+      "name": "0087_nx018_role_policy_context_v5.sql",
+      "sha256": "de2bffcad89a6c4dfdf952966e948dcda72078233965105f3eb533c4fe997d1c"
     }
   ]
 }

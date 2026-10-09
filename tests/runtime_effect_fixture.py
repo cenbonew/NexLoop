@@ -29,6 +29,9 @@ class PrivatePlan(dict):
     __str__=__repr__
 
 
+# Shared EffectControl budget; Role policy tests raise it to isolate Role effect_units.
+EFFECT_BUDGET_UNITS=1
+
 def seed_multi_uuid(admin,tenant,targets,*,suffix,extra_scopes=()):
     """Multi-resource genuine stored EIOS service authority for this UUID tenant."""
     scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets)|frozenset(extra_scopes);records={};apps=[]
@@ -135,7 +138,7 @@ def runtime_effect_plan(admin,pg,tmp_path):
         expiry=(datetime.now(UTC)+timedelta(minutes=3)).isoformat()
         consumer=create(owner,'Consumer',{})
         control=create(owner,'EffectControl',{'consumer_id':consumer,'owner_principal':owner._session.authentication.subject_principal_id,
-            'executor_principal':executor._session.authentication.subject_principal_id,'budget_units':1,'allow_effect':True,'valid_until':expiry})
+            'executor_principal':executor._session.authentication.subject_principal_id,'budget_units':EFFECT_BUDGET_UNITS,'allow_effect':True,'valid_until':expiry})
         goal=create(planner,'Goal',{'consumer_id':consumer,'state':'active','valid_until':expiry})
         step=create(planner,'PlanStep',{'consumer_id':consumer,'goal_id':goal,'control_id':control,'submitter_principals':sorted(source._session.authentication.subject_principal_id for source in sources),
             'action_name':EFFECT,'state':'ready'})

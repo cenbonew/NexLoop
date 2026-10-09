@@ -20,9 +20,15 @@ def test_cached_genuine_source_read_denied_in_sql(formal_plan,admin,monkeypatch,
     port,envelope,kwargs=captured[-1]
     revoke(plan,admin,kind)
     with port.pool.connection() as db,db.transaction():
-        with pytest.raises(psycopg.errors.InsufficientPrivilege) as denied:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
             execute(port,db,envelope,**kwargs)
-        assert 'nexloop_context_formal_current' in denied.value.diag.context
+    # 0082 Role policy re-check is the outermost layer and may deny first (stale Source
+    # directory). Prove formal-current itself still refuses the cached genuine READ by
+    # calling the chain beneath the policy wrapper with the same signed envelope.
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as denied:
+        admin.execute('select authz.nexloop_runtime_activation_command_before_role_policy_v0081(%s,%s,%s,%s,%s)',
+            (port.session.token_digest,port.session.world,*envelope))
+    assert 'nexloop_context_formal_current' in denied.value.diag.context
     assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s',(plan['tenant'],)).fetchone()==(0,)
 
 def test_role_end_and_source_formal_revoke_preserve_independent_query(formal_plan,admin,tmp_path):

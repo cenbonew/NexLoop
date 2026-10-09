@@ -103,7 +103,17 @@ def policy_envelope_for_run(pool,signer,world,run_digest):
 
 
 def policy_envelope_for_role(pool,signer,session,role):
-    """Own authenticated caller resolves only technical same-tenant Run refs."""
+    """Own authenticated caller resolves only technical same-tenant Run refs.
+
+    Reused only within one guarded request (role_runs.request_envelope_scope); SQL
+    re-validates current policy, revision and deadline at every use.
+    """
+    from nexloop_eios.role_runs import scoped_envelope
+    return scoped_envelope(('policy',id(pool),signer.key_id,session.world,role['signature']),
+        lambda:_policy_envelope_for_role(pool,signer,session,role))
+
+
+def _policy_envelope_for_role(pool,signer,session,role):
     import json
     from nexloop_eios.assembly import verify_application_role
     run_id=json.loads(role['payload'])['run_id']

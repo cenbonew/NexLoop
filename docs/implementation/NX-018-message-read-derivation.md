@@ -92,3 +92,11 @@ Source 主体 P 对 Message M 的 READ（object + `actor` + `body` 两个属性�
 ## 10. 适配 Agent 外发消息（负责人另行决定的任务，本步未实现）
 
 Agent 外发消息持久化为 Message 后，只要它与用户消息一样写入同一会话的 `conversation_messages` 与受理 outbox（或一张等价的、由受治理 Action 写入的外发记录表），派生条件 2 的"已受理 + 会话 → Consumer"链即可原样覆盖 Agent 自己发出的消息：Source 仍需该 Consumer 的当前 READ 与规则，读取范围仍限于该 Consumer 会话内已持久化的消息。若外发消息使用独立表，只需在 `nexloop_assert_derived_message_read` 中把"受理记录"条件扩成"受理或外发持久化记录"，不新增授权来源。
+
+## 11. 证据读取接入派生（0086，NX-018 收口）
+
+- 接入点统一在 `AuthorizedObjectReader._authority`：Message/Conversation 的 READ 目标先问 SQL（`nexloop_message_read_basis` / 新增 `nexloop_conversation_read_basis`）。主体在该目标上有任何已配置 grants（即使为空）时返回 `configured`，走原配置路径与 0084 `type-property-v1` 回退；否则返回逐目标的 `accepted-message-v1` 派生声明。v4 关系读取（`relationship_context.message_envelope`/`envelopes`）、Assessment 证据（`assessment_actions` 的 `_authority` 列表）、NX-019 Claim 窗口（`claim_store._source_proofs` 与 `load_window`）因此不需各自改动。
+- `message_read_rule.fields` 改为显式有序子集 ⊆ {accepted_at, actor, body, conversation_id, sequence}，必须含 actor/body；不隐式扩大。列出 `conversation_id` 时同时派生该 Message 所属 Conversation（对象、`consumer_id`、`owner_principal`）的 READ，前提仍是主体对该 Conversation 的 Consumer 有当前 READ。
+- SQL：在 `nexloop_assert_derived_message_read` 最外层加一层（0077 inbound / 0080 outbound 两层不变）。Message 元数据字段先把声明改写为 Message 对象交给原两层做全部受理/Consumer/规则校验，再要求字段在规则内且在对象上存在；Conversation 独立校验规则、对象存在、Consumer 一致与嵌套 Consumer READ。0084 的 `assert_read_authority` 最外层分派保持不变（`type-property-v1` 先行，其余进入 0077 链），两条派生的优先级与"已配置优先"语义不变。
+- 为什么不用 0084 覆盖 Claim 的元数据字段：Message/Conversation 类型没有声明属性组，0084 对未分组属性不派生；改由 0077 规则显式列字段。
+- 测试：`tests/test_evidence_read_derivation.py`（8 例，全程无任何 per-Message/per-Conversation 授权，断言主体在两类资源上 grants 计数为 0）：Claim 抽取经派生完成并落 6 条 Claim；规则缺元数据字段、缺 conversation_id、无 Consumer READ、规则停用均 fail closed 且 0 Claim；仅 actor/body 规则时 `sequence`/Conversation 读取被拒；Assessment user_statement 更正经派生成功、规则停用后下一次更正被拒；v4 关系读取签出派生 Message 证明、0072 `nexloop_relationship_message_read` 接受，规则停用后拒绝。

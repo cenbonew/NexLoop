@@ -5,7 +5,8 @@ export const CONTEXT_PROTOCOL='nexloop.context-pack.v1';
 export const CONTEXT_PROTOCOL_V2='nexloop.context-pack.v2';
 export const CONTEXT_PROTOCOL_V3='nexloop.context-pack.v3';
 export const CONTEXT_PROTOCOL_V4='nexloop.context-pack.v4';
-export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4;
+export const CONTEXT_PROTOCOL_V5='nexloop.context-pack.v5';
+export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4|typeof CONTEXT_PROTOCOL_V5;
 export type RelationshipItem={assessment_ref:string;revision:number;relation_type_ref:string|null;source_ref:string;target_ref:string;epistemic_kind:'hypothesis'|'user_statement';resolution_state:'resolved'|'awaiting_definition'|'unresolved';conclusion:string;valid_from:string;valid_to:string|null;source_message_ref:string|null;source_content_hash:string|null};
 export type RelationshipZone={current_statements:RelationshipItem[];evidence:RelationshipItem[]};
 export type ContextAttestation={artifact_ref:string;sha256:string;command_binding_digest:string};
@@ -19,6 +20,14 @@ function exact(value:unknown,keys:readonly string[]):Record<string,unknown>{
 }
 function text(value:unknown,maximum:number,pattern?:RegExp):string{
   if(typeof value!=='string'||!value||[...value].length>maximum||value.includes('\u0000')||/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)||pattern&&!pattern.test(value))return fail();return value;
+}
+/** Exact UTC instant with calendar round-trip; Date.parse alone accepts rolled-over dates. */
+function strictUtc(value:unknown):number{
+  const raw=text(value,64),match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|\+00:00)$/.exec(raw);
+  if(!match||!Number.isFinite(Date.parse(raw)))return fail();
+  const date=new Date(raw),parts=[date.getUTCFullYear(),date.getUTCMonth()+1,date.getUTCDate(),date.getUTCHours(),date.getUTCMinutes(),date.getUTCSeconds()];
+  if(parts.some((part,index)=>part!==Number(match[index+1])))return fail();
+  return date.getTime();
 }
 function integer(value:unknown,minimum=1):number{if(typeof value!=='number'||!Number.isSafeInteger(value)||value<minimum)return fail();return value;}
 export function canonicalContextJSON(value:unknown):string{
@@ -65,7 +74,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
       const conclusion=text(row.conclusion,8192);
       if(!['hypothesis','user_statement'].includes(String(row.epistemic_kind))||!['resolved','awaiting_definition','unresolved'].includes(String(row.resolution_state)))return fail();
       if(row.relation_type_ref!==null)text(row.relation_type_ref,160,/^eios:link_type:[A-Za-z][A-Za-z0-9_]*:[1-9][0-9]*$/);
-      for(const key of ['valid_from','valid_to'])if(row[key]!==null){const date=text(row[key],64);if(!Number.isFinite(Date.parse(date)))return fail();}
+      for(const key of ['valid_from','valid_to'])if(row[key]!==null)strictUtc(row[key]);
       if(row.epistemic_kind==='user_statement'){
         text(row.source_message_ref,128,/^eios:object:Message\/[a-f0-9]{64}$/);text(row.source_content_hash,64,hex64);
         if(createHash('sha256').update(conclusion,'utf8').digest('hex')!==row.source_content_hash)return fail();
@@ -73,6 +82,32 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
       if(kind==='current_statements'&&(row.epistemic_kind!=='user_statement'||row.resolution_state!=='resolved'||row.relation_type_ref===null))return fail();
     }
     return {...validated,relationship_context:zone as RelationshipZone};
+  }
+  if(protocol===CONTEXT_PROTOCOL_V5){
+    // v5 = v3 Role Context + governed Role policy provenance (never an authority grant).
+    if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V5)return fail();
+    const pack=exact(parsed,['schema_version','bindings','formal_facts','current_constraints','supply','role_binding','trigger_statement','role_policy']);
+    const attestation=validateContextAttestation(command,untrustedAttestation);
+    if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
+    const policy=exact(pack.role_policy,['binding','ceiling','scope','ceiling_provenance','scope_provenance','grants_authority']);
+    const binding=exact(policy.binding,['run_id','tenant_id','world','ceiling_id','ceiling_revision','scope_id','scope_revision','budget','effect_units','expires_at']);
+    const ceilingId=text(binding.ceiling_id,64,hex64),scopeId=text(binding.scope_id,64,hex64);integer(binding.ceiling_revision);integer(binding.scope_revision);integer(binding.effect_units);
+    if(binding.run_id!==command.run_id||binding.tenant_id!==command.tenant_id||binding.world!=='real'||policy.grants_authority!==false)return fail();
+    if(policy.ceiling_provenance!=='eios:object:'+ceilingId||policy.scope_provenance!=='eios:object:'+scopeId)return fail();
+    if(canonicalContextJSON(binding.budget)!==canonicalContextJSON(command.budget)||strictUtc(binding.expires_at)<=Date.now())return fail();
+    const ceiling=exact(policy.ceiling,['active','action_resources','consumer_ids','goal_ids','step_ids','budget','effect_units','valid_from','valid_until']);
+    const scope=exact(policy.scope,['active','role_id','consumer_id','goal_ids','step_ids','valid_from','valid_until']);
+    for(const window of [ceiling,scope]){const from=strictUtc(window.valid_from),to=strictUtc(window.valid_until);if(window.active!==true||from>=to||from>Date.now()||to<=Date.now())return fail();}
+    if(ceiling.effect_units!==binding.effect_units)return fail();
+    const role=exact(pack.role_binding,['binding','definition','definition_provenance','mapping_provenance','grants_authority']);
+    const selected=role.binding as Record<string,unknown>,definition=role.definition as Record<string,unknown>;
+    if(!selected||!definition||definition.ceiling_ref!==ceilingId||selected.scope!==scopeId||scope.role_id!==selected.role_id||scope.consumer_id!==selected.consumer_id)return fail();
+    const includes=(list:unknown,value:unknown)=>Array.isArray(list)&&list.includes(value);
+    const facts=new Map((pack.formal_facts as Array<Record<string,unknown>>).map(f=>[f.type,f.id]));
+    if(!includes(ceiling.consumer_ids,selected.consumer_id)||![ceiling,scope].every(p=>includes(p.goal_ids,facts.get('Goal'))&&includes(p.step_ids,facts.get('PlanStep'))))return fail();
+    const base={...pack,schema_version:CONTEXT_PROTOCOL_V3};delete (base as Record<string,unknown>).role_policy;
+    const baseText=canonicalContextJSON(base);
+    return validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V3);
   }
 
   if(protocol!==CONTEXT_PROTOCOL&&protocol!==CONTEXT_PROTOCOL_V2&&protocol!==CONTEXT_PROTOCOL_V3||expectedProtocol!==undefined&&protocol!==expectedProtocol)return fail();

@@ -30,7 +30,12 @@ def test_real_pg_trigger_and_fsynced_context_bind(role_runtime_plan,admin):
     plan=role_runtime_plan
     for command in plan['commands']:
         pack=plan['context_packs'][command['run_id']];body=json.loads(pack['input'])
-        assert body['schema_version']=='nexloop.context-pack.v3'
+        assert body['schema_version']=='nexloop.context-pack.v5'
+        # v5 = v3 + the Run's governed Role policy provenance, exactly as bound at issuance.
+        bound=admin.execute('select ceiling_id,ceiling_revision,scope_id,scope_revision,effect_units from authz.nexloop_role_policy_bindings where run_id=%s',(command['run_id'],)).fetchone()
+        policy=body['role_policy'];assert policy['grants_authority'] is False
+        assert (policy['binding']['ceiling_id'],policy['binding']['ceiling_revision'],policy['binding']['scope_id'],policy['binding']['scope_revision'],policy['binding']['effect_units'])==bound
+        assert body['role_binding']['definition']['ceiling_ref']==bound[0] and body['role_binding']['binding']['scope']==bound[2]
         event=admin.execute('select event_id,source_principal,body,command_binding from runtime.nexloop_role_trigger_events where run_id=%s',(command['run_id'],)).fetchone()
         assert body['trigger_statement']==dict(kind='service_trigger',event_id=str(event[0]),source_principal=event[1],body=event[2],provenance='eios:role-trigger:'+str(event[0]))
         artifact_id=pack['artifact_ref'].removeprefix('artifact:')
