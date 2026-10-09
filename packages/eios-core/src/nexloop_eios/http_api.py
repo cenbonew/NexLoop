@@ -70,11 +70,13 @@ def create_app(config:ApiConfiguration):
             ports_for_browser=browser_ports, execution_profile=config.execution_profile,
             stream_seconds=config.conversation_stream_seconds))
         from nexloop_eios.review_http import router as review_router
+        from nexloop_eios.review_actions import workbench_ports
         def review_ports(request, inspected_session):
             backend = getattr(request.app.state, 'backend', None)
             if backend is None:
                 raise BackendClosed('backend is unavailable')
-            return backend.authenticate_browser_reviewer(inspected_session)
+            # NX-044 governed human review decisions; backend.py itself is unchanged.
+            return workbench_ports(backend, inspected_session)
         app.include_router(review_router(config.browser, ports_for_browser=review_ports))
     @app.get('/health/live')
     def live():return {'alive':True}

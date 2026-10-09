@@ -290,7 +290,8 @@ class CandidateGluer:
         for conversation in sorted({row['conversation_id'] for row in self._claim_rows(claim_ids)}):
             for claim in self.matcher.claims.read(conversation_id=conversation)['statements']:
                 # Only re-pointed Claims; resolved/superseded/rejected ones are left as they are.
-                if claim['claim_id'] in claim_ids and claim['resolution_state']=='unresolved':claims[claim['claim_id']]=claim
+                # needs_resolution included: a reflow that waited for grants resumes its own proposals idempotently.
+                if claim['claim_id'] in claim_ids and claim['resolution_state'] in ('unresolved','needs_resolution'):claims[claim['claim_id']]=claim
         decisions={cid:self._decision(candidate,target_ref,claim) for cid,claim in claims.items()}
         provider=ScriptedMatchProvider({k:v for k,v in decisions.items() if v is not None})
         out={}
@@ -364,7 +365,10 @@ class ReviewQueueReader:
 
     def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
 
-    def _claims(self,body):
+    PROTOCOL='nexloop-review-queue-v1'
+
+    def _claims(self,body,protocol=None):
+        protocol=protocol or self.PROTOCOL
         target=resource_id(ResourceType.ACTION,REVIEW_ACTION,1);entries=[]
         try:
             query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
@@ -372,15 +376,15 @@ class ReviewQueueReader:
         except Exception:raise PermissionError('review permission unavailable') from None
         if not decision.allowed or not decision.authoritative or decision.obligations:raise PermissionError('review queue denied')
         auth=self.session.authentication
-        claims={'protocol':'nexloop-review-queue-v1','key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
+        claims={'protocol':protocol,'key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
             'credential_id':auth.credential_id,'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,
             'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),'parameters_digest':hashlib.sha256(body.encode()).hexdigest()}
         text=canonical_payload(claims)
-        return text,hmac.new(self.signer.material,('nexloop-review-queue-v1:'+text).encode(),'sha256').hexdigest()
+        return text,hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
 
-    def _call(self,function,payload):
-        body=canonical_payload(payload);text,signature=self._claims(body)
+    def _call(self,function,payload,protocol=None):
+        body=canonical_payload(payload);text,signature=self._claims(body,protocol)
         with self.pool.connection() as db,db.transaction():
             verify_application_role(db)
             return db.execute(f'select authz.{function}(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
