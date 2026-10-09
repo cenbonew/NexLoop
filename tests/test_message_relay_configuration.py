@@ -39,3 +39,17 @@ def test_cli_tick_configuration_failclosed(value,capsys):
     with pytest.raises(SystemExit) as error:arguments(argv+['--tick-seconds',value])
     assert error.value.code==2
     assert capsys.readouterr().err=='Message relay configuration unavailable\n'
+
+def _relay_argv():
+    argv=[]
+    for name in ('database-url-file','signing-key-file','route-credential-file','source-credential-file',
+        'planner-credential-file','executor-credential-file','artifact-root','vault-root','recipe-file'):
+        argv.extend(['--'+name,'/synthetic/private'])
+    return argv
+
+def test_cli_context_strategy_selects_v6_only_by_strategy_id(capsys):
+    assert arguments(_relay_argv()).context_strategy is None
+    assert arguments(_relay_argv()+['--context-strategy','recent_plus_required']).context_strategy=='recent_plus_required'
+    for value in ('Recent','recent-plus','',"x;drop",'a'*65):
+        with pytest.raises(SystemExit) as error:arguments(_relay_argv()+['--context-strategy',value])
+        assert error.value.code==2 and capsys.readouterr().err=='Message relay configuration unavailable\n'
