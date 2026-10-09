@@ -179,3 +179,8 @@
   - `test_approved_type_hands_claims_back_to_the_full_matching_chain`（AT-067 新类型链路、授权未就绪负例、授权就绪后再次释放）
 - `tests/test_review_decisions_pg.py::test_agent_and_run_bound_credentials_cannot_decide_and_cause_no_side_effects`
 - 回归：`test_bootstrap test_db_boundary test_claim_store_pg test_review_type_actions_pg test_review_decisions_pg test_review_http test_review_workbench_pg test_candidate_merge_pg test_claim_matching_pg test_work_feeds_pg test_property_grant_derivation_pg test_grants_follow_latest_pg test_recall_pg`：首次 106 passed / 1 failed。失败的是 AT-064 迁移命名边界，0099 引用了 Claim 表；已在边界测试中把 NX-044 回流登记为受准许的消费者，之后通过。
+
+### 8.6 设计限制（单列，待负责人另议）
+**新类型永远没有强标识路径。** 新类型 v1 按候选契约没有属性，也没有主键；EIOS 的 `assert_object_compatible` 又禁止之后修改主键（只允许增量、主键不变）。因此，新类型的实例永远不能通过强标识自动创建或定位。仅有名称的实例必须经审核（ADR-019 决定 3），实例候选的审批由 NX-050 实现。是否放宽这一点（例如允许以兼容方式首次设置主键）需另行提交负责人决定；本次不改动。
+
+**本次交付终点（如实）：** AT-067 的新类型链路走到“仅名称的实例进入审核”为止。依赖 Claim 不会被写成“已应用”。“已应用”由 NX-050（object_instance 候选审批与回流创建）完成。
