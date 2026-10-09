@@ -64,8 +64,9 @@ def seed_claim(admin,f,*,kind,polarity='affirmed',state='unresolved',quote='‰∏çÊ
 
 @pytest.fixture
 def v6(context_message,admin):
-    """Context Source: same declarations plus EXECUTE nexloop.context.assemble:1 and the
-    current Conversation READ its Claim evidence needs; built-in strategy published."""
+    """Context Source: same declarations plus the current Conversation READ its Claim
+    evidence needs; built-in strategy published. No standing nexloop.context.assemble:1:
+    the assemble authority is the one issued with each Run (0104)."""
     from nexloop_eios.service_offerings import OFFERING_FIELDS,BINDING_FIELDS
     f=context_message;tenant=f['original']['tenant'];recipe=f['f']['recipe']
     targets=[]
@@ -74,8 +75,7 @@ def v6(context_message,admin):
         targets+=[('eios:property:'+type_name+'/'+object_id+'/'+field,ResourceType.PROPERTY) for field in fields]
     targets+=[('eios:object:Consumer/'+recipe['consumer_id'],ResourceType.OBJECT),('eios:object:Conversation/'+f['message']['conversation_id'],ResourceType.OBJECT)]
     specs=[('eios:action:nexloop.service.request:1',ResourceType.ACTION,Operation.EXECUTE),('eios:action:'+ACTION+':1',ResourceType.ACTION,Operation.EXECUTE),
-        ('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.CREATE),('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.READ),
-        (ASSEMBLE,ResourceType.ACTION,Operation.EXECUTE)]
+        ('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.CREATE),('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.READ)]
     binding,rows=source_declarations(tenant,targets,custom_specs=specs)
     # A credential's binding is immutable: the widened Source gets its own credential.
     binding=binding.model_copy(update={'caller_application_id':binding.caller_application_id+':v6','credential_id':binding.credential_id+':v6'})

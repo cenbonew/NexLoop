@@ -38,6 +38,12 @@ derives Message/Conversation READ from them only for the work the purpose names:
 principal's credential currently leases; ``claim_matching`` covers the evidence
 Message (and Conversation object) of a Claim still to be matched. A rule requires the
 purpose Action grant in the same manifest; removing a rule deactivates it.
+
+retired_principals: service principals that an earlier manifest version declared and
+that no longer hold any standing authority (e.g. ``context_assembler``, whose
+nexloop.context.assemble:1 is now issued with each Run, migration 0104). apply revokes
+every non-empty grant set they still have (empty grant facts, never deleted); doctor
+treats them as managed, so a leftover grant is drift rather than foreign authority.
 """
 import argparse,hashlib,json,re,sys,uuid
 from datetime import UTC,datetime
@@ -66,6 +72,8 @@ FOLLOW='follow_latest_version'
 RULES='property_access_rules'
 RULE={'principal','type_name','operations','property_groups','include_review_published','basis_schema_version','valid_until','purpose','source_task'}
 MESSAGE_RULES='message_read_rules'
+RETIRED='retired_principals'
+RETIRED_PRINCIPAL={'role','principal_id','retired_in','reason','source_task'}
 MESSAGE_RULE={'principal','read_purpose','fields','valid_until','purpose','source_task'}
 MESSAGE_FIELDS=('accepted_at','actor','body','conversation_id','sequence')
 # Read purpose -> Action grants the principal must hold in the same manifest.
@@ -100,7 +108,7 @@ def _reject(reason):raise ServiceGrantsRejected(reason)
 
 def validate(value):
     """Structural and policy validation of the public manifest (no I/O)."""
-    if type(value) is not dict or set(value)-{RULES,MESSAGE_RULES}!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
+    if type(value) is not dict or set(value)-{RULES,MESSAGE_RULES,RETIRED}!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
     if type(value['manifest_version']) is not int or value['manifest_version']<1:_reject('manifest_version')
     if type(value['world']) is not str or re.fullmatch(r'[a-z][a-z0-9_-]{0,79}',value['world']) is None:_reject('world')
     try:valid_from=datetime.fromisoformat(value['valid_from'])
@@ -141,6 +149,7 @@ def validate(value):
         if not any(g['principal']==role for g in value['grants']):_reject('principal_without_grant')
     _validate_rules(value,principals)
     _validate_message_rules(value,principals)
+    _validate_retired(value,principals,identifiers)
     return value
 
 
@@ -192,6 +201,21 @@ def _validate_message_rules(value,principals):
         key=(item['principal'],item['read_purpose'])
         if key in seen:_reject('message_read_rule_duplicate')
         seen.add(key)
+
+
+def _validate_retired(value,principals,identifiers):
+    if RETIRED not in value:return
+    retired=value[RETIRED]
+    if type(retired) is not list or len(retired)>64:_reject('retired_principal_shape')
+    seen=set()
+    for item in retired:
+        if type(item) is not dict or set(item)!=RETIRED_PRINCIPAL:_reject('retired_principal_shape')
+        if any(type(item[k]) is not str or not item[k] for k in RETIRED_PRINCIPAL-{'retired_in'}):_reject('retired_principal_shape')
+        if type(item['retired_in']) is not int or not 1<=item['retired_in']<=value['manifest_version']:_reject('retired_principal_shape')
+        if _ROLE.fullmatch(item['role']) is None or _ID.fullmatch(item['principal_id']) is None:_reject('retired_principal_shape')
+        # A retired principal is never also an active one.
+        if item['role'] in principals or item['principal_id'] in identifiers or item['principal_id'] in seen:_reject('retired_principal_active')
+        seen.add(item['principal_id'])
 
 
 def validate_owner_restrictions(value):
@@ -490,6 +514,12 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictio
             if kind=='grants' and key[0]==principal['principal_id'] and key[1] not in listed and payload.get('grants'):
                 writes.append(('grants',list(key),F.GrantFacts(tenant_id=tenant,repository_witness=WITNESS,subject_kind=GrantSubjectKind.SERVICE,
                     principal_id=principal['principal_id'],grants=(),valid_until=None,complete=True,next_cursor=None,revision=1)))
+    # Retired principals: every grant set they still hold is revoked (emptied, never deleted).
+    retired={r['principal_id'] for r in manifest.get(RETIRED,[])}
+    for (kind,key),payload in current.items():
+        if kind=='grants' and key[0] in retired and payload.get('grants'):
+            writes.append(('grants',list(key),F.GrantFacts(tenant_id=tenant,repository_witness=WITNESS,subject_kind=GrantSubjectKind.SERVICE,
+                principal_id=key[0],grants=(),valid_until=None,complete=True,next_cursor=None,revision=1)))
     property_writes,property_findings=_property_access_plan(manifest,tenant,current,owner_restrictions)
     writes+=property_writes
     writes+=_message_rule_plan(manifest,tenant,current)
@@ -498,7 +528,7 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictio
     for kind,key,fact in writes:unique[(kind,tuple(key))]=(kind,key,fact)
     writes=sorted(unique.values(),key=lambda w:(ORDER.index(w[0]),w[1]))
     expected=expected_grants(manifest);actual=_service_grant_triples(inventory)
-    managed={p['principal_id'] for p in manifest['principals']}
+    managed={p['principal_id'] for p in manifest['principals']}|{r['principal_id'] for r in manifest.get(RETIRED,[])}
     extra=[{'principal_id':p,'resource_id':r,'operation':o,'manifest_principal':p in managed} for p,r,o in sorted(actual-expected)]
     missing=[{'principal_id':p,'resource_id':r,'operation':o} for p,r,o in sorted(expected-actual)]
     return {'writes':writes,'new_credentials':new_credentials,'findings':findings,'extra_grants':extra,'missing_grants':missing,

@@ -3,9 +3,10 @@ v6 Context copy read.
 
 Setup follows the v4 'complete' path (test_relationship_context_v4): a governed hypothesis
 RelationshipAssessment, the relationship recipe and a Source with current READ on the
-assessment, the trigger Message, the formal facts and the supply; additionally EXECUTE
-nexloop.context.assemble:1 and the published built-in strategy (admin seed, as in
-test_context_v6_pg). Synthetic data only.
+assessment, the trigger Message, the formal facts and the supply; additionally the
+published built-in strategy (admin seed, as in test_context_v6_pg). No standing
+nexloop.context.assemble:1: the assemble authority is issued with each Run (0104).
+Synthetic data only.
 """
 import hashlib,json,secrets
 from types import SimpleNamespace
@@ -52,7 +53,7 @@ def relationship_v6(context_message,admin):
     targets+=[('eios:property:EffectControl/'+formal_refs['EffectControl']+'/'+field,ResourceType.PROPERTY) for field in ('allow_effect','budget_units','executor_principal','valid_until')]
     targets=sorted(set(targets))
     specs=[('eios:action:nexloop.service.request:1',ResourceType.ACTION,Operation.EXECUTE),('eios:action:'+ACTION+':1',ResourceType.ACTION,Operation.EXECUTE),
-        ('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.CREATE),('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.READ),(ASSEMBLE,ResourceType.ACTION,Operation.EXECUTE)]
+        ('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.CREATE),('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.READ)]
     binding,rows=source_declarations(tenant,targets,custom_specs=specs)
     binding=binding.model_copy(update={'caller_application_id':binding.caller_application_id+':relationship-v6','credential_id':binding.credential_id+':relationship-v6'})
     for row in rows:

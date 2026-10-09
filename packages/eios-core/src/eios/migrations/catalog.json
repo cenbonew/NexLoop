@@ -520,6 +520,11 @@
       "version": "0104",
       "name": "0104_nx050_create_latest.sql",
       "sha256": "be94919bd519aa34b071d57691b466209fa74d4523526167a40c1c4f4bbdb569"
+    },
+    {
+      "version": "0105",
+      "name": "0105_nx023_assemble_per_run.sql",
+      "sha256": "c52d6d2666a8c97eee94085f600b5003ac51cb1a92680a389957985db0c12718"
     }
   ]
 }

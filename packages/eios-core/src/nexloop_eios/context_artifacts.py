@@ -132,11 +132,17 @@ V6_PROTOCOL='nexloop-context-v6-v1'
 ASSEMBLE_RESOURCE='eios:action:nexloop.context.assemble:1'
 
 
-def v6_call(db,authority,session,signer,function,payload,proofs):
-    """Signed v6 bind (EXECUTE nexloop.context.assemble:1 + the cited READ proofs)."""
+def v6_call(db,authority,session,signer,function,payload,proofs,run=None):
+    """Signed v6 bind (EXECUTE nexloop.context.assemble:1 + the cited READ proofs).
+
+    With ``run`` the assemble authority is the one issued with that Run (0104), which SQL
+    accepts only for the pack's own Run; without it, the Source's standing grant.
+    """
     if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command'):raise ValueError('v6 bind function')
     body=canonical_payload(payload)
-    claims={**authority._proof(session,ASSEMBLE_RESOURCE),'protocol':V6_PROTOCOL,'key_id':signer.key_id,
+    from nexloop_eios.context_engine.authority import run_assemble_claims
+    assemble=authority._proof(session,ASSEMBLE_RESOURCE) if run is None else run_assemble_claims(session,run)
+    claims={**assemble,'protocol':V6_PROTOCOL,'key_id':signer.key_id,
         'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'read_proofs':list(proofs)}
     text=canonical_payload(claims);signature=hmac.new(signer.material,(V6_PROTOCOL+':'+text).encode(),'sha256').hexdigest()
     return db.execute('select '+function+'(%s,%s,%s,%s,%s)',(session.token_digest,'real',text,signature,body)).fetchone()[0]
@@ -145,13 +151,14 @@ def v6_call(db,authority,session,signer,function,payload,proofs):
 class ContextV6ArtifactProducer(ContextArtifactProducer):
     """Message Run Context v6: the frozen v2 core plus Engine sections, bound by 0091.
 
-    The Source assembles under its own current READ authority (and EXECUTE
-    nexloop.context.assemble:1); SQL re-derives the core, re-verifies each source
+    The Source assembles under its own current READ authority and the EXECUTE
+    nexloop.context.assemble:1 issued with this Run (0104; no standing grant needed);
+    SQL re-derives the core, re-verifies each source
     against its row and refuses an omitted pinned source. The pack grants nothing.
     """
     def __init__(self,services,strategy_id,relationship_recipe=None,formal_refs=None):
         super().__init__(services);self.strategy_id=strategy_id
-        self.last_diagnostic=None
+        self.last_diagnostic=None;self.run=None
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
         self.core=None
         if relationship_recipe is not None:
@@ -167,7 +174,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         return self.core._call(db,parameters,run,definition,capability,claim_binding)
 
     def _v6_call(self,db,payload,proofs):
-        return v6_call(db,self.authority,self.session,self.signer,'authz.nexloop_context_v6_command',payload,proofs)
+        return v6_call(db,self.authority,self.session,self.signer,'authz.nexloop_context_v6_command',payload,proofs,run=self.run)
 
     def assemble(self,snapshot,command):
         """(pack body, outcome, items, proofs) from the SQL core snapshot and current sources."""
@@ -179,7 +186,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         else:
             from nexloop_eios.relationship_context_pack import encode_pack as encode_v4
             core=json.loads(encode_v4(snapshot,command))
-        strategy=StrategyRegistry(self.pool,self.session,self.signer).get(self.strategy_id)
+        strategy=StrategyRegistry(self.pool,self.session,self.signer,run=self.run).get(self.strategy_id)
         if strategy is None:raise ValueError('context strategy unavailable')
         consumer=command['consumer_ref'].removeprefix('consumer:')
         found=collect(self.pool,self.session,self.signer,consumer_id=consumer,conversation_ids=[core['user_statement']['conversation_id']],strategy=strategy.definition)
@@ -198,6 +205,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             with self.backend._lock:
                 self.backend._assert_open()
                 run,definition,capability,parameters,binding_digest,snapshot=self._snapshot(message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
+                self.run=run  # assemble authority issued with this Run
                 if snapshot.get('schema_version')=='nexloop.context-pack.v6':
                     # Already bound (retry after a lost ACK): replay the exact stored pack; SQL
                     # verified its sources when it was bound and now rechecks core/Artifact/claim.

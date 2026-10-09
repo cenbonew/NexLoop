@@ -84,8 +84,9 @@ def test_human_owner_actions_are_never_granted_to_service_principals():
     assert human and not human&{g['resource_id'] for g in GRANTS['grants']}
     services={a['executor_role'] for a in MANIFEST['actions'] if a['authority']=='service'}
     assert services<={p['role'] for p in GRANTS['principals']}
-    assembler=[g for g in GRANTS['grants'] if g['principal']=='context_assembler']
-    assert [(g['resource_id'],g['operations']) for g in assembler]==[('eios:action:nexloop.context.assemble:1',['execute'])]
+    # nexloop.context.assemble:1 is issued with each Run (0104): no standing service principal holds it.
+    assert not any(g['resource_id']=='eios:action:nexloop.context.assemble:1' for g in GRANTS['grants'])
+    assert [r['role'] for r in GRANTS['retired_principals']]==['context_assembler']
 
 
 def test_edit_profile_requires_a_side_effecting_service_snapshot():
