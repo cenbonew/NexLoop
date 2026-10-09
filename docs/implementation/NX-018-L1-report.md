@@ -73,6 +73,42 @@ pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**'
 
 第一次（基于 ccdd33d）**1031 passed / 1 failed / 2254.82s**。rebase 到 main 3ad4061 后重跑（84 个文件 + Host vitest）：**1070 passed / 2 failed / 2384.57s**，21/21 仍 passed；两例失败为 `test_effect_execution_sql.py::test_42_actual_bootstrap_and_publication_checksum`（同样断言迁移数=版本号，0074 预留空缺所致）与已知的 `test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]`（2s guard deadline 时序，见第 2 步）。Host vitest 141 passed。
 
-## 第 3 步：Role 权限上限与 scope 强制——未开始实现
+## 第 3 步：Role 权限上限与 scope 强制——阶段 A 已完成，阶段 B 待 L4 O1/O4
 
-按调度员指示在方案 B 决定前暂停。已读候选 `nx018-role-policy-candidate`（基线 e98d7c7 + 0064，早于 0065）：可按同样的外层 wrapper 方式移植为下一临时编号，其 `create or replace nexloop_context_artifact_read_dependency_v2` 需改落到 0067 的 `_v2_before_relationship`。已知问题"两 Pi inspect 503 / submit 2.041s"与本线第 1、2 步定位的同一根因一致（全局锁串行 + 每次 guard 重复生成签名证明）。另需 v5 live contracts（packages/contracts，本线禁止修改，需提案）以及 EDIT 撤权、TTL、effect 预算并发负例，这些均未实现。
+基线 `dispatch/integration-s3f` `90daa7b`（0074 NX-046、0075–0077 本线已定号）。新迁移临时 **0078_nx018_role_policy.sql**。按调度员分工，阶段 A 不改 `runtime_activation.py` / `backend.py`。
+
+### 阶段 A（本次）
+
+来源：候选 `docs/tmp/nx018-role-policy-candidate`（基线 e98d7c7+0064）的 DRAFT 前半（策略形状、管理、校验、绑定、签发），私有 alias `_before_role_policy_DRAFT` → `_before_role_policy_v0077`。对候选的改动：
+
+1. **候选缺陷修复**：`nexloop_role_policy_current` / `_bind` 用 `to_jsonb(row)` 与 validate 结果比较，validate 固定 `timezone='UTC'` 而它们没有，`expires_at` 按会话时区（本机 +08）渲染，**正向路径永远不等**；两函数补 `set timezone='UTC'`。（候选测试未覆盖 `current`，所以没暴露。）
+2. **未知 metadata-only ref fail closed（新）**：包裹 `authz.nexloop_role_run_bind`：Run 必须已有策略绑定，且 `RoleDefinition.ceiling_ref` / `ConsumerRoleLink.scope` 必须恰为已绑定的 `RoleExecutionCeiling` / `RoleAssignmentScope` 对象，否则 `Role execution policy mandatory` / `unknown Role ceiling|scope`。`role_policy_bind` 因此改为先写策略绑定再调用 `role_run_bind`。直接 `bind_role_run` 不再能绑定 Role（`role_activation` 的重放调用在策略已绑定时照常通过）。
+3. **不叠加**：每个 Run 恰绑定一个 Role 的一对 ceiling/scope；Run.allowed_resources、Consumer、Goal、Step、预算须同时落在两者之内（Source ∩ Run ∩ Ceiling ∩ Scope），策略从不授权（`grants_authority:false`）。
+4. 延后到阶段 B：DRAFT 中 `nexloop_role_policy_claims_current` 与 activation/intent/execution 三个调度期 wrapper（需要在 `runtime_activation.py` 的 `_signed` 与 effect 路径附带 `context_policy_envelope`，否则所有 Role Run 立即被拒），以及 v5 Context（pack/Artifact/Host 解析）。
+
+Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_prepare_run_credential`（行为不变，供原子签发复用）。夹具：`role_run_fixture` 改为真实创建 ceiling/scope 对象并经 `bind_policy_run` 绑定（Source 增加对两对象全字段的 READ），预算与 Run 命令同为 8/8/60/1.0 USD；`test_role_runs_first` 的正向例改为断言 metadata-only 选择 fail closed。
+
+### 测试
+
+- 候选移植（去掉手工 DRAFT 安装）：`test_role_policy_types` 11、`test_role_policy_governance` 5、`test_role_policy_binding` 9 → **25 passed / 21.56s**（首次即通过）。
+- 新增 `tests/test_role_policy_enforcement.py`：metadata-only 直接绑定被拒；受治理 `RoleExecutionCeiling.edit` 收窄 action_resources / 停用后，已绑定策略 current 校验拒绝（断言 revision 2 已实际生效）；短 TTL 策略到期后拒绝。首次 3 failed（即上面的时区缺陷，正向 current 也失败），修复后与 binding 一起 **13 passed / 26.65s**。
+- 新增 `test_message_read_derivation.py::test_run_credential_never_derives`：Run 凭据 basis 恒为 `configured`，形状与签名都正确的派生声明在 Run 身份下被 SQL 拒绝，**1 passed**。
+- Role 相关全集（21 文件：`test_role_*`、`test_receipt_*`、派生、bootstrap、run_credentials）：**172 passed / 1000.60s**，含真实两 Pi Role Run。
+- **首次广回归失败（保留）**：76 个其余相关文件 11 failed / 1035 passed / 1633.44s。除已知 v4 `[complete]` 外 10 例（claim_matching 7、candidate_merge 2、review_workbench 1，`rejected`≠`applied` 等）在基线 `90daa7b` 独立 worktree 上 24 passed，确认由本步引入。根因：候选 DRAFT 的 `create/edit_object_action` wrapper 只授权 `nexloop_api`，而当前 main 这两个函数实际 ACL 为 api + domain_worker + action_worker（在基线 bootstrap 上查询 `pg_proc.proacl` 确认），收窄后 Claim 匹配/合并 worker 的受治理写被拒。修复为与基线完全一致的 ACL，并新增 `test_policy_wrappers_preserve_prior_public_acl` 锁定；修复后三个文件 + 该测试 + bootstrap 33 passed / 53.43s。
+- **最终（修复后同一工作树单条命令）**：Role 全集 21 文件 + 其余相关 76 文件共 97 个文件串行：**1218 passed / 1 failed / 2563.70s**，`.ci-results/l1-step3-final.xml`；唯一失败为已知 v4 `[complete]`（2s guard 时序）。Host vitest 141 passed。
+
+### 阶段 A 未覆盖 / 阶段 B 待办
+
+- 调度期（model/tool/submit/admit/finalize）对策略 EDIT/撤权/到期的实时复核与 effect_units 并发上限压力负例：需 `claims_current` + 三个 wrapper + `runtime_activation.py` / `effect_intents.py` / `effect_execution.py` 附带 policy envelope。等 L4 O1/O4 合入后做，届时先告知调度员。
+- v5 Context 与契约：候选 v5 pack 新增 `role_policy` 段：`binding{run_id,tenant_id,world,ceiling_id,ceiling_revision,scope_id,scope_revision,budget,effect_units,expires_at}`、`ceiling`、`scope`、`ceiling_provenance`、`scope_provenance`、`grants_authority:false`。它属于 v5 Context，与阶段 B 一起实现；阶段 A **未修改 packages/contracts**。候选 Host 日期校验为 `Date.parse`+UTC 后缀，弱于 v3 的 calendar round-trip，阶段 B 需改为严格校验。
+- `effect_units` 语义（每 Run 不同 submission 上限，策略行 FOR UPDATE 串行）需负责人确认。
+- 派生未接入：v4 关系读取、Assessment 证据、NX-019 Claim 证据（仍走已配置 READ）。
+
+### 给 L4 的设计点（单个只读事务内批量授权判定，对应 O1/O2）
+
+实测（第 1、2 步诊断）：一次 guard 授权中 `AuthorizedObjectReader._authority` 约 8ms/次，v4 一次 authorize 调用数百次，Python 侧签名证明生成占 v4 authorize ~0.75s 中的 ~0.6s；每个 `_authority` 都独立 `pool.connection()` + 事务 + `_identity`。建议：
+
+1. **批量解析入口**：`authorize_many(session, [(kind, resource_id, operation), ...])` 在**一个** repeatable-read 只读事务内完成身份快照与目录哈希核对一次、按 `(kind,key)` 去重加载 authority facts 一次（同一 Source 的 subject/membership/actor/authentication/application/subject_authority/revision 对所有资源相同，只有 resource_graph/grants/scope/controls/policies 按目标），再逐目标做决策。证明的 `facts` 与 `record_hash` 与现在逐个生成的完全相同，SQL 校验端无需改动。
+2. **请求内去重**：同一请求（如 submit 的前后两次 guard、intent 构建、拒绝记录）用 contextvar 作用域复用已签名 envelope——本线已在 `role_runs.request_envelope_scope` 实现并用于 Role/formal/v4/catalog envelope，O1 可泛化到 `_authority` 级别。**不跨请求**：本线试过 3s 跨请求复用，会绕过"每次 guard 重新生成证明"语义（`test_role_tail` 锁等待后最终期限用例失败），已撤回。
+3. **期限**：批量结果的 `expires_at` 仍按每个决策 `min(decision.expires_at, now+25s)`，批量事务时间点作为 `now`，不延长任何证明。
+4. **锁**：本线已把 backend 全局锁改为请求共享 / 关闭独占（`4b48c3b`），与 O4 方向一致；O4 若进一步拆分，请保留"关闭等待所有 in-flight commit/fsync"的保证与线程本地重入。
