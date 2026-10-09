@@ -23,6 +23,7 @@
 | ADR-017 | v0.1不启用自动Schema/真实模拟选择发布 | 采用（ADR-019 部分修订：人工批准的 Schema 发布进入 v0.1） | 优先可靠执行；回归评估仍然第一版必需 |
 | ADR-019 | 对话提取→混合召回→分层匹配→候选定义人工审核（见 `adr/ADR-019-extraction-recall-review.md`） | 采用（负责人 2026-10-08 确认） | 全匹配自动写、不匹配经粘合/人工审核后真实发布；需新增审核 Action、候选表、最小审核工作台 |
 | ADR-020 | Source 对 Message 的 READ 由受治理事实派生；Agent 外发消息持久化为 Message；服务 Action/队列授权经可信配置由调度员授予；回归修复前按“相对基线不新增失败”合并（见 `adr/ADR-020-message-read-agent-messages-grants.md`） | 采用（负责人 2026-10-09 确认） | 修复 0062 引入的生产缺口；新增 NX-047、NX-048 |
+| ADR-021 | NX-047 首版只覆盖 Agent 外发、不显示“处理中”占位、v0.1 不支持撤回；NX-018 方案 B 合并的一次性例外（v4[complete] 绑定 AT-009 入基线） | 采用（负责人 2026-10-09 确认） | 见 `adr/ADR-021-outbound-scope-and-merge-exception.md` |
 | ADR-018 | 两机不是HA，real恢复先隔离与对账 | 采用 | 可落地且诚实；异地备份与高可用后置 |
 
 ## 需要独立ADR才能改变的事项

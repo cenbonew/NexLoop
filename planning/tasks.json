@@ -1682,6 +1682,12 @@
         "ref": "adr/ADR-020-message-read-agent-messages-grants.md",
         "summary": "Root cause of 21 main regressions: 0062 requires Source current READ on each Message but no production mechanism publishes it. Owner chose governed derivation (ADR-020 §1); implementation in progress on the NX-018 line.",
         "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "90daa7b",
+        "summary": "Merged step 1 (0075 formal current), partial step 2 (0076 v4 relationship context) and ADR-020 §1 Message READ derivation (0077): 21 registered main regressions pass on Mac (16 also green on CI host, 5 fail only on the CI host 2 s deadline). AT-004 not_run; AT-009 failed (v4 two-Pi positive). Merged under the one-time exception in ADR-021.",
+        "recorded_at": "2026-10-09T12:10:00+08:00"
       }
     ]
   },

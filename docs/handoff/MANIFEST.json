@@ -249,8 +249,8 @@
     },
     {
       "path": "docs/16_ADR.md",
-      "bytes": 4245,
-      "sha256": "548518c2dd566b50bff01ec8146647a62a17ff05533deab50f7a656ad64b800a"
+      "bytes": 4536,
+      "sha256": "b93ff375b237a0919a16fe6b29ddb1585ad1b42c4855173a518230e15adcc41f"
     },
     {
       "path": "docs/17_OPERATIONS_RUNBOOK.md",

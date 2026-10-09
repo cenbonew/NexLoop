@@ -120,7 +120,15 @@
     "name": "关系证据",
     "given": "旧推测被明确更正",
     "expected": "当前关系依据更新，旧结论不作为事实",
-    "status": "not_run"
+    "status": "failed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]",
+        "summary": "Fails on Mac and on the CI host: the v4 two-Pi positive run exceeds the 2 s tool deadline (runtime_failed / runtime_transport_unavailable). Registered as baseline B under ADR-021; exit after O1/O4 or v4 completion.",
+        "recorded_at": "2026-10-09T12:10:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-010",
