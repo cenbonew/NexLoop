@@ -360,6 +360,11 @@
       "version": "0072",
       "name": "0072_nx045_candidate_merge.sql",
       "sha256": "e1e5367fac757bcac2d17baaa3cab354914bf0bbf86675994494efc2048a3830"
+    },
+    {
+      "version": "0073",
+      "name": "0073_nx046_review_workbench.sql",
+      "sha256": "176e7c48a423bddd2b14cfb06a102a7c39e3b15b5760d5d2f1377e99a292324e"
     }
   ]
 }
