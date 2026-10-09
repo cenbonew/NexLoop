@@ -53,6 +53,11 @@ def parse_goal_version_ref(ref):
     return match.group(1),int(match.group(2))
 
 
+def _nx022_goal(ref):
+    try:return parse_goal_version_ref(ref)
+    except ValueError:return None  # not an NX-022 managed goal reference
+
+
 class ControlDenied(Exception):
     def __init__(self,reason):
         super().__init__(reason)
@@ -230,6 +235,39 @@ class ControlPlane:
     def bind_run(self,*,run_id,goal_id=None,goal_version=None,goal_ref=None):
         if goal_ref is not None:goal_id,goal_version=parse_goal_version_ref(goal_ref)
         return self._call('select authz.nexloop_bind_run_goal(%s,%s,%s,%s,%s)',(uuid.UUID(str(run_id)),goal_id,goal_version))
+
+    def assert_intent_dispatch(self,intent_id,*,connection=None):
+        """Effect admission: the latest submission snapshot of this intent (0097)."""
+        return self._call('select authz.nexloop_assert_intent_dispatch_controls(%s,%s,%s)',(uuid.UUID(str(intent_id)),),connection)
+
+    def assert_task_dispatch(self,task_id,*,connection=None):
+        """Runtime task dispatch: control head at enqueue + scopes/goal of the stored Run command (0097)."""
+        return self._call('select authz.nexloop_assert_task_dispatch_controls(%s,%s,%s)',(str(task_id),),connection)
+
+    def prepare_run_dispatch(self,*,task_id,command):
+        """Dispatch-time owner controls for one queued Run (NX-022).
+
+        1. A Run whose goal_version_ref names an NX-022 goal (goal:<id>@<v>) is bound
+           to that version (bind_run is idempotent; a superseded version is refused).
+        2. The stored task snapshot is asserted (pause, stale goal chain, later
+           relevant control events including model budget changes).
+        3. When the tenant has a model budget configured, the Run's declared maximum
+           cost is reserved once per Run (consumption id run:<run_id>); exhausted or
+           unit mismatch refuses dispatch. No configured budget means no budget gate.
+        Raises ControlDenied(reason) for control decisions.
+        """
+        goal=_nx022_goal(command.get('goal_version_ref'))
+        if goal is not None:self.bind_run(run_id=command['run_id'],goal_id=goal[0],goal_version=goal[1])
+        result=self.assert_task_dispatch(task_id)
+        status=self.budget_status('model')
+        if status.get('configured'):
+            budget=command.get('budget') or {}
+            try:
+                self.reserve_budget(budget_kind='model',consumption_id='run:'+str(command['run_id']),amount=str(budget.get('maximum_cost')),
+                    unit=str(budget.get('currency')),source_ref='run:'+str(command['run_id']))
+            except ControlDenied:raise
+            except (ValueError,psycopg.Error):raise ControlDenied('budget_unit_mismatch') from None
+        return result
 
     def read_goal(self,goal_id,version=None):
         return self._call('select authz.nexloop_read_goal(%s,%s,%s,%s)',(goal_id,version))

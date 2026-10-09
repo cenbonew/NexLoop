@@ -158,6 +158,10 @@ class RuntimeDispatcher:
             ttl=(datetime.fromisoformat(command['not_after'].replace('Z','+00:00'))-datetime.now(UTC)).total_seconds()
             deadline=min(deadline,time.monotonic()+ttl)
             authority()
+            # NX-022: owner controls are re-read before this queued Run is activated.
+            from nexloop_eios.goal_controls import ControlDenied,ControlPlane
+            try:ControlPlane(self.worker._backend._pool,self.worker._session).prepare_run_dispatch(task_id=task_id,command=command)
+            except ControlDenied as denied:raise RuntimeDispatchError(denied.reason) from None
             activation=self.worker.create_runtime_activation(queue=self.queue,task_id=task_id,fence=fence,
                 run_id=command['run_id'],command=command,input=input,owner_epoch=command['runtime_owner_epoch'])
             try:inspection=request('inspect')
