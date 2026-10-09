@@ -9,7 +9,10 @@ export type DecisionResult={replay:boolean;decision_id:string;outcome:'rejected'
 export type QueueItem={candidate_id:string;kind:string;status:'pending_review';revision:number;display_name:string;recall:RecallHit[];merge_scores:Score;config_version:string;created_at:string;dependent_claim_count:number};
 export type Evidence={claim_id:string;quote:string;source_message_id:string|null;span_start:number|null;span_end:number|null;predicate:string;resolution_state:string};
 export type Similar={candidate_id:string;status:string;display_name:string;merge_scores:Score|null};
-export type CandidateDetail=QueueItem&{evidence:Evidence[];similar:Similar[];cooldown:{candidate_id:string;cooldown_until:string}|null;decisions:Decisions};
+/** 0084: who would automatically read/write a new property once approved; null = could not be verified. */
+export type DerivationImpact={applies:false}|{applies:true;type_name:string;property_group:string|null;restriction_configured:boolean;restricted:boolean;
+  auto_access:{principal_id:string;operations:('read'|'edit')[]}[]};
+export type CandidateDetail=QueueItem&{evidence:Evidence[];similar:Similar[];cooldown:{candidate_id:string;cooldown_until:string}|null;decisions:Decisions;derivation_impact:DerivationImpact|null};
 /** forbidden: the queue is not visible to this session (no current ontology.schema.review). */
 export type Queue={visible:false}|{visible:true;items:QueueItem[];decisions:Decisions};
 
@@ -34,6 +37,17 @@ export function queueItem(value:unknown):QueueItem{
   return {candidate_id:text(v.candidate_id),kind:text(v.kind),status:'pending_review',revision:Number(v.revision),display_name:displayName(candidate),recall,
     merge_scores:score(v.merge_scores),config_version:text(v.config_version),created_at:text(v.created_at),dependent_claim_count:count(v.dependent_claim_count)};
 }
+export function derivationImpact(value:unknown):DerivationImpact|null{
+  if(value===null||value===undefined)return null;
+  const v=object(value);
+  if(v.applies===false)return {applies:false};
+  if(v.applies!==true||typeof v.restriction_configured!=='boolean'||typeof v.restricted!=='boolean'||!Array.isArray(v.auto_access)
+    ||(v.property_group!==null&&typeof v.property_group!=='string'))throw new Error('响应无效');
+  const auto_access=v.auto_access.map(raw=>{const a=object(raw);if(!Array.isArray(a.operations))throw new Error('响应无效');
+    return {principal_id:text(a.principal_id),operations:a.operations.map(o=>{if(o!=='read'&&o!=='edit')throw new Error('响应无效');return o as 'read'|'edit';})};});
+  if(v.restricted&&auto_access.length)throw new Error('响应无效');
+  return {applies:true,type_name:text(v.type_name),property_group:v.property_group as string|null,restriction_configured:v.restriction_configured,restricted:v.restricted,auto_access};
+}
 export function candidateDetail(value:unknown):CandidateDetail{
   const v=object(value);if(!Array.isArray(v.evidence)||!Array.isArray(v.similar))throw new Error('响应无效');
   const evidence=v.evidence.map(raw=>{const e=object(raw);const start=e.span_start===null?null:count(e.span_start);const end=e.span_end===null?null:count(e.span_end);
@@ -41,7 +55,7 @@ export function candidateDetail(value:unknown):CandidateDetail{
     return {claim_id:text(e.claim_id),quote:e.quote,source_message_id:e.source_message_id===null?null:text(e.source_message_id),span_start:start,span_end:end,predicate:text(e.predicate),resolution_state:text(e.resolution_state)};});
   const similar=v.similar.map(raw=>{const s=object(raw);return {candidate_id:text(s.candidate_id),status:text(s.status),display_name:text(object(s.proposed).display_name),merge_scores:s.merge_scores===null?null:score(s.merge_scores)};});
   const cooldown=v.cooldown===null||v.cooldown===undefined?null:(()=>{const c=object(v.cooldown);return {candidate_id:text(c.candidate_id),cooldown_until:text(c.cooldown_until)};})();
-  return {...queueItem(v),evidence,similar,cooldown,decisions:decisions(v.decisions)};
+  return {...queueItem(v),evidence,similar,cooldown,decisions:decisions(v.decisions),derivation_impact:derivationImpact(v.derivation_impact)};
 }
 async function request(path:string):Promise<unknown>{const response=await fetch(path,{credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new ApiError(response.status);return response.json();}
 export async function readQueue(limit=50):Promise<Queue>{
@@ -83,6 +97,21 @@ export function reviewError(error:unknown):string{
   if(error instanceof Error&&error.message==='请填写决定理由')return '请填写决定理由。';
   if(error instanceof Error&&error.message==='响应无效')return '审核数据格式无效，未显示任何内容。';
   return '审核服务暂不可用（权限或数据暂时无法核验），请稍后重试。';
+}
+export const GROUP_LABELS:Record<string,string>={demographics:'人口属性',needs_intent:'需求意图',purchase_behavior:'购买行为',preference:'偏好',pain_point:'痛点',
+  spending_power:'消费能力',sentiment_attitude:'情感态度',lifestyle:'生活方式',channel_tech:'渠道与技术',other:'其他'};
+const OPERATION_LABELS={read:'读',edit:'写'};
+/** Approve warning for a new property: null when not applicable. Unverifiable impact is its own message (approve stays disabled). */
+export function impactMessage(kind:string,impact:DerivationImpact|null):string|null{
+  if(kind!=='property')return null;
+  if(impact===null)return '无法核验批准后的服务主体自动读写影响，已暂停“批准发布”；请稍后刷新。';
+  if(!impact.applies)return null;
+  const group=impact.property_group?`“${GROUP_LABELS[impact.property_group]??impact.property_group}”（${impact.property_group}）`:'“未分组”';
+  if(!impact.restriction_configured)return `该属性所属组：${group}。负责人尚未为 ${impact.type_name} 记录受限组决定，批准后不会有服务主体自动读写此属性。`;
+  if(impact.restricted)return `该属性所属组：${group}，是受限组。批准后服务主体不会自动读写它，只能经可信配置逐对象授权。`;
+  if(!impact.auto_access.length)return `该属性所属组：${group}，非受限组。当前没有服务主体的派生规则包含此组，批准后不会被自动读写。`;
+  const who=impact.auto_access.map(a=>`${a.principal_id}（${a.operations.map(o=>OPERATION_LABELS[o]).join('、')}）`).join('；');
+  return `注意：批准后，以下服务主体将自动读写全部 ${impact.type_name} 对象的此属性，无需逐对象授权：${who}。所属组：${group}，非受限组。`;
 }
 export const KIND_LABELS:Record<string,string>={object_type:'新对象类型',property:'新属性',vocabulary_value:'新词表值',alias:'别名',object_instance:'新实例'};
 export const DECISION_LABELS:Record<string,string>={approve:'批准发布',merge_into:'并入已有定义',reject:'拒绝'};

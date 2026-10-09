@@ -160,3 +160,28 @@ def test_run_credential_never_derives(context_message, admin):
     with pool.connection() as db, db.transaction():
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             db.execute('select authz.nexloop_read_object(%s,%s,%s,%s)', (run_session.token_digest, 'real', text, _sign(signer, text)))
+
+
+def test_run_credential_never_derives_property_access(context_message, admin):
+    """0084: the type-property derivation is service-only too; a Run of the same principal stays on configured authority."""
+    from psycopg.types.json import Jsonb
+    from datetime import UTC, datetime, timedelta
+    from nexloop_eios.property_access import PropertyAccessRule, PropertyGroupRestriction
+    f = context_message; pool, source, _ = parts(f); mid = f['message']['id']; tenant = f['original']['tenant']
+    principal = source.authentication.subject_principal_id
+    rule = PropertyAccessRule(tenant_id=tenant, principal_id=principal, type_name='Message', operations=('read',), property_groups=('other',),
+                              include_review_published=False, basis_schema_version=1, active=True, valid_until=datetime.now(UTC) + timedelta(days=1))
+    restriction = PropertyGroupRestriction(tenant_id=tenant, type_name='Message', restricted_groups=(), decision='synthetic owner decision')
+    for kind, key, value in (('property_access_rule', [principal, 'Message'], rule), ('property_group_restriction', ['Message'], restriction)):
+        admin.execute('insert into authz.nexloop_authority_facts values(%s,%s,%s,%s)', (tenant, kind, key, Jsonb(value.model_dump(mode='json'))))
+    target = 'eios:object:Message/' + mid
+    with pool.connection() as db, db.transaction():
+        derived = db.execute("select authz.nexloop_property_access_basis(%s,'real',%s,'read')", (source.token_digest, target)).fetchone()[0]
+    assert derived['mode'] == 'derived' and derived['type_name'] == 'Message'
+    # A Run issued under the current rule (re-authenticated Source) still never derives.
+    run = f['backend'].authenticate(f['source_token'], world='real').issue_run_credential(action_resources=['eios:action:nexloop.service.request:1'])
+    run_session = f['backend'].authenticate_run(run.token, world='real', run_id=run.run_id)._session
+    assert run_session.run_context is not None and run_session.authentication.subject_principal_id == principal
+    with pool.connection() as db, db.transaction():
+        refused = db.execute("select authz.nexloop_property_access_basis(%s,'real',%s,'read')", (run_session.token_digest, target)).fetchone()[0]
+    assert refused == {'mode': 'configured'}

@@ -1,4 +1,4 @@
-# 服务主体逐对象属性授权的受治理派生（设计稿，待审核）
+# 服务主体逐对象属性授权的受治理派生（已批准并实现，临时迁移 0084）
 
 状态：**设计稿，未实现**。分支 `property-grant-derivation`，BASE `66d2849`（dispatch/integration-s3k）。实现时的临时迁移从 0084 起。本稿涉及授权模型，需要调度员审核，必要时提交负责人。参照 L1 的 0077（Message READ 派生，`docs/implementation/NX-018-message-read-derivation.md`）。
 
@@ -131,3 +131,21 @@
      - 规则或受限组变更后，旧证明在 SQL 尾检被拒；
      - 新增对象或属性不推进 epoch（旧会话仍可用）。
 4. 证据与报告，按五项格式。
+
+## 7. 调度员批准（2026-10-09）与实现记录
+
+批准要点与落地位置：
+
+1. 两个新 fact kind 只经可信配置写入；`control.nexloop_configure_manifest`（0084 重建）精确校验形状：规则 9 键、键 `[principal,type]`、operations ⊆ {read, edit}、组名为标识符、`include_review_published` 必须是布尔、`basis_schema_version ≥ 1`、主体必须是 service subject_authority；受限组 4 键、键 `[type]`、`decision` 1–500 字。
+2. `include_review_published` 必须显式：Python 清单校验与 SQL 都不给默认值；`deploy/authorization/service-grants.v1.json`（manifest_version 3）中 claim_matcher 的 Consumer 规则写 true。
+3. 对象范围：该类型 real world 全部对象，不与 Claim 状态耦合。
+4. `EiosRecallAuthorizer.readable` 在配置路径拒绝时，对 OBJECT/PROPERTY 名查询 `nexloop_property_access_basis`；读取本身仍由 SQL 尾检重新派生。
+5. 受限组：负责人已决定（2026-10-09，经调度员转达）`demographics` 与 `spending_power` 都不受限。`deploy/authorization/owner-property-restrictions.json`（`nexloop-owner-property-restrictions/1`）记录 Consumer：`restricted_groups = []`；受限组事实仍须存在，否则派生不生效。`property_group_restriction` 事实只从这个单独文件编译（`service_grants --owner-restrictions`），服务清单不能携带受限组（顶层键校验拒绝）；内容变更须由负责人决定。机制保留：规则列出受限组时 doctor 报 `restricted_group_listed`（不拒绝清单，SQL 也绝不派生）；规则所在类型没有受限组事实时报 `owner_restriction_missing`。测试用合成受限组验证该机制。claim_matcher 规则当前列出 7 个组，未列 `demographics`、`spending_power`，因此这两组目前仍不派生；是否加入规则需另行决定。
+6. 审核工作台：`ReviewDecisionPort.derivation_impact` 调用 `authz.nexloop_read_review_derivation_impact`（Human 审核读协议）；`ReviewWorkbenchPorts.review_candidate` 合并 `derivation_impact`。前端在批准按钮前显示所属组（中文名+代码）、是否受限、会自动读写的服务主体及读/写；无法核验（null）时对新属性禁用“批准发布”。
+
+实现中确认的语义：
+
+- **已配置优先按资源整体判断**：主体对同一资源有任何 grants 事实（含只读、含空集），该资源走配置路径，不再派生其他操作。
+- **任何授权事实写入都会推进租户 authority_revision**，服务会话需要重新认证；新增对象、审核发布新属性不写授权事实，不推进 epoch。
+- 派生证明内嵌主体当前配置的 `eios:object_type:<T>` READ 证明；manifest 校验要求有规则的主体必须在清单中持有该类型 READ。
+- Python 侧派生查询异常一律回落为原配置拒绝（fail closed）。

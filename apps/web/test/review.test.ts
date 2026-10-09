@@ -2,7 +2,7 @@ import {afterEach,expect,test,vi} from 'vitest';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {readCandidate,readQueue,reviewError,candidateDetail,decide,decisionMessage,decisionResult,readAwaiting,awaitingMessage} from '../src/review-api';
+import {readCandidate,readQueue,reviewError,candidateDetail,decide,decisionMessage,decisionResult,readAwaiting,awaitingMessage,impactMessage} from '../src/review-api';
 import {AwaitingList,CandidateView,DecisionBar,DisabledDecisions,QueueList,ReviewWorkbench,mergeTargets} from '../src/Review';
 import {ApiError} from '../src/api';
 
@@ -98,4 +98,30 @@ test('decided items waiting for grants are shown explicitly, never silently',asy
   expect(renderToStaticMarkup(createElement(AwaitingList,{items:[]}))).toBe('');
   vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[{...waiting,reflow_status:'done'}]})));
   await expect(readAwaiting()).rejects.toThrow('响应无效');
+});
+
+test('before approve a new property shows its group, whether it is restricted and which services would read/write it',()=>{
+  const impact={applies:true,type_name:'Consumer',property_group:'purchase_behavior',restriction_configured:true,restricted:false,
+    auto_access:[{principal_id:'synthetic-claim-matcher',operations:['edit','read']}]};
+  const parsed=candidateDetail({...detail,derivation_impact:impact});
+  const message=impactMessage(parsed.kind,parsed.derivation_impact)!;
+  expect(message).toContain('批准后，以下服务主体将自动读写全部 Consumer 对象的此属性');expect(message).toContain('synthetic-claim-matcher（写、读）');
+  expect(message).toContain('“购买行为”（purchase_behavior）');expect(message).toContain('非受限组');
+  const html=renderToStaticMarkup(withClient(createElement(DecisionBar,{detail:parsed})));
+  expect(html).toContain('role="note"');expect(html).toContain('aria-describedby="approve-impact"');
+  expect(impactMessage('property',{...impact,property_group:'spending_power',restricted:true,auto_access:[]})).toContain('是受限组。批准后服务主体不会自动读写它');
+  expect(impactMessage('property',{...impact,restriction_configured:false,auto_access:[]})).toContain('负责人尚未为 Consumer 记录受限组决定');
+  expect(impactMessage('property',{...impact,auto_access:[]})).toContain('当前没有服务主体的派生规则包含此组');
+  expect(impactMessage('property',{applies:false})).toBeNull();expect(impactMessage('alias',null)).toBeNull();
+  // A restricted group can never list auto access; malformed operations are refused.
+  expect(()=>candidateDetail({...detail,derivation_impact:{...impact,restricted:true}})).toThrow('响应无效');
+  expect(()=>candidateDetail({...detail,derivation_impact:{...impact,auto_access:[{principal_id:'x',operations:['delete']}]}})).toThrow('响应无效');
+});
+
+test('unverifiable impact disables approve for a new property, never silently allows it',()=>{
+  const parsed=candidateDetail({...detail,derivation_impact:null});
+  expect(parsed.derivation_impact).toBeNull();
+  expect(impactMessage(parsed.kind,parsed.derivation_impact)).toContain('无法核验');
+  const html=renderToStaticMarkup(withClient(createElement(DecisionBar,{detail:parsed})));
+  expect(html).toContain('已暂停“批准发布”');
 });

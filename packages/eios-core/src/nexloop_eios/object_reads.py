@@ -3,6 +3,7 @@ from datetime import UTC,datetime,timedelta
 import hmac
 import re
 from eios.authz import facts as F
+from eios.authz.errors import AuthorizationUnavailable
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
@@ -15,6 +16,24 @@ class AuthorizedObjectReader:
     def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
 
     def _authority(self,kind,name,operation=Operation.READ):
+        """Configured EIOS proof; a denied service OBJECT/PROPERTY READ/EDIT may fall back to the governed type derivation."""
+        try:return self._configured(kind,name,operation)
+        except (ActionAuthorizationDenied,F.AuthorizationFactDenied,AuthorizationUnavailable) as denied:
+            try:derived=self._derived(kind,name,operation)
+            except Exception:derived=None  # fail closed with the configured denial
+            if derived is None:raise denied
+            return derived
+
+    def _derived(self,kind,name,operation):
+        if kind not in (ResourceType.OBJECT,ResourceType.PROPERTY) or operation not in (Operation.READ,Operation.EDIT):return None
+        from nexloop_eios.property_access import derived_claims,property_access_basis
+        target=resource_id(kind,name)
+        basis=property_access_basis(self.pool,self.session,target,operation.value)
+        if basis.get('mode')!='derived':return None
+        type_read=self._configured(ResourceType.OBJECT_TYPE,basis['type_name'],Operation.READ)
+        return derived_claims(self.session,target,operation.value,basis,type_read)
+
+    def _configured(self,kind,name,operation):
         target=resource_id(kind,name);entries=[]
         query=self.session.query(resource_id=target,resource_type=kind,operation=operation)
         context=resolve_authority(self.pool,self.session,query,entries)
