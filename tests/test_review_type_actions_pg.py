@@ -188,9 +188,12 @@ def test_approved_type_hands_claims_back_to_the_full_matching_chain(review):
     assert third['released']==[claim] and rematch(admin,claim)[0]==3 and feed(admin)==[(f['conversation'],'pending')]
     summary=match_worker(f,claim,suffix='-type-match-granted-2',pet_grants=True).run_once()
     assert summary['conversations']==1 and summary['glued']>=1,summary
-    # Four layers ran: type recalled, the instance is only named → object_instance candidate for review, nothing written.
+    # Four layers ran: type recalled, the instance is only named and Pet publishes no identifying property yet → that
+    # property ('name') is reviewed first (NX-050: an instance is approved only on a published identifying property). Nothing written.
     match=admin.execute("select outcome,reason,candidate_id from ontology.nexloop_claim_matches where claim_id=%s and matcher_version like '%%rematch:3'",(claim,)).fetchone()
-    assert match[0]=='no_match' and candidates(admin)[match[2]][1]=='object_instance' and candidates(admin)[match[2]][2] in ('staged','pending_review')
+    row=candidates(admin)[match[2]]
+    assert match[0]=='no_match' and row[1]=='property' and row[2] in ('staged','pending_review')
+    assert admin.execute('select candidate->\'proposed\'->>\'name\',candidate->\'proposed\'->>\'owner_type_ref\' from ontology.nexloop_candidate_definitions where candidate_id=%s',(match[2],)).fetchone()==('name','eios:object_type:Pet')
     assert resolution(admin,claim)=='awaiting_definition'
     assert admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='Pet'",(TENANT,)).fetchone()==(0,)
     assert admin.execute("select count(*) from ontology.nexloop_mutation_proposals").fetchone()==(0,)

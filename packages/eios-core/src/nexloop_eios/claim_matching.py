@@ -322,8 +322,13 @@ class ClaimMatcher:
             if located:object_id=located[0].ref.rsplit('/',1)[1];create=None
             else:object_id=None;create={key:str(value).strip()}
         elif d['instance'].get('name'):
-            return self._candidate_instance(claim,d,type_name,recalled)
+            # NX-050: a name-only identity a human approved (and the reflow created) is located, never staged again.
+            object_id=self._approved_instance(claim,d,type_name);create=None
+            if object_id is None:return self._candidate_instance(claim,d,type_name,recalled)
         else:return _Outcome('needs_resolution','instance_undecided')
+        if prop is None and isinstance(d['property'].get('new'),dict):
+            # A "new" property that the current Schema already publishes (e.g. after its review) is that property.
+            prop=next((p for p in schema.properties if p.property_name==d['property']['new'].get('name')),None)
         if prop is None:
             if d['property'].get('new'):return self._candidate_property(claim,d,type_name,recalled)
             if create:return self._proposal(claim,d,type_name,None,create,None,None,'partial_match')
@@ -413,14 +418,29 @@ class ClaimMatcher:
         proposed={'display_name':_bounded(str(value),200),'property_ref':f'eios:property:{type_name}/{prop.property_name}','value':value}
         return self._candidate(claim,'vocabulary_value',{'property':proposed['property_ref'],'value':str(value).strip().casefold()},proposed,recalled)
 
+    def _instance_dedupe(self,type_name,name):
+        return {'type':type_name,'name':name.strip().casefold()}
+
+    def _approved_instance(self,claim,d,type_name):
+        name=d['instance']['name']
+        if type(name) is not str or not name.strip() or name.strip().casefold() not in _quote(claim).casefold():return None
+        approved=self.port.read({'verb':'approved_instance','type_name':type_name,
+            'dedupe_key':_sha({'kind':'object_instance',**self._instance_dedupe(type_name,name)})})
+        return approved['object_id'] if approved and approved.get('object_id') else None
+
     def _candidate_instance(self,claim,d,type_name,recalled):
         name=d['instance']['name']
         if type(name) is not str or not name.strip() or name.strip().casefold() not in _quote(claim).casefold():
             return _Outcome('needs_resolution','instance_name_not_in_evidence')
         schema=self._schema(type_name);title=schema.title_property or 'name'
+        if title not in {p.property_name for p in schema.properties}:
+            # An instance can only be approved on a published identifying property (NX-050): that property is reviewed first.
+            proposed={'name':title,'display_name':'名称' if title=='name' else title,'description':'实例名称；审核仅凭名称识别的实例前需要先发布的标识属性',
+                'owner_type_ref':'eios:object_type:'+type_name,'value_type':'string','closed_vocabulary':False,'property_group':'other'}
+            return self._candidate(claim,'property',{'owner':type_name,'name':title},proposed,recalled)
         proposed={'display_name':_bounded(name.strip(),200),'type_ref':'eios:object_type:'+type_name,
             'identifying_properties':{title:name.strip()},'strong_identifier':False}
-        return self._candidate(claim,'object_instance',{'type':type_name,'name':name.strip().casefold()},proposed,recalled)
+        return self._candidate(claim,'object_instance',self._instance_dedupe(type_name,name),proposed,recalled)
 
     # ---------------------------------------------------------------- apply
     def process_conversation(self,conversation_id):

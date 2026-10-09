@@ -510,6 +510,11 @@
       "version": "0102",
       "name": "0102_nx019_nx020_message_purpose_reads.sql",
       "sha256": "fa6e511bfb1c1749b5b3b175b72ab5606b3613ded8addad088209308f5acf6ac"
+    },
+    {
+      "version": "0103",
+      "name": "0103_nx050_instance_approval.sql",
+      "sha256": "ff07e687880aea3055f278eaf7d88fb4fd6a72e57eba331f3e734d46fb46b7bd"
     }
   ]
 }

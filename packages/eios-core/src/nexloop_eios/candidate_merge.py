@@ -346,6 +346,8 @@ class CandidateGluer:
             return {'type':{'ref':type_ref,'new':None},'instance':{'strong_id':None,'name':None},'property':{'ref':prop,'new':None},'value':val,
                 'rationale':f'merged candidate {candidate["candidate_id"]} into {target_ref}'}
         consumer=claim['subject']['kind']=='consumer'
+        # Entity Claims also need their instance layer: after a publication they are released to the full matcher (NX-050).
+        if not consumer and candidate['status']=='published':return None
         if candidate['kind']=='property':return d(target_ref,value,None if consumer else p['owner_type_ref'])
         if candidate['kind']=='vocabulary_value' and candidate['status']=='published':
             return d(p['property_ref'],p['value'],None if consumer else 'eios:object_type:'+p['property_ref'].split(':',2)[2].split('/',1)[0])
