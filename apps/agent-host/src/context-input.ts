@@ -20,6 +20,14 @@ function exact(value:unknown,keys:readonly string[]):Record<string,unknown>{
 function text(value:unknown,maximum:number,pattern?:RegExp):string{
   if(typeof value!=='string'||!value||[...value].length>maximum||value.includes('\u0000')||/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)||pattern&&!pattern.test(value))return fail();return value;
 }
+/** Exact UTC instant with calendar round-trip; Date.parse alone accepts rolled-over dates. */
+function strictUtc(value:unknown):number{
+  const raw=text(value,64),match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|\+00:00)$/.exec(raw);
+  if(!match||!Number.isFinite(Date.parse(raw)))return fail();
+  const date=new Date(raw),parts=[date.getUTCFullYear(),date.getUTCMonth()+1,date.getUTCDate(),date.getUTCHours(),date.getUTCMinutes(),date.getUTCSeconds()];
+  if(parts.some((part,index)=>part!==Number(match[index+1])))return fail();
+  return date.getTime();
+}
 function integer(value:unknown,minimum=1):number{if(typeof value!=='number'||!Number.isSafeInteger(value)||value<minimum)return fail();return value;}
 export function canonicalContextJSON(value:unknown):string{
   const normalize=(row:unknown,depth:number):unknown=>{
@@ -65,7 +73,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
       const conclusion=text(row.conclusion,8192);
       if(!['hypothesis','user_statement'].includes(String(row.epistemic_kind))||!['resolved','awaiting_definition','unresolved'].includes(String(row.resolution_state)))return fail();
       if(row.relation_type_ref!==null)text(row.relation_type_ref,160,/^eios:link_type:[A-Za-z][A-Za-z0-9_]*:[1-9][0-9]*$/);
-      for(const key of ['valid_from','valid_to'])if(row[key]!==null){const date=text(row[key],64);if(!Number.isFinite(Date.parse(date)))return fail();}
+      for(const key of ['valid_from','valid_to'])if(row[key]!==null)strictUtc(row[key]);
       if(row.epistemic_kind==='user_statement'){
         text(row.source_message_ref,128,/^eios:object:Message\/[a-f0-9]{64}$/);text(row.source_content_hash,64,hex64);
         if(createHash('sha256').update(conclusion,'utf8').digest('hex')!==row.source_content_hash)return fail();
