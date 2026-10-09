@@ -2,7 +2,7 @@ import {nativeAttempt,type PendingNativeMessage} from './native-message';
 import {ApiError,refreshCsrf} from './api';
 
 export type Conversation={id:string;consumer_id:string;world_id:string;revision:number;execution_profile?:'deterministic-test'|'real-provider'|'disabled'};
-export type Message={id:string;conversation_id:string;sequence:number;actor:string;body:string;accepted_at:string;status:'accepted'};
+export type Message={id:string;conversation_id:string;sequence:number;actor:string;body:string;accepted_at:string;status:'accepted';direction:'inbound'|'outbound';sender_kind:'consumer'|'agent';intent_id?:string;trigger_message_id?:string};
 export type CommittedEvent={id:string;type:'message.accepted';data:Message};
 type Page<T>={items:T[];next_cursor:string|null};
 const opaqueId=/^[0-9a-f]{64}$/;
@@ -10,7 +10,16 @@ function object(value:unknown):Record<string,unknown>{if(!value||typeof value!==
 function string(value:unknown):string{if(typeof value!=='string'||!value)throw new Error('响应无效');return value;}
 function id(value:unknown):string{const result=string(value);if(!opaqueId.test(result))throw new Error('响应无效');return result;}
 export function conversation(value:unknown):Conversation{const v=object(value);if(!Number.isSafeInteger(v.revision)||Number(v.revision)<1)throw new Error('响应无效');if(v.execution_profile!==undefined&&!['deterministic-test','real-provider','disabled'].includes(String(v.execution_profile)))throw new Error('响应无效');if(v.execution_profile!==undefined&&typeof v.execution_profile!=='string')throw new Error('响应无效');return {id:id(v.id),consumer_id:id(v.consumer_id),world_id:string(v.world_id),revision:Number(v.revision),...(v.execution_profile===undefined?{}:{execution_profile:v.execution_profile as Conversation['execution_profile']})};}
-export function message(value:unknown):Message{const v=object(value);if(!Number.isSafeInteger(v.sequence)||Number(v.sequence)<1||v.status!=='accepted'||typeof v.body!=='string'||!Number.isFinite(Date.parse(string(v.accepted_at))))throw new Error('响应无效');return {id:id(v.id),conversation_id:id(v.conversation_id),sequence:Number(v.sequence),actor:string(v.actor),body:v.body,accepted_at:string(v.accepted_at),status:'accepted'};}
+export function message(value:unknown):Message{const v=object(value);if(!Number.isSafeInteger(v.sequence)||Number(v.sequence)<1||v.status!=='accepted'||typeof v.body!=='string'||!Number.isFinite(Date.parse(string(v.accepted_at))))throw new Error('响应无效');
+  const base={id:id(v.id),conversation_id:id(v.conversation_id),sequence:Number(v.sequence),actor:string(v.actor),body:v.body,accepted_at:string(v.accepted_at),status:'accepted' as const};
+  // NX-047: server-derived direction. Inbound items carry no sender fields; an outbound item is an
+  // Agent reply the channel already accepted, bound to its governed intent and triggering message.
+  if(v.direction===undefined){if(v.sender_kind!==undefined||v.intent_id!==undefined||v.trigger_message_id!==undefined)throw new Error('响应无效');return {...base,direction:'inbound',sender_kind:'consumer'};}
+  if(v.direction!=='outbound'||v.sender_kind!=='agent'||typeof v.intent_id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v.intent_id))throw new Error('响应无效');
+  return {...base,direction:'outbound',sender_kind:'agent',intent_id:v.intent_id,trigger_message_id:id(v.trigger_message_id)};}
+export function messagePresentation(item:Message):{sender:string;status:string;receipt:boolean}{
+  // A visible outbound Message means the channel accepted it; it never claims the problem is solved.
+  return item.direction==='outbound'?{sender:'企业 Agent 回复',status:'渠道已接受；不代表问题已解决或承诺已兑现',receipt:false}:{sender:'发送者：'+item.actor,status:'消息已接受',receipt:true};}
 function page<T>(value:unknown,validate:(value:unknown)=>T):Page<T>{const v=object(value);if(!Array.isArray(v.items)||(v.next_cursor!==null&&typeof v.next_cursor!=='string'))throw new Error('响应无效');return {items:v.items.map(validate),next_cursor:v.next_cursor as string|null};}
 async function request(path:string,init?:RequestInit):Promise<unknown>{const response=await fetch(path,{...init,credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new ApiError(response.status);return response.json();}
 async function write(path:string,body:unknown,key:string):Promise<unknown>{const {csrf}=await refreshCsrf();return request(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':key},body:JSON.stringify(body)});}

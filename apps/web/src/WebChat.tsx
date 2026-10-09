@@ -2,7 +2,7 @@ import {nativeMessage,type PendingNativeMessage} from './native-message';
 import {useEffect,useState} from 'react';
 import {MessageReceipt} from './MessageReceipt';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
-import {chatError,createConversation,listConversations,readMessages,sendMessage,subscribe,type Message} from './chat-api';
+import {chatError,createConversation,listConversations,messagePresentation,readMessages,sendMessage,subscribe,type Message} from './chat-api';
 export function WebChat(){
   const cache=useQueryClient();const [selected,setSelected]=useState('');const [draft,setDraft]=useState('');const [streamUnavailable,setStreamUnavailable]=useState(false);
   const [pending,setPending]=useState<PendingNativeMessage|null>(null);const [createKey,setCreateKey]=useState(()=>crypto.randomUUID());
@@ -23,7 +23,7 @@ export function WebChat(){
     <button type="button" disabled={create.isPending||!!pending} onClick={()=>create.mutate()}>{create.isPending?'正在创建…':'建立服务对话'}</button>
     {create.isError&&<p role="alert">{chatError(create.error)}</p>}
     {selected&&<><p className="note">仅显示已提交消息。“已接受”表示消息入库，尚不代表服务已履行。执行模式以服务端配置标签为准；可查询实际治理回执，未取得回执时不推断履行。</p>
-      {messages.isPending?<p role="status">正在读取消息…</p>:messages.isError?<p role="alert">{chatError(messages.error)}</p>:<ol className="messages">{messages.data?.items.map(item=><li key={item.id}><span>发送者：{item.actor}</span><time dateTime={item.accepted_at}>{new Date(item.accepted_at).toLocaleString('zh-CN')}</time><p>{item.body}</p><small>消息已接受</small><MessageReceipt messageId={item.id}/></li>)}</ol>}
+      {messages.isPending?<p role="status">正在读取消息…</p>:messages.isError?<p role="alert">{chatError(messages.error)}</p>:<ol className="messages">{messages.data?.items.map(item=>{const view=messagePresentation(item);return <li key={item.id} className={item.direction==='outbound'?'message outbound':'message inbound'} data-direction={item.direction}><span>{view.sender}</span><time dateTime={item.accepted_at}>{new Date(item.accepted_at).toLocaleString('zh-CN')}</time><p>{item.body}</p><small>{view.status}</small>{view.receipt&&<MessageReceipt messageId={item.id}/>}</li>;})}</ol>}
       {messages.data?.next_cursor&&<button type="button" disabled={more.isPending} onClick={()=>more.mutate()}>{more.isPending?'正在读取…':'读取后续已提交消息'}</button>}{more.isError&&<p role="alert">{chatError(more.error)}</p>}
       {streamUnavailable&&<p role="status">实时连接暂不可用，正在等待重新连接；可手动核对已提交消息。</p>}
       <button type="button" onClick={()=>void messages.refetch()}>核对已提交消息</button>
