@@ -13,9 +13,10 @@ begin
  select * into run from authz.nexloop_run_credentials where run_id=((role_env->>'payload')::jsonb->>'run_id')::uuid;
  if not found or jsonb_typeof(env) is distinct from 'object' or (select count(*) from jsonb_object_keys(env))<>3 or not(env ?& array['text','signature','payload'])
   or (env->>'payload')::jsonb->>'run_id' is distinct from run.run_id::text then raise exception 'current Role policy mandatory' using errcode='42501';end if;
- -- Same policy row serializes new submissions; no count-before-insert race.
- if p_effect then select * into b from authz.nexloop_role_policy_bindings where run_id=run.run_id for update;
- else select * into b from authz.nexloop_role_policy_bindings where run_id=run.run_id for share;end if;
+ -- Never upgrade the policy row lock (a guard in the same transaction already holds it
+ -- FOR SHARE); submissions are serialized by the run-scoped advisory lock taken first by
+ -- the effect_intent wrapper below.
+ select * into b from authz.nexloop_role_policy_bindings where run_id=run.run_id for share;
  if not found or b.tenant_id is distinct from ident->'binding'->>'tenant_id' or b.world is distinct from p_world then raise exception 'Role policy binding mandatory' using errcode='42501';end if;
  value:=authz.nexloop_role_policy_current(run.source_digest,p_world,env->>'text',env->>'signature',env->>'payload');
  if p_budget then
@@ -74,6 +75,11 @@ create function authz.nexloop_effect_intent_command(p_digest text,p_world text,p
 language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
 declare result jsonb;c jsonb:=p_text::jsonb;p jsonb:=p_payload::jsonb;policy jsonb;
 begin
+ -- Role Run submissions serialize on their own Run before any inner claim/advisory lock,
+ -- so effect_units counting cannot race and lock order is identical for every caller.
+ if coalesce(c->'role_envelope','null'::jsonb)<>'null'::jsonb then
+  perform pg_advisory_xact_lock(hashtextextended('nexloop-role-effect:'||((c->'role_envelope'->>'payload')::jsonb->>'run_id'),0));
+ end if;
  if true then policy:=authz.nexloop_role_policy_claims_current(p_digest,p_world,c,p,false,true);end if;
  result:=authz.nexloop_effect_intent_command_before_role_policy_v0081(p_digest,p_world,p_text,p_signature,p_payload);
  if true then perform authz.nexloop_role_policy_claims_tail(p_digest,p_world,c,policy,true);end if;
