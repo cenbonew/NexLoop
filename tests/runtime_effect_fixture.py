@@ -160,5 +160,5 @@ def runtime_effect_plan(admin,pg,tmp_path):
             assert job['task_id']==accepted['task_id']
             activation=worker.create_runtime_activation(queue='operations',task_id=job['task_id'],fence=job['fence'],run_id=run.run_id,command=command,input='persist one service intent',owner_epoch=1)
             commands.append(command);activations.append(activation['activation_ref']);jobs.append(job)
-        yield PrivatePlan(api=api,backend_worker=backend_worker,owner=owner,planner=planner,sources=sources,source_tokens=source_tokens,worker=worker,worker_token=worker_token,commands=commands,activations=activations,runs=runs,
+        yield PrivatePlan(api=api,backend_worker=backend_worker,owner=owner,planner=planner,owner_token=owner_token,planner_token=planner_token,sources=sources,source_tokens=source_tokens,worker=worker,worker_token=worker_token,commands=commands,activations=activations,runs=runs,
             consumer=consumer,goal=goal,step=step,control=control,tenant=tenant,executor_token=executor_token,signing_key=key,signing_key_id='runtime-effect',pg=pg,jobs=jobs)

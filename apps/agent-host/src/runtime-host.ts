@@ -30,10 +30,12 @@ export class RuntimeHost{
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
+    // NX-024: the run-outcome tool of plan reevaluation Runs, only with the Run-bound tool bridge.
+    if(config.plan_outcome_tool!==undefined&&(config.plan_outcome_tool!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
     if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
     if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
@@ -151,7 +153,7 @@ export class RuntimeHost{
     }else faux.setResponses(Array.from({length:64},()=>fauxAssistantMessage('Deterministic test runtime completion')));
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
       activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
-    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command):undefined,costPolicy:selection.costPolicy,assertOwner,
+    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true}):undefined,costPolicy:selection.costPolicy,assertOwner,
       recordModelRequests:contextProtocol===CONTEXT_PROTOCOL_V6,
       authorize:async(command,operation,request,result)=>guard(command,operation,undefined,undefined,request,result)});
   }

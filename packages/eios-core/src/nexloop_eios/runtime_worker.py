@@ -41,6 +41,10 @@ class _FreshGuard:
     def runtime_effect_tool(self,**arguments):
         return self.service().runtime_effect_tool(**arguments)
 
+    def record_plan_outcome(self,**arguments):
+        # NX-024: run-outcome of a plan reevaluation Run, under a fresh current service session.
+        return self.service().record_plan_outcome(**arguments)
+
     def authorize_runtime_activation(self,**arguments):
         # Each guard request constructs an actual current authenticated EIOS
         # service session; no persisted Run token or cached authority is used.

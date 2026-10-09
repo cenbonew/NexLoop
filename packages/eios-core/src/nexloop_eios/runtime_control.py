@@ -47,7 +47,8 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     or len(self.headers.get_all('Authorization',[]))!=1
                     or not hmac.compare_digest(header,'Bearer '+key())):
                     self.send(401,{'authorized':False});return
-                if self.path not in ('/internal/v1/runtime/authorize','/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find'):self.send(404,{'authorized':False});return
+                if self.path not in ('/internal/v1/runtime/authorize','/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find',
+                                     '/internal/v1/runtime/outcomes/record'):self.send(404,{'authorized':False});return
                 if (self.headers.get('Content-Type')!='application/json'
                     or self.headers.get('Transfer-Encoding') is not None
                     or self.headers.get('Content-Encoding') is not None
@@ -58,6 +59,19 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 if not 1<=size<=262144:self.send(413,{'authorized':False});return
                 try:body=json.loads(self.rfile.read(size))
                 except (json.JSONDecodeError,UnicodeDecodeError):self.send(400,{'authorized':False});return
+                if self.path=='/internal/v1/runtime/outcomes/record':
+                    # NX-024 run-outcome of a plan reevaluation Run (contract run-outcome 1.0).
+                    if (type(body) is not dict or set(body)!={'activation_ref','command','outcome'} or type(body['command']) is not dict
+                        or type(body['activation_ref']) is not str or type(body['outcome']) is not dict):
+                        self.send(400,{'code':'invalid_run_outcome'});return
+                    import psycopg
+                    try:result=worker.record_plan_outcome(activation_ref=body['activation_ref'],command=body['command'],outcome=body['outcome'])
+                    except (ValueError,psycopg.errors.InvalidParameterValue):self.send(400,{'code':'invalid_run_outcome'});return
+                    except psycopg.errors.SerializationFailure:self.send(409,{'code':'plan_version_not_current'});return
+                    except Exception:self.send(403,{'code':'run_outcome_unavailable'});return
+                    if type(result) is not dict or result.get('recorded') is not True:self.send(503,{'code':'run_outcome_unavailable'});return
+                    self.send(200,{'run_id':body['command'].get('run_id'),'recorded':True,'replay':result['replay'] is True,'kind':result['kind'],
+                        'plan_version':result['version'],'new_version':result.get('new_version')});return
                 if self.path.startswith('/internal/v1/runtime/effects/'):
                     operation=self.path.rsplit('/',1)[1]
                     field='parameters' if operation=='submit' else 'intent_id'

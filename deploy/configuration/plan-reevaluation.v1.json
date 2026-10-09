@@ -1,0 +1,15 @@
+{
+  "schema_version": "nexloop-plan-reevaluation/1",
+  "decision": "NX-024 (dispatcher ruling 2026-10-10): initial values from the approved design, kept as deployment configuration. self_window_seconds / self_trigger_cap bound reevaluations caused by a plan's own Run (M16: an event must not re-trigger itself indefinitely); min_reassess_seconds is the earliest a reassess_at may wake; run_budget is the ceiling of one reevaluation Run (docs/05 §6: 8 model turns, 12 tool calls, 300 s), further limited by the plan step budgets and the NX-022 model budget.",
+  "self_window_seconds": 600,
+  "self_trigger_cap": 2,
+  "min_reassess_seconds": 60,
+  "run_budget": {"maximum_model_turns": 8, "maximum_tool_calls": 12, "active_timeout_seconds": 300, "maximum_cost": "1.0", "currency": "USD"},
+  "context_strategy": "recent_plus_required",
+  "runtime_profile": "deepseek-flash",
+  "run_ttl_seconds": 300,
+  "batch": 10,
+  "lease_seconds": 120,
+  "max_attempts": 5,
+  "retry_base_seconds": 30
+}

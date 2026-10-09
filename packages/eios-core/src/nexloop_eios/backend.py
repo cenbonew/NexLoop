@@ -179,6 +179,10 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'authorize_runtime_activation',
             activation_ref=activation_ref, command=command, runtime_operation=operation, input=input, **snapshot)
 
+    def record_plan_outcome(self, *, activation_ref, command, outcome):
+        # NX-024: a reevaluation Run's run-outcome through the guard; the live activation is re-authorized first.
+        return self._backend._invoke(self._session, 'record_plan_outcome', activation_ref=activation_ref, command=command, outcome=outcome)
+
     def assert_task_lease(self, *, queue, task_id, fence):
         return self._backend._invoke(self._session, 'assert_task_lease', queue=queue, task_id=task_id, fence=fence)
 
@@ -501,6 +505,16 @@ class Backend:
                     arguments['operation'] = arguments.pop('runtime_operation')
                 return getattr(RuntimeActivationPort(self._pool,session,self._signer),
                     activation_operations[operation])(**arguments)
+            if operation == 'record_plan_outcome':
+                from nexloop_eios.runtime_activation import RuntimeActivationPort
+                from nexloop_eios.plan_reevaluation import PlanOutcomePort
+                from eios.authz.errors import AuthorizationUnavailable
+                granted = RuntimeActivationPort(self._pool, session, self._signer).authorize(
+                    activation_ref=arguments['activation_ref'], command=arguments['command'], operation='tool')
+                if (granted.get('authorized') is not True or granted.get('run_id') != arguments['command'].get('run_id')
+                        or granted.get('ever_execution_authorized') is not True):
+                    raise AuthorizationUnavailable('runtime activation unavailable')
+                return PlanOutcomePort(self._pool, session, self._signer).record(**arguments)
             queue_operations = {
                 'assert_task_lease': 'assert_lease', 'inspect_task': 'inspect', 'accept_event': 'accept', 'claim_task': 'claim',
                 'finish_task': 'finish', 'renew_task': 'renew',
