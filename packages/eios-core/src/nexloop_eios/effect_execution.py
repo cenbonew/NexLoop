@@ -110,6 +110,8 @@ class EffectExecutionPort:
             claims['role_envelope']=role
             from nexloop_eios.role_runs import formal_reads_for_role
             claims['formal_reads']=formal_reads_for_role(self.pool,self.signer,self.session,role)
+            from nexloop_eios.role_policies import policy_envelope_for_role
+            claims['context_policy_envelope']=policy_envelope_for_role(self.pool,self.signer,self.session,role)
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,(PROTOCOL+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload

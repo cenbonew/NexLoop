@@ -89,6 +89,8 @@ class RuntimeActivationPort:
             claims['context_role_envelope']=context_role_envelope
             from nexloop_eios.role_runs import formal_reads_for_role
             claims['formal_reads']=formal_reads_for_role(self.pool,self.signer,self.session,context_role_envelope)
+            from nexloop_eios.role_policies import policy_envelope_for_role
+            claims['context_policy_envelope']=policy_envelope_for_role(self.pool,self.signer,self.session,context_role_envelope)
         if context_relationship_envelopes is not None:claims['context_relationship_envelopes']=context_relationship_envelopes
         if context_formal_reads is not None:claims['context_formal_reads']=context_formal_reads
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
