@@ -130,11 +130,12 @@ if _OUT:
             wrapper.__wrapped__=fn;wrapper.__name__=getattr(fn,'__name__','wrapped')
             return wrapper
 
-    # NX-049 (timeline mode, NEXLOOP_PERF_PGFUNC!=0): after each statement that calls an
+    # NX-049 (timeline mode and NEXLOOP_PERF_PGFUNC=1; off by default because the probe adds about
+    # 50 pg_stat queries / ~200 ms per guard request on the deploy host): after each statement that calls an
     # authz/control/runtime/ontology function inside a transaction block, read this backend's
     # pg_stat_xact_user_functions on the same connection and attribute the delta to the
     # enclosing request. The probe itself is timed as `perf:pgfunc_probe`.
-    _PGFN=os.environ.get('NEXLOOP_PERF_TIMELINE')=='1' and os.environ.get('NEXLOOP_PERF_PGFUNC','1')!='0'
+    _PGFN=os.environ.get('NEXLOOP_PERF_TIMELINE')=='1' and os.environ.get('NEXLOOP_PERF_PGFUNC','0')=='1'
     _FN_SQL=re.compile(r'select\s+(authz|control|runtime|ontology)\.[a-z0-9_]+\s*\(',re.I)
     _PROBE=("select coalesce(json_object_agg(schemaname||'.'||funcname,json_build_array(calls,total_time,self_time)),'{}') "
             "from pg_stat_xact_user_functions")
