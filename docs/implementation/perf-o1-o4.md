@@ -174,3 +174,103 @@ scripts/perf/run_profile.sh ext-before <7 个测试文件>
 - 事务内身份推导缓存：每次事实加载都重推 `nexloop_root_identity`，单个用例中约 29 万次。缓存必须绑定 digest 与事务。
 - `context_artifact_command` 的批量 `assert_read_authority`。
 - `runtime_activation_command` 单次最高约 0.9 s 的分解。
+
+### s3m 复测与 O2/O5 落地设计（分支 `perf-o2-o5-design`，BASE `aebbfa8ff8ea087ac6fe88fd0d0500b6cc7c4695` = dispatch/integration-s3m）
+
+只读测量，未改产品代码与迁移。新增测量项：
+- 钩子增加 0077/0084 派生证明帧（`message_read_basis`、`derived_message_read_envelope`、`property_access_basis`、`derived_claims`）和 envelope 帧（`role_envelope_for_run`、`catalog_envelope_from_hint`）。
+- `perf_plugin` 增加可选追踪：只在一次性测试库中，用 RAISE LOG 包装 `assert_read_authority`，记录（后端 pid、语句开始时间、claims 摘要、目标），由 `scripts/perf/read_assert_dup.py` 统计同一条语句内的重复。
+
+复现命令：
+
+```bash
+scripts/perf/o1_o4_set.sh s3m
+```
+
+```bash
+touch scripts/perf/out/.trace_read_assert && scripts/perf/run_profile.sh trace-ra <v4 与两 Pi 用例>
+```
+
+#### 1. 锁修复 + 阶段 B 后的现状（13 例，本机串行，带钩子，单轮；对比 O1 后的 `o1o4-after`）
+
+| 请求 | 决策/请求 | p50 ms | p95 ms | max ms |
+|---|---|---|---|---|
+| authorize_runtime_activation | 25.9→28.2 | 281→290 | 818→**1108** | 1620→**2178** |
+| runtime_effect_tool | 27.8→29.8 | 567→578 | 1138→**1521** | 1548→**1795** |
+| prepare_message_context | 6.6→6.6 | 492→504 | 943→978 | 943→980 |
+
+- 12/13 通过。`relationship_context_v4[complete]` 再次失败，`runtime_transport_unavailable`：同一进程中 authorize 最大 2178 ms，其中 `runtime_activation_command` SQL 自身占 1392 ms。
+- 越限所需慢化系数 k（越大越安全）：authorize 0.92、effect_tool 1.11、prepare_message_context 2.04。尾延迟相对 O1 后回升，来源是阶段 B 与 v4 新增的服务端读校验，以及 v4 用例中 120 个 `Lock:advisory` 采样（约 2.4 s，`runtime_activation_command` 内）。
+- 跨请求重复仍是主体：每次 authorize/tool 有 28–30 个**互不相同**的决策（请求内重复约 0），全部来自每个请求都要重读的 envelope。
+
+#### 2. `runtime_activation_command` 的组成（v4 用例，`track_functions=pl`）
+
+外层 0085→0081→0065→0063→0062 是包装链，各层自身耗时只有 17–88 ms/169 次，可以忽略。每次调用平均 **167 ms**，主要构成如下：
+
+| 子项 | 调用 | 累计 ms | 均值 ms | 占 runtime_activation_command |
+|---|---|---|---|---|
+| `assert_read_authority`（经 0084→0083→0072 包装链） | 28791（约 170 次/命令） | 24899 | 0.86 | **约 88%** |
+| └ 0072 核心自身 | | 8348 self | | |
+| └ 事实加载 `load_authority_fact(_snapshot)` | 467052（约 16 次/断言） | 18972 | 0.04 | |
+| └ 身份重推 `root_identity` / `service_identity` / `root_identity_snapshot` | 686082 / 582143 / 146610 | 4782 + 2432 + 2010 self | | |
+| `relationship_context_snapshot`（v4） | 185 | 13863 | 74.9 | 包含上面的断言 |
+| `read_assessment_object` | 458 | 13504 | 29.5 | 包含上面的断言 |
+| `service_catalog_scope` | 200 | 7138 | 35.7 | 包含上面的断言 |
+| `role_formal_current`（两 Pi） | 190 | 3951 | 20.8 | |
+
+0077/0084 派生证明本身的开销很小：`assert_derived_message_read` 819 次合计 737 ms；0084 包装层自身 75 ms；`message_read_basis` 60 次合计 20 ms。真正的成本在被包装的断言核心被调用的**次数**。
+
+**同一条语句内的重复**（RAISE LOG 追踪）：
+
+| 用例 | 语句数 | 断言 | 语句内去重后 | 重复率 | 每语句中位 / 最多 |
+|---|---|---|---|---|---|
+| v4[complete] | 300 | 30329 | 6553 | **78.4%** | 33 / 312 |
+| two_pi_role_runs | 117 | 17579 | 4863 | **72.3%** | 156 / 282 |
+
+重复最多的目标：v4 中是 Consumer、RelationshipAssessment 及其各属性、link_type；两 Pi 中是 PlanStep、ConsumerRoleLink、RoleDefinition、Goal、Consumer、EffectControl。
+
+#### 3. Python 侧决策分布（13 例共 20924 次决策）
+- 服务目录 catalog envelope：ServiceOffering 属性 34.1%，ConsumerServiceOffering 属性 14.2%，二者对象 READ 各 2.8%，合计 **约 54%**。
+  - `catalog_envelope_from_hint` 共 610 次，均值 **153 ms**，含其中的决策。
+- Role envelope：RoleExecutionCeiling、RoleAssignmentScope、ConsumerRoleLink、RoleDefinition 属性，约 12%；`role_envelope_for_run` 均值 27 ms。
+- RelationshipAssessment 属性（v4）：6.4%。
+- 每次决策的 12 条事实中，7 条是身份类（subject、membership、actor、authentication、application、subject_authority、revision），对同一会话恒定。每请求约 338–358 次事实往返中，约 58% 是这类重复。
+
+#### 4. 收益排序与落地顺序（预期收益为本机估算）
+
+| 序 | 项 | 内容 | 预期收益 | 改动文件 / 迁移 | 与 L1 剩余工作的冲突 |
+|---|---|---|---|---|---|
+| 1 | **O2a** 请求内身份类事实去重 | 在 `PostgresAuthorityUnitOfWork._load` 下增加按 (token digest, directory hash, world, kind, key) 的请求级事实 memo，只对 7 类身份事实生效；grants/scope/controls/policies/resource_graph 仍每次读取 | 每请求事实往返约 −58%（338→约 140），authorize/tool 约 −50~100 ms | `authorization.py`、`browser_authorization.py`；无迁移 | 低：L1 不改授权适配层 |
+| 2 | **O5a** 事务内身份推导缓存 | `load_authority_fact` / `service_identity` 在同一事务内按 (digest, world) 只推导一次；凭据行已被 `lock_credential` 以 FOR SHARE 锁住，事务内身份不可变 | 服务端 CPU 约 −15~20%（v4：约 9.2 s / 54 s） | 新迁移（临时编号）重定义 `authz.nexloop_service_identity` / `nexloop_load_authority_fact` 的内部调用 | 低–中：L1 不改身份核心，但与 0077/0084 的 `assert_read_authority` 包装共处同一调用链，要先对齐最新包装 |
+| 3 | **O2b** catalog / role envelope 按对象批量决策 | 每个对象一次批量事实加载（一次往返取全部属性的 grants/scope/controls/policies），逐属性在内存中各自 resolve，签名证明仍逐属性列出 | catalog envelope 153 ms → 约 40~60 ms，每次 authorize/tool 约 −100 ms（sice 约 −250 ms） | `service_offerings.py`、`role_runs.py`、`object_reads.py`（批量 API）、`authorization.py`；新迁移 `authz.nexloop_load_authority_facts(digest,world,keys)` | 中：L1 下一步改 context 与读派生（`object_reads._derived`、0084 路径），须等其合入后再做 |
+| 4 | **O5b** 语句内读断言去重 | 同一条语句、同一检查阶段内对相同 claims 只断言一次 | `runtime_activation_command` 约 −40~60%（v4 慢调用 1392 ms → 约 600–800 ms） | 新迁移，修改断言包装链 | **高**：必须与 L1 共同设计，见下 |
+
+**建议顺序：** O2a → O5a（两项都不碰 L1 的文件，可以立即排期）→ 等 L1 的 v5 Context/读派生合入 → O2b → 与 L1 共同设计后做 O5b。
+
+**O5b 的硬约束（来自 L1）：**
+- 只能在**同一检查阶段**内去重。
+- 任何锁等待（`FOR UPDATE/SHARE`、advisory lock）之后的提交尾断言必须重新执行，因为“锁等待后最终期限”测试依赖它。
+- 去重键要包含 claims 全文摘要和阶段计数。
+- 实施前要先统计重复中有多少属于“锁后尾验”：本次只测到语句级重复率 72–78%，没有区分阶段。
+
+#### 5. O2（按对象批量决策）与逐属性语义等价：证明要点
+1. **判定函数不变**：每个属性 p 的结果 = EIOS resolver 对 (主体, `eios:property:T/id/p`, op) 的完整判定（grants ∧ scope ∧ controls ∧ policies ∧ application 限制 ∧ revision）。批量只改变**事实获取方式**（一次往返），不改变判定，也不用对象级结论替代属性级结论。
+2. **事实集合相同**：批量加载返回的每条事实与逐条 `load_authority_fact_snapshot` 的 payload 和 record_hash 逐字节相等（同一 `security definer` 逻辑，同一身份绑定校验）。
+3. **身份类事实共享不改变语义**：这 7 类事实的键只依赖会话，与目标无关；共享前要校验 directory hash。
+4. **证明形状不变**：签名 claims 仍为每个属性一份，含 `target_resource` 与 12 条事实 hash；SQL 侧逐属性复核的结构不变。批量只是一个对 Python 侧的优化。
+5. **有效期**：每个属性证明的 `expires_at` 按各自决策计算，不得取组内最大值；整组复用时取组内最早到期。复用的 context 保留首次 `trusted_now`，不延长。
+6. **失败隔离**：某个属性被拒或缺事实时，只有该属性失败（与逐属性调用一致），不能让整组成功或整组失败。
+
+**测试清单（O2 实施时）：**
+- 等价性性质测试：随机生成对象与属性的 grant/scope/control/policy 组合（含缺失、过期、world 不符、application 限制），批量与逐属性的允许/拒绝结果和证明逐项相等。
+- 撤权：撤销单个属性 grant 后，下一请求只有该属性被拒；同一请求内经 SQL 尾验拒绝。
+- 跨主体、跨 world、跨租户批量互不混入。
+- 有效期：组内某个属性 grant 先到期，该属性的证明 `expires_at` 不晚于它。
+- record_hash 逐字节一致：批量加载与逐条加载对比。
+- 并发两 Run：批量结果不共享。
+- 性能回归：catalog/role envelope 的决策数与耗时，用 `scripts/perf/o1_o4_set.sh` 前后对比。
+
+#### 6. 限制
+- 单轮、带钩子（开销 1–7%）。追踪运行中 v4 因 RAISE LOG 额外开销再次 `runtime_failed`，追踪数据只用于统计重复，不作耗时依据。
+- sice 未实测。
+- O5b 中“锁后尾验”所占比例尚未测出（需要在包装中记录阶段，留作 O5b 设计前的第一步）。

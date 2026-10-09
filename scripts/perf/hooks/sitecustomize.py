@@ -86,6 +86,11 @@ if _OUT:
         'nexloop_eios.claim_store':[('ConversationClaimExtractor','extract','invoke:job:extract_window')],
         'nexloop_eios.claim_matching':[('ClaimMatcher','match_claim','invoke:job:match_claim'),('ClaimMatcher','apply','invoke:job:match_apply')],
         'nexloop_eios.candidate_merge':[('CandidateGluer','process','invoke:job:glue_process'),('ReviewQueueReader','pending','invoke:job:review_pending'),('ReviewQueueReader','candidate','invoke:job:review_candidate')],
+        # 0077 message READ derivation and 0084 property-access derivation proofs.
+        'nexloop_eios.message_read':[(None,'message_read_basis','derive:message_read_basis'),(None,'derived_message_read_envelope','derive:message_read_envelope')],
+        'nexloop_eios.property_access':[(None,'property_access_basis','derive:property_access_basis'),(None,'derived_claims','derive:property_claims')],
+        'nexloop_eios.role_runs':[(None,'role_envelope_for_run','envelope:role')],
+        'nexloop_eios.service_offerings':[(None,'catalog_envelope_from_hint','envelope:catalog')],
         'nexloop_eios.recall':[('OntologyRecall','recall','invoke:job:recall')],
     }
 

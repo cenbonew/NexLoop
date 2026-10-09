@@ -23,10 +23,31 @@ def pytest_configure(config):
         if 'dsn' not in _state:
             admin.execute("alter system set track_functions='pl'");admin.execute('select pg_reload_conf()')
             admin.execute('select pg_stat_reset()')
+            if (OUT.parent/'.trace_read_assert').exists():_trace_read_assert(admin)
             _state['dsn']=admin.info.dsn;_state['samples']=[];_state['stop']=threading.Event()
             thread=threading.Thread(target=_sample,daemon=True);_state['thread']=thread;thread.start()
         return result
     module.bootstrap=bootstrap
+
+
+def _trace_read_assert(admin):
+    """Measurement only, disposable test cluster: log each assert_read_authority call
+    (backend pid, statement start, claims digest, target) to the server log via RAISE LOG,
+    which also works inside read-only transactions. Wraps the current function in place."""
+    acl=admin.execute("""select coalesce(array_agg(distinct grantee::regrole::text),'{}') from pg_proc p,
+        aclexplode(p.proacl) a where p.oid='authz.nexloop_assert_read_authority(text,text,jsonb)'::regprocedure and a.privilege_type='EXECUTE'
+        and a.grantee<>0 and a.grantee::regrole::text<>'nexloop_owner'""").fetchone()[0]
+    admin.execute('alter function authz.nexloop_assert_read_authority(text,text,jsonb) rename to nexloop_assert_read_authority_perf_orig')
+    admin.execute("""create function authz.nexloop_assert_read_authority(p_digest text,p_world text,p_claims jsonb) returns jsonb
+        language plpgsql security definer set search_path=pg_catalog as $f$
+        begin
+         raise log 'perfra|%|%|%|%',pg_backend_pid(),statement_timestamp(),md5(p_claims::text),p_claims->>'target_resource';
+         return authz.nexloop_assert_read_authority_perf_orig(p_digest,p_world,p_claims);
+        end $f$""")
+    admin.execute('alter function authz.nexloop_assert_read_authority(text,text,jsonb) owner to nexloop_owner')
+    admin.execute('revoke all on function authz.nexloop_assert_read_authority(text,text,jsonb) from public')
+    for role in acl:admin.execute(f'grant execute on function authz.nexloop_assert_read_authority(text,text,jsonb) to {role}')
+    _state['log']=admin.execute("select setting from pg_settings where name='data_directory'").fetchone()[0]
 
 
 def _sample():
@@ -63,6 +84,10 @@ def pytest_fixture_post_finalizer(fixturedef,request):
             q=(m.group(1) if m else (query or '')[:40]).lower()
             by_query.setdefault(q,{});by_query[q][key]=by_query[q].get(key,0)+1
     name=re.sub(r'[^A-Za-z0-9_.-]+','_',_state.get('test',request.node.nodeid))[-150:]
+    if _state.get('log'):
+        import pathlib,shutil
+        log=pathlib.Path(_state['log']).parent/'postgres.log'
+        if log.exists():shutil.copy(log,OUT/f'pglog-{name}.log')
     OUT.mkdir(parents=True,exist_ok=True)
     (OUT/f'pg-{name}.json').write_text(json.dumps({'test':_state.get('test'),'call_seconds':_state.get('call_seconds'),
         'functions':[{'function':f,'calls':n,'total_ms':t,'self_ms':s} for f,n,t,s in rows],
