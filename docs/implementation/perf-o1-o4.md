@@ -410,3 +410,67 @@ O1 的 `test_concurrent_requests_have_isolated_memos` 原来断言 memo 只有 1
 - 收益集中在 p50/p95 与 CPU 总量：resolver 时间 −23%，信封 −12~15%，authorize p50 −6%，p95 −6%。最慢一次（max）落在单轮噪声内，没有可靠改善。
 - 收益低于设计稿预估（信封 153 → 40~60 ms），原因是：批量只省掉每个属性的事务开启、identity 核对和事实往返（约 1.6 ms/决策）；EIOS resolver 对每个属性的完整判定（约 5 ms/决策）仍是下限。要再大幅下降，只能减少决策次数本身：要么跨请求复用（违反 L1 约束，不做），要么改由 SQL 侧一次性判定整组属性（需要改动 EIOS 判定路径，属于更大范围的设计）。
 - 高负载下 O2b 版本的端到端稳定性优于基线，但这是在负载不同的条件下观察到的，只作参考。
+
+## O5b 第一步：语句内重复读断言的阶段分类（只测量；分支 `perf-o5b-measure`，BASE `194e12b700085533fb82ab820fbab499cfea2927` = main）
+
+### 方法
+沿用 `perf_plugin` 的读断言追踪（只作用于一次性测试库，`touch scripts/perf/out/.trace_read_assert` 开启），并在 RAISE LOG 中为每次 `assert_read_authority` 增加两项：
+- 当时的可见快照摘要 `md5(pg_current_snapshot()::text)`；
+- 本后端已持有的锁数（advisory 锁数，以及全部已授予锁数，取自 `pg_locks`）。
+
+`scripts/perf/read_assert_phase.py` 对同一条 SQL 语句（后端 pid + 语句开始时间）中、claims 摘要与此前某次断言相同的每个重复断言，与上一次相同断言比较，分为四类：
+
+| 类别 | 判据 | 含义 |
+|---|---|---|
+| `same_snapshot` | 快照不变，期间未新取锁 | 可见数据完全相同，结果只可能因时钟（到期）而不同 |
+| `same_snapshot_lock` | 快照不变，期间本后端新取了锁 | 取了锁但没有新提交可见；即使有等待，也没有改变任何可见数据 |
+| `new_snapshot_lock` | 快照变化，期间新取了锁 | L1 所说的锁等待后提交尾验：必须重做 |
+| `new_snapshot` | 快照变化，期间未观察到新锁 | 有其他事务提交，可见数据可能已变：必须重做 |
+
+这些函数在 READ COMMITTED 事务中执行：每条内部语句取新快照，所以“快照不变”等价于“自上次相同断言以来没有任何新提交可见”。“新取锁”以 `pg_locks` 计数增加判定；行级 FOR SHARE/UPDATE 只在首次涉及某张表时增加计数，因此锁计数是下界。
+
+运行条件：本机安静时段（load avg 约 7，无其他线测试）串行，v4[complete] 与两 Pi 用例各两轮，四次运行全部通过。
+
+```bash
+touch scripts/perf/out/.trace_read_assert && bash scripts/perf/run_profile.sh o5b-phase-N <v4[complete]> <two_pi>
+```
+
+```bash
+uv run --frozen python scripts/perf/read_assert_phase.py scripts/perf/out/o5b-phase-N
+```
+
+### 数据（两轮，第一轮 / 第二轮）
+
+| 用例 | 语句数 | 断言 | 重复 | same_snapshot | same_snapshot_lock | new_snapshot_lock | new_snapshot |
+|---|---|---|---|---|---|---|---|
+| v4[complete] | 300 / 300 | 30329 / 30329 | 23776（78.4%） | 14554 / 14615（61.2% / 61.5%） | 6019 / 6132（25.3% / 25.8%） | 1618 / 1505（6.8% / 6.3%） | 1585 / 1524（6.7% / 6.4%） |
+| two_pi_role_runs | 117 / 117 | 17579 / 17579 | 12716（72.3%） | 10929 / 11034（85.9% / 86.8%） | 1332 / 1373（10.5% / 10.8%） | 151 / 110（1.2% / 0.9%） | 304 / 199（2.4% / 1.6%） |
+
+各类括号内的百分比是占重复的比例。
+
+**可安全去重**（`same_snapshot` + `same_snapshot_lock`）：
+- v4 约 **87%** 的重复，即约 **68% 的全部断言**；
+- 两 Pi 约 **97–98%** 的重复，即约 **70–71% 的全部断言**。
+
+**必须重做**（快照变化）：
+- v4 约 13% 的重复（约 10% 的全部断言），其中一半伴随新取锁；
+- 两 Pi 约 2.5–3.6% 的重复。
+
+重复最集中的目标：v4 中是 Consumer、RelationshipAssessment 及其各属性、link_type；两 Pi 中是 PlanStep、ConsumerRoleLink、RoleDefinition、Goal、Consumer、EffectControl。
+
+### 对 O5b 设计的输入
+1. **去重键必须包含可见快照**，不能只看“同一语句”：v4 中有约 13% 的同语句重复发生在快照变化之后，按语句去重会漏掉锁等待后的提交尾验。键至少包含 claims 摘要、`pg_current_snapshot()`、本事务写纪元（见第 3 条）、digest、world、`eios.tenant_id`；结果中的时间戳文本依赖会话 TimeZone 时也要计入。
+2. **命中时必须复核时钟**。读断言核心（0034 版，经 0072/0083/0084 包装）中与时间相关的条件有：
+   - claims 的 `expires_at > clock_timestamp()`，在断言开头和结尾各检查一次；
+   - 服务身份快照内凭据（以及 Run 凭据）的 `expires_at > clock_timestamp()`。
+
+   复核这几项就能保留 L1 的“锁等待后最终期限”语义：数据没变时，结果只可能随时钟变化。
+3. **本事务自身的写入也要使缓存失效**。快照不反映本事务自己的写入。读断言依赖的表除了 `authz.nexloop_authority_facts`、`authz.nexloop_service_credentials`、`control.nexloop_tenants`（三者的改动都会经 0004 epoch guard 触及 tenants 行），还有浏览器会话、账号等表（浏览器路径的会话 touch 会在业务事务内写入）。键中要带一个由这些表上的触发器推进的事务内纪元。
+4. **锁语义**：首次断言已对凭据行、各授权事实行、tenants 行加了 FOR SHARE，持有到事务结束。同一事务内跳过重复断言不会少持任何锁，也不会改变锁顺序（锁已在首次断言时按原顺序取得）。
+5. **预期收益（估算）**：在 v4 中，`assert_read_authority` 约占 `runtime_activation_command` 时间的 88%（见 s3m 复测节）。去掉约 68% 的断言，扣除每次计算键约 10–15 µs 的开销（参考 O5a 实测），`runtime_activation_command` 预计降低约 50–60%。v4 最慢的 activation SQL 约 1.4 s，预计可降到约 0.6–0.7 s。
+6. **负载敏感性**：`new_snapshot*` 的比例取决于并发提交量。本机单测中其他进程很少，生产或测试机全量并发时这一比例会更高，可去重部分随之减少，但正确性不受影响，因为键中有快照。
+
+### 限制
+- 锁计数是下界：行锁不逐行出现在 `pg_locks` 中，因此 `same_snapshot` 中可能含有少量“已取行锁但未等待”的情况。这些情况快照未变，同样可以安全去重。
+- 追踪本身（每次断言多两次 `pg_locks` 查询）会拖慢运行，本节数据只用于分类，不作为耗时依据。
+- 只覆盖两个用例；其他路径（例如浏览器人类会话）的比例未测。

@@ -41,7 +41,11 @@ def _trace_read_assert(admin):
     admin.execute("""create function authz.nexloop_assert_read_authority(p_digest text,p_world text,p_claims jsonb) returns jsonb
         language plpgsql security definer set search_path=pg_catalog as $f$
         begin
-         raise log 'perfra|%|%|%|%',pg_backend_pid(),statement_timestamp(),md5(p_claims::text),p_claims->>'target_resource';
+         -- O5b phase marking: visible-state digest and locks held at this assertion.
+         raise log 'perfra|%|%|%|%|%|%|%',pg_backend_pid(),statement_timestamp(),md5(p_claims::text),p_claims->>'target_resource',
+          md5(pg_current_snapshot()::text),
+          (select count(*) from pg_locks l where l.pid=pg_backend_pid() and l.granted and l.locktype='advisory'),
+          (select count(*) from pg_locks l where l.pid=pg_backend_pid() and l.granted);
          return authz.nexloop_assert_read_authority_perf_orig(p_digest,p_world,p_claims);
         end $f$""")
     admin.execute('alter function authz.nexloop_assert_read_authority(text,text,jsonb) owner to nexloop_owner')
