@@ -112,3 +112,72 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 2. **请求内去重**：同一请求（如 submit 的前后两次 guard、intent 构建、拒绝记录）用 contextvar 作用域复用已签名 envelope——本线已在 `role_runs.request_envelope_scope` 实现并用于 Role/formal/v4/catalog envelope，O1 可泛化到 `_authority` 级别。**不跨请求**：本线试过 3s 跨请求复用，会绕过"每次 guard 重新生成证明"语义（`test_role_tail` 锁等待后最终期限用例失败），已撤回。
 3. **期限**：批量结果的 `expires_at` 仍按每个决策 `min(decision.expires_at, now+25s)`，批量事务时间点作为 `now`，不延长任何证明。
 4. **锁**：本线已把 backend 全局锁改为请求共享 / 关闭独占（`4b48c3b`），与 O4 方向一致；O4 若进一步拆分，请保留"关闭等待所有 in-flight commit/fsync"的保证与线程本地重入。
+
+## LifecycleLock 连接池饥饿修复（调度员批准，单独提交，基于 main `ae1d308`）
+
+### 问题与根因
+
+我在 `4b48c3b` 把 backend 全局 RLock 改成"请求共享 / 关闭独占"后，请求并发不再受限。每个请求持有一个外层事务连接，签名证明/授权判定又从同一池嵌套取连接；默认 `pool_max_size=4`（`NEX_EIOS_DB_POOL_MAX`），≥4 个并发请求时全部持有外层连接、等嵌套连接 → `PoolTimeout(30s)` + idle-in-transaction 超时。在未修复的 main 上，`test_eight_concurrent_requests_complete_on_pool_of_four` 同一检出复现失败（全部 `EffectIntentUnavailable`）。
+
+### 修复
+
+- `LifecycleLock(capacity=max(1, pool_max_size//2), wait_seconds=10.0)`：请求最外层进入时占一个名额，最外层离开时释放；同线程重入不占名额；关闭（`exclusive()`）仍等待所有在途请求。
+- 等待名额有界：超过 `wait_seconds` 抛 `BackendBusy('backend request capacity unavailable')`（可重试、明确），不挂起。等待发生在请求构建任何证明、执行任何 SQL 之前，因此等待时间不会延长证明有效期；之后 SQL 的期限检查照常按 `clock_timestamp()` 执行。
+- 线程本地 `request_depth()`，供插件判断"是否处于 backend 请求内"。
+- **公开入口（供 L2 审核决定 HTTP 使用）**：
+
+  ```python
+  Backend.run_request(operation: Callable[[ConnectionPool, BackendSigner], T]) -> T
+  ```
+
+  在共享生命周期持有（受名额限制、关闭会等待）+ 一个 O1 `authority_request_scope()` 内执行 `operation(pool, signer)`；`operation` 不得在调用之外保留 pool/signer；名额等待超时抛 `BackendBusy`，关闭后抛 `BackendClosed`。
+
+### "外层 + 至多 1 个嵌套连接"的验证（不是假设）
+
+`tests/support/pool_depth_plugin.py`（`-p support.pool_depth_plugin`）：包装 `psycopg_pool.ConnectionPool.getconn/putconn`，对处于 backend 请求内（`request_depth()>0`）的线程逐线程计数同时持有的连接；**第 3 个立即抛 `PoolDepthExceeded` 使测试失败**，并按调用栈汇总深度 2 的嵌套路径（写入 `NEXLOOP_POOL_DEPTH_REPORT`）。广回归在插件开启下运行，结果见下。
+
+已观测的嵌套取连接路径（外层请求事务内，再经 `authorization.open_unit_of_work` 取第二个连接；按次数排序，节选）：
+
+1. `role_runs._role_envelope_for_run → role_binding_envelope → service_offerings._read_envelope → object_reads._authority → authorization.resolve_authority → open_unit_of_work`
+2. `role_runs._formal_reads_for_role → _read_envelope → _authority → … → open_unit_of_work`
+3. `service_offerings.catalog_envelope_from_hint → _catalog_envelope → _read_envelope → _authority → … → open_unit_of_work`
+4. `backend._invoke → effect_contexts.bind/configure_control → _execute → register/_claim → _proof → open_unit_of_work`
+
+插件开启的广回归（121 个测试文件串行，含 Role/receipt/derivation/context/relationship/effect/delivery/outbound/claim/review/http/queue 等）：**单个请求同时持有的连接数最大 2，从未出现第 3 个**；共 165 条不同的深度 2 调用栈。按嵌套点聚合（次数 | 栈尾三层）：
+
+| 次数 | 嵌套点 |
+|---|---|
+| 8553 | `service_offerings.py:_read_envelope > object_reads.py:_authority > authorization.py:resolve_authority` |
+| 3402 | `effect_contexts.py:_execute > effect_contexts.py:register > effect_contexts.py:_proof` |
+| 1084 | `effect_contexts.py:_execute > effect_contexts.py:_claim > effect_contexts.py:_proof` |
+| 963 | `conversation_messages.py:_signed > conversation_messages.py:_proof > authorization.py:open_unit_of_work` |
+| 944 | `relationship_context.py:envelopes > object_reads.py:_authority > authorization.py:resolve_authority` |
+| 900 | `assessment_actions.py:get > object_reads.py:_authority > authorization.py:resolve_authority` |
+| 439 | `effect_execution.py:_execute > effect_execution.py:_signed > action_definitions.py:get` |
+| 430 | `role_runs.py:role_envelope_for_run > role_runs.py:scoped_envelope > role_runs.py:<lambda>` |
+| 366 | `effect_execution.py:_call > effect_execution.py:_execute > effect_execution.py:_signed` |
+| 336 | `action_definitions.py:get > action_definitions.py:get_with_schemas > authorization.py:resolve_authority` |
+| 278 | `effect_execution.py:_signed > effect_execution.py:_proof > authorization.py:resolve_authority` |
+| 257 | `action_definitions.py:get_with_schemas > authorization.py:resolve_authority > authorization.py:open_unit_of_work` |
+| 240 | `runtime_activation.py:effect_tool > runtime_activation.py:_effect_tool > effect_intents.py:_execute_in_transaction` |
+| 238 | `backend.py:_invoke_browser > conversation_messages.py:create_conversation > conversation_messages.py:_call` |
+
+即：外层请求事务（`_invoke`/`_invoke_browser`/ports 的 `_execute`/`_call`）内，签名证明与授权判定（`_read_envelope`/`_authority`/`_proof`/`action_definitions.get`/`resolve_authority`）经 `open_unit_of_work` 取第二个连接；没有在嵌套连接内再取连接的路径。
+
+### 测试
+
+`tests/test_backend_lifecycle_capacity.py` 7 passed / 52.35s（插件开启）；同一"8 并发"用例在未修复 main 上失败（对照）。广回归（插件开启）**1349 passed / 0 failed / 2696.28s**，`.ci-results/l1-lockfix.xml`，Host vitest 141 passed（含 v4 `[complete]` 通过）：容量限制且重入不占名额、超时明确报错 <2s、关闭等待在途请求、容量随池大小（4 → 2）、**8 个并发请求（4× `runtime_effect_tool` 同意图 submit + 4× authorize）在 pool_max_size=4 下全部完成**、等待名额期间 Run 截止到达 → 获得名额后被拒且 0 意图、名额等待超时以 `BackendBusy` 返回、`run_request` 在请求深度 1 下执行。
+
+### 能否解释 sice 上 B 类（retry_wait / runtime_transport_unavailable）失败
+
+判断：**大概率不能**。
+
+1. `REGRESSIONS-main-f58f3ee.md` 的 7 例 sice-only 发生在 f58f3ee，那时还没有 LifecycleLock（全局 RLock 串行化，不存在并发取池），不可能是饥饿。
+2. 之后基线中的 B 类：在本工作树把容量强制关掉（等同修复前 main），对 `test_context_host_export`、`test_outbound_messages_pg::…agent_reply…`、`test_message_relay::…cli_same_message…`、`test_runtime_effect_tools::…rebuilt…`、`test_role_pi_effect_checkpoint` 测量：**单个 backend 上并发请求峰值 1–2，最长 getconn 等待 ≤13ms**。饥饿需要 ≥`pool_max_size`（4）个请求同时持有外层连接并等待嵌套连接；峰值 2 时每个请求至多 2 个连接，刚好占满但不会死锁。
+3. 这些失败与 2 s 工具 deadline 的时延画像一致（每次 guard 授权 0.5–1s，sice 更慢）。
+4. 建议在 sice 上用同一探针（`concurrency_probe` 插件，报告并发峰值与 getconn 等待）跑一次 B 类用例确认；若出现峰值 ≥4 或 getconn 长等待，则饥饿是成因之一。
+
+### 后续（本次不做）
+
+- 嵌套授权证明复用外层请求的连接（把当前事务连接传入 `_authority`/`open_unit_of_work`，或 O2 在外层事务内批量判定），从根本上去掉"每请求两个连接"，届时容量可回到 `pool_max_size`。
+- 同一 Run 并发 guard 在 0039 `nexloop-runtime-execution:<run>` advisory 锁与行锁之间的锁序循环（PostgreSQL 检测并中止一方，结果正确、可重试）：统一锁序。
