@@ -29,8 +29,11 @@ def arguments(argv):
     parser.add_argument('--signing-key-id',default='active')
     parser.add_argument('--tick-seconds',type=float,default=.25)
     parser.add_argument('--once',action='store_true')
+    # NX-023: explicit published strategy selects Context v6; omitted keeps the v2 Context.
+    parser.add_argument('--context-strategy')
     result=parser.parse_args(argv)
     if not math.isfinite(result.tick_seconds) or not .01<=result.tick_seconds<=30 or not re.fullmatch('[A-Za-z0-9_-]{1,64}',result.signing_key_id): parser.error('configuration')
+    if result.context_strategy is not None and not re.fullmatch('[a-z][a-z0-9_]{0,63}',result.context_strategy): parser.error('configuration')
     return result
 
 
@@ -77,7 +80,7 @@ def run(config,stop):
                         vault._check()
                         if stop.is_set(): break
                         status=MessageRelay(route=route,source=source,planner=planner,
-                            executor_token=executor,vault=vault,recipe=recipe).run_once()
+                            executor_token=executor,vault=vault,recipe=recipe,context_strategy=config.context_strategy).run_once()
                         if config.once:
                             if status not in {'idle','queued','requires_governed_replan'}: raise ValueError()
                             print(json.dumps({'status':status},separators=(',',':')),flush=True)

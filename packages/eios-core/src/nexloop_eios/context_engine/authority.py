@@ -51,7 +51,7 @@ def decision_ref(proof):
     return 'decision:'+hashlib.sha256(canonical_payload(proof).encode()).hexdigest()
 
 
-def signed_read(pool,session,signer,verb,payload,*,proofs=(),claims=None):
+def signed_read(pool,session,signer,verb,payload,*,proofs=(),claims=None,function='authz.nexloop_context_read'):
     from nexloop_eios.assembly import verify_application_role
     body=canonical_payload({'verb':verb,**payload})
     auth=session.authentication
@@ -60,4 +60,5 @@ def signed_read(pool,session,signer,verb,payload,*,proofs=(),claims=None):
     signature=hmac.new(signer.material,(READ_PROTOCOL+':'+text).encode(),'sha256').hexdigest()
     with pool.connection() as db,db.transaction():
         verify_application_role(db)
-        return db.execute('select authz.nexloop_context_read(%s,%s,%s,%s,%s)',(session.token_digest,session.world,text,signature,body)).fetchone()[0]
+        if function not in ('authz.nexloop_context_read','authz.nexloop_context_consumer_conversations'):raise ValueError('context read function')
+        return db.execute('select '+function+'(%s,%s,%s,%s,%s)',(session.token_digest,session.world,text,signature,body)).fetchone()[0]

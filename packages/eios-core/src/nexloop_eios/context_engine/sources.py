@@ -34,7 +34,14 @@ def _claims_view(pool,session,signer,conversation_id,proof):
         return db.execute('select authz.nexloop_read_conversation_claims(%s,%s,%s,%s)',(session.token_digest,session.world,text,signature)).fetchone()[0]
 
 
-def collect(pool,session,signer,*,consumer_id,conversation_id,strategy):
+def consumer_conversations(pool,session,signer,consumer_id):
+    """Conversation ids of one Consumer under current Consumer READ (Role Runs, 0093)."""
+    proof=read_proof(pool,session,ResourceType.OBJECT,'Consumer/'+consumer_id)
+    rows=signed_read(pool,session,signer,'conversations',{'consumer_id':consumer_id},proofs=[proof],function='authz.nexloop_context_consumer_conversations')
+    return rows['conversations']
+
+
+def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy):
     import psycopg
     from nexloop_eios.goal_controls import ControlDenied,ControlPlane
     from nexloop_eios.object_reads import AuthorizedObjectReader
@@ -46,14 +53,17 @@ def collect(pool,session,signer,*,consumer_id,conversation_id,strategy):
         out.items+=open_work_items(rows,decision=out.keep(proof))
     except (ContextDenied,psycopg.errors.InsufficientPrivilege):
         out.insufficient.append({'code':'required_source_unreadable','section':'open_work','refs':['eios:object:Consumer/'+consumer_id]})
-    # Claim evidence (source text only; hypotheses never in a real-world Context): Conversation READ.
-    try:
-        proof=AuthorizedObjectReader(pool,session,signer)._authority(ResourceType.OBJECT,'Conversation/'+conversation_id)
-        view=_claims_view(pool,session,signer,conversation_id,proof)
-        out.items+=claim_items(view,strategy,decision=out.keep(proof))
-    except Exception as error:
-        if not isinstance(error,(ContextDenied,psycopg.errors.InsufficientPrivilege)) and type(error).__name__ not in ('ActionAuthorizationDenied','AuthorizationFactDenied','AuthorizationUnavailable'):raise
-        out.insufficient.append({'code':'required_source_unreadable','section':'evidence','refs':['eios:object:Conversation/'+conversation_id]})
+    # Claim evidence (source text only; hypotheses never in a real-world Context): Conversation READ each.
+    unreadable=[]
+    for conversation_id in conversation_ids:
+        try:
+            proof=AuthorizedObjectReader(pool,session,signer)._authority(ResourceType.OBJECT,'Conversation/'+conversation_id)
+            view=_claims_view(pool,session,signer,conversation_id,proof)
+            out.items+=claim_items(view,strategy,decision=out.keep(proof))
+        except Exception as error:
+            if not isinstance(error,(ContextDenied,psycopg.errors.InsufficientPrivilege)) and type(error).__name__ not in ('ActionAuthorizationDenied','AuthorizationFactDenied','AuthorizationUnavailable'):raise
+            unreadable.append('eios:object:Conversation/'+conversation_id)
+    if unreadable:out.insufficient.append({'code':'required_source_unreadable','section':'evidence','refs':unreadable})
     # Control snapshot now (NX-022); a pause is reported, never hidden.
     try:
         out.control=ControlPlane(pool,session).snapshot(scopes=[('consumer','consumer:'+consumer_id)],objects=[('Consumer',consumer_id)],budgets=['model'])

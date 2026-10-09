@@ -132,6 +132,16 @@ V6_PROTOCOL='nexloop-context-v6-v1'
 ASSEMBLE_RESOURCE='eios:action:nexloop.context.assemble:1'
 
 
+def v6_call(db,authority,session,signer,function,payload,proofs):
+    """Signed v6 bind (EXECUTE nexloop.context.assemble:1 + the cited READ proofs)."""
+    if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command'):raise ValueError('v6 bind function')
+    body=canonical_payload(payload)
+    claims={**authority._proof(session,ASSEMBLE_RESOURCE),'protocol':V6_PROTOCOL,'key_id':signer.key_id,
+        'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'read_proofs':list(proofs)}
+    text=canonical_payload(claims);signature=hmac.new(signer.material,(V6_PROTOCOL+':'+text).encode(),'sha256').hexdigest()
+    return db.execute('select '+function+'(%s,%s,%s,%s,%s)',(session.token_digest,'real',text,signature,body)).fetchone()[0]
+
+
 class ContextV6ArtifactProducer(ContextArtifactProducer):
     """Message Run Context v6: the frozen v2 core plus Engine sections, bound by 0091.
 
@@ -144,11 +154,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         self.last_diagnostic=None
 
     def _v6_call(self,db,payload,proofs):
-        body=canonical_payload(payload)
-        claims={**self.authority._proof(self.session,ASSEMBLE_RESOURCE),'protocol':V6_PROTOCOL,'key_id':self.signer.key_id,
-            'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'read_proofs':list(proofs)}
-        text=canonical_payload(claims);signature=hmac.new(self.signer.material,(V6_PROTOCOL+':'+text).encode(),'sha256').hexdigest()
-        return db.execute('select authz.nexloop_context_v6_command(%s,%s,%s,%s,%s)',(self.session.token_digest,'real',text,signature,body)).fetchone()[0]
+        return v6_call(db,self.authority,self.session,self.signer,'authz.nexloop_context_v6_command',payload,proofs)
 
     def assemble(self,snapshot,command):
         """(pack body, outcome, items, proofs) from the SQL core snapshot and current sources."""
@@ -160,7 +166,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         strategy=StrategyRegistry(self.pool,self.session,self.signer).get(self.strategy_id)
         if strategy is None:raise ValueError('context strategy unavailable')
         consumer=command['consumer_ref'].removeprefix('consumer:')
-        found=collect(self.pool,self.session,self.signer,consumer_id=consumer,conversation_id=core['user_statement']['conversation_id'],strategy=strategy.definition)
+        found=collect(self.pool,self.session,self.signer,consumer_id=consumer,conversation_ids=[core['user_statement']['conversation_id']],strategy=strategy.definition)
         goal=next(f for f in core['formal_facts'] if f['type']=='Goal')
         statement=core['user_statement']
         body,outcome=assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role=None,

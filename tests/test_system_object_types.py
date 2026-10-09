@@ -10,6 +10,7 @@ import pytest
 from eios.ontology.version_resolution import CapabilityContractSnapshot
 from nexloop_eios import business_actions as BA
 from nexloop_eios import system_object_types as SOT
+from nexloop_eios.context_engine.audit import context_manifest_object_type
 from nexloop_eios.context_engine.strategy import PUBLISH_ACTION,PUBLISH_CAPABILITY,context_strategy_object_type
 from nexloop_eios.conversation_messages import conversation_schemas
 from test_trusted_configuration_pg import apply,configured  # noqa: F401
@@ -27,9 +28,9 @@ def snapshot(name):
 
 def test_manifest_matches_generated_schema():
     types=SOT.load(PATH)
-    assert [(t.type_name,t.version) for t in types]==[('ContextStrategy',1)]
-    assert types[0]==context_strategy_object_type()
-    assert SOT.trusted_object_types(PATH)==[context_strategy_object_type().model_dump(mode='json')]
+    assert [(t.type_name,t.version) for t in types]==[('ContextStrategy',1),('ContextManifest',1)]
+    assert types==[context_strategy_object_type(),context_manifest_object_type()]
+    assert SOT.trusted_object_types(PATH)==[context_strategy_object_type().model_dump(mode='json'),context_manifest_object_type().model_dump(mode='json')]
 
 
 @pytest.mark.parametrize('change',['identity_mismatch','editable','duplicate','missing_purpose'])

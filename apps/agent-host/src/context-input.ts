@@ -93,10 +93,16 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     const attestation=validateContextAttestation(command,untrustedAttestation);
     if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
     text(pack.strategy_ref,96,/^context-strategy:[a-z][a-z0-9_]{0,63}@[1-9][0-9]{0,6}$/);
-    if(pack.role!==null)return fail();
-    const statement=exact(pack.user_statement,['message_id','conversation_id','sequence','body','provenance']);
-    const event=exact(pack.current_event,['kind','message_id','provenance']);
-    if(event.kind!=='consumer_message'||event.message_id!==statement.message_id||event.provenance!==statement.provenance)return fail();
+    // Message Run: v2 core + pointer event. Role Run: v3/v5 core (role section, service trigger).
+    const roleRun=pack.role!==null;
+    if(roleRun){
+      const role=exact(pack.role,['role_binding','role_policy']);
+      if(pack.user_statement!==null||exact(pack.current_event,['kind','event_id','source_principal','body','provenance']).kind!=='service_trigger'||role.role_binding===null)return fail();
+    }else{
+      const statement=exact(pack.user_statement,['message_id','conversation_id','sequence','body','provenance']);
+      const event=exact(pack.current_event,['kind','message_id','provenance']);
+      if(event.kind!=='consumer_message'||event.message_id!==statement.message_id||event.provenance!==statement.provenance)return fail();
+    }
     const goal=exact(pack.goal,['goal_version_refs','control_snapshot']);
     if(!Array.isArray(goal.goal_version_refs)||goal.goal_version_refs.length!==1)return fail();
     const goalRef=text(goal.goal_version_refs[0],160,/^goal:([a-f0-9]{64})@([1-9][0-9]*)$/);
@@ -122,9 +128,13 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
       }
     }
     exact(pack.budget_report,['estimator','input_token_budget','output_reserve','framing_reserve','available','used','sections','omitted']);
-    const base={schema_version:CONTEXT_PROTOCOL_V2,bindings:pack.bindings,user_statement:pack.user_statement,formal_facts:pack.formal_facts,current_constraints:pack.current_constraints,supply:pack.supply};
+    const core={bindings:pack.bindings,formal_facts:pack.formal_facts,current_constraints:pack.current_constraints,supply:pack.supply};
+    const role=pack.role as Record<string,unknown>|null;
+    const baseProtocol=!roleRun?CONTEXT_PROTOCOL_V2:role!.role_policy===null?CONTEXT_PROTOCOL_V3:CONTEXT_PROTOCOL_V5;
+    const base=!roleRun?{schema_version:baseProtocol,...core,user_statement:pack.user_statement}
+      :{schema_version:baseProtocol,...core,role_binding:role!.role_binding,trigger_statement:pack.current_event,...(role!.role_policy===null?{}:{role_policy:role!.role_policy})};
     const baseText=canonicalContextJSON(base);
-    const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V2);
+    const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},baseProtocol);
     const goalFact=(pack.formal_facts as Array<Record<string,unknown>>).find(row=>row.type==='Goal')!;
     if(goalRef!=='goal:'+goalFact.id+'@'+goalFact.revision)return fail();
     return validated;

@@ -30,8 +30,8 @@ from test_trusted_configuration_pg import configured,PrivateConfiguration,privat
 from test_conversation_effect_receipts import schemas as receipt_schemas
 
 
-def human_declarations(tenant,human):
-    specs=[('eios:action:'+name+':1',ResourceType.ACTION) for name in [CREATE,MESSAGE,READ]]
+def human_declarations(tenant,human,extra=()):
+    specs=[('eios:action:'+name+':1',ResourceType.ACTION) for name in [CREATE,MESSAGE,READ]]+list(extra)
     specs.append(('eios:function:'+FUNCTION+':1',ResourceType.FUNCTION))
     specs.append(('eios:function:nexloop.conversation.scope_denial:1',ResourceType.FUNCTION))
     merged={};original=None

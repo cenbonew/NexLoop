@@ -21,7 +21,7 @@ ACTION={'stable_name','version','object_type','capability_name','authority','ris
     'idempotency_key_fields','target_systems','executor_role','purpose','source_task'}
 # Deployment may publish exactly these profiles. A service-executed create, or an Action whose
 # executor is the human owner only (SQL refuses every non-human principal for it).
-PROFILES={'ontology.object.create':'service','context.strategy.publish':'human_owner'}
+PROFILES={'ontology.object.create':'service','context.strategy.publish':'human_owner','context.audit':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
