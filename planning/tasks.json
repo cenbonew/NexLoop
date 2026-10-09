@@ -1949,6 +1949,18 @@
         "ref": "57a224c",
         "summary": "Merged NX-023-B prep: context-manifest evidence kinds formal_object/conversation/execution_state (enum widened only), context pack v6 contract draft, human-owner-only strategy publish Action (business-actions manifest v2), context_assembler service grant, system object types manifest; no migrations.",
         "recorded_at": "2026-10-09T22:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "24bdb88",
+        "summary": "Merged NX-023-B: context pack v6 production for message Runs with SQL per-source re-verification (0092), model request snapshots recorded in the guard transaction, Host v6 parsing; AT-027/028/064 exercised in the synthetic test environment. Integration fix 3d88b4e sanctions the v6 binding as an evidence-only Claim reader in the AT-064 boundary test. Remaining: Role Runs v6 (NX-023-C), human-only audit read API (owner decision 2026-10-09).",
+        "recorded_at": "2026-10-09T23:40:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T144042Z-bc4dbcad5c0f",
+        "summary": "Full CI on clean CI host for bc4dbca: 2358 passed / 17 failed; 16 within baseline; 1 new deterministic failure (AT-064 boundary test allow-list predating NX-023) fixed by the test update and re-run locally (43 passed).",
+        "recorded_at": "2026-10-09T23:40:00+08:00"
       }
     ]
   },

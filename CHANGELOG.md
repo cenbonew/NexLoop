@@ -29,6 +29,7 @@
   - Source 对已受理消息的读权限由受治理事实派生（ADR-020 §1）。
   - 服务主体对对象属性的读写由“按类型规则”派生，不写逐对象授权；负责人可标记受限属性组（当前为空）。
   - 服务授权使用版本化清单经可信配置发布，可声明“沿用经审核发布的后继版本”。
+- **上下文 v6 接入消息 Run**（NX-023-B）：消息触发的 Run 产出 v6 上下文，每条来源由数据库对照源数据复核；每次实际模型请求都在授权检查的同一事务里记录（序号连续、请求摘要可复算）。
 - **上下文 v6 契约草案**：context-manifest 新增正式对象、会话、执行状态三种证据类型（只扩充，旧值不变）；v6 上下文格式草案；上下文策略发布动作只允许人类负责人；新增系统元数据类型清单。
 - **生产配置文件**：`deploy/authorization/service-grants.v1.json`、`deploy/configuration/business-actions.v1.json`、`deploy/ontology/merge-config.v1.json`、`deploy/authorization/owner-property-restrictions.json`。
 - **契约**：新增 `claim`、`candidate-definition`、`review-decision` JSON Schema，并生成 TypeScript / Pydantic 类型。
