@@ -154,3 +154,56 @@
     - 冷却设为 7 秒时，两字段之差恰为 7 秒且满足约束；
     - 人为制造 1 微秒偏差的更新被 CheckViolation 拒绝。
   - 工作台测试连续 3 次均为 5 passed；目标集 82 passed，118.70s，junit sha256 `f0447b17b794e06b42d00eca1e0e85af5494d80d452ed12e395bb567de0b2e62`。
+
+## 10. 收口（2026-10-10，分支 nx046-close，基于 main 50469bf）
+
+决定按钮在 a8ff595（NX-044 受治理人类审核 Action）启用。之后接入工作台的有：
+- 新类型的 Action 生成与回流（NX-044 收口）；
+- 实例审批（NX-050）；
+- approve 前的派生影响提示（属性授权派生）。
+
+本节汇总启用之后的证据。所有证据都是合成数据的测试证据，不是真实环境证据。本次没有新迁移，也没有改代码，只新增测试和文档。
+
+### 10.1 AT-069 发布回流（端到端）
+“候选发布或合并之后，下一次对话召回命中新定义或别名，并走自动应用，不再生成重复候选。”
+
+| 路径 | 测试 |
+|---|---|
+| 服务粘合合并（NX-045） | `tests/test_candidate_merge_pg.py::test_reflowed_alias_prevents_duplicate_candidates` |
+| 人类审核 merge_into 后的下一次对话（本次新增） | `tests/test_review_reflow_next_conversation_pg.py::test_after_human_merge_the_next_conversation_hits_the_alias_and_applies` |
+| 人类审核 approve 发布新属性、授权就绪后的下一次对话（本次新增） | `tests/test_review_reflow_next_conversation_pg.py::test_after_human_publish_the_next_conversation_hits_the_new_property_and_applies` |
+| 召回层：发布或合并回流后命中新定义、别名、新实例 | `tests/test_recall_pg.py::test_reflow_alias_new_definition_and_new_instance` |
+| 决定之后的回流本身 | 合并：`test_review_decisions_pg.py::test_human_merge_into_reflows_and_applies`；发布：`::test_human_approve_publishes_additively_and_waiting_claims_apply_after_grant`；新类型和实例：`test_review_type_actions_pg.py` 与 `test_instance_approval_pg.py` |
+
+两个新增测试各使用一个新的会话，都覆盖两种情况：
+1. 模型直接给出规范定义：召回命中别名或新属性，经受治理的 `Consumer.edit`（发布路径用后继版本 `:2`）写入，Claim 变为 resolved。
+2. 模型把同一概念当作“新”定义再提一次：
+   - 合并路径：落到已合并的候选上（同一 candidate_id），粘合时重指向并应用；
+   - 发布路径：按已发布的属性处理（NX-050 规则），直接应用。
+
+两种情况下候选总数都不变，也没有 staged 或 pending_review 的残留。
+
+### 10.2 决定按钮启用后的工作台证据
+| 内容 | 测试 |
+|---|---|
+| 三种决定、CSRF、幂等键、修订号 CAS、过期修订返回 409 | `tests/test_review_http.py::test_reviewer_decides_through_http_with_csrf_idempotency_and_cas` |
+| approve 后的等待列表（等待授权单独标出） | `tests/test_review_http.py::test_reviewer_approves_through_http_and_sees_the_wait_for_grants`；`apps/web/test/review.test.ts` 的 “decided items waiting for grants are shown explicitly, never silently” |
+| 撤销审核权限后队列立即不可见 | `tests/test_review_http.py::test_revoked_review_grant_hides_queue_immediately` |
+| approve 前的派生影响提示（所属分组、是否受限、哪些服务主体会自动读写），无法核验时禁用 approve | `apps/web/test/review.test.ts` 的两项（“before approve a new property …”、“unverifiable impact disables approve …”）；`tests/test_property_grant_derivation_pg.py::test_review_workbench_reports_derivation_impact_before_approve` |
+| 模型主体（Agent、Run 凭据）与服务主体无法做出决定，且没有副作用 | `tests/test_review_decisions_pg.py::test_agent_and_run_bound_credentials_cannot_decide_and_cause_no_side_effects`、`::test_service_agent_and_ungranted_principals_cannot_decide` |
+
+### 10.3 AT-045（审核页部分：未知、加载中、403、部分数据都要给出准确标签，不能出现空白的伪成功）
+- `apps/web/test/review.test.ts`：
+  - “403 means the queue is not visible; other failures are labelled, never an empty success”
+  - “workbench renders a loading label first, never a blank success”
+  - “strict parsing: malformed decision state or scores are rejected”（部分或畸形数据显示“格式无效”，什么都不展示）
+  - “unverifiable impact disables approve …”（无法核验时明确提示）
+- `tests/test_review_http.py::test_without_review_permission_the_queue_is_invisible`：HTTP 403，不返回任何队列内容。
+
+本次执行：`pnpm exec vitest run apps/web/test/review.test.ts` 10 passed；`tests/test_review_reflow_next_conversation_pg.py` 2 passed（首次即通过）。
+
+### 10.4 已知限制（不阻塞收口）
+- 工作台没有路由：队列、详情和等待列表在同一页面内切换，没有独立 URL，无法深链到某个候选。
+- 没有分页：队列一次最多读取 `limit` 条（默认 50，上限 200），没有翻页或游标。
+- 队列只按创建时间排序，没有筛选（类型、分组、依赖 Claim 数）。
+- `match-config.json` 的 Action 版本需要手工跟随类型版本（NX-050 §6.5）。
