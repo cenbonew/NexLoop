@@ -6,7 +6,7 @@ from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from nexloop_eios.postgres_artifacts import canonical_payload
@@ -17,7 +17,7 @@ class AuthorizedObjectReader:
     def _authority(self,kind,name,operation=Operation.READ):
         target=resource_id(kind,name);entries=[]
         query=self.session.query(resource_id=target,resource_type=kind,operation=operation)
-        context=F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query)
+        context=resolve_authority(self.pool,self.session,query,entries)
         decision=AuthorizationDecisionService().decide_resolved(context)
         if not decision.allowed or not decision.authoritative or decision.obligations:raise ActionAuthorizationDenied('object/property read denied')
         return {'tenant_id':self.session.authentication.tenant_id,'principal_id':self.session.authentication.subject_principal_id,

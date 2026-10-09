@@ -12,7 +12,7 @@ from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
 from nexloop_eios.service_offerings import CatalogScopeDenied
-from nexloop_eios.authorization import PostgresAuthorityProvider,_identity,authenticate_service
+from nexloop_eios.authorization import PostgresAuthorityProvider,_identity,authenticate_service,resolve_authority
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.run_credentials import AUDIENCE
@@ -59,7 +59,7 @@ class RuntimeActivationPort:
 
     def _proof(self,session,target):
         entries=[];query=session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,session,entries)).resolve(query))
+        decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,session,query,entries))
         if not decision.allowed or not decision.authoritative or decision.obligations:raise AuthorizationUnavailable('runtime activation unavailable')
         return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,'credential_id':session.authentication.credential_id,
             'directory_hash':session.directory_hash,'world':session.world,'resource_id':target,'action_resource':target,'operation':'execute',

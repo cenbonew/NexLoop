@@ -9,7 +9,7 @@ from eios.ontology.definitions import ActionDefinition,DefinitionStatus
 from eios.ontology.models import ObjectTypeDefinition,RelationTypeDefinition
 from eios.ontology.semantics import schema_contract_digest
 from eios.ontology.version_resolution import CapabilityContractSnapshot,validate_capability_binding
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
@@ -26,7 +26,7 @@ class PostgresActionDefinitionReader:
     def get_with_schemas(self,stable_name,version,*,relation=False):
         target=resource_id(ResourceType.ACTION,stable_name,version);entries=[]
         query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        context=F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query)
+        context=resolve_authority(self.pool,self.session,query,entries)
         decision=AuthorizationDecisionService().decide_resolved(context)
         if not decision.allowed or not decision.authoritative or decision.obligations:
             raise ActionAuthorizationDenied('Action definition access denied')
