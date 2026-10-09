@@ -350,6 +350,11 @@
       "version": "0070",
       "name": "0070_nx020_claim_matching.sql",
       "sha256": "51b85682175f9c024551a0bdacf5ee3da76f4e034a69eecf33ed44d1e0ea7261"
+    },
+    {
+      "version": "0071",
+      "name": "0071_nx048_service_grant_inventory.sql",
+      "sha256": "2bf3018205fa361d76c021d79490c3d1bb730a1bf4057c4fce88be127baea525"
     }
   ]
 }
