@@ -93,3 +93,112 @@ begin
  end loop;
 end $grants$;
 grant execute on function authz.nexloop_read_review_publication_basis(text,text,text,text,text) to nexloop_api;
+
+-- Reflow of a published new type (approved design): its dependent Claims go back to unresolved and are
+-- marked in the claim-match feed (0093), so the matcher runs the full four-layer chain again — no layer is
+-- skipped (name-only instances and new properties still go to review). A per-Claim rematch generation
+-- gives the re-match its own matcher version, so the earlier no_match is not simply replayed.
+create table ontology.nexloop_claim_rematch (
+ tenant_id text not null,world text not null,claim_id text not null,generation integer not null check(generation>0),
+ cause text not null check(char_length(cause) between 1 and 200),authority_fingerprint text not null,released_at timestamptz not null default clock_timestamp(),
+ primary key(tenant_id,world,claim_id),foreign key(tenant_id,world,claim_id) references ontology.nexloop_claims
+);
+alter table ontology.nexloop_claim_rematch owner to nexloop_owner;
+alter table ontology.nexloop_claim_rematch enable row level security;
+alter table ontology.nexloop_claim_rematch force row level security;
+create policy tenant_boundary on ontology.nexloop_claim_rematch to nexloop_owner
+ using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
+revoke all on ontology.nexloop_claim_rematch from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
+
+-- 0070 read verbs unchanged, plus 'rematch': current generation per Claim (absent = never released).
+create or replace function authz.nexloop_read_claim_matching(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare a jsonb:=authz.nexloop_assert_claim_match_authority(p_digest,p_world,p_text,p_signature,p_payload);c jsonb:=p_payload::jsonb;t text:=a->>'tenant_id';
+begin
+ if c->>'verb'='proposal' then
+  return (select to_jsonb(p)-'tenant_id' from ontology.nexloop_mutation_proposals p where p.tenant_id=t and p.world=p_world and p.proposal_id=c->>'proposal_id');
+ elsif c->>'verb'='latest_applied' then
+  -- Newest applied evidence for one formal property (late-evidence rule, docs/04 §7.3).
+  return (select jsonb_build_object('proposal_id',p.proposal_id,'claim_id',p.claim_id,'effective_at',p.effective_at)
+   from ontology.nexloop_mutation_proposals p where p.tenant_id=t and p.world=p_world and p.target_ref=c->>'target_ref'
+    and p.property_name=c->>'property_name' and p.status='applied' order by p.effective_at desc,p.updated_at desc limit 1);
+ elsif c->>'verb'='candidates' then
+  return coalesce((select jsonb_agg(to_jsonb(x)-'tenant_id' order by x.created_at,x.candidate_id) from ontology.nexloop_candidate_definitions x
+   where x.tenant_id=t and x.world=p_world),'[]'::jsonb);
+ elsif c->>'verb'='match' then
+  return (select to_jsonb(m)-'tenant_id' from ontology.nexloop_claim_matches m where m.tenant_id=t and m.world=p_world and m.claim_id=c->>'claim_id'
+   and m.matcher_version=c->>'matcher_version');
+ elsif c->>'verb'='rematch' then
+  if jsonb_typeof(c->'claim_ids') is distinct from 'array' or jsonb_array_length(c->'claim_ids')>1024 then raise exception 'claim match read verb invalid' using errcode='22023';end if;
+  return coalesce((select jsonb_object_agg(r.claim_id,r.generation) from ontology.nexloop_claim_rematch r where r.tenant_id=t and r.world=p_world
+   and r.claim_id in (select jsonb_array_elements_text(c->'claim_ids'))),'{}'::jsonb);
+ end if;
+ raise exception 'claim match read verb invalid' using errcode='22023';
+end $$;
+
+-- 0082 reflow verbs unchanged ('pending' also reports the candidate kind), plus 'release_type'.
+create or replace function authz.nexloop_review_reflow(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare a jsonb:=authz.nexloop_assert_claim_match_authority(p_digest,p_world,p_text,p_signature,p_payload);c jsonb:=p_payload::jsonb;t text:=a->>'tenant_id';
+ v_dec ontology.nexloop_review_decisions%rowtype;x ontology.nexloop_candidate_definitions%rowtype;fp text;claims text[];eligible text[];conv text;
+ open_count integer;grant_wait integer;status text;report jsonb;
+begin
+ if c->>'verb'='pending' then
+  return coalesce((select jsonb_agg(jsonb_build_object('decision_id',d.decision_id,'candidate_id',d.candidate_id,'outcome',d.outcome,'publication',d.publication,
+    'reflow_status',d.reflow_status,'kind',k.kind) order by d.decided_at,d.decision_id) from ontology.nexloop_review_decisions d
+    join ontology.nexloop_candidate_definitions k on k.tenant_id=d.tenant_id and k.world=d.world and k.candidate_id=d.candidate_id
+   where d.tenant_id=t and d.world=p_world and d.reflow_status in ('pending','waiting')),'[]'::jsonb);
+ elsif c->>'verb'='record' then
+  if c->>'status' not in ('done','waiting') or jsonb_typeof(c->'report') is distinct from 'object' then raise exception 'reflow record invalid' using errcode='22023';end if;
+  update ontology.nexloop_review_decisions set reflow_status=c->>'status',reflow_report=c->'report',reflowed_at=clock_timestamp(),
+   publication=case when publication is null then null else jsonb_set(publication,'{applied_claim_count}',to_jsonb(coalesce((c->'report'->>'applied')::integer,0))) end,
+   record=case when record ? 'publication' then jsonb_set(record,'{publication,applied_claim_count}',to_jsonb(coalesce((c->'report'->>'applied')::integer,0))) else record end
+   where tenant_id=t and world=p_world and decision_id=c->>'decision_id' and reflow_status in ('pending','waiting');
+  if not found then raise exception 'reflow decision unavailable' using errcode='42501';end if;
+  return jsonb_build_object('decision_id',c->>'decision_id','reflow_status',c->>'status');
+ elsif c->>'verb'='release_type' then
+  select * into v_dec from ontology.nexloop_review_decisions where tenant_id=t and world=p_world and decision_id=c->>'decision_id'
+   and outcome='published' and reflow_status in ('pending','waiting') for update;
+  if not found then raise exception 'reflow decision unavailable' using errcode='42501';end if;
+  select * into x from ontology.nexloop_candidate_definitions where tenant_id=t and world=p_world and candidate_id=v_dec.candidate_id;
+  if x.kind is distinct from 'object_type' then raise exception 'reflow decision unavailable' using errcode='42501';end if;
+  fp:=authz.nexloop_tenant_authority_fingerprint(t);
+  select coalesce(array_agg(substr(v,7) order by v),'{}') into claims from unnest(x.dependent_claims) v where v like 'claim:%';
+  -- First release: every dependent Claim still waiting for this type. Later: a Claim the matcher left in
+  -- needs_resolution (e.g. type not readable yet) is released again only after the authority changed.
+  select coalesce(array_agg(cl.claim_id order by cl.claim_id),'{}') into eligible from ontology.nexloop_claims cl
+   left join ontology.nexloop_claim_rematch r on r.tenant_id=cl.tenant_id and r.world=cl.world and r.claim_id=cl.claim_id
+   where cl.tenant_id=t and cl.world=p_world and cl.claim_id=any(claims)
+    and ((r.claim_id is null and cl.resolution_state='awaiting_definition')
+     or (r.cause='type:'||x.candidate_id and cl.resolution_state='needs_resolution' and r.authority_fingerprint<>fp));
+  if cardinality(eligible)>0 then
+   update ontology.nexloop_claims set resolution_state='unresolved' where tenant_id=t and world=p_world and claim_id=any(eligible);
+   insert into ontology.nexloop_claim_rematch as r(tenant_id,world,claim_id,generation,cause,authority_fingerprint)
+    select t,p_world,e,1,'type:'||x.candidate_id,fp from unnest(eligible) e
+   on conflict(tenant_id,world,claim_id) do update set generation=r.generation+1,cause=excluded.cause,authority_fingerprint=excluded.authority_fingerprint,released_at=clock_timestamp();
+   for conv in select distinct cl.conversation_id from ontology.nexloop_claims cl where cl.tenant_id=t and cl.world=p_world and cl.claim_id=any(eligible) loop
+    perform authz.nexloop_work_feed_touch(t,p_world,'claim-match',conv,jsonb_build_object('conversation_id',conv));
+   end loop;
+  end if;
+  select count(*) filter(where cl.resolution_state='unresolved'),count(*) filter(where cl.resolution_state='needs_resolution')
+   into open_count,grant_wait from ontology.nexloop_claims cl where cl.tenant_id=t and cl.world=p_world and cl.claim_id=any(claims);
+  -- Done once no dependent Claim waits for the matcher; other outcomes (applied, new candidates, rejected) are their own flows.
+  status:=case when open_count+grant_wait=0 then 'done' else 'waiting' end;
+  report:=jsonb_build_object('applied',0,'released',to_jsonb(eligible),'claims',to_jsonb(claims),
+   'reason',case when open_count>0 then 'awaiting_matching' when grant_wait>0 then 'awaiting_grants' else null end);
+  update ontology.nexloop_review_decisions set reflow_status=status,reflow_report=jsonb_strip_nulls(report),reflowed_at=clock_timestamp()
+   where tenant_id=t and world=p_world and decision_id=v_dec.decision_id;
+  return jsonb_strip_nulls(report)||jsonb_build_object('status',status);
+ end if;
+ raise exception 'reflow verb invalid' using errcode='22023';
+end $$;
+
+do $grants$
+declare f text;
+begin
+ foreach f in array array['authz.nexloop_read_claim_matching(text,text,text,text,text)','authz.nexloop_review_reflow(text,text,text,text,text)'] loop
+  execute 'alter function '||f||' owner to nexloop_owner';
+  execute 'revoke all on function '||f||' from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_identity,nexloop_configurator';
+ end loop;
+end $grants$;
+grant execute on function authz.nexloop_read_claim_matching(text,text,text,text,text),authz.nexloop_review_reflow(text,text,text,text,text) to nexloop_domain_worker;

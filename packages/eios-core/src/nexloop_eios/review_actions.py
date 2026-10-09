@@ -214,6 +214,13 @@ class ReviewReflowWorker:
     def run_pending(self):
         results={}
         for item in self.port.call('nexloop_review_reflow',{'verb':'pending'}):
+            if item['outcome']=='published' and item.get('kind')=='object_type':
+                # New type: reindex its definition, then hand the dependent Claims back to the matcher through
+                # the claim-match feed (full four-layer chain; nothing is applied here). Idempotent per run.
+                owner=next(r.rsplit(':',1)[1] for r in item['publication']['published_refs'] if r.count(':')==2 and r.startswith('eios:object_type:'))
+                self.gluer.indexer.index_object_type(owner)
+                results[item['decision_id']]=self.port.call('nexloop_review_reflow',{'verb':'release_type','decision_id':item['decision_id']})
+                continue
             try:
                 if item['outcome']=='merged':outcome=self.gluer.reflow_merged(item['candidate_id'])
                 elif item['outcome']=='published':outcome=self.gluer.reflow_published(item['candidate_id'])

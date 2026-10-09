@@ -102,8 +102,97 @@ def test_non_canonical_new_type_actions_are_refused_by_sql(review,tamper,reason)
 def test_rejected_type_keeps_dependent_claims_as_evidence_only(review):
     """A rejected new type publishes nothing; its Claims stay rejected_definition evidence and are not re-matched."""
     f=review;admin=f['admin'];claim,cid=type_pending(f,'pet-reject');create_capability(f)
+    admin.execute("delete from runtime.nexloop_work_feed where feed='claim-match'")  # fixture Claims were matched directly
     result=human(f).decide(candidate_id=cid,decision='reject',expected_revision=candidates(admin)[cid][8],rationale='不是业务概念',idempotency_key='synthetic-type-reject-01')
     assert result['outcome']=='rejected' and result['reflow_status']=='none'
     assert resolution(admin,claim)=='rejected_definition' and actions(admin,'Pet')=={}
     assert admin.execute("select count(*) from ontology.object_type_versions where tenant_id=%s and type_name='Pet'",(TENANT,)).fetchone()==(0,)
     assert admin.execute("select count(*) from ontology.nexloop_mutation_proposals").fetchone()==(0,)
+    # Not handed to the matcher: no claim-match feed entry, no rematch generation.
+    assert admin.execute("select count(*) from runtime.nexloop_work_feed where feed='claim-match'").fetchone()==(0,)
+    assert admin.execute("select count(*) from ontology.nexloop_claim_rematch").fetchone()==(0,)
+
+
+# ------------------------------------------------- reflow: hand the Claims back to the full matching chain
+
+MATCH_FEED=('eios:action:NexLoop.feed.claim-match:1',None,None)
+
+
+def feed(admin):
+    return admin.execute("select item_key,status from runtime.nexloop_work_feed where feed='claim-match' order by item_key").fetchall()
+
+
+def rematch(admin,claim):
+    return admin.execute('select generation,cause from ontology.nexloop_claim_rematch where claim_id=%s',(claim,)).fetchone()
+
+
+def match_worker(f,claim,*,suffix,pet_grants):
+    from eios.authz.operations import Operation
+    from eios.authz.resources import ResourceType
+    from multi_authority_fixture import seed_multi_authority
+    from nexloop_eios.candidate_merge import CandidateGluer
+    from nexloop_eios.claim_match_worker import ClaimMatchWorker
+    from nexloop_eios.claim_matching import ClaimMatcher,MatchConfiguration,ScriptedMatchProvider
+    from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall
+    from test_claim_matching_pg import matcher_targets
+    targets=matcher_targets(f)+[('eios:action:NexLoop.feed.claim-match:1',ResourceType.ACTION,Operation.EXECUTE)]
+    if pet_grants:
+        targets+=[('eios:object_type:Pet',ResourceType.OBJECT_TYPE,Operation.READ)]
+        targets+=[(f'eios:action:Pet.{s}:1',ResourceType.ACTION,Operation.EXECUTE) for s in ('create','edit')]
+    session,_=seed_multi_authority(f['admin'],f['worker'],targets,identity_suffix=suffix,tenant=f['tenant'])
+    recall=OntologyRecall(f['worker'],session,authorizer=EiosRecallAuthorizer(f['worker'],session),provider=f['provider'],expected_dimension=64)
+    # The model now places the Claim on the published type and names the instance (no strong identifier exists: Pet has no key).
+    provider=ScriptedMatchProvider({claim:decision(type_ref='eios:object_type:Pet',name='布丁')})
+    m=ClaimMatcher(f['worker'],session,f['signer'],recall=recall,provider=provider,
+        configuration=MatchConfiguration(edit_actions={'Consumer':('Consumer.edit',1),'Pet':('Pet.edit',1)},create_actions={'Pet':('Pet.create',1)}))
+    gluer=CandidateGluer(f['worker'],session,f['signer'],indexer=f['indexer'],matcher=m,provider=f['provider'])
+    return ClaimMatchWorker(f['worker'],session,f['signer'],matcher=m,gluer=gluer)
+
+
+def reflow_worker(f,*,suffix):
+    from test_review_decisions_pg import worker
+    return worker(f,suffix=suffix)
+
+
+def test_approved_type_hands_claims_back_to_the_full_matching_chain(review):
+    """AT-067 (new type): approve → Claims back to unresolved + claim-match feed → the worker re-runs all four layers.
+    Without type authority nothing is written and nothing fails; once trusted configuration grants it, the Claims are
+    released again and matched; the name-only instance goes to review (no layer is skipped)."""
+    f=review;admin=f['admin'];claim,cid=type_pending(f,'pet-chain');create_capability(f)
+    admin.execute("delete from runtime.nexloop_work_feed where feed='claim-match'")  # fixture Claims were matched directly
+    result=human(f).decide(candidate_id=cid,decision='approve',expected_revision=candidates(admin)[cid][8],rationale='新增宠物类型',idempotency_key='synthetic-type-chain-01')
+    assert result['outcome']=='published' and result['reflow_status']=='pending' and resolution(admin,claim)=='awaiting_definition'
+    assert feed(admin)==[]  # publication itself releases nothing
+    released=reflow_worker(f,suffix='-type-reflow').run_pending()[result['decision_id']]
+    assert released['status']=='waiting' and released['released']==[claim] and released['reason']=='awaiting_matching'
+    assert resolution(admin,claim)=='unresolved' and feed(admin)==[(f['conversation'],'pending')] and rematch(admin,claim)==(1,'type:'+cid)
+    # Authority for the new type not configured yet: the matcher cannot even recall it — no write, no error.
+    summary=match_worker(f,claim,suffix='-type-match-nogrant',pet_grants=False).run_once()
+    assert summary['conversations']==1 and summary['applied']==0 and summary['retry']==0 and summary['dead_lettered']==0
+    assert resolution(admin,claim)=='needs_resolution' and feed(admin)==[]
+    assert admin.execute("select outcome,reason from ontology.nexloop_claim_matches where claim_id=%s and matcher_version like '%%rematch:1'",(claim,)).fetchone()==('needs_resolution','type_not_recalled')
+    again=reflow_worker(f,suffix='-type-reflow-2').run_pending()[result['decision_id']]
+    assert again['released']==[claim] and rematch(admin,claim)[0]==2  # the reflow worker's own seeding changed authority
+    # (A release with no authority change in between releases nothing.)
+    admin.execute("update ontology.nexloop_claims set resolution_state='needs_resolution' where claim_id=%s",(claim,))
+    from test_review_decisions_pg import worker as review_worker
+    idle_reflow=review_worker(f,suffix='-type-reflow-3')
+    with admin.transaction():  # fault injection: pretend the last release already saw the current authority
+        admin.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+        admin.execute("update ontology.nexloop_claim_rematch set authority_fingerprint=authz.nexloop_tenant_authority_fingerprint(tenant_id) where claim_id=%s",(claim,))
+    still=idle_reflow.run_pending()[result['decision_id']]
+    assert still['released']==[] and still['status']=='waiting' and still['reason']=='awaiting_grants' and rematch(admin,claim)[0]==2
+    # Trusted configuration grants the type to the matcher: the next reflow releases the Claim again (generation 3).
+    match_worker(f,claim,suffix='-type-match-granted',pet_grants=True)  # seeding = the trusted-configuration grant
+    third=review_worker(f,suffix='-type-reflow-4').run_pending()[result['decision_id']]
+    assert third['released']==[claim] and rematch(admin,claim)[0]==3 and feed(admin)==[(f['conversation'],'pending')]
+    summary=match_worker(f,claim,suffix='-type-match-granted-2',pet_grants=True).run_once()
+    assert summary['conversations']==1 and summary['glued']>=1,summary
+    # Four layers ran: type recalled, the instance is only named → object_instance candidate for review, nothing written.
+    match=admin.execute("select outcome,reason,candidate_id from ontology.nexloop_claim_matches where claim_id=%s and matcher_version like '%%rematch:3'",(claim,)).fetchone()
+    assert match[0]=='no_match' and candidates(admin)[match[2]][1]=='object_instance' and candidates(admin)[match[2]][2] in ('staged','pending_review')
+    assert resolution(admin,claim)=='awaiting_definition'
+    assert admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='Pet'",(TENANT,)).fetchone()==(0,)
+    assert admin.execute("select count(*) from ontology.nexloop_mutation_proposals").fetchone()==(0,)
+    done=review_worker(f,suffix='-type-reflow-5').run_pending()[result['decision_id']]
+    assert done['status']=='done' and 'reason' not in done
