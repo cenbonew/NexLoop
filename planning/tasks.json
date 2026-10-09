@@ -2375,7 +2375,7 @@
       "M17"
     ],
     "deliverable": "先对已实现的 action_definitions/authorization/object_edits 做差距检查并写 docs/implementation/NX-044-gap.md；新增人类审核 Action（approve/merge_into/reject，权限 ontology.schema.review，服务端解析 reviewer）；经 EIOS schema 注册链的人工批准发布路径（新类型/属性/词表值/别名），发布前执行 docs/08 §5 硬门槛；候选状态机与 review-decision 持久化；非授权主体与模型主体审核被拒的负向测试",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -2418,6 +2418,18 @@
         "ref": "nx044-close",
         "summary": "Reviewer decisions by Agent or Run credentials denied without side effects; type approval publishes create/edit Actions (branch nx044-close, pending rebase).",
         "recorded_at": "2026-10-10T00:22:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "8f2ce3d",
+        "summary": "Done (delivery endpoint adjusted by the dispatcher): human review actions approve/merge_into/reject via the governed Schema registry; Agent and Run credentials denied without side effects; new type approval publishes governed create/edit Actions without writing grants; dependent Claims re-enter matching by generation. New-type Claims reach \"name-only instance in review\"; reaching \"applied\" is NX-050 (docs/implementation/NX-044-review-actions.md section 8.6).",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T170615Z-8f2ce3d0f46d",
+        "summary": "Full CI on clean CI host for 8f2ce3d (integration-s3u): 2437 passed / 17 failed, all within baseline, no new failures.",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
       }
     ]
   },
@@ -2435,7 +2447,7 @@
       "M12"
     ],
     "deliverable": "按 ADR-019 §3.4：候选表（PostgreSQL，非缓存）、同文本去重、四项粘合特征（词相似度/核心词包含/向量聚类/业务白名单）与可配置阈值、merged→别名映射+Claim 改指向+自动应用、未达阈值→pending_review 队列 API；模拟/shadow 候选不进 real 队列",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -2460,6 +2472,18 @@
         "ref": "docs/implementation/NX-045-candidate-merge.md",
         "summary": "State machine, four glue features with versioned config, review queue read API; human decisions left to NX-044.",
         "recorded_at": "2026-10-09T10:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "8f2ce3d",
+        "summary": "Done: candidate staging, four glue features with versioned thresholds, merged-to-alias with Claim re-pointing and auto-apply, pending_review queue; dependencies NX-020, NX-021, NX-044 done.",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T170615Z-8f2ce3d0f46d",
+        "summary": "Full CI on clean CI host for 8f2ce3d (integration-s3u): 2437 passed / 17 failed, all within baseline, no new failures.",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
       }
     ]
   },
@@ -2582,6 +2606,28 @@
         "ref": "d823be1",
         "summary": "O5b level 1 merged; test_relationship_context_v4[complete] still 0/5 serially on the CI host (idle, load ~1). Gate not met.",
         "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-050",
+    "stage": "S3",
+    "title": "object_instance 候选审批与回流创建",
+    "dependencies": [
+      "NX-044"
+    ],
+    "modules": [
+      "M12",
+      "M14"
+    ],
+    "deliverable": "在 NX-044 的人类审核动作中支持批准 object_instance 候选；批准后由回流经 <Type>.create 受治理创建实例（identifying_properties 必须是已发布属性），依赖 Claim 随后自动应用，AT-067 新类型链路走到“已应用”；拒绝实例与重复实例负例",
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-044-review-actions.md",
+        "summary": "Split from NX-044 by the dispatcher (owner asked for the closed loop): new types have no primary key and object_instance candidates were not publishable, so dependent Claims could not reach \"applied\". Assigned to the L2 line.",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
       }
     ]
   }

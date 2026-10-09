@@ -915,7 +915,15 @@
     "name": "候选粘合",
     "given": "两条候选属性：一条与已有定义相似度达阈值，一条未达",
     "expected": "达阈值→merged并记别名、Claim改指向后自动应用；未达→pending_review；阈值与权重来自配置版本",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_candidate_merge_pg.py",
+        "summary": "Synthetic test environment, merged at 8f2ce3d: test_glue_merges_above_threshold_and_reviews_below (thresholds and weights from the versioned configuration). Re-run on main: 20 passed.",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-067",
@@ -933,7 +941,15 @@
     "name": "审核拒绝",
     "given": "授权人类对候选reject",
     "expected": "候选rejected；依赖Claim保留为原文证据、resolution_state=rejected_definition；不进本体、不进Context正式属性；同文本冷却期不再排队",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_review_decisions_pg.py",
+        "summary": "Synthetic test environment, merged at 8f2ce3d: test_human_reject_records_decision_cooldown_and_replays and the HTTP reject tests. Re-run on main: 20 passed.",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-069",
@@ -951,6 +967,14 @@
     "name": "最小审核工作台",
     "given": "审核人打开队列并处理一条候选",
     "expected": "可见原文span/召回结果/粘合分数/依赖Claim数；三种决定可用；每个决定有审计记录；无权限用户看不到队列",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_review_http.py",
+        "summary": "Synthetic test environment, merged at 8f2ce3d: test_reviewer_decides_through_http_with_csrf_idempotency_and_cas; read side covered by the NX-046 workbench tests. Re-run on main: 20 passed.",
+        "recorded_at": "2026-10-10T01:43:00+08:00"
+      }
+    ]
   }
 ]
