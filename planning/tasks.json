@@ -1792,7 +1792,7 @@
       "M11"
     ],
     "deliverable": "按 ADR-019 §3.3：四层匹配判定（类型/实例/属性/值）；全匹配与部分匹配自动应用（开放属性新值、强标识新实例）；不匹配生成 candidate-definition 并挂起依赖 Claim；expected revision、幂等应用、晚到证据、更正链",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -1817,6 +1817,18 @@
         "ref": "docs/implementation/NX-020-matching.md",
         "summary": "AT-061/062/063/065 passed incl. real evidence; AT-020/021/022 proposal layer passed; NX-045 handover list.",
         "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d823be1",
+        "summary": "Done: extracted Claims are queued and matched by a background worker; real-extraction to match to governed apply covered end to end with the deterministic provider (docs/implementation/NX-021-020-close.md). HTTP 409 mapping belongs to a future object API.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T153804Z-d823be14dc9d",
+        "summary": "Full CI on clean CI host for d823be1 (integration-s3s): 2421 passed / 14 failed; 13 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
       }
     ]
   },
@@ -1831,7 +1843,7 @@
       "M13"
     ],
     "deliverable": "按 ADR-019 §3.2：Schema（类型/属性/别名/词表）与实例两套混合索引（向量+FTS+pg_trgm）；embedding 使用 .env 的 EMBEDDING_* 配置，第一步实测维度并固定 EMBEDDING_DIMENSION；租户/属性/world 过滤、profile 版本、索引更新与删除、发布/合并回流",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -1874,6 +1886,18 @@
         "ref": "docs/implementation/NX-021-recall.md",
         "summary": "AT-025 passed within recall-index scope; AT-069 recall side verified, end-to-end not_run.",
         "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d823be1",
+        "summary": "Done: instance index kept current from governed writes through a same-transaction work feed and an indexer worker; tenant/world isolation and erased or revoked instances covered (docs/implementation/NX-021-020-close.md). memory_items/search_chunks are outside ADR-019 section 3.2.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T153804Z-d823be14dc9d",
+        "summary": "Full CI on clean CI host for d823be1 (integration-s3s): 2421 passed / 14 failed; 13 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
       }
     ]
   },
@@ -1889,7 +1913,7 @@
       "M04"
     ],
     "deliverable": "父目标版本、Agent子目标、预算/控制revision",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -1902,6 +1926,18 @@
         "ref": "docs/implementation/NX-022-goals-controls.md",
         "summary": "AT-005 passed; AT-006/007/043 decision parts passed; dispatch hooks not yet wired (owned by NX-018 files).",
         "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d823be1",
+        "summary": "Done: dispatch-time control checks, Run goal binding and model budget reservation wired into the effect and runtime dispatch paths; control snapshots persisted per intent and task (docs/implementation/NX-022-goals-controls.md).",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T153804Z-d823be14dc9d",
+        "summary": "Full CI on clean CI host for d823be1 (integration-s3s): 2421 passed / 14 failed; 13 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
       }
     ]
   },
@@ -1954,13 +1990,19 @@
         "type": "commit",
         "ref": "24bdb88",
         "summary": "Merged NX-023-B: context pack v6 production for message Runs with SQL per-source re-verification (0092), model request snapshots recorded in the guard transaction, Host v6 parsing; AT-027/028/064 exercised in the synthetic test environment. Integration fix 3d88b4e sanctions the v6 binding as an evidence-only Claim reader in the AT-064 boundary test. Remaining: Role Runs v6 (NX-023-C), human-only audit read API (owner decision 2026-10-09).",
-        "recorded_at": "2026-10-09T23:40:00+08:00"
+        "recorded_at": "2026-10-09T23:15:00+08:00"
       },
       {
         "type": "test_report",
         "ref": "ci:sice/20261009T144042Z-bc4dbcad5c0f",
         "summary": "Full CI on clean CI host for bc4dbca: 2358 passed / 17 failed; 16 within baseline; 1 new deterministic failure (AT-064 boundary test allow-list predating NX-023) fixed by the test update and re-run locally (43 passed).",
-        "recorded_at": "2026-10-09T23:40:00+08:00"
+        "recorded_at": "2026-10-09T23:15:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d823be1",
+        "summary": "Merged NX-023-C: Role Runs produce context v6, relay CLI --context-strategy, human-only context audit read.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
       }
     ]
   },
@@ -2358,6 +2400,12 @@
         "ref": "sice run 20261009T064223Z-a8ff5959d249",
         "summary": "Full CI on integration-s3j: web 24/24, build phase 34/34, parallel 2173 with 16 failures, all within the CI baseline.",
         "recorded_at": "2026-10-09T15:15:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "nx044-close",
+        "summary": "Reviewer decisions by Agent or Run credentials denied without side effects; type approval publishes create/edit Actions (branch nx044-close, pending rebase).",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
       }
     ]
   },
@@ -2516,6 +2564,13 @@
     ],
     "deliverable": "按 ADR-022：在部署主机（即 CI 测试机）上，2 s 工具时限不放宽的前提下，relationship_context_v4[complete] 与两 Pi Role 用例在全量 CI 连续 2 轮通过，且同一检出串行 5 次全部通过；先行手段为 O5b 级别 1（锁后尾验完整重跑）；达成后从合并基线 B 类移除该用例",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "d823be1",
+        "summary": "O5b level 1 merged; test_relationship_context_v4[complete] still 0/5 serially on the CI host (idle, load ~1). Gate not met.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   }
 ]

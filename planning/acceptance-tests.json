@@ -78,7 +78,15 @@
     "name": "目标不可变",
     "given": "Agent试图改父KR口径",
     "expected": "拒绝；发布新版本只能由适当权限执行",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_goal_controls.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_at005_agent_cannot_change_parent_kr_metric_period_or_target and owner version tests.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-006",
@@ -321,7 +329,15 @@
     "name": "抽取重跑",
     "given": "同输入版本执行提取两次",
     "expected": "提案/承诺不重复；可追溯同证据",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_claim_matching_pg.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_rerun_same_claims_is_idempotent; extraction debounce and crash idempotency.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-021",
@@ -339,7 +355,15 @@
     "name": "晚到事实",
     "given": "旧偏好晚于新偏好到达",
     "expected": "按有效时间与证据处理，不覆盖新偏好",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_claim_matching_pg.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_late_older_evidence_does_not_overwrite_newer.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-023",
@@ -366,7 +390,15 @@
     "name": "检索隔离",
     "given": "向量/关键词含其他租户或world数据",
     "expected": "预过滤与返回校验均阻止泄露",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_work_feeds_pg.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_other_tenant_and_world_never_see_or_drain_the_instance; test_erased_or_revoked_instance_is_never_recalled; tests/test_recall_pg.py.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-026",
@@ -806,7 +838,15 @@
     "name": "全匹配自动应用",
     "given": "类型/属性/值均在Schema内且实例唯一定位的Claim",
     "expected": "无人工审核；经受治理Action写入属性值并有receipt；无候选定义生成",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_work_feeds_pg.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_extracted_claims_are_matched_and_applied_by_the_background_worker; test_claim_matching_pg full-match auto-apply.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-062",
@@ -815,7 +855,15 @@
     "name": "封闭词表新值",
     "given": "已有枚举属性出现Schema外的新值",
     "expected": "生成candidate-definition(vocabulary_value)进审核；属性值不写入；Claim为awaiting_definition",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_claim_matching_pg.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_closed_vocabulary_new_value_becomes_candidate_and_waits.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-063",
@@ -824,7 +872,15 @@
     "name": "开放属性新值",
     "given": "已有数值/文本属性出现新值（如预算2000）",
     "expected": "自动写入，不进审核；保留证据与有效时间",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_claim_matching_pg.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_open_property_new_value_auto_applies_with_evidence_time.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-064",
@@ -842,7 +898,15 @@
     "name": "新实例分流",
     "given": "对话出现库中不存在的实例：一例带强标识、一例仅名称",
     "expected": "强标识自动创建实例；仅名称生成object_instance候选进审核",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_claim_matching_pg.py",
+        "summary": "Synthetic test environment, merged at d823be1: test_new_instance_strong_id_created_name_only_staged.",
+        "recorded_at": "2026-10-10T00:22:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-066",
