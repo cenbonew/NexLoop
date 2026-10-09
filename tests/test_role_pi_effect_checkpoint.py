@@ -31,7 +31,7 @@ def test_actual_two_pi_role_runs_one_shared_intent_one_real_loopback_effect(role
     runtime,key=files(tmp_path)
     guard_key=tmp_path/'guard-key';guard_key.write_text(secrets.token_hex(32));guard_key.chmod(0o600)
     with guard_server(plan['worker'],tmp_path,guard_key) as port:
-        config=effect_configuration(tmp_path,port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message');body.update(deterministic_message_from_input=True,context_input_protocol='nexloop.context-pack.v3');config.write_text(json.dumps(body))
+        config=effect_configuration(tmp_path,port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message');body.update(deterministic_message_from_input=True,context_input_protocol='nexloop.context-pack.v5');config.write_text(json.dumps(body))
         with host(runtime,key,config) as (_,client,headers):
             def run(index):
                 command=plan['commands'][index];activation=plan['activations'][index]
@@ -52,7 +52,7 @@ def test_actual_two_pi_role_runs_one_shared_intent_one_real_loopback_effect(role
                     records=[json.loads(row[0]) for row in c.execute('select record from entries order by id')]
                 model_inputs=[item for record in records for item in record.get('model',[]) if item.get('role')=='user']
                 observed=json.dumps(model_inputs)
-                assert 'nexloop.context-pack.v3' in observed and 'governed service responsibility' in observed
+                assert 'nexloop.context-pack.v5' in observed and 'role_policy' in observed and 'ceiling_provenance' in observed and 'governed service responsibility' in observed
                 assert 'service_trigger' in observed and 'eios:role-trigger:' in observed
                 assert len(receipts)==3 and receipts[0]==receipts[1]==receipts[2]
                 assert [call['id'] for call in calls if call['name']=='nexloop.service.request']==['message-service-first','message-service-rebuilt']

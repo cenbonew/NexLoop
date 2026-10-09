@@ -430,6 +430,11 @@
       "version": "0086",
       "name": "0086_nx018_evidence_read_derivation.sql",
       "sha256": "240328e24daafe5a5be870dd3f941bfa8d92cab7429f78696ae8d4c8655514f4"
+    },
+    {
+      "version": "0087",
+      "name": "0087_nx018_role_policy_context_v5.sql",
+      "sha256": "de2bffcad89a6c4dfdf952966e948dcda72078233965105f3eb533c4fe997d1c"
     }
   ]
 }

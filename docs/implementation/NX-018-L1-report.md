@@ -237,3 +237,21 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 3. 0039 同 Run 并发 guard 的锁序循环（PostgreSQL 可检测、可重试）：建议 L4 统一锁序。
 4. Message READ 派生接入 v4 关系读取、Assessment 证据、NX-019 Claim 证据：与本阶段改动文件无交集，列为后续。
 5. 每次 guard 的 Python 授权判定成本（策略配方 ~210ms 等）：交 L4 O2。
+
+## NX-018 收口：v5 Context 与证据读取派生（基线 `dispatch/integration-s3m` `aebbfa8`）
+
+分支 `nx018-final`。新迁移临时 **0086**（证据读取派生）、**0087**（v5 Context）。
+
+### v5 Context（0087）
+
+- 拼接点：0063 Role context 生产函数（现为私有 `nexloop_role_context_command_before_role_ttl_v0063`，其上为 0064/0075/0085 包装）以 `create or replace` 重新发布，**仅在构建 v3 快照的那一处追加 2 行**：Run 有策略绑定时附 `role_policy` 段并把 `schema_version` 改为 `nexloop.context-pack.v5`；函数其余部分与 0063 字节一致，bind 时的 pack/sha256 等式检查原样生效。未复制候选那份基于 e98d7c7 的 v3 全量函数，避免分叉。
+- `nexloop_role_policy_context_section(run,tenant,world)`：读该 Run 不可变的策略绑定与绑定时 revision 的 Ceiling/Scope；策略被编辑、停用、绑定到期均 fail closed；自行设置租户上下文，避免 RLS 隐藏绑定时静默退回 v3。
+- 复制件读取依赖（0063 `_v2` 主体，现 `_v2_before_relationship`）接受 v5，并要求读取者对 Ceiling/Scope 全字段有当前 READ。
+- Python `role_context_pack.encode_role_pack`：v5 先校验 `role_policy` 段（形状；与命令的 run/tenant/budget 一致；`ceiling_ref`/Link `scope` 恰为策略对象；Consumer/Goal/Step 在两者 allowlist 内；溯源；`grants_authority=false`；未过期；Ceiling/Scope 内容经 `validate_policy`），再按原 v3 规则校验其余部分。
+- Host：`CONTEXT_PROTOCOL_V5`；先严格校验 `role_policy` 段（所有时间走 `strictUtc`），再去掉该段按 v3 完整校验；`context_input_protocol` 可配置 v5。显式 v3 配置不接受 v5，反之亦然。
+- 契约：**无需修改 packages/contracts**。context pack 的 wire（v1–v5）一直是实现内部协议，由 Python 与 Host 按 `schema_version` 校验，v1–v4 也从未进入 contracts；`context-manifest.schema.json` 是模型调用清单（sources/budgets 等），与 pack 无关；run-command 不需新字段（策略由服务端按 Run 解析）。因此 docs/handoff/contracts 与生成类型也无需同步。
+- 测试：`tests/test_role_context_v5.py` 9 passed（快照段等于绑定；Ceiling 编辑、Scope 停用、绑定到期 fail closed；v5 复制件读取需要当前策略 READ，撤销后拒绝；编码器拒绝 6 种篡改且未篡改时重编码等于已存输入）。Host `context-role-v5.test.ts` + 既有 `context-role.test.ts` 33 passed。`test_role_runtime_checkpoint`、`test_role_pi_effect_checkpoint` 改为断言 v5（真实两 Pi Run 的模型输入中可见 v5 与 `role_policy` 段），通过。
+
+### 证据读取派生（0086）
+
+见 `NX-018-message-read-derivation.md` 第 11 节。

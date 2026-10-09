@@ -1,15 +1,17 @@
-"""Explicit RoleBinding Context v3. v2 remains frozen.
+"""Explicit RoleBinding Context v3, and v5 = v3 + governed Role policy provenance. v2 remains frozen.
 
 Input must be an owner-protected PG snapshot reconstructed inside the Artifact
 bind transaction; this serializer cannot produce a dispatch permission.
 """
 from copy import deepcopy
+import json
 from datetime import datetime,UTC
 from jsonschema import Draft202012Validator
 from nexloop_eios.context_pack import PACK_SCHEMA,REV,ID,_object_schema,encode_pack,MAX_PACK_BYTES
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 PROTOCOL='nexloop.context-pack.v3'
+PROTOCOL_V5='nexloop.context-pack.v5'
 UTC_TIME={'type':'string','format':'date-time','pattern':r'(Z|\+00:00)$'}
 ROLE_CONTEXT_SCHEMA=_object_schema({
  'binding':_object_schema({'run_id':{'type':'string','format':'uuid'},'tenant_id':{'type':'string','format':'uuid'},
@@ -32,8 +34,49 @@ PACK_SCHEMA_V3['required'].remove('user_statement')
 PACK_SCHEMA_V3['properties']['trigger_statement']=_object_schema({'kind':{'const':'service_trigger'},'event_id':{'type':'string','format':'uuid'},'source_principal':{'type':'string','minLength':1,'maxLength':512},'body':{'type':'string','minLength':1,'maxLength':8192},'provenance':{'type':'string','pattern':r'^eios:role-trigger:[a-f0-9-]{36}$'}})
 PACK_SCHEMA_V3['required'].append('trigger_statement')
 
+POLICY_SCHEMA=_object_schema({
+ 'binding':_object_schema({'run_id':{'type':'string','format':'uuid'},'tenant_id':{'type':'string','format':'uuid'},'world':{'const':'real'},
+  'ceiling_id':ID,'ceiling_revision':REV,'scope_id':ID,'scope_revision':REV,'budget':{'type':'object'},
+  'effect_units':{'type':'integer','minimum':1,'maximum':1000000},'expires_at':UTC_TIME}),
+ 'ceiling':{'type':'object'},'scope':{'type':'object'},
+ 'ceiling_provenance':{'type':'string','pattern':r'^eios:object:[a-f0-9]{64}$'},
+ 'scope_provenance':{'type':'string','pattern':r'^eios:object:[a-f0-9]{64}$'},'grants_authority':{'const':False}})
+
+
+def _validate_policy_section(policy,body,command):
+    from nexloop_eios.role_policies import validate_policy,assert_budget_within
+    Draft202012Validator(POLICY_SCHEMA,format_checker=Draft202012Validator.FORMAT_CHECKER).validate(policy)
+    binding=policy['binding'];role=body['role_binding']['binding'];definition=body['role_binding']['definition']
+    validate_policy('RoleExecutionCeiling',policy['ceiling']);validate_policy('RoleAssignmentScope',policy['scope'])
+    assert_budget_within(command['budget'],policy['ceiling']['budget'])
+    if binding['run_id']!=command['run_id'] or binding['tenant_id']!=command['tenant_id'] or binding['budget']!=command['budget'] \
+            or binding['effect_units']!=policy['ceiling']['effect_units']:raise ValueError('context_policy_binding_invalid')
+    if definition['ceiling_ref']!=binding['ceiling_id'] or role['scope']!=binding['scope_id'] \
+            or policy['scope']['role_id']!=role['role_id'] or policy['scope']['consumer_id']!=role['consumer_id']:raise ValueError('context_policy_selection_invalid')
+    facts={f['type']:f for f in body['formal_facts']}
+    if role['consumer_id'] not in policy['ceiling']['consumer_ids'] or any(facts[kind]['id'] not in p[field]
+            for p in (policy['ceiling'],policy['scope']) for kind,field in (('Goal','goal_ids'),('PlanStep','step_ids'))):raise ValueError('context_policy_range_invalid')
+    if datetime.fromisoformat(binding['expires_at'])<=datetime.now(UTC):raise ValueError('context_policy_expired')
+    for key in ('ceiling','scope'):
+        if policy[key+'_provenance']!='eios:object:'+binding[key+'_id']:raise ValueError('context_policy_provenance_invalid')
+
 
 def encode_role_pack(snapshot,command):
+    """v3, or v5 when the bound Run carries a governed Role policy section."""
+    if snapshot.get('schema_version')==PROTOCOL_V5:
+        body=deepcopy(snapshot);policy=body.pop('role_policy',None)
+        if policy is None:raise ValueError('context_policy_required')
+        body['schema_version']=PROTOCOL
+        _validate_policy_section(policy,body,command)
+        encoded=json.loads(_encode_v3(body,command))
+        encoded['schema_version']=PROTOCOL_V5;encoded['role_policy']=policy
+        text=canonical_payload(encoded)
+        if len(text.encode())>MAX_PACK_BYTES:raise ValueError('context_pack_too_large')
+        return text
+    return _encode_v3(snapshot,command)
+
+
+def _encode_v3(snapshot,command):
     body=deepcopy(snapshot)
     Draft202012Validator(PACK_SCHEMA_V3,format_checker=Draft202012Validator.FORMAT_CHECKER).validate(body)
     role=body['role_binding'];bound=role['binding'];definition=role['definition']
