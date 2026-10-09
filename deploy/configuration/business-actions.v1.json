@@ -1,8 +1,30 @@
 {
   "schema_version": "nexloop-business-actions/1",
-  "manifest_version": 3,
-  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals.",
+  "manifest_version": 4,
+  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant.",
   "actions": [
+    {
+      "stable_name": "Consumer.edit",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Consumer",
+        "version": 1
+      },
+      "capability_name": "ontology.object.edit",
+      "authority": "service",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "claim_matcher",
+      "purpose": "Governed formal Consumer property write of an accepted Claim match (NX-020); also publishes the tenant's ontology.object.edit Capability snapshot that review-approved new types reuse for <Type>.edit (NX-044/NX-050). Object and property EDIT are still decided per object.",
+      "source_task": "NX-050"
+    },
     {
       "stable_name": "Message.agent_create",
       "version": 1,
