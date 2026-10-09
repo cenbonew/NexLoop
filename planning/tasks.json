@@ -1676,6 +1676,12 @@
         "ref": "docs/implementation/HANDOFF-codex-to-claude.md",
         "summary": "Done-task/code/test index, actual Node/Python/PG fixture environment, global0065 migration catalog, historical full CI first failure and targeted resolution, remainingnot_run acceptance and retained PG PID89849 port49624.",
         "recorded_at": "2026-10-08T23:01:50.910354+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "adr/ADR-020-message-read-agent-messages-grants.md",
+        "summary": "Root cause of 21 main regressions: 0062 requires Source current READ on each Message but no production mechanism publishes it. Owner chose governed derivation (ADR-020 §1); implementation in progress on the NX-018 line.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
       }
     ]
   },
@@ -1691,7 +1697,7 @@
       "M10"
     ],
     "deliverable": "按 ADR-019 §3.1：话题切分（仅顾客实质回应）、原文/span/hash、九类 epistemic_kind Claim、显性/隐性分开（隐性=hypothesis）、条件否定与时间语义",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
@@ -1704,6 +1710,24 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "362e4c9",
+        "summary": "Merged L3 extraction (0066_nx019_claims): 90 targeted passed; real DeepSeek 35/37 completed, 2 provider failures not retried.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6aadf8e",
+        "summary": "Merged NX-019 completion (0069_nx019_extraction_queue): 100-case dataset v2, background extraction via durable queue, 194 targeted passed.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-019-extraction.md",
+        "summary": "Implementation notes; AT-016/017/018/019/020 passed (synthetic/Claim layer); AT-014 not_run; AT-064 partial.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
       }
     ]
   },
@@ -1720,7 +1744,7 @@
       "M11"
     ],
     "deliverable": "按 ADR-019 §3.3：四层匹配判定（类型/实例/属性/值）；全匹配与部分匹配自动应用（开放属性新值、强标识新实例）；不匹配生成 candidate-definition 并挂起依赖 Claim；expected revision、幂等应用、晚到证据、更正链",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
@@ -1733,6 +1757,18 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7925baa",
+        "summary": "Merged L2 four-layer matching (0070_nx020_claim_matching): 61 targeted passed; real deepseek-flash 6/6 opt-in.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-020-matching.md",
+        "summary": "AT-061/062/063/065 passed incl. real evidence; AT-020/021/022 proposal layer passed; NX-045 handover list.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
       }
     ]
   },
@@ -1747,7 +1783,7 @@
       "M13"
     ],
     "deliverable": "按 ADR-019 §3.2：Schema（类型/属性/别名/词表）与实例两套混合索引（向量+FTS+pg_trgm）；embedding 使用 .env 的 EMBEDDING_* 配置，第一步实测维度并固定 EMBEDDING_DIMENSION；租户/属性/world 过滤、profile 版本、索引更新与删除、发布/合并回流",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
@@ -1778,6 +1814,18 @@
         "ref": "0e6bb531d97242ccaa3bfc4a0ed87e0b76b987eb",
         "summary": "仅ADR-019配置准备：公开模板全空/六变量名/文件优先与构建隔离36passed；尚未执行embedding端点验证，任务仍not_started。",
         "recorded_at": "2026-10-08T15:56:43.712441+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "afb9952",
+        "summary": "Merged L2 hybrid recall (0067_nx021_recall_index): 61 targeted passed; real endpoint opt-in 2 passed; EMBEDDING_DIMENSION=1024 per ADR-020.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-021-recall.md",
+        "summary": "AT-025 passed within recall-index scope; AT-069 recall side verified, end-to-end not_run.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
       }
     ]
   },
@@ -1793,8 +1841,21 @@
       "M04"
     ],
     "deliverable": "父目标版本、Agent子目标、预算/控制revision",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "9a196f4",
+        "summary": "Merged L4 goals/controls (0068_nx022_goals_controls): 15 targeted + 49 neighbour passed.",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-022-goals-controls.md",
+        "summary": "AT-005 passed; AT-006/007/043 decision parts passed; dispatch hooks not yet wired (owned by NX-018 files).",
+        "recorded_at": "2026-10-09T09:30:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-023",
@@ -2266,5 +2327,39 @@
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
       }
     ]
+  },
+  {
+    "id": "NX-047",
+    "stage": "S3",
+    "title": "Agent外发消息持久化为Message",
+    "dependencies": [
+      "NX-018",
+      "NX-019"
+    ],
+    "modules": [
+      "M09",
+      "M18",
+      "M23"
+    ],
+    "deliverable": "按 ADR-020 §2：Agent/人类接管发出的消息持久化为 Message（发送方身份、关联外发 Action receipt、投递状态与‘已持久化≠已送达’）；纳入提取与 Message READ 派生；草稿不显示为已发送；负向与重放测试",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-048",
+    "stage": "S3",
+    "title": "服务Action与队列授权的可信配置清单",
+    "dependencies": [
+      "NX-019",
+      "NX-020"
+    ],
+    "modules": [
+      "M01",
+      "M17",
+      "M23"
+    ],
+    "deliverable": "按 ADR-020 §3：版本化的最小服务授权清单（claim.extract、claim.match、queue.claim-extraction 等）与可审计、可重放的可信配置应用脚本/doctor 检查；不直写授权表、不含人类与审核权限；负向测试",
+    "status": "not_started",
+    "evidence": []
   }
 ]
