@@ -2584,6 +2584,18 @@
         "ref": "sice run 20261009T012028Z-51a65ca24a5b",
         "summary": "Full CI on integration-s3c: build phase 33/33, parallel 1994 with 31 failures all within CI-BASELINE (no new failures).",
         "recorded_at": "2026-10-09T10:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "569670e",
+        "summary": "Merged plan B: purpose-scoped message_read_rules in the service grants manifest (v5), derived in SQL per use (extraction lease / pending Claim), revocation, deletion, other tenant/world and Run credentials denied (0102). Remaining: minimal deployment grants for the NX-050 reflow principal.",
+        "recorded_at": "2026-10-10T02:34:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T175535Z-569670ec5e79",
+        "summary": "Full CI on clean CI host for 569670e (integration-s3v): 2453 passed / 17 failed; 15 within baseline; 2 new passed serially 2/2 on the same checkout (memo stress positive control hits=0 under load with 0 violations; v6 real-Pi run), registered as parallel-load jitter.",
+        "recorded_at": "2026-10-10T02:34:00+08:00"
       }
     ]
   },
@@ -2606,6 +2618,12 @@
         "ref": "d823be1",
         "summary": "O5b level 1 merged; test_relationship_context_v4[complete] still 0/5 serially on the CI host (idle, load ~1). Gate not met.",
         "recorded_at": "2026-10-10T00:22:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-049-analysis.md",
+        "summary": "Deploy-host profile (5 rounds, idle): 10/10 fail at the first model/tool-phase authorize (~2001 ms abort); compute-bound, same work counts as the dev machine, 2.4-3.4x slower with outliers (v4 activation SQL x4.7, batch_resolve Python x6-35). CPU governor already performance; PostgreSQL JIT available and on.",
+        "recorded_at": "2026-10-10T02:34:00+08:00"
       }
     ]
   },
@@ -2628,6 +2646,18 @@
         "ref": "docs/implementation/NX-044-review-actions.md",
         "summary": "Split from NX-044 by the dispatcher (owner asked for the closed loop): new types have no primary key and object_instance candidates were not publishable, so dependent Claims could not reach \"applied\". Assigned to the L2 line.",
         "recorded_at": "2026-10-10T01:43:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "569670e",
+        "summary": "Merged object_instance approval and reflow creation (0103): AT-067 new-type chain reaches applied in tests. Follow-ups before done: reflow against the latest create version with identifying-property recheck, ontology.object.edit capability profile, deployment grant list.",
+        "recorded_at": "2026-10-10T02:34:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T175535Z-569670ec5e79",
+        "summary": "Full CI on clean CI host for 569670e (integration-s3v): 2453 passed / 17 failed; 15 within baseline; 2 new passed serially 2/2 on the same checkout (memo stress positive control hits=0 under load with 0 violations; v6 real-Pi run), registered as parallel-load jitter.",
+        "recorded_at": "2026-10-10T02:34:00+08:00"
       }
     ]
   }

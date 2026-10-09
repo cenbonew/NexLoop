@@ -932,7 +932,15 @@
     "name": "审核批准发布",
     "given": "授权人类对候选approve；另一次由模型主体/无权限人类发起",
     "expected": "前者经EIOS schema注册链发布、硬门槛执行、等待Claim全部应用、候选published并有审计；后者被拒且无副作用",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_instance_approval_pg.py",
+        "summary": "Synthetic test environment, merged at 569670e: test_approved_instance_is_created_by_reflow_and_dependent_claims_apply (type -> identifying property -> instance review -> waits without grants -> governed create once -> dependent Claim applied), with rejected and duplicate instance negatives; NX-044 type chain in tests/test_review_type_actions_pg.py.",
+        "recorded_at": "2026-10-10T02:34:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-068",
