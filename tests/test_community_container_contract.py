@@ -31,7 +31,7 @@ def test_compose_client_render_has_no_host_ports_admin_leak_or_env_loading(tmp_p
     private=tmp_path/'inputs';private.mkdir(mode=0o700)
     for name in ['pg_bootstrap_password','bootstrap_dsn']:
         f=private/name;f.write_text('synthetic-contract-only');f.chmod(0o600)
-    refs=tmp_path/'refs.env';refs.write_text('NEXLOOP_TEST_PROJECT=nexloop-contract-only\nPOSTGRES_IMAGE=docker.io/library/postgres@sha256:'+'a'*64+'\nVALKEY_IMAGE=docker.io/valkey/valkey@sha256:'+'b'*64+'\nBACKEND_IMAGE=nexloop-core-test:contract-only\nHOST_IMAGE=nexloop-host-test:contract-only\nWEB_PORT=38443\nSECRET_DIR='+str(private)+'\n')
+    refs=tmp_path/'refs.env';refs.write_text('NEXLOOP_TEST_PROJECT=nexloop-contract-only\nPOSTGRES_IMAGE=docker.io/pgvector/pgvector@sha256:'+'a'*64+'\nVALKEY_IMAGE=docker.io/valkey/valkey@sha256:'+'b'*64+'\nBACKEND_IMAGE=nexloop-core-test:contract-only\nHOST_IMAGE=nexloop-host-test:contract-only\nWEB_PORT=38443\nSECRET_DIR='+str(private)+'\n')
     result=subprocess.run(['docker','compose','--env-file',str(refs),'-f',str(ROOT/'deploy/community/compose.test.yaml'),'config','--format','json'],
         capture_output=True,text=True,timeout=20,env=os.environ|{'MODEL_API_KEY':'synthetic-never-read'})
     assert result.returncode==0,'Compose client configuration validation failed'

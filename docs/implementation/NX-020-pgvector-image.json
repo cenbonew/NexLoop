@@ -1,0 +1,28 @@
+{
+  "recorded_at": "2026-10-09",
+  "task": "NX-020 step 1 (deployment gap found in NX-021)",
+  "reason": "Migration nx021_recall_index runs CREATE EXTENSION vector; docker.io/library/postgres:18.4-bookworm has no pgvector, so a clean bootstrap on the community compose stack would stop there.",
+  "command": "docker buildx imagetools inspect pgvector/pgvector:0.8.5-pg18-bookworm [--format '{{json .Image}}']",
+  "resolution": "registry index/config read only; no image pulled locally or to any server",
+  "image": {
+    "reference": "docker.io/pgvector/pgvector:0.8.5-pg18-bookworm",
+    "index_digest": "sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0",
+    "manifests": {
+      "linux/amd64": "sha256:766437bbab40c7d0b080d380e2976f9ca2e880ce8fe7544c60e832eceaf43c1c",
+      "linux/arm64": "sha256:addacddf6b51d4ea0d063b5582f129ffd2670c63508a9c364f9394b67e2e3f05"
+    },
+    "config_env": {"PG_MAJOR": "18", "PG_VERSION": "18.4-1.pgdg12+1"},
+    "entrypoint": "docker-entrypoint.sh"
+  },
+  "other_tags_seen": {
+    "pgvector/pgvector:0.8.5-pg18": "sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0 (same index as -bookworm)",
+    "pgvector/pgvector:pg18-bookworm": "sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11 (floating tag, not used)"
+  },
+  "replaces": "docker.io/library/postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+  "tests": {
+    "command": "LANG=en_US.UTF-8 uv run --frozen pytest -q tests/test_doctor.py tests/test_community_launcher.py tests/test_community_container_contract.py --junitxml=.ci-results/nx020-pgvector-image.xml",
+    "first_result": "1 failed, 13 passed, 22 errors: launcher fixture ran pnpm build:pi in a worktree without node_modules (environment); fixed by pnpm install --frozen-lockfile --offline",
+    "result": "36 passed in 384.02s"
+  },
+  "not_verified": "container pull/run and bootstrap inside the pgvector image (runtime evidence for the old image is not carried over); doctor now reports checks.search_extensions"
+}

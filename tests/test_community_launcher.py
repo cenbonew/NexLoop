@@ -38,6 +38,10 @@ def test_private_inputs_consistent_and_actual_compose_client_renders(project):
     assert result.returncode==0
     config=json.loads(result.stdout)
     assert config['name']==report['project'] and config['services']['postgres']['image']==report['postgres_image']
+    lock=json.loads((ROOT/'versions.lock.json').read_text())['images']['postgres']
+    # The recall migration needs pgvector: the compose PostgreSQL is the locked pgvector PG18 index digest.
+    assert lock['reference'].startswith('docker.io/pgvector/pgvector:') and lock['reference'].endswith('-pg18-bookworm')
+    assert report['postgres_image']=='docker.io/pgvector/pgvector@'+lock['digest']
     assert password not in result.stdout
     with pytest.raises(ValueError):module.prepare_project(output)
 

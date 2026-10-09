@@ -10,6 +10,8 @@ def test_readonly_doctor_restricted_pg_and_existing_artifact(admin,pg,tmp_path):
     report=diagnose(database_url=make_conninfo(pg,user='nexloop_api'),artifact_root=root,environment={})
     assert report['foundation_checks_passed'] and not report['product_ready']
     assert report['details']['database_catalog']['revision']==BOOTSTRAP_REVISION
+    assert report['checks']['search_extensions'] and set(report['details']['database_extensions'])=={'vector','pg_trgm'}
+    assert tuple(int(p) for p in report['details']['database_extensions']['vector'].split('.')[:2])>=(0,8)
     assert not list(root.iterdir())
     assert report['details']['model']['provider']=='test'
 
@@ -20,6 +22,15 @@ def test_doctor_rejects_admin_and_does_not_create_artifact_directory(admin,pg,tm
     assert not report['checks']['postgres'] and not report['checks']['artifact_directory']
     assert not report['foundation_checks_passed'] and not root.exists()
     assert pg not in json.dumps(report)
+
+
+def test_doctor_reports_missing_search_extension(admin,pg,tmp_path):
+    bootstrap(admin);root=tmp_path/'artifacts';root.mkdir(mode=0o700)
+    # Synthetic fault on a disposable cluster: a PostgreSQL image without pgvector.
+    admin.execute('drop extension vector cascade')
+    report=diagnose(database_url=make_conninfo(pg,user='nexloop_api'),artifact_root=root,environment={})
+    assert not report['checks']['search_extensions'] and not report['foundation_checks_passed']
+    assert report['details']['database_extensions']=={'pg_trgm':report['details']['database_extensions']['pg_trgm']}
 
 
 def test_doctor_rejects_public_artifact_root_without_changing_mode(admin,pg,tmp_path):
