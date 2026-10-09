@@ -83,6 +83,11 @@ class MatchRejected(ValueError):
     """Provider output violates the decision schema; the Claim is not written."""
 
 
+
+def _quote(claim):
+    """Verbatim evidence of a claim.schema.json item ('' for a derived hypothesis)."""
+    return claim['source']['quote'] if claim['source'] else ''
+
 def _canonical(value):return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':'))
 def _sha(value):return hashlib.sha256(_canonical(value).encode()).hexdigest()
 def _now():return datetime.now(UTC).isoformat()
@@ -253,26 +258,27 @@ class ClaimMatcher:
         if claim['epistemic_kind'] not in WRITABLE_KINDS:return 'kind_not_formal:'+claim['epistemic_kind']
         if claim['modality']!='asserted':return 'modality_not_asserted:'+claim['modality']
         if claim['polarity']!='affirmed':return 'negated_requires_resolution'
-        if not claim.get('source_message_id'):return 'no_source_evidence'
+        if not claim['source']:return 'no_source_evidence'
         return None
 
     def _classify(self,claim,provider):
         reason=self._guard_reason(claim)
         if reason:return _Outcome('needs_resolution',reason),{},[]
         value=_claim_value(claim)
-        text=' '.join(str(x) for x in (claim['predicate'],value if value is not None else '',claim.get('subject_text') or '') if str(x).strip())
+        text=' '.join(str(x) for x in (claim['predicate'],value if value is not None else '',claim['subject']['text'] or '') if str(x).strip())
         recalled=self.recall.recall(text)
         hits=[h.contract() for h in recalled.definitions+recalled.instances]
         definition_refs={h.ref for h in recalled.definitions}
-        payload={'claim':{k:claim[k] for k in ('claim_id','epistemic_kind','subject_kind','subject_text','predicate','value','quote','polarity','modality')},
-            'recall':hits,'schema':self._schema_view(definition_refs|({'eios:object_type:'+self.configuration.consumer_type} if claim['subject_kind']=='consumer' else set()))}
+        payload={'claim':{'claim_id':claim['claim_id'],'epistemic_kind':claim['epistemic_kind'],'subject_kind':claim['subject']['kind'],'subject_text':claim['subject']['text'],
+            'predicate':claim['predicate'],'value':claim['value'],'quote':_quote(claim),'polarity':claim['polarity'],'modality':claim['modality']},
+            'recall':hits,'schema':self._schema_view(definition_refs|({'eios:object_type:'+self.configuration.consumer_type} if claim['subject']['kind']=='consumer' else set()))}
         try:decision=_decision(provider.complete(SYSTEM_PROMPT,canonical_payload(payload)))
         except MatchRejected as error:return _Outcome('needs_resolution','decision_rejected:'+str(error)),{},hits
         return self._judge(claim,decision,recalled,definition_refs),decision,hits
 
     # ------------------------------------------------------- deterministic guards
     def _judge(self,claim,d,recalled,definition_refs):
-        consumer=claim['subject_kind']=='consumer'
+        consumer=claim['subject']['kind']=='consumer'
         # Layer 1: object type.
         type_ref=d['type'].get('ref')
         if consumer:
@@ -302,8 +308,8 @@ class ClaimMatcher:
             key,value=(strong.get('key'),strong.get('value')) if isinstance(strong,dict) else (None,None)
             if key not in schema.primary_key or len(schema.primary_key)!=1 or type(value) not in (str,int) or not str(value).strip():
                 return _Outcome('needs_resolution','strong_id_not_declared')
-            if str(value).strip().casefold() not in claim['quote'].casefold():return _Outcome('needs_resolution','strong_id_not_in_evidence')
-            located=self.recall.recall(claim['quote'],strong_ids=[{'key':key,'value':str(value),'type_name':type_name}],definitions=False).instances
+            if str(value).strip().casefold() not in _quote(claim).casefold():return _Outcome('needs_resolution','strong_id_not_in_evidence')
+            located=self.recall.recall(_quote(claim),strong_ids=[{'key':key,'value':str(value),'type_name':type_name}],definitions=False).instances
             located=[h for h in located if h.method=='strong_id']
             if len(located)>1:return _Outcome('needs_resolution','instance_ambiguous')
             if located:object_id=located[0].ref.rsplit('/',1)[1];create=None
@@ -332,7 +338,7 @@ class ClaimMatcher:
     def _proposal(self,claim,d,type_name,object_id,create,property_name,value,verdict):
         schema=self._schema(type_name);tenant=self.session.authentication.tenant_id;world=self.session.world
         effective=_effective_at(claim)
-        evidence=['claim:'+claim['claim_id'],'message:'+claim['source_message_id']]
+        evidence=['claim:'+claim['claim_id'],'message:'+claim['source']['message_id']]
         if create is not None:
             op='create_object';properties=dict(create)
             if property_name:properties[property_name]=value
@@ -357,7 +363,7 @@ class ClaimMatcher:
         operations=[operation]
         if supersedes:operations.append({'op':'supersede_claim','target_ref':'claim:'+supersedes,'expected_revision':1,'evidence_refs':evidence})
         contract={'schema_version':'1.0','proposal_id':proposal_id,'tenant_id':tenant,'world_id':world,'mode':'real' if world=='real' else 'test',
-            'extraction_ref':'claim:'+claim['claim_id'],'source_content_hash':claim['source_content_hash'],'extractor_version':claim['extractor_version'],
+            'extraction_ref':'claim:'+claim['claim_id'],'source_content_hash':claim['source']['content_hash'],'extractor_version':claim['extractor_version'],
             'ontology_schema_revision':f'{type_name}@{schema.version}','business_intent_ref':intent_ref,
             'risk_class':'medium' if create is not None else 'low','rationale_summary':(d.get('rationale') or verdict)[:2000] or verdict,
             'epistemic_kind':claim['epistemic_kind'],'operations':operations,'conflict_policy':'reject_and_reassess','created_at':_now()}
@@ -369,11 +375,11 @@ class ClaimMatcher:
         tenant=self.session.authentication.tenant_id;world=self.session.world
         key=_sha({'kind':kind,**dedupe});candidate_id=str(uuid.uuid5(NAMESPACE,f'candidate:{tenant}:{world}:{key}'))
         candidate={'schema_version':'1.0','candidate_id':candidate_id,'tenant_id':tenant,'world_id':world,'mode':'real' if world=='real' else 'test',
-            'kind':kind,'extraction_ref':'claim:'+claim['claim_id'],'source_content_hash':claim['source_content_hash'],
+            'kind':kind,'extraction_ref':'claim:'+claim['claim_id'],'source_content_hash':claim['source']['content_hash'],
             'extractor_version':claim['extractor_version'],'ontology_schema_revision':'recall:'+(recalled.config_version if recalled else 'none'),
             'proposed':proposed,'recall':[h.contract() for h in (recalled.definitions+recalled.instances)][:50] if recalled else [],
             'status':'staged','dependent_claim_refs':['claim:'+claim['claim_id']],
-            'evidence_refs':['claim:'+claim['claim_id'],'message:'+claim['source_message_id']],'created_at':_now()}
+            'evidence_refs':['claim:'+claim['claim_id'],'message:'+claim['source']['message_id']],'created_at':_now()}
         return _Outcome('no_match',kind,candidate={'candidate_id':candidate_id,'kind':kind,'dedupe_key':key,'candidate':candidate})
 
     def _candidate_type(self,claim,d,recalled):
@@ -402,7 +408,7 @@ class ClaimMatcher:
 
     def _candidate_instance(self,claim,d,type_name,recalled):
         name=d['instance']['name']
-        if type(name) is not str or not name.strip() or name.strip().casefold() not in claim['quote'].casefold():
+        if type(name) is not str or not name.strip() or name.strip().casefold() not in _quote(claim).casefold():
             return _Outcome('needs_resolution','instance_name_not_in_evidence')
         schema=self._schema(type_name);title=schema.title_property or 'name'
         proposed={'display_name':_bounded(name.strip(),200),'type_ref':'eios:object_type:'+type_name,

@@ -310,7 +310,7 @@ class CandidateGluer:
         def d(prop,val,type_ref=None):
             return {'type':{'ref':type_ref,'new':None},'instance':{'strong_id':None,'name':None},'property':{'ref':prop,'new':None},'value':val,
                 'rationale':f'merged candidate {candidate["candidate_id"]} into {target_ref}'}
-        consumer=claim['subject_kind']=='consumer'
+        consumer=claim['subject']['kind']=='consumer'
         if candidate['kind']=='property':return d(target_ref,value,None if consumer else p['owner_type_ref'])
         if candidate['kind']=='vocabulary_value':
             type_name,prop=p['property_ref'].split(':',2)[2].split('/',1)
