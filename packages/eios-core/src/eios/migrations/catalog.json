@@ -485,6 +485,11 @@
       "version": "0097",
       "name": "0097_nx022_dispatch_controls.sql",
       "sha256": "9982ace4e52812f063900f7b97ba6a26f41d0d072fff99725ce3464363212109"
+    },
+    {
+      "version": "0098",
+      "name": "0098_tighten_function_search_path.sql",
+      "sha256": "32cd3db01e1eed1ac866ab58b6be7a395d7d002304d9188900c6c732e3f9b1d3"
     }
   ]
 }

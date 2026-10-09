@@ -14,6 +14,7 @@ uv pip install --python "$warm_dir/venv/bin/python" --no-deps --require-hashes -
 rm -rf "$warm_dir"
 uv run --frozen python scripts/check_publication.py
 uv run --frozen python scripts/check_pi_source.py
+uv run --frozen python scripts/check_definer_search_path.py
 uv run --frozen python scripts/generate_contracts.py --check
 uv run --frozen python docs/handoff/tools/validate_handoff.py --planning planning
 [[ "$(node -p 'process.versions.node.split(".")[0]')" == 24 ]]
