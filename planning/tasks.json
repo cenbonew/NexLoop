@@ -1694,6 +1694,18 @@
         "ref": "ef0f591",
         "summary": "Merged step 3 phase A (0081_nx018_role_policy): governed Role ceiling/scope enforced at bind; phase B (dispatch-time re-check, v5 contracts) in progress. With O1 merged, test_relationship_context_v4[complete] passes on the Mac.",
         "recorded_at": "2026-10-09T13:15:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "f9eff09",
+        "summary": "Merged L1 close-out into main: 0085 dispatch-time Role policy re-check, 0086 Message READ derivation for v4/Assessment/Claim evidence, 0087 Role Context v5, LifecycleLock FIFO admission, same-Run tool advisory lock; plus L4 O2a. Not done: test_relationship_context_v4[complete] (AT-009) still fails on the CI host under the 2 s tool deadline (ADR-021 exit condition unmet).",
+        "recorded_at": "2026-10-09T20:15:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T112248Z-f9eff09065a7",
+        "summary": "Full CI on clean CI host: 2235 passed / 17 failed; 16 within baseline, 1 new (test_backend_lifecycle_capacity eight_concurrent, EffectIntentUnavailable under parallel load) passed serially 2/2 on the same checkout and registered as parallel-load jitter; 7 baseline entries passed.",
+        "recorded_at": "2026-10-09T20:15:00+08:00"
       }
     ]
   },
