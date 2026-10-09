@@ -92,7 +92,7 @@ revoke all on function authz.nexloop_outbound_advance(text,text,uuid,text,text) 
 create function authz.nexloop_outbound_from_intent() returns trigger language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
 begin
  perform authz.nexloop_outbound_advance(new.tenant_id,new.world,new.intent_id,case new.state when 'dispatching' then 'dispatching' when 'unknown' then 'unknown'
-  when 'fulfilled' then 'delivered' when 'confirmed' then 'delivered' when 'failed' then 'failed' else null end,'intent');
+  when 'observed_fulfilled' then 'delivered' when 'fulfilled' then 'delivered' when 'confirmed' then 'delivered' when 'failed' then 'failed' else null end,'intent');
  return new;
 end $$;
 create function authz.nexloop_outbound_from_attempt() returns trigger language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
