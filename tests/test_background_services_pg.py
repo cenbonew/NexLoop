@@ -5,6 +5,7 @@ configuration (as deployed); each entry runs one ``--once`` tick in-process with
 files only. Outputs are counts-only; DSNs, tokens and keys never appear.
 """
 import json
+from pathlib import Path
 
 import pytest
 from psycopg.conninfo import make_conninfo
@@ -13,8 +14,10 @@ from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,Propert
 from nexloop_eios import background_services as B
 from test_service_grants_pg import TENANT,deployment,private  # noqa: F401
 
+ROOT=Path(__file__).resolve().parents[1]
 ROLES={'claim-extraction-scheduler':('claim_extraction_scheduler','nexloop_api'),'claim-extraction-worker':('claim_extraction_worker','nexloop_domain_worker'),
-    'claim-matcher':('claim_matcher','nexloop_domain_worker'),'recall-indexer':('recall_indexer','nexloop_domain_worker')}
+    'claim-matcher':('claim_matcher','nexloop_domain_worker'),'recall-indexer':('recall_indexer','nexloop_domain_worker'),
+    'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker')}
 
 
 def argv(d,tmp_path,service,*,role=None):
@@ -32,6 +35,13 @@ def argv(d,tmp_path,service,*,role=None):
         args+=['--match-config-file',str(private(root,'match-config.json',json.dumps({'edit_actions':{'Consumer':['Consumer.edit',1]},'create_actions':{}})))]
     if service=='recall-indexer':
         args+=['--types-file',str(private(root,'types.json',json.dumps({'Consumer':None})))]
+    if service=='plan-reevaluator':
+        # Idle tick: nothing is due, so the API-side Role launch identities are read but never authenticated here
+        # (the launch itself is exercised by tests/test_plan_role_launcher_pg.py); synthetic placeholder values.
+        args+=['--settings-file',str(ROOT/'deploy/configuration/plan-reevaluation.v1.json'),
+            '--api-database-url-file',str(private(root,'api_database_url',make_conninfo(d['pg'],user='nexloop_api'))),
+            '--effect-action','eios:action:nexloop.service.request:1']
+        for name in B.LAUNCH_CREDENTIALS:args+=[f'--{name}-credential-file',str(private(root,name+'_credential','synthetic-unused-'+name))]
     return args
 
 
@@ -44,7 +54,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
 
 @pytest.mark.parametrize('service,expected',[('claim-extraction-scheduler',{'enqueued':0}),('claim-extraction-worker',{'status':'idle'}),
     ('claim-matcher',{'applied':0,'changed':0,'conversations':0,'dead_lettered':0,'glued':0,'lease_lost':0,'matched':0,'retry':0}),
-    ('recall-indexer',{'changed':0,'dead_lettered':0,'indexed':0,'lease_lost':0,'removed':0,'retry':0,'skipped':0})])
+    ('recall-indexer',{'changed':0,'dead_lettered':0,'indexed':0,'lease_lost':0,'removed':0,'retry':0,'skipped':0}),
+    ('plan-reevaluator',{'changed':0,'closed':0,'dead_lettered':0,'invalidated':0,'launched':0,'lease_lost':0,'paused':0,'retry':0,'throttled':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()
     assert B.main_for(service,argv(d,tmp_path,service))==0
@@ -88,3 +99,15 @@ def test_invalid_arguments_never_echo(capsys):
     assert exit_.value.code==2
     out,err=capsys.readouterr()
     assert err=='Claim Matcher configuration unavailable\n' and 'secret-password' not in out+err
+
+
+def test_plan_reevaluator_launch_backend_must_be_the_api_role(deployment,tmp_path,capsys):
+    """The Role launch backend is the restricted nexloop_api role; a domain-worker DSN there refuses to start."""
+    d=deployment;d['apply']()
+    args=argv(d,tmp_path,'plan-reevaluator')
+    (tmp_path/'plan-reevaluator'/'api_database_url').write_text(make_conninfo(d['pg'],user='nexloop_domain_worker'))
+    assert B.main_for('plan-reevaluator',args)==1
+    out,err=capsys.readouterr()
+    assert out=='' and err=='Plan Reevaluator unavailable\n'
+    with pytest.raises(SystemExit) as exit_:B.main_for('plan-reevaluator',argv(d,tmp_path,'plan-reevaluator')[:-2]+['--effect-action','not an action'])
+    assert exit_.value.code==2

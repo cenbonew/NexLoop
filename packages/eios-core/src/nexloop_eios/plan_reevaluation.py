@@ -161,9 +161,10 @@ class PlanReevaluationWorker:
                 if kind=='invalidated':
                     self.port.mark(plan_id=plan_id,version=decision['version'],status='invalidated',reason=', '.join(decision['reasons'])[:500])
                 elif kind=='reevaluate':
-                    run=self.launcher.issue()
+                    budget=run_budget(self.settings,decision['plan_steps']) if 'plan_steps' in decision else self.settings['run_budget']
+                    run=self.launcher.issue(decision,budget)
                     self.port.link_run(plan_id=plan_id,version=decision['version'],run_id=run.run_id,triggers=triggers)
-                    self.launcher.activate(run,decision,run_budget(self.settings,decision['plan_steps']) if 'plan_steps' in decision else self.settings['run_budget'],triggers)
+                    self.launcher.activate(run,decision,budget,triggers)
                 outcome='launched' if kind=='reevaluate' else kind
             except WorkFeedDenied:raise
             except Exception as error:
@@ -178,34 +179,55 @@ class PlanReevaluationWorker:
 class RoleRunLauncher:
     """Bounded reevaluation Run as a governed Role Run on the plan's PlanStep, Context v6.
 
-    ``issue`` creates the Source-issued Run credential (so the plan can link it before anything runs);
-    ``activate`` binds the Planner effect context at the current object revisions and activates the Role
-    plan with the configured Context strategy and budget. Role / policy binding of the issued Run follows
-    the deployment's Role issuance path (``prepare_run``), exactly as for any other Role Run.
+    ``issue`` is the production Role issuance (role_policies.issue_role_run): the Source atomically issues
+    the Run credential and binds it to the Role's current execution ceiling and assignment scope, both read
+    by the Source itself, with the reevaluation budget as the Run's policy budget (the ceiling must allow it).
+    The plan links the Run before anything runs. ``activate`` binds the Planner effect context at the current
+    object revisions and activates the Role plan with the configured Context strategy and the same budget.
+    ``source``, ``queue_service``, ``planner`` and ``executor_token`` may be callables returning the current
+    session / credential (deployed processes re-read and re-authenticate on every use).
     """
 
-    def __init__(self,*,source,queue_service,planner,executor_token,settings,effect_action,prepare_run=None,queue='operations'):
-        self.source,self.queue_service,self.planner,self.executor_token=source,queue_service,planner,executor_token
-        self.settings,self.effect_action,self.prepare_run,self.queue=settings,effect_action,prepare_run,queue
+    def __init__(self,*,source,queue_service,planner,executor_token,settings,effect_action,queue='operations'):
+        self._source,self._queue_service,self._planner,self.executor_token=source,queue_service,planner,executor_token
+        self.settings,self.effect_action,self.queue=settings,effect_action,queue
 
-    def issue(self):
-        run=self.source.issue_run_credential(action_resources=[self.effect_action],ttl_seconds=self.settings['run_ttl_seconds'])
-        if self.prepare_run is not None:self.prepare_run(run)
-        return run
+    @staticmethod
+    def _current(value):return value() if callable(value) else value
+
+    def issue(self,decision,budget):
+        from nexloop_eios.role_policies import issue_role_run
+        source=self._current(self._source);recipe=decision['plan']['recipe']
+        role=source.read_object(type_name='RoleDefinition',object_id=recipe['role_id'],fields=('ceiling_ref',))
+        link=source.read_object(type_name='ConsumerRoleLink',object_id=recipe['link_id'],fields=('scope',))
+        selected=dict(role_id=recipe['role_id'],link_id=recipe['link_id'],consumer_id=decision['plan']['consumer_id'],step_id=recipe['step_id'])
+        return issue_role_run(source,action_resources=[self.effect_action],role_parameters=selected,
+            policy_parameters=dict(selected,goal_id=decision['goal_object_id'],ceiling_id=_property(role,'ceiling_ref'),scope_id=_property(link,'scope'),budget=budget),
+            ttl_seconds=self.settings['run_ttl_seconds'])
 
     def activate(self,run,decision,budget,triggers):
         from nexloop_eios.role_activation import activate_role_plan
+        source,queue_service,planner=(self._current(x) for x in (self._source,self._queue_service,self._planner))
         plan=decision['plan'];recipe=plan['recipe'];revisions=decision['revisions']
-        self.planner.bind_effect_context(step_id=recipe['step_id'],step_revision=revisions['PlanStep'],goal_revision=revisions['Goal'],
-            consumer_revision=revisions['Consumer'],control_revision=revisions['EffectControl'],run_id=run.run_id,run_token=run.token,executor_token=self.executor_token)
-        command={'schema_version':'1.0','run_id':run.run_id,'tenant_id':self.source._session.authentication.tenant_id,'world_id':'real','mode':'real',
+        planner.bind_effect_context(step_id=recipe['step_id'],step_revision=revisions['PlanStep'],goal_revision=revisions['Goal'],
+            consumer_revision=revisions['Consumer'],control_revision=revisions['EffectControl'],run_id=run.run_id,run_token=run.token,executor_token=self._current(self.executor_token))
+        command={'schema_version':'1.0','run_id':run.run_id,'tenant_id':source._session.authentication.tenant_id,'world_id':'real','mode':'real',
             'request_id':'plan-reevaluate-'+run.run_id,'trigger_event_id':str(uuid.uuid4()),'role_ref':'role:pending','consumer_ref':'consumer:'+plan['consumer_id'],
-            'goal_version_ref':decision['goal_version_ref'],'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':self.settings['runtime_profile'],
+            # The Role Run's formal Goal object at the bound revisions (the Role core reads it); the plan's NX-022 goal
+            # version is enforced by the precheck control snapshot and by the outcome write (plan version current).
+            'goal_version_ref':f"goal:{decision['goal_object_id']}:revision:{revisions['Goal']}:step:{revisions['PlanStep']}:control:{revisions['EffectControl']}",
+            'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':self.settings['runtime_profile'],
             'credential_ref':'run:'+run.run_id,'budget':budget,'not_after':run.expires_at.isoformat(),'runtime_owner_epoch':1}
         kinds=sorted({t.get('kind','unknown') for t in triggers}) or ['scheduled']
         body=('复评计划 '+plan['plan_id']+' v'+str(plan['version'])+'：'+', '.join(kinds)+'；先读取最新事实与授权，'
             '可输出 no_action / needs_information / waiting_external / escalate / plan_update / action_intent。')[:8192]
-        return activate_role_plan(source=self.source,queue_service=self.queue_service,run=run,command=command,body=body,queue=self.queue,
+        return activate_role_plan(source=source,queue_service=queue_service,run=run,command=command,body=body,queue=self.queue,
             consumer_id=plan['consumer_id'],role_id=recipe['role_id'],link_id=recipe['link_id'],step_id=recipe['step_id'],
             offering_id=recipe['offering_id'],binding_id=recipe['binding_id'],control_id=recipe['control_id'],
             context_strategy=self.settings['context_strategy'])
+
+
+def _property(projection,name):
+    value=(projection.get('properties') or {}).get(name) if isinstance(projection,dict) else None
+    if not isinstance(value,str) or not value:raise PermissionError('Role policy reference unavailable')
+    return value
