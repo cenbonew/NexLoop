@@ -1706,6 +1706,18 @@
         "ref": "ci:sice/20261009T112248Z-f9eff09065a7",
         "summary": "Full CI on clean CI host: 2235 passed / 17 failed; 16 within baseline, 1 new (test_backend_lifecycle_capacity eight_concurrent, EffectIntentUnavailable under parallel load) passed serially 2/2 on the same checkout and registered as parallel-load jitter; 7 baseline entries passed.",
         "recorded_at": "2026-10-09T20:15:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "57a224c",
+        "summary": "Merged into main: effect intent operator diagnostics with retryable 503 for transient lock timeouts (55P03 at the same-Run lock), deterministic lease-lapse fail-closed test, and L4 O2b batched authority envelopes (0091).",
+        "recorded_at": "2026-10-09T22:30:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T133655Z-57a224cee682",
+        "summary": "Full CI on clean CI host: 2319 passed / 14 failed, all within baseline, no new failures. AT-009 check: test_relationship_context_v4[complete] run serially 5 times on the same checkout with the host idle (load ~1.0): 0/5 passed (runtime_transport_unavailable x3, runtime_failed x2, ~25 s each). NX-018 remains in progress.",
+        "recorded_at": "2026-10-09T22:30:00+08:00"
       }
     ]
   },
@@ -1912,13 +1924,19 @@
         "type": "commit",
         "ref": "2f446b9",
         "summary": "Merged NX-023-A: append-only context strategies (human-owner-only governed publish), context pack/source/model-request manifests with zone CHECKs (0088-0090), signed read-only context reads (strategies, gated semantic definitions, Consumer-READ-gated open work), context_engine pure logic (strategy, budget, sections, semantic adapter). Not yet wired to Runs; AT-027/028/064 not run.",
-        "recorded_at": "2026-10-09T21:00:00+08:00"
+        "recorded_at": "2026-10-09T20:40:00+08:00"
       },
       {
         "type": "test_report",
         "ref": "ci:sice/20261009T120539Z-2f446b907804",
         "summary": "Full CI on clean CI host: 2270 passed / 19 failed; 17 within baseline; 2 new passed serially 2/2 on the same checkout (effect_units concurrency: lock_timeout root cause fixed on a pending branch; open_work test reusing the timing-sensitive outbound chain fixture), registered as parallel-load jitter.",
-        "recorded_at": "2026-10-09T21:00:00+08:00"
+        "recorded_at": "2026-10-09T20:40:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "57a224c",
+        "summary": "Merged NX-023-B prep: context-manifest evidence kinds formal_object/conversation/execution_state (enum widened only), context pack v6 contract draft, human-owner-only strategy publish Action (business-actions manifest v2), context_assembler service grant, system object types manifest; no migrations.",
+        "recorded_at": "2026-10-09T22:30:00+08:00"
       }
     ]
   },
