@@ -360,6 +360,11 @@
       "version": "0072",
       "name": "0072_nx045_candidate_merge.sql",
       "sha256": "e1e5367fac757bcac2d17baaa3cab354914bf0bbf86675994494efc2048a3830"
+    },
+    {
+      "version": "0073",
+      "name": "0073_nx019_claim_contract_view.sql",
+      "sha256": "b1682efc4c81266a9dda1fb2fb062660ff537fbbe70aa12c756ae90d5789f00d"
     }
   ]
 }

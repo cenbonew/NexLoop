@@ -21,6 +21,7 @@ from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.authorization import PostgresAuthorityProvider
 from nexloop_eios.conversation_extraction import (EXTRACTOR_VERSION,PROMPT_VERSION,ExtractionContext,SourceMessage,
     build_user_payload,input_digest,normalize,SYSTEM_PROMPT)
+from nexloop_eios.contracts import Claim
 from nexloop_eios.object_reads import AuthorizedObjectReader
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from nexloop_eios.postgres_artifacts import canonical_payload
@@ -123,7 +124,7 @@ class ConversationClaimExtractor:
         except Exception as error:self._raise(error)
 
     def read(self,*,conversation_id,input_digest=None):
-        """Evidence view: statements and hypotheses separated; never formal properties."""
+        """Evidence view: statements and hypotheses separated (claim.schema.json items); never formal properties."""
         conversation_id=_id(conversation_id)
         if input_digest is not None:_id(input_digest)
         claims=self.reader._authority(ResourceType.OBJECT,'Conversation/'+conversation_id)
@@ -133,8 +134,11 @@ class ConversationClaimExtractor:
         signature=hmac.new(self.signer.material,('nexloop-claim-read-v1:'+text).encode(),'sha256').hexdigest()
         with self.pool.connection() as db,db.transaction():
             verify_application_role(db)
-            return db.execute('select authz.nexloop_read_conversation_claims(%s,%s,%s,%s)',
+            view=db.execute('select authz.nexloop_read_conversation_claims(%s,%s,%s,%s)',
                 (self.session.token_digest,self.session.world,text,signature)).fetchone()[0]
+        # Items are claim.schema.json wire objects; a non-conforming row is never passed on.
+        for item in view['statements']+view['hypotheses']:Claim.model_validate(item)
+        return view
 
     @staticmethod
     def _raise(error):

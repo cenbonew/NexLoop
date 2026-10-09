@@ -304,3 +304,18 @@ def test_other_tenant_service_cannot_extract_or_read(seeded,admin):
     with pytest.raises(ClaimExtractionDenied):other.extract(conversation_id=conversation_id,message_ids=ids)
     with pytest.raises(Exception):other.read(conversation_id=conversation_id)
     assert admin.execute('select count(*) from ontology.nexloop_extraction_runs').fetchone()==(1,)
+
+
+def test_read_view_items_are_claim_contract_wire_objects(seeded,admin):
+    from jsonschema import Draft202012Validator,FormatChecker
+    from pathlib import Path
+    fixture,conversation_id,ids,extractor,_=seeded
+    registered(extractor,conversation_id,ids);extractor.extract(conversation_id=conversation_id,message_ids=ids)
+    schema=json.loads((Path(__file__).resolve().parents[1]/'packages/contracts/claim.schema.json').read_text())
+    validator=Draft202012Validator(schema,format_checker=FormatChecker())
+    view=extractor.read(conversation_id=conversation_id)
+    for item in view['statements']+view['hypotheses']:validator.validate(item)
+    stored=dict(admin.execute('select claim_id,quote from ontology.nexloop_claims where source_message_id is not null').fetchall())
+    assert {s['claim_id']:s['source']['quote'] for s in view['statements']}==stored
+    assert all(s['subject']['kind']!='consumer' or s['subject']['ref']==fixture['consumer'] for s in view['statements'])
+    assert view['hypotheses'][0]['source'] is None and 'tenant_id' in view['hypotheses'][0] and 'span_start' not in view['hypotheses'][0]

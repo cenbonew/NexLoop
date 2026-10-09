@@ -71,6 +71,38 @@ class CandidateDefinitionMergeScores(BaseModel):
     threshold: float | int | None = None
     config_version: str | None = None
 
+class ClaimSubject(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['consumer', 'enterprise', 'entity']
+    ref: str
+    text: str
+
+class ClaimValue(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal['string', 'number', 'boolean', 'money', 'none']
+    value: Any
+
+class ClaimValidTime(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expression: str
+    kind: Literal['none', 'point', 'interval', 'deadline', 'unparsed', 'past_reference']
+    status: Literal['absent', 'resolved', 'ambiguous', 'unresolved']
+    granularity: Literal['minute', 'hour', 'day', 'part_of_day', 'am_pm_unspecified', 'period', 'month'] | None = None
+    start: str | None
+    end: str | None
+    latest_bound_window: list[str] | None = None
+    timezone: str
+    anchor: str
+
+class ClaimSource0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    message_id: str
+    sequence: int
+    span_start: int
+    span_end: int
+    content_hash: str
+    quote: str
+
 class ContextManifestSourcesItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     ref: str
@@ -151,6 +183,34 @@ class CandidateDefinition(_Contract):
     dependent_claim_refs: list[str]
     evidence_refs: list[str]
     created_at: str
+
+class Claim(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:claim","title":"claim","description":"NX-019. One evidence-bound Claim extracted from persisted conversation Messages: candidate knowledge, never a formal business object. Identity, tenant, world, consumer and evidence are server-derived; extractors never produce verified_fact. Not an existing upstream API.","type":"object","additionalProperties":false,"properties":{"claim_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"tenant_id":{"type":"string","minLength":1},"world_id":{"type":"string","minLength":1},"conversation_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"consumer_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"topic_key":{"type":"string","pattern":"^[0-9a-f]{64}$"},"subject":{"type":"object","additionalProperties":false,"required":["kind","ref","text"],"properties":{"kind":{"enum":["consumer","enterprise","entity"]},"ref":{"type":"string","description":"consumer: server-derived consumer object id; otherwise empty"},"text":{"type":"string","maxLength":200,"description":"referent words present in the topic window, or empty"}},"if":{"properties":{"kind":{"const":"consumer"}}},"then":{"properties":{"ref":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},"else":{"properties":{"ref":{"const":""}}}},"predicate":{"type":"string","minLength":1,"maxLength":120},"value":{"type":"object","additionalProperties":false,"required":["type","value"],"properties":{"type":{"enum":["string","number","boolean","money","none"]},"value":{}},"allOf":[{"if":{"properties":{"type":{"const":"string"}}},"then":{"properties":{"value":{"type":"string","minLength":1,"maxLength":2000}}}},{"if":{"properties":{"type":{"const":"number"}}},"then":{"properties":{"value":{"type":"number"}}}},{"if":{"properties":{"type":{"const":"boolean"}}},"then":{"properties":{"value":{"type":"boolean"}}}},{"if":{"properties":{"type":{"const":"money"}}},"then":{"properties":{"value":{"type":"object","additionalProperties":false,"required":["amount","currency"],"properties":{"amount":{"type":"number"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"}}}}}},{"if":{"properties":{"type":{"const":"none"}}},"then":{"properties":{"value":{"type":"null"}}}}]},"speaker":{"enum":["consumer","agent"]},"polarity":{"enum":["affirmed","negated"]},"modality":{"enum":["asserted","conditional","tentative","requested"]},"condition":{"type":"string","maxLength":400,"description":"verbatim condition clause; required when modality=conditional"},"time_expression":{"type":"string","maxLength":80},"valid_time":{"type":"object","additionalProperties":false,"required":["expression","kind","status","start","end","timezone","anchor"],"properties":{"expression":{"type":"string","maxLength":80},"kind":{"enum":["none","point","interval","deadline","unparsed","past_reference"]},"status":{"enum":["absent","resolved","ambiguous","unresolved"]},"granularity":{"enum":["minute","hour","day","part_of_day","am_pm_unspecified","period","month"]},"start":{"anyOf":[{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},{"type":"null"}]},"end":{"anyOf":[{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},{"type":"null"}]},"latest_bound_window":{"type":"array","items":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"minItems":2,"maxItems":2},"timezone":{"type":"string","minLength":1,"maxLength":64,"description":"IANA tenant timezone"},"anchor":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$","description":"server acceptance time of the cited Message"}},"allOf":[{"if":{"properties":{"status":{"enum":["absent","unresolved"]}}},"then":{"properties":{"start":{"type":"null"},"end":{"type":"null"}}},"else":{"properties":{"start":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"end":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}}}}]},"source":{"anyOf":[{"type":"object","additionalProperties":false,"required":["message_id","sequence","span_start","span_end","content_hash","quote"],"properties":{"message_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"sequence":{"type":"integer","minimum":1},"span_start":{"type":"integer","minimum":0,"description":"Unicode code point offset into the Message body"},"span_end":{"type":"integer","minimum":1},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"sha256 of the full Message body (UTF-8)"},"quote":{"type":"string","minLength":1}}},{"type":"null"}]},"derived_from":{"type":"array","items":{"type":"string","pattern":"^[0-9a-f]{64}$"},"uniqueItems":true,"maxItems":256},"corrects_claim_id":{"anyOf":[{"type":"string","pattern":"^[0-9a-f]{64}$"},{"type":"null"}]},"extractor_version":{"type":"string","minLength":1,"maxLength":80},"confidence":{"type":"number","minimum":0,"maximum":1,"description":"extractor self-estimate, not calibrated"},"epistemic_kind":{"enum":["user_statement","verified_fact","preference","constraint","intent","need_problem","commitment","hypothesis","correction"]},"resolution_state":{"enum":["unresolved","hypothesis_only","needs_resolution","awaiting_definition","rejected_definition","resolved","superseded"]},"correlation_key":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"same consumer+kind+predicate+normalized value+polarity; links repeats, never deduplicates"},"guard_flags":{"type":"array","items":{"type":"string","minLength":1,"maxLength":80},"uniqueItems":true,"maxItems":64},"recorded_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}},"required":["claim_id","tenant_id","world_id","conversation_id","consumer_id","topic_key","subject","predicate","value","speaker","polarity","modality","condition","time_expression","valid_time","source","derived_from","corrects_claim_id","extractor_version","confidence","epistemic_kind","resolution_state","correlation_key","guard_flags","recorded_at"],"allOf":[{"description":"extractors never produce verified_fact; only verification channels may, outside this contract","properties":{"epistemic_kind":{"not":{"const":"verified_fact"}}}},{"if":{"properties":{"epistemic_kind":{"const":"hypothesis"}}},"then":{"properties":{"resolution_state":{"enum":["hypothesis_only","superseded"]}},"anyOf":[{"properties":{"source":{"type":"object"}}},{"properties":{"derived_from":{"minItems":1}}}]},"else":{"properties":{"source":{"type":"object"},"derived_from":{"maxItems":0},"resolution_state":{"not":{"const":"hypothesis_only"}}}}},{"if":{"properties":{"modality":{"const":"conditional"}}},"then":{"properties":{"condition":{"minLength":1}}}},{"if":{"properties":{"corrects_claim_id":{"type":"string"}}},"then":{"properties":{"epistemic_kind":{"const":"correction"}}}},{"if":{"properties":{"speaker":{"const":"agent"}}},"then":{"properties":{"epistemic_kind":{"enum":["commitment","hypothesis"]}}}},{"if":{"properties":{"speaker":{"const":"consumer"}}},"then":{"properties":{"epistemic_kind":{"not":{"const":"commitment"}}}}}]}')
+    claim_id: str
+    tenant_id: str
+    world_id: str
+    conversation_id: str
+    consumer_id: str
+    topic_key: str
+    subject: ClaimSubject
+    predicate: str
+    value: ClaimValue
+    speaker: Literal['consumer', 'agent']
+    polarity: Literal['affirmed', 'negated']
+    modality: Literal['asserted', 'conditional', 'tentative', 'requested']
+    condition: str
+    time_expression: str
+    valid_time: ClaimValidTime
+    source: ClaimSource0 | None
+    derived_from: list[str]
+    corrects_claim_id: str | None
+    extractor_version: str
+    confidence: float | int
+    epistemic_kind: Literal['user_statement', 'verified_fact', 'preference', 'constraint', 'intent', 'need_problem', 'commitment', 'hypothesis', 'correction']
+    resolution_state: Literal['unresolved', 'hypothesis_only', 'needs_resolution', 'awaiting_definition', 'rejected_definition', 'resolved', 'superseded']
+    correlation_key: str
+    guard_flags: list[str]
+    recorded_at: str
 
 class ContextManifest(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:context-manifest","title":"context-manifest","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"context_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"call_sequence":{"type":"integer","minimum":1},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"policy_revision":{"type":"string","minLength":1},"ontology_schema_revision":{"type":"string","minLength":1},"semantic_snapshot_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"context_strategy_version":{"type":"string","minLength":1},"model_provider":{"type":"string","minLength":1},"model_id":{"type":"string","minLength":1},"embedding_profile_ref":{"anyOf":[{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},{"type":"null"}]},"sources":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"string","minLength":1},"content_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"evidence_kind":{"enum":["verified_fact","user_statement","hypothesis","policy","schema","memory","current_message"]},"access_decision_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}},"required":["ref","revision","content_hash","evidence_kind","access_decision_ref"]},"minItems":1,"maxItems":256},"prompt_artifact_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"request_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"input_token_budget":{"type":"integer","minimum":256},"output_token_budget":{"type":"integer","minimum":128},"redaction_policy_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}},"required":["schema_version","context_id","tenant_id","world_id","mode","run_id","call_sequence","goal_version_ref","policy_revision","ontology_schema_revision","semantic_snapshot_ref","context_strategy_version","model_provider","model_id","embedding_profile_ref","sources","prompt_artifact_ref","request_digest","input_token_budget","output_token_budget","redaction_policy_ref","created_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
