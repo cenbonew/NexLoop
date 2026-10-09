@@ -333,3 +333,80 @@ O1 的 `test_concurrent_requests_have_isolated_memos` 原来断言 memo 只有 1
 
 ### 测量过程中的失误
 在 shell 中 `source` 了 `o1_o4_set.sh`（脚本内含 `exec`），导致以空标签运行。`run_profile.sh` 的 `rm -rf "$out"` 删掉了被 git 忽略的整个 `scripts/perf/out/`（此前各轮的本地测量输出）。这些输出不在仓库中；本节数据均为删除后重新测得，那次误运行的结果作为 after 第一轮保留。仓库内文件与提交均不受影响。
+
+## O2b：服务目录 / Role 授权信封按对象批量决策（分支 `perf-o2b`，BASE `f9eff09065a7c378518d3f7d9ae58b3d786e0697` = dispatch/integration-s3n；临时迁移 0095）
+
+### 实现
+- **迁移** `0095_perf_o2b_batch_fact_load.sql`：`authz.nexloop_load_authority_facts(digest, world, keys jsonb)`。
+  - 在一次往返内逐条调用现有的 `nexloop_load_authority_fact_snapshot`，因此身份绑定、Run 资源与键校验、payload 和 record_hash 与单条读取完全相同。
+  - 返回 ok / missing / error。被单条函数拒绝的键报 error，由调用方回退到单条读取，照旧抛错。
+  - 最多 512 个键，格式错误整批拒绝。不改已有迁移。
+- **`authorization.py`**：
+  - `resolve_authorities(pool, session, queries)`：同一会话的多个查询共用一个 REPEATABLE READ 事务、一次 live identity / directory 核对、一次事实预取。
+  - 每个查询仍由 EIOS resolver 的 `resolve_in_unit_of_work` 单独判定，各自 entries、各自 savepoint，失败只影响该查询。
+  - 预取范围按 resolver 的常规加载键预测，未命中的事实回退为单条读取，正确性不依赖预测。
+  - O1 请求 memo 照常读取和写入；浏览器会话与单查询仍走原路径。
+  - 新增 `_assert_query_binding`，抽出原有绑定检查，原检查不变。
+- **`object_reads.py`**：
+  - 新增 `AuthorizedObjectReader.authorities(targets, operation)`：对每个目标产出与 `_authority` 相同的证明（抽出 `_claims` 共用），顺序相同。
+  - 非“明确允许”的目标，以及全部 Message/Conversation 目标，按原顺序走未改动的单条 `_authority`（含 0077/0084 派生、配置优先），拒绝时抛出的异常与原来相同。
+  - `get` 改用该批量 API。
+- **`service_offerings._read_envelope`** 改用批量 API。服务目录、Role 绑定（`role_runs` 经此函数）、Role 策略和 formal reads 都随之批量化，`role_runs.py` 本身无需改动。
+- 公开签名均未改变（`_authority`、`get`、`_read_envelope`、`resolve_authority` 保持原样）。
+
+### 硬约束对照
+- **签名证明仍逐属性列出，判定函数不变**：每个属性一份 claims（`target_resource` + 事实 hash），SQL 侧复核结构不变。
+- **失败只影响单个属性**：批量结果逐目标给出；信封的拒绝语义与原来一致（按原顺序在首个被拒目标处抛出）。
+- **撤权、过期、换主体、换 world 照旧拒绝**：见下面的测试。
+- **锁等待后的提交尾验未省**：批量只在 Python 侧取证；`role_tail`、`receipt_revoke_wait`、`backend_lifecycle_capacity` 中的最终期限测试均通过。
+
+### 测试（`tests/test_batch_authorities.py`，10 passed；O2a 的等价/负向测试搬到批量路径）
+- 批量 ≡ 逐条：5 个目标（允许 ×2、过期 grant、应用限制外、缺失）的 allowed、authoritative、expires_at、证明 hash 逐项相等；被拒或缺失的目标不影响其他目标；只发生一次批量往返。
+- SQL 批量 ≡ 单条快照：ok 项与 `load_authority_fact_snapshot` 结果逐字节相等；不存在的 grant 报 missing；他人 agent 键报 error，且单条调用确实拒绝；格式错误的批量请求整体拒绝。
+- 撤权：membership suspended 或撤销单个 grant 后，旧会话整批被拒；新会话只有被撤销的那个目标被拒。
+- 身份过期：证明 `expires_at` 不晚于 membership 到期；到期后整批被拒。
+- 跨主体 / world / 租户：同一请求内两个会话的批量互不混用；第二个会话缺授权的目标被拒，它的 grants 事实都属于它自己。
+- 并发两个请求的批量结果相互独立。
+- 对象投影端到端：批量 claims 与单条 claims 除 `expires_at`（以调用时刻为界）外逐项相等；`get` 正常；缺少属性 READ 时与单条路径一样整体拒绝。
+
+### bootstrap 与回归
+- `test_bootstrap.py` 在 0095（与 0087 之间有空号）下 2 项失败，原因与 O5a 相同：该测试要求编号连续。本地临时改为连续的 0088（不提交）后 4 passed，合并重编号后即可通过。
+- 回归三批共 268 passed：
+  - 91 passed（328 s）：batch、O2a、O1、jobs memo、fact cache、`role_tail`、`receipt_revoke_wait`、`backend_lifecycle_capacity`、`role_policy_dispatch`、`service_offering_pg`、`role_mapping`；
+  - 122 passed（270 s）：`role_post_accept`、`role_context_pack`、`message_read_derivation`、`claim_store`、`recall`、`postgres_authority`、`browser_business`、`object_edits`、`runtime_activation`；
+  - 55 passed（177 s）：`role_context_v5`、`role_policy_binding` / `enforcement` / `governance` / `types`、`offering_runtime_pg`。
+
+### L1 关注的两项（本机，安静时段）
+
+| 项目 | before（f9eff09 的三个文件） | after（O2b） |
+|---|---|---|
+| `test_backend_lifecycle_capacity.py`（10 例）+ effect_units 共 11 例 | 11 passed，73.9 s | 11 passed，71.0 s |
+| effect_units 单项 | 6.87 s | 5.69 s |
+| `eight_concurrent_requests_complete_on_pool_of_four` | 5.55 s | 5.38 s |
+
+### 前后对比（13 例集合，bash，本机串行，带钩子）
+
+**机器负载的影响（如实记录）：** 早先三轮 before 中有两轮恰逢 L1 在本机运行 6 进程并行复现（load avg 13–25）：
+- 基线分别失败 2 例（scope_denials 的 JSONDecodeError、v4 的 `runtime_transport_unavailable`）和 5 例（4 个端到端报 `runtime_transport_unavailable`，以及 scope_denials）；
+- 同期 O2b 的两轮均 13/13 通过。
+
+负载不同，这组数据**不作为对比依据**，只说明在高负载下余量差异会被放大。另有一轮 before 因 agent-host dist 未按 s3n 重建而失败（Host 启动即退出），已重建后作废重跑。
+
+下表数据取自 L1 进程结束、load avg 约 5–8 时交替运行的 before-q1 → after-q1 → before-q2 → after-q2，四轮均 13/13 通过：
+
+| 指标 | before | after |
+|---|---|---|
+| 决策数 / 请求（authorize / effect_tool） | 28.3 / 29.8 | 28.4 / 29.8（批量不减少决策，减少的是事务和往返） |
+| 单条事实快照 SQL | 261394 | **96830**，另加批量 3826 次（每次 5.5 ms） |
+| resolver 合计 / 每决策 | 293.3 s / 6.96 ms | **225.7 s / 5.35 ms** |
+| 服务目录信封均值 | 123.4 ms | **108.9 ms（−12%）** |
+| Role 信封均值 | 24.0 ms | **20.4 ms（−15%）** |
+| authorize p50 / p95 / max | 248 / 1005 / 1366 | **232 / 949** / 1517 |
+| runtime_effect_tool p50 / p95 / max | 501 / 1373 / 1523 | 491 / 1399 / 1562 |
+| prepare_message_context p95 / max | 1080 / 1225 | **957 / 986** |
+| 越限所需慢化系数 k（authorize / effect_tool / prepare_message_context） | 1.46 / 1.31 / 1.63 | 1.32 / 1.28 / 2.03 |
+
+### 结论
+- 收益集中在 p50/p95 与 CPU 总量：resolver 时间 −23%，信封 −12~15%，authorize p50 −6%，p95 −6%。最慢一次（max）落在单轮噪声内，没有可靠改善。
+- 收益低于设计稿预估（信封 153 → 40~60 ms），原因是：批量只省掉每个属性的事务开启、identity 核对和事实往返（约 1.6 ms/决策）；EIOS resolver 对每个属性的完整判定（约 5 ms/决策）仍是下限。要再大幅下降，只能减少决策次数本身：要么跨请求复用（违反 L1 约束，不做），要么改由 SQL 侧一次性判定整组属性（需要改动 EIOS 判定路径，属于更大范围的设计）。
+- 高负载下 O2b 版本的端到端稳定性优于基线，但这是在负载不同的条件下观察到的，只作参考。
