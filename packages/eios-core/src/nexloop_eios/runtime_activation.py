@@ -74,6 +74,19 @@ def _model_result(operation,value):
     if value['cost'] is not None and (type(value['cost']) is not str or re.fullmatch(r'[0-9]{1,10}(\.[0-9]{1,8})?',value['cost']) is None):raise ValueError('model result unavailable')
     if value['response_digest'] is not None and (type(value['response_digest']) is not str or re.fullmatch('[a-f0-9]{64}',value['response_digest']) is None):raise ValueError('model result unavailable')
 
+def _execution_lock(db,run_id):
+    """NX-049: the Run's execution lock (0039 key, reentrant) before any row lock of the statement.
+
+    0039 takes it in the middle of an authorize/create statement, after the baseline checks
+    have share-locked their rows. A same-Run authorize could then hold those rows and wait for
+    the lock while an effect_tool, holding it since its first guard, needed one of the rows
+    exclusively (40P01). Taking it first in both paths gives one order: [tool: Run lock] ->
+    execution lock -> rows. The statement still re-runs every proof, lease and deadline check
+    after the wait; the wait itself is bounded by lock_timeout.
+    """
+    db.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))',('nexloop-runtime-execution:'+run_id,))
+
+
 class RuntimeActivationPort:
     def __init__(self,pool,session,signer):
         if session.run_context is not None:raise AuthorizationUnavailable('runtime activation unavailable')
@@ -124,10 +137,11 @@ class RuntimeActivationPort:
             'select authz.nexloop_runtime_activation_command(%s,%s,%s,%s,%s)')
         return db.execute(statement,(self.session.token_digest,self.session.world,*envelope)).fetchone()[0]
 
-    def _call(self,queue,verb,**parameters):
+    def _call(self,queue,verb,execution_run=None,**parameters):
         envelope=self._signed(queue,verb,**parameters)
         with self.pool.connection() as db,db.transaction():
             verify_application_role(db)
+            if execution_run is not None:_execution_lock(db,execution_run)
             return self._execute(db,envelope)
 
     def accept(self,*,queue,source_id,event_id,run_token,command,input,max_attempts=3):
@@ -201,7 +215,7 @@ class RuntimeActivationPort:
             # A v6 model call is recorded in the same transaction as its authorization (0091).
             snapshot={} if request_snapshot is None else {'request_snapshot':request_snapshot}
             if model_result is not None:snapshot['model_result']=model_result
-            result=self._call(queue,'authorize',**parameters,**snapshot,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(first),context_formal_reads=self._context_formal_envelopes(first))
+            result=self._call(queue,'authorize',execution_run=run.run_context.run_id,**parameters,**snapshot,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(first),context_formal_reads=self._context_formal_envelopes(first))
             return {key:value for key,value in result.items() if not key.startswith('_')}
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
@@ -295,7 +309,10 @@ class RuntimeActivationPort:
                 stage='run_lock'
                 db.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))',('nexloop-role-effect:'+run.run_context.run_id,))
                 def guard():
-                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,resolved['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(resolved),context_formal_reads=self._context_formal_envelopes(resolved)))
+                    envelope=self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,resolved['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(resolved),context_formal_reads=self._context_formal_envelopes(resolved))
+                    # Built before the lock; the execution lock comes before any row lock of the guard.
+                    _execution_lock(db,run.run_context.run_id)
+                    result=self._execute(db,envelope)
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
                 stage='guard_before'
                 guard()
