@@ -1688,6 +1688,12 @@
         "ref": "90daa7b",
         "summary": "Merged step 1 (0075 formal current), partial step 2 (0076 v4 relationship context) and ADR-020 §1 Message READ derivation (0077): 21 registered main regressions pass on Mac (16 also green on CI host, 5 fail only on the CI host 2 s deadline). AT-004 not_run; AT-009 failed (v4 two-Pi positive). Merged under the one-time exception in ADR-021.",
         "recorded_at": "2026-10-09T12:10:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ef0f591",
+        "summary": "Merged step 3 phase A (0081_nx018_role_policy): governed Role ceiling/scope enforced at bind; phase B (dispatch-time re-check, v5 contracts) in progress. With O1 merged, test_relationship_context_v4[complete] passes on the Mac.",
+        "recorded_at": "2026-10-09T13:15:00+08:00"
       }
     ]
   },
@@ -2330,7 +2336,7 @@
       "M14"
     ],
     "deliverable": "按 ADR-019 §3.5–3.6：队列页、候选详情（原文 span、召回结果、粘合分数、依赖 Claim 数）、三种决定；approve 后发布并应用等待 Claim，reject 后 Claim 保留为证据；发布/合并写回召回索引，二次对话不再产生重复候选",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
@@ -2343,6 +2349,18 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7c4d779",
+        "summary": "Merged minimal review workbench (0074_nx046_review_workbench) and owner-approved deploy/ontology/merge-config.v1.json; decision buttons disabled until NX-044; backend 107 + web 12 passed.",
+        "recorded_at": "2026-10-09T13:15:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2cc54f4",
+        "summary": "Merged cooldown single-instant fix (0078_nx046_cooldown_single_instant); baseline A cleared on the CI host.",
+        "recorded_at": "2026-10-09T13:15:00+08:00"
       }
     ]
   },
@@ -2360,8 +2378,15 @@
       "M23"
     ],
     "deliverable": "按 ADR-020 §2：Agent/人类接管发出的消息持久化为 Message（发送方身份、关联外发 Action receipt、投递状态与‘已持久化≠已送达’）；纳入提取与 Message READ 派生；草稿不显示为已发送；负向与重放测试",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "0c1a8e0",
+        "summary": "Merged Agent outbound messages (0079_nx047_outbound_messages, 0080_nx047_outbound_read_derivation) per ADR-021 scope; design §9 14 tests (13 real, #14 rewritten for deferred human takeover); serial regression 85 passed.",
+        "recorded_at": "2026-10-09T13:15:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-048",
