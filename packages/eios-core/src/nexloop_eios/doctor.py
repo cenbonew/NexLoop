@@ -22,8 +22,13 @@ def diagnose(*,database_url,artifact_root,environment=None):
             c.execute('set transaction read only')
             details['database_role']=verify_application_role(c)
             details['database_catalog']=verify(c)
+            # Hybrid recall needs pgvector and pg_trgm in the extensions schema.
+            details['database_extensions']={name:version for name,version in c.execute(
+                "select e.extname,e.extversion from pg_extension e join pg_namespace n on n.oid=e.extnamespace "
+                "where n.nspname='extensions' and e.extname in ('vector','pg_trgm') order by e.extname").fetchall()}
         checks['postgres']=True
-    except Exception:checks['postgres']=False
+        checks['search_extensions']=set(details['database_extensions'])=={'vector','pg_trgm'}
+    except Exception:checks['postgres']=False;checks['search_extensions']=False
     try:
         fd=os.open(Path(artifact_root),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:

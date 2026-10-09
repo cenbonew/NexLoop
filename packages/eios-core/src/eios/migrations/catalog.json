@@ -345,6 +345,11 @@
       "version": "0069",
       "name": "0069_nx019_extraction_queue.sql",
       "sha256": "27becf2184eb66ee5f7aa5715940e399c8ec744f4d6b4288e99fe8f83fe04431"
+    },
+    {
+      "version": "0070",
+      "name": "0070_nx020_claim_matching.sql",
+      "sha256": "51b85682175f9c024551a0bdacf5ee3da76f4e034a69eecf33ed44d1e0ea7261"
     }
   ]
 }

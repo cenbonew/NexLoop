@@ -29,7 +29,7 @@ def image(lock,name):
     if not digest.startswith('sha256:') or len(digest)!=71 or any(c not in '0123456789abcdef' for c in digest[7:]):
         raise ValueError('unresolved image digest')
     reference=entry['reference'].split('@')[0].rsplit(':',1)[0]
-    allowed={'postgres':'docker.io/library/postgres','python-build-base':'docker.io/library/python','valkey':'docker.io/valkey/valkey','node-host-base':'docker.io/library/node'}
+    allowed={'postgres':'docker.io/pgvector/pgvector','python-build-base':'docker.io/library/python','valkey':'docker.io/valkey/valkey','node-host-base':'docker.io/library/node'}
     if reference!=allowed.get(name):raise ValueError('unexpected image source')
     return reference+'@'+digest
 
