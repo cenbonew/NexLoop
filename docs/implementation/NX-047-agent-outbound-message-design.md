@@ -145,3 +145,11 @@ L1 已实现（NX-018 §9）：带 `derivation='accepted-message-v1'` 的类型�
 5. **提取**：设计稿 §8.3 的“提取过滤迁移”不再需要——只有渠道已接受的外发消息才进入会话流，0069 feed 触发器与 0066 的 speaker 推导（actor≠owner→agent）原样生效。
 6. **授权清单**：`deploy/authorization/service-grants.v1.json` 新增 `outbound_message_recorder`（nexloop_api）与 `eios:action:Message.agent_create:1` execute。Action 定义本身随业务配置发布（测试中由可信配置 manifest 发布，复用 `Message.create` 的 Message 类型引用）。
 7. **未实现**：人类接管（§4.2，NX-028）、撤回、顾客视图“处理中”占位、Web 前端对 `direction` 的展示（后端已返回字段，前端解析会忽略未知字段，显示为普通消息）、外发记录服务的 CLI/常驻进程入口。
+
+## 12. 补完（调度员 2026-10-09 第二轮）
+
+- **业务配置清单**：`deploy/configuration/business-actions.v1.json`（`nexloop-business-actions/1`）声明 `Message.agent_create:1`；`nexloop_eios.business_actions.compile_actions` 只接受低风险、无审批、无策略、`ontology.object.create` 的声明，按部署已发布的 Message 类型 schema 与显式 Capability 快照编译为可信配置 `actions` 行。测试从该清单与 `service-grants.v1.json`（`compile_principal`）发布，不再在测试里构造。
+- **入口**：`nexloop-outbound-recorder`（`python -m nexloop_eios.outbound_messages`），风格同 effect worker：私有文件配置、要求 nexloop_api 角色、每轮重读凭据并重新认证、`--once` 输出 `{"recorded","replayed"}`、SIGTERM 退出。社区 compose 新增 `outbound-recorder`（profile `outbound`，默认不启动，只读私有卷 `outbound_config`）；容器入口新增 `outbound-recorder` 作业；`nexloop-doctor` 新增 `outbound_recorder_schema`（仅系统目录检查）。
+- **前端**：`chat-api.message` 校验服务端 `direction/sender_kind/intent_id/trigger_message_id`（入站不得携带发送方字段，外发必须是 agent + 意图 UUID + 触发消息）；`messagePresentation` 把外发显示为“企业 Agent 回复 · 渠道已接受；不代表问题已解决或承诺已兑现”，不挂顾客回执组件。
+- **§9 真实覆盖补齐**：#7 目录 scope 治理拒绝（Pi 两次提交均被拒，无意图/外发/Message；同一 scope 经 `assess_request_scope` 判 `outside_catalog_terms`，无折扣时 `within_catalog`）；#8 Pi 日志中的助手自由文本不出现在任何 Message/会话流；#10 真实超时（provider timeout 1s，导出已 fsync）→ 账本 dispatching，provider 停机时对账 QUERY 失败 → 账本 unknown（外发 `dispatching→unknown`），provider 恢复后 QUERY 观测 fulfilled → `delivered`，全程 1 个 attempt、1 个导出文件；#11 PG 行锁把记录服务 CLI 卡在事务中后 SIGKILL，无 Message，重启记录 1 条、再跑 0 条；#12 他租户主体走不到派生（basis=configured）且其配置 READ 也读不到该 Message。
+- 账本意图 `observed_fulfilled` 映射为 `delivered`（0078 临时迁移内修订）。说明：本项目账本没有独立的 “reconciling” 状态；unknown 只能由对账 QUERY 的观测离开。
