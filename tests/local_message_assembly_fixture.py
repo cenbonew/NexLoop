@@ -124,6 +124,10 @@ def assembled_message(business_plan,admin,tmp_path,request):
     original['paths']['secrets'].write_text(json.dumps(secrets_map))
     apply_manifest(updated,database_url_file=original['paths']['dsn'],signing_key_file=original['paths']['signing'],signing_key_id='explicit-configuration',service_secrets_file=original['paths']['secrets'])
     f['paths']['executor-credential-file'].write_text(tokens['assembly-executor'])
+    # Dedicated two-Run correction scenario gets two units through normal setup.
+    if getattr(request.node,'originalname',None)=='test_real_human_message_v4_bound_artifact':
+        f['recipe']['control']['budget_units']=2
+        f['paths']['recipe-file'].write_text(json.dumps(f['recipe']))
     setup=invoke(f);assert setup.returncode==0,'real governed setup failed';public=json.loads(setup.stdout)
     expiry=(datetime.now(UTC)+timedelta(seconds=150)).isoformat()
     recipe={'consumer_id':public['consumer_id'],'control_id':public['control_id'],

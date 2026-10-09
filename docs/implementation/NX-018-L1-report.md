@@ -31,3 +31,25 @@ PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_boo
 ### 剩余风险
 
 - guard 全局锁串行化是结构性延迟来源：BASE 的 inspect 已有 ~1.77s 的 wait+hold。任何新增授权工作（第 3 步 policy 校验）都会再次逼近 2s。建议（需调度员/负责人决定）：把 `_invoke` 的全局锁改为"请求共享 / 关闭独占"的读写锁，保留关闭时不关 FD/pool 的保证，同时让独立请求并发；这改变 backend 并发模型，需全量 CI。
+
+## 第 2 步：关系更正进入新 explicit v4 Context（临时 0067）——**部分完成，未通过**
+
+- 候选基线：`nx018-relationship-context-tail-candidate` 冻结于 `c6e5065`（0062）。对 7 个改动文件做三方合并（base=c6e5065，ours=本线，theirs=候选），保留 v3 Role 分支、0061 identity、0062 Message READ、0064 期限、0065 recovery、0066 formal-current；新增 relationship_context*.py 三个模块。`nx018-v4-main-merge-candidate` 未采用（它删掉了 `nexloop_assert_relationship_deadlines`，且把 `nexloop_context_artifact_read_dependency` 返回类型由 text 改为 jsonb，会破坏 0063 Role `_v2` 中的 message 分支）。
+- `0067_nx018_relationship_context_v4.sql`：reader/recipe/command SQL 原样追加（共享 helper 用 0066 的，不重复安装）；v4 activation 用 `create or replace` 替换链底私有 `nexloop_runtime_activation_command_before_roles_v0062`（已核对候选函数体 = 0053 原函数体 + v4 分支）；v4 依赖读取另建私有 `nexloop_relationship_context_read_dependency`，public `_v2` 包一层按 v4 绑定分流；`nexloop_read_local_artifact_before_roles_v0062` 改名后由 v4 分支接管。未修改 0001..0066。
+- **刻意不采用候选的 `guard_timeout_ms`（候选测试用 10000ms）**：Host guard 与工具 HTTP 保持 2s 总 deadline。测试副本 `tests/test_relationship_context_v4.py` 去掉手工 DRAFT 安装与 `guard_timeout_ms`。
+- 首次运行 `tests/test_bootstrap.py tests/test_relationship_context_v4.py`：**36 passed / 1 failed / 160.61s**；失败为 `test_real_human_message_v4_bound_artifact[complete]`（两个真实 Host/Pi Run 正向），`runtime_transport_unavailable`。
+- 诊断：v4 每次 authorize 自身 ~0.75s（Source 签名关系 envelope ~0.46s、catalog ~0.27s、formal ~0.08s，主要是 `AuthorizedObjectReader._authority` 每次约 8ms、数百条查询）；submit 内 guard 前后各一次，且全局 backend 锁让并发请求排队，submit 2.46–2.58s。
+- 已做（单独提交 `21ddfc3`）：backend 生命周期锁改为请求共享 / 关闭独占；第 1 步的请求内 envelope 复用扩展到 v4 关系/formal/catalog envelope。之后 submit/find 1.6–2.07s。
+- 尝试过并**已撤回**：跨请求 3s 复用已签发 envelope（最坏 1.33s，v4 正向通过），但使 `test_role_tail::test_context_bind_lock_expiry_rolls_back_binding_and_job` 失败（测试替换短期 READ envelope 验证锁等待后的最终期限，复用绕过了重新生成），也改变了"每次 guard 重新生成证明"的语义，故不保留。
+- 当前结果（撤回后）：`tests/test_role_tail.py tests/test_role_pi_effect_checkpoint.py test_relationship_context_v4.py[complete]` 8 passed / 186.87s；随后 `[complete]` 单独连跑 3 次 **全部 failed**（~68s）。即 v4 正向两 Pi 闭环在 2s deadline 下约 1/4 通过，**AT-009 不能判 passed**。
+- 定向回归（撤回前，含跨请求复用）：30 个测试文件 280 passed / 10 failed / 1061.51s；Host vitest 141 passed。10 个失败中 8 个是 main 既有回归（message_relay 7、local_message_delivery_assembly 1，见下节），另 2 个（role_tail、两 Pi）由跨请求复用引起，撤回后复跑通过。
+
+建议方案（需调度员/负责人决定）：降低每次 guard 的授权成本而不是放宽 deadline——(a) 授权事实解析在一个只读事务内批量加载同一 Source 的多个 resource（现在每个 `_authority` 独立连接与事务）；(b) 第二次（后置）guard 只复核 SQL 尾检所需最小集合；(c) 或由负责人基于实测确认工具 HTTP 预算。
+
+## main f58f3ee 回归（调度员指派）
+
+21 例统一根因：`c6e5065`（0062）要求 Source 对 `Message/<id>` 的当前 READ，但没有任何生产路径为新受理 Message 发布授权事实（只能可信配置写入）。实证：`test_message_relay.py::test_independent_cli_governed_assignment_and_persist_before_ack` 在 `045c93f` 1 passed / 5.08s，在 `c6e5065` failed / 3.66s。本线未修复（调度员否决只改夹具的方案 A）；方案 B 设计稿见 `docs/implementation/NX-018-message-read-derivation.md`，等待负责人决定。本线回归运行中这 21 例里出现的 8 例仍失败，其余 13 例本线未单独运行。
+
+## 第 3 步：Role 权限上限与 scope 强制——未开始实现
+
+按调度员指示在方案 B 决定前暂停。已读候选 `nx018-role-policy-candidate`（基线 e98d7c7 + 0064，早于 0065）：可按同样的外层 wrapper 方式移植为下一临时编号，其 `create or replace nexloop_context_artifact_read_dependency_v2` 需改落到 0067 的 `_v2_before_relationship`。已知问题"两 Pi inspect 503 / submit 2.041s"与本线第 1、2 步定位的同一根因一致（全局锁串行 + 每次 guard 重复生成签名证明）。另需 v5 live contracts（packages/contracts，本线禁止修改，需提案）以及 EDIT 撤权、TTL、effect 预算并发负例，这些均未实现。

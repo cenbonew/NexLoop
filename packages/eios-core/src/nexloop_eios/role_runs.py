@@ -55,7 +55,8 @@ def request_envelope_scope():
     finally:_request_envelopes.reset(token)
 
 
-def _scoped(key,compute):
+def scoped_envelope(key,compute):
+    """Reuse within the current guarded tool request only; otherwise compute fresh."""
     cache=_request_envelopes.get()
     if cache is None:return compute()
     if key not in cache:cache[key]=compute()
@@ -63,7 +64,7 @@ def _scoped(key,compute):
 
 
 def role_envelope_for_run(pool,signer,world,run_digest):
-    return _scoped(('role',world,run_digest),lambda:_role_envelope_for_run(pool,signer,world,run_digest))
+    return scoped_envelope(('role',id(pool),signer.key_id,world,run_digest),lambda:_role_envelope_for_run(pool,signer,world,run_digest))
 
 
 def _role_envelope_for_run(pool,signer,world,run_digest):
@@ -84,7 +85,7 @@ def _role_envelope_for_run(pool,signer,world,run_digest):
 
 
 def formal_reads_for_role(pool,signer,session,envelope):
-    return _scoped(('formal',session.world,envelope['signature']),lambda:_formal_reads_for_role(pool,signer,session,envelope))
+    return scoped_envelope(('formal',id(pool),signer.key_id,session.world,envelope['signature']),lambda:_formal_reads_for_role(pool,signer,session,envelope))
 
 
 def _formal_reads_for_role(pool,signer,session,envelope):

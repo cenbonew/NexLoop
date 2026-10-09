@@ -89,7 +89,9 @@ class MessageRelayPort:
                     if verify_application_role(db)!='nexloop_api': raise ValueError()
                     return db.execute('select authz.nexloop_message_run_issuance_command(%s,%s,%s,%s,%s)',
                         (self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
-        except Exception: raise MessageRelayUnavailable() from None
+        except Exception as error:
+            self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__)
+            raise MessageRelayUnavailable() from None
 
     def source_proofs(self,source):
         if source._backend is not self.backend or source._session.run_context is not None: raise MessageRelayUnavailable()
@@ -100,7 +102,10 @@ class MessageRelayPort:
 
 
 class MessageRelay:
-    def __init__(self,*,route,source,planner,executor_token,vault,recipe):
+    def __init__(self,*,route,source,planner,executor_token,vault,recipe,relationship_recipe=None):
+        from nexloop_eios.relationship_context import RelationshipContextRecipe
+        if relationship_recipe is not None and type(relationship_recipe) is not RelationshipContextRecipe:raise MessageRelayUnavailable()
+        self.relationship_recipe=relationship_recipe
         self.port=MessageRelayPort(route)
         self.route,self.source,self.planner=route,source,planner
         self.executor_token=executor_token
@@ -161,15 +166,23 @@ class MessageRelay:
                 'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':self.recipe['runtime_profile'],
                 'credential_ref':'run:'+record.run_id,'budget':self.recipe['budget'],'not_after':record.expires_at,
                 'runtime_owner_epoch':self.recipe['runtime_owner_epoch']}
-            context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
+            self._diagnostic_stage='context_prepare'
+            if self.relationship_recipe is None:
+                context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
+            else:
+                from nexloop_eios.relationship_context_artifacts import RelationshipContextArtifactProducer
+                context=RelationshipContextArtifactProducer(self.source,self.relationship_recipe,{'Consumer':self.recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':self.recipe['control_id']}).prepare(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
             command['context_manifest_ref']=context['artifact_ref']
             bridge.bind_message(message_id=message_id,run_token=record.token,command=command,input=context['input'],queue=self.recipe['queue'])
             owned=self.port.call('own_route',message_id=message_id,fence=fence)
             run=self.route._backend.authenticate_run(record.token,world='real',run_id=record.run_id)._session
             bridge._call('authorize',message_id=message_id,fence=owned['route_fence'],run_proofs=bridge._authority._run_proofs(run))
+            self._diagnostic_stage='runtime_accept'
             self.route.accept_runtime_event(queue=self.recipe['queue'],source_id='webchat',event_id=command['trigger_event_id'],
                 run_token=record.token,command=command,input=context['input'])
             bridge._call('ack',message_id=message_id,fence=owned['route_fence'],allow_missing=False)
             self.port.call('release',message_id=message_id,fence=fence)
             return 'queued'
-        except Exception: raise MessageRelayUnavailable() from None
+        except Exception as error:
+            self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__)
+            raise MessageRelayUnavailable() from None
