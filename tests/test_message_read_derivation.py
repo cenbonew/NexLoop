@@ -138,3 +138,25 @@ def test_out_of_scope_claims_are_denied(context_message, tamper):
     with pytest.raises(ValueError):
         derived_message_read_envelope(pool, session, signer, f['message']['id'], message_read_basis(pool, session, f['message']['id']),
                                       fields=('conversation_id',))
+
+
+def test_run_credential_never_derives(context_message, admin):
+    """A Run-bound credential keeps 0034 allowed_resources; derivation is Source-only."""
+    f = context_message; pool, source, signer = parts(f); mid = f['message']['id']
+    run = f['source'].issue_run_credential(action_resources=['eios:action:nexloop.service.request:1'])
+    runner = f['backend'].authenticate_run(run.token, world='real', run_id=run.run_id)
+    run_session = runner._session
+    assert run_session.run_context is not None
+    with pool.connection() as db, db.transaction():
+        basis = db.execute('select authz.nexloop_message_read_basis(%s,%s,%s)', (run_session.token_digest, 'real', mid)).fetchone()[0]
+    assert basis == {'mode': 'configured'}
+    # Even a correctly shaped, correctly signed derived claim for the Run identity is refused.
+    source_basis = message_read_basis(pool, source, mid)
+    claims = json.loads(derived_message_read_envelope(pool, source, signer, mid, source_basis)['text'])
+    auth = run_session.authentication
+    for item in [claims, *claims['property_authorities']]:
+        item.update(principal_id=auth.subject_principal_id, credential_id=auth.credential_id, directory_hash=run_session.directory_hash)
+    text = canonical_payload(claims)
+    with pool.connection() as db, db.transaction():
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            db.execute('select authz.nexloop_read_object(%s,%s,%s,%s)', (run_session.token_digest, 'real', text, _sign(signer, text)))
