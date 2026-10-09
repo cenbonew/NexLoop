@@ -1496,7 +1496,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:context-pack-v6",
         "title": "context-pack-v6",
-        "description": "NX-023 Context pack v6 (draft). Superset of v2 (message), v3 (Role trigger) and v5 (Role policy) sections, plus strategy, goal/control snapshot, formal state, open work, labelled evidence, semantics, budget report and explicit insufficiency. Formal sections carry only governed objects/policy/ledger state; Claims under review appear only as source text; hypotheses only in evidence.hypotheses. Server-assembled; grants nothing. v2-v5 stay frozen and old Runs keep using them.",
+        "description": "NX-023 Context pack v6. Message Runs: the frozen v2 core (bindings, user_statement, formal_facts, current_constraints, supply) re-derived by SQL at bind, plus strategy, goal/control snapshot, labelled item sections, budget report and explicit insufficiency. Every item cites its source revision, canonical content hash and the current READ decision it was read under; SQL re-verifies each against the source row. Formal sections carry only governed objects/policy/ledger state; Claims under review appear only as source text; hypotheses never enter a real-world Context. No floating-point numbers. Server-assembled; grants nothing. v2-v5 stay frozen and old Runs keep using them.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -1818,38 +1818,22 @@
               {
                 "type": "object",
                 "properties": {
+                  "kind": {
+                    "const": "consumer_message"
+                  },
                   "message_id": {
                     "type": "string",
                     "pattern": "^[a-f0-9]{64}$"
                   },
-                  "conversation_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{64}$"
-                  },
-                  "sequence": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 9007199254740991
-                  },
-                  "body": {
-                    "type": "string",
-                    "maxLength": 32768
-                  },
                   "provenance": {
                     "type": "string",
                     "pattern": "^eios:object:[a-f0-9]{64}$"
-                  },
-                  "kind": {
-                    "const": "consumer_message"
                   }
                 },
                 "required": [
-                  "body",
-                  "conversation_id",
                   "kind",
                   "message_id",
-                  "provenance",
-                  "sequence"
+                  "provenance"
                 ],
                 "additionalProperties": false
               },
@@ -1886,6 +1870,47 @@
                   "source_principal"
                 ],
                 "additionalProperties": false
+              }
+            ]
+          },
+          "user_statement": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "message_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "conversation_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "body": {
+                    "type": "string",
+                    "maxLength": 32768
+                  },
+                  "provenance": {
+                    "type": "string",
+                    "pattern": "^eios:object:[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "body",
+                  "conversation_id",
+                  "message_id",
+                  "provenance",
+                  "sequence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -2229,10 +2254,10 @@
                   "type": "string",
                   "pattern": "^decision:[0-9a-f]{64}$"
                 },
-                "relevance": {
-                  "type": "number",
+                "relevance_permille": {
+                  "type": "integer",
                   "minimum": 0,
-                  "maximum": 1
+                  "maximum": 1000
                 },
                 "at": {
                   "type": "string",
@@ -2258,7 +2283,7 @@
                 "content_hash",
                 "evidence_kind",
                 "ref",
-                "relevance",
+                "relevance_permille",
                 "revision",
                 "subsection",
                 "tags"
@@ -2302,10 +2327,10 @@
                   "type": "string",
                   "pattern": "^decision:[0-9a-f]{64}$"
                 },
-                "relevance": {
-                  "type": "number",
+                "relevance_permille": {
+                  "type": "integer",
                   "minimum": 0,
-                  "maximum": 1
+                  "maximum": 1000
                 },
                 "at": {
                   "type": "string",
@@ -2331,7 +2356,7 @@
                 "content_hash",
                 "evidence_kind",
                 "ref",
-                "relevance",
+                "relevance_permille",
                 "revision",
                 "subsection",
                 "tags"
@@ -2375,10 +2400,10 @@
                   "type": "string",
                   "pattern": "^decision:[0-9a-f]{64}$"
                 },
-                "relevance": {
-                  "type": "number",
+                "relevance_permille": {
+                  "type": "integer",
                   "minimum": 0,
-                  "maximum": 1
+                  "maximum": 1000
                 },
                 "at": {
                   "type": "string",
@@ -2404,7 +2429,7 @@
                 "content_hash",
                 "evidence_kind",
                 "ref",
-                "relevance",
+                "relevance_permille",
                 "revision",
                 "subsection",
                 "tags"
@@ -2454,10 +2479,10 @@
                   "type": "string",
                   "pattern": "^decision:[0-9a-f]{64}$"
                 },
-                "relevance": {
-                  "type": "number",
+                "relevance_permille": {
+                  "type": "integer",
                   "minimum": 0,
-                  "maximum": 1
+                  "maximum": 1000
                 },
                 "at": {
                   "type": "string",
@@ -2483,7 +2508,7 @@
                 "content_hash",
                 "evidence_kind",
                 "ref",
-                "relevance",
+                "relevance_permille",
                 "revision",
                 "subsection",
                 "tags"
@@ -2560,10 +2585,10 @@
                   "type": "string",
                   "pattern": "^decision:[0-9a-f]{64}$"
                 },
-                "relevance": {
-                  "type": "number",
+                "relevance_permille": {
+                  "type": "integer",
                   "minimum": 0,
-                  "maximum": 1
+                  "maximum": 1000
                 },
                 "at": {
                   "type": "string",
@@ -2589,7 +2614,7 @@
                 "content_hash",
                 "evidence_kind",
                 "ref",
-                "relevance",
+                "relevance_permille",
                 "revision",
                 "subsection",
                 "tags"
@@ -2632,10 +2657,10 @@
                   "type": "string",
                   "pattern": "^decision:[0-9a-f]{64}$"
                 },
-                "relevance": {
-                  "type": "number",
+                "relevance_permille": {
+                  "type": "integer",
                   "minimum": 0,
-                  "maximum": 1
+                  "maximum": 1000
                 },
                 "at": {
                   "type": "string",
@@ -2661,7 +2686,7 @@
                 "content_hash",
                 "evidence_kind",
                 "ref",
-                "relevance",
+                "relevance_permille",
                 "revision",
                 "subsection",
                 "tags"
@@ -2819,7 +2844,8 @@
           "schema_version",
           "semantics",
           "strategy_ref",
-          "supply"
+          "supply",
+          "user_statement"
         ]
       },
       "EventEnvelope": {
@@ -3769,7 +3795,7 @@
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
     "claim.schema.json": "dbb4683b5f18d6d3dd1c5fcacc3dd76277be5290ccb410e92591459a4e0101c7",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-v6.schema.json": "7e0311781d0099d3747cb2e357432724f908d130a9769ca72b6a56e6d2db9316",
+    "context-pack-v6.schema.json": "908b4f009d4ae0978b5472d2b2ecd1f75c9c5fe66bac26d2085d1ab7f5245ade",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",

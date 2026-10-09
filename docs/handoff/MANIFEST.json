@@ -29,8 +29,8 @@
     },
     {
       "path": "contracts/README.md",
-      "bytes": 3942,
-      "sha256": "bb04fcd86f777527368755eeaf3587d159826936afd40534cfd29953bc191fc9"
+      "bytes": 4169,
+      "sha256": "2ae7e2fd6daaf600bca87e489386dba398343c1dc4f947b633ccdeea029fa35d"
     },
     {
       "path": "contracts/action-intent.schema.json",
@@ -54,8 +54,8 @@
     },
     {
       "path": "contracts/context-pack-v6.schema.json",
-      "bytes": 35666,
-      "sha256": "7e0311781d0099d3747cb2e357432724f908d130a9769ca72b6a56e6d2db9316"
+      "bytes": 36585,
+      "sha256": "908b4f009d4ae0978b5472d2b2ecd1f75c9c5fe66bac26d2085d1ab7f5245ade"
     },
     {
       "path": "contracts/event-envelope.schema.json",
@@ -89,8 +89,8 @@
     },
     {
       "path": "contracts/examples/context-pack-v6.valid.json",
-      "bytes": 9121,
-      "sha256": "39a03a7344186987719c2965478a822f77c96cb18d87fe75a60b5f06b4c3000a"
+      "bytes": 9387,
+      "sha256": "1bf2314c25cfff03dadbc45b4a0cac48d6c3f23614ae37ac632f18d9d2811afa"
     },
     {
       "path": "contracts/examples/event-envelope.valid.json",

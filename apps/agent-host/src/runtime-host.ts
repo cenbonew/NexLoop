@@ -1,9 +1,9 @@
 /** Optional internal Run admission. Backend retains all EIOS/PG credentials. */
-import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation} from './context-input.js';
+import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
 import {type IncomingMessage} from 'node:http';
 import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context} from '@earendil-works/pi-ai';
-import {PiRuntimeAdapter} from './pi-runtime-adapter.js';
+import {PiRuntimeAdapter,type ModelRequestSnapshot} from './pi-runtime-adapter.js';
 import {RuntimeEffectClient,requestScope} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 import {selectTrustedModel,validateEstimatedReservation} from './trusted-model-profile.js';
@@ -36,24 +36,26 @@ export class RuntimeHost{
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
     if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
-    if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
+    if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
     if(config.deterministic_effect_request_scope!==undefined&&(config.runtime_profile!=='deterministic-test'||config.deterministic_message_from_input!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     const syntheticScope=config.deterministic_effect_request_scope===undefined?undefined:requestScope(config.deterministic_effect_request_scope);
     if(config.deterministic_relationship_from_context!==undefined&&(config.deterministic_relationship_from_context!==true||config.runtime_profile!=='deterministic-test'||config.context_input_protocol!==CONTEXT_PROTOCOL_V4||config.deterministic_message_from_input!==true))throw new Error('runtime configuration refused');
-    const contextProtocol=config.context_input_protocol===CONTEXT_PROTOCOL_V5?CONTEXT_PROTOCOL_V5:config.context_input_protocol===CONTEXT_PROTOCOL_V4?CONTEXT_PROTOCOL_V4:config.context_input_protocol===CONTEXT_PROTOCOL_V3?CONTEXT_PROTOCOL_V3:config.context_input_protocol===CONTEXT_PROTOCOL_V2?CONTEXT_PROTOCOL_V2:CONTEXT_PROTOCOL;
-    const contextMode=config.context_input_protocol===CONTEXT_PROTOCOL||config.context_input_protocol===CONTEXT_PROTOCOL_V2||config.context_input_protocol===CONTEXT_PROTOCOL_V3||config.context_input_protocol===CONTEXT_PROTOCOL_V4||config.context_input_protocol===CONTEXT_PROTOCOL_V5;
+    const contextProtocol=config.context_input_protocol===CONTEXT_PROTOCOL_V6?CONTEXT_PROTOCOL_V6:config.context_input_protocol===CONTEXT_PROTOCOL_V5?CONTEXT_PROTOCOL_V5:config.context_input_protocol===CONTEXT_PROTOCOL_V4?CONTEXT_PROTOCOL_V4:config.context_input_protocol===CONTEXT_PROTOCOL_V3?CONTEXT_PROTOCOL_V3:config.context_input_protocol===CONTEXT_PROTOCOL_V2?CONTEXT_PROTOCOL_V2:CONTEXT_PROTOCOL;
+    const contextMode=config.context_input_protocol===CONTEXT_PROTOCOL_V6||config.context_input_protocol===CONTEXT_PROTOCOL||config.context_input_protocol===CONTEXT_PROTOCOL_V2||config.context_input_protocol===CONTEXT_PROTOCOL_V3||config.context_input_protocol===CONTEXT_PROTOCOL_V4||config.context_input_protocol===CONTEXT_PROTOCOL_V5;
     this.guard=new URL(String(config.guard_url));
     if(this.guard.protocol!=='https:'||this.guard.hostname!=='127.0.0.1'||!this.guard.port||Number(this.guard.port)<1024||Number(this.guard.port)>65535||this.guard.username||this.guard.password||this.guard.search||this.guard.hash||this.guard.pathname!=='/internal/v1/runtime/authorize')throw new Error('runtime guard refused');
     if(typeof config.guard_ca_file!=='string'||typeof config.guard_key_file!=='string')throw new Error('runtime guard files required');
     this.caPath=config.guard_ca_file;this.keyPath=config.guard_key_file;
-    const guard=async(command:RunCommand,operation:string,input?:string,activationRef?:string)=>{
+    const guard=async(command:RunCommand,operation:string,input?:string,activationRef?:string,requestSnapshot?:ModelRequestSnapshot)=>{
       const active=this.activations.get(command.run_id);
       const ref=activationRef??active?.ref;
       if(input===undefined&&(operation==='start'||operation==='resume'))input=active?.input;
       if(!ref)throw new RuntimeError('runtime_authorization_denied');
       const key=privateMaterial(this.keyPath,64).toString('utf8');
       if(!/^[0-9a-f]{64}$/.test(key))throw new RuntimeError('runtime_authorization_denied');
-      const payload=Buffer.from(JSON.stringify({activation_ref:ref,command,operation,...(input===undefined?{}:{input})}));
+      // v6: each actual model request is recorded by the guard before the call (AT-027).
+      if(requestSnapshot!==undefined&&(operation!=='model'||contextProtocol!==CONTEXT_PROTOCOL_V6))throw new RuntimeError('runtime_authorization_denied');
+      const payload=Buffer.from(JSON.stringify({activation_ref:ref,command,operation,...(input===undefined?{}:{input}),...(requestSnapshot===undefined?{}:{request_snapshot:requestSnapshot})}));
       return await new Promise<{ever_execution_authorized:boolean}>((resolve,reject)=>{
         const request=httpsRequest(this.guard,{method:'POST',ca:privateMaterial(this.caPath,32768),minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(2000),
           headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':payload.length}},response=>{
@@ -150,7 +152,8 @@ export class RuntimeHost{
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
       activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
     this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command):undefined,costPolicy:selection.costPolicy,assertOwner,
-      authorize:async(command,operation)=>guard(command,operation)});
+      recordModelRequests:contextProtocol===CONTEXT_PROTOCOL_V6,
+      authorize:async(command,operation,request)=>guard(command,operation,undefined,undefined,request)});
   }
   private readonly authorizeAdmission:(command:RunCommand,operation:string,input?:string,ref?:string)=>Promise<{ever_execution_authorized:boolean}>;
   async dispatch(operation:string,body:Record<string,unknown>){
