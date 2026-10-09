@@ -251,7 +251,14 @@ class LocalArtifactService:
             return self.store.collect_temporary_page(namespace,older_than=older_than,limit=limit,after=after,guard=guard)
 
 def context_message_read_envelope(pool,session,signer,message_id):
-    """Internal typed current-reader proof; carries no permission from a binding owner."""
+    """Internal typed current-reader proof; carries no permission from a binding owner.
+
+    SQL selects the path: configured Message authority, or READ derived from the
+    caller's explicit message_read_rule plus current Consumer READ (message_read).
+    """
+    from nexloop_eios.message_read import message_read_basis,derived_message_read_envelope
+    basis=message_read_basis(pool,session,message_id)
+    if basis.get('mode')=='derived':return derived_message_read_envelope(pool,session,signer,message_id,basis)
     from nexloop_eios.object_reads import AuthorizedObjectReader
     reader=AuthorizedObjectReader(pool,session,signer)
     claims=reader._authority(ResourceType.OBJECT,'Message/'+message_id)

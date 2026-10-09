@@ -1,6 +1,6 @@
 # NX-018：Source 对已受理 Message 的受治理 READ 派生（方案 B 设计稿）
 
-状态：**设计稿，未实现、未执行任何测试**。等待负责人决定（调度员转达）。L1，2026-10-09。
+状态：负责人 2026-10-09 批准方案 B；**已实现**为临时迁移 `0073_nx018_message_read_derivation.sql` + `nexloop_eios/message_read.py`。第 9 节记录实现与本稿初版的差异，以第 9 节为准。L1。
 
 ## 1. 问题与根因
 
@@ -78,3 +78,17 @@ Source 主体 P 对 Message M 的 READ（object + `actor` + `body` 两个属性�
 ## 8. 与本线其它工作
 
 本线已提交第 1 步（0066，`e272d50`），不含回归修复。第 2 步（0067 v4 关系 Context）及 backend 锁/证明复用改动在工作区待定向回归结果后单独提交；按调度员指示，在负责人决定前暂停第 2/3 步之外的新工作。
+
+## 9. 实现说明（与初版设计的差异，以此为准）
+
+1. **独立的类型化证明，而不是派生通用 fact**。EIOS 应用上限 `ApplicationFacts.resources` 按精确 `(tenant,type,resource_id)` 匹配（applications.py `_resource_index.get`），且 application 事实与目标无关，无法按消息派生；若走通用 fact 路径，仍要为每条消息改 application 事实（这正是 `configure_message_read` 的做法）。因此派生 READ 使用与通用 READ 相同外形、相同 HMAC（`nexloop-object-read-v1`）的声明，另带 `derivation='accepted-message-v1'`、`facts=[]` 与 `derivation_basis`；`authz.nexloop_assert_read_authority` 外包一层：带 `derivation` 的声明转交 `nexloop_assert_derived_message_read`，其余原样走 0034 版本。`nexloop_read_object`、0062 的 `nexloop_check_context_message_read` 与复制件读取都不需改动。
+2. **派生条件（每次使用时在 SQL 内 for share 重读）**：调用者是 `real` world 的服务主体且无 run_context；凭据锁与身份快照与原 READ 相同（tenant/principal/credential/directory_hash/world/expires_at）；资源只能是 `Message/<id>` 对象或其 `actor`/`body` 属性；`message_read_rule`（key `[principal]`）存在、`active=true`、未过期，record hash 与证明一致，证明期限不超过规则期限；`ontology.objects` 中 Message 存在；`nexloop_message_outbox` 有受理记录；`conversation_messages` → `conversations` 的会话与 Consumer 与证明一致；嵌套的 Consumer READ 证明签名有效、指向同一 Consumer，并通过原 0034 `assert_read_authority` 的当前授权校验，证明期限不超过 Consumer READ 期限。
+3. **优先级**：只有该主体**自己**在 Message 对象或 actor/body 上存在已配置的 `grants` 事实（即使为空）时，才走已配置路径，派生被拒（`superseded`）。初版以 `resource_graph` 是否存在为开关，实测会被其他主体对同一 Message 的 EDIT 配置误触发，已改。
+4. **规则撤销**：可信配置发布从不删除事实，撤销即重新发布 `active:false` 或过期的 `valid_until`；撤销 Consumer READ 即把对应 grants 置空。两者都会推进 epoch，旧证明同时因 directory_hash 失效。
+5. **路径选择**：`authz.nexloop_message_read_basis` 只返回 `configured`/`derived` 与派生依据，不授予任何权限。`postgres_artifacts.context_message_read_envelope` 与 `AuthorizedObjectReader.get`（仅 Message 的 actor/body 子集）据此选择路径。
+6. **可信配置**：新 fact kind `message_read_rule` 只能由 `control.nexloop_configure_manifest` 写入；payload 恰为 `tenant_id/principal_id/type_name='Message'/fields=["actor","body"]/active/valid_until` 六键，且主体必须已是 service 的 `subject_authority`（同一 manifest 中需排在其后）。Python 侧 `MessageReadRule` 模型进入 `FACT_MODELS`。
+7. **未覆盖**：Run 凭据由 basis 直接判为 `configured`（不派生），但本轮没有为此写专门测试；v4 关系 Context（`relationship_context.message_envelope`）、Assessment 证据读取、NX-019 Claim 证据读取仍走已配置路径，没有切到派生。
+
+## 10. 适配 Agent 外发消息（负责人另行决定的任务，本步未实现）
+
+Agent 外发消息持久化为 Message 后，只要它与用户消息一样写入同一会话的 `conversation_messages` 与受理 outbox（或一张等价的、由受治理 Action 写入的外发记录表），派生条件 2 的"已受理 + 会话 → Consumer"链即可原样覆盖 Agent 自己发出的消息：Source 仍需该 Consumer 的当前 READ 与规则，读取范围仍限于该 Consumer 会话内已持久化的消息。若外发消息使用独立表，只需在 `nexloop_assert_derived_message_read` 中把"受理记录"条件扩成"受理或外发持久化记录"，不新增授权来源。

@@ -98,7 +98,12 @@ def context_message(assembled_message,admin,tmp_path):
     merged={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};merged.update({(r['kind'],tuple(r['key'])):r for r in edit_rows});manifest['authority_facts']=list(merged.values())
     manifest['service_credentials'].append({'reference':'catalog-editor','binding':edit_binding.model_dump(mode='json'),'worlds':['real'],'expires_at':expiry,'status':'active'})
     secret_map=json.loads(o['paths']['secrets'].read_text());secret_map['catalog-editor']=edit_token;o['paths']['secrets'].write_text(json.dumps(secret_map))
+    # Static Source authority: current Consumer READ + explicit accepted-Message READ rule.
+    # Message READ itself is derived per accepted Message in SQL (0073), never configured.
+    catalog_targets.append(('eios:object:Consumer/'+f['recipe']['consumer_id'],ResourceType.OBJECT))
     binding,rows=source_declarations(tenant,catalog_targets)
+    from message_offering_fixture import message_read_rule_row
+    rows.append(message_read_rule_row(tenant,binding.subject_principal_id,next(r['payload']['expires_at'] for r in rows if r['kind']=='authentication')))
     f['recipe'].update(offering_id=offering['object_id'],offering_binding_id=link['object_id'])
     merged={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};merged.update({(r['kind'],tuple(r['key'])):r for r in rows});manifest['authority_facts']=list(merged.values())
     import secrets
@@ -125,8 +130,6 @@ def context_message(assembled_message,admin,tmp_path):
         route=backend.authenticate(f['tokens']['assembly-route'],world='real');source=backend.authenticate(new_source,world='real');planner=backend.authenticate(f['tokens']['assembly-planner'],world='real')
         relay=MessageRelay(route=route,source=source,planner=planner,executor_token=f['tokens']['assembly-executor'],vault=vault,recipe=f['recipe'])
         candidate=PrivateConfiguration(f=f,original=o,manifest=manifest,message=message,relay=relay,backend=backend,source=source,route=route,planner=planner,root=root,vault=vault,dsn=dsn,source_token=new_source,editor=backend.authenticate(edit_token,world='real'))
-        from context_copy_authority_fixture import configure_message_read
-        configure_message_read(candidate,admin,allow=True)
         yield candidate
 
 

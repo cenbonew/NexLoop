@@ -31,6 +31,14 @@ class AuthorizedObjectReader:
                 or len(fields)>64 or any(type(f) is not str or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*',f) for f in fields)):
             raise ValueError('invalid object projection')
         fields=tuple(sorted(set(fields)))
+        if type_name=='Message' and fields and set(fields)<={'actor','body'}:
+            from nexloop_eios.message_read import message_read_basis,derived_message_read_envelope
+            basis=message_read_basis(self.pool,self.session,object_id)
+            if basis.get('mode')=='derived':
+                envelope=derived_message_read_envelope(self.pool,self.session,self.signer,object_id,basis,fields)
+                with self.pool.connection() as c,c.transaction():
+                    verify_application_role(c)
+                    return c.execute('select authz.nexloop_read_object(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,envelope['text'],envelope['signature'])).fetchone()[0]
         claims=self._authority(ResourceType.OBJECT,f'{type_name}/{object_id}')
         claims.update(protocol='nexloop-object-read-v1',key_id=self.signer.key_id,type_name=type_name,object_id=object_id,
             fields=fields,property_authorities=[self._authority(ResourceType.PROPERTY,f'{type_name}/{object_id}/{f}') for f in fields])

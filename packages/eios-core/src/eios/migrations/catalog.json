@@ -375,6 +375,11 @@
       "version": "0076",
       "name": "0076_nx018_relationship_context_v4.sql",
       "sha256": "f43278120c505fffb6c77891a40fa2456218f682edb759283499c0b66f9a6b8f"
+    },
+    {
+      "version": "0077",
+      "name": "0077_nx018_message_read_derivation.sql",
+      "sha256": "36c464e73bcfe770f75a272267ae0125549e69f7f2d96c804a17cd0fa038d444"
     }
   ]
 }
