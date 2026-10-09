@@ -74,8 +74,11 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                         self.send(403,{'code':'outside_catalog_terms','scope':denial.scope});return
                     except EffectIntentConflict:
                         self.send(409,{'code':'intent_payload_conflict'});return
-                    except EffectIntentUnavailable:
-                        self.send(403,{'code':'effect_intent_unavailable'});return
+                    except EffectIntentUnavailable as unavailable:
+                        # Same public code; transient contention (rolled back, deadline not
+                        # passed) is 503/retryable, every other fail-closed outcome stays 403.
+                        retryable=(unavailable.diagnosis or {}).get('retryable') is True
+                        self.send(503 if retryable else 403,{'code':'effect_intent_unavailable'});return
                     expected_keys={'intent_id','receipt_id','state','payload_digest','provider_payload_digest','scope','business_action_success'}
                     if (type(result) is not dict or set(result)!={'run_id','receipt'}
                         or result['run_id']!=body['command'].get('run_id') or type(result['receipt']) is not dict
