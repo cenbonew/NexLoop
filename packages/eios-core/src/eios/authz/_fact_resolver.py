@@ -142,7 +142,7 @@ def _build_authority_projector():
         def __repr__(self) -> str:
             return "<ReadOnlyAuthorityView>"
 
-    def project(root: object) -> object:
+    def project(root: object, reuse: Mapping[int, object] | None = None) -> object:
         memo: dict[int, object] = {}
         retained: list[object] = []
 
@@ -151,6 +151,10 @@ def _build_authority_projector():
                 return value
             if isinstance(value, (Enum, datetime)):
                 return value
+            # NexLoop adaptation (NX-049 8c): see _reusable_views.
+            if reuse is not None and id(value) in reuse:
+                retained.append(value)
+                return reuse[id(value)]
             # Several authority properties create temporary tuple/frozenset
             # values. Keep every projected source alive for the whole graph so
             # CPython cannot reuse an id for a later sibling and corrupt memo.
@@ -1056,7 +1060,28 @@ class AuthorizationFactsResolver:
             authoritative_expires_at=authoritative_expiry,
         )
         payload_digest = _canonical_digest(payload)
-        authority_view = _project_authority_view(payload)
+        authority_view = _project_authority_view(
+            payload,
+            _reusable_views(
+                payload,
+                {
+                    "subject": subject,
+                    "membership": membership,
+                    "actor": actor,
+                    "authentication": authentication,
+                    "caller_application": caller_application,
+                    "agent": agent,
+                    "agent_release": agent_release,
+                    "agent_application": agent_application,
+                    "subject_authority": subject_authority,
+                    "resource_graph": resource_graph,
+                    "grants": grants,
+                    "scope_authority": scope_authority,
+                    "controls": controls,
+                    "policies": policies,
+                },
+            ),
+        )
         if not isinstance(authority_view, ReadOnlyAuthorityView):
             raise AuthorizationUnavailable(
                 "authorization authority view could not be constructed"
@@ -1236,6 +1261,60 @@ def _is_verified(value: object) -> bool:
         and len(current) == len(recorded) + 1
         and all(map(operator.is_, current[1:], recorded))
     )
+
+
+# NexLoop adaptation (NX-049 8c): reuse of read-only views of verified facts.
+#
+# Building the resolved payload revalidates each fact into a fresh, equal copy,
+# and every resolve projected those copies again. A view of a registered,
+# unchanged fact (see the 8a registry above) is now projected once and cached
+# per instance (weak reference); a payload field reuses it only when the
+# original is still verified and the payload's copy is equal to it (same type,
+# == on fields, private attributes and extra). One cached view is used for at
+# most one field per payload, so view identities inside a payload are as
+# distinct as before. Anything else is projected from the payload as upstream.
+_VIEWS: dict[int, tuple[object, object]] = {}
+
+
+def _cached_view(original: object) -> object:
+    entry = _VIEWS.get(id(original))
+    if entry is not None and entry[0]() is original:
+        return entry[1]
+    view = _project_authority_view(original)
+    key = id(original)
+
+    def forget(dead: object, key: int = key) -> None:
+        current = _VIEWS.get(key)
+        if current is not None and current[0] is dead:
+            _VIEWS.pop(key, None)
+
+    with _VERIFIED_LOCK:
+        _VIEWS[key] = (ref(original, forget), view)
+    return view
+
+
+def _reusable_views(
+    payload: BaseModel, originals: Mapping[str, object]
+) -> dict[int, object] | None:
+    if not _TRUST_VERIFIED:
+        return None
+    reuse: dict[int, object] = {}
+    used: set[int] = set()
+    for name, original in originals.items():
+        if original is None or id(original) in used:
+            continue
+        copy = payload.__dict__.get(name)
+        if (
+            copy is None
+            or type(copy) is not type(original)
+            or id(copy) in reuse
+            or not _is_verified(original)
+            or copy != original
+        ):
+            continue
+        used.add(id(original))
+        reuse[id(copy)] = _cached_view(original)
+    return reuse or None
 
 
 def _exact_model(value: object, expected: type[FactT], message: str) -> FactT:

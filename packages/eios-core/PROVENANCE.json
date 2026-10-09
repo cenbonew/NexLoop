@@ -142,9 +142,10 @@
       "destination": "packages/eios-core/src/eios/authz/_fact_resolver.py",
       "upstream_sha256": "e4cdce52f68940996328fcc553bceb9dae381daec83f5c16cf680728a9316181",
       "adaptations": [
-        "NX-049 8a: verified-instance registry; _exact_model returns an instance unchanged only when verified_model_from_json fully validated it itself and every reachable object is still identical (in-place change, model_construct, model_copy or any other origin takes the upstream full revalidation); new verified_model_from_json, _reachable, _is_verified; NEXLOOP_EIOS_FULL_REVALIDATION=1 disables; decisions and digests unchanged"
+        "NX-049 8a: verified-instance registry; _exact_model returns an instance unchanged only when verified_model_from_json fully validated it itself and every reachable object is still identical (in-place change, model_construct, model_copy or any other origin takes the upstream full revalidation); new verified_model_from_json, _reachable, _is_verified; NEXLOOP_EIOS_FULL_REVALIDATION=1 disables; decisions and digests unchanged",
+        "NX-049 8c: read-only views of registered, unchanged facts are projected once and cached per instance (weak reference); a resolved payload field reuses the cached view only when the original is still verified and the payload copy is equal to it, at most once per original per payload (view identities unchanged); new _cached_view, _reusable_views, project(reuse=); decisions and digests unchanged"
       ],
-      "nexloop_sha256": "7aeba4d902f71e48a611e53a819799feda27bf31f4e11d3b3dfc6798b86b4095"
+      "nexloop_sha256": "44d7773c5b6c19b8efe9142746be2f2b3ba1450eae74e9b7e7c599c6c2a0a8a2"
     },
     {
       "source_path": "src/eios/authz/applications.py",

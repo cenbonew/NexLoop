@@ -154,3 +154,110 @@ def test_pg_decisions_identical_with_and_without_shortcut(published_action,admin
     assert results[True]==results[False]
     flat=[r for run in results[True] for r in run]
     assert any(r[0]=='decision' and r[2]['decision']['allowed'] for r in flat) and any(r[0]=='error' or not r[2]['decision']['allowed'] for r in flat)
+
+
+# ---- 8c: reuse of read-only views of verified facts -------------------------------------------
+
+from pydantic import BaseModel,ConfigDict
+
+
+class _Holder(BaseModel):
+    model_config=ConfigDict(frozen=True,strict=True,extra='forbid')
+    subject:F.SubjectFacts
+    actor:F.ActorFacts
+    other_subject:F.SubjectFacts|None=None
+
+
+def _records():
+    cells=dict(zip(R._project_authority_view.__code__.co_freevars,(c.cell_contents for c in R._project_authority_view.__closure__)))
+    return cells['record_values']
+
+
+def materialize(value,records=None):
+    """Plain structure of a projected view (test-only access to the projector's records)."""
+    records=_records() if records is None else records
+    if isinstance(value,R.ReadOnlyAuthorityView):
+        return {k:materialize(v,records) for k,v in sorted(records[value].items())}
+    if isinstance(value,(tuple,list)):return [materialize(v,records) for v in value]
+    if isinstance(value,frozenset):return sorted((json.dumps(materialize(v,records),sort_keys=True,default=str) for v in value))
+    if hasattr(value,'items'):return {str(k):materialize(v,records) for k,v in sorted(value.items(),key=lambda kv:str(kv[0]))}
+    return value if value is None or isinstance(value,(bool,int,float,str)) else repr(value)
+
+
+def registered(model):return next(R.verified_model_from_json(m,t) for m,t in texts() if m is model)
+
+
+def test_view_reuse_only_for_verified_equal_copies(monkeypatch):
+    subject,actor=registered(F.SubjectFacts),registered(F.ActorFacts)
+    holder=_Holder(subject=subject,actor=actor)
+    assert holder.subject is not subject and holder.subject==subject  # payload-style revalidated copy
+    reuse=R._reusable_views(holder,{'subject':subject,'actor':actor})
+    assert set(reuse)=={id(holder.subject),id(holder.actor)}
+    assert reuse[id(holder.subject)] is R._cached_view(subject)
+    # The reused view has exactly the content a fresh projection of the copy has.
+    assert materialize(R._project_authority_view(holder,reuse))==materialize(R._project_authority_view(holder))
+    monkeypatch.setattr(R,'_TRUST_VERIFIED',False)
+    assert R._reusable_views(holder,{'subject':subject,'actor':actor}) is None
+
+
+def test_view_reuse_refused_for_unregistered_unequal_or_tampered_originals():
+    subject,actor=registered(F.SubjectFacts),registered(F.ActorFacts)
+    holder=_Holder(subject=subject,actor=actor)
+    plain=F.SubjectFacts.model_validate_json(next(t for m,t in texts() if m is F.SubjectFacts))
+    assert R._reusable_views(holder,{'subject':plain}) is None  # not registered
+    other=registered(F.SubjectFacts)
+    object.__setattr__(other,'status','disabled')  # tampered after registration
+    assert R._reusable_views(_Holder(subject=registered(F.SubjectFacts),actor=actor),{'subject':other}) is None
+    _,_,rows=authority_records('synthetic-a',TARGET,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-unequal')
+    foreign=next(f for _,_,f in rows if type(f) is F.ActorFacts)
+    assert foreign!=actor
+    holder2=_Holder(subject=subject,actor=foreign)
+    assert R._reusable_views(holder2,{'actor':actor}) is None  # payload copy not equal to the original
+    # The same original for two fields is reused at most once, so view identities stay distinct.
+    both=_Holder(subject=subject,actor=actor,other_subject=subject)
+    reuse=R._reusable_views(both,{'subject':subject,'other_subject':subject})
+    assert list(reuse)==[id(both.subject)]
+    view=R._project_authority_view(both,reuse)
+    records=_records()
+    assert records[view]['subject'] is not records[view]['other_subject']
+
+
+def test_cached_view_dies_with_its_instance():
+    subject=registered(F.SubjectFacts);key=id(subject)
+    R._cached_view(subject);assert key in R._VIEWS
+    del subject;gc.collect()
+    assert key not in R._VIEWS
+
+
+def _contexts(pool,session,queries):
+    """Materialized resolved views; queries are built once so request/trace ids match across modes."""
+    out=[]
+    for query in queries:
+        resolver=F.AuthorizationFactsResolver(PostgresAuthorityProvider(pool,session))
+        try:context=resolver.resolve(query)
+        except (AuthorizationUnavailable,F.AuthorizationFactDenied) as error:
+            out.append(('error',type(error).__name__));continue
+        context.verify_integrity()
+        out.append(('context',{name:materialize(getattr(context,name)) for name in sorted(R._RESOLVED_PUBLIC_FIELDS) if name!='trusted_now'}))
+    return out
+
+
+def test_pg_resolved_views_identical_and_reused(published_action,admin,monkeypatch):
+    reader,_,_=published_action
+    targets=[(TARGET,ResourceType.ACTION,Operation.EXECUTE),(TARGET,ResourceType.ACTION,Operation.READ),
+        ('eios:action:Consumer.delete:1',ResourceType.ACTION,Operation.EXECUTE)]
+    now=admin.execute('select clock_timestamp()').fetchone()[0]
+    monkeypatch.setattr(PostgresAuthorityUnitOfWork,'trusted_now',lambda self:now)
+    queries=[reader.session.query(resource_id=t,resource_type=k,operation=o) for t,k,o in targets]
+    results={}
+    for trust in (False,True):
+        monkeypatch.setattr(R,'_TRUST_VERIFIED',trust);FACT_PARSE_CACHE.clear()
+        results[trust]=[_contexts(reader.pool,reader.session,queries) for _ in range(2)]
+    assert results[True]==results[False] and any(r[0]=='context' for r in results[True][0])
+    # With the shortcut, a second resolve hands out the same cached subject view.
+    resolver=F.AuthorizationFactsResolver(PostgresAuthorityProvider(reader.pool,reader.session))
+    query=reader.session.query(resource_id=TARGET,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
+    first,second=resolver.resolve(query),resolver.resolve(query)
+    assert first.subject is second.subject
+    monkeypatch.setattr(R,'_TRUST_VERIFIED',False)
+    assert resolver.resolve(query).subject is not first.subject
