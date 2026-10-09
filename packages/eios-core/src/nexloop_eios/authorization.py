@@ -9,9 +9,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 import hashlib
+import contextvars
 import json
 import secrets
 import threading
+import time
 
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
@@ -218,6 +220,58 @@ class PostgresAuthorityProvider:
             raise
         except Exception:
             raise AuthorizationUnavailable('PostgreSQL authority facts unavailable') from None
+
+
+_REQUEST_MEMO = contextvars.ContextVar('nexloop_authority_request_memo', default=None)
+REQUEST_MEMO_MAX_AGE_SECONDS = 5.0
+
+
+@contextmanager
+def authority_request_scope():
+    """O1: memoize identical authorization resolutions within ONE backend request.
+
+    Opened by Backend request entry points (not nestable across requests: an
+    inner scope reuses the outer one, the outermost discards it on exit). Each
+    thread/request has its own contextvars context, so nothing is shared across
+    requests or threads; a revocation is observed by the next request. Within a
+    request, the signed proofs still carry the resolved record hashes that the
+    SQL commit tail re-verifies.
+    """
+    if _REQUEST_MEMO.get() is not None:
+        yield
+        return
+    token = _REQUEST_MEMO.set({})
+    try:
+        yield
+    finally:
+        _REQUEST_MEMO.reset(token)
+
+
+def _memo_key(session, query):
+    # Principal, credential, tenant, scopes, application, agent invocation, world,
+    # Run binding and target are all inside the query; directory hash covers the
+    # tenant authority revision and credential row. Per-call request/trace ids excluded.
+    return (type(session).__name__, session.token_digest, session.directory_hash, session.world,
+        query.model_dump_json(exclude={'request_id', 'trace_id'}))
+
+
+def resolve_authority(pool, session, query, entries=None):
+    """Drop-in for AuthorizationFactsResolver(PostgresAuthorityProvider(pool,session,entries)).resolve(query)."""
+    memo = _REQUEST_MEMO.get()
+    if memo is None:
+        return F.AuthorizationFactsResolver(PostgresAuthorityProvider(pool, session, entries)).resolve(query)
+    key = _memo_key(session, query)
+    hit = memo.get(key)
+    if hit is not None and time.monotonic() - hit[2] < REQUEST_MEMO_MAX_AGE_SECONDS:
+        if entries is not None:
+            entries.extend({**entry, 'key': list(entry['key'])} for entry in hit[1])
+        return hit[0]
+    loaded = []
+    context = F.AuthorizationFactsResolver(PostgresAuthorityProvider(pool, session, loaded)).resolve(query)
+    memo[key] = (context, tuple({**entry, 'key': list(entry['key'])} for entry in loaded), time.monotonic())
+    if entries is not None:
+        entries.extend(loaded)
+    return context
 
 
 def authorization_service(pool,session):

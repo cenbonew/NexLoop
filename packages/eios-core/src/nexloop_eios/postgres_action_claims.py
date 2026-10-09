@@ -8,7 +8,7 @@ from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
 
@@ -45,7 +45,7 @@ class PostgresActionClaimPort:
         resource=resource_id(ResourceType.ACTION,ref.stable_name,ref.version)
         entries=[]
         query=self.session.query(resource_id=resource,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        context=F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query)
+        context=resolve_authority(self.pool,self.session,query,entries)
         decision=AuthorizationDecisionService().decide_resolved(context)
         if not decision.allowed or not decision.authoritative or decision.obligations:
             raise ActionAuthorizationDenied('Action authorization denied')

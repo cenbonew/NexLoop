@@ -18,7 +18,7 @@ from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
 from nexloop_eios.service_offerings import CatalogScopeDenied
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
 
@@ -64,7 +64,7 @@ class EffectIntentPort:
             if len(payload.encode())>131072:raise ValueError()
             entries=[];target=f'eios:action:{ACTION}:{action_version}'
             query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-            decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+            decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))
             if not decision.allowed or not decision.authoritative or decision.obligations:raise ValueError()
             session=self.session
             claims={'protocol':'nexloop-effect-intent-v1','key_id':self.signer.key_id,'tenant_id':session.authentication.tenant_id,

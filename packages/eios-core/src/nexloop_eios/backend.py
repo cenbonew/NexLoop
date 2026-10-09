@@ -64,7 +64,7 @@ class LifecycleLock:
 
 from nexloop_eios.assembly import open_core, verify_application_role
 from eios.adapters.postgres.database import StorageUnavailable
-from nexloop_eios.authorization import authenticate_service
+from nexloop_eios.authorization import authenticate_service,authority_request_scope
 from nexloop_eios.local_artifacts import LocalBlobStore
 from nexloop_eios.relation_actions import GovernedRelationLinker
 from nexloop_eios.artifact_orphans import FinalOrphanCollector
@@ -371,7 +371,8 @@ class Backend:
     def _invoke_review(self, inspected_session, operation, **arguments):
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.candidate_merge import ReviewQueueReader
-        with self._lock:
+        # O1: request-scoped authorization memo, discarded when this request ends.
+        with self._lock, authority_request_scope():
             self._assert_open()
             if operation not in ('pending', 'candidate'):
                 raise ValueError('unsupported review operation')
@@ -384,7 +385,8 @@ class Backend:
         from nexloop_eios.conversation_messages import ConversationMessagePort
         allowed = {'link_authenticated_identity', 'create_conversation', 'list_conversations', 'accept_message', 'accept_native_message',
             'read_messages', 'read_events', 'read_message_run', 'read_message_service_receipt', 'read_message_scope_denial'}
-        with self._lock:
+        # O1: request-scoped authorization memo, discarded when this request ends.
+        with self._lock, authority_request_scope():
             self._assert_open()
             if operation not in allowed:
                 raise ValueError('unsupported browser operation')
@@ -409,7 +411,8 @@ class Backend:
     def _invoke(self, session, operation, **arguments):
         # Shared request hold: shutdown cannot close a file FD or connection pool
         # during a commit/fsync, while independent requests proceed concurrently.
-        with self._lock:
+        # O1: request-scoped authorization memo, discarded when this request ends.
+        with self._lock, authority_request_scope():
             self._assert_open()
             activation_operations = {
                 'accept_runtime_event': 'accept', 'register_runtime_run': 'register', 'create_runtime_activation': 'create',

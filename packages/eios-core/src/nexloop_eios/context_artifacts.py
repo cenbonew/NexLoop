@@ -6,7 +6,7 @@ from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
-from nexloop_eios.authorization import authenticate_service,PostgresAuthorityProvider
+from nexloop_eios.authorization import authenticate_service,PostgresAuthorityProvider,resolve_authority
 from nexloop_eios.run_credentials import AUDIENCE
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.runtime_activation import RuntimeActivationPort,_command
@@ -28,7 +28,7 @@ class ContextArtifactConflict(RuntimeError):
 
 def artifact_authority_proof(pool,session,operation):
     entries=[];query=session.query(resource_id='eios:artifact:local_real',resource_type=ResourceType.ARTIFACT,operation=operation)
-    decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(pool,session,entries)).resolve(query))
+    decision=AuthorizationDecisionService().decide_resolved(resolve_authority(pool,session,query,entries))
     if not decision.allowed or not decision.authoritative or decision.obligations:raise ContextArtifactUnavailable()
     return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,
      'credential_id':session.authentication.credential_id,'directory_hash':session.directory_hash,'world':'real',

@@ -50,8 +50,10 @@ for name,items in sorted(events.items(),key=lambda kv:-sum(e['total'] for e in k
     counts={}
     for e in items:
         for k,v in e.get('counts',{}).items():counts[k]=counts.get(k,0)+v
+    dec=[e for e in items if 'decisions' in e]
+    dup=f"; decisions/req {sum(e['decisions'] for e in dec)/len(dec):.1f}, distinct {sum(e['distinct_decisions'] for e in dec)/len(dec):.1f}" if dec and sum(e['decisions'] for e in dec) else ''
     calls=', '.join(f'{k} ×{v/len(items):.1f}' for k,v in sorted(counts.items(),key=lambda kv:-kv[1])[:6] if k!=name)
-    print(f'|{name}|{len(items)}|{1000*q(totals,.5):.0f}|{1000*q(totals,.95):.0f}|{1000*max(totals):.0f}|{top}{"; calls/req: "+calls if calls else ""}|')
+    print(f'|{name}|{len(items)}|{1000*q(totals,.5):.0f}|{1000*q(totals,.95):.0f}|{1000*max(totals):.0f}|{top}{dup}{"; calls/req: "+calls if calls else ""}|')
 
 funcs={}
 for pg in pgs:

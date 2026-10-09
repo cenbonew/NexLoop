@@ -9,7 +9,7 @@ from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
@@ -26,7 +26,7 @@ class PostgresDurableQueue:
     def _call(self,verb,**parameters):
         target=f'eios:action:NexLoop.queue.{self.queue}:1';entries=[]
         query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        d=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+        d=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))
         if not d.allowed or not d.authoritative or d.obligations:raise ActionAuthorizationDenied('queue authority denied')
         payload=canonical_payload({'queue':self.queue,'verb':verb,**parameters})
         if len(payload.encode())>262144:raise ValueError('queue payload budget exceeded')

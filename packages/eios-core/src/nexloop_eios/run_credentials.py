@@ -7,7 +7,7 @@ from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.assembly import verify_application_role
@@ -36,7 +36,7 @@ def issue_run_credential(pool,session,signer,*,action_resources,ttl_seconds=300)
         except Exception:raise ActionAuthorizationDenied('published Run Action unavailable') from None
         entries=[]
         query=session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(pool,session,entries)).resolve(query))
+        decision=AuthorizationDecisionService().decide_resolved(resolve_authority(pool,session,query,entries))
         if not decision.allowed or not decision.authoritative or decision.obligations:raise ActionAuthorizationDenied('Run Action authority denied')
         proofs.append({'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,
             'credential_id':session.authentication.credential_id,'directory_hash':session.directory_hash,'world':session.world,

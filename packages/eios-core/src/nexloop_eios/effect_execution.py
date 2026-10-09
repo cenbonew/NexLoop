@@ -23,7 +23,7 @@ from eios.authz.resources import ResourceType
 from eios.authz.service import AuthorizationDecisionService
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 from nexloop_eios.action_governor import UnavailableApprovalAuthority,UnavailableApprovalPort
-from nexloop_eios.authorization import PostgresAuthorityProvider,_identity
+from nexloop_eios.authorization import PostgresAuthorityProvider,_identity,resolve_authority
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
 
@@ -85,7 +85,7 @@ class EffectExecutionPort:
         entries=[]
         query=session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
         decision=AuthorizationDecisionService().decide_resolved(
-            F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,session,entries)).resolve(query))
+            resolve_authority(self.pool,session,query,entries))
         if not decision.allowed or not decision.authoritative or decision.obligations:
             raise AuthorizationUnavailable('effect_execution_unavailable')
         return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,
