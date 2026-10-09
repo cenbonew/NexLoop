@@ -103,8 +103,21 @@ def check_http_container():
 
 def main():
     parser=argparse.ArgumentParser(description='Community test bootstrap/PG-Artifact diagnostic jobs')
-    parser.add_argument('job',choices=['bootstrap','check-test','api-test','check-http-test','cache-bootstrap','host-bootstrap','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder'])
+    parser.add_argument('job',choices=['bootstrap','check-test','api-test','check-http-test','cache-bootstrap','host-bootstrap','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder',
+        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer'])
     args=parser.parse_args()
+    if args.job in ('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer'):
+        # Long-running restricted background services (opt-in compose profile "background"). Their private
+        # files are provisioned by trusted configuration (service-grants), never here; optional files are
+        # passed only when present.
+        from nexloop_eios.background_services import main_for
+        root=Path('/private/background')/args.job
+        argv=['--database-url-file',str(root/'database_url'),'--signing-key-file',str(root/'artifact_key'),'--signing-key-id',
+            read_private_text(root/'signing_key_id',maximum=64).strip(),'--service-credential-file',str(root/'service_credential'),
+            '--artifact-root','/var/lib/nexloop/artifacts','--world','real']
+        for option,name in (('--model-env-file','model.env'),('--embedding-env-file','embedding.env'),('--match-config-file','match-config.json'),('--types-file','types.json')):
+            if (root/name).exists():argv+=[option,str(root/name)]
+        return main_for(args.job,argv)
     if args.job=='outbound-recorder':
         # Long-running restricted service (opt-in compose profile). Its private files are
         # provisioned by trusted configuration (service-grants + business-actions), never here.

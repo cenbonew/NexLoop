@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-service-grants/1",
-  "manifest_version": 3,
-  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json.",
+  "manifest_version": 4,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks).",
   "valid_from": "2026-10-09T00:00:00+00:00",
   "world": "real",
   "principals": [
@@ -37,6 +37,17 @@
       "database_role": "nexloop_domain_worker",
       "purpose": "Four-layer Claim matching and the governed formal write of accepted matches.",
       "source_task": "NX-020"
+    },
+    {
+      "role": "recall_indexer",
+      "subject_id": "nexloop-service-recall-indexer",
+      "principal_id": "nexloop-service-recall-indexer-principal",
+      "credential_id": "nexloop-service-recall-indexer-key",
+      "credential_reference": "recall_indexer",
+      "application_id": "eios:application:nexloop-recall-indexer",
+      "database_role": "nexloop_domain_worker",
+      "purpose": "Re-derive or remove instance recall index rows for objects marked in the recall-instance feed; holds no business READ/EDIT (recall filters by the reader's own READ).",
+      "source_task": "NX-021"
     },
     {
       "role": "runtime_worker",
@@ -102,6 +113,10 @@
      "purpose": "Type-level schema read for candidate generation.", "source_task": "NX-020"},
     {"principal": "claim_matcher", "resource_type": "object_type", "resource_id": "eios:object_type:Product", "operations": ["read"],
      "purpose": "Type-level schema read for candidate generation.", "source_task": "NX-020"},
+    {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:NexLoop.feed.claim-match:1", "operations": ["execute"],
+     "purpose": "Lease Conversations marked by recorded Claims (0092) for background matching and glue.", "source_task": "NX-020"},
+    {"principal": "recall_indexer", "resource_type": "action", "resource_id": "eios:action:NexLoop.feed.recall-instance:1", "operations": ["execute"],
+     "purpose": "Lease objects marked by governed create/edit/erasure (0092) for instance index reflow.", "source_task": "NX-021"},
     {"principal": "runtime_worker", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.operations:1", "operations": ["execute"],
      "purpose": "Claim/renew/finish Run activation tasks (queue name as deployed by the message recipe).", "source_task": "NX-013/NX-014"},
     {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.conversation.route:1", "operations": ["execute"],

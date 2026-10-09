@@ -460,6 +460,11 @@
       "version": "0092",
       "name": "0092_nx023_context_bind_v6.sql",
       "sha256": "b8b3c0082dde812bd0c3042e172cddef04e17fe7c58a61539d8a4d8683829ffc"
+    },
+    {
+      "version": "0093",
+      "name": "0093_nx020_nx021_work_feeds.sql",
+      "sha256": "1ea0e98d4cb523f03de5f165a261effedcb297d56d3741ba1a11d8f01be22503"
     }
   ]
 }
