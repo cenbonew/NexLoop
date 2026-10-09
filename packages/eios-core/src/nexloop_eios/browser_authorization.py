@@ -7,7 +7,7 @@ import json
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
 from eios.identity.models import BrowserSession
-from nexloop_eios.authorization import FACT_PARSE_CACHE,ServiceSession,PostgresAuthorityUnitOfWork,WITNESS
+from nexloop_eios.authorization import ServiceSession,PostgresAuthorityUnitOfWork,WITNESS
 from nexloop_eios.assembly import verify_application_role
 
 
@@ -55,14 +55,9 @@ def authenticate_browser_business(pool,session:BrowserSession,*,world='real'):
 
 
 class BrowserAuthorityUnitOfWork(PostgresAuthorityUnitOfWork):
-    def _load(self,kind,key,model):
-        value=self.connection.execute('select authz.nexloop_browser_authority_fact_snapshot(%s,%s,%s,%s)',
+    def _fetch(self,kind,key):
+        return self.connection.execute('select authz.nexloop_browser_authority_fact_snapshot(%s,%s,%s,%s)',
             (self.session.token_digest,self.session.world,kind,list(key))).fetchone()[0]
-        if value is None:return None
-        self.entries.append({'kind':kind,'key':list(key),'record_hash':value['record_hash']})
-        body=dict(value['payload']);body['repository_witness']=WITNESS
-        fact=FACT_PARSE_CACHE.parse(model,json.dumps(body))
-        self._loaded.add((model.__name__,fact.snapshot_digest,fact.repository_witness));return fact
     def load_browser_authentication(self,binding):return self._load('browser_authentication',[binding.session_id],F.BrowserAuthenticationFacts)
     def load_credential_authentication(self,binding):raise AuthorizationUnavailable('browser is not API-key authority')
 

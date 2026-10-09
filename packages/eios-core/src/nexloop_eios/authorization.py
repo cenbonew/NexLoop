@@ -159,16 +159,35 @@ class PostgresAuthorityUnitOfWork:
     def verify_repository_witness(self, *, fact_kind, snapshot_digest, repository_witness):
         return (fact_kind,snapshot_digest,repository_witness) in self._loaded
 
-    def _load(self, kind, key, model):
+    def _fetch(self, kind, key):
         row=self.connection.execute('select authz.nexloop_load_authority_fact_snapshot(%s,%s,%s,%s)',
                 (self.session.token_digest,self.session.world,kind,list(key))).fetchone()
-        if not row or row[0] is None:return None
-        self.entries.append({'kind':kind,'key':list(key),'record_hash':row[0]['record_hash']})
-        payload=dict(row[0]['payload']);payload['repository_witness']=WITNESS
+        return None if not row or row[0] is None else row[0]
+
+    def _load(self, kind, key, model):
+        # O2a: identity-class facts are constant for one authenticated session;
+        # inside one request scope they are read once (still bound to the session's
+        # token digest, directory hash and world). Grants/scope/controls/policies/
+        # resource graph are read on every decision.
+        memo=_REQUEST_MEMO.get();memo_key=None
+        if memo is not None and kind in IDENTITY_FACT_KINDS:
+            memo_key=('identity-fact',type(self.session).__name__,self.session.token_digest,self.session.directory_hash,
+                self.session.world,kind,tuple(key),model)
+            hit=memo.get(memo_key)
+            if hit is not None and time.monotonic()-hit[2]<REQUEST_MEMO_MAX_AGE_SECONDS:
+                record_hash,fact,_=hit
+                self.entries.append({'kind':kind,'key':list(key),'record_hash':record_hash})
+                self._loaded.add((model.__name__,fact.snapshot_digest,fact.repository_witness))
+                return fact
+        value=self._fetch(kind,key)
+        if value is None:return None
+        self.entries.append({'kind':kind,'key':list(key),'record_hash':value['record_hash']})
+        payload=dict(value['payload']);payload['repository_witness']=WITNESS
         # Stored snapshot checksum remains checked by the original EIOS model
         # (on a cache miss; a hit is the result of parsing this same text).
         fact=FACT_PARSE_CACHE.parse(model,json.dumps(payload))
         self._loaded.add((model.__name__,fact.snapshot_digest,fact.repository_witness))
+        if memo_key is not None:memo[memo_key]=(value['record_hash'],fact,time.monotonic())
         return fact
 
     def load_subject(self,tenant_id,subject_id):return self._load('subject',[subject_id],F.SubjectFacts)
@@ -223,6 +242,8 @@ class PostgresAuthorityProvider:
             raise AuthorizationUnavailable('PostgreSQL authority facts unavailable') from None
 
 
+# Facts whose key depends only on the authenticated session, never on the target.
+IDENTITY_FACT_KINDS = frozenset({'subject','membership','actor','authentication','application','subject_authority','revision'})
 _REQUEST_MEMO = contextvars.ContextVar('nexloop_authority_request_memo', default=None)
 REQUEST_MEMO_MAX_AGE_SECONDS = 5.0
 
