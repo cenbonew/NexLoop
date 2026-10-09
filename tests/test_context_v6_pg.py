@@ -152,7 +152,7 @@ def test_v6_binds_verified_sources_and_keeps_claims_out_of_formal_state(v6,admin
     assert pack['goal']['control_snapshot']['scopes']==[{'kind':'consumer','ref':'consumer:'+f['f']['recipe']['consumer_id']}] and pack['insufficient']==[]
     # Stored provenance: one row per core source and per item, each with its decision.
     rows=sources(admin,tenant,row[3])
-    assert [r[1] for r in rows[:5]]==['current_event','constraints','constraints','bindings','goal'] and all(r[7]=='included' for r in rows)
+    assert [r[1] for r in rows[:3]]==['current_event','constraints','constraints'] and {'bindings','goal'}<={r[1] for r in rows} and all(r[7]=='included' for r in rows)
     assert {r[2] for r in rows}>={'eios:object:Message/'+f['message']['id'],'claim:'+negated,'claim:'+pending,'context-strategy:recent_plus_required@1'}
     assert not any(r[2].startswith('claim:') and r[1]!='evidence' for r in rows)
     with admin.transaction():
@@ -384,5 +384,75 @@ def test_actual_pi_run_records_every_model_call_of_a_v6_run(v6,admin,tmp_path):
         assert sorted(declared)==['nexloop.service.find','nexloop.service.request']
         body=manifest(admin,tenant,row[2],call);MANIFEST_SCHEMA.validate(body);ContextManifest.model_validate(body)
         assert body['model_provider']=='faux' and body['context_id']==row[3] and 'claim:'+negated in {s['ref'] for s in body['sources']}
+    # Every actual call also has its outcome, written once after the provider answered.
+    outcomes=results(admin,tenant)
+    assert [o[:2] for o in outcomes]==[(n,'succeeded') for n in (1,2,3,4)] and all(o[5] and o[2]['total']>=0 and o[3]=='0.00000000' and len(o[4])==64 for o in outcomes)
     # Later requests carry the earlier tool results: the transcript grows call by call.
     assert [len(json.loads(r[2])['context']['messages']) for r in recorded]==sorted(len(json.loads(r[2])['context']['messages']) for r in recorded)
+
+
+def test_relay_cli_subprocess_binds_v6_with_the_given_strategy(v6,admin,tmp_path):
+    """message_relay_cli --context-strategy end to end in its own process."""
+    import subprocess,sys
+    from psycopg.conninfo import make_conninfo
+    f=v6;o=f['original'];tokens=f['f']['tokens']
+    private=tmp_path/'relay-cli';private.mkdir(mode=0o700);vault=private/'vault';vault.mkdir(mode=0o700)
+    material={'database-url-file':make_conninfo(o['pg'],user='nexloop_api'),'route-credential-file':tokens['assembly-route'],'source-credential-file':f['source_token'],
+        'planner-credential-file':tokens['assembly-planner'],'executor-credential-file':tokens['assembly-executor'],'recipe-file':json.dumps(f['f']['recipe'])}
+    argv=[]
+    for name,value in material.items():
+        path=private/name;path.write_text(value);path.chmod(0o600);argv+=['--'+name,str(path)]
+    argv+=['--signing-key-file',str(o['paths']['backend_signing']),'--signing-key-id','explicit-configuration','--artifact-root',str(private/'artifacts'),'--vault-root',str(vault),'--once']
+    done=subprocess.run([sys.executable,'-m','nexloop_eios.message_relay_cli',*argv,'--context-strategy','recent_plus_required'],capture_output=True,text=True,timeout=60)
+    assert done.returncode==0 and done.stdout=='Message relay ready\n{"status":"queued"}\n',done.stderr
+    pack,row=bound(admin)
+    assert pack['schema_version']=='nexloop.context-pack.v6' and pack['strategy_ref']=='context-strategy:recent_plus_required@1'
+    job=admin.execute('select normalized_input from runtime.jobs').fetchone()[0]
+    assert job['input']==row[0]
+    assert all(token not in done.stdout+done.stderr for token in [*tokens.values(),f['source_token']])
+
+
+def test_unpublished_strategy_fails_closed_and_binds_nothing(v6,admin):
+    f=v6
+    relay=MessageRelay(route=f['route'],source=f['source'],planner=f['planner'],executor_token=f['f']['tokens']['assembly-executor'],
+        vault=f['vault'],recipe=f['f']['recipe'],context_strategy='unpublished_strategy')
+    with pytest.raises(MessageRelayUnavailable):relay.run_once()
+    assert relay._context_diagnostic is not None
+    assert admin.execute('select count(*) from runtime.nexloop_context_artifact_bindings').fetchone()==(0,)
+    assert admin.execute('select count(*) from runtime.nexloop_local_artifacts').fetchone()==(0,)
+
+
+def results(admin,tenant):
+    with admin.transaction():
+        owner(admin,tenant)
+        return admin.execute('select call_sequence,result_status,usage,cost::text,response_digest,completed_at is not null from runtime.nexloop_model_requests order by call_sequence').fetchall()
+
+
+def test_model_result_is_written_once_for_a_recorded_request(v6,admin,tmp_path):
+    f=v6;tenant=f['original']['tenant']
+    assert f['v6_relay']().run_once()=='queued'
+    ok={'call_sequence':1,'result_status':'succeeded','usage':{'input':120,'output':30,'cache_read':0,'cache_write':0,'total':150},'cost':'0.00012000','response_digest':'b'*64}
+    with active_worker(f,tmp_path) as (worker,activation,command,text):
+        guard=lambda **kw:worker.authorize_runtime_activation(activation_ref=activation['activation_ref'],command=command,operation='model',**kw)
+        with pytest.raises(AuthorizationUnavailable):guard(model_result=ok)                       # no recorded request yet
+        guard(request_snapshot=request_snapshot(1,text))
+        assert results(admin,tenant)==[(1,None,None,None,None,False)]
+        assert guard(model_result=ok)['authorized'] is True
+        assert guard(model_result=ok)['authorized'] is True                                    # same outcome retried: idempotent
+        for bad in (dict(ok,result_status='failed'),dict(ok,cost='0.5'),                        # a second, different outcome
+                    dict(ok,result_status='succeeded',usage=None),dict(ok,cost='1e-5'),dict(ok,call_sequence=2),
+                    dict(ok,usage={**ok['usage'],'input':-1}),{k:v for k,v in ok.items() if k!='cost'}):
+            with pytest.raises(AuthorizationUnavailable):guard(model_result=bad)
+        with pytest.raises(AuthorizationUnavailable):guard(request_snapshot=request_snapshot(2,text),model_result=dict(ok,call_sequence=2))
+        guard(request_snapshot=request_snapshot(2,text))
+        guard(model_result={'call_sequence':2,'result_status':'unknown','usage':None,'cost':None,'response_digest':None})
+    assert results(admin,tenant)==[(1,'succeeded',ok['usage'],'0.00012000','b'*64,True),(2,'unknown',None,None,None,True)]
+    assert manifest(admin,tenant,command['run_id'],1)['request_digest']==request_snapshot(1,text)['request_digest']
+
+
+def test_v2_runs_never_accept_a_model_result(context_message,admin,tmp_path):
+    f=context_message;assert f['relay'].run_once()=='queued'
+    with active_worker(f,tmp_path) as (worker,activation,command,text):
+        with pytest.raises(AuthorizationUnavailable):
+            worker.authorize_runtime_activation(activation_ref=activation['activation_ref'],command=command,operation='model',
+                model_result={'call_sequence':1,'result_status':'unknown','usage':None,'cost':None,'response_digest':None})

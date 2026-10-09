@@ -149,9 +149,22 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
     nexloop.context.assemble:1); SQL re-derives the core, re-verifies each source
     against its row and refuses an omitted pinned source. The pack grants nothing.
     """
-    def __init__(self,services,strategy_id):
+    def __init__(self,services,strategy_id,relationship_recipe=None,formal_refs=None):
         super().__init__(services);self.strategy_id=strategy_id
         self.last_diagnostic=None
+        # With relationship assessments the core is the frozen v4 chain (0076), not v2.
+        self.core=None
+        if relationship_recipe is not None:
+            from nexloop_eios.relationship_context_artifacts import RelationshipContextArtifactProducer
+            self.core=RelationshipContextArtifactProducer(services,relationship_recipe,formal_refs)
+
+    def _envelope(self,parameters,run,definition,capability,claim_binding=None):
+        if self.core is None:return super()._envelope(parameters,run,definition,capability,claim_binding)
+        return self.core._envelope(parameters,run,definition,capability,claim_binding)
+
+    def _call(self,db,parameters,run,definition,capability,claim_binding=None):
+        if self.core is None:return super()._call(db,parameters,run,definition,capability,claim_binding)
+        return self.core._call(db,parameters,run,definition,capability,claim_binding)
 
     def _v6_call(self,db,payload,proofs):
         return v6_call(db,self.authority,self.session,self.signer,'authz.nexloop_context_v6_command',payload,proofs)
@@ -162,7 +175,10 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         from nexloop_eios.context_engine.pack import assemble_v6
         from nexloop_eios.context_engine.sources import collect
         from nexloop_eios.context_engine.strategy import StrategyRegistry
-        core=json.loads(encode_pack(snapshot,command))
+        if self.core is None:core=json.loads(encode_pack(snapshot,command))
+        else:
+            from nexloop_eios.relationship_context_pack import encode_pack as encode_v4
+            core=json.loads(encode_v4(snapshot,command))
         strategy=StrategyRegistry(self.pool,self.session,self.signer).get(self.strategy_id)
         if strategy is None:raise ValueError('context strategy unavailable')
         consumer=command['consumer_ref'].removeprefix('consumer:')
@@ -172,7 +188,8 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         body,outcome=assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role=None,
             current_event={'kind':'consumer_message','message_id':statement['message_id'],'provenance':statement['provenance']},user_statement=statement,
             goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
-            formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=found.items,extra_insufficient=found.insufficient)
+            formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=found.items,extra_insufficient=found.insufficient,
+            relationship_context=core.get('relationship_context'))
         return body,outcome,found.items,found.proofs
 
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):

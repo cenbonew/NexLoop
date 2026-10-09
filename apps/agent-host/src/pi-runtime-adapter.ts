@@ -14,6 +14,8 @@ export type RuntimeOperation='start'|'resume'|'inspect'|'cancel'|'model'|'tool';
 /** Actual provider request of one model call (Context v6, AT-027). The guard recomputes
  * every digest from request_text and records it before the call is allowed. */
 export type ModelRequestSnapshot={call_sequence:number;model_provider:string;model_id:string;request_text:string;request_digest:string;tool_manifest_digest:string;settings_digest:string};
+/** Outcome of one recorded request (status, token usage, cost, response digest); written once. */
+export type ModelResult={call_sequence:number;result_status:'succeeded'|'failed'|'unknown';usage:{input:number;output:number;cache_read:number;cache_write:number;total:number}|null;cost:string|null;response_digest:string|null};
 const SECRET_SETTINGS=new Set(['apiKey','headers','signal','onPayload','authContext','credentials']);
 /** Tools available to a request: the context's own list, then each system message's
  * additions/removals in order (Pi declares tools in the transcript). Same rule in SQL. */
@@ -34,7 +36,7 @@ export type PiRuntimeOptions={
   /** Context v6: send each actual model request to the guard before the call. */
   recordModelRequests?:boolean;
   /** Trusted server implementation must check current identity, PG lease/fence and control revisions. */
-  authorize:(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot)=>Promise<{ever_execution_authorized:boolean}>;
+  authorize:(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot,result?:ModelResult)=>Promise<{ever_execution_authorized:boolean}>;
 };
 type Binding={model_cost_reserved:string;command_digest:string;run_id:string;request_id:string;payload_digest:string;conversation_id:number;submission_id:number;started_at:number;model_calls:number;tool_calls:number};
 const BindingDoc=defineDoc<Binding>({kind:'nexloop.run-binding',version:1,scope:'session',initial:()=>({model_cost_reserved:'0',command_digest:'',run_id:'',request_id:'',payload_digest:'',conversation_id:0,submission_id:0,started_at:0,model_calls:0,tool_calls:0}),checkpointWhen:()=>true});
@@ -71,12 +73,12 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
   private serial<T>(operation:()=>Promise<T>):Promise<T>{
     const promise=this.tail.then(operation);this.tail=promise.then(()=>{},()=>{});return promise;
   }
-  private async authorize(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot){
+  private async authorize(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot,result?:ModelResult){
     if(this.closed)throw new RuntimeError('runtime_closed');
     this.owner();
     if(Date.parse(command.not_after)<=Date.now())throw new RuntimeError('runtime_command_expired');
     let authority:{ever_execution_authorized:boolean};
-    try{authority=await this.options.authorize(structuredClone(command),operation,request);if(!authority||typeof authority.ever_execution_authorized!=='boolean')throw new Error();}catch{throw new RuntimeError('runtime_authorization_denied');}
+    try{authority=await this.options.authorize(structuredClone(command),operation,request,result);if(!authority||typeof authority.ever_execution_authorized!=='boolean')throw new Error();}catch{throw new RuntimeError('runtime_authorization_denied');}
     this.owner();
     if(Date.parse(command.not_after)<=Date.now())throw new RuntimeError('runtime_command_expired');
     return authority;
@@ -169,6 +171,21 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
         // The durable per-Run counter numbers the request; the guard requires 1,2,3… densely.
         await this.authorize(command,kind,kind==='model'&&this.options.recordModelRequests?snapshot(latest.model_calls,request!):undefined);
         if(Date.now()-latest.started_at>=command.budget.active_timeout_seconds*1000)throw new RuntimeError('runtime_budget_exhausted');
+        return latest.model_calls;
+      };
+      const settleFor=(call:number)=>{
+        // One outcome per recorded call; the guard refuses a different second outcome.
+        let settled=false;
+        return async(message:AssistantMessage|null)=>{
+          if(settled)return;settled=true;
+          const usage=message?.usage;const whole=(value:unknown)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?value:0;
+          const ok=message!==null&&message.stopReason!=='error'&&message.stopReason!=='aborted';
+          const cost=usage?.cost?.total;
+          await this.authorize(command,'model',undefined,{call_sequence:call,result_status:message===null?'unknown':ok?'succeeded':'failed',
+            usage:usage?{input:whole(usage.input),output:whole(usage.output),cache_read:whole(usage.cacheRead),cache_write:whole(usage.cacheWrite),total:whole(usage.totalTokens)}:null,
+            cost:typeof cost==='number'&&Number.isFinite(cost)&&cost>=0?cost.toFixed(8):null,
+            response_digest:message===null?null:createHash('sha256').update(canonical(message),'utf8').digest('hex')});
+        };
       };
       const registrations=[...(this.options.tools??[]),...(this.options.toolsForRun?.(structuredClone(command))??[])];
       if(registrations.some(tool=>!/^nexloop\.[A-Za-z0-9_.-]+$/.test(tool.name))||new Set(registrations.map(tool=>tool.name)).size!==registrations.length)throw new RuntimeError('runtime_tool_refused');
@@ -190,7 +207,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       }})]}:{})});
       const guardedModels=new Proxy(this.options.models,{get:(target,property)=>{
         const value=Reflect.get(target,property,target);
-        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost);}catch{throw new RuntimeError('runtime_model_unavailable');}}));
+        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,this.options.recordModelRequests?settleFor(call):undefined);}catch{throw new RuntimeError('runtime_model_unavailable');}}));
         if(property==='fetchDeferred'&&typeof value==='function')return async(...args:unknown[])=>{if(this.options.recordModelRequests)throw new RuntimeError('runtime_model_request_unrecorded');await consume('model');try{const message=safeProviderMessage(await Reflect.apply(value,target,args) as AssistantMessage);checkCost(message);return message;}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(property==='cancelDeferred'&&typeof value==='function')return async(...args:unknown[])=>{await this.authorize(command,'cancel');try{return await Reflect.apply(value,target,args);}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(typeof value==='function')return (...args:unknown[])=>{try{const result=Reflect.apply(value,target,args);if(result instanceof Promise)return result.catch(()=>{throw new RuntimeError('runtime_model_unavailable');});return result;}catch{throw new RuntimeError('runtime_model_unavailable');}};

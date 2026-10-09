@@ -141,7 +141,14 @@ class PostgresArtifactRepository:
         with self._transaction() as c:
             dependency=c.execute('select authz.nexloop_context_artifact_read_dependency_v2(%s,%s,%s,%s)',
                 (self.session.token_digest,self.session.world,permit,canonical_payload(params))).fetchone()[0]
-        if dependency is not None and dependency['kind']=='role':
+        if dependency is not None and dependency['kind']=='v6':
+            # v6 copy: the reader's own current READ on every source object SQL names (0095).
+            from nexloop_eios.service_offerings import _read_envelope
+            from types import SimpleNamespace
+            holder=SimpleNamespace(_session=self.session,_backend=SimpleNamespace(_pool=self.pool,_signer=self.signer))
+            params['context_dependency']={'kind':'v6','run_id':dependency['run_id'],
+              'reads':{name:_read_envelope(holder,row['type_name'],row['object_id'],tuple(row['fields'])) for name,row in dependency['reads'].items()}}
+        elif dependency is not None and dependency['kind']=='role':
             from nexloop_eios.service_offerings import _read_envelope
             from types import SimpleNamespace
             holder=SimpleNamespace(_session=self.session,_backend=SimpleNamespace(_pool=self.pool,_signer=self.signer))

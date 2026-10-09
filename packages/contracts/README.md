@@ -13,7 +13,7 @@
 | candidate-definition.schema.json | ADR-019：未匹配到 Schema/实例的候选定义（类型/属性/词表值/别名/实例），只能暂存、粘合或进人工审核 |
 | review-decision.schema.json | ADR-019：人类审核决定（approve/merge_into/reject），reviewer 由服务端会话解析，审核是受治理人类 Action |
 | claim.schema.json | NX-019：从已持久化消息提取的带原文证据 Claim（候选知识，非正式对象）；提取器永不产出 verified_fact，隐性推断只能是 hypothesis |
-| context-pack-v6.schema.json | NX-023：Context pack v6。消息 Run 携带冻结的 v2 核心（bindings、user_statement、formal_facts、current_constraints、supply，绑定时由 SQL 重新推导），加策略、目标与控制快照、正式状态、未确认执行、带标签证据、语义、预算报告与显式 insufficient；每个条目带来源 revision、规范内容 hash 与读取时的当前 READ 决策，SQL 逐条对源行复核；正式区不收 Claim，真实世界不收 hypothesis；不含浮点数；v2–v5 冻结，旧 Run 继续用原协议 |
+| context-pack-v6.schema.json | NX-023：Context pack v6。消息 Run 携带冻结的 v2 核心（bindings、user_statement、formal_facts、current_constraints、supply），带可选 relationship_context 段时为 v4 核心（当前陈述只收已解决的用户陈述，hypothesis 只作证据），绑定时由 SQL 重新推导；Role Run 携带冻结的 v3/v5 核心（role 段、服务触发作为 current_event），加策略、目标与控制快照、正式状态、未确认执行、带标签证据、语义、预算报告与显式 insufficient；每个条目带来源 revision、规范内容 hash 与读取时的当前 READ 决策，SQL 逐条对源行复核；正式区不收 Claim，真实世界不收 hypothesis；不含浮点数；v2–v5 冻结，旧 Run 继续用原协议 |
 
 ## Schema之外必须实现的语义检查
 

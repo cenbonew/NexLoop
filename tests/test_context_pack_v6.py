@@ -23,6 +23,8 @@ VALID=Draft202012Validator(V6,format_checker=FormatChecker())
 def test_v6_is_derived_from_frozen_v2_v3_v5_sections():
     p=V6['properties']
     for name in ('bindings','formal_facts','current_constraints','supply'):assert p[name]==PACK_SCHEMA['properties'][name],name
+    from nexloop_eios.relationship_context_pack import PACK_SCHEMA_V4
+    assert p['relationship_context']==PACK_SCHEMA_V4['properties']['relationship_context'] and 'relationship_context' not in V6['required']
     role=p['role']['anyOf'][1]['properties']
     assert role['role_binding']==ROLE_CONTEXT_SCHEMA and role['role_policy']['anyOf'][1]==POLICY_SCHEMA
     user,trigger=p['current_event']['anyOf']

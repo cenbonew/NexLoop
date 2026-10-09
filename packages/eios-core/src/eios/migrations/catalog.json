@@ -470,6 +470,16 @@
       "version": "0094",
       "name": "0094_nx023_context_audit_read.sql",
       "sha256": "71c43c5178466baafb4950832fbe3eb9ed93fbd22df89a5067089dfae2eac7ef"
+    },
+    {
+      "version": "0095",
+      "name": "0095_nx023_context_v6_relationships_copy.sql",
+      "sha256": "478dedf76afe4feb79b816e04ec52c691893009e4ad489d6fbb2dffe78a50985"
+    },
+    {
+      "version": "0096",
+      "name": "0096_nx023_model_results.sql",
+      "sha256": "8e1a2015c187eecd6e6cde3c62f3cf2c4009db760f7973d46cb283c4c8265e75"
     }
   ]
 }

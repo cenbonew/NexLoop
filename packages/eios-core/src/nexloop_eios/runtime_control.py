@@ -86,13 +86,14 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                         or result['receipt']['business_action_success'] is not False):
                         self.send(503,{'code':'effect_intent_unavailable'});return
                     self.send(200,result);return
-                if (type(body) is not dict or set(body) not in ({'activation_ref','command','operation'},{'activation_ref','command','operation','input'},{'activation_ref','command','operation','request_snapshot'})
+                if (type(body) is not dict or set(body) not in ({'activation_ref','command','operation'},{'activation_ref','command','operation','input'},{'activation_ref','command','operation','request_snapshot'},{'activation_ref','command','operation','model_result'})
                     or type(body['command']) is not dict or type(body['activation_ref']) is not str
                     or type(body['operation']) is not str or ('input' in body and type(body['input']) is not str)
-                    or ('request_snapshot' in body and (body['operation']!='model' or type(body['request_snapshot']) is not dict))):
+                    or ('request_snapshot' in body and (body['operation']!='model' or type(body['request_snapshot']) is not dict))
+                    or ('model_result' in body and (body['operation']!='model' or type(body['model_result']) is not dict))):
                     self.send(400,{'authorized':False});return
                 result=worker.authorize_runtime_activation(activation_ref=body['activation_ref'],command=body['command'],operation=body['operation'],**({'input':body['input']} if 'input' in body else {}),
-                    **({'request_snapshot':body['request_snapshot']} if 'request_snapshot' in body else {}))
+                    **({'request_snapshot':body['request_snapshot']} if 'request_snapshot' in body else {}),**({'model_result':body['model_result']} if 'model_result' in body else {}))
                 if result.get('authorized') is not True or result.get('run_id')!=body['command'].get('run_id') or type(result.get('ever_execution_authorized')) is not bool:
                     self.send(403,{'authorized':False});return
                 # Never serialize the backend object or a raw EIOS identity row.

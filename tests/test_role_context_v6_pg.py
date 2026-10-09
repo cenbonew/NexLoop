@@ -161,6 +161,8 @@ def test_actual_pi_role_run_on_v6_records_every_model_call(role_v6,admin,tmp_pat
             assert result['runtime_outcome']=='succeeded'
     calls,receipts=tool_evidence(runtime/command['run_id']/'runtime.sqlite')
     assert [c['id'] for c in calls if c['name']=='nexloop.service.request']==['message-service-first','message-service-rebuilt'] and len(receipts)==3
+    from test_context_v6_pg import results
+    assert [o[:2] for o in results(admin,tenant)]==[(n,'succeeded') for n in (1,2,3,4)]
     recorded=model_requests(admin,tenant);context_id=role_row(admin,command['run_id'])[2]
     assert [r[0] for r in recorded]==[1,2,3,4] and all(r[3]==context_id for r in recorded)
     for call,digest,prompt,_,_,_ in recorded:
@@ -169,3 +171,13 @@ def test_actual_pi_role_run_on_v6_records_every_model_call(role_v6,admin,tmp_pat
         assert any(m['role']=='user' and (m['content']==text or any(c.get('text')==text for c in m['content'] if isinstance(c,dict))) for m in request['context']['messages'])
         body=manifest(admin,tenant,command['run_id'],call);MANIFEST_SCHEMA.validate(body);ContextManifest.model_validate(body)
         assert body['context_id']==context_id and command['role_ref'] in {s['ref'] for s in body['sources']}
+
+
+def test_role_v6_copy_read_only_by_the_producing_source_with_current_reads(role_v6,admin):
+    import psycopg
+    plan=role_v6
+    for index,command in enumerate(plan['commands']):
+        artifact=admin.execute('select artifact_id,pack_text from runtime.nexloop_role_context_artifacts where run_id=%s',(command['run_id'],)).fetchone()
+        assert plan['sources'][index].read_artifact(artifact[0])==artifact[1].encode()
+        # The other Source holds the same kinds of grants but did not produce this Role pack.
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match='role Context source unavailable'):plan['sources'][1-index].read_artifact(artifact[0])

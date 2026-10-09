@@ -105,9 +105,9 @@ class MessageRelay:
     def __init__(self,*,route,source,planner,executor_token,vault,recipe,relationship_recipe=None,context_strategy=None):
         from nexloop_eios.relationship_context import RelationshipContextRecipe
         if relationship_recipe is not None and type(relationship_recipe) is not RelationshipContextRecipe:raise MessageRelayUnavailable()
-        # NX-023-B: an explicit strategy selects Context v6 (v2 core + Engine sections);
-        # relationship assessments are not yet a v6 section, so both together are refused.
-        if context_strategy is not None and (relationship_recipe is not None or type(context_strategy) is not str
+        # NX-023: an explicit strategy selects Context v6 (v2 core, or the v4 core when a
+        # relationship recipe is also given, + Engine sections).
+        if context_strategy is not None and (type(context_strategy) is not str
             or re.fullmatch(r'[a-z][a-z0-9_]{0,63}',context_strategy) is None):raise MessageRelayUnavailable()
         self.relationship_recipe=relationship_recipe
         self.context_strategy=context_strategy
@@ -174,7 +174,8 @@ class MessageRelay:
             self._diagnostic_stage='context_prepare'
             if self.context_strategy is not None:
                 from nexloop_eios.context_artifacts import ContextV6ArtifactProducer
-                producer=ContextV6ArtifactProducer(self.source,self.context_strategy)
+                formal=None if self.relationship_recipe is None else {'Consumer':self.recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':self.recipe['control_id']}
+                producer=ContextV6ArtifactProducer(self.source,self.context_strategy,self.relationship_recipe,formal)
                 try:context=producer.prepare(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
                 finally:self._context_diagnostic=producer.last_diagnostic
             elif self.relationship_recipe is None:
