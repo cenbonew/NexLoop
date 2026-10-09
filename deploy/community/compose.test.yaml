@@ -170,6 +170,86 @@ services:
     labels:
       nexloop.purpose: disposable-community-test
 
+  claim-extraction-scheduler:
+    # NX-019/020/021 opt-in (profile "background"): needs trusted-configuration material in
+    # background_config/claim-extraction-scheduler (service credential, restricted DSN, signer, optional model/embedding
+    # env files); not provisioned by the disposable test profile, so the default stack never starts it.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [claim-extraction-scheduler]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  claim-extraction-worker:
+    # NX-019/020/021 opt-in (profile "background"): needs trusted-configuration material in
+    # background_config/claim-extraction-worker (service credential, restricted DSN, signer, optional model/embedding
+    # env files); not provisioned by the disposable test profile, so the default stack never starts it.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [claim-extraction-worker]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  claim-matcher:
+    # NX-019/020/021 opt-in (profile "background"): needs trusted-configuration material in
+    # background_config/claim-matcher (service credential, restricted DSN, signer, optional model/embedding
+    # env files); not provisioned by the disposable test profile, so the default stack never starts it.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [claim-matcher]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  recall-indexer:
+    # NX-019/020/021 opt-in (profile "background"): needs trusted-configuration material in
+    # background_config/recall-indexer (service credential, restricted DSN, signer, optional model/embedding
+    # env files); not provisioned by the disposable test profile, so the default stack never starts it.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [recall-indexer]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
   api-test:
     image: ${BACKEND_IMAGE:?locally built tested image required}
     user: '10001:10001'
@@ -259,6 +339,9 @@ volumes:
     labels:
       nexloop.purpose: disposable-community-test
   outbound_config:
+    labels:
+      nexloop.purpose: disposable-community-test
+  background_config:
     labels:
       nexloop.purpose: disposable-community-test
 

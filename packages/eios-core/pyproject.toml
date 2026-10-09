@@ -28,6 +28,10 @@ nexloop-core-sandbox = "nexloop_eios.core_sandbox:main"
 nexloop-runtime-worker = "nexloop_eios.runtime_worker:main"
 nexloop-effect-worker = "nexloop_eios.effect_worker:main"
 nexloop-outbound-recorder = "nexloop_eios.outbound_messages:main"
+nexloop-claim-extraction-scheduler = "nexloop_eios.background_services:claim_extraction_scheduler"
+nexloop-claim-extraction-worker = "nexloop_eios.background_services:claim_extraction_worker"
+nexloop-claim-matcher = "nexloop_eios.background_services:claim_matcher"
+nexloop-recall-indexer = "nexloop_eios.background_services:recall_indexer"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/eios", "src/nexloop_eios"]
