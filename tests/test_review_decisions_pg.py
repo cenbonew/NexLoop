@@ -31,6 +31,7 @@ from test_review_workbench_pg import to_review
 TENANT='synthetic-a'
 pytestmark=pytest.mark.parametrize('env',[TENANT],indirect=True)
 ROOT=Path(__file__).resolve().parents[1]
+MANIFEST_PATH=ROOT/'deploy/authorization/service-grants.v1.json'
 RECORD=Draft202012Validator(json.loads((ROOT/'packages/contracts/review-decision.schema.json').read_text()))
 
 
@@ -147,7 +148,11 @@ def test_human_approve_publishes_additively_and_waiting_claims_apply_after_grant
     from nexloop_eios.review_actions import uncovered_actions
     admin.execute('alter role nexloop_configurator login')
     dsn=f['tmp']/'configurator-dsn';dsn.write_text(make_conninfo(f['pg'],user='nexloop_configurator'));dsn.chmod(0o600)
-    manifest=json.loads((ROOT/'deploy/authorization/service-grants.v1.json').read_text())
+    declared=json.loads((ROOT/'deploy/authorization/service-grants.v1.json').read_text())
+    auto=uncovered_actions(declared,TENANT,database_url_file=dsn)
+    assert auto['covered'] is True and [i['resource_id'] for i in auto['will_be_auto_covered']]==['eios:action:Consumer.edit:2']
+    # Without the follow_latest_version declaration the successor is a gap the scheduler must close.
+    manifest={**declared,'grants':[{k:v for k,v in g.items() if k!='follow_latest_version'} for g in declared['grants']]}
     report=uncovered_actions(manifest,TENANT,database_url_file=dsn)
     assert not report['covered'] and [u['resource_id'] for u in report['uncovered']]==['eios:action:Consumer.edit:2']
     assert report['uncovered'][0]['predecessor']=='eios:action:Consumer.edit:1' and report['uncovered'][0]['predecessor_grants']

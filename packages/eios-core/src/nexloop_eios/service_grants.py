@@ -11,6 +11,16 @@ grants outside it.
 
 Policy exclusions (ADR-020 §3) reject the whole manifest: Human principals,
 `ontology.schema.review`, real outbound channel effects and REAL_DISPATCH_ENABLED.
+
+follow_latest_version: an Action grant may declare it. Before diffing, the
+manifest is expanded into an *effective* manifest: the same service principal
+gets the same operations on each successor version of that Action that a human
+review decision (NX-044) published as a pure schema re-binding (same stable
+name, version+1, same capability, definition unchanged except version / bound
+schema references / derived digests, same object types). The first successor
+that is not such a re-binding stops the chain and is reported, never followed.
+Derived grants are applied exactly like listed ones: 0050 configurator path,
+audited, idempotent.
 """
 import argparse,hashlib,json,re,sys,uuid
 from datetime import UTC,datetime
@@ -35,6 +45,8 @@ SCHEMA='nexloop-service-grants/1'
 TOP={'schema_version','manifest_version','decision','valid_from','world','principals','grants','deferred','excluded_by_policy'}
 PRINCIPAL={'role','subject_id','principal_id','credential_id','credential_reference','application_id','database_role','purpose','source_task'}
 GRANT={'principal','resource_type','resource_id','operations','purpose','source_task'}
+FOLLOW='follow_latest_version'
+_ACTION=re.compile(r'eios:action:([A-Za-z0-9][A-Za-z0-9._-]{0,159}):([1-9][0-9]{0,8})')
 DATABASE_ROLES={'nexloop_api','nexloop_domain_worker','nexloop_action_worker','nexloop_scheduler'}
 # Resource type -> the only operation a service principal may hold on it.
 ALLOWED={'action':('execute',re.compile(r'eios:action:[A-Za-z0-9][A-Za-z0-9._-]{0,159}:[1-9][0-9]{0,8}')),
@@ -83,7 +95,8 @@ def validate(value):
         principals[item['role']]=item
     seen=set()
     for item in value['grants']:
-        if type(item) is not dict or set(item)!=GRANT or item['principal'] not in principals:_reject('grant_shape')
+        if type(item) is not dict or set(item)-{FOLLOW}!=GRANT or item['principal'] not in principals:_reject('grant_shape')
+        if FOLLOW in item and (item[FOLLOW] is not True or item['resource_type']!='action'):_reject('follow_latest_version_shape')
         if any(type(item[k]) is not str or not item[k] for k in GRANT-{'operations'}):_reject('grant_shape')
         allowed=ALLOWED.get(item['resource_type'])
         if allowed is None:_reject('excluded_by_policy:resource_type')
@@ -108,6 +121,73 @@ def load(path):
 
 
 def manifest_digest(manifest):return hashlib.sha256(canonical_payload(manifest).encode()).hexdigest()
+
+
+def _rebinding_reason(pred,succ):
+    """None when succ is pred's successor as a pure schema re-binding; otherwise the refusal reason."""
+    if not succ['active']:return 'successor_inactive'
+    if not succ.get('review_decision_id'):return 'not_published_by_review_decision'
+    if succ['world']!=pred['world']:return 'world_changed'
+    if succ['capability']!=pred['capability']:return 'capability_changed'
+    strip=lambda d:{k:v for k,v in d.items() if k not in ('version','object_types','governance','contract_digest','previous_version','created_at')}
+    a,b=pred['definition'],succ['definition']
+    if strip(a)!=strip(b):return 'definition_changed'
+    ga,gb=dict(a['governance']),dict(b['governance'])
+    sa,sb=dict(ga.pop('change_scope')),dict(gb.pop('change_scope'))
+    if ga!=gb:return 'governance_changed'
+    for key in ('object_types',):
+        refs_a,refs_b=sa.pop(key),sb.pop(key)
+        if sa!=sb:return 'change_scope_changed'
+        for left,right in ((a['object_types'],b['object_types']),(refs_a,refs_b)):
+            if len(left)!=len(right):return 'resource_scope_changed'
+            for x,y in zip(left,right):
+                if {k:v for k,v in x.items() if k not in ('version','schema_digest')}!={k:v for k,v in y.items() if k not in ('version','schema_digest')}:
+                    return 'resource_scope_changed'
+    return None
+
+
+def resolve_follow(manifest,lineage):
+    """Pure: derived successor grants and refused successors for follow_latest_version grants."""
+    versions={}
+    for row in lineage:
+        if row['world']==manifest['world']:versions[(row['stable_name'],row['version'])]=row
+    listed={(g['principal'],g['resource_id']) for g in manifest['grants']}
+    derived=[];refused=[]
+    for grant in manifest['grants']:
+        if not grant.get(FOLLOW):continue
+        name,version=_ACTION.fullmatch(grant['resource_id']).groups();version=int(version)
+        pred=versions.get((name,version))
+        if pred is None:continue  # base Action not published in this tenant yet: nothing to follow
+        while (name,version+1) in versions:
+            succ=versions[(name,version+1)]
+            reason=_rebinding_reason(pred,succ)
+            if reason:
+                refused.append({'principal':grant['principal'],'base':grant['resource_id'],'successor':succ['resource_id'],'reason':reason});break
+            if (grant['principal'],succ['resource_id']) not in listed:
+                derived.append({'principal':grant['principal'],'resource_type':'action','resource_id':succ['resource_id'],'operations':list(grant['operations']),
+                    'purpose':'follow_latest_version of '+grant['resource_id']+' (review decision '+succ['review_decision_id']+')',
+                    'source_task':'derived:'+grant['source_task']})
+                listed.add((grant['principal'],succ['resource_id']))
+            pred,version=succ,version+1
+    return derived,refused
+
+
+def effective_manifest(manifest,lineage):
+    derived,refused=resolve_follow(manifest,lineage)
+    effective=validate({**manifest,'grants':manifest['grants']+derived})
+    return effective,{'derived':derived,'refused':refused}
+
+
+def action_lineage(database_url_file,tenant):
+    try:db=configurator_connection(database_url_file)
+    except Exception:raise ServiceGrantsRejected('configurator_role_required') from None
+    with db,db.transaction():
+        return db.execute('select control.nexloop_service_grant_action_lineage(%s)',(tenant,)).fetchone()[0]
+
+
+def _expand(manifest,tenant,database_url_file):
+    if not any(g.get(FOLLOW) for g in manifest['grants']):return manifest,{'derived':[],'refused':[]}
+    return effective_manifest(manifest,action_lineage(database_url_file,tenant))
 
 
 def expected_grants(manifest):
@@ -255,18 +335,21 @@ def inventory(database_url_file,tenant):
 def doctor(manifest,tenant,*,database_url_file):
     """Read-only comparison of current service authority with the manifest."""
     current=inventory(database_url_file,tenant)
-    result=plan(manifest,tenant,current)
+    effective,follow=_expand(manifest,tenant,database_url_file)
+    result=plan(effective,tenant,current)
     drift=[{'kind':k,'key':key} for k,key,_ in result['writes'] if k!='revision']
     report={'tenant':tenant,'manifest_digest':manifest_digest(manifest),'authority_revision':current['authority_revision'],
-        'missing_grants':result['missing_grants'],'extra_grants':result['extra_grants'],'fact_drift':drift,'credentials':result['findings']}
-    report['in_sync']=not (report['missing_grants'] or report['extra_grants'] or drift or result['findings'])
+        'missing_grants':result['missing_grants'],'extra_grants':result['extra_grants'],'fact_drift':drift,'credentials':result['findings'],
+        'follow_latest':follow}
+    report['in_sync']=not (report['missing_grants'] or report['extra_grants'] or drift or result['findings'] or follow['refused'])
     return report
 
 
 def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,service_secrets_file,credential_expires_at=None):
     """Idempotent apply through the 0050 configurator; returns an auditable change report."""
     current=inventory(database_url_file,tenant)
-    result=plan(manifest,tenant,current,credential_expires_at=credential_expires_at)
+    effective,follow=_expand(manifest,tenant,database_url_file)
+    result=plan(effective,tenant,current,credential_expires_at=credential_expires_at)
     blocking=[f for f in result['findings'] if f['state'] in ('credential_rotation_required','world_mismatch')]
     if blocking:_reject('credential_rotation_required')
     if result['new_credentials'] and any(expiry is None for _,_,expiry in result['new_credentials']):_reject('credential_expiry_required')
@@ -276,7 +359,7 @@ def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,se
         'grants_added':result['missing_grants'],
         'grants_revoked':[{'principal_id':key[0],'resource_id':key[1]} for k,key,f in result['writes'] if k=='grants' and not f.grants],
         'extra_grants_outside_manifest':[g for g in result['extra_grants'] if not g['manifest_principal']],
-        'authority_revision':current['authority_revision']}
+        'follow_latest':follow,'authority_revision':current['authority_revision']}
     if not result['writes'] and not result['new_credentials']:return report
     secrets={}
     if result['new_credentials']:
@@ -312,7 +395,8 @@ def main(argv=None):
     try:
         manifest=load(a.manifest)
         if a.check:
-            print(canonical_payload({'checked':True,'manifest_digest':manifest_digest(manifest),'principals':len(manifest['principals']),'grants':len(manifest['grants'])}));return 0
+            print(canonical_payload({'checked':True,'manifest_digest':manifest_digest(manifest),'principals':len(manifest['principals']),'grants':len(manifest['grants']),
+                'follow_latest_version':sorted(g['principal']+':'+g['resource_id'] for g in manifest['grants'] if g.get(FOLLOW))}));return 0
         if a.tenant is None or a.database_url_file is None:_reject('arguments')
         if a.doctor:
             report=doctor(manifest,a.tenant,database_url_file=a.database_url_file);print(canonical_payload(report));return 0 if report['in_sync'] else 1

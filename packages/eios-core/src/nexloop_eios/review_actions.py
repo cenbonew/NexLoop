@@ -200,14 +200,24 @@ def uncovered_actions(manifest,tenant,*,database_url_file):
     from nexloop_eios.trusted_configuration import configurator_connection
     with configurator_connection(database_url_file) as db:
         published=db.execute('select control.nexloop_review_published_actions(%s)',(tenant,)).fetchone()[0]
+    from nexloop_eios.service_grants import FOLLOW,action_lineage,resolve_follow
     granted={}
     for g in manifest['grants']:granted.setdefault(g['resource_id'],[]).append({'principal':g['principal'],'operations':g['operations']})
-    rows=[]
+    derived,refused=resolve_follow(manifest,action_lineage(database_url_file,tenant)) if any(g.get(FOLLOW) for g in manifest['grants']) else ([],[])
+    auto={}
+    for g in derived:auto.setdefault(g['resource_id'],[]).append({'principal':g['principal'],'operations':g['operations']})
+    rows=[];automatic=[]
     for item in published:
         if item['resource_id'] in granted:continue
-        rows.append({**item,'predecessor_grants':granted.get(item['predecessor'],[]),
+        if item['resource_id'] in auto:
+            # Declared follow_latest_version: the next service_grants --apply grants it (not yet applied by this read).
+            automatic.append({**item,'status':'will_be_auto_covered','grants':auto[item['resource_id']]});continue
+        refusal=[r for r in refused if r['successor']==item['resource_id']]
+        rows.append({**item,'predecessor_grants':granted.get(item['predecessor'],[])+auto.get(item['predecessor'],[]),
+            **({'follow_latest_refused':refusal} if refusal else {}),
             'suggestion':'add to deploy/authorization/service-grants (new manifest version) if the same principals should use it; human grants need owner approval'})
-    return {'tenant':tenant,'manifest_version':manifest.get('manifest_version'),'published_action_versions':len(published),'uncovered':rows,'covered':not rows}
+    return {'tenant':tenant,'manifest_version':manifest.get('manifest_version'),'published_action_versions':len(published),
+        'will_be_auto_covered':automatic,'uncovered':rows,'covered':not rows}
 
 
 def main(argv=None):
