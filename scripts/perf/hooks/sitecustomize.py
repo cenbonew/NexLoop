@@ -27,8 +27,8 @@ if _OUT:
             s[0]+=1;s[1]+=total;s[2]+=own;s[3]=max(s[3],total)
 
     class _Frame:
-        __slots__=('name','start','child','breakdown','wall')
-        def __init__(self,name):self.name,self.start,self.child,self.breakdown,self.wall=name,_clock(),0.0,{},time.time()
+        __slots__=('name','start','child','breakdown','wall','pgfn')
+        def __init__(self,name):self.name,self.start,self.child,self.breakdown,self.wall,self.pgfn=name,_clock(),0.0,{},time.time(),{}
 
     def _enter(name):
         stack=getattr(_local,'stack',None)
@@ -45,11 +45,16 @@ if _OUT:
             parent=stack[-1];parent.child+=total
             for k,v in frame.breakdown.items():parent.breakdown[k]=parent.breakdown.get(k,0.0)+v
             if keys and not frame.name.startswith('invoke:'):parent.breakdown.setdefault('@keys',[]).extend(keys)
+            for fn,v in frame.pgfn.items():
+                acc=parent.pgfn.setdefault(fn,[0,0.0,0.0]);acc[0]+=v[0];acc[1]+=v[1];acc[2]+=v[2]
         if frame.name.startswith(top_events) and len(_events)<4000:
             with _glock:_events.append({'name':frame.name,'t':round(frame.start,6),'wall':round(frame.wall,6),'thread':threading.get_ident(),'total':total,
-                'breakdown':{k:round(v,6) for k,v in sorted(((k,v) for k,v in frame.breakdown.items() if not k.startswith('#')),key=lambda kv:-kv[1])[:12]},
+                'breakdown':{k:round(v,6) for k,v in sorted(((k,v) for k,v in frame.breakdown.items() if not k.startswith(('#','@'))),key=lambda kv:-kv[1])[:12]},
                 'counts':{k[1:]:v for k,v in frame.breakdown.items() if k.startswith('#')},
-                'decisions':len(keys or ()),'distinct_decisions':len(set(keys or ()))})
+                'decisions':len(keys or ()),'distinct_decisions':len(set(keys or ())),
+                # NX-049: PG function calls/total/self (ms) executed inside this request (pg_stat_xact_user_functions deltas).
+                'pg_functions':{k:[v[0],round(v[1],3),round(v[2],3)] for k,v in sorted(frame.pgfn.items(),key=lambda kv:-kv[1][1])[:40]},
+                'probe_ms':round(1000*frame.breakdown.get('@probe',0.0),3)})
 
     def _wrap(fn,label):
         if getattr(fn,'_nexloop_perf',False):return fn
@@ -99,6 +104,41 @@ if _OUT:
         'nexloop_eios.message_relay':[('MessageRelay','run_once','invoke:relay:run_once')],
     }
 
+    # NX-049 (timeline mode, NEXLOOP_PERF_PGFUNC!=0): after each statement that calls an
+    # authz/control/runtime/ontology function inside a transaction block, read this backend's
+    # pg_stat_xact_user_functions on the same connection and attribute the delta to the
+    # enclosing request. The probe itself is timed as `perf:pgfunc_probe`.
+    _PGFN=os.environ.get('NEXLOOP_PERF_TIMELINE')=='1' and os.environ.get('NEXLOOP_PERF_PGFUNC','1')!='0'
+    _FN_SQL=re.compile(r'select\s+(authz|control|runtime|ontology)\.[a-z0-9_]+\s*\(',re.I)
+    _PROBE=("select coalesce(json_object_agg(schemaname||'.'||funcname,json_build_array(calls,total_time,self_time)),'{}') "
+            "from pg_stat_xact_user_functions")
+    _xact={}
+    def _probe(cursor):
+        import psycopg
+        connection=cursor.connection
+        if connection.info.transaction_status!=psycopg.pq.TransactionStatus.INTRANS:return
+        _local.probing=True;frame=_enter('perf:pgfunc_probe');began=_clock()
+        try:
+            with connection.cursor() as c:stats=c.execute(_PROBE).fetchone()[0]
+        except Exception:return
+        finally:
+            _exit(frame);_local.probing=False
+            # Inclusive probe time (statement + JSON) so readers can subtract the measurement cost.
+            for f in reversed(getattr(_local,'stack',None) or []):
+                if f.name.startswith('invoke:'):f.breakdown['@probe']=f.breakdown.get('@probe',0.0)+_clock()-began;break
+        # Pending per-backend counters span transactions until the backend flushes its stats;
+        # always diff against this connection's previous reading, and treat a drop as a flush.
+        key=id(connection);base=_xact.get(key,{})
+        _xact[key]=stats
+        for f in reversed(getattr(_local,'stack',None) or []):
+            if f.name.startswith('invoke:'):
+                for name,(calls,total,own) in stats.items():
+                    b=base.get(name,[0,0.0,0.0])
+                    if calls<b[0]:b=[0,0.0,0.0]
+                    if calls-b[0]>0:
+                        acc=f.pgfn.setdefault(name,[0,0.0,0.0]);acc[0]+=calls-b[0];acc[1]+=total-b[1];acc[2]+=own-b[2]
+                break
+
     def _note_decision(key):
         stack=getattr(_local,'stack',None) or []
         for frame in reversed(stack):
@@ -122,6 +162,14 @@ if _OUT:
             original=getattr(target,attr)
             if isinstance(original,(staticmethod,classmethod)):continue
             setattr(target,attr,_wrap(original,label))
+        if module.__name__=='psycopg' and _PGFN and not getattr(module.Cursor.execute,'_nexloop_pgfn',False):
+            timed=module.Cursor.execute
+            def execute(self,query,*a,**k):
+                result=timed(self,query,*a,**k)
+                if not getattr(_local,'probing',False) and _FN_SQL.search(query if isinstance(query,str) else str(query)):_probe(self)
+                return result
+            execute._nexloop_pgfn=True;execute._nexloop_perf=True
+            module.Cursor.execute=execute
         if module.__name__=='nexloop_eios.authorization' and _NOCACHE and hasattr(module,'FactParseCache'):
             # Measurement baseline only: same code path with the O3 parse cache bypassed.
             module.FactParseCache.parse=lambda self,model,text:model.model_validate_json(text)

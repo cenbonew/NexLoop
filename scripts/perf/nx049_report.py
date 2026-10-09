@@ -64,6 +64,15 @@ def analyse_run(run,procs,host,pg,log):
     invokes={}
     for e in events:
         if e['name'] in CONSTRAINED or e['name'].startswith(('invoke:dispatch','invoke:relay')):invokes.setdefault(e['name'],[]).append(1000*e['total'])
+    # O3 fact parse cache: processes that produced any record inside this run's window.
+    pids={e['pid'] for e in events}|{r['pid'] for r in timeline}
+    caches=[p['fact_parse_cache'] for p in procs if p['pid'] in pids and p.get('fact_parse_cache')]
+    hits=sum(c['hits'] for c in caches);misses=sum(c['misses'] for c in caches)
+    # PG functions per constrained request (pg_stat_xact_user_functions deltas, ms).
+    per_fn={};requests=[e for e in events if e['name'] in CONSTRAINED and e.get('pg_functions')]
+    for e in requests:
+        for name,(calls,total,own) in e['pg_functions'].items():
+            acc=per_fn.setdefault(name,[0,0.0,0.0]);acc[0]+=calls;acc[1]+=total;acc[2]+=own
     result={'node':run['node'],'iteration':run['iteration'],'rc':run['rc'],'wall_s':round(end-start,1),'load':run.get('load'),
         'host_guard_requests':{p:ms(v) for p,v in per_path.items()},
         'host_guard_failures':[{'path':r['path'],'total_ms':round(r['total_ms'],1),'error':r.get('error'),'status':r.get('status')} for r in clients if r.get('error') or r.get('status') not in (200,None)],
@@ -73,6 +82,10 @@ def analyse_run(run,procs,host,pg,log):
         'dispatcher_to_host':[{'path':r['path'],'ms':round(r['total_ms'],1),'status':r.get('status'),'error':r.get('error')} for r in dispatch],
         'host_startup':[],
         'lock_wait_samples':len(pg.get('lock_waits',[])) if pg else None,
+        'fact_parse_cache':{'processes':len(caches),'hits':hits,'misses':misses,'hit_rate':round(hits/(hits+misses),3) if hits+misses else None,
+            'disabled':any(c.get('disabled') for c in caches)},
+        'pg_functions_per_request':{'requests':len(requests),'top_by_total_ms':[{'function':k,'calls':round(v[0]/len(requests),1),'total_ms':round(v[1]/len(requests),1),'self_ms':round(v[2]/len(requests),1)}
+            for k,v in sorted(per_fn.items(),key=lambda kv:-kv[1][1])[:15]] if requests else []},
         'pg_wait_samples':(pg or {}).get('wait_samples_20ms',{}),
         'pg_top_functions_self_ms':[(f['function'],f['calls'],round(f['self_ms'],1)) for f in (pg or {}).get('functions',[])[:12]],
         'slow_statements':sorted(({'statement':s['statement'],'ms':s['ms']} for s in log if s['kind']=='slow_statement'),key=lambda s:-s['ms'])[:15],
@@ -109,25 +122,29 @@ def decompose(client,guard_requests,events,handshakes,pg,log):
         'guard_server':None if not server else {'total_ms':round(server['total_ms'],1),'status':server.get('status'),
             'queued_before_handler_ms':round(1000*(server['start_wall']-s),1)},
         'tls_server_handshake_ms':[round(h['total_ms'],1) for h in handshakes if h['server_side'] and window(h['start_wall'])],
-        'python_request':None if not invoke else {'name':invoke['name'],'total_ms':round(1000*invoke['total'],1),
-            'breakdown_ms':{k:round(1000*v,1) for k,v in invoke['breakdown'].items()},'calls':invoke.get('counts',{})},
+        'python_request':None if not invoke else {'name':invoke['name'],'total_ms':round(1000*invoke['total'],1),'measurement_probe_ms':invoke.get('probe_ms'),
+            'breakdown_ms':{k:round(1000*v,1) for k,v in invoke['breakdown'].items()},'calls':invoke.get('counts',{}),
+            'pg_functions_by_total':[{'function':k,'calls':v[0],'total_ms':v[1],'self_ms':v[2]} for k,v in sorted((invoke.get('pg_functions') or {}).items(),key=lambda kv:-kv[1][1])[:15]],
+            'pg_functions_by_self':[{'function':k,'calls':v[0],'total_ms':v[1],'self_ms':v[2]} for k,v in sorted((invoke.get('pg_functions') or {}).items(),key=lambda kv:-kv[1][2])[:15]]},
         'pg_lock_waits':locks,'pg_activity_samples_20ms':dict(sorted(activity.items(),key=lambda kv:-kv[1])),
         'pg_slow_statements':[{'statement':x['statement'],'ms':x['ms'],'end_wall':round(x['end_wall'],3)} for x in log if x['kind']=='slow_statement' and window(x['end_wall'])]}
 
 
 def markdown(summary):
     lines=[f"# NX-049 profile: {summary['label']}",'',f"limit {LIMIT_MS} ms; runs {len(summary['runs'])}",'']
-    lines+=['|test|it|rc|wall s|guard authorize p50/p95/max ms|effect submit p50/max|first >2 s|','|---|---|---|---|---|---|---|']
+    lines+=['|test|it|rc|wall s|guard authorize p50/p95/max ms|effect submit p50/max|O3 hit rate (hits/misses)|first >2 s|','|---|---|---|---|---|---|---|---|']
     for r in summary['runs']:
         a=r['host_guard_requests'].get('/internal/v1/runtime/authorize',{});sb=r['host_guard_requests'].get('/internal/v1/runtime/effects/submit',{})
         f=r['first_over_limit'];first='—' if not f else f"{f['host_request']['path'].rsplit('/',1)[1]} {f['host_request']['total_ms']} ms {f['host_request']['error'] or ''}"
-        lines.append(f"|{r['node'].split('::')[1][:40]}|{r['iteration']}|{r['rc']}|{r['wall_s']}|{a.get('p50')}/{a.get('p95')}/{a.get('max')}|{sb.get('p50')}/{sb.get('max')}|{first}|")
+        c=r['fact_parse_cache'];cache=f"{c['hit_rate']} ({c['hits']}/{c['misses']})"+(' disabled' if c['disabled'] else '')
+        lines.append(f"|{r['node'].split('::')[1][:40]}|{r['iteration']}|{r['rc']}|{r['wall_s']}|{a.get('p50')}/{a.get('p95')}/{a.get('max')}|{sb.get('p50')}/{sb.get('max')}|{cache}|{first}|")
     for r in summary['runs']:
         f=r['first_over_limit'] or r['slowest_guard_request']
         if not f:continue
         lines+=['',f"## {r['node'].split('::')[1][:50]} it{r['iteration']}: {'first over limit' if r['first_over_limit'] else 'slowest guard request'}",'',
             '```json',json.dumps(f,ensure_ascii=False,indent=1)[:6000],'```']
-        lines+=['',f"Host startup: {r['host_startup']}",f"TLS handshakes: {r['tls_handshakes']}",f"slow statements: {r['slow_statements'][:5]}"]
+        lines+=['',f"PG functions per constrained request (mean ms, top 8 by total): {r['pg_functions_per_request']['top_by_total_ms'][:8]}",
+            f"Host startup: {r['host_startup']}",f"TLS handshakes: {r['tls_handshakes']}",f"slow statements: {r['slow_statements'][:5]}"]
     return '\n'.join(lines)+'\n'
 
 

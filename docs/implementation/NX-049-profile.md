@@ -79,3 +79,15 @@ scripts/perf/nx049_profile.sh deploy-idle 5
 - `scripts/perf/nx049_report.py`：汇总，输出 `summary.json` / `summary.md`。
 - `scripts/perf/hooks/host_timeline.mjs`：Node 预加载。
 - `scripts/perf/hooks/sitecustomize.py`、`scripts/perf/hooks/perf_plugin.py`：已有钩子，增加 `NEXLOOP_PERF_TIMELINE=1` 时间线模式；不开时行为不变。
+
+## 6. 报告 v2 新增（nx049-report-v2）
+
+- **按请求的 PG 函数耗时**：在时间线模式下，每条调用 authz/control/runtime/ontology 函数的语句执行完后，测量钩子在同一连接上读取一次本后端的 `pg_stat_xact_user_functions`，与该连接上一次读数作差（后端尚未上报的计数会跨事务累积；读数回落视为已上报，从零重新算），然后把差值记到所属请求上。
+  - `summary.json` 中，每次运行的 `pg_functions_per_request` 给出受时限约束的请求平均每次的函数 calls / total_ms / self_ms（按 total 取前 15）。
+  - 超时或最慢那次请求的 `python_request.pg_functions_by_total`、`pg_functions_by_self` 给出该请求自己的函数分解。
+  - 探针本身的耗时记在 `measurement_probe_ms`，读数时从请求总时间中扣除。Mac 上约占最慢请求的 5–10%（50–105 ms）。
+  - `NEXLOOP_PERF_PGFUNC=0` 可以关闭探针，只保留其余时间线。
+- **O3 事实解析缓存**：每次运行的 `fact_parse_cache` 汇总该运行内各测试进程的 hits / misses / hit_rate；`summary.md` 总表新增“O3 hit rate”一列。Mac 对照：v4 0.982（29573/543），两 Pi 0.978（33279/756）。
+- 对照数据：`mac-v2`（2 轮，4/4 通过）。带探针时 authorize p50 约 683–694 / 848–856 ms，不带探针时（v1）为 627–643 / 818–824 ms。
+
+建议的 JIT A/B 两组都带探针（倍率可比）。如果带探针后第一次超时提前、影响判读，再加一组 `NEXLOOP_PERF_PGFUNC=0` 的对照。
