@@ -21,7 +21,7 @@ from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.authorization import resolve_authority
 from nexloop_eios.postgres_artifacts import canonical_payload
 
-FEEDS=('recall-instance','claim-match')
+FEEDS=('recall-instance','claim-match','plan-reevaluate')
 PROTOCOL='nexloop-work-feed-v1'
 
 

@@ -440,6 +440,35 @@ class RunCommandBudget(BaseModel):
     maximum_cost: str
     currency: str
 
+class RunOutcomePlanUpdate1StepsItemStopIfItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type_name: str
+    object_id: str
+    property: str
+    equals: Any
+
+class RunOutcomePlanUpdate1StepsItemBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    maximum_model_turns: int
+    maximum_tool_calls: int
+    active_timeout_seconds: int
+
+class RunOutcomePlanUpdate1StepsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    step_key: str
+    step_object_id: None | str
+    prerequisites: list[str]
+    expected_result: str
+    stop_if: list[RunOutcomePlanUpdate1StepsItemStopIfItem]
+    reassess_at: None | str
+    budget: RunOutcomePlanUpdate1StepsItemBudget
+    intent_ref: None | str
+
+class RunOutcomePlanUpdate1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    strategy: None | str
+    steps: list[RunOutcomePlanUpdate1StepsItem]
+
 class ActionIntent(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:action-intent","title":"action-intent","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"intent_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"action_name":{"type":"string","pattern":"^nexloop\\\\.[a-z][a-z0-9_.]+$"},"contract_version":{"type":"string","minLength":1},"actor_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"consumer_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"plan_step_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"idempotency_key":{"type":"string","minLength":16,"maxLength":200},"payload_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"expected_versions":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"resource_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"integer","minimum":1}},"required":["resource_ref","revision"]},"minItems":1,"maxItems":256},"requested_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"not_after":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"evidence_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"minItems":1,"maxItems":256},"parameters":{"type":"object"},"decision_rationale":{"type":"string","minLength":1,"maxLength":2000}},"required":["schema_version","intent_id","tenant_id","world_id","mode","run_id","action_name","contract_version","actor_ref","consumer_ref","goal_version_ref","plan_step_ref","idempotency_key","payload_digest","expected_versions","requested_at","not_after","evidence_refs","parameters","decision_rationale"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
     schema_version: Literal['1.0']
@@ -649,3 +678,13 @@ class RunCommand(_Contract):
     budget: RunCommandBudget
     not_after: str
     runtime_owner_epoch: int
+
+class RunOutcome(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:run-outcome","title":"run-outcome","description":"NX-024. The result a plan reevaluation Run records through its Host for the current plan version. no_action, needs_information, waiting_external and escalate are normal results, not failures; plan_update supersedes the plan with new steps; action_intent names an intent this very Run submitted. Identity (tenant, world, Run, plan) is derived by the server from the Run\'s live activation; this body carries none. Grants nothing.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"kind":{"enum":["no_action","needs_information","waiting_external","escalate","plan_update","action_intent"]},"reasons":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":500}},"reassess_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|\\\\+00:00)$"}]},"evidence_refs":{"type":"array","maxItems":32,"items":{"type":"string","minLength":3,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}},"intent_ref":{"anyOf":[{"type":"null"},{"type":"string","format":"uuid","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"plan_update":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"strategy":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"steps":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"step_key":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"step_object_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"prerequisites":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":500}},"expected_result":{"type":"string","minLength":1,"maxLength":2000},"stop_if":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"type_name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"property":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"equals":{}},"required":["type_name","object_id","property","equals"]}},"reassess_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|\\\\+00:00)$"}]},"budget":{"type":"object","additionalProperties":false,"properties":{"maximum_model_turns":{"type":"integer","minimum":1,"maximum":64},"maximum_tool_calls":{"type":"integer","minimum":1,"maximum":128},"active_timeout_seconds":{"type":"integer","minimum":1,"maximum":3600}},"required":["maximum_model_turns","maximum_tool_calls","active_timeout_seconds"]},"intent_ref":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]}},"required":["step_key","step_object_id","prerequisites","expected_result","stop_if","reassess_at","budget","intent_ref"]}}},"required":["steps","strategy"]}]}},"required":["schema_version","kind","reasons","reassess_at","evidence_refs","intent_ref","plan_update"],"allOf":[{"if":{"properties":{"kind":{"const":"plan_update"}}},"then":{"properties":{"plan_update":{"type":"object"}}},"else":{"properties":{"plan_update":{"type":"null"}}}},{"if":{"properties":{"kind":{"const":"action_intent"}}},"then":{"properties":{"intent_ref":{"type":"string"}}}},{"if":{"properties":{"kind":{"const":"waiting_external"}}},"then":{"anyOf":[{"properties":{"reassess_at":{"type":"string"}}},{"properties":{"intent_ref":{"type":"string"}}}]}}]}')
+    schema_version: Literal['1.0']
+    kind: Literal['no_action', 'needs_information', 'waiting_external', 'escalate', 'plan_update', 'action_intent']
+    reasons: list[str]
+    reassess_at: None | str
+    evidence_refs: list[str]
+    intent_ref: None | str
+    plan_update: None | RunOutcomePlanUpdate1
