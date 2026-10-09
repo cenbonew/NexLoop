@@ -455,6 +455,11 @@
       "version": "0091",
       "name": "0091_perf_o2b_batch_fact_load.sql",
       "sha256": "cb502dc7beb29f530b9254360be9e9f1797c9b28c3bc5d4ca53dbedd8f180c1f"
+    },
+    {
+      "version": "0092",
+      "name": "0092_nx020_nx021_work_feeds.sql",
+      "sha256": "1ea0e98d4cb523f03de5f165a261effedcb297d56d3741ba1a11d8f01be22503"
     }
   ]
 }
