@@ -2511,7 +2511,7 @@
       "M14"
     ],
     "deliverable": "按 ADR-019 §3.5–3.6：队列页、候选详情（原文 span、召回结果、粘合分数、依赖 Claim 数）、三种决定；approve 后发布并应用等待 Claim，reject 后 Claim 保留为证据；发布/合并写回召回索引，二次对话不再产生重复候选",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -2536,6 +2536,18 @@
         "ref": "2cc54f4",
         "summary": "Merged cooldown single-instant fix (0078_nx046_cooldown_single_instant); baseline A cleared on the CI host.",
         "recorded_at": "2026-10-09T13:15:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d09aa38",
+        "summary": "Done: review workbench decisions enabled (a8ff595) with audit; AT-069 covered end to end for both human merge and human publish (next conversation hits the alias or new property and applies, no duplicate candidate). Known limits: no routing/deep links, paging or filters (docs/implementation/NX-046-review-workbench.md section 10).",
+        "recorded_at": "2026-10-10T04:51:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T201109Z-d09aa38c027b",
+        "summary": "Full CI on clean CI host for d09aa38 (integration-s3x): 2469 passed / 19 failed, all within baseline, no new failures.",
+        "recorded_at": "2026-10-10T04:51:00+08:00"
       }
     ]
   },

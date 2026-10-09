@@ -990,7 +990,15 @@
     "name": "发布回流",
     "given": "候选发布/合并后再次出现同类对话",
     "expected": "召回命中新定义或别名并走自动应用；不生成重复候选",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_review_reflow_next_conversation_pg.py",
+        "summary": "Synthetic test environment, merged at d09aa38: test_after_human_merge_the_next_conversation_hits_the_alias_and_applies; test_after_human_publish_the_next_conversation_hits_the_new_property_and_applies; tests/test_candidate_merge_pg.py::test_reflowed_alias_prevents_duplicate_candidates.",
+        "recorded_at": "2026-10-10T04:51:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-070",
