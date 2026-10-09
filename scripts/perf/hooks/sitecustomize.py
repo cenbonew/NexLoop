@@ -27,8 +27,8 @@ if _OUT:
             s[0]+=1;s[1]+=total;s[2]+=own;s[3]=max(s[3],total)
 
     class _Frame:
-        __slots__=('name','start','child','breakdown')
-        def __init__(self,name):self.name,self.start,self.child,self.breakdown=name,_clock(),0.0,{}
+        __slots__=('name','start','child','breakdown','wall')
+        def __init__(self,name):self.name,self.start,self.child,self.breakdown,self.wall=name,_clock(),0.0,{},time.time()
 
     def _enter(name):
         stack=getattr(_local,'stack',None)
@@ -46,7 +46,7 @@ if _OUT:
             for k,v in frame.breakdown.items():parent.breakdown[k]=parent.breakdown.get(k,0.0)+v
             if keys and not frame.name.startswith('invoke:'):parent.breakdown.setdefault('@keys',[]).extend(keys)
         if frame.name.startswith(top_events) and len(_events)<4000:
-            with _glock:_events.append({'name':frame.name,'t':round(frame.start,6),'total':total,
+            with _glock:_events.append({'name':frame.name,'t':round(frame.start,6),'wall':round(frame.wall,6),'thread':threading.get_ident(),'total':total,
                 'breakdown':{k:round(v,6) for k,v in sorted(((k,v) for k,v in frame.breakdown.items() if not k.startswith('#')),key=lambda kv:-kv[1])[:12]},
                 'counts':{k[1:]:v for k,v in frame.breakdown.items() if k.startswith('#')},
                 'decisions':len(keys or ()),'distinct_decisions':len(set(keys or ()))})
@@ -94,6 +94,9 @@ if _OUT:
         'nexloop_eios.role_runs':[(None,'role_envelope_for_run','envelope:role')],
         'nexloop_eios.service_offerings':[(None,'catalog_envelope_from_hint','envelope:catalog')],
         'nexloop_eios.recall':[('OntologyRecall','recall','invoke:job:recall')],
+        # NX-049: Host control requests from the dispatcher and context assembly units.
+        'nexloop_eios.runtime_dispatch':[('RuntimeDispatcher','run_once','invoke:dispatch:run_once')],
+        'nexloop_eios.message_relay':[('MessageRelay','run_once','invoke:relay:run_once')],
     }
 
     def _note_decision(key):
@@ -157,9 +160,62 @@ if _OUT:
         if getattr(loaded,'__name__',None) in TARGETS:_patch(loaded)
     sys.meta_path.insert(0,_Finder())
 
+    # NX-049 timeline (only with NEXLOOP_PERF_TIMELINE=1): wall-clock records comparable across
+    # processes: guard HTTP handling, TLS handshakes, dispatcher→Host requests, Host spawn, and
+    # the Node preload (host_timeline.mjs) injected into the Agent Host. Timings/paths only.
+    _timeline=[]
+    if os.environ.get('NEXLOOP_PERF_TIMELINE')=='1':
+        import http.server,ssl,subprocess
+        def _note(**record):
+            if len(_timeline)<20000:
+                with _glock:_timeline.append(record)
+        handle=http.server.BaseHTTPRequestHandler.handle_one_request
+        def handle_one_request(self):
+            wall=time.time();start=_clock();self._perf_status=None
+            try:return handle(self)
+            finally:
+                if getattr(self,'path',None):_note(kind='guard_request',path=self.path.split('?')[0],start_wall=wall,total_ms=1000*(_clock()-start),status=self._perf_status,thread=threading.get_ident())
+        http.server.BaseHTTPRequestHandler.handle_one_request=handle_one_request
+        send=http.server.BaseHTTPRequestHandler.send_response
+        def send_response(self,code,message=None):
+            self._perf_status=code;return send(self,code,message)
+        http.server.BaseHTTPRequestHandler.send_response=send_response
+        handshake=ssl.SSLSocket.do_handshake
+        def do_handshake(self,*a,**k):
+            wall=time.time();start=_clock();error=None
+            try:return handshake(self,*a,**k)
+            except Exception as e:error=type(e).__name__;raise
+            finally:_note(kind='tls_handshake',server_side=bool(getattr(self,'server_side',False)),start_wall=wall,total_ms=1000*(_clock()-start),error=error,thread=threading.get_ident())
+        ssl.SSLSocket.do_handshake=do_handshake
+        popen=subprocess.Popen.__init__
+        def popen_init(self,args,*a,**k):
+            text=' '.join(map(str,args)) if isinstance(args,(list,tuple)) else str(args)
+            if 'agent_host.py' in text:_note(kind='host_spawn',start_wall=time.time())
+            return popen(self,args,*a,**k)
+        subprocess.Popen.__init__=popen_init
+        try:
+            import httpx
+            hsend=httpx.Client.send
+            def client_send(self,request,*a,**k):
+                wall=time.time();start=_clock();status=None;error=None
+                try:
+                    response=hsend(self,request,*a,**k);status=response.status_code;return response
+                except Exception as e:error=type(e).__name__;raise
+                finally:_note(kind='http_client',path=request.url.path,start_wall=wall,total_ms=1000*(_clock()-start),status=status,error=error,thread=threading.get_ident())
+            httpx.Client.send=client_send
+        except Exception:pass
+        if sys.argv and sys.argv[0].endswith('agent_host.py'):
+            # The Host launcher passes only an allow-listed environment to Node; add the preload there.
+            execve=os.execve
+            def traced_execve(path,argv,env):
+                env=dict(env);env['NEXLOOP_PERF_OUT']=_OUT
+                env['NODE_OPTIONS']=(env.get('NODE_OPTIONS','')+' --import '+(_HERE/'host_timeline.mjs').as_uri()).strip()
+                return execve(path,argv,env)
+            os.execve=traced_execve
+
     def _dump():
         Path(_OUT).mkdir(parents=True,exist_ok=True)
         cache=getattr(sys.modules.get('nexloop_eios.authorization'),'FACT_PARSE_CACHE',None)
-        data={'pid':os.getpid(),'argv':sys.argv[:4],'fact_parse_cache':None if cache is None else {'hits':cache.hits,'misses':cache.misses,'disabled':_NOCACHE},'stats':{k:{'count':v[0],'total':v[1],'self':v[2],'max':v[3]} for k,v in _stats.items()},'events':_events}
+        data={'pid':os.getpid(),'argv':sys.argv[:4],'timeline':_timeline,'fact_parse_cache':None if cache is None else {'hits':cache.hits,'misses':cache.misses,'disabled':_NOCACHE},'stats':{k:{'count':v[0],'total':v[1],'self':v[2],'max':v[3]} for k,v in _stats.items()},'events':_events}
         (Path(_OUT)/f'proc-{os.getpid()}.json').write_text(json.dumps(data))
     atexit.register(_dump)

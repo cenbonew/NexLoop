@@ -1,0 +1,146 @@
+"""NX-049 report: where the 2 s guard budget goes, per run, from scripts/perf/out/<label>.
+
+Inputs (written by nx049_profile.sh with hooks in timeline mode): walls.jsonl, proc-*.json
+(Python events + timeline), host-*.jsonl (Node preload), pg-*.json (function stats, lock-wait
+and activity samples), pglog-*.log (slow statements / lock waits, parameters not logged).
+Outputs summary.json and summary.md in the same directory. All clocks are wall clocks
+(epoch seconds / ms) so records from the test process, the Host and PostgreSQL line up.
+"""
+import json,re,statistics,sys
+from datetime import datetime,timezone
+from pathlib import Path
+
+LIMIT_MS=2000
+GUARD_PATHS=('/internal/v1/runtime/authorize','/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find')
+CONSTRAINED=('invoke:authorize_runtime_activation','invoke:runtime_effect_tool','invoke:prepare_message_context','invoke:create_runtime_activation')
+
+
+def load(out):
+    walls=[json.loads(l) for l in (out/'walls.jsonl').read_text().splitlines()] if (out/'walls.jsonl').exists() else []
+    procs=[json.loads(p.read_text()) for p in sorted(out.glob('proc-*.json'))]
+    host=[json.loads(l) for p in sorted(out.glob('host-*.jsonl')) for l in p.read_text().splitlines() if l.strip()]
+    pgs={p.stem[3:]:json.loads(p.read_text()) for p in sorted(out.glob('pg-*.json'))}
+    logs={p.stem[6:]:p.read_text(errors='replace') for p in sorted(out.glob('pglog-*.log'))}
+    return walls,procs,host,pgs,logs
+
+
+_LOG=re.compile(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+) UTC \[(\d+)\] (\S*) (LOG|ERROR|DETAIL|STATEMENT):\s+(.*)$')
+def log_records(text):
+    out=[]
+    for line in text.splitlines():
+        m=_LOG.match(line)
+        if not m:continue
+        wall=datetime.strptime(m.group(1),'%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc).timestamp()
+        message=m.group(5)
+        d=re.match(r'duration: ([\d.]+) ms\s+(?:statement|execute [^:]*): (.*)',message)
+        if d:
+            fn=re.search(r'([a-z_]+\.[a-z0-9_]+)\s*\(',d.group(2))
+            out.append({'kind':'slow_statement','end_wall':wall,'ms':float(d.group(1)),'pid':int(m.group(2)),'statement':(fn.group(1) if fn else d.group(2)[:80])})
+        elif 'still waiting for' in message or 'acquired' in message or 'deadlock' in message.lower():
+            out.append({'kind':'lock_log','wall':wall,'pid':int(m.group(2)),'message':message[:200]})
+    return out
+
+
+def q(values,p):
+    values=sorted(values)
+    return round(values[min(len(values)-1,int(round(p*(len(values)-1))))],1) if values else None
+
+
+def within(wall,start,end):return start<=wall<=end
+
+
+def analyse_run(run,procs,host,pg,log):
+    start,end=run['start_wall'],run['end_wall']
+    events=[dict(e,pid=p['pid']) for p in procs for e in p.get('events',[]) if 'wall' in e and within(e['wall'],start,end)]
+    timeline=[dict(r,pid=p['pid']) for p in procs for r in p.get('timeline',[]) if within(r.get('start_wall',0),start,end)]
+    host_records=[r for r in host if within((r.get('start_wall_ms') or r.get('wall_ms') or r.get('origin_wall_ms') or 0)/1000,start-5,end)]
+    clients=[r for r in host_records if r['kind']=='client' and r['path'] in GUARD_PATHS]
+    guard_requests=[r for r in timeline if r['kind']=='guard_request']
+    handshakes=[r for r in timeline if r['kind']=='tls_handshake']
+    dispatch=[r for r in timeline if r['kind']=='http_client']
+    def ms(values):return {'n':len(values),'p50':q(values,.5),'p95':q(values,.95),'max':round(max(values),1) if values else None}
+    per_path={}
+    for r in clients:per_path.setdefault(r['path'],[]).append(r['total_ms'])
+    invokes={}
+    for e in events:
+        if e['name'] in CONSTRAINED or e['name'].startswith(('invoke:dispatch','invoke:relay')):invokes.setdefault(e['name'],[]).append(1000*e['total'])
+    result={'node':run['node'],'iteration':run['iteration'],'rc':run['rc'],'wall_s':round(end-start,1),'load':run.get('load'),
+        'host_guard_requests':{p:ms(v) for p,v in per_path.items()},
+        'host_guard_failures':[{'path':r['path'],'total_ms':round(r['total_ms'],1),'error':r.get('error'),'status':r.get('status')} for r in clients if r.get('error') or r.get('status') not in (200,None)],
+        'python_requests':{k:ms(v) for k,v in invokes.items()},
+        'guard_server':ms([r['total_ms'] for r in guard_requests]),
+        'tls_handshakes':{'server':ms([r['total_ms'] for r in handshakes if r['server_side']]),'client':ms([r['total_ms'] for r in handshakes if not r['server_side']])},
+        'dispatcher_to_host':[{'path':r['path'],'ms':round(r['total_ms'],1),'status':r.get('status'),'error':r.get('error')} for r in dispatch],
+        'host_startup':[],
+        'lock_wait_samples':len(pg.get('lock_waits',[])) if pg else None,
+        'pg_wait_samples':(pg or {}).get('wait_samples_20ms',{}),
+        'pg_top_functions_self_ms':[(f['function'],f['calls'],round(f['self_ms'],1)) for f in (pg or {}).get('functions',[])[:12]],
+        'slow_statements':sorted(({'statement':s['statement'],'ms':s['ms']} for s in log if s['kind']=='slow_statement'),key=lambda s:-s['ms'])[:15],
+        'lock_log':[s['message'] for s in log if s['kind']=='lock_log'][:10]}
+    spawns=sorted(r['start_wall'] for r in timeline if r['kind']=='host_spawn')
+    for r in host_records:
+        if r['kind']=='listening':
+            spawn=max((s for s in spawns if s<=r['wall_ms']/1000),default=None)
+            result['host_startup'].append({'node_start_to_listening_ms':round(r['since_process_start_ms'],1),
+                'spawn_to_listening_ms':None if spawn is None else round(r['wall_ms']-1000*spawn,1)})
+    # First guard request the Host saw exceed 2 s (or fail): full decomposition.
+    over=sorted((r for r in clients if r['total_ms']>=LIMIT_MS or r.get('error')),key=lambda r:r['start_wall_ms'])
+    result['first_over_limit']=decompose(over[0],guard_requests,events,handshakes,pg,log) if over else None
+    slowest=max(clients,key=lambda r:r['total_ms'],default=None)
+    result['slowest_guard_request']=decompose(slowest,guard_requests,events,handshakes,pg,log) if slowest and not over else None
+    return result
+
+
+def decompose(client,guard_requests,events,handshakes,pg,log):
+    s=client['start_wall_ms']/1000;e=s+client['total_ms']/1000
+    server=min((g for g in guard_requests if g['path']==client['path'] and s-0.05<=g['start_wall']<=e),key=lambda g:abs(g['start_wall']-s),default=None)
+    invoke=None
+    if server:
+        candidates=[x for x in events if x['thread']==server['thread'] and server['start_wall']-0.01<=x['wall']<=server['start_wall']+server['total_ms']/1000 and x['name'].startswith('invoke:')]
+        invoke=max(candidates,key=lambda x:x['total'],default=None)
+    window=lambda wall:s-0.05<=wall<=e+0.05
+    locks=[[round(w,3),[{'waiting':row[4],'wait_ms':round(row[5] or 0,1),'event':row[3],'blockers':row[7]} for row in rows]] for w,rows in (pg or {}).get('lock_waits',[]) if window(w)]
+    activity={}
+    for w,rows in (pg or {}).get('active_samples',[]):
+        if window(w):
+            for row in rows:activity[f'{row[2]}:{row[3]}']=activity.get(f'{row[2]}:{row[3]}',0)+1
+    return {'host_request':{'path':client['path'],'start_wall':round(s,3),'total_ms':round(client['total_ms'],1),'status':client.get('status'),'error':client.get('error'),
+            'phases_ms':{k:round(v,1) for k,v in client.get('phases',{}).items()}},
+        'guard_server':None if not server else {'total_ms':round(server['total_ms'],1),'status':server.get('status'),
+            'queued_before_handler_ms':round(1000*(server['start_wall']-s),1)},
+        'tls_server_handshake_ms':[round(h['total_ms'],1) for h in handshakes if h['server_side'] and window(h['start_wall'])],
+        'python_request':None if not invoke else {'name':invoke['name'],'total_ms':round(1000*invoke['total'],1),
+            'breakdown_ms':{k:round(1000*v,1) for k,v in invoke['breakdown'].items()},'calls':invoke.get('counts',{})},
+        'pg_lock_waits':locks,'pg_activity_samples_20ms':dict(sorted(activity.items(),key=lambda kv:-kv[1])),
+        'pg_slow_statements':[{'statement':x['statement'],'ms':x['ms'],'end_wall':round(x['end_wall'],3)} for x in log if x['kind']=='slow_statement' and window(x['end_wall'])]}
+
+
+def markdown(summary):
+    lines=[f"# NX-049 profile: {summary['label']}",'',f"limit {LIMIT_MS} ms; runs {len(summary['runs'])}",'']
+    lines+=['|test|it|rc|wall s|guard authorize p50/p95/max ms|effect submit p50/max|first >2 s|','|---|---|---|---|---|---|---|']
+    for r in summary['runs']:
+        a=r['host_guard_requests'].get('/internal/v1/runtime/authorize',{});sb=r['host_guard_requests'].get('/internal/v1/runtime/effects/submit',{})
+        f=r['first_over_limit'];first='—' if not f else f"{f['host_request']['path'].rsplit('/',1)[1]} {f['host_request']['total_ms']} ms {f['host_request']['error'] or ''}"
+        lines.append(f"|{r['node'].split('::')[1][:40]}|{r['iteration']}|{r['rc']}|{r['wall_s']}|{a.get('p50')}/{a.get('p95')}/{a.get('max')}|{sb.get('p50')}/{sb.get('max')}|{first}|")
+    for r in summary['runs']:
+        f=r['first_over_limit'] or r['slowest_guard_request']
+        if not f:continue
+        lines+=['',f"## {r['node'].split('::')[1][:50]} it{r['iteration']}: {'first over limit' if r['first_over_limit'] else 'slowest guard request'}",'',
+            '```json',json.dumps(f,ensure_ascii=False,indent=1)[:6000],'```']
+        lines+=['',f"Host startup: {r['host_startup']}",f"TLS handshakes: {r['tls_handshakes']}",f"slow statements: {r['slow_statements'][:5]}"]
+    return '\n'.join(lines)+'\n'
+
+
+def main(out):
+    walls,procs,host,pgs,logs=load(out)
+    runs=[]
+    for run in walls:
+        key=re.sub(r'[^A-Za-z0-9_.-]+','_',run['node'])[-150:]+f"-it{run['iteration']}"
+        runs.append(analyse_run(run,procs,host,pgs.get(key),log_records(logs.get(key,''))))
+    summary={'label':out.name,'host':(out/'host.txt').read_text() if (out/'host.txt').exists() else None,'runs':runs}
+    (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=1))
+    (out/'summary.md').write_text(markdown(summary))
+    print(markdown(summary)[:4000])
+
+
+if __name__=='__main__':main(Path(sys.argv[1]).resolve())
