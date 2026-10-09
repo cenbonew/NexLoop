@@ -1,0 +1,22 @@
+{
+  "comment": "Minimal trusted-configuration additions after a human review approves a new object type <Type> (NX-044/NX-050). Not applied automatically: the scheduler adds them to a new deploy/authorization/service-grants manifest version; the owner records the restricted groups. Generated per tenant by: python -m nexloop_eios.review_actions type-coverage --manifest deploy/authorization/service-grants.v1.json --tenant <tenant> --database-url-file <configurator DSN file> --owner-restrictions deploy/authorization/owner-property-restrictions.json",
+  "service_grants": {
+    "grants": [
+      {"principal": "claim_matcher", "resource_type": "object_type", "resource_id": "eios:object_type:<Type>", "operations": ["read"],
+       "purpose": "Recall and match Claims on the review-approved type.", "source_task": "NX-050"},
+      {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:<Type>.create:1", "operations": ["execute"], "follow_latest_version": true,
+       "purpose": "Reflow creation of review-approved instances; successors published by later reviews are followed.", "source_task": "NX-050"},
+      {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:<Type>.edit:1", "operations": ["execute"], "follow_latest_version": true,
+       "purpose": "Governed writes of matched values on the type; successors followed.", "source_task": "NX-050"}
+    ],
+    "property_access_rules": [
+      {"principal": "claim_matcher", "type_name": "<Type>", "operations": ["edit", "read"],
+       "property_groups": ["channel_tech", "demographics", "lifestyle", "needs_intent", "other", "pain_point", "preference", "purchase_behavior", "sentiment_attitude", "spending_power"],
+       "include_review_published": true, "basis_schema_version": 1, "valid_until": "<owner-decided>",
+       "purpose": "Per-object READ/EDIT derived from the type rule (0084); every property of a review-approved type arrives through review.", "source_task": "NX-050"}
+    ],
+    "message_read_rules": "unchanged: the v5 claim_matching rule already covers the evidence Messages of any Claim still to be matched, whatever its type"
+  },
+  "owner_restrictions": {"type_name": "<Type>", "restricted_groups": "<owner decides; [] restricts nothing>"},
+  "match_config": {"edit_actions": {"<Type>": ["<Type>.edit", "<latest>"]}, "create_actions": {"<Type>": ["<Type>.create", "<latest>"]}}
+}

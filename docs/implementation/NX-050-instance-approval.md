@@ -78,3 +78,43 @@ Python：
   - 换一个服务主体再跑回流时会重复尝试创建，因而记为缺授权：`pending` 增加了已绑定对象，绑定后不再创建；
   - 第二次回流的断言写错。
 - 回归：`test_bootstrap test_db_boundary test_claim_store_pg test_instance_approval_pg test_review_type_actions_pg test_review_decisions_pg test_review_http test_review_workbench_pg test_candidate_merge_pg test_claim_matching_pg test_work_feeds_pg test_recall_pg test_property_grant_derivation_pg test_grants_follow_latest_pg test_background_services_pg`，118 passed。
+
+## 6. 收口追加（调度员裁定 2026-10-10，分支 nx050-followups，临时迁移 0104_nx050_create_latest）
+
+### 6.1 回流按最新 create 版本执行，SQL 先复核
+- 回流动词 `instance_plan` 调用 `ontology.nexloop_instance_create_plan`，检查以下几点：
+  - 批准时记录的标识属性，在最新 Schema 中仍然存在；
+  - 标识值与属性类型一致（string/number/integer/boolean），属性带封闭词表时值仍在词表内；
+  - 最新 Schema 的必填属性都被标识覆盖；
+  - 最新的 `<Type>.create`（当前生效、绑定最新版本）仍是 0101 的规范形状：create 能力，低风险，无审批，无策略，绑定恰好一个对象类型引用，引用指向最新版本。
+- 全部满足时，用这个最新版本创建；按决定派生的幂等键不变。
+- 任一不满足时，不写入，候选退回 `pending_review`：
+  - `status_reason` 记为 `returned_to_review: <原因>`；
+  - 写一条服务候选事件，附带决定 ID、原因和当时批准的 create 版本；
+  - 释放实例批准记录，决定的回流状态记为 `done`，报告中写明原因；
+  - 依赖 Claim 保持 `awaiting_definition`，由人工重新决定，不会一直 waiting。
+
+### 6.2 ontology.object.edit 能力 profile
+- `business_actions.PROFILES` 增加服务 profile `ontology.object.edit`，与 create 一样要求快照为有副作用的原子能力。
+- `deploy/configuration/business-actions.v1.json` 升到 v4，声明 `Consumer.edit:1`，由 `claim_matcher` 执行；服务授权清单里已有这条授权，这里不新增授权。这只是能力定义。
+- 生产租户由此同时具有 create/edit 能力快照，审核批准新类型不会再报 `type_action_capability_unavailable`。
+- `test_system_object_types` 原有不变式要求“业务 Action 只绑定仓库发布的类型”。现在对核心业务类型 Consumer v1 放宽：只允许服务授权清单中已点名的那条 Action 绑定它。
+
+### 6.3 部署最小授权清单与 doctor（NX-048 收口）
+- 只读 doctor：`python -m nexloop_eios.review_actions type-coverage --manifest … --tenant … --database-url-file <configurator> [--owner-restrictions …]`。它对每个经审核批准的类型报告缺少的条目，并给出可直接合入清单的建议；全部覆盖时退出码为 0。
+- 每个类型的最小清单（示例见 `deploy/authorization/examples/review-approved-type.example.json`），都给 `claim_matcher`：
+  1. `eios:object_type:<Type>` READ；
+  2. `eios:action:<Type>.create:1` 与 `<Type>.edit:1` EXECUTE，并声明 `follow_latest_version`，后续审核发布的版本自动跟随；
+  3. 一条 `property_access_rules`，类型为 `<Type>`，操作为 edit 与 read，包含十个分组，`include_review_published=true`，`basis_schema_version=1`。逐对象和逐属性的 READ/EDIT 由 0084 派生，不写静态逐对象授权；
+  4. 负责人在限制文件中为 `<Type>` 记录受限组决定（空列表表示不限制）；
+  5. 匹配进程的 `match-config.json` 中加入该类型的 edit/create（版本跟随）。
+- `message_read_rules`（v5）不需要改动：`claim_matching` 规则已经覆盖任意类型下“仍待匹配”的 Claim 的证据消息。doctor 会检查 `claim_matcher` 是否有这条规则。
+
+### 6.4 测试
+- `tests/test_instance_approval_pg.py` 新增：
+  - `test_schema_advanced_after_approval_creates_with_the_latest_create_action`
+  - `test_identity_no_longer_creatable_returns_the_candidate_to_review`：标识属性不兼容、标识属性被移除、出现未被标识覆盖的新必填属性、create 非规范形状，共四种。
+- `tests/test_business_actions.py` 新增：
+  - `test_edit_profile_requires_a_side_effecting_service_snapshot`
+  - `test_deployment_actions_provide_both_type_action_capabilities`：经真实 SQL 门槛验证。
+- `tests/test_review_type_actions_pg.py::test_type_coverage_doctor_lists_the_minimal_grants_and_they_validate`

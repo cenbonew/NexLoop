@@ -199,3 +199,34 @@ def test_approved_type_hands_claims_back_to_the_full_matching_chain(review):
     assert admin.execute("select count(*) from ontology.nexloop_mutation_proposals").fetchone()==(0,)
     done=review_worker(f,suffix='-type-reflow-5').run_pending()[result['decision_id']]
     assert done['status']=='done' and 'reason' not in done
+
+
+def test_type_coverage_doctor_lists_the_minimal_grants_and_they_validate(review):
+    """Ruling 3 / NX-048: after a type is approved the read-only doctor reports exactly what trusted configuration must add
+    (type READ, follow_latest_version create/edit, a 0084 type rule, the owner's restriction decision); applying the
+    suggestion yields a valid manifest that the doctor reports as covered."""
+    import copy
+    from psycopg.conninfo import make_conninfo
+    from nexloop_eios import service_grants as G
+    from nexloop_eios.review_actions import main as doctor_main,type_coverage
+    f=review;admin=f['admin'];claim,cid=type_pending(f,'pet-doctor');create_capability(f)
+    assert human(f).decide(candidate_id=cid,decision='approve',expected_revision=candidates(admin)[cid][8],rationale='新增宠物类型',
+        idempotency_key='synthetic-type-doctor-01')['outcome']=='published'
+    admin.execute('alter role nexloop_configurator login')
+    dsn=f['tmp']/'configurator-dsn';dsn.write_text(make_conninfo(f['pg'],user='nexloop_configurator'));dsn.chmod(0o600)
+    from test_review_decisions_pg import MANIFEST_PATH
+    manifest=G.load(MANIFEST_PATH);owner=G.load_owner_restrictions(MANIFEST_PATH.parent/'owner-property-restrictions.json')
+    report=type_coverage(manifest,TENANT,database_url_file=dsn,owner_restrictions=owner)
+    (pet,)=report['types']
+    assert report['covered'] is False and report['findings']==[] and pet['type_name']=='Pet'
+    assert pet['missing']==['grant:eios:object_type:Pet','grant:eios:action:Pet.create:1','grant:eios:action:Pet.edit:1','property_access_rule:Pet','owner_restriction:Pet']
+    assert doctor_main(['type-coverage','--manifest',str(MANIFEST_PATH),'--tenant',TENANT,'--database-url-file',str(dsn)])==1
+    # The suggestion is a valid manifest change (no static per-object grant anywhere).
+    updated=copy.deepcopy(manifest)
+    updated['grants']+=pet['suggested']['grants']
+    updated['property_access_rules']+=[dict(r,valid_until='2027-10-09T00:00:00+00:00') for r in pet['suggested']['property_access_rules']]
+    G.validate(updated)
+    assert not any(':Pet/' in g['resource_id'] for g in updated['grants'])
+    owner_after={**owner,'restrictions':owner['restrictions']+[{'type_name':'Pet','restricted_groups':[]}]}
+    G.validate_owner_restrictions(owner_after)
+    assert type_coverage(updated,TENANT,database_url_file=dsn,owner_restrictions=owner_after)['covered'] is True

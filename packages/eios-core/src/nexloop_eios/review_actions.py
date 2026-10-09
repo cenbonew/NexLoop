@@ -299,12 +299,70 @@ def uncovered_actions(manifest,tenant,*,database_url_file):
         'will_be_auto_covered':automatic,'uncovered':rows,'covered':not rows}
 
 
+TYPE_GROUPS=('channel_tech','demographics','lifestyle','needs_intent','other','pain_point','preference','purchase_behavior','sentiment_attitude','spending_power')
+
+
+def review_type_coverage(manifest,published,*,owner_restrictions=None,matcher_role='claim_matcher'):
+    """Pure: for every type a human review published (its <Type>.create:1 and <Type>.edit:1 came with one decision),
+    the minimal trusted configuration the background services need, reusing follow_latest_version (Action successors)
+    and the 0084 type derivation (per-object/property READ/EDIT) instead of static per-object grants."""
+    by_decision={}
+    for item in published:
+        m=re.fullmatch(r'eios:action:([A-Z][A-Za-z0-9_]{0,63})\.(create|edit):1',item['resource_id'])
+        if m:by_decision.setdefault((item['decision_id'],m.group(1)),set()).add(m.group(2))
+    types=sorted({t for (_,t),kinds in by_decision.items() if kinds=={'create','edit'}})
+    grants={(g['principal'],g['resource_id']):g for g in manifest['grants']}
+    rules={(r['principal'],r['type_name']):r for r in manifest.get('property_access_rules',[])}
+    reads={r['principal']:r for r in manifest.get('message_read_rules',[])}
+    restricted={r['type_name'] for r in (owner_restrictions or {}).get('restrictions',[])}
+    report={'matcher_role':matcher_role,'types':[],'covered':True,'findings':[]}
+    if matcher_role not in reads:report['findings'].append({'state':'message_read_rule_missing','principal':matcher_role})
+    for t in types:
+        missing=[];suggested={'grants':[],'property_access_rules':[],'owner_restrictions':[],'match_config':{
+            'edit_actions':{t:[t+'.edit',1]},'create_actions':{t:[t+'.create',1]}}}
+        need=[{'principal':matcher_role,'resource_type':'object_type','resource_id':f'eios:object_type:{t}','operations':['read'],
+               'purpose':f'Recall and match Claims on the review-approved type {t}.','source_task':'NX-050'}]
+        need+=[{'principal':matcher_role,'resource_type':'action','resource_id':f'eios:action:{t}.{k}:1','operations':['execute'],
+                'purpose':f'{k} {t} instances / values (reflow creation of approved instances, matched writes); successors follow review publications.',
+                'source_task':'NX-050','follow_latest_version':True} for k in ('create','edit')]
+        for g in need:
+            have=grants.get((g['principal'],g['resource_id']))
+            if have is None or (g.get('follow_latest_version') and not have.get('follow_latest_version')):
+                missing.append('grant:'+g['resource_id']);suggested['grants'].append(g)
+        rule=rules.get((matcher_role,t))
+        if rule is None or not rule.get('include_review_published') or set(rule.get('operations',[]))!={'edit','read'}:
+            missing.append('property_access_rule:'+t)
+            suggested['property_access_rules'].append({'principal':matcher_role,'type_name':t,'operations':['edit','read'],'property_groups':list(TYPE_GROUPS),
+                'include_review_published':True,'basis_schema_version':1,'valid_until':'<owner-decided>',
+                'purpose':f'Per-object READ/EDIT on {t} derived from the type rule (0084); every property arrives through human review.','source_task':'NX-050'})
+        if owner_restrictions is not None and t not in restricted:
+            missing.append('owner_restriction:'+t)
+            suggested['owner_restrictions'].append({'type_name':t,'restricted_groups':'<owner decides; [] restricts nothing>'})
+        report['types'].append({'type_name':t,'missing':missing,'suggested':suggested})
+        report['covered']=report['covered'] and not missing
+    report['covered']=report['covered'] and not report['findings']
+    return report
+
+
+def type_coverage(manifest,tenant,*,database_url_file,owner_restrictions=None):
+    from nexloop_eios.trusted_configuration import configurator_connection
+    with configurator_connection(database_url_file) as db:
+        published=db.execute('select control.nexloop_review_published_actions(%s)',(tenant,)).fetchone()[0]
+    return {'tenant':tenant,'manifest_version':manifest.get('manifest_version'),**review_type_coverage(manifest,published,owner_restrictions=owner_restrictions)}
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description='NexLoop review publication doctor (read-only)')
-    p.add_argument('command',choices=['uncovered-actions'])
+    p.add_argument('command',choices=['uncovered-actions','type-coverage'])
     p.add_argument('--manifest',type=Path,required=True);p.add_argument('--tenant',required=True);p.add_argument('--database-url-file',type=Path,required=True)
+    p.add_argument('--owner-restrictions',type=Path)
     a=p.parse_args(argv)
-    try:result=uncovered_actions(json.loads(a.manifest.read_text()),a.tenant,database_url_file=a.database_url_file)
+    try:
+        manifest=json.loads(a.manifest.read_text())
+        if a.command=='type-coverage':
+            owner=json.loads(a.owner_restrictions.read_text()) if a.owner_restrictions else None
+            result=type_coverage(manifest,a.tenant,database_url_file=a.database_url_file,owner_restrictions=owner)
+        else:result=uncovered_actions(manifest,a.tenant,database_url_file=a.database_url_file)
     except Exception as error:
         print(json.dumps({'ok':False,'error':type(error).__name__}));return 2
     print(json.dumps(result,ensure_ascii=False,indent=2));return 0 if result['covered'] else 1
