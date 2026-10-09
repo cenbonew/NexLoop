@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-service-grants/1",
-  "manifest_version": 5,
-  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks). v5: deployment plan B (0099) — message_read_rules bind Message/Conversation READ to the work itself: the extraction worker reads only the Conversation and Messages of an extraction task its credential currently leases; the matcher reads only the evidence Message and Conversation of a Claim still to be matched. Derived in SQL at each use; rule or Action revocation, Message deletion, leaving the Conversation, task completion or Claim resolution end it.",
+  "manifest_version": 6,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks). v5: deployment plan B (0099) — message_read_rules bind Message/Conversation READ to the work itself: the extraction worker reads only the Conversation and Messages of an extraction task its credential currently leases; the matcher reads only the evidence Message and Conversation of a Claim still to be matched. Derived in SQL at each use; rule or Action revocation, Message deletion, leaving the Conversation, task completion or Claim resolution end it. v6: nexloop.context.assemble:1 is issued with each Run (0104): the Source carries the Run credential it issued for that Run, valid only while the Run is active and for that Run's own pack; the standing context_assembler principal is retired and its grants are revoked on apply.",
   "valid_from": "2026-10-09T00:00:00+00:00",
   "world": "real",
   "principals": [
@@ -72,17 +72,6 @@
       "source_task": "NX-047"
     },
     {
-      "role": "context_assembler",
-      "subject_id": "nexloop-service-context-assembler",
-      "principal_id": "nexloop-service-context-assembler-principal",
-      "credential_id": "nexloop-service-context-assembler-key",
-      "credential_reference": "context_assembler",
-      "application_id": "eios:application:nexloop-context-assembler",
-      "database_role": "nexloop_api",
-      "purpose": "Assemble Context packs (NX-023): read the current strategy; every evidence source is still read under its own current object/property READ.",
-      "source_task": "NX-023"
-    },
-    {
       "role": "message_relay",
       "subject_id": "nexloop-service-message-relay",
       "principal_id": "nexloop-service-message-relay-principal",
@@ -122,9 +111,7 @@
     {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.conversation.route:1", "operations": ["execute"],
      "purpose": "Route an accepted inbound Message into a Run activation.", "source_task": "NX-016"},
     {"principal": "outbound_message_recorder", "resource_type": "action", "resource_id": "eios:action:Message.agent_create:1", "operations": ["execute"],
-     "purpose": "Governed creation of the Message object for an outbound reply already accepted by the channel (ADR-020 §2).", "source_task": "NX-047"},
-    {"principal": "context_assembler", "resource_type": "action", "resource_id": "eios:action:nexloop.context.assemble:1", "operations": ["execute"],
-     "purpose": "Read the current Context strategy through authz.nexloop_context_read (strategy verb); grants no object or property READ.", "source_task": "NX-023"}
+     "purpose": "Governed creation of the Message object for an outbound reply already accepted by the channel (ADR-020 §2).", "source_task": "NX-047"}
   ],
   "deferred": [
     {"resource_id": "eios:action:nexloop.service.request:1", "reason": "Real outbound effect execution; channel enablement and REAL_DISPATCH_ENABLED need the owner's own confirmation (ADR-020 §3).", "source_task": "NX-015/NX-016"},
@@ -133,6 +120,7 @@
     {"resource_id": "eios:object:Message/<id> and eios:property:Message/<id>/<field> READ", "reason": "Never a static per-Message grant: Source READ is derived from governed facts (ADR-020 §1, NX-047); extraction worker and matcher READ is derived per purpose from message_read_rules (v5, 0099).", "source_task": "NX-019/NX-047"},
     {"resource_id": "eios:object:Consumer|Product/<id> READ/EDIT and per-property grants", "reason": "Per-object authority of the matcher depends on instance data; needs governed derivation, not a static manifest.", "source_task": "NX-020"},
     {"resource_id": "eios:action:nexloop.context.bind:1 / nexloop.context.bind_role:1", "reason": "Held by Run-bound Source credentials issued per Run (0034), not by a standing service principal.", "source_task": "NX-016/NX-018"},
+    {"resource_id": "eios:action:nexloop.context.assemble:1", "reason": "Issued with each Run (0104): the Source presents the Run credential it issued, accepted only while that Run is active, unexpired and not ended, and for a v6 bind only for that Run's own pack; never a standing service grant (former context_assembler, retired in v6).", "source_task": "NX-023"},
     {"resource_id": "eios:action:Goal.create:1 / PlanStep.create:1 / nexloop.plan.bind_effect_context:1", "reason": "Planning authority belongs to Agent/Run credentials (NX-022/NX-024), not service principals.", "source_task": "NX-015/NX-024"},
     {"resource_id": "eios:action:EffectControl.create:1 / nexloop.effect.configure_control:1", "reason": "Owner control configuration; human owner authority.", "source_task": "NX-015"},
     {"resource_id": "eios:action:nexloop.consumer.link_authenticated_identity:1", "reason": "Browser human identity link flow; human authority.", "source_task": "NX-018"},
@@ -154,6 +142,10 @@
      "valid_until": "2027-10-09T00:00:00+00:00",
      "purpose": "Read the Claims of a Conversation (Conversation object) and the evidence Message of a Claim still to be matched; ends when the Claim is resolved.",
      "source_task": "NX-020"}
+  ],
+  "retired_principals": [
+    {"role": "context_assembler", "principal_id": "nexloop-service-context-assembler-principal", "retired_in": 6,
+     "reason": "nexloop.context.assemble:1 is issued with each Run (0104); no caller uses a standing assembler credential.", "source_task": "NX-023"}
   ],
   "excluded_by_policy": [
     "Human principal authority of any kind",
