@@ -234,12 +234,14 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
     """AT-064 boundary: no Context/Role pack reads Claims; hypotheses have no formal path."""
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]/'packages/eios-core/src'
-    # Sanctioned Claim consumers: extraction (NX-019), governed matching (NX-020), candidate glue/review queue (NX-045), review workbench/reject cooldown (NX-046).
+    # Sanctioned Claim consumers: extraction (NX-019), governed matching (NX-020), candidate glue/review queue (NX-045), review workbench/reject cooldown (NX-046),
+    # and the v6 Context binding (NX-023), which may place Claims only in evidence as raw text without structured values (AT-064, enforced in SQL by 0092 and
+    # covered by tests/test_context_v6_pg.py). The formal zone still has no Claim path.
     readers=[path for path in (root/'nexloop_eios').glob('*.py') if path.name not in ('claim_store.py','conversation_extraction.py','claim_extraction_jobs.py','claim_matching.py','candidate_merge.py')
              and ('nexloop_claims' in path.read_text() or 'claim_store' in path.read_text() or 'nexloop_read_conversation_claims' in path.read_text())]
     assert readers==[]
     migrations=[path.name for path in (root/'eios/migrations').glob('*.sql') if 'nexloop_claims' in path.read_text()]
-    assert migrations and all(any(tag in name for tag in ('_nx019_','_nx020_','_nx045_','_nx046_')) for name in migrations)
+    assert migrations and all(any(tag in name for tag in ('_nx019_','_nx020_','_nx023_','_nx045_','_nx046_')) for name in migrations)
 
 
 def correction_window(conversations):
