@@ -16,7 +16,7 @@ from eios.actions import models as M
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 from nexloop_eios.action_governor import govern_published_action
 from nexloop_eios.assembly import verify_application_role
-from nexloop_eios.context_engine.authority import action_claims,signed_read
+from nexloop_eios.context_engine.authority import action_claims,run_assemble_claims,signed_read
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from nexloop_eios.postgres_artifacts import canonical_payload
 
@@ -97,11 +97,16 @@ class Strategy:
 
 
 class StrategyRegistry:
-    """Current strategy for the Context assembler (EXECUTE nexloop.context.assemble:1)."""
-    def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
+    """Current strategy for the Context assembler (EXECUTE nexloop.context.assemble:1).
+
+    With ``run`` (the Run credential this Source issued) the assemble authority is the
+    one issued with that Run (0104); without it, the Source's own standing grant.
+    """
+    def __init__(self,pool,session,signer,run=None):self.pool,self.session,self.signer,self.run=pool,session,signer,run
     def get(self,strategy_id,version=None):
         payload={'strategy_id':strategy_id}|({} if version is None else {'version':version})
-        row=signed_read(self.pool,self.session,self.signer,'strategy',payload,claims=action_claims(self.pool,self.session,ASSEMBLE_ACTION))
+        claims=action_claims(self.pool,self.session,ASSEMBLE_ACTION) if self.run is None else run_assemble_claims(self.session,self.run)
+        row=signed_read(self.pool,self.session,self.signer,'strategy',payload,claims=claims)
         if row is None:return None
         validate(row['definition'],world=self.session.world)
         # SQL computed the digest over its jsonb text rendering at publication.

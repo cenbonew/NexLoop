@@ -26,15 +26,12 @@ STRATEGY_ID='recent_plus_required'
 
 @pytest.fixture
 def role_v6(monkeypatch,admin,request):
-    """Role Sources additionally hold EXECUTE nexloop.context.assemble:1; activation selects v6."""
-    install=fixture.install_runtime_catalog;seed=fixture.seed_multi_uuid
+    """Activation selects v6. Role Sources hold no standing nexloop.context.assemble:1:
+    the assemble authority is the one issued with each Role Run (0104)."""
+    install=fixture.install_runtime_catalog
     def installed(admin_,tenant,*args):
         out=install(admin_,tenant,*args);seed_strategy(admin_,tenant,STRATEGY);return out
-    def seeded(admin_,tenant,targets,*args,suffix,**kwargs):
-        if suffix.startswith('-source-'):targets=[*targets,(ASSEMBLE,ResourceType.ACTION,Operation.EXECUTE)]
-        return seed(admin_,tenant,targets,*args,suffix=suffix,**kwargs)
     monkeypatch.setattr(fixture,'install_runtime_catalog',installed)
-    monkeypatch.setattr(fixture,'seed_multi_uuid',seeded)
     monkeypatch.setattr(role_activation,'activate_role_plan',functools.partial(role_activation.activate_role_plan,context_strategy=STRATEGY_ID))
     return request.getfixturevalue('role_runtime_plan')
 

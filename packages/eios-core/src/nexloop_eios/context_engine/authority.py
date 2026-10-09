@@ -35,6 +35,24 @@ def _base(session,target,decision,entries,operation):
         'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
 
 
+ASSEMBLE_RESOURCE='eios:action:nexloop.context.assemble:1'
+
+
+def run_assemble_claims(session,run):
+    """EXECUTE nexloop.context.assemble:1 issued with the Run (0104): no standing grant.
+
+    ``run`` is the authenticated Run credential this Source issued; SQL accepts the claim
+    only while that Run is active, unexpired and not ended, for this Source credential,
+    tenant and world, and (for a v6 bind) only for the pack's own Run.
+    """
+    if session.run_context is not None or run.run_context is None:raise ContextDenied(ASSEMBLE_RESOURCE)
+    auth=session.authentication
+    return {'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
+        'directory_hash':session.directory_hash,'world':session.world,'resource_id':ASSEMBLE_RESOURCE,'action_resource':ASSEMBLE_RESOURCE,
+        'operation':'execute','expires_at':min(run.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),'facts':[],
+        'run_assemble':{'run_id':str(run.run_context.run_id),'run_digest':run.token_digest}}
+
+
 def read_proof(pool,session,kind,name):
     """Current READ proof for one resource, verified again by SQL at use."""
     target,decision,entries=_decide(pool,session,kind,name,Operation.READ)

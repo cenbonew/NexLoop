@@ -101,7 +101,7 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
     by SQL as a conflict rather than silently rebound.
     """
     def __init__(self,source,strategy_id):
-        super().__init__(source);self.strategy_id=strategy_id;self.last_diagnostic=None
+        super().__init__(source);self.strategy_id=strategy_id;self.last_diagnostic=None;self.run=None
 
     def assemble(self,snapshot,command):
         import json
@@ -109,7 +109,7 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
         from nexloop_eios.context_engine.sources import collect,consumer_conversations
         from nexloop_eios.context_engine.strategy import StrategyRegistry
         core=json.loads(encode_role_pack(snapshot,command))
-        strategy=StrategyRegistry(self.pool,self.session,self.signer).get(self.strategy_id)
+        strategy=StrategyRegistry(self.pool,self.session,self.signer,run=self.run).get(self.strategy_id)
         if strategy is None:raise ValueError('context strategy unavailable')
         consumer=core['role_binding']['binding']['consumer_id']
         try:conversations=consumer_conversations(self.pool,self.session,self.signer,consumer)
@@ -129,6 +129,7 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
             with self.backend._lock:
                 self.backend._assert_open()
                 run,definition,capability,params,binding_digest,snapshot=self._staged(run_token=run_token,command=command,body=body,offering_id=offering_id,binding_id=binding_id,control_id=control_id)
+                self.run=run  # assemble authority issued with this Run (0104)
                 pack,outcome,items,proofs=self.assemble(snapshot,command)
                 text=canonical_payload(pack)
                 if run_token in text:raise ValueError()
@@ -139,7 +140,7 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
                 core=dict(zip(('text','signature','payload'),self._envelope({**params,'verb':'snapshot'},run,definition,capability,artifact_proofs=True)))
                 with self.pool.connection() as db,db.transaction():
                     result=v6_call(db,self.authority,self.session,self.signer,'authz.nexloop_role_context_v6_command',
-                        {'verb':'bind','core':core,'pack_text':text,'pack_digest':artifact.sha256,'artifact_id':artifact.artifact_id,'omitted_items':omitted},proofs.values())
+                        {'verb':'bind','core':core,'pack_text':text,'pack_digest':artifact.sha256,'artifact_id':artifact.artifact_id,'omitted_items':omitted},proofs.values(),run=run)
                 return {'artifact_ref':'artifact:'+artifact.artifact_id,'sha256':artifact.sha256,'input':text,'command_binding_digest':binding_digest,
                     'context_id':result['context_id'],'strategy_ref':result['strategy_ref'],'insufficient':pack['insufficient']}
         except Exception as error:
