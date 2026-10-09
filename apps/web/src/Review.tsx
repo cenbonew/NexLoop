@@ -1,14 +1,40 @@
 import {useState} from 'react';
-import {useQuery} from '@tanstack/react-query';
-import {DECISION_LABELS,KIND_LABELS,readCandidate,readQueue,reviewError,type CandidateDetail,type Decisions,type QueueItem} from './review-api';
+import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
+import {DECISION_LABELS,KIND_LABELS,decide,decisionMessage,readCandidate,readQueue,reviewError,type CandidateDetail,type Decision,type Decisions,type QueueItem} from './review-api';
 
 const percent=(value:number)=>`${Math.round(value*100)}%`;
 
-/** Decisions are shown but not actionable until NX-044 provides the governed human review Actions. */
-export function DecisionBar({decisions}:{decisions:Decisions}){
+/** Merge targets: existing definitions of the same kind seen in recall / glue scores. */
+export function mergeTargets(detail:CandidateDetail):string[]{
+  const prefix=detail.kind==='property'?'eios:property:':detail.kind==='vocabulary_value'?'nexloop:vocabulary:':detail.kind==='object_type'?'eios:object_type:':null;
+  if(!prefix)return [];
+  return [...new Set([detail.merge_scores.best_match_ref,...detail.recall.map(h=>h.ref)].filter((r):r is string=>!!r&&r.startsWith(prefix)))];
+}
+
+/** Without the governed human review Action the decisions are shown disabled with the reason. */
+export function DisabledDecisions({decisions}:{decisions:Decisions}){
   return <div className="decisions" role="group" aria-label="审核决定">
     {decisions.actions.map(action=><button key={action} type="button" disabled aria-disabled="true" aria-describedby="decisions-disabled">{DECISION_LABELS[action]}</button>)}
-    <p id="decisions-disabled" role="status">未启用：审核决定需等待受治理的人类审核 Action（NX-044）上线；当前不会提交任何决定。</p>
+    <p id="decisions-disabled" role="status">未启用：审核决定需要受治理的人类审核 Action；当前不会提交任何决定。</p>
+  </div>;
+}
+
+export function DecisionBar({detail}:{detail:CandidateDetail}){
+  const cache=useQueryClient();const [rationale,setRationale]=useState('');const targets=mergeTargets(detail);const [target,setTarget]=useState(targets[0]??'');
+  const [key,setKey]=useState(()=>crypto.randomUUID());
+  const mutation=useMutation({mutationFn:(decision:Decision)=>decide(detail.candidate_id,{decision,expected_revision:detail.revision,rationale,...(decision==='merge_into'?{merge_target_ref:target}:{})},`review-${key}-${decision}`),
+    retry:false,onSuccess:()=>{setKey(crypto.randomUUID());void cache.invalidateQueries({queryKey:['review-queue']});}});
+  if(!detail.decisions.enabled)return <DisabledDecisions decisions={detail.decisions}/>;
+  const blocked=mutation.isPending||!rationale.trim();
+  return <div className="decisions" role="group" aria-label="审核决定">
+    <label htmlFor="decision-rationale">决定理由（必填，将写入审计记录）</label>
+    <textarea id="decision-rationale" value={rationale} maxLength={2000} onChange={event=>setRationale(event.target.value)}/>
+    {targets.length?<><label htmlFor="merge-target">并入的已有定义</label><select id="merge-target" value={target} onChange={event=>setTarget(event.target.value)}>{targets.map(t=><option key={t} value={t}>{t}</option>)}</select></>:<p className="note">没有可并入的同类已有定义。</p>}
+    {detail.decisions.actions.map(action=><button key={action} type="button" disabled={blocked||(action==='merge_into'&&!target)} onClick={()=>mutation.mutate(action)}>
+      {mutation.isPending&&mutation.variables===action?'正在提交…':DECISION_LABELS[action]}</button>)}
+    {!rationale.trim()&&<p className="note">填写理由后才能提交决定。</p>}
+    {mutation.isError&&<p role="alert">{reviewError(mutation.error)}</p>}
+    {mutation.data&&<p role="status">{decisionMessage(mutation.data)}</p>}
   </div>;
 }
 
@@ -29,7 +55,7 @@ export function CandidateView({detail}:{detail:CandidateDetail}){
     <h4>相似候选</h4>
     {detail.similar.length?<ul>{detail.similar.map(s=><li key={s.candidate_id}>{s.display_name}（已并入本候选{s.merge_scores?`，相似度 ${percent(s.merge_scores.weighted_total)}`:''}）</li>)}</ul>:<p className="note">没有相似候选。</p>}
     {detail.cooldown&&<p role="status">同文本候选曾被拒绝，冷却期至 {new Date(detail.cooldown.cooldown_until).toLocaleString('zh-CN')}。</p>}
-    <DecisionBar decisions={detail.decisions}/>
+    <DecisionBar detail={detail}/>
   </article>;
 }
 
