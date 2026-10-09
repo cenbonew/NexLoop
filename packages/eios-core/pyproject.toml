@@ -27,6 +27,7 @@ nexloop-artifact-smoke = "nexloop_eios.artifact_smoke:main"
 nexloop-core-sandbox = "nexloop_eios.core_sandbox:main"
 nexloop-runtime-worker = "nexloop_eios.runtime_worker:main"
 nexloop-effect-worker = "nexloop_eios.effect_worker:main"
+nexloop-outbound-recorder = "nexloop_eios.outbound_messages:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/eios", "src/nexloop_eios"]

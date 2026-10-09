@@ -47,3 +47,15 @@ dimension is explicitly unmeasured. NX-021 must verify the real endpoint, text
 input compatibility and returned dimension before any index is created; the
 index dimension must then be pinned separately. No live embedding validation
 or NX-021 completion is claimed here.
+
+## Outbound recorder (NX-047, opt-in)
+
+`outbound-recorder` runs `nexloop-outbound-recorder` (same restrictions as the other
+services: uid 10001, read-only root, no capabilities, `core_test` only). It is in the
+`outbound` Compose profile and never starts with the default disposable stack, because
+its private material is not part of the test profile: `outbound_config` must contain
+`api_dsn` (nexloop_api), `service_credential` of the `outbound_message_recorder`
+principal from `deploy/authorization/service-grants.v1.json`, `artifact_key` and
+`signing_key_id`, all provisioned by trusted configuration together with the
+`Message.agent_create:1` definition from `deploy/configuration/business-actions.v1.json`.
+`nexloop-doctor` reports `outbound_recorder_schema` (catalog presence only).

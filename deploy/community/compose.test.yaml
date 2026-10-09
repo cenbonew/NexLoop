@@ -150,6 +150,26 @@ services:
     labels:
       nexloop.purpose: disposable-community-test
 
+  outbound-recorder:
+    # NX-047 opt-in (profile "outbound"): needs trusted-configuration material in
+    # outbound_config (recorder credential, nexloop_api DSN, signer); not provisioned
+    # by the disposable test profile, so the default stack never starts it.
+    profiles: [outbound]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [outbound-recorder]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [outbound_config:/private/outbound:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
   api-test:
     image: ${BACKEND_IMAGE:?locally built tested image required}
     user: '10001:10001'
@@ -236,6 +256,9 @@ volumes:
       nexloop.purpose: disposable-community-test
 
   worker_config:
+    labels:
+      nexloop.purpose: disposable-community-test
+  outbound_config:
     labels:
       nexloop.purpose: disposable-community-test
 

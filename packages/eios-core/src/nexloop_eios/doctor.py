@@ -26,9 +26,16 @@ def diagnose(*,database_url,artifact_root,environment=None):
             details['database_extensions']={name:version for name,version in c.execute(
                 "select e.extname,e.extversion from pg_extension e join pg_namespace n on n.oid=e.extnamespace "
                 "where n.nspname='extensions' and e.extname in ('vector','pg_trgm') order by e.extname").fetchall()}
+            # NX-047 outbound recorder: the governed path exists (system catalog only, no business rows).
+            details['outbound_recorder']=dict(zip(('outbound_records','delivery_events','recorder_command','read_derivation'),c.execute(
+                "select exists(select 1 from pg_class r join pg_namespace n on n.oid=r.relnamespace where n.nspname='runtime' and r.relname='nexloop_outbound_messages'),"
+                "exists(select 1 from pg_class r join pg_namespace n on n.oid=r.relnamespace where n.nspname='runtime' and r.relname='nexloop_outbound_delivery_events'),"
+                "exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='authz' and p.proname='nexloop_outbound_message_command'),"
+                "exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='authz' and p.proname='nexloop_assert_derived_message_read_inbound_v0077')").fetchone()))
         checks['postgres']=True
         checks['search_extensions']=set(details['database_extensions'])=={'vector','pg_trgm'}
-    except Exception:checks['postgres']=False;checks['search_extensions']=False
+        checks['outbound_recorder_schema']=all(details['outbound_recorder'].values())
+    except Exception:checks['postgres']=False;checks['search_extensions']=False;checks['outbound_recorder_schema']=False
     try:
         fd=os.open(Path(artifact_root),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:

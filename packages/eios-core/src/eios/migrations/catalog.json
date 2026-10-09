@@ -390,6 +390,16 @@
       "version": "0078",
       "name": "0078_nx046_cooldown_single_instant.sql",
       "sha256": "822ccd68c32a920ac3230e76d27ab15ce57e2232f84cd0f496c811538ac982a5"
+    },
+    {
+      "version": "0079",
+      "name": "0079_nx047_outbound_messages.sql",
+      "sha256": "997c25142b659922fd6f61510568f374e717a3dbf9dd11a2b9a01ff45373f056"
+    },
+    {
+      "version": "0080",
+      "name": "0080_nx047_outbound_read_derivation.sql",
+      "sha256": "3aefa946e61a42a17c5cb659139c6f40835e80e28197c6eb89b31d3fd905141a"
     }
   ]
 }
