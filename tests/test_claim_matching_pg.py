@@ -109,8 +109,9 @@ def decision(prop=None,value=None,*,type_ref=None,strong=None,name=None,new_prop
 
 
 @pytest.fixture
-def env(admin,pg):
-    bootstrap(admin);tenant=str(uuid.uuid4())
+def env(admin,pg,request):
+    # Optional indirect parameter: share the tenant with a browser-identity fixture (NX-044).
+    bootstrap(admin);tenant=getattr(request,'param',None) or str(uuid.uuid4())
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(tenant,))
     for schema in (consumer_schema(),product_schema()):
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))

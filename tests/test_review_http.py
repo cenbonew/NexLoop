@@ -74,6 +74,8 @@ def review_app(identity,uow,published_action,admin,pg,tmp_path):
     claims=Claims(admin,TENANT,conversation,'c'*64)
     first=claims.add('http-1','常用付款方式','花呗',kind='user_statement',quote='我一般用花呗付款')
     folded=claims.add('http-2','付款方式','花呗',kind='user_statement',quote='付款方式是花呗')
+    # Claims depending on an open candidate wait for its definition (as NX-020 records them).
+    admin.execute("update ontology.nexloop_claims set resolution_state='awaiting_definition' where tenant_id=%s",(TENANT,))
     pending=put_candidate(admin,'real','常用付款方式',[first,folded])
     similar=put_candidate(admin,'real','付款方式',[folded],status='superseded',superseded_by=pending)
     hidden=put_candidate(admin,'simulation','模拟世界候选',[first])
@@ -105,7 +107,7 @@ def test_without_review_permission_the_queue_is_invisible(review_app):
 
 
 def test_reviewer_sees_queue_detail_and_disabled_decisions(review_app):
-    """AT-070 read part: span, recall, scores + config version, dependent Claims, similar; decisions not enabled (NX-044)."""
+    """AT-070: span, recall, scores + config version, dependent Claims, similar; decisions are the governed human Action (NX-044)."""
     f=review_app;grant_human(f['admin'],f['uow'],f['identity'],REVIEW)
     with f['client']() as client:
         assert login(client,f['identity']).status_code==200
@@ -114,19 +116,39 @@ def test_reviewer_sees_queue_detail_and_disabled_decisions(review_app):
         body=queue.json()
         assert [i['candidate_id'] for i in body['items']]==[f['pending']]  # simulation and superseded are not in the real queue
         assert body['items'][0]['dependent_claim_count']==2 and body['items'][0]['config_version']=='nx045-glue-v1-test64'
-        assert body['decisions']=={'enabled':False,'reason':'awaiting_nx044_review_actions','actions':['approve','merge_into','reject']}
+        assert body['decisions']=={'enabled':True,'reason':'governed_human_review_action','actions':['approve','merge_into','reject']}
         detail=client.get('/api/v1/review/candidates/'+f['pending']).json()
         assert {e['quote'] for e in detail['evidence']}=={'我一般用花呗付款','付款方式是花呗'}
         assert detail['candidate']['recall'][0]['ref']=='eios:property:Consumer/favorite_sport' and detail['merge_scores']['weighted_total']==0.06
-        assert [s['candidate_id'] for s in detail['similar']]==[f['similar']] and detail['decisions']['enabled'] is False
+        assert [s['candidate_id'] for s in detail['similar']]==[f['similar']] and detail['decisions']['enabled'] is True
         assert client.get('/api/v1/review/candidates/'+f['hidden']).status_code==404
         assert client.get('/api/v1/review/candidates/not-a-uuid').status_code==422
         assert client.get('/api/v1/review/queue?limit=500').status_code==422
-        # No decision endpoint exists before NX-044.
-        csrf=client.post('/api/v1/auth/csrf',headers={'Origin':ORIGIN}).json()['csrf_token']
-        assert client.post(f"/api/v1/review/candidates/{f['pending']}/decisions",headers={'Origin':ORIGIN,'X-CSRF-Token':csrf},json={'decision':'approve'}).status_code in (404,405)
-        assert f['admin'].execute('select status from ontology.nexloop_candidate_definitions where candidate_id=%s',(f['pending'],)).fetchone()[0]=='pending_review'
         assert client.get('/api/v1/review/queue',headers={'Host':'other.example'}).status_code==403
+
+
+def test_reviewer_decides_through_http_with_csrf_idempotency_and_cas(review_app):
+    """AT-070 decision part + AT-068: a real reject through the HTTP boundary; audit record; replay; 409 on stale revision."""
+    f=review_app;grant_human(f['admin'],f['uow'],f['identity'],REVIEW)
+    path=f"/api/v1/review/candidates/{f['pending']}/decisions"
+    body={'decision':'reject','expected_revision':1,'rationale':'不是业务概念'}
+    with f['client']() as client:
+        assert login(client,f['identity']).status_code==200
+        csrf=client.post('/api/v1/auth/csrf',headers={'Origin':ORIGIN}).json()['csrf_token']
+        headers={'Origin':ORIGIN,'X-CSRF-Token':csrf,'Idempotency-Key':'synthetic-http-reject-0001'}
+        assert client.post(path,headers={**headers,'X-CSRF-Token':'wrong'},json=body).status_code==401
+        assert client.post(path,headers={k:v for k,v in headers.items() if k!='Origin'},json=body).status_code==403
+        for bad in ({**body,'tenant_id':'other'},{**body,'decision':'publish'},{**body,'expected_revision':'1'},{'decision':'reject'}):
+            assert client.post(path,headers=headers,json=bad).status_code==422
+        assert client.post(path,headers={**headers,'Idempotency-Key':'short'},json=body).status_code==422
+        decided=client.post(path,headers=headers,json=body)
+        assert decided.status_code==200 and decided.json()['outcome']=='rejected' and decided.json()['record']['reviewer_ref']=='human:'+f['identity'][2].principal_id
+        assert client.post(path,headers=headers,json=body).json()['replay'] is True
+        assert client.post(path,headers={**headers,'Idempotency-Key':'synthetic-http-reject-0002'},json=body).status_code==409
+        assert client.get('/api/v1/review/queue').json()['items']==[]
+    assert f['admin'].execute('select status from ontology.nexloop_candidate_definitions where candidate_id=%s',(f['pending'],)).fetchone()[0]=='rejected'
+    assert f['admin'].execute('select count(*) from ontology.nexloop_review_decisions').fetchone()[0]==1
+    assert f['admin'].execute("select resolution_state from ontology.nexloop_claims where claim_id=%s",(f['first'],)).fetchone()[0]=='rejected_definition'
 
 
 def test_revoked_review_grant_hides_queue_immediately(review_app):
@@ -136,3 +158,21 @@ def test_revoked_review_grant_hides_queue_immediately(review_app):
         assert client.get('/api/v1/review/queue').status_code==200
         f['admin'].execute("delete from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[2]=%s",(TENANT,REVIEW))
         assert client.get('/api/v1/review/queue').status_code==403
+
+
+def test_reviewer_approves_through_http_and_sees_the_wait_for_grants(review_app):
+    """AT-067 step 1 over HTTP: published; the dependent Claims are shown as waiting, never silent."""
+    f=review_app;grant_human(f['admin'],f['uow'],f['identity'],REVIEW)
+    path=f"/api/v1/review/candidates/{f['pending']}/decisions"
+    with f['client']() as client:
+        assert login(client,f['identity']).status_code==200
+        csrf=client.post('/api/v1/auth/csrf',headers={'Origin':ORIGIN}).json()['csrf_token']
+        decided=client.post(path,headers={'Origin':ORIGIN,'X-CSRF-Token':csrf,'Idempotency-Key':'synthetic-http-approve-0001'},
+            json={'decision':'approve','expected_revision':1,'rationale':'新增付款方式属性'})
+        assert decided.status_code==200,decided.text
+        body=decided.json()
+        assert body['outcome']=='published' and body['reflow_status']=='pending' and 'eios:property:Consumer/payment_method' in body['publication']['published_refs']
+        waiting=client.get('/api/v1/review/awaiting')
+        assert waiting.status_code==200
+        assert [(i['candidate_id'],i['reflow_status'],i['waiting_claim_count']) for i in waiting.json()['items']]==[(f['pending'],'pending',2)]
+    assert f['admin'].execute("select resolution_state from ontology.nexloop_claims where claim_id=%s",(f['first'],)).fetchone()[0]=='awaiting_definition'

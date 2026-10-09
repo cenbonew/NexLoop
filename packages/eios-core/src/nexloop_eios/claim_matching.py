@@ -238,14 +238,14 @@ class ClaimMatcher:
         return results
 
     @authority_request_scoped
-    def match_claim(self,claim,*,matcher_version=MATCHER_VERSION,provider=None):
+    def match_claim(self,claim,*,matcher_version=MATCHER_VERSION,provider=None,allow_awaiting=False):
         """provider/matcher_version override: NX-045 re-matches a merged Claim with a deterministic decision under its own version."""
         existing=self.port.read({'verb':'match','claim_id':claim['claim_id'],'matcher_version':matcher_version})
         if existing:return {'replay':True,'outcome':existing['outcome'],'proposal_id':existing['proposal_id'],'candidate_id':existing['candidate_id']}
         decision,recall=({},[])
         if claim['epistemic_kind']=='hypothesis':
             outcome=_Outcome('hypothesis','hypothesis layer only')
-        elif claim['resolution_state'] not in ('unresolved','needs_resolution'):
+        elif claim['resolution_state'] not in ('unresolved','needs_resolution')+(('awaiting_definition',) if allow_awaiting else ()):
             outcome=_Outcome('needs_resolution','claim already '+claim['resolution_state'])
         else:
             outcome,decision,recall=self._classify(claim,provider or self.provider)
@@ -443,7 +443,9 @@ class ClaimMatcher:
                 # Another writer moved the object revision: never blind-retry, reassess.
                 self._transition(row,'applying','conflict',reason='revision_conflict');continue
             except (PermissionError,psycopg.errors.InsufficientPrivilege):
-                self._transition(row,'applying','rejected',reason='authority_denied');return 'rejected'
+                # Missing grant (e.g. a successor Action not yet in trusted configuration) is not
+                # terminal: the proposal waits in conflict and resumes once the grant exists.
+                self._transition(row,'applying','conflict',reason='authority_denied_awaiting_grant');return 'awaiting_grant'
             except ValueError:
                 # Schema validation before any Action claim (e.g. a required property missing).
                 self._transition(row,'applying','rejected',reason='invalid_properties');return 'rejected'
