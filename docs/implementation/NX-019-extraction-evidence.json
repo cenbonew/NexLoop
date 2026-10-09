@@ -1,0 +1,54 @@
+{
+ "task": "NX-019",
+ "status_claim": "implementation checkpoint only; not done (depends on NX-018; scheduler decides)",
+ "base_commit": "f58f3ee35ba0296271a5d0498693d474d220d801",
+ "migration": {
+  "file": "packages/eios-core/src/eios/migrations/0066_nx019_claims.sql",
+  "temporary_revision": "0066",
+  "renumber_on_merge": true,
+  "depends_on": [
+   "runtime.nexloop_conversations",
+   "runtime.nexloop_conversation_messages",
+   "ontology.objects",
+   "authz.nexloop_assert_action_authority",
+   "authz.nexloop_assert_read_authority",
+   "authz.nexloop_authority_signing_keys",
+   "authz.nexloop_service_credentials",
+   "authz.nexloop_browser_token_realms"
+  ]
+ },
+ "test_evidence": [
+  {
+   "class": "test",
+   "command": "LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_bootstrap.py",
+   "first_result": "2 errors: pg_ctl failed (postmaster multithreaded; shell had no locale) — environment, fixed by LC_ALL=en_US.UTF-8",
+   "then": "1 failed: 0066 plpgsql syntax (CASE inside IF needs parentheses); fixed",
+   "final": "4 passed"
+  },
+  {
+   "class": "test",
+   "command": "pytest -q tests/test_claim_store_pg.py",
+   "first_result": "check violation: hypothesis span vars not reset; then 3 failed: AuthorizationUnavailable not mapped to denial; both fixed",
+   "final": "15 passed (with later additions)"
+  },
+  {
+   "class": "test",
+   "command": "uv run --frozen pytest -q tests/test_bootstrap.py tests/test_db_boundary.py tests/test_conversation_messages.py tests/test_conversation_extraction.py tests/test_claim_store_pg.py --junitxml=.ci-results/nx019-targeted.xml",
+   "final": "90 passed in 54.77s (before 2 later PG tests were added)"
+  },
+  {
+   "class": "test",
+   "command": "uv run --frozen pytest -q tests/test_wheel_install.py; uv run --frozen python scripts/check_publication.py",
+   "final": "2 passed; 0 violations"
+  }
+ ],
+ "real_evidence": {
+  "class": "real",
+  "command": "NEXLOOP_NX019_REAL_ENV_FILE=<main checkout .env> uv run --frozen pytest -q tests/verification_real_extraction.py",
+  "inputs": "37 synthetic cases only",
+  "provider": "deepseek/deepseek-flash",
+  "first_run": "2026-10-08T23:26:45Z..23:28:04Z failed at C06: dataset forbidden pattern {modality:asserted} too broad (model validly extracted 最近预算紧张 as asserted); narrowed to the 暂不续费 span",
+  "second_run": "2026-10-08T23:28Z..23:32:13Z: 35 normalized, 2 provider_unavailable (C05,C16), 0 output_rejected, 50 claims, 0 guard invariant failures, 0 forbidden violations, expected kind recall 21/36; test failed on provider_unavailable assertion, not retried",
+  "report": "docs/implementation/NX-019-real-model-report.json"
+ }
+}
