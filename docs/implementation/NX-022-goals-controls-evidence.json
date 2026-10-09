@@ -1,0 +1,43 @@
+{
+  "task": "NX-022",
+  "line": "L4",
+  "branch": "claude/nx022-goals-8a7828",
+  "base_sha": "f58f3ee35ba0296271a5d0498693d474d220d801",
+  "code_head_tested": "5ac2a5d58a4384170538ff8f7959277a49735ae6",
+  "status_claim": "in_progress candidate; NX-022 depends on NX-018 and is not claimed done",
+  "migration": {
+    "temporary_version": "0066",
+    "file": "packages/eios-core/src/eios/migrations/0066_nx022_goals_controls.sql",
+    "sha256": "0eee56ff6eb4de3bbb29cf4384b3145101b80decc48e5d4ba53c83750d4226aa",
+    "published_0001_0065_changed": false,
+    "existing_objects_used": ["authz.nexloop_assert_action_authority", "authz.nexloop_service_identity_snapshot", "authz.nexloop_authority_signing_keys", "control.nexloop_action_definitions", "runtime.nexloop_action_claims", "ontology.objects.nexloop_revision"]
+  },
+  "environment": "macOS arm64; Node v24 via nvm; uv --frozen Python 3.12; Homebrew PostgreSQL 18 disposable per-test cluster (tests/conftest.py); LC_ALL=en_US.UTF-8 required in this shell",
+  "commands": [
+    {
+      "command": "LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_goal_controls.py tests/test_bootstrap.py --tb=short --junitxml=.ci-results/nx022-goals.xml",
+      "result": "15 passed, 0 failed, 0 errors, 0 skipped, 15.35s",
+      "report_sha256": "f1f8a5d34d08dffbc7ea8cbd289a7430ad1c8387626e0a4ecae02872492a5afe",
+      "evidence_kind": "test (synthetic tenant, disposable real PostgreSQL)"
+    },
+    {
+      "command": "LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_role_mapping.py tests/test_browser_business_authorization.py tests/test_action_definitions.py tests/test_effect_execution_sql.py --tb=short --junitxml=.ci-results/nx022-neighbors.xml",
+      "code_head": "9300f58 (migration identical to final head)",
+      "result": "49 passed, 0 failed, 0 skipped, 54.03s",
+      "report_sha256": "de6175a1f4f38386bfad596cc1d44dce935c70fcca5642ef8e7be7e539e49caf",
+      "evidence_kind": "neighbour regression on the 0066 catalog"
+    }
+  ],
+  "first_failures_retained": [
+    "First run of test_goal_controls: browser human session rejected ('PostgreSQL browser authority facts unavailable') because later identity seeding moved the authority directory hash; fixture changed to authenticate all sessions after seeding (expected EIOS behaviour, not a product defect).",
+    "Owner-table privilege loop reused an aborted transaction (InFailedSqlTransaction); each probe now runs in its own transaction.",
+    "AT-005 test reused one request_id across the rejected Agent attempt and a service attempt; the governor correctly refused the conflicting immutable claim binding; the service attempt now uses its own request_id."
+  ],
+  "acceptance": {
+    "AT-005": {"conclusion": "passed (scope: goal immutability and authority)", "tests": ["test_at005_agent_cannot_change_parent_kr_metric_period_or_target", "test_owner_versions_are_immutable_and_record_impact", "test_owner_publish_requires_current_eios_grant_and_approved_metric"]},
+    "AT-006": {"conclusion": "control-plane decision passed; not wired into effect/runtime dispatch; UI consistency not run", "tests": ["test_at006_pause_rejects_queued_dispatch_and_resume_requires_reevaluation", "test_dispatch_gate_inside_caller_transaction_orders_against_pause"]},
+    "AT-007": {"conclusion": "staleness decision passed (goal revision + governed customer edit); re-evaluation task/Plan model belongs to NX-024", "tests": ["test_at007_goal_revision_and_customer_change_invalidate_old_plan[with-preference]"]},
+    "AT-043": {"conclusion": "budget decision passed; not wired into model gateway/incentive Actions", "tests": ["test_at043_tenant_budget_blocks_new_consumption_and_keeps_existing"]}
+  },
+  "not_run": ["bash scripts/ci/check (full CI; scheduler-owned)", "real model / real channel / UI"]
+}

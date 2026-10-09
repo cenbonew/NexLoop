@@ -335,6 +335,11 @@
       "version": "0067",
       "name": "0067_nx021_recall_index.sql",
       "sha256": "b49b3423d99a4ce49ce5ede09d5ecdfad20ba9528dab6baf3997d138e1f50665"
+    },
+    {
+      "version": "0068",
+      "name": "0068_nx022_goals_controls.sql",
+      "sha256": "0eee56ff6eb4de3bbb29cf4384b3145101b80decc48e5d4ba53c83750d4226aa"
     }
   ]
 }
