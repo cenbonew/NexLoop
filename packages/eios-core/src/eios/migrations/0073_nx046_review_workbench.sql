@@ -300,3 +300,67 @@ begin
  end loop;
 end $grants$;
 grant execute on function authz.nexloop_read_review_candidate(text,text,text,text,text) to nexloop_api,nexloop_domain_worker;
+
+-- Versioned glue configuration manifest (deploy/ontology/merge-config.v*.json),
+-- published by the trusted configuration identity only. Versions are immutable:
+-- the same content re-applies as a no-op (or re-activates an older version for a
+-- rollback); different content under an existing version is refused. The
+-- calibration's embedding profile must be the tenant's active recall profile.
+alter table ontology.nexloop_merge_configurations
+ add column manifest_sha256 text check(manifest_sha256 is null or manifest_sha256~'^[0-9a-f]{64}$'),
+ add column published_by text;
+
+create function control.nexloop_publish_merge_configuration_manifest(p_tenant text,p_manifest jsonb) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+declare m jsonb:=p_manifest;v text:=p_manifest->>'config_version';cur ontology.nexloop_merge_configurations%rowtype;active_profile text;existing boolean;
+ p_sha256 text:=encode(sha256(convert_to(p_manifest::text,'UTF8')),'hex');
+begin
+ if session_user<>'nexloop_configurator' then raise exception 'merge configuration requires trusted configuration' using errcode='42501';end if;
+ if m->>'schema_version' is distinct from 'nexloop-merge-config/1' or jsonb_typeof(m->'embedding_profile') is distinct from 'object' then
+  raise exception 'merge configuration manifest invalid' using errcode='22023';end if;
+ perform 1 from control.nexloop_tenants where tenant_id=p_tenant and status='active';
+ if not found then raise exception 'tenant unavailable' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ select active_profile_id into active_profile from ontology.nexloop_recall_settings where tenant_id=p_tenant;
+ if active_profile is distinct from (m->'embedding_profile'->>'model')||'@'||(m->'embedding_profile'->>'dimension') then
+  raise exception 'calibrated embedding profile is not the active recall profile' using errcode='42501';end if;
+ select * into cur from ontology.nexloop_merge_configurations where tenant_id=p_tenant and config_version=v for update;
+ existing:=found;
+ if existing then
+  if cur.manifest_sha256 is distinct from p_sha256 then raise exception 'merge configuration version is immutable' using errcode='42501';end if;
+  if cur.active then return jsonb_build_object('config_version',v,'changed',false,'manifest_sha256',p_sha256);end if;
+ end if;
+ update ontology.nexloop_merge_configurations set active=false where tenant_id=p_tenant and active;
+ if existing then
+  update ontology.nexloop_merge_configurations set active=true where tenant_id=p_tenant and config_version=v;
+ else
+  insert into ontology.nexloop_merge_configurations(tenant_id,config_version,weights,merge_threshold,dedupe_threshold,whitelist,calibration,active,
+    reject_cooldown_seconds,manifest_sha256,published_by)
+   values(p_tenant,v,m->'weights',(m->>'merge_threshold')::numeric,(m->>'dedupe_threshold')::numeric,m->'whitelist',
+    m->'calibration'||jsonb_build_object('embedding_profile',m->'embedding_profile','feature_version',m->>'feature_version'),true,
+    (m->>'reject_cooldown_seconds')::integer,p_sha256,session_user);
+ end if;
+ return jsonb_build_object('config_version',v,'changed',true,'manifest_sha256',p_sha256);
+end $$;
+
+create function control.nexloop_read_merge_configuration(p_tenant text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+begin
+ if session_user<>'nexloop_configurator' then raise exception 'merge configuration requires trusted configuration' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ return jsonb_build_object(
+  'active',(select jsonb_build_object('config_version',c.config_version,'manifest_sha256',c.manifest_sha256,'weights',c.weights,
+     'merge_threshold',c.merge_threshold,'dedupe_threshold',c.dedupe_threshold,'reject_cooldown_seconds',c.reject_cooldown_seconds)
+    from ontology.nexloop_merge_configurations c where c.tenant_id=p_tenant and c.active),
+  'recall_profile',(select active_profile_id from ontology.nexloop_recall_settings where tenant_id=p_tenant));
+end $$;
+
+do $grants$
+declare f text;
+begin
+ foreach f in array array['control.nexloop_publish_merge_configuration_manifest(text,jsonb)','control.nexloop_read_merge_configuration(text)'] loop
+  execute 'alter function '||f||' owner to nexloop_owner';
+  execute 'revoke all on function '||f||' from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_identity';
+  execute 'grant execute on function '||f||' to nexloop_configurator';
+ end loop;
+end $grants$;

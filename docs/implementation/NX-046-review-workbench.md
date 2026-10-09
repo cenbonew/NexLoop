@@ -102,3 +102,34 @@
 - 工作台挂在登录后的 Account 页上，没有路由，也没有分页（limit 默认 50）。
 - 原文证据显示的是 Claim 的 quote 和字符区间，没有显示消息全文，因为工作台没有对 Message 对象的 READ。
 - 冷却期配置只有一个新增列（默认 30 天），还没有发布入口；`control.nexloop_publish_merge_configuration` 的签名未改，需要由 NX-044 或可信配置后续补上。
+
+## 8. 生产租户粘合配置（负责人 2026-10-09 批准，调度员追加）
+
+- 文件：`deploy/ontology/merge-config.v1.json`，`config_version=nx045-glue-v1-doubao1024`。
+  - 权重：词 0.4 / 核心 0.1 / 向量 0.1 / 白名单 0.4；merge 与 dedupe 阈值均为 0.35；拒绝冷却 30 天。
+  - embedding：`doubao-embedding-vision-251215`，维度 1024。
+  - 校准来源：`tests/data/nx045_merge_calibration.json`（42 对合成标注），real 证据见 `docs/implementation/NX-045-real-calibration.json`。精确率 1.0，召回 0.667（14/21），误合并 0。
+  - **whitelist 为空**：校准里的两条白名单是合成数据；业务白名单须由负责人提供，并以新的 config_version 发布。
+- CI 仍使用 `tests/data/nx045_merge_config.json`（测试 embedding `nexloop-test-ngram-v1@64`）。测试断言两者是不同版本，且生产文件的数值与真实校准报告完全一致。
+- 发布路径与 NX-048 一致，只经 `nexloop_configurator`（`configurator_connection` 拒绝超级用户、BYPASSRLS 和 owner 成员会话）：
+  ```
+  python -m nexloop_eios.merge_configuration --manifest deploy/ontology/merge-config.v1.json --check
+  python -m nexloop_eios.merge_configuration --manifest deploy/ontology/merge-config.v1.json --tenant <tenant> --apply  --database-url-file <configurator-dsn-file>
+  python -m nexloop_eios.merge_configuration --manifest deploy/ontology/merge-config.v1.json --tenant <tenant> --doctor --database-url-file <configurator-dsn-file>
+  ```
+- 0073 新增两个只授予 `nexloop_configurator` 的函数：
+  - `control.nexloop_publish_merge_configuration_manifest(tenant, manifest)`：
+    - 要求清单的 embedding profile 正是租户当前激活的召回 profile，否则拒绝。部署顺序因此是：先激活召回 profile（`RecallIndexer.activate_profile`），再发布粘合配置。
+    - 版本不可变：同一版本换了内容会被拒绝；同一内容重复发布不产生变更；重新发布旧版本即回滚激活。
+    - 记录由 SQL 自行计算的清单 sha256，以及 `published_by`。
+  - `control.nexloop_read_merge_configuration(tenant)`：供 doctor 只读核对。
+- 0072 的 `control.nexloop_publish_merge_configuration` 保留不变，CI 测试仍用它。
+- Python 侧 `nexloop_eios.merge_configuration.validate` 会校验：键集合、四个权重之和为 1、阈值范围、白名单权重不低于合并阈值（校准约束）、`feature_version` 与部署代码一致，以及校准时误合并为 0。
+- 测试 `tests/test_merge_configuration_pg.py` 全部通过：
+  - 清单数值等于真实校准结果
+  - 6 种非法清单被拒绝
+  - 召回 profile 不匹配时拒绝发布
+  - 发布 / 重放 / 版本不可变 / 回滚
+  - 只有配置身份可以发布
+  - CLI
+- 与 NX-046 及相关测试合并运行：80 passed，111.35s，junit sha256 `565257c0baa409140c020a7774ce6e5705c6fef68251bdc69e63873e5674d1ba`。
