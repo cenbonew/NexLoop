@@ -181,3 +181,53 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 
 - 嵌套授权证明复用外层请求的连接（把当前事务连接传入 `_authority`/`open_unit_of_work`，或 O2 在外层事务内批量判定），从根本上去掉"每请求两个连接"，届时容量可回到 `pool_max_size`。
 - 同一 Run 并发 guard 在 0039 `nexloop-runtime-execution:<run>` advisory 锁与行锁之间的锁序循环（PostgreSQL 检测并中止一方，结果正确、可重试）：统一锁序。
+## 第 3 步阶段 B：调度期 Role 策略重查（临时 0082）
+
+基线 `dispatch/integration-s3h` 后的 `23332dc`（0081 为本线阶段 A，0079/0080 为 NX-047）。分支 `nx018-phase-b`；另有待批准分支 `nx018-pool-cap`（见下）。
+
+### 实现
+
+- `0082_nx018_role_policy_dispatch.sql`：候选 `nexloop_role_policy_claims_current` + activation（resolve/create 以外）/ effect_intent / effect_execution（admit/finalize）三个外层 wrapper，私有 alias `*_before_role_policy_v0081`。三个 public 函数的 ACL 在基线上查询 `proacl` 后逐一保持（activation: api/domain_worker/scheduler；intent: api/domain_worker；execution: action_worker；候选给 execution 多授了 api，已去掉）。
+- 与候选不同：
+  1. 内层调用之后只做 `nexloop_role_policy_claims_tail`（期限 + submit 时的 effect_units 计数），不再第二次完整校验：前置完整校验在同一事务里已对 Ceiling/Scope/Role/Link/Step 行和全部 READ 授权事实持有 FOR SHARE，并发 EDIT/撤权在本事务结束前无法提交。
+  2. 不升级策略行锁（候选在 submit 路径 FOR UPDATE，而同事务的 guard 先持 FOR SHARE）；Role 提交在进入内层前先取 Run 级 advisory 锁 `nexloop-role-effect:<run>` 串行计数。实测候选写法在 8 路并发同 Run 提交时出现 PostgreSQL deadlock。
+- Python：`runtime_activation._signed`、`effect_intents`、`effect_execution` 在已有 Role/formal envelope 旁附 `context_policy_envelope`（`role_policies.policy_envelope_for_role`，请求内复用）。
+- Host：v4 关系 `valid_from/valid_to` 改用统一的 `strictUtc`（UTC 正则 + 日历往返），不再只用 `Date.parse`。
+- 契约：**未修改 packages/contracts**。v5 Context（向模型展示 role_policy 段）没有实现，原因见"未完成"。
+
+### 测试（首次失败保留）
+
+- 首轮 26 文件回归：**9 failed / 248 passed / 1478.01s**。
+  - `test_role_formal_sql::test_cached_genuine_source_read_denied_in_sql` ×8：请求仍被拒，但先由外层策略层拒绝（Source 目录哈希已变），断言"由 formal_current 拒绝"失效。改为：外层拒绝 + 以 owner 直接调用 `..._before_role_policy_v0081` 证明 formal-current 仍独立拒绝缓存 READ。
+  - `test_role_pi_effect_checkpoint` ×1：inspect 503。该轮与一次 Host dist 重建重叠；单独连跑 2 次均通过，但每次 authorize 平均 0.96–0.98s、最大 1.25–1.37s（step 1 时约 0.5s）。逐层计时：策略配方 Python 生成 ~210ms（2 对象 + 16 属性 READ 授权判定），Role ~200ms、catalog ~226ms、formal ~83ms、SQL ~2×106ms。把内层后的第二次完整校验换成 tail 后无明显变化，说明成本在 Python 授权判定侧；根本办法是 L4 的 O2 批量判定，未放宽 deadline。
+- 新增 `tests/test_role_policy_dispatch.py`（8 例）：Ceiling 停用、Ceiling action_resources 收窄、Scope 停用（均为受治理 `.edit`）、Source 对 Ceiling 的 READ 撤销、绑定期限到达（一次性故障注入；对象自身 valid_until 到期在阶段 A 已测）——之后 model/start/tool 均 `AuthorizationUnavailable`、submit 失败、0 intent、provider 0 POST；submit 之后停用/到期 → dispatcher admit 被拒、0 POST；策略不变时正常 1 POST。
+- Host：`apps/agent-host/test/context-relationship-dates.test.ts` 7 passed（日期滚动、非 UTC 偏移、无时区、纯日期、自由文本均拒）。
+- 修复后 `test_bootstrap` + `test_role_formal_sql` + `test_role_policy_dispatch`：22 passed / 216.45s。
+
+### 连接池饿死（我此前合入的 LifecycleLock 引入，待批准修复）
+
+- 现象：effect_units 并发测试中 4 路同 Run `runtime_effect_tool` 全部失败；链路为 `PoolTimeout(30s)` + idle-in-transaction 超时。
+- 根因：每个请求持有一个外层事务连接，签名证明生成又从同一池取嵌套连接；默认 `pool_max_size=4`（`NEX_EIOS_DB_POOL_MAX`），4 个并发请求即全部互等。旧的全局锁把请求串行化而掩盖了它；我在 `4b48c3b` 把锁改成共享后这成为真实生产风险（已在 main 线）。
+- 修复（分支 `nx018-pool-cap`，**改了 backend.py，已向调度员申请、尚未获批，未放入 nx018-phase-b**）：`LifecycleLock(capacity=max(1,pool_max_size//2))`，请求最外层进入时计数、离开时释放，关闭仍等全部在途请求。新增 `tests/test_backend_pool_concurrency.py`：8 路同意图并发与 4 路不同 payload 并发，3/3 连跑通过（各 ~30s，无 30s 超时）；单意图、至少一个成功、其余仅允许可重试 unavailable 或 payload 冲突。该分支上真实两 Pi 最大 1.16–1.23s、v4 `[complete]` 通过，容量 2 未使延迟变差。
+- 同时暴露一个既有锁序问题（不在本步范围）：同一 Run 的并发 guard 在 0039 `nexloop-runtime-execution:<run>` advisory 锁与行锁之间可形成循环，PostgreSQL 检测后中止一方（结果正确、可重试）。Host 对同一 Run 串行发工具，生产影响小；建议交 L4 统一锁序。
+
+### effect_units 语义发现（供负责人确认）
+
+Run 的业务意图 ID 稳定（按 Run/Step），同一 Run 以不同 payload 再次提交得到 `intent_payload_conflict`，所以经现有工具路径一个 Run 最多一个意图，`effect_units>1` 无法被行使，`=1` 与意图恒等性重复。当前实现保持"每 Run 不同提交数上限 + Run 级串行"，测试只能证明并发下仍为单意图。若负责人希望它限制跨 Run 的 Role 总触达量，需要改为按 Role/Consumer 聚合计数。
+
+### 最终（nx018-phase-b HEAD，单条命令串行）
+
+99 个文件（Role 全集 21 + 其余相关 78，含 NX-047 outbound）：**1233 passed / 1 failed / 2719.55s**，`.ci-results/l1-phaseb-final.xml`；Host vitest **148 passed**。唯一失败为 v4 `[complete]`；随后单独连跑 3 次 **3/3 passed**（各 ~51s）。
+
+### 验收结论（按实际证据）
+
+- **AT-004（角色 N:M；职责可配置，无常驻 Agent；冲突触达受控）：定向证据通过，建议判 passed，由调度员复核。** 依据：Role/Link/Ceiling/Scope 均为受治理对象（`test_role_policy_governance`、`test_role_mapping`）；两个 Source 的两个 Role 关联同一 Consumer，两个短 Pi Run 共享一个业务意图、只产生一次真实效应（`test_role_pi_effect_checkpoint`，本轮全集通过）；Run 均为事件驱动短 Run；Role 权限在绑定期（阶段 A）与调度期（本阶段 `test_role_policy_dispatch` 8 例）强制，未知 metadata 引用 fail closed，两个 Role 不叠加。保留意见：effect_units 语义待负责人确认；连接池饿死修复（`nx018-pool-cap`）未合入前，同一 backend 上 ≥4 个并发请求在生产上仍会饿死。
+- **AT-009（关系证据）：仍未稳定通过，维持 failed。** O1 之后单独运行 3/3 通过，但 45 分钟串行全集中失败 1 次（2s 工具 deadline 时序）。需要 O2 批量授权判定降低每次 guard 成本后再复核。
+
+### 未完成 / 后续
+
+1. v5 Context（role_policy 段进入 Context、Host v5 解析、`packages/contracts` 字段）：未实现。候选 v5 生产者是 v3 Role context command（~190 行）的整体复制，基于 e98d7c7，而当前 v3 已叠加 0064 TTL 与 0075 formal-current 包装；直接移植会与 v3 分叉。强制执行不依赖 v5（策略在 SQL 层校验）；v5 只是把策略来源展示给模型。建议做法：在现有 v3 生产链末端追加一个 `role_policy` 快照 wrapper（复用 `nexloop_role_policy_context_snapshot`），以新 wire 版本发布，而不是复制整个 v3 函数。契约字段提案见阶段 A 一节。
+2. `nx018-pool-cap`：等待调度员批准合入（改 backend.py）。
+3. 0039 同 Run 并发 guard 的锁序循环（PostgreSQL 可检测、可重试）：建议 L4 统一锁序。
+4. Message READ 派生接入 v4 关系读取、Assessment 证据、NX-019 Claim 证据：与本阶段改动文件无交集，列为后续。
+5. 每次 guard 的 Python 授权判定成本（策略配方 ~210ms 等）：交 L4 O2。
