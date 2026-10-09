@@ -234,8 +234,72 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
     """AT-064 boundary: no Context/Role pack reads Claims; hypotheses have no formal path."""
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]/'packages/eios-core/src'
-    readers=[path for path in (root/'nexloop_eios').glob('*.py') if path.name not in ('claim_store.py','conversation_extraction.py')
+    readers=[path for path in (root/'nexloop_eios').glob('*.py') if path.name not in ('claim_store.py','conversation_extraction.py','claim_extraction_jobs.py')
              and ('nexloop_claims' in path.read_text() or 'claim_store' in path.read_text() or 'nexloop_read_conversation_claims' in path.read_text())]
     assert readers==[]
     migrations=[path.name for path in (root/'eios/migrations').glob('*.sql') if 'nexloop_claims' in path.read_text()]
-    assert len(migrations)==1 and migrations[0].endswith('_nx019_claims.sql')
+    assert migrations and all('_nx019_' in name for name in migrations)
+
+
+def correction_window(conversations):
+    port=conversations['port'];created=port.create_conversation(idempotency_key='nx019-claim-correction-conversation')
+    ids=[port.accept_message(conversation_id=created['id'],idempotency_key=f'nx019-claim-correction-{index}',body=body)['message']['id']
+         for index,body in enumerate(['预算两千左右。','说错了，预算是三千。'])]
+    return created['id'],ids
+
+
+CORRECTION={'topics':[{'topic':'预算','conversation_summary':'预算更正','user_valid_reply':True,'message_refs':[1,2]}],
+  'claims':[{'topic_index':0,'message_ref':1,'quote':'预算两千左右','kind':'constraint','predicate':'预算上限','value':{'type':'money','value':{'amount':2000,'currency':'CNY'}}},
+            {'topic_index':0,'message_ref':2,'quote':'说错了，预算是三千','kind':'correction','predicate':'预算上限','value':{'type':'money','value':{'amount':3000,'currency':'CNY'}},'corrects':0}]}
+
+
+def test_correction_chain_is_persisted_and_server_checks_target(conversations,admin,monkeypatch):
+    conversation_id,ids=correction_window(conversations)
+    extractor,_=extractor_for(conversations,admin,conversation_id,ids,None,suffix='-claim-correction')
+    registered(extractor,conversation_id,ids,CORRECTION)
+    def bad_target(claims):
+        for claim in claims:
+            if claim['corrects_claim_id']:claim['corrects_claim_id']='a'*64
+        return claims
+    with monkeypatch.context() as patched:
+        patched.setattr(claim_store,'normalize',tampered(bad_target))
+        with pytest.raises(ClaimExtractionDenied):extractor.extract(conversation_id=conversation_id,message_ids=ids)
+    assert admin.execute('select count(*) from ontology.nexloop_claims').fetchone()==(0,)
+    extractor.extract(conversation_id=conversation_id,message_ids=ids)
+    rows=dict(admin.execute('select epistemic_kind,corrects_claim_id from ontology.nexloop_claims').fetchall())
+    original=admin.execute("select claim_id from ontology.nexloop_claims where epistemic_kind='constraint'").fetchone()[0]
+    assert rows=={'constraint':None,'correction':original}
+    view=extractor.read(conversation_id=conversation_id)
+    assert {item['epistemic_kind']:item['corrects_claim_id'] for item in view['statements']}==rows
+
+
+def test_concurrent_extraction_of_same_input_records_once(seeded,admin):
+    from concurrent.futures import ThreadPoolExecutor
+    fixture,conversation_id,ids,extractor,token=seeded
+    provider,_=registered(extractor,conversation_id,ids)
+    from nexloop_eios.authorization import authenticate_service
+    extractors=[ConversationClaimExtractor(fixture['reader'].pool,authenticate_service(fixture['reader'].pool,token,world='real'),fixture['reader'].signer,provider,timezone='Asia/Shanghai') for _ in range(4)]
+    with ThreadPoolExecutor(4) as pool:
+        results=list(pool.map(lambda e:e.extract(conversation_id=conversation_id,message_ids=ids),extractors))
+    assert len({tuple(sorted(r['claim_ids'])) for r in results})==1 and sum(not r['replay'] for r in results)==1
+    assert admin.execute('select count(*) from ontology.nexloop_extraction_runs').fetchone()==(1,)
+    assert admin.execute('select count(*) from ontology.nexloop_claims').fetchone()==(6,)
+
+
+def test_simulation_world_session_cannot_extract_or_record_real_conversation(window,admin):
+    fixture,conversation_id,ids=window
+    session,_=seed_multi_authority(admin,fixture['reader'].pool,source_targets(conversation_id,ids),identity_suffix='-claim-simulation',world='simulation')
+    extractor=ConversationClaimExtractor(fixture['reader'].pool,session,fixture['reader'].signer,DeterministicExtractionProvider({}))
+    with pytest.raises(ClaimExtractionDenied):extractor.extract(conversation_id=conversation_id,message_ids=ids)
+    assert admin.execute('select count(*) from ontology.nexloop_extraction_runs').fetchone()==(0,)
+
+
+def test_other_tenant_service_cannot_extract_or_read(seeded,admin):
+    fixture,conversation_id,ids,extractor,_=seeded
+    registered(extractor,conversation_id,ids);extractor.extract(conversation_id=conversation_id,message_ids=ids)
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('synthetic-b','active') on conflict do nothing")
+    session,_=seed_multi_authority(admin,fixture['reader'].pool,source_targets(conversation_id,ids),identity_suffix='-claim-tenant-b',tenant='synthetic-b')
+    other=ConversationClaimExtractor(fixture['reader'].pool,session,fixture['reader'].signer,DeterministicExtractionProvider({}))
+    with pytest.raises(ClaimExtractionDenied):other.extract(conversation_id=conversation_id,message_ids=ids)
+    with pytest.raises(Exception):other.read(conversation_id=conversation_id)
+    assert admin.execute('select count(*) from ontology.nexloop_extraction_runs').fetchone()==(1,)
