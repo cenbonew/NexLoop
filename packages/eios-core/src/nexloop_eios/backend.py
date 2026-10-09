@@ -123,6 +123,7 @@ class LifecycleLock:
 from nexloop_eios.assembly import open_core, verify_application_role
 from eios.adapters.postgres.database import StorageUnavailable
 from nexloop_eios.authorization import authenticate_service,authority_request_scope
+from nexloop_eios.request_connection import request_connection_scope
 from nexloop_eios.local_artifacts import LocalBlobStore
 from nexloop_eios.relation_actions import GovernedRelationLinker
 from nexloop_eios.artifact_orphans import FinalOrphanCollector
@@ -371,7 +372,9 @@ class ReviewServices:
 
 class Backend:
     def __init__(self, pool, store, signer):
-        self._pool, self._store, self._signer = pool, store, signer
+        from nexloop_eios.request_connection import RequestConnectionPool
+        # NX-049 4a: inside a request (see _request) idle checkouts reuse the request's own connection.
+        self._pool, self._store, self._signer = RequestConnectionPool(pool), store, signer
         self._lock = LifecycleLock(capacity=max(1, getattr(pool, 'max_size', 2) // 2))
         self._closed = False
 
@@ -432,7 +435,7 @@ class Backend:
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.candidate_merge import ReviewQueueReader
         # O1: request-scoped authorization memo, discarded when this request ends.
-        with self._lock, authority_request_scope():
+        with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
             if operation not in ('pending', 'candidate'):
                 raise ValueError('unsupported review operation')
@@ -446,7 +449,7 @@ class Backend:
         allowed = {'link_authenticated_identity', 'create_conversation', 'list_conversations', 'accept_message', 'accept_native_message',
             'read_messages', 'read_events', 'read_message_run', 'read_message_service_receipt', 'read_message_scope_denial'}
         # O1: request-scoped authorization memo, discarded when this request ends.
-        with self._lock, authority_request_scope():
+        with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
             if operation not in allowed:
                 raise ValueError('unsupported browser operation')
@@ -478,7 +481,7 @@ class Backend:
         """
         if not callable(operation):
             raise TypeError('operation must be callable')
-        with self._lock, authority_request_scope():
+        with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
             return operation(self._pool, self._signer)
 
@@ -486,7 +489,7 @@ class Backend:
         # Shared request hold: shutdown cannot close a file FD or connection pool
         # during a commit/fsync, while independent requests proceed concurrently.
         # O1: request-scoped authorization memo, discarded when this request ends.
-        with self._lock, authority_request_scope():
+        with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
             activation_operations = {
                 'accept_runtime_event': 'accept', 'register_runtime_run': 'register', 'create_runtime_activation': 'create',

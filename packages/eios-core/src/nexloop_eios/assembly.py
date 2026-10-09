@@ -11,7 +11,14 @@ APPLICATION_ROLES = frozenset({
 
 
 def verify_application_role(connection):
-    """Reject SET ROLE disguises and inherited paths to elevated authority."""
+    """Reject SET ROLE disguises and inherited paths to elevated authority.
+
+    NX-049 4a: on a backend request's own connection the check runs once per request.
+    """
+    from nexloop_eios.request_connection import remember_role, verified_role
+    cached = verified_role(connection)
+    if cached is not None:
+        return cached
     role = connection.execute('''
         select current_user, session_user, rolsuper, rolbypassrls, rolcreaterole,
                rolcreatedb, rolreplication,
@@ -28,6 +35,7 @@ def verify_application_role(connection):
     if (not role or role[0] not in APPLICATION_ROLES or role[0] != role[1]
             or any(role[2:])):
         raise StorageUnavailable('application database role is not restricted')
+    remember_role(connection, role[0])
     return role[0]
 
 
