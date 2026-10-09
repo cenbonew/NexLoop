@@ -15,6 +15,10 @@
   "current_event": {
     "kind": "consumer_message",
     "message_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "provenance": "eios:object:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "user_statement": {
+    "message_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "conversation_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "sequence": 3,
     "body": "未来两周不要发促销。付款页面一直报错，解决后我再考虑续费。",
@@ -119,7 +123,7 @@
       "content_hash": "bd29dc5c0bc50ae118afbda40c79e2dd6fa9e5fd9e213844af0f0f29fc8a95db",
       "evidence_kind": "formal_object",
       "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "relevance": 1.0,
+      "relevance_permille": 1000,
       "at": "",
       "tags": []
     }
@@ -138,7 +142,7 @@
       "content_hash": "536072234b42a513a8f5c4378da151aa8cdef88b0518ef02af4cab91ee65dd91",
       "evidence_kind": "formal_object",
       "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "relevance": 0.9,
+      "relevance_permille": 900,
       "at": "",
       "tags": []
     }
@@ -155,7 +159,7 @@
       "content_hash": "6c1d0223266e245b336ac970c60ab9b0f67ee2d1372aaebfb1bab8ecb174664f",
       "evidence_kind": "execution_state",
       "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "relevance": 1.0,
+      "relevance_permille": 1000,
       "at": "",
       "tags": [
         "unconfirmed"
@@ -183,7 +187,7 @@
       "content_hash": "38929575b4a22552d1446ebbec39b1488dad5ea5e60edf4a90dfe8e2c46e472c",
       "evidence_kind": "user_statement",
       "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "relevance": 0.8,
+      "relevance_permille": 800,
       "at": "2026-10-09T02:00:00Z",
       "tags": []
     },
@@ -200,7 +204,7 @@
       "content_hash": "a160de57d6297dbc945c364b5b3c346b8152dcb6985b5d4af77c7c44ec80445b",
       "evidence_kind": "conversation",
       "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "relevance": 0.5,
+      "relevance_permille": 500,
       "at": "2026-10-09T01:59:00Z",
       "tags": []
     }
@@ -221,7 +225,7 @@
       "content_hash": "9169d957b3f95a674b32ebfa22e3f2b31b84d0f541df69c5e4e6f56cce52ef35",
       "evidence_kind": "schema",
       "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "relevance": 0.7,
+      "relevance_permille": 700,
       "at": "",
       "tags": []
     }

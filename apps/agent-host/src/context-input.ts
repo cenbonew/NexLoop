@@ -6,7 +6,8 @@ export const CONTEXT_PROTOCOL_V2='nexloop.context-pack.v2';
 export const CONTEXT_PROTOCOL_V3='nexloop.context-pack.v3';
 export const CONTEXT_PROTOCOL_V4='nexloop.context-pack.v4';
 export const CONTEXT_PROTOCOL_V5='nexloop.context-pack.v5';
-export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4|typeof CONTEXT_PROTOCOL_V5;
+export const CONTEXT_PROTOCOL_V6='nexloop.context-pack.v6';
+export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4|typeof CONTEXT_PROTOCOL_V5|typeof CONTEXT_PROTOCOL_V6;
 export type RelationshipItem={assessment_ref:string;revision:number;relation_type_ref:string|null;source_ref:string;target_ref:string;epistemic_kind:'hypothesis'|'user_statement';resolution_state:'resolved'|'awaiting_definition'|'unresolved';conclusion:string;valid_from:string;valid_to:string|null;source_message_ref:string|null;source_content_hash:string|null};
 export type RelationshipZone={current_statements:RelationshipItem[];evidence:RelationshipItem[]};
 export type ContextAttestation={artifact_ref:string;sha256:string;command_binding_digest:string};
@@ -82,6 +83,51 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
       if(kind==='current_statements'&&(row.epistemic_kind!=='user_statement'||row.resolution_state!=='resolved'||row.relation_type_ref===null))return fail();
     }
     return {...validated,relationship_context:zone as RelationshipZone};
+  }
+  if(protocol===CONTEXT_PROTOCOL_V6){
+    // v6 = frozen v2 core (validated below exactly as v2) + labelled, server-verified sections.
+    // Everything here is data for the model; none of it is authority.
+    if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V6)return fail();
+    const pack=exact(parsed,['schema_version','strategy_ref','bindings','role','current_event','user_statement','goal','formal_facts','current_constraints','supply',
+      'constraints','consumer_state','open_work','evidence','semantics','experience','budget_report','insufficient']);
+    const attestation=validateContextAttestation(command,untrustedAttestation);
+    if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
+    text(pack.strategy_ref,96,/^context-strategy:[a-z][a-z0-9_]{0,63}@[1-9][0-9]{0,6}$/);
+    if(pack.role!==null)return fail();
+    const statement=exact(pack.user_statement,['message_id','conversation_id','sequence','body','provenance']);
+    const event=exact(pack.current_event,['kind','message_id','provenance']);
+    if(event.kind!=='consumer_message'||event.message_id!==statement.message_id||event.provenance!==statement.provenance)return fail();
+    const goal=exact(pack.goal,['goal_version_refs','control_snapshot']);
+    if(!Array.isArray(goal.goal_version_refs)||goal.goal_version_refs.length!==1)return fail();
+    const goalRef=text(goal.goal_version_refs[0],160,/^goal:([a-f0-9]{64})@([1-9][0-9]*)$/);
+    const insufficient=pack.insufficient;
+    if(!Array.isArray(insufficient)||insufficient.length>16)return fail();
+    const codes=['mandatory_exceeds_budget','core_trimmed','required_source_unreadable','required_source_stale','goal_not_current','control_paused','semantic_ambiguous_required'];
+    for(const value of insufficient){const row=exact(value,['code','section','refs']);if(!codes.includes(String(row.code))||!Array.isArray(row.refs))return fail();}
+    if(goal.control_snapshot===null){if(!insufficient.some(row=>['control_paused','goal_not_current'].includes(String((row as Record<string,unknown>).code))))return fail();}
+    else exact(goal.control_snapshot,['control_revision','scopes','goals','objects','budgets']);
+    // Formal zone never carries Claims or hypotheses; hypotheses only as labelled evidence.
+    const kinds:Record<string,string[]>={constraints:['formal_object','policy'],consumer_state:['formal_object','policy'],open_work:['formal_object','execution_state'],
+      evidence:['user_statement','conversation','hypothesis','memory'],semantics:['schema'],experience:['memory']};
+    for(const [section,allowed] of Object.entries(kinds)){
+      const rows=pack[section];if(!Array.isArray(rows)||rows.length>256)return fail();
+      for(const value of rows){
+        const item=exact(value,['subsection','ref','revision','content','content_hash','evidence_kind','access_decision_ref','relevance_permille','at','tags']);
+        text(item.ref,512);text(item.revision,128);text(item.content_hash,64,hex64);text(item.access_decision_ref,73,/^decision:[a-f0-9]{64}$/);
+        if(!allowed.includes(String(item.evidence_kind))||integer(item.relevance_permille,0)>1000||typeof item.at!=='string'||!Array.isArray(item.tags))return fail();
+        if(createHash('sha256').update(canonicalContextJSON(item.content),'utf8').digest('hex')!==item.content_hash)return fail();
+        if(section!=='evidence'&&String(item.ref).startsWith('claim:'))return fail();
+        if((item.evidence_kind==='hypothesis')!==(section==='evidence'&&item.subsection==='hypotheses'))return fail();
+        if(item.tags.some(tag=>!['negation','contact_limit','unconfirmed'].includes(String(tag))))return fail();
+      }
+    }
+    exact(pack.budget_report,['estimator','input_token_budget','output_reserve','framing_reserve','available','used','sections','omitted']);
+    const base={schema_version:CONTEXT_PROTOCOL_V2,bindings:pack.bindings,user_statement:pack.user_statement,formal_facts:pack.formal_facts,current_constraints:pack.current_constraints,supply:pack.supply};
+    const baseText=canonicalContextJSON(base);
+    const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V2);
+    const goalFact=(pack.formal_facts as Array<Record<string,unknown>>).find(row=>row.type==='Goal')!;
+    if(goalRef!=='goal:'+goalFact.id+'@'+goalFact.revision)return fail();
+    return validated;
   }
   if(protocol===CONTEXT_PROTOCOL_V5){
     // v5 = v3 Role Context + governed Role policy provenance (never an authority grant).
