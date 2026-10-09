@@ -181,6 +181,9 @@ def test_query_only_after_revoke_observes_fulfillment_without_claim_success(gove
         # The fixture must establish this independent READ scope in real EIOS,
         # not reuse the old execution grant or return a fake query permit.
         fixture.revoke_all_source_grants()
+        # 0065: an executor holding independent current recovery authority may still
+        # finalize; this case keeps the no-recovery-authority meaning explicitly.
+        fixture.revoke_executor_recovery_grant()
         before=provider.control('snapshot');time.sleep(3.1)
         with independent_worker(fixture,provider.origin) as (new,pipe):
             assert pipe.poll(15);result=pipe.recv();new.join(10)
@@ -242,7 +245,9 @@ def test_fulfillment_transaction_fault_does_not_leave_terminal_claim(governed_ef
         time.sleep(3.1)
         with independent_worker(fixture,provider.origin) as (new,pipe):
             assert pipe.poll(15);result=pipe.recv();new.join(10)
-            assert new.exitcode==0 and result['status']=='record_unavailable'
+            # 0065 two-step: the fulfilled observation commits on its own; the injected
+            # fault rolls back only the independent recovery finalization.
+            assert new.exitcode==0 and result['status']=='observed_fulfilled'
             assert result['business_action_success'] is False
         after=admin.execute("select claim from runtime.nexloop_action_claims where tenant_id=%s and action_name=%s and intent_id=%s",
             (fixture.tenant,'nexloop.service.request',intent)).fetchone()[0]

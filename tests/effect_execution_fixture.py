@@ -39,7 +39,9 @@ def execution_plan(admin,pg,tmp_path):
     refs={name:base_definition.object_types[0].model_copy(update={'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
     for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
     actions={name+'.create':(name,) for name in schemas}
-    actions.update({'Goal.edit':('Goal',),'EffectControl.edit':('EffectControl',),'nexloop.service.query':('Consumer',),CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',)})
+    actions.update({'Goal.edit':('Goal',),'EffectControl.edit':('EffectControl',),'nexloop.service.query':('Consumer',),CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',),
+        # 0065: fulfilled receipts reconcile only through this independent governed Action.
+        'nexloop.service.receipt_reconcile':('Consumer',)})
     for name,types in actions.items():
         body=base_definition.model_dump(mode='json');body.pop('contract_digest',None)
         body['stable_name']=name;body['object_types']=[refs[t].model_dump(mode='json') for t in types]
@@ -49,6 +51,10 @@ def execution_plan(admin,pg,tmp_path):
         if name in (CONFIGURE,BIND):body['input_schema']=registrar_schema('configure' if name==CONFIGURE else 'bind')
         if name==EFFECT:body['governance']['change_scope']['target_systems']=['service']
         if name==EFFECT:body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
+        if name=='nexloop.service.receipt_reconcile':
+            body['governance']['change_scope']['target_systems']=['service']
+            body['governance']['idempotency']['key_fields']=['intent_id']
+            body['input_schema']={'type':'object','properties':{'intent_id':{'type':'string'},'effect_fence':{'type':'integer'},'query_id':{'type':'string'}},'required':['intent_id','effect_fence','query_id'],'additionalProperties':False}
         definition=type(base_definition).model_validate_json(json.dumps(body))
         capability=base_capability.model_copy(update={'capability_name':capname,'has_side_effects':True})
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
@@ -58,7 +64,7 @@ def execution_plan(admin,pg,tmp_path):
         backend=stack.enter_context(open_backend(database_url=make_conninfo(pg,user='nexloop_api'),artifact_root=tmp_path/'artifacts',signing_key_file=key,signing_key_id='synthetic-plan'))
         owner_session,owner_token=seed_multi_authority(admin,backend._pool,targets(['Consumer.create','EffectControl.create',CONFIGURE]),identity_suffix='-owner')
         planner_session,planner_token=seed_multi_authority(admin,backend._pool,targets(['Goal.create','PlanStep.create',BIND]),identity_suffix='-planner')
-        executor_session,executor_token=seed_multi_authority(admin,backend._pool,targets([EFFECT,'nexloop.service.query']),identity_suffix='-executor')
+        executor_session,executor_token=seed_multi_authority(admin,backend._pool,targets([EFFECT,'nexloop.service.query','nexloop.service.receipt_reconcile']),identity_suffix='-executor')
         submitter_session,submitter_token=seed_multi_authority(admin,backend._pool,targets([EFFECT]),identity_suffix='-submitter')
         second_session,second_token=seed_multi_authority(admin,backend._pool,targets([EFFECT]),identity_suffix='-submitter-B')
         owner=backend.authenticate(owner_token,world='real');planner=backend.authenticate(planner_token,world='real');submitter=backend.authenticate(submitter_token,world='real')
@@ -136,6 +142,8 @@ class GovernedEffectExecutor:
     def revoke_all_source_grants(self):
         for port in self.ports:
             replace_fact(self.admin,self.tenant,'grants',[port._session.authentication.subject_principal_id,'eios:action:'+EFFECT+':1'],F.GrantFacts,grants=[])
+    def revoke_executor_recovery_grant(self):
+        replace_fact(self.admin,self.tenant,'grants',[self.executor_principal,'eios:action:nexloop.service.receipt_reconcile:1'],F.GrantFacts,grants=[])
     def revoke_executor_query_grant(self):
         replace_fact(self.admin,self.tenant,'grants',[self.executor_principal,'eios:action:nexloop.service.query:1'],F.GrantFacts,grants=[])
     def revoke_control(self):
