@@ -1,0 +1,140 @@
+"""LifecycleLock request capacity vs connection pool (pool starvation fix).
+
+Synthetic disposable PG only. Default pool_max_size=4 -> capacity 2.
+"""
+import threading
+import time
+import pytest
+from nexloop_eios.backend import BackendBusy, LifecycleLock, request_depth
+from runtime_effect_fixture import runtime_effect_plan  # noqa: F401
+from role_run_fixture import role_runtime_plan  # noqa: F401
+
+
+def test_capacity_bounds_outer_requests_but_not_reentry():
+    lock = LifecycleLock(capacity=1, wait_seconds=0.3)
+    entered = threading.Event(); release = threading.Event(); outcome = []
+    def holder():
+        with lock:
+            with lock:  # same-thread reentry never waits for capacity
+                assert request_depth() == 2
+                entered.set(); release.wait(5)
+    thread = threading.Thread(target=holder); thread.start(); assert entered.wait(5)
+    started = time.monotonic()
+    def contender():
+        try:
+            with lock:outcome.append('entered')
+        except BackendBusy as error:outcome.append(str(error))
+    other = threading.Thread(target=contender); other.start(); other.join(5)
+    assert outcome == ['backend request capacity unavailable'] and time.monotonic() - started < 2
+    release.set(); thread.join(5)
+    with lock:assert request_depth() == 1
+    assert request_depth() == 0
+
+
+def test_shutdown_waits_for_in_flight_request():
+    lock = LifecycleLock(capacity=2); inside = threading.Event(); finish = threading.Event(); order = []
+    def request():
+        with lock:
+            inside.set(); finish.wait(5); order.append('request done')
+    thread = threading.Thread(target=request); thread.start(); assert inside.wait(5)
+    def shutdown():
+        with lock.exclusive():order.append('shutdown')
+    closer = threading.Thread(target=shutdown); closer.start(); time.sleep(0.2)
+    assert order == []
+    finish.set(); thread.join(5); closer.join(5)
+    assert order == ['request done', 'shutdown']
+
+
+def test_capacity_follows_pool_size(role_runtime_plan):
+    backend = role_runtime_plan['backend_worker']
+    assert backend._pool.max_size == 4 and backend._lock._capacity == 2
+
+
+def run_threads(functions, timeout=90):
+    barrier = threading.Barrier(len(functions)); outcomes = [None] * len(functions)
+    def wrap(index, function):
+        barrier.wait()
+        try:function();outcomes[index] = 'ok'
+        except Exception as error:outcomes[index] = type(error).__name__
+    threads = [threading.Thread(target=wrap, args=pair) for pair in enumerate(functions)]
+    started = time.monotonic()
+    for thread in threads:thread.start()
+    for thread in threads:thread.join(timeout); assert not thread.is_alive(), 'request hung'
+    return outcomes, time.monotonic() - started
+
+
+def test_eight_concurrent_requests_complete_on_pool_of_four(role_runtime_plan, admin):
+    plan = role_runtime_plan
+    def submit():
+        services = plan['backend_worker'].authenticate(plan['worker_token'], world='real')
+        services.runtime_effect_tool(activation_ref=plan['activations'][0], command=plan['commands'][0], tool_operation='submit', parameters={'message': 'one business intent'})
+    def authorize(operation):
+        def call():
+            services = plan['backend_worker'].authenticate(plan['worker_token'], world='real')
+            assert services.authorize_runtime_activation(activation_ref=plan['activations'][1], command=plan['commands'][1], operation=operation)['authorized']
+        return call
+    outcomes, elapsed = run_threads([submit] * 4 + [authorize('model'), authorize('inspect'), authorize('model'), authorize('inspect')])
+    # All eight finished (no PoolTimeout starvation); authorize calls on the other Run succeed.
+    assert outcomes[4:] == ['ok'] * 4, outcomes
+    # Same-Run concurrent submits: one stable intent; a PostgreSQL-detected same-Run lock cycle
+    # (0039 execution marker) may abort a caller with a retryable unavailable.
+    assert outcomes[:4].count('ok') >= 1 and set(outcomes[:4]) <= {'ok', 'EffectIntentUnavailable'}, outcomes
+    assert 'BackendBusy' not in outcomes and elapsed < 60
+    assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone() == (1,)
+
+
+def test_request_waiting_for_capacity_still_meets_final_deadline(role_runtime_plan, admin):
+    plan = role_runtime_plan; backend = plan['backend_worker']
+    occupy = threading.Event(); release = threading.Event()
+    def hold():
+        with backend._lock:
+            occupy.set(); release.wait(10)
+    holders = [threading.Thread(target=hold) for _ in range(backend._lock._capacity)]
+    for thread in holders:thread.start()
+    assert occupy.wait(5); time.sleep(0.2)
+    outcome = []
+    def submit():
+        services = plan['backend_worker'].authenticate(plan['worker_token'], world='real')
+        try:
+            services.runtime_effect_tool(activation_ref=plan['activations'][0], command=plan['commands'][0], tool_operation='submit', parameters={'message': 'waited for capacity'})
+            outcome.append('ok')
+        except Exception as error:outcome.append(type(error).__name__)
+    # authenticate() itself is a request and waits too: build the caller on its own thread.
+    waiter = threading.Thread(target=submit); waiter.start(); time.sleep(0.5)
+    assert outcome == []  # still waiting, not failed and not running
+    # While it waits, the Run's governed deadline passes (disposable fault injection on the
+    # Run credential ledger); the request must be denied after it acquires capacity.
+    admin.execute("update authz.nexloop_run_credentials set expires_at=clock_timestamp() where run_id=%s", (plan['commands'][0]['run_id'],))
+    release.set()
+    for thread in holders:thread.join(10)
+    waiter.join(30); assert not waiter.is_alive()
+    assert outcome and outcome[0] != 'ok', outcome
+    assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone() == (0,)
+
+
+def test_capacity_wait_times_out_with_explicit_error(role_runtime_plan, monkeypatch):
+    plan = role_runtime_plan; backend = plan['backend_worker']
+    monkeypatch.setattr(backend._lock, '_wait_seconds', 0.5)
+    occupy = threading.Event(); release = threading.Event()
+    def hold():
+        with backend._lock:
+            occupy.set(); release.wait(10)
+    holders = [threading.Thread(target=hold) for _ in range(backend._lock._capacity)]
+    for thread in holders:thread.start()
+    assert occupy.wait(5); time.sleep(0.2)
+    started = time.monotonic()
+    with pytest.raises(BackendBusy, match='backend request capacity unavailable'):
+        plan['backend_worker'].authenticate(plan['worker_token'], world='real')
+    assert time.monotonic() - started < 3
+    release.set()
+    for thread in holders:thread.join(10)
+
+
+def test_run_request_is_a_bounded_lifecycle_request(role_runtime_plan):
+    backend = role_runtime_plan['backend_worker']
+    def operation(pool, signer):
+        assert request_depth() == 1 and pool is backend._pool and signer is backend._signer
+        with pool.connection() as connection:
+            return connection.execute('select 1').fetchone()[0]
+    assert backend.run_request(operation) == 1
+    with pytest.raises(TypeError):backend.run_request(None)

@@ -85,6 +85,8 @@ class EffectIntentPort:
                     claims['role_envelope']=role
                     from nexloop_eios.role_runs import formal_reads_for_role
                     claims['formal_reads']=formal_reads_for_role(self.pool,self.signer,self.session,role)
+                    from nexloop_eios.role_policies import policy_envelope_for_role
+                    claims['context_policy_envelope']=policy_envelope_for_role(self.pool,self.signer,session,role)
             claims['catalog_envelope']=catalog_envelope_from_hint(self.pool,self.signer,session.world,hint,request_scope=request_scope)
             preflight_scope(self.pool,session.world,hint,claims['catalog_envelope'])
             text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-effect-intent-v1:'+text).encode(),'sha256').hexdigest()
