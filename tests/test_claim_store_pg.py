@@ -234,8 +234,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
     """AT-064 boundary: no Context/Role pack reads Claims; hypotheses have no formal path."""
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]/'packages/eios-core/src'
-    readers=[path for path in (root/'nexloop_eios').glob('*.py') if path.name not in ('claim_store.py','conversation_extraction.py')
+    # NX-020 matching is the sanctioned Claim consumer; it writes only through governed Actions.
+    readers=[path for path in (root/'nexloop_eios').glob('*.py') if path.name not in ('claim_store.py','conversation_extraction.py','claim_matching.py')
              and ('nexloop_claims' in path.read_text() or 'claim_store' in path.read_text() or 'nexloop_read_conversation_claims' in path.read_text())]
     assert readers==[]
     migrations=[path.name for path in (root/'eios/migrations').glob('*.sql') if 'nexloop_claims' in path.read_text()]
-    assert len(migrations)==1 and migrations[0].endswith('_nx019_claims.sql')
+    assert sorted(m.split('_',1)[1] for m in migrations)==['nx019_claims.sql','nx020_claim_matching.sql']

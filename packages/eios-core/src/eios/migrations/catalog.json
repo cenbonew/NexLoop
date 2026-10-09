@@ -340,6 +340,11 @@
       "version": "0068",
       "name": "0068_nx022_goals_controls.sql",
       "sha256": "0eee56ff6eb4de3bbb29cf4384b3145101b80decc48e5d4ba53c83750d4226aa"
+    },
+    {
+      "version": "0069",
+      "name": "0069_nx020_claim_matching.sql",
+      "sha256": "51b85682175f9c024551a0bdacf5ee3da76f4e034a69eecf33ed44d1e0ea7261"
     }
   ]
 }
