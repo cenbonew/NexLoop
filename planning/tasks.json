@@ -1894,7 +1894,7 @@
       "M14"
     ],
     "deliverable": "实际请求快照、必需约束、Evo只读映射与歧义；审核中（awaiting_definition）与 hypothesis 的 Claim 不进入 Context 正式属性区（ADR-019 决定 2/5）",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
@@ -1907,6 +1907,18 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2f446b9",
+        "summary": "Merged NX-023-A: append-only context strategies (human-owner-only governed publish), context pack/source/model-request manifests with zone CHECKs (0088-0090), signed read-only context reads (strategies, gated semantic definitions, Consumer-READ-gated open work), context_engine pure logic (strategy, budget, sections, semantic adapter). Not yet wired to Runs; AT-027/028/064 not run.",
+        "recorded_at": "2026-10-09T21:00:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T120539Z-2f446b907804",
+        "summary": "Full CI on clean CI host: 2270 passed / 19 failed; 17 within baseline; 2 new passed serially 2/2 on the same checkout (effect_units concurrency: lock_timeout root cause fixed on a pending branch; open_work test reusing the timing-sensitive outbound chain fixture), registered as parallel-load jitter.",
+        "recorded_at": "2026-10-09T21:00:00+08:00"
       }
     ]
   },

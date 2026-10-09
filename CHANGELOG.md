@@ -31,6 +31,7 @@
   - 服务授权使用版本化清单经可信配置发布，可声明“沿用经审核发布的后继版本”。
 - **生产配置文件**：`deploy/authorization/service-grants.v1.json`、`deploy/configuration/business-actions.v1.json`、`deploy/ontology/merge-config.v1.json`、`deploy/authorization/owner-property-restrictions.json`。
 - **契约**：新增 `claim`、`candidate-definition`、`review-decision` JSON Schema，并生成 TypeScript / Pydantic 类型。
+- **上下文引擎第一步**（NX-023-A）：上下文策略（只追加、仅人类负责人可发布）、上下文清单与模型请求记录表（正式区只放正式对象，假设只能进证据段）、按权限过滤的只读语义与未完成工作读取，以及预算裁剪与分区的纯逻辑模块；尚未接入 Run。
 
 #### 变更
 
