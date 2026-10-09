@@ -1525,7 +1525,7 @@
       "M06"
     ],
     "deliverable": "N:M职责、身份歧义、EIOS对象与读取投影",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -1718,6 +1718,12 @@
         "ref": "ci:sice/20261009T133655Z-57a224cee682",
         "summary": "Full CI on clean CI host: 2319 passed / 14 failed, all within baseline, no new failures. AT-009 check: test_relationship_context_v4[complete] run serially 5 times on the same checkout with the host idle (load ~1.0): 0/5 passed (runtime_transport_unavailable x3, runtime_failed x2, ~25 s each). NX-018 remains in progress.",
         "recorded_at": "2026-10-09T22:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "adr/ADR-022-functional-closure-and-deploy-time-gate.md",
+        "summary": "Owner-approved functional closure (2026-10-09): the three NX-018 handoff gaps (formal Source READ through model/start/submit/admit/finalize; relationship correction into a new explicit v4 Context; Role ceiling/scope enforced at bind and dispatch, v5 Context) pass on fresh-catalog mainline combinations; AT-004 passed; AT-009 passed on dev-machine evidence only. The deploy host (CI host) fails the v4 two-Pi path 0/5 under the unchanged 2 s tool deadline; tracked as deployment gate NX-049.",
+        "recorded_at": "2026-10-09T22:45:00+08:00"
       }
     ]
   },
@@ -2101,7 +2107,8 @@
     "title": "完成双机TLS与隔离部署",
     "dependencies": [
       "NX-031",
-      "NX-004"
+      "NX-004",
+      "NX-049"
     ],
     "modules": [
       "M23"
@@ -2471,5 +2478,20 @@
         "recorded_at": "2026-10-09T10:30:00+08:00"
       }
     ]
+  },
+  {
+    "id": "NX-049",
+    "stage": "S5",
+    "title": "部署主机工具时限达标",
+    "dependencies": [
+      "NX-018"
+    ],
+    "modules": [
+      "M06",
+      "M23"
+    ],
+    "deliverable": "按 ADR-022：在部署主机（即 CI 测试机）上，2 s 工具时限不放宽的前提下，relationship_context_v4[complete] 与两 Pi Role 用例在全量 CI 连续 2 轮通过，且同一检出串行 5 次全部通过；先行手段为 O5b 级别 1（锁后尾验完整重跑）；达成后从合并基线 B 类移除该用例",
+    "status": "not_started",
+    "evidence": []
   }
 ]

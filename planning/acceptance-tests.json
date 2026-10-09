@@ -61,7 +61,15 @@
     "name": "角色N:M",
     "given": "两角色关联同消费者",
     "expected": "职责可配置，无常驻Agent；冲突触达受控",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-018-L1-report.md",
+        "summary": "Role N:M: RoleDefinition/ConsumerRoleLink/ceiling/scope are governed objects; two Roles of two Sources link one Consumer and two short Pi Runs share one business intent with one real effect (test_role_pi_effect_checkpoint, dev machine); Role policy enforced at bind and dispatch (test_role_policy_dispatch passes on the CI host in s3q), unknown metadata fails closed, Roles do not stack. Merged at 57a224c.",
+        "recorded_at": "2026-10-09T22:45:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-005",
@@ -120,13 +128,19 @@
     "name": "关系证据",
     "given": "旧推测被明确更正",
     "expected": "当前关系依据更新，旧结论不作为事实",
-    "status": "failed",
+    "status": "passed",
     "evidence": [
       {
         "type": "test_report",
         "ref": "tests/test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]",
         "summary": "Fails on Mac and on the CI host: the v4 two-Pi positive run exceeds the 2 s tool deadline (runtime_failed / runtime_transport_unavailable). Registered as baseline B under ADR-021; exit after O1/O4 or v4 completion.",
         "recorded_at": "2026-10-09T12:10:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "adr/ADR-022-functional-closure-and-deploy-time-gate.md",
+        "summary": "Passed on dev-machine evidence: test_relationship_context_v4.py 33 cases including [complete] (real human correction -> governed Assessment revision -> new v4 Artifact consumed by a second TLS Host/Pi Run, old hypothesis evidence-only), repeated passes after O1/O2a/O2b. Not passing on the deploy host (CI host): 0/5 serial on 57a224c under the 2 s tool deadline; tracked by NX-049, deadline not relaxed.",
+        "recorded_at": "2026-10-09T22:45:00+08:00"
       }
     ]
   },
