@@ -1739,7 +1739,7 @@
       "M10"
     ],
     "deliverable": "按 ADR-019 §3.1：话题切分（仅顾客实质回应）、原文/span/hash、九类 epistemic_kind Claim、显性/隐性分开（隐性=hypothesis）、条件否定与时间语义",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -1770,6 +1770,12 @@
         "ref": "docs/implementation/NX-019-extraction.md",
         "summary": "Implementation notes; AT-016/017/018/019/020 passed (synthetic/Claim layer); AT-014 not_run; AT-064 partial.",
         "recorded_at": "2026-10-09T09:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-019-extraction.md",
+        "summary": "Done after NX-018 closure (ADR-022): topic split, raw span/hash, nine epistemic kinds, explicit vs implicit (implicit = hypothesis), conditional negation and time semantics, background extraction queue, Claim contract. AT-016/017/018/019 passed (synthetic). Not in scope: AT-014 message order needs provider sequence / reply-to on Message (owned by the message ingestion path, not extraction); AT-064 formal-zone half belongs to NX-023. Re-verified on main 325d2b0: 126 passed.",
+        "recorded_at": "2026-10-09T23:05:00+08:00"
       }
     ]
   },
@@ -2439,13 +2445,19 @@
       "M23"
     ],
     "deliverable": "按 ADR-020 §2：Agent/人类接管发出的消息持久化为 Message（发送方身份、关联外发 Action receipt、投递状态与‘已持久化≠已送达’）；纳入提取与 Message READ 派生；草稿不显示为已发送；负向与重放测试",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
         "ref": "0c1a8e0",
         "summary": "Merged Agent outbound messages (0079_nx047_outbound_messages, 0080_nx047_outbound_read_derivation) per ADR-021 scope; design §9 14 tests (13 real, #14 rewritten for deferred human takeover); serial regression 85 passed.",
         "recorded_at": "2026-10-09T13:15:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-047-evidence.json",
+        "summary": "Done per ADR-021 §1 scope: Agent outbound messages persisted as Message with sender identity, receipt link and monotonic delivery state (persisted != delivered), included in extraction and Message READ derivation, drafts never shown as sent. Human takeover in the deliverable text is deferred to NX-028 by ADR-021 §1. Dependencies NX-018 and NX-019 are done.",
+        "recorded_at": "2026-10-09T23:05:00+08:00"
       }
     ]
   },

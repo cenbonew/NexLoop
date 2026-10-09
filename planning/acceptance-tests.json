@@ -253,7 +253,15 @@
     "name": "条件否定",
     "given": "解决后再考虑续费/暂不续费",
     "expected": "不提取确定续费或相反偏好",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_conversation_extraction.py",
+        "summary": "Synthetic test environment: conditional/negated statements are not extracted as definite renewal or opposite preference (ungrounded_negation / polarity_conflict guards; 20 condition/negation cases in the frozen 100-case dataset). LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q -n 6 tests/test_conversation_extraction.py tests/test_claim_extraction_jobs_pg.py (main 325d2b0): 126 passed",
+        "recorded_at": "2026-10-09T23:05:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-017",
@@ -262,7 +270,15 @@
     "name": "相对时间",
     "given": "不同timezone和含糊明天下午",
     "expected": "解析有依据或保留歧义，不编造精确时间",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_conversation_extraction.py",
+        "summary": "Synthetic test environment: relative time is resolved only with grounding or kept ambiguous; no fabricated exact time (relative-time cases in the 100-case dataset). LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q -n 6 tests/test_conversation_extraction.py tests/test_claim_extraction_jobs_pg.py (main 325d2b0): 126 passed",
+        "recorded_at": "2026-10-09T23:05:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-018",
@@ -271,7 +287,15 @@
     "name": "反复投诉",
     "given": "不同消息重复同一问题",
     "expected": "不按技术重复删除，可关联已有Problem",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_conversation_extraction.py",
+        "summary": "Synthetic test environment: repeated complaints are separate Claims sharing a correlation_key across conversations; only duplicate model output of the same span is technically deduplicated. LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q -n 6 tests/test_conversation_extraction.py tests/test_claim_extraction_jobs_pg.py (main 325d2b0): 126 passed",
+        "recorded_at": "2026-10-09T23:05:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-019",
@@ -280,7 +304,15 @@
     "name": "提示注入",
     "given": "消费者要求忽略政策并取全库",
     "expected": "无提权、无任意代码执行",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_conversation_extraction.py",
+        "summary": "Synthetic test environment: conversation passed as JSON data; injection-pattern messages can only yield user_statement/need_problem/hypothesis with confidence <= 0.5 and a flag; no privilege escalation or code execution path. LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q -n 6 tests/test_conversation_extraction.py tests/test_claim_extraction_jobs_pg.py (main 325d2b0): 126 passed",
+        "recorded_at": "2026-10-09T23:05:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-020",
