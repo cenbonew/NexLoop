@@ -181,13 +181,13 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 
 - 嵌套授权证明复用外层请求的连接（把当前事务连接传入 `_authority`/`open_unit_of_work`，或 O2 在外层事务内批量判定），从根本上去掉"每请求两个连接"，届时容量可回到 `pool_max_size`。
 - 同一 Run 并发 guard 在 0039 `nexloop-runtime-execution:<run>` advisory 锁与行锁之间的锁序循环（PostgreSQL 检测并中止一方，结果正确、可重试）：统一锁序。
-## 第 3 步阶段 B：调度期 Role 策略重查（临时 0084；0082 为 L2 NX-044，0083 为 grants_follow_latest）
+## 第 3 步阶段 B：调度期 Role 策略重查（临时 0085；0082 NX-044、0083 grants_follow_latest、0084 预留给 L2 属性授权派生）
 
 基线 `dispatch/integration-s3h` 后的 `23332dc`（0081 为本线阶段 A，0079/0080 为 NX-047）。分支 `nx018-phase-b`；另有待批准分支 `nx018-pool-cap`（见下）。
 
 ### 实现
 
-- `0084_nx018_role_policy_dispatch.sql`（曾为临时 0082/0083）：候选 `nexloop_role_policy_claims_current` + activation（resolve/create 以外）/ effect_intent / effect_execution（admit/finalize）三个外层 wrapper，私有 alias `*_before_role_policy_v0081`。三个 public 函数的 ACL 在基线上查询 `proacl` 后逐一保持（activation: api/domain_worker/scheduler；intent: api/domain_worker；execution: action_worker；候选给 execution 多授了 api，已去掉）。
+- `0085_nx018_role_policy_dispatch.sql`（曾为临时 0082/0083/0084）：候选 `nexloop_role_policy_claims_current` + activation（resolve/create 以外）/ effect_intent / effect_execution（admit/finalize）三个外层 wrapper，私有 alias `*_before_role_policy_v0081`。三个 public 函数的 ACL 在基线上查询 `proacl` 后逐一保持（activation: api/domain_worker/scheduler；intent: api/domain_worker；execution: action_worker；候选给 execution 多授了 api，已去掉）。
 - 与候选不同：
   1. 内层调用之后只做 `nexloop_role_policy_claims_tail`（期限 + submit 时的 effect_units 计数），不再第二次完整校验：前置完整校验在同一事务里已对 Ceiling/Scope/Role/Link/Step 行和全部 READ 授权事实持有 FOR SHARE，并发 EDIT/撤权在本事务结束前无法提交。
   2. 不升级策略行锁（候选在 submit 路径 FOR UPDATE，而同事务的 guard 先持 FOR SHARE）；Role 提交在进入内层前先取 Run 级 advisory 锁 `nexloop-role-effect:<run>` 串行计数。实测候选写法在 8 路并发同 Run 提交时出现 PostgreSQL deadlock。
@@ -211,9 +211,15 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 - 修复（分支 `nx018-pool-cap`，**改了 backend.py，已向调度员申请、尚未获批，未放入 nx018-phase-b**）：`LifecycleLock(capacity=max(1,pool_max_size//2))`，请求最外层进入时计数、离开时释放，关闭仍等全部在途请求。新增 `tests/test_backend_pool_concurrency.py`：8 路同意图并发与 4 路不同 payload 并发，3/3 连跑通过（各 ~30s，无 30s 超时）；单意图、至少一个成功、其余仅允许可重试 unavailable 或 payload 冲突。该分支上真实两 Pi 最大 1.16–1.23s、v4 `[complete]` 通过，容量 2 未使延迟变差。
 - 同时暴露一个既有锁序问题（不在本步范围）：同一 Run 的并发 guard 在 0039 `nexloop-runtime-execution:<run>` advisory 锁与行锁之间可形成循环，PostgreSQL 检测后中止一方（结果正确、可重试）。Host 对同一 Run 串行发工具，生产影响小；建议交 L4 统一锁序。
 
-### effect_units 语义发现（供负责人确认）
+### effect_units 语义（负责人已确认，2026-10-09）
 
-Run 的业务意图 ID 稳定（按 Run/Step），同一 Run 以不同 payload 再次提交得到 `intent_payload_conflict`，所以经现有工具路径一个 Run 最多一个意图，`effect_units>1` 无法被行使，`=1` 与意图恒等性重复。当前实现保持"每 Run 不同提交数上限 + Run 级串行"，测试只能证明并发下仍为单意图。若负责人希望它限制跨 Run 的 Role 总触达量，需要改为按 Role/Consumer 聚合计数。
+语义按现实现：**每个 Run 不同外部效应提交数的上限，并发时以 Run 级锁串行**（0085 submit wrapper 在进入内层前取 `nexloop-role-effect:<run>` advisory 锁；`claims_current` 前置、`claims_tail` 内层后按 `count(distinct intent_id) from runtime.nexloop_effect_submissions where run_id=…` 与绑定的 `effect_units` 比较）。业务意图 ID 按 Run/Step 稳定，因此正常路径下同一 Run 的第二个不同 payload 先被 `intent_payload_conflict` 拒绝；effect_units 是在其之上的独立上限。
+
+压力负例（`tests/test_role_policy_dispatch.py`，共享 EffectControl 放宽到 3，Ceiling effect_units=1，确保只有 Role 上限可能拒绝）：
+
+- `test_effect_units_concurrent_distinct_submissions_stay_within_ceiling`：8 线程同时以不同 payload 对同一 Run submit → 恰 1 个成功，其余仅为 `EffectIntentConflict`/可重试 `EffectIntentUnavailable`；该 Run 的不同提交数 =1，共享 ledger 预留 ≤1。
+- `test_effect_units_ceiling_denies_once_reached`：一次性故障注入使该 Run 已有第 2 个不同外部效应提交（克隆意图到另一 slot）→ 下一次 submit 被拒；并直接调用 SQL `claims_tail` 断言拒绝原因为 `Role effect unit ceiling exceeded`。
+- 两例连跑 2/2 passed（各 ~27s，连接数插件开启）。
 
 ### 最终（nx018-phase-b HEAD，单条命令串行）
 
