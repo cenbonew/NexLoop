@@ -355,6 +355,11 @@
       "version": "0071",
       "name": "0071_nx048_service_grant_inventory.sql",
       "sha256": "2bf3018205fa361d76c021d79490c3d1bb730a1bf4057c4fce88be127baea525"
+    },
+    {
+      "version": "0072",
+      "name": "0072_nx045_candidate_merge.sql",
+      "sha256": "e1e5367fac757bcac2d17baaa3cab354914bf0bbf86675994494efc2048a3830"
     }
   ]
 }

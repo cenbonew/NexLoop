@@ -1,0 +1,39 @@
+{
+ "config_version": "nx045-glue-v1-test64",
+ "weights": {
+  "lexical_similarity": 0.2,
+  "core_term_containment": 0.2,
+  "vector_cluster": 0.2,
+  "rule_whitelist": 0.4
+ },
+ "merge_threshold": 0.375,
+ "dedupe_threshold": 0.375,
+ "whitelist": [
+  {
+   "texts": [
+    "常用付款方式",
+    "支付方式偏好"
+   ]
+  },
+  {
+   "texts": [
+    "2000元以内",
+    "两千元以内"
+   ]
+  }
+ ],
+ "calibration": {
+  "dataset": "nx045-merge-calibration",
+  "dataset_version": 1,
+  "feature_version": "nx045-glue-features/1",
+  "embedding_profile": "nexloop-test-ngram-v1@64",
+  "method": "grid search, weight step 0.1 over the simplex, thresholds 0.300..0.900 step 0.025; whitelist weight >= threshold; objective: precision 1.0, then recall, then margin",
+  "precision": 1.0,
+  "recall": 0.5714,
+  "true_positive": 12,
+  "false_positive": 0,
+  "positives": 21,
+  "pairs": 42,
+  "margin": 0.054
+ }
+}

@@ -1,0 +1,25 @@
+{
+  "dataset": "nx045-merge-calibration",
+  "dataset_version": 1,
+  "embedding_profile": "doubao-embedding-vision-251215@1024",
+  "evidence_class": "real",
+  "feature_version": "nx045-glue-features/1",
+  "inputs": "synthetic only",
+  "result": {
+    "false_positive": 0,
+    "margin": 0.0228,
+    "merge_threshold": 0.35,
+    "pairs": 42,
+    "positives": 21,
+    "precision": 1.0,
+    "recall": 0.6667,
+    "true_positive": 14,
+    "weights": {
+      "core_term_containment": 0.1,
+      "lexical_similarity": 0.4,
+      "rule_whitelist": 0.4,
+      "vector_cluster": 0.1
+    }
+  },
+  "transport_failures": 4
+}

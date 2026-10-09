@@ -1,0 +1,278 @@
+{
+ "dataset": "nx045-merge-calibration",
+ "version": 1,
+ "inputs": "synthetic labelled pairs only",
+ "labels": "same=true means the candidate denotes the existing definition and may be merged as an alias",
+ "pairs": [
+  {
+   "kind": "property",
+   "candidate": "喜欢的运动",
+   "target": "运动偏好",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "关注防水",
+   "target": "防水需求",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "预算上限",
+   "target": "预算金额",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "购买渠道",
+   "target": "购买渠道偏好",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "联系时间偏好",
+   "target": "方便联系时间",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "肤质类型",
+   "target": "皮肤类型",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "家庭成员数",
+   "target": "家庭人数",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "职业",
+   "target": "职业信息",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "所在城市",
+   "target": "居住城市",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "使用场景",
+   "target": "使用场景偏好",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "最常去的门店",
+   "target": "常去门店",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "宠物种类",
+   "target": "养的宠物种类",
+   "same": true
+  },
+  {
+   "kind": "property",
+   "candidate": "常用付款方式",
+   "target": "支付方式偏好",
+   "same": true,
+   "whitelist": [
+    {
+     "texts": [
+      "常用付款方式",
+      "支付方式偏好"
+     ]
+    }
+   ],
+   "note": "synonym with no shared characters beyond 付; business whitelist"
+  },
+  {
+   "kind": "property",
+   "candidate": "付款方式",
+   "target": "配送方式",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "喜欢的运动",
+   "target": "喜欢的颜色",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "关注防水",
+   "target": "关注价格",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "月收入",
+   "target": "预算金额",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "购买渠道",
+   "target": "购买频率",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "联系时间偏好",
+   "target": "联系方式偏好",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "肤质类型",
+   "target": "发质类型",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "家庭成员数",
+   "target": "家庭住址",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "所在城市",
+   "target": "所在行业",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "年龄",
+   "target": "年收入",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "使用场景",
+   "target": "使用频率",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "宠物种类",
+   "target": "宠物数量",
+   "same": false
+  },
+  {
+   "kind": "property",
+   "candidate": "最常去的门店",
+   "target": "最常买的品牌",
+   "same": false
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "两千以内",
+   "target": "两千元以内",
+   "same": true
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "五千以上",
+   "target": "五千元以上",
+   "same": true
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "线上",
+   "target": "线上渠道",
+   "same": true
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "晚上",
+   "target": "晚上时段",
+   "same": true
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "2000元以内",
+   "target": "两千元以内",
+   "same": true,
+   "whitelist": [
+    {
+     "texts": [
+      "2000元以内",
+      "两千元以内"
+     ]
+    }
+   ],
+   "note": "numeral form; business whitelist"
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "一万元以上",
+   "target": "五千元以上",
+   "same": false
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "两千元以内",
+   "target": "两千到五千元",
+   "same": false
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "线上",
+   "target": "线下",
+   "same": false
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "晚上",
+   "target": "早上",
+   "same": false
+  },
+  {
+   "kind": "vocabulary_value",
+   "candidate": "每周一次",
+   "target": "每月一次",
+   "same": false
+  },
+  {
+   "kind": "object_type",
+   "candidate": "订单",
+   "target": "订单记录",
+   "same": true
+  },
+  {
+   "kind": "object_type",
+   "candidate": "商品",
+   "target": "商品信息",
+   "same": true
+  },
+  {
+   "kind": "object_type",
+   "candidate": "门店",
+   "target": "门店信息",
+   "same": true
+  },
+  {
+   "kind": "object_type",
+   "candidate": "订单",
+   "target": "退货单",
+   "same": false
+  },
+  {
+   "kind": "object_type",
+   "candidate": "商品",
+   "target": "商家",
+   "same": false
+  },
+  {
+   "kind": "object_type",
+   "candidate": "门店",
+   "target": "仓库",
+   "same": false
+  }
+ ]
+}
