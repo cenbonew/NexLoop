@@ -490,6 +490,11 @@
       "version": "0098",
       "name": "0098_tighten_function_search_path.sql",
       "sha256": "32cd3db01e1eed1ac866ab58b6be7a395d7d002304d9188900c6c732e3f9b1d3"
+    },
+    {
+      "version": "0099",
+      "name": "0099_nx019_nx020_message_purpose_reads.sql",
+      "sha256": "fa6e511bfb1c1749b5b3b175b72ab5606b3613ded8addad088209308f5acf6ac"
     }
   ]
 }
