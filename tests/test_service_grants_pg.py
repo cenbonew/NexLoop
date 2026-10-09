@@ -26,6 +26,7 @@ from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios import service_grants as G
 
 MANIFEST=Path(__file__).resolve().parents[1]/'deploy/authorization/service-grants.v1.json'
+OWNER=Path(__file__).resolve().parents[1]/'deploy/authorization/owner-property-restrictions.json'
 TENANT='synthetic-a'
 
 
@@ -49,7 +50,8 @@ def deployment(pg,admin,tmp_path):
         superuser=private(tmp_path,'superuser-dsn',pg))
     def apply(body=manifest,**options):
         return G.apply(body,TENANT,database_url_file=paths['dsn'],signing_key_file=paths['signing'],signing_key_id='nx048-deploy',
-            service_secrets_file=paths['secrets'],credential_expires_at=options.get('expiry',datetime.now(UTC)+timedelta(hours=2)))
+            service_secrets_file=paths['secrets'],credential_expires_at=options.get('expiry',datetime.now(UTC)+timedelta(hours=2)),
+            owner_restrictions=options.get('owner',G.load_owner_restrictions(OWNER)))
     with open_core(make_conninfo(pg,user='nexloop_api')) as api,open_core(make_conninfo(pg,user='nexloop_domain_worker')) as worker,\
          open_core(make_conninfo(pg,user='nexloop_scheduler')) as scheduler:
         yield Private(pg=pg,manifest=manifest,tokens=tokens,signer=AuthoritySigner('nx048-deploy',key),paths=paths,apply=apply,
@@ -188,3 +190,81 @@ def test_human_principal_reuse_and_superuser_connection_are_rejected(deployment,
 
 
 from test_browser_identity_reads import identity  # noqa: E402  (real Human directory row)
+
+
+def _raw_configure(d,admin,facts):
+    """Bypass the Python validators: the 0084 configure_manifest shape checks themselves must refuse."""
+    import hashlib,uuid
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    revision=admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(TENANT,)).fetchone()[0]
+    body={'schema_version':'1.0','manifest_id':str(uuid.uuid4()),'tenant_id':TENANT,'expected_revision':revision,'tenant_status':'active',
+        'object_types':[],'actions':[],'functions':[],'authority_facts':facts,'service_credentials':[],'browser_applications':[],
+        'browser_business_applications':[],'browser_rate_policies':[],'identity_allowances':[]}
+    text=canonical_payload(body)
+    with psycopg.connect(make_conninfo(d['pg'],user='nexloop_configurator')) as db,db.transaction():
+        return db.execute('select control.nexloop_configure_manifest(%s,%s,%s,%s,%s,%s::jsonb)',
+            (TENANT,text,hashlib.sha256(text.encode()).hexdigest(),'nx048-deploy',d['signer'].material,'{}')).fetchone()[0]
+
+
+def test_property_access_rule_and_owner_restriction_are_written_only_by_trusted_configuration(deployment,admin):
+    d=deployment;report=d['apply']()
+    matcher=next(p for p in d['manifest']['principals'] if p['role']=='claim_matcher')
+    stored=dict(admin.execute("select fact_kind,payload from authz.nexloop_authority_facts where fact_kind in ('property_access_rule','property_group_restriction')").fetchall())
+    assert stored['property_access_rule']['principal_id']==matcher['principal_id'] and stored['property_access_rule']['include_review_published'] is True
+    # Owner decision: the matcher may derive every ADR-019 §2 group (contract enum of candidate-definition property_group).
+    from nexloop_eios.claim_matching import GROUPS
+    assert stored['property_access_rule']['operations']==['edit','read'] and stored['property_access_rule']['property_groups']==sorted(GROUPS)
+    # Owner decision (2026-10-09): no Consumer group is restricted; the fact still exists so derivation is enabled.
+    assert stored['property_group_restriction']['restricted_groups']==[] and 'project owner' in stored['property_group_restriction']['decision']
+    assert {'kind':'property_access_rule','key':[matcher['principal_id'],'Consumer']} in report['facts_written'] and report['property_access']==[]
+    assert G.doctor(d['manifest'],TENANT,database_url_file=d['paths']['dsn'])['in_sync'] is True
+    # A rule listing a restricted group is reported, not rejected; the group is still never derived (SQL).
+    # Synthetic owner restriction: the mechanism is exercised although the real decision restricts nothing.
+    synthetic={'schema_version':G.OWNER_SCHEMA,'decided_by':'synthetic owner','decision':'synthetic restriction',
+        'restrictions':[{'type_name':'Consumer','restricted_groups':['synthetic_restricted']}]}
+    listed=copy.deepcopy(d['manifest']);listed['property_access_rules'][0]['property_groups']=sorted(listed['property_access_rules'][0]['property_groups']+['synthetic_restricted'])
+    doctor=G.doctor(G.validate(listed),TENANT,database_url_file=d['paths']['dsn'],owner_restrictions=G.validate_owner_restrictions(synthetic))
+    assert {'state':'restricted_group_listed','principal_id':matcher['principal_id'],'type_name':'Consumer','groups':['synthetic_restricted']} in doctor['property_access']
+    # Removing the rule deactivates it (never deletes it).
+    removed=copy.deepcopy(d['manifest']);removed.pop('property_access_rules')
+    assert {'kind':'property_access_rule','key':[matcher['principal_id'],'Consumer']} in d['apply'](G.validate(removed))['facts_written']
+    assert admin.execute("select payload->'active' from authz.nexloop_authority_facts where fact_kind='property_access_rule'").fetchone()==(False,)
+
+
+def test_rule_without_owner_restriction_is_reported_and_service_manifest_cannot_carry_restrictions(deployment,admin):
+    d=deployment
+    report=d['apply'](owner=None)
+    matcher=next(p for p in d['manifest']['principals'] if p['role']=='claim_matcher')
+    assert report['property_access']==[{'state':'owner_restriction_missing','principal_id':matcher['principal_id'],'type_name':'Consumer'}]
+    assert admin.execute("select count(*) from authz.nexloop_authority_facts where fact_kind='property_group_restriction'").fetchone()==(0,)
+    assert G.doctor(d['manifest'],TENANT,database_url_file=d['paths']['dsn'])['in_sync'] is False
+    smuggled=copy.deepcopy(d['manifest']);smuggled['property_group_restrictions']=[]
+    with pytest.raises(G.ServiceGrantsRejected,match='manifest_shape'):G.validate(smuggled)
+    implicit=copy.deepcopy(d['manifest']);implicit['property_access_rules'][0].pop('include_review_published')
+    with pytest.raises(G.ServiceGrantsRejected,match='property_access_rule_shape'):G.validate(implicit)
+    untyped=copy.deepcopy(d['manifest']);untyped['grants']=[g for g in untyped['grants'] if g['resource_id']!='eios:object_type:Consumer']
+    with pytest.raises(G.ServiceGrantsRejected,match='requires_type_read'):G.validate(untyped)
+    with pytest.raises(G.ServiceGrantsRejected,match='owner_restrictions_shape'):
+        G.validate_owner_restrictions({'schema_version':G.OWNER_SCHEMA,'decided_by':'x','decision':'y','restrictions':[{'type_name':'Consumer','restricted_groups':['spending_power','demographics']}]})
+
+
+def test_configure_manifest_refuses_malformed_property_facts(deployment,admin):
+    d=deployment;d['apply']()
+    matcher=next(p for p in d['manifest']['principals'] if p['role']=='claim_matcher')['principal_id']
+    rule={'tenant_id':TENANT,'principal_id':matcher,'type_name':'Consumer','operations':['read'],'property_groups':['preference'],
+        'include_review_published':True,'basis_schema_version':1,'active':True,'valid_until':'2027-01-01T00:00:00+00:00'}
+    restriction={'tenant_id':TENANT,'type_name':'Consumer','restricted_groups':['demographics'],'decision':'owner decision'}
+    bad_rules=[rule|{'extra':1},rule|{'operations':['delete']},rule|{'property_groups':['Bad-Group']},rule|{'include_review_published':'true'},
+        {k:v for k,v in rule.items() if k!='include_review_published'},rule|{'basis_schema_version':0},rule|{'valid_until':None},
+        rule|{'principal_id':'synthetic-a-unknown-principal'}]
+    for payload in bad_rules:
+        with pytest.raises(psycopg.errors.InvalidParameterValue):
+            _raw_configure(d,admin,[{'kind':'property_access_rule','key':[payload['principal_id'],'Consumer'],'payload':payload}])
+    with pytest.raises(psycopg.errors.InvalidParameterValue):
+        _raw_configure(d,admin,[{'kind':'property_access_rule','key':[matcher,'Product'],'payload':rule}])
+    for payload in (restriction|{'extra':1},restriction|{'restricted_groups':['Bad']},restriction|{'decision':''},{k:v for k,v in restriction.items() if k!='decision'}):
+        with pytest.raises(psycopg.errors.InvalidParameterValue):
+            _raw_configure(d,admin,[{'kind':'property_group_restriction','key':['Consumer'],'payload':payload}])
+    # The exact shapes are accepted through the same audited path.
+    assert _raw_configure(d,admin,[{'kind':'property_access_rule','key':[matcher,'Consumer'],'payload':rule},
+        {'kind':'property_group_restriction','key':['Consumer'],'payload':restriction}])['configured'] is True

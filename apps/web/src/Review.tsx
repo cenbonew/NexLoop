@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
-import {DECISION_LABELS,KIND_LABELS,awaitingMessage,decide,decisionMessage,readAwaiting,readCandidate,readQueue,reviewError,type AwaitingItem,type CandidateDetail,type Decision,type Decisions,type QueueItem} from './review-api';
+import {DECISION_LABELS,KIND_LABELS,awaitingMessage,decide,decisionMessage,impactMessage,readAwaiting,readCandidate,readQueue,reviewError,type AwaitingItem,type CandidateDetail,type Decision,type Decisions,type QueueItem} from './review-api';
 
 const percent=(value:number)=>`${Math.round(value*100)}%`;
 
@@ -26,11 +26,15 @@ export function DecisionBar({detail}:{detail:CandidateDetail}){
     retry:false,onSuccess:()=>{setKey(crypto.randomUUID());void cache.invalidateQueries({queryKey:['review-queue']});void cache.invalidateQueries({queryKey:['review-awaiting']});}});
   if(!detail.decisions.enabled)return <DisabledDecisions decisions={detail.decisions}/>;
   const blocked=mutation.isPending||!rationale.trim();
+  const impact=impactMessage(detail.kind,detail.derivation_impact);
+  const unverified=detail.kind==='property'&&detail.derivation_impact===null;
   return <div className="decisions" role="group" aria-label="审核决定">
+    {impact&&<p className="warning" role="note" id="approve-impact">{impact}</p>}
     <label htmlFor="decision-rationale">决定理由（必填，将写入审计记录）</label>
     <textarea id="decision-rationale" value={rationale} maxLength={2000} onChange={event=>setRationale(event.target.value)}/>
     {targets.length?<><label htmlFor="merge-target">并入的已有定义</label><select id="merge-target" value={target} onChange={event=>setTarget(event.target.value)}>{targets.map(t=><option key={t} value={t}>{t}</option>)}</select></>:<p className="note">没有可并入的同类已有定义。</p>}
-    {detail.decisions.actions.map(action=><button key={action} type="button" disabled={blocked||(action==='merge_into'&&!target)} onClick={()=>mutation.mutate(action)}>
+    {detail.decisions.actions.map(action=><button key={action} type="button" disabled={blocked||(action==='merge_into'&&!target)||(action==='approve'&&unverified)}
+      aria-describedby={action==='approve'&&impact?'approve-impact':undefined} onClick={()=>mutation.mutate(action)}>
       {mutation.isPending&&mutation.variables===action?'正在提交…':DECISION_LABELS[action]}</button>)}
     {!rationale.trim()&&<p className="note">填写理由后才能提交决定。</p>}
     {mutation.isError&&<p role="alert">{reviewError(mutation.error)}</p>}

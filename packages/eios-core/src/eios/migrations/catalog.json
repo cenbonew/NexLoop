@@ -415,6 +415,11 @@
       "version": "0083",
       "name": "0083_grants_follow_latest.sql",
       "sha256": "71ae53049312abd840a332cb0b4d4bd8255b4352ac125bc883dd9de136537c1d"
+    },
+    {
+      "version": "0084",
+      "name": "0084_property_grant_derivation.sql",
+      "sha256": "e132017c6e52bdc98fba11ba68750c535ca6baa39532941a42d93e629f2b8245"
     }
   ]
 }

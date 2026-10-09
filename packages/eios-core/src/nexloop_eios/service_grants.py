@@ -21,6 +21,15 @@ schema references / derived digests, same object types). The first successor
 that is not such a re-binding stops the chain and is reported, never followed.
 Derived grants are applied exactly like listed ones: 0050 configurator path,
 audited, idempotent.
+
+property_access_rules (docs/implementation/property-grant-derivation.md): optional
+per (service principal, object type) rules compiled into ``property_access_rule``
+facts; SQL derives per-object property READ/EDIT from them at use. The restricted
+property groups are an owner decision kept in a *separate* owner file
+(``nexloop-owner-property-restrictions/1``): ``property_group_restriction`` facts are
+written only from that file, never from the service manifest or computed defaults.
+A rule listing a restricted group is reported (the group is never derived); a rule
+whose type has no owner restriction fact derives nothing and is reported.
 """
 import argparse,hashlib,json,re,sys,uuid
 from datetime import UTC,datetime
@@ -46,6 +55,12 @@ TOP={'schema_version','manifest_version','decision','valid_from','world','princi
 PRINCIPAL={'role','subject_id','principal_id','credential_id','credential_reference','application_id','database_role','purpose','source_task'}
 GRANT={'principal','resource_type','resource_id','operations','purpose','source_task'}
 FOLLOW='follow_latest_version'
+RULES='property_access_rules'
+RULE={'principal','type_name','operations','property_groups','include_review_published','basis_schema_version','valid_until','purpose','source_task'}
+OWNER_SCHEMA='nexloop-owner-property-restrictions/1'
+OWNER_TOP={'schema_version','decided_by','decision','restrictions'}
+_GROUP=re.compile(r'[a-z][a-z0-9_]{0,63}')
+_TYPE=re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')
 _ACTION=re.compile(r'eios:action:([A-Za-z0-9][A-Za-z0-9._-]{0,159}):([1-9][0-9]{0,8})')
 DATABASE_ROLES={'nexloop_api','nexloop_domain_worker','nexloop_action_worker','nexloop_scheduler'}
 # Resource type -> the only operation a service principal may hold on it.
@@ -54,7 +69,8 @@ ALLOWED={'action':('execute',re.compile(r'eios:action:[A-Za-z0-9][A-Za-z0-9._-]{
 # ADR-020 §3 boundary: never granted by this path, whatever the manifest says.
 FORBIDDEN_MARKERS=('schema.review','real_dispatch','nexloop.service.request','nexloop.service.query',
     'nexloop.service.receipt_reconcile','nexloop.receipt.reconcile','channel.enable','external_effect')
-ORDER=('subject','membership','actor','authentication','application','subject_authority','resource_graph','grants','scope','controls','policies','revision')
+ORDER=('subject','membership','actor','authentication','application','subject_authority','resource_graph','grants','scope','controls','policies','revision',
+    'property_group_restriction','property_access_rule')
 _ID=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ROLE=re.compile(r'[a-z][a-z0-9_]{0,63}')
 NAMESPACE=uuid.UUID('9b7f3c52-2f43-4b0e-8f0e-4e5800480048')
@@ -70,7 +86,7 @@ def _reject(reason):raise ServiceGrantsRejected(reason)
 
 def validate(value):
     """Structural and policy validation of the public manifest (no I/O)."""
-    if type(value) is not dict or set(value)!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
+    if type(value) is not dict or set(value)-{RULES}!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
     if type(value['manifest_version']) is not int or value['manifest_version']<1:_reject('manifest_version')
     if type(value['world']) is not str or re.fullmatch(r'[a-z][a-z0-9_-]{0,79}',value['world']) is None:_reject('world')
     try:valid_from=datetime.fromisoformat(value['valid_from'])
@@ -79,7 +95,7 @@ def validate(value):
     for key in ('principals','grants','deferred','excluded_by_policy'):
         if type(value[key]) is not list or len(value[key])>512:_reject('manifest_shape')
     # Policy exclusions apply to everything that would become authority.
-    authority_text=canonical_payload({'principals':value['principals'],'grants':value['grants']}).lower()
+    authority_text=canonical_payload({'principals':value['principals'],'grants':value['grants'],'rules':value.get(RULES,[])}).lower()
     for marker in FORBIDDEN_MARKERS:
         if marker in authority_text:_reject('excluded_by_policy:'+marker)
     principals={};identifiers=set()
@@ -108,7 +124,62 @@ def validate(value):
         seen.add(key)
     for role in principals:
         if not any(g['principal']==role for g in value['grants']):_reject('principal_without_grant')
+    _validate_rules(value,principals)
     return value
+
+
+def _validate_rules(value,principals):
+    if RULES not in value:return
+    rules=value[RULES]
+    if type(rules) is not list or len(rules)>128:_reject('property_access_rule_shape')
+    seen=set()
+    for item in rules:
+        if type(item) is not dict or set(item)!=RULE or item['principal'] not in principals:_reject('property_access_rule_shape')
+        if any(type(item[k]) is not str or not item[k] for k in ('principal','type_name','valid_until','purpose','source_task')):_reject('property_access_rule_shape')
+        if _TYPE.fullmatch(item['type_name']) is None:_reject('property_access_rule_shape')
+        ops,groups=item['operations'],item['property_groups']
+        if (type(ops) is not list or not ops or any(o not in ('read','edit') for o in ops) or ops!=sorted(set(ops))
+                or type(groups) is not list or not groups or len(groups)>32 or any(type(g) is not str or _GROUP.fullmatch(g) is None for g in groups)
+                or groups!=sorted(set(groups))):_reject('property_access_rule_shape')
+        # Explicit, never defaulted (approved design decision 2).
+        if type(item['include_review_published']) is not bool:_reject('property_access_rule_shape')
+        if type(item['basis_schema_version']) is not int or item['basis_schema_version']<1:_reject('property_access_rule_shape')
+        try:until=datetime.fromisoformat(item['valid_until'])
+        except Exception:_reject('property_access_rule_shape')
+        if until.tzinfo is None or until.utcoffset().total_seconds()!=0:_reject('property_access_rule_shape')
+        # Derived proofs carry the principal's configured READ on the type itself.
+        if not any(g['principal']==item['principal'] and g['resource_id']=='eios:object_type:'+item['type_name'] for g in value['grants']):
+            _reject('property_access_rule_requires_type_read')
+        key=(item['principal'],item['type_name'])
+        if key in seen:_reject('property_access_rule_duplicate')
+        seen.add(key)
+
+
+def validate_owner_restrictions(value):
+    """The owner's restricted-group decision; the only source of property_group_restriction facts."""
+    if type(value) is not dict or set(value)!=OWNER_TOP or value['schema_version']!=OWNER_SCHEMA:_reject('owner_restrictions_shape')
+    for key in ('decided_by','decision'):
+        if type(value[key]) is not str or not value[key] or len(value[key])>300:_reject('owner_restrictions_shape')
+    if type(value['restrictions']) is not list or len(value['restrictions'])>128:_reject('owner_restrictions_shape')
+    seen=set()
+    for item in value['restrictions']:
+        if type(item) is not dict or set(item)!={'type_name','restricted_groups'} or type(item['type_name']) is not str or _TYPE.fullmatch(item['type_name']) is None:
+            _reject('owner_restrictions_shape')
+        groups=item['restricted_groups']
+        if type(groups) is not list or len(groups)>32 or any(type(g) is not str or _GROUP.fullmatch(g) is None for g in groups) or groups!=sorted(set(groups)):
+            _reject('owner_restrictions_shape')
+        if item['type_name'] in seen:_reject('owner_restrictions_duplicate')
+        seen.add(item['type_name'])
+    return value
+
+
+def load_owner_restrictions(path):
+    try:
+        raw=Path(path).read_text()
+        if len(raw.encode())>1048576:raise ValueError()
+        value=strict_json(raw)
+    except Exception:raise ServiceGrantsRejected('owner_restrictions_unreadable') from None
+    return validate_owner_restrictions(value)
 
 
 def load(path):
@@ -257,6 +328,55 @@ def compile_principal(manifest,tenant,principal,*,credential_expires_at):
     return binding,facts
 
 
+def compile_property_rules(manifest,tenant):
+    from nexloop_eios.property_access import PropertyAccessRule
+    roles={p['role']:p for p in manifest['principals']};facts=[]
+    for item in manifest.get(RULES,[]):
+        pid=roles[item['principal']]['principal_id']
+        facts.append(('property_access_rule',[pid,item['type_name']],PropertyAccessRule(tenant_id=tenant,principal_id=pid,type_name=item['type_name'],
+            operations=tuple(item['operations']),property_groups=tuple(item['property_groups']),include_review_published=item['include_review_published'],
+            basis_schema_version=item['basis_schema_version'],active=True,valid_until=datetime.fromisoformat(item['valid_until']))))
+    return facts
+
+
+def compile_owner_restrictions(owner,tenant):
+    from nexloop_eios.property_access import PropertyGroupRestriction
+    decision=(owner['decision']+' — '+owner['decided_by'])[:500]
+    return [('property_group_restriction',[r['type_name']],PropertyGroupRestriction(tenant_id=tenant,type_name=r['type_name'],
+        restricted_groups=tuple(r['restricted_groups']),decision=decision)) for r in owner['restrictions']]
+
+
+def _property_access_plan(manifest,tenant,current,owner):
+    """Rule/restriction writes and findings. Restrictions come only from the owner file."""
+    from nexloop_eios.property_access import PropertyAccessRule
+    writes=[];findings=[]
+    rules=compile_property_rules(manifest,tenant)
+    restrictions=compile_owner_restrictions(owner,tenant) if owner is not None else []
+    for kind,key,fact in rules+restrictions:
+        stored=current.get((kind,tuple(key)))
+        if stored is None or _model(kind,stored)!=fact:writes.append((kind,key,fact))
+    # Rules of manifest principals no longer declared are deactivated (never deleted).
+    managed={p['principal_id'] for p in manifest['principals']};listed={(k[0],k[1]) for _,k,_ in rules}
+    for (kind,key),payload in current.items():
+        if kind=='property_access_rule' and key[0] in managed and key not in listed and payload.get('active') is True:
+            old=_model(kind,payload)
+            if old is not None:writes.append((kind,list(key),PropertyAccessRule(**{**old.model_dump(),'active':False})))
+    effective={tuple(k):f.restricted_groups for _,k,f in restrictions}
+    for (kind,key),payload in current.items():
+        if kind=='property_group_restriction' and key not in effective:
+            if owner is not None:findings.append({'state':'restriction_outside_owner_file','type_name':key[0]})
+            effective[key]=tuple(payload.get('restricted_groups',()))
+    for _,key,fact in rules:
+        restricted=effective.get((fact.type_name,))
+        if restricted is None:
+            findings.append({'state':'owner_restriction_missing','principal_id':fact.principal_id,'type_name':fact.type_name})
+            continue
+        listed_restricted=sorted(set(fact.property_groups)&set(restricted))
+        if listed_restricted:
+            findings.append({'state':'restricted_group_listed','principal_id':fact.principal_id,'type_name':fact.type_name,'groups':listed_restricted})
+    return writes,findings
+
+
 def _revision_fact(tenant):
     return ('revision',['catalog'],F.RevisionSourceFacts(tenant_id=tenant,repository_witness=WITNESS,schema_revision=1,
         schema_digest=_digest({'schema':'nexloop-authority-v1'}),event_high_water=1,revision=1))
@@ -277,7 +397,7 @@ def _service_grant_triples(inventory):
     return triples
 
 
-def plan(manifest,tenant,inventory,*,credential_expires_at=None):
+def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictions=None):
     """Pure diff: facts to write (incl. revocations), credentials to create, findings."""
     human=set(inventory.get('human_identifiers',[]))
     current={(r['kind'],tuple(r['key'])):r['payload'] for r in inventory['facts']}
@@ -308,6 +428,8 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None):
             if kind=='grants' and key[0]==principal['principal_id'] and key[1] not in listed and payload.get('grants'):
                 writes.append(('grants',list(key),F.GrantFacts(tenant_id=tenant,repository_witness=WITNESS,subject_kind=GrantSubjectKind.SERVICE,
                     principal_id=principal['principal_id'],grants=(),valid_until=None,complete=True,next_cursor=None,revision=1)))
+    property_writes,property_findings=_property_access_plan(manifest,tenant,current,owner_restrictions)
+    writes+=property_writes
     if ('revision',('catalog',)) not in current:writes.append(_revision_fact(tenant))
     unique={}
     for kind,key,fact in writes:unique[(kind,tuple(key))]=(kind,key,fact)
@@ -316,7 +438,8 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None):
     managed={p['principal_id'] for p in manifest['principals']}
     extra=[{'principal_id':p,'resource_id':r,'operation':o,'manifest_principal':p in managed} for p,r,o in sorted(actual-expected)]
     missing=[{'principal_id':p,'resource_id':r,'operation':o} for p,r,o in sorted(expected-actual)]
-    return {'writes':writes,'new_credentials':new_credentials,'findings':findings,'extra_grants':extra,'missing_grants':missing}
+    return {'writes':writes,'new_credentials':new_credentials,'findings':findings,'extra_grants':extra,'missing_grants':missing,
+        'property_access':property_findings}
 
 
 def _binding(raw):
@@ -332,24 +455,25 @@ def inventory(database_url_file,tenant):
         return db.execute('select control.nexloop_service_grant_inventory(%s)',(tenant,)).fetchone()[0]
 
 
-def doctor(manifest,tenant,*,database_url_file):
+def doctor(manifest,tenant,*,database_url_file,owner_restrictions=None):
     """Read-only comparison of current service authority with the manifest."""
     current=inventory(database_url_file,tenant)
     effective,follow=_expand(manifest,tenant,database_url_file)
-    result=plan(effective,tenant,current)
+    result=plan(effective,tenant,current,owner_restrictions=owner_restrictions)
     drift=[{'kind':k,'key':key} for k,key,_ in result['writes'] if k!='revision']
     report={'tenant':tenant,'manifest_digest':manifest_digest(manifest),'authority_revision':current['authority_revision'],
         'missing_grants':result['missing_grants'],'extra_grants':result['extra_grants'],'fact_drift':drift,'credentials':result['findings'],
-        'follow_latest':follow}
-    report['in_sync']=not (report['missing_grants'] or report['extra_grants'] or drift or result['findings'] or follow['refused'])
+        'follow_latest':follow,'property_access':result['property_access']}
+    blocking=[f for f in result['property_access'] if f['state']!='restricted_group_listed']
+    report['in_sync']=not (report['missing_grants'] or report['extra_grants'] or drift or result['findings'] or follow['refused'] or blocking)
     return report
 
 
-def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,service_secrets_file,credential_expires_at=None):
+def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,service_secrets_file,credential_expires_at=None,owner_restrictions=None):
     """Idempotent apply through the 0050 configurator; returns an auditable change report."""
     current=inventory(database_url_file,tenant)
     effective,follow=_expand(manifest,tenant,database_url_file)
-    result=plan(effective,tenant,current,credential_expires_at=credential_expires_at)
+    result=plan(effective,tenant,current,credential_expires_at=credential_expires_at,owner_restrictions=owner_restrictions)
     blocking=[f for f in result['findings'] if f['state'] in ('credential_rotation_required','world_mismatch')]
     if blocking:_reject('credential_rotation_required')
     if result['new_credentials'] and any(expiry is None for _,_,expiry in result['new_credentials']):_reject('credential_expiry_required')
@@ -359,7 +483,7 @@ def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,se
         'grants_added':result['missing_grants'],
         'grants_revoked':[{'principal_id':key[0],'resource_id':key[1]} for k,key,f in result['writes'] if k=='grants' and not f.grants],
         'extra_grants_outside_manifest':[g for g in result['extra_grants'] if not g['manifest_principal']],
-        'follow_latest':follow,'authority_revision':current['authority_revision']}
+        'follow_latest':follow,'property_access':result['property_access'],'authority_revision':current['authority_revision']}
     if not result['writes'] and not result['new_credentials']:return report
     secrets={}
     if result['new_credentials']:
@@ -391,22 +515,24 @@ def main(argv=None):
     mode.add_argument('--check',action='store_true');mode.add_argument('--doctor',action='store_true');mode.add_argument('--apply',action='store_true')
     p.add_argument('--database-url-file',type=Path);p.add_argument('--signing-key-file',type=Path);p.add_argument('--signing-key-id')
     p.add_argument('--service-secrets-file',type=Path);p.add_argument('--credential-expires-at')
+    p.add_argument('--owner-restrictions',type=Path,help='owner property-group restriction file (nexloop-owner-property-restrictions/1)')
     a=p.parse_args(argv)
     try:
         manifest=load(a.manifest)
+        owner=load_owner_restrictions(a.owner_restrictions) if a.owner_restrictions else None
         if a.check:
             print(canonical_payload({'checked':True,'manifest_digest':manifest_digest(manifest),'principals':len(manifest['principals']),'grants':len(manifest['grants']),
                 'follow_latest_version':sorted(g['principal']+':'+g['resource_id'] for g in manifest['grants'] if g.get(FOLLOW))}));return 0
         if a.tenant is None or a.database_url_file is None:_reject('arguments')
         if a.doctor:
-            report=doctor(manifest,a.tenant,database_url_file=a.database_url_file);print(canonical_payload(report));return 0 if report['in_sync'] else 1
+            report=doctor(manifest,a.tenant,database_url_file=a.database_url_file,owner_restrictions=owner);print(canonical_payload(report));return 0 if report['in_sync'] else 1
         if any(v is None for v in (a.signing_key_file,a.signing_key_id,a.service_secrets_file)):_reject('arguments')
         expiry=None
         if a.credential_expires_at:
             expiry=datetime.fromisoformat(a.credential_expires_at)
             if expiry.tzinfo is None:_reject('credential_expiry_required')
         print(canonical_payload(apply(manifest,a.tenant,database_url_file=a.database_url_file,signing_key_file=a.signing_key_file,
-            signing_key_id=a.signing_key_id,service_secrets_file=a.service_secrets_file,credential_expires_at=expiry)));return 0
+            signing_key_id=a.signing_key_id,service_secrets_file=a.service_secrets_file,credential_expires_at=expiry,owner_restrictions=owner)));return 0
     except ServiceGrantsRejected as error:
         print('service_grants_rejected:'+error.reason,file=sys.stderr);return 2
     except Exception:

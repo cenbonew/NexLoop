@@ -8,3 +8,4 @@
 .review{margin-top:48px;border-top:1px solid var(--border);padding-top:24px}.review h2{font-size:26px}.review h4{margin:20px 0 8px}.review button{font-size:16px;height:auto;min-height:48px;padding:8px 12px;margin-top:12px;text-align:left}.queue,.evidence{padding:0;list-style:none}.queue li,.evidence li{margin:8px 0}.evidence li{padding:12px;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}.evidence small{display:block;color:var(--muted)}.scores{display:grid;grid-template-columns:auto 1fr;gap:4px 16px}.scores dd{margin:0}.decisions button:disabled{cursor:not-allowed;background:#94a3b8}.candidate{overflow-wrap:anywhere}
 .messages li.outbound{border-left:3px solid #2f6f4f;background:#f2f8f4}
 .messages li.outbound>span{font-weight:600;color:#2f6f4f}
+.review .warning{border-left:4px solid #b54708;background:#fffaeb;color:#7a2e0e;padding:10px 14px;font-size:15px;line-height:24px;margin:12px 0}

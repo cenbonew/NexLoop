@@ -121,6 +121,9 @@ def test_reviewer_sees_queue_detail_and_disabled_decisions(review_app):
         assert {e['quote'] for e in detail['evidence']}=={'我一般用花呗付款','付款方式是花呗'}
         assert detail['candidate']['recall'][0]['ref']=='eios:property:Consumer/favorite_sport' and detail['merge_scores']['weighted_total']==0.06
         assert [s['candidate_id'] for s in detail['similar']]==[f['similar']] and detail['decisions']['enabled'] is True
+        # 0084 approve warning data: no owner restriction recorded yet, so no service principal would derive access.
+        impact=detail['derivation_impact']
+        assert impact['applies'] is True and impact['type_name']=='Consumer' and impact['restriction_configured'] is False and impact['auto_access']==[]
         assert client.get('/api/v1/review/candidates/'+f['hidden']).status_code==404
         assert client.get('/api/v1/review/candidates/not-a-uuid').status_code==422
         assert client.get('/api/v1/review/queue?limit=500').status_code==422

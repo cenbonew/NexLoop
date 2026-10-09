@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-service-grants/1",
-  "manifest_version": 2,
-  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version).",
+  "manifest_version": 3,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json.",
   "valid_from": "2026-10-09T00:00:00+00:00",
   "world": "real",
   "principals": [
@@ -109,6 +109,13 @@
     {"resource_id": "eios:action:EffectControl.create:1 / nexloop.effect.configure_control:1", "reason": "Owner control configuration; human owner authority.", "source_task": "NX-015"},
     {"resource_id": "eios:action:nexloop.consumer.link_authenticated_identity:1", "reason": "Browser human identity link flow; human authority.", "source_task": "NX-018"},
     {"resource_id": "eios:action:nexloop.service.scope_denial.record:1", "reason": "Recorded by the Run Source path of an outbound request; follows the effect channel decision.", "source_task": "NX-016"}
+  ],
+  "property_access_rules": [
+    {"principal": "claim_matcher", "type_name": "Consumer", "operations": ["edit", "read"],
+     "property_groups": ["channel_tech", "demographics", "lifestyle", "needs_intent", "other", "pain_point", "preference", "purchase_behavior", "sentiment_attitude", "spending_power"],
+     "include_review_published": true, "basis_schema_version": 1, "valid_until": "2027-10-09T00:00:00+00:00",
+     "purpose": "Apply accepted Claims to every real-world Consumer without per-object grants; all ten ADR-019 §2 groups (owner decision 2026-10-09: none restricted); groups restricted by the owner are never derived.",
+     "source_task": "NX-044"}
   ],
   "excluded_by_policy": [
     "Human principal authority of any kind",

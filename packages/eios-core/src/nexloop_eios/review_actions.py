@@ -105,6 +105,10 @@ class ReviewDecisionPort(ReviewQueueReader):
     def basis(self,candidate_id):
         return self._call('nexloop_read_review_publication_basis',{'candidate_id':candidate_id})
 
+    def derivation_impact(self,candidate_id):
+        """Which service principals would automatically read/write the property once approved (0084), its group, restricted or not."""
+        return self._call('nexloop_read_review_derivation_impact',{'candidate_id':candidate_id})
+
     def decide(self,*,candidate_id,decision,expected_revision,rationale,idempotency_key,merge_target_ref=None):
         if decision not in DECISIONS or type(expected_revision) is not int or expected_revision<1:raise ValueError('decision')
         if type(rationale) is not str or not 1<=len(rationale.strip())<=2000:raise ValueError('rationale')
@@ -140,7 +144,15 @@ class ReviewWorkbenchPorts:
         return self.backend.authenticate_browser_reviewer(self.inspected_session).review_queue(limit=limit)
 
     def review_candidate(self,*,candidate_id):
-        return self.backend.authenticate_browser_reviewer(self.inspected_session).review_candidate(candidate_id=candidate_id)
+        detail=self.backend.authenticate_browser_reviewer(self.inspected_session).review_candidate(candidate_id=candidate_id)
+        if type(detail) is not dict:return detail
+        # Shown before approve: service principals that would derive READ/EDIT on the new property.
+        # Unverifiable impact is reported as such (null), never as "no impact".
+        from nexloop_eios.authorization import authority_request_scope
+        try:
+            with authority_request_scope():impact=self._decision_port().derivation_impact(candidate_id)
+        except Exception:impact=None
+        return {**detail,'derivation_impact':impact}
 
     def _decision_port(self):
         from nexloop_eios.browser_authorization import authenticate_browser_business

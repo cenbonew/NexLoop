@@ -102,14 +102,22 @@ class EiosRecallAuthorizer:
                 or live.get('binding',{}).get('tenant_id')!=self.session.authentication.tenant_id):
             raise RecallUnavailable('recall session is stale; re-authenticate')
 
+    def _derived(self,kind,name):
+        """Governed type derivation (property_access_rule); the read itself re-verifies it at use."""
+        if kind not in (ResourceType.OBJECT,ResourceType.PROPERTY):return False
+        from nexloop_eios.property_access import property_access_basis
+        try:return property_access_basis(self.pool,self.session,resource_id(kind,name),'read').get('mode')=='derived'
+        except Exception:return False
+
     def readable(self,kind,names):
         self._assert_current();allowed=set()
         for name in sorted(set(names)):
             try:
                 decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,self.session.query(resource_id=resource_id(kind,name),resource_type=kind,operation=Operation.READ)))
-                if decision.allowed and decision.authoritative and not decision.obligations:allowed.add(name)
+                if decision.allowed and decision.authoritative and not decision.obligations:allowed.add(name);continue
             except Exception:
-                continue
+                pass
+            if self._derived(kind,name):allowed.add(name)
         self._assert_current()
         return frozenset(allowed)
 
