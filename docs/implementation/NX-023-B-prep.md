@@ -13,3 +13,8 @@
 
 ## 测试
 `LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q -p no:xdist tests/test_contracts.py tests/test_contract_generation.py tests/test_review_contracts.py tests/test_claim_contract.py tests/test_context_pack_v6.py tests/test_context_engine.py tests/test_context_engine_pg.py tests/test_business_actions.py tests/test_service_grants_pg.py tests/test_outbound_messages_pg.py tests/test_bootstrap.py tests/test_wheel_install.py` → **168 passed / 95.2s**（含 `tsc --strict` 编译生成类型）。首次失败：`test_business_actions` 测试辅助用 `model_validate` 构造能力快照被严格模式拒绝（改为 JSON 校验）；v6 示例首版用了非十六进制合成 ID，被 v6 schema 正确拒绝后修正。`generate_contracts.py --check` 通过；`validate_handoff.py` 0 失败。
+
+## 追加：系统元数据类型清单（调度员决定 2026-10-09）
+- 新增 `deploy/ontology/system-object-types.v1.json`（`nexloop-system-object-types/1`），第一条为 `ContextStrategy@1`，定义由 `context_strategy_object_type()` 生成；`nexloop_eios/system_object_types.py` 校验（身份一致、`only_edit_via_actions`、无重复）并给出可信配置 `object_types` 行。发布与业务 Action 清单同一路径（可信配置 0050），不直写表、不进任何服务授权。无迁移。
+- 测试 `tests/test_system_object_types.py`（7 passed）：清单定义与生成 schema 逐字一致；清单校验负例；业务 Action 清单引用的对象类型都在已发布的会话类型（0046）或本清单中，且系统类型不出现在服务授权；在真实 PG 上经 `apply_manifest` 把 `ContextStrategy` 与由清单编译的 `nexloop.context.strategy.publish:1` 一起发布，落库内容与源一致；缺少该类型时可信配置校验直接拒绝。
+- 回归：`pytest -q -p no:xdist tests/test_system_object_types.py tests/test_business_actions.py tests/test_context_engine_pg.py tests/test_wheel_install.py tests/test_bootstrap.py` → 32 passed / 37.2s，首次即通过。
