@@ -62,3 +62,4 @@ htmlcov/
 
 # Volatile live planning validation report; frozen handoff snapshot stays tracked.
 /planning/handoff-validation.json
+scripts/perf/out/
