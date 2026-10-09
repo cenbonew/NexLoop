@@ -1,6 +1,6 @@
 {
   "schema_version": "nexloop-system-object-types/1",
-  "manifest_version": 1,
+  "manifest_version": 2,
   "decision": "Scheduler decision 2026-10-09 (ADR-020 §3 scope): NexLoop system metadata object types, published at deployment through trusted configuration (0050) like the business Action manifest; never written to schema tables directly and never granted to any service principal.",
   "object_types": [
     {
@@ -39,6 +39,64 @@
           },
           {
             "property_name": "definition_digest",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          }
+        ],
+        "version": 1,
+        "title_property": "",
+        "icon": "",
+        "color": "",
+        "plural_display_name": "",
+        "property_groups": [],
+        "primary_key": [],
+        "derived_properties": [],
+        "only_edit_via_actions": true
+      }
+    },
+    {
+      "type_name": "ContextManifest",
+      "version": 1,
+      "purpose": "Typed read scope of nexloop.context.audit:1 (human-only Manifest read); Manifest rows live in runtime.nexloop_model_requests (NX-023).",
+      "source_task": "NX-023",
+      "definition": {
+        "type_name": "ContextManifest",
+        "display_name": "Context Manifest",
+        "description": "单次模型调用的 Context 来源、版本与请求摘要（只读审计）",
+        "properties": [
+          {
+            "property_name": "run_id",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "call_sequence",
+            "value_type": "integer",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "request_digest",
             "value_type": "string",
             "required": true,
             "nullable": false,

@@ -465,6 +465,11 @@
       "version": "0093",
       "name": "0093_nx023_role_context_v6.sql",
       "sha256": "053caa0304096b706acbe2e3332b36c36b049065891865fb27f797ee5cb2297e"
+    },
+    {
+      "version": "0094",
+      "name": "0094_nx023_context_audit_read.sql",
+      "sha256": "71c43c5178466baafb4950832fbe3eb9ed93fbd22df89a5067089dfae2eac7ef"
     }
   ]
 }
