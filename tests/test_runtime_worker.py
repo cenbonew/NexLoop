@@ -317,3 +317,130 @@ def test_cli_reclaim_safe_partial_initialization_same_run_full(accepted_input,sy
             assert submissions==[(receipt['submission_id'],)]
             assert db.execute('select count(*) from conversations').fetchone()[0]==1
             assert db.execute('select id from conversations').fetchone()[0]==receipt['conversation_id']
+
+
+# ---- NX-049 multi-process guard prototype (--guard-workers N > 1; default 1 is unchanged) ----
+
+import ssl
+from test_agent_host import trusted_tls
+
+
+def guard_children(parent):
+    result=subprocess.run(['pgrep','-P',str(parent.pid)],capture_output=True,text=True)
+    return sorted(int(pid) for pid in result.stdout.split())
+
+
+def wait_children(parent,count,*,exclude=(),timeout=30):
+    deadline=time.monotonic()+timeout
+    while True:
+        pids=[pid for pid in guard_children(parent) if pid not in exclude]
+        if len(pids)==count:return pids
+        assert time.monotonic()<deadline and parent.poll() is None,'guard children unavailable'
+        time.sleep(.05)
+
+
+def alive(pid):
+    try:os.kill(pid,0);return True
+    except ProcessLookupError:return False
+
+
+def open_request(tmp_path,port,*,body_length=2):
+    """Valid transport key and headers; the body is sent later, so a child holds the request open."""
+    raw=socket.create_connection(('127.0.0.1',port),timeout=10)
+    tls=trusted_tls(tmp_path/'internal-key').wrap_socket(raw,server_hostname='127.0.0.1')
+    key=(tmp_path/'worker-guard-key').read_text()
+    tls.sendall((f'POST /internal/v1/runtime/authorize HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {key}\r\n'
+        f'Content-Type: application/json\r\nContent-Length: {body_length}\r\n\r\n').encode())
+    return tls
+
+
+def response(tls):
+    data=b''
+    try:
+        while True:
+            chunk=tls.recv(65536)
+            if not chunk:break
+            data+=chunk
+    except (ConnectionError,ssl.SSLError,OSError):pass
+    finally:tls.close()
+    return data
+
+
+def test_cli_guard_workers_once_consumes_persisted_runtime_task(accepted_input,synthetic_credentials,pg,tmp_path):
+    api,worker,args,issued=accepted_input;accepted=api.accept_runtime_event(**args)
+    with stack(pg,tmp_path,synthetic_credentials) as (runtime,_,arguments,_):
+        with worker_process(arguments+['--once','--guard-workers','2']) as (process,out,err):
+            assert process.wait(timeout=30)==0,''.join(err)
+        assert_redacted(out,err,args,synthetic_credentials,issued)
+        task=worker.inspect_task(queue='operations',task_id=accepted['task_id'])
+        assert task['status']=='succeeded' and task['result']['business_action_success'] is False
+        with sqlite3.connect(runtime/issued.run_id/'runtime.sqlite') as db:
+            assert db.execute('select count(*) from submissions').fetchone()[0]==1
+
+
+def test_cli_guard_workers_stop_drains_in_flight_request_and_releases_port(accepted_input,synthetic_credentials,pg,tmp_path):
+    _,_,args,issued=accepted_input
+    with stack(pg,tmp_path,synthetic_credentials) as (_,_,arguments,port):
+        with worker_process(arguments+['--guard-workers','2']) as (process,out,err):
+            children=wait_children(process,2)
+            pending=open_request(tmp_path,port);time.sleep(.3)
+            process.terminate();time.sleep(.5)
+            assert process.poll() is None  # parent waits for the child holding the request
+            pending.sendall(b'{}')  # completes the request: a schema-invalid body is answered 400
+            answer=response(pending)
+            assert answer.startswith(b'HTTP/1.1 400'),answer[:40]
+            assert process.wait(timeout=20)==0,''.join(err)
+            assert not any(alive(pid) for pid in children)
+        assert_redacted(out,err,args,synthetic_credentials,issued)
+        with socket.socket() as listener:listener.bind(('127.0.0.1',port))
+
+
+def test_cli_guard_child_killed_mid_request_is_replaced(accepted_input,synthetic_credentials,pg,tmp_path):
+    _,_,args,issued=accepted_input
+    with stack(pg,tmp_path,synthetic_credentials) as (_,_,arguments,port):
+        with worker_process(arguments+['--guard-workers','2']) as (process,out,err):
+            first=wait_children(process,2)
+            pending=open_request(tmp_path,port);time.sleep(.3)
+            for pid in first:os.kill(pid,signal.SIGKILL)
+            # Host-side view of a crash mid-request: the connection ends without any response
+            # (the same as a timeout: authorize is denied, an effect intent is reconciled via find).
+            assert response(pending)==b''
+            replaced=wait_children(process,2,exclude=first)
+            assert set(replaced).isdisjoint(first) and process.poll() is None
+            served=open_request(tmp_path,port);served.sendall(b'{}')
+            assert response(served).startswith(b'HTTP/1.1 400')
+            process.terminate();assert process.wait(timeout=20)==0
+        assert_redacted(out,err,args,synthetic_credentials,issued)
+
+
+def test_cli_guard_children_crashing_repeatedly_stop_the_worker(accepted_input,synthetic_credentials,pg,tmp_path,admin):
+    api,_,args,issued=accepted_input
+    with stack(pg,tmp_path,synthetic_credentials) as (_,_,arguments,port):
+        with worker_process(arguments+['--guard-workers','2']) as (process,out,err):
+            seen=set()
+            deadline=time.monotonic()+90
+            while process.poll() is None:
+                assert time.monotonic()<deadline
+                current=[pid for pid in guard_children(process) if pid not in seen]
+                for pid in current:
+                    seen.add(pid)
+                    try:os.kill(pid,signal.SIGKILL)
+                    except ProcessLookupError:pass
+                time.sleep(.1)
+            assert process.wait(timeout=20)==1
+            assert not any(alive(pid) for pid in seen)
+            accepted=api.accept_runtime_event(**args)
+            time.sleep(.3)
+            assert admin.execute('select status,fencing_token from runtime.jobs where job_id=%s',(accepted['task_id'],)).fetchone()==('pending',0)
+        assert_redacted(out,err,args,synthetic_credentials,issued)
+        assert 'Runtime guard workers unavailable' in ''.join(err)
+        with socket.socket() as listener:listener.bind(('127.0.0.1',port))
+
+
+@pytest.mark.parametrize('value',['0','17','x'])
+def test_cli_guard_workers_invalid_count_fails_closed(accepted_input,synthetic_credentials,pg,tmp_path,admin,value):
+    api,_,args,issued=accepted_input;accepted=api.accept_runtime_event(**args)
+    with stack(pg,tmp_path,synthetic_credentials) as (_,_,arguments,_):
+        with worker_process(arguments+['--once','--guard-workers',value],ready=False) as (process,out,err):assert process.wait(timeout=10)!=0
+        assert_redacted(out,err,args,synthetic_credentials,issued)
+        assert admin.execute('select fencing_token from runtime.jobs where job_id=%s',(accepted['task_id'],)).fetchone()[0]==0
