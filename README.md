@@ -2,6 +2,8 @@
 
 企业级开源持续运营系统。目标、业务事实和 Action 治理由项目内 vendored EIOS 与 PostgreSQL 持有；Pi Durable 通过 RuntimeAdapter 执行短生命周期 Run；EvoOntology 仅选择性用于语义与评估。
 
+每次合入 `main` 的变化记录在 [更新日志](CHANGELOG.md)。
+
 当前已完成 S0 源码、许可和环境审计，并实现 S1 的首批抽取内核、独立空库 bootstrap、受限角色、Artifact 文件层、真实 PostgreSQL 授权元数据、已发布 Action/schema 校验、受治理实例创建、属性修改、Relation 建立与严格本地 CI。S2 已打通隔离环境中的用户消息、受治理 Run、真实 ContextArtifact、Pi SQLite FULL、真实 HTTPS 文件交付与用户可读 receipt；使用 deterministic test provider，尚未完成 S2 全部可靠性验收与真实模型验证，也未部署。 详见 [S0 报告](docs/implementation/S0-report.md)、[S1 进展](docs/implementation/S1-progress.md)、[Artifact 进展](docs/implementation/artifact-governance-progress.md) 、[受治理创建进展](docs/implementation/governed-create-progress.md) 、[受治理修改进展](docs/implementation/governed-object-edit-progress.md) 、[Relation 进展](docs/implementation/governed-relation-link-progress.md) 和实时 [任务状态](planning/tasks.json)。
 
 开发环境：Python 3.12、Node 24.13.0、pnpm 10.32.1、PostgreSQL 18。使用 `uv sync --frozen` 安装锁定 Python 依赖，`nvm use` 选择 Node。PostgreSQL 测试使用独立临时 PGDATA，不连接已有实例；非 Homebrew 环境用 `NEXLOOP_TEST_PG_BIN` 指定 PostgreSQL bin 目录。运行 `scripts/ci/check` 验证锁定依赖、实时契约、真实 PG、Pi 源码构建与 SQLite FULL；缺工具或关键测试被跳过会失败。

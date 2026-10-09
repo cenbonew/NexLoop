@@ -1,0 +1,66 @@
+# 更新日志
+
+本文件记录 NexLoop 每次合入 `main` 的用户可感知变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号将遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+项目尚未发布任何版本（没有 tag，也没有可部署的应用镜像）。在第一个版本发布前，所有变化都记在“未发布”下，按合入日期分组。每条记录尽量说明“对使用者意味着什么”，实现细节见 `docs/implementation/` 与 `adr/`。
+
+分类说明：**新增**（新能力）、**变更**（已有行为改变）、**修复**（缺陷修正）、**安全**（授权、隐私与发布防护）、**已知限制**（尚未完成或有意未做的部分）。
+
+## [未发布]
+
+### 2026-10-09
+
+#### 新增
+
+- **对话到本体的完整处理链**（ADR-019）：
+  - 对话话题切分与 Claim 提取，九类认知类型，原文 span 与 hash 留证；提取器不会产出“已核实事实”，推断一律标为假设；100 例中文合成数据集。
+  - 提取接入后台队列：消息入库同一事务登记待提取，静默去抖、失败重试与死信、积压可观测。
+  - 混合召回（向量 + 全文 + 三元组），先按租户、world、属性权限过滤；embedding 维度固定为 1024。
+  - 四层匹配（类型、实例、属性、值）：全匹配与开放属性新值自动经受治理 Action 写入；不匹配的生成候选定义，等待粘合或人工审核。
+  - 候选粘合：四项特征（词相似度、核心词、向量聚类、业务白名单）与版本化阈值配置，达阈值并入已有定义并记别名。
+  - 人工审核：approve / merge_into / reject 为受治理的人类 Action；approve 经 Schema 注册链发布并执行兼容性门槛；reject 带 30 天冷却期。
+  - 最小审核工作台（Web）：队列、候选详情、证据与粘合分数，批准前提示哪些服务将自动读写新属性。
+- **Agent 外发消息持久化**：渠道确认接收后，Agent 回复才写入会话；投递状态只能单调推进；Web 端以“企业 Agent 回复”区分显示。
+- **目标与控制面**：长期/阶段目标与 KR 版本化，Agent 只能提出子目标；暂停、预算与目标变更推进控制 revision，派发前必须重读。
+- **Role 权限上限与范围**：作为受治理策略对象，在 Run 绑定时和每次调用（model/start/tool/submit/admit/finalize）时都会重新检查。
+- **授权模型扩展**：
+  - Source 对已受理消息的读权限由受治理事实派生（ADR-020 §1）。
+  - 服务主体对对象属性的读写由“按类型规则”派生，不写逐对象授权；负责人可标记受限属性组（当前为空）。
+  - 服务授权使用版本化清单经可信配置发布，可声明“沿用经审核发布的后继版本”。
+- **生产配置文件**：`deploy/authorization/service-grants.v1.json`、`deploy/configuration/business-actions.v1.json`、`deploy/ontology/merge-config.v1.json`、`deploy/authorization/owner-property-restrictions.json`。
+- **契约**：新增 `claim`、`candidate-definition`、`review-decision` JSON Schema，并生成 TypeScript / Pydantic 类型。
+
+#### 变更
+
+- 本地 CI 在独立测试机上从干净检出运行；Python 测试改为并行（会改写工作区的构建类测试先串行）。
+- 授权性能：同一请求内相同授权判定只算一次；授权事实解析按内容缓存。受 2 秒工具时限约束的请求，最慢一次从约 2.1 秒降到约 1.6 秒（开发机实测，见 `docs/implementation/perf-o1-o4.md`）。
+- 社区版 Compose 的 PostgreSQL 镜像改为带 pgvector 的 PG18 版本（按 digest 锁定）。
+
+#### 修复
+
+- 0062 引入的消息读权限缺口：生产环境中没有任何机制为新消息发布读权限，导致“消息 → 上下文”链路不可用（21 个回归）。
+- Backend 生命周期锁在并发下的连接池饥饿死锁：请求并发数限制为连接池的一半，等待有上限。
+- 审核拒绝冷却期的两个时间戳来自两次取时，冷却期不是精确的 30 天。
+- 干净环境下的构建问题：第三方类型声明缺失、离线打包依赖开发机缓存、并行测试 ID 不确定。
+
+#### 安全
+
+- GitHub 推送前扫描（pre-push）：拦截私有运行路径、受限主机标识和凭据值。
+- 服务授权清单拒绝人类主体、审核权限、真实外发和 `REAL_DISPATCH_ENABLED`；Schema 发布事务不写任何授权事实。
+- 模型主体与服务主体无法做出审核决定；Run 凭据与浏览器会话不参与属性或消息读权限派生。
+
+#### 已知限制
+
+- 尚未发布版本，未部署到服务器；真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭。
+- NX-018 尚未收口：v5 上下文的 Role 策略快照、读权限派生接入 v4 关系与 Assessment/Claim 证据仍在进行。
+- 少数依赖真实 Pi 进程的端到端测试在较慢的 CI 机器上会超过 2 秒工具时限（详见 `adr/ADR-021-outbound-scope-and-merge-exception.md`）。
+- Agent 外发首版不含人工接管、“处理中”占位和撤回未投递消息（ADR-021）。
+
+### 2026-10-07 至 2026-10-08（S0–S2，交接前）
+
+#### 新增
+
+- 干净仓库与交接基线；EIOS 来源、Pi 与 EvoOntology 锁定版本、契约与许可方案审计（S0）。
+- 从 NEX-EIOS 冻结提交抽取的可独立启动内核（vendored），新的迁移目录与受限数据库角色，本地 Artifact 存储，单机 Compose 与 `nexloop-doctor`（S1）。
+- 基础 API、同源登录前端与 Agent Host；最小本地 CI 脚本（S1）。
+- Agent 受治理实例写入、持久事件队列、Pi RuntimeAdapter 与 SQLite FULL 恢复、业务意图与外部动作结果核对、WebChat 与真实服务 Action、可靠性故障测试（S2）。
