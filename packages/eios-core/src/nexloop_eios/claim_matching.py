@@ -232,9 +232,15 @@ class ClaimMatcher:
     # ----------------------------------------------------------------- match
     def match_conversation(self,conversation_id):
         view=self.claims.read(conversation_id=conversation_id)
+        claims=view['statements']+view['hypotheses']
+        # A Claim released again (e.g. its new type was published, NX-044) is matched under its own
+        # rematch generation, so the earlier outcome is not replayed; otherwise matching replays as before.
+        generations=self.port.read({'verb':'rematch','claim_ids':sorted(c['claim_id'] for c in claims)}) if claims else {}
         results={}
-        for claim in view['statements']+view['hypotheses']:
-            results[claim['claim_id']]=self.match_claim(claim)
+        for claim in claims:
+            generation=generations.get(claim['claim_id'])
+            version=MATCHER_VERSION if generation is None else f'{MATCHER_VERSION};rematch:{generation}'
+            results[claim['claim_id']]=self.match_claim(claim,matcher_version=version)
         return results
 
     @authority_request_scoped

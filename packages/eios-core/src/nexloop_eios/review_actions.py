@@ -46,6 +46,34 @@ def _human(session):
     return session
 
 
+TYPE_ACTION_CREATOR='nexloop-review-publication'
+
+
+def type_actions(basis,schema):
+    """<Type>.create:1 / <Type>.edit:1 for a new type: the tenant's existing create/edit Capability snapshots,
+    canonical low-risk / no-approval / policy-free governance (0093 checks the exact shape). Grants nothing."""
+    from datetime import UTC,datetime
+    from eios.ontology.definitions import (ActionChangeScope,ActionGovernanceContract,ActionIdempotencyPolicy,ActionRiskLevel,
+        ActionApprovalMode,DefinitionStatus,OntologySchemaReference,OntologySchemaType)
+    from eios.ontology.version_resolution import CapabilityContractSnapshot,validate_capability_binding
+    capabilities=basis.get('type_action_capabilities') or {}
+    tenant=basis['candidate']['tenant_id'];actions=[]
+    for suffix in ('create','edit'):
+        raw=capabilities.get('ontology.object.'+suffix)
+        if raw is None:raise ReviewDecisionRejected('type_action_capability_unavailable:ontology.object.'+suffix)
+        snapshot=CapabilityContractSnapshot.model_validate_json(json.dumps(raw))
+        ref=OntologySchemaReference(tenant_id=tenant,schema_type=OntologySchemaType.OBJECT_TYPE,stable_name=schema.type_name,
+            version=schema.version,schema_digest=schema_contract_digest(schema))
+        definition=ActionDefinition(tenant_id=tenant,stable_name=f'{schema.type_name}.{suffix}',version=1,status=DefinitionStatus.PUBLISHED,
+            created_by=TYPE_ACTION_CREATOR,created_at=datetime.now(UTC),required_scopes=snapshot.required_scopes,capability_binding=snapshot.binding(),
+            object_types=(ref,),governance=ActionGovernanceContract(change_scope=ActionChangeScope(object_types=(ref,),target_systems=('postgres',)),
+                risk_level=ActionRiskLevel.LOW,approval_mode=ActionApprovalMode.NONE,policy_refs=(),
+                idempotency=ActionIdempotencyPolicy(key_fields=('request_id',))),receipt_schema={'type':'object'})
+        validate_capability_binding(definition,snapshot)
+        actions.append({'definition':definition.model_dump(mode='json'),'capability':snapshot.model_dump(mode='json')})
+    return actions
+
+
 def build_publication(basis):
     """Next schema version + successor Actions through the EIOS models; failures become gate reasons."""
     kind=basis['kind'];p=basis['candidate']['proposed']
@@ -53,7 +81,7 @@ def build_publication(basis):
         if kind=='object_type':
             name=''.join(w[:1].upper()+w[1:] for w in p['name'].split('_'))
             schema=ObjectTypeDefinition(type_name=name,display_name=p['display_name'],description=p.get('description',''),only_edit_via_actions=True)
-            return {'schema':schema.model_dump(mode='json'),'actions':[]}
+            return {'schema':schema.model_dump(mode='json'),'actions':type_actions(basis,schema)}
         old=ObjectTypeDefinition.model_validate(basis['schema'])
         if kind=='property':
             if p['value_type'] not in VALUE_TYPES or p.get('closed_vocabulary'):raise ReviewDecisionRejected('closed_or_enum_property_requires_values')
@@ -186,6 +214,13 @@ class ReviewReflowWorker:
     def run_pending(self):
         results={}
         for item in self.port.call('nexloop_review_reflow',{'verb':'pending'}):
+            if item['outcome']=='published' and item.get('kind')=='object_type':
+                # New type: reindex its definition, then hand the dependent Claims back to the matcher through
+                # the claim-match feed (full four-layer chain; nothing is applied here). Idempotent per run.
+                owner=next(r.rsplit(':',1)[1] for r in item['publication']['published_refs'] if r.count(':')==2 and r.startswith('eios:object_type:'))
+                self.gluer.indexer.index_object_type(owner)
+                results[item['decision_id']]=self.port.call('nexloop_review_reflow',{'verb':'release_type','decision_id':item['decision_id']})
+                continue
             try:
                 if item['outcome']=='merged':outcome=self.gluer.reflow_merged(item['candidate_id'])
                 elif item['outcome']=='published':outcome=self.gluer.reflow_published(item['candidate_id'])
