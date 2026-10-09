@@ -125,3 +125,57 @@
    - 目标集 **154 passed，207.65s**，首次即通过；junit sha256 `63849f8c4a0c518290f0d2a0ac08b95367bd82dca13ca63e5b3567c955589f51`。
    - Web 24 passed，junit sha256 `f896ce13182d07a8683dff9b40615eb6ba6a16e48774b5530366d89aabdf1ddd`。
 6. **设计建议（本次不实现）**：在可信配置中增加声明式规则“沿用某 Action 最新版本的授权”，例如在清单里为 `Consumer.edit` 声明 `follow_latest_version: true`，由 `service_grants --apply` 在审核发布产生新版本后自动生成等价授权；变更仍经可信配置路径和审计，可以减少每次发布后人工更新清单。逐对象的新属性授权仍建议走“受治理派生”（与 NX-047 同类）。
+
+## 8. 收口（2026-10-10，分支 nx044-close，临时迁移 0099_nx044_type_actions）
+
+### 8.1 新类型批准同时发布受治理 Action
+- 批准新类型时，与 Schema v1 在同一事务中发布 `<Type>.create:1` 和 `<Type>.edit:1`。
+- 两者复用租户已发布的 `ontology.object.create` / `ontology.object.edit` 能力快照（按 resource_id 取第一个），没有新增能力、scope 或风险。
+- 审核端由 EIOS 模型构造这两个 Action：低风险、无需审批、无策略，幂等键为 `request_id`，目标系统 `postgres`，`created_by='nexloop-review-publication'`。
+- SQL（`ontology.nexloop_review_publication_gates`，新类型分支）核对以下内容，任何偏差都会导致 `publication_failed` 并附原因，候选保持 `pending_review`：
+  - 恰好 create、edit 两个 Action；
+  - 每个 Action 的定义除 `contract_digest`、`created_at` 外与规范形状完全相等；
+  - 能力快照逐字等于租户现有的那一份；
+  - 两个 Action 绑定的是同一个 Schema 摘要，且对应资源此前不存在。
+- 租户没有对应能力快照时，门槛失败原因为 `type_action_capability_unavailable:<能力名>`。
+- 发布仍不写任何授权事实，0082 的指纹门槛不变。
+- 新函数的 search_path 一律为 `pg_catalog, pg_temp`（`scripts/check_definer_search_path.py` 结果为 0 个问题）。
+
+### 8.2 回流：依赖 Claim 交回四层匹配链
+- `ReviewReflowWorker` 处理已发布的新类型时，先用 `index_object_type` 重建定义召回索引，再调用 `nexloop_review_reflow` 的 `release_type`：
+  - 首次：仍在 `awaiting_definition` 的依赖 Claim 改为 `unresolved`。之后若匹配器把它们留在 `needs_resolution`，只有在租户授权指纹变化后（即可信配置确实授予了新权限）才再次释放。
+  - 每条被释放的 Claim 在 `ontology.nexloop_claim_rematch` 中把代次加一，并在 claim-match feed（0093）中登记所属会话。
+  - 回流本身不应用任何值。
+- 匹配 worker 对已释放的 Claim 使用 `nx020-matcher/1;rematch:N` 版本重新运行全部四层，不会重放上一次的 no_match。没有任何层被跳过：只有名称的实例仍进审核，新属性仍进审核。新类型没有主键，因此没有强标识路径。
+- 决定的回流状态：
+  - 仍有 `unresolved` 的 Claim：`waiting`，原因 `awaiting_matching`；
+  - 仍有 `needs_resolution` 的 Claim：`waiting`，原因 `awaiting_grants`；
+  - 否则：`done`。后续的应用或新候选属于各自的流程。
+
+### 8.3 部署时需要在可信配置中增加的条目（发布本身不授权）
+对每个经审核批准的新类型 `<Type>`，若要由匹配服务自动处理，需要在 `deploy/authorization/service-grants.v1.json`（新的 manifest_version）中加入：
+- `claim_matcher`：
+  - `eios:object_type:<Type>` READ：召回能看到这个类型；
+  - `eios:action:<Type>.create:1`、`eios:action:<Type>.edit:1` EXECUTE；
+  - 需要后续版本时，对 edit 声明 `follow_latest_version`；
+  - 属性写入可加一条 `property_access_rules`（`type_name=<Type>`），并在负责人限制文件中为该类型记录受限组决定（可以为空列表）。
+- 匹配进程的 `--match-config-file` 中加入 `"<Type>": ["<Type>.edit", 1]`（edit_actions）与 `"<Type>": ["<Type>.create", 1]`（create_actions）。
+- 授权就绪后，下一次回流会因授权指纹变化而再次释放依赖 Claim。
+- 人类主体的授权仍需负责人确认。
+
+### 8.4 局限（需决定）
+在现行规则下，新类型 Claim 的链路最远走到“仅名称的实例进审核”：
+- 类型 v1 没有主键，兼容性规则禁止之后再加主键，所以没有强标识路径；
+- NX-044 不支持批准 `object_instance` 候选（`kind_not_publishable`）。
+
+因此新类型的 Claim 目前不会被自动应用。若要做到“已应用”，需要另立任务：支持批准实例候选，并由回流经 `<Type>.create` 受治理地创建实例。或者改动候选契约，让类型候选带上首个属性或主键（已被否决）。
+
+### 8.5 测试（合成数据；`LANG=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q …`）
+- `tests/test_review_type_actions_pg.py`（10 项）：
+  - `test_new_type_publishes_schema_and_canonical_create_edit_actions_without_authority`
+  - `test_new_type_without_tenant_create_capability_stays_pending_with_reason`
+  - `test_non_canonical_new_type_actions_are_refused_by_sql`（6 种篡改）
+  - `test_rejected_type_keeps_dependent_claims_as_evidence_only`（不进 feed、没有代次）
+  - `test_approved_type_hands_claims_back_to_the_full_matching_chain`（AT-067 新类型链路、授权未就绪负例、授权就绪后再次释放）
+- `tests/test_review_decisions_pg.py::test_agent_and_run_bound_credentials_cannot_decide_and_cause_no_side_effects`
+- 回归：`test_bootstrap test_db_boundary test_claim_store_pg test_review_type_actions_pg test_review_decisions_pg test_review_http test_review_workbench_pg test_candidate_merge_pg test_claim_matching_pg test_work_feeds_pg test_property_grant_derivation_pg test_grants_follow_latest_pg test_recall_pg`：首次 106 passed / 1 failed。失败的是 AT-064 迁移命名边界，0099 引用了 Claim 表；已在边界测试中把 NX-044 回流登记为受准许的消费者，之后通过。
