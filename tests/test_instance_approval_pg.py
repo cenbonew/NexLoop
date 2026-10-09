@@ -171,3 +171,69 @@ def test_instance_approval_requires_published_identifying_property_and_create_ac
     admin.execute("update control.nexloop_action_definitions set active=false where resource_id='eios:action:Pet.create:1'")
     result=approve(f,candidate['candidate_id'],'gate-instance-2')
     assert 'type_create_action_unavailable' in result['publication']['gate_failures'] and pet_objects(admin)==[]
+
+
+def insert_property_candidate(f,name,claim):
+    """Fixture row: a reviewed property candidate on Pet (its publication then runs the real NX-044 path)."""
+    from psycopg.types.json import Jsonb
+    import uuid
+    cid=str(uuid.uuid5(uuid.NAMESPACE_URL,'nx050-followup-'+name))
+    candidate={'schema_version':'1.0','candidate_id':cid,'tenant_id':TENANT,'world_id':'real','mode':'real','kind':'property','extraction_ref':'claim:'+claim,
+        'source_content_hash':'0'*64,'extractor_version':'nx019-extractor/1','ontology_schema_revision':'recall:none',
+        'proposed':{'name':name,'display_name':name,'description':'','owner_type_ref':'eios:object_type:Pet','value_type':'string','closed_vocabulary':False,'property_group':'other'},
+        'recall':[],'status':'pending_review','dependent_claim_refs':['claim:'+claim],'evidence_refs':['claim:'+claim],'created_at':'2026-10-10T00:00:00Z'}
+    f['admin'].execute("""insert into ontology.nexloop_candidate_definitions(tenant_id,world,candidate_id,kind,dedupe_key,candidate,dependent_claims,status,merge_scores,config_version)
+        values(%s,'real',%s,'property',%s,%s,%s,'pending_review',%s,'test')""",(TENANT,cid,__import__('hashlib').sha256(name.encode()).hexdigest(),Jsonb(candidate),['claim:'+claim],
+        Jsonb({'lexical_similarity':0,'core_term_containment':0,'vector_cluster':0,'rule_whitelist':0,'weighted_total':0,'threshold':1,'config_version':'test'})))
+    return cid
+
+
+def test_schema_advanced_after_approval_creates_with_the_latest_create_action(review):
+    """Ruling 1 (positive): approved on Pet v2 (Pet.create:2); Pet moves to v3 before the reflow → created with Pet.create:3."""
+    f=review;admin=f['admin'];claims,instance_cid=to_instance_review(f)
+    decided=approve(f,instance_cid,'latest-01')
+    assert decided['publication']['instance']['create_action']=='eios:action:Pet.create:2'
+    extra=f['claims'].add('pet-age','宠物年龄','三岁',kind='user_statement',subject='entity',subject_text='布丁',quote='宠物布丁三岁了')
+    age=insert_property_candidate(f,'age',extra)
+    assert approve(f,age,'latest-age')['outcome']=='published'
+    created=worker(f,suffix='-nx050-latest',extra_targets=[('eios:action:Pet.create:3',ResourceType.ACTION,EXECUTE)]).run_pending()[decided['decision_id']]
+    (oid,props),=pet_objects(admin)
+    assert created['object_id']==oid and props=={'name':'布丁'}
+    assert admin.execute('select schema_version from ontology.objects where object_id=%s',(oid,)).fetchone()==(3,)
+    assert admin.execute("select count(*) from runtime.nexloop_action_claims where action_name='Pet.create'").fetchone()==(1,)  # Pet.create:2 was not granted: only :3 could run
+
+
+@pytest.mark.parametrize('fault,reason',[('incompatible','identifying_property_incompatible:name'),('removed','identifying_property_removed:name'),
+    ('required','required_property_not_identified:age'),('not_canonical','latest_create_action_not_canonical')])
+def test_identity_no_longer_creatable_returns_the_candidate_to_review(review,fault,reason):
+    """Ruling 1 (negative): if the approved identity no longer fits the latest Schema, or the latest create Action is not
+    canonical, the reflow writes nothing and returns the candidate to review with the reason — it never waits forever."""
+    from psycopg.types.json import Jsonb
+    import copy
+    f=review;admin=f['admin'];claims,instance_cid=to_instance_review(f)
+    decided=approve(f,instance_cid,'fault-'+fault)
+    if True:
+        # Fault injection (out-of-band Schema change / Action row; the review path itself only adds optional
+        # properties and canonical successors).
+        definition=copy.deepcopy(admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Pet' and version=2",(TENANT,)).fetchone()[0])
+        props=definition['properties']
+        if fault=='incompatible':props[0]['value_type']='integer'
+        if fault=='removed':definition['properties']=[p for p in props if p['property_name']!='name']
+        if fault=='required':props.append(dict(copy.deepcopy(props[0]),property_name='age',required=True))
+        definition['version']=3
+        admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Pet',3,%s)",(TENANT,Jsonb(definition)))
+        action=admin.execute("select definition,capability from control.nexloop_action_definitions where resource_id='eios:action:Pet.create:2'").fetchone()
+        body=copy.deepcopy(action[0]);body['version']=3
+        if fault=='not_canonical':body['governance']['risk_level']='high'
+        for ref in body['object_types']+body['governance']['change_scope']['object_types']:ref['version']=3
+        admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real','eios:action:Pet.create:3',%s,%s)",
+            (TENANT,Jsonb(body),Jsonb(action[1])))
+    result=worker(f,suffix='-nx050-fault',extra_targets=[(f'eios:action:Pet.create:{v}',ResourceType.ACTION,EXECUTE) for v in (2,3)]).run_pending()[decided['decision_id']]
+    assert result['returned_to_review'] is True and reason in result['reasons'],result
+    assert pet_objects(admin)==[] and admin.execute("select count(*) from runtime.nexloop_action_claims where action_name='Pet.create'").fetchone()==(0,)
+    row=candidates(admin)[instance_cid]
+    assert row[2]=='pending_review' and admin.execute('select status_reason from ontology.nexloop_candidate_definitions where candidate_id=%s',(instance_cid,)).fetchone()[0].startswith('returned_to_review: ')
+    assert admin.execute("select actor_kind,to_status from ontology.nexloop_candidate_events where candidate_id=%s order by event_id desc limit 1",(instance_cid,)).fetchone()==('service','pending_review')
+    assert admin.execute('select count(*) from ontology.nexloop_instance_approvals').fetchone()==(0,)
+    assert admin.execute('select reflow_status from ontology.nexloop_review_decisions where decision_id=%s',(decided['decision_id'],)).fetchone()==('done',)
+    assert {resolution(admin,x) for x in claims.values()}=={'awaiting_definition'}

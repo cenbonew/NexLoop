@@ -254,14 +254,17 @@ class ReviewReflowWorker:
         """NX-050: create the approved instance through the governed <Type>.create (idempotent per decision), bind it,
         then release the dependent Claims to the matcher. Missing create authority keeps the decision waiting."""
         from nexloop_eios.object_actions import GovernedObjectCreator
-        instance=item['publication']['instance']
         if item.get('instance_object_id'):
             # Already created and bound: only (re)release the dependent Claims.
             return {**self.port.call('nexloop_review_reflow',{'verb':'release','decision_id':item['decision_id']}),'object_id':item['instance_object_id']}
-        name,version=instance['create_action'].removeprefix('eios:action:').rsplit(':',1)
+        # The type's current latest create Action, re-checked in SQL against the approved identity; otherwise the
+        # candidate is returned to review with the reasons (never left waiting).
+        plan=self.port.call('nexloop_review_reflow',{'verb':'instance_plan','decision_id':item['decision_id']})
+        if plan.get('returned_to_review'):return plan
+        name,version=plan['create_action'].removeprefix('eios:action:').rsplit(':',1)
         try:
             created=GovernedObjectCreator(self.port.pool,self.port.session,self.port.signer).create(action_name=name,action_version=int(version),
-                intent_id=str(uuid.uuid5(NAMESPACE,'instance:'+item['decision_id'])),type_name=instance['type_name'],properties=dict(instance['properties']))
+                intent_id=str(uuid.uuid5(NAMESPACE,'instance:'+item['decision_id'])),type_name=plan['type_name'],properties=dict(plan['properties']))
         except Exception as error:
             reason='awaiting_grants' if type(error).__name__ in AUTHORITY_ERRORS else 'reflow_error'
             report={'applied':0,'claims':{},'reason':reason,'error':type(error).__name__}

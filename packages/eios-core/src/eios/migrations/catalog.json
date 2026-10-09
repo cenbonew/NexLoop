@@ -515,6 +515,11 @@
       "version": "0103",
       "name": "0103_nx050_instance_approval.sql",
       "sha256": "ff07e687880aea3055f278eaf7d88fb4fd6a72e57eba331f3e734d46fb46b7bd"
+    },
+    {
+      "version": "0104",
+      "name": "0104_nx050_create_latest.sql",
+      "sha256": "96b8b620b228e336dd8c85e03e4b9c8f70bf2838e68b77846c8adba6a1c33374"
     }
   ]
 }
