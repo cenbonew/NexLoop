@@ -109,8 +109,13 @@ class ServiceSession:
 
 def _identity(connection, digest, world):
     row=connection.execute('select authz.nexloop_service_identity_snapshot(%s,%s)',(digest,world)).fetchone()
-    if not row or not row[0]:
+    return _identity_session(row[0] if row else None,digest,world)
+
+
+def _identity_session(snapshot, digest, world):
+    if not snapshot:
         raise AuthorizationUnavailable('service identity unavailable')
+    row=(snapshot,)
     binding=F.CredentialAuthenticationBinding.model_validate_json(json.dumps(row[0]['binding']))
     raw=row[0].get('agent_invocation')
     invocation=None if raw is None else F.AgentInvocationBinding.model_validate_json(json.dumps(raw))
@@ -149,12 +154,12 @@ class PostgresAuthorityUnitOfWork:
     repeatable_read=True
     read_only=True
 
-    def __init__(self, connection, session, query, entries):
+    def __init__(self, connection, session, query, entries, now=None):
         self.connection,self.session,self.query=connection,session,query
         self._loaded=set()
         self.entries=entries
         self._prefetched={}
-        self._now=connection.execute('select clock_timestamp()').fetchone()[0]
+        self._now=connection.execute('select clock_timestamp()').fetchone()[0] if now is None else now
 
     def trusted_now(self):return self._now
 
@@ -165,15 +170,33 @@ class PostgresAuthorityUnitOfWork:
         """O2b: one round trip for many snapshots via the same single-fact function.
 
         Only 'ok'/'missing' answers are kept; anything the single-call function would
-        reject is re-read singly in _fetch (and raises exactly as before).
+        reject is re-read singly in _fetch (and raises exactly as before). Identity
+        facts already memoized for this request (O2a) are not fetched again.
         """
-        keys=[(kind,tuple(key)) for kind,key in dict.fromkeys((k,tuple(v)) for k,v in keys) if (kind,tuple(key)) not in self._prefetched]
+        keys=self.pending(keys)
         if not keys:return
-        rows=self.connection.execute('select authz.nexloop_load_authority_facts(%s,%s,%s::jsonb)',
-            (self.session.token_digest,self.session.world,json.dumps([{'kind':k,'key':list(v)} for k,v in keys]))).fetchone()[0]
+        self.accept(keys,self.connection.execute('select authz.nexloop_load_authority_facts(%s,%s,%s::jsonb)',
+            (self.session.token_digest,self.session.world,batch_keys(keys))).fetchone()[0])
+
+    def pending(self, keys):
+        return [(kind,tuple(key)) for kind,key in dict.fromkeys((k,tuple(v)) for k,v in keys)
+            if (kind,tuple(key)) not in self._prefetched and not self._memoized_identity(kind,key)]
+
+    def accept(self, keys, rows):
+        if type(rows) is not list or len(rows)!=len(keys):return  # a hint only: anything else is read singly
         for (kind,key),row in zip(keys,rows):
             if row.get('status')=='ok':self._prefetched[(kind,key)]=row['value']
             elif row.get('status')=='missing':self._prefetched[(kind,key)]=None
+
+    def _identity_memo_key(self, kind, key, model):
+        return ('identity-fact',type(self.session).__name__,self.session.token_digest,self.session.directory_hash,
+            self.session.world,kind,tuple(key),model)
+
+    def _memoized_identity(self, kind, key):
+        memo=_REQUEST_MEMO.get();model=_IDENTITY_MODELS.get(kind)
+        if memo is None or model is None:return False
+        hit=memo.get(self._identity_memo_key(kind,key,model))
+        return hit is not None and time.monotonic()-hit[2]<REQUEST_MEMO_MAX_AGE_SECONDS
 
     def _fetch(self, kind, key):
         hit=self._prefetched.get((kind,tuple(key)),False)
@@ -189,8 +212,7 @@ class PostgresAuthorityUnitOfWork:
         # resource graph are read on every decision.
         memo=_REQUEST_MEMO.get();memo_key=None
         if memo is not None and kind in IDENTITY_FACT_KINDS:
-            memo_key=('identity-fact',type(self.session).__name__,self.session.token_digest,self.session.directory_hash,
-                self.session.world,kind,tuple(key),model)
+            memo_key=self._identity_memo_key(kind,key,model)
             hit=memo.get(memo_key)
             if hit is not None and time.monotonic()-hit[2]<REQUEST_MEMO_MAX_AGE_SECONDS:
                 record_hash,fact,_=hit
@@ -228,6 +250,25 @@ class PostgresAuthorityUnitOfWork:
     def load_agent_application(self,tenant_id,application_id,version):return self._load('agent_application',[application_id,version],F.ApplicationFacts)
 
 
+@contextmanager
+def _repeatable_read_only(connection):
+    """One REPEATABLE READ READ ONLY transaction; NX-049 4a: the isolation travels in the
+    BEGIN statement itself (no separate SET TRANSACTION round trip). The connection's own
+    defaults are restored afterwards, so a reused request connection is unchanged."""
+    import psycopg
+    previous=(connection.isolation_level,connection.read_only)
+    connection.isolation_level,connection.read_only=psycopg.IsolationLevel.REPEATABLE_READ,True
+    try:
+        with connection.transaction():
+            yield
+    finally:
+        if not connection.closed:connection.isolation_level,connection.read_only=previous
+
+
+def batch_keys(keys):
+    return json.dumps([{'kind':k,'key':list(v)} for k,v in keys])
+
+
 def _assert_query_binding(session, query):
     if (query.authentication != session.authentication or query.tenant_id != session.authentication.tenant_id
             or query.request_attributes.get('world') != session.world or query.agent_invocation != session.agent_invocation
@@ -236,6 +277,10 @@ def _assert_query_binding(session, query):
 
 
 class PostgresAuthorityProvider:
+    # NX-049 means 5: a single-query unit prefetches its predicted facts in one round
+    # trip (the O2b batch path); resolve_authorities prefetches for all its queries itself.
+    prefetch_on_open=True
+
     def __init__(self,pool,session: ServiceSession,entries=None):
         self.pool,self.session=pool,session
         self._entry_sink=entries
@@ -249,15 +294,26 @@ class PostgresAuthorityProvider:
             return
         _assert_query_binding(self.session,query)
         try:
-            with self.pool.connection() as connection,connection.transaction():
-                connection.execute('set transaction isolation level repeatable read read only')
+            with self.pool.connection() as connection,_repeatable_read_only(connection):
                 verify_application_role(connection)
-                live=_identity(connection,self.session.token_digest,self.session.world)
+                digest,world=self.session.token_digest,self.session.world
+                unit=PostgresAuthorityUnitOfWork(connection,self.session,query,[] if self._entry_sink is None else self._entry_sink,now=False)  # trusted time comes from the opening statement below
+                keys=unit.pending(_predicted_fact_keys(self.session,query)) if self.prefetch_on_open else []
+                # NX-049: live identity, the unit's trusted time and (means 5) the predicted fact
+                # snapshots in one statement of the same REPEATABLE READ transaction.
+                if keys:
+                    row=connection.execute('select authz.nexloop_service_identity_snapshot(%s,%s),clock_timestamp(),'
+                        'authz.nexloop_load_authority_facts(%s,%s,%s::jsonb)',(digest,world,digest,world,batch_keys(keys))).fetchone()
+                else:
+                    row=connection.execute('select authz.nexloop_service_identity_snapshot(%s,%s),clock_timestamp()',(digest,world)).fetchone()
+                live=_identity_session(row[0] if row else None,digest,world)
                 if (live.authentication != self.session.authentication
                         or live.directory_hash != self.session.directory_hash
                         or live.agent_invocation != self.session.agent_invocation):
                     raise AuthorizationUnavailable('service credential binding is stale')
-                yield PostgresAuthorityUnitOfWork(connection,self.session,query,[] if self._entry_sink is None else self._entry_sink)
+                unit._now=row[1]
+                if keys:unit.accept(keys,row[2])
+                yield unit
         except F.AuthorizationFactDenied:
             raise
         except Exception:
@@ -266,6 +322,8 @@ class PostgresAuthorityProvider:
 
 # Facts whose key depends only on the authenticated session, never on the target.
 IDENTITY_FACT_KINDS = frozenset({'subject','membership','actor','authentication','application','subject_authority','revision'})
+_IDENTITY_MODELS = {'subject':F.SubjectFacts,'membership':F.MembershipFacts,'actor':F.ActorFacts,'authentication':F.CredentialAuthenticationFacts,
+    'application':F.ApplicationFacts,'subject_authority':F.SubjectAuthorityFacts,'revision':F.RevisionSourceFacts}
 _REQUEST_MEMO = contextvars.ContextVar('nexloop_authority_request_memo', default=None)
 REQUEST_MEMO_MAX_AGE_SECONDS = 5.0
 
@@ -367,7 +425,7 @@ def resolve_authorities(pool, session, queries):
             try:results[index]=(resolve_authority(pool,session,queries[index],entries),entries,None)
             except Exception as error:results[index]=(None,[],error)
         return results
-    provider=PostgresAuthorityProvider(pool,session,None);resolver=F.AuthorizationFactsResolver(provider)
+    provider=PostgresAuthorityProvider(pool,session,None);provider.prefetch_on_open=False;resolver=F.AuthorizationFactsResolver(provider)
     try:
         for index in pending:_assert_query_binding(session,queries[index])
         with provider.open_unit_of_work(queries[pending[0]]) as unit:
