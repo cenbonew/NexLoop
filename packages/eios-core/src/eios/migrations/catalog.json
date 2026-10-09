@@ -475,6 +475,11 @@
       "version": "0095",
       "name": "0095_nx023_context_audit_read.sql",
       "sha256": "71c43c5178466baafb4950832fbe3eb9ed93fbd22df89a5067089dfae2eac7ef"
+    },
+    {
+      "version": "0096",
+      "name": "0096_perf_o5b_read_assert_memo.sql",
+      "sha256": "aec3e66ca3766780ebc7f3b2b9d441e5ff86fae8cdad349dbd99c873d9ae6913"
     }
   ]
 }
