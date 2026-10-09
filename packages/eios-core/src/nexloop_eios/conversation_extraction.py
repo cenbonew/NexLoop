@@ -14,8 +14,8 @@ import json
 import re
 from zoneinfo import ZoneInfo
 
-EXTRACTOR_VERSION='nx019-extractor/1'
-PROMPT_VERSION='nx019-conversation-extraction-prompt/1'
+EXTRACTOR_VERSION='nx019-extractor/2'
+PROMPT_VERSION='nx019-conversation-extraction-prompt/2'
 EPISTEMIC_KINDS=('user_statement','preference','constraint','intent','need_problem','commitment','hypothesis','correction')
 FORBIDDEN_KINDS=('verified_fact',)
 MODALITIES=('asserted','conditional','tentative','requested')
@@ -42,13 +42,16 @@ SYSTEM_PROMPT="""<prompt>
        "暂不续费"是 tentative 的否定(polarity=negated)，不是永久偏好。否定必须在原文中有否定词。
     6. 时间：time_expression 只抄写原文中的时间短语(如"明天下午前""未来两周")，不要自行换算成具体时刻。
     7. 同一问题在不同消息中重复出现时，每次都单独提取，不要合并。
+    8. 代词(它/这个/那款)指代的对象写在 subject.text 中，且必须是该话题内某条消息里出现过的原词；无法确定就留空。
+       顾客提到的人名不等于顾客身份，subject.kind=consumer 只指当前对话的顾客本人。
+    9. 撤回或更正(说错了/不是…是/作废/撤回)用 kind=correction，并用 corrects 指向被更正的显性 Claim 下标；前后矛盾但没有更正词时两条都保留，不要合并或删除。
   </instruction>
   <output_format>
     {"topics":[{"topic":"","conversation_summary":"","user_valid_reply":true,"message_refs":[1]}],
      "claims":[{"topic_index":0,"message_ref":1,"quote":"","kind":"intent","explicit":true,
        "subject":{"kind":"consumer|enterprise|entity","text":""},"predicate":"","value":{"type":"string|number|boolean|money|none","value":null},
        "polarity":"affirmed|negated","modality":"asserted|conditional|tentative|requested","condition":"","time_expression":"",
-       "confidence":0.0,"derived_from":[]}]}
+       "confidence":0.0,"derived_from":[],"corrects":null}]}
   </output_format>
   <note>只输出一个 JSON 对象，不要输出其它文字或字段。</note>
 </prompt>"""
@@ -60,7 +63,8 @@ class ExtractionRejected(ValueError):
 
 
 class ExtractionProviderUnavailable(RuntimeError):
-    pass
+    """code: http_429|http_5xx|http_4xx|timeout|transport|response_parse|not_registered|profile."""
+    def __init__(self,message,code='unavailable'):super().__init__(message);self.code=code
 
 
 def canonical(value):
@@ -116,7 +120,7 @@ class DeterministicExtractionProvider:
     def complete(self,system_prompt,user_payload):
         self.calls+=1
         key=hashlib.sha256(user_payload.encode()).hexdigest()
-        if system_prompt!=SYSTEM_PROMPT or key not in self.responses:raise ExtractionProviderUnavailable('deterministic input not registered')
+        if system_prompt!=SYSTEM_PROMPT or key not in self.responses:raise ExtractionProviderUnavailable('deterministic input not registered','not_registered')
         response=self.responses[key]
         return response if isinstance(response,str) else canonical(response)
 
@@ -128,7 +132,7 @@ class OpenAICompatibleExtractionProvider:
     the Authorization header; errors never echo provider bodies or headers.
     """
     def __init__(self,profile,*,timeout=60,client=None):
-        if profile.provider!='deepseek':raise ExtractionProviderUnavailable('real model profile required')
+        if profile.provider!='deepseek':raise ExtractionProviderUnavailable('real model profile required','profile')
         self.profile=profile;self.provider=profile.provider;self.model_id=profile.model_id;self.timeout=timeout;self.client=client
     def complete(self,system_prompt,user_payload):
         import httpx
@@ -140,10 +144,17 @@ class OpenAICompatibleExtractionProvider:
             try:response=client.post(self.profile.base_url.rstrip('/')+'/chat/completions',json=body,headers=headers)
             finally:
                 if self.client is None:client.close()
-            if response.status_code!=200:raise ExtractionProviderUnavailable('provider status '+str(response.status_code))
-            return response.json()['choices'][0]['message']['content']
+            status=response.status_code
+            if status!=200:
+                code='http_429' if status==429 else 'http_5xx' if status>=500 else 'http_4xx'
+                raise ExtractionProviderUnavailable('provider status '+str(status),code)
+            try:content=response.json()['choices'][0]['message']['content']
+            except Exception:raise ExtractionProviderUnavailable('provider response unparsable','response_parse') from None
+            if type(content) is not str:raise ExtractionProviderUnavailable('provider response unparsable','response_parse')
+            return content
         except ExtractionProviderUnavailable:raise
-        except Exception:raise ExtractionProviderUnavailable('provider call failed') from None
+        except httpx.TimeoutException:raise ExtractionProviderUnavailable('provider call timed out','timeout') from None
+        except Exception:raise ExtractionProviderUnavailable('provider call failed','transport') from None
 
 
 # ---------------------------------------------------------------- input
@@ -179,6 +190,7 @@ SITUATIONAL=re.compile(r'看情况|视情况')
 BOUNDARY='，,。；;！!？?'
 TENTATIVE=re.compile(r'(考虑|可能|也许|或许|大概|看看|想想|再说|不一定|说不定|犹豫|暂不|暂时不|先不|暂且不|目前不|现在不)')
 NEGATION=re.compile(r'(不|没|别|无需|勿|甭|莫)')
+NOT_NEGATION=re.compile(r'不错|不少|不久|不断|不仅|不过|不管|差不多|忍不住|了不起|不得了')  # lexicalized, not negation
 A_NOT_A=re.compile(r'(要|是|能|会|行|好|可|需|想|用)不\1')  # 要不要/是不是: a question, not negation
 INSTRUCTION_LIKE=[re.compile(p,re.I) for p in (
     r'(忽略|无视|忘记|跳过|绕过).{0,12}(规则|指令|政策|限制|设定|提示|要求)',
@@ -358,7 +370,9 @@ def _string(value,limit,*,allow_empty=False):
 
 TOP_KEYS={'topics','claims'}
 TOPIC_KEYS={'topic','conversation_summary','user_valid_reply','message_refs'}
-CLAIM_KEYS={'topic_index','message_ref','quote','kind','explicit','subject','predicate','value','polarity','modality','condition','time_expression','confidence','derived_from'}
+CLAIM_KEYS={'topic_index','message_ref','quote','kind','explicit','subject','predicate','value','polarity','modality','condition','time_expression','confidence','derived_from','corrects'}
+SELF_WORDS=('','我','本人','自己')
+CORRECTION_MARKER=re.compile(r'(说错|写错|搞错|弄错|记错|更正|纠正|不对|改成|改为|撤回|收回|作废|不算|取消|其实|不是.{0,12}是|是.{0,12}不是)')
 
 
 def parse_output(text):
@@ -487,6 +501,27 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     if speaker=='agent' and kind!='hypothesis':
         if kind!='commitment':raise _Drop('agent_statement_is_not_consumer_knowledge')
     if speaker=='consumer' and kind=='commitment':kind='intent';flags.append('consumer_commitment_reclassified_intent')
+    if kind=='correction' and not (quote and CORRECTION_MARKER.search(quote)):
+        # Contradiction without an explicit correction stays two independent statements.
+        kind='user_statement';flags.append('correction_without_marker')
+    corrects=item.get('corrects')
+    corrects_id=None
+    if corrects is not None:
+        if type(corrects) is not int or kind!='correction':raise _Drop('corrects_invalid')
+        target=accepted.get(corrects)
+        if target is None or target['epistemic_kind']=='hypothesis' or target['source_sequence'] is None or target['source_sequence']>message.sequence:
+            raise _Drop('correction_target_unavailable')
+        corrects_id=target['claim_id']
+    subject_text=subject.get('text','')
+    if subject['kind']=='consumer' and subject_text not in SELF_WORDS:
+        # The consumer is identified only by the server-side Conversation owner; a
+        # spoken name (possibly shared by other consumers) never selects identity.
+        subject_text='';flags.append('consumer_identity_server_derived')
+    if subject_text:
+        window=[m.body for m in by_ref.values() if topic['first_sequence']<=m.sequence<=topic['last_sequence']]
+        if not any(subject_text in body for body in window):
+            # Pronoun referents must be words actually present in the topic window.
+            subject_text='';flags.append('subject_referent_ungrounded')
     injected=source is not None and is_instruction_like(source.body)
     if injected:
         flags.append('instruction_like_content')
@@ -507,7 +542,7 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
             negative=(polarity=='negated')!=(value['type']=='boolean' and value['value'] is False)
             # Negation inside the condition ("如果不解决") is not the claim's polarity.
             residual=quote if span is None else quote[:span[0]]+quote[span[1]:]
-            has_negation=bool(NEGATION.search(A_NOT_A.sub('',residual)))
+            has_negation=bool(NEGATION.search(NOT_NEGATION.sub('',A_NOT_A.sub('',residual))))
             if negative and not has_negation:raise _Drop('ungrounded_negation')
             if not negative and has_negation:raise _Drop('polarity_conflict')
     time_expression=item.get('time_expression','') or ''
@@ -519,7 +554,7 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     valid_time=resolve_time(time_expression,anchor,context.timezone)
     if kind=='hypothesis':confidence=min(confidence,0.6)
     subject_ref=context.consumer_id if subject['kind']=='consumer' else ''
-    claim={'subject_kind':subject['kind'],'subject_ref':subject_ref,'subject_text':subject.get('text',''),
+    claim={'subject_kind':subject['kind'],'subject_ref':subject_ref,'subject_text':subject_text,'corrects_claim_id':corrects_id,
         'predicate':predicate,'value':value,'speaker':speaker,'polarity':polarity,'modality':modality,'condition':condition,
         'time_expression':time_expression,'valid_time':valid_time,
         'source_message_id':source.message_id if source else None,'source_sequence':source.sequence if source else None,
@@ -530,7 +565,7 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
         'topic_key':topic['topic_key'],'guard_flags':sorted(set(flags)),
         'correlation_key':digest([context.tenant_id,context.world,context.consumer_id,kind,predicate,normalize_value_key(value),polarity])}
     claim['claim_id']=digest([context.tenant_id,context.world,context.conversation_id,claim['source_message_id'],claim['span_start'],claim['span_end'],
-        kind,predicate,value,polarity,modality,condition,derived_ids,EXTRACTOR_VERSION])
+        kind,predicate,value,polarity,modality,condition,derived_ids,corrects_id,subject_text,EXTRACTOR_VERSION])
     return claim
 
 
