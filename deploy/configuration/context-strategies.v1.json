@@ -1,0 +1,45 @@
+{
+  "schema_version": "nexloop-context-strategies/1",
+  "manifest_version": 1,
+  "decision": "docs/05 §9 baselines. Published by the human owner through nexloop.context.strategy.publish:1 (NX-023); both share goals and mandatory constraints and differ only in research-relevant evidence selection.",
+  "strategies": [
+    {
+      "strategy_id": "recent_plus_required",
+      "version": 1,
+      "protocol": "nexloop.context-pack.v6",
+      "input_token_budget": 16000,
+      "output_reserve": 4000,
+      "framing_reserve": 1500,
+      "sections": {
+        "consumer_state": {"max_items": 32},
+        "open_work": {"max_items": 16},
+        "evidence": {"max_items": 12, "recent_turns": 6},
+        "semantics": {"max_items": 0},
+        "experience": {"max_items": 0}
+      },
+      "trim_order": ["duplicate_evidence", "experience", "hypotheses", "semantics_low_relevance", "older_conversation", "older_claim_evidence", "low_score_recall"],
+      "semantic": {"enabled": false, "top_k": 5, "ambiguity_margin": 0.05},
+      "include_hypotheses": false,
+      "include_rejected_definitions": false
+    },
+    {
+      "strategy_id": "ontology_hybrid",
+      "version": 1,
+      "protocol": "nexloop.context-pack.v6",
+      "input_token_budget": 16000,
+      "output_reserve": 4000,
+      "framing_reserve": 1500,
+      "sections": {
+        "consumer_state": {"max_items": 32},
+        "open_work": {"max_items": 16},
+        "evidence": {"max_items": 24, "recent_turns": 6},
+        "semantics": {"max_items": 8},
+        "experience": {"max_items": 0}
+      },
+      "trim_order": ["duplicate_evidence", "experience", "hypotheses", "semantics_low_relevance", "older_conversation", "older_claim_evidence", "low_score_recall"],
+      "semantic": {"enabled": true, "top_k": 5, "ambiguity_margin": 0.05},
+      "include_hypotheses": false,
+      "include_rejected_definitions": false
+    }
+  ]
+}
