@@ -174,3 +174,62 @@ scripts/perf/run_profile.sh ext-before <7 个测试文件>
 - 事务内身份推导缓存：每次事实加载都重推 `nexloop_root_identity`，单个用例中约 29 万次。缓存必须绑定 digest 与事务。
 - `context_artifact_command` 的批量 `assert_read_authority`。
 - `runtime_activation_command` 单次最高约 0.9 s 的分解。
+
+## O2a：请求内身份类事实只加载一次（分支 `perf-o2a`，BASE `aebbfa8ff8ea087ac6fe88fd0d0500b6cc7c4695` = dispatch/integration-s3m）
+
+### 实现
+只改 `authorization.py` 与 `browser_authorization.py`，无迁移。
+- `PostgresAuthorityUnitOfWork._load` 拆为 `_fetch`（数据库读取，浏览器子类覆盖）和带 memo 的 `_load`。
+- 在请求 scope 内，`IDENTITY_FACT_KINDS` = {subject, membership, actor, authentication, application, subject_authority, revision} 只读取一次。
+- memo 键：会话类型、token digest、directory hash、world、kind、key、模型类；条目最长 5 s。
+- grants、scope、controls、policies、resource_graph（以及 agent 系事实）每次决策照常读取。
+- 命中时把同一 record_hash 写回 entries 和 `_loaded`，签名证明形状不变。
+- 每个 unit of work 仍先核对 live identity / directory hash（未改），身份撤权使旧会话在下一次决策前即被拒。
+- 身份事实的有效期仍由 EIOS resolver 在每次决策时以当时的 `trusted_now` 判定。
+
+### 等价性与负向测试（`tests/test_identity_fact_memo.py`，10 passed）
+
+| 文档 §5 要点 | 测试 |
+|---|---|
+| 判定不变 | `test_equivalence_outcome_proof_hashes_and_expiry`：允许 ×2、过期 grant、应用限制外、缺事实，共 5 个目标；无 scope 与 scope 内的 allowed / authoritative / expires_at / 证明 (kind, key, record_hash) 全部相等；scope 内每条身份事实只读一次，总读取数下降 |
+| 事实逐字节相同 | `test_record_hash_from_memo_equals_fresh_read`：memo 命中的 record_hash 等于此刻直接调用 `nexloop_load_authority_fact_snapshot` 的结果 |
+| 撤权 | `test_identity_revocation_denies_in_next_request[membership_suspended / subject_disabled]`：旧会话在下一请求被拒；重新认证后同样被拒 |
+| 请求内撤权 | `test_revocation_inside_request_is_not_served_from_memo`：同一请求内撤销 membership 后，下一个目标的决策因 live directory 核对被拒 |
+| 有效期 | `test_identity_expiry_is_evaluated_per_decision_with_memoized_fact`：membership 2 s 后到期；首个证明的 `expires_at` 不晚于到期时刻；到期后同一请求内的另一个目标被拒 |
+| 跨主体 / world / 租户 | `test_memo_never_shared_across_principal_world_tenant[principal/world/tenant]`：同一 scope 内第二个会话的身份事实全部重新读取，且都属于它自己 |
+| 跨请求与并发 | `test_memo_not_shared_across_requests_or_concurrent_requests`：下一请求重新读取；两线程并发请求的 memo 不是同一个对象 |
+
+O1 的 `test_concurrent_requests_have_isolated_memos` 原来断言 memo 只有 1 条；现在 memo 中还有身份事实条目，因此改为只统计决策条目（语义不变）。
+
+### 回归
+- 批次 1：17 个文件 1 failed / 207 passed（失败即上面那条 O1 断言，修正后 10/10）。
+- 批次 2：13 个文件 149 passed。
+- 覆盖：memo / cache、bootstrap、backend、postgres_authority、browser business、runtime activation / authority / dispatch / worker / guard transport、durable queue、action definitions / claims、run credentials、object edits、goal controls、service grants、effect intents / dispatch / execution sql、role mapping / post accept、context pack、claim extraction / matching、recall、review workbench。
+
+### L1 关注的两项（本机，只测不改）
+
+| 测试 | before（aebbfa8 的两个文件） | after（O2a） |
+|---|---|---|
+| `tests/test_backend_lifecycle_capacity.py`（7 例） | 全部通过；最长 `eight_concurrent_requests_complete_on_pool_of_four` 5.35 s | 全部通过；该项 4.70 s |
+| `test_role_policy_dispatch::test_effect_units_concurrent_distinct_submissions_stay_within_ceiling` | 通过，5.57 s | 通过，5.26 s |
+
+这两项在本机前后都通过，只在测试机全量中失败，与时延的关系需在 sice 上确认。
+
+### 前后对比（13 例集合，本机串行，带钩子；before/after 各两轮，共 26 次运行）
+
+| 指标 | before | after |
+|---|---|---|
+| 事实快照 SQL 调用 | 504264 | **261584（−48%）** |
+| 事实加载累计（Python 计） | 104.0 s | 60.9 s |
+| resolver 累计 | 334.6 s | 297.5 s |
+| authorize p50 / p95 / max | 280 / 1076 / 1496 ms | **251 / 980 / 1420 ms** |
+| runtime_effect_tool p50 / p95 / max | 572 / 1520 / 1600 ms | **492 / 1357 / 1481 ms** |
+| prepare_message_context p50 / max | 496 / 964 ms | 488 / 964 ms |
+| 越限所需慢化系数 k（authorize / effect_tool） | 1.34 / 1.25 | **1.41 / 1.35** |
+| 以 k=2 估算 authorize 越限次数 | 126 / 1104 | **36 / 1102** |
+
+- 4 次运行中 authorize 的最慢一次都在 2 s 以下，`relationship_context_v4[complete]` 4 次都通过。但 before 两轮也都通过；s3m 复测那一轮曾失败（最慢 2178 ms）。该用例处于时限边缘、结果不稳定，O2a 降低了尾部，但不能单靠两轮证明其已稳定通过。
+- 运行顺序：after → before → after-2 → before-2，交替进行以减少顺序偏差。
+
+### 测量过程中的失误
+在 shell 中 `source` 了 `o1_o4_set.sh`（脚本内含 `exec`），导致以空标签运行。`run_profile.sh` 的 `rm -rf "$out"` 删掉了被 git 忽略的整个 `scripts/perf/out/`（此前各轮的本地测量输出）。这些输出不在仓库中；本节数据均为删除后重新测得，那次误运行的结果作为 after 第一轮保留。仓库内文件与提交均不受影响。
