@@ -207,3 +207,43 @@ def test_human_approve_vocabulary_value_extends_closed_enum(review):
     enum=next(p for p in schema['properties'] if p['property_name']=='budget_level')['type_descriptor']['enum']
     assert enum==['两千元以内','两千到五千元','五千元以上','一万元以上']
     assert 'nexloop:vocabulary:Consumer/budget_level/一万元以上' in result['publication']['published_refs']
+
+
+def test_agent_and_run_bound_credentials_cannot_decide_and_cause_no_side_effects(review):
+    """AT-067 negative (model principal): an Agent invocation credential and a Run-bound credential, both holding
+    ontology.schema.review EXECUTE, are refused for every decision in Python and again in SQL; nothing changes."""
+    from goal_fixture import seed_agent_author
+    from nexloop_eios.run_credentials import AUDIENCE,issue_run_credential
+    from nexloop_eios.authorization import authenticate_service
+    from eios.ontology.models import ObjectTypeDefinition
+    from test_claim_matching_pg import publish_action
+    f=review;admin=f['admin'];claim,cid,_,_=pending(f,'ar1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    revision=candidates(admin)[cid][8]
+    from nexloop_eios.review_actions import build_publication
+    publication=build_publication(human(f).basis(cid))  # a well-formed publication, so only the principal can be refused
+    # A published review Action contract is what a Run may be issued for (fixture row; grants are separate facts).
+    publish_action(admin,TENANT,'ontology.schema.review',ObjectTypeDefinition.model_validate(
+        admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1",(TENANT,)).fetchone()[0]))
+    agent_token=seed_agent_author(admin,f['api'],['ontology.schema.review'],suffix='-review-agent')
+    source,source_token=seed_multi_authority(admin,f['api'],[(REVIEW,ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-review-run-source',tenant=f['tenant'])
+    source=authenticate_service(f['api'],source_token,world='real')
+    run=issue_run_credential(f['api'],source,f['signer'],action_resources=[REVIEW])
+    sessions={'agent':authenticate_service(f['api'],agent_token,world='real'),
+              'run':authenticate_service(f['api'],run.token,world='real',run_id=run.run_id,audience=AUDIENCE)}
+    assert sessions['agent'].authentication.subject_kind.value=='agent' and sessions['run'].run_context is not None
+    def state():
+        return (sorted(candidates(admin).values()),decisions(admin),resolution(admin,claim),
+            admin.execute("select count(*) from ontology.object_type_versions where tenant_id=%s",(TENANT,)).fetchone(),
+            admin.execute("select count(*) from control.nexloop_action_definitions where tenant_id=%s",(TENANT,)).fetchone(),
+            admin.execute("select authz.nexloop_tenant_authority_fingerprint(%s)",(TENANT,)).fetchone(),
+            admin.execute("select count(*) from ontology.nexloop_candidate_events").fetchone())
+    before=state()
+    for kind,session in sessions.items():
+        with pytest.raises(PermissionError):ReviewDecisionPort(f['api'],session,f['signer'])
+        forged=object.__new__(ReviewDecisionPort);forged.pool,forged.session,forged.signer=f['api'],session,f['signer']
+        for n,(decision,extra) in enumerate((('approve',{'publication':publication}),('reject',{}),
+                ('merge_into',{'merge_target_ref':'eios:property:Consumer/favorite_sport'}))):
+            payload={'decision_id':f'00000000-0000-4000-8000-0000000004{n}{0 if kind=="agent" else 1}','candidate_id':cid,'decision':decision,
+                'expected_revision':revision,'rationale':'model principal tries to review',**extra}
+            with pytest.raises(psycopg.errors.InsufficientPrivilege,match='human session'):forged._call('nexloop_review_decide',payload,PROTOCOL)
+    assert state()==before and candidates(admin)[cid][2]=='pending_review' and resolution(admin,claim)=='awaiting_definition'
