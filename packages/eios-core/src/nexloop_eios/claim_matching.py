@@ -232,8 +232,9 @@ class ClaimMatcher:
             results[claim['claim_id']]=self.match_claim(claim)
         return results
 
-    def match_claim(self,claim):
-        existing=self.port.read({'verb':'match','claim_id':claim['claim_id'],'matcher_version':MATCHER_VERSION})
+    def match_claim(self,claim,*,matcher_version=MATCHER_VERSION,provider=None):
+        """provider/matcher_version override: NX-045 re-matches a merged Claim with a deterministic decision under its own version."""
+        existing=self.port.read({'verb':'match','claim_id':claim['claim_id'],'matcher_version':matcher_version})
         if existing:return {'replay':True,'outcome':existing['outcome'],'proposal_id':existing['proposal_id'],'candidate_id':existing['candidate_id']}
         decision,recall=({},[])
         if claim['epistemic_kind']=='hypothesis':
@@ -241,8 +242,8 @@ class ClaimMatcher:
         elif claim['resolution_state'] not in ('unresolved','needs_resolution'):
             outcome=_Outcome('needs_resolution','claim already '+claim['resolution_state'])
         else:
-            outcome,decision,recall=self._classify(claim)
-        payload={'verb':'match','claim_id':claim['claim_id'],'matcher_version':MATCHER_VERSION,'outcome':outcome.outcome,
+            outcome,decision,recall=self._classify(claim,provider or self.provider)
+        payload={'verb':'match','claim_id':claim['claim_id'],'matcher_version':matcher_version,'outcome':outcome.outcome,
             'decision':decision,'recall':recall,'reason':outcome.reason}
         if outcome.proposal:payload['proposal']=outcome.proposal
         if outcome.candidate:payload['candidate']=outcome.candidate
@@ -255,7 +256,7 @@ class ClaimMatcher:
         if not claim.get('source_message_id'):return 'no_source_evidence'
         return None
 
-    def _classify(self,claim):
+    def _classify(self,claim,provider):
         reason=self._guard_reason(claim)
         if reason:return _Outcome('needs_resolution',reason),{},[]
         value=_claim_value(claim)
@@ -265,7 +266,7 @@ class ClaimMatcher:
         definition_refs={h.ref for h in recalled.definitions}
         payload={'claim':{k:claim[k] for k in ('claim_id','epistemic_kind','subject_kind','subject_text','predicate','value','quote','polarity','modality')},
             'recall':hits,'schema':self._schema_view(definition_refs|({'eios:object_type:'+self.configuration.consumer_type} if claim['subject_kind']=='consumer' else set()))}
-        try:decision=_decision(self.provider.complete(SYSTEM_PROMPT,canonical_payload(payload)))
+        try:decision=_decision(provider.complete(SYSTEM_PROMPT,canonical_payload(payload)))
         except MatchRejected as error:return _Outcome('needs_resolution','decision_rejected:'+str(error)),{},hits
         return self._judge(claim,decision,recalled,definition_refs),decision,hits
 
