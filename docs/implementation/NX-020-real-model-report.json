@@ -1,0 +1,180 @@
+{
+  "agreement": 6,
+  "cases": [
+    {
+      "agrees": true,
+      "decision": {
+        "instance": {
+          "name": null,
+          "strong_id": null
+        },
+        "property": {
+          "new": null,
+          "ref": "eios:property:Consumer/budget_level"
+        },
+        "rationale": "Claim 主体为消费者本人，类型匹配 schema 中的 Consumer；谓词“预算区间”对应 Schema 属性 Consumer/budget_level，且其封闭词表包含原值“两千元以内”，故直接选用该成员。",
+        "type": {
+          "new": null,
+          "ref": "eios:object_type:Consumer"
+        },
+        "value": "两千元以内"
+      },
+      "expected": "full_match",
+      "id": "budget-level",
+      "outcome": "full_match",
+      "proposal_status": "applied",
+      "reason": ""
+    },
+    {
+      "agrees": true,
+      "decision": {
+        "instance": {
+          "name": null,
+          "strong_id": null
+        },
+        "property": {
+          "new": null,
+          "ref": "eios:property:Consumer/budget_level"
+        },
+        "rationale": "Claim 的谓词“预算区间”对应 Consumer 的 budget_level 属性；原文值“一万元以上”不在该封闭词表枚举中（枚举只有“两千元以内”“两千到五千元”“五千元以上”），因此按规则保留原值。",
+        "type": {
+          "new": null,
+          "ref": "eios:object_type:Consumer"
+        },
+        "value": "一万元以上"
+      },
+      "expected": "no_match",
+      "id": "budget-vocab",
+      "outcome": "no_match",
+      "proposal_status": null,
+      "reason": "vocabulary_value"
+    },
+    {
+      "agrees": true,
+      "decision": {
+        "instance": {
+          "name": null,
+          "strong_id": null
+        },
+        "property": {
+          "new": null,
+          "ref": "eios:property:Consumer/budget_amount"
+        },
+        "rationale": "消费者主体无需填实例；原文“预算2000”直接对应预算金额开放属性 budget_amount，值为 2000。",
+        "type": {
+          "new": null,
+          "ref": "eios:object_type:Consumer"
+        },
+        "value": 2000
+      },
+      "expected": "partial_match",
+      "id": "budget-amount",
+      "outcome": "partial_match",
+      "proposal_status": "applied",
+      "reason": ""
+    },
+    {
+      "agrees": true,
+      "decision": {
+        "instance": {
+          "name": null,
+          "strong_id": {
+            "key": "sku",
+            "value": "SKU-2002"
+          }
+        },
+        "property": {
+          "new": null,
+          "ref": "eios:property:Product/sku"
+        },
+        "rationale": "原文中的 SKU-2002 是商品编号，匹配 Product 类型的 sku 属性；实例通过强标识 sku=SKU-2002 标识。",
+        "type": {
+          "new": null,
+          "ref": "eios:object_type:Product"
+        },
+        "value": "SKU-2002"
+      },
+      "expected": "partial_match",
+      "id": "sku-new",
+      "outcome": "partial_match",
+      "proposal_status": "applied",
+      "reason": ""
+    },
+    {
+      "agrees": true,
+      "decision": {
+        "instance": {
+          "name": "蓝色冲锋衣",
+          "strong_id": null
+        },
+        "property": {
+          "new": null,
+          "ref": "eios:property:Product/name"
+        },
+        "rationale": "原文在咨询一款蓝色冲锋衣，属于商品；未提供商品编号等强标识，只能记录名称；其名称属性为‘蓝色冲锋衣’，匹配 Product/name。",
+        "type": {
+          "new": null,
+          "ref": "eios:object_type:Product"
+        },
+        "value": "蓝色冲锋衣"
+      },
+      "expected": "no_match",
+      "id": "name-only",
+      "outcome": "no_match",
+      "proposal_status": null,
+      "reason": "object_instance"
+    },
+    {
+      "agrees": true,
+      "decision": {
+        "instance": {
+          "name": null,
+          "strong_id": null
+        },
+        "property": {
+          "new": {
+            "closed_vocabulary": false,
+            "description": "顾客常用的支付方式",
+            "display_name": "常用付款方式",
+            "name": "preferred_payment_method",
+            "property_group": "消费偏好",
+            "value_type": "string"
+          },
+          "ref": null
+        },
+        "rationale": "Claim 的主语是消费者，类型匹配 Consumer；消费者本人无需填写实例。Schema 中 Consumer 没有付款方式属性，因此新建 preferred_payment_method 字符串属性。",
+        "type": {
+          "new": null,
+          "ref": "eios:object_type:Consumer"
+        },
+        "value": "花呗"
+      },
+      "expected": "no_match",
+      "id": "new-prop",
+      "outcome": "no_match",
+      "proposal_status": null,
+      "reason": "property"
+    }
+  ],
+  "embedding": "deterministic test provider (recall)",
+  "evidence_class": "real",
+  "inputs": "synthetic only",
+  "matcher_version": "nx020-matcher/1",
+  "model_id": "deepseek-flash",
+  "previous_runs": [
+    {
+      "detail": "CheckViolation nexloop_mutation_proposals_check: real model chose a property for a new strong-id Product, the create_object proposal carried property_name (implementation bug, fixed: create proposals keep properties in value only; scripted regression added)",
+      "result": "failed before report",
+      "run": 1
+    },
+    {
+      "detail": "new-prop: model returned property_group '支付偏好' outside the nine groups; guard rejected the candidate (needs_resolution). Changed: unknown property_group is coerced to 'other' (reviewer metadata only)",
+      "result": "1 passed, agreement 5/6",
+      "run": 2
+    }
+  ],
+  "prompt_version": "nx020-match-prompt/1",
+  "provider": "deepseek",
+  "run": 3,
+  "total": 6
+}
