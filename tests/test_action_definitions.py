@@ -24,6 +24,9 @@ def published_action(admin,pg,request):
     inputs=governance_inputs();definition=inputs['action_definition'];capability=inputs['capability_snapshot']
     schema=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True,
       properties=(PropertyDefinition(property_name='preference',value_type=PropertyValueType.STRING),) if getattr(request,'param',None) in ('with-preference','strict-input','external-input') else ())
+    if getattr(request,'param',None)=='closure':  # NX-025: the NX-020 Consumer schema (open, closed-vocabulary and numeric properties)
+        from test_claim_matching_pg import consumer_schema
+        schema=consumer_schema()
     ref=definition.object_types[0].model_copy(update={'schema_digest':'f'*64 if getattr(request,'param',None)=='wrong-schema-digest' else schema_contract_digest(schema)})
     governance=definition.governance.model_copy(update={'change_scope':definition.governance.change_scope.model_copy(update={'object_types':(ref,)})})
     definition=definition.model_copy(update={'object_types':(ref,),'governance':governance})
