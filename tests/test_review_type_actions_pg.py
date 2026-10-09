@@ -97,3 +97,13 @@ def test_non_canonical_new_type_actions_are_refused_by_sql(review,tamper,reason)
     assert result['outcome']=='publication_failed' and reason in result['publication']['gate_failures'],result['publication']
     assert actions(admin,'Pet')=={} and candidates(admin)[cid][2]=='pending_review'
     assert admin.execute("select count(*) from ontology.object_type_versions where tenant_id=%s and type_name='Pet'",(TENANT,)).fetchone()==(0,)
+
+
+def test_rejected_type_keeps_dependent_claims_as_evidence_only(review):
+    """A rejected new type publishes nothing; its Claims stay rejected_definition evidence and are not re-matched."""
+    f=review;admin=f['admin'];claim,cid=type_pending(f,'pet-reject');create_capability(f)
+    result=human(f).decide(candidate_id=cid,decision='reject',expected_revision=candidates(admin)[cid][8],rationale='不是业务概念',idempotency_key='synthetic-type-reject-01')
+    assert result['outcome']=='rejected' and result['reflow_status']=='none'
+    assert resolution(admin,claim)=='rejected_definition' and actions(admin,'Pet')=={}
+    assert admin.execute("select count(*) from ontology.object_type_versions where tenant_id=%s and type_name='Pet'",(TENANT,)).fetchone()==(0,)
+    assert admin.execute("select count(*) from ontology.nexloop_mutation_proposals").fetchone()==(0,)
