@@ -1,0 +1,29 @@
+{
+ "task": "NX-047",
+ "status_claim": "implementation checkpoint; scheduler decides",
+ "base_commit": "90daa7b5ea4e96b55ba428b651f221c31ed96395",
+ "migrations": [
+  "0078_nx047_outbound_messages.sql",
+  "0079_nx047_outbound_read_derivation.sql"
+ ],
+ "tests": [
+  {
+   "class": "test",
+   "command": "LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_outbound_messages_pg.py",
+   "first_result": "1 failed: nexloop_outbound_transition_allowed lacked owner/grant (permission denied inside definer); fixed",
+   "final": "4 passed in 24.54s"
+  },
+  {
+   "class": "test",
+   "command": "pytest -q -n 4 <51 effect/message/derivation/claim/grant/bootstrap test files> --junitxml=.ci-results/nx047-regression.xml",
+   "result": "520 passed, 3 failed in 378.76s; all 3 failures runtime_transport_unavailable (Pi runtime retry_wait under -n 4 load)"
+  },
+  {
+   "class": "test",
+   "command": "pytest -q -p no:xdist <the 3 failed tests>",
+   "result": "3 passed in 82.67s (serial rerun)"
+  }
+ ],
+ "prerequisite": "pnpm install --frozen-lockfile; pnpm --filter @nexloop/web build; pnpm build:pi; pnpm --filter @nexloop/agent-host build (agent-host dist required by e2e tests)",
+ "design_section": "docs/implementation/NX-047-agent-outbound-message-design.md §11"
+}

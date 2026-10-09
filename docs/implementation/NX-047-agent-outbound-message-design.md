@@ -130,3 +130,18 @@ L1 已实现（NX-018 §9）：带 `derivation='accepted-message-v1'` 的类型�
 - `Message.agent_create:1` 的 Action 定义与 executor 授权进入 NX-048 可信配置清单。
 - 是否允许 `withdrawn`（撤回未投递消息）进入 v0.1。
 - 依赖：L1 READ 派生迁移合入 main 后再实现 §6/§8.2。
+
+## 11. 实现说明（2026-10-09，与上文差异以本节为准）
+
+分支 `nx047-outbound`（基线 `dispatch/integration-s3f` 90daa7b）。调度员推荐的产品口径：首版只做 Agent 外发（人类接管→NX-028）；顾客视图不显示“处理中”占位；v0.1 不支持撤回（`withdrawn` 状态未实现）。
+
+1. **两阶段而不是“受理即建 Message 对象”**。外发意图受理时，同事务只写外发记录 `runtime.nexloop_outbound_messages`（`persisted`，含 intent/receipt/Run/触发消息/发送方/正文摘要），不分配会话序号、不建 Message 对象。渠道接受（`provider_accepted`/`delivered`）后，由外发记录服务以受治理 `Message.agent_create:1` 建 Message 对象，并以当时的下一个序号追加进会话流。原因：
+   - 受治理对象创建需要服务端签名的 Action 许可，受理事务内的调用者是 Run 凭据（allowed_resources 受限），不应让 Run 自己持有 Message 创建权；
+   - 若受理即占序号，顾客按序号游标增量读取时，迟到才可见的外发消息会落在游标之后而永远读不到。按“可见时分配序号”保证流顺序 = 顾客看到的顺序；
+   - “已持久化≠已送达”由外发记录 + 投递状态承担；失败/未知的回复保留为外发记录可审计，但从不成为可见 Message。
+2. **投递状态**只由账本触发器推进：`nexloop_effect_intents.state`、`nexloop_effect_attempts.state`、`nexloop_effect_observations.provider_state`（对账也写这些表）。逆向或非法转移在 `nexloop_outbound_advance` 中忽略、在表守卫触发器中拒绝；外发记录不可删除；受限角色无表与函数权限。
+3. **防自环**：物化只写 `conversation_messages`（record 增加 `direction/sender_kind/intent_id/trigger_message_id`），不写 `nexloop_message_inbox/outbox`。
+4. **READ 派生**（0079）：包装 0077 的 `nexloop_assert_derived_message_read`；非外发消息原样走 0077；外发消息要求已物化、渠道已接受、actor=外发记录发送方、序号与会话一致，其余规则（rule、Consumer READ、tenant/world、directory_hash、期限）同 0077。未改已发布迁移。
+5. **提取**：设计稿 §8.3 的“提取过滤迁移”不再需要——只有渠道已接受的外发消息才进入会话流，0069 feed 触发器与 0066 的 speaker 推导（actor≠owner→agent）原样生效。
+6. **授权清单**：`deploy/authorization/service-grants.v1.json` 新增 `outbound_message_recorder`（nexloop_api）与 `eios:action:Message.agent_create:1` execute。Action 定义本身随业务配置发布（测试中由可信配置 manifest 发布，复用 `Message.create` 的 Message 类型引用）。
+7. **未实现**：人类接管（§4.2，NX-028）、撤回、顾客视图“处理中”占位、Web 前端对 `direction` 的展示（后端已返回字段，前端解析会忽略未知字段，显示为普通消息）、外发记录服务的 CLI/常驻进程入口。
