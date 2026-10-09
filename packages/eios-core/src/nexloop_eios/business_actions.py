@@ -19,9 +19,9 @@ SCHEMA='nexloop-business-actions/1'
 TOP={'schema_version','manifest_version','decision','actions'}
 ACTION={'stable_name','version','object_type','capability_name','authority','risk_level','approval_mode','policy_refs',
     'idempotency_key_fields','target_systems','executor_role','purpose','source_task'}
-# Deployment may publish exactly these profiles. A service-executed create, or an Action whose
+# Deployment may publish exactly these profiles. A service-executed create or edit, or an Action whose
 # executor is the human owner only (SQL refuses every non-human principal for it).
-PROFILES={'ontology.object.create':'service','context.strategy.publish':'human_owner','context.audit':'human_owner'}
+PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','context.strategy.publish':'human_owner','context.audit':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
@@ -70,7 +70,7 @@ def compile_actions(manifest,*,tenant,created_by,created_at,object_types,capabil
     for name,snapshot in snapshots.items():
         if name not in PROFILES or snapshot.capability_name!=name or snapshot.kind is not CapabilityContractKind.ATOMIC or not snapshot.idempotent:
             raise BusinessActionsRejected('capability')
-        if name=='ontology.object.create' and not snapshot.has_side_effects:raise BusinessActionsRejected('capability')
+        if name in ('ontology.object.create','ontology.object.edit') and not snapshot.has_side_effects:raise BusinessActionsRejected('capability')
     schemas={(row['type_name'],row['version']):ObjectTypeDefinition.model_validate(row) for row in object_types}
     rows=[]
     for item in manifest['actions']:

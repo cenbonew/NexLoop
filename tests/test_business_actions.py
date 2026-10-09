@@ -21,8 +21,15 @@ def capability(name):
         'has_side_effects':True,'idempotent':True,'required_scopes':['action.execute'],'risk_level':'low'}))
 
 
+def consumer_type():
+    from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
+    return ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True,
+        properties=(PropertyDefinition(property_name='display_name',value_type=PropertyValueType.STRING),))
+
+
 def object_types():
-    return [s.model_dump(mode='json') for s in conversation_schemas()]+[context_strategy_object_type().model_dump(mode='json'),context_manifest_object_type().model_dump(mode='json')]
+    return ([s.model_dump(mode='json') for s in conversation_schemas()]+[context_strategy_object_type().model_dump(mode='json'),
+        context_manifest_object_type().model_dump(mode='json'),consumer_type().model_dump(mode='json')])
 
 
 def test_manifest_declares_service_create_and_human_owner_strategy_publication():
@@ -38,9 +45,13 @@ def test_manifest_declares_service_create_and_human_owner_strategy_publication()
 
 def test_compiles_both_profiles_with_explicit_snapshots():
     rows=BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
-        capabilities={'ontology.object.create':capability('ontology.object.create'),PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY)})
+        capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
+            PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY)})
     names={r['definition']['stable_name']:r for r in rows}
-    assert set(names)=={'Message.agent_create',PUBLISH_ACTION,AUDIT_ACTION}
+    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION}
+    edit=names['Consumer.edit']
+    assert edit['capability']['capability_name']=='ontology.object.edit' and edit['definition']['governance']['risk_level']=='low'
+    assert [t['stable_name'] for t in edit['definition']['object_types']]==['Consumer']
     assert [t['stable_name'] for t in names[AUDIT_ACTION]['definition']['object_types']]==['ContextManifest']
     publish=names[PUBLISH_ACTION]['definition']
     assert publish['capability_binding']['capability_name']==PUBLISH_CAPABILITY and publish['governance']['approval_mode']=='none'
@@ -75,3 +86,50 @@ def test_human_owner_actions_are_never_granted_to_service_principals():
     assert services<={p['role'] for p in GRANTS['principals']}
     assembler=[g for g in GRANTS['grants'] if g['principal']=='context_assembler']
     assert [(g['resource_id'],g['operations']) for g in assembler]==[('eios:action:nexloop.context.assemble:1',['execute'])]
+
+
+def test_edit_profile_requires_a_side_effecting_service_snapshot():
+    m=copy.deepcopy(MANIFEST);edit=next(a for a in m['actions'] if a['stable_name']=='Consumer.edit')
+    assert edit['authority']=='service' and edit['executor_role']=='claim_matcher'
+    grants={(g['principal'],g['resource_id']) for g in GRANTS['grants']}
+    assert ('claim_matcher','eios:action:Consumer.edit:1') in grants  # the executor already holds it (no new grant here)
+    edit['authority']='human_owner'
+    with pytest.raises(BA.BusinessActionsRejected):BA.validate(m)
+    quiet=capability('ontology.object.edit').model_copy(update={'has_side_effects':False})
+    with pytest.raises(BA.BusinessActionsRejected):
+        BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
+            capabilities={'ontology.object.edit':quiet},select=('Consumer.edit',))
+
+
+def test_deployment_actions_provide_both_type_action_capabilities(admin):
+    """Ruling 2: with only the business-actions manifest compiled into a tenant, a review-approved new type finds both
+    Capability snapshots (no type_action_capability_unavailable) and the SQL gates accept its canonical Actions."""
+    import uuid
+    from psycopg.types.json import Jsonb
+    from nexloop_eios.bootstrap import bootstrap
+    from nexloop_eios.review_actions import build_publication
+    bootstrap(admin);tenant='synthetic-a'
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(tenant,))
+    types=object_types()
+    for t in types:
+        admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',(tenant,t['type_name'],t['version'],Jsonb(t)))
+    rows=BA.compile_actions(MANIFEST,tenant=tenant,created_by='owner',created_at=datetime.now(UTC),object_types=types,
+        capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit')},
+        select=('Message.agent_create','Consumer.edit'))
+    for row in rows:
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
+            (tenant,'real',f"eios:action:{row['definition']['stable_name']}:{row['definition']['version']}",Jsonb(row['definition']),Jsonb(row['capability'])))
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)",(tenant,))
+        caps=admin.execute('select ontology.nexloop_review_type_action_capabilities(%s)',(tenant,)).fetchone()[0]
+        assert set(caps)=={'ontology.object.create','ontology.object.edit'}
+        cid=str(uuid.uuid4())
+        candidate={'tenant_id':tenant,'kind':'object_type','proposed':{'name':'pet','display_name':'宠物','description':''}}
+        admin.execute("""insert into ontology.nexloop_candidate_definitions(tenant_id,world,candidate_id,kind,dedupe_key,candidate,dependent_claims,status,merge_scores,config_version)
+            values(%s,'real',%s,'object_type',%s,%s,%s,'pending_review',%s,'test')""",(tenant,cid,'e'*64,Jsonb(candidate),['claim:'+'a'*64],
+            Jsonb({'lexical_similarity':0,'core_term_containment':0,'vector_cluster':0,'rule_whitelist':0,'weighted_total':0,'threshold':1,'config_version':'test'})))
+        publication=build_publication({'kind':'object_type','candidate':candidate,'type_action_capabilities':caps})
+        assert 'builder_failures' not in publication and len(publication['actions'])==2
+        gates=admin.execute("""select ontology.nexloop_review_publication_gates(%s,'real',d,%s) from ontology.nexloop_candidate_definitions d where candidate_id=%s""",
+            (tenant,Jsonb(publication),cid)).fetchone()[0]
+        assert gates==[]
