@@ -12,6 +12,7 @@
 | evolution-candidate.schema.json | 冻结的候选演进与评估输入；不能自携发布许可 |
 | candidate-definition.schema.json | ADR-019：未匹配到 Schema/实例的候选定义（类型/属性/词表值/别名/实例），只能暂存、粘合或进人工审核 |
 | review-decision.schema.json | ADR-019：人类审核决定（approve/merge_into/reject），reviewer 由服务端会话解析，审核是受治理人类 Action |
+| claim.schema.json | NX-019：从已持久化消息提取的带原文证据 Claim（候选知识，非正式对象）；提取器永不产出 verified_fact，隐性推断只能是 hypothesis |
 
 ## Schema之外必须实现的语义检查
 

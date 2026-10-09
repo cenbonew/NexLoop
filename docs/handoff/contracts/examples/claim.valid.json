@@ -1,0 +1,49 @@
+{
+  "claim_id": "9c032ec41af85448d9cc1fc1af16052c8c75bc5fea76324b9e170b6ce6c6ed7f",
+  "tenant_id": "synthetic-a",
+  "world_id": "real",
+  "conversation_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "consumer_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "topic_key": "fbe6f62ab47ea0d303f0582fd6bce53e529c86b6480d9fc3bf125c24acf3827d",
+  "subject": {
+    "kind": "consumer",
+    "ref": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "text": ""
+  },
+  "predicate": "续费意向",
+  "value": {
+    "type": "boolean",
+    "value": true
+  },
+  "speaker": "consumer",
+  "polarity": "affirmed",
+  "modality": "conditional",
+  "condition": "解决后",
+  "time_expression": "",
+  "valid_time": {
+    "expression": "",
+    "timezone": "Asia/Shanghai",
+    "anchor": "2026-10-08T02:00:00+00:00",
+    "kind": "none",
+    "status": "absent",
+    "start": null,
+    "end": null
+  },
+  "source": {
+    "message_id": "bb48d605fd0c289fda948edfe5dc11d77bf5c8423cdbcda4b3378c59f4d6eb66",
+    "sequence": 1,
+    "span_start": 19,
+    "span_end": 28,
+    "content_hash": "e6c86daf8dc1e93c924017a1f31ca5e408d736ee767a1bb9d0b7186eb3e1befa",
+    "quote": "解决后我再考虑续费"
+  },
+  "derived_from": [],
+  "corrects_claim_id": null,
+  "extractor_version": "nx019-extractor/2",
+  "confidence": 0.8,
+  "epistemic_kind": "intent",
+  "resolution_state": "unresolved",
+  "correlation_key": "707ddca7b9c60f8bab1c450e77b254ce435c2944b6440f162e1f39720f945f87",
+  "guard_flags": [],
+  "recorded_at": "2026-10-08T02:00:05+00:00"
+}

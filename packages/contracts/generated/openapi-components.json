@@ -623,6 +623,653 @@
           }
         ]
       },
+      "Claim": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:claim",
+        "title": "claim",
+        "description": "NX-019. One evidence-bound Claim extracted from persisted conversation Messages: candidate knowledge, never a formal business object. Identity, tenant, world, consumer and evidence are server-derived; extractors never produce verified_fact. Not an existing upstream API.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "world_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "consumer_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "topic_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "ref",
+              "text"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "consumer",
+                  "enterprise",
+                  "entity"
+                ]
+              },
+              "ref": {
+                "type": "string",
+                "description": "consumer: server-derived consumer object id; otherwise empty"
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "referent words present in the topic window, or empty"
+              }
+            },
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "consumer"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "ref": {
+                  "const": ""
+                }
+              }
+            }
+          },
+          "predicate": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "value": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "money",
+                  "none"
+                ]
+              },
+              "value": {}
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "string"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "number"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "boolean"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "money"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "amount",
+                        "currency"
+                      ],
+                      "properties": {
+                        "amount": {
+                          "type": "number"
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "none"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "speaker": {
+            "enum": [
+              "consumer",
+              "agent"
+            ]
+          },
+          "polarity": {
+            "enum": [
+              "affirmed",
+              "negated"
+            ]
+          },
+          "modality": {
+            "enum": [
+              "asserted",
+              "conditional",
+              "tentative",
+              "requested"
+            ]
+          },
+          "condition": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "verbatim condition clause; required when modality=conditional"
+          },
+          "time_expression": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "valid_time": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expression",
+              "kind",
+              "status",
+              "start",
+              "end",
+              "timezone",
+              "anchor"
+            ],
+            "properties": {
+              "expression": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "kind": {
+                "enum": [
+                  "none",
+                  "point",
+                  "interval",
+                  "deadline",
+                  "unparsed",
+                  "past_reference"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "absent",
+                  "resolved",
+                  "ambiguous",
+                  "unresolved"
+                ]
+              },
+              "granularity": {
+                "enum": [
+                  "minute",
+                  "hour",
+                  "day",
+                  "part_of_day",
+                  "am_pm_unspecified",
+                  "period",
+                  "month"
+                ]
+              },
+              "start": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "end": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "latest_bound_window": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "IANA tenant timezone"
+              },
+              "anchor": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$",
+                "description": "server acceptance time of the cited Message"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "absent",
+                        "unresolved"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "start": {
+                      "type": "null"
+                    },
+                    "end": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "start": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    "end": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "message_id",
+                  "sequence",
+                  "span_start",
+                  "span_end",
+                  "content_hash",
+                  "quote"
+                ],
+                "properties": {
+                  "message_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "span_start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Unicode code point offset into the Message body"
+                  },
+                  "span_end": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "content_hash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "description": "sha256 of the full Message body (UTF-8)"
+                  },
+                  "quote": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "derived_from": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "uniqueItems": true,
+            "maxItems": 256
+          },
+          "corrects_claim_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "extractor_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "extractor self-estimate, not calibrated"
+          },
+          "epistemic_kind": {
+            "enum": [
+              "user_statement",
+              "verified_fact",
+              "preference",
+              "constraint",
+              "intent",
+              "need_problem",
+              "commitment",
+              "hypothesis",
+              "correction"
+            ]
+          },
+          "resolution_state": {
+            "enum": [
+              "unresolved",
+              "hypothesis_only",
+              "needs_resolution",
+              "awaiting_definition",
+              "rejected_definition",
+              "resolved",
+              "superseded"
+            ]
+          },
+          "correlation_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "same consumer+kind+predicate+normalized value+polarity; links repeats, never deduplicates"
+          },
+          "guard_flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "uniqueItems": true,
+            "maxItems": 64
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+          }
+        },
+        "required": [
+          "claim_id",
+          "tenant_id",
+          "world_id",
+          "conversation_id",
+          "consumer_id",
+          "topic_key",
+          "subject",
+          "predicate",
+          "value",
+          "speaker",
+          "polarity",
+          "modality",
+          "condition",
+          "time_expression",
+          "valid_time",
+          "source",
+          "derived_from",
+          "corrects_claim_id",
+          "extractor_version",
+          "confidence",
+          "epistemic_kind",
+          "resolution_state",
+          "correlation_key",
+          "guard_flags",
+          "recorded_at"
+        ],
+        "allOf": [
+          {
+            "description": "extractors never produce verified_fact; only verification channels may, outside this contract",
+            "properties": {
+              "epistemic_kind": {
+                "not": {
+                  "const": "verified_fact"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "epistemic_kind": {
+                  "const": "hypothesis"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "resolution_state": {
+                  "enum": [
+                    "hypothesis_only",
+                    "superseded"
+                  ]
+                }
+              },
+              "anyOf": [
+                {
+                  "properties": {
+                    "source": {
+                      "type": "object"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "derived_from": {
+                      "minItems": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "else": {
+              "properties": {
+                "source": {
+                  "type": "object"
+                },
+                "derived_from": {
+                  "maxItems": 0
+                },
+                "resolution_state": {
+                  "not": {
+                    "const": "hypothesis_only"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "const": "conditional"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "condition": {
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "corrects_claim_id": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "epistemic_kind": {
+                  "const": "correction"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "speaker": {
+                  "const": "agent"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "epistemic_kind": {
+                  "enum": [
+                    "commitment",
+                    "hypothesis"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "speaker": {
+                  "const": "consumer"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "epistemic_kind": {
+                  "not": {
+                    "const": "commitment"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
       "ContextManifest": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:context-manifest",
@@ -1787,6 +2434,7 @@
   "x-canonical-source-sha256": {
     "action-intent.schema.json": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90",
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
+    "claim.schema.json": "dbb4683b5f18d6d3dd1c5fcacc3dd76277be5290ccb410e92591459a4e0101c7",
     "context-manifest.schema.json": "19169b0f27a8ac5599573032fba4f2dff50f552a26f3ed2dcf9b501f28534ad2",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",

@@ -29,8 +29,8 @@
     },
     {
       "path": "contracts/README.md",
-      "bytes": 3400,
-      "sha256": "c00b9d3c749d3b5843e357767baa7c6225ee2e68a168df7924830061a674b127"
+      "bytes": 3594,
+      "sha256": "1c5fad16e4cf1fdc0b6b2285a5dfb17f8d0744fd06f89c07d70aad014adbb1a8"
     },
     {
       "path": "contracts/action-intent.schema.json",
@@ -41,6 +41,11 @@
       "path": "contracts/candidate-definition.schema.json",
       "bytes": 9161,
       "sha256": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f"
+    },
+    {
+      "path": "contracts/claim.schema.json",
+      "bytes": 14268,
+      "sha256": "dbb4683b5f18d6d3dd1c5fcacc3dd76277be5290ccb410e92591459a4e0101c7"
     },
     {
       "path": "contracts/context-manifest.schema.json",
@@ -66,6 +71,11 @@
       "path": "contracts/examples/candidate-definition.valid.json",
       "bytes": 1545,
       "sha256": "1abdc1c0167b5a838a8ffe6f45f85455a5730c8deb0572f007320c9c6eafae18"
+    },
+    {
+      "path": "contracts/examples/claim.valid.json",
+      "bytes": 1590,
+      "sha256": "80c32b34a25ce1c0363de6e0ad77c0af9d1e094c79e6716682262ad6ff537545"
     },
     {
       "path": "contracts/examples/context-manifest.valid.json",
@@ -298,5 +308,5 @@
       "sha256": "e474d7b576981d5bae0b8ffdc13ce19a25fd6f7d3e7dba833e5737acccd31885"
     }
   ],
-  "file_count_excluding_manifest": 58
+  "file_count_excluding_manifest": 60
 }
