@@ -124,7 +124,7 @@ def test_concurrent_requests_have_isolated_memos(published_action):
             with authority_request_scope():
                 memo=A._REQUEST_MEMO.get();barrier.wait(5)
                 for _ in range(10):assert allowed(pool,session)
-                seen[name]=(id(memo),len(memo))
+                seen[name]=(id(memo),sum(1 for key in memo if key[0]!='identity-fact'))  # decision entries only
                 barrier.wait(5)
         except Exception as error:errors.append(error)
     threads=[threading.Thread(target=run,args=(n,)) for n in ('run-a','run-b')]
