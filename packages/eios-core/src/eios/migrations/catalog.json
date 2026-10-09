@@ -435,6 +435,21 @@
       "version": "0087",
       "name": "0087_nx018_role_policy_context_v5.sql",
       "sha256": "de2bffcad89a6c4dfdf952966e948dcda72078233965105f3eb533c4fe997d1c"
+    },
+    {
+      "version": "0088",
+      "name": "0088_nx023_context_strategies.sql",
+      "sha256": "f4f7811d68c87de0d74f682ae227c083fca239aec6b705025a4d3966862b3c11"
+    },
+    {
+      "version": "0089",
+      "name": "0089_nx023_context_manifests.sql",
+      "sha256": "5aa2e290d23d5462c74acc09cbd170656834865578bdcd490d5a9d015585056f"
+    },
+    {
+      "version": "0090",
+      "name": "0090_nx023_context_reads.sql",
+      "sha256": "173d69668db224fabb4f17b77e2a6583b77ed0aef460f229c9f77b8a5e55637e"
     }
   ]
 }
