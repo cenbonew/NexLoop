@@ -181,13 +181,13 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 
 - 嵌套授权证明复用外层请求的连接（把当前事务连接传入 `_authority`/`open_unit_of_work`，或 O2 在外层事务内批量判定），从根本上去掉"每请求两个连接"，届时容量可回到 `pool_max_size`。
 - 同一 Run 并发 guard 在 0039 `nexloop-runtime-execution:<run>` advisory 锁与行锁之间的锁序循环（PostgreSQL 检测并中止一方，结果正确、可重试）：统一锁序。
-## 第 3 步阶段 B：调度期 Role 策略重查（临时 0082）
+## 第 3 步阶段 B：调度期 Role 策略重查（临时 0084；0082 为 L2 NX-044，0083 为 grants_follow_latest）
 
 基线 `dispatch/integration-s3h` 后的 `23332dc`（0081 为本线阶段 A，0079/0080 为 NX-047）。分支 `nx018-phase-b`；另有待批准分支 `nx018-pool-cap`（见下）。
 
 ### 实现
 
-- `0082_nx018_role_policy_dispatch.sql`：候选 `nexloop_role_policy_claims_current` + activation（resolve/create 以外）/ effect_intent / effect_execution（admit/finalize）三个外层 wrapper，私有 alias `*_before_role_policy_v0081`。三个 public 函数的 ACL 在基线上查询 `proacl` 后逐一保持（activation: api/domain_worker/scheduler；intent: api/domain_worker；execution: action_worker；候选给 execution 多授了 api，已去掉）。
+- `0084_nx018_role_policy_dispatch.sql`（曾为临时 0082/0083）：候选 `nexloop_role_policy_claims_current` + activation（resolve/create 以外）/ effect_intent / effect_execution（admit/finalize）三个外层 wrapper，私有 alias `*_before_role_policy_v0081`。三个 public 函数的 ACL 在基线上查询 `proacl` 后逐一保持（activation: api/domain_worker/scheduler；intent: api/domain_worker；execution: action_worker；候选给 execution 多授了 api，已去掉）。
 - 与候选不同：
   1. 内层调用之后只做 `nexloop_role_policy_claims_tail`（期限 + submit 时的 effect_units 计数），不再第二次完整校验：前置完整校验在同一事务里已对 Ceiling/Scope/Role/Link/Step 行和全部 READ 授权事实持有 FOR SHARE，并发 EDIT/撤权在本事务结束前无法提交。
   2. 不升级策略行锁（候选在 submit 路径 FOR UPDATE，而同事务的 guard 先持 FOR SHARE）；Role 提交在进入内层前先取 Run 级 advisory 锁 `nexloop-role-effect:<run>` 串行计数。实测候选写法在 8 路并发同 Run 提交时出现 PostgreSQL deadlock。
