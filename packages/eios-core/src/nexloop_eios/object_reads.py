@@ -16,7 +16,18 @@ class AuthorizedObjectReader:
     def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
 
     def _authority(self,kind,name,operation=Operation.READ):
-        """Configured EIOS proof; a denied service OBJECT/PROPERTY READ/EDIT may fall back to the governed type derivation."""
+        """Configured EIOS proof; a denied service OBJECT/PROPERTY READ/EDIT may fall back to the governed type derivation.
+
+        Message/Conversation READ first asks SQL for the accepted-Message derivation
+        (0077/0080/0086); SQL answers "configured" whenever this principal has configured
+        grants on the target, so configured authority keeps precedence.
+        """
+        if operation is Operation.READ and kind in (ResourceType.OBJECT,ResourceType.PROPERTY) and (name.startswith('Message/') or name.startswith('Conversation/')):
+            if getattr(self,'_evidence',None) is None:
+                from nexloop_eios.message_read import DerivedEvidenceReads
+                self._evidence=DerivedEvidenceReads(self)
+            derived=self._evidence.claim(resource_id(kind,name))
+            if derived is not None:return derived
         try:return self._configured(kind,name,operation)
         except (ActionAuthorizationDenied,F.AuthorizationFactDenied,AuthorizationUnavailable) as denied:
             try:derived=self._derived(kind,name,operation)
@@ -50,14 +61,6 @@ class AuthorizedObjectReader:
                 or len(fields)>64 or any(type(f) is not str or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*',f) for f in fields)):
             raise ValueError('invalid object projection')
         fields=tuple(sorted(set(fields)))
-        if type_name=='Message' and fields and set(fields)<={'actor','body'}:
-            from nexloop_eios.message_read import message_read_basis,derived_message_read_envelope
-            basis=message_read_basis(self.pool,self.session,object_id)
-            if basis.get('mode')=='derived':
-                envelope=derived_message_read_envelope(self.pool,self.session,self.signer,object_id,basis,fields)
-                with self.pool.connection() as c,c.transaction():
-                    verify_application_role(c)
-                    return c.execute('select authz.nexloop_read_object(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,envelope['text'],envelope['signature'])).fetchone()[0]
         claims=self._authority(ResourceType.OBJECT,f'{type_name}/{object_id}')
         claims.update(protocol='nexloop-object-read-v1',key_id=self.signer.key_id,type_name=type_name,object_id=object_id,
             fields=fields,property_authorities=[self._authority(ResourceType.PROPERTY,f'{type_name}/{object_id}/{f}') for f in fields])

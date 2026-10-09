@@ -425,6 +425,11 @@
       "version": "0085",
       "name": "0085_nx018_role_policy_dispatch.sql",
       "sha256": "bbad04498dc5d98e6d3b1d245d7c2712e9622f6d7b6574cf7eeba54e6cf2753d"
+    },
+    {
+      "version": "0086",
+      "name": "0086_nx018_evidence_read_derivation.sql",
+      "sha256": "240328e24daafe5a5be870dd3f941bfa8d92cab7429f78696ae8d4c8655514f4"
     }
   ]
 }
