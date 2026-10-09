@@ -190,35 +190,59 @@ def test_eight_concurrent_requests_complete_on_pool_of_four(role_runtime_plan, a
     assert all(d['sqlstate'] == '55P03' and d['stage'] == 'run_lock' and d['retryable'] for d in diagnoses()), diagnoses()
 
 
-def test_lease_lapsing_mid_burst_fails_closed_with_operator_diagnosis(role_runtime_plan, admin):
-    """The s3n CI signature (3 ok + 1 Unavailable, no BackendBusy) reproduced on purpose:
-    the task lease lapses while same-Run submits are serialized. The late caller fails
-    closed at the final recheck; the diagnosis names the deadline, the wire stays generic."""
+def test_lease_lapse_fails_closed_with_operator_diagnosis(role_runtime_plan, admin):
+    """Deterministic, no timing race: a submit succeeds on a valid task lease (exactly one
+    intent); after the lease lapses every submit, single or a concurrent burst, fails closed
+    with a non-retryable diagnosis, no BackendBusy, and the one intent stays the only one."""
     from nexloop_eios.effect_intents import EffectIntentUnavailable
     plan = role_runtime_plan; run = plan['commands'][0]['run_id']
     def lapse(seconds):
         # Disposable fault injection on the task lease (the Worker's heartbeat stops).
         assert admin.execute("update runtime.jobs set lease_until=clock_timestamp()+make_interval(secs=>%s) where status='running' and "
                              "normalized_input->'run_command'->>'run_id'=%s returning job_id", (seconds, run)).fetchall()
-    def submit():
-        services = plan['backend_worker'].authenticate(plan['worker_token'], world='real')
+    def submit(services=None):
+        services = services or plan['backend_worker'].authenticate(plan['worker_token'], world='real')
         return services.runtime_effect_tool(activation_ref=plan['activations'][0], command=plan['commands'][0], tool_operation='submit',
                                             parameters={'message': 'one business intent'})
+    intents = lambda: admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone()[0]
+    renew_leases(plan)
+    assert submit()['receipt']['intent_id'] and intents() == 1
     lapse(-1)
     with pytest.raises(EffectIntentUnavailable) as caught:submit()
     error = caught.value
     assert str(error) == 'effect intent unavailable' and error.args == ('effect intent unavailable',)
-    assert error.diagnosis == {'cause': 'InsufficientPrivilege', 'sqlstate': '42501', 'reason': 'activation denied', 'stage': 'resolve',
-                               'retryable': False, 'elapsed_ms': error.diagnosis['elapsed_ms']}
-    lapse(1.5); DIAGNOSED.clear()
-    outcomes, _ = run_threads([submit] * 4)
-    assert 'BackendBusy' not in outcomes and set(outcomes) <= {'ok', 'EffectIntentUnavailable'}, outcomes
-    for diagnosis in diagnoses():
-        assert diagnosis['sqlstate'] == '42501' and diagnosis['cause'] == 'InsufficientPrivilege', diagnosis
-        assert diagnosis.get('deadline_exceeded') is True or diagnosis['reason'] == 'activation denied', diagnosis
-        assert diagnosis['retryable'] is False, diagnosis  # a passed deadline is never retried
-    assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone()[0] <= 1
-    assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone() == (1,)
+    expected = {'cause': 'InsufficientPrivilege', 'sqlstate': '42501', 'reason': 'activation denied', 'stage': 'resolve', 'retryable': False}
+    assert {k: v for k, v in error.diagnosis.items() if k != 'elapsed_ms'} == expected, error.diagnosis
+    # Callers authenticate first (not part of the burst); each burst request fails fast at
+    # resolve, far inside the capacity wait budget.
+    callers = [plan['backend_worker'].authenticate(plan['worker_token'], world='real') for _ in range(4)]
+    DIAGNOSED.clear()
+    outcomes, _ = run_threads([lambda services=services: submit(services) for services in callers])
+    assert outcomes == ['EffectIntentUnavailable'] * 4, outcomes
+    assert len(diagnoses()) == 4 and all({k: v for k, v in d.items() if k != 'elapsed_ms'} == expected for d in diagnoses()), diagnoses()
+    assert intents() == 1
+
+
+def test_unavailable_diagnosis_classifies_deadline_and_transient_causes(admin):
+    """The classifier behind retryable/deadline_exceeded, on real PG errors (no timing)."""
+    import psycopg
+    from datetime import UTC, datetime, timedelta
+    from nexloop_eios.effect_intents import unavailable
+    def pg_error(message, code):
+        try:
+            with admin.transaction():
+                admin.execute("do $$begin raise exception '%s' using errcode='%s';end$$" % (message, code))
+        except psycopg.Error as error:return error
+    future = datetime.now(UTC) + timedelta(minutes=5); past = datetime.now(UTC) - timedelta(seconds=1)
+    lease = unavailable(pg_error('activation lease denied', '42501'), stage='guard_after', deadline=future).diagnosis
+    assert lease['deadline_exceeded'] is True and lease['retryable'] is False and lease['reason'] == 'activation lease denied'
+    wait = unavailable(pg_error('lock timeout', '55P03'), stage='run_lock', deadline=future).diagnosis
+    assert wait['retryable'] is True and wait['deadline_exceeded'] is False and wait['reason'] is None
+    late = unavailable(pg_error('lock timeout', '55P03'), stage='run_lock', deadline=past).diagnosis
+    assert late['retryable'] is False and late['deadline_exceeded'] is True
+    # Unlisted SQL text never reaches the diagnosis.
+    other = unavailable(pg_error('tenant x secret detail', '42501'), stage='intent').diagnosis
+    assert other['reason'] is None and other['retryable'] is False
 
 
 def test_request_waiting_for_capacity_still_meets_final_deadline(role_runtime_plan, admin):

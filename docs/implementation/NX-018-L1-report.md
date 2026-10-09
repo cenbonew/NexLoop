@@ -330,3 +330,20 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
   两者都不会被重试。另外，两项并发测试在突发前续租 180 s（`renew_leases`，等价于生产中 Worker 的心跳），使任务租约覆盖测试自身 150 s 的时间上限；fixture 原有的 60 s 租约比这个上限短。
 - 修复后同条件两轮：**12/12 passed（122.75 s）、12/12 passed（128.36 s）**；期间分别有 8 次、15 次 55P03 重试，全部成功。
 - 回归（48 个相关文件，6 worker）：首轮 322 passed / 36 failed。失败全部是环境原因：shell 没有 `nvm use 24`，Node v20 报 `ERR_UNKNOWN_BUILTIN_MODULE`。切到 Node 24 后，失败的 18 个文件重跑 **96 passed**。定向（pool_depth 插件，串行）：容量 / dispatch / bridge / guard transport / host admission / offering runtime。其中 host admission 首次 3 项失败，原因是切分支后 agent-host 构建过期，重建后 4 passed；其余 65 passed。
+
+### s3p：`test_lease_lapsing_mid_burst…` 确定性失败（分支 `nx018-lease-test-fix`，基于 `nx018-observe`）
+- 首次失败：sice run `20261009T124908Z-ce111f6d86b9`，串行复跑 2/2 失败。原因是测试的末尾残留了一条 `意图数 == 1` 的断言（上一行已是 `<= 1`）。它依赖时序：`lapse(1.5)` 之后，4 个提交中必须至少有 1 个在 1.5 s 内完成。慢机上一个都赶不上，意图数为 0。产品行为正确：租约过期后 fail-closed，没有产生意图。
+- 改写（不调大秒数，不依赖时序）：`test_lease_lapse_fails_closed_with_operator_diagnosis`
+  1. 续租后单次提交成功，恰 1 个意图；
+  2. 租约置为过期后，单次提交 → 诊断逐项等于 `{InsufficientPrivilege, 42501, 'activation denied', 'resolve', retryable=False}`，消息保持通用；
+  3. 仍过期时并发 4 次（先认证，突发只含提交）→ 4 个都是 `EffectIntentUnavailable`，4 条诊断与上一步相同，没有 `BackendBusy`，意图数仍为 1。
+- “执行中途过期”分支原先依赖时序，改为确定性单测 `test_unavailable_diagnosis_classifies_deadline_and_transient_causes`，用真实 PG 抛出的错误验证分类器：
+  - `activation lease denied` → `deadline_exceeded=True`、不可重试；
+  - 55P03 在期限内 → 可重试；
+  - 55P03 在期限已过时 → 不可重试；
+  - 白名单外的 SQL 文本不进入诊断。
+
+  锁等待之后最终期限照旧由 `test_request_waiting_for_capacity_still_meets_final_deadline` 覆盖。
+- 本机加压（12 个忙循环）：
+  - 两项新测试串行两轮：2 passed（25.09 s）、2 passed（24.73 s）；
+  - `test_backend_lifecycle_capacity.py` 与 `test_role_policy_dispatch.py` 用 6 个 worker 并行两轮：22 passed（124.25 s）、22 passed（131.29 s）。
