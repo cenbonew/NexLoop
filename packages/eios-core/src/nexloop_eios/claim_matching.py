@@ -36,7 +36,7 @@ from eios.authz.service import AuthorizationDecisionService
 from eios.identity.models import SubjectKind
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 from nexloop_eios.assembly import verify_application_role
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority,authority_request_scoped
 from nexloop_eios.claim_store import ConversationClaimExtractor
 from nexloop_eios.object_actions import GovernedObjectCreator
 from nexloop_eios.object_edits import GovernedObjectEditor
@@ -157,7 +157,7 @@ class _Port:
     def _claims(self,body):
         target=resource_id(ResourceType.ACTION,MATCH_ACTION,1);entries=[]
         query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+        decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))
         if not decision.allowed or not decision.authoritative or decision.obligations:raise PermissionError('claim match denied')
         auth=self.session.authentication
         claims={'protocol':'nexloop-claim-match-v1','key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
@@ -237,6 +237,7 @@ class ClaimMatcher:
             results[claim['claim_id']]=self.match_claim(claim)
         return results
 
+    @authority_request_scoped
     def match_claim(self,claim,*,matcher_version=MATCHER_VERSION,provider=None):
         """provider/matcher_version override: NX-045 re-matches a merged Claim with a deterministic decision under its own version."""
         existing=self.port.read({'verb':'match','claim_id':claim['claim_id'],'matcher_version':matcher_version})
@@ -422,6 +423,7 @@ class ClaimMatcher:
         applied={pid:self.apply(pid) for pid in sorted({m['proposal_id'] for m in matches.values() if m.get('proposal_id')})}
         return {'matches':matches,'applied':applied}
 
+    @authority_request_scoped
     def apply(self,proposal_id):
         """proposed/conflict → applying → applied | conflict (reassess) | superseded | rejected."""
         for _ in range(self.configuration.max_reassess+1):

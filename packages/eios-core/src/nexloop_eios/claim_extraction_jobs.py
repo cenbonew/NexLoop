@@ -16,7 +16,7 @@ from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
 from nexloop_eios.assembly import verify_application_role
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority,authority_request_scoped
 from nexloop_eios.claim_store import EXTRACT_ACTION,ClaimExtractionDenied,ConversationClaimExtractor
 from nexloop_eios.conversation_extraction import ExtractionProviderUnavailable,ExtractionRejected
 from nexloop_eios.durable_queue import PostgresDurableQueue
@@ -40,7 +40,7 @@ class ClaimFeed:
     def _signed(self,verb,**parameters):
         target=resource_id(ResourceType.ACTION,EXTRACT_ACTION,1);entries=[]
         query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+        decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))
         if not decision.allowed or not decision.authoritative or decision.obligations:raise ClaimExtractionDenied()
         body=canonical_payload({'verb':verb,**parameters});auth=self.session.authentication
         claims={'protocol':'nexloop-claim-feed-v1','key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
@@ -66,6 +66,7 @@ class ClaimExtractionScheduler:
         self.queue=PostgresDurableQueue(pool,session,signer,queue=QUEUE)
         self.quiet_seconds,self.window,self.max_attempts=quiet_seconds,window,max_attempts
 
+    @authority_request_scoped
     def run_once(self,*,limit=20):
         """Enqueue due windows. Crash between accept and mark is safe: the same
         (conversation, through_sequence) event replays to the same task."""
@@ -85,6 +86,7 @@ class ClaimExtractionWorker:
         self.extractor=ConversationClaimExtractor(pool,session,signer,provider,timezone=timezone)
         self.lease_seconds,self.retry_base_seconds=lease_seconds,retry_base_seconds
 
+    @authority_request_scoped
     def run_once(self):
         item=self.queue.claim(lease_seconds=self.lease_seconds)
         if item is None:return 'idle'

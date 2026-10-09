@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import hashlib
 import contextvars
+import functools
 import json
 import secrets
 import threading
@@ -245,6 +246,15 @@ def authority_request_scope():
         yield
     finally:
         _REQUEST_MEMO.reset(token)
+
+
+def authority_request_scoped(method):
+    """Decorator: one background unit of work (job/claim/window) is one request scope."""
+    @functools.wraps(method)
+    def scoped(*args, **kwargs):
+        with authority_request_scope():
+            return method(*args, **kwargs)
+    return scoped
 
 
 def _memo_key(session, query):

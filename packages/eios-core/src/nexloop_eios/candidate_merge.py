@@ -32,7 +32,7 @@ from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
 from nexloop_eios.assembly import verify_application_role
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority,authority_request_scoped
 from nexloop_eios.claim_matching import MATCHER_VERSION,ScriptedMatchProvider,_Port
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.recall import vocabulary_ref
@@ -241,6 +241,7 @@ class CandidateGluer:
             **({'best_match_ref':best_ref} if best_ref else {}),'threshold':float(config['merge_threshold']),'config_version':config['config_version']}
 
     # -------------------------------------------------------------- process
+    @authority_request_scoped
     def process(self,candidate_id):
         config=self._read({'verb':'configuration'})
         if not config:raise LookupError('no active merge configuration')
@@ -368,7 +369,7 @@ class ReviewQueueReader:
         target=resource_id(ResourceType.ACTION,REVIEW_ACTION,1);entries=[]
         try:
             query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-            decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+            decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))
         except Exception:raise PermissionError('review permission unavailable') from None
         if not decision.allowed or not decision.authoritative or decision.obligations:raise PermissionError('review queue denied')
         auth=self.session.authentication
