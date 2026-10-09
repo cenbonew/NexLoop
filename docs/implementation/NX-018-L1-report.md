@@ -1,6 +1,6 @@
 # NX-018 开发线 L1 报告
 
-BASE_SHA `f58f3ee35ba0296271a5d0498693d474d220d801`（分支 claude/nx018-finish-997fcd）。迁移使用临时编号，调度员合并时重编号。本报告只登记本线实际执行的定向测试；不是全量 CI，不改变 planning 状态。
+BASE_SHA `f58f3ee35ba0296271a5d0498693d474d220d801`，按调度员要求已 rebase 到 `dispatch/integration-s3b`（`ccdd33d`，迁移至 0070）（分支 claude/nx018-finish-997fcd）。迁移临时编号：第 1 步 0071（原 0066），第 2 步 0072（原 0067），Message READ 派生 0073。下文第 1、2 步正文中的 0066/0067 即现在的 0071/0072。迁移使用临时编号，调度员合并时重编号。本报告只登记本线实际执行的定向测试；不是全量 CI，不改变 planning 状态。
 
 环境：macOS arm64，Node v24.13.0，Python 3.12.10（uv），Homebrew PostgreSQL 18.4。**本会话 shell 缺省 LANG/LC_ALL 为空，PG18 拒绝启动**（`postmaster became multithreaded during startup`），所有命令前需 `export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8`。
 
@@ -46,9 +46,32 @@ PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_boo
 
 建议方案（需调度员/负责人决定）：降低每次 guard 的授权成本而不是放宽 deadline——(a) 授权事实解析在一个只读事务内批量加载同一 Source 的多个 resource（现在每个 `_authority` 独立连接与事务）；(b) 第二次（后置）guard 只复核 SQL 尾检所需最小集合；(c) 或由负责人基于实测确认工具 HTTP 预算。
 
-## main f58f3ee 回归（调度员指派）
+## main f58f3ee 21 个回归（调度员指派，负责人选定方案 B）
 
-21 例统一根因：`c6e5065`（0062）要求 Source 对 `Message/<id>` 的当前 READ，但没有任何生产路径为新受理 Message 发布授权事实（只能可信配置写入）。实证：`test_message_relay.py::test_independent_cli_governed_assignment_and_persist_before_ack` 在 `045c93f` 1 passed / 5.08s，在 `c6e5065` failed / 3.66s。本线未修复（调度员否决只改夹具的方案 A）；方案 B 设计稿见 `docs/implementation/NX-018-message-read-derivation.md`，等待负责人决定。本线回归运行中这 21 例里出现的 8 例仍失败，其余 13 例本线未单独运行。
+先在 rebase 后分支上复跑 21 例：**21 failed / 120.37s**（`.ci-results/l1-r21-before.xml`）。按错误签名分组后，在独立 scratch worktree 对 045c93f(0061)/c6e5065(0062)/02d921c(0063)/24ec99f(0064)/75ff5da(0065) 逐一定位引入点——21 例并非同一根因：
+
+| 组 | 例数 | 引入 | 根因（一句话） | 修复路径 |
+|---|---|---|---|---|
+| message_relay | 7 | 0062 | Context 生成要求 Source 当前 Message READ，但没有生产路径为新受理 Message 发布授权事实 | 0073 派生（Source 静态配置规则 + Consumer READ，`message_offering_fixture`） |
+| local_message_delivery_assembly / message_driven_delivery / native_web_delivery | 3 | 0062 | 同上 | 0073 派生 |
+| offering_runtime_pg | 6 | 0062 | `context_message` 夹具每条消息重发可信配置（`configure_message_read`）推进 epoch，catalog editor 会话 `service credential binding is stale` | 0073 派生；夹具去掉逐消息配置，Source 静态配置规则 + Consumer READ |
+| effect_dispatch / effect_worker_cli / local_effect_worker_kill | 3 | 0065 | ① CLI Effect Worker 的 ledger 代理白名单漏了 0065 新增的 `record_effect_query_observation`，reconcile 阶段恒为 AttributeError→`record_unavailable`（产品缺陷）；② `effect_execution_fixture` 缺 0065 的独立 `receipt_reconcile` Action 定义与 executor 授权 | `effect_worker.py` 白名单补一项；夹具补 Action 与 executor 授权；`test_query_only_after_revoke…` 显式撤销 executor recovery 授权以保留"无 recovery 授权只观测"语义；故障注入例 status 期望由 `record_unavailable` 改为 0065 两段式的 `observed_fulfilled`（其余断言不变，且对照证明故障确实命中） |
+| context_mode_configuration[extra2] | 1 | 0063 | 用例断言 Host 拒绝 `context-pack.v3`，而 0063 已把 v3 作为受支持 wire | 用例改为未知协议 v9 仍被拒（v3/v4 为受支持 wire） |
+| scope_denials real Pi | 1 | 早于 0061（045c93f 已失败） | 被拒 submit 在 guard 内回滚后 `record_runtime_scope_denial` 重新生成全部签名 envelope，耗时 1.92–1.94s，贴 2s 工具 deadline，时过时不过 | 请求内 envelope 复用覆盖整个 `effect_tool`（含拒绝记录），实测 1.41–1.63s；未改 timeout |
+
+最终（同一工作树，广回归 82 个测试文件串行）：**21/21 passed**，见 `.ci-results/l1-broad.xml`。每例路径：message_relay 7 + 投递 3 + offering 6 = 16 例走 **派生**；effect 3、context_mode 1、scope_denials 1 = 5 例与 Message READ 无关。保留可信配置 `configure_message_read` 的只有本意测试"已配置 Message READ 的撤权"（`test_context_source_read_reproduction` 全部 11 例，现在先配置再撤，同时验证撤掉的已配置授权不会被派生复活）以及 v4 关系测试中的人类更正消息（v4 读取尚未切到派生）。
+
+方案 B 实现：`0073_nx018_message_read_derivation.sql`、`nexloop_eios/message_read.py`，设计与实现差异见 `docs/implementation/NX-018-message-read-derivation.md` 第 9、10 节。新增 `tests/test_message_read_derivation.py` **13 passed / 34.89s**：正向（无任何 per-Message 授权事实、epoch 不变、Context 生成走派生）、他租户、他 world（参数与签名声明两种）、未受理、已删除、Consumer READ 撤权、规则停用、规则过期（三者走受治理发布路径）、会话改属其他 Consumer、越界字段/伪造 facts/超规则期限/伪造 Consumer 依据。未覆盖：Run 凭据不派生（实现于 basis，无专门测试）。
+
+广回归命令与结果：
+
+```sh
+export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8; source ~/.nvm/nvm.sh && nvm use 24
+PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q -p no:xdist <82 个 message|context|relationship|role_|receipt|effect|delivery|scope|offering|assessment|claim|backend|runtime_|bootstrap|identity|conversation|native_web|trusted_configuration 测试文件> --junitxml=.ci-results/l1-broad.xml
+pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**'
+```
+
+**1031 passed / 1 failed / 2254.82s**；唯一失败为已知的 `test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]`（2s guard deadline 时序，见第 2 步）。Host vitest 141 passed。
 
 ## 第 3 步：Role 权限上限与 scope 强制——未开始实现
 
