@@ -1,0 +1,18 @@
+{
+  "task": "NX-048",
+  "branch": "nx048-grants",
+  "base_sha": "b8d5d514da73ea523099383236cab5763d6ad912",
+  "status_claim": "candidate; not claimed done",
+  "migration": {"temporary_version": "0071", "file": "packages/eios-core/src/eios/migrations/0071_nx048_service_grant_inventory.sql", "sha256": "2bf3018205fa361d76c021d79490c3d1bb730a1bf4057c4fce88be127baea525", "published_0001_0070_changed": false},
+  "manifest": {"file": "deploy/authorization/service-grants.v1.json", "sha256": "4fe93b47d15ac2bf44bb3f6ce2848069d4779c7fd098da7c335e2b3460d41a33"},
+  "commands": [
+    {"command": "LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_service_grants_pg.py tests/test_bootstrap.py --junitxml=.ci-results/nx048-grants.xml", "result": "17 passed, 0 skipped, 8.29s", "report_sha256": "55123b747686ac4eb99afb0b4715401a0a65ed1053ec8182ca2022a5bcb035e6"},
+    {"command": "LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_trusted_configuration.py tests/test_trusted_configuration_pg.py tests/test_claim_extraction_jobs_pg.py tests/test_claim_matching_pg.py tests/test_durable_queue.py --junitxml=.ci-results/nx048-neighbors.xml", "result": "73 passed, 0 skipped, 73.55s", "report_sha256": "2f3f0047739602d75eecb3477be2a6d5d7e96c30359d1f1e5a7649eeb85913a7"}
+  ],
+  "first_failures_retained": [
+    "Test queried a non-existent publication column (published_by); actual column is operator_role.",
+    "Decision on a resource with no configured facts raised AuthorizationUnavailable (EIOS fail-closed), not allowed=False; test helper treats it as not allowed.",
+    "Human-principal reuse was not rejected when the tenant row did not exist yet: inventory returned early without human identifiers; fixed in 0071 before commit."
+  ],
+  "evidence_kind": "test (synthetic tenant, disposable real PostgreSQL, production CLI/configurator path)"
+}

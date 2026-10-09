@@ -1,0 +1,106 @@
+{
+  "schema_version": "nexloop-service-grants/1",
+  "manifest_version": 1,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only.",
+  "valid_from": "2026-10-09T00:00:00+00:00",
+  "world": "real",
+  "principals": [
+    {
+      "role": "claim_extraction_scheduler",
+      "subject_id": "nexloop-service-claim-scheduler",
+      "principal_id": "nexloop-service-claim-scheduler-principal",
+      "credential_id": "nexloop-service-claim-scheduler-key",
+      "credential_reference": "claim_extraction_scheduler",
+      "application_id": "eios:application:nexloop-claim-scheduler",
+      "database_role": "nexloop_api",
+      "purpose": "Debounce accepted conversations and enqueue one idempotent extraction window per conversation.",
+      "source_task": "NX-019"
+    },
+    {
+      "role": "claim_extraction_worker",
+      "subject_id": "nexloop-service-claim-worker",
+      "principal_id": "nexloop-service-claim-worker-principal",
+      "credential_id": "nexloop-service-claim-worker-key",
+      "credential_reference": "claim_extraction_worker",
+      "application_id": "eios:application:nexloop-claim-worker",
+      "database_role": "nexloop_domain_worker",
+      "purpose": "Claim extraction tasks from the durable queue and record Claims through the governed extraction function.",
+      "source_task": "NX-019"
+    },
+    {
+      "role": "claim_matcher",
+      "subject_id": "nexloop-service-claim-matcher",
+      "principal_id": "nexloop-service-claim-matcher-principal",
+      "credential_id": "nexloop-service-claim-matcher-key",
+      "credential_reference": "claim_matcher",
+      "application_id": "eios:application:nexloop-claim-matcher",
+      "database_role": "nexloop_domain_worker",
+      "purpose": "Four-layer Claim matching and the governed formal write of accepted matches.",
+      "source_task": "NX-020"
+    },
+    {
+      "role": "runtime_worker",
+      "subject_id": "nexloop-service-runtime-worker",
+      "principal_id": "nexloop-service-runtime-worker-principal",
+      "credential_id": "nexloop-service-runtime-worker-key",
+      "credential_reference": "runtime_worker",
+      "application_id": "eios:application:nexloop-runtime-worker",
+      "database_role": "nexloop_scheduler",
+      "purpose": "Lease Run activation tasks from the operations queue and hand them to the Agent Host guard.",
+      "source_task": "NX-013/NX-014"
+    },
+    {
+      "role": "message_relay",
+      "subject_id": "nexloop-service-message-relay",
+      "principal_id": "nexloop-service-message-relay-principal",
+      "credential_id": "nexloop-service-message-relay-key",
+      "credential_reference": "message_relay",
+      "application_id": "eios:application:nexloop-message-relay",
+      "database_role": "nexloop_api",
+      "purpose": "Route an accepted inbound Message to a Run activation event.",
+      "source_task": "NX-016"
+    }
+  ],
+  "grants": [
+    {"principal": "claim_extraction_scheduler", "resource_type": "action", "resource_id": "eios:action:nexloop.claim.extract:1", "operations": ["execute"],
+     "purpose": "Read the extraction feed (due/mark/backlog) bound to the extract Action.", "source_task": "NX-019"},
+    {"principal": "claim_extraction_scheduler", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.claim-extraction:1", "operations": ["execute"],
+     "purpose": "Accept one idempotent queue event per extraction window.", "source_task": "NX-019"},
+    {"principal": "claim_extraction_worker", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.claim-extraction:1", "operations": ["execute"],
+     "purpose": "Claim/finish extraction tasks under lease and fence.", "source_task": "NX-019"},
+    {"principal": "claim_extraction_worker", "resource_type": "action", "resource_id": "eios:action:nexloop.claim.extract:1", "operations": ["execute"],
+     "purpose": "Record Claims through authz.nexloop_record_claim_extraction.", "source_task": "NX-019"},
+    {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:nexloop.claim.match:1", "operations": ["execute"],
+     "purpose": "Record match proposals and staged candidates.", "source_task": "NX-020"},
+    {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:Consumer.edit:1", "operations": ["execute"],
+     "purpose": "Governed formal Consumer property write of an accepted match (object/property EDIT still required per object).", "source_task": "NX-020"},
+    {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:Product.create:1", "operations": ["execute"],
+     "purpose": "Governed creation of a referenced Product when matching resolves to a new instance.", "source_task": "NX-020"},
+    {"principal": "claim_matcher", "resource_type": "object_type", "resource_id": "eios:object_type:Consumer", "operations": ["read"],
+     "purpose": "Type-level schema read for candidate generation.", "source_task": "NX-020"},
+    {"principal": "claim_matcher", "resource_type": "object_type", "resource_id": "eios:object_type:Product", "operations": ["read"],
+     "purpose": "Type-level schema read for candidate generation.", "source_task": "NX-020"},
+    {"principal": "runtime_worker", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.operations:1", "operations": ["execute"],
+     "purpose": "Claim/renew/finish Run activation tasks (queue name as deployed by the message recipe).", "source_task": "NX-013/NX-014"},
+    {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.conversation.route:1", "operations": ["execute"],
+     "purpose": "Route an accepted inbound Message into a Run activation.", "source_task": "NX-016"}
+  ],
+  "deferred": [
+    {"resource_id": "eios:action:nexloop.service.request:1", "reason": "Real outbound effect execution; channel enablement and REAL_DISPATCH_ENABLED need the owner's own confirmation (ADR-020 §3).", "source_task": "NX-015/NX-016"},
+    {"resource_id": "eios:action:nexloop.service.query:1", "reason": "Provider query of real outbound effects; enabled together with the channel by the owner.", "source_task": "NX-015"},
+    {"resource_id": "eios:action:nexloop.service.receipt_reconcile:1", "reason": "Receipt reconciliation of real outbound effects; enabled together with the channel by the owner.", "source_task": "NX-018"},
+    {"resource_id": "eios:object:Message/<id> and eios:property:Message/<id>/<field> READ", "reason": "Per-message READ for Source/extraction worker is derived from governed facts (ADR-020 §1, NX-047), never a static grant.", "source_task": "NX-019/NX-047"},
+    {"resource_id": "eios:object:Consumer|Product/<id> READ/EDIT and per-property grants", "reason": "Per-object authority of the matcher depends on instance data; needs governed derivation, not a static manifest.", "source_task": "NX-020"},
+    {"resource_id": "eios:action:nexloop.context.bind:1 / nexloop.context.bind_role:1", "reason": "Held by Run-bound Source credentials issued per Run (0034), not by a standing service principal.", "source_task": "NX-016/NX-018"},
+    {"resource_id": "eios:action:Goal.create:1 / PlanStep.create:1 / nexloop.plan.bind_effect_context:1", "reason": "Planning authority belongs to Agent/Run credentials (NX-022/NX-024), not service principals.", "source_task": "NX-015/NX-024"},
+    {"resource_id": "eios:action:EffectControl.create:1 / nexloop.effect.configure_control:1", "reason": "Owner control configuration; human owner authority.", "source_task": "NX-015"},
+    {"resource_id": "eios:action:nexloop.consumer.link_authenticated_identity:1", "reason": "Browser human identity link flow; human authority.", "source_task": "NX-018"},
+    {"resource_id": "eios:action:nexloop.service.scope_denial.record:1", "reason": "Recorded by the Run Source path of an outbound request; follows the effect channel decision.", "source_task": "NX-016"}
+  ],
+  "excluded_by_policy": [
+    "Human principal authority of any kind",
+    "ontology.schema.review (human-only Schema review, ADR-019)",
+    "Real outbound channel enablement",
+    "REAL_DISPATCH_ENABLED"
+  ]
+}

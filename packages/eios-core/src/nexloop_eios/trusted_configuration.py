@@ -118,9 +118,32 @@ def check_manifest(path):
 
 
 def apply_manifest(manifest,*,database_url_file,signing_key_file,signing_key_id,service_secrets_file):
+    try:secrets=strict_json(read_private_text(service_secrets_file,maximum=1048576))
+    except Exception:raise ConfigurationRejected() from None
+    return apply_manifest_with_secrets(manifest,database_url_file=database_url_file,signing_key_file=signing_key_file,
+        signing_key_id=signing_key_id,service_secrets=secrets)
+
+
+def configurator_connection(database_url_file):
+    """Technical configurator only; refuses superuser/BYPASSRLS/owner-member sessions."""
+    db=psycopg.connect(read_private_text(database_url_file,maximum=16384),connect_timeout=5)
+    try:
+        role=db.execute('''select current_user,session_user,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication,
+            exists(select 1 from pg_roles elevated where elevated.rolname<>current_user
+             and (elevated.rolsuper or elevated.rolbypassrls or elevated.rolcreatedb or elevated.rolcreaterole or elevated.rolreplication or elevated.rolname='nexloop_owner')
+             and pg_has_role(session_user,elevated.oid,'MEMBER')) from pg_roles where rolname=current_user''').fetchone()
+        if not role or role[:2]!=('nexloop_configurator','nexloop_configurator') or any(role[2:]):raise ValueError()
+        db.rollback()
+        return db
+    except Exception:
+        db.close();raise
+
+
+def apply_manifest_with_secrets(manifest,*,database_url_file,signing_key_file,signing_key_id,service_secrets):
+    """Same as apply_manifest; `service_secrets` is an in-memory reference->secret map."""
     try:
         manifest=validate_manifest(manifest)
-        secrets=strict_json(read_private_text(service_secrets_file,maximum=1048576))
+        secrets=service_secrets
         references={r['reference'] for r in manifest['service_credentials']}
         if type(secrets) is not dict or set(secrets)!=references or any(type(s) is not str or len(s)<32 or len(s)>4096 or s!=s.strip() for s in secrets.values()):raise ValueError()
         key=bytes.fromhex(read_private_text(signing_key_file,maximum=128))
