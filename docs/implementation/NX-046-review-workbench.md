@@ -133,3 +133,24 @@
   - 只有配置身份可以发布
   - CLI
 - 与 NX-046 及相关测试合并运行：80 passed，111.35s，junit sha256 `565257c0baa409140c020a7774ce6e5705c6fef68251bdc69e63873e5674d1ba`。
+
+## 9. 冷却期时间戳缺陷修复（2026-10-09，分支 nx046-cooldown-fix）
+
+- 缺陷：0074 的 `ontology.nexloop_candidate_rejected()` 在同一条 INSERT 中两次调用 `clock_timestamp()`，`rejected_at` 与 `cooldown_until` 分别取自两个时刻，二者之差不是精确的冷却时长。在 sice（较慢）上串行运行稳定失败。
+- 修复：临时迁移 `0075_nx046_cooldown_single_instant.sql`（0074 未改）。
+  - 函数开始处只取一次 `v_now:=clock_timestamp()`，两个字段都由它推导。
+  - 新增列 `cooldown_seconds`，并加约束 `nexloop_candidate_rejections_single_instant`：`cooldown_until = rejected_at + cooldown_seconds`，存在偏差的数据无法写入。
+  - 编号用 0075 而不是指定的 0078：`test_bootstrap` 断言迁移版本 1..N 连续，本分支 main 最高为 0074。
+- 同类排查（0067 / 0070 / 0072 / 0074 中的 `clock_timestamp()` / `now()`）：只有上面这一处在同一语句里多次取时间来推导相关字段。其余用法都无害：
+  - 表默认值，如 created_at / updated_at / recorded_at：各列独立表示写入时刻，没有任何逻辑依赖它们相等或相差某个固定值。
+  - 单列 `updated_at=clock_timestamp()`。
+  - 签名过期判断 `expires_at>clock_timestamp()+30s`：一次取值，只用于比较。
+  - 冷却判断 `cooldown_until>clock_timestamp()`：一次取值，只与当前时刻比较。
+- 测试：
+  - 原断言（冷却时长恰为 30 天）保留。
+  - “冷却期满”的模拟改为把整条记录前移 31 天，不再直接改写 `cooldown_until`，以保持不变量。
+  - 新增 `test_cooldown_fields_come_from_one_instant`，结果与机器速度无关：
+    - 断言函数定义中只出现一次 `clock_timestamp()`；
+    - 冷却设为 7 秒时，两字段之差恰为 7 秒且满足约束；
+    - 人为制造 1 微秒偏差的更新被 CheckViolation 拒绝。
+  - 工作台测试连续 3 次均为 5 passed；目标集 82 passed，118.70s，junit sha256 `f0447b17b794e06b42d00eca1e0e85af5494d80d452ed12e395bb567de0b2e62`。
