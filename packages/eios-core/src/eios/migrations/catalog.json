@@ -480,6 +480,11 @@
       "version": "0096",
       "name": "0096_perf_o5b_read_assert_memo.sql",
       "sha256": "aec3e66ca3766780ebc7f3b2b9d441e5ff86fae8cdad349dbd99c873d9ae6913"
+    },
+    {
+      "version": "0097",
+      "name": "0097_nx022_dispatch_controls.sql",
+      "sha256": "9982ace4e52812f063900f7b97ba6a26f41d0d072fff99725ce3464363212109"
     }
   ]
 }

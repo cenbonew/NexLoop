@@ -271,8 +271,14 @@ class EffectExecutionPort:
             identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity)
             proof=self._origin_proof(metadata)
             claim=M.ActionClaim.model_validate_json(canonical_payload(metadata['action_claim']))
-            result=self._call('admit',target=SEND,**identity,origin_proof=proof,catalog_envelope=self._catalog_envelope(metadata),role_envelope=self._role_envelope(metadata),provider_profile_digest=_profile(provider_profile_digest),
-                action_claim_revision=claim.claim_revision,action_fencing_token=claim.fencing_token)
+            catalog,role=self._catalog_envelope(metadata),self._role_envelope(metadata)
+            with self.pool.connection() as db,db.transaction():
+                # NX-022: owner controls (pause, goal version, later control events)
+                # are re-read in the same transaction that admits the dispatch.
+                from nexloop_eios.goal_controls import ControlPlane
+                ControlPlane(self.pool,self.session).assert_intent_dispatch(identity['intent_id'],connection=db)
+                result=self._execute(db,'admit',target=SEND,**identity,origin_proof=proof,catalog_envelope=catalog,role_envelope=role,provider_profile_digest=_profile(provider_profile_digest),
+                    action_claim_revision=claim.claim_revision,action_fencing_token=claim.fencing_token)
             # Commit has completed before these trusted frozen parameters escape.
             return {key:result[key] for key in ('parameters','provider_payload_digest')}
         except Exception:raise EffectExecutionUnavailable() from None
