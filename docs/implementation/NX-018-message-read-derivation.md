@@ -1,6 +1,6 @@
 # NX-018：Source 对已受理 Message 的受治理 READ 派生（方案 B 设计稿）
 
-状态：负责人 2026-10-09 批准方案 B；**已实现**为临时迁移 `0073_nx018_message_read_derivation.sql` + `nexloop_eios/message_read.py`。第 9 节记录实现与本稿初版的差异，以第 9 节为准。L1。
+状态：负责人 2026-10-09 批准方案 B；**已实现**为临时迁移 `0077_nx018_message_read_derivation.sql`（曾为 0073） + `nexloop_eios/message_read.py`。第 9 节记录实现与本稿初版的差异，以第 9 节为准。L1。
 
 ## 1. 问题与根因
 

@@ -1,6 +1,6 @@
 # NX-018 开发线 L1 报告
 
-BASE_SHA `f58f3ee35ba0296271a5d0498693d474d220d801`，按调度员要求已 rebase 到 `dispatch/integration-s3b`（`ccdd33d`，迁移至 0070）（分支 claude/nx018-finish-997fcd）。迁移临时编号：第 1 步 0071（原 0066），第 2 步 0072（原 0067），Message READ 派生 0073。下文第 1、2 步正文中的 0066/0067 即现在的 0071/0072。迁移使用临时编号，调度员合并时重编号。本报告只登记本线实际执行的定向测试；不是全量 CI，不改变 planning 状态。
+BASE_SHA `f58f3ee35ba0296271a5d0498693d474d220d801`；按调度员要求先 rebase 到 `dispatch/integration-s3b`（`ccdd33d`），再 rebase 到 main `3ad4061`（迁移至 0073，0074 预留给 NX-046）。迁移临时编号：第 1 步 **0075**（最初 0066），第 2 步 **0076**（最初 0067），Message READ 派生 **0077**（曾为 0073）。下文正文中的 0066/0067/0073 即现在的 0075/0076/0077。由于 0074 空缺，`tests/test_bootstrap.py` 的连续性两例在本分支上必然失败；本地临时改为连续 0074–0076 后 4 passed（未提交），合并定号后恢复（分支 claude/nx018-finish-997fcd）。迁移临时编号：第 1 步 0071（原 0066），第 2 步 0072（原 0067），Message READ 派生 0073。下文第 1、2 步正文中的 0066/0067 即现在的 0071/0072。迁移使用临时编号，调度员合并时重编号。本报告只登记本线实际执行的定向测试；不是全量 CI，不改变 planning 状态。
 
 环境：macOS arm64，Node v24.13.0，Python 3.12.10（uv），Homebrew PostgreSQL 18.4。**本会话 shell 缺省 LANG/LC_ALL 为空，PG18 拒绝启动**（`postmaster became multithreaded during startup`），所有命令前需 `export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8`。
 
@@ -61,7 +61,7 @@ PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_boo
 
 最终（同一工作树，广回归 82 个测试文件串行）：**21/21 passed**，见 `.ci-results/l1-broad.xml`。每例路径：message_relay 7 + 投递 3 + offering 6 = 16 例走 **派生**；effect 3、context_mode 1、scope_denials 1 = 5 例与 Message READ 无关。保留可信配置 `configure_message_read` 的只有本意测试"已配置 Message READ 的撤权"（`test_context_source_read_reproduction` 全部 11 例，现在先配置再撤，同时验证撤掉的已配置授权不会被派生复活）以及 v4 关系测试中的人类更正消息（v4 读取尚未切到派生）。
 
-方案 B 实现：`0073_nx018_message_read_derivation.sql`、`nexloop_eios/message_read.py`，设计与实现差异见 `docs/implementation/NX-018-message-read-derivation.md` 第 9、10 节。新增 `tests/test_message_read_derivation.py` **13 passed / 34.89s**：正向（无任何 per-Message 授权事实、epoch 不变、Context 生成走派生）、他租户、他 world（参数与签名声明两种）、未受理、已删除、Consumer READ 撤权、规则停用、规则过期（三者走受治理发布路径）、会话改属其他 Consumer、越界字段/伪造 facts/超规则期限/伪造 Consumer 依据。未覆盖：Run 凭据不派生（实现于 basis，无专门测试）。
+方案 B 实现：`0077_nx018_message_read_derivation.sql`（报告初稿中的 0073）、`nexloop_eios/message_read.py`，设计与实现差异见 `docs/implementation/NX-018-message-read-derivation.md` 第 9、10 节。新增 `tests/test_message_read_derivation.py` **13 passed / 34.89s**：正向（无任何 per-Message 授权事实、epoch 不变、Context 生成走派生）、他租户、他 world（参数与签名声明两种）、未受理、已删除、Consumer READ 撤权、规则停用、规则过期（三者走受治理发布路径）、会话改属其他 Consumer、越界字段/伪造 facts/超规则期限/伪造 Consumer 依据。未覆盖：Run 凭据不派生（实现于 basis，无专门测试）。
 
 广回归命令与结果：
 
@@ -71,7 +71,7 @@ PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q -p no:xdist <8
 pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**'
 ```
 
-**1031 passed / 1 failed / 2254.82s**；唯一失败为已知的 `test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]`（2s guard deadline 时序，见第 2 步）。Host vitest 141 passed。
+第一次（基于 ccdd33d）**1031 passed / 1 failed / 2254.82s**。rebase 到 main 3ad4061 后重跑（84 个文件 + Host vitest）：**1070 passed / 2 failed / 2384.57s**，21/21 仍 passed；两例失败为 `test_effect_execution_sql.py::test_42_actual_bootstrap_and_publication_checksum`（同样断言迁移数=版本号，0074 预留空缺所致）与已知的 `test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]`（2s guard deadline 时序，见第 2 步）。Host vitest 141 passed。
 
 ## 第 3 步：Role 权限上限与 scope 强制——未开始实现
 
