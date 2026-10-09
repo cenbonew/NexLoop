@@ -49,6 +49,48 @@
   "provider": "deepseek/deepseek-flash",
   "first_run": "2026-10-08T23:26:45Z..23:28:04Z failed at C06: dataset forbidden pattern {modality:asserted} too broad (model validly extracted 最近预算紧张 as asserted); narrowed to the 暂不续费 span",
   "second_run": "2026-10-08T23:28Z..23:32:13Z: 35 normalized, 2 provider_unavailable (C05,C16), 0 output_rejected, 50 claims, 0 guard invariant failures, 0 forbidden violations, expected kind recall 21/36; test failed on provider_unavailable assertion, not retried",
-  "report": "docs/implementation/NX-019-real-model-report.json"
+  "report": "docs/implementation/NX-019-real-model-report.json",
+  "failure_types": "C05/C16: only exception class ExtractionProviderUnavailable was recorded; v1 provider collapsed status/exception detail, so timeout/rate-limit/5xx/parse cannot be determined from evidence; not rerun. Provider now records a classified code."
+ },
+ "completion_round": {
+  "branch": "nx019-complete",
+  "base_commit": "9a196f44a99d47ad0471fc245c9dcc03010f7119",
+  "migration": {
+   "file": "packages/eios-core/src/eios/migrations/0069_nx019_extraction_queue.sql",
+   "temporary_revision": "0069",
+   "depends_on": [
+    "0066 nexloop_claims and recorder",
+    "runtime.nexloop_conversation_messages",
+    "runtime.jobs/authz.nexloop_queue_command (0035/0036)",
+    "authz.nexloop_assert_action_authority"
+   ]
+  },
+  "dataset": {
+   "version": 2,
+   "cases": 100,
+   "v1_cases_unchanged": 37
+  },
+  "tests": [
+   {
+    "class": "test",
+    "command": "LC_ALL=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_bootstrap.py tests/test_db_boundary.py tests/test_conversation_messages.py tests/test_native_web_inbound.py tests/test_durable_queue.py tests/test_conversation_extraction.py tests/test_claim_store_pg.py tests/test_claim_extraction_jobs_pg.py tests/test_wheel_install.py",
+    "result": "194 passed in 126.83s"
+   },
+   {
+    "class": "test",
+    "first_failures": [
+     "dataset P04: guard read 不错 as negation (guard fixed, case kept)",
+     "jobs PG: idempotency keys shorter than 16 chars (test bug)",
+     "jobs PG concurrency: worker timezone mismatch with registered provider (test bug)",
+     "claim_store PG: tenant synthetic-b missing (fixture)",
+     "context-wiring static test assumed one nx019 migration"
+    ]
+   },
+   {
+    "class": "test",
+    "command": "pytest -q tests/test_message_relay.py tests/test_assessment_candidate.py tests/test_conversation_receipt_isolation.py",
+    "result": "7 failed / 49 passed; the same 7 test_message_relay failures reproduced on base 9a196f4 in a temporary detached worktree (removed), pre-existing"
+   }
+  ]
  }
 }
