@@ -86,11 +86,14 @@ scripts/perf/nx049_profile.sh deploy-idle 5
   - `summary.json` 中，每次运行的 `pg_functions_per_request` 给出受时限约束的请求平均每次的函数 calls / total_ms / self_ms（按 total 取前 15）。
   - 超时或最慢那次请求的 `python_request.pg_functions_by_total`、`pg_functions_by_self` 给出该请求自己的函数分解。
   - 探针本身的耗时记在 `measurement_probe_ms`，读数时从请求总时间中扣除。Mac 上约占最慢请求的 5–10%（50–105 ms）。
-  - `NEXLOOP_PERF_PGFUNC=0` 可以关闭探针，只保留其余时间线。
+  - **探针默认关闭（自 `nx049-mp-design` 起）**，用 `NEXLOOP_PERF_PGFUNC=1` 开启。
+    - 开启后，每个受时限约束的请求多出约 50 次 `pg_stat_xact_user_functions` 查询。部署主机实测每请求 166–334 ms（中位约 200 ms），会让耗时读数偏高，也会让超时提前出现。
+    - 只在需要按请求的函数分解时开启。开启时比较 `measurement_probe_ms`，或用扣除探针后的耗时。
+    - 关闭时 `pg_functions_per_request` 为空，整轮的函数统计（`pg-*.json`）不受影响。
 - **O3 事实解析缓存**：每次运行的 `fact_parse_cache` 汇总该运行内各测试进程的 hits / misses / hit_rate；`summary.md` 总表新增“O3 hit rate”一列。Mac 对照：v4 0.982（29573/543），两 Pi 0.978（33279/756）。
 - 对照数据：`mac-v2`（2 轮，4/4 通过）。带探针时 authorize p50 约 683–694 / 848–856 ms，不带探针时（v1）为 627–643 / 818–824 ms。
 
-建议的 JIT A/B 两组都带探针（倍率可比）。如果带探针后第一次超时提前、影响判读，再加一组 `NEXLOOP_PERF_PGFUNC=0` 的对照。
+（当时的建议是 JIT A/B 两组都带探针。现在探针默认关闭，前后对比默认不带探针；需要函数分解时，两组都设 `NEXLOOP_PERF_PGFUNC=1`。）
 
 ## 7. 第二轮新增（并发与 cProfile）
 
@@ -101,5 +104,5 @@ scripts/perf/nx049_profile.sh deploy-idle 5
   - `summary.md` 总表新增 “solo / overlapped p50 (python+sql)” 一列。
 - **cProfile**：`NEXLOOP_PERF_CPROFILE=1` 时，对 `AuthorizationFactsResolver.resolve` / `resolve_in_unit_of_work` 做 cProfile，每个进程写一份 `cprof-<pid>.pstats`，用 `scripts/perf/cprof_report.py <out>` 汇总。
   - 剖析器是进程级的，同一时间只剖析一次 resolve，重叠的那些不剖析（计数记在 `cprof-<pid>.json`）。
-  - 开销很大，只用来看分布，不能作为耗时依据。建议同时设 `NEXLOOP_PERF_PGFUNC=0`。
+  - 开销很大，只用来看分布，不能作为耗时依据。PG 函数探针默认关闭，不需要再单独设置。
 - 分析见 `NX-049-analysis-round2.md`。
