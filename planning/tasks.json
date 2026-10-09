@@ -1954,7 +1954,7 @@
       "M14"
     ],
     "deliverable": "实际请求快照、必需约束、Evo只读映射与歧义；审核中（awaiting_definition）与 hypothesis 的 Claim 不进入 Context 正式属性区（ADR-019 决定 2/5）",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -2015,6 +2015,18 @@
         "ref": "ci:sice/20261009T162446Z-bbcf6ff09e06",
         "summary": "Full CI on clean CI host for bbcf6ff: 2428 passed / 15 failed; 14 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
         "recorded_at": "2026-10-10T01:05:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4448c40",
+        "summary": "Done: context strategies, manifests and model request records (0088-0090), v6 binding with per-source SQL re-verification (0092), Role Runs on v6 (0094), human-only audit read (0095), model results and v4 relationships in v6 (0099/0100), assemble issued per Run with the standing principal retired (0105).",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T191236Z-4448c40e6458",
+        "summary": "Full CI on clean CI host for 4448c40 (integration-s3w): 2469 passed / 17 failed, all within baseline, no new failures.",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
       }
     ]
   },
@@ -2571,7 +2583,7 @@
       "M23"
     ],
     "deliverable": "按 ADR-020 §3：版本化的最小服务授权清单（claim.extract、claim.match、queue.claim-extraction 等）与可审计、可重放的可信配置应用脚本/doctor 检查；不直写授权表、不含人类与审核权限；负向测试",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -2596,6 +2608,18 @@
         "ref": "ci:sice/20261009T175535Z-569670ec5e79",
         "summary": "Full CI on clean CI host for 569670e (integration-s3v): 2453 passed / 17 failed; 15 within baseline; 2 new passed serially 2/2 on the same checkout (memo stress positive control hits=0 under load with 0 violations; v6 real-Pi run), registered as parallel-load jitter.",
         "recorded_at": "2026-10-10T02:34:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4448c40",
+        "summary": "Done: versioned minimal service grants manifest with purpose-scoped message_read_rules (v5), per-type minimal grant example and type-coverage doctor for review-approved types, retired standing context_assembler principal; apply/doctor/validate covered by tests (0102, 0104, 0105).",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T191236Z-4448c40e6458",
+        "summary": "Full CI on clean CI host for 4448c40 (integration-s3w): 2469 passed / 17 failed, all within baseline, no new failures.",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
       }
     ]
   },
@@ -2624,6 +2648,12 @@
         "ref": "docs/implementation/NX-049-analysis.md",
         "summary": "Deploy-host profile (5 rounds, idle): 10/10 fail at the first model/tool-phase authorize (~2001 ms abort); compute-bound, same work counts as the dev machine, 2.4-3.4x slower with outliers (v4 activation SQL x4.7, batch_resolve Python x6-35). CPU governor already performance; PostgreSQL JIT available and on.",
         "recorded_at": "2026-10-10T02:34:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-049-analysis-round2.md",
+        "summary": "Second round: JIT, CPU governor and O3 cache ruled out; solo requests on the deploy host are 1.12 s (v4) and 1.31 s (two Pi), timeouts occur only when 2-3 requests overlap in one guard process and serialize on the Python GIL. Next: cut per-request Python work (means 8) and round trips (means 5, 4a).",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
       }
     ]
   },
@@ -2639,7 +2669,7 @@
       "M14"
     ],
     "deliverable": "在 NX-044 的人类审核动作中支持批准 object_instance 候选；批准后由回流经 <Type>.create 受治理创建实例（identifying_properties 必须是已发布属性），依赖 Claim 随后自动应用，AT-067 新类型链路走到“已应用”；拒绝实例与重复实例负例",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -2658,6 +2688,18 @@
         "ref": "ci:sice/20261009T175535Z-569670ec5e79",
         "summary": "Full CI on clean CI host for 569670e (integration-s3v): 2453 passed / 17 failed; 15 within baseline; 2 new passed serially 2/2 on the same checkout (memo stress positive control hits=0 under load with 0 violations; v6 real-Pi run), registered as parallel-load jitter.",
         "recorded_at": "2026-10-10T02:34:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4448c40",
+        "summary": "Done: reflow creates against the latest published <Type>.create after SQL rechecks of identifying-property compatibility and canonical shape (returns to review otherwise); the approval gate applies the same check; ontology.object.edit capability profile added to the business Actions manifest (0104).",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T191236Z-4448c40e6458",
+        "summary": "Full CI on clean CI host for 4448c40 (integration-s3w): 2469 passed / 17 failed, all within baseline, no new failures.",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
       }
     ]
   }

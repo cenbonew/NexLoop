@@ -416,7 +416,15 @@
     "name": "上下文可核对",
     "given": "一Run多模型调用",
     "expected": "每次实际请求都有版本/来源/hash",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_context_v6_pg.py",
+        "summary": "Synthetic test environment, merged at 4448c40: test_actual_pi_run_records_every_model_call_of_a_v6_run (dense call sequence, request digest recomputed from stored text, bound pack present, manifests validate).",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-028",
@@ -425,7 +433,15 @@
     "name": "预算裁剪",
     "given": "超出context预算",
     "expected": "不丢关键约束和否定；显式insufficient",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_context_engine.py",
+        "summary": "Synthetic test environment, merged at 4448c40: test_mandatory_over_budget_is_insufficient_not_truncated; test_core_trimming_is_reported_as_insufficient; tests/test_context_v6_pg.py::test_budget_trims_evidence_but_never_pinned_sources.",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-029",
@@ -889,7 +905,15 @@
     "name": "隐性推断隔离",
     "given": "模型从显性Claim推导的隐性结论",
     "expected": "epistemic_kind=hypothesis，写入假设层；不进审核队列；不出现在Context正式属性与规划依据",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_context_v6_pg.py",
+        "summary": "Synthetic test environment, merged at 4448c40: test_v6_binds_verified_sources_and_keeps_claims_out_of_formal_state; test_sql_refuses_tampered_v6_packs; tests/test_context_v6_relationships_pg.py::test_v6_carries_v4_relationships_with_hypotheses_as_evidence_only.",
+        "recorded_at": "2026-10-10T03:52:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-065",
