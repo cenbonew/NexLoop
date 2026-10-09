@@ -255,3 +255,23 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 ### 证据读取派生（0086）
 
 见 `NX-018-message-read-derivation.md` 第 11 节。
+
+### 收口回归（nx018-final HEAD，单条命令串行，连接数插件开启）
+
+127 个测试文件（role/receipt/message/context/relationship/effect/delivery/scope/offering/assessment/claim/backend/runtime/identity/conversation/native_web/trusted_configuration/service_grant/candidate_merge/object/action/review/goal/outbound/http/browser/queue/property/evidence/bootstrap/run_credentials）：**1408 passed / 0 failed / 0 skipped / 3066.78s**，`.ci-results/l1-nx018-final.xml`；含 v4 `[complete]` 通过。Host vitest **164 passed**。插件：单请求同时持有连接最大 2，178 条嵌套路径。
+
+首次失败（保留）：`test_role_context_v5` 首轮 2 failed（测试直接调用 section 函数未设租户上下文，RLS 下看不到绑定而返回 null）；修复测试后 9 passed，并给 section 函数加上自设租户上下文，防止在 RLS 隐藏绑定时静默退回 v3。`test_role_pi_effect_checkpoint` 首轮 1 failed（我的断言把 JSON 转义后的 `"role_policy"` 当原文匹配）；修正断言后通过。
+
+### AT-004 / AT-009 最终结论
+
+- **AT-004（角色 N:M：两角色关联同消费者；职责可配置，无常驻 Agent；冲突触达受控）：passed。** 依据：RoleDefinition/ConsumerRoleLink/RoleExecutionCeiling/RoleAssignmentScope 均为受治理对象（`test_role_mapping`、`test_role_policy_governance`）；两个 Source 的两个 Role 关联同一 Consumer，两个短 Pi Run 共享一个业务意图、只产生一次真实效应（`test_role_pi_effect_checkpoint`，v5 Context 下通过）；Role 权限绑定期强制（`test_role_policy_binding`、`test_role_policy_enforcement`、metadata-only fail closed、两 Role 不叠加）与调度期强制（`test_role_policy_dispatch`：策略编辑/停用/READ 撤销/到期后 model/start/tool/submit/admit 均拒、0 POST；effect_units 并发上限，语义经负责人确认）；Context v5 把策略溯源交给模型且策略变更 fail closed（`test_role_context_v5`）；收口回归 1408/0。
+- **AT-009（关系证据：旧推测被明确更正后，当前关系依据更新，旧结论不作为事实）：passed（Mac 证据）。** 依据：`test_relationship_context_v4.py` 33 例全部通过，其中 `[complete]` 为真实 Human 更正 Message → 受治理 Assessment revision2 → 新 Run/新 v4 Artifact → 第二个 TLS Host/Pi Run 消费新结论、旧 hypothesis 仅为 evidence；该例在 O1 + 锁修复之后：单独 3/3、插件广回归两轮（1349 例、1408 例）均通过，此前只在 2 s 时限下失败。证据读取派生（0086）也覆盖了 v4 关系读取路径。保留：ADR-021 将其登记为基线 B 类并要求退出条件为"连续两轮全量通过"，sice 上的结果以调度员的 sice 全量为准。
+
+### NX-018 是否可标 done
+
+建议可以标 done，依据：NX-018-handoff 列出的三项缺口均已在 fresh catalog 主线组合中实测通过——(1) formal Source READ 贯穿 model/start/submit/admit/finalize（0075，`test_role_formal_current`/`_sql`）；(2) 关系更正进入新的 explicit v4 Context（0076，33 例）；(3) Role 权限上限与 scope 从 metadata 变为强制（0081 绑定期 + 0085 调度期 + 0087 v5 Context）。另外完成 0062 回归的方案 B（0077）、证据读取派生（0086）、连接池饥饿修复（d0045a5）。AT-004 passed、AT-009 passed（Mac）；收口回归 1408/0、Host 164/0。前提：调度员的 sice 全量在合并后无新增失败（尤其 v4 `[complete]` 需满足 ADR-021 的退出条件）。
+
+### 剩余后续（不阻塞 done）
+
+- 嵌套授权证明复用外层连接 / O2 批量判定（L4）；0039 同 Run 并发 guard 锁序（L4）。
+- `concurrency_probe` 在 sice 上确认 B 类时延画像（仅在 scratch，需要时可放入共享笔记）。
