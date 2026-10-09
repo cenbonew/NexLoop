@@ -400,6 +400,11 @@
       "version": "0080",
       "name": "0080_nx047_outbound_read_derivation.sql",
       "sha256": "3aefa946e61a42a17c5cb659139c6f40835e80e28197c6eb89b31d3fd905141a"
+    },
+    {
+      "version": "0081",
+      "name": "0081_nx018_role_policy.sql",
+      "sha256": "d2f6278059ac5e78ddd1b6df6edd43ba2f34ca8960be654685e790decff14ad3"
     }
   ]
 }

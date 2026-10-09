@@ -23,7 +23,7 @@ class RunCredential:
     token:str=field(repr=False)
 
 
-def issue_run_credential(pool,session,signer,*,action_resources,ttl_seconds=300):
+def _prepare_run_credential(pool,session,signer,*,action_resources,ttl_seconds=300):
     if session.run_context is not None:raise ActionAuthorizationDenied('nested Run issuance denied')
     if type(action_resources) not in (list,tuple) or not 1<=len(action_resources)<=32 or len(set(action_resources))!=len(action_resources):raise ValueError('bounded unique Action resources required')
     if type(ttl_seconds) is not int or not 1<=ttl_seconds<=300:raise ValueError('Run credential TTL must be1–300 seconds')
@@ -48,6 +48,11 @@ def issue_run_credential(pool,session,signer,*,action_resources,ttl_seconds=300)
         'ttl_seconds':ttl_seconds,'proofs':proofs}
     text=canonical_payload(claims)
     signature=hmac.new(signer.material,('nexloop-run-credential-v1:'+text).encode(),'sha256').hexdigest()
+    return run_id,text,signature
+
+
+def issue_run_credential(pool,session,signer,*,action_resources,ttl_seconds=300):
+    run_id,text,signature=_prepare_run_credential(pool,session,signer,action_resources=action_resources,ttl_seconds=ttl_seconds)
     with pool.connection() as connection,connection.transaction():
         if verify_application_role(connection)!='nexloop_api':raise ActionAuthorizationDenied('trusted API issuer required')
         result=connection.execute('select authz.nexloop_issue_run_credential(%s,%s,%s,%s)',(session.token_digest,session.world,text,signature)).fetchone()[0]
