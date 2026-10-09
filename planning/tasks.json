@@ -2043,8 +2043,15 @@
       "M16"
     ],
     "deliverable": "no_action、等待重评估、计划失效、有限Run预算",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-024-design.md",
+        "summary": "Design reviewed (dispatcher rulings: runtime schema append-only tables, run-outcome contract written back through the Host, configurable self-trigger limits and re-evaluation budgets, external results as a trigger); implementation on branch nx024-impl pending integration.",
+        "recorded_at": "2026-10-10T06:45:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-025",
@@ -2647,7 +2654,7 @@
       "M23"
     ],
     "deliverable": "按 ADR-022：在部署主机（即 CI 测试机）上，2 s 工具时限不放宽的前提下，relationship_context_v4[complete] 与两 Pi Role 用例在全量 CI 连续 2 轮通过，且同一检出串行 5 次全部通过；先行手段为 O5b 级别 1（锁后尾验完整重跑）；达成后从合并基线 B 类移除该用例",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
@@ -2678,6 +2685,12 @@
         "ref": "ci:sice/20261009T211616Z-f0ee8a313183",
         "summary": "Full CI on the deploy/CI host for f0ee8a3 (integration-s3y): 2497 passed / 8 failed (previous run 17), no new failures, 22 baseline entries passed; v4[complete] and two-Pi still fail under full parallel load. Gate not met yet.",
         "recorded_at": "2026-10-10T05:49:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "84d4671",
+        "summary": "Merged same-Run lock order fix: authorize and effect_tool take the execution lock before row locks (deterministic 40P01 reproduction fixed). Deploy host, no hooks, serial on 8e39744: two Pi 9/10, v4[complete] 4/5. Full CI on 84d4671: 2499 passed / 8 failed, all within baseline. Remaining risk: overlapping requests in one guard process serialize on the Python GIL; multi-process guard design drafted for an owner decision.",
+        "recorded_at": "2026-10-10T06:45:00+08:00"
       }
     ]
   },
