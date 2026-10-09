@@ -7,7 +7,7 @@ import json
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
 from eios.identity.models import BrowserSession
-from nexloop_eios.authorization import ServiceSession,PostgresAuthorityUnitOfWork,WITNESS
+from nexloop_eios.authorization import FACT_PARSE_CACHE,ServiceSession,PostgresAuthorityUnitOfWork,WITNESS
 from nexloop_eios.assembly import verify_application_role
 
 
@@ -61,7 +61,7 @@ class BrowserAuthorityUnitOfWork(PostgresAuthorityUnitOfWork):
         if value is None:return None
         self.entries.append({'kind':kind,'key':list(key),'record_hash':value['record_hash']})
         body=dict(value['payload']);body['repository_witness']=WITNESS
-        fact=model.model_validate_json(json.dumps(body))
+        fact=FACT_PARSE_CACHE.parse(model,json.dumps(body))
         self._loaded.add((model.__name__,fact.snapshot_digest,fact.repository_witness));return fact
     def load_browser_authentication(self,binding):return self._load('browser_authentication',[binding.session_id],F.BrowserAuthenticationFacts)
     def load_credential_authentication(self,binding):raise AuthorizationUnavailable('browser is not API-key authority')
