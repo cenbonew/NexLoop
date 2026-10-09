@@ -6,14 +6,14 @@
 -- fails, the candidate goes back to pending_review with the reasons (audited event, approval released), so
 -- it is never stuck waiting; a human decides again.
 
-create function ontology.nexloop_instance_create_plan(p_tenant text,ap ontology.nexloop_instance_approvals) returns jsonb
+-- Identity compatibility with the type's latest Schema (shared by the approval gate and the reflow plan).
+create function ontology.nexloop_instance_identity_issues(p_tenant text,p_type text,p_identifying jsonb) returns text[]
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v integer;def jsonb;r text[]:='{}';k text;val jsonb;prop jsonb;vt text;a control.nexloop_action_definitions%rowtype;ref jsonb;cap jsonb;expected jsonb;
- strip text[]:=array['contract_digest','created_at','version','previous_version','object_types','governance'];
+declare def jsonb;r text[]:='{}';k text;val jsonb;prop jsonb;vt text;
 begin
- select d.version,d.definition into v,def from ontology.object_type_versions d where d.tenant_id=p_tenant and d.type_name=ap.type_name order by d.version desc limit 1;
- if v is null then return jsonb_build_object('reasons',jsonb_build_array('instance_type_unavailable'));end if;
- for k,val in select key,value from jsonb_each(ap.identifying) loop
+ select d.definition into def from ontology.object_type_versions d where d.tenant_id=p_tenant and d.type_name=p_type order by d.version desc limit 1;
+ if def is null then return array['instance_type_unavailable'];end if;
+ for k,val in select key,value from jsonb_each(p_identifying) loop
   select e into prop from jsonb_array_elements(def->'properties') e where e->>'property_name'=k;
   if prop is null then r:=array_append(r,'identifying_property_removed:'||k);continue;end if;
   vt:=prop->>'value_type';
@@ -23,25 +23,44 @@ begin
    r:=array_append(r,'identifying_property_incompatible:'||k);end if;
  end loop;
  for prop in select e from jsonb_array_elements(def->'properties') e where coalesce((e->>'required')::boolean,false) loop
-  if not ap.identifying ? (prop->>'property_name') then r:=array_append(r,'required_property_not_identified:'||(prop->>'property_name'));end if;
+  if not p_identifying ? (prop->>'property_name') then r:=array_append(r,'required_property_not_identified:'||(prop->>'property_name'));end if;
  end loop;
- select * into a from control.nexloop_action_definitions d where d.tenant_id=p_tenant and d.world='real' and d.active and d.definition->>'stable_name'=ap.type_name||'.create'
-  and exists(select 1 from jsonb_array_elements(d.definition->'object_types') o where o->>'stable_name'=ap.type_name and (o->>'version')::integer=v)
-  order by (d.definition->>'version')::integer desc limit 1;
- if not found then r:=array_append(r,'type_create_action_unavailable');
- else
-  ref:=a.definition->'object_types'->0;cap:=a.capability;
-  expected:=ontology.nexloop_review_type_action_expected(p_tenant,ap.type_name,'create',cap,ref->>'schema_digest');
-  if cap->>'capability_name' is distinct from 'ontology.object.create' or cap->>'kind' is distinct from 'atomic' or cap->'has_side_effects' is distinct from 'true'::jsonb
+ return r;
+end $$;
+
+-- Canonical shape of a type's latest create Action (0101 shape, bound to exactly the given latest version).
+create function ontology.nexloop_type_create_action_canonical(p_tenant text,p_type text,p_version integer,p_resource text) returns boolean
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare a control.nexloop_action_definitions%rowtype;ref jsonb;cap jsonb;expected jsonb;
+ strip text[]:=array['contract_digest','created_at','version','previous_version','object_types','governance'];
+begin
+ select * into a from control.nexloop_action_definitions where tenant_id=p_tenant and world='real' and resource_id=p_resource and active;
+ if not found then return false;end if;
+ ref:=a.definition->'object_types'->0;cap:=a.capability;
+ expected:=ontology.nexloop_review_type_action_expected(p_tenant,p_type,'create',cap,ref->>'schema_digest');
+ return not (cap->>'capability_name' is distinct from 'ontology.object.create' or cap->>'kind' is distinct from 'atomic' or cap->'has_side_effects' is distinct from 'true'::jsonb
    or jsonb_array_length(a.definition->'object_types')<>1 or ref-'schema_digest'-'version' is distinct from (expected->'object_types'->0)-'schema_digest'-'version'
-   or (ref->>'version')::integer<>v or coalesce(ref->>'schema_digest','')!~'^[0-9a-f]{64}$'
+   or (ref->>'version')::integer<>p_version or coalesce(ref->>'schema_digest','')!~'^[0-9a-f]{64}$'
+   or a.definition->>'stable_name' is distinct from p_type||'.create'
    or a.definition->'governance'->'change_scope'->'object_types' is distinct from a.definition->'object_types'
    or (a.definition->'governance')-'change_scope' is distinct from (expected->'governance')-'change_scope'
    or (a.definition->'governance'->'change_scope')-'object_types' is distinct from (expected->'governance'->'change_scope')-'object_types'
-   or (a.definition-strip) is distinct from (expected-strip) then
-   r:=array_append(r,'latest_create_action_not_canonical');end if;
- end if;
- return jsonb_build_object('reasons',to_jsonb(r),'create_action',a.resource_id,'type_name',ap.type_name,'properties',ap.identifying,'schema_version',v);
+   or (a.definition-strip) is distinct from (expected-strip));
+end $$;
+
+create function ontology.nexloop_instance_create_plan(p_tenant text,ap ontology.nexloop_instance_approvals) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v integer;r text[];resource text;
+begin
+ select max(d.version) into v from ontology.object_type_versions d where d.tenant_id=p_tenant and d.type_name=ap.type_name;
+ if v is null then return jsonb_build_object('reasons',jsonb_build_array('instance_type_unavailable'));end if;
+ r:=ontology.nexloop_instance_identity_issues(p_tenant,ap.type_name,ap.identifying);
+ select d.resource_id into resource from control.nexloop_action_definitions d where d.tenant_id=p_tenant and d.world='real' and d.active and d.definition->>'stable_name'=ap.type_name||'.create'
+  and exists(select 1 from jsonb_array_elements(d.definition->'object_types') o where o->>'stable_name'=ap.type_name and (o->>'version')::integer=v)
+  order by (d.definition->>'version')::integer desc limit 1;
+ if resource is null then r:=array_append(r,'type_create_action_unavailable');
+ elsif not ontology.nexloop_type_create_action_canonical(p_tenant,ap.type_name,v,resource) then r:=array_append(r,'latest_create_action_not_canonical');end if;
+ return jsonb_build_object('reasons',to_jsonb(r),'create_action',resource,'type_name',ap.type_name,'properties',ap.identifying,'schema_version',v);
 end $$;
 
 -- 0103 reflow verbs unchanged, plus 'instance_plan'.
@@ -149,10 +168,46 @@ begin
  raise exception 'reflow verb invalid' using errcode='22023';
 end $$;
 
+-- 0103 instance gates plus the identity compatibility of 0104: an identity the latest Schema cannot hold (type,
+-- closed vocabulary, uncovered required property) is refused at approval, so approve → reflow → return cannot loop.
+create or replace function ontology.nexloop_review_instance_gates(p_tenant text,p_world text,x ontology.nexloop_candidate_definitions,out failures text[],out create_action text)
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare owner text:=ontology.nexloop_review_instance_type(x.candidate);ip jsonb:=x.candidate->'proposed'->'identifying_properties';v integer;def jsonb;k text;val jsonb;
+begin
+ failures:='{}';
+ if p_world<>'real' then failures:=array['simulation_or_shadow_candidate_cannot_create_real_instance'];return;end if;
+ if x.kind<>'object_instance' or owner is null then failures:=array['invalid_type_reference'];return;end if;
+ select d.version,d.definition into v,def from ontology.object_type_versions d where d.tenant_id=p_tenant and d.type_name=owner order by d.version desc limit 1;
+ if v is null then failures:=array['instance_type_unavailable'];return;end if;
+ if jsonb_typeof(ip) is distinct from 'object' or (select count(*) from jsonb_object_keys(ip)) not between 1 and 16 then failures:=array['identifying_properties_invalid'];return;end if;
+ for k,val in select key,value from jsonb_each(ip) loop
+  if not exists(select 1 from jsonb_array_elements(def->'properties') e where e->>'property_name'=k) then
+   failures:=array_append(failures,'identifying_property_not_published:'||k);
+  elsif jsonb_typeof(val) not in ('string','number') or btrim(val#>>'{}')='' then failures:=array_append(failures,'identifying_value_invalid:'||k);end if;
+ end loop;
+ select a.resource_id into create_action from control.nexloop_action_definitions a where a.tenant_id=p_tenant and a.world='real' and a.active
+  and a.definition->>'stable_name'=owner||'.create'
+  and exists(select 1 from jsonb_array_elements(a.definition->'object_types') r where r->>'stable_name'=owner and (r->>'version')::integer=v)
+  order by (a.definition->>'version')::integer desc limit 1;
+ if create_action is null then failures:=array_append(failures,'type_create_action_unavailable');end if;
+ failures:=failures||array(select issue from unnest(ontology.nexloop_instance_identity_issues(p_tenant,owner,ip)) issue
+  where issue like 'identifying_property_incompatible:%' or issue like 'required_property_not_identified:%');
+ if create_action is not null and not ontology.nexloop_type_create_action_canonical(p_tenant,owner,v,create_action) then
+  failures:=array_append(failures,'latest_create_action_not_canonical');end if;
+ if cardinality(failures)>0 then return;end if;
+ -- One object per approved identity.
+ if exists(select 1 from ontology.objects o where o.tenant_id=p_tenant and o.world=p_world and o.type_name=owner and o.properties@>ip) then
+  failures:=array_append(failures,'instance_already_exists');end if;
+ if exists(select 1 from ontology.nexloop_instance_approvals a where a.tenant_id=p_tenant and a.world=p_world and a.type_name=owner
+   and (a.identifying=ip or a.dedupe_key=x.dedupe_key) and a.candidate_id<>x.candidate_id) then
+  failures:=array_append(failures,'instance_already_approved');end if;
+end $$;
+
 do $grants$
 declare f text;
 begin
- foreach f in array array['ontology.nexloop_instance_create_plan(text,ontology.nexloop_instance_approvals)','authz.nexloop_review_reflow(text,text,text,text,text)'] loop
+ foreach f in array array['ontology.nexloop_instance_identity_issues(text,text,jsonb)','ontology.nexloop_type_create_action_canonical(text,text,integer,text)','ontology.nexloop_instance_create_plan(text,ontology.nexloop_instance_approvals)',
+  'ontology.nexloop_review_instance_gates(text,text,ontology.nexloop_candidate_definitions)','authz.nexloop_review_reflow(text,text,text,text,text)'] loop
   execute 'alter function '||f||' owner to nexloop_owner';
   execute 'revoke all on function '||f||' from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_identity,nexloop_configurator';
  end loop;

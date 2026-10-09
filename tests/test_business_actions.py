@@ -133,3 +133,31 @@ def test_deployment_actions_provide_both_type_action_capabilities(admin):
         gates=admin.execute("""select ontology.nexloop_review_publication_gates(%s,'real',d,%s) from ontology.nexloop_candidate_definitions d where candidate_id=%s""",
             (tenant,Jsonb(publication),cid)).fetchone()[0]
         assert gates==[]
+
+
+def test_doctor_reports_an_already_published_declared_action_and_capability_conflicts():
+    """A deployment that already published Consumer.edit:1: same Capability → exclude it; another Capability → conflict."""
+    lineage=lambda cap:[{'stable_name':'Consumer.edit','version':1,'world':'real','active':True,
+        'definition':{'capability_binding':{'capability_name':cap}},'capability':{'capability_name':cap}}]
+    fresh=BA.doctor(MANIFEST,[])
+    assert fresh['ok'] and 'Consumer.edit' in fresh['publish'] and fresh['findings']==[]
+    same=BA.doctor(MANIFEST,lineage('ontology.object.edit'))
+    assert same['ok'] and 'Consumer.edit' not in same['publish'] and [f['state'] for f in same['findings']]==['already_published']
+    other=BA.doctor(MANIFEST,lineage('consumer.edit'))
+    assert other['ok'] is False and other['findings'][0]=={**other['findings'][0],'state':'conflict_different_capability',
+        'resource_id':'eios:action:Consumer.edit:1','declared':'ontology.object.edit','published':'consumer.edit'}
+
+
+def test_doctor_reads_the_tenant_through_the_configurator(admin,pg,tmp_path):
+    from psycopg.conninfo import make_conninfo
+    from psycopg.types.json import Jsonb
+    from nexloop_eios.bootstrap import bootstrap
+    from test_postgres_action_claims import governance_inputs
+    bootstrap(admin);tenant='synthetic-a'
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(tenant,))
+    inputs=governance_inputs();definition=inputs['action_definition'].model_copy(update={'stable_name':'Consumer.edit','contract_digest':None})
+    admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real','eios:action:Consumer.edit:1',%s,%s)",
+        (tenant,Jsonb(definition.model_dump(mode='json')),Jsonb(inputs['capability_snapshot'].model_dump(mode='json'))))
+    admin.execute('alter role nexloop_configurator login')
+    dsn=tmp_path/'configurator-dsn';dsn.write_text(make_conninfo(pg,user='nexloop_configurator'));dsn.chmod(0o600)
+    assert BA.main(['doctor','--manifest',str(ROOT/'deploy/configuration/business-actions.v1.json'),'--tenant',tenant,'--database-url-file',str(dsn)])==1

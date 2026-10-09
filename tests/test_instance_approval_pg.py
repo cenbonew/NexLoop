@@ -237,3 +237,8 @@ def test_identity_no_longer_creatable_returns_the_candidate_to_review(review,fau
     assert admin.execute('select count(*) from ontology.nexloop_instance_approvals').fetchone()==(0,)
     assert admin.execute('select reflow_status from ontology.nexloop_review_decisions where decision_id=%s',(decided['decision_id'],)).fetchone()==('done',)
     assert {resolution(admin,x) for x in claims.values()}=={'awaiting_definition'}
+    # Re-approving the returned candidate is refused at the gate with the same reason: no approve → reflow → return loop.
+    again=approve(f,instance_cid,'fault-again-'+fault)
+    expected={'removed':'identifying_property_not_published:name'}.get(fault,reason)
+    assert again['outcome']=='publication_failed' and expected in again['publication']['gate_failures'],again['publication']
+    assert admin.execute('select count(*) from ontology.nexloop_instance_approvals').fetchone()==(0,) and candidates(admin)[instance_cid][2]=='pending_review'

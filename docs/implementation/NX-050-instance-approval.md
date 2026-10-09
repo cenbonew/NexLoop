@@ -118,3 +118,14 @@ Python：
   - `test_edit_profile_requires_a_side_effecting_service_snapshot`
   - `test_deployment_actions_provide_both_type_action_capabilities`：经真实 SQL 门槛验证。
 - `tests/test_review_type_actions_pg.py::test_type_coverage_doctor_lists_the_minimal_grants_and_they_validate`
+
+### 6.5 审核后追加（调度员确认 2026-10-10）
+- **部署方已发布 `Consumer.edit:1` 的冲突检查**：只读 doctor `python -m nexloop_eios.business_actions doctor --manifest deploy/configuration/business-actions.v1.json --tenant … --database-url-file <configurator>`，经 `control.nexloop_service_grant_action_lineage` 对照租户里已发布的 Action。
+  - 已发布且能力相同：报 `already_published`，编译时用 `select` 排除即可。
+  - 已发布但能力不同：报 `conflict_different_capability`，退出码 1。已发布的定义不可修改，由负责人决定哪条 Action 承载该 profile。
+- **`match-config.json` 的部署说明（v0.1 接受手工维护）**：类型每发布一个新版本（新类型 v1，或审核发布属性、词表后的后继版本），都要在匹配进程的 `match-config.json` 中把 `<Type>` 的 edit/create 版本更新到对应版本，并重启或下一个 tick 生效。授权侧由 `follow_latest_version` 自动跟随，版本选择暂不自动跟随，后续另做。`type-coverage` doctor 给出的建议里包含该条目。
+- **批准门槛也检查标识兼容**（迁移 0104 中 `ontology.nexloop_review_instance_gates` 的新版本）：
+  - 批准与回流共用 `ontology.nexloop_instance_identity_issues`（标识类型与封闭词表、未覆盖的必填属性）和 `ontology.nexloop_type_create_action_canonical`；
+  - 不兼容或最新 create 非规范时直接拒绝批准，并给出原因；
+  - 被退回的候选按原样再批会被同样拒绝，因此不会出现“批准 → 回流 → 退回”的循环。
+  - 测试：`test_identity_no_longer_creatable_returns_the_candidate_to_review` 的四种情况都在退回后再次批准，均被拒绝；`tests/test_business_actions.py` 的两项 doctor 测试。
