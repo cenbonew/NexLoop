@@ -80,7 +80,7 @@
 | Claim 已解决、被取代或定义被拒 | `matching claim unavailable` |
 | 证明中依据被篡改（fence、job_id、purpose、conversation_id） | 拒绝 |
 
-## 5. 测试（`tests/test_message_purpose_reads_pg.py`，9 例，真实 PG，合成数据）
+## 5. 测试（`tests/test_message_purpose_reads_pg.py`，12 例，真实 PG，合成数据）
 
 服务主体只用仓库清单经 `service_grants.apply`（`nexloop_configurator`、可信配置）授权；断言两个主体在 Message/Conversation/Consumer 上的 grants 计数为 0，且受理消息不推进 authority_revision。
 
@@ -113,10 +113,21 @@
    - 绕过 Python 校验直接调 configure_manifest 时，SQL 拒绝 7 种畸形规则；
    - 合法形状可写入；doctor 报告与清单的偏差，apply 恢复。
 
+10. `test_other_tenant_lease_or_claims_never_derive_read`：
+    - 正对照：同一组租约内证明在本租户可读；
+    - 证明改标为其他租户被拒；
+    - 同一凭据在其他租户持有内容完全相同的租约，本租户作业结束后读取被拒，指向该作业的伪造依据也被拒。
+11. `test_other_world_never_derives_read`：
+    - real 证明在 simulation world 出示、证明改标 simulation（在两个 world 出示）均被拒；
+    - 作业行改为 simulation world 后，real 消息不再可读，已签出的证明也被拒。
+12. `test_run_credential_of_the_purpose_principal_never_derives_read`：
+    - 由 worker 主体自己经可信 API 签发 Run 凭据，此时 worker 的租约仍有效；
+    - 该 Run 凭据的依据为 `configured`、读取被拒；
+    - worker 的用途证明改绑到 Run 凭据、或原样出示，均被 SQL 拒绝。
+
 ## 6. 未覆盖与限制
 
 - matcher 端到端只验证到读取层：Claim 视图（即 `ClaimMatcher.match_conversation` 的读取调用）和证据消息。
   - 匹配后的正式写入走 0084 的属性派生，不在本方案范围；
   - 本轮没有用"只靠清单"的 matcher 跑完整的 `ClaimMatchWorker`（召回索引、模型、正式写入）。
-- 其他租户、其他 world、Run 凭据：由 SQL 的身份快照检查覆盖，与 0077/0086 相同的代码路径，本文件没有单独再写这三类负例。
-- 匹配用途下，一条 Conversation 只要还有待匹配的 Claim，matcher 就能读该 Conversation 的全部 Claim 视图，而不只是那一条。这是 `nexloop_read_conversation_claims` 以 Conversation 对象为单位授权所决定的。
+- 匹配用途下，一条 Conversation 只要还有待匹配的 Claim，matcher 就能读该 Conversation 的全部 Claim 视图，而不只是那一条。这是 `nexloop_read_conversation_claims` 以 Conversation 对象为单位授权所决定的。调度员 2026-10-10 决定：v0.1 接受；收窄到单条 Claim 需要改读取接口，记为后续优化。

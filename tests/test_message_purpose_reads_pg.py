@@ -73,7 +73,7 @@ def deployed(conversations,admin,pg,tmp_path):
         yield Private(fixture=fixture,manifest=manifest,apply=apply,session=session,signer=AuthoritySigner('nx048-purpose',key),
             conversation_id=conversation_id,ids=ids,other_conversation=other_conversation,other_ids=other_ids,
             principal=lambda role:next(p for p in manifest['principals'] if p['role']==role)['principal_id'],
-            report=report,pg=pg,dsn=paths['dsn'])
+            report=report,pg=pg,dsn=paths['dsn'],tokens=tokens)
 
 
 def enqueue(d):
@@ -296,3 +296,96 @@ def test_apply_is_idempotent_doctor_in_sync_and_sql_refuses_malformed_rules(depl
     assert {'kind':'message_purpose_rule','key':[principal,'claim_matching']} in d['apply']()['facts_written']
     report=G.doctor(d['manifest'],TENANT,database_url_file=d['dsn'])
     assert report['missing_grants']==[] and report['fact_drift']==[]
+
+
+# --------------------------------------------------------------------------- tenant / world / Run boundaries
+
+def signed_read(pool,session,signer,claims,type_name,object_id,fields,*,world):
+    """nexloop_read_object exactly as AuthorizedObjectReader.get signs it, with explicit proofs and world."""
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    import hmac
+    body,*properties=[dict(c) for c in claims]
+    body.update(protocol='nexloop-object-read-v1',key_id=signer.key_id,type_name=type_name,object_id=object_id,fields=list(fields),property_authorities=properties)
+    text=canonical_payload(body);signature=hmac.new(signer.material,('nexloop-object-read-v1:'+text).encode(),'sha256').hexdigest()
+    with pool.connection() as db,db.transaction():
+        return db.execute('select authz.nexloop_read_object(%s,%s,%s,%s)',(session.token_digest,world,text,signature)).fetchone()[0]
+
+
+def leased_proofs(d,message_id):
+    pool,worker,queue,item,_=lease(d,d['conversation_id'])
+    w=AuthorizedObjectReader(pool,worker,d['signer'])
+    with authority_request_scope():
+        proofs=w.authorities([(ResourceType.OBJECT,'Message/'+message_id),(ResourceType.PROPERTY,'Message/'+message_id+'/body')])
+    assert {p['derivation'] for p in proofs}=={'purpose-message-v1'}
+    # Positive control: the same proofs read the Message under this credential, tenant and world.
+    assert signed_read(pool,worker,d['signer'],proofs,'Message',message_id,('body',),world='real')['properties']=={'body':'付款页面一直报错。'}
+    return pool,worker,queue,item,proofs
+
+
+def test_other_tenant_lease_or_claims_never_derive_read(deployed,admin):
+    d=deployed;enqueue(d);mid=d['ids'][0]
+    pool,worker,queue,item,proofs=leased_proofs(d,mid)
+    # A proof re-labelled for another tenant is refused (identity snapshot pins the tenant).
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        signed_read(pool,worker,d['signer'],[{**p,'tenant_id':'synthetic-b'} for p in proofs],'Message',mid,('body',),world='real')
+    # An identical task leased by this very credential in another tenant grants nothing here.
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('synthetic-b','active') on conflict do nothing")
+    admin.execute('''insert into runtime.invocations(invocation_id,tenant_id,capability_name,capability_version,actor_id,trace_id,request_id,correlation_id,input_digest,status,job_id,created_at,updated_at)
+        select 'inv_other_'||invocation_id,'synthetic-b',capability_name,capability_version,actor_id,trace_id,request_id,correlation_id,input_digest,status,'other-'||job_id,created_at,updated_at
+        from runtime.invocations where job_id=%s''',(item['task_id'],))
+    admin.execute('''insert into runtime.jobs(job_id,invocation_id,capability_name,capability_version,capability_type,execution_mode,tenant_id,actor_id,trace_id,request_id,
+        normalized_input,plan_snapshot,status,created_at,updated_at,world,queue,available_at,max_attempts,attempts,fencing_token,lease_until,lease_credential)
+        select 'other-'||job_id,'inv_other_'||invocation_id,capability_name,capability_version,capability_type,execution_mode,'synthetic-b',actor_id,trace_id,request_id,
+        normalized_input,plan_snapshot,status,created_at,updated_at,world,queue,available_at,max_attempts,attempts,fencing_token,lease_until,lease_credential
+        from runtime.jobs where job_id=%s''',(item['task_id'],))
+    queue.finish(task_id=item['task_id'],fence=item['fence'],status='succeeded',result={'code':'synthetic'})
+    assert admin.execute("select count(*) from runtime.jobs where tenant_id='synthetic-b' and status='running' and lease_until>clock_timestamp()").fetchone()==(1,)
+    refused(AuthorizedObjectReader(pool,worker,d['signer']),'Message',mid,('body',))
+    forged=[{**p,'derivation_basis':{**p['derivation_basis'],'job_id':'other-'+item['task_id']}} for p in proofs]
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        signed_read(pool,worker,d['signer'],forged,'Message',mid,('body',),world='real')
+
+
+def test_other_world_never_derives_read(deployed,admin):
+    d=deployed;enqueue(d);mid=d['ids'][0]
+    pool,worker,queue,item,proofs=leased_proofs(d,mid)
+    # The same real-world proofs presented for the simulation world, and proofs re-labelled for it.
+    for claims in (proofs,[{**p,'world':'simulation'} for p in proofs]):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            signed_read(pool,worker,d['signer'],claims,'Message',mid,('body',),world='simulation')
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        signed_read(pool,worker,d['signer'],[{**p,'world':'simulation'} for p in proofs],'Message',mid,('body',),world='real')
+    # A simulation-world task with the same payload, leased by this credential, does not cover the real Message.
+    admin.execute("update runtime.jobs set world='simulation' where job_id=%s",(item['task_id'],))
+    refused(AuthorizedObjectReader(pool,worker,d['signer']),'Message',mid,('body',))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        signed_read(pool,worker,d['signer'],proofs,'Message',mid,('body',),world='real')
+
+
+def test_run_credential_of_the_purpose_principal_never_derives_read(deployed,admin):
+    from nexloop_eios.run_credentials import AUDIENCE,issue_run_credential
+    d=deployed;enqueue(d);mid=d['ids'][0]
+    pool,worker,queue,item,proofs=leased_proofs(d,mid)
+    principal=next(p for p in d['manifest']['principals'] if p['role']=='claim_extraction_worker')
+    # A Run credential delegated by the worker principal itself (trusted API issuer), while its lease is live.
+    api=d['fixture']['reader'].pool
+    # Publish the extract Action contract (same shape the conversation fixture publishes its Actions with).
+    base=d['fixture']['base'];definition=base['definition']
+    body=definition.model_dump(mode='json');body.pop('contract_digest',None);body['stable_name']='nexloop.claim.extract'
+    published=type(definition).model_validate_json(json.dumps(body))
+    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
+        (TENANT,'real','eios:action:nexloop.claim.extract:1',Jsonb(published.model_dump(mode='json')),
+         Jsonb(base['capability'].model_copy(update={'has_side_effects':True}).model_dump(mode='json'))))
+    issuer=authenticate_service(api,d['tokens'][principal['credential_reference']],world='real')
+    run=issue_run_credential(api,issuer,d['signer'],action_resources=['eios:action:nexloop.claim.extract:1'])
+    run_session=authenticate_service(pool,run.token,world='real',run_id=run.run_id,audience=AUDIENCE)
+    assert run_session.run_context is not None
+    from nexloop_eios.message_read import message_read_basis
+    assert message_read_basis(pool,run_session,mid)['mode']=='configured'  # never the purpose path
+    refused(AuthorizedObjectReader(pool,run_session,d['signer']),'Message',mid,('body',))
+    # The worker's own purpose proofs re-bound to the Run credential are refused in SQL.
+    rebound=[{**p,'credential_id':run_session.authentication.credential_id,'directory_hash':run_session.directory_hash} for p in proofs]
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        signed_read(pool,run_session,d['signer'],rebound,'Message',mid,('body',),world='real')
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        signed_read(pool,run_session,d['signer'],proofs,'Message',mid,('body',),world='real')
