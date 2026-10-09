@@ -9,15 +9,30 @@ import hmac
 import json
 from pathlib import Path
 import re
+import socket
 import ssl
 import threading
+import time
 from nexloop_eios.service_offerings import CatalogScopeDenied
 from nexloop_eios.private_configuration import read_private_text
 
 
-def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls_key_file):
+def _inherited_listener(listener, port):
+    """NX-049 multi-process prototype: a loopback listener created by the parent Worker."""
+    if (not isinstance(listener, socket.socket) or listener.family != socket.AF_INET
+            or listener.type != socket.SOCK_STREAM or listener.getsockname() != ('127.0.0.1', port)
+            or not 1024 <= port <= 65535):
+        raise ValueError('inherited loopback listener required')
+    try:listening=listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
+    except (AttributeError, OSError):listening=1  # not queryable on this platform (e.g. macOS)
+    if not listening:raise ValueError('inherited loopback listener required')
+    return listener
+
+
+def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls_key_file, listen_socket=None):
     if type(port) is not int or not (port == 0 or 1024 <= port <= 65535):
         raise ValueError('unprivileged loopback port required')
+    if listen_socket is not None:_inherited_listener(listen_socket,port)
     key_file=Path(key_file)
     def key():
         value=read_private_text(key_file,maximum=64)
@@ -132,9 +147,28 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
             try:super().process_request_thread(request,client_address)
             finally:self.connection_slots.release()
         def handle_error(self,request,client_address):pass  # No credential-bearing traceback.
+        def drain(self,timeout):
+            """After shutdown(): wait until every accepted connection has been answered."""
+            deadline=time.monotonic()+timeout;held=0
+            try:
+                for _ in range(8):
+                    if not self.connection_slots.acquire(timeout=max(0,deadline-time.monotonic())):return False
+                    held+=1
+                return True
+            finally:
+                for _ in range(held):self.connection_slots.release()
     context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certificate_file,tls_key_file)
-    server=GuardServer(('127.0.0.1',port),Handler)
+    if listen_socket is None:
+        server=GuardServer(('127.0.0.1',port),Handler)
+    else:
+        # Shared with sibling guard processes; this process never binds or listens itself.
+        # Non-blocking: every sibling wakes on a pending connection, the losers' accept()
+        # fails with EAGAIN (ignored by socketserver) instead of blocking serve_forever.
+        listen_socket.setblocking(False)
+        server=GuardServer(('127.0.0.1',port),Handler,bind_and_activate=False)
+        server.socket.close();server.socket=listen_socket
+        server.server_address=listen_socket.getsockname();server.server_name,server.server_port='127.0.0.1',port
     try:server.socket=context.wrap_socket(server.socket,server_side=True,do_handshake_on_connect=False)
     except Exception:
         server.server_close()
