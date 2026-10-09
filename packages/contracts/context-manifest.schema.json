@@ -111,7 +111,10 @@
               "policy",
               "schema",
               "memory",
-              "current_message"
+              "current_message",
+              "formal_object",
+              "conversation",
+              "execution_state"
             ]
           },
           "access_decision_ref": {

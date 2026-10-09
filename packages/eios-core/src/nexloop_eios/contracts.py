@@ -108,8 +108,267 @@ class ContextManifestSourcesItem(BaseModel):
     ref: str
     revision: str
     content_hash: str
-    evidence_kind: Literal['verified_fact', 'user_statement', 'hypothesis', 'policy', 'schema', 'memory', 'current_message']
+    evidence_kind: Literal['verified_fact', 'user_statement', 'hypothesis', 'policy', 'schema', 'memory', 'current_message', 'formal_object', 'conversation', 'execution_state']
     access_decision_ref: str
+
+class ContextPackV6Bindings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    tenant_id: str
+    world_id: Literal['real']
+    run_id: str
+    source_principal: str
+    context_id: str
+    namespace: str
+    artifact_id: str
+    command_digest: str
+
+class ContextPackV6Role1RoleBindingBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    run_id: str
+    tenant_id: str
+    world: Literal['real']
+    consumer_id: str
+    link_id: str
+    role_id: str
+    step_id: str
+    link_revision: int
+    role_revision: int
+    step_revision: int
+    role_ref: str
+    scope: str
+    expires_at: str
+
+class ContextPackV6Role1RoleBindingDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    responsibility: str
+    ceiling_ref: str
+    active: Literal[True]
+    valid_from: str
+    valid_until: str
+
+class ContextPackV6Role1RoleBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    binding: ContextPackV6Role1RoleBindingBinding
+    definition: ContextPackV6Role1RoleBindingDefinition
+    definition_provenance: str
+    mapping_provenance: str
+    grants_authority: Literal[False]
+
+class ContextPackV6Role1RolePolicy1Binding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    run_id: str
+    tenant_id: str
+    world: Literal['real']
+    ceiling_id: str
+    ceiling_revision: int
+    scope_id: str
+    scope_revision: int
+    budget: dict[str, Any]
+    effect_units: int
+    expires_at: str
+
+class ContextPackV6Role1RolePolicy1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    binding: ContextPackV6Role1RolePolicy1Binding
+    ceiling: dict[str, Any]
+    scope: dict[str, Any]
+    ceiling_provenance: str
+    scope_provenance: str
+    grants_authority: Literal[False]
+
+class ContextPackV6Role1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    role_binding: ContextPackV6Role1RoleBinding
+    role_policy: None | ContextPackV6Role1RolePolicy1
+
+class ContextPackV6CurrentEvent0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    message_id: str
+    conversation_id: str
+    sequence: int
+    body: str
+    provenance: str
+    kind: Literal['consumer_message']
+
+class ContextPackV6CurrentEvent1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['service_trigger']
+    event_id: str
+    source_principal: str
+    body: str
+    provenance: str
+
+class ContextPackV6GoalControlSnapshot1ScopesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['role', 'consumer', 'strategy', 'action_type']
+    ref: str
+
+class ContextPackV6GoalControlSnapshot1GoalsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    goal_id: str
+    version: int
+
+class ContextPackV6GoalControlSnapshot1ObjectsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type_name: str
+    object_id: str
+    revision: int
+
+class ContextPackV6GoalControlSnapshot1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    control_revision: int
+    scopes: list[ContextPackV6GoalControlSnapshot1ScopesItem]
+    goals: list[ContextPackV6GoalControlSnapshot1GoalsItem]
+    objects: list[ContextPackV6GoalControlSnapshot1ObjectsItem]
+    budgets: list[Literal['model', 'incentive']]
+
+class ContextPackV6Goal(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    goal_version_refs: list[str]
+    control_snapshot: None | ContextPackV6GoalControlSnapshot1
+
+class ContextPackV6FormalFactsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal['Consumer', 'Goal', 'PlanStep', 'EffectControl']
+    id: str
+    revision: int
+    provenance: str
+
+class ContextPackV6CurrentConstraints(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    action: Literal['nexloop.service.request:1']
+    allow_effect: Literal[True]
+    budget_units: int
+    reserved_units: int
+    valid_until: str
+    executor_principal: str
+
+class ContextPackV6SupplyProperties(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    service_code: Literal['local.json-export']
+    title: str
+    delivery_action: Literal['nexloop.service.request:1']
+    content_kind: Literal['json-message-export']
+    price_amount: Literal['0']
+    currency: Literal['CNY']
+    eligibility: Literal['current_consumer_plan']
+    allowed_guarantees: list[Any]
+    allowed_discounts: list[Any]
+    evidence_kind: Literal['fsynced_json_export']
+    active: Literal[True]
+    valid_until: str
+
+class ContextPackV6Supply(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    offering_id: str
+    offering_revision: int
+    binding_id: str
+    binding_revision: int
+    provenance: str
+    properties: ContextPackV6SupplyProperties
+
+class ContextPackV6ConstraintsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['formal_object', 'policy']
+    access_decision_ref: str
+    relevance: float | int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed']]
+
+class ContextPackV6ConsumerStateItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['formal_object', 'policy']
+    access_decision_ref: str
+    relevance: float | int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed']]
+
+class ContextPackV6OpenWorkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['formal_object', 'execution_state']
+    access_decision_ref: str
+    relevance: float | int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed']]
+
+class ContextPackV6EvidenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: Literal['conversation', 'claim_evidence', 'relationships', 'recall', 'hypotheses']
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['user_statement', 'conversation', 'hypothesis', 'memory']
+    access_decision_ref: str
+    relevance: float | int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed']]
+
+class ContextPackV6SemanticsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['schema']
+    access_decision_ref: str
+    relevance: float | int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed']]
+
+class ContextPackV6ExperienceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['memory']
+    access_decision_ref: str
+    relevance: float | int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed']]
+
+class ContextPackV6BudgetReportOmittedItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    section: str
+    subsection: str
+    ref: str
+    reason: Literal['section_quota', 'mandatory_exceeds_budget', 'core_exceeds_budget', 'duplicate_evidence', 'experience', 'hypotheses', 'semantics_low_relevance', 'older_conversation', 'older_claim_evidence', 'low_score_recall']
+
+class ContextPackV6BudgetReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    estimator: str
+    input_token_budget: int
+    output_reserve: int
+    framing_reserve: int
+    available: int
+    used: int
+    sections: dict[str, Any]
+    omitted: list[ContextPackV6BudgetReportOmittedItem]
+
+class ContextPackV6InsufficientItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    code: Literal['mandatory_exceeds_budget', 'core_trimmed', 'required_source_unreadable', 'required_source_stale', 'goal_not_current', 'control_paused', 'semantic_ambiguous_required']
+    section: None | str
+    refs: list[str]
 
 class OntologyMutationOperationsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -213,7 +472,7 @@ class Claim(_Contract):
     recorded_at: str
 
 class ContextManifest(_Contract):
-    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:context-manifest","title":"context-manifest","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"context_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"call_sequence":{"type":"integer","minimum":1},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"policy_revision":{"type":"string","minLength":1},"ontology_schema_revision":{"type":"string","minLength":1},"semantic_snapshot_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"context_strategy_version":{"type":"string","minLength":1},"model_provider":{"type":"string","minLength":1},"model_id":{"type":"string","minLength":1},"embedding_profile_ref":{"anyOf":[{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},{"type":"null"}]},"sources":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"string","minLength":1},"content_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"evidence_kind":{"enum":["verified_fact","user_statement","hypothesis","policy","schema","memory","current_message"]},"access_decision_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}},"required":["ref","revision","content_hash","evidence_kind","access_decision_ref"]},"minItems":1,"maxItems":256},"prompt_artifact_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"request_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"input_token_budget":{"type":"integer","minimum":256},"output_token_budget":{"type":"integer","minimum":128},"redaction_policy_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}},"required":["schema_version","context_id","tenant_id","world_id","mode","run_id","call_sequence","goal_version_ref","policy_revision","ontology_schema_revision","semantic_snapshot_ref","context_strategy_version","model_provider","model_id","embedding_profile_ref","sources","prompt_artifact_ref","request_digest","input_token_budget","output_token_budget","redaction_policy_ref","created_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:context-manifest","title":"context-manifest","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"context_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"call_sequence":{"type":"integer","minimum":1},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"policy_revision":{"type":"string","minLength":1},"ontology_schema_revision":{"type":"string","minLength":1},"semantic_snapshot_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"context_strategy_version":{"type":"string","minLength":1},"model_provider":{"type":"string","minLength":1},"model_id":{"type":"string","minLength":1},"embedding_profile_ref":{"anyOf":[{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},{"type":"null"}]},"sources":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"string","minLength":1},"content_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"evidence_kind":{"enum":["verified_fact","user_statement","hypothesis","policy","schema","memory","current_message","formal_object","conversation","execution_state"]},"access_decision_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}},"required":["ref","revision","content_hash","evidence_kind","access_decision_ref"]},"minItems":1,"maxItems":256},"prompt_artifact_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"request_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"input_token_budget":{"type":"integer","minimum":256},"output_token_budget":{"type":"integer","minimum":128},"redaction_policy_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}},"required":["schema_version","context_id","tenant_id","world_id","mode","run_id","call_sequence","goal_version_ref","policy_revision","ontology_schema_revision","semantic_snapshot_ref","context_strategy_version","model_provider","model_id","embedding_profile_ref","sources","prompt_artifact_ref","request_digest","input_token_budget","output_token_budget","redaction_policy_ref","created_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
     schema_version: Literal['1.0']
     context_id: str
     tenant_id: str
@@ -236,6 +495,26 @@ class ContextManifest(_Contract):
     output_token_budget: int
     redaction_policy_ref: str
     created_at: str
+
+class ContextPackV6(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:context-pack-v6","title":"context-pack-v6","description":"NX-023 Context pack v6 (draft). Superset of v2 (message), v3 (Role trigger) and v5 (Role policy) sections, plus strategy, goal/control snapshot, formal state, open work, labelled evidence, semantics, budget report and explicit insufficiency. Formal sections carry only governed objects/policy/ledger state; Claims under review appear only as source text; hypotheses only in evidence.hypotheses. Server-assembled; grants nothing. v2-v5 stay frozen and old Runs keep using them.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"nexloop.context-pack.v6"},"strategy_ref":{"type":"string","pattern":"^context-strategy:[a-z][a-z0-9_]{0,63}@[1-9][0-9]{0,6}$"},"bindings":{"type":"object","properties":{"tenant_id":{"type":"string","format":"uuid"},"world_id":{"const":"real"},"run_id":{"type":"string","format":"uuid"},"source_principal":{"type":"string","minLength":1,"maxLength":512},"context_id":{"type":"string","format":"uuid"},"namespace":{"type":"string","pattern":"^[a-f0-9]{64}$"},"artifact_id":{"type":"string","pattern":"^[a-f0-9]{32}$"},"command_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"}},"required":["artifact_id","command_digest","context_id","namespace","run_id","source_principal","tenant_id","world_id"],"additionalProperties":false},"role":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"role_binding":{"type":"object","properties":{"binding":{"type":"object","properties":{"run_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world":{"const":"real"},"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"link_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"role_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"step_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"link_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"role_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"step_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"role_ref":{"type":"string","pattern":"^role:[a-f0-9]{64}:mapping:[a-f0-9]{64}$"},"scope":{"type":"string","minLength":1,"maxLength":8192},"expires_at":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"}},"required":["consumer_id","expires_at","link_id","link_revision","role_id","role_ref","role_revision","run_id","scope","step_id","step_revision","tenant_id","world"],"additionalProperties":false},"definition":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":8192},"responsibility":{"type":"string","minLength":1,"maxLength":8192},"ceiling_ref":{"type":"string","minLength":1,"maxLength":8192},"active":{"const":true},"valid_from":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"},"valid_until":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"}},"required":["active","ceiling_ref","name","responsibility","valid_from","valid_until"],"additionalProperties":false},"definition_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"mapping_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"grants_authority":{"const":false}},"required":["binding","definition","definition_provenance","grants_authority","mapping_provenance"],"additionalProperties":false},"role_policy":{"anyOf":[{"type":"null"},{"type":"object","properties":{"binding":{"type":"object","properties":{"run_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world":{"const":"real"},"ceiling_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"ceiling_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"scope_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"scope_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"budget":{"type":"object"},"effect_units":{"type":"integer","minimum":1,"maximum":1000000},"expires_at":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"}},"required":["budget","ceiling_id","ceiling_revision","effect_units","expires_at","run_id","scope_id","scope_revision","tenant_id","world"],"additionalProperties":false},"ceiling":{"type":"object"},"scope":{"type":"object"},"ceiling_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"scope_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"grants_authority":{"const":false}},"required":["binding","ceiling","ceiling_provenance","grants_authority","scope","scope_provenance"],"additionalProperties":false}]}},"required":["role_binding","role_policy"]}]},"current_event":{"anyOf":[{"type":"object","properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"sequence":{"type":"integer","minimum":1,"maximum":9007199254740991},"body":{"type":"string","maxLength":32768},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"kind":{"const":"consumer_message"}},"required":["body","conversation_id","kind","message_id","provenance","sequence"],"additionalProperties":false},{"type":"object","properties":{"kind":{"const":"service_trigger"},"event_id":{"type":"string","format":"uuid"},"source_principal":{"type":"string","minLength":1,"maxLength":512},"body":{"type":"string","minLength":1,"maxLength":8192},"provenance":{"type":"string","pattern":"^eios:role-trigger:[a-f0-9-]{36}$"}},"required":["body","event_id","kind","provenance","source_principal"],"additionalProperties":false}]},"goal":{"type":"object","additionalProperties":false,"properties":{"goal_version_refs":{"type":"array","items":{"type":"string","pattern":"^goal:[a-z0-9][a-z0-9._-]{0,127}@[1-9][0-9]*$"},"maxItems":16,"uniqueItems":true},"control_snapshot":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"control_revision":{"type":"integer","minimum":0},"scopes":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"kind":{"enum":["role","consumer","strategy","action_type"]},"ref":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$"}},"required":["kind","ref"]}},"goals":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"goal_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,127}$"},"version":{"type":"integer","minimum":1}},"required":["goal_id","version"]}},"objects":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"type_name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","minLength":1,"maxLength":128},"revision":{"type":"integer","minimum":1}},"required":["object_id","revision","type_name"]}},"budgets":{"type":"array","maxItems":2,"uniqueItems":true,"items":{"enum":["model","incentive"]}}},"required":["budgets","control_revision","goals","objects","scopes"]}]}},"required":["control_snapshot","goal_version_refs"]},"formal_facts":{"type":"array","items":{"type":"object","properties":{"type":{"enum":["Consumer","Goal","PlanStep","EffectControl"]},"id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"}},"required":["id","provenance","revision","type"],"additionalProperties":false},"minItems":4,"maxItems":4},"current_constraints":{"type":"object","properties":{"action":{"const":"nexloop.service.request:1"},"allow_effect":{"const":true},"budget_units":{"type":"integer","minimum":0,"maximum":9007199254740991},"reserved_units":{"type":"integer","minimum":0,"maximum":9007199254740991},"valid_until":{"type":"string","format":"date-time"},"executor_principal":{"type":"string","minLength":1,"maxLength":512}},"required":["action","allow_effect","budget_units","executor_principal","reserved_units","valid_until"],"additionalProperties":false},"supply":{"type":"object","properties":{"offering_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"offering_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"binding_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"binding_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"properties":{"type":"object","properties":{"service_code":{"const":"local.json-export"},"title":{"type":"string","minLength":1,"maxLength":256},"delivery_action":{"const":"nexloop.service.request:1"},"content_kind":{"const":"json-message-export"},"price_amount":{"const":"0"},"currency":{"const":"CNY"},"eligibility":{"const":"current_consumer_plan"},"allowed_guarantees":{"type":"array","maxItems":0},"allowed_discounts":{"type":"array","maxItems":0},"evidence_kind":{"const":"fsynced_json_export"},"active":{"const":true},"valid_until":{"type":"string","format":"date-time"}},"required":["active","allowed_discounts","allowed_guarantees","content_kind","currency","delivery_action","eligibility","evidence_kind","price_amount","service_code","title","valid_until"],"additionalProperties":false}},"required":["binding_id","binding_revision","offering_id","offering_revision","properties","provenance"],"additionalProperties":false},"constraints":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["formal_object","policy"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance":{"type":"number","minimum":0,"maximum":1},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed"]},"uniqueItems":true,"maxItems":3}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance","revision","subsection","tags"]},"maxItems":64},"consumer_state":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["formal_object","policy"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance":{"type":"number","minimum":0,"maximum":1},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed"]},"uniqueItems":true,"maxItems":3}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance","revision","subsection","tags"]},"maxItems":256},"open_work":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["formal_object","execution_state"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance":{"type":"number","minimum":0,"maximum":1},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed"]},"uniqueItems":true,"maxItems":3}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance","revision","subsection","tags"]},"maxItems":128},"evidence":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"enum":["conversation","claim_evidence","relationships","recall","hypotheses"]},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["user_statement","conversation","hypothesis","memory"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance":{"type":"number","minimum":0,"maximum":1},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed"]},"uniqueItems":true,"maxItems":3}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance","revision","subsection","tags"],"allOf":[{"if":{"properties":{"evidence_kind":{"const":"hypothesis"}}},"then":{"properties":{"subsection":{"const":"hypotheses"}}}},{"if":{"properties":{"subsection":{"const":"hypotheses"}}},"then":{"properties":{"evidence_kind":{"const":"hypothesis"}}}}]},"maxItems":256},"semantics":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["schema"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance":{"type":"number","minimum":0,"maximum":1},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed"]},"uniqueItems":true,"maxItems":3}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance","revision","subsection","tags"]},"maxItems":64},"experience":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["memory"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance":{"type":"number","minimum":0,"maximum":1},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed"]},"uniqueItems":true,"maxItems":3}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance","revision","subsection","tags"]},"maxItems":64},"budget_report":{"type":"object","additionalProperties":false,"properties":{"estimator":{"type":"string","minLength":1,"maxLength":64},"input_token_budget":{"type":"integer","minimum":1024},"output_reserve":{"type":"integer","minimum":128},"framing_reserve":{"type":"integer","minimum":0},"available":{"type":"integer"},"used":{"type":"integer","minimum":0},"sections":{"type":"object"},"omitted":{"type":"array","maxItems":1024,"items":{"type":"object","additionalProperties":false,"properties":{"section":{"type":"string","maxLength":32},"subsection":{"type":"string","maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"reason":{"enum":["section_quota","mandatory_exceeds_budget","core_exceeds_budget","duplicate_evidence","experience","hypotheses","semantics_low_relevance","older_conversation","older_claim_evidence","low_score_recall"]}},"required":["reason","ref","section","subsection"]}}},"required":["available","estimator","framing_reserve","input_token_budget","omitted","output_reserve","sections","used"]},"insufficient":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"code":{"enum":["mandatory_exceeds_budget","core_trimmed","required_source_unreadable","required_source_stale","goal_not_current","control_paused","semantic_ambiguous_required"]},"section":{"anyOf":[{"type":"null"},{"type":"string","maxLength":32}]},"refs":{"type":"array","maxItems":512,"items":{"type":"string","minLength":1,"maxLength":512}}},"required":["code","refs","section"]}}},"required":["bindings","budget_report","constraints","consumer_state","current_constraints","current_event","evidence","experience","formal_facts","goal","insufficient","open_work","role","schema_version","semantics","strategy_ref","supply"]}')
+    schema_version: Literal['nexloop.context-pack.v6']
+    strategy_ref: str
+    bindings: ContextPackV6Bindings
+    role: None | ContextPackV6Role1
+    current_event: ContextPackV6CurrentEvent0 | ContextPackV6CurrentEvent1
+    goal: ContextPackV6Goal
+    formal_facts: list[ContextPackV6FormalFactsItem]
+    current_constraints: ContextPackV6CurrentConstraints
+    supply: ContextPackV6Supply
+    constraints: list[ContextPackV6ConstraintsItem]
+    consumer_state: list[ContextPackV6ConsumerStateItem]
+    open_work: list[ContextPackV6OpenWorkItem]
+    evidence: list[ContextPackV6EvidenceItem]
+    semantics: list[ContextPackV6SemanticsItem]
+    experience: list[ContextPackV6ExperienceItem]
+    budget_report: ContextPackV6BudgetReport
+    insufficient: list[ContextPackV6InsufficientItem]
 
 class EventEnvelope(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:event-envelope","title":"event-envelope","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"event_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"event_type":{"type":"string","pattern":"^[a-z][a-z0-9_.]+$"},"source":{"type":"string","minLength":1},"source_event_id":{"type":"string","minLength":1},"occurred_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"recorded_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"subject_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"correlation_id":{"type":"string","format":"uuid"},"causation_id":{"anyOf":[{"type":"string","format":"uuid"},{"type":"null"}]},"payload":{"type":"object"}},"required":["schema_version","event_id","tenant_id","world_id","mode","event_type","source","source_event_id","occurred_at","recorded_at","subject_ref","correlation_id","causation_id","payload"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
