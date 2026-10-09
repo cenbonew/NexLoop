@@ -221,7 +221,13 @@ class RuntimeActivationPort:
         return catalog_envelope_from_hint(self.pool,self.signer,self.session.world,
           {'_source_digest':resolved['_context_source_digest'],'supply':resolved['_context_catalog'],'consumer_id':resolved['_context_consumer_id']})
 
-    def effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None,request_scope=None):
+    def effect_tool(self,**arguments):
+        # One guarded tool request, including a scope-denial record after rollback,
+        # reuses its own Source-signed envelopes; SQL re-verifies them at each use.
+        from nexloop_eios.role_runs import request_envelope_scope
+        with request_envelope_scope():return self._effect_tool(**arguments)
+
+    def _effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None,request_scope=None):
         """Trusted Host bridge; actual owned activation selects the Run.
 
         Admission and the final lease/source recheck share one transaction.
@@ -239,8 +245,7 @@ class RuntimeActivationPort:
                 arguments={'intent_id':intent_id}
             text,digest=_command(command)
             if type(activation_ref) is not str or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError()
-            from nexloop_eios.role_runs import request_envelope_scope
-            with request_envelope_scope(),self.pool.connection() as db,db.transaction():
+            with self.pool.connection() as db,db.transaction():
                 verify_application_role(db)
                 queue=db.execute('select authz.nexloop_runtime_activation_hint(%s,%s,%s)',
                     (self.session.token_digest,self.session.world,activation_ref)).fetchone()[0]
