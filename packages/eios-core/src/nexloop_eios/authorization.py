@@ -152,6 +152,7 @@ class PostgresAuthorityUnitOfWork:
         self.connection,self.session,self.query=connection,session,query
         self._loaded=set()
         self.entries=entries
+        self._prefetched={}
         self._now=connection.execute('select clock_timestamp()').fetchone()[0]
 
     def trusted_now(self):return self._now
@@ -159,7 +160,23 @@ class PostgresAuthorityUnitOfWork:
     def verify_repository_witness(self, *, fact_kind, snapshot_digest, repository_witness):
         return (fact_kind,snapshot_digest,repository_witness) in self._loaded
 
+    def prefetch(self, keys):
+        """O2b: one round trip for many snapshots via the same single-fact function.
+
+        Only 'ok'/'missing' answers are kept; anything the single-call function would
+        reject is re-read singly in _fetch (and raises exactly as before).
+        """
+        keys=[(kind,tuple(key)) for kind,key in dict.fromkeys((k,tuple(v)) for k,v in keys) if (kind,tuple(key)) not in self._prefetched]
+        if not keys:return
+        rows=self.connection.execute('select authz.nexloop_load_authority_facts(%s,%s,%s::jsonb)',
+            (self.session.token_digest,self.session.world,json.dumps([{'kind':k,'key':list(v)} for k,v in keys]))).fetchone()[0]
+        for (kind,key),row in zip(keys,rows):
+            if row.get('status')=='ok':self._prefetched[(kind,key)]=row['value']
+            elif row.get('status')=='missing':self._prefetched[(kind,key)]=None
+
     def _fetch(self, kind, key):
+        hit=self._prefetched.get((kind,tuple(key)),False)
+        if hit is not False:return hit
         row=self.connection.execute('select authz.nexloop_load_authority_fact_snapshot(%s,%s,%s,%s)',
                 (self.session.token_digest,self.session.world,kind,list(key))).fetchone()
         return None if not row or row[0] is None else row[0]
@@ -210,6 +227,13 @@ class PostgresAuthorityUnitOfWork:
     def load_agent_application(self,tenant_id,application_id,version):return self._load('agent_application',[application_id,version],F.ApplicationFacts)
 
 
+def _assert_query_binding(session, query):
+    if (query.authentication != session.authentication or query.tenant_id != session.authentication.tenant_id
+            or query.request_attributes.get('world') != session.world or query.agent_invocation != session.agent_invocation
+            or (session.run_context is not None and (query.request_attributes.get('run_id')!=session.run_context.run_id or query.request_attributes.get('audience')!=session.run_context.audience))):
+        raise AuthorizationUnavailable('server identity binding mismatch')
+
+
 class PostgresAuthorityProvider:
     def __init__(self,pool,session: ServiceSession,entries=None):
         self.pool,self.session=pool,session
@@ -222,10 +246,7 @@ class PostgresAuthorityProvider:
             with browser_authority_unit_of_work(self,query) as unit:
                 yield unit
             return
-        if (query.authentication != self.session.authentication or query.tenant_id != self.session.authentication.tenant_id
-                or query.request_attributes.get('world') != self.session.world or query.agent_invocation != self.session.agent_invocation
-                or (self.session.run_context is not None and (query.request_attributes.get('run_id')!=self.session.run_context.run_id or query.request_attributes.get('audience')!=self.session.run_context.audience))):
-            raise AuthorizationUnavailable('server identity binding mismatch')
+        _assert_query_binding(self.session,query)
         try:
             with self.pool.connection() as connection,connection.transaction():
                 connection.execute('set transaction isolation level repeatable read read only')
@@ -303,6 +324,67 @@ def resolve_authority(pool, session, query, entries=None):
     if entries is not None:
         entries.extend(loaded)
     return context
+
+
+def _predicted_fact_keys(session, query):
+    """Keys the EIOS resolver normally loads for this query (a prefetch hint only:
+    any fact outside this list is still read singly, so correctness never depends on it)."""
+    auth=session.authentication;principal=auth.subject_principal_id;target=query.target
+    keys=[('subject',[auth.subject_id]),('membership',[auth.subject_id,principal]),('actor',[principal]),
+        ('authentication',[auth.credential_id]),('application',[auth.caller_application_id,auth.caller_application_version]),
+        ('subject_authority',[principal]),('revision',['catalog']),('resource_graph',[target.resource_id]),
+        ('grants',[principal,target.resource_id])]
+    keys+=[(kind,[principal,target.resource_id,target.operation.value]) for kind in ('scope','controls','policies')]
+    invocation=session.agent_invocation
+    if invocation is not None:
+        keys+=[('agent',[invocation.agent_id]),('agent_release',[invocation.release_id]),
+            ('agent_application',[invocation.agent_application_id,invocation.agent_application_version])]
+    return keys
+
+
+def resolve_authorities(pool, session, queries):
+    """O2b: resolve many queries of ONE session with one transaction and one fact round trip.
+
+    Returns [(context, entries, error)] in order. Each query is still resolved on its
+    own by the EIOS resolver (resolve_in_unit_of_work) with its own entries, inside
+    its own savepoint, so outcomes, proof record hashes, expiry and per-query failure
+    are those of resolve_authority. All misses share one live identity check and one
+    REPEATABLE READ snapshot. Request memo (O1) entries are honoured and filled.
+    """
+    from nexloop_eios.browser_authorization import BrowserBusinessSession
+    results=[None]*len(queries);memo=_REQUEST_MEMO.get();pending=[]
+    for index,query in enumerate(queries):
+        if memo is not None:
+            hit=memo.get(_memo_key(session,query))
+            if hit is not None and time.monotonic()-hit[2]<REQUEST_MEMO_MAX_AGE_SECONDS:
+                results[index]=(hit[0],[{**entry,'key':list(entry['key'])} for entry in hit[1]],None);continue
+        pending.append(index)
+    if not pending:return results
+    if isinstance(session,BrowserBusinessSession) or len(pending)==1:
+        for index in pending:
+            entries=[]
+            try:results[index]=(resolve_authority(pool,session,queries[index],entries),entries,None)
+            except Exception as error:results[index]=(None,[],error)
+        return results
+    provider=PostgresAuthorityProvider(pool,session,None);resolver=F.AuthorizationFactsResolver(provider)
+    try:
+        for index in pending:_assert_query_binding(session,queries[index])
+        with provider.open_unit_of_work(queries[pending[0]]) as unit:
+            unit.prefetch([key for index in pending for key in _predicted_fact_keys(session,queries[index])])
+            for index in pending:
+                unit.entries=[]
+                try:
+                    with unit.connection.transaction():
+                        context=resolver.resolve_in_unit_of_work(queries[index],unit)
+                except Exception as error:
+                    results[index]=(None,[],error);continue
+                results[index]=(context,unit.entries,None)
+                if memo is not None:
+                    memo[_memo_key(session,queries[index])]=(context,tuple({**entry,'key':list(entry['key'])} for entry in unit.entries),time.monotonic())
+    except Exception as error:
+        for index in pending:
+            if results[index] is None:results[index]=(None,[],error)
+    return results
 
 
 def authorization_service(pool,session):
