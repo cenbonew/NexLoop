@@ -140,6 +140,15 @@ def test_human_reads_actual_v6_manifest_run_and_source_credentials_are_refused(v
         # Same bytes as the owner-only projection, which did not move when a new type was published later.
         assert ContextAuditReader(pool,owner,signer).manifest(run_id,1)==expected==manifest(admin,tenant,run_id,1)
         assert ContextAuditReader(pool,owner,signer).manifest(run_id,2) is None
+        # Same-origin browser route for the human audit role.
+        got=client.get('/api/v1/context/manifests/'+run_id+'/1',headers={'Origin':origin})
+        assert got.status_code==200 and got.json()==expected and got.headers['cache-control']=='no-store'
+        assert client.get('/api/v1/context/manifests/'+run_id+'/2').status_code==404
+        assert client.get('/api/v1/context/manifests/not-a-run/1').status_code==422
+        assert client.get('/api/v1/context/manifests/'+run_id+'/1',headers={'Origin':'https://elsewhere.invalid'}).status_code==403
+        assert client.post('/api/v1/context/manifests/'+run_id+'/1',headers={'Origin':origin}).status_code==405
+    with TestClient(create_app(config),base_url=origin) as anonymous:
+        assert anonymous.get('/api/v1/context/manifests/'+run_id+'/1').status_code==401
     definition=rows[0]['definition']
     # The Source service (now with the audit Action published) is refused too, grant or not.
     source=f['source']._session

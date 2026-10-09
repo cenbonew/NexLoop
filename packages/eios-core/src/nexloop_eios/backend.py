@@ -172,8 +172,9 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'runtime_effect_tool', activation_ref=activation_ref,
             command=command, tool_operation=tool_operation, parameters=parameters, intent_id=intent_id, request_scope=request_scope)
 
-    def authorize_runtime_activation(self, *, activation_ref, command, operation, input=None, request_snapshot=None):
+    def authorize_runtime_activation(self, *, activation_ref, command, operation, input=None, request_snapshot=None, model_result=None):
         snapshot = {} if request_snapshot is None else {'request_snapshot': request_snapshot}
+        if model_result is not None:snapshot['model_result'] = model_result
         return self._backend._invoke(self._session, 'authorize_runtime_activation',
             activation_ref=activation_ref, command=command, runtime_operation=operation, input=input, **snapshot)
 

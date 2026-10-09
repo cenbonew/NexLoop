@@ -29,8 +29,8 @@
     },
     {
       "path": "contracts/README.md",
-      "bytes": 4169,
-      "sha256": "2ae7e2fd6daaf600bca87e489386dba398343c1dc4f947b633ccdeea029fa35d"
+      "bytes": 4385,
+      "sha256": "11e7445913602957ca8ffef3543f336264ece69d910d176bbd26434cc00aac32"
     },
     {
       "path": "contracts/action-intent.schema.json",
@@ -54,8 +54,8 @@
     },
     {
       "path": "contracts/context-pack-v6.schema.json",
-      "bytes": 36585,
-      "sha256": "908b4f009d4ae0978b5472d2b2ecd1f75c9c5fe66bac26d2085d1ab7f5245ade"
+      "bytes": 42507,
+      "sha256": "1634e0cbc4aeb7703d82c22f3273ef6bd0af243241744a068119235b7f0b8d1f"
     },
     {
       "path": "contracts/event-envelope.schema.json",

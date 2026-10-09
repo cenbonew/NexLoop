@@ -51,6 +51,10 @@ class RelationshipContextArtifactProducer:
         return artifact_authority_proof(self.pool,self.session,operation)
 
     def _call(self,db,parameters,run,definition,capability,claim_binding=None):
+        text,signature,body=self._envelope(parameters,run,definition,capability,claim_binding)
+        return db.execute('select authz.nexloop_relationship_context_artifact_command(%s,%s,%s,%s,%s)',(self.session.token_digest,'real',text,signature,body)).fetchone()[0]
+
+    def _envelope(self,parameters,run,definition,capability,claim_binding=None):
         proof=self.authority._proof(self.session,'eios:action:'+ACTION+':1')
         body=canonical_payload(parameters)
         claims={'protocol':'nexloop-context-artifact-v1','key_id':self.signer.key_id,**proof,
@@ -60,6 +64,7 @@ class RelationshipContextArtifactProducer:
         claims['catalog_envelope']=dict(zip(('text','signature','payload'),_catalog_envelope(self.services,offering_id=parameters['offering_id'],binding_id=parameters['binding_id'],consumer_id=parameters['command']['consumer_ref'].removeprefix('consumer:'),request_scope={'offering_id':parameters['offering_id'],'offering_revision':parameters['offering_revision'],'requested_guarantees':[],'requested_discounts':[]})))
         if parameters['verb']=='bind':
             claims.update(artifact_proofs=[self._artifact_proof(Operation.CREATE),self._artifact_proof(Operation.READ)],claim_binding=claim_binding)
+        elif claim_binding is not None:claims['claim_binding']=claim_binding  # v6 core snapshot inside its bind
         from nexloop_eios.relationship_context import RelationshipContextReader
         reader=RelationshipContextReader(self.pool,self.session,self.signer,self.relationship_recipe)
         claims['relationship_envelopes']=reader.envelopes()
@@ -68,7 +73,7 @@ class RelationshipContextArtifactProducer:
         from nexloop_eios.service_offerings import _read_envelope
         claims['formal_reads']={kind:_read_envelope(self.services,kind,ref,('allow_effect','budget_units','executor_principal','valid_until') if kind=='EffectControl' else ()) for kind,ref in self.formal_refs.items()}
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-context-artifact-v1:'+text).encode(),'sha256').hexdigest()
-        return db.execute('select authz.nexloop_relationship_context_artifact_command(%s,%s,%s,%s,%s)',(self.session.token_digest,'real',text,signature,body)).fetchone()[0]
+        return text,signature,body
 
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):
         """Actual snapshot→Artifact CREATE/READ→governed bind; no queue ACK here."""

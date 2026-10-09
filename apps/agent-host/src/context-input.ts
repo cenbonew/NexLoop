@@ -88,13 +88,16 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     // v6 = frozen v2 core (validated below exactly as v2) + labelled, server-verified sections.
     // Everything here is data for the model; none of it is authority.
     if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V6)return fail();
+    // Optional v4 relationship section (message Runs only): validated by the v4 rules below.
+    const withRelationships=Object.hasOwn(parsed as Record<string,unknown>,'relationship_context');
     const pack=exact(parsed,['schema_version','strategy_ref','bindings','role','current_event','user_statement','goal','formal_facts','current_constraints','supply',
-      'constraints','consumer_state','open_work','evidence','semantics','experience','budget_report','insufficient']);
+      'constraints','consumer_state','open_work','evidence','semantics','experience','budget_report','insufficient',...(withRelationships?['relationship_context']:[])]);
     const attestation=validateContextAttestation(command,untrustedAttestation);
     if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
     text(pack.strategy_ref,96,/^context-strategy:[a-z][a-z0-9_]{0,63}@[1-9][0-9]{0,6}$/);
     // Message Run: v2 core + pointer event. Role Run: v3/v5 core (role section, service trigger).
     const roleRun=pack.role!==null;
+    if(roleRun&&withRelationships)return fail();
     if(roleRun){
       const role=exact(pack.role,['role_binding','role_policy']);
       if(pack.user_statement!==null||exact(pack.current_event,['kind','event_id','source_principal','body','provenance']).kind!=='service_trigger'||role.role_binding===null)return fail();
@@ -130,8 +133,8 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     exact(pack.budget_report,['estimator','input_token_budget','output_reserve','framing_reserve','available','used','sections','omitted']);
     const core={bindings:pack.bindings,formal_facts:pack.formal_facts,current_constraints:pack.current_constraints,supply:pack.supply};
     const role=pack.role as Record<string,unknown>|null;
-    const baseProtocol=!roleRun?CONTEXT_PROTOCOL_V2:role!.role_policy===null?CONTEXT_PROTOCOL_V3:CONTEXT_PROTOCOL_V5;
-    const base=!roleRun?{schema_version:baseProtocol,...core,user_statement:pack.user_statement}
+    const baseProtocol=!roleRun?(withRelationships?CONTEXT_PROTOCOL_V4:CONTEXT_PROTOCOL_V2):role!.role_policy===null?CONTEXT_PROTOCOL_V3:CONTEXT_PROTOCOL_V5;
+    const base=!roleRun?{schema_version:baseProtocol,...core,user_statement:pack.user_statement,...(withRelationships?{relationship_context:pack.relationship_context}:{})}
       :{schema_version:baseProtocol,...core,role_binding:role!.role_binding,trigger_statement:pack.current_event,...(role!.role_policy===null?{}:{role_policy:role!.role_policy})};
     const baseText=canonicalContextJSON(base);
     const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},baseProtocol);

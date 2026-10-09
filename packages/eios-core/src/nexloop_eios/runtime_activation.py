@@ -63,6 +63,17 @@ def _request_snapshot(operation,value):
     if any(type(value[k]) is not str or re.fullmatch('[a-f0-9]{64}',value[k]) is None for k in ('request_digest','tool_manifest_digest','settings_digest')):raise ValueError('model request snapshot unavailable')
     if hashlib.sha256(value['request_text'].encode()).hexdigest()!=value['request_digest']:raise ValueError('model request snapshot unavailable')
 
+_RESULT_KEYS={'call_sequence','result_status','usage','cost','response_digest'}
+
+def _model_result(operation,value):
+    # Host-reported outcome of an already recorded request; SQL validates and writes it once.
+    if operation!='model' or type(value) is not dict or set(value)!=_RESULT_KEYS:raise ValueError('model result unavailable')
+    if type(value['call_sequence']) is not int or not 1<=value['call_sequence']<=99999 or value['result_status'] not in ('succeeded','failed','unknown'):raise ValueError('model result unavailable')
+    if value['usage'] is not None and (type(value['usage']) is not dict or set(value['usage'])!={'input','output','cache_read','cache_write','total'}
+            or any(type(v) is not int or not 0<=v<10**12 for v in value['usage'].values())):raise ValueError('model result unavailable')
+    if value['cost'] is not None and (type(value['cost']) is not str or re.fullmatch(r'[0-9]{1,10}(\.[0-9]{1,8})?',value['cost']) is None):raise ValueError('model result unavailable')
+    if value['response_digest'] is not None and (type(value['response_digest']) is not str or re.fullmatch('[a-f0-9]{64}',value['response_digest']) is None):raise ValueError('model result unavailable')
+
 class RuntimeActivationPort:
     def __init__(self,pool,session,signer):
         if session.run_context is not None:raise AuthorizationUnavailable('runtime activation unavailable')
@@ -167,12 +178,15 @@ class RuntimeActivationPort:
             return first
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
-    def authorize(self,*,activation_ref,command,operation,input=None,request_snapshot=None):
+    def authorize(self,*,activation_ref,command,operation,input=None,request_snapshot=None,model_result=None):
         try:
             text,digest=_command(command)
             if operation not in _OPERATIONS or not isinstance(activation_ref,str) or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError()
             if operation in ('start','resume') and input is None:raise ValueError()
             if request_snapshot is not None:_request_snapshot(operation,request_snapshot)
+            if model_result is not None:
+                if request_snapshot is not None:raise ValueError()
+                _model_result(operation,model_result)
             input_hash=None if input is None else _input_digest(input)
             # This private hint exposes only a queue for the caller's owned,
             # active task. It neither authenticates a Run nor returns authority.
@@ -186,6 +200,7 @@ class RuntimeActivationPort:
             context_proof=self._context_read_proof(first)
             # A v6 model call is recorded in the same transaction as its authorization (0091).
             snapshot={} if request_snapshot is None else {'request_snapshot':request_snapshot}
+            if model_result is not None:snapshot['model_result']=model_result
             result=self._call(queue,'authorize',**parameters,**snapshot,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(first),context_formal_reads=self._context_formal_envelopes(first))
             return {key:value for key,value in result.items() if not key.startswith('_')}
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
