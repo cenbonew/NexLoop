@@ -12,3 +12,9 @@ on the disposable test cluster. Output goes to the ignored `out/<label>/`.
 Prerequisite for Pi/Host tests: built `apps/agent-host/dist` and vendor Pi
 (`pnpm install --frozen-lockfile && pnpm build:pi && pnpm --filter @nexloop/agent-host build`).
 Findings: docs/implementation/perf-authz-diagnosis.md.
+
+NX-049 deploy-host timing profile (Host/guard/PG timeline, first call over 2 s):
+
+    NEXLOOP_TEST_PG_BIN=<pg18 bin> scripts/perf/nx049_profile.sh <label> [repeats]
+
+See docs/implementation/NX-049-profile.md for running on the CI host and reading the output.
