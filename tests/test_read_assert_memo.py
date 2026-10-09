@@ -310,6 +310,16 @@ def consumer(memo):
     return memo
 
 
+def temp_allowed(connection):
+    """After the TEMPORARY tightening the session role cannot create temporary objects at
+    all, so no forgery can even be set up; the owner-only checks stay as defense in depth."""
+    allowed = connection.execute("select has_database_privilege(current_user,current_database(),'TEMPORARY')").fetchone()[0]
+    if not allowed:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            connection.execute('create temp table forgery_attempt(x int)')
+    return allowed
+
+
 CANARY = """
 create temp table canary_log(n int);
 create function pg_temp.canary() returns boolean language sql as 'insert into pg_temp.canary_log values(1) returning true';
@@ -319,6 +329,9 @@ create function pg_temp.canary() returns boolean language sql as 'insert into pg
 def test_forged_precreated_memo_table_disables_the_memo(consumer):
     m = consumer
     with psycopg.connect(make_conninfo(m['pg'], user='nexloop_api'), autocommit=True) as api:
+        if not temp_allowed(api):
+            assert api_read(m, api)['object_id'] == m['object_id']
+            return
         api.execute(CANARY)
         # A forged "memo" that would allow anything, and logs any read of it.
         api.execute("create temp view nexloop_read_memo as select k.key,null::text tenant,'{}'::jsonb binding,0::bigint advisory_locks "
@@ -332,6 +345,9 @@ def test_forged_precreated_memo_table_disables_the_memo(consumer):
 def test_search_path_and_shadow_catalog_objects_do_not_reach_the_memo(consumer):
     m = consumer
     with psycopg.connect(make_conninfo(m['pg'], user='nexloop_api'), autocommit=True) as api:
+        if not temp_allowed(api):
+            assert api_read(m, api)['object_id'] == m['object_id']
+            return
         api.execute(CANARY)
         # Shadows that would hide new advisory locks or fake table ownership if any reference were unqualified.
         api.execute("create temp view pg_locks as select * from pg_catalog.pg_locks where pg_temp.canary()")
