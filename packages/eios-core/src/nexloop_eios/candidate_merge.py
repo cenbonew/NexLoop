@@ -284,21 +284,22 @@ class CandidateGluer:
         rematched=self._rematch(candidate,best[2],result['claims'])
         return GlueOutcome(candidate_id,'merged',scores,alias_id=result['alias_id'],rematched=rematched)
 
-    def _rematch(self,candidate,target_ref,claim_ids):
+    def _rematch(self,candidate,target_ref,claim_ids,*,awaiting=False):
         version=f'{MATCHER_VERSION};merge:{candidate["candidate_id"]}'
         claims={}
         for conversation in sorted({row['conversation_id'] for row in self._claim_rows(claim_ids)}):
             for claim in self.matcher.claims.read(conversation_id=conversation)['statements']:
                 # Only re-pointed Claims; resolved/superseded/rejected ones are left as they are.
                 # needs_resolution included: a reflow that waited for grants resumes its own proposals idempotently.
-                if claim['claim_id'] in claim_ids and claim['resolution_state'] in ('unresolved','needs_resolution'):claims[claim['claim_id']]=claim
+                if claim['claim_id'] in claim_ids and claim['resolution_state'] in ('unresolved','needs_resolution')+(('awaiting_definition',) if awaiting else ()):
+                    claims[claim['claim_id']]=claim
         decisions={cid:self._decision(candidate,target_ref,claim) for cid,claim in claims.items()}
         provider=ScriptedMatchProvider({k:v for k,v in decisions.items() if v is not None})
         out={}
         for claim_id,claim in sorted(claims.items()):
             if decisions[claim_id] is None:
                 out[claim_id]={'outcome':'unresolved','applied':None};continue  # left for the normal matcher
-            match=self.matcher.match_claim(claim,matcher_version=version,provider=provider)
+            match=self.matcher.match_claim(claim,matcher_version=version,provider=provider,allow_awaiting=awaiting)
             out[claim_id]={'outcome':match['outcome'],'applied':self.matcher.apply(match['proposal_id']) if match.get('proposal_id') else None}
         return out
 
@@ -330,7 +331,8 @@ class CandidateGluer:
         self.matcher._schemas.pop(owner,None)
         self.indexer.index_object_type(owner)
         claims=[x[6:] for x in candidate['dependent_claims'] if x.startswith('claim:')]
-        return GlueOutcome(candidate_id,'published',candidate['merge_scores'],rematched=self._rematch(candidate,target,claims))
+        # Published: Claims stay awaiting_definition until they are actually applied (no silent reset).
+        return GlueOutcome(candidate_id,'published',candidate['merge_scores'],rematched=self._rematch(candidate,target,claims,awaiting=True))
 
     def _claim_rows(self,claim_ids):
         # Only ids → conversations; Claim content is then read under current Conversation READ (NX-019).

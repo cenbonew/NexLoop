@@ -236,12 +236,14 @@ begin
     raise exception 'publication must not change authority' using errcode='42501';end if;
    rev:=ontology.nexloop_candidate_transition(t,p_world,x.candidate_id,x.revision,'pending_review','published','human','human:'||principal,left(c->>'rationale',500),
     jsonb_build_object('decision_id',c->>'decision_id'));
-   effects:=ontology.nexloop_candidate_publish_effects(t,p_world,x.candidate_id);
+   -- Dependent Claims stay awaiting_definition until the service reflow applies them;
+   -- applying needs grants for the successor Action / new property from trusted configuration.
+   select coalesce(jsonb_agg(substr(d,7) order by d),'[]'::jsonb) into effects from unnest(x.dependent_claims) d where d like 'claim:%';
    published_refs:=jsonb_build_array(case x.kind when 'property' then 'eios:property:'||owner||'/'||(x.candidate->'proposed'->>'name')
      when 'vocabulary_value' then 'nexloop:vocabulary:'||owner||'/'||substring(x.candidate->'proposed'->>'property_ref' from '/([A-Za-z][A-Za-z0-9_]*)$')||'/'||ontology.nexloop_recall_ref_part(x.candidate->'proposed'->>'value')
      else 'eios:object_type:'||owner end,'eios:object_type:'||owner||':'||(pub->'schema'->>'version'))||published_refs;
    pub:=jsonb_build_object('schema_revision_before',owner||'@'||coalesce(oldv::text,'none'),'schema_revision_after',owner||'@'||(pub->'schema'->>'version'),
-    'published_refs',published_refs,'applied_claim_count',0,'gate_failures','[]'::jsonb,'upgraded_objects',upgraded,'repointed_claims',effects->'claims');
+    'published_refs',published_refs,'applied_claim_count',0,'gate_failures','[]'::jsonb,'upgraded_objects',upgraded,'waiting_claims',effects);
    outcome:='published';reflow:='pending';
   end if;
  end if;
@@ -249,7 +251,7 @@ begin
   'candidate_ref','candidate:'||x.candidate_id,'reviewer_ref','human:'||principal,'decision',c->>'decision','rationale',c->>'rationale',
   'expected_candidate_status','pending_review','decided_at',to_char(now_ts at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))
   ||case when c->>'decision'='merge_into' then jsonb_build_object('merge_target_ref',c->>'merge_target_ref') else '{}'::jsonb end
-  ||case when c->>'decision'='approve' then jsonb_build_object('publication',pub-'upgraded_objects'-'repointed_claims') else '{}'::jsonb end;
+  ||case when c->>'decision'='approve' then jsonb_build_object('publication',pub-'upgraded_objects'-'waiting_claims') else '{}'::jsonb end;
  insert into ontology.nexloop_review_decisions values(t,p_world,c->>'decision_id',x.candidate_id,c->>'decision',outcome,'human:'||principal,principal,
   (c->>'expected_revision')::bigint,c->>'rationale',c->>'merge_target_ref',record,case when c->>'decision'='approve' then pub end,authority,reflow,null,now_ts,null);
  return jsonb_build_object('replay',false,'decision_id',c->>'decision_id','outcome',outcome,'record',record,'publication',pub,'reflow_status',reflow);
@@ -276,10 +278,39 @@ begin
  raise exception 'reflow verb invalid' using errcode='22023';
 end $$;
 
+-- Workbench: decided items whose Claims still wait for reflow or for grants (never silent).
+create function authz.nexloop_read_review_reflow_status(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+declare t text:=authz.nexloop_assert_review_read(p_digest,p_world,p_text,p_signature,p_payload);
+begin
+ return coalesce((select jsonb_agg(jsonb_build_object('decision_id',d.decision_id,'candidate_id',d.candidate_id,'decision',d.decision,'outcome',d.outcome,
+   'display_name',c.candidate->'proposed'->>'display_name','reflow_status',d.reflow_status,'reason',d.reflow_report->>'reason',
+   'published_refs',coalesce(d.publication->'published_refs','[]'::jsonb),'waiting_claim_count',cardinality(c.dependent_claims),'decided_at',d.decided_at)
+   order by d.decided_at,d.decision_id) from ontology.nexloop_review_decisions d join ontology.nexloop_candidate_definitions c
+   on c.tenant_id=d.tenant_id and c.world=d.world and c.candidate_id=d.candidate_id
+  where d.tenant_id=t and d.world=p_world and d.reflow_status in ('pending','waiting')),'[]'::jsonb);
+end $$;
+
+-- Trusted configuration doctor: Action versions published by human review decisions
+-- (successors that need a grant decision in deploy/authorization/service-grants).
+create function control.nexloop_review_published_actions(p_tenant text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+begin
+ if session_user<>'nexloop_configurator' then raise exception 'trusted configuration only' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ return coalesce((select jsonb_agg(jsonb_build_object('resource_id',r.ref,'decision_id',d.decision_id,'candidate_id',d.candidate_id,'decided_at',d.decided_at,
+   'active',a.active,'predecessor',regexp_replace(r.ref,':([0-9]+)$','')||':'||((substring(r.ref from ':([0-9]+)$'))::integer-1))
+   order by d.decided_at,r.ref)
+  from ontology.nexloop_review_decisions d cross join lateral jsonb_array_elements_text(coalesce(d.publication->'published_refs','[]'::jsonb)) r(ref)
+  left join control.nexloop_action_definitions a on a.tenant_id=d.tenant_id and a.world='real' and a.resource_id=r.ref
+  where d.tenant_id=p_tenant and d.outcome='published' and r.ref like 'eios:action:%'),'[]'::jsonb);
+end $$;
+
 do $grants$
 declare f text;
 begin
- foreach f in array array['ontology.nexloop_review_owner_type(jsonb,text)','authz.nexloop_tenant_authority_fingerprint(text)',
+ foreach f in array array['ontology.nexloop_review_owner_type(jsonb,text)','authz.nexloop_read_review_reflow_status(text,text,text,text,text)',
+  'control.nexloop_review_published_actions(text)','authz.nexloop_tenant_authority_fingerprint(text)',
   'authz.nexloop_read_review_publication_basis(text,text,text,text,text)',
   'ontology.nexloop_review_publication_gates(text,text,ontology.nexloop_candidate_definitions,jsonb)',
   'authz.nexloop_review_decide(text,text,text,text,text)','authz.nexloop_review_reflow(text,text,text,text,text)'] loop
@@ -289,3 +320,5 @@ begin
 end $grants$;
 grant execute on function authz.nexloop_read_review_publication_basis(text,text,text,text,text),authz.nexloop_review_decide(text,text,text,text,text) to nexloop_api;
 grant execute on function authz.nexloop_review_reflow(text,text,text,text,text) to nexloop_domain_worker;
+grant execute on function authz.nexloop_read_review_reflow_status(text,text,text,text,text) to nexloop_api,nexloop_domain_worker;
+grant execute on function control.nexloop_review_published_actions(text) to nexloop_configurator;

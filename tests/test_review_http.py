@@ -158,3 +158,21 @@ def test_revoked_review_grant_hides_queue_immediately(review_app):
         assert client.get('/api/v1/review/queue').status_code==200
         f['admin'].execute("delete from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[2]=%s",(TENANT,REVIEW))
         assert client.get('/api/v1/review/queue').status_code==403
+
+
+def test_reviewer_approves_through_http_and_sees_the_wait_for_grants(review_app):
+    """AT-067 step 1 over HTTP: published; the dependent Claims are shown as waiting, never silent."""
+    f=review_app;grant_human(f['admin'],f['uow'],f['identity'],REVIEW)
+    path=f"/api/v1/review/candidates/{f['pending']}/decisions"
+    with f['client']() as client:
+        assert login(client,f['identity']).status_code==200
+        csrf=client.post('/api/v1/auth/csrf',headers={'Origin':ORIGIN}).json()['csrf_token']
+        decided=client.post(path,headers={'Origin':ORIGIN,'X-CSRF-Token':csrf,'Idempotency-Key':'synthetic-http-approve-0001'},
+            json={'decision':'approve','expected_revision':1,'rationale':'新增付款方式属性'})
+        assert decided.status_code==200,decided.text
+        body=decided.json()
+        assert body['outcome']=='published' and body['reflow_status']=='pending' and 'eios:property:Consumer/payment_method' in body['publication']['published_refs']
+        waiting=client.get('/api/v1/review/awaiting')
+        assert waiting.status_code==200
+        assert [(i['candidate_id'],i['reflow_status'],i['waiting_claim_count']) for i in waiting.json()['items']]==[(f['pending'],'pending',2)]
+    assert f['admin'].execute("select resolution_state from ontology.nexloop_claims where claim_id=%s",(f['first'],)).fetchone()[0]=='awaiting_definition'

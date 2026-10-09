@@ -46,7 +46,7 @@
   - published：执行 `reflow_published`。
   - 全部 Claim 都已应用时记为 done；否则记为 waiting，并在报告中给出原因（例如后继 Action 或新属性未授权），之后可再次执行，已建立的提案会幂等地恢复应用。
 
-## 3. 授权决定（已向调度员提问，答复前按方案 B）
+## 3. 授权决定（调度员已确认方案 B，见 §7）
 发布后要应用等待中的 Claim，需要对新 resource 的授权：后继 Action（`eios:action:Consumer.edit:2`），以及新属性的定义级 READ 和逐对象的 READ/EDIT。按 ADR-020 §3，这些授权由可信配置授予；发布本身不改变任何授权，这一点由门槛保证。
 - 测试 `test_human_approve_publishes_additively_and_waiting_claims_apply_after_grant` 先断言：未授权时回流状态为 waiting，属性没有写入。
 - 之后用可信配置同等的授权写入（测试夹具）模拟授权，再次回流：Claim 经受治理的 `Consumer.edit:2` 写入，`applied_claim_count=1`，回流状态 done。
@@ -95,3 +95,33 @@
 3. **类型发布**：新类型只发布 v1 Schema，没有生成 create/edit Action，依赖 Claim 会复位但无法应用，需要另行发布 Action。
 4. **对象升级**：发布时在单个事务内升级全部旧版本对象的 `schema_version`，数据量大时需要分批或在线迁移方案。
 5. **装配**：`workbench_ports` 读取了 Backend 的私有属性 `_pool`、`_signer`、`_lock`，以避免修改禁区内的 backend.py。L1 阶段 B 完成后，建议把它收回成 Backend 的正式方法。
+
+## 7. 调度员确认后的调整（2026-10-09）
+
+1. **方案 B 已确认**（ADR-019/M12、ADR-020 §3）：发布事务不写任何授权事实；服务主体对后继 Action 的授权由调度员经 `deploy/authorization/service-grants.v1.json` 授予，人类主体的授权需负责人确认。AT-067 按两步记：
+   - 第一步 approve：发布。
+   - 第二步：授权到位后回流，才应用等待中的 Claim。
+2. **等待期间状态明确**：
+   - approve 后依赖 Claim **保持 `awaiting_definition`**，SQL 不再在发布时复位。
+   - 回流重匹配允许处理 `awaiting_definition` 的 Claim；只有真正应用时才置为 resolved。
+   - NX-020 `ClaimMatcher.apply` 遇到授权拒绝时，提案改为非终态 `conflict`（reason `authority_denied_awaiting_grant`），不再直接 rejected，授权到位后可以幂等恢复。
+   - 回流报告记 `status=waiting, reason=awaiting_grants`。
+   - 新增 `authz.nexloop_read_review_reflow_status` 与 `GET /api/v1/review/awaiting`；工作台显示“已决定，依赖 Claim 尚未应用”列表，其中“等待授权”单独标出。
+3. **只读检查**：
+   ```bash
+   python -m nexloop_eios.review_actions uncovered-actions --manifest deploy/authorization/service-grants.v1.json --tenant <tenant> --database-url-file <configurator-dsn-file>
+   ```
+   - 列出审核发布产生、但服务授权清单尚未覆盖的 Action 版本，附前一版本在清单中的授权作为参考。存在未覆盖项时 exit 1。
+   - 底层函数 `control.nexloop_review_published_actions(tenant)` 只授予 `nexloop_configurator`。
+4. **不再使用 `backend._lock`**：
+   - 队列与详情走公开的 `Backend.authenticate_browser_reviewer → ReviewServices.review_queue/review_candidate`（共享生命周期 + `authority_request_scope`）。
+   - 决定和等待列表先调用公开的 `authenticate_browser_reviewer`（检查 backend 已打开、重新认证人类会话），再在 `authority_request_scope()` 内用只读的 `_pool/_signer` 执行。
+   - 依赖的 backend 符号：`Backend.authenticate_browser_reviewer`、`ReviewServices.review_queue`、`ReviewServices.review_candidate`、`Backend._pool`、`Backend._signer`。
+   - 限制：Backend 目前没有公开的决定入口，所以决定的提交期间不持有共享生命周期锁，关闭时可能打断一个正在提交的事务。该事务会整体回滚，决定 id 幂等，重试是安全的。建议 L1 修复 LifecycleLock 后提供公开入口（例如 `Backend.review_decision(session, **args)`），合并时对齐。
+5. **测试（调整后）**：
+   - `test_review_decisions_pg.py`：approve 后 Claim 仍为 awaiting_definition；回流 waiting/awaiting_grants；工作台等待列表显示；`uncovered-actions` 列出 `Consumer.edit:2`，清单补上后通过；授权后回流 done，等待列表清空。
+   - `test_review_http.py`：新增 HTTP approve 与 `/awaiting` 用例。
+   - 前端：新增等待列表用例。
+   - 目标集 **154 passed，207.65s**，首次即通过；junit sha256 `63849f8c4a0c518290f0d2a0ac08b95367bd82dca13ca63e5b3567c955589f51`。
+   - Web 24 passed，junit sha256 `f896ce13182d07a8683dff9b40615eb6ba6a16e48774b5530366d89aabdf1ddd`。
+6. **设计建议（本次不实现）**：在可信配置中增加声明式规则“沿用某 Action 最新版本的授权”，例如在清单里为 `Consumer.edit` 声明 `follow_latest_version: true`，由 `service_grants --apply` 在审核发布产生新版本后自动生成等价授权；变更仍经可信配置路径和审计，可以减少每次发布后人工更新清单。逐对象的新属性授权仍建议走“受治理派生”（与 NX-047 同类）。

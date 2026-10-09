@@ -104,6 +104,14 @@ def router(config, *, ports_for_browser):
                 headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
         return response
 
+    @routes.get('/awaiting')
+    async def awaiting(request: Request):
+        # Decided items whose dependent Claims still wait (reflow pending or grants missing).
+        response = await invoke(request, 'review_awaiting')
+        if response.status_code == 200:
+            return JSONResponse({'items': json.loads(response.body)}, headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+        return response
+
     @routes.post('/candidates/{candidate_id}/decisions')
     async def decide(candidate_id: str, request: Request):
         try:

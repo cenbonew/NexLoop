@@ -2,8 +2,8 @@ import {afterEach,expect,test,vi} from 'vitest';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {readCandidate,readQueue,reviewError,candidateDetail,decide,decisionMessage,decisionResult} from '../src/review-api';
-import {CandidateView,DecisionBar,DisabledDecisions,QueueList,ReviewWorkbench,mergeTargets} from '../src/Review';
+import {readCandidate,readQueue,reviewError,candidateDetail,decide,decisionMessage,decisionResult,readAwaiting,awaitingMessage} from '../src/review-api';
+import {AwaitingList,CandidateView,DecisionBar,DisabledDecisions,QueueList,ReviewWorkbench,mergeTargets} from '../src/Review';
 import {ApiError} from '../src/api';
 
 const id='0f0e0d0c-0b0a-4908-8706-050403020100';
@@ -84,4 +84,18 @@ test('decide posts the governed decision with CSRF and idempotency key; results 
   expect(()=>decisionResult({replay:false,decision_id:id,outcome:'publication_failed',reflow_status:'none',publication:{gate_failures:[]}})).toThrow('响应无效');
   await expect(decide(id,{decision:'reject',expected_revision:2,rationale:'  '},'review-synthetic-key-0002')).rejects.toThrow('请填写决定理由');
   expect(reviewError(new ApiError(409))).toContain('已被处理或已更新');expect(reviewError(new ApiError(501))).toContain('未启用');
+});
+
+test('decided items waiting for grants are shown explicitly, never silently',async()=>{
+  const waiting={decision_id:id,candidate_id:id,decision:'approve',outcome:'published',display_name:'常用付款方式',reflow_status:'waiting',reason:'awaiting_grants',
+    published_refs:['eios:action:Consumer.edit:2'],waiting_claim_count:2,decided_at:'2026-10-09T01:00:00Z'};
+  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[waiting]})));
+  const items=await readAwaiting();
+  expect(awaitingMessage(items[0])).toBe('已发布，等待授权：新版本 Action 或新属性的授权尚未经可信配置授予，2 条依赖 Claim 仍在等待。');
+  expect(awaitingMessage({...items[0],reflow_status:'pending',reason:null})).toContain('等待服务回流');
+  const html=renderToStaticMarkup(createElement(AwaitingList,{items}));
+  expect(html).toContain('已决定，依赖 Claim 尚未应用');expect(html).toContain('等待授权');
+  expect(renderToStaticMarkup(createElement(AwaitingList,{items:[]}))).toBe('');
+  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[{...waiting,reflow_status:'done'}]})));
+  await expect(readAwaiting()).rejects.toThrow('响应无效');
 });

@@ -74,7 +74,7 @@ export function decisionMessage(result:DecisionResult):string{
   const prefix=result.replay?'（重复提交，已返回首次结果）':'';
   if(result.outcome==='rejected')return prefix+'已拒绝：依赖 Claim 保留为原文证据，同文本在冷却期内不再排队。';
   if(result.outcome==='merged')return prefix+'已并入已有定义：别名已记录，依赖 Claim 将由服务回流后自动应用。';
-  if(result.outcome==='published')return prefix+`已发布（${result.schema_revision_after??'新版本'}）：依赖 Claim 将由服务回流后应用；新版本 Action 与新属性的授权需经可信配置授予，未授予前 Claim 保持等待。`;
+  if(result.outcome==='published')return prefix+`已发布（${result.schema_revision_after??'新版本'}）：依赖 Claim 仍为等待状态；新版本 Action 与新属性的授权经可信配置授予并完成回流后才会应用。`;
   return prefix+'发布未通过门槛，候选仍在审核队列：'+result.gate_failures.join('；');
 }
 export function reviewError(error:unknown):string{
@@ -86,3 +86,21 @@ export function reviewError(error:unknown):string{
 }
 export const KIND_LABELS:Record<string,string>={object_type:'新对象类型',property:'新属性',vocabulary_value:'新词表值',alias:'别名',object_instance:'新实例'};
 export const DECISION_LABELS:Record<string,string>={approve:'批准发布',merge_into:'并入已有定义',reject:'拒绝'};
+
+export type AwaitingItem={decision_id:string;candidate_id:string;decision:Decision;outcome:'merged'|'published';display_name:string;reflow_status:'pending'|'waiting';reason:string|null;published_refs:string[];waiting_claim_count:number};
+export function awaitingItem(value:unknown):AwaitingItem{
+  const v=object(value);
+  if(!uuid.test(text(v.decision_id))||!uuid.test(text(v.candidate_id))||!['merged','published'].includes(String(v.outcome))||!['pending','waiting'].includes(String(v.reflow_status))
+    ||!['approve','merge_into','reject'].includes(String(v.decision))||!Array.isArray(v.published_refs)||(v.reason!==null&&v.reason!==undefined&&typeof v.reason!=='string'))throw new Error('响应无效');
+  return {decision_id:text(v.decision_id),candidate_id:text(v.candidate_id),decision:v.decision as Decision,outcome:v.outcome as AwaitingItem['outcome'],display_name:text(v.display_name),
+    reflow_status:v.reflow_status as AwaitingItem['reflow_status'],reason:(v.reason as string|null|undefined)??null,published_refs:v.published_refs.map(text),waiting_claim_count:count(v.waiting_claim_count)};
+}
+export async function readAwaiting():Promise<AwaitingItem[]>{
+  const v=object(await request('/api/v1/review/awaiting'));if(!Array.isArray(v.items))throw new Error('响应无效');return v.items.map(awaitingItem);
+}
+export function awaitingMessage(item:AwaitingItem):string{
+  const what=item.outcome==='published'?'已发布':'已并入已有定义';
+  if(item.reflow_status==='waiting'&&item.reason==='awaiting_grants')return `${what}，等待授权：新版本 Action 或新属性的授权尚未经可信配置授予，${item.waiting_claim_count} 条依赖 Claim 仍在等待。`;
+  if(item.reflow_status==='waiting')return `${what}，回流未完成：${item.waiting_claim_count} 条依赖 Claim 尚未应用（${item.reason??'原因待核对'}）。`;
+  return `${what}，等待服务回流：${item.waiting_claim_count} 条依赖 Claim 尚未应用。`;
+}

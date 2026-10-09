@@ -35,10 +35,10 @@ RECORD=Draft202012Validator(json.loads((ROOT/'packages/contracts/review-decision
 
 
 @pytest.fixture
-def review(env,identity,uow,admin,pg):
+def review(env,identity,uow,admin,pg,tmp_path):
     f=env
     with open_core(make_conninfo(pg,user='nexloop_api')) as api:
-        f.update(api=api,identity=identity,uow=uow)
+        f.update(api=api,identity=identity,uow=uow,tmp=tmp_path)
         yield f
 
 
@@ -136,10 +136,23 @@ def test_human_approve_publishes_additively_and_waiting_claims_apply_after_grant
     assert [p['property_name'] for p in schema['properties']][-1]=='payment_method' and schema['properties'][-1]['required'] is False
     assert admin.execute("select schema_version from ontology.objects where object_id=%s",(f['consumer'],)).fetchone()==(2,)
     assert admin.execute("select count(*) from control.nexloop_action_definitions where resource_id='eios:action:Consumer.edit:2' and active").fetchone()==(1,)
-    assert candidates(admin)[cid][2]=='published' and resolution(admin,claim)=='unresolved'
-    # Successor Action and new property not granted yet: the Claim keeps waiting (no silent success).
+    # Two steps (ADR-020 §3): published now, applied only after trusted configuration grants.
+    assert candidates(admin)[cid][2]=='published' and resolution(admin,claim)=='awaiting_definition'
     first=worker(f,edit_version=2,suffix='-reflow-nogrant').run_pending()
-    assert first[result['decision_id']]['status']=='waiting' and 'payment_method' not in obj(admin,f['consumer'])[0]
+    assert first[result['decision_id']]['status']=='waiting' and first[result['decision_id']]['reason']=='awaiting_grants'
+    assert 'payment_method' not in obj(admin,f['consumer'])[0] and resolution(admin,claim)=='awaiting_definition'
+    shown=human(f).awaiting()
+    assert [(i['decision_id'],i['reflow_status'],i['reason']) for i in shown]==[(result['decision_id'],'waiting','awaiting_grants')]
+    # Read-only doctor for the scheduler: the successor Action is not in the service grant manifest yet.
+    from nexloop_eios.review_actions import uncovered_actions
+    admin.execute('alter role nexloop_configurator login')
+    dsn=f['tmp']/'configurator-dsn';dsn.write_text(make_conninfo(f['pg'],user='nexloop_configurator'));dsn.chmod(0o600)
+    manifest=json.loads((ROOT/'deploy/authorization/service-grants.v1.json').read_text())
+    report=uncovered_actions(manifest,TENANT,database_url_file=dsn)
+    assert not report['covered'] and [u['resource_id'] for u in report['uncovered']]==['eios:action:Consumer.edit:2']
+    assert report['uncovered'][0]['predecessor']=='eios:action:Consumer.edit:1' and report['uncovered'][0]['predecessor_grants']
+    manifest['grants'].append({**next(g for g in manifest['grants'] if g['resource_id']=='eios:action:Consumer.edit:1'),'resource_id':'eios:action:Consumer.edit:2'})
+    assert uncovered_actions(manifest,TENANT,database_url_file=dsn)['covered'] is True
     # Trusted configuration grants the successor Action and the new property (ADR-020 §3), then reflow applies.
     grants=[('eios:action:Consumer.edit:2',ResourceType.ACTION,Operation.EXECUTE),('eios:property:Consumer/payment_method',ResourceType.PROPERTY,Operation.READ)]
     grants+=[(f"eios:property:Consumer/{f['consumer']}/payment_method",ResourceType.PROPERTY,op) for op in (Operation.READ,Operation.EDIT)]
@@ -149,6 +162,7 @@ def test_human_approve_publishes_additively_and_waiting_claims_apply_after_grant
     assert obj(admin,f['consumer'])[0]['payment_method']=='花呗' and resolution(admin,claim)=='resolved'
     stored=decisions(admin)[0]
     assert stored[5]=='done' and stored[4]['applied_claim_count']==1 and stored[3]['publication']['applied_claim_count']==1
+    assert human(f).awaiting()==[]
 
 
 def test_gate_failure_keeps_candidate_pending_with_reason_and_no_schema_change(review):

@@ -12,9 +12,12 @@ Publication writes no authority fact (ADR-020 §3). ReviewReflowWorker (service
 credential) then reflows recall and re-matches the re-pointed Claims; Claims
 whose successor Action/property grants are not configured yet stay waiting.
 """
+import argparse
 from dataclasses import dataclass
 import json
+from pathlib import Path
 import re
+import sys
 import uuid
 
 import psycopg
@@ -95,6 +98,10 @@ class ReviewDecisionPort(ReviewQueueReader):
     def __init__(self,pool,session,signer):
         super().__init__(pool,_human(session),signer)
 
+    def awaiting(self):
+        """Decided items whose Claims still wait for reflow or for trusted-configuration grants."""
+        return self._call('nexloop_read_review_reflow_status',{})
+
     def basis(self,candidate_id):
         return self._call('nexloop_read_review_publication_basis',{'candidate_id':candidate_id})
 
@@ -117,29 +124,45 @@ class ReviewDecisionPort(ReviewQueueReader):
 
 @dataclass(frozen=True)
 class ReviewWorkbenchPorts:
-    """HTTP ports for one inspected Human session; every call re-authenticates it."""
-    pool:object
-    signer:object
-    lock:object
+    """HTTP ports for one inspected Human session.
+
+    Reads go through Backend's public reviewer entry (shared lifecycle hold and
+    authority_request_scope). Backend has no public decision entry yet, so a
+    decision first re-authenticates through the public authenticate_browser_reviewer,
+    then runs in authority_request_scope on the read-only _pool/_signer.
+    Backend symbols used: authenticate_browser_reviewer, ReviewServices.review_queue,
+    ReviewServices.review_candidate, _pool, _signer (no _lock).
+    """
+    backend:object
     inspected_session:object
 
-    def _port(self):
+    def review_queue(self,*,limit=50):
+        return self.backend.authenticate_browser_reviewer(self.inspected_session).review_queue(limit=limit)
+
+    def review_candidate(self,*,candidate_id):
+        return self.backend.authenticate_browser_reviewer(self.inspected_session).review_candidate(candidate_id=candidate_id)
+
+    def _decision_port(self):
         from nexloop_eios.browser_authorization import authenticate_browser_business
-        return ReviewDecisionPort(self.pool,authenticate_browser_business(self.pool,self.inspected_session,world='real'),self.signer)
+        self.backend.authenticate_browser_reviewer(self.inspected_session)  # open backend + current Human authentication
+        human=authenticate_browser_business(self.backend._pool,self.inspected_session,world='real')
+        return ReviewDecisionPort(self.backend._pool,human,self.backend._signer)
 
-    def _run(self,method,**arguments):
-        with self.lock:
-            return getattr(self._port(),method)(**arguments)
+    def review_awaiting(self):
+        from nexloop_eios.authorization import authority_request_scope
+        with authority_request_scope():return self._decision_port().awaiting()
 
-    def review_queue(self,*,limit=50):return self._run('pending',limit=limit)
-    def review_candidate(self,*,candidate_id):return self._run('candidate',candidate_id=candidate_id)
-    def decide(self,**arguments):return self._run('decide',**arguments)
+    def decide(self,**arguments):
+        from nexloop_eios.authorization import authority_request_scope
+        with authority_request_scope():return self._decision_port().decide(**arguments)
 
 
 def workbench_ports(backend,inspected_session):
-    """Wiring for http_api (backend.py is not modified): its pool, signer and request lock."""
-    backend._assert_open()
-    return ReviewWorkbenchPorts(backend._pool,backend._signer,backend._lock,inspected_session)
+    """Wiring for http_api; backend.py is not modified."""
+    return ReviewWorkbenchPorts(backend,inspected_session)
+
+
+AUTHORITY_ERRORS=('ActionAuthorizationDenied','AuthorizationUnavailable','PermissionError','InsufficientPrivilege','AuthorizationFactDenied')
 
 
 class ReviewReflowWorker:
@@ -158,13 +181,44 @@ class ReviewReflowWorker:
                 rematched=outcome.rematched or {}
             except Exception as error:
                 # Typically the successor Action / new property is not granted yet: keep waiting, retry later.
-                report={'applied':0,'claims':{},'error':type(error).__name__}
+                reason='awaiting_grants' if type(error).__name__ in AUTHORITY_ERRORS else 'reflow_error'
+                report={'applied':0,'claims':{},'reason':reason,'error':type(error).__name__}
                 self.port.call('nexloop_review_reflow',{'verb':'record','decision_id':item['decision_id'],'status':'waiting','report':report})
                 results[item['decision_id']]={'status':'waiting',**report};continue
             applied=sum(1 for r in rematched.values() if r.get('applied')=='applied')
             # A Claim not applied yet (e.g. successor Action / new property grant not configured) keeps waiting.
             status='done' if applied==len(rematched) else 'waiting'
-            report={'applied':applied,'claims':rematched,'published_refs':(item.get('publication') or {}).get('published_refs',[])}
+            reason=None if status=='done' else ('awaiting_grants' if any(r.get('applied')=='awaiting_grant' for r in rematched.values()) else 'claims_not_applied')
+            report={'applied':applied,'claims':rematched,'published_refs':(item.get('publication') or {}).get('published_refs',[]),**({'reason':reason} if reason else {})}
             self.port.call('nexloop_review_reflow',{'verb':'record','decision_id':item['decision_id'],'status':status,'report':report})
             results[item['decision_id']]={'status':status,**report}
         return results
+
+
+def uncovered_actions(manifest,tenant,*,database_url_file):
+    """Read-only: Action versions published by review decisions that the service grant manifest does not cover."""
+    from nexloop_eios.trusted_configuration import configurator_connection
+    with configurator_connection(database_url_file) as db:
+        published=db.execute('select control.nexloop_review_published_actions(%s)',(tenant,)).fetchone()[0]
+    granted={}
+    for g in manifest['grants']:granted.setdefault(g['resource_id'],[]).append({'principal':g['principal'],'operations':g['operations']})
+    rows=[]
+    for item in published:
+        if item['resource_id'] in granted:continue
+        rows.append({**item,'predecessor_grants':granted.get(item['predecessor'],[]),
+            'suggestion':'add to deploy/authorization/service-grants (new manifest version) if the same principals should use it; human grants need owner approval'})
+    return {'tenant':tenant,'manifest_version':manifest.get('manifest_version'),'published_action_versions':len(published),'uncovered':rows,'covered':not rows}
+
+
+def main(argv=None):
+    p=argparse.ArgumentParser(description='NexLoop review publication doctor (read-only)')
+    p.add_argument('command',choices=['uncovered-actions'])
+    p.add_argument('--manifest',type=Path,required=True);p.add_argument('--tenant',required=True);p.add_argument('--database-url-file',type=Path,required=True)
+    a=p.parse_args(argv)
+    try:result=uncovered_actions(json.loads(a.manifest.read_text()),a.tenant,database_url_file=a.database_url_file)
+    except Exception as error:
+        print(json.dumps({'ok':False,'error':type(error).__name__}));return 2
+    print(json.dumps(result,ensure_ascii=False,indent=2));return 0 if result['covered'] else 1
+
+
+if __name__=='__main__':sys.exit(main())

@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
-import {DECISION_LABELS,KIND_LABELS,decide,decisionMessage,readCandidate,readQueue,reviewError,type CandidateDetail,type Decision,type Decisions,type QueueItem} from './review-api';
+import {DECISION_LABELS,KIND_LABELS,awaitingMessage,decide,decisionMessage,readAwaiting,readCandidate,readQueue,reviewError,type AwaitingItem,type CandidateDetail,type Decision,type Decisions,type QueueItem} from './review-api';
 
 const percent=(value:number)=>`${Math.round(value*100)}%`;
 
@@ -23,7 +23,7 @@ export function DecisionBar({detail}:{detail:CandidateDetail}){
   const cache=useQueryClient();const [rationale,setRationale]=useState('');const targets=mergeTargets(detail);const [target,setTarget]=useState(targets[0]??'');
   const [key,setKey]=useState(()=>crypto.randomUUID());
   const mutation=useMutation({mutationFn:(decision:Decision)=>decide(detail.candidate_id,{decision,expected_revision:detail.revision,rationale,...(decision==='merge_into'?{merge_target_ref:target}:{})},`review-${key}-${decision}`),
-    retry:false,onSuccess:()=>{setKey(crypto.randomUUID());void cache.invalidateQueries({queryKey:['review-queue']});}});
+    retry:false,onSuccess:()=>{setKey(crypto.randomUUID());void cache.invalidateQueries({queryKey:['review-queue']});void cache.invalidateQueries({queryKey:['review-awaiting']});}});
   if(!detail.decisions.enabled)return <DisabledDecisions decisions={detail.decisions}/>;
   const blocked=mutation.isPending||!rationale.trim();
   return <div className="decisions" role="group" aria-label="审核决定">
@@ -65,16 +65,24 @@ export function QueueList({items,onSelect,selected}:{items:QueueItem[];onSelect:
     {KIND_LABELS[item.kind]??item.kind}：{item.display_name} · 依赖 {item.dependent_claim_count} 条 · 总分 {percent(item.merge_scores.weighted_total)}</button></li>)}</ul>;
 }
 
+export function AwaitingList({items}:{items:AwaitingItem[]}){
+  if(!items.length)return null;
+  return <section aria-labelledby="awaiting-heading"><h3 id="awaiting-heading">已决定，依赖 Claim 尚未应用</h3>
+    <ul className="queue">{items.map(item=><li key={item.decision_id} role="status">{item.display_name}：{awaitingMessage(item)}</li>)}</ul></section>;
+}
+
 export function ReviewWorkbench(){
   const [selected,setSelected]=useState('');
   const queue=useQuery({queryKey:['review-queue'],queryFn:()=>readQueue(),retry:false});
   const detail=useQuery({queryKey:['review-candidate',selected],queryFn:()=>readCandidate(selected),enabled:!!selected,retry:false});
+  const awaiting=useQuery({queryKey:['review-awaiting'],queryFn:readAwaiting,enabled:!!queue.data?.visible,retry:false});
   // No current review permission: the queue is not shown at all (AT-070).
   if(queue.data&&!queue.data.visible)return null;
   return <section className="review" aria-labelledby="review-heading"><h2 id="review-heading">候选定义审核</h2>
     {queue.isPending?<p role="status">正在读取审核队列…</p>:queue.isError?<p role="alert">{reviewError(queue.error)}</p>:queue.data?.visible&&<>
       <QueueList items={queue.data.items} selected={selected} onSelect={setSelected}/>
-      <button type="button" onClick={()=>void queue.refetch()}>刷新队列</button></>}
+      <button type="button" onClick={()=>{void queue.refetch();void awaiting.refetch();}}>刷新队列</button></>}
+    {awaiting.isError?<p role="alert">等待应用的决定暂时无法读取：{reviewError(awaiting.error)}</p>:awaiting.data&&<AwaitingList items={awaiting.data}/>}
     {selected&&(detail.isPending?<p role="status">正在读取候选详情…</p>:detail.isError?<p role="alert">{reviewError(detail.error)}</p>:detail.data&&<CandidateView detail={detail.data}/>)}
   </section>;
 }
