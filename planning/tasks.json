@@ -2043,13 +2043,25 @@
       "M16"
     ],
     "deliverable": "no_action、等待重评估、计划失效、有限Run预算",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/implementation/NX-024-design.md",
         "summary": "Design reviewed (dispatcher rulings: runtime schema append-only tables, run-outcome contract written back through the Host, configurable self-trigger limits and re-evaluation budgets, external results as a trigger); implementation on branch nx024-impl pending integration.",
         "recorded_at": "2026-10-10T06:45:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4f774fd",
+        "summary": "Done: runtime append-only plans, strategies, step metadata and Run outcomes behind signed ports (0106); plan-reevaluate work feed with per-plan coalescing, self-trigger throttling and configurable budgets; triggers for goal version change, pause/resume (not replay), control revision, strategy change, reassess_at, external results and dispatch denial; stop_if invalidation without a model call; run-outcome contract written back through the Host (no_action, needs_information, waiting_external, escalate are normal results). AT-029 end-to-end (no message sent when no_action) is planned in NX-025.",
+        "recorded_at": "2026-10-10T07:21:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T224539Z-4f774fda073f",
+        "summary": "Full CI on clean CI host for 4f774fd (integration-s4a): 2516 passed / 6 failed, all within baseline, no new failures. Re-run on main: plan outcome and re-evaluation suites passed.",
+        "recorded_at": "2026-10-10T07:21:00+08:00"
       }
     ]
   },
