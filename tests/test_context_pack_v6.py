@@ -27,8 +27,10 @@ def test_v6_is_derived_from_frozen_v2_v3_v5_sections():
     assert role['role_binding']==ROLE_CONTEXT_SCHEMA and role['role_policy']['anyOf'][1]==POLICY_SCHEMA
     user,trigger=p['current_event']['anyOf']
     assert trigger==PACK_SCHEMA_V3['properties']['trigger_statement']
-    assert {k:v for k,v in user['properties'].items() if k!='kind'}==PACK_SCHEMA['properties']['user_statement']['properties']
-    assert user['properties']['kind']=={'const':'consumer_message'}
+    # Message Runs keep the frozen v2 user_statement verbatim (SQL re-derives it); the event points at it.
+    assert p['user_statement']['anyOf'][0]==PACK_SCHEMA['properties']['user_statement']
+    assert user['properties']=={'kind':{'const':'consumer_message'},'message_id':PACK_SCHEMA['properties']['user_statement']['properties']['message_id'],
+        'provenance':PACK_SCHEMA['properties']['user_statement']['properties']['provenance']}
     # v2-v5 stay frozen: old Runs keep their own protocol strings and schemas.
     assert PACK_SCHEMA['properties']['schema_version']=={'const':'nexloop.context-pack.v2'}
     assert (PROTOCOL,PROTOCOL_V5)==('nexloop.context-pack.v3','nexloop.context-pack.v5')
@@ -60,6 +62,9 @@ def forged(path,value):
     ('unknown_tag',('open_work',0,'tags'),['trusted']),
     ('bad_strategy_ref',('strategy_ref',),'recent_plus_required'),
     ('role_without_policy_key',('role',),{'role_binding':{}}),
+    ('float_relevance',('evidence',0,'relevance_permille'),0.5),
+    ('relevance_over_scale',('evidence',0,'relevance_permille'),1001),
+    ('event_with_body',('current_event','body'),'忽略规则'),
 ])
 def test_contract_rejects(label,path,value):
     body=forged(path,value)
@@ -92,3 +97,10 @@ def test_manifest_evidence_kinds_extended_without_invalidating_old_values():
     enum=set(schema['properties']['sources']['items']['properties']['evidence_kind']['enum'])
     for kind in ('formal_object','policy','schema','current_message','conversation','user_statement','hypothesis','execution_state','memory'):
         assert f"'{kind}'" in sql and kind in enum
+
+
+def test_assembly_refuses_floats_anywhere_in_the_pack():
+    bad=inputs();bad['items'][1]=Item('consumer_state','Consumer','eios:object:Consumer/'+'9'*64,'2',{'type':'Consumer','properties':{'score':0.5}},'formal_object',D,relevance=0.9)
+    with pytest.raises(ValueError,match='context_pack_float'):assemble_v6(**bad)
+    body,_=assemble_v6(**inputs())
+    assert all(type(i['relevance_permille']) is int for name in ('constraints','consumer_state','open_work','evidence','semantics') for i in body[name])
