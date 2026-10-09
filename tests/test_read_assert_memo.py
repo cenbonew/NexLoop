@@ -316,9 +316,22 @@ create function pg_temp.canary() returns boolean language sql as 'insert into pg
 """
 
 
+def api_with_misconfigured_temp(m):
+    """Under the shipped ACL (0098) the runtime role cannot create temporary objects at all.
+    Defense in depth: simulate a misconfigured database that re-grants TEMPORARY, so the
+    memo's own ownership/namespace checks are still exercised."""
+    with psycopg.connect(make_conninfo(m['pg'], user='nexloop_api'), autocommit=True) as api:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            api.execute('create temp table shipped_acl_probe(n int)')
+    database = m['admin'].execute('select current_database()').fetchone()[0]
+    m['admin'].execute(f'grant temporary on database "{database}" to nexloop_api')
+    return psycopg.connect(make_conninfo(m['pg'], user='nexloop_api'), autocommit=True)
+
+
+
 def test_forged_precreated_memo_table_disables_the_memo(consumer):
     m = consumer
-    with psycopg.connect(make_conninfo(m['pg'], user='nexloop_api'), autocommit=True) as api:
+    with api_with_misconfigured_temp(m) as api:
         api.execute(CANARY)
         # A forged "memo" that would allow anything, and logs any read of it.
         api.execute("create temp view nexloop_read_memo as select k.key,null::text tenant,'{}'::jsonb binding,0::bigint advisory_locks "
@@ -331,7 +344,7 @@ def test_forged_precreated_memo_table_disables_the_memo(consumer):
 
 def test_search_path_and_shadow_catalog_objects_do_not_reach_the_memo(consumer):
     m = consumer
-    with psycopg.connect(make_conninfo(m['pg'], user='nexloop_api'), autocommit=True) as api:
+    with api_with_misconfigured_temp(m) as api:
         api.execute(CANARY)
         # Shadows that would hide new advisory locks or fake table ownership if any reference were unqualified.
         api.execute("create temp view pg_locks as select * from pg_catalog.pg_locks where pg_temp.canary()")
