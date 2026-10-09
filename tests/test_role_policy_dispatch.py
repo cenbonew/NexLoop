@@ -116,7 +116,8 @@ def test_effect_units_concurrent_distinct_submissions_stay_within_ceiling(wide_c
     plan = role_runtime_plan; run_id = plan['commands'][0]['run_id']
     assert admin.execute("select effect_units from authz.nexloop_role_policy_bindings where run_id=%s", (run_id,)).fetchone() == (1,)
     barrier = threading.Barrier(8); outcomes = []
-    from test_backend_lifecycle_capacity import retrying
+    from test_backend_lifecycle_capacity import retrying, renew_leases
+    renew_leases(plan)
     def attempt(index):
         services = retrying(lambda: plan['backend_worker'].authenticate(plan['worker_token'], world='real'))
         barrier.wait()

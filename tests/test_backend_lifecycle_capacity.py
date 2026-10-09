@@ -121,13 +121,34 @@ BUSY = []
 
 
 def retrying(call, attempts=5):
-    """Caller semantics for overload: BackendBusy is explicit and retryable; nothing else is retried."""
+    """Caller semantics for overload: BackendBusy, and a fail-closed Unavailable whose
+    diagnosis says retryable (rolled-back bounded lock wait before the deadline), are
+    retried with the same request (same stable intent); nothing else is retried."""
+    from nexloop_eios.effect_intents import EffectIntentUnavailable
     for attempt in range(attempts):
         try:return call()
-        except BackendBusy:
-            BUSY.append(attempt)
+        except (BackendBusy, EffectIntentUnavailable) as error:
+            if isinstance(error, EffectIntentUnavailable):
+                if (error.diagnosis or {}).get('retryable') is not True:raise
+                DIAGNOSED.append(error)
+            BUSY.append((type(error).__name__, attempt))
             if attempt == attempts - 1:raise
             time.sleep(0.2 * (attempt + 1))
+
+
+def renew_leases(plan, seconds=180):
+    # The Worker owns the task lease (production heartbeats it while the Run executes).
+    # A burst test must hold a lease that covers its own time bound; the fixture's 60 s
+    # claim can lapse first on a slow host, and that is a correct fail-closed deadline.
+    for job in plan['jobs']:
+        retrying(lambda: plan['worker'].renew_task(queue='operations', task_id=job['task_id'], fence=job['fence'], lease_seconds=seconds))
+
+
+def diagnoses():
+    return [error.diagnosis for error in DIAGNOSED]
+
+
+DIAGNOSED = []
 
 
 def run_threads(functions, timeout=180):
@@ -135,7 +156,9 @@ def run_threads(functions, timeout=180):
     def wrap(index, function):
         barrier.wait()
         try:function();outcomes[index] = 'ok'
-        except Exception as error:outcomes[index] = type(error).__name__
+        except Exception as error:
+            outcomes[index] = type(error).__name__
+            if getattr(error, 'diagnosis', None) is not None:DIAGNOSED.append(error)
     threads = [threading.Thread(target=wrap, args=pair) for pair in enumerate(functions)]
     started = time.monotonic()
     for thread in threads:thread.start()
@@ -145,7 +168,7 @@ def run_threads(functions, timeout=180):
 
 def test_eight_concurrent_requests_complete_on_pool_of_four(role_runtime_plan, admin):
     plan = role_runtime_plan
-    BUSY.clear()
+    BUSY.clear(); DIAGNOSED.clear(); renew_leases(plan)
     def submit():
         services = retrying(lambda: plan['backend_worker'].authenticate(plan['worker_token'], world='real'))
         retrying(lambda: services.runtime_effect_tool(activation_ref=plan['activations'][0], command=plan['commands'][0], tool_operation='submit', parameters={'message': 'one business intent'}))
@@ -158,11 +181,43 @@ def test_eight_concurrent_requests_complete_on_pool_of_four(role_runtime_plan, a
     # All eight finished (no hang, no PoolTimeout starvation). Overload on a slow host may
     # surface as the explicit retryable BackendBusy (FIFO-bounded); after retry every
     # authorize on the other Run succeeds.
-    assert outcomes[4:] == ['ok'] * 4, (outcomes, BUSY)
+    assert outcomes[4:] == ['ok'] * 4, (outcomes, BUSY, diagnoses())
     # Same-Run concurrent identical submits all receive the one stable intent: same-Run tool
     # requests serialize before the first guard, so no lock cycle can abort a caller.
-    assert outcomes[:4] == ['ok'] * 4, (outcomes, BUSY)
+    assert outcomes[:4] == ['ok'] * 4, (outcomes, BUSY, diagnoses())
     assert 'BackendBusy' not in outcomes and elapsed < 150, (outcomes, BUSY, elapsed)
+    # Retried contention is only a bounded lock wait, never a lock cycle or a deadline.
+    assert all(d['sqlstate'] == '55P03' and d['stage'] == 'run_lock' and d['retryable'] for d in diagnoses()), diagnoses()
+
+
+def test_lease_lapsing_mid_burst_fails_closed_with_operator_diagnosis(role_runtime_plan, admin):
+    """The s3n CI signature (3 ok + 1 Unavailable, no BackendBusy) reproduced on purpose:
+    the task lease lapses while same-Run submits are serialized. The late caller fails
+    closed at the final recheck; the diagnosis names the deadline, the wire stays generic."""
+    from nexloop_eios.effect_intents import EffectIntentUnavailable
+    plan = role_runtime_plan; run = plan['commands'][0]['run_id']
+    def lapse(seconds):
+        # Disposable fault injection on the task lease (the Worker's heartbeat stops).
+        assert admin.execute("update runtime.jobs set lease_until=clock_timestamp()+make_interval(secs=>%s) where status='running' and "
+                             "normalized_input->'run_command'->>'run_id'=%s returning job_id", (seconds, run)).fetchall()
+    def submit():
+        services = plan['backend_worker'].authenticate(plan['worker_token'], world='real')
+        return services.runtime_effect_tool(activation_ref=plan['activations'][0], command=plan['commands'][0], tool_operation='submit',
+                                            parameters={'message': 'one business intent'})
+    lapse(-1)
+    with pytest.raises(EffectIntentUnavailable) as caught:submit()
+    error = caught.value
+    assert str(error) == 'effect intent unavailable' and error.args == ('effect intent unavailable',)
+    assert error.diagnosis == {'cause': 'InsufficientPrivilege', 'sqlstate': '42501', 'reason': 'activation denied', 'stage': 'resolve',
+                               'retryable': False, 'elapsed_ms': error.diagnosis['elapsed_ms']}
+    lapse(1.5); DIAGNOSED.clear()
+    outcomes, _ = run_threads([submit] * 4)
+    assert 'BackendBusy' not in outcomes and set(outcomes) <= {'ok', 'EffectIntentUnavailable'}, outcomes
+    for diagnosis in diagnoses():
+        assert diagnosis['sqlstate'] == '42501' and diagnosis['cause'] == 'InsufficientPrivilege', diagnosis
+        assert diagnosis.get('deadline_exceeded') is True or diagnosis['reason'] == 'activation denied', diagnosis
+        assert diagnosis['retryable'] is False, diagnosis  # a passed deadline is never retried
+    assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone()[0] <= 1
     assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone() == (1,)
 
 

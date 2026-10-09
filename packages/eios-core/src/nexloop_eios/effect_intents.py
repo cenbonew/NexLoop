@@ -8,6 +8,9 @@ registered real executor will own that later claim, not the submitting Run.
 from datetime import UTC,datetime,timedelta
 import hashlib
 import hmac
+import json
+import logging
+import time
 import uuid
 
 import psycopg
@@ -25,7 +28,49 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 
 ACTION='nexloop.service.request'
 
-class EffectIntentUnavailable(PermissionError):pass
+_log=logging.getLogger('nexloop_eios.effect_intents')
+
+
+class EffectIntentUnavailable(PermissionError):
+    """Fail-closed admission failure. The message and the Host wire code stay generic;
+    `diagnosis` (cause class, SQLSTATE, stage, final-deadline check) is operator-only:
+    it is logged here and never serialized to the Runtime or the model."""
+    def __init__(self,*args,diagnosis=None):
+        super().__init__(*args);self.diagnosis=diagnosis
+
+
+# Static SQL deny reasons safe to log verbatim (constants, no data). Those in the first
+# set mean a final deadline (task lease, command not_after, Run proof) had passed.
+DEADLINE_REASONS=frozenset({'activation expired','activation lease denied','activation proof expired','queue_stale_lease'})
+# Bounded lock waits (EIOS lock_timeout), deadlock victims and serialization failures
+# roll the whole request back; before the final deadline the same submit may be retried
+# and returns the same stable intent.
+TRANSIENT_SQLSTATES=frozenset({'55P03','40P01','40001'})
+KNOWN_REASONS=DEADLINE_REASONS|{'activation denied','activation execution binding denied','activation execution marker denied',
+    'activation enrollment conflict','activation operation denied','service identity unavailable'}
+
+
+def unavailable(error,*,stage=None,deadline=None,started=None):
+    """Wrap `error` as EffectIntentUnavailable with a structured diagnosis (logged once,
+    at the innermost wrap; outer wraps only add missing stage/deadline facts)."""
+    if isinstance(error,EffectIntentUnavailable) and error.diagnosis is not None:
+        diagnosis=error.diagnosis;fresh=False
+    else:
+        diagnosis={'cause':type(error).__name__,'sqlstate':getattr(error,'sqlstate',None)};fresh=True
+        primary=error.diag.message_primary if isinstance(error,psycopg.Error) else str(error) if isinstance(error,PermissionError) else None
+        diagnosis['reason']=primary if primary in KNOWN_REASONS else None
+        if primary in DEADLINE_REASONS:diagnosis['deadline_exceeded']=True
+    if stage is not None:diagnosis.setdefault('stage',stage)
+    if deadline is not None and 'deadline_exceeded' not in diagnosis:
+        diagnosis['deadline_exceeded']=datetime.now(UTC)>=deadline
+    diagnosis['retryable']=diagnosis['sqlstate'] in TRANSIENT_SQLSTATES and diagnosis.get('deadline_exceeded') is not True
+    if started is not None and 'elapsed_ms' not in diagnosis:
+        diagnosis['elapsed_ms']=round((time.monotonic()-started)*1000)
+    if fresh or stage is not None:
+        _log.warning('effect_intent_unavailable %s',json.dumps(diagnosis,sort_keys=True))
+    return EffectIntentUnavailable('effect intent unavailable',diagnosis=diagnosis)
+
+
 class EffectIntentConflict(RuntimeError):
     code='intent_payload_conflict'
     http_status=409
@@ -97,7 +142,7 @@ class EffectIntentPort:
             if isinstance(error,CatalogScopeDenied):raise
             if isinstance(error,psycopg.Error) and error.diag.message_primary in ('effect_payload_conflict','effect catalog conflict'):
                 raise EffectIntentConflict('intent_payload_conflict') from None
-            raise EffectIntentUnavailable('effect intent unavailable') from None
+            raise unavailable(error,deadline=self.session.expires_at) from None
 
     def _call(self,verb,*,action_version,**arguments):
         # Commit before returning; the private Runtime bridge may use this same
@@ -107,12 +152,12 @@ class EffectIntentPort:
                 return self._execute_in_transaction(db,verb,action_version=action_version,**arguments)
         except (EffectIntentConflict,EffectIntentUnavailable):raise
         except CatalogScopeDenied:raise
-        except Exception:raise EffectIntentUnavailable('effect intent unavailable') from None
+        except Exception as error:raise unavailable(error,stage='commit',deadline=self.session.expires_at) from None
 
     def submit(self,*,parameters,action_version=1,request_scope=None):
         return self._call('submit',action_version=action_version,parameters=parameters,request_scope=request_scope)
 
     def find(self,*,intent_id,action_version=1):
         try:identifier=str(uuid.UUID(intent_id))
-        except Exception:raise EffectIntentUnavailable('effect intent unavailable') from None
+        except Exception as error:raise unavailable(error,stage='intent_id') from None
         return self._call('find',action_version=action_version,intent_id=identifier)

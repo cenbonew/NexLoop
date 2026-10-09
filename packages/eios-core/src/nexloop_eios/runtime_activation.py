@@ -5,7 +5,7 @@ Workers can only activate/recover enrolled Runs for their own current lease.
 No raw credential, DSN or prompt is persisted or returned to Host.
 """
 from datetime import UTC,datetime,timedelta
-import hashlib,hmac,re,uuid
+import hashlib,hmac,re,time,uuid
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
 from eios.authz.operations import Operation
@@ -236,7 +236,10 @@ class RuntimeActivationPort:
         An expired lease after a lock wait rolls back Intent and quota writes.
         No raw Run credential, private digest or executor authority is returned.
         """
-        from nexloop_eios.effect_intents import EffectIntentPort,EffectIntentConflict,EffectIntentUnavailable
+        from nexloop_eios.effect_intents import EffectIntentPort,EffectIntentConflict,unavailable
+        # Operator-only diagnosis of a fail-closed outcome (never on the wire): which
+        # step failed, how long the request ran, and whether the Run deadline passed.
+        started=time.monotonic();stage='validate';run=None
         try:
             if tool_operation not in ('submit','find'):raise ValueError()
             if tool_operation=='submit':
@@ -247,7 +250,9 @@ class RuntimeActivationPort:
                 arguments={'intent_id':intent_id}
             text,digest=_command(command)
             if type(activation_ref) is not str or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError()
+            stage='connect'
             with self.pool.connection() as db,db.transaction():
+                stage='resolve'
                 verify_application_role(db)
                 queue=db.execute('select authz.nexloop_runtime_activation_hint(%s,%s,%s)',
                     (self.session.token_digest,self.session.world,activation_ref)).fetchone()[0]
@@ -258,18 +263,24 @@ class RuntimeActivationPort:
                 # Same-Run tool requests serialize here, before the first guard, in one lock
                 # order (same key as the 0085 submit lock, reentrant in this transaction); this
                 # removes the 0039 execution-marker / row-lock cycle between concurrent guards.
+                stage='run_lock'
                 db.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))',('nexloop-role-effect:'+run.run_context.run_id,))
                 def guard():
                     result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,resolved['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(resolved),context_formal_reads=self._context_formal_envelopes(resolved)))
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
+                stage='guard_before'
                 guard()
+                stage='intent'
                 receipt=EffectIntentPort(self.pool,run,self.signer)._execute_in_transaction(
                     db,tool_operation,action_version=1,runtime_refs={'consumer_ref':command['consumer_ref'],
                         'goal_version_ref':command['goal_version_ref']},**arguments)
+                stage='guard_after'
                 guard()
+                stage='receipt'
                 keys={'intent_id','receipt_id','state','payload_digest','provider_payload_digest','scope','business_action_success'}
                 if type(receipt) is not dict or set(receipt)!=keys or receipt['scope']!='effect_intent' or receipt['business_action_success'] is not False:raise ValueError()
                 response={'run_id':command['run_id'],'receipt':receipt}
+                stage='commit'
             return response
         except EffectIntentConflict:raise
         except CatalogScopeDenied:
@@ -280,4 +291,5 @@ class RuntimeActivationPort:
             denial=record_runtime_scope_denial(self,activation_ref=activation_ref,command=command,
                 parameters=parameters,request_scope=request_scope)
             raise CatalogScopeDenied(denial['scope']) from None
-        except Exception:raise EffectIntentUnavailable('effect intent unavailable') from None
+        except Exception as error:
+            raise unavailable(error,stage=stage,deadline=None if run is None else run.expires_at,started=started) from None

@@ -301,3 +301,32 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 - 公平性负向对照（200 次）：旧锁迟到者插队 **142/200**；FIFO 锁 **0/200**。
 - 修复后加压（12 个忙循环）两项串行两轮：**2 passed（61.13 s）/ 2 passed（61.48 s）**。LifecycleLock 单测 5 项，连续 3 轮通过。
 - 受影响面回归（127 个相关测试文件，pool_depth 插件开启）：**1411 passed / 3079.04 s**，单请求最多 2 个连接。agent-host vitest **164 passed**。
+
+## s3n 测试机新增失败：EffectIntentUnavailable 可观测性与根因（分支 `nx018-observe`，基线 main `5300750`）
+
+- 现象（调度员，s3n 全量）：`test_eight_concurrent_requests_complete_on_pool_of_four` 并行时，同 Run 4 个 submit 有 1 个 `EffectIntentUnavailable`，`BUSY=[0,0]`、无 `BackendBusy`；同检出串行两轮通过。原因被 `effect_intents.py` / `runtime_activation.py` 的统一包装吞掉。
+- 可观测性：`EffectIntentUnavailable.diagnosis` 增加结构化字段，仅供运维日志使用（logger `nexloop_eios.effect_intents`，WARNING，JSON）：
+  - `cause`：异常类名；
+  - `sqlstate`；
+  - `reason`：仅限白名单中的静态 SQL 拒绝原因，任何数据都不输出；
+  - `stage`：validate / connect / resolve / run_lock / guard_before / intent / guard_after / receipt / commit；
+  - `deadline_exceeded`：是否已过最终期限；
+  - `elapsed_ms`；
+  - `retryable`。
+
+  异常消息与 `args` 保持通用的 `effect intent unavailable`。Host 线上只返回 `{'code':'effect_intent_unavailable'}`，诊断不进 Runtime，也不进模型。
+- 根因（6 worker 并行 + 12 个忙循环，同一测试复制 12 份，修复前）：**10 failed / 2 passed**。诊断全部为 `{"cause":"LockNotAvailable","sqlstate":"55P03","stage":"run_lock","deadline_exceeded":false}`，elapsed 约 3.0 s。
+  - 不是死锁环：没有 40P01。
+  - 也不是期限 fail-closed。
+  - 是 EIOS 连接默认的 `lock_timeout=3000ms`（`NEX_EIOS_DB_LOCK_TIMEOUT_MS`）：同 Run 请求在 Run 级 advisory 锁上串行，慢机上排队超过 3 s，事务整体回滚。
+- 定性与修复：这是有界锁等待造成的瞬时争用。整个请求已回滚，期限也未过，用同一请求重试会得到同一个稳定意图。
+  - `sqlstate` ∈ {55P03, 40P01, 40001} 且未过期限时，`diagnosis.retryable=True`；
+  - Host 对 retryable 返回 503，其余 fail-closed 仍返回 403，公共 code 不变（agent-host 两者都映射为 `runtime_effect_unavailable`）；
+  - 测试的 `retrying` 只额外重试 `retryable` 的 Unavailable，并断言所有被重试的诊断都是 `run_lock` 阶段的 55P03（出现锁环或期限即失败）；8/8 ok、1 个意图、无 `BackendBusy` 的断言保持不变。
+- 期限分支（已排除，但单独固化）：新增 `test_lease_lapsing_mid_burst_fails_closed_with_operator_diagnosis`。故意让任务租约在突发提交中途过期，诊断为：
+  - 过期后才到的请求：`reason='activation denied'`，`stage='resolve'`；
+  - 过期时正在执行的请求：`reason='activation lease denied'`，`deadline_exceeded=True`，`stage='guard_after'`，`retryable=False`。
+
+  两者都不会被重试。另外，两项并发测试在突发前续租 180 s（`renew_leases`，等价于生产中 Worker 的心跳），使任务租约覆盖测试自身 150 s 的时间上限；fixture 原有的 60 s 租约比这个上限短。
+- 修复后同条件两轮：**12/12 passed（122.75 s）、12/12 passed（128.36 s）**；期间分别有 8 次、15 次 55P03 重试，全部成功。
+- 回归（48 个相关文件，6 worker）：首轮 322 passed / 36 failed。失败全部是环境原因：shell 没有 `nvm use 24`，Node v20 报 `ERR_UNKNOWN_BUILTIN_MODULE`。切到 Node 24 后，失败的 18 个文件重跑 **96 passed**。定向（pool_depth 插件，串行）：容量 / dispatch / bridge / guard transport / host admission / offering runtime。其中 host admission 首次 3 项失败，原因是切分支后 agent-host 构建过期，重建后 4 passed；其余 65 passed。
