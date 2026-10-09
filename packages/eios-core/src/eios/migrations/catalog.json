@@ -450,6 +450,11 @@
       "version": "0090",
       "name": "0090_nx023_context_reads.sql",
       "sha256": "173d69668db224fabb4f17b77e2a6583b77ed0aef460f229c9f77b8a5e55637e"
+    },
+    {
+      "version": "0091",
+      "name": "0091_perf_o2b_batch_fact_load.sql",
+      "sha256": "cb502dc7beb29f530b9254360be9e9f1797c9b28c3bc5d4ca53dbedd8f180c1f"
     }
   ]
 }

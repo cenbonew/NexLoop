@@ -70,9 +70,11 @@ if _OUT:
     TARGETS={
         'psycopg':[('Cursor','execute',_sql_label)],
         'psycopg_pool.pool':[('ConnectionPool','getconn','pool:getconn')],
-        'eios.authz._fact_resolver':[('AuthorizationFactsResolver','resolve',lambda a,k:_resolve_label(a,k))],
+        'eios.authz._fact_resolver':[('AuthorizationFactsResolver','resolve',lambda a,k:_resolve_label(a,k)),
+            # O2b batch path resolves through the public resolve_in_unit_of_work; count it as a decision too.
+            ('AuthorizationFactsResolver','resolve_in_unit_of_work',lambda a,k:_resolve_label(a,k))],
         'eios.authz.service':[('AuthorizationDecisionService','decide','authz:decide'),('AuthorizationDecisionService','decide_resolved','authz:decide_resolved')],
-        'nexloop_eios.authorization':[(None,'authenticate_service','authenticate_service'),('PostgresAuthorityUnitOfWork','_load','authz:load_fact'),
+        'nexloop_eios.authorization':[(None,'resolve_authorities','authz:batch_resolve'),(None,'authenticate_service','authenticate_service'),('PostgresAuthorityUnitOfWork','_load','authz:load_fact'),
             ('PostgresAuthorityProvider','open_unit_of_work','authz:open_unit_of_work'),(None,'_identity','authz:identity_snapshot')],
         'nexloop_eios.postgres_artifacts':[(None,'canonical_payload','serialize:canonical_payload')],
         'nexloop_eios.action_definitions':[('PostgresActionDefinitionReader','get_with_schemas','governance:action_definition_read')],

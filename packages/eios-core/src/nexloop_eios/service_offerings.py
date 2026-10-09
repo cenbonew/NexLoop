@@ -98,10 +98,11 @@ def _read_envelope(source,type_name,object_id,fields):
     from nexloop_eios.object_reads import AuthorizedObjectReader
     from eios.authz.resources import ResourceType
     reader=AuthorizedObjectReader(source._backend._pool,source._session,source._backend._signer)
-    claims=reader._authority(ResourceType.OBJECT,type_name+'/'+object_id)
     fields=tuple(sorted(fields))
+    # O2b: object + property proofs resolved together; each proof is still per target.
+    claims,*properties=reader.authorities([(ResourceType.OBJECT,type_name+'/'+object_id)]+[(ResourceType.PROPERTY,type_name+'/'+object_id+'/'+field) for field in fields])
     claims.update(protocol='nexloop-object-read-v1',key_id=reader.signer.key_id,type_name=type_name,object_id=object_id,
-     fields=fields,property_authorities=[reader._authority(ResourceType.PROPERTY,type_name+'/'+object_id+'/'+field) for field in fields])
+     fields=fields,property_authorities=properties)
     import hmac
     text=canonical_payload(claims)
     signature=hmac.new(reader.signer.material,('nexloop-object-read-v1:'+text).encode(),'sha256').hexdigest()
