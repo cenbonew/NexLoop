@@ -30,6 +30,14 @@ property groups are an owner decision kept in a *separate* owner file
 written only from that file, never from the service manifest or computed defaults.
 A rule listing a restricted group is reported (the group is never derived); a rule
 whose type has no owner restriction fact derives nothing and is reported.
+
+message_read_rules (deployment plan B, migration 0099): optional per (service
+principal, read purpose) rules compiled into ``message_purpose_rule`` facts. SQL
+derives Message/Conversation READ from them only for the work the purpose names:
+``claim_extraction`` covers the Conversation and Messages of an extraction task the
+principal's credential currently leases; ``claim_matching`` covers the evidence
+Message (and Conversation object) of a Claim still to be matched. A rule requires the
+purpose Action grant in the same manifest; removing a rule deactivates it.
 """
 import argparse,hashlib,json,re,sys,uuid
 from datetime import UTC,datetime
@@ -57,6 +65,12 @@ GRANT={'principal','resource_type','resource_id','operations','purpose','source_
 FOLLOW='follow_latest_version'
 RULES='property_access_rules'
 RULE={'principal','type_name','operations','property_groups','include_review_published','basis_schema_version','valid_until','purpose','source_task'}
+MESSAGE_RULES='message_read_rules'
+MESSAGE_RULE={'principal','read_purpose','fields','valid_until','purpose','source_task'}
+MESSAGE_FIELDS=('accepted_at','actor','body','conversation_id','sequence')
+# Read purpose -> Action grants the principal must hold in the same manifest.
+READ_PURPOSES={'claim_extraction':('eios:action:nexloop.claim.extract:1','eios:action:NexLoop.queue.claim-extraction:1'),
+    'claim_matching':('eios:action:nexloop.claim.match:1',)}
 OWNER_SCHEMA='nexloop-owner-property-restrictions/1'
 OWNER_TOP={'schema_version','decided_by','decision','restrictions'}
 _GROUP=re.compile(r'[a-z][a-z0-9_]{0,63}')
@@ -70,7 +84,7 @@ ALLOWED={'action':('execute',re.compile(r'eios:action:[A-Za-z0-9][A-Za-z0-9._-]{
 FORBIDDEN_MARKERS=('schema.review','real_dispatch','nexloop.service.request','nexloop.service.query',
     'nexloop.service.receipt_reconcile','nexloop.receipt.reconcile','channel.enable','external_effect')
 ORDER=('subject','membership','actor','authentication','application','subject_authority','resource_graph','grants','scope','controls','policies','revision',
-    'property_group_restriction','property_access_rule')
+    'property_group_restriction','property_access_rule','message_purpose_rule')
 _ID=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ROLE=re.compile(r'[a-z][a-z0-9_]{0,63}')
 NAMESPACE=uuid.UUID('9b7f3c52-2f43-4b0e-8f0e-4e5800480048')
@@ -86,7 +100,7 @@ def _reject(reason):raise ServiceGrantsRejected(reason)
 
 def validate(value):
     """Structural and policy validation of the public manifest (no I/O)."""
-    if type(value) is not dict or set(value)-{RULES}!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
+    if type(value) is not dict or set(value)-{RULES,MESSAGE_RULES}!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
     if type(value['manifest_version']) is not int or value['manifest_version']<1:_reject('manifest_version')
     if type(value['world']) is not str or re.fullmatch(r'[a-z][a-z0-9_-]{0,79}',value['world']) is None:_reject('world')
     try:valid_from=datetime.fromisoformat(value['valid_from'])
@@ -95,7 +109,8 @@ def validate(value):
     for key in ('principals','grants','deferred','excluded_by_policy'):
         if type(value[key]) is not list or len(value[key])>512:_reject('manifest_shape')
     # Policy exclusions apply to everything that would become authority.
-    authority_text=canonical_payload({'principals':value['principals'],'grants':value['grants'],'rules':value.get(RULES,[])}).lower()
+    authority_text=canonical_payload({'principals':value['principals'],'grants':value['grants'],'rules':value.get(RULES,[]),
+        'message_rules':value.get(MESSAGE_RULES,[])}).lower()
     for marker in FORBIDDEN_MARKERS:
         if marker in authority_text:_reject('excluded_by_policy:'+marker)
     principals={};identifiers=set()
@@ -125,6 +140,7 @@ def validate(value):
     for role in principals:
         if not any(g['principal']==role for g in value['grants']):_reject('principal_without_grant')
     _validate_rules(value,principals)
+    _validate_message_rules(value,principals)
     return value
 
 
@@ -152,6 +168,29 @@ def _validate_rules(value,principals):
             _reject('property_access_rule_requires_type_read')
         key=(item['principal'],item['type_name'])
         if key in seen:_reject('property_access_rule_duplicate')
+        seen.add(key)
+
+
+def _validate_message_rules(value,principals):
+    if MESSAGE_RULES not in value:return
+    rules=value[MESSAGE_RULES]
+    if type(rules) is not list or len(rules)>32:_reject('message_read_rule_shape')
+    seen=set()
+    for item in rules:
+        if type(item) is not dict or set(item)!=MESSAGE_RULE or item['principal'] not in principals:_reject('message_read_rule_shape')
+        if any(type(item[k]) is not str or not item[k] for k in ('principal','read_purpose','valid_until','purpose','source_task')):_reject('message_read_rule_shape')
+        if item['read_purpose'] not in READ_PURPOSES:_reject('message_read_rule_purpose')
+        fields=item['fields']
+        if (type(fields) is not list or not fields or any(f not in MESSAGE_FIELDS for f in fields) or fields!=sorted(set(fields))
+                or 'body' not in fields):_reject('message_read_rule_shape')
+        try:until=datetime.fromisoformat(item['valid_until'])
+        except Exception:_reject('message_read_rule_shape')
+        if until.tzinfo is None or until.utcoffset().total_seconds()!=0:_reject('message_read_rule_shape')
+        # The read purpose is bound to work the principal is itself authorized to do.
+        held={g['resource_id'] for g in value['grants'] if g['principal']==item['principal']}
+        if not set(READ_PURPOSES[item['read_purpose']])<=held:_reject('message_read_rule_requires_purpose_grant')
+        key=(item['principal'],item['read_purpose'])
+        if key in seen:_reject('message_read_rule_duplicate')
         seen.add(key)
 
 
@@ -339,6 +378,29 @@ def compile_property_rules(manifest,tenant):
     return facts
 
 
+def compile_message_rules(manifest,tenant):
+    from nexloop_eios.message_read import MessagePurposeRule
+    roles={p['role']:p for p in manifest['principals']}
+    return [('message_purpose_rule',[roles[item['principal']]['principal_id'],item['read_purpose']],MessagePurposeRule(tenant_id=tenant,
+        principal_id=roles[item['principal']]['principal_id'],purpose=item['read_purpose'],type_name='Message',fields=tuple(item['fields']),
+        active=True,valid_until=datetime.fromisoformat(item['valid_until']))) for item in manifest.get(MESSAGE_RULES,[])]
+
+
+def _message_rule_plan(manifest,tenant,current):
+    """Rule writes; rules of manifest principals that are no longer declared are deactivated (never deleted)."""
+    from nexloop_eios.message_read import MessagePurposeRule
+    writes=[];rules=compile_message_rules(manifest,tenant)
+    for kind,key,fact in rules:
+        stored=current.get((kind,tuple(key)))
+        if stored is None or _model(kind,stored)!=fact:writes.append((kind,key,fact))
+    managed={p['principal_id'] for p in manifest['principals']};listed={tuple(k) for _,k,_ in rules}
+    for (kind,key),payload in current.items():
+        if kind=='message_purpose_rule' and key[0] in managed and key not in listed and payload.get('active') is True:
+            old=_model(kind,payload)
+            if old is not None:writes.append((kind,list(key),MessagePurposeRule(**{**old.model_dump(),'active':False})))
+    return writes
+
+
 def compile_owner_restrictions(owner,tenant):
     from nexloop_eios.property_access import PropertyGroupRestriction
     decision=(owner['decision']+' — '+owner['decided_by'])[:500]
@@ -430,6 +492,7 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictio
                     principal_id=principal['principal_id'],grants=(),valid_until=None,complete=True,next_cursor=None,revision=1)))
     property_writes,property_findings=_property_access_plan(manifest,tenant,current,owner_restrictions)
     writes+=property_writes
+    writes+=_message_rule_plan(manifest,tenant,current)
     if ('revision',('catalog',)) not in current:writes.append(_revision_fact(tenant))
     unique={}
     for kind,key,fact in writes:unique[(kind,tuple(key))]=(kind,key,fact)

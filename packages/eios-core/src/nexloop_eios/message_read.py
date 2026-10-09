@@ -7,6 +7,13 @@ while it currently holds generic READ on the Conversation's Consumer. SQL decide
 every condition under share locks at each use, and lets configured Message
 authority take precedence. This module only signs the typed proof shape; it never
 grants anything or reads business rows itself.
+
+Deployment plan B (0099): a service principal without such a rule may instead hold a
+``message_purpose_rule`` per purpose (from the service manifest's message_read_rules).
+SQL then derives READ only for the Conversation and Messages of an extraction task this
+credential currently leases (claim_extraction), or for the evidence Message and
+Conversation of a Claim still to be matched (claim_matching). Such answers are kept
+for one authority request scope (one unit of work) at most.
 """
 import hmac
 from datetime import UTC, datetime, timedelta
@@ -18,9 +25,12 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, field_validator
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from nexloop_eios.assembly import verify_application_role
+from nexloop_eios.authorization import _REQUEST_MEMO
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 DERIVATION = 'accepted-message-v1'
+PURPOSE_DERIVATION = 'purpose-message-v1'
+PURPOSES = ('claim_extraction', 'claim_matching')
 FIELDS = ('actor', 'body')
 RULE_FIELDS = ('accepted_at', 'actor', 'body', 'conversation_id', 'sequence')
 CONVERSATION_FIELDS = ('consumer_id', 'owner_principal')
@@ -43,6 +53,25 @@ class MessageReadRule(BaseModel):
     def _explicit_fields(cls, value):
         if list(value) != sorted(set(value)) or not {'actor', 'body'} <= set(value):
             raise ValueError('fields must be a sorted unique set containing actor and body')
+        return value
+
+
+class MessagePurposeRule(BaseModel):
+    """Trusted-configuration ``message_purpose_rule`` payload (key: [principal_id, purpose])."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    tenant_id: str
+    principal_id: str
+    purpose: Literal['claim_extraction', 'claim_matching']
+    type_name: Literal['Message']
+    fields: tuple[Literal['accepted_at', 'actor', 'body', 'conversation_id', 'sequence'], ...]
+    active: bool
+    valid_until: AwareDatetime
+
+    @field_validator('fields')
+    @classmethod
+    def _explicit_fields(cls, value):
+        if list(value) != sorted(set(value)) or 'body' not in value:
+            raise ValueError('fields must be a sorted unique set containing body')
         return value
 
 
@@ -112,20 +141,53 @@ class DerivedEvidenceReads:
         conversation = _CONVERSATION_TARGET.fullmatch(target)
         if message:
             key = ('Message', message.group(2))
-            if key not in self._basis:
-                self._basis[key] = message_read_basis(self.reader.pool, self.reader.session, message.group(2))
             field = message.group(3)
         elif conversation:
             key = ('Conversation', conversation.group(2))
-            if key not in self._basis:
-                self._basis[key] = conversation_read_basis(self.reader.pool, self.reader.session, conversation.group(2))
-            field = None
+            field = conversation.group(3)
         else:
             return None
-        basis = self._basis[key]
+        basis = self._lookup(key)
+        if basis.get('mode') == 'purpose':
+            # Message fields listed in the rule; the Conversation object, and its own
+            # properties only while extracting. SQL re-checks all of it at use.
+            if (message and field and field not in basis.get('fields', ())) or (conversation and field and basis.get('purpose') != 'claim_extraction'):
+                return None
+            return self._purpose(target, basis)
         if basis.get('mode') != 'derived' or (message and field and field not in basis.get('fields', FIELDS)):
             return None
         return self._derived(target, basis)
+
+    def _lookup(self, key):
+        if key in self._basis:
+            return self._basis[key]
+        session = self.reader.session
+        memo = _REQUEST_MEMO.get()
+        memo_key = ('message-purpose-basis', session.token_digest, session.directory_hash, session.world) + key
+        if memo is not None and memo_key in memo:
+            return memo[memo_key]
+        fetch = message_read_basis if key[0] == 'Message' else conversation_read_basis
+        basis = fetch(self.reader.pool, session, key[1])
+        if basis.get('mode') == 'purpose' or basis.get('purpose_rules'):
+            # Lease/Claim bound: never kept beyond the current unit of work.
+            if memo is not None:
+                memo[memo_key] = basis
+        else:
+            self._basis[key] = basis
+        return basis
+
+    def _purpose(self, target, basis):
+        session = self.reader.session
+        limits = [datetime.fromisoformat(basis['rule_valid_until']), datetime.now(UTC) + timedelta(seconds=25)]
+        if basis.get('lease_until'):
+            limits.append(datetime.fromisoformat(basis['lease_until']))
+        authentication = session.authentication
+        derivation_basis = {k: basis[k] for k in ('purpose', 'rule_hash', 'conversation_id', 'job_id', 'fence', 'claim_id') if k in basis}
+        return {'tenant_id': authentication.tenant_id, 'principal_id': authentication.subject_principal_id,
+                'credential_id': authentication.credential_id, 'directory_hash': session.directory_hash,
+                'world': session.world, 'resource_id': target, 'target_resource': target, 'operation': 'read',
+                'expires_at': min(limits).isoformat(), 'facts': [], 'derivation': PURPOSE_DERIVATION,
+                'derivation_basis': derivation_basis}
 
     def _derived(self, target, basis):
         reader = self.reader; session = reader.session; signer = reader.signer

@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-service-grants/1",
-  "manifest_version": 4,
-  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks).",
+  "manifest_version": 5,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks). v5: deployment plan B (0099) — message_read_rules bind Message/Conversation READ to the work itself: the extraction worker reads only the Conversation and Messages of an extraction task its credential currently leases; the matcher reads only the evidence Message and Conversation of a Claim still to be matched. Derived in SQL at each use; rule or Action revocation, Message deletion, leaving the Conversation, task completion or Claim resolution end it.",
   "valid_from": "2026-10-09T00:00:00+00:00",
   "world": "real",
   "principals": [
@@ -130,7 +130,7 @@
     {"resource_id": "eios:action:nexloop.service.request:1", "reason": "Real outbound effect execution; channel enablement and REAL_DISPATCH_ENABLED need the owner's own confirmation (ADR-020 §3).", "source_task": "NX-015/NX-016"},
     {"resource_id": "eios:action:nexloop.service.query:1", "reason": "Provider query of real outbound effects; enabled together with the channel by the owner.", "source_task": "NX-015"},
     {"resource_id": "eios:action:nexloop.service.receipt_reconcile:1", "reason": "Receipt reconciliation of real outbound effects; enabled together with the channel by the owner.", "source_task": "NX-018"},
-    {"resource_id": "eios:object:Message/<id> and eios:property:Message/<id>/<field> READ", "reason": "Per-message READ for Source/extraction worker is derived from governed facts (ADR-020 §1, NX-047), never a static grant.", "source_task": "NX-019/NX-047"},
+    {"resource_id": "eios:object:Message/<id> and eios:property:Message/<id>/<field> READ", "reason": "Never a static per-Message grant: Source READ is derived from governed facts (ADR-020 §1, NX-047); extraction worker and matcher READ is derived per purpose from message_read_rules (v5, 0099).", "source_task": "NX-019/NX-047"},
     {"resource_id": "eios:object:Consumer|Product/<id> READ/EDIT and per-property grants", "reason": "Per-object authority of the matcher depends on instance data; needs governed derivation, not a static manifest.", "source_task": "NX-020"},
     {"resource_id": "eios:action:nexloop.context.bind:1 / nexloop.context.bind_role:1", "reason": "Held by Run-bound Source credentials issued per Run (0034), not by a standing service principal.", "source_task": "NX-016/NX-018"},
     {"resource_id": "eios:action:Goal.create:1 / PlanStep.create:1 / nexloop.plan.bind_effect_context:1", "reason": "Planning authority belongs to Agent/Run credentials (NX-022/NX-024), not service principals.", "source_task": "NX-015/NX-024"},
@@ -144,6 +144,16 @@
      "include_review_published": true, "basis_schema_version": 1, "valid_until": "2027-10-09T00:00:00+00:00",
      "purpose": "Apply accepted Claims to every real-world Consumer without per-object grants; all ten ADR-019 §2 groups (owner decision 2026-10-09: none restricted); groups restricted by the owner are never derived.",
      "source_task": "NX-044"}
+  ],
+  "message_read_rules": [
+    {"principal": "claim_extraction_worker", "read_purpose": "claim_extraction", "fields": ["accepted_at", "actor", "body", "conversation_id", "sequence"],
+     "valid_until": "2027-10-09T00:00:00+00:00",
+     "purpose": "Read the window of the extraction task it currently leases: that Conversation (object, consumer_id, owner_principal) and the task's Messages; nothing outside the leased task.",
+     "source_task": "NX-019"},
+    {"principal": "claim_matcher", "read_purpose": "claim_matching", "fields": ["body", "conversation_id"],
+     "valid_until": "2027-10-09T00:00:00+00:00",
+     "purpose": "Read the Claims of a Conversation (Conversation object) and the evidence Message of a Claim still to be matched; ends when the Claim is resolved.",
+     "source_task": "NX-020"}
   ],
   "excluded_by_policy": [
     "Human principal authority of any kind",
