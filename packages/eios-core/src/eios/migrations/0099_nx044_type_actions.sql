@@ -8,7 +8,7 @@
 -- bound schema digest come from the reviewer's backend (EIOS models + schema_contract_digest).
 
 create function ontology.nexloop_review_type_action_capabilities(p_tenant text) returns jsonb
- language sql stable security definer set search_path=pg_catalog set row_security=on as $$
+ language sql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
  select coalesce(jsonb_object_agg(n,cap),'{}'::jsonb) from (
   select distinct on (a.capability->>'capability_name') a.capability->>'capability_name' n,a.capability cap
   from control.nexloop_action_definitions a where a.tenant_id=p_tenant and a.world='real' and a.active
@@ -18,7 +18,7 @@ create function ontology.nexloop_review_type_action_capabilities(p_tenant text) 
 $$;
 
 create function ontology.nexloop_review_type_action_expected(p_tenant text,p_type text,p_suffix text,p_cap jsonb,p_digest text) returns jsonb
- language sql immutable set search_path=pg_catalog as $$
+ language sql immutable set search_path=pg_catalog,pg_temp as $$
  select jsonb_build_object('tenant_id',p_tenant,'definition_type','action','stable_name',p_type||'.'||p_suffix,'version',1,'status','published',
   'required_scopes',p_cap->'required_scopes','required_markings','[]'::jsonb,'created_by','nexloop-review-publication','previous_version',null,
   'source_lineage','[]'::jsonb,
@@ -33,7 +33,7 @@ $$;
 
 -- Basis: unchanged plus the tenant's create/edit capability snapshots for new-type Actions.
 create or replace function authz.nexloop_read_review_publication_basis(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
- language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare t text:=authz.nexloop_assert_review_read(p_digest,p_world,p_text,p_signature,p_payload);c jsonb:=p_payload::jsonb;
  x ontology.nexloop_candidate_definitions%rowtype;owner text;v integer;s jsonb;
 begin
@@ -53,7 +53,7 @@ end $$;
 alter function ontology.nexloop_review_publication_gates(text,text,ontology.nexloop_candidate_definitions,jsonb) rename to nexloop_review_publication_gates_v0082;
 revoke all on function ontology.nexloop_review_publication_gates_v0082(text,text,ontology.nexloop_candidate_definitions,jsonb) from public;
 create function ontology.nexloop_review_publication_gates(p_tenant text,p_world text,x ontology.nexloop_candidate_definitions,p_pub jsonb)
- returns text[] language plpgsql stable security definer set search_path=pg_catalog set row_security=on as $$
+ returns text[] language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare f text[];owner text;caps jsonb;a jsonb;cap jsonb;suffix text;digest text;seen text[]:='{}';
 begin
  if x.kind<>'object_type' then return ontology.nexloop_review_publication_gates_v0082(p_tenant,p_world,x,p_pub);end if;
