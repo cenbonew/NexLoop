@@ -14,13 +14,11 @@ import pytest
 from psycopg.conninfo import make_conninfo
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
-from eios.ontology.definitions import ActionDefinition
 from nexloop_eios.backend import open_backend
 from nexloop_eios.conversation_messages import ConversationDenied,ConversationUnavailable,MESSAGE
 from nexloop_eios.outbound_messages import ACTION,OutboundMessageRecorder
 from nexloop_eios.trusted_configuration import apply_manifest
 from local_message_assembly_fixture import assembled_message,business_plan,configured
-from test_business_setup_pg import declared_service
 from test_trusted_configuration_pg import private
 from test_agent_host import files,free_port
 from test_runtime_effect_tools import effect_configuration,tool_evidence
@@ -35,18 +33,33 @@ STATES=('persisted','dispatching','provider_accepted','delivered','unknown','fai
 
 
 def publish_recorder(f,admin):
-    """Trusted configuration: Message.agent_create:1 definition + recorder service grant."""
+    """Trusted configuration from the versioned deploy manifests only (ADR-020 §3):
+    Message.agent_create:1 from deploy/configuration/business-actions.v1.json and the
+    recorder principal from deploy/authorization/service-grants.v1.json."""
+    from datetime import UTC,datetime,timedelta
+    from pathlib import Path
+    from eios.ontology.version_resolution import CapabilityContractSnapshot
+    from nexloop_eios import business_actions,service_grants
+    root=Path(__file__).resolve().parents[1]
     o=f['original'];tenant=o['tenant'];manifest=copy.deepcopy(f['manifest'])
     base=next(a for a in manifest['actions'] if a['definition']['stable_name']==MESSAGE)
-    body=copy.deepcopy(base['definition']);body.pop('contract_digest',None);body['stable_name']=ACTION
-    definition=ActionDefinition.model_validate_json(json.dumps(body))
-    manifest['actions'].append({'definition':definition.model_dump(mode='json'),'capability':copy.deepcopy(base['capability'])})
-    binding,end,rows=declared_service(tenant,[ACTION],'-outbound-recorder')
-    facts={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};facts.update({(r['kind'],tuple(r['key'])):r for r in rows})
-    token=secrets.token_urlsafe(48);secret_map=json.loads(o['paths']['secrets'].read_text());secret_map['outbound-recorder']=token
+    rows=business_actions.compile_actions(business_actions.load(root/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
+        created_by='explicit-assembly-owner',created_at=datetime.now(UTC),object_types=manifest['object_types'],
+        capability=CapabilityContractSnapshot.model_validate_json(json.dumps(base['capability'])))
+    assert [r['definition']['stable_name'] for r in rows]==[ACTION]
+    manifest['actions']+=rows
+    grants=service_grants.load(root/'deploy/authorization/service-grants.v1.json')
+    principal=next(p for p in grants['principals'] if p['role']=='outbound_message_recorder')
+    end=datetime.now(UTC)+timedelta(minutes=30)
+    binding,compiled=service_grants.compile_principal(grants,tenant,principal,credential_expires_at=end)
+    facts={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']}
+    for kind,key,fact in compiled:
+        payload=fact.model_dump(mode='json');payload.pop('snapshot_digest',None)
+        facts[(kind,tuple(key))]={'kind':kind,'key':key,'payload':payload}
+    token=secrets.token_urlsafe(48);secret_map=json.loads(o['paths']['secrets'].read_text());secret_map[principal['credential_reference']]=token
     o['paths']['secrets'].write_text(json.dumps(secret_map))
     manifest.update(manifest_id=str(uuid.uuid4()),authority_facts=list(facts.values()),
-        service_credentials=manifest['service_credentials']+[{'reference':'outbound-recorder','binding':binding.model_dump(mode='json'),'worlds':['real'],'expires_at':end.isoformat(),'status':'active'}],
+        service_credentials=manifest['service_credentials']+[{'reference':principal['credential_reference'],'binding':binding.model_dump(mode='json'),'worlds':['real'],'expires_at':end.isoformat(),'status':'active'}],
         expected_revision=admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(tenant,)).fetchone()[0])
     apply_manifest(manifest,database_url_file=o['paths']['dsn'],signing_key_file=o['paths']['signing'],signing_key_id='explicit-configuration',service_secrets_file=o['paths']['secrets'])
     f['manifest']=manifest

@@ -1,0 +1,21 @@
+{
+  "schema_version": "nexloop-business-actions/1",
+  "manifest_version": 1,
+  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly.",
+  "actions": [
+    {
+      "stable_name": "Message.agent_create",
+      "version": 1,
+      "object_type": {"stable_name": "Message", "version": 1},
+      "capability_name": "ontology.object.create",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": ["request_id"],
+      "target_systems": ["postgres"],
+      "executor_role": "outbound_message_recorder",
+      "purpose": "Create the Message object of an Agent reply after the channel accepted it (NX-047); content, sender, conversation and delivery state come from the governed outbound record, never from the caller.",
+      "source_task": "NX-047"
+    }
+  ]
+}
