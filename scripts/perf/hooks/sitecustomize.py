@@ -40,13 +40,16 @@ if _OUT:
         total=_clock()-frame.start;_record(frame.name,total,total-frame.child)
         frame.breakdown[frame.name+' (self)']=frame.breakdown.get(frame.name+' (self)',0.0)+total-frame.child
         frame.breakdown['#'+frame.name]=frame.breakdown.get('#'+frame.name,0)+1
+        keys=frame.breakdown.pop('@keys',None)
         if stack:
             parent=stack[-1];parent.child+=total
             for k,v in frame.breakdown.items():parent.breakdown[k]=parent.breakdown.get(k,0.0)+v
+            if keys and not frame.name.startswith('invoke:'):parent.breakdown.setdefault('@keys',[]).extend(keys)
         if frame.name.startswith(top_events) and len(_events)<4000:
             with _glock:_events.append({'name':frame.name,'t':round(frame.start,6),'total':total,
                 'breakdown':{k:round(v,6) for k,v in sorted(((k,v) for k,v in frame.breakdown.items() if not k.startswith('#')),key=lambda kv:-kv[1])[:12]},
-                'counts':{k[1:]:v for k,v in frame.breakdown.items() if k.startswith('#')}})
+                'counts':{k[1:]:v for k,v in frame.breakdown.items() if k.startswith('#')},
+                'decisions':len(keys or ()),'distinct_decisions':len(set(keys or ()))})
 
     def _wrap(fn,label):
         if getattr(fn,'_nexloop_perf',False):return fn
@@ -80,11 +83,19 @@ if _OUT:
         'hmac':[(None,'new','sign:hmac')],
     }
 
+    def _note_decision(key):
+        stack=getattr(_local,'stack',None) or []
+        for frame in reversed(stack):
+            if frame.name.startswith('invoke:'):
+                frame.breakdown.setdefault('@keys',[]).append(key);return
+
     _HEX=re.compile(r'[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}')
     def _resolve_label(a,k):
         try:
             target=(a[1] if len(a)>1 else k['query']).target
             _record('decision_target:'+target.resource_type.value+':'+target.operation.value+':'+_HEX.sub('<id>',target.resource_id),0.0,0.0)
+            q=a[1] if len(a)>1 else k['query']
+            _note_decision((q.authentication.subject_principal_id,q.authentication.credential_id,q.tenant_id,q.request_attributes.get('world'),q.request_attributes.get('run_id'),target.resource_type.value,target.resource_id,target.operation.value))
         except Exception:pass
         return 'authz:resolve_facts'
 
@@ -104,13 +115,15 @@ if _OUT:
                 init(self,*a,**k)
                 inner=self._lock
                 class TimedLock:
-                    def acquire(s,*x,**y):
+                    # Measures waiting for the shared request hold; keeps exclusive() semantics.
+                    def __enter__(s):
                         f=_enter('lock:backend_request_lock')
-                        try:return inner.acquire(*x,**y)
+                        try:return inner.__enter__()
                         finally:_exit(f)
+                    def __exit__(s,*e):return inner.__exit__(*e)
+                    def acquire(s,*x,**y):return inner.acquire(*x,**y)
                     def release(s):return inner.release()
-                    __enter__=lambda s:s.acquire()
-                    def __exit__(s,*e):inner.release()
+                    def exclusive(s):return inner.exclusive()
                 self._lock=TimedLock()
             module.Backend.__init__=__init__
 
