@@ -91,3 +91,15 @@ scripts/perf/nx049_profile.sh deploy-idle 5
 - 对照数据：`mac-v2`（2 轮，4/4 通过）。带探针时 authorize p50 约 683–694 / 848–856 ms，不带探针时（v1）为 627–643 / 818–824 ms。
 
 建议的 JIT A/B 两组都带探针（倍率可比）。如果带探针后第一次超时提前、影响判读，再加一组 `NEXLOOP_PERF_PGFUNC=0` 的对照。
+
+## 7. 第二轮新增（并发与 cProfile）
+
+- **单独 / 重叠请求**：`summary.json` 每次运行新增 `concurrency`：
+  - `solo` 和 `overlapped` 分别给出总耗时、Python、SQL 往返的中位数；
+  - `bursts` 列出每组重叠请求的个数、窗口和最慢一次。
+  - 重叠的判定：同一进程内，两个受时限约束的请求时间区间重叠超过较短者的 30%。
+  - `summary.md` 总表新增 “solo / overlapped p50 (python+sql)” 一列。
+- **cProfile**：`NEXLOOP_PERF_CPROFILE=1` 时，对 `AuthorizationFactsResolver.resolve` / `resolve_in_unit_of_work` 做 cProfile，每个进程写一份 `cprof-<pid>.pstats`，用 `scripts/perf/cprof_report.py <out>` 汇总。
+  - 剖析器是进程级的，同一时间只剖析一次 resolve，重叠的那些不剖析（计数记在 `cprof-<pid>.json`）。
+  - 开销很大，只用来看分布，不能作为耗时依据。建议同时设 `NEXLOOP_PERF_PGFUNC=0`。
+- 分析见 `NX-049-analysis-round2.md`。

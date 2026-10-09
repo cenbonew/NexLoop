@@ -73,6 +73,28 @@ def analyse_run(run,procs,host,pg,log):
     for e in requests:
         for name,(calls,total,own) in e['pg_functions'].items():
             acc=per_fn.setdefault(name,[0,0.0,0.0]);acc[0]+=calls;acc[1]+=total;acc[2]+=own
+    # Concurrency inside one guard process: constrained requests in the same pid whose intervals
+    # overlap by more than 30% of the shorter one (back-to-back pipelining is not counted).
+    # `python_ms` is request time outside SQL round trips (`sql:*` items) and needs the GIL;
+    # `sql_ms` is SQL round-trip time. Bursts are connected groups of overlapping requests.
+    def split(e):
+        sql=sum(v for k,v in e['breakdown'].items() if k.startswith('sql:'))
+        return 1000*e['total'],1000*(e['total']-sql),1000*sql
+    timed=sorted((e for e in events if e['name'] in CONSTRAINED),key=lambda e:e['wall']-e['total'])
+    span=lambda e:(e['wall']-e['total'],e['wall'])
+    overlaps=lambda x,y:x['pid']==y['pid'] and min(span(x)[1],span(y)[1])-max(span(x)[0],span(y)[0])>0.3*min(x['total'],y['total'])
+    solo=[e for e in timed if not any(o is not e and overlaps(e,o) for o in timed)];shared=[e for e in timed if e not in solo]
+    def medians(group):
+        parts=[split(e) for e in group]
+        return {'n':len(group),**{k:round(statistics.median(x[i] for x in parts),1) if parts else None for i,k in enumerate(('total_ms','python_ms','sql_ms'))}}
+    bursts=[]
+    for e in shared:
+        for burst in bursts:
+            if any(overlaps(e,o) for o in burst):burst.append(e);break
+        else:bursts.append([e])
+    concurrency={'solo':medians(solo),'overlapped':medians(shared),
+        'bursts':[{'requests':len(g),'start_wall':round(min(span(x)[0] for x in g),3),'window_ms':round(1000*(max(span(x)[1] for x in g)-min(span(x)[0] for x in g)),1),
+            'max_total_ms':round(max(1000*x['total'] for x in g),1),'totals_ms':[round(1000*x['total']) for x in g]} for g in bursts]}
     result={'node':run['node'],'iteration':run['iteration'],'rc':run['rc'],'wall_s':round(end-start,1),'load':run.get('load'),
         'host_guard_requests':{p:ms(v) for p,v in per_path.items()},
         'host_guard_failures':[{'path':r['path'],'total_ms':round(r['total_ms'],1),'error':r.get('error'),'status':r.get('status')} for r in clients if r.get('error') or r.get('status') not in (200,None)],
@@ -81,6 +103,7 @@ def analyse_run(run,procs,host,pg,log):
         'tls_handshakes':{'server':ms([r['total_ms'] for r in handshakes if r['server_side']]),'client':ms([r['total_ms'] for r in handshakes if not r['server_side']])},
         'dispatcher_to_host':[{'path':r['path'],'ms':round(r['total_ms'],1),'status':r.get('status'),'error':r.get('error')} for r in dispatch],
         'host_startup':[],
+        'concurrency':concurrency,
         'lock_wait_samples':len(pg.get('lock_waits',[])) if pg else None,
         'fact_parse_cache':{'processes':len(caches),'hits':hits,'misses':misses,'hit_rate':round(hits/(hits+misses),3) if hits+misses else None,
             'disabled':any(c.get('disabled') for c in caches)},
@@ -132,18 +155,20 @@ def decompose(client,guard_requests,events,handshakes,pg,log):
 
 def markdown(summary):
     lines=[f"# NX-049 profile: {summary['label']}",'',f"limit {LIMIT_MS} ms; runs {len(summary['runs'])}",'']
-    lines+=['|test|it|rc|wall s|guard authorize p50/p95/max ms|effect submit p50/max|O3 hit rate (hits/misses)|first >2 s|','|---|---|---|---|---|---|---|---|']
+    lines+=['|test|it|rc|wall s|guard authorize p50/p95/max ms|effect submit p50/max|O3 hit rate (hits/misses)|solo / overlapped p50 ms (python+sql)|first >2 s|','|---|---|---|---|---|---|---|---|---|']
     for r in summary['runs']:
         a=r['host_guard_requests'].get('/internal/v1/runtime/authorize',{});sb=r['host_guard_requests'].get('/internal/v1/runtime/effects/submit',{})
         f=r['first_over_limit'];first='—' if not f else f"{f['host_request']['path'].rsplit('/',1)[1]} {f['host_request']['total_ms']} ms {f['host_request']['error'] or ''}"
         c=r['fact_parse_cache'];cache=f"{c['hit_rate']} ({c['hits']}/{c['misses']})"+(' disabled' if c['disabled'] else '')
-        lines.append(f"|{r['node'].split('::')[1][:40]}|{r['iteration']}|{r['rc']}|{r['wall_s']}|{a.get('p50')}/{a.get('p95')}/{a.get('max')}|{sb.get('p50')}/{sb.get('max')}|{cache}|{first}|")
+        so,ov=r['concurrency']['solo'],r['concurrency']['overlapped'];conc=f"{so['total_ms']} ({so['python_ms']}+{so['sql_ms']}) / {ov['total_ms']} ({ov['python_ms']}+{ov['sql_ms']})"
+        lines.append(f"|{r['node'].split('::')[1][:40]}|{r['iteration']}|{r['rc']}|{r['wall_s']}|{a.get('p50')}/{a.get('p95')}/{a.get('max')}|{sb.get('p50')}/{sb.get('max')}|{cache}|{conc}|{first}|")
     for r in summary['runs']:
         f=r['first_over_limit'] or r['slowest_guard_request']
         if not f:continue
         lines+=['',f"## {r['node'].split('::')[1][:50]} it{r['iteration']}: {'first over limit' if r['first_over_limit'] else 'slowest guard request'}",'',
             '```json',json.dumps(f,ensure_ascii=False,indent=1)[:6000],'```']
         lines+=['',f"PG functions per constrained request (mean ms, top 8 by total): {r['pg_functions_per_request']['top_by_total_ms'][:8]}",
+            f"Bursts of overlapping guard requests (same process): {r['concurrency']['bursts'][:6]}",
             f"Host startup: {r['host_startup']}",f"TLS handshakes: {r['tls_handshakes']}",f"slow statements: {r['slow_statements'][:5]}"]
     return '\n'.join(lines)+'\n'
 

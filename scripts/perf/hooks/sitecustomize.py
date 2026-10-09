@@ -104,6 +104,32 @@ if _OUT:
         'nexloop_eios.message_relay':[('MessageRelay','run_once','invoke:relay:run_once')],
     }
 
+    # NX-049 (NEXLOOP_PERF_CPROFILE=1): cProfile of AuthorizationFactsResolver.resolve /
+    # resolve_in_unit_of_work (the pure-Python part of `authz:resolve_facts`), aggregated per
+    # process into <out>/cprof-<pid>.pstats; read with scripts/perf/cprof_report.py. The profiler
+    # is process-wide, so only one resolve is profiled at a time (overlapping ones run unprofiled).
+    _CPROF=os.environ.get('NEXLOOP_PERF_CPROFILE')=='1';_cpstats=[None,0,0]
+    if _CPROF:
+        import cProfile,pstats
+        _cplock=threading.Lock()
+        def _profiled(fn):
+            def wrapper(*a,**k):
+                if getattr(_local,'cprof',False) or not _cplock.acquire(blocking=False):
+                    if not getattr(_local,'cprof',False):_cpstats[2]+=1
+                    return fn(*a,**k)
+                _local.cprof=True;profile=cProfile.Profile()
+                try:
+                    profile.enable()
+                    try:return fn(*a,**k)
+                    finally:profile.disable()
+                finally:
+                    _local.cprof=False;stats=pstats.Stats(profile)
+                    if _cpstats[0] is None:_cpstats[0]=stats
+                    else:_cpstats[0].add(stats)
+                    _cpstats[1]+=1;_cplock.release()
+            wrapper.__wrapped__=fn;wrapper.__name__=getattr(fn,'__name__','wrapped')
+            return wrapper
+
     # NX-049 (timeline mode, NEXLOOP_PERF_PGFUNC!=0): after each statement that calls an
     # authz/control/runtime/ontology function inside a transaction block, read this backend's
     # pg_stat_xact_user_functions on the same connection and attribute the delta to the
@@ -162,6 +188,7 @@ if _OUT:
             original=getattr(target,attr)
             if isinstance(original,(staticmethod,classmethod)):continue
             setattr(target,attr,_wrap(original,label))
+            if _CPROF and module.__name__=='eios.authz._fact_resolver':setattr(target,attr,_profiled(getattr(target,attr)))
         if module.__name__=='psycopg' and _PGFN and not getattr(module.Cursor.execute,'_nexloop_pgfn',False):
             timed=module.Cursor.execute
             def execute(self,query,*a,**k):
@@ -266,4 +293,7 @@ if _OUT:
         cache=getattr(sys.modules.get('nexloop_eios.authorization'),'FACT_PARSE_CACHE',None)
         data={'pid':os.getpid(),'argv':sys.argv[:4],'timeline':_timeline,'fact_parse_cache':None if cache is None else {'hits':cache.hits,'misses':cache.misses,'disabled':_NOCACHE},'stats':{k:{'count':v[0],'total':v[1],'self':v[2],'max':v[3]} for k,v in _stats.items()},'events':_events}
         (Path(_OUT)/f'proc-{os.getpid()}.json').write_text(json.dumps(data))
+        if _cpstats[0] is not None:
+            _cpstats[0].dump_stats(str(Path(_OUT)/f'cprof-{os.getpid()}.pstats'))
+            (Path(_OUT)/f'cprof-{os.getpid()}.json').write_text(json.dumps({'profiled':_cpstats[1],'skipped_overlapping':_cpstats[2]}))
     atexit.register(_dump)
