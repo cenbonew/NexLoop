@@ -2284,7 +2284,7 @@
       "M12"
     ],
     "deliverable": "按 ADR-019 §3.4：候选表（PostgreSQL，非缓存）、同文本去重、四项粘合特征（词相似度/核心词包含/向量聚类/业务白名单）与可配置阈值、merged→别名映射+Claim 改指向+自动应用、未达阈值→pending_review 队列 API；模拟/shadow 候选不进 real 队列",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
@@ -2297,6 +2297,18 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "51a65ca",
+        "summary": "Merged candidate glue and review queue (0072_nx045_candidate_merge): 71 targeted passed; AT-066 passed; AT-069 no-duplicate part passed via merge path; calibration on 42 synthetic pairs.",
+        "recorded_at": "2026-10-09T10:30:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-045-candidate-merge.md",
+        "summary": "State machine, four glue features with versioned config, review queue read API; human decisions left to NX-044.",
+        "recorded_at": "2026-10-09T10:30:00+08:00"
       }
     ]
   },
@@ -2359,7 +2371,20 @@
       "M23"
     ],
     "deliverable": "按 ADR-020 §3：版本化的最小服务授权清单（claim.extract、claim.match、queue.claim-extraction 等）与可审计、可重放的可信配置应用脚本/doctor 检查；不直写授权表、不含人类与审核权限；负向测试",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "4d7612e",
+        "summary": "Merged service grant manifest (0071_nx048_service_grant_inventory): deploy/authorization/service-grants.v1.json applied via trusted configuration, idempotent, doctor drift check; 17+73+19 targeted passed.",
+        "recorded_at": "2026-10-09T10:30:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "sice run 20261009T012028Z-51a65ca24a5b",
+        "summary": "Full CI on integration-s3c: build phase 33/33, parallel 1994 with 31 failures all within CI-BASELINE (no new failures).",
+        "recorded_at": "2026-10-09T10:30:00+08:00"
+      }
+    ]
   }
 ]
