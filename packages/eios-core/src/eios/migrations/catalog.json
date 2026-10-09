@@ -385,6 +385,11 @@
       "version": "0077",
       "name": "0077_nx018_message_read_derivation.sql",
       "sha256": "36c464e73bcfe770f75a272267ae0125549e69f7f2d96c804a17cd0fa038d444"
+    },
+    {
+      "version": "0078",
+      "name": "0078_nx018_role_policy.sql",
+      "sha256": "d2f6278059ac5e78ddd1b6df6edd43ba2f34ca8960be654685e790decff14ad3"
     }
   ]
 }

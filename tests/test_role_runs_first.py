@@ -46,15 +46,14 @@ def selected(roles,admin):
     run=issue_run_credential(reader.pool,session,reader.signer,action_resources=['eios:action:Consumer.create:1'])
     return holder,dict(run_id=run.run_id,consumer_id=consumer,link_id=link,role_id=role,step_id=step),run
 
-def test_genuine_source_run_selected_role_current_read(selected,admin):
+def test_metadata_only_role_selection_fails_closed(selected,admin):
+    # 0078: ceiling_ref/scope here are metadata strings, not governed policy objects; a
+    # genuine Source Run still cannot bind the Role. Positive binding through actual
+    # RoleExecutionCeiling/RoleAssignmentScope is covered by test_role_policy_binding.
+    import psycopg
     source,args,run=selected
-    result=bind_role_run(source,**args)
-    assert result['run_id']==run.run_id
-    assert result['role_ref']=='role:'+args['role_id']+':mapping:'+args['link_id']
-    assert result['grants_authority'] is False and result['dispatch_permit'] is False
-    assert 'source_digest' not in result
-    assert bind_role_run(source,**args)==result
-    assert admin.execute('select count(*) from authz.nexloop_role_run_bindings').fetchone()==(1,)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege,match='Role execution policy mandatory'):bind_role_run(source,**args)
+    assert admin.execute('select count(*) from authz.nexloop_role_run_bindings').fetchone()==(0,)
     assert admin.execute('select count(*) from runtime.jobs').fetchone()==(0,)
 
 @pytest.mark.parametrize('fault',['foreign_consumer','role_mismatch','source_revoked','read_revoked','expired','ended'])
