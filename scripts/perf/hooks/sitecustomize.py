@@ -81,6 +81,12 @@ if _OUT:
         'nexloop_eios.runtime_activation':[('RuntimeActivationPort','_proof','runtime:proof'),('RuntimeActivationPort','_signed','runtime:signed_command')],
         'nexloop_eios.backend':[('Backend','_invoke',lambda a,k:'invoke:'+str(a[2] if len(a)>2 else k.get('operation')))],
         'hmac':[(None,'new','sign:hmac')],
+        # Non-Backend units of work (background jobs / readers) are tracked like requests.
+        'nexloop_eios.claim_extraction_jobs':[('ClaimExtractionScheduler','run_once','invoke:job:claim_schedule'),('ClaimExtractionWorker','run_once','invoke:job:claim_extract')],
+        'nexloop_eios.claim_store':[('ConversationClaimExtractor','extract','invoke:job:extract_window')],
+        'nexloop_eios.claim_matching':[('ClaimMatcher','match_claim','invoke:job:match_claim'),('ClaimMatcher','apply','invoke:job:match_apply')],
+        'nexloop_eios.candidate_merge':[('CandidateGluer','process','invoke:job:glue_process'),('ReviewQueueReader','pending','invoke:job:review_pending'),('ReviewQueueReader','candidate','invoke:job:review_candidate')],
+        'nexloop_eios.recall':[('OntologyRecall','recall','invoke:job:recall')],
     }
 
     def _note_decision(key):

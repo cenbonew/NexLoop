@@ -96,3 +96,81 @@ v4 在 before 中失败的原因：同一进程中一次 `authorize_runtime_acti
 - 按公开基准估算 sice 的 k≈2.3–2.6，前两类请求在 sice 上仍可能越限，B 类时限失败预计减少但不会清零。
 - 剩下的工作量主要是**跨请求重复**的逐属性 READ 决策（authorize 每次约 25 个不同决策，O1 按约定不跨请求）和服务端 `runtime_activation_command`（单次最高约 0.9 s）。下一步属于 O2（按对象批量决策 + 批量事实加载，需要迁移与语义等价论证）和服务端 SQL 侧优化（`perf-authz-diagnosis.md` §5 的 O5）。
 - 数据为单轮、带钩子（开销 1–7%）；sice 未实测。
+
+## O1 推广到 L2/L3 后台工作单元（分支 `perf-o1-extend`，BASE `ef0f591ace8a0426d7f481cdfcd6629b030b43ee` = dispatch/integration-s3h）
+
+后台任务不经过 Backend 请求，因此把**一个工作单元**当作一个请求 scope。新增装饰器 `authority_request_scoped`：进入时建立 scope，退出（包括抛异常）时丢弃。改动清单（每处一行改为 `resolve_authority`，加一行装饰器）：
+
+| 文件 | 调用点 | 工作单元入口（scope） |
+|---|---|---|
+| `claim_store.py` | 提取授权证明 | `ConversationClaimExtractor.extract` |
+| `claim_extraction_jobs.py` | feed 授权证明 | `ClaimExtractionScheduler.run_once`、`ClaimExtractionWorker.run_once` |
+| `claim_matching.py` | match 证明 | `ClaimMatcher.match_claim`、`ClaimMatcher.apply` |
+| `candidate_merge.py` | 审核队列证明 | `CandidateGluer.process`（审核读取无重复，未加 scope） |
+| `recall.py` | `EiosRecallAuthorizer.readable` 中的 decide | `OntologyRecall.recall` |
+
+`outbound_messages.py`、`review_http.py` 没有直接的 resolve 调用点（经由已改的模块），未改动。未碰 L1 阶段 B 将改的 `runtime_activation.py`、`effect_intents.py`、`effect_execution.py`、`role_runs.py`、`service_offerings.py`、`context_artifacts.py`（本分支对这些文件无 diff）。
+
+### 负向测试（`tests/test_authority_request_memo_jobs.py`，7 passed）
+- 装饰的单元正常返回或抛异常后，memo 都被丢弃；两个单元的 memo 不是同一个对象。
+- 召回：单元内每个决策只 resolve 一次，下一单元重新 resolve；撤销对象 READ 后，下一单元不再返回该对象。
+- 召回：在**同一外层 scope**内，换一个缺少属性 READ 的主体，不会用到前一主体的 memo（命中被隐藏）；换 simulation world 只看到本 world 的对象。
+- Claim 调度器：撤销 extract grant 后，下一单元抛 `ClaimExtractionDenied`；在同一外层 scope 内，只有队列权限的主体访问同一资源仍被拒。
+
+### 回归
+14 个文件 132 passed（186 s，`.ci-results/o1-extend-regression.xml`）：
+- memo（请求级与后台单元）及 fact cache；
+- bootstrap；
+- claim extraction jobs / matching / store；
+- candidate merge、merge configuration；
+- recall；
+- review workbench / http；
+- outbound messages、claim contract。
+
+### 前后对比（scripts/perf，7 个 L2/L3 测试文件，单轮）
+
+| 工作单元 | n | 决策/单元 | p50 ms | p95 ms | max ms | 合计 s |
+|---|---|---|---|---|---|---|
+| extract_window | 33 | 41.7→23.5 | 340→191 | 1357→692 | 1382→704 | 13.10→7.85 |
+| match_claim | 63 | 3.3→2.0 | 135→108 | 174→151 | 191→176 | 6.63→5.48 |
+| recall | 84 | 13.4→10.2 | 95→76 | 125→109 | 136→136 | 6.41→5.51 |
+| match_apply | 21 | 10.2→5.0 | 92→65 | 115→74 | 159→91 | 1.58→1.06 |
+| claim_extract（worker） | 11 | 1.5→1.0 | 142→141 | 322→205 | 322→205 | 1.48→1.10 |
+| glue_process | 16 | 3.9→1.1 | 27→14 | 279→189 | 281→198 | 0.91→0.58 |
+| claim_schedule | 8 | 2.5→1.8 | 21→18 | 23→22 | 23→22 | 0.14→0.13 |
+| review_pending / candidate | 5 / 3 | 不变 | 不变 | 不变 | 不变 | 不变 |
+
+命令：
+
+```bash
+scripts/perf/run_profile.sh ext-before <7 个测试文件>
+```
+
+`ext-before` 在本次改动提交前运行，`ext-after` 在提交后运行。7 个文件两轮均全部通过，wall time 变化在 ±2.5 s 以内（这些文件的耗时主要是 fixture 与 PG 启动）。
+
+## O2/O5 规划（等 L1 阶段 B 合入后再做）
+
+纳入 L1 给出的设计约束：
+
+1. **同 Source 身份类事实一次去重加载。**
+   - subject、membership、actor、authentication、application、subject_authority、revision 这类事实，对同一 Source 会话在每次决策中都相同。
+   - 在单个请求/单元内批量加载一次，同时按 (digest, directory_hash) 校验。
+   - 实现方式是新增批量事实加载函数，与 O5 的“事务内身份推导缓存”合并，需要临时迁移。
+2. **同请求复用证明，但不跨请求。**
+   - 跨请求复用会破坏 L1 的“锁等待后最终期限”测试：证明必须在每个请求重新取得，锁等待后的提交尾按当时的期限判定。
+   - O2 的“按对象一次决策覆盖整组属性”也只在请求内生效。
+3. **证明有效期不延长。**
+   - 复用的 context 保留首次 resolve 的 `trusted_now`，签名证明的 `expires_at = min(decision.expires_at, now+25s)` 不会因复用而后移。
+   - O2 的批量决策取组内最早到期时间作为整体到期时间；任何一个属性的 grant/policy 到期都使整组失效。
+4. **拆锁保留“关闭等在途提交”。**
+   - 若 O2/O5 引入新的并发（例如批量加载的并行）或按 Run 分锁，仍须保留 LifecycleLock 的“请求共享、关闭独占、关闭等待在途 commit/fsync”语义，并通过现有 kill/reopen 系列用例。
+
+**O2 语义等价论证要点（实施前需写成测试）：**
+- 逐属性 READ 的结果等于“对象 READ ∧ 每个属性的 grant/scope/control/policy 各自成立”。
+- 批量决策必须逐属性给出结果，不能用对象级结论替代属性级拒绝。
+- 签名证明仍按属性列出各自的 `target_resource` 与事实 hash，SQL 侧逐属性复核的结构不变。
+
+**O5 待办：**
+- 事务内身份推导缓存：每次事实加载都重推 `nexloop_root_identity`，单个用例中约 29 万次。缓存必须绑定 digest 与事务。
+- `context_artifact_command` 的批量 `assert_read_authority`。
+- `runtime_activation_command` 单次最高约 0.9 s 的分解。

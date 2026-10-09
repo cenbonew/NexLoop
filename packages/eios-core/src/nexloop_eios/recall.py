@@ -14,7 +14,8 @@ from psycopg.types.json import Jsonb
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from nexloop_eios.assembly import verify_application_role
-from nexloop_eios.authorization import authorization_service
+from eios.authz.service import AuthorizationDecisionService
+from nexloop_eios.authorization import authority_request_scoped,authorization_service,resolve_authority
 from nexloop_eios.embedding_provider import EmbeddingDimensionMismatch,checked_vector
 
 METHODS=('vector','fts','trgm')
@@ -105,7 +106,7 @@ class EiosRecallAuthorizer:
         self._assert_current();allowed=set()
         for name in sorted(set(names)):
             try:
-                decision=self._service.decide(self.session.query(resource_id=resource_id(kind,name),resource_type=kind,operation=Operation.READ))
+                decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,self.session.query(resource_id=resource_id(kind,name),resource_type=kind,operation=Operation.READ)))
                 if decision.allowed and decision.authoritative and not decision.obligations:allowed.add(name)
             except Exception:
                 continue
@@ -208,6 +209,7 @@ class OntologyRecall:
     def _methods(self):
         return tuple(m for m in METHODS if m!='vector' or self.provider is not None)
 
+    @authority_request_scoped
     def recall(self,text,*,strong_ids=(),verified_refs=(),type_names=None,definitions=True,instances=True):
         if type(text) is not str or not text.strip() or len(text)>4000:raise ValueError('recall text must be bounded nonempty text')
         if type_names is not None:

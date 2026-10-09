@@ -18,7 +18,7 @@ from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
 from eios.identity.models import SubjectKind
 from nexloop_eios.assembly import verify_application_role
-from nexloop_eios.authorization import PostgresAuthorityProvider
+from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority,authority_request_scoped
 from nexloop_eios.conversation_extraction import (EXTRACTOR_VERSION,PROMPT_VERSION,ExtractionContext,SourceMessage,
     build_user_payload,input_digest,normalize,SYSTEM_PROMPT)
 from nexloop_eios.contracts import Claim
@@ -60,7 +60,7 @@ class ConversationClaimExtractor:
     def _action_claims(self):
         target=resource_id(ResourceType.ACTION,EXTRACT_ACTION,1);entries=[]
         query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+        decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))
         if not decision.allowed or not decision.authoritative or decision.obligations:raise ClaimExtractionDenied()
         auth=self.session.authentication
         return {'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
@@ -94,6 +94,7 @@ class ConversationClaimExtractor:
             conversation_id=conversation_id,consumer_id=conversation['consumer_id'],timezone=self.timezone)
         return context,messages
 
+    @authority_request_scoped
     def extract(self,*,conversation_id,message_ids):
         try:
             context,messages=self.load_window(conversation_id,message_ids)
