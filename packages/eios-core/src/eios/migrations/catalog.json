@@ -435,6 +435,11 @@
       "version": "0087",
       "name": "0087_nx018_role_policy_context_v5.sql",
       "sha256": "de2bffcad89a6c4dfdf952966e948dcda72078233965105f3eb533c4fe997d1c"
+    },
+    {
+      "version": "0095",
+      "name": "0095_perf_o2b_batch_fact_load.sql",
+      "sha256": "cb502dc7beb29f530b9254360be9e9f1797c9b28c3bc5d4ca53dbedd8f180c1f"
     }
   ]
 }
