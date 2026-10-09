@@ -6,7 +6,8 @@ ROOT=Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize('extra',[
  {'context_input_protocol':None},
  {'context_input_protocol':True},
- {'context_input_protocol':'nexloop.context-pack.v3'},
+ # v3 (0063 Role) and v4 (relationship) are explicit supported wires; an unknown one is refused.
+ {'context_input_protocol':'nexloop.context-pack.v9'},
  {'context_input_protocol':'nexloop.context-pack.v2','deterministic_message_from_input':False},
  {'context_input_protocol':'nexloop.context-pack.v2','deterministic_message_from_input':None},
  {'context_input_protocol':'nexloop.context-pack.v2','effect_tools':False},
