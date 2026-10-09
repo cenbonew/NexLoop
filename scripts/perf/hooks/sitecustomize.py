@@ -16,6 +16,7 @@ _OUT=os.environ.get('NEXLOOP_PERF_OUT') or ((_HERE.parent/'out'/'.active').read_
 
 if _OUT:
     _clock=time.perf_counter
+    _NOCACHE=os.environ.get('NEXLOOP_PERF_NO_FACT_CACHE')=='1' or (_HERE.parent/'out'/'.nocache').exists()
     _local=threading.local()
     _stats={};_events=[];_glock=threading.Lock()
     _SQL=re.compile(r'select\s+([a-z_]+\.[a-z0-9_]+)\s*\(',re.I)
@@ -94,6 +95,9 @@ if _OUT:
             original=getattr(target,attr)
             if isinstance(original,(staticmethod,classmethod)):continue
             setattr(target,attr,_wrap(original,label))
+        if module.__name__=='nexloop_eios.authorization' and _NOCACHE and hasattr(module,'FactParseCache'):
+            # Measurement baseline only: same code path with the O3 parse cache bypassed.
+            module.FactParseCache.parse=lambda self,model,text:model.model_validate_json(text)
         if module.__name__=='nexloop_eios.backend':
             init=module.Backend.__init__
             def __init__(self,*a,**k):
@@ -129,6 +133,7 @@ if _OUT:
 
     def _dump():
         Path(_OUT).mkdir(parents=True,exist_ok=True)
-        data={'pid':os.getpid(),'argv':sys.argv[:4],'stats':{k:{'count':v[0],'total':v[1],'self':v[2],'max':v[3]} for k,v in _stats.items()},'events':_events}
+        cache=getattr(sys.modules.get('nexloop_eios.authorization'),'FACT_PARSE_CACHE',None)
+        data={'pid':os.getpid(),'argv':sys.argv[:4],'fact_parse_cache':None if cache is None else {'hits':cache.hits,'misses':cache.misses,'disabled':_NOCACHE},'stats':{k:{'count':v[0],'total':v[1],'self':v[2],'max':v[3]} for k,v in _stats.items()},'events':_events}
         (Path(_OUT)/f'proc-{os.getpid()}.json').write_text(json.dumps(data))
     atexit.register(_dump)

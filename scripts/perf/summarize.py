@@ -17,6 +17,8 @@ for w in walls:
     lines=(out/w['log']).read_text().strip().splitlines() if w.get('log') and (out/w['log']).exists() else ['?']
     tail=lines[-1]
     print(f"|{w['node']}|{w['wall_seconds']:.1f}|{tail}|")
+fc=[p.get('fact_parse_cache') for p in procs if p.get('fact_parse_cache')]
+if fc:print(f"\nfact parse cache: hits {sum(c['hits'] for c in fc)}, misses {sum(c['misses'] for c in fc)}, disabled={any(c['disabled'] for c in fc)}")
 print(f'\nprocesses with hooks: {len(procs)} ({", ".join(" ".join(p["argv"])[-40:] for p in procs)})\n')
 
 stats={}

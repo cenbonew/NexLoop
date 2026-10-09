@@ -4,12 +4,14 @@ Service credential authentication stays distinct from browser sessions. No calle
 can supply an authoritative tenant/principal/application or manufacture a sealed
 resolved context. Agent invocation comes only from live credential configuration; delegation fails closed.
 """
+from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 import hashlib
 import json
 import secrets
+import threading
 
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
@@ -20,6 +22,55 @@ from eios.identity.models import FrozenJsonMap
 from nexloop_eios.assembly import verify_application_role
 
 WITNESS = 'nexloop-postgres-authority-v1'
+
+
+class FactParseCache:
+    """Content-addressed cache of parsed (immutable) EIOS authority facts.
+
+    It only removes repeated JSON->model parsing. Facts are still read from
+    PostgreSQL on every decision; the key is the fact model class plus the exact
+    JSON text returned for that read (tenant, principal, world-bound fields,
+    grants, revisions and repository witness are all inside that text). Any
+    authority change therefore produces a different key, and a hit returns
+    exactly what a fresh parse of the same text would return. Fact models are
+    frozen, strict and have no clock-dependent validation. Session/directory
+    binding checks are untouched. Parse failures are never cached.
+    """
+
+    def __init__(self, maximum=2048):
+        self._maximum = maximum
+        self._entries = OrderedDict()
+        self._lock = threading.Lock()
+        self.hits = self.misses = 0
+
+    def parse(self, model, text):
+        key = (model, text)
+        with self._lock:
+            fact = self._entries.get(key)
+            if fact is not None:
+                self._entries.move_to_end(key)
+                self.hits += 1
+                return fact
+            self.misses += 1
+        fact = model.model_validate_json(text)
+        with self._lock:
+            self._entries[key] = fact
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._maximum:
+                self._entries.popitem(last=False)
+        return fact
+
+    def clear(self):
+        with self._lock:
+            self._entries.clear()
+            self.hits = self.misses = 0
+
+    def __len__(self):
+        with self._lock:
+            return len(self._entries)
+
+
+FACT_PARSE_CACHE = FactParseCache()
 
 
 @dataclass(frozen=True)
@@ -111,8 +162,9 @@ class PostgresAuthorityUnitOfWork:
         if not row or row[0] is None:return None
         self.entries.append({'kind':kind,'key':list(key),'record_hash':row[0]['record_hash']})
         payload=dict(row[0]['payload']);payload['repository_witness']=WITNESS
-        # Stored snapshot checksum remains checked by the original EIOS model.
-        fact=model.model_validate_json(json.dumps(payload))
+        # Stored snapshot checksum remains checked by the original EIOS model
+        # (on a cache miss; a hit is the result of parsing this same text).
+        fact=FACT_PARSE_CACHE.parse(model,json.dumps(payload))
         self._loaded.add((model.__name__,fact.snapshot_digest,fact.repository_witness))
         return fact
 
