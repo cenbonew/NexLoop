@@ -56,7 +56,8 @@ def test_reject_cooldown_keeps_evidence_and_blocks_requeue_until_expiry(env):
     assert candidates(f['admin'])[candidate][7]==sorted(['claim:'+first,'claim:'+again])
     assert 'payment_method' not in obj(f['admin'],f['consumer'])[0]
     # After the cooldown the same text re-opens as a new candidate and is queued again.
-    f['admin'].execute("update ontology.nexloop_candidate_rejections set cooldown_until=rejected_at")
+    # Time passes: the whole rejection record moves 31 days into the past (keeps the single-instant invariant).
+    f['admin'].execute("update ontology.nexloop_candidate_rejections set rejected_at=rejected_at-interval '31 days',cooldown_until=cooldown_until-interval '31 days'")
     m,gluer=rebuild(f,m,'-matcher-after-review')
     later,d3=to_review(f,'rej-3','常用付款方式','银行卡','常用付款方式换成银行卡了','payment_method')
     m.provider.decisions[later]=d3
@@ -132,3 +133,22 @@ def test_workbench_detail_shows_span_recall_scores_dependents_and_similar(env):
     # Superseded or unknown candidates are not workbench items.
     assert reviewer(f,suffix='-reviewer-b').candidate(matched[two]['candidate_id']) is None
     with pytest.raises(ValueError):reviewer(f,suffix='-reviewer-c').candidate('not-a-uuid')
+
+
+def test_cooldown_fields_come_from_one_instant(env):
+    """Deterministic regression for the 0074 two-clock_timestamp() skew; independent of host speed."""
+    f=env;admin=f['admin']
+    # The trigger takes the time exactly once.
+    body=admin.execute("select pg_get_functiondef('ontology.nexloop_candidate_rejected()'::regprocedure)").fetchone()[0]
+    assert body.count('clock_timestamp()')==1 and 'v_now+make_interval' in body
+    claim,d=to_review(f,'inst-1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    m,gluer=setup(f,{claim:d})
+    candidate=m.process_conversation(f['conversation'])['matches'][claim]['candidate_id'];gluer.process_staged()
+    admin.execute('update ontology.nexloop_merge_configurations set reject_cooldown_seconds=7 where tenant_id=%s and active',(f['tenant'],))
+    revision=candidates(admin)[candidate][8]
+    human(f,"select ontology.nexloop_candidate_transition(%s,'real',%s,%s,'pending_review','rejected','human','human:synthetic-reviewer','x',null)",f['tenant'],candidate,revision)
+    row=admin.execute('select rejected_at,cooldown_until,cooldown_seconds,cooldown_until=rejected_at+make_interval(secs=>cooldown_seconds) from ontology.nexloop_candidate_rejections').fetchone()
+    assert row[2]==7 and row[3] is True and row[1]-row[0]==timedelta(seconds=7)
+    # The relation is a table invariant: a skew of one microsecond cannot be stored.
+    with pytest.raises(psycopg.errors.CheckViolation):
+        admin.execute("update ontology.nexloop_candidate_rejections set cooldown_until=cooldown_until+interval '1 microsecond'")

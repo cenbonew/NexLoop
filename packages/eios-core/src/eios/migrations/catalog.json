@@ -370,6 +370,11 @@
       "version": "0074",
       "name": "0074_nx046_review_workbench.sql",
       "sha256": "5d1df70924c5ee7e482c571aaff94a43d3e21387943af89a48c3a41eeaf3eb02"
+    },
+    {
+      "version": "0075",
+      "name": "0075_nx046_cooldown_single_instant.sql",
+      "sha256": "822ccd68c32a920ac3230e76d27ab15ce57e2232f84cd0f496c811538ac982a5"
     }
   ]
 }
