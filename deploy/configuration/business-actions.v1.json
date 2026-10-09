@@ -1,21 +1,51 @@
 {
   "schema_version": "nexloop-business-actions/1",
-  "manifest_version": 1,
-  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly.",
+  "manifest_version": 2,
+  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals.",
   "actions": [
     {
       "stable_name": "Message.agent_create",
       "version": 1,
-      "object_type": {"stable_name": "Message", "version": 1},
+      "object_type": {
+        "stable_name": "Message",
+        "version": 1
+      },
       "capability_name": "ontology.object.create",
+      "authority": "service",
       "risk_level": "low",
       "approval_mode": "none",
       "policy_refs": [],
-      "idempotency_key_fields": ["request_id"],
-      "target_systems": ["postgres"],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
       "executor_role": "outbound_message_recorder",
       "purpose": "Create the Message object of an Agent reply after the channel accepted it (NX-047); content, sender, conversation and delivery state come from the governed outbound record, never from the caller.",
       "source_task": "NX-047"
+    },
+    {
+      "stable_name": "nexloop.context.strategy.publish",
+      "version": 1,
+      "object_type": {
+        "stable_name": "ContextStrategy",
+        "version": 1
+      },
+      "capability_name": "context.strategy.publish",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Publish the next immutable version of a Context strategy (budgets, quotas, trim order). Human owner only; SQL refuses services and Agents even with a grant (NX-023).",
+      "source_task": "NX-023"
     }
   ]
 }

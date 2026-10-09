@@ -37,11 +37,17 @@ class Env(dict):
 @pytest.fixture
 def strategies(identity,uow,published_action,admin):
     reader,base,capability=published_action
-    for name,cap in ((S.PUBLISH_ACTION,S.PUBLISH_CAPABILITY),):
-        binding=base.capability_binding.model_copy(update={'capability_name':cap})
-        definition=base.model_copy(update={'stable_name':name,'capability_binding':binding,'contract_digest':None})
+    # The publication Action comes from the versioned deployment manifest (ADR-020 §3).
+    from datetime import UTC,datetime
+    from nexloop_eios import business_actions
+    schema=S.context_strategy_object_type()
+    admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',(TENANT,schema.type_name,1,Jsonb(schema.model_dump(mode='json'))))
+    rows=business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=TENANT,created_by='synthetic-owner',
+        created_at=datetime.now(UTC),object_types=[schema.model_dump(mode='json')],select=(S.PUBLISH_ACTION,),
+        capabilities={S.PUBLISH_CAPABILITY:capability.model_copy(update={'capability_name':S.PUBLISH_CAPABILITY,'has_side_effects':True})})
+    for row in rows:
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (TENANT,'real',f'eios:action:{name}:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'capability_name':cap}).model_dump(mode='json'))))
+            (TENANT,'real',f"eios:action:{row['definition']['stable_name']}:1",Jsonb(row['definition']),Jsonb(row['capability'])))
     browser=seed_human_owner(admin,reader.pool,[S.PUBLISH_ACTION],identity,uow)
     agent=seed_agent_author(admin,reader.pool,[S.PUBLISH_ACTION],suffix='-context-agent')
     service=seed_service(admin,reader.pool,[S.PUBLISH_ACTION],suffix='-context-service')

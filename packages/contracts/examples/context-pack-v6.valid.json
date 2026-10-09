@@ -1,0 +1,292 @@
+{
+  "schema_version": "nexloop.context-pack.v6",
+  "strategy_ref": "context-strategy:ontology_hybrid@1",
+  "bindings": {
+    "tenant_id": "3f2b8c1e-5d4a-4f6b-9a8e-1c2d3e4f5a6b",
+    "world_id": "real",
+    "run_id": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "source_principal": "nexloop-service-context-assembler-principal",
+    "context_id": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+    "namespace": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "artifact_id": "ffffffffffffffffffffffffffffffff",
+    "command_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "role": null,
+  "current_event": {
+    "kind": "consumer_message",
+    "message_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "conversation_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sequence": 3,
+    "body": "未来两周不要发促销。付款页面一直报错，解决后我再考虑续费。",
+    "provenance": "eios:object:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "goal": {
+    "goal_version_refs": [
+      "goal:q4-stage@2"
+    ],
+    "control_snapshot": {
+      "control_revision": 7,
+      "scopes": [
+        {
+          "kind": "consumer",
+          "ref": "consumer:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "goals": [
+        {
+          "goal_id": "q4-stage",
+          "version": 2
+        }
+      ],
+      "objects": [
+        {
+          "type_name": "Consumer",
+          "object_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "revision": 4
+        }
+      ],
+      "budgets": [
+        "model"
+      ]
+    }
+  },
+  "formal_facts": [
+    {
+      "type": "Consumer",
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": 1,
+      "provenance": "eios:object:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "type": "Goal",
+      "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "revision": 1,
+      "provenance": "eios:object:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "type": "PlanStep",
+      "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "revision": 1,
+      "provenance": "eios:object:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "type": "EffectControl",
+      "id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "revision": 1,
+      "provenance": "eios:object:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "current_constraints": {
+    "action": "nexloop.service.request:1",
+    "allow_effect": true,
+    "budget_units": 1,
+    "reserved_units": 0,
+    "valid_until": "2026-12-31T00:00:00+00:00",
+    "executor_principal": "nexloop-service-executor"
+  },
+  "supply": {
+    "offering_id": "0000000000000000000000000000000000000000000000000000000000000000",
+    "offering_revision": 1,
+    "binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "binding_revision": 1,
+    "provenance": "eios:object:0000000000000000000000000000000000000000000000000000000000000000",
+    "properties": {
+      "service_code": "local.json-export",
+      "title": "本地 JSON 文本导出",
+      "delivery_action": "nexloop.service.request:1",
+      "content_kind": "json-message-export",
+      "price_amount": "0",
+      "currency": "CNY",
+      "eligibility": "current_consumer_plan",
+      "allowed_guarantees": [],
+      "allowed_discounts": [],
+      "evidence_kind": "fsynced_json_export",
+      "active": true,
+      "valid_until": "2026-12-31T00:00:00+00:00"
+    }
+  },
+  "constraints": [
+    {
+      "subsection": "Consumer",
+      "ref": "eios:object:Consumer/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": "4",
+      "content": {
+        "type": "Consumer",
+        "properties": {
+          "promotion_contact": "paused"
+        }
+      },
+      "content_hash": "bd29dc5c0bc50ae118afbda40c79e2dd6fa9e5fd9e213844af0f0f29fc8a95db",
+      "evidence_kind": "formal_object",
+      "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "relevance": 1.0,
+      "at": "",
+      "tags": []
+    }
+  ],
+  "consumer_state": [
+    {
+      "subsection": "Consumer",
+      "ref": "eios:object:Consumer/9999999999999999999999999999999999999999999999999999999999999999",
+      "revision": "2",
+      "content": {
+        "type": "Consumer",
+        "properties": {
+          "budget_level": "两千元以内"
+        }
+      },
+      "content_hash": "536072234b42a513a8f5c4378da151aa8cdef88b0518ef02af4cab91ee65dd91",
+      "evidence_kind": "formal_object",
+      "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "relevance": 0.9,
+      "at": "",
+      "tags": []
+    }
+  ],
+  "open_work": [
+    {
+      "subsection": "outbound",
+      "ref": "nexloop:outbound:5f0c8c8e-3b1a-4c6d-9e2f-1a2b3c4d5e6f",
+      "revision": "unknown",
+      "content": {
+        "delivery_state": "unknown",
+        "note": "not confirmed as delivered to the consumer"
+      },
+      "content_hash": "6c1d0223266e245b336ac970c60ab9b0f67ee2d1372aaebfb1bab8ecb174664f",
+      "evidence_kind": "execution_state",
+      "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "relevance": 1.0,
+      "at": "",
+      "tags": [
+        "unconfirmed"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "subsection": "claim_evidence",
+      "ref": "claim:1111111111111111111111111111111111111111111111111111111111111111",
+      "revision": "nx019-extractor/2",
+      "content": {
+        "quote": "解决后我再考虑续费",
+        "message_ref": "eios:object:Message/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "span": [
+          19,
+          28
+        ],
+        "speaker": "consumer",
+        "epistemic_kind": "intent",
+        "resolution_state": "unresolved",
+        "modality": "conditional",
+        "condition": "解决后"
+      },
+      "content_hash": "38929575b4a22552d1446ebbec39b1488dad5ea5e60edf4a90dfe8e2c46e472c",
+      "evidence_kind": "user_statement",
+      "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "relevance": 0.8,
+      "at": "2026-10-09T02:00:00Z",
+      "tags": []
+    },
+    {
+      "subsection": "conversation",
+      "ref": "eios:object:Message/2222222222222222222222222222222222222222222222222222222222222222",
+      "revision": "2",
+      "content": {
+        "speaker": "agent",
+        "body": "我们正在排查付款问题。",
+        "sequence": 2,
+        "accepted_at": "2026-10-09T01:59:00Z"
+      },
+      "content_hash": "a160de57d6297dbc945c364b5b3c346b8152dcb6985b5d4af77c7c44ec80445b",
+      "evidence_kind": "conversation",
+      "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "relevance": 0.5,
+      "at": "2026-10-09T01:59:00Z",
+      "tags": []
+    }
+  ],
+  "semantics": [
+    {
+      "subsection": "property",
+      "ref": "eios:property:Consumer/budget_level",
+      "revision": "1",
+      "content": {
+        "display_name": "预算区间",
+        "closed_vocabulary": [
+          "两千元以内",
+          "两千到五千元",
+          "五千元以上"
+        ]
+      },
+      "content_hash": "9169d957b3f95a674b32ebfa22e3f2b31b84d0f541df69c5e4e6f56cce52ef35",
+      "evidence_kind": "schema",
+      "access_decision_ref": "decision:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "relevance": 0.7,
+      "at": "",
+      "tags": []
+    }
+  ],
+  "experience": [],
+  "budget_report": {
+    "estimator": "conservative-bytes-half-v1",
+    "input_token_budget": 16000,
+    "output_reserve": 4000,
+    "framing_reserve": 1500,
+    "available": 14500,
+    "used": 407,
+    "sections": {
+      "bindings": {
+        "included": 0,
+        "omitted": 0,
+        "tokens": 0
+      },
+      "role": {
+        "included": 0,
+        "omitted": 0,
+        "tokens": 0
+      },
+      "goal": {
+        "included": 0,
+        "omitted": 0,
+        "tokens": 0
+      },
+      "current_event": {
+        "included": 0,
+        "omitted": 0,
+        "tokens": 0
+      },
+      "constraints": {
+        "included": 1,
+        "omitted": 0,
+        "tokens": 40
+      },
+      "consumer_state": {
+        "included": 1,
+        "omitted": 0,
+        "tokens": 42
+      },
+      "open_work": {
+        "included": 1,
+        "omitted": 0,
+        "tokens": 48
+      },
+      "evidence": {
+        "included": 2,
+        "omitted": 0,
+        "tokens": 214
+      },
+      "semantics": {
+        "included": 1,
+        "omitted": 0,
+        "tokens": 63
+      },
+      "experience": {
+        "included": 0,
+        "omitted": 0,
+        "tokens": 0
+      }
+    },
+    "omitted": []
+  },
+  "insufficient": []
+}

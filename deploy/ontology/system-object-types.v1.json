@@ -1,0 +1,65 @@
+{
+  "schema_version": "nexloop-system-object-types/1",
+  "manifest_version": 1,
+  "decision": "Scheduler decision 2026-10-09 (ADR-020 §3 scope): NexLoop system metadata object types, published at deployment through trusted configuration (0050) like the business Action manifest; never written to schema tables directly and never granted to any service principal.",
+  "object_types": [
+    {
+      "type_name": "ContextStrategy",
+      "version": 1,
+      "purpose": "Typed change scope of nexloop.context.strategy.publish:1; strategy rows themselves live in control.nexloop_context_strategies (NX-023).",
+      "source_task": "NX-023",
+      "definition": {
+        "type_name": "ContextStrategy",
+        "display_name": "Context 策略",
+        "description": "Context 组装策略的不可变版本（预算、配额、裁剪顺序）",
+        "properties": [
+          {
+            "property_name": "strategy_id",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "version",
+            "value_type": "integer",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "definition_digest",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          }
+        ],
+        "version": 1,
+        "title_property": "",
+        "icon": "",
+        "color": "",
+        "plural_display_name": "",
+        "property_groups": [],
+        "primary_key": [],
+        "derived_properties": [],
+        "only_edit_via_actions": true
+      }
+    }
+  ]
+}

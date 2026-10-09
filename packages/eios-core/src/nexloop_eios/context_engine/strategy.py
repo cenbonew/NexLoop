@@ -34,6 +34,19 @@ class StrategyRejected(ValueError):
     pass
 
 
+def context_strategy_object_type():
+    """Published object type the strategy-publication Action declares as its change scope.
+
+    Strategy rows live in control.nexloop_context_strategies; this metadata type only gives
+    the governed Action a typed, digest-bound scope (EIOS requires one per Action).
+    """
+    from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
+    return ObjectTypeDefinition(type_name='ContextStrategy',version=1,only_edit_via_actions=True,display_name='Context 策略',
+        description='Context 组装策略的不可变版本（预算、配额、裁剪顺序）',
+        properties=tuple(PropertyDefinition(property_name=name,value_type=kind,required=True) for name,kind in
+            (('strategy_id',PropertyValueType.STRING),('version',PropertyValueType.INTEGER),('definition_digest',PropertyValueType.STRING))))
+
+
 def _int(value,low,high,name):
     if type(value) is not int or not low<=value<=high:raise StrategyRejected(name)
     return value

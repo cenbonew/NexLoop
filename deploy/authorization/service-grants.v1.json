@@ -61,6 +61,17 @@
       "source_task": "NX-047"
     },
     {
+      "role": "context_assembler",
+      "subject_id": "nexloop-service-context-assembler",
+      "principal_id": "nexloop-service-context-assembler-principal",
+      "credential_id": "nexloop-service-context-assembler-key",
+      "credential_reference": "context_assembler",
+      "application_id": "eios:application:nexloop-context-assembler",
+      "database_role": "nexloop_api",
+      "purpose": "Assemble Context packs (NX-023): read the current strategy; every evidence source is still read under its own current object/property READ.",
+      "source_task": "NX-023"
+    },
+    {
       "role": "message_relay",
       "subject_id": "nexloop-service-message-relay",
       "principal_id": "nexloop-service-message-relay-principal",
@@ -96,7 +107,9 @@
     {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.conversation.route:1", "operations": ["execute"],
      "purpose": "Route an accepted inbound Message into a Run activation.", "source_task": "NX-016"},
     {"principal": "outbound_message_recorder", "resource_type": "action", "resource_id": "eios:action:Message.agent_create:1", "operations": ["execute"],
-     "purpose": "Governed creation of the Message object for an outbound reply already accepted by the channel (ADR-020 §2).", "source_task": "NX-047"}
+     "purpose": "Governed creation of the Message object for an outbound reply already accepted by the channel (ADR-020 §2).", "source_task": "NX-047"},
+    {"principal": "context_assembler", "resource_type": "action", "resource_id": "eios:action:nexloop.context.assemble:1", "operations": ["execute"],
+     "purpose": "Read the current Context strategy through authz.nexloop_context_read (strategy verb); grants no object or property READ.", "source_task": "NX-023"}
   ],
   "deferred": [
     {"resource_id": "eios:action:nexloop.service.request:1", "reason": "Real outbound effect execution; channel enablement and REAL_DISPATCH_ENABLED need the owner's own confirmation (ADR-020 §3).", "source_task": "NX-015/NX-016"},

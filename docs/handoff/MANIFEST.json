@@ -29,8 +29,8 @@
     },
     {
       "path": "contracts/README.md",
-      "bytes": 3594,
-      "sha256": "1c5fad16e4cf1fdc0b6b2285a5dfb17f8d0744fd06f89c07d70aad014adbb1a8"
+      "bytes": 3942,
+      "sha256": "bb04fcd86f777527368755eeaf3587d159826936afd40534cfd29953bc191fc9"
     },
     {
       "path": "contracts/action-intent.schema.json",
@@ -49,8 +49,13 @@
     },
     {
       "path": "contracts/context-manifest.schema.json",
-      "bytes": 4843,
-      "sha256": "19169b0f27a8ac5599573032fba4f2dff50f552a26f3ed2dcf9b501f28534ad2"
+      "bytes": 4937,
+      "sha256": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081"
+    },
+    {
+      "path": "contracts/context-pack-v6.schema.json",
+      "bytes": 35666,
+      "sha256": "7e0311781d0099d3747cb2e357432724f908d130a9769ca72b6a56e6d2db9316"
     },
     {
       "path": "contracts/event-envelope.schema.json",
@@ -81,6 +86,11 @@
       "path": "contracts/examples/context-manifest.valid.json",
       "bytes": 1198,
       "sha256": "10db2adab82ea1540afefcf4b6c35ccbfdaac13ec0425cc02cdbc31b910ec265"
+    },
+    {
+      "path": "contracts/examples/context-pack-v6.valid.json",
+      "bytes": 9121,
+      "sha256": "39a03a7344186987719c2965478a822f77c96cb18d87fe75a60b5f06b4c3000a"
     },
     {
       "path": "contracts/examples/event-envelope.valid.json",
@@ -308,5 +318,5 @@
       "sha256": "e474d7b576981d5bae0b8ffdc13ce19a25fd6f7d3e7dba833e5737acccd31885"
     }
   ],
-  "file_count_excluding_manifest": 60
+  "file_count_excluding_manifest": 62
 }
