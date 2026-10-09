@@ -8,7 +8,59 @@ import os
 import stat
 import hmac
 import secrets
-from threading import RLock
+from threading import Condition, local
+
+
+class LifecycleLock:
+    """Requests share; shutdown is exclusive.
+
+    `with lock:` is a reentrant shared hold for one request, so independent guard
+    requests no longer queue behind each other while shutdown still waits for
+    every in-flight commit/fsync before closing the pool or Artifact FD.
+    """
+
+    def __init__(self):
+        self._condition = Condition()
+        self._readers = 0
+        self._writer = False
+        self._writer_waiting = 0
+        self._held = local()
+
+    def __enter__(self):
+        depth = getattr(self._held, 'depth', 0)
+        with self._condition:
+            # A thread already inside a request re-enters without waiting.
+            while depth == 0 and (self._writer or self._writer_waiting):
+                self._condition.wait()
+            self._readers += 1
+        self._held.depth = depth + 1
+        return self
+
+    def __exit__(self, *_):
+        self._held.depth -= 1
+        with self._condition:
+            self._readers -= 1
+            if self._readers == 0:
+                self._condition.notify_all()
+
+    @contextmanager
+    def exclusive(self):
+        if getattr(self._held, 'depth', 0):
+            raise RuntimeError('backend shutdown inside a request')
+        with self._condition:
+            self._writer_waiting += 1
+            try:
+                while self._writer or self._readers:
+                    self._condition.wait()
+            finally:
+                self._writer_waiting -= 1
+            self._writer = True
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._writer = False
+                self._condition.notify_all()
 
 from nexloop_eios.assembly import open_core, verify_application_role
 from eios.adapters.postgres.database import StorageUnavailable
@@ -248,7 +300,7 @@ class BrowserServices:
 class Backend:
     def __init__(self, pool, store, signer):
         self._pool, self._store, self._signer = pool, store, signer
-        self._lock = RLock()
+        self._lock = LifecycleLock()
         self._closed = False
 
     def _assert_open(self):
@@ -325,8 +377,8 @@ class Backend:
             return getattr(ConversationMessagePort(self._pool, session, self._signer), operation)(**arguments)
 
     def _invoke(self, session, operation, **arguments):
-        # Serialize lifecycle with requests so shutdown cannot close a file FD or
-        # connection pool during a commit/fsync. This first host is synchronous.
+        # Shared request hold: shutdown cannot close a file FD or connection pool
+        # during a commit/fsync, while independent requests proceed concurrently.
         with self._lock:
             self._assert_open()
             activation_operations = {
@@ -414,7 +466,7 @@ class Backend:
             raise ValueError('unsupported backend operation')
 
     def _shutdown(self):
-        with self._lock:
+        with self._lock.exclusive():
             self._closed = True
             self._store.close()
 
