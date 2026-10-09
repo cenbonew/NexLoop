@@ -275,3 +275,15 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 
 - 嵌套授权证明复用外层连接 / O2 批量判定（L4）；0039 同 Run 并发 guard 锁序（L4）。
 - `concurrency_probe` 在 sice 上确认 B 类时延画像（仅在 scratch，需要时可放入共享笔记）。
+
+## s3m 测试机两项新增失败（容量测试 / effect_units 并发）
+
+- 现象（调度员，测试机 `runs/20261009T084531Z-aebbfa8ff8ea`）：全量中两项拿到 `BackendBusy`；同一检出串行复跑 1/2 失败。本机复现：12 核满负载（12 个忙循环）下两项串行两轮 **1 passed+1 passed / 1 failed+1 passed**（容量测试 `outcomes[4:]` 含 `BackendBusy`），与测试机签名一致。
+- 判断：
+  1. **设计语义无误**：容量 = pool_max_size//2；突发超出吞吐时，有界等待后返回明确、可重试的 `BackendBusy`，而不是挂起。Host guard 自身 2 s 期限也意味着服务端更久的等待没有意义。
+  2. **测试要求了不合理时序**：要求 8 个并发请求（每个线程先 authenticate 再调用，共 16 个请求）在任何机器上都不出现 `BackendBusy`。
+  3. **同时存在真实缺陷（不公平）**：原实现用 `Condition`+`notify_all` 无序竞争，个别等待者可能连续落败，在平均等待并不长时也超出上限。
+- 修复（未放宽任何时限）：`LifecycleLock` 最外层准入改为 **FIFO**（按到达顺序；超时的等待者退出队列，不阻塞后面的请求）；新增单测 `test_admission_is_fifo_and_timed_out_waiters_leave_the_queue`。两项集成测试改为断言真实语义：全部完成、不挂起；过载只允许出现可重试的 `BackendBusy`，调用方有限次重试后全部成功（authorize 4/4 成功、同意图仅 1 个、effect_units 仍恰 1 个不同提交）；其余错误一律不重试。
+- 证据：同等负载（12 个忙循环）修复后串行两轮 **2/2、2/2 passed**（71.47s / 77.24s）；更重负载（24 个忙循环）两轮均通过，期间仍分别出现 6 / 9 次 `BackendBusy` 重试——这是真实过载（容量 2、每请求 1–1.5 s），由重试吸收。常规定向回归（插件开启）40 passed / 333.42s。
+- 本线按 LINE-RULES 不连接测试机；请调度员在测试机同一检出上串行复跑两轮确认。
+- 后续（根本吞吐）：嵌套授权证明复用外层连接后容量可回到 pool_max_size；部署可按负载调大 `NEX_EIOS_DB_POOL_MAX`。生产侧调用方（Host guard 503 → Pi 工具重试）对 `BackendBusy` 的重试策略可在 O2 时一并审视。

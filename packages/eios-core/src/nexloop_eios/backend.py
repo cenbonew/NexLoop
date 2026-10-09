@@ -8,6 +8,7 @@ import os
 import stat
 import hmac
 import secrets
+from collections import deque
 from threading import Condition, local
 import time
 
@@ -37,6 +38,11 @@ class LifecycleLock:
     instead of all requests starving the pool. A request waiting for capacity gives up
     after wait_seconds with BackendBusy, before it has built any proof or touched SQL,
     so the wait can never extend a proof or bypass a final deadline check.
+
+    Admission is FIFO: outermost requests are admitted strictly in arrival order, so a
+    request's wait is bounded by its queue position and the service rate instead of by
+    who wins a notify_all race; a timed-out waiter leaves the queue and never blocks
+    the requests behind it. BackendBusy therefore signals real overload (retryable).
     """
 
     def __init__(self, capacity=None, wait_seconds=10.0):
@@ -47,6 +53,7 @@ class LifecycleLock:
         self._capacity = capacity
         self._wait_seconds = wait_seconds
         self._active = 0
+        self._queue = deque()
         self._condition = Condition()
         self._readers = 0
         self._writer = False
@@ -57,18 +64,33 @@ class LifecycleLock:
         depth = getattr(self._held, 'depth', 0)
         with self._condition:
             if depth == 0:
-                deadline = time.monotonic() + self._wait_seconds
                 # A thread already inside a request re-enters without waiting.
-                while self._writer or self._writer_waiting or (self._capacity is not None and self._active >= self._capacity):
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise BackendBusy('backend request capacity unavailable')
-                    self._condition.wait(remaining)
+                deadline = time.monotonic() + self._wait_seconds
+                ticket = object()
+                self._queue.append(ticket)
+                try:
+                    while not self._admissible(ticket):
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise BackendBusy('backend request capacity unavailable')
+                        self._condition.wait(remaining)
+                except BaseException:
+                    # Leave the queue so the requests behind are not blocked.
+                    try:self._queue.remove(ticket)
+                    except ValueError:pass
+                    self._condition.notify_all()
+                    raise
+                self._queue.popleft()
                 self._active += 1
+                self._condition.notify_all()
             self._readers += 1
         self._held.depth = depth + 1
         _request_state.depth = getattr(_request_state, 'depth', 0) + 1
         return self
+
+    def _admissible(self, ticket):
+        return (self._queue[0] is ticket and not self._writer and not self._writer_waiting
+                and (self._capacity is None or self._active < self._capacity))
 
     def __exit__(self, *_):
         self._held.depth -= 1

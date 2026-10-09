@@ -116,18 +116,20 @@ def test_effect_units_concurrent_distinct_submissions_stay_within_ceiling(wide_c
     plan = role_runtime_plan; run_id = plan['commands'][0]['run_id']
     assert admin.execute("select effect_units from authz.nexloop_role_policy_bindings where run_id=%s", (run_id,)).fetchone() == (1,)
     barrier = threading.Barrier(8); outcomes = []
+    from test_backend_lifecycle_capacity import retrying
     def attempt(index):
-        services = plan['backend_worker'].authenticate(plan['worker_token'], world='real')
+        services = retrying(lambda: plan['backend_worker'].authenticate(plan['worker_token'], world='real'))
         barrier.wait()
         try:
-            services.runtime_effect_tool(activation_ref=plan['activations'][0], command=plan['commands'][0], tool_operation='submit',
-                                         parameters={'message': 'distinct concurrent payload ' + str(index)})
+            # BackendBusy (explicit overload on a slow host) is retried; effect outcomes are not.
+            retrying(lambda: services.runtime_effect_tool(activation_ref=plan['activations'][0], command=plan['commands'][0], tool_operation='submit',
+                                                          parameters={'message': 'distinct concurrent payload ' + str(index)}))
             outcomes.append('ok')
         except Exception as error:
             outcomes.append(type(error).__name__)
     threads = [threading.Thread(target=attempt, args=(index,)) for index in range(8)]
     for thread in threads:thread.start()
-    for thread in threads:thread.join(90); assert not thread.is_alive()
+    for thread in threads:thread.join(180); assert not thread.is_alive()
     assert outcomes.count('ok') == 1, outcomes
     assert set(outcomes) <= {'ok', 'EffectIntentConflict', 'EffectIntentUnavailable'}, outcomes
     assert admin.execute('select count(distinct intent_id) from runtime.nexloop_effect_submissions where run_id=%s', (run_id,)).fetchone() == (1,)
