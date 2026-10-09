@@ -410,6 +410,11 @@
       "version": "0082",
       "name": "0082_nx044_review_actions.sql",
       "sha256": "683e7fa44bd231c9c568e0c217b42a10078e985447c3e8217e226d9cc181b87e"
+    },
+    {
+      "version": "0083",
+      "name": "0083_grants_follow_latest.sql",
+      "sha256": "71ae53049312abd840a332cb0b4d4bd8255b4352ac125bc883dd9de136537c1d"
     }
   ]
 }

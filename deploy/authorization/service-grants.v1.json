@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-service-grants/1",
-  "manifest_version": 1,
-  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only.",
+  "manifest_version": 2,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version).",
   "valid_from": "2026-10-09T00:00:00+00:00",
   "world": "real",
   "principals": [
@@ -84,7 +84,7 @@
     {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:nexloop.claim.match:1", "operations": ["execute"],
      "purpose": "Record match proposals and staged candidates.", "source_task": "NX-020"},
     {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:Consumer.edit:1", "operations": ["execute"],
-     "purpose": "Governed formal Consumer property write of an accepted match (object/property EDIT still required per object).", "source_task": "NX-020"},
+     "purpose": "Governed formal Consumer property write of an accepted match (object/property EDIT still required per object).", "source_task": "NX-020", "follow_latest_version": true},
     {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:Product.create:1", "operations": ["execute"],
      "purpose": "Governed creation of a referenced Product when matching resolves to a new instance.", "source_task": "NX-020"},
     {"principal": "claim_matcher", "resource_type": "object_type", "resource_id": "eios:object_type:Consumer", "operations": ["read"],
