@@ -78,6 +78,9 @@ def build_publication(basis):
     """Next schema version + successor Actions through the EIOS models; failures become gate reasons."""
     kind=basis['kind'];p=basis['candidate']['proposed']
     try:
+        if kind=='object_instance':
+            # NX-050: nothing to build; SQL checks the approved identity against the published Schema.
+            return {'schema':None,'actions':[]}
         if kind=='object_type':
             name=''.join(w[:1].upper()+w[1:] for w in p['name'].split('_'))
             schema=ObjectTypeDefinition(type_name=name,display_name=p['display_name'],description=p.get('description',''),only_edit_via_actions=True)
@@ -219,8 +222,10 @@ class ReviewReflowWorker:
                 # the claim-match feed (full four-layer chain; nothing is applied here). Idempotent per run.
                 owner=next(r.rsplit(':',1)[1] for r in item['publication']['published_refs'] if r.count(':')==2 and r.startswith('eios:object_type:'))
                 self.gluer.indexer.index_object_type(owner)
-                results[item['decision_id']]=self.port.call('nexloop_review_reflow',{'verb':'release_type','decision_id':item['decision_id']})
+                results[item['decision_id']]=self.port.call('nexloop_review_reflow',{'verb':'release','decision_id':item['decision_id']})
                 continue
+            if item['outcome']=='published' and item.get('kind')=='object_instance':
+                results[item['decision_id']]=self._instance(item);continue
             try:
                 if item['outcome']=='merged':outcome=self.gluer.reflow_merged(item['candidate_id'])
                 elif item['outcome']=='published':outcome=self.gluer.reflow_published(item['candidate_id'])
@@ -232,6 +237,10 @@ class ReviewReflowWorker:
                 report={'applied':0,'claims':{},'reason':reason,'error':type(error).__name__}
                 self.port.call('nexloop_review_reflow',{'verb':'record','decision_id':item['decision_id'],'status':'waiting','report':report})
                 results[item['decision_id']]={'status':'waiting',**report};continue
+            if item['outcome']=='published' and item.get('kind') in ('property','vocabulary_value'):
+                # Entity Claims of the publication go back to the full matcher (instance layer included, NX-050).
+                released=self.port.call('nexloop_review_reflow',{'verb':'release','decision_id':item['decision_id']})['released']
+                rematched={k:v for k,v in rematched.items() if k not in released}
             applied=sum(1 for r in rematched.values() if r.get('applied')=='applied')
             # A Claim not applied yet (e.g. successor Action / new property grant not configured) keeps waiting.
             status='done' if applied==len(rematched) else 'waiting'
@@ -240,6 +249,26 @@ class ReviewReflowWorker:
             self.port.call('nexloop_review_reflow',{'verb':'record','decision_id':item['decision_id'],'status':status,'report':report})
             results[item['decision_id']]={'status':status,**report}
         return results
+
+    def _instance(self,item):
+        """NX-050: create the approved instance through the governed <Type>.create (idempotent per decision), bind it,
+        then release the dependent Claims to the matcher. Missing create authority keeps the decision waiting."""
+        from nexloop_eios.object_actions import GovernedObjectCreator
+        instance=item['publication']['instance']
+        if item.get('instance_object_id'):
+            # Already created and bound: only (re)release the dependent Claims.
+            return {**self.port.call('nexloop_review_reflow',{'verb':'release','decision_id':item['decision_id']}),'object_id':item['instance_object_id']}
+        name,version=instance['create_action'].removeprefix('eios:action:').rsplit(':',1)
+        try:
+            created=GovernedObjectCreator(self.port.pool,self.port.session,self.port.signer).create(action_name=name,action_version=int(version),
+                intent_id=str(uuid.uuid5(NAMESPACE,'instance:'+item['decision_id'])),type_name=instance['type_name'],properties=dict(instance['properties']))
+        except Exception as error:
+            reason='awaiting_grants' if type(error).__name__ in AUTHORITY_ERRORS else 'reflow_error'
+            report={'applied':0,'claims':{},'reason':reason,'error':type(error).__name__}
+            self.port.call('nexloop_review_reflow',{'verb':'record','decision_id':item['decision_id'],'status':'waiting','report':report})
+            return {'status':'waiting',**report}
+        self.port.call('nexloop_review_reflow',{'verb':'instance_created','decision_id':item['decision_id'],'object_id':created['object_id']})
+        return {**self.port.call('nexloop_review_reflow',{'verb':'release','decision_id':item['decision_id']}),'object_id':created['object_id']}
 
 
 def uncovered_actions(manifest,tenant,*,database_url_file):
