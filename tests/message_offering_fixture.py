@@ -36,6 +36,12 @@ def catalog_instances(backend,keeper_token,source_token,consumer,expiry):
     return offered,linked,targets,principal
 
 
+def message_read_rule_row(tenant,principal,valid_until,*,active=True):
+    from nexloop_eios.message_read import MessageReadRule
+    rule=MessageReadRule(tenant_id=tenant,principal_id=principal,type_name='Message',fields=('actor','body'),active=active,valid_until=valid_until)
+    return {'kind':'message_read_rule','key':[principal],'payload':rule.model_dump(mode='json')}
+
+
 def install_message_catalog(admin,backend,tenant,consumer,source_token,*,suffix,manifest=None,paths=None):
     expiry=(datetime.now(UTC)+timedelta(minutes=5)).isoformat();actions=definitions(tenant)
     if manifest is None:
@@ -47,7 +53,11 @@ def install_message_catalog(admin,backend,tenant,consumer,source_token,*,suffix,
         binding,end,rows=declared_service(tenant,[a['definition']['stable_name'] for a in actions],'-message-catalog-maintainer');keeper=secrets.token_urlsafe(48)
         publish(admin,manifest,paths,binding,rows,keeper,'message-catalog-maintainer',end.isoformat())
     offered,linked,targets,principal=catalog_instances(backend,keeper,source_token,consumer,expiry)
+    # Static Source configuration: current Consumer READ plus the explicit accepted-Message
+    # READ rule; per-Message READ is derived in SQL (0073), never configured per Message.
+    targets=targets+[('eios:object:Consumer/'+consumer,ResourceType.OBJECT)]
     binding,rows=source_declarations(tenant,targets,identity_suffix=suffix);assert binding.subject_principal_id==principal
+    rows=rows+[message_read_rule_row(tenant,principal,expiry)]
     new_token=secrets.token_urlsafe(48);end=next(r['payload']['expires_at'] for r in rows if r['kind']=='authentication')
     if manifest is None:
         admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',(hashlib.sha256(new_token.encode()).hexdigest(),tenant,binding.credential_id,Jsonb(binding.model_dump(mode='json')),['real'],'nexloop-core','active',end))

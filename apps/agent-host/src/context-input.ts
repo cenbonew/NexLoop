@@ -4,7 +4,10 @@ import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter
 export const CONTEXT_PROTOCOL='nexloop.context-pack.v1';
 export const CONTEXT_PROTOCOL_V2='nexloop.context-pack.v2';
 export const CONTEXT_PROTOCOL_V3='nexloop.context-pack.v3';
-export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3;
+export const CONTEXT_PROTOCOL_V4='nexloop.context-pack.v4';
+export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4;
+export type RelationshipItem={assessment_ref:string;revision:number;relation_type_ref:string|null;source_ref:string;target_ref:string;epistemic_kind:'hypothesis'|'user_statement';resolution_state:'resolved'|'awaiting_definition'|'unresolved';conclusion:string;valid_from:string;valid_to:string|null;source_message_ref:string|null;source_content_hash:string|null};
+export type RelationshipZone={current_statements:RelationshipItem[];evidence:RelationshipItem[]};
 export type ContextAttestation={artifact_ref:string;sha256:string;command_binding_digest:string};
 const fields=['schema_version','run_id','request_id','tenant_id','world_id','mode','consumer_ref','goal_version_ref','role_ref','runtime_owner_epoch','runtime_profile','trigger_event_id','budget','not_after'] as const;
 const hex64=/^[a-f0-9]{64}$/,hex32=/^[a-f0-9]{32}$/,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -38,12 +41,40 @@ export function validateContextAttestation(command:RunCommand,value:unknown):Con
   if(attestation.artifact_ref!==command.context_manifest_ref||attestation.command_binding_digest!==contextCommandDigest(command))return fail();
   return attestation as ContextAttestation;
 }
-export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string}{
+export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone}{
   const command=validateRunCommand(untrustedCommand);
   if(typeof input!=='string'||Buffer.byteLength(input,'utf8')>65536)return fail();
   let parsed:unknown;try{parsed=JSON.parse(input);}catch{return fail();}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return fail();
   const protocol=(parsed as Record<string,unknown>).schema_version;
+  if(protocol===CONTEXT_PROTOCOL_V4){
+    if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V4)return fail();
+    const pack=exact(parsed,['schema_version','bindings','user_statement','formal_facts','current_constraints','supply','relationship_context']);
+    const attestation=validateContextAttestation(command,untrustedAttestation);
+    if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
+    const base={...pack,schema_version:CONTEXT_PROTOCOL_V2};delete (base as Record<string,unknown>).relationship_context;
+    const baseText=canonicalContextJSON(base);
+    const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V2);
+    const zone=exact(pack.relationship_context,['current_statements','evidence']);
+    if(!Array.isArray(zone.current_statements)||!Array.isArray(zone.evidence)||zone.current_statements.length+zone.evidence.length<1||zone.current_statements.length+zone.evidence.length>4)return fail();
+    const seen=new Set<string>();
+    for(const [kind,rows] of Object.entries(zone))for(const value of rows as unknown[]){
+      const row=exact(value,['assessment_ref','revision','relation_type_ref','source_ref','target_ref','epistemic_kind','resolution_state','conclusion','valid_from','valid_to','source_message_ref','source_content_hash']);
+      const id=text(row.assessment_ref,128,/^eios:object:RelationshipAssessment\/[a-f0-9]{64}$/);if(seen.has(id))return fail();seen.add(id);integer(row.revision);
+      for(const key of ['source_ref','target_ref'])text(row[key],160,/^eios:object:[A-Za-z][A-Za-z0-9_]*\/[a-f0-9]{64}$/);
+      const conclusion=text(row.conclusion,8192);
+      if(!['hypothesis','user_statement'].includes(String(row.epistemic_kind))||!['resolved','awaiting_definition','unresolved'].includes(String(row.resolution_state)))return fail();
+      if(row.relation_type_ref!==null)text(row.relation_type_ref,160,/^eios:link_type:[A-Za-z][A-Za-z0-9_]*:[1-9][0-9]*$/);
+      for(const key of ['valid_from','valid_to'])if(row[key]!==null){const date=text(row[key],64);if(!Number.isFinite(Date.parse(date)))return fail();}
+      if(row.epistemic_kind==='user_statement'){
+        text(row.source_message_ref,128,/^eios:object:Message\/[a-f0-9]{64}$/);text(row.source_content_hash,64,hex64);
+        if(createHash('sha256').update(conclusion,'utf8').digest('hex')!==row.source_content_hash)return fail();
+      }else if(row.source_message_ref!==null||row.source_content_hash!==null)return fail();
+      if(kind==='current_statements'&&(row.epistemic_kind!=='user_statement'||row.resolution_state!=='resolved'||row.relation_type_ref===null))return fail();
+    }
+    return {...validated,relationship_context:zone as RelationshipZone};
+  }
+
   if(protocol!==CONTEXT_PROTOCOL&&protocol!==CONTEXT_PROTOCOL_V2&&protocol!==CONTEXT_PROTOCOL_V3||expectedProtocol!==undefined&&protocol!==expectedProtocol)return fail();
   const pack=exact(parsed,protocol===CONTEXT_PROTOCOL_V3?['schema_version','bindings','formal_facts','current_constraints','supply','role_binding','trigger_statement']:protocol===CONTEXT_PROTOCOL_V2?['schema_version','bindings','user_statement','formal_facts','current_constraints','supply']:['schema_version','bindings','user_statement','formal_facts','current_constraints']);
   const binding=exact(pack.bindings,['tenant_id','world_id','run_id','source_principal','context_id','namespace','artifact_id','command_digest']);

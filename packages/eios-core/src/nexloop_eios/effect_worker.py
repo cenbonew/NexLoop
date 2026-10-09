@@ -56,7 +56,7 @@ class _FreshExecutor:
     def __init__(self,backend,path,world):self.backend,self.path,self.world=backend,path,world
     def service(self):return self.backend.authenticate(read_private_text(self.path,maximum=16384),world=self.world)
     def __getattr__(self,name):
-        if name not in {'claim_effect','prepare_effect_dispatch','authorize_effect_query','record_effect_observation','record_effect_unknown'}:
+        if name not in {'claim_effect','prepare_effect_dispatch','authorize_effect_query','record_effect_observation','record_effect_query_observation','record_effect_unknown'}:
             raise AttributeError(name)
         def invoke(**arguments):return getattr(self.service(),name)(**arguments)
         return invoke

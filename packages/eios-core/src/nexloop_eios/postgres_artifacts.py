@@ -147,6 +147,17 @@ class PostgresArtifactRepository:
             holder=SimpleNamespace(_session=self.session,_backend=SimpleNamespace(_pool=self.pool,_signer=self.signer))
             params['context_dependency']={'kind':'role','run_id':dependency['run_id'],'event_id':dependency['event_id'],
               'reads':{name:_read_envelope(holder,row['type_name'],row['object_id'],row['fields']) for name,row in dependency['reads'].items()}}
+        elif dependency is not None and dependency['kind']=='relationship_context':
+            from nexloop_eios.relationship_context import RelationshipContextReader,RelationshipContextRecipe
+            reader=RelationshipContextReader(self.pool,self.session,self.signer,RelationshipContextRecipe(tuple(dependency['assessment_ids'])))
+            from types import SimpleNamespace
+            from nexloop_eios.service_offerings import _read_envelope
+            refs=dependency.get('formal_refs')
+            if type(refs) is not dict or set(refs)!={'Consumer','Goal','PlanStep','EffectControl'}:raise ArtifactAccessDenied('context formal dependency unavailable')
+            # Actual caller's authenticated session; no Source credential lookup.
+            holder=SimpleNamespace(_backend=SimpleNamespace(_pool=self.pool,_signer=self.signer),_session=self.session)
+            formal_reads={kind:_read_envelope(holder,kind,ref,('allow_effect','budget_units','executor_principal','valid_until') if kind=='EffectControl' else ()) for kind,ref in refs.items()}
+            params['context_dependency']={'kind':'relationship_context','message':reader.message_envelope(dependency['message_id']),'relationships':reader.envelopes(),'formal_reads':formal_reads}
         elif dependency is not None:
             params['context_dependency']=context_message_read_envelope(self.pool,self.session,self.signer,dependency['message_id'])
         permit=self.issue_permit(Operation.READ,params)
@@ -240,7 +251,14 @@ class LocalArtifactService:
             return self.store.collect_temporary_page(namespace,older_than=older_than,limit=limit,after=after,guard=guard)
 
 def context_message_read_envelope(pool,session,signer,message_id):
-    """Internal typed current-reader proof; carries no permission from a binding owner."""
+    """Internal typed current-reader proof; carries no permission from a binding owner.
+
+    SQL selects the path: configured Message authority, or READ derived from the
+    caller's explicit message_read_rule plus current Consumer READ (message_read).
+    """
+    from nexloop_eios.message_read import message_read_basis,derived_message_read_envelope
+    basis=message_read_basis(pool,session,message_id)
+    if basis.get('mode')=='derived':return derived_message_read_envelope(pool,session,signer,message_id,basis)
     from nexloop_eios.object_reads import AuthorizedObjectReader
     reader=AuthorizedObjectReader(pool,session,signer)
     claims=reader._authority(ResourceType.OBJECT,'Message/'+message_id)

@@ -74,7 +74,7 @@ class RuntimeActivationPort:
             proofs.append(self._proof(run,target))
         return proofs
 
-    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,context_artifact_proof=None,context_catalog_envelope=None,context_role_envelope=None,**parameters):
+    def _signed(self,queue,verb,*,proof=None,protocol='nexloop-runtime-activation-v1',limit=1048576,context_artifact_proof=None,context_catalog_envelope=None,context_role_envelope=None,context_relationship_envelopes=None,context_formal_reads=None,**parameters):
         if not isinstance(queue,str) or re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}',queue) is None:raise ValueError('queue unavailable')
         if proof is None:proof=self._proof(self.session,f'eios:action:NexLoop.queue.{queue}:1')
         payload=canonical_payload({'queue':queue,'verb':verb,**parameters})
@@ -85,7 +85,12 @@ class RuntimeActivationPort:
         from nexloop_eios.role_runs import role_envelope_for_run
         if context_role_envelope is None and parameters.get('run_digest') is not None:
             context_role_envelope=role_envelope_for_run(self.pool,self.signer,self.session.world,parameters['run_digest'])
-        if context_role_envelope is not None:claims['context_role_envelope']=context_role_envelope
+        if context_role_envelope is not None:
+            claims['context_role_envelope']=context_role_envelope
+            from nexloop_eios.role_runs import formal_reads_for_role
+            claims['formal_reads']=formal_reads_for_role(self.pool,self.signer,self.session,context_role_envelope)
+        if context_relationship_envelopes is not None:claims['context_relationship_envelopes']=context_relationship_envelopes
+        if context_formal_reads is not None:claims['context_formal_reads']=context_formal_reads
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
         return text,signature,payload
 
@@ -165,7 +170,7 @@ class RuntimeActivationPort:
             with self.pool.connection() as db,db.transaction():
                 verify_application_role(db);run=_identity(db,first['_run_digest'],self.session.world)
             context_proof=self._context_read_proof(first)
-            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']))
+            result=self._call(queue,'authorize',**parameters,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(first),context_formal_reads=self._context_formal_envelopes(first))
             return {key:value for key,value in result.items() if not key.startswith('_')}
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
@@ -178,13 +183,51 @@ class RuntimeActivationPort:
             source=_identity(connection,resolved['_context_source_digest'],self.session.world)
         return artifact_authority_proof(self.pool,source,Operation.READ)
 
+    def _context_relationship_envelopes(self,resolved):
+        if '_context_relationship' not in resolved:return None
+        from nexloop_eios.role_runs import scoped_envelope
+        return scoped_envelope(('relationship',id(self.pool),self.signer.key_id,self.session.world,resolved['_context_source_digest'],canonical_payload(resolved['_context_relationship'])),lambda:self._context_relationship_envelopes_now(resolved))
+
+    def _context_relationship_envelopes_now(self,resolved):
+        from nexloop_eios.relationship_context import RelationshipContextRecipe,RelationshipContextReader
+        zone=resolved['_context_relationship'];rows=zone['current_statements']+zone['evidence']
+        ids=tuple(sorted(row['assessment_ref'].removeprefix('eios:object:RelationshipAssessment/') for row in rows))
+        with self.pool.connection() as connection,connection.transaction():
+            verify_application_role(connection)
+            source=_identity(connection,resolved['_context_source_digest'],self.session.world)
+        return RelationshipContextReader(self.pool,source,self.signer,RelationshipContextRecipe(ids)).envelopes()
+
+    def _context_formal_envelopes(self,resolved):
+        if '_context_formal_facts' not in resolved:return None
+        from nexloop_eios.role_runs import scoped_envelope
+        return scoped_envelope(('context_formal',id(self.pool),self.signer.key_id,self.session.world,resolved['_context_source_digest'],canonical_payload(resolved['_context_formal_facts'])),lambda:self._context_formal_envelopes_now(resolved))
+
+    def _context_formal_envelopes_now(self,resolved):
+        from types import SimpleNamespace
+        from nexloop_eios.service_offerings import _read_envelope
+        # Actual bound Run's Source chain, not the requesting Artifact reader.
+        with self.pool.connection() as db,db.transaction():
+            verify_application_role(db);source=_identity(db,resolved['_context_source_digest'],self.session.world)
+        holder=SimpleNamespace(_session=source,_backend=SimpleNamespace(_pool=self.pool,_signer=self.signer))
+        return {row['type']:_read_envelope(holder,row['type'],row['id'],('allow_effect','budget_units','executor_principal','valid_until') if row['type']=='EffectControl' else ()) for row in resolved['_context_formal_facts']}
+
     def _context_catalog_envelope(self,resolved):
         if '_context_catalog' not in resolved:return None
+        from nexloop_eios.role_runs import scoped_envelope
+        return scoped_envelope(('catalog',id(self.pool),self.signer.key_id,self.session.world,resolved['_context_source_digest'],resolved['_context_consumer_id'],canonical_payload(resolved['_context_catalog'])),lambda:self._context_catalog_envelope_now(resolved))
+
+    def _context_catalog_envelope_now(self,resolved):
         from nexloop_eios.service_offerings import catalog_envelope_from_hint
         return catalog_envelope_from_hint(self.pool,self.signer,self.session.world,
           {'_source_digest':resolved['_context_source_digest'],'supply':resolved['_context_catalog'],'consumer_id':resolved['_context_consumer_id']})
 
-    def effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None,request_scope=None):
+    def effect_tool(self,**arguments):
+        # One guarded tool request, including a scope-denial record after rollback,
+        # reuses its own Source-signed envelopes; SQL re-verifies them at each use.
+        from nexloop_eios.role_runs import request_envelope_scope
+        with request_envelope_scope():return self._effect_tool(**arguments)
+
+    def _effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None,request_scope=None):
         """Trusted Host bridge; actual owned activation selects the Run.
 
         Admission and the final lease/source recheck share one transaction.
@@ -211,7 +254,7 @@ class RuntimeActivationPort:
                 run=_identity(db,resolved['_run_digest'],self.session.world)
                 if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
                 def guard():
-                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,resolved['_run_digest'])))
+                    result=self._execute(db,self._signed(queue,'authorize',**binding,run_proofs=self._run_proofs(run),context_artifact_proof=self._context_read_proof(resolved),context_catalog_envelope=self._context_catalog_envelope(resolved),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,resolved['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(resolved),context_formal_reads=self._context_formal_envelopes(resolved)))
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
                 guard()
                 receipt=EffectIntentPort(self.pool,run,self.signer)._execute_in_transaction(

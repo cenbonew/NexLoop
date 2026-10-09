@@ -3,6 +3,8 @@
 Bind genuine Source-issued Runs before admission. All lifecycle operations must
 repeat this signed current READ verifier; this primitive alone is not dispatch.
 """
+import contextlib
+import contextvars
 import hashlib
 import hmac
 from nexloop_eios.postgres_artifacts import canonical_payload
@@ -40,7 +42,32 @@ def bind_role_run(source,**parameters):
                 (source._session.token_digest,source._session.world,*envelope)).fetchone()[0]
 
 
+# One guarded tool request computes the same Source-signed Role and formal READ
+# envelopes for its guard and its intent. Reuse is bounded to that request; SQL
+# still re-verifies every envelope against current authority at each use.
+_request_envelopes=contextvars.ContextVar('nexloop_role_request_envelopes',default=None)
+
+
+@contextlib.contextmanager
+def request_envelope_scope():
+    token=_request_envelopes.set({})
+    try:yield
+    finally:_request_envelopes.reset(token)
+
+
+def scoped_envelope(key,compute):
+    """Reuse within the current guarded tool request only; otherwise compute fresh."""
+    cache=_request_envelopes.get()
+    if cache is None:return compute()
+    if key not in cache:cache[key]=compute()
+    return cache[key]
+
+
 def role_envelope_for_run(pool,signer,world,run_digest):
+    return scoped_envelope(('role',id(pool),signer.key_id,world,run_digest),lambda:_role_envelope_for_run(pool,signer,world,run_digest))
+
+
+def _role_envelope_for_run(pool,signer,world,run_digest):
     """Private kernel helper: actual authenticated Run digest, never guessed actor.
 
     Runtime digest comes from actual Run auth or an owned activation/lease's
@@ -55,3 +82,24 @@ def role_envelope_for_run(pool,signer,world,run_digest):
         source=_identity(db,hint.pop('_source_digest'),world)
     holder=SimpleNamespace(_session=source,_backend=SimpleNamespace(_pool=pool,_signer=signer))
     return dict(zip(('text','signature','payload'),role_binding_envelope(holder,**hint)))
+
+
+def formal_reads_for_role(pool,signer,session,envelope):
+    return scoped_envelope(('formal',id(pool),signer.key_id,session.world,envelope['signature']),lambda:_formal_reads_for_role(pool,signer,session,envelope))
+
+
+def _formal_reads_for_role(pool,signer,session,envelope):
+    """Fresh Source READ from actual tenant-owned Role Context ledger refs."""
+    import json
+    from types import SimpleNamespace
+    from nexloop_eios.authorization import _identity
+    run_id=json.loads(envelope['payload'])['run_id']
+    with pool.connection() as db,db.transaction():
+        verify_application_role(db)
+        hint=db.execute('select authz.nexloop_role_formal_hint(%s,%s,%s)',
+                        (session.token_digest,session.world,run_id)).fetchone()[0]
+        source=_identity(db,hint['_source_digest'],session.world)
+    holder=SimpleNamespace(_session=source,_backend=SimpleNamespace(_pool=pool,_signer=signer))
+    return {fact['type']:_read_envelope(holder,fact['type'],fact['id'],
+        ('allow_effect','budget_units','executor_principal','valid_until') if fact['type']=='EffectControl' else ())
+        for fact in hint['formal_facts']}

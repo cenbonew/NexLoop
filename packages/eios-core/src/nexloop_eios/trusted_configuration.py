@@ -16,11 +16,13 @@ from eios.ontology.semantics import schema_contract_digest
 from eios.ontology.version_resolution import CapabilityContractSnapshot,validate_capability_binding
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.private_configuration import read_private_text
+from nexloop_eios.message_read import MessageReadRule
 
 FACT_MODELS={'subject':F.SubjectFacts,'membership':F.MembershipFacts,'actor':F.ActorFacts,
  'authentication':F.CredentialAuthenticationFacts,'application':F.ApplicationFacts,
  'subject_authority':F.SubjectAuthorityFacts,'resource_graph':F.ResourceGraphFacts,'grants':F.GrantFacts,
- 'scope':F.ScopeAuthorityFacts,'controls':F.ControlFacts,'policies':F.PolicyFacts,'revision':F.RevisionSourceFacts}
+ 'scope':F.ScopeAuthorityFacts,'controls':F.ControlFacts,'policies':F.PolicyFacts,'revision':F.RevisionSourceFacts,
+ 'message_read_rule':MessageReadRule}
 FIELDS={'schema_version','manifest_id','tenant_id','expected_revision','tenant_status','object_types','actions','functions','authority_facts','service_credentials','browser_applications','browser_business_applications','browser_rate_policies','identity_allowances'}
 
 class ConfigurationRejected(RuntimeError):

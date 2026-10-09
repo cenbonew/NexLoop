@@ -11,7 +11,11 @@ def configure_message_read(f,admin,*,allow,withdraw="body"):
   source_app=f['source']._session.authentication.caller_application_id
   role=next(row['payload']['roles'][0] for row in manifest['authority_facts'] if row['kind']=='subject_authority' and row['key']==[principal])
   merged={(row['kind'],tuple(row['key'])):row for row in manifest['authority_facts']}
-  if allow:
+  configured=('grants',(principal,'eios:object:Message/'+mid)) in merged
+  # Withdrawal targets configured Message authority. If the Source currently reads
+  # through derivation (0073), configure first: configured authority then wins and a
+  # withdrawn configured grant must not be revived by the derived path.
+  if allow or not configured:
    for target,kind in specs:
     _,_,rows=authority_records(tenant,target,resource_type=kind,operation=Operation.READ,identity_suffix='-assembly-source')
     for name,key,fact in rows:
@@ -25,7 +29,7 @@ def configure_message_read(f,admin,*,allow,withdraw="body"):
      raw=copy.deepcopy(row['payload']);raw.pop('snapshot_digest',None)
      raw['resources'] += [ResourceRestriction(tenant_id=tenant,resource_type=kind.value,resource_id=target).model_dump(mode='json') for target,kind in specs]
      row['payload']=F.ApplicationFacts.model_validate_json(json.dumps(raw)).model_dump(mode='json')
-  else:
+  if not allow:
    target='eios:object:Message/'+mid if withdraw=='object' else 'eios:property:Message/'+mid+'/'+withdraw
    row=merged['grants',(principal,target)];raw=copy.deepcopy(row['payload']);raw.pop('snapshot_digest',None);raw['grants']=[];row['payload']=F.GrantFacts.model_validate_json(json.dumps(raw)).model_dump(mode='json')
   manifest['authority_facts']=list(merged.values())
