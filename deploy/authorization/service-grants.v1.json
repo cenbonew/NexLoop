@@ -50,6 +50,17 @@
       "source_task": "NX-013/NX-014"
     },
     {
+      "role": "outbound_message_recorder",
+      "subject_id": "nexloop-service-outbound-recorder",
+      "principal_id": "nexloop-service-outbound-recorder-principal",
+      "credential_id": "nexloop-service-outbound-recorder-key",
+      "credential_reference": "outbound_message_recorder",
+      "application_id": "eios:application:nexloop-outbound-recorder",
+      "database_role": "nexloop_api",
+      "purpose": "Materialize a channel-accepted Agent reply as a Message through the governed Message.agent_create Action; never sends, never chooses text or delivery state.",
+      "source_task": "NX-047"
+    },
+    {
       "role": "message_relay",
       "subject_id": "nexloop-service-message-relay",
       "principal_id": "nexloop-service-message-relay-principal",
@@ -83,7 +94,9 @@
     {"principal": "runtime_worker", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.operations:1", "operations": ["execute"],
      "purpose": "Claim/renew/finish Run activation tasks (queue name as deployed by the message recipe).", "source_task": "NX-013/NX-014"},
     {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.conversation.route:1", "operations": ["execute"],
-     "purpose": "Route an accepted inbound Message into a Run activation.", "source_task": "NX-016"}
+     "purpose": "Route an accepted inbound Message into a Run activation.", "source_task": "NX-016"},
+    {"principal": "outbound_message_recorder", "resource_type": "action", "resource_id": "eios:action:Message.agent_create:1", "operations": ["execute"],
+     "purpose": "Governed creation of the Message object for an outbound reply already accepted by the channel (ADR-020 §2).", "source_task": "NX-047"}
   ],
   "deferred": [
     {"resource_id": "eios:action:nexloop.service.request:1", "reason": "Real outbound effect execution; channel enablement and REAL_DISPATCH_ENABLED need the owner's own confirmation (ADR-020 §3).", "source_task": "NX-015/NX-016"},
