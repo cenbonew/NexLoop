@@ -2666,6 +2666,18 @@
         "ref": "docs/implementation/NX-049-analysis-round2.md",
         "summary": "Second round: JIT, CPU governor and O3 cache ruled out; solo requests on the deploy host are 1.12 s (v4) and 1.31 s (two Pi), timeouts occur only when 2-3 requests overlap in one guard process and serialize on the Python GIL. Next: cut per-request Python work (means 8) and round trips (means 5, 4a).",
         "recorded_at": "2026-10-10T03:52:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "f0ee8a3",
+        "summary": "Merged means 8a/8b/8c (vendored EIOS divergence recorded in PROVENANCE) and means 5/4a (batched fact snapshots, one request-scoped connection; per-request round trips v4 260->43, two Pi 132->36). Deploy host, profile hooks on: overlapped p50 -33% (v4) and -36% (two Pi). Deploy host, no hooks, serial x5 on 503cc3f: v4[complete] 5/5 passed (was 0/5), two Pi 4/5 (suspected same-Run lock-order deadlock, fix assigned).",
+        "recorded_at": "2026-10-10T05:49:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261009T211616Z-f0ee8a313183",
+        "summary": "Full CI on the deploy/CI host for f0ee8a3 (integration-s3y): 2497 passed / 8 failed (previous run 17), no new failures, 22 baseline entries passed; v4[complete] and two-Pi still fail under full parallel load. Gate not met yet.",
+        "recorded_at": "2026-10-10T05:49:00+08:00"
       }
     ]
   },
