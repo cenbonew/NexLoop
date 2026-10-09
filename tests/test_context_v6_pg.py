@@ -444,6 +444,19 @@ def test_model_result_is_written_once_for_a_recorded_request(v6,admin,tmp_path):
                     dict(ok,usage={**ok['usage'],'input':-1}),{k:v for k,v in ok.items() if k!='cost'}):
             with pytest.raises(AuthorizationUnavailable):guard(model_result=bad)
         with pytest.raises(AuthorizationUnavailable):guard(request_snapshot=request_snapshot(2,text),model_result=dict(ok,call_sequence=2))
+        # Never on a non-model operation: refused by the backend check and, with it bypassed, by SQL.
+        for operation in ('tool','inspect'):
+            with pytest.raises(AuthorizationUnavailable):
+                worker.authorize_runtime_activation(activation_ref=activation['activation_ref'],command=command,operation=operation,model_result=ok)
+        import nexloop_eios.runtime_activation as R
+        checked=R._model_result
+        R._model_result=lambda operation,value:None
+        try:
+            for operation in ('tool','inspect'):
+                with pytest.raises(AuthorizationUnavailable):
+                    worker.authorize_runtime_activation(activation_ref=activation['activation_ref'],command=command,operation=operation,model_result=dict(ok,result_status='failed'))
+        finally:R._model_result=checked
+        assert results(admin,tenant)[0][1]=='succeeded'  # the first outcome stands; no second write happened
         guard(request_snapshot=request_snapshot(2,text))
         guard(model_result={'call_sequence':2,'result_status':'unknown','usage':None,'cost':None,'response_digest':None})
     assert results(admin,tenant)==[(1,'succeeded',ok['usage'],'0.00012000','b'*64,True),(2,'unknown',None,None,None,True)]

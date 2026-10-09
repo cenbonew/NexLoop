@@ -8,14 +8,14 @@
 -- * The activation chain applies the v4 relationship and formal-currency checks to such v6
 --   packs exactly as to v4.
 
-create function authz.nexloop_context_has_relationships(p_pack jsonb) returns boolean language sql immutable set search_path=pg_catalog as $$
+create function authz.nexloop_context_has_relationships(p_pack jsonb) returns boolean language sql immutable set search_path=pg_catalog, pg_temp as $$
  select p_pack->>'schema_version'='nexloop.context-pack.v4'
   or (p_pack->>'schema_version'='nexloop.context-pack.v6' and jsonb_typeof(p_pack->'relationship_context')='object') $$;
 alter function authz.nexloop_context_has_relationships(jsonb) owner to nexloop_owner;
 revoke all on function authz.nexloop_context_has_relationships(jsonb) from public;
 
 create or replace function authz.nexloop_context_v6_command(p_digest text,p_world text,p_text text,p_signature text,p_payload text)
-returns jsonb language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+returns jsonb language plpgsql security definer set search_path=pg_catalog, pg_temp set row_security=on as $$
 declare a jsonb:=p_text::jsonb;p jsonb;k bytea;ident jsonb;tenant text;principal text;ca jsonb;cp jsonb;snapshot jsonb;pack jsonb;
  b runtime.nexloop_context_artifact_bindings;artifact runtime.nexloop_local_artifacts;cl runtime.nexloop_action_claims;
  conv runtime.nexloop_conversations;consumer text;proof jsonb;key text;fresh boolean;namespace text;context_uuid uuid;run uuid;rel boolean;core jsonb;
@@ -107,7 +107,7 @@ end $$;
 
 -- Activation chain (0092 body): v4 relationship/formal checks also for v6 packs with relationships.
 create or replace function authz.nexloop_runtime_activation_command_before_roles_v0062(p_digest text,p_world text,p_text text,p_signature text,p_payload text)
-returns jsonb language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+returns jsonb language plpgsql security definer set search_path=pg_catalog, pg_temp set row_security=on as $$
 declare a jsonb:=p_text::jsonb;p jsonb:=p_payload::jsonb;command jsonb;result jsonb;b runtime.nexloop_context_artifact_bindings;env jsonb;checked jsonb;supply jsonb;tail_env jsonb;tail_proof jsonb;formal_meta jsonb;
 begin
  result:=authz.nexloop_runtime_activation_command_v0052(p_digest,p_world,p_text,p_signature,p_payload);
@@ -153,7 +153,7 @@ end $$;
 -- Claims are quoted and the Consumer whose open work / state is shown. The required
 -- reads are derived here from the bound pack, never chosen by the caller.
 create function authz.nexloop_context_v6_copy_dependency(p_tenant text,p_world text,p_artifact text,p_principal text) returns jsonb
-language plpgsql stable security definer set search_path=pg_catalog set row_security=on as $$
+language plpgsql stable security definer set search_path=pg_catalog, pg_temp set row_security=on as $$
 declare pack jsonb;run uuid;message text;source text;reads jsonb:='{}'::jsonb;x jsonb;n integer:=0;fields jsonb;consumer text;
 begin
  select b.pack_text::jsonb,b.run_id,b.message_id,b.source_principal into pack,run,message,source from runtime.nexloop_context_artifact_bindings b
@@ -205,7 +205,7 @@ revoke all on function authz.nexloop_context_v6_copy_dependency(text,text,text,t
 alter function authz.nexloop_context_artifact_read_dependency_v2(text,text,text,text) rename to nexloop_context_artifact_read_dependency_v2_before_v6;
 revoke all on function authz.nexloop_context_artifact_read_dependency_v2_before_v6(text,text,text,text) from public,nexloop_api,nexloop_domain_worker,nexloop_scheduler,nexloop_action_worker,nexloop_identity;
 create function authz.nexloop_context_artifact_read_dependency_v2(p_digest text,p_world text,p_permit text,p_payload text)
-returns jsonb language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+returns jsonb language plpgsql security definer set search_path=pg_catalog, pg_temp set row_security=on as $$
 declare i jsonb;dep jsonb;r jsonb;
 begin
  i:=authz.nexloop_service_identity_snapshot(p_digest,p_world);perform set_config('eios.tenant_id',i->'binding'->>'tenant_id',true);
@@ -223,7 +223,7 @@ grant execute on function authz.nexloop_context_artifact_read_dependency_v2(text
 alter function authz.nexloop_read_local_artifact(text,text,text,text) rename to nexloop_read_local_artifact_before_v6;
 revoke all on function authz.nexloop_read_local_artifact_before_v6(text,text,text,text) from public,nexloop_api,nexloop_domain_worker,nexloop_scheduler,nexloop_action_worker,nexloop_identity;
 create function authz.nexloop_read_local_artifact(p_digest text,p_world text,p_permit text,p_payload text)
-returns jsonb language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+returns jsonb language plpgsql security definer set search_path=pg_catalog, pg_temp set row_security=on as $$
 declare i jsonb;dep jsonb;d jsonb:=p_payload::jsonb->'context_dependency';r jsonb;name text;reference jsonb;env jsonb;a jsonb;permit jsonb;
 begin
  i:=authz.nexloop_service_identity_snapshot(p_digest,p_world);perform set_config('eios.tenant_id',i->'binding'->>'tenant_id',true);

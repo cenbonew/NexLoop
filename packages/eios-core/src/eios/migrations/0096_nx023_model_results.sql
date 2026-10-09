@@ -2,7 +2,7 @@
 -- guard, written once per recorded request in the same transaction as a `model` authorization
 -- of the same v6 Run. Requests are unchanged; v2-v5 Runs carry neither field.
 create or replace function authz.nexloop_runtime_activation_command(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
-language plpgsql security definer set search_path=pg_catalog set row_security=on as $$
+language plpgsql security definer set search_path=pg_catalog, pg_temp set row_security=on as $$
 declare a jsonb:=p_text::jsonb;p jsonb:=p_payload::jsonb;result jsonb;s jsonb;req jsonb;command jsonb;b record;
  pack runtime.nexloop_context_packs;strat jsonb;existing runtime.nexloop_model_requests;prompt text;outcome jsonb;
 begin
