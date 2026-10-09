@@ -45,7 +45,7 @@ def publish_recorder(f,admin):
     o=f['original'];tenant=o['tenant'];manifest=copy.deepcopy(f['manifest'])
     base=next(a for a in manifest['actions'] if a['definition']['stable_name']==MESSAGE)
     rows=business_actions.compile_actions(business_actions.load(root/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
-        created_by='explicit-assembly-owner',created_at=datetime.now(UTC),object_types=manifest['object_types'],
+        created_by='explicit-assembly-owner',created_at=datetime.now(UTC),object_types=manifest['object_types'],select=(ACTION,),
         capability=CapabilityContractSnapshot.model_validate_json(json.dumps(base['capability'])))
     assert [r['definition']['stable_name'] for r in rows]==[ACTION]
     manifest['actions']+=rows
