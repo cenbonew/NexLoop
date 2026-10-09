@@ -69,6 +69,13 @@ def create_app(config:ApiConfiguration):
         app.include_router(conversation_router(config.browser,
             ports_for_browser=browser_ports, execution_profile=config.execution_profile,
             stream_seconds=config.conversation_stream_seconds))
+        from nexloop_eios.review_http import router as review_router
+        def review_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            return backend.authenticate_browser_reviewer(inspected_session)
+        app.include_router(review_router(config.browser, ports_for_browser=review_ports))
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')

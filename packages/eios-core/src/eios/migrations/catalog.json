@@ -365,6 +365,11 @@
       "version": "0073",
       "name": "0073_nx019_claim_contract_view.sql",
       "sha256": "b1682efc4c81266a9dda1fb2fb062660ff537fbbe70aa12c756ae90d5789f00d"
+    },
+    {
+      "version": "0074",
+      "name": "0074_nx046_review_workbench.sql",
+      "sha256": "5d1df70924c5ee7e482c571aaff94a43d3e21387943af89a48c3a41eeaf3eb02"
     }
   ]
 }

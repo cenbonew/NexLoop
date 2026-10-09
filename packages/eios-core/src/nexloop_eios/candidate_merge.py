@@ -289,7 +289,8 @@ class CandidateGluer:
         claims={}
         for conversation in sorted({row['conversation_id'] for row in self._claim_rows(claim_ids)}):
             for claim in self.matcher.claims.read(conversation_id=conversation)['statements']:
-                if claim['claim_id'] in claim_ids:claims[claim['claim_id']]=claim
+                # Only re-pointed Claims; resolved/superseded/rejected ones are left as they are.
+                if claim['claim_id'] in claim_ids and claim['resolution_state']=='unresolved':claims[claim['claim_id']]=claim
         decisions={cid:self._decision(candidate,target_ref,claim) for cid,claim in claims.items()}
         provider=ScriptedMatchProvider({k:v for k,v in decisions.items() if v is not None})
         out={}
@@ -299,6 +300,36 @@ class CandidateGluer:
             match=self.matcher.match_claim(claim,matcher_version=version,provider=provider)
             out[claim_id]={'outcome':match['outcome'],'applied':self.matcher.apply(match['proposal_id']) if match.get('proposal_id') else None}
         return out
+
+    # ------------------------------------------------- NX-044 reflow entry points
+    def reflow_merged(self,candidate_id):
+        """After a merge (service glue or NX-044 merge_into + ontology.nexloop_candidate_merge_effects):
+        reflow the alias into recall, then re-match and apply the re-pointed Claims."""
+        candidate=next((c for c in self._read({'verb':'candidates','status':['merged']}) if c['candidate_id']==candidate_id),None)
+        if candidate is None:raise LookupError('merged candidate required')
+        texts={_norm(t) for t in self._texts(candidate)}
+        alias=next((a for a in self._read({'verb':'aliases'}) if a['canonical_ref']==candidate['merge_target_ref'] and _norm(a['alias_text']) in texts),None)
+        if alias is None:raise LookupError('alias for merged candidate missing')
+        self.indexer.index_alias(alias['alias_id'],alias['canonical_ref'],alias['alias_text'])
+        claims=[x[6:] for x in candidate['dependent_claims'] if x.startswith('claim:')]
+        return GlueOutcome(candidate_id,'merged',candidate['merge_scores'],alias_id=alias['alias_id'],
+            rematched=self._rematch(candidate,candidate['merge_target_ref'],claims))
+
+    def reflow_published(self,candidate_id):
+        """After NX-044 publishes the definition and ontology.nexloop_candidate_publish_effects re-points the
+        Claims: reindex the owner type, then re-match. Applying still requires the published edit Action
+        bundle to include the new definition (NX-044); otherwise the NX-020 guards keep the Claim unresolved."""
+        candidate=next((c for c in self._read({'verb':'candidates','status':['published']}) if c['candidate_id']==candidate_id),None)
+        if candidate is None:raise LookupError('published candidate required')
+        p=candidate['candidate']['proposed'];kind=candidate['kind']
+        if kind=='property':owner=p['owner_type_ref'].rsplit(':',1)[1];target=f"eios:property:{owner}/{p['name']}"
+        elif kind=='vocabulary_value':
+            owner,prop=p['property_ref'].split(':',2)[2].split('/',1);target=vocabulary_ref(owner,prop,p['value'])
+        else:raise LookupError('reflow after publication supports property and vocabulary value candidates')
+        self.matcher._schemas.pop(owner,None)
+        self.indexer.index_object_type(owner)
+        claims=[x[6:] for x in candidate['dependent_claims'] if x.startswith('claim:')]
+        return GlueOutcome(candidate_id,'published',candidate['merge_scores'],rematched=self._rematch(candidate,target,claims))
 
     def _claim_rows(self,claim_ids):
         # Only ids → conversations; Claim content is then read under current Conversation READ (NX-019).
@@ -312,6 +343,8 @@ class CandidateGluer:
                 'rationale':f'merged candidate {candidate["candidate_id"]} into {target_ref}'}
         consumer=claim['subject']['kind']=='consumer'
         if candidate['kind']=='property':return d(target_ref,value,None if consumer else p['owner_type_ref'])
+        if candidate['kind']=='vocabulary_value' and candidate['status']=='published':
+            return d(p['property_ref'],p['value'],None if consumer else 'eios:object_type:'+p['property_ref'].split(':',2)[2].split('/',1)[0])
         if candidate['kind']=='vocabulary_value':
             type_name,prop=p['property_ref'].split(':',2)[2].split('/',1)
             schema=self.matcher._schema(type_name)
@@ -322,22 +355,40 @@ class CandidateGluer:
 
 
 class ReviewQueueReader:
-    """NX-046 queue: pending_review of the caller's own tenant/world, review permission required."""
+    """NX-046 reads: pending_review of the caller's own tenant/world, review permission (ontology.schema.review EXECUTE) required.
+
+    The caller has already re-authenticated the session (human browser or service).
+    A review authorization that cannot be granted is reported as PermissionError,
+    so the workbench shows "no review permission" rather than an empty queue.
+    """
 
     def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
 
-    def pending(self,*,limit=50):
-        body=canonical_payload({'limit':limit})
+    def _claims(self,body):
         target=resource_id(ResourceType.ACTION,REVIEW_ACTION,1);entries=[]
-        query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
-        decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+        try:
+            query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
+            decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
+        except Exception:raise PermissionError('review permission unavailable') from None
         if not decision.allowed or not decision.authoritative or decision.obligations:raise PermissionError('review queue denied')
         auth=self.session.authentication
         claims={'protocol':'nexloop-review-queue-v1','key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
             'credential_id':auth.credential_id,'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,
             'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),'parameters_digest':hashlib.sha256(body.encode()).hexdigest()}
-        text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-review-queue-v1:'+text).encode(),'sha256').hexdigest()
+        text=canonical_payload(claims)
+        return text,hmac.new(self.signer.material,('nexloop-review-queue-v1:'+text).encode(),'sha256').hexdigest()
+
+    def _call(self,function,payload):
+        body=canonical_payload(payload);text,signature=self._claims(body)
         with self.pool.connection() as db,db.transaction():
             verify_application_role(db)
-            return db.execute('select authz.nexloop_read_review_queue(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
+            return db.execute(f'select authz.{function}(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
+
+    def pending(self,*,limit=50):
+        if type(limit) is not int or not 1<=limit<=200:raise ValueError('limit')
+        return self._call('nexloop_read_review_queue',{'limit':limit})
+
+    def candidate(self,candidate_id):
+        if type(candidate_id) is not str or not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',candidate_id):raise ValueError('candidate id')
+        return self._call('nexloop_read_review_candidate',{'candidate_id':candidate_id})

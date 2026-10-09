@@ -245,6 +245,18 @@ class BrowserServices:
         return self._backend._invoke_browser(self._inspected_session, 'read_message_service_receipt', message_id=message_id)
 
 
+class ReviewServices:
+    """NX-046 workbench reads for an actual Human session; decisions are NX-044 and not exposed here."""
+    def __init__(self, backend, inspected_session):
+        self._backend, self._inspected_session = backend, inspected_session
+
+    def review_queue(self, *, limit=50):
+        return self._backend._invoke_review(self._inspected_session, 'pending', limit=limit)
+
+    def review_candidate(self, *, candidate_id):
+        return self._backend._invoke_review(self._inspected_session, 'candidate', candidate_id=candidate_id)
+
+
 class Backend:
     def __init__(self, pool, store, signer):
         self._pool, self._store, self._signer = pool, store, signer
@@ -296,6 +308,24 @@ class Backend:
             # principal to a service credential or accepts caller-supplied scope.
             authenticate_browser_business(self._pool, inspected_session, world='real')
             return BrowserServices(self, inspected_session)
+
+    def authenticate_browser_reviewer(self, inspected_session):
+        from nexloop_eios.browser_authorization import authenticate_browser_business
+        with self._lock:
+            self._assert_open()
+            authenticate_browser_business(self._pool, inspected_session, world='real')
+            return ReviewServices(self, inspected_session)
+
+    def _invoke_review(self, inspected_session, operation, **arguments):
+        from nexloop_eios.browser_authorization import authenticate_browser_business
+        from nexloop_eios.candidate_merge import ReviewQueueReader
+        with self._lock:
+            self._assert_open()
+            if operation not in ('pending', 'candidate'):
+                raise ValueError('unsupported review operation')
+            # Current PG authentication of the Human session on every read.
+            session = authenticate_browser_business(self._pool, inspected_session, world='real')
+            return getattr(ReviewQueueReader(self._pool, session, self._signer), operation)(**arguments)
 
     def _invoke_browser(self, inspected_session, operation, **arguments):
         from nexloop_eios.browser_authorization import authenticate_browser_business
