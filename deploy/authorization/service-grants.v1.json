@@ -112,9 +112,9 @@
   ],
   "property_access_rules": [
     {"principal": "claim_matcher", "type_name": "Consumer", "operations": ["edit", "read"],
-     "property_groups": ["channel_tech", "lifestyle", "needs_intent", "pain_point", "preference", "purchase_behavior", "sentiment_attitude"],
+     "property_groups": ["channel_tech", "demographics", "lifestyle", "needs_intent", "other", "pain_point", "preference", "purchase_behavior", "sentiment_attitude", "spending_power"],
      "include_review_published": true, "basis_schema_version": 1, "valid_until": "2027-10-09T00:00:00+00:00",
-     "purpose": "Apply accepted Claims to every real-world Consumer without per-object grants; groups restricted by the owner are never derived.",
+     "purpose": "Apply accepted Claims to every real-world Consumer without per-object grants; all ten ADR-019 §2 groups (owner decision 2026-10-09: none restricted); groups restricted by the owner are never derived.",
      "source_task": "NX-044"}
   ],
   "excluded_by_policy": [

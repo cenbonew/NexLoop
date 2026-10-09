@@ -211,7 +211,9 @@ def test_property_access_rule_and_owner_restriction_are_written_only_by_trusted_
     matcher=next(p for p in d['manifest']['principals'] if p['role']=='claim_matcher')
     stored=dict(admin.execute("select fact_kind,payload from authz.nexloop_authority_facts where fact_kind in ('property_access_rule','property_group_restriction')").fetchall())
     assert stored['property_access_rule']['principal_id']==matcher['principal_id'] and stored['property_access_rule']['include_review_published'] is True
-    assert stored['property_access_rule']['operations']==['edit','read'] and 'spending_power' not in stored['property_access_rule']['property_groups']
+    # Owner decision: the matcher may derive every ADR-019 §2 group (contract enum of candidate-definition property_group).
+    from nexloop_eios.claim_matching import GROUPS
+    assert stored['property_access_rule']['operations']==['edit','read'] and stored['property_access_rule']['property_groups']==sorted(GROUPS)
     # Owner decision (2026-10-09): no Consumer group is restricted; the fact still exists so derivation is enabled.
     assert stored['property_group_restriction']['restricted_groups']==[] and 'project owner' in stored['property_group_restriction']['decision']
     assert {'kind':'property_access_rule','key':[matcher['principal_id'],'Consumer']} in report['facts_written'] and report['property_access']==[]

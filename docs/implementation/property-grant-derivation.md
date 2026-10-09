@@ -140,7 +140,7 @@
 2. `include_review_published` 必须显式：Python 清单校验与 SQL 都不给默认值；`deploy/authorization/service-grants.v1.json`（manifest_version 3）中 claim_matcher 的 Consumer 规则写 true。
 3. 对象范围：该类型 real world 全部对象，不与 Claim 状态耦合。
 4. `EiosRecallAuthorizer.readable` 在配置路径拒绝时，对 OBJECT/PROPERTY 名查询 `nexloop_property_access_basis`；读取本身仍由 SQL 尾检重新派生。
-5. 受限组：负责人已决定（2026-10-09，经调度员转达）`demographics` 与 `spending_power` 都不受限。`deploy/authorization/owner-property-restrictions.json`（`nexloop-owner-property-restrictions/1`）记录 Consumer：`restricted_groups = []`；受限组事实仍须存在，否则派生不生效。`property_group_restriction` 事实只从这个单独文件编译（`service_grants --owner-restrictions`），服务清单不能携带受限组（顶层键校验拒绝）；内容变更须由负责人决定。机制保留：规则列出受限组时 doctor 报 `restricted_group_listed`（不拒绝清单，SQL 也绝不派生）；规则所在类型没有受限组事实时报 `owner_restriction_missing`。测试用合成受限组验证该机制。claim_matcher 规则当前列出 7 个组，未列 `demographics`、`spending_power`，因此这两组目前仍不派生；是否加入规则需另行决定。
+5. 受限组：负责人已决定（2026-10-09，经调度员转达）`demographics` 与 `spending_power` 都不受限。`deploy/authorization/owner-property-restrictions.json`（`nexloop-owner-property-restrictions/1`）记录 Consumer：`restricted_groups = []`；受限组事实仍须存在，否则派生不生效。`property_group_restriction` 事实只从这个单独文件编译（`service_grants --owner-restrictions`），服务清单不能携带受限组（顶层键校验拒绝）；内容变更须由负责人决定。机制保留：规则列出受限组时 doctor 报 `restricted_group_listed`（不拒绝清单，SQL 也绝不派生）；规则所在类型没有受限组事实时报 `owner_restriction_missing`。测试用合成受限组验证该机制。按负责人本意，claim_matcher 规则列出 ADR-019 §2 全部十个组（含 `demographics`、`spending_power`、`other`）。
 6. 审核工作台：`ReviewDecisionPort.derivation_impact` 调用 `authz.nexloop_read_review_derivation_impact`（Human 审核读协议）；`ReviewWorkbenchPorts.review_candidate` 合并 `derivation_impact`。前端在批准按钮前显示所属组（中文名+代码）、是否受限、会自动读写的服务主体及读/写；无法核验（null）时对新属性禁用“批准发布”。
 
 实现中确认的语义：
