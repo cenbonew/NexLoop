@@ -141,17 +141,20 @@
       "source_path": "src/eios/authz/_fact_resolver.py",
       "destination": "packages/eios-core/src/eios/authz/_fact_resolver.py",
       "upstream_sha256": "e4cdce52f68940996328fcc553bceb9dae381daec83f5c16cf680728a9316181",
-      "adaptations": [],
-      "nexloop_sha256": "e4cdce52f68940996328fcc553bceb9dae381daec83f5c16cf680728a9316181"
+      "adaptations": [
+        "NX-049 8a: verified-instance registry; _exact_model returns an instance unchanged only when verified_model_from_json fully validated it itself and every reachable object is still identical (in-place change, model_construct, model_copy or any other origin takes the upstream full revalidation); new verified_model_from_json, _reachable, _is_verified; NEXLOOP_EIOS_FULL_REVALIDATION=1 disables; decisions and digests unchanged"
+      ],
+      "nexloop_sha256": "7aeba4d902f71e48a611e53a819799feda27bf31f4e11d3b3dfc6798b86b4095"
     },
     {
       "source_path": "src/eios/authz/applications.py",
       "destination": "packages/eios-core/src/eios/authz/applications.py",
       "upstream_sha256": "118a669ab66f62e50c7d4bd1f35d01c3d8b5ffc7879e86f0ebebf16baa50df5c",
       "adaptations": [
-        "NexLoop adds object/property/relation to service application/scope resource vocabulary; all frozen intersection/ceiling semantics preserved"
+        "NexLoop adds object/property/relation to service application/scope resource vocabulary; all frozen intersection/ceiling semantics preserved",
+        "NX-049 8b: bounded LRU memoization of the pure _typed_resource_id check and the ResourceRestriction digest (_restriction_digest) for exact str arguments; str subclasses and errors are never cached; results unchanged"
       ],
-      "nexloop_sha256": "1a72390857e0463f958506a5d531ca42e33d028a09a3b5ed1b8c4a6434b88f66"
+      "nexloop_sha256": "f70b5cc007b255179510749ed26377048feddbefd074a8b0bf7fe7a9356cfc10"
     },
     {
       "source_path": "src/eios/authz/audit.py",

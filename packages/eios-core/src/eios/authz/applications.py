@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from enum import Enum
+from functools import lru_cache
 from hashlib import sha256
 from json import dumps
 import re
@@ -283,12 +284,8 @@ class ResourceRestriction(_StrictFrozenModel):
     def _validate_resource_id(self) -> ResourceRestriction:
         if self.resource_id is not None:
             _typed_resource_id(self.resource_id, self.resource_type, "resource_id")
-        expected_digest = _canonical_digest(
-            {
-                "tenant_id": self.tenant_id,
-                "resource_type": self.resource_type,
-                "resource_id": self.resource_id,
-            }
+        expected_digest = _restriction_digest(
+            self.tenant_id, self.resource_type, self.resource_id
         )
         if (
             self.restriction_digest is not None
@@ -1358,7 +1355,54 @@ def _bounded_non_blank(value: str, field_name: str) -> str:
     return value
 
 
+# NexLoop adaptation (NX-049 8b): bounded memoization of pure validators. Only
+# exact str arguments use the cache (str subclasses take the uncached path, so
+# the type checks inside still see them); exceptions are never cached.
+_MEMO_SIZE = 8192
+
+
 def _typed_resource_id(value: str, resource_type: str, field_name: str) -> str:
+    if type(value) is str and type(resource_type) is str and type(field_name) is str:
+        _typed_resource_id_memo(value, resource_type, field_name)
+        return value
+    return _typed_resource_id_uncached(value, resource_type, field_name)
+
+
+@lru_cache(maxsize=_MEMO_SIZE)
+def _typed_resource_id_memo(value: str, resource_type: str, field_name: str) -> str:
+    return _typed_resource_id_uncached(value, resource_type, field_name)
+
+
+def _restriction_digest(
+    tenant_id: str, resource_type: str, resource_id: str | None
+) -> str:
+    if (
+        type(tenant_id) is str
+        and type(resource_type) is str
+        and (resource_id is None or type(resource_id) is str)
+    ):
+        return _restriction_digest_memo(tenant_id, resource_type, resource_id)
+    return _restriction_digest_uncached(tenant_id, resource_type, resource_id)
+
+
+def _restriction_digest_uncached(
+    tenant_id: str, resource_type: str, resource_id: str | None
+) -> str:
+    return _canonical_digest(
+        {
+            "tenant_id": tenant_id,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+        }
+    )
+
+
+_restriction_digest_memo = lru_cache(maxsize=_MEMO_SIZE)(_restriction_digest_uncached)
+
+
+def _typed_resource_id_uncached(
+    value: str, resource_type: str, field_name: str
+) -> str:
     if _CANONICAL_RESOURCE_ID.fullmatch(value) is None:
         raise ValueError(
             f"{field_name} must be a canonical bounded resource identifier"

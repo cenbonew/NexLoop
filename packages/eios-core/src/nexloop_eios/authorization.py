@@ -17,6 +17,7 @@ import threading
 import time
 
 from eios.authz import facts as F
+from eios.authz._fact_resolver import verified_model_from_json
 from eios.authz.errors import AuthorizationUnavailable
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
@@ -55,7 +56,7 @@ class FactParseCache:
                 self.hits += 1
                 return fact
             self.misses += 1
-        fact = model.model_validate_json(text)
+        fact = verified_model_from_json(model, text)
         with self._lock:
             self._entries[key] = fact
             self._entries.move_to_end(key)

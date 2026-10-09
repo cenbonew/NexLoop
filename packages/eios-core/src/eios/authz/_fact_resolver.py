@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
+import operator
+import os
 from enum import Enum
 from types import MappingProxyType
 from types import TracebackType
 from threading import Lock
 from typing import ContextManager, Never, Protocol, TypeVar
-from weakref import WeakKeyDictionary
+from weakref import WeakKeyDictionary, ref
 
 from pydantic import BaseModel
 
-from eios.identity.models import SubjectKind
+from eios.identity.models import FrozenJsonMap, SubjectKind
 
 from .applications import ApplicationMode
 from .errors import AuthorizationUnavailable
@@ -1134,9 +1136,113 @@ def _raise_resolution_failure(
     raise error.with_traceback(traceback)
 
 
+# NexLoop adaptation (NX-049 8a): verified-instance registry.
+#
+# Strict frozen fact models revalidate on every model_validate
+# (revalidate_instances="always"), which recomputes every seal digest of a fact
+# that was already fully validated when it was parsed. The registry lets
+# _exact_model return such an instance unchanged instead of revalidating it.
+#
+# Only verified_model_from_json() adds entries, and only for the instance it
+# has just produced itself by a full model_validate_json; no function accepts a
+# caller-supplied instance for registration. Each entry keeps the identity of
+# every object reachable from the instance at registration (model fields,
+# private attributes, container items, scalars and class references). A lookup
+# re-walks the instance and compares identities, so any later in-place change
+# (object.__setattr__, __dict__ edits, container mutation) misses and takes the
+# upstream full revalidation unchanged. Entries die with their instance (weak
+# reference). Instances from model_construct, model_copy or any other path are
+# never registered and are always fully revalidated.
+# NEXLOOP_EIOS_FULL_REVALIDATION=1 (or _TRUST_VERIFIED = False) disables the
+# shortcut.
+_TRUST_VERIFIED = os.environ.get("NEXLOOP_EIOS_FULL_REVALIDATION") != "1"
+_VERIFIED: dict[int, tuple[object, list[object]]] = {}
+_VERIFIED_LOCK = Lock()
+_SCALARS = (type(None), bool, int, float, str, bytes)
+
+
+def _reachable(root: object) -> list[object] | None:
+    """Every object reachable from a frozen fact, in deterministic order."""
+    out: list[object] = []
+    stack: list[object] = [root]
+    while stack:
+        value = stack.pop()
+        out.append(value)
+        kind = type(value)
+        if kind in _SCALARS or isinstance(value, (Enum, datetime, type)):
+            continue
+        if isinstance(value, BaseModel):
+            fields = value.__dict__
+            private = value.__pydantic_private__
+            extra = value.__pydantic_extra__
+            out.append(fields)
+            out.append(private)
+            out.append(extra)
+            stack.extend(fields.values())
+            if private:
+                stack.extend(private.values())
+            if extra:
+                stack.extend(extra.values())
+        elif kind in (tuple, list, frozenset, set):
+            stack.extend(value)  # type: ignore[arg-type]
+        elif kind is dict:
+            for key, item in value.items():  # type: ignore[attr-defined]
+                stack.append(key)
+                stack.append(item)
+        elif kind is FrozenJsonMap:
+            data = value._data  # type: ignore[attr-defined]
+            out.append(data)
+            for key, item in data.items():
+                stack.append(key)
+                stack.append(item)
+        else:
+            return None
+    return out
+
+
+def verified_model_from_json(model: type[FactT], text: str | bytes) -> FactT:
+    """Fully validate JSON into a strict frozen model and register the result."""
+    instance = model.model_validate_json(text)
+    config = model.model_config
+    if (
+        _TRUST_VERIFIED
+        and type(instance) is model
+        and config.get("frozen") is True
+        and config.get("strict") is True
+        and config.get("revalidate_instances") == "always"
+    ):
+        nodes = _reachable(instance)
+        if nodes is not None:
+            key = id(instance)
+
+            def forget(dead: object, key: int = key) -> None:
+                entry = _VERIFIED.get(key)
+                if entry is not None and entry[0] is dead:
+                    _VERIFIED.pop(key, None)
+
+            with _VERIFIED_LOCK:
+                _VERIFIED[key] = (ref(instance, forget), nodes[1:])
+    return instance
+
+
+def _is_verified(value: object) -> bool:
+    entry = _VERIFIED.get(id(value))
+    if entry is None or entry[0]() is not value:
+        return False
+    current = _reachable(value)
+    recorded = entry[1]
+    return (
+        current is not None
+        and len(current) == len(recorded) + 1
+        and all(map(operator.is_, current[1:], recorded))
+    )
+
+
 def _exact_model(value: object, expected: type[FactT], message: str) -> FactT:
     if type(value) is not expected:
         raise AuthorizationUnavailable(message)
+    if _TRUST_VERIFIED and _is_verified(value):
+        return value  # type: ignore[return-value]
     try:
         return expected.model_validate(value, strict=True)
     except Exception:
