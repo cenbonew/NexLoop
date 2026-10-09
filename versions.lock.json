@@ -114,9 +114,20 @@
   },
   "images": {
     "postgres": {
-      "reference": "docker.io/library/postgres:18.4-bookworm",
-      "digest": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
-      "status": "verified_isolated_core_test_compose_runtime"
+      "reference": "docker.io/pgvector/pgvector:0.8.5-pg18-bookworm",
+      "digest": "sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0",
+      "postgres_version": "18.4",
+      "pgvector_version": "0.8.5",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "status": "resolved_index_manifest_only_runtime_unverified",
+      "replaces": {
+        "reference": "docker.io/library/postgres:18.4-bookworm",
+        "digest": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+        "reason": "migration nx021_recall_index requires CREATE EXTENSION vector; the official postgres image has no pgvector"
+      }
     },
     "valkey": {
       "reference": "docker.io/valkey/valkey:8.1.10-alpine",
