@@ -2,7 +2,7 @@
 
 分支 `o5b-design`，BASE main `194e12b`。只写文档，不改代码和迁移。L1 与 L4 共同设计；L4 的“锁后尾验占比”测量（`perf-o5b-measure`）出来后，补全 §7 并定稿。
 
-状态：**初稿（已含调度员裁定）**。§7 的数字待 L4 填入。裁定结果：只实现级别 1；级别 2 为候选、未采用；同意授予 TEMP 权限，但须补齐 §6.2 第 7 项的三种伪造负例；验收线同意。
+状态：**定稿候审**（已纳入调度员裁定和 L4 数据，L4 数据见 `perf-o5b-measure` `7eb6bbf`，`perf-o1-o4.md` “O5b 第一步”一节）。与初稿相比有一处实质变化：按 L4 的建议，可见快照 `pg_current_snapshot()` 进入去重键，行锁等待改由快照变化自动作废，不再逐点设屏障；advisory 锁仍设显式屏障。见 §3.3，需要调度员确认。裁定结果：只实现级别 1；级别 2 为候选、未采用；同意授予 TEMP 权限，但须补齐 §6.2 第 7 项的三种伪造负例；验收线同意。
 
 ## 0. 目标与硬约束
 
@@ -43,17 +43,23 @@
 | 作用域 | 键的组成 | 收益 | 风险 | 结论 |
 |---|---|---|---|---|
 | 语句 | txid + `statement_timestamp()` + 摘要 | 覆盖已测得的 72–78% | 最低：Python 侧的锁等待（例如 `_effect_tool` 的 Run 锁）都在独立语句中，自动失效 | **采用为上限** |
-| 阶段（语句内被屏障切开的段） | 语句键 + 阶段号 | 语句级收益减去锁后尾验 | 需要在语句内的加锁点插入屏障 | **采用**：去重单位 = 语句 ∩ 阶段 |
+| 阶段（语句内同一可见快照、同一屏障段、同一写纪元） | 语句键 + 可见快照 + 阶段号 + 写纪元 | L4 实测：v4 约 61–87% 的重复，两 Pi 约 86–98% 的重复（§7.1） | 快照或纪元变化即作废；advisory 锁点需显式屏障 | **采用**：去重单位 = 语句 ∩ 阶段 |
 | 事务 | txid + 摘要 | 再加上跨语句的重复（未测，预计较小：Python 每个请求的语句数不多） | Python 在两条语句之间做的事 SQL 看不到 | **不采用**；如需要另立项 |
 | 跨事务 / 跨请求 | — | — | 破坏 H1 / H2，也违反 O1 的约定 | **禁止** |
 
-**摘要键**为 `sha256(p_digest || p_world || p_claims::text)`。jsonb 的文本是规范化的；claims 包含 `expires_at`、directory_hash、12 条 record_hash 以及派生的 basis。claims 中任何字段变化都会落到不同的键上，不需要单独比较。
+**完整键**（每一项不一致都等同于未命中）：
+- `sha256(p_digest || p_world || p_claims::text)`：jsonb 的文本是规范化的；claims 包含 `expires_at`、directory_hash、12 条 record_hash 以及派生的 basis，任何字段变化都会落到不同的键上；
+- 当前事务 id（`pg_current_xact_id()`）与 `statement_timestamp()`；
+- 可见快照 `pg_current_snapshot()::text`（L4 建议）：READ COMMITTED 下函数内每条语句取新快照，快照不变等价于“自上次相同断言以来没有任何新提交或中止可见”；
+- 阶段号（advisory 屏障推进，§3.3）与本事务写纪元（触发器推进，§3.1）；
+- `current_setting('eios.tenant_id', true)` 与 `current_setting('TimeZone')`：返回的 binding 中时间戳文本依赖会话 TimeZone。
 
 ## 3. 失效条件
 
 只有“命中”路径跳过昂贵的部分（事实加锁、事实快照、两次身份快照）。每次命中仍然执行以下两项：
 - **时钟复核（每次命中必做）**：条目保存 `deadline = least(claims.expires_at, 所有嵌套 envelope 的 expires_at, 规则 valid_until, 凭据 expires_at)`。命中时要求 `deadline > clock_timestamp()`，否则视为未命中，回到完整断言（它会以原错误码 42501 拒绝）。错误信息与路径不变，所以期限类测试的断言不受影响。
-- **事务与语句校验**：键中的 txid、`statement_timestamp()` 必须与当前一致。不一致等同于未命中。
+- **事务、语句与快照校验**：键中的 txid、`statement_timestamp()`、可见快照、阶段号、写纪元必须与当前一致。不一致等同于未命中。
+- **副作用重放**：核心断言会 `set_config('eios.tenant_id', claims.tenant_id, true)`。命中时必须做同样的设置，使后续语句看到的会话状态与完整路径完全相同。实施前要审计整条包装链的其余副作用（`set_config`、写入），全部列入命中路径或证明不存在，见 §8。
 
 ### 3.1 撤权
 - **其他事务的撤权**：被 §1 的 `FOR SHARE` 挡在本事务之后，语义与现在相同（现在也是阻塞）。本事务提交后，下一条语句或下一个请求重新断言。
@@ -62,6 +68,9 @@
   - `authz.nexloop_service_credentials`
   - `control.nexloop_tenants`
   - 派生输入表：`ontology.objects`、`ontology.object_type_versions`、`runtime.nexloop_conversations`、`runtime.nexloop_conversation_messages`、`runtime.nexloop_message_outbox`
+  - 浏览器路径的会话与账号表（L4 指出：浏览器会话的 touch 会在业务事务内写入）。实施时以审计结果为准。
+
+  快照不反映本事务自己的写入，所以写纪元不能用快照代替。
 
   `ontology.objects` 写入较频繁，触发器只做一次计数加 1，代价可以忽略；作废后最多回到现在的成本。
 
@@ -69,22 +78,34 @@
 见上面的时钟复核。证明的有效期不会因为命中而延长（H3），因为 deadline 取自 claims 本身，而不是首次校验的时刻。
 
 ### 3.3 锁等待（H1）
-语句内的每个“可能等待的加锁点”之后调用 `authz.nexloop_read_memo_barrier()`，阶段号加 1，此后的断言全部未命中、完整重跑。级别 1 必须覆盖的加锁点：
+H1 的要求：任何真实发生的锁等待之后，尾验都完整重跑。按锁的种类分两种方式保证：
 
-| 来源 | 加锁点 | 说明 |
+**行锁（`FOR SHARE` / `FOR UPDATE` / 插入冲突等待）：由可见快照自动保证。**
+- 等待行锁，就是等待持有者的事务结束。持有者加了行锁，就必然分配了 xid（行锁要写 tuple 的 xmax）。
+- 持有者结束（提交或中止）后，它的 xid 离开 `xip`，或者 `xmax` 越过它，下一次 `pg_current_snapshot()` 的文本必然变化。
+- 因此，凡是真的等待过的行锁，之后的相同断言都会因快照变化而未命中，完整重跑。只是取锁、没有等待的情况下快照不变，这时可见数据确实没有变化，可以命中。
+- 这仍是**级别 1**：每次真实等待都完整重跑。它不是级别 2：级别 2 是在数据可能已变时，用不变量论证跳过重跑。
+- 好处：不必在 `read_object` 这类热循环里的对象行锁之后设屏障。逐点设屏障会作废整个语句此前的全部条目，抹掉 L4 测得的大部分收益。
+
+**advisory 锁：显式屏障。**
+- advisory 事务锁的持有者可能没有 xid（只拿锁、只读），它结束时快照可能不变。所以每个 `pg_advisory_xact_lock` 之后都调用 `authz.nexloop_read_memo_barrier()`，阶段号加 1，此后全部未命中。
+- 是否使用会话级 `pg_advisory_lock` 需要审计；产品迁移目前只见事务级用法，若发现会话级用法同样设屏障。
+
+| 来源 | 加锁点 | 方式 |
 |---|---|---|
-| 0039 | `pg_advisory_xact_lock('nexloop-runtime-execution:'||run)` 之后；marker `insert … on conflict` 之后（可能等待并发插入的同一行） | 0039 的第 2、3 次 `_v0038` 调用因此都是完整尾验 |
-| 0085 | `claims_tail` 中 `pg_advisory_xact_lock('nexloop-role-effect:'||run)` 之后 | Run 级串行之后的提交尾 |
-| 0065 | `nexloop-action` advisory 锁之后；第 71 行 `FOR UPDATE` 之后 | 收据对账 |
-| 0052 / 0053 / 0063 / 0081 | 第 58 / 138 / 120 / 192 行的 `FOR UPDATE` 之后 | context artifact、catalog、role runtime、role policy 绑定 |
-| 0011 `read_object` | 对象行 `FOR SHARE` 之后（函数末尾第二次断言 `a` 是尾验） | 见 §3.4 |
+| 0039 | `pg_advisory_xact_lock('nexloop-runtime-execution:'||run)` | 显式屏障。第 2 次 `_v0038` 调用因此是完整尾验 |
+| 0039 | marker `insert … on conflict`（可能等待并发插入的同一行） | 行锁，由快照保证；可按需加显式屏障，成本很小 |
+| 0085 | `claims_tail` 中 `pg_advisory_xact_lock('nexloop-role-effect:'||run)` | 显式屏障 |
+| 0065 | `nexloop-action` advisory 锁 | 显式屏障 |
+| 0065 / 0052 / 0053 / 0063 / 0081 | 第 71 / 58 / 138 / 120 / 192 行的 `FOR UPDATE` | 行锁，由快照保证；这几处不在热循环里，建议同时加显式屏障（双保险，成本可忽略） |
+| 0011 `read_object` 及派生路径 | 对象行、规则行等 `FOR SHARE` | 行锁，由快照保证，**不设显式屏障** |
 | Python `_effect_tool` | `pg_advisory_xact_lock('nexloop-role-effect:'||run)` 是独立语句 | 语句作用域自动失效，不需要屏障 |
 
-**屏障清单必须穷尽**：实施时用脚本列出 activation / effect / context 链上所有函数体中的 `for update`、`for share`（排除断言内部对授权输入的加锁）和 `pg_advisory_xact_lock`，与屏障清单逐项比对。比对作为测试固化，见 §6.3，函数体变化时自动报警。
+**advisory 屏障清单必须穷尽**：实施时用脚本列出 activation / effect / context 链上所有函数体中的 `pg_advisory_xact_lock` / `pg_advisory_lock`，以及上表要求加双保险屏障的 `FOR UPDATE`，与屏障清单逐项比对。比对作为测试固化，见 §6.3，函数体变化时自动报警。
 
 ### 3.4 级别 1（采用）与级别 2（候选，未采用）
-- **级别 1（采用，满足 H1 的字面要求）**：每个加锁点之后都设屏障，所有尾验完整重跑。收益 = 阶段内重复。
-- **级别 2（候选，未采用）**：只在 advisory 锁和 `FOR UPDATE` 之后设屏障。对非授权行的 `FOR SHARE`（例如 `read_object` 的对象行）之后不设屏障。论证：
+- **级别 1（采用，满足 H1 的字面要求）**：任何真实的锁等待之后尾验都完整重跑。行锁等待由快照变化自动作废，advisory 锁设显式屏障（§3.3）。收益 = 同一快照、同一屏障段内的重复。
+- **级别 2（候选，未采用）**：即使锁等待之后快照已经变化（真实等待过、可能有新提交），只要授权输入都被本事务锁着，也不完整重跑，只做时钟复核。可省下 L4 的 `new_snapshot_lock` 类（v4 约 6–7% 的重复）。论证：
   - 这类等待期间，授权输入都已被本事务锁住，不会变化；
   - 时钟复核照常执行；
   - 因此命中与完整重跑的判定逐项相同。
@@ -100,7 +121,8 @@
 memo 存放在表中，见 §4。plpgsql 的 `EXCEPTION` 块回滚子事务时，条目随之回滚，与被释放的行锁一致。在被回滚的子事务中校验过的 claims，之后必然完整重跑。
 
 ### 3.7 其他
-- 不同的 digest（Source 会话与 Run 会话）、不同 world、不同租户，落到不同的键。
+- 不同的 digest（Source 会话与 Run 会话）、不同 world、不同租户、不同 TimeZone，落到不同的键。
+- 负载敏感：并发提交越多，快照变化越频繁，可去重部分越少（L4 第 6 点）。只影响收益，不影响正确性。
 - 拒绝不缓存（H5）。
 - `assert_edit_authority` 不纳入去重：写路径，次数少。
 
@@ -127,13 +149,13 @@ memo 存放在表中，见 §4。plpgsql 的 `EXCEPTION` 块回滚子事务时�
    alter function authz.nexloop_assert_read_authority rename to nexloop_assert_read_authority_before_read_memo_v00xx;
    ```
    新的外层函数：
-   - 计算键；
-   - 命中且时钟复核通过 → 返回缓存的 binding；
+   - 计算键（§2 的完整键）；
+   - 命中且时钟复核通过 → 重放副作用（`eios.tenant_id`），返回缓存的 binding；
    - 否则调用内层，成功后写入条目（deadline 取自 claims 与嵌套 envelope 中的最小 `expires_at` / `valid_until`）。
 
    owner 与 revoke 写法沿用 0084 的 `do $grants$` 块。
-4. 语句级触发器 `nexloop_read_memo_invalidate`，加在 §3.1 列出的表上。
-5. 用 `create or replace` 重定义 §3.3 加锁点所在的函数体（0039 命令、0085 `claims_tail`、0065、0052、0053、0063、0081、0011 `read_object` 的当前最外层或私有体），只增加 `perform authz.nexloop_read_memo_barrier();` 一行。已发布的迁移文件与校验和不变。实施前须对齐当时最新的包装链：L3 的 0088–0090 和 L4 的 O2b 可能又包了一层。
+4. 语句级触发器 `nexloop_read_memo_invalidate`，加在 §3.1 列出的表上，推进写纪元。
+5. 用 `create or replace` 重定义 §3.3 中需要显式屏障的函数体（0039 命令、0085 `claims_tail`、0065，以及加双保险的 0052、0053、0063、0081 的当前最外层或私有体），只增加 `perform authz.nexloop_read_memo_barrier();` 一行。`read_object` 不改。已发布的迁移文件与校验和不变。实施前须对齐当时最新的包装链：L3 的 0088–0090 和 L4 的 O2b 可能又包了一层。
 6. 不涉及表结构变化和数据迁移；回滚就是把开关置为关闭。
 
 ## 6. 测试清单
@@ -141,7 +163,8 @@ memo 存放在表中，见 §4。plpgsql 的 `EXCEPTION` 块回滚子事务时�
 ### 6.1 必须照旧通过的“锁等待后最终期限”系列（H2）
 - `tests/test_backend_lifecycle_capacity.py`：
   - `test_request_waiting_for_capacity_still_meets_final_deadline`
-  - `test_lease_lapsing_mid_burst_fails_closed_with_operator_diagnosis`
+  - `test_lease_lapse_fails_closed_with_operator_diagnosis`（s3q 起的名字）
+  - `test_unavailable_diagnosis_classifies_deadline_and_transient_causes`
   - `test_eight_concurrent_requests_complete_on_pool_of_four`
 - `tests/test_role_policy_dispatch.py`：全部，包括 `binding_expired` 与 effect_units 并发两项。
 - 0064 的 role 期限系列：`test_role_policy_enforcement`、`test_role_runtime_*` 中的 deadline 用例。
@@ -153,7 +176,9 @@ memo 存放在表中，见 §4。plpgsql 的 `EXCEPTION` 块回滚子事务时�
 2. **本事务内撤权**：同一语句中先断言，再（经受治理的配置函数）撤销 grant，然后同一 claims 再断言 → 世代失效 → 拒绝。
 3. **并发撤权**：另一会话的撤权阻塞到本事务结束，随后的下一个请求被拒（行为不变）。
 4. **语句内过期**：claims 在当前时间 +1 s 到期；首次断言后在同一语句内 `pg_sleep(1.1)`（测试专用 owner 函数）→ 命中路径拒绝，错误码 42501。
-5. **屏障**：另一会话持有 `nexloop-runtime-execution:<run>`，本请求在等锁期间 claims 到期 → 等锁后的尾验拒绝。统计显示屏障之后全部未命中。0085 Run 锁同样测一遍。
+5. **advisory 屏障**：另一会话持有 `nexloop-runtime-execution:<run>`，持有者事务不分配 xid（只拿锁），本请求在等锁期间 claims 到期 → 等锁后的尾验拒绝。统计显示屏障之后全部未命中。0085 Run 锁同样测一遍。
+5a. **行锁等待由快照作废**：另一事务对断言之后要读的对象行持有 `FOR UPDATE`；分别以该事务**提交**和**中止**结束。两种情况下，等待之后的相同断言都必须未命中、完整重跑（以调用计数验证）。再测一个对照：取锁但没有等待时可以命中。
+5b. **副作用一致**：命中路径与完整路径执行后，`eios.tenant_id` 等会话设置逐项相同；会话 TimeZone 改变后不命中。
 6. **子事务回滚**：在 `EXCEPTION` 块内断言后回滚 → 条目消失、锁释放 → 并发撤权得以提交 → 下一次断言未命中并拒绝。
 7. **伪造**（以下前三种是调度员要求的必备负例；每种都必须让 memo 关闭、回到完整断言，且伪造内容不产生任何允许）：
    - 会话角色预先在自己的 `pg_temp` 建同名表并写入伪造行；
@@ -172,27 +197,44 @@ memo 存放在表中，见 §4。plpgsql 的 `EXCEPTION` 块回滚子事务时�
 
 ## 7. 预期收益与验证
 
-### 7.1 估算（待 L4 数据）
-设 `d` = 语句内重复率（已测：0.72–0.78），`t` = 重复中“锁后尾验”所占比例（**待 L4 `perf-o5b-measure` 测出**），断言占 `runtime_activation_command` 的比例 a ≈ 0.88，命中的单次成本 c_hit / c_full 估计约为 0.03–0.05（一次索引查询加一次时钟比较，约 20–40 µs；完整断言 0.86 ms）。则
+### 7.1 估算（L4 数据，`perf-o5b-measure` `7eb6bbf`）
+L4 把同一语句内的每个重复断言与上一次相同断言比较，按“可见快照是否变化”“期间本后端是否新取锁”分为四类。本机安静时段串行，各两轮：
+
+| 用例 | 断言 | 重复 | same_snapshot | same_snapshot_lock | new_snapshot_lock | new_snapshot |
+|---|---|---|---|---|---|---|
+| v4[complete] | 30329 | 23776（78.4%） | 61.2% / 61.5% | 25.3% / 25.8% | 6.8% / 6.3% | 6.7% / 6.4% |
+| two_pi_role_runs | 17579 | 12716（72.3%） | 85.9% / 86.8% | 10.5% / 10.8% | 1.2% / 0.9% | 2.4% / 1.6% |
+
+（百分比是占重复的比例。）
+
+与本设计的对应：
+- `new_snapshot*`（v4 约 13%，两 Pi 约 2.5–3.6%）：快照变化，按 §3.3 必然完整重跑。初稿中的 t 至少是这一部分。
+- `same_snapshot_lock`：期间取过锁但快照未变，说明没有发生真实的行锁等待（否则快照会变）。其中跨越 advisory 屏障的那部分会被作废，其余可以命中。L4 的锁计数是下界，没有区分锁的种类，所以这一类的可命中比例取区间。
+- `same_snapshot`：全部可以命中。
+
+去重比例 f（占全部断言）：
+
+| 用例 | 下界（只计 same_snapshot） | 上界（加上 same_snapshot_lock） |
+|---|---|---|
+| v4[complete] | 0.784 × 0.61 ≈ **0.48** | 0.784 × 0.87 ≈ **0.68** |
+| two_pi_role_runs | 0.723 × 0.86 ≈ **0.62** | 0.723 × 0.97 ≈ **0.70** |
+
+断言占 `runtime_activation_command` 的比例 a ≈ 0.88（v4，s3m 复测）。命中的单次成本 c_hit 包括：计算键约 10–15 µs（参考 O5a 实测），加上临时表查询和时钟复核约 10–20 µs，合计约 30 µs；完整断言 c_full 约 0.86 ms，c_hit / c_full ≈ 0.035。则
 
 ```
-runtime_activation_command 降幅 ≈ a × d × (1 − t) × (1 − c_hit/c_full)
+runtime_activation_command 降幅 ≈ a × f × (1 − c_hit/c_full)
 ```
 
-- t = 0.2 时约为 0.88 × 0.75 × 0.8 × 0.96 ≈ **51%**；
-- t = 0.5 时约为 **32%**。
+- v4：0.88 × 0.48–0.68 × 0.965 ≈ **41%–58%**。最慢的 activation SQL 约 1.39 s，预计降到约 0.6–0.8 s。
+- 两 Pi：≈ **53%–59%**（假设 a 与 v4 相近，待实测）。
 
-v4 慢调用 1392 ms，对应约降到 680–950 ms。authorize 的 max（1420 ms，O2a 之后）中 SQL 段同比下降。级别 2 未采用，因此 t 的三类都按完整重跑计入。
+与 L4 自己的估算（50–60%）一致。级别 2 未采用，不计入任何额外收益。
 
-| L4 数据 | 填入值 |
-|---|---|
-| 语句内重复中锁后尾验占比 t（v4 / 两 Pi） | 待填 |
-| 其中 advisory / `FOR UPDATE` 之后的部分（级别 1 必须重跑） | 待填 |
-| 其中 `FOR SHARE` 之后的部分（级别 1 下仍完整重跑；仅作将来 ADR 的参考） | 待填 |
+负载敏感性：测试机全量并发时 `new_snapshot*` 比例更高，收益会低于本机。所以验收以 §7.2 的实测为准，不以估算为准。
 
 ### 7.2 验证方法
-1. **调用计数**：`track_functions=pl` 下，外层与核心 `_before_message_read_v0072` 的调用次数比即为实际去重率，应接近 d × (1 − t)。
-2. **语句内重复复测**：`scripts/perf/read_assert_dup.py` 追踪（只在一次性库中），按阶段统计剩余重复，应接近 0；剩下的只能是屏障之后的尾验。
+1. **调用计数**：`track_functions=pl` 下，外层与核心 `_before_message_read_v0072` 的调用次数比即为实际去重率。本机串行时应落在 §7.1 的 f 区间内。
+2. **语句内重复复测**：用 `scripts/perf/read_assert_phase.py`（L4）追踪核心调用，只在一次性库中。剩余重复应只出现在 `new_snapshot*` 类，或紧跟在 advisory 屏障之后；`same_snapshot` 类应接近 0。
 3. **延迟**：`scripts/perf/o1_o4_set.sh` 的 13 例集合，before / after 交替各两轮，比较以下指标：
    - `runtime_activation_command` 均值与 max；
    - authorize / effect_tool 的 p50 / p95 / max；
@@ -202,14 +244,15 @@ v4 慢调用 1392 ms，对应约降到 680–950 ms。authorize 的 max（1420 m
    对照 O2a 表格的口径。
 4. **验收线（调度员已同意）**：
    - 正确性 §6 全部通过；
-   - `runtime_activation_command` 均值降幅不低于 §7.1 按实测 t 估算值的一半；
+   - `runtime_activation_command` 均值降幅不低于 §7.1 下界的一半（v4 约 20%）；
    - `relationship_context_v4[complete]` 在 sice 上连续 2 轮全量通过（ADR-021 的退出条件）。
 5. **开销兜底**：开关关闭时，与 O2a 之后的基线相比无差异（±3%）。
 
 ## 8. 实施前置与分工建议
-1. **L4**：给出 §7.1 的 t（区分 advisory / `FOR UPDATE` / `FOR SHARE` 三类之后的尾验）。级别 1 下这三类尾验都要完整重跑，按 t 整体估算收益；`FOR SHARE` 那一类的占比仅作为将来是否另写 ADR 的参考。
+1. **L4**：已完成分类测量（`7eb6bbf`）。实施后按 §7.2 做前后对比，并按锁的种类细分 `same_snapshot_lock`，以确认可命中比例在 §7.1 的区间内。
 2. **L1**：
    - 审计 §1 的“全部输入都已加锁”，逐个函数列出断言读取的每一行及其锁；
+   - 审计包装链的副作用（`set_config`、写入）和会话级 advisory 锁用法；
    - 定稿屏障清单；
    - 写 §6.1 / §6.2 的测试；
    - 迁移由 L1 负责（加锁点函数大多属于 L1 已改过的链）。
@@ -220,3 +263,4 @@ v4 慢调用 1392 ms，对应约降到 680–950 ms。authorize 的 max（1420 m
 - 级别 2：已裁定本次不做，仅作为候选记录；将来要做须另写 ADR，并由负责人本人确认。
 - TEMP 权限：已同意，不采用 UNLOGGED 属主表方案。
 - 事务作用域是否值得另立项：需要先测量跨语句重复。
+- §3.3 中行锁等待由快照变化作废、不逐点设屏障：这是相对初稿的变化，请调度员确认它属于级别 1。
