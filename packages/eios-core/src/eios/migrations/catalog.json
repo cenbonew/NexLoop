@@ -330,6 +330,11 @@
       "version": "0066",
       "name": "0066_nx019_claims.sql",
       "sha256": "bf2c747ef39148fc3e1411b4b82a933498d1af8f6a2d2323e90937960e2cc4ae"
+    },
+    {
+      "version": "0067",
+      "name": "0067_nx021_recall_index.sql",
+      "sha256": "b49b3423d99a4ce49ce5ede09d5ecdfad20ba9528dab6baf3997d138e1f50665"
     }
   ]
 }
