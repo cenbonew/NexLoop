@@ -131,7 +131,8 @@ def test_effect_units_concurrent_distinct_submissions_stay_within_ceiling(wide_c
     for thread in threads:thread.start()
     for thread in threads:thread.join(180); assert not thread.is_alive()
     assert outcomes.count('ok') == 1, outcomes
-    assert set(outcomes) <= {'ok', 'EffectIntentConflict', 'EffectIntentUnavailable'}, outcomes
+    # Overload is retried (BackendBusy); the only other outcome is the business-level payload conflict.
+    assert set(outcomes) <= {'ok', 'EffectIntentConflict'}, outcomes
     assert admin.execute('select count(distinct intent_id) from runtime.nexloop_effect_submissions where run_id=%s', (run_id,)).fetchone() == (1,)
     assert admin.execute("select reserved_units from control.nexloop_effect_control_ledger").fetchone()[0] <= 1
 

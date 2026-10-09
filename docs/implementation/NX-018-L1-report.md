@@ -287,3 +287,17 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 - 证据：同等负载（12 个忙循环）修复后串行两轮 **2/2、2/2 passed**（71.47s / 77.24s）；更重负载（24 个忙循环）两轮均通过，期间仍分别出现 6 / 9 次 `BackendBusy` 重试——这是真实过载（容量 2、每请求 1–1.5 s），由重试吸收。常规定向回归（插件开启）40 passed / 333.42s。
 - 本线按 LINE-RULES 不连接测试机；请调度员在测试机同一检出上串行复跑两轮确认。
 - 后续（根本吞吐）：嵌套授权证明复用外层连接后容量可回到 pool_max_size；部署可按负载调大 `NEX_EIOS_DB_POOL_MAX`。生产侧调用方（Host guard 503 → Pi 工具重试）对 `BackendBusy` 的重试策略可在 O2 时一并审视。
+
+### 追加：按调度员硬约束 ①–⑤ 收紧测试，并修复同 Run 并发提交死锁
+
+- 硬约束落到断言：
+  - ① 线程 `join(180)` 不允许残留，总耗时 < 150 s；
+  - ② 过载只允许可重试的 `BackendBusy`，调用方重试后最终结果不得含 `BackendBusy`；
+  - ③ 8 个调用全部 `ok`（同 Run 4 个相同提交 + 另一 Run 4 个 authorize）；
+  - ④ effect_units 并发：恰 1 个 `ok`、恰 1 个不同提交，其余只能是业务层 `EffectIntentConflict`；
+  - ⑤ FIFO 公平性负向单测 `test_late_arrival_cannot_barge_ahead_of_an_earlier_waiter`；另有 `test_waiters_after_a_timed_out_head_are_admitted_in_order`（队首超时出队后，后面的等待者按序拿到名额，且 `_active==0`、队列清空）。
+- 收紧后的首次失败（保留）：约束 ③ 暴露出真实缺陷。同 Run 8 个相同 submit 并发时，常有 1 个以 `EffectIntentUnavailable` 失败；原因是 PG 死锁：0039 执行标记锁与意图行锁在并发 guard 之间成环。这个问题与容量无关，无负载时也会出现。
+- 修复：`runtime_activation._effect_tool` 在第一个 guard 之前，先取 Run 级 advisory 事务锁 `nexloop-role-effect:<run>`。它与 0085 提交锁同一个 key，在同一事务内可重入，使同 Run 工具请求以单一锁序串行。修复后 8/8 相同提交全部拿到同一稳定意图，连续 3 轮复现脚本均通过。
+- 公平性负向对照（200 次）：旧锁迟到者插队 **142/200**；FIFO 锁 **0/200**。
+- 修复后加压（12 个忙循环）两项串行两轮：**2 passed（61.13 s）/ 2 passed（61.48 s）**。LifecycleLock 单测 5 项，连续 3 轮通过。
+- 受影响面回归（127 个相关测试文件，pool_depth 插件开启）：**1411 passed / 3079.04 s**，单请求最多 2 个连接。agent-host vitest **164 passed**。

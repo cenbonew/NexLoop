@@ -60,6 +60,44 @@ def test_admission_is_fifo_and_timed_out_waiters_leave_the_queue():
     assert results == ['busy-early', 'later'] and short._active == 0 and not short._queue
 
 
+def test_late_arrival_cannot_barge_ahead_of_an_earlier_waiter():
+    lock = LifecycleLock(capacity=1, wait_seconds=5)
+    release = threading.Event(); order = []
+    def holder():
+        with lock:release.wait(5)
+    first = threading.Thread(target=holder); first.start(); time.sleep(0.1)
+    def waiter(name, hold=0.0):
+        with lock:
+            order.append(name); time.sleep(hold)
+    early = threading.Thread(target=waiter, args=('early',)); early.start(); time.sleep(0.2)
+    # Capacity frees and a brand-new request arrives in the same instant: it must queue
+    # behind the earlier waiter instead of winning the wake-up race.
+    late = threading.Thread(target=waiter, args=('late',))
+    release.set(); late.start()
+    first.join(5); early.join(5); late.join(5)
+    assert order == ['early', 'late']
+
+
+def test_waiters_after_a_timed_out_head_are_admitted_in_order():
+    lock = LifecycleLock(capacity=1, wait_seconds=0.6)
+    gate = threading.Event(); results = []
+    def hold():
+        with lock:gate.wait(5)
+    keeper = threading.Thread(target=hold); keeper.start(); time.sleep(0.1)
+    def wait_once(name):
+        try:
+            with lock:
+                results.append(name); time.sleep(0.05)
+        except BackendBusy:results.append('busy-' + name)
+    head = threading.Thread(target=wait_once, args=('head',)); head.start(); time.sleep(0.4)
+    second = threading.Thread(target=wait_once, args=('second',)); second.start(); time.sleep(0.05)
+    third = threading.Thread(target=wait_once, args=('third',)); third.start()
+    head.join(5)                      # head times out (0.6 s) while the keeper still holds
+    assert results == ['busy-head']
+    gate.set(); keeper.join(5); second.join(5); third.join(5)
+    assert results == ['busy-head', 'second', 'third'] and lock._active == 0 and not lock._queue
+
+
 def test_shutdown_waits_for_in_flight_request():
     lock = LifecycleLock(capacity=2); inside = threading.Event(); finish = threading.Event(); order = []
     def request():
@@ -121,9 +159,9 @@ def test_eight_concurrent_requests_complete_on_pool_of_four(role_runtime_plan, a
     # surface as the explicit retryable BackendBusy (FIFO-bounded); after retry every
     # authorize on the other Run succeeds.
     assert outcomes[4:] == ['ok'] * 4, (outcomes, BUSY)
-    # Same-Run concurrent submits: one stable intent; a PostgreSQL-detected same-Run lock cycle
-    # (0039 execution marker) may abort a caller with a retryable unavailable.
-    assert outcomes[:4].count('ok') >= 1 and set(outcomes[:4]) <= {'ok', 'EffectIntentUnavailable'}, outcomes
+    # Same-Run concurrent identical submits all receive the one stable intent: same-Run tool
+    # requests serialize before the first guard, so no lock cycle can abort a caller.
+    assert outcomes[:4] == ['ok'] * 4, (outcomes, BUSY)
     assert 'BackendBusy' not in outcomes and elapsed < 150, (outcomes, BUSY, elapsed)
     assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (plan['tenant'],)).fetchone() == (1,)
 
