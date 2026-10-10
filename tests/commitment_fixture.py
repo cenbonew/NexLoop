@@ -38,7 +38,7 @@ TENANT='synthetic-a'
 SETTINGS=ROOT/'deploy/configuration/commitments.v1.json'
 HUMAN_ACTIONS=('Commitment.cancel','Commitment.extend','Commitment.attest','Commitment.condition_met','Commitment.mark_communication')
 REQUEST_ACTIONS=('nexloop.plan.request_reevaluation','nexloop.service.query_request')  # NX-028 slice 2 (0150)
-TAKEOVER_ACTIONS=('nexloop.conversation.takeover','nexloop.conversation.handback')  # NX-028 slice 3 (0152)
+TAKEOVER_ACTIONS=('nexloop.conversation.takeover','nexloop.conversation.handback','nexloop.message.staff_send')  # NX-028 slice 3 (0152/0153)
 KEEPER_TARGETS=[(r,ResourceType.ACTION,Operation.EXECUTE) for r in ('eios:action:NexLoop.feed.commitment-register:1','eios:action:NexLoop.feed.commitment-monitor:1',
     'eios:action:nexloop.commitment.keep:1','eios:action:nexloop.commitment.read:1','eios:action:Commitment.create:1','eios:action:Commitment.edit:1')]+[
     ('eios:object_type:Commitment',ResourceType.OBJECT_TYPE,Operation.READ)]
@@ -71,7 +71,7 @@ def publish_request_actions(admin,tenant=TENANT,names=REQUEST_ACTIONS):
     """NX-028 slices 2/3: human request / takeover Actions compiled from the business manifest (typed on the tenant's Consumer v1)."""
     consumer=admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1",(tenant,)).fetchone()[0]
     base=governance_inputs()['capability_snapshot']
-    caps={n:base.model_copy(update={'capability_name':n,'has_side_effects':True}) for n in ('plan.request_reevaluation','service.query_request','conversation.takeover','conversation.handback')}
+    caps={n:base.model_copy(update={'capability_name':n,'has_side_effects':True}) for n in ('plan.request_reevaluation','service.query_request','conversation.takeover','conversation.handback','message.staff_send')}
     for row in business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
             created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=[consumer],capabilities=caps,select=names):
         d=row['definition']

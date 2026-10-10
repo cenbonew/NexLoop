@@ -250,7 +250,7 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
     # NX-051 wraps the 0069 recorder so a correction's target order is the effective (signed-channel or receipt) order; its
     # correction link is copied unchanged.
     assert migrations and all(any(tag in name for tag in ('_nx019_','_nx020_','_nx023_','_nx044_','_nx045_','_nx046_','_nx050_','_nx025_plan_context_','_nx025_reply_fallback_',
-        '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order')) for name in migrations)
+        '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order','_nx028_staff_reply')) for name in migrations)
 
 
 def correction_window(conversations):

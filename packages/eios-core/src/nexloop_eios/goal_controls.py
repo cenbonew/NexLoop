@@ -36,7 +36,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-028 slice 2 (0150 registry): human requests.
     'request_plan_reevaluation':'plan.request_reevaluation','request_effect_query':'service.query_request',
     # NX-028 slice 3 (0152): human takeover and hand-back.
-    'take_over_conversation':'conversation.takeover','hand_back_conversation':'conversation.handback'}
+    'take_over_conversation':'conversation.takeover','hand_back_conversation':'conversation.handback',
+    # NX-028 ruling B (0153): a staff reply written during the author's own takeover.
+    'send_staff_reply':'message.staff_send'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -215,6 +217,12 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(takeover_id)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('takeover id and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'hand_back_conversation','takeover_id':str(takeover_id),'reason':reason})
+
+    def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
+            raise ValueError('conversation, bound inbound message and text required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'send_staff_reply','conversation_id':conversation_id,
+            'reply_to':reply_to,'text':text})
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

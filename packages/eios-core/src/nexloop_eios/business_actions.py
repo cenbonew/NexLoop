@@ -27,7 +27,7 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'commitment.mark_communication':'human_owner',
     # NX-028 slice 2: human requests through the governed entry's capability registry (0150).
     'plan.request_reevaluation':'human_owner','service.query_request':'human_owner',
-    'conversation.takeover':'human_owner','conversation.handback':'human_owner'}
+    'conversation.takeover':'human_owner','conversation.handback':'human_owner','message.staff_send':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

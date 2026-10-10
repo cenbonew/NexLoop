@@ -80,6 +80,8 @@ OPERATIONS={
     'take_over_conversation':{'scope_kind':lambda v:v if v in ('conversation','consumer') else (_ for _ in ()).throw(ValueError('scope')),
         'scope_ref':_id(_HEX),'duration_seconds':lambda v:v if type(v) is int and 60<=v<=604800 else (_ for _ in ()).throw(ValueError('duration')),'reason':_reason},
     'hand_back_conversation':{'takeover_id':_id(_UUID),'reason':_reason},
+    # Ruling B (0153): native WebChat only, bound to one inbound message.
+    'send_staff_reply':{'conversation_id':_id(_HEX),'reply_to':_id(_HEX),'text':lambda v:v if type(v) is str and 1<=len(v)<=8192 else (_ for _ in ()).throw(ValueError('text'))},
 }
 
 

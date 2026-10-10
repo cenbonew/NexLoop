@@ -45,12 +45,27 @@
 - `business-actions.v1.json` v7：`nexloop.conversation.takeover:1`、`nexloop.conversation.handback:1`（human_owner）。
 - `service-grants.v1.json` v11：reply_guarantor 增加 `NexLoop.feed.takeover-expiry:1` 与 `nexloop.takeover.expire:1`。
 
-### 待裁定（已问调度员）
-- 员工回复（`message.staff_send`）：0042 的派发要求意图带仍有效的 origin Run 凭据，人类会话没有 Run，设计稿 §4.2“与 Agent 同一账本”不能直接成立。方案 A：接管时签发“接管 Run”（复用 0110 方式）；方案 B（推荐，v0.1）：受治理人类 Action 直接写 Message 与会话流（WebChat 即渠道），D6 约束同样强制，接外部渠道时再做 A。本切片未实现员工回复，契约 `sender_kind` 放宽也随之暂缓。
+### 员工回复（调度员裁定方案 B，迁移 0153 `nx028_staff_reply`，临时号）
+背景：0042 的派发要求意图带仍有效的 origin Run，人类会话没有 Run，设计稿 §4.2“与 Agent 同一账本”不能直接成立。调度员裁定 v0.1 走方案 B；外部渠道接入时改走方案 A（接管时签发“接管 Run”，经 effect 账本投递），0153 与设计稿均已注明。
+- 受治理人类 Action `nexloop.message.staff_send:1`（capability `message.staff_send`，注册表 handler `runtime.nexloop_governed_staff_reply`，人类专用）；工作台写入口新增操作 `send_staff_reply {conversation_id, reply_to, text}`。
+- 只限原生 WebChat：会话中每条来信的 provider 命名空间都是 `native.webchat` / `nexloop.api`，否则 `NXC07`。
+- 只有接管生效中、且接管由本人发起时才能回复（否则 42501）；`reply_to` 必须是本会话的来信（否则 NXC05）。
+- 写入：Message 对象与会话流记录（`direction=outbound`、`sender_kind=human_takeover`、`actor`=员工主体、`trigger_message_id`），来源记录 `runtime.nexloop_staff_replies`（append-only，FORCE RLS）；外发默认事实写 `nexloop.staff`（server 级，种入命名空间表）。同一事务删除所绑定来信的 `reply-due`（ADR-023 §2.7），兜底回复因此不再启动。
+- ADR-023 §2.6 与 Agent 共用：受限客户只能回复绑定的来信且在时间窗内；“每条来信至多一条回复”不新建计数表，判断用同一套记录——外发账本中在途或已被渠道接受的 Agent / 兜底回复，加上会话流中绑定该来信的员工回复（`runtime.nexloop_inbound_answered`），并在同一 advisory 锁下检查。Agent 一侧：0112 的派发检查（经 0152 包装后，以最新函数体替换）在受限或兜底时也把员工回复计入。
+- READ 派生与提取：以最新函数体替换 0102 `authz.nexloop_assert_purpose_message_read` 和 0080 `..._actor_body_v0080`，在外发账本无记录时接受员工消息。条件是会话流、来源记录与作者的接管窗口三者一致（`runtime.nexloop_staff_message_accepted`）。提取时员工消息算企业一方（speaker=agent）。
+- 承诺：0111 `runtime.nexloop_commitment_prepare_claim` 以最新函数体替换，员工消息中的承诺可以登记，`made_by={sender_kind:'human_takeover', sender_principal, takeover_id}`。
+- 契约（调度员已批准）：`conversation-message` 的 `sender_kind` 改为 `agent | human_takeover`；外发消息必有 `sender_kind` 与 `trigger_message_id`；`agent` 必有 `intent_id`，`human_takeover` 不得有 `intent_id`。重新生成 `contracts.ts`、`openapi-components.json`、`contracts.py`。WebChat 前端：接受无 intent 的员工消息，显示“人工客服回复”和“已发送；不代表问题已解决或承诺已兑现”。
+- 清单：`business-actions.v1.json` v8 增加 `nexloop.message.staff_send:1`（human_owner，挂 Consumer v1）。
+- 已知限制：v0.1 员工回复必须绑定一条来信（不支持无 `reply_to` 的主动消息）；外部渠道不支持（NXC07）；员工消息不经渠道回执，状态即“已接受”。
+
+### 新增 Action 汇总（需切片 1 的角色映射；按设计稿 D2，owner 与 operator 都持有）
+`nexloop.plan.request_reevaluation:1`、`nexloop.service.query_request:1`（切片 2）；`nexloop.conversation.takeover:1`、`nexloop.conversation.handback:1`、`nexloop.message.staff_send:1`（切片 3）。服务授权 `service-grants.v1.json` v11：reply_guarantor 增加 `NexLoop.feed.takeover-expiry:1`、`nexloop.takeover.expire:1`。
 
 ### 测试（Mac，`-n 3`；真实 Pi 单独串行；开跑负载 5–12，含其他线）
 - `tests/test_takeover_pg.py` 5 例：人类专用（服务主体持同授权被拒）、时长上限、默认 2 小时、接管开始不唤醒计划、重复/冲突接管被拒、会话级 Agent 回复 NXC06 而服务交付仍可派发、consumer 级接管下排队意图预判 `taken_over` 且真实派发零请求、交还 D5（最新一条恢复、更早一条结清、已回复的不涉及、接管前的不受影响、计划以 handback 唤醒、二次交还被拒）、到期（到期即失效、worker 结束并升级、最新来信恢复、到期条目移除）、回复担保遇接管不升级不兜底、顾客状态只给本人且只有 `handled_by`。
 - `tests/test_takeover_relay_pg.py` 1 例（真实 HTTPS 来信 + 实际 relay CLI，无 Pi）：接管期间 relay 不签发 Run（固定错误行、无私密信息），状态条为 human；交还后只路由最新一条，更早一条不补发。
 - `tests/test_takeover_e2e_pg.py` 1 例（真实 Host/Pi，guard 4 进程）：接管前已排队的 Pi 回复派发被拒，provider 零请求，不物化。
-- `apps/web/test/handling.test.ts` 5 例 vitest；`tsc --noEmit` 通过。
+- `tests/test_staff_reply_pg.py` 5 例（经受治理入口 + 实际 effect 执行器 fixture）：员工回复写入会话流并结清待回复、兜底不再启动、同键重放不重复写；未接管、接管已交还、服务主体（持同授权）被拒（“非本人发起”与此为同一条件 `taken_by ≠ principal`，未另造第二名员工）；非 WebChat 会话 NXC07；受限客户：第二条回复（含 Agent 已回复后）、不绑定来信、时间窗外均被拒，员工回复后同一来信的 Agent 回复派发检查报 NXC05，待回复已结清（兜底不再启动）；员工消息中的承诺登记且 made_by 为员工。
+- `tests/test_takeover_relay_pg.py` 新增 1 例（真实 HTTPS）：顾客经 API 读到员工回复（`sender_kind=human_takeover`、无 `intent_id`、`reply_to_message_id`）；Source 的受治理 READ 派生得到 actor 与 body；提取时员工消息是企业一方，承诺成为 speaker=agent 的 commitment Claim。
+- `apps/web/test/handling.test.ts` vitest（全量 40 例通过）；`tsc --noEmit` 通过。
 - 回归：slice 2/3 相关 87 例、relay/计划/目标/派发/HTTP 80 例、Pi 串行 13 例（`test_reply_fallback_pg`、`test_contact_reply_dispatch_pg`、`test_closure_refusal_versions_pg`）全部通过；`check_definer_search_path.py` 0 问题。

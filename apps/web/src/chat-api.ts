@@ -2,7 +2,7 @@ import {nativeAttempt,type PendingNativeMessage} from './native-message';
 import {ApiError,refreshCsrf} from './api';
 
 export type Conversation={id:string;consumer_id:string;world_id:string;revision:number;execution_profile?:'deterministic-test'|'real-provider'|'disabled'};
-export type Message={id:string;conversation_id:string;sequence:number;actor:string;body:string;accepted_at:string;status:'accepted';direction:'inbound'|'outbound';sender_kind:'consumer'|'agent';intent_id?:string;trigger_message_id?:string;reply_to_message_id?:string|null;provider?:MessageProvider|null};
+export type Message={id:string;conversation_id:string;sequence:number;actor:string;body:string;accepted_at:string;status:'accepted';direction:'inbound'|'outbound';sender_kind:'consumer'|'agent'|'human_takeover';intent_id?:string;trigger_message_id?:string;reply_to_message_id?:string|null;provider?:MessageProvider|null};
 // NX-051: channel order/time/reference as evidence. Display only; the list order stays `sequence`.
 export type MessageProvider={namespace:string;message_ref:string|null;sequence:number|null;sent_at:string|null;trust:'server'|'signed'|'client';skewed:boolean};
 export type CommittedEvent={id:string;type:'message.accepted';data:Message};
@@ -21,10 +21,13 @@ export function message(value:unknown):Message{const v=object(value);if(!Number.
   // NX-047: server-derived direction. Inbound items carry no sender fields; an outbound item is an
   // Agent reply the channel already accepted, bound to its governed intent and triggering message.
   if(v.direction===undefined){if(v.sender_kind!==undefined||v.intent_id!==undefined||v.trigger_message_id!==undefined)throw new Error('响应无效');return {...base,direction:'inbound',sender_kind:'consumer'};}
+  // NX-028 (ruling B): a staff reply written during a takeover has no governed effect intent; it is bound to its message too.
+  if(v.direction==='outbound'&&v.sender_kind==='human_takeover'){if(v.intent_id!==undefined)throw new Error('响应无效');return {...base,direction:'outbound',sender_kind:'human_takeover',trigger_message_id:id(v.trigger_message_id)};}
   if(v.direction!=='outbound'||v.sender_kind!=='agent'||typeof v.intent_id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v.intent_id))throw new Error('响应无效');
   return {...base,direction:'outbound',sender_kind:'agent',intent_id:v.intent_id,trigger_message_id:id(v.trigger_message_id)};}
 export function messagePresentation(item:Message):{sender:string;status:string;receipt:boolean}{
   // A visible outbound Message means the channel accepted it; it never claims the problem is solved.
+  if(item.direction==='outbound'&&item.sender_kind==='human_takeover')return {sender:'人工客服回复',status:'已发送；不代表问题已解决或承诺已兑现',receipt:false};
   return item.direction==='outbound'?{sender:'企业 Agent 回复',status:'渠道已接受；不代表问题已解决或承诺已兑现',receipt:false}:{sender:'发送者：'+item.actor,status:'消息已接受',receipt:true};}
 function page<T>(value:unknown,validate:(value:unknown)=>T):Page<T>{const v=object(value);if(!Array.isArray(v.items)||(v.next_cursor!==null&&typeof v.next_cursor!=='string'))throw new Error('响应无效');return {items:v.items.map(validate),next_cursor:v.next_cursor as string|null};}
 async function request(path:string,init?:RequestInit):Promise<unknown>{const response=await fetch(path,{...init,credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new ApiError(response.status);return response.json();}
