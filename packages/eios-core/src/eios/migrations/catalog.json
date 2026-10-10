@@ -665,6 +665,11 @@
       "version": "0133",
       "name": "0133_nx030_ui.sql",
       "sha256": "c7188a4ec91c085e814d65c0440b3c50c439e83a59580e33c3364b4ccc2298ab"
+    },
+    {
+      "version": "0134",
+      "name": "0134_nx029_erasing_perf.sql",
+      "sha256": "a284e32f53a5176839f59fb1120eba3980d17f197bfe902dc359319bc63df2bd"
     }
   ]
 }
