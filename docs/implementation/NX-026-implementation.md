@@ -39,4 +39,11 @@
 
 ## 5. 测试（真实 PG，合成数据）
 
-见报告；文件：`tests/test_commitments_pg.py`、`tests/test_commitment_guards_pg.py`、`tests/test_contact_effect_categories_pg.py`、`tests/test_commitment_context_v6_pg.py`、`tests/test_commitment_e2e_pg.py`（真实 Host/Pi，guard 4 进程），以及更新的 `test_background_services_pg.py`、`test_community_container_contract.py`、`test_service_grants_pg.py`。夹具 `tests/commitment_fixture.py` 基于真实受治理 effect 执行器；NX-047 外发账本行与 Claim 由 admin 播种（真实链路由 e2e 覆盖）。
+实际执行（Mac，PG 18.4，`LC_ALL=en_US.UTF-8`）：
+- NX-026 新测试：`test_commitments_pg.py` 11、`test_commitment_guards_pg.py` 7、`test_contact_effect_categories_pg.py` 7、`test_commitment_context_v6_pg.py` 3、`test_commitment_e2e_pg.py` 1（真实 Host/Pi，`--guard-workers 4`），全部通过。
+- 回归批 A（`-n 4`，27 个文件，含上述与 service-grants / 后台入口 / 容器契约 / claim store / 联系限制 / 目标控制 / work feed / 匹配 / 计划复评与结果 / effect 派发与 SQL / NX-022 派发 / 属性派生 / 审核类型 / 可信配置 / bootstrap / 消息读派生 / 闭环知识）：首次 256 passed、2 failed（`test_business_actions` 与 `test_system_object_types` 的清单一致性断言未含 Commitment），更新后 21 passed。
+- v6 回归（`test_context_v6_pg`、`test_role_context_v6_pg`、`test_plan_wake_pg`、`test_context_v6_relationships_pg`）35 passed；`test_plan_role_launcher_pg` 与承诺 v6 测试一起 7 passed。
+- 回归批 B（真实 Host/Pi，串行：`test_contact_reply_dispatch_pg`、`test_reply_fallback_pg`、`test_closure_refusal_versions_pg`、`test_outbound_messages_pg`、`test_closure_plan_run_pg`、`test_commitment_e2e_pg`）22 passed。
+- service-grants：合入 main `f7e391d` 前 4 例因负责人对 Commitment 的受限组决定缺失而失败；合入后又有 2 例因断言只考虑一条属性规则而失败，测试改为按类型区分后 33 passed。
+
+文件：`tests/test_commitments_pg.py`、`tests/test_commitment_guards_pg.py`、`tests/test_contact_effect_categories_pg.py`、`tests/test_commitment_context_v6_pg.py`、`tests/test_commitment_e2e_pg.py`（真实 Host/Pi，guard 4 进程），以及更新的 `test_background_services_pg.py`、`test_community_container_contract.py`、`test_service_grants_pg.py`。夹具 `tests/commitment_fixture.py` 基于真实受治理 effect 执行器；NX-047 外发账本行与 Claim 由 admin 播种（真实链路由 e2e 覆盖）。
