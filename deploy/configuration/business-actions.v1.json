@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-business-actions/1",
-  "manifest_version": 6,
-  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant. v5 (NX-026): Commitment.create / Commitment.edit, executed by commitment_keeper (the edit is constrained in SQL to the transition derived from the evidence ledger, 0111), and five human-owner commitment Actions (cancel, extend, attest, condition met, mark as communication commitment) through the NX-022 governed entry; SQL refuses services and Agents even with a grant. v6 (NX-027): CommercialRecord.create / CommercialRecord.edit, executed only by commercial_recorder.",
+  "manifest_version": 7,
+  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant. v5 (NX-026): Commitment.create / Commitment.edit, executed by commitment_keeper (the edit is constrained in SQL to the transition derived from the evidence ledger, 0111), and five human-owner commitment Actions (cancel, extend, attest, condition met, mark as communication commitment) through the NX-022 governed entry; SQL refuses services and Agents even with a grant. v6 (NX-027): CommercialRecord.create / CommercialRecord.edit, executed only by commercial_recorder. v7 (NX-027): CommercialRecord.observe, the human owner's read of commercial records, costs and key results (0134).",
   "actions": [
     {
       "stable_name": "Consumer.edit",
@@ -287,6 +287,28 @@
       ],
       "executor_role": "commercial_recorder",
       "purpose": "Apply the state SQL derives from all verified events of the record, its refunds and its customer link (corrections, late events, refunds, D6 pseudonymization); any other edit is refused (0130).",
+      "source_task": "NX-027"
+    },
+    {
+      "stable_name": "CommercialRecord.observe",
+      "version": 1,
+      "object_type": {
+        "stable_name": "CommercialRecord",
+        "version": 1
+      },
+      "capability_name": "commercial.observe",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Read commercial records, costs and settlements, and key results (D09 GET /commercial-observations, /costs, /metrics); human owner only, SQL refuses services, Agents and Run credentials before any grant (0134).",
       "source_task": "NX-027"
     }
   ]

@@ -47,10 +47,11 @@ def publish_commercial_type(admin,worlds=('real','test'),tenant=TENANT):
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s) on conflict do nothing',
             (tenant,row['type_name'],row['version'],Jsonb(row)))
     base=governance_inputs()['capability_snapshot']
-    caps={name:base.model_copy(update={'capability_name':name,'has_side_effects':True}) for name in ('ontology.object.create','ontology.object.edit')}
+    caps={name:base.model_copy(update={'capability_name':name,'has_side_effects':True}) for name in
+        ('ontology.object.create','ontology.object.edit','commercial.observe')}
     compiled=business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
         created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=rows,capabilities=caps,
-        select=('CommercialRecord.create','CommercialRecord.edit'))
+        select=('CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe'))
     for world in worlds:
         for row in compiled:
             d=row['definition']

@@ -237,10 +237,9 @@ revoke all on function runtime.nexloop_budget_on_job_terminal() from public;
 create trigger nx027_budget_settlement after update of status on runtime.jobs for each row execute function runtime.nexloop_budget_on_job_terminal();
 
 -- 4. Cost read port (eios:action:nexloop.cost.read:1): owner query port before NX-028 --------------------------------
-create function authz.nexloop_cost_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+create function runtime.nexloop_cost_view(t text,p_world text,c jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-cost-read-v1','eios:action:nexloop.cost.read:1',
-  array['nexloop_domain_worker','nexloop_api']);c jsonb:=p_payload::jsonb;v jsonb;
+declare v jsonb;
 begin
  perform set_config('eios.tenant_id',t,true);
  if c->>'verb'='summary' then
@@ -252,7 +251,7 @@ begin
   return jsonb_build_object('world',p_world,'costs',v);
  elsif c->>'verb'='entries' then
   if c ? 'run_id' and coalesce(c->>'run_id','')!~'^[0-9a-f-]{36}$' then raise exception 'cost read invalid' using errcode='22023';end if;
-  select coalesce(jsonb_agg(jsonb_build_object('entry_id',e.entry_id,'cost_kind',e.cost_kind,'units',e.units::text,'amount',e.amount::text,'currency',e.currency,
+  select coalesce(jsonb_agg(jsonb_build_object('entry_id',e.entry_id,'cost_kind',e.cost_kind,'data_mode',e.data_mode,'units',e.units::text,'amount',e.amount::text,'currency',e.currency,
     'amount_unit',e.amount_unit,'basis',e.basis,'source_ref',e.source_ref,'run_id',e.run_id,'consumer_ref',e.consumer_ref,
     'occurred_at',runtime.nexloop_commercial_ts(e.occurred_at)) order by e.occurred_at,e.entry_id),'[]'::jsonb) into v
    from runtime.nexloop_cost_entries e where e.tenant_id=t and e.world=p_world and (not (c ? 'run_id') or e.run_id=(c->>'run_id')::uuid)
@@ -265,6 +264,16 @@ begin
   return jsonb_build_object('settlements',v);
  end if;
  raise exception 'cost read invalid' using errcode='22023';
+end $$;
+alter function runtime.nexloop_cost_view(text,text,jsonb) owner to nexloop_owner;
+revoke all on function runtime.nexloop_cost_view(text,text,jsonb) from public;
+
+create function authz.nexloop_cost_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-cost-read-v1','eios:action:nexloop.cost.read:1',
+  array['nexloop_domain_worker','nexloop_api']);
+begin
+ return runtime.nexloop_cost_view(t,p_world,p_payload::jsonb);
 end $$;
 alter function authz.nexloop_cost_read(text,text,text,text,text) owner to nexloop_owner;
 revoke all on function authz.nexloop_cost_read(text,text,text,text,text) from public;

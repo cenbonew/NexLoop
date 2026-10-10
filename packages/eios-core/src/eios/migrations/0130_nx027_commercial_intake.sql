@@ -584,10 +584,10 @@ revoke all on function authz.nexloop_commercial_command(text,text,text,text,text
 grant execute on function authz.nexloop_commercial_command(text,text,text,text,text) to nexloop_domain_worker;
 
 -- 11. Read port (eios:action:nexloop.commercial.read:1): owner query port before NX-028 ------------------------------
-create function authz.nexloop_commercial_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+-- The read projection itself (also used by the human observation entry, NX-027 0134); caller sets the tenant.
+create function runtime.nexloop_commercial_view(t text,p_world text,c jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-commercial-read-v1',
-  'eios:action:nexloop.commercial.read:1',array['nexloop_domain_worker','nexloop_api']);c jsonb:=p_payload::jsonb;v jsonb;r runtime.nexloop_commercial_records;
+declare v jsonb;r runtime.nexloop_commercial_records;
 begin
  perform set_config('eios.tenant_id',t,true);
  if c->>'verb'='records' then
@@ -620,6 +620,16 @@ begin
   return jsonb_build_object('receipts',v);
  end if;
  raise exception 'commercial read invalid' using errcode='22023';
+end $$;
+alter function runtime.nexloop_commercial_view(text,text,jsonb) owner to nexloop_owner;
+revoke all on function runtime.nexloop_commercial_view(text,text,jsonb) from public;
+
+create function authz.nexloop_commercial_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-commercial-read-v1',
+  'eios:action:nexloop.commercial.read:1',array['nexloop_domain_worker','nexloop_api']);
+begin
+ return runtime.nexloop_commercial_view(t,p_world,p_payload::jsonb);
 end $$;
 alter function authz.nexloop_commercial_read(text,text,text,text,text) owner to nexloop_owner;
 revoke all on function authz.nexloop_commercial_read(text,text,text,text,text) from public;

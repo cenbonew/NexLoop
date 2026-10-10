@@ -86,6 +86,14 @@ def create_app(config:ApiConfiguration):
             # NX-023 human-only Manifest read (0094); backend.py itself is unchanged.
             return ContextAuditPorts(backend, inspected_session)
         app.include_router(context_audit_router(config.browser, ports_for_browser=context_audit_ports))
+        from nexloop_eios.commercial_observe_http import ObservePorts, router as observe_router
+        def observe_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # NX-027 human-only reads of records, costs and key results (0134).
+            return ObservePorts(backend, inspected_session)
+        app.include_router(observe_router(config.browser, ports_for_browser=observe_ports))
     # NX-027 signed commercial webhook: the connector signature authenticates (no session).
     from nexloop_eios.commercial_http import router as commercial_router
     app.include_router(commercial_router())

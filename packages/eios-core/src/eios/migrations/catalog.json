@@ -579,7 +579,7 @@
     {
       "version": "0130",
       "name": "0130_nx027_commercial_intake.sql",
-      "sha256": "b98452b764bfd756b206b591ed6d225e9ccc8b334e57f3075d627e53c63a781c"
+      "sha256": "739d983dc8ad8863f3e432301daa72e8d4f2eb39887418df8c1edb24329fd1c3"
     },
     {
       "version": "0131",
@@ -589,12 +589,17 @@
     {
       "version": "0132",
       "name": "0132_nx027_costs.sql",
-      "sha256": "3ff77292cc96d2ee2a29e9c9af9058951fbb731809b499fc6958e38f0fab8095"
+      "sha256": "6d9e0cafcd2c7820abe58c514448b4a863291b0d1213426c97e9c73bbb9a7a0f"
     },
     {
       "version": "0133",
       "name": "0133_nx027_commercial_links.sql",
       "sha256": "b378e09e2746ef50ce83dd29ccd0155a61cf47e848110e2051564fd3c9e618b0"
+    },
+    {
+      "version": "0134",
+      "name": "0134_nx027_commercial_observe.sql",
+      "sha256": "5e2196c55f95250aea27cf604709a3e92e2304feba35831646c0c9bcea604d5b"
     }
   ]
 }

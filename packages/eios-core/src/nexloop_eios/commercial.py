@@ -127,6 +127,53 @@ class CostReadPort(_SignedPort):
     def settlements(self):return self._signed({'verb':'settlements'})['settlements']
 
 
+OBSERVE_ACTION='CommercialRecord.observe'
+OBSERVE_PROTOCOL='nexloop-commercial-observe-v1'
+
+
+class CommercialObserver:
+    """The human owner's read (CommercialRecord.observe:1, 0134): records, costs and settlements, key results.
+
+    Human-only like the context audit (0095): SQL refuses services, Agents and Run credentials before any grant.
+    Raises ContextDenied without a current grant. Every answer names its world; items carry their data_mode.
+    """
+
+    def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
+
+    def _call(self,payload,claims=None):
+        from nexloop_eios.action_definitions import PostgresActionDefinitionReader
+        from nexloop_eios.assembly import verify_application_role
+        from nexloop_eios.context_engine.authority import action_claims
+        from nexloop_eios.postgres_artifacts import canonical_payload
+        body=canonical_payload(payload)
+        claims=dict(claims if claims is not None else action_claims(self.pool,self.session,OBSERVE_ACTION))
+        claims.update(protocol=OBSERVE_PROTOCOL,key_id=self.signer.key_id,parameters_digest=hashlib.sha256(body.encode()).hexdigest())
+        if 'definition' not in claims:
+            definition,_=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(OBSERVE_ACTION,1)
+            claims['definition']=definition.model_dump(mode='json')
+        text=canonical_payload(claims);signature=hmac.new(self.signer.material,(OBSERVE_PROTOCOL+':'+text).encode(),'sha256').hexdigest()
+        with self.pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            return db.execute('select authz.nexloop_commercial_observe(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
+
+    def records(self,consumer_id=None):
+        payload={'verb':'records'}
+        if consumer_id is not None:payload['consumer_id']=str(consumer_id)
+        return self._call(payload)
+
+    def record(self,record_id):return self._call({'verb':'record','record_id':str(record_id)})
+    def costs(self):return {**self._call({'verb':'summary'}),'settlements':self._call({'verb':'settlements'})['settlements']}
+
+    def cost_entries(self,*,run_id=None,cost_kind=None):
+        payload={'verb':'entries'}
+        if run_id is not None:payload['run_id']=str(run_id)
+        if cost_kind is not None:payload['cost_kind']=str(cost_kind)
+        return self._call(payload)
+
+    def metric(self,goal_id,goal_version,kr_key):
+        return self._call({'verb':'metric','goal_id':str(goal_id),'goal_version':int(goal_version),'kr_key':str(kr_key)})
+
+
 def _code(error):
     if isinstance(error,PlanUnavailable):return 'port_unavailable'
     if isinstance(error,(PermissionError,F.AuthorizationFactDenied,AuthorizationUnavailable)):return 'denied'
