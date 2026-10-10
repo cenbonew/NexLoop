@@ -455,3 +455,35 @@ def test_backend_pool_size_is_explicit(accepted_input,synthetic_credentials,pg,t
     with pytest.raises(ValueError):
         with open_backend(database_url=make_conninfo(pg,user='nexloop_domain_worker'),artifact_root=tmp_path/'pool-artifacts',
                 signing_key_file=tmp_path/'synthetic-authority',signing_key_id='synthetic-runtime',pool_max_size=0):pass
+
+
+def test_tool_timing_reuses_the_request_session_and_otherwise_authenticates(tmp_path):
+    # NX-031 D6: the record after a tool request uses that request's own session (no second authentication);
+    # another request thread that authenticated nothing authenticates afresh. Revocation is re-checked in SQL.
+    from contextlib import nullcontext
+    from nexloop_eios.runtime_worker import _FreshGuard
+    executed=[]
+
+    class Db:
+        def transaction(self):return nullcontext()
+        def execute(self,query,params):executed.append(params)
+
+    class Session:
+        def __init__(self,n):self.n=n;self._session=type('S',(),{'token_digest':f'd{n}','world':'test'})();self._backend=self
+        def connection(self):return nullcontext(Db())
+        @property
+        def _pool(self):return self
+
+    class Backend:
+        calls=0
+        def authenticate(self,token,*,world):
+            Backend.calls+=1;return Session(Backend.calls)
+
+    credential=tmp_path/'credential';credential.write_text('synthetic-token');credential.chmod(0o600)
+    guard=_FreshGuard(Backend(),credential,'test')
+    guard.service();guard.record_tool_timing(run_id='r',elapsed_ms=1.5)
+    assert Backend.calls==1 and executed[-1][0]=='d1'
+    guard.record_tool_timing(run_id='r',elapsed_ms=1.5)  # consumed: the next record authenticates afresh
+    assert Backend.calls==2 and executed[-1][0]=='d2'
+    other=threading.Thread(target=lambda:guard.record_tool_timing(run_id='r',elapsed_ms=1.5));guard.service();other.start();other.join()
+    assert Backend.calls==4 and executed[-1][0]=='d4'  # the other thread did not take this thread's session
