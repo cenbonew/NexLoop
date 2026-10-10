@@ -173,6 +173,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'takeovers')
 
+    @routes.get('/me')
+    async def me(request: Request):
+        # NX-028 page integration: the member's role and its Actions (display only; writes are decided by the governed entry).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'me')
+
     @routes.get('/settings')
     async def settings(request: Request):
         if request.query_params:

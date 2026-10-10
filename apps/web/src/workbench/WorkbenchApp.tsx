@@ -1,4 +1,4 @@
-import {useEffect,useState,type FormEvent,type ReactNode} from 'react';
+import {useEffect,useState,type FormEvent} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
 import {PAGES,parseRoute,routePath,type PageKey,type Route} from './route';
@@ -9,9 +9,10 @@ import {Actions} from './pages/Actions';
 import {CommitmentDetail,Commitments} from './pages/Commitments';
 import {Contact} from './pages/Contact';
 import {NotEnabled,Settings} from './pages/Settings';
+import {GOVERNED_SLOTS,type Slots} from './actions';
 
-/** Slice 2/3 attach governed Action controls per page here (ReactNode slots); slice 1 renders none. */
-export type ActionSlots=Partial<Record<PageKey,ReactNode>>;
+/** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
+export type ActionSlots=Slots;
 
 function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
   const [username,setUsername]=useState('');const [password,setPassword]=useState('');
@@ -25,7 +26,7 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
 }
 
 export function WorkbenchPage({route,go,slots={}}:{route:Route;go:(route:Route)=>void;slots?:ActionSlots}){
-  const a=slots[route.page];
+  const slot=slots[route.page];const a=typeof slot==='function'?slot(route):slot;
   switch(route.page){
     case 'overview':return <Overview actions={a} onOpen={page=>go({page:page as PageKey})}/>;
     case 'goals':return <Goals actions={a}/>;
@@ -43,7 +44,7 @@ export function WorkbenchPage({route,go,slots={}}:{route:Route;go:(route:Route)=
   }
 }
 
-export function WorkbenchApp({slots}:{slots?:ActionSlots}){
+export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   const cache=useQueryClient();
   const session=useQuery({queryKey:['workbench','session'],queryFn:readWorkbenchSession,refetchOnWindowFocus:false});
   const [route,setRoute]=useState<Route>(()=>parseRoute(window.location.pathname));

@@ -23,7 +23,7 @@ WORKBENCH_READ = 'nexloop.workbench.read'
 COMMITMENT_READ = 'nexloop.commitment.read'
 CONTACT_READ = 'nexloop.contact.read'
 VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKBENCH_READ, 'conversation': WORKBENCH_READ,
-         'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ,
+         'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -226,6 +226,10 @@ class WorkbenchQueries:
 
     def takeovers(self):
         return self.reader.call('takeovers')
+
+    def me(self):
+        # NX-028 page integration (0160): role and role Actions, for showing only the controls the role carries.
+        return self.reader.call('me')
 
     def settings(self):
         return self.reader.call('settings')

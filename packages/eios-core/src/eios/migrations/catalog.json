@@ -635,6 +635,11 @@
       "version": "0127",
       "name": "0127_nx028_staff_reply.sql",
       "sha256": "25f1bb687a7761cbc46b23edc5214030d7227405e0563cd0f6ebb753e04aceba"
+    },
+    {
+      "version": "0160",
+      "name": "0160_nx028_workbench_ui_reads.sql",
+      "sha256": "383c64694d52ec7d0a53b4415ac909482c18fc0a9e6f853afadbde3e79136524"
     }
   ]
 }
