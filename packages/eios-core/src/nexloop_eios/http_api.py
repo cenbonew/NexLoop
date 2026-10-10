@@ -127,6 +127,17 @@ def create_app(config:ApiConfiguration):
             # NX-028 slice 2: governed human writes (0150 registry) for the workbench login realm only.
             return WorkbenchActions(backend, inspected_session)
         app.include_router(workbench_actions_router(config.workbench, ports_for_browser=workbench_action_ports))
+        from nexloop_eios.review_actions import workbench_ports as review_workbench_ports
+        from nexloop_eios.review_http import router as workbench_review_router
+        def workbench_review_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # Reviewer decisions in the workbench realm: the same governed human review Action (NX-044) as the browser
+            # route, decided by the member's current ontology.schema.review grant (reviewer role only).
+            return review_workbench_ports(backend, inspected_session)
+        app.include_router(workbench_review_router(config.workbench, ports_for_browser=workbench_review_ports,
+            prefix='/api/v1/workbench/review-decisions', cookie=WORKBENCH_COOKIE, store_attribute='workbench_store'))
     # NX-027 signed commercial webhook: the connector signature authenticates (no session).
     from nexloop_eios.commercial_http import router as commercial_router
     app.include_router(commercial_router())

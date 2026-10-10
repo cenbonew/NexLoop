@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
-import {DECISION_LABELS,KIND_LABELS,awaitingMessage,decide,decisionMessage,impactMessage,readAwaiting,readCandidate,readQueue,reviewError,type AwaitingItem,type CandidateDetail,type Decision,type Decisions,type QueueItem} from './review-api';
+import {BROWSER_REVIEW,DECISION_LABELS,KIND_LABELS,awaitingMessage,decide,decisionMessage,impactMessage,readAwaiting,readCandidate,readQueue,reviewError,type AwaitingItem,type CandidateDetail,type Decision,type Decisions,type QueueItem,type ReviewEndpoints} from './review-api';
 
 const percent=(value:number)=>`${Math.round(value*100)}%`;
 
@@ -19,11 +19,12 @@ export function DisabledDecisions({decisions}:{decisions:Decisions}){
   </div>;
 }
 
-export function DecisionBar({detail}:{detail:CandidateDetail}){
+export function DecisionBar({detail,endpoints=BROWSER_REVIEW}:{detail:CandidateDetail;endpoints?:ReviewEndpoints}){
   const cache=useQueryClient();const [rationale,setRationale]=useState('');const targets=mergeTargets(detail);const [target,setTarget]=useState(targets[0]??'');
   const [key,setKey]=useState(()=>crypto.randomUUID());
-  const mutation=useMutation({mutationFn:(decision:Decision)=>decide(detail.candidate_id,{decision,expected_revision:detail.revision,rationale,...(decision==='merge_into'?{merge_target_ref:target}:{})},`review-${key}-${decision}`),
-    retry:false,onSuccess:()=>{setKey(crypto.randomUUID());void cache.invalidateQueries({queryKey:['review-queue']});void cache.invalidateQueries({queryKey:['review-awaiting']});}});
+  const mutation=useMutation({mutationFn:(decision:Decision)=>decide(detail.candidate_id,{decision,expected_revision:detail.revision,rationale,...(decision==='merge_into'?{merge_target_ref:target}:{})},`review-${key}-${decision}`,endpoints),
+    retry:false,onSuccess:()=>{setKey(crypto.randomUUID());void cache.invalidateQueries({queryKey:['review-queue']});void cache.invalidateQueries({queryKey:['review-awaiting']});
+      void cache.invalidateQueries({queryKey:['workbench','review']});void cache.invalidateQueries({queryKey:['workbench','review-decision']});}});
   if(!detail.decisions.enabled)return <DisabledDecisions decisions={detail.decisions}/>;
   const blocked=mutation.isPending||!rationale.trim();
   const impact=impactMessage(detail.kind,detail.derivation_impact);
@@ -42,7 +43,7 @@ export function DecisionBar({detail}:{detail:CandidateDetail}){
   </div>;
 }
 
-export function CandidateView({detail}:{detail:CandidateDetail}){
+export function CandidateView({detail,endpoints=BROWSER_REVIEW}:{detail:CandidateDetail;endpoints?:ReviewEndpoints}){
   return <article className="candidate" aria-labelledby="candidate-heading">
     <h3 id="candidate-heading">{KIND_LABELS[detail.kind]??detail.kind}：{detail.display_name}</h3>
     <p className="note">依赖 Claim：{detail.dependent_claim_count} 条 · 粘合配置版本：{detail.config_version}</p>
@@ -59,7 +60,7 @@ export function CandidateView({detail}:{detail:CandidateDetail}){
     <h4>相似候选</h4>
     {detail.similar.length?<ul>{detail.similar.map(s=><li key={s.candidate_id}>{s.display_name}（已并入本候选{s.merge_scores?`，相似度 ${percent(s.merge_scores.weighted_total)}`:''}）</li>)}</ul>:<p className="note">没有相似候选。</p>}
     {detail.cooldown&&<p role="status">同文本候选曾被拒绝，冷却期至 {new Date(detail.cooldown.cooldown_until).toLocaleString('zh-CN')}。</p>}
-    <DecisionBar detail={detail}/>
+    <DecisionBar detail={detail} endpoints={endpoints}/>
   </article>;
 }
 
@@ -79,7 +80,7 @@ export function ReviewWorkbench(){
   const [selected,setSelected]=useState('');
   const queue=useQuery({queryKey:['review-queue'],queryFn:()=>readQueue(),retry:false});
   const detail=useQuery({queryKey:['review-candidate',selected],queryFn:()=>readCandidate(selected),enabled:!!selected,retry:false});
-  const awaiting=useQuery({queryKey:['review-awaiting'],queryFn:readAwaiting,enabled:!!queue.data?.visible,retry:false});
+  const awaiting=useQuery({queryKey:['review-awaiting'],queryFn:()=>readAwaiting(),enabled:!!queue.data?.visible,retry:false});
   // No current review permission: the queue is not shown at all (AT-070).
   if(queue.data&&!queue.data.visible)return null;
   return <section className="review" aria-labelledby="review-heading"><h2 id="review-heading">候选定义审核</h2>

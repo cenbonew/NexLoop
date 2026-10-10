@@ -26,11 +26,13 @@ ENABLED = {'enabled': True, 'reason': 'governed_human_review_action', 'actions':
 _CANDIDATE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 
-def router(config, *, ports_for_browser):
+def router(config, *, ports_for_browser, prefix='/api/v1/review', cookie=COOKIE, store_attribute='browser_store'):
     """ports_for_browser(request, actual_session) must recheck live authority."""
     if not callable(ports_for_browser):
         raise ValueError('governed browser ports required')
-    routes = APIRouter(prefix='/api/v1/review')
+    # The same governed reviewer reads and decisions are also mounted for the workbench login realm (its own cookie and
+    # session store), so reviewers decide in the workbench; the customer page carries no staff features.
+    routes = APIRouter(prefix=prefix)
     origin = urlsplit(config.origin)
 
     def error(code, status):
@@ -40,12 +42,12 @@ def router(config, *, ports_for_browser):
     def ports(request, *, write=False):
         if request.headers.get('host') != origin.netloc or request.headers.get('origin') not in ((config.origin,) if write else (None, config.origin)):
             raise PermissionError()
-        store = getattr(request.app.state, 'browser_store', None)
+        store = getattr(request.app.state, store_attribute, None)
         if store is None:
             raise RuntimeError()
         op = TrustedIdentityOperator(operator_principal_id='nexloop_identity', request_id=str(uuid.uuid4()), trace_id=str(uuid.uuid4()))
         sessions = BrowserSessionService(store, store, application_id=config.application_id, operator=op)
-        session = sessions.inspect(request.cookies.get(COOKIE, ''))
+        session = sessions.inspect(request.cookies.get(cookie, ''))
         if write:
             sessions.verify_csrf(session, request.headers.get('x-csrf-token', ''))
         if session.restricted:
