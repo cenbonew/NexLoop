@@ -27,23 +27,25 @@
 -- their latest bodies (0109) with only the stated additions.
 
 -- 0. Versioned settings (deploy/configuration/commitments.v1.json, byte-equal canonical JSON) ----------------------
-create table runtime.nexloop_commitment_settings (
+-- Deployment configuration without a tenant dimension (same kind as 0109 control.nexloop_reply_policies): control
+-- schema, owner-only, append-only, no application role access; read only through the owner's setting function.
+create table control.nexloop_commitment_settings (
  version integer primary key check(version>=1),definition jsonb not null check(jsonb_typeof(definition)='object'),
  definition_digest text not null check(definition_digest~'^[0-9a-f]{64}$'),published_by text not null,
  published_at timestamptz not null default clock_timestamp(),check((definition->>'version')::integer=version),
  check(jsonb_typeof(definition->'lead_seconds')='number' and (definition->>'lead_seconds')::integer between 0 and 2592000),
  check(jsonb_typeof(definition->'unspecified_max_open_seconds')='number' and (definition->>'unspecified_max_open_seconds')::integer between 60 and 31536000)
 );
-alter table runtime.nexloop_commitment_settings owner to nexloop_owner;
-create trigger nx026_append_only before update or delete on runtime.nexloop_commitment_settings for each row execute function control.nexloop_nx022_append_only();
-revoke all on runtime.nexloop_commitment_settings from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
-insert into runtime.nexloop_commitment_settings(version,definition,definition_digest,published_by)
+alter table control.nexloop_commitment_settings owner to nexloop_owner;
+create trigger nx026_append_only before update or delete on control.nexloop_commitment_settings for each row execute function control.nexloop_nx022_append_only();
+revoke all on control.nexloop_commitment_settings from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
+insert into control.nexloop_commitment_settings(version,definition,definition_digest,published_by)
  values(1,'{"decision":"NX-026 (M18, dispatcher rulings 2026-10-10): an enterprise commitment Claim from a delivered outbound Message is registered as a governed Commitment object; its status only moves on ledger evidence. lead_seconds before due_at the Consumer''s active plans are marked for reevaluation (NX-024 T7); at due_at an open or in-progress commitment without qualifying evidence is breached, an owner-visible exception is raised and the plans are marked again. A commitment without a determinable due date marks the plans at registration (clarify) and raises no_due_date after unspecified_max_open_seconds. Initial values; owner-adjustable by a new version.","lead_seconds":3600,"schema":"nexloop-commitments/1","unspecified_max_open_seconds":604800,"version":1,"worker":{"batch":20,"lease_seconds":120,"max_attempts":8,"retry_base_seconds":30}}'::jsonb,
   'c75d92952119b23a0b70a9c663e481961327d451850879ca23fff2cc056c10fa','deploy/configuration/commitments.v1.json');
 
 create function runtime.nexloop_commitment_setting(p_key text) returns integer
  language sql stable security definer set search_path=pg_catalog,pg_temp as $$
- select (definition->>p_key)::integer from runtime.nexloop_commitment_settings order by version desc limit 1
+ select (definition->>p_key)::integer from control.nexloop_commitment_settings order by version desc limit 1
 $$;
 alter function runtime.nexloop_commitment_setting(text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_commitment_setting(text) from public;
