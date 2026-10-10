@@ -2173,6 +2173,12 @@
         "ref": "ci:sice/20261010T114655Z-164058bd6603",
         "summary": "Full CI on clean CI host for 164058b (integration-s4j): 2736 passed / 11 failed, all within baseline; NX-049 serial deadline phase 2/2. Merged to main as 8c6dcc9 (+230aca2, comment-only note on 0127).",
         "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "9a74026",
+        "summary": "Registry rows for commitment.bind_commercial (owner, operator) and cost.record (owner) on the NX-028 governed entry (0128); handlers unchanged through thin adapters.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
       }
     ]
   },
@@ -2190,7 +2196,7 @@
       "M20"
     ],
     "deliverable": "所有薄切片页面与暂停/对账/证据交互",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -2239,6 +2245,18 @@
         "ref": "ci:sice/20261010T124251Z-b2dbb9819e7a",
         "summary": "Full CI for b2dbb98 (integration-s4k): 2738 passed / 11 failed, all within baseline; deadline phase 2/2.",
         "recorded_at": "2026-10-10T21:34:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "9a74026",
+        "summary": "Merged page integration (L4, bf2aeb2, 0130): governed action, takeover and staff-reply components mounted in every workbench page by role (D2), me read for display only, every write still decided in SQL; AT-006 UI part and AT-045 write states covered by vitest and HTTP tests with real workbench cookies. NX-028 deliverable complete: thin-slice pages with pause, reconciliation (query request) and evidence interactions.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
+        "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
       }
     ]
   },
@@ -2256,8 +2274,21 @@
       "M23"
     ],
     "deliverable": "Artifact/Pi/索引/备份删除水位与权限测试",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "9a74026",
+        "summary": "Merged slices 1-2 (L3, 60f6d73+baa8b76, 210da88; 0129, 0132): tenant retention settings, governed purge of append-only tables with tombstones, retention sweeps; Consumer and Message erasure chain with unknown results reconciled first, retention holds, erasing read refusal on the public entry and the nested v0072 calls (per-call negatives), Host runs/purge, owner-internal Artifact cleanup re-verified in SQL. Remaining: export (slice 3), deletion watermark and replay (slice 4, AT-059).",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
+        "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-030",
@@ -2270,8 +2301,21 @@
       "M23"
     ],
     "deliverable": "无原文普通日志、unknown/队列/备份/成本可观测",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "9a74026",
+        "summary": "Merged NX-030 (L2, cf9adf3, 119b1fd, 99bc096; 0131, 0133): SQL metrics snapshot without raw text, dispatch refusal records (D8), versioned alert rules with dedup and silencing (owner only), metrics role and loopback export (default off), Agent Host concurrency sample, structured logs with sentinel scan (AT-049), doctor --observability, alerts/operations/audit pages, per-Run tool timing (NX-031 D6). Remaining for done: backup age (M12) from the NX-035 backup manifest; per-role connection counts stay a known limitation (pg_read_all_stats not granted).",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
+        "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-031",

@@ -103,7 +103,7 @@
     "name": "暂停队列",
     "given": "排队后暂停策略",
     "expected": "dispatch前拒绝旧动作，UI状态一致",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "note",
@@ -116,6 +116,12 @@
         "ref": "tests/test_workbench_realm_pg.py",
         "summary": "Synthetic test environment, merged at 8c6dcc9: Workbench pause write followed by a read shows the paused state; dispatch side already passed. Stays not_run until the workbench action components are integrated in the pages.",
         "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "tests/test_workbench_ui_pg.py",
+        "summary": "Synthetic test environment, merged at 9a74026: owner pauses in the workbench: the next read shows paused, the dispatch prediction is control_paused and the queued intent is refused at dispatch with zero provider requests; after resume the prediction is control_revision_stale (re-evaluation, not replay); apps/web workbench-actions.test.ts shows the matching UI states.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
       }
     ]
   },
@@ -475,7 +481,15 @@
     "name": "更正和删除",
     "given": "消费者信息更正/删除",
     "expected": "原文、摘要、向量、Artifact和Run保留策略同步",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "tests/test_erasure_pg.py",
+        "summary": "Synthetic test environment, merged at 9a74026: Consumer erasure chain merged (slice 2). Stays not_run until the line confirms per-category coverage of correction propagation in its final report.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-027",
@@ -854,7 +868,15 @@
     "name": "日志秘密",
     "given": "请求/错误含key和原文",
     "expected": "普通日志脱敏，受限Artifact访问",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_log_secrets_at049_pg.py",
+        "summary": "Synthetic test environment, merged at 9a74026: test_raw_text_and_keys_never_reach_ordinary_logs: a sentinel phrase and key sent through the real NX-047 chain and three failure branches (409, 422, forged bearer 401) never appear in any process stdout/stderr or the PostgreSQL server log; tests/test_structured_log.py covers the handler.",
+        "recorded_at": "2026-10-11T00:40:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-050",
