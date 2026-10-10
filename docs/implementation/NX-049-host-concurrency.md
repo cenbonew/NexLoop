@@ -64,3 +64,33 @@ nexloop-doctor --agent-host-only --agent-host-config <Host 的私有运行配置
 
 - `nx049-deploy-config`（`5f00e66`）也改了 `doctor.py` 的参数解析（`--connection-budget`、`--budget-only`，让 `--artifact-root` 变为可选）和 `deploy/stage/`。两边合并时，`doctor.py` 的 `main()` 会有相邻行冲突，按“保留两组参数、两类启动前检查各自独立”的原则合并即可。`deploy/stage/` 下的文件名互不重叠；`deploy/stage/README.md` 只在 deploy-config 分支中，合并后建议在其中补一句 Agent Host 的启动前检查命令。
 - `runtime_dispatch.py`（L4）没有改动：Host 返回的 503 已经按可重试处理。如果希望在任务结果里区分“容量不足”和“传输失败”，可以在 L4 那边把 `runtime_capacity_exhausted` 单独映射成 `retry_wait`。
+
+## 7. 修复：s4e 全量 CI 中 `test_agent_host_run_limit.py` 两项失败
+
+**现象**（CI run `20261010T041231Z-7cc6b7ab9ba4`，以及调度员在空闲部署主机上的串行复跑）：
+- 两项都在 `wait_done` 中拿到 `runtime_authorization_denied`，或者在第 85 行得到 `runtime_outcome='failed'`；
+- `NEXLOOP_TEST_GUARD_WORKERS=4` 时仍是 1 败 1 过。
+
+**根因**：
+- 测试调用 `guard_server(...)` 时**没有传 `spawn`**，guard 始终运行在 pytest 进程内（单进程），环境变量 `NEXLOOP_TEST_GUARD_WORKERS` 对它不起作用。
+- 在单进程里，两个 Run 的 model/tool 授权、测试每 50 ms 一次的 inspect 授权、pytest 自身共用一把 GIL。在部署主机上，guard 请求因此超过 Host 的 2 s 时限，这正是 NX-049 剖析出的结构性原因：部署主机上单进程 guard 的两 Pi 用例 base 为 4/6，4 进程为 6/6。
+- 超时的 guard 请求被 Host 当作拒绝：Run 内的超时让 `runtime_outcome='failed'`，inspect 的超时让 `wait_done` 一直拿到 `runtime_authorization_denied`。
+- **不是**被限流的第二个 Run 排队超时。那种情况返回的是 `runtime_capacity_exhausted`（503），失败输出中没有出现。
+
+**修复**（只改测试和测试夹具，产品代码不变；2 s 时限不变；断言没有放宽）：
+- 两项测试固定使用 **4 个 guard 子进程**（`guard_server(..., spawn=plan['worker_spawn'], workers=4)`）。
+  - 理由：ADR-022 §4 和 ADR-024 把“guard 4 进程、Host 全局并发 ≤ 4”定为部署前提，stage 配置就是 `--guard-workers 4`。这两项测试验证的是 Host 的准入上限，不是 guard 的吞吐。若仍让 guard 运行在单进程里，测到的会是部署中不存在的形态。
+- 夹具 `guard_server` 新增参数 `workers`：给定时使用固定的进程数，不读环境变量。没有调用方传入时，行为不变。
+- **guard 调用的观察方式**：guard 改为子进程后，原来在 pytest 进程中的 monkeypatch 无法生效。改用测试专用的 `tests/support/guard_call_log/sitecustomize.py`：
+  - 只在测试把该目录放进 `PYTHONPATH`，并设置 `NEXLOOP_TEST_GUARD_CALL_LOG` 时生效；
+  - 各 guard 子进程以 O_APPEND 方式，每次调用追加一行 `{at, run_id, operation}`；
+  - 环境变量只在子进程启动期间设置，Host 等其他子进程不会加载这个钩子。
+- 断言保持不变：
+  - 被拒绝的那次尝试不产生任何 guard 请求，也不建立 runtime 目录；
+  - 排队的那个 Run，所有 guard 请求都晚于第一个 Run 的最后一次执行类请求；
+  - 两个 Run 都成功。
+  - 另外新增一项断言：调用记录非空，用来证明 guard 确实运行在子进程中。
+
+**本机验证**：
+- 连续 3 轮，每轮 2 passed（各约 56 s；本机负载 7–9）；
+- 回归 `test_runtime_host_admission`、两 Pi、v4[complete]、`test_host_concurrency`、`test_runtime_worker`：`-n 4` 下 54 passed。

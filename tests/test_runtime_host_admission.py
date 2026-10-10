@@ -35,16 +35,19 @@ def guard_workers():
 
 
 @contextmanager
-def guard_server(worker,tmp_path,key,spawn=None):
+def guard_server(worker,tmp_path,key,spawn=None,workers=None):
     """spawn: dict(database_url, signing_key_file, signing_key_id, artifact_root, token, world) of the
-    same identity and Backend configuration as `worker`; used only in multi-process mode."""
-    if spawn is not None and guard_workers()>1:
+    same identity and Backend configuration as `worker`; used only in multi-process mode.
+    workers: fixed guard process count for tests that model the deployment (ADR-022 §4 / ADR-024),
+    instead of NEXLOOP_TEST_GUARD_WORKERS."""
+    count=workers if workers is not None else guard_workers()
+    if spawn is not None and count>1:
         from nexloop_eios.runtime_guard_worker import GuardFiles,GuardWorkerPool
         private=tmp_path/'guard-spawn';private.mkdir(mode=0o700,exist_ok=True)
         dsn=private/'database-url';dsn.write_text(spawn['database_url']);dsn.chmod(0o600)
         credential=private/'service-credential';credential.write_text(spawn['token']);credential.chmod(0o600)
         pool=GuardWorkerPool(GuardFiles(dsn,Path(spawn['signing_key_file']),spawn['signing_key_id'],credential,Path(spawn['artifact_root']),
-            spawn['world'],key,tmp_path/'host-cert.pem',tmp_path/'host-key.pem'),port=0,workers=guard_workers())
+            spawn['world'],key,tmp_path/'host-cert.pem',tmp_path/'host-key.pem'),port=0,workers=count)
         port=pool.start()
         try:yield port
         finally:pool.stop()
