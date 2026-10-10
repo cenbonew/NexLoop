@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:contact-restriction-view",
+  "title": "contact-restriction-view",
+  "description": "NX-028 (D8). The owner workbench's read projection of contact restrictions and reply escalations (ADR-023, 0109). A refusal hit's `matched_text` is the customer's own words: it is present only when the reader also holds that Message's READ (`matched_text_status` ok), otherwise null with status restricted (shown as \"rule <rule_id> matched; text needs authorization\"). Only the owner can release a restriction (ADR-023 §2.4); a release never replays refused intents. Server-derived; grants nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "restrictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "consumer_id",
+          "active",
+          "control_revision",
+          "message_id",
+          "conversation_id",
+          "rule_version",
+          "rule_id",
+          "certainty",
+          "matched_text",
+          "matched_text_status",
+          "restricted_at",
+          "released_at",
+          "released_by",
+          "release_reason",
+          "hits"
+        ],
+        "properties": {
+          "consumer_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "control_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "message_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "rule_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rule_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "certainty": {
+            "enum": [
+              "refuse",
+              "uncertain"
+            ]
+          },
+          "matched_text": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            ]
+          },
+          "matched_text_status": {
+            "enum": [
+              "ok",
+              "restricted"
+            ]
+          },
+          "restricted_at": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "released_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "released_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "message_id",
+                "rule_version",
+                "rule_id",
+                "certainty",
+                "matched_text",
+                "matched_text_status",
+                "recorded_at"
+              ],
+              "properties": {
+                "message_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "rule_version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "rule_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "certainty": {
+                  "enum": [
+                    "refuse",
+                    "uncertain"
+                  ]
+                },
+                "matched_text": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 8192
+                    }
+                  ]
+                },
+                "matched_text_status": {
+                  "enum": [
+                    "ok",
+                    "restricted"
+                  ]
+                },
+                "recorded_at": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "escalations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message_id",
+          "conversation_id",
+          "consumer_id",
+          "reason",
+          "detail",
+          "escalated_at"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "consumer_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "reason": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,64}$"
+          },
+          "detail": {
+            "type": "object"
+          },
+          "escalated_at": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "restrictions",
+    "escalations"
+  ]
+}

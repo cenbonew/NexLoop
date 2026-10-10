@@ -103,6 +103,86 @@ class ClaimSource0(BaseModel):
     content_hash: str
     quote: str
 
+class CommitmentViewProperties(BaseModel):
+    model_config = ConfigDict(extra="allow", strict=True)
+    status: Literal['conditional', 'open', 'in_progress', 'fulfilled', 'breached', 'cancelled', 'superseded']
+
+class CommitmentViewEvidenceRequestedItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: str
+    ref: str
+    occurred_at: str
+
+class CommitmentViewEvidenceDeliveredItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: str
+    ref: str
+    occurred_at: str
+
+class CommitmentViewEvidenceCustomerConfirmedItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: str
+    ref: str
+    occurred_at: str
+
+class CommitmentViewEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    requested: list[CommitmentViewEvidenceRequestedItem]
+    delivered: list[CommitmentViewEvidenceDeliveredItem]
+    customer_confirmed: list[CommitmentViewEvidenceCustomerConfirmedItem]
+    problem_resolved: Literal['unavailable']
+
+class CommitmentViewEventsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: str
+    ref: str | None
+    detail: dict[str, Any]
+    principal_id: str | None
+    recorded_at: str
+
+class CommitmentViewExceptionsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    reason: str
+    detail: dict[str, Any]
+    raised_at: str
+
+class ContactRestrictionViewRestrictionsItemHitsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    message_id: str
+    rule_version: int
+    rule_id: str
+    certainty: Literal['refuse', 'uncertain']
+    matched_text: None | str
+    matched_text_status: Literal['ok', 'restricted']
+    recorded_at: str
+
+class ContactRestrictionViewRestrictionsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    consumer_id: str
+    active: bool
+    control_revision: int
+    message_id: str
+    conversation_id: str
+    rule_version: int
+    rule_id: str
+    certainty: Literal['refuse', 'uncertain']
+    matched_text: None | str
+    matched_text_status: Literal['ok', 'restricted']
+    restricted_at: str
+    released_at: str | None
+    released_by: str | None
+    release_reason: str | None
+    hits: list[ContactRestrictionViewRestrictionsItemHitsItem]
+
+class ContactRestrictionViewEscalationsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    message_id: str
+    conversation_id: str
+    consumer_id: str
+    reason: str
+    detail: dict[str, Any]
+    escalated_at: str
+
 class ContextManifestSourcesItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     ref: str
@@ -548,6 +628,26 @@ class Claim(_Contract):
     correlation_key: str
     guard_flags: list[str]
     recorded_at: str
+
+class CommitmentView(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:commitment-view","title":"commitment-view","description":"NX-028 (D8). The owner workbench\'s read projection of one Commitment (NX-026 runtime.nexloop_commitment_view). `status` lives only in `properties.status`; the interface never infers it. The four evidence columns are separate: a delivered message proves delivery only, never fulfilment (AT-040); `problem_resolved` is unavailable in v0.1 (NX-026 D5). `quote` is the promised words, shown only while the source Message exists AND the reader holds that Message\'s READ (`quote_status`: ok, restricted = withheld for lack of READ, unavailable = source deleted, none = no source message). Server-derived; grants nothing.","type":"object","additionalProperties":false,"properties":{"commitment_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"revision":{"type":"integer","minimum":1},"properties":{"type":"object","required":["status"],"properties":{"status":{"enum":["conditional","open","in_progress","fulfilled","breached","cancelled","superseded"]}}},"quote":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"quote_status":{"enum":["ok","restricted","unavailable","none"]},"source_available":{"type":"boolean"},"origin":{"enum":["claim","extend"]},"registered_at":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":64}]},"evidence":{"type":"object","additionalProperties":false,"required":["requested","delivered","customer_confirmed","problem_resolved"],"properties":{"requested":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["kind","ref","occurred_at"],"properties":{"kind":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":300},"occurred_at":{"type":"string","minLength":1,"maxLength":64}}}},"delivered":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["kind","ref","occurred_at"],"properties":{"kind":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":300},"occurred_at":{"type":"string","minLength":1,"maxLength":64}}}},"customer_confirmed":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["kind","ref","occurred_at"],"properties":{"kind":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":300},"occurred_at":{"type":"string","minLength":1,"maxLength":64}}}},"problem_resolved":{"const":"unavailable"}}},"events":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["kind","ref","detail","principal_id","recorded_at"],"properties":{"kind":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":["string","null"]},"detail":{"type":"object"},"principal_id":{"type":["string","null"]},"recorded_at":{"type":"string","minLength":1,"maxLength":64}}}},"exceptions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["reason","detail","raised_at"],"properties":{"reason":{"type":"string","pattern":"^[a-z_]{1,64}$"},"detail":{"type":"object"},"raised_at":{"type":"string","minLength":1,"maxLength":64}}}}},"required":["commitment_id","consumer_id","revision","properties","quote","quote_status","source_available","origin","registered_at","evidence","events","exceptions"]}')
+    commitment_id: str
+    consumer_id: str
+    revision: int
+    properties: CommitmentViewProperties
+    quote: None | str
+    quote_status: Literal['ok', 'restricted', 'unavailable', 'none']
+    source_available: bool
+    origin: Literal['claim', 'extend']
+    registered_at: None | str
+    evidence: CommitmentViewEvidence
+    events: list[CommitmentViewEventsItem]
+    exceptions: list[CommitmentViewExceptionsItem]
+
+class ContactRestrictionView(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:contact-restriction-view","title":"contact-restriction-view","description":"NX-028 (D8). The owner workbench\'s read projection of contact restrictions and reply escalations (ADR-023, 0109). A refusal hit\'s `matched_text` is the customer\'s own words: it is present only when the reader also holds that Message\'s READ (`matched_text_status` ok), otherwise null with status restricted (shown as \\"rule <rule_id> matched; text needs authorization\\"). Only the owner can release a restriction (ADR-023 §2.4); a release never replays refused intents. Server-derived; grants nothing.","type":"object","additionalProperties":false,"properties":{"restrictions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["consumer_id","active","control_revision","message_id","conversation_id","rule_version","rule_id","certainty","matched_text","matched_text_status","restricted_at","released_at","released_by","release_reason","hits"],"properties":{"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"active":{"type":"boolean"},"control_revision":{"type":"integer","minimum":1},"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"restricted_at":{"type":"string","minLength":1,"maxLength":64},"released_at":{"type":["string","null"]},"released_by":{"type":["string","null"]},"release_reason":{"type":["string","null"]},"hits":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","rule_version","rule_id","certainty","matched_text","matched_text_status","recorded_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"recorded_at":{"type":"string","minLength":1,"maxLength":64}}}}}}},"escalations":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","conversation_id","consumer_id","reason","detail","escalated_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"reason":{"type":"string","pattern":"^[a-z_]{1,64}$"},"detail":{"type":"object"},"escalated_at":{"type":"string","minLength":1,"maxLength":64}}}}},"required":["restrictions","escalations"]}')
+    restrictions: list[ContactRestrictionViewRestrictionsItem]
+    escalations: list[ContactRestrictionViewEscalationsItem]
 
 class ContextManifest(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:context-manifest","title":"context-manifest","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"context_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"call_sequence":{"type":"integer","minimum":1},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"policy_revision":{"type":"string","minLength":1},"ontology_schema_revision":{"type":"string","minLength":1},"semantic_snapshot_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"context_strategy_version":{"type":"string","minLength":1},"model_provider":{"type":"string","minLength":1},"model_id":{"type":"string","minLength":1},"embedding_profile_ref":{"anyOf":[{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},{"type":"null"}]},"sources":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"string","minLength":1},"content_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"evidence_kind":{"enum":["verified_fact","user_statement","hypothesis","policy","schema","memory","current_message","formal_object","conversation","execution_state"]},"access_decision_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}},"required":["ref","revision","content_hash","evidence_kind","access_decision_ref"]},"minItems":1,"maxItems":256},"prompt_artifact_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"request_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"input_token_budget":{"type":"integer","minimum":256},"output_token_budget":{"type":"integer","minimum":128},"redaction_policy_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}},"required":["schema_version","context_id","tenant_id","world_id","mode","run_id","call_sequence","goal_version_ref","policy_revision","ontology_schema_revision","semantic_snapshot_ref","context_strategy_version","model_provider","model_id","embedding_profile_ref","sources","prompt_artifact_ref","request_digest","input_token_budget","output_token_budget","redaction_policy_ref","created_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
