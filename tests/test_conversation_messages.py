@@ -110,7 +110,9 @@ def test_payload_conflict_is409_original_and_event_preserved(conversations,admin
     with pytest.raises(ConversationConflict) as conflict:
         port.accept_message(conversation_id=created['id'],idempotency_key='synthetic-conflict-key',body='replacement')
     assert conflict.value.http_status==409
-    assert port.read_messages(conversation_id=created['id'])['items']==[original['message']]
+    # NX-051: the read projection adds provider/reply evidence (conversation-message contract) to the stored record.
+    assert port.read_messages(conversation_id=created['id'])['items']==[{**original['message'],'reply_to_message_id':None,
+        'provider':{'namespace':'nexloop.api','message_ref':None,'sequence':None,'sent_at':None,'trust':'server','skewed':False}}]
     assert admin.execute('select count(*) from runtime.nexloop_message_outbox').fetchone()==(1,)
 
 

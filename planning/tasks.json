@@ -2132,8 +2132,21 @@
       "M18"
     ],
     "deliverable": "条件/期限/责任/证据，发送与完成分开",
-    "status": "not_started",
-    "evidence": []
+    "status": "done",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "5f0023e",
+        "summary": "Merged NX-026 (L4, nx026-impl 080b6c9): Commitment ontology and evidence ledger, status moves only on ledger evidence, due/violation stages mark plan reevaluation with owner-visible exceptions, five human-only Actions incl. mark_communication (D3), commitment_keeper service (0111); contact restriction blocks only customer-reaching effects via a trusted-config effect-category side table, undeclared or digest-mismatched effects treated as customer-reaching (ADR-023 §3, 0112); v6 open_work commitment section (0113). Deploy steps: effect_categories --apply as configurator; commitment-keeper process.",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T083937Z-32c914d48cfe",
+        "summary": "Full CI on clean CI host for 32c914d (integration-s4h): 2656 passed / 11 failed, all within baseline (load-sensitive real Host/Pi cases), no new failures; NX-049 serial deadline phase 2/2 passed. Merged to main as 5f0023e. First round (integration-s4g, af68908) had one new deterministic failure (runtime.nexloop_commitment_settings without forced RLS), fixed in 080b6c9.",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-027",
@@ -2823,13 +2836,25 @@
       "M09"
     ],
     "deliverable": "入站消息保存 provider 序号、发送时间与引用（reply_to），接收顺序（sequence）不变；乱序入站与引用回复下重建对话保留原顺序与接收顺序，不改写原始证据；外发回复的引用由服务端推导（ADR-023 §2.6）；AT-014 可判定",
-    "status": "not_started",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
         "ref": "docs/implementation/NX-051-design.md",
         "summary": "Split out of NX-019/NX-025 by the dispatcher (AT-014 had no provider sequence or reply_to on Message); design reviewed with five dispatcher rulings, implementation after NX-025 (L2 line).",
         "recorded_at": "2026-10-10T14:31:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "5f0023e",
+        "summary": "Merged NX-051 (L2, nx051-impl d91f6bb): append-only provider facts and reply-link events with forced RLS, default facts at commit, native WebChat v2 client facts, outbound reply_to derived server-side from trigger_message_id, read functions under Message READ (0114, was 0120); claim correction checked on the effective (signed-channel or receipt) order (0115, was 0121); conversation-message projection contract. Known: accepted_at is a plain string; signed-channel ordering evidenced only with the synthetic namespace; WebChat quote button, NX-020 effective_at on channel time and frozen-dataset additions deferred to real channel onboarding.",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T083937Z-32c914d48cfe",
+        "summary": "Full CI on clean CI host for 32c914d (integration-s4h): 2656 passed / 11 failed, all within baseline (load-sensitive real Host/Pi cases), no new failures; NX-049 serial deadline phase 2/2 passed. Merged to main as 5f0023e. First round (integration-s4g, af68908) had one new deterministic failure (runtime.nexloop_commitment_settings without forced RLS), fixed in 080b6c9.",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
       }
     ]
   }

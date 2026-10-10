@@ -95,13 +95,14 @@ class _ConversationPort:
         signature=hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
         return {'text':text,'signature':signature,'payload':body},decision
 
-    def _call(self,db,verb,action,**arguments):
+    def _call(self,db,verb,action,_function='authz.nexloop_conversation_command',**arguments):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action,1)
         if not (set(definition.required_scopes)|set(capability.required_scopes))<=self.session.authentication.requested_scopes:raise ConversationUnavailable()
         if definition.governance.policy_refs or definition.preconditions or definition.parameters or definition.governance.approval_mode.value!='none':raise ConversationUnavailable()
         envelope,_=self._signed('nexloop-conversation-v1',action,{'verb':verb,**arguments},
             definition=definition.model_dump(mode='json'),capability=capability.model_dump(mode='json'))
-        return db.execute('select authz.nexloop_conversation_command(%s,%s,%s,%s,%s)',
+        if _function not in ('authz.nexloop_conversation_command','authz.nexloop_conversation_messages_projection'):raise ConversationUnavailable()
+        return db.execute('select '+_function+'(%s,%s,%s,%s,%s)',
             (self.session.token_digest,self.session.world,envelope['text'],envelope['signature'],envelope['payload'])).fetchone()[0]
 
     def _create(self,db,action,payload):
@@ -194,5 +195,7 @@ class ConversationMessagePort(_ConversationPort):
             if type(arguments['limit']) is not int or not 1<=arguments['limit']<=100:raise ValueError()
             if 'after_sequence' in arguments and (type(arguments['after_sequence']) is not int or not 0<=arguments['after_sequence']<=2**63-1):raise ValueError()
             if 'after' in arguments and arguments['after']!='':_id(arguments['after'])
-            with self.pool.connection() as db,db.transaction():return self._call(db,verb,READ,**arguments)
+            # NX-051: the messages read is the 0046 owner read plus provider/reply projection fields (0120).
+            function='authz.nexloop_conversation_messages_projection' if verb=='messages' else 'authz.nexloop_conversation_command'
+            with self.pool.connection() as db,db.transaction():return self._call(db,verb,READ,_function=function,**arguments)
         except Exception as error:self._raise(error)

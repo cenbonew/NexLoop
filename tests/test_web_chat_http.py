@@ -116,7 +116,8 @@ def test_actual_http_governed_message202_replay409_persisted_before_ack(actual_c
     assert replay.status_code == 202 and replay.json() == {**accepted.json(), 'created': False}
     conflict = client.post(path, headers=request_headers, json={'body': 'different statement'})
     assert conflict.status_code == 409 and conflict.json()['code'] == 'conversation_payload_conflict'
-    assert client.get(path).json()['items'] == [message]
+    # NX-051 read projection: server-default provider facts, no reply link.
+    assert client.get(path).json()['items'] == [{**message,**{'reply_to_message_id':None,'provider':{'namespace':'nexloop.api','message_ref':None,'sequence':None,'sent_at':None,'trust':'server','skewed':False}}}]
     assert admin.execute('select count(*) from ontology.objects where type_name=%s', ('Message',)).fetchone() == (1,)
 
 

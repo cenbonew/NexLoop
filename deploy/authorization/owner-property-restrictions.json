@@ -1,9 +1,10 @@
 {
   "schema_version": "nexloop-owner-property-restrictions/1",
-  "decided_by": "project owner (relayed by the dispatcher, 2026-10-09; Commitment 2026-10-10)",
-  "decision": "No Consumer property group is restricted from type derivation: demographics and spending_power are not restricted. No Commitment property group is restricted (NX-026). Content changes only by the owner's decision.",
+  "decided_by": "project owner (relayed by the dispatcher, 2026-10-09; Commitment, CommercialRecord 2026-10-10)",
+  "decision": "No Consumer property group is restricted from type derivation: demographics and spending_power are not restricted. No Commitment (NX-026) or CommercialRecord (NX-027) property group is restricted. Content changes only by the owner's decision.",
   "restrictions": [
     {"type_name": "Consumer", "restricted_groups": []},
-    {"type_name": "Commitment", "restricted_groups": []}
+    {"type_name": "Commitment", "restricted_groups": []},
+    {"type_name": "CommercialRecord", "restricted_groups": []}
   ]
 }
