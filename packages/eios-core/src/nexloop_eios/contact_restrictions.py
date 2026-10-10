@@ -108,13 +108,16 @@ class ReplyGuaranteeWorker:
 
     @authority_request_scoped
     def run_once(self):
-        summary={'settled':0,'fallback_started':0,'escalated':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
+        summary={'settled':0,'fallback_started':0,'escalated':0,'taken_over':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
         fallback=self.policy['fallback'];recheck=fallback_duration(self.policy)+30
         for item in self.feed.claim(limit=fallback['batch'],lease_seconds=fallback['lease_seconds']):
             message_id=item['payload']['message_id']
             try:
                 state=self.port.state(message_id)
                 if state['settled'] or state['escalated']:outcome='settled'
+                elif state.get('taken_over'):
+                    # NX-028 D3/D5: a person answers while taken over; the hand-back re-registers the latest unanswered message.
+                    outcome='taken_over'
                 elif state.get('fallback_run_id'):
                     # The one fallback Run had its full duration and the message is still unanswered.
                     self.port.escalate(message_id,'fallback_unanswered',{'fallback_run_id':str(state['fallback_run_id']),'restricted':state['restricted']});outcome='escalated'

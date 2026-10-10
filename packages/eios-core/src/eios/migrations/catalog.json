@@ -577,19 +577,64 @@
       "sha256": "d9596270ff83b69c80acc4dceb8ea63dd1bcbb7a54e0520071ecbfe8120e148a"
     },
     {
-      "version": "0140",
-      "name": "0140_nx028_staff_identity.sql",
+      "version": "0116",
+      "name": "0116_nx028_staff_identity.sql",
       "sha256": "33143ccadd10831828a955653b76f55da1c93bdce52e2fa5c927139e24cc21e2"
     },
     {
-      "version": "0141",
-      "name": "0141_nx028_workbench_read.sql",
+      "version": "0117",
+      "name": "0117_nx028_workbench_read.sql",
       "sha256": "8c46f2fc0ecd1b682ca351e5a1306157518e74cfd736146ead23a9fb9b4e6ffa"
+    },
+    {
+      "version": "0118",
+      "name": "0118_nx027_commercial_intake.sql",
+      "sha256": "739d983dc8ad8863f3e432301daa72e8d4f2eb39887418df8c1edb24329fd1c3"
+    },
+    {
+      "version": "0119",
+      "name": "0119_nx027_metrics.sql",
+      "sha256": "c888378290b0bf5a758e6e4d05280c4bbfb7f85ffeeb6d01f562ac9bc0d637df"
+    },
+    {
+      "version": "0120",
+      "name": "0120_nx027_costs.sql",
+      "sha256": "6f40388c9ae72d786c7de7ff24679bf10a6a9d1e570cf5482b6ba13cf3c50735"
+    },
+    {
+      "version": "0121",
+      "name": "0121_nx027_commercial_links.sql",
+      "sha256": "b378e09e2746ef50ce83dd29ccd0155a61cf47e848110e2051564fd3c9e618b0"
+    },
+    {
+      "version": "0122",
+      "name": "0122_nx027_commercial_observe.sql",
+      "sha256": "5e2196c55f95250aea27cf604709a3e92e2304feba35831646c0c9bcea604d5b"
     },
     {
       "version": "0145",
       "name": "0145_nx028_workbench_member_read.sql",
       "sha256": "515ecbb2e1a2e50bd8f7607849ea222cefccb6666b9c56239e19b4c04019b927"
+    },
+    {
+      "version": "0150",
+      "name": "0150_nx028_governed_entry.sql",
+      "sha256": "c6c329c42cd5c0df8d2db83c44ee45849e1e3bcd55c465acb5858d3188dc303e"
+    },
+    {
+      "version": "0151",
+      "name": "0151_nx028_workbench_actions.sql",
+      "sha256": "acc74ce30fa33b091dcaa9dc5a3fd251c261ec3295c44a9e08cea42f9d27ca4a"
+    },
+    {
+      "version": "0152",
+      "name": "0152_nx028_takeover.sql",
+      "sha256": "990cdf570a2ea2d6466ee946a904ccdf3a8480e907b0155a6d6f7e559f3f7ab8"
+    },
+    {
+      "version": "0153",
+      "name": "0153_nx028_staff_reply.sql",
+      "sha256": "31f0795d9db79ae1b47c98f4f016f8000d0bee5798c689e02330051a9df665cc"
     }
   ]
 }
