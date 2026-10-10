@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-workbench-roles/1",
-  "manifest_version": 2,
-  "decision": "NX-028 D1/D2 (owner 2026-10-10, all as recommended): the owner workbench is its own browser business application; enterprise members are existing browser Humans written by trusted configuration only (no self-registration); a customer principal never holds a workbench grant. A role is a set of Action grants, compiled per member by nexloop_eios.workbench_roles and applied through trusted configuration (0050); the member list is private deployment data and never part of this file. Releasing a contact restriction (ADR-023 §2.4), cancelling a commitment, marking a communication commitment and goals/metrics/budget/pause stay owner-only. Actions marked slice 2/3 are declared by those slices; holding a grant before the Action is published grants nothing. v2: slice 3 Action names as published by L4 (nexloop.conversation.takeover/handback, nexloop.message.staff_send), owner and operator.",
+  "manifest_version": 3,
+  "decision": "NX-028 D1/D2 (owner 2026-10-10, all as recommended): the owner workbench is its own browser business application; enterprise members are existing browser Humans written by trusted configuration only (no self-registration); a customer principal never holds a workbench grant. A role is a set of Action grants, compiled per member by nexloop_eios.workbench_roles and applied through trusted configuration (0050); the member list is private deployment data and never part of this file. Releasing a contact restriction (ADR-023 §2.4), cancelling a commitment, marking a communication commitment and goals/metrics/budget/pause stay owner-only. Actions marked slice 2/3 are declared by those slices; holding a grant before the Action is published grants nothing. v2: slice 3 Action names as published by L4 (nexloop.conversation.takeover/handback, nexloop.message.staff_send), owner and operator. v3 (NX-027, registry 0140): nexloop.commitment.bind_commercial for owner and operator — like attest and condition_met it supplies fulfilment grounds for a commitment, and it cannot fabricate evidence (only verified signed events of the bound reference count, and only for the commitment's own Consumer); nexloop.cost.record owner only — entered costs feed cost metrics and key results, which like goals, metrics and budgets stay with the owner.",
   "roles": {
     "owner": [
       "eios:action:nexloop.workbench.read:1",
@@ -22,7 +22,9 @@
       "eios:action:nexloop.service.query_request:1",
       "eios:action:nexloop.conversation.takeover:1",
       "eios:action:nexloop.conversation.handback:1",
-      "eios:action:nexloop.message.staff_send:1"
+      "eios:action:nexloop.message.staff_send:1",
+      "eios:action:nexloop.commitment.bind_commercial:1",
+      "eios:action:nexloop.cost.record:1"
     ],
     "operator": [
       "eios:action:nexloop.workbench.read:1",
@@ -35,7 +37,8 @@
       "eios:action:nexloop.service.query_request:1",
       "eios:action:nexloop.conversation.takeover:1",
       "eios:action:nexloop.conversation.handback:1",
-      "eios:action:nexloop.message.staff_send:1"
+      "eios:action:nexloop.message.staff_send:1",
+      "eios:action:nexloop.commitment.bind_commercial:1"
     ],
     "reviewer": [
       "eios:action:ontology.schema.review:1"
@@ -45,6 +48,7 @@
     "slice_1_reads": ["nexloop.workbench.read", "nexloop.contact.read", "nexloop.commitment.read"],
     "existing_governed": ["Goal.publish", "Goal.propose", "Metric.approve", "Budget.set", "Control.set", "Contact.release", "Commitment.cancel", "Commitment.extend", "Commitment.attest", "Commitment.condition_met", "Commitment.mark_communication", "ontology.schema.review"],
     "slice_2": ["nexloop.plan.request_reevaluation", "nexloop.service.query_request"],
-    "slice_3": ["nexloop.conversation.takeover", "nexloop.conversation.handback", "nexloop.message.staff_send"]
+    "slice_3": ["nexloop.conversation.takeover", "nexloop.conversation.handback", "nexloop.message.staff_send"],
+    "nx027_registry": ["nexloop.commitment.bind_commercial", "nexloop.cost.record"]
   }
 }

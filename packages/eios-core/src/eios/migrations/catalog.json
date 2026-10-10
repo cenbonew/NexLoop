@@ -635,6 +635,16 @@
       "version": "0127",
       "name": "0127_nx028_staff_reply.sql",
       "sha256": "25f1bb687a7761cbc46b23edc5214030d7227405e0563cd0f6ebb753e04aceba"
+    },
+    {
+      "version": "0128",
+      "name": "0128_nx027_governed_registry.sql",
+      "sha256": "30d7c49b9d04a38edd15889a9c117cd026e94c96687683a6f948b12ab0612c08"
+    },
+    {
+      "version": "0129",
+      "name": "0129_nx029_retention.sql",
+      "sha256": "79943356b12c822ce7fcc5684fdd71b7f23caa4dd442b2898cb37b77a01ab289"
     }
   ]
 }

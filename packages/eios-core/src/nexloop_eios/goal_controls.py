@@ -38,7 +38,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-028 slice 3 (0152): human takeover and hand-back.
     'take_over_conversation':'conversation.takeover','hand_back_conversation':'conversation.handback',
     # NX-028 ruling B (0153): a staff reply written during the author's own takeover.
-    'send_staff_reply':'message.staff_send'}
+    'send_staff_reply':'message.staff_send',
+    # NX-027 on the registry (0140): commitment commercial binding and operator-entered costs, human only.
+    'bind_commitment_commercial':'commitment.bind_commercial','record_cost':'cost.record'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -223,6 +225,31 @@ class GoalGovernedActions:
             raise ValueError('conversation, bound inbound message and text required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'send_staff_reply','conversation_id':conversation_id,
             'reply_to':reply_to,'text':text})
+
+    # NX-027 (0121 handler): only verified signed events of this reference become the commitment's commercial evidence.
+    def bind_commitment_commercial(self,*,action_name,action_version,request_id,commitment_id,connector_id,record_kind,external_id,statuses=None):
+        if (not re.fullmatch(r'[a-f0-9]{64}',str(commitment_id)) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,62}',str(connector_id))
+                or record_kind not in ('order','payment','renewal','refund') or type(external_id) is not str or not 1<=len(external_id)<=200):
+            raise ValueError('commitment and commercial reference required')
+        payload={'request_id':request_id,'operation':'bind_commitment_commercial','commitment_id':commitment_id,'connector_id':connector_id,
+            'record_kind':record_kind,'external_id':external_id}
+        if statuses is not None:
+            if type(statuses) not in (list,tuple) or not statuses or any(type(x) is not str for x in statuses):raise ValueError('statuses')
+            payload['statuses']=list(statuses)
+        return self._submit(action_name,action_version,payload)
+
+    # NX-027 (0120 handler): a service or labour cost entered by a person; a correction supersedes, never rewrites.
+    def record_cost(self,*,action_name,action_version,request_id,cost_kind,amount,currency,amount_unit,occurred_at,units=None,consumer_id=None,
+                    corrects_entry_id=None):
+        if (cost_kind not in ('service','labour') or not re.fullmatch(r'[0-9]{1,12}(\.[0-9]{1,8})?',str(amount))
+                or not re.fullmatch(r'[A-Z]{3}',str(currency)) or amount_unit not in ('major','minor')):
+            raise ValueError('cost kind, amount, currency and unit required')
+        payload={'request_id':request_id,'operation':'record_cost','cost_kind':cost_kind,'amount':str(amount),'currency':currency,
+            'amount_unit':amount_unit,'occurred_at':_utc(occurred_at)}
+        if units is not None:payload['units']=str(units)
+        if consumer_id is not None:payload['consumer_id']=str(consumer_id)
+        if corrects_entry_id is not None:payload['corrects_entry_id']=str(corrects_entry_id)
+        return self._submit(action_name,action_version,payload)
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

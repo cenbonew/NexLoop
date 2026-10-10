@@ -60,6 +60,23 @@ def publish_commercial_type(admin,worlds=('real','test'),tenant=TENANT):
     return rows
 
 
+REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment.bind_commercial'),'nexloop.cost.record':('Consumer','cost.record')}
+
+
+def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):
+    """NX-027 human Actions on the governed entry registry (0140), compiled from the business manifest and typed on the
+    tenant's published Commitment v1 / Consumer v1 (configuration fixture, as the commitment fixture publishes NX-028's)."""
+    types=[admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name=%s and version=1",(tenant,t)).fetchone()[0]
+        for t in sorted({REGISTRY_ACTIONS[n][0] for n in names})]
+    base=governance_inputs()['capability_snapshot']
+    caps={REGISTRY_ACTIONS[n][1]:base.model_copy(update={'capability_name':REGISTRY_ACTIONS[n][1],'has_side_effects':True}) for n in names}
+    for row in business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
+            created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=types,capabilities=caps,select=tuple(names)):
+        d=row['definition']
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
+            (tenant,'real',f"eios:action:{d['stable_name']}:{d['version']}",Jsonb(d),Jsonb(row['capability'])))
+
+
 def state_rule(admin,principal,tenant=TENANT):
     value=dict(tenant_id=tenant,principal_id=principal,type_name='CommercialRecord',operations=('edit','read'),property_groups=('commercial_state',),
         include_review_published=False,basis_schema_version=1,active=True,valid_until=datetime.now(UTC)+timedelta(days=1))

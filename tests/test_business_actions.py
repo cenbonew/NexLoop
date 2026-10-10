@@ -34,6 +34,9 @@ COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'c
     'Commitment.condition_met':'commitment.condition_met','Commitment.mark_communication':'commitment.mark_communication'}
 
 
+NX027_REGISTRY={'nexloop.commitment.bind_commercial':'commitment.bind_commercial','nexloop.cost.record':'cost.record'}
+
+
 def object_types():
     from nexloop_eios import business_object_types
     return ([s.model_dump(mode='json') for s in conversation_schemas()]+[context_strategy_object_type().model_dump(mode='json'),
@@ -56,10 +59,14 @@ def test_compiles_both_profiles_with_explicit_snapshots():
     rows=BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
-            **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()},'commercial.observe':capability('commercial.observe')})
+            **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()},'commercial.observe':capability('commercial.observe'),
+            **{cap:capability(cap) for cap in NX027_REGISTRY.values()}})
     names={r['definition']['stable_name']:r for r in rows}
     assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,*REQUESTS,
-        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe'}
+        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe',*NX027_REGISTRY}
+    # NX-027 on the registry (0140): human only, typed on Commitment v1 / Consumer v1.
+    assert all(a['authority']=='human_owner' and a['capability_name']==NX027_REGISTRY[a['stable_name']] for a in MANIFEST['actions'] if a['stable_name'] in NX027_REGISTRY)
+    assert [t['stable_name'] for t in names['nexloop.commitment.bind_commercial']['definition']['object_types']]==['Commitment']
     # NX-028 slice 2: two human requests, typed on Consumer v1, never service-executed.
     assert all(by_name['authority']=='human_owner' for by_name in MANIFEST['actions'] if by_name['stable_name'] in REQUESTS)
     observe=next(a for a in MANIFEST['actions'] if a['stable_name']=='CommercialRecord.observe')

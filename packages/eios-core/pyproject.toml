@@ -35,6 +35,7 @@ nexloop-plan-reevaluator = "nexloop_eios.background_services:plan_reevaluator"
 nexloop-reply-guarantor = "nexloop_eios.background_services:reply_guarantor"
 nexloop-commitment-keeper = "nexloop_eios.background_services:commitment_keeper"
 nexloop-commercial-recorder = "nexloop_eios.background_services:commercial_recorder"
+nexloop-retention-keeper = "nexloop_eios.background_services:retention_keeper"
 nexloop-recall-indexer = "nexloop_eios.background_services:recall_indexer"
 
 [tool.hatch.build.targets.wheel]
