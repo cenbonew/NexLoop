@@ -63,6 +63,10 @@ class _Parser(argparse.ArgumentParser):
     def error(self,message):self.exit(2,'Outbound Recorder configuration unavailable\n')
 
 
+# NX-031 D7 (deploy/stage/connection-budget.v1.json): measured smallest workable pool of this single-loop process (1 fails).
+POOL_MAX=2
+
+
 def _arguments(argv):
     parser=_Parser(description='Restricted standalone outbound Message recorder; private configuration, no migrations')
     for name in ('database-url-file','signing-key-file','service-credential-file','artifact-root'):
@@ -72,8 +76,9 @@ def _arguments(argv):
     parser.add_argument('--batch',type=int,default=20)
     parser.add_argument('--tick-seconds',type=float,default=1.0)
     parser.add_argument('--once',action='store_true')
+    parser.add_argument('--pool-max',type=int,default=POOL_MAX)
     arguments=parser.parse_args(argv)
-    if (not 1<=arguments.batch<=100 or not math.isfinite(arguments.tick_seconds) or not 0<arguments.tick_seconds<=60
+    if (not 1<=arguments.pool_max<=8 or not 1<=arguments.batch<=100 or not math.isfinite(arguments.tick_seconds) or not 0<arguments.tick_seconds<=60
         or re.fullmatch('[A-Za-z0-9_-]{1,64}',arguments.signing_key_id) is None):parser.error('configuration')
     return arguments
 
@@ -85,7 +90,7 @@ def run(arguments,stop):
     dsn=read_private_text(arguments.database_url_file,maximum=16384)
     read_private_text(arguments.service_credential_file,maximum=16384)
     with open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
-        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id) as backend:
+        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.pool_max) as backend:
         with backend._pool.connection() as connection:
             if verify_application_role(connection)!='nexloop_api':raise ValueError()
         def recorder():

@@ -63,7 +63,7 @@ def connection_budget(*,budget_file,database_url):
     except budget.BudgetInvalid as error:
         return {'checks':{'connection_budget_file':False},'details':{'connection_budget_error':str(error)}}
     checks={'connection_budget_file':True,'connection_budget_total':result['checks']['application_pool_total'],
-        'max_connections':result['checks'].get('max_connections',False)}
+        'connection_budget_services':result['checks']['all_services_declared'],'max_connections':result['checks'].get('max_connections',False)}
     return {'checks':checks,'details':{'connection_budget':result['details']}}
 
 

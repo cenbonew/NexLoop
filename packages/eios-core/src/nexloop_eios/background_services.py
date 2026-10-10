@@ -53,9 +53,10 @@ RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
 LAUNCH_CREDENTIALS=('source','planner','queue','executor')
 # NX-031 D7 (deploy/stage/connection-budget.v1.json): each background service is one single-loop process; its pool holds at
-# most POOL_MAX connections, and the Role / fallback launcher's second (nexloop_api) pool at most API_POOL_MAX. Measured: a
-# launch needs two connections of that pool at once (with one, no Run is issued), so API_POOL_MAX is 2, not the planned 1.
-POOL_MAX=2
+# most POOL_MAX connections, and the Role / fallback launcher's second (nexloop_api) pool at most API_POOL_MAX. Measured: every
+# service's functional tests pass with one connection; a launch needs two connections of its pool at once (with one, no Run is
+# issued), so API_POOL_MAX is 2.
+POOL_MAX=1
 API_POOL_MAX=2
 _TYPE=re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')
 

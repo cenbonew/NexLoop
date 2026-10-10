@@ -98,4 +98,10 @@
 - 注 3：guard 池从 4 降到 2，每个子进程同一时刻只能处理 1 个 guard 请求，与 2 s 工具时限直接相关。功能测试在 2 下通过，但要改就必须先在 2 下重跑 ADR-022 的串行时限门槛，所以建议暂时维持 4。
 - 关于 claim-extraction-scheduler：按入口模块选择时，池为 1 也通过；按 `nexloop_api` 角色选择、池为 1 时有 7 次超时。后者把同一测试里夹具自己的 `nexloop_api` 池也压成了 1，不能算作它自己的下限，结论取前者。
 - **结论**：按建议池合计 48，在 60 以内；全部取实测最小值时合计 36。relay 和 outbound-recorder 都已按建议池计入；如果 `scheduler` 作为预留保留 4，合计 52，也在 60 以内。
-- 按裁定，部署配置文件的数值暂不改动，仍是 `adf5200` 的版本：后台服务 2、launcher 2、domain-worker 2，合计 60，relay 和 outbound-recorder 尚未登记。等表确认后再按建议值一次修改，并把 relay、outbound-recorder 纳入预算文件和 doctor 的核对。
+- **调度员批准后落地（2026-10-11）**：
+  - 代码默认值：后台服务 `POOL_MAX=1`，launcher `API_POOL_MAX=2`；domain-worker、action-worker（effect_worker）、message relay、outbound-recorder 新增 `--pool-max`，默认 2；
+  - 预算文件：合计 52，relay 和 outbound-recorder 已登记，`scheduler` 注明为预留；
+  - API 每进程 4、guard 每子进程 4 维持不变，要降须先有夜间压测的 ACK 数据和 ADR-022 门槛复测；
+  - doctor 的预算核对新增 `connection_budget_services`：每个常驻服务（`connection_budget.required_services()`：基础 7 项、10 个后台服务、2 个 launcher）都必须登记，漏一项即退出码 1；
+  - 负例：逐一去掉每个必需条目，`evaluate` 都判不通过；doctor 去掉 outbound-recorder 时退出码 1，且总和那一项仍为通过。
+- 新默认值下的功能回归全部通过：预算 25 例；后台服务、live 实测、domain_worker、effect_worker CLI 等 37 例；串行的 message relay 20 例、outbound 6 例、计划 launcher 5 例、兜底回复 7 例、接管 relay 2 例。
