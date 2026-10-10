@@ -50,12 +50,32 @@ def diagnose(*,database_url,artifact_root,environment=None):
             'product_ready':False,'not_verified':['governed_instance_write','real_effect_action','pi_run_recovery','artifact_write_smoke','community_compose']}
 
 
+def agent_host_concurrency(config_file):
+    """ADR-022 §4: the deployed Agent Host runs at most 4 Runs at once (pre-start gate)."""
+    from nexloop_eios import host_concurrency
+    try:
+        result=host_concurrency.evaluate(host_concurrency.load(read_private_text(config_file,maximum=32768)))
+    except Exception as error:
+        reason=str(error) if isinstance(error,host_concurrency.HostConcurrencyInvalid) else 'Agent Host configuration is unavailable'
+        return {'checks':{'agent_host_concurrency':False},'details':{'agent_host_concurrency_error':reason}}
+    return {'checks':{'agent_host_concurrency':result['passed']},'details':{'agent_host_concurrency':result['details']}}
+
+
 def main():
     parser=argparse.ArgumentParser(description='Read-only NexLoop foundation doctor')
-    parser.add_argument('--artifact-root',required=True)
+    parser.add_argument('--artifact-root')
     parser.add_argument('--database-url-file',type=Path)
     parser.add_argument('--mode',choices=['test'])
+    parser.add_argument('--agent-host-config',type=Path,help='private Agent Host runtime configuration (maximum_active_runs <= 4)')
+    parser.add_argument('--agent-host-only',action='store_true',help='only the Agent Host concurrency check (Agent Host pre-start gate)')
     args=parser.parse_args()
+    if args.agent_host_only:
+        if not args.agent_host_config:parser.error('--agent-host-only requires --agent-host-config')
+        result=agent_host_concurrency(args.agent_host_config)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2))
+        return 0 if result['foundation_checks_passed'] else 1
+    if not args.artifact_root:parser.error('--artifact-root is required')
     configured_file=args.database_url_file or os.environ.get('DATABASE_URL_FILE')
     database_url='';configured=True
     if configured_file:
@@ -68,6 +88,9 @@ def main():
         configured=bool(database_url.strip())
     result=diagnose(database_url=database_url,artifact_root=args.artifact_root,
         environment={'MODEL_PROVIDER':'test'} if args.mode=='test' else None)
+    if args.agent_host_config:
+        host=agent_host_concurrency(args.agent_host_config)
+        result['checks'].update(host['checks']);result['details'].update(host['details'])
     result['checks']['database_configuration']=configured
     result['details']['database_configuration_source']=source
     result['details']['mode']=args.mode or 'configured'

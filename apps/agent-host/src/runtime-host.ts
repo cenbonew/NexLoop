@@ -7,6 +7,7 @@ import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-
 import {RuntimeEffectClient,requestScope} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 import {selectTrustedModel,validateEstimatedReservation} from './trusted-model-profile.js';
+import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
 
 type Material=(path:string,maximum:number,allowEmpty?:boolean)=>Buffer;
 function record(value:unknown):Record<string,unknown>{
@@ -27,13 +28,17 @@ export class RuntimeHost{
   private readonly keyPath:string;
   private pending=0;
   private readonly runtimeProfile:string;
+  private readonly admission:RunAdmissionGate;
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_active_runs','run_admission_wait_ms','maximum_request_cost','plan_outcome_tool'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
+    // ADR-022 §4: global active-Run limit of this Host (default 4); doctor binds the deployed value to <= 4.
+    const limits=validateAdmissionConfiguration(config.maximum_active_runs,config.run_admission_wait_ms);
+    this.admission=new RunAdmissionGate(limits.maximum,limits.waitMs);
     // NX-024: the run-outcome tool of plan reevaluation Runs, only with the Run-bound tool bridge.
     if(config.plan_outcome_tool!==undefined&&(config.plan_outcome_tool!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
@@ -165,13 +170,19 @@ export class RuntimeHost{
     const command=validateRunCommand(body.command);
     if(command.runtime_profile!==this.runtimeProfile||((operation==='start'||operation==='resume')&&typeof body.input!=='string'))throw new RuntimeError('invalid_runtime_request');
     if(this.pending>=8)throw new RuntimeError('runtime_busy');this.pending++;
+    // A new Run waits for a slot before any guard request (no proof is built while waiting).
+    let slot=operation==='start'||operation==='resume'?await this.admission.acquire(command.run_id,Date.parse(command.not_after)).catch(error=>{this.pending--;throw error;}):undefined;
     try{
       await this.authorizeAdmission(command,operation,body.input as string|undefined,body.activation_ref);
       this.activations.set(command.run_id,{ref:body.activation_ref,input:typeof body.input==='string'?body.input:this.activations.get(command.run_id)?.input,command,context:this.activations.get(command.run_id)?.context});
-      if(operation==='start'||operation==='resume')return await this.adapter[operation](command,body.input as string);
+      if(operation==='start'||operation==='resume'){
+        const receipt=await this.adapter[operation](command,body.input as string);
+        if(slot){const held=slot;slot=undefined;void this.adapter.settled(command).finally(()=>held.release());}
+        return receipt;
+      }
       if(operation==='inspect')return await this.adapter.inspect(command);
       return await this.adapter.cancel(command);
-    }finally{this.pending--;}
+    }finally{this.pending--;slot?.release();}
   }
   async close(){await this.adapter.close();}
 }
