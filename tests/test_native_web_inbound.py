@@ -24,7 +24,9 @@ def test_native_event_changed_body_or_conversation_is409_keeps_original(conversa
     original=p.accept_native_message(conversation_id=c['id'],provider_event_id=event,idempotency_key='transport-original-key',body='original')
     for conversation_id,body in [(c['id'],'different'),(p.create_conversation(idempotency_key='new-conversation-key')['id'],'original')]:
         with pytest.raises(ConversationConflict):p.accept_native_message(conversation_id=conversation_id,provider_event_id=event,idempotency_key='different-transport-key',body=body)
-    assert p.read_messages(conversation_id=c['id'])['items']==[original['message']]
+    # NX-051 read projection: the native event is the provider reference (client trust), no reply link.
+    projection={'reply_to_message_id':None,'provider':{'namespace':'native.webchat','message_ref':event,'sequence':None,'sent_at':None,'trust':'client','skewed':False}}
+    assert p.read_messages(conversation_id=c['id'])['items']==[{**original['message'],**projection}]
     assert admin.execute('select count(*) from runtime.nexloop_native_web_events').fetchone()==(1,)
 
 from test_web_chat_http import actual_chat,chat,browser,login,ORIGIN
@@ -121,4 +123,6 @@ def test_transport_key_itself_remains_payload_bound(conversations,admin):
     f=conversations;p=port(f);c=conversation(f);event=str(uuid.uuid4());args=dict(conversation_id=c['id'],idempotency_key='transport-fixed-event',provider_event_id=event,body='original transport')
     original=p.accept_native_message(**args)
     with pytest.raises(ConversationConflict):p.accept_native_message(**{**args,'provider_event_id':str(uuid.uuid4())})
-    assert p.read_messages(conversation_id=c['id'])['items']==[original['message']]
+    # NX-051 read projection: the native event is the provider reference (client trust), no reply link.
+    projection={'reply_to_message_id':None,'provider':{'namespace':'native.webchat','message_ref':event,'sequence':None,'sent_at':None,'trust':'client','skewed':False}}
+    assert p.read_messages(conversation_id=c['id'])['items']==[{**original['message'],**projection}]
