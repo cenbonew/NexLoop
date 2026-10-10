@@ -1,6 +1,6 @@
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {readOverview} from '../api';
+import {ageText,readOverview,type Backlog} from '../api';
 import {Block,Page} from './Page';
 import {takeoverText} from '../actions';
 
@@ -23,7 +23,21 @@ export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:strin
       <p>受限客户 {c.restricted} 位；来信必回升级 {c.escalations} 条</p>
       <button type="button" onClick={()=>onOpen('contact')}>查看限制</button></>}</Block>
     <Block title="人工接管" section={data.takeovers}>{t=>t.length?<ul>{t.map(x=><li key={x.takeover_id}>{takeoverText(x)}</li>)}</ul>:<p className="note">当前没有人工接管。</p>}</Block>
-    <Block title="队列积压" section={data.backlog}>{()=>null}</Block>
+    <Block title="队列积压" section={data.backlog}>{b=><BacklogView backlog={b}/>}</Block>
     <Block title="商业事件与费用" section={data.commercial}>{()=>null}</Block>
   </div>}</Page>;
+}
+
+/** Every part is stated: an empty map reads “无”, never a blank block (AT-045). */
+export function BacklogView({backlog}:{backlog:Backlog}){
+  const queues=Object.entries(backlog.queues),feeds=Object.entries(backlog.feeds);
+  return <>
+    <h3>队列</h3>
+    {queues.length?<ul>{queues.map(([q,v])=><li key={q}>{q}：待处理 {v.pending??0}，重试 {v.retry_wait??0}，死信 {v.dead_lettered??0}，最久等待 {ageText(v.oldest_pending_seconds)}</li>)}</ul>
+      :<p className="note">无（没有排队中的任务）。</p>}
+    <h3>后台 feed</h3>
+    {feeds.length?<ul>{feeds.map(([f,v])=><li key={f}>{f}：待处理 {v.pending??0}，死信 {v.dead_lettered??0}，最久等待 {ageText(v.oldest_pending_seconds)}</li>)}</ul>
+      :<p className="note">无（没有积压）。</p>}
+    <p>待提取消息 {backlog.extraction.pending_messages} 条，最久等待 {ageText(backlog.extraction.oldest_pending_seconds)}</p>
+  </>;
 }

@@ -69,3 +69,19 @@ test('silencing is offered to the owner only, sends the chosen rule and selector
   expect(typeof GOVERNED_SLOTS.alerts).toBe('function');
   expect(parseRoute('/workbench/alerts')).toEqual({page:'alerts'});expect(parseRoute('/workbench/audit')).toEqual({page:'audit'});
 });
+
+test('overview backlog block renders the NX-030 shape: feed name, pending count and oldest wait; empty queues read “无”, never blank',async()=>{
+  const {overview}=await import('../src/workbench/api');
+  const {Overview}=await import('../src/workbench/pages/Overview');
+  const unavailable={status:'unavailable',data:null};
+  const body={goals:unavailable,commitments:unavailable,actions:unavailable,contact:unavailable,takeovers:unavailable,commercial:unavailable,
+    backlog:{status:'ok',data:{queues:{},feeds:{'recall-instance':{pending:5,dead_lettered:0,dead_lettered_last_hour:0,oldest_pending_seconds:12578}},
+      extraction:{pending_messages:2,oldest_pending_seconds:12578}}}};
+  const html=render(client([[['workbench','overview'],overview(body)]]),h(Overview,{onOpen:()=>{}}));
+  const block=html.slice(html.indexOf('aria-label="队列积压"'));
+  expect(block).toContain('recall-instance：待处理 5，死信 0，最久等待 3 小时');
+  expect(block).toContain('队列</h3><p class="note">无（没有排队中的任务）。');
+  expect(block).toContain('待提取消息 2 条，最久等待 3 小时');
+  // A malformed backlog is refused, never rendered as an empty success.
+  expect(()=>overview({...body,backlog:{status:'ok',data:{queues:{},feeds:{x:{pending:-1}},extraction:{pending_messages:0,oldest_pending_seconds:null}}}})).toThrow(WorkbenchError);
+});

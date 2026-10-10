@@ -4,10 +4,10 @@
  */
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {EVALUATOR_STALE_TEXT,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Process} from '../api';
+import {EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Process} from '../api';
 import {Page} from './Page';
 
-const age=(seconds:number|null)=>seconds===null?'—':seconds<120?`${seconds} 秒`:seconds<7200?`${Math.round(seconds/60)} 分钟`:`${Math.round(seconds/3600)} 小时`;
+const age=ageText;
 
 export function Alerts({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
