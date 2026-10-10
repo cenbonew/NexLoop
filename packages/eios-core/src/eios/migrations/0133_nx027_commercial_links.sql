@@ -133,3 +133,25 @@ begin
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return jsonb_build_object('observations',v_obs,'plans',v_plans,'commitment_evidence',v_evidence);
 end $$;
+
+-- Governed-entry handler for the human binding (NX-028 registry signature, design §15.2a). The registry row
+-- (capability 'commitment.bind_commercial', subject_rule 'human') is inserted once 0150 is merged; until then no entry
+-- reaches it. Body: {commitment_id, connector_id, record_kind, external_id, statuses?}; the entry has already checked
+-- the human principal, the grant and the request; the binding records the principal.
+create function control.nexloop_commercial_bind_commitment_handler(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb)
+ returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
+declare v_statuses text[];
+begin
+ if jsonb_typeof(body) is distinct from 'object' or exists(select 1 from jsonb_object_keys(body) k
+   where k not in ('commitment_id','connector_id','record_kind','external_id','statuses'))
+  or coalesce(body->>'commitment_id','')!~'^[0-9a-f]{64}$' or jsonb_typeof(body->'connector_id') is distinct from 'string'
+  or jsonb_typeof(body->'record_kind') is distinct from 'string' or jsonb_typeof(body->'external_id') is distinct from 'string'
+  or (body ? 'statuses' and (jsonb_typeof(body->'statuses')<>'array'
+   or exists(select 1 from jsonb_array_elements(body->'statuses') x where jsonb_typeof(x)<>'string'))) then
+  raise exception 'commercial binding invalid' using errcode='22023';end if;
+ if body ? 'statuses' then select array_agg(x order by n) into v_statuses from jsonb_array_elements_text(body->'statuses') with ordinality t(x,n);end if;
+ return runtime.nexloop_commercial_bind_commitment(p_tenant,p_world,body->>'commitment_id',body->>'connector_id',body->>'record_kind',
+  body->>'external_id',coalesce(v_statuses,case when body ? 'statuses' then '{}'::text[] end),p_principal)||jsonb_build_object('intent_id',p_intent);
+end $$;
+alter function control.nexloop_commercial_bind_commitment_handler(text,text,text,text,text,jsonb) owner to nexloop_owner;
+revoke all on function control.nexloop_commercial_bind_commitment_handler(text,text,text,text,text,jsonb) from public;

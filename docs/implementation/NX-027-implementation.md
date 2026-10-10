@@ -41,7 +41,7 @@
 1. **指标投影同步执行**：在 recorder 的 `recorded` 事务里完成，没有单独的 metric_projector 服务和 feed。
 2. **没有 `commercial-raw` / `commercial-verified` feed**：入口只存已核验事件（核验同步完成），下游衔接用 recorder 事务内的钩子；计划唤醒直接调用 0106 的 `authz.nexloop_plan_feed_touch`。
 3. **连接器与客户关联是部署配置**（configurator 函数），不是人类 Action。
-4. **承诺匹配用绑定表**：af68908 的 Commitment 没有 `commercial_match` 参数，所以新增 `runtime.nexloop_commercial_commitment_bindings` 与 owner 内部接口 `runtime.nexloop_commercial_bind_commitment`；它的人类 Action 调用方属于 NX-028，本分支不授予任何角色（与 0106 T7 的做法相同）。在该 Action 落地之前，生产中不会产生商业证据。
+4. **承诺匹配用绑定表**：af68908 的 Commitment 没有 `commercial_match` 参数，所以新增 `runtime.nexloop_commercial_commitment_bindings` 与 owner 内部接口 `runtime.nexloop_commercial_bind_commitment`；它的人类入口走 NX-028 的统一入口注册表（设计稿 §15.2a）：0133 已按注册表签名建好 handler `control.nexloop_commercial_bind_commitment_handler(p_tenant,p_world,p_principal,p_subject,p_intent,body)`（owner 拥有、撤销 PUBLIC，绑定记录执行人），注册表行（capability `commitment.bind_commercial`，subject_rule `human`）与 Python `goal_controls.CAPABILITIES` 映射等 0150 合入后补；在此之前没有任何入口能调用它，生产中不会产生商业证据。本分支未改 `authz.nexloop_goal_governed_action`。
 5. **结算由触发器完成**：没有新增 `authz.nexloop_settle_budget` 签名端口，任务进入终态时自动结算，派发器无需改动。
 6. **费用条目 ID** 为可读的确定性 ID（`model:<run>:<seq>`、`channel:<intent>`、`discount:<consumption_id>`），而不是哈希；未计价渠道条目的币种为空（D7）。
 7. **费用指标的单位**：金额来源的定义单位必须写 `major` 或 `minor`，与条目尺度不同的记 `other_unit` 排除；cost_entry 来源也可以 `count`（计单位数）。

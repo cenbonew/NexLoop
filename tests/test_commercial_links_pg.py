@@ -7,6 +7,7 @@ Synthetic data only. Admin seeds the NX-024 plan rows (as test_commitments_pg do
 interface whose human Action belongs to NX-028.
 """
 from datetime import UTC,datetime,timedelta
+import json
 
 import psycopg
 import pytest
@@ -105,3 +106,20 @@ def test_no_binding_other_consumer_or_other_world_writes_no_evidence(linked,admi
         admin.execute('set local role nexloop_owner');admin.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
         for table in ('runtime.nexloop_commercial_commitment_bindings','runtime.nexloop_commercial_wakes'):
             with pytest.raises(psycopg.Error),admin.transaction():admin.execute(f'delete from {table}')
+
+
+def test_governed_entry_handler_binds_with_the_principal_and_checks_the_body(linked,admin):
+    """NX-028 registry handler (signature of design §15.2a); the registry row follows once 0150 is merged."""
+    c,env=linked;commitment,_=fresh(c)
+    handler=lambda body:admin.execute("select control.nexloop_commercial_bind_commitment_handler(%s,'real','human-principal','consumer',%s,%s::jsonb)",
+        (TENANT,'intent-bind-1',json.dumps(body))).fetchone()[0]
+    out=handler({'commitment_id':commitment,'connector_id':'synthetic-shop','record_kind':'order','external_id':'ord-1','statuses':['paid']})
+    assert out['bound'] is True and out['evidence']==0 and out['intent_id']=='intent-bind-1'
+    assert admin.execute('select bound_by,statuses from runtime.nexloop_commercial_commitment_bindings').fetchall()==[('human-principal',['paid'])]
+    for bad in ({'commitment_id':commitment,'connector_id':'synthetic-shop','record_kind':'order','external_id':'ord-1','extra':1},
+                {'commitment_id':'x','connector_id':'synthetic-shop','record_kind':'order','external_id':'ord-1'},
+                {'commitment_id':commitment,'connector_id':'synthetic-shop','record_kind':'order','external_id':'ord-1','statuses':[]},
+                {'commitment_id':commitment,'connector_id':'synthetic-shop','record_kind':'order','external_id':'ord-1','statuses':[1]}):
+        with pytest.raises(psycopg.errors.InvalidParameterValue):handler(bad)
+    for role in ('nexloop_api','nexloop_domain_worker','nexloop_configurator'):
+        assert admin.execute("select has_function_privilege(%s,'control.nexloop_commercial_bind_commitment_handler(text,text,text,text,text,jsonb)','execute')",(role,)).fetchone()==(False,)
