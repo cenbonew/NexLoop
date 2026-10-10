@@ -179,4 +179,16 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'settings')
 
+    @routes.get('/audit')
+    async def audit(request: Request):
+        # ADR-025 §2.3: the member-read audit, owner only (SQL refuses everyone else with 403).
+        try:
+            q = query(request, ('limit', 'before'))
+            if 'before' in q and not re.fullmatch(r'[1-9][0-9]{0,18}', q['before']):
+                raise ValueError()
+            limit = limit_of(q['limit']) if 'limit' in q else 100
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'audit', limit=limit, before=q.get('before'))
+
     return routes

@@ -585,6 +585,11 @@
       "version": "0141",
       "name": "0141_nx028_workbench_read.sql",
       "sha256": "8c46f2fc0ecd1b682ca351e5a1306157518e74cfd736146ead23a9fb9b4e6ffa"
+    },
+    {
+      "version": "0145",
+      "name": "0145_nx028_workbench_member_read.sql",
+      "sha256": "515ecbb2e1a2e50bd8f7607849ea222cefccb6666b9c56239e19b4c04019b927"
     }
   ]
 }
