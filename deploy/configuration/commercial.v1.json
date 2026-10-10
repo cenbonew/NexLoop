@@ -1,0 +1,27 @@
+{
+  "schema": "nexloop-commercial/1",
+  "version": 1,
+  "decision": "NX-027 (M08/M19, dispatcher rulings 2026-10-10, owner decision D6): verified signed commercial events from a configured connector are the only source of CommercialRecord objects; a customer's own words never are. A connector is bound to one world and data mode (test connectors only write the test world, D1). Event types map to a record kind and status; money is an integer amount in minor units with an ISO 4217 currency (exponents below); currencies are never added together. CommercialRecord objects and cost entries are kept financial_retention_days (default 365, owner decision D6, enterprise-configurable by a new version); raw events follow the event and message retention. Channel cost is recorded in units; an amount is computed only for actions with a unit rate here (D7). Initial values; owner-adjustable by a new version.",
+  "event_types": {
+    "order.created": {"kind": "order", "status": "pending"},
+    "order.paid": {"kind": "order", "status": "paid"},
+    "order.cancelled": {"kind": "order", "status": "cancelled"},
+    "payment.pending": {"kind": "payment", "status": "pending"},
+    "payment.succeeded": {"kind": "payment", "status": "succeeded"},
+    "payment.failed": {"kind": "payment", "status": "failed"},
+    "subscription.renewed": {"kind": "renewal", "status": "succeeded"},
+    "refund.succeeded": {"kind": "refund", "status": "succeeded"}
+  },
+  "currency_exponents": {"CNY": 2, "EUR": 2, "GBP": 2, "HKD": 2, "JPY": 0, "KRW": 0, "SGD": 2, "USD": 2},
+  "replay_window_seconds": 300,
+  "max_payload_bytes": 65536,
+  "max_future_skew_seconds": 300,
+  "financial_retention_days": 365,
+  "channel_unit_rates": [],
+  "worker": {
+    "batch": 20,
+    "lease_seconds": 120,
+    "max_attempts": 8,
+    "retry_base_seconds": 30
+  }
+}
