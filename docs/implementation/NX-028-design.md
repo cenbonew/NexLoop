@@ -1,4 +1,4 @@
-# NX-028 负责人工作台与人工接管：设计稿（待调度员审核，未实现）
+# NX-028 负责人工作台与人工接管：设计稿（调度员已审，D7–D10 已裁定，D1–D6 待负责人；未实现）
 
 分支 `nx028-design`，从 `nx026-impl` `af68908`（= s4g）切出。本稿只有文档：没有代码，也没有迁移；文中迁移号都是占位。NX-028 依赖 NX-027（L3 正在开工），实现等审核和依赖合入后再定。
 
@@ -6,7 +6,7 @@
 - PRD M20（负责人工作台）；`10_UX_AND_WORKBENCH.md` §1–§6；`09_API_AND_EVENT_CONTRACTS.md` §3；`03_DOMAIN_DATA_MODEL.md`。
 - ADR-020 §3（人类权限由负责人确认）、ADR-021 §1（人类接管与“处理中”在 NX-028 单独设计）、ADR-023（联系限制：只有负责人能解除；来信必回）。
 - 已实现：NX-022 控制面、NX-024 计划复评、NX-025/ADR-023（0109/0110）、NX-026 承诺（0111–0113）、NX-046 审核工作台（`review_http.py`、`apps/web`）、NX-047 外发消息。
-- 并行：NX-027 设计稿（`nx027-design` `7d4938e`）、NX-051 实现（`nx051-impl` `33b7f78`，迁移 0120/0121）。
+- 并行：NX-027 设计稿（`nx027-design` `7d4938e`，L3 基于 af68908 实现中）。NX-051 已进入集成 s4h（`dispatch/integration-s4h` `32c914d` = `nx026-impl` `080b6c9` + NX-051，迁移重排为 0114/0115）。
 
 交付物（planning）：所有薄切片页面，以及暂停、对账、证据的交互。
 验收：
@@ -145,16 +145,24 @@
 - 部分数据：读端口按区块返回 `{status: 'ok'|'forbidden'|'unavailable', data}`，前端逐块渲染，不因一块失败而整页空白，也不把缺失的块显示为“0”或“无”。
 - unknown 业务状态显示“待核对”，不用红色失败。
 
-## 10. 契约提案（先报调度员，审核通过后再改）
+## 10. 契约（D8 调度员裁定 2026-10-10）
 
-- `packages/contracts/conversation-message.schema.json`（NX-051 新建）：`sender_kind` 由 `const: agent` 改为 `enum: [agent, human_takeover]`；`human_takeover` 时 `intent_id`、`trigger_message_id` 仍必填。生成产物同步重新生成。
-- 工作台读接口：建议新增 `workbench-*.schema.json` 一组只读投影契约（总览、承诺、限制、意图预判），或先只在 OpenAPI 组件中描述。请调度员决定是否进入 `packages/contracts`（D8）。
+现状（s4h）：`packages/contracts` 下已有 `conversation-message.schema.json`（NX-051 新建，读接口的消息投影），其中 `sender_kind` 为 `const: agent`，外发消息必须带 `sender_kind`、`intent_id`、`trigger_message_id`；生成产物 `generated/contracts.ts`、`generated/openapi-components.json` 与 `nexloop_eios/contracts.py` 已包含它。
 
-## 11. 迁移形状（占位编号，接在 NX-027 与 NX-051 合入后的最高号之后）
+NX-028 实现时随任务一起改（已获调度员同意）：
+- `conversation-message.schema.json`：`sender_kind` 改为 `enum: [agent, human_takeover]`；`human_takeover` 时 `intent_id`、`trigger_message_id` 仍必填；同步重新生成三处产物，并更新 `apps/web` `chat-api` 的校验与测试。
+- 新增两个只读投影契约：`commitment-view.schema.json`（承诺：属性、四栏证据、事件、异常、`source_available`）与 `contact-restriction-view.schema.json`（限制、命中证据、升级记录）。其余工作台读接口（总览、目标、计划、Action 预判、会话视图）只在 OpenAPI 组件中描述，不进入 `packages/contracts`。
 
-1. `nx028_staff_identity`：`workbench` 业务应用与成员资格的配置校验（顾客主体不得持有工作台授权）。
-2. `nx028_takeover`：接管表与事件；控制事件 CHECK 放宽（`takeover` / `handback`）；`goal_governed_action` 增加 `conversation.takeover` / `conversation.handback` / `message.staff_send` / `plan.request_reevaluation` / `service.query_request`；`contact_assert_intent` 再包一层（NXC06）；消息中继路由检查；兜底回复跳过；0079 的 `sender_kind` 约束放宽与员工外发写入路径。
-3. `nx028_workbench_read`：人类读端口与派发预判函数。
+## 11. 迁移形状（占位编号：接在 s4h 的 0115 之后，从 0116 起；NX-027 若先合入，按合入顺序由调度员重排）
+
+1. `0116_nx028_governed_entry`（D9 调度员裁定）：`authz.nexloop_goal_governed_action` 只做这一次“改名保留 + 新包装 + capability 注册表”。
+   - 当前函数（0111 函数体）改名为 `authz.nexloop_goal_governed_action_before_registry_v0115`，收回权限；
+   - 新表 `control.nexloop_governed_capabilities`(capability, operation, handler, subject_rule)，owner-only、append-only，种入现有 13 项（goals.* 6 项、goals.contact.release、commitment.* 5 项）与 NX-028 新增项；
+   - 新包装按注册表校验 operation 与人类/Agent 规则，再分派到 handler（白名单函数名，只允许 owner 拥有的 `control.` / `runtime.` 函数）；
+   - NX-027 及之后的任务只往注册表加行，不再重写入口函数。
+2. `0117_nx028_staff_identity`：`workbench` 业务应用与企业成员资格的配置校验（顾客主体不得持有工作台授权）。
+3. `0118_nx028_takeover`：接管表与事件；控制事件 CHECK 放宽（`takeover` / `handback`）；注册表新增 `conversation.takeover` / `conversation.handback` / `message.staff_send` / `plan.request_reevaluation` / `service.query_request`；`control.nexloop_contact_assert_intent` 再包一层（NXC06，基于 0112 的包装）；消息中继路由检查；兜底回复跳过；0079 `sender_kind` 约束放宽与员工外发写入路径；0114 外发默认事实 trigger（`runtime.nexloop_message_provider_default`）以其最新函数体修改，为员工外发写 `nexloop.staff` 命名空间（server 级，种入 `control.nexloop_provider_namespaces`）并同样导出 reply_to。
+4. `0119_nx028_workbench_read`：人类读端口与派发预判函数。
 
 已发布迁移不改；替换一律用改名保留 + 新包装，或以最新函数体 create or replace。
 
@@ -192,17 +200,19 @@ M20 其他：
 
 | 文件 / 对象 | 重叠分支 | 处理 |
 |---|---|---|
-| `authz.nexloop_goal_governed_action` | NX-027（L3，连接器配置的人类 Action 也走这里，设计 §10 计划改名包装）；NX-026（0111 已重写） | 冲突风险最高：两条线都要加 capability。建议 NX-027 先合入，NX-028 在其最新函数体上加；或由调度员指定只改名包装一次、两线都往同一新包装里加 capability（D9） |
+| `authz.nexloop_goal_governed_action` | NX-027（L3）；NX-026（0111 函数体为当前最新） | D9 裁定：NX-028 在 0116 做唯一一次改名包装与注册表；NX-027 只往注册表加行（调度员同步给 L3）。若 NX-027 先合入且已有自己的入口改动，0116 以其最新函数体为改名对象 |
 | `runtime.nexloop_work_feed` CHECK 与 `authz.nexloop_work_feed` | NX-027（`commercial-raw` / `commercial-verified`）；NX-026（0111） | 接管到期若用新 feed 也要改；按合入顺序取并集 |
 | `control.nexloop_control_events.event_kind` CHECK | NX-027 未改；0109 改过 | 本任务放宽，取并集 |
 | `control.nexloop_contact_assert_intent` | NX-026 0112 已包装；NX-051 明确未改 | 再包一层（NXC06） |
-| 0079 外发记录约束、外发写入 | NX-051 的 constraint trigger `nx051_message_provider_default` 为外发写 `nexloop.agent` 事实并导出 reply_to | 员工外发需要新命名空间（建议 `nexloop.staff`，server 级）与同样的 reply_to 导出；需要改 NX-051 的 trigger 逻辑 → 在 NX-051 合入后以其最新函数体修改 |
-| `packages/contracts/conversation-message.schema.json` 与生成产物 | NX-051 新建 | §10 契约提案 |
-| `conversation_messages.py`、`web_chat_http.py`、`apps/web/src/chat-api.ts`、`WebChat.tsx`、`native-message.ts` | NX-051 修改 | 顾客端接管状态条与员工消息显示，在 NX-051 合入后基于其版本修改 |
+| 0079 外发记录约束、外发写入；0114 `runtime.nexloop_message_provider_default`（deferred constraint trigger `nx051_message_provider_default`）与 `control.nexloop_provider_namespaces` | NX-051 已合入 s4h（0114/0115） | 员工外发新增命名空间 `nexloop.staff`（server 级，append-only 种入），在 0118 以 0114 最新函数体 create or replace 默认事实函数：员工外发写 `nexloop.staff` 事实并以服务端 `trigger_message_id` 导出 reply_to |
+| 0114 `authz.nexloop_conversation_messages_projection`、`runtime.nexloop_message_projection`、`authz.nexloop_message_provider_read` | NX-051 已合入 | 员工视角会话视图直接复用投影；投影对外发只认 agent，需要在 0118 放宽为同时认 human_takeover |
+| 0115 提取更正顺序（`_v0069` 改名包装） | NX-051 已合入 | 不涉及 |
+| `packages/contracts/conversation-message.schema.json` 与生成产物（`generated/contracts.ts`、`generated/openapi-components.json`、`nexloop_eios/contracts.py`） | NX-051 新建，已在 s4h | §10：sender_kind 放宽随 NX-028 改；新增 commitment-view / contact-restriction-view 两个契约 |
+| `conversation_messages.py`、`native_web_inbound.py`、`web_chat_http.py`、`apps/web/src/chat-api.ts`、`WebChat.tsx`、`native-message.ts` | NX-051 已合入 s4h | 顾客端接管状态条与员工消息显示，基于 s4h 版本修改 |
 | `message_relay.py` / 中继路由 SQL | 无未合入分支 | 接管检查 |
 | `reply_fallback.py`、`contact_restrictions.py`（ReplyGuaranteeWorker） | 无未合入分支 | 接管期间不启动兜底 |
 | NX-027 的商业记录待关联列表、指标/费用读端口 | NX-027 | 工作台只读呈现，调用其端口；待关联列表的人工关联 Action 归 NX-027 还是 NX-028 需定（D10） |
-| `http_api.py`、`backend.py`（新增 `WorkbenchServices`） | NX-051 改了 `backend.py`（5 行） | 文本冲突，语义不冲突 |
+| `http_api.py`、`backend.py`（新增 `WorkbenchServices`） | NX-051 改了 `backend.py`（已在 s4h） | 基于 s4h 版本追加 |
 | `apps/web`（App、Account 导航、styles） | NX-051 改了 web 测试；NX-046 已有 Review | 追加 |
 | `deploy/authorization/service-grants.v1.json`、`business-actions.v1.json` | NX-027（commercial_recorder 等） | manifest_version 递增，按合入顺序 |
 | `planning/*` | 调度员 | 本线不改 |
@@ -215,13 +225,15 @@ M20 其他：
 - **D4 顾客视图**：推荐显示“人工客服处理中”状态条，不显示逐条“处理中”占位（与 ADR-021 一致）。
 - **D5 交还时的积压来信**：推荐只对最后一条未结清来信恢复正常待回复处理，更早的记入接管记录并结清，不补发；计划复评负责后续。
 - **D6 员工回复与联系限制**：推荐员工同样受 ADR-023 §2.6 约束（只能绑定来信回复），主动联系需负责人先解除限制。
-- **D7 “查询执行结果”的执行者**：推荐由人类发起、执行器服务执行一次 QUERY（复用 0065），人类不直接持有对账 Action。
-- **D8 工作台读接口契约**：是否为工作台只读投影新增 `packages/contracts` 契约（推荐：v0.1 先只对会被前端以外调用的承诺与限制投影建契约，其余在 OpenAPI 组件描述）。
-- **D9 `goal_governed_action` 的扩展方式**：推荐调度员指定一次“改名保留 + 新包装 + capability 注册表”，NX-027 与 NX-028 都只往注册表加行，避免两线反复重写同一函数。
-- **D10 商业记录待关联列表的人工关联**：推荐 Action 归 NX-027（业务语义在那边），NX-028 只提供页面入口。
+- **D7 “查询执行结果”的执行者**：**已裁定（调度员 2026-10-10）**：人类发起，执行器服务执行一次 QUERY（复用 0065）；人类不持有对账 Action。
+- **D8 工作台读接口契约**：**已裁定**：v0.1 只为承诺和联系限制两个投影建 `packages/contracts` 契约，其余放在 OpenAPI 组件；`conversation-message` 的 `sender_kind` 放宽为 `[agent, human_takeover]`，随 NX-028 实现一起改（§10）。
+- **D9 `goal_governed_action` 的扩展方式**：**已裁定**：只做一次“改名保留 + 新包装 + capability 注册表”，由 NX-028 实现时做（§11 第 1 项）；NX-027 及之后的任务只往注册表加行。
+- **D10 商业记录待关联列表的人工关联**：**已裁定**：Action 归 NX-027，NX-028 只提供页面入口。
 
-## 15. 实现切片建议（NX-027、NX-051 合入后）
+D1–D6 已由调度员提交负责人，结论到后再补入本节。
 
-1. 身份与读端口：企业成员与角色、`workbench_read`、总览/消费者/承诺/限制/计划/Action 只读页面，AT-045 页面状态。
+## 15. 实现切片建议（NX-027 合入、D1–D6 定案后；NX-051 已在 s4h）
+
+1. 统一入口（0116 注册表）与身份、读端口：企业成员与角色、`workbench_read`、总览/消费者/承诺/限制/计划/Action 只读页面，AT-045 页面状态。
 2. 写入口：暂停与恢复（AT-006 界面）、解除限制、承诺五项 Action、手动复评、查询执行结果。
 3. 人工接管：接管状态、派发拒绝、中继与兜底跳过、员工回复（含契约放宽）、交还复评、顾客状态条，AT-044 与真实 Pi 端到端。
