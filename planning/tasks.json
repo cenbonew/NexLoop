@@ -2715,6 +2715,12 @@
         "ref": "ci:sice/20261009T235722Z-5a416ef30b6d",
         "summary": "Deploy host, no hooks, serial on b3da5f6, v4[complete] and two Pi 3 runs each: single guard process 4/6, DB pool 8 5/6, four guard processes 6/6 (two Pi 64-65 s vs ~75 s). Multi-process guard prototype merged at 5a416ef with default 1 (behaviour unchanged); full CI on 5a416ef: 2521 passed / 8 failed, all within baseline.",
         "recorded_at": "2026-10-10T08:33:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T015928Z-bbf0fa75d7dc",
+        "summary": "Full CI on bbf0fa7 (integration-s4c: submit-path SQL reduction 0107 with stress and mutation evidence, ADR-024 adopted): 2538 passed / 4 failed (previous run 8), no new failures; v4[complete] passed in the full parallel phase with a single guard process. Deploy host serial with four guard processes on 5a416ef: v4[complete] 5/5, two Pi 5/5. Owner approved ADR-022 §4 (gate measured in a serial CI phase with four guard processes).",
+        "recorded_at": "2026-10-10T10:46:00+08:00"
       }
     ]
   },
