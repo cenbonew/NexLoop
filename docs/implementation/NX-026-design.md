@@ -1,4 +1,4 @@
-# NX-026 承诺与价值履行：设计稿（调度员已审，D3/D6 待负责人；未实现）
+# NX-026 承诺与价值履行：设计稿（调度员已审，D3/D6 负责人已定；未实现）
 
 分支 `nx026-design`，从 main `9016021` 切出。本稿只有文档：没有代码，没有迁移；文中迁移号都是占位。NX-026 依赖 NX-025（L2 收尾中），实现等审核后再定。
 
@@ -78,7 +78,7 @@
 | `status` | §4 |
 | `fulfillment_evidence` | 证据账本中合格证据的引用列表（§4.3），由状态转移同时写入 |
 | `related_goal_ref` | 外发 Run 经 `bind_run` 绑定的 NX-022 目标版本（`goal:<id>@<v>`），没有则为空 |
-| `fulfillment_basis` | 新增字段，取值 `undetermined`（默认）或 `communication`，见 §4.3 与 D3 |
+| `fulfillment_basis` | 新增字段，取值 `undetermined`（登记时的默认值）或 `communication`。只能由人类负责人或运营经受治理 Action `nexloop.commitment.mark_communication` 逐条改为 `communication`，留证（D3 裁定） |
 
 - `modality='tentative'` 的 commitment（如“我尽量……”）**不登记**为承诺。它保持 `needs_resolution`，在事件账本里留 `skipped_tentative`。
 - 登记前做两项检查。检查结果只用来标记和升级，不阻止登记，因为话已经送达，不登记反而会让承诺从跟踪里消失：
@@ -192,13 +192,24 @@ conditional ───────────► open ──start──► in_pr
 - 新增控制事件类型：**不新增**。承诺事件不推进控制 revision，否则每次登记都会让无关的计划快照过期。
 
 ### 6.3 ADR-023（联系限制下的履约外发）
-- **规则不变**：受限期间，`contact_assert_intent` 对所有 intent 生效，履约 intent 也不例外。只有绑定入站来信的回复放行，主动的履约外发返回 NXC05，provider 收到零请求。
+- **按 ADR-023 §3 调整联系限制的范围（D6 裁定，main `8bcd4c1`）**：受限期间只挡会触达该客户的 effect；不触达客户的服务交付照常派发；附带的客户通知仍受限制。0109 现在对受限客户的全部 effect 都拒绝，NX-026 用新迁移调整，不改 0109：
+  - **类别声明**：business-actions 清单的每个 effect Action 新增 `effect_category ∈ {customer_contact, non_contact_service}`。非触达类还要声明 `notification_parameters`，即哪些参数是给客户的通知（例如 `message`）。
+    - 声明经可信配置编译进一张旁表 `control.nexloop_action_effect_categories(action_name, action_version, definition_digest, category, notification_parameters)`。
+    - 不改 EIOS `ActionDefinition` 模型，避免已发布定义的 digest 变化。旁表行和 intent 冻结的 `action_definition` 按 digest 对应；对不上就视为未声明。
+  - **派发判定**：用新迁移包装 0109 的 `control.nexloop_contact_assert_intent`，rename 为私有 alias，再加新 wrapper。受限 consumer 的 intent 满足以下**全部**条件时直接放行：
+    1. 旁表把该 Action 声明为 `non_contact_service`，且 digest 一致；
+    2. intent 没有 NX-047 外发记录；
+    3. `frozen_request.parameters` 中声明的通知参数全部为空或缺省。
+
+    其余情况交给 0109 原逻辑处理，即只放行绑定来信的回复，否则 NXC05。所以未声明类别、触达类、带附带通知的 intent 都会被拒。
+  - **附带通知不拆分**：一个 intent 对应一次 provider 请求，派发时无法只发服务、不发通知。带通知的服务交付整条被拒（NXC05，原因 `attached_notification`），Run 可以去掉通知后重新提交。
+- 履约外发（触达类）在受限期间仍然被拒：只有绑定入站来信的回复放行，主动的履约外发返回 NXC05，provider 收到零请求。
 - **承诺侧的处理**：
   - 履约 intent 被拒（NXC05）时，记异常 `blocked_by_contact_restriction`，负责人可见。承诺**不自动取消**，也不改期。
   - 到期仍按 §5 转为 `breached`，异常带上限制原因，负责人可以据此人工取消或延期。
   - 顾客主动来信时，绑定回复可以带 `commitment_ref`。这条回复送达后产生 `delivered_message` 证据，是否合格仍看 `fulfillment_basis`。回复不解除限制。
   - 负责人解除限制（`contact_released`）会推进控制 revision；NX-024 T3 会让该 consumer 的计划复评，复评可以重新提交履约 intent。被拒的旧 intent 不重放。
-- **待决（D6）**：0109 把非消息类 effect 也挡住了，例如退款、后台修复这类不联系顾客的服务交付。ADR-023 的原文是“只挡主动外发”。如果非联系类履约也被挡，受限客户的承诺只能违约。这一项需要负责人或调度员裁定。本任务不改 0109 的语义。
+- 不触达客户的履约 intent（例如后台退款），在受限期间按上面的判定照常派发，并照常产生 `effect_fulfilled` 合格证据。
 - 兜底回复 Run（0110）只开放一个发送工具，**不开放** `commitment_ref` 与 `nexloop.commitment.report`。它作出的承诺按 §3.2 标记为 `made_under_contact_restriction`。
 
 ### 6.4 NX-047 / NX-019 / NX-020
@@ -212,7 +223,7 @@ conditional ───────────► open ──start──► in_pr
 |---|---|---|---|
 | `Commitment.create:1` | `commitment_registrar`（service） | business-actions 清单 + service-grants | 受治理 `ontology.object.create`；对象类型需先发布（D1） |
 | `Commitment.edit:1` | `commitment_monitor`（service） | 同上 | 只用于 in_progress、fulfilled、breached 三种状态转移；守卫触发器强制状态机 |
-| `nexloop.commitment.cancel` / `extend` / `attest` / `condition_met` | 人类负责人或运营 | `human_owner`，走 NX-022 governed 入口 | business_actions 的 `PROFILES` 需要新增这些 human_owner profile；Agent 和服务主体即使有 grant 也会被 SQL 拒绝 |
+| `nexloop.commitment.cancel` / `extend` / `attest` / `condition_met` / `mark_communication` | 人类负责人或运营 | `human_owner`，走 NX-022 governed 入口 | business_actions 的 `PROFILES` 需要新增这些 human_owner profile；Agent 和服务主体即使有 grant 也会被 SQL 拒绝 |
 | `authz.nexloop_commitment_command` | registrar / monitor | 签名 + 当前 EXECUTE（`eios:action:nexloop.commitment.register:1` / `.monitor:1`） | verb：register、evidence、due、exception |
 | `authz.nexloop_commitment_read` | 服务主体（NX-028 之前）及负责人 | `nexloop.commitment.read` | 只读 |
 | intent 参数 `commitment_ref` | Run | 现有 `nexloop.service.request` 链 | SQL 校验同 consumer、承诺状态为 open/in_progress；不合法时拒绝整个 intent |
@@ -237,8 +248,11 @@ conditional ───────────► open ──start──► in_pr
      - `ontology.objects` 上的 Commitment 守卫。
    - 端口：`nexloop_commitment_command` 与 `nexloop_commitment_read`；`authz.nexloop_work_feed` 改为 create or replace 版本，加入两个新 feed。
    - intent 受理链接受 `commitment_ref`：采用 rename 私有 alias 加新 wrapper 的方式，不改已发布函数体。
-2. `nx026_commitment_context`：v6 open_work 的 commitment 子段（SQL 重导出与比对）。0108 合入后再写，并依赖它。
-3. 对象类型 `Commitment v1` 和 Action 定义**不写在迁移里**，经可信配置清单 `deploy/ontology/business-object-types.v1.json` 与 business-actions 清单发布（ADR-020 §3，D1 裁定）。
+2. `nx026_contact_effect_categories`（D6）：
+   - 旁表 `control.nexloop_action_effect_categories`：append-only，FORCE RLS，只能由可信配置写入；
+   - 包装 `control.nexloop_contact_assert_intent`。
+3. `nx026_commitment_context`：v6 open_work 的 commitment 子段（SQL 重导出与比对）。0108 合入后再写，并依赖它。
+4. 对象类型 `Commitment v1` 和 Action 定义**不写在迁移里**，经可信配置清单 `deploy/ontology/business-object-types.v1.json` 与 business-actions 清单发布（ADR-020 §3，D1 裁定）。
 
 已发布迁移不改。所有替换都采用 rename 私有 alias 加新 wrapper，或者 create or replace 新版本。
 
@@ -248,7 +262,7 @@ conditional ───────────► open ──start──► in_pr
 - `lead_seconds`：到期前多久触发复评，默认 3600；
 - `unspecified_max_open_seconds`：默认 604800；
 - 登记 worker 与 monitor 的批量大小；
-- 是否启用 `fulfillment_basis='communication'` 的规则（D3）。
+- 是否开放 `nexloop.commitment.mark_communication`（D3，默认开放）。
 
 Python 用严格加载器校验这份配置。每个承诺在登记时冻结一份 settings。
 
@@ -297,6 +311,16 @@ ADR-023：
 23. 受限客户主动来信：绑定回复带 `commitment_ref` 可以派发，并产生 `delivered_message` 证据；限制不解除；不绑定来信的履约外发仍被拒。
 24. 兜底回复 Run 不能带 `commitment_ref`；它作出的承诺被标记 `made_under_contact_restriction`。
 25. 解除限制后，计划复评；旧的被拒 intent 不重放。
+25a. **D6**：受限客户的 `non_contact_service` effect（无通知参数）能派发，provider 恰好 1 次请求，并产生 `effect_fulfilled` 证据。以下情况都被拒（NXC05），provider 零请求：
+   - `customer_contact` 类 effect；
+   - 未声明类别的 effect；
+   - 旁表 digest 与 intent 冻结定义不一致的 effect；
+   - 声明通知参数非空的 `non_contact_service` effect（`attached_notification`）。
+
+   同一服务去掉通知后重新提交，可以派发。旁表不能被应用角色写入。非受限客户的派发不受这些判定影响（回归）。
+
+D3：
+26a. 默认 `undetermined` 时，带 `commitment_ref` 的已送达外发只产生不合格的 `delivered_message` 证据。人类执行 `mark_communication` 之后，下一条这样的已送达外发即为合格证据，承诺转为 fulfilled；标记之前已经送达的消息是否追认为合格证据，按标记时刻之后的证据判定（不追认，避免事后改口径）。Agent、服务主体执行 `mark_communication` 被拒；标记写入事件账本，留证。
 
 与 NX-022：
 26. 暂停 consumer 时：到期照常违约并记异常，复评 precheck 判为 paused，不启动 Run，履约 intent 派发被拒。
@@ -306,14 +330,14 @@ ADR-023：
 | 文件 / 对象 | 重叠分支 | 处理 |
 |---|---|---|
 | `runtime.nexloop_work_feed` 的 feed CHECK；`authz.nexloop_work_feed`（create or replace） | `nx025-impl` 0109 已加入 `reply-due` 并重写端口；0110 可能也涉及 | NX-026 迁移必须基于 0109/0110 合入后的最新函数体，CHECK 取并集。**在 NX-025 合入 main 之后实现** |
-| `authz.nexloop_assert_intent_dispatch_controls` | 0109 已重写 | 本任务不改，只读取 NXC05 的结果来写异常 |
+| `authz.nexloop_assert_intent_dispatch_controls`；`control.nexloop_contact_assert_intent` | 0109 已重写或新建 | 前者不改；后者 rename 为私有 alias，再加新 wrapper（D6），必须基于 0109 合入后的函数体。NXC05 的结果同时用来写 `blocked_by_contact_restriction` 异常 |
 | `authz.nexloop_goal_governed_action`（human Action 入口） | 0109 为 `goals.contact.release` 重写 | 新增的 commitment human Action 要在它的最新版本上扩展，与 0109 冲突的风险最高 |
 | `control.nexloop_control_events` 的 event_kind CHECK | 0109 | 不改（§6.2） |
 | `runtime.nexloop_outbound_messages` 上的触发器 | 0109 `reply_settle`；NX-047 0078 投递推进 | 新增独立触发器，不改已有的，但要确认触发顺序不影响结清 |
 | intent 受理链（0040 包装链） | NX-047 0078、0110 兜底的按 Run 查找复制 | 用 rename + wrapper 接 `commitment_ref`，基于合入后的最新链 |
 | v6 open_work：`context_engine/sections.py`、`context_artifacts.py`、0108 导出函数 | `nx025-impl` | 第 2 个迁移依赖 0108，放在 NX-025 合入之后 |
 | `background_services.py`、`container_entrypoint.py`、`pyproject.toml` 脚本、compose profile | `nx025-impl`（reply-guarantor、plan-reevaluator） | 新增 `commitment-registrar` / `commitment-monitor` 入口，同类追加，会有文本冲突，但语义上不冲突 |
-| `deploy/configuration/business-actions.v1.json`、`deploy/authorization/service-grants.v1.json`、`business_actions.py` PROFILES | 无未合入分支；`nx049-deploy-config` 改 `doctor.py` | 清单 manifest_version 递增，doctor 新增 schema 检查时注意与 nx049-deploy-config 的冲突 |
+| `deploy/configuration/business-actions.v1.json`、`deploy/authorization/service-grants.v1.json`、`business_actions.py` PROFILES | 无未合入分支；`nx049-deploy-config` 改 `doctor.py` | 清单 manifest_version 递增；`business_actions.py` 的 validate/compile 接受 `effect_category`、`notification_parameters`（D6），并编译旁表行；doctor 新增 schema 检查时注意与 nx049-deploy-config 的冲突 |
 | `claim_matching.py` | 无 | 只改注释 |
 | `planning/*` | 调度员 | 本线不改 |
 
@@ -332,11 +356,11 @@ linked 会话 nx019-extract、nx021-recall 的分支相对 main 没有提交，�
 - **D7 采用**：归 NX-029。NX-026 只保证删除来源消息后承诺不再暴露原文，状态与审计保留（§3.3）。
 - **D8 采用**：NX-028 之前，cancel / extend / attest / condition_met 只提供受治理端口和测试。
 
-待负责人决定（调度员已转交，有结论后再定实现）：
-- **D3 沟通类承诺怎样履约**（例如“明天给你进展”）。本稿的默认口径：`fulfillment_basis='undetermined'`，送达消息不合格，需要 effect 回执或人类 attest。可选项：允许负责人或运营把单个承诺标为 `communication`，此后带 `commitment_ref` 且已送达的外发即为合格证据。代价：默认口径下沟通类承诺会大量违约，除非有人工确认。
-- **D6 联系限制是否也挡非联系类服务交付 effect**（§6.3）。0109 目前全部都挡；按现状，受限客户的退款、后台修复这类承诺只能违约。
+负责人已定（2026-10-10，经调度员转交，原话“D3 和 D6 都同意你的建议”）：
+- **D3**：v0.1 默认 `fulfillment_basis='undetermined'`，需要 effect 回执或人类 attest；开放可选项，由负责人或运营经受治理人类 Action `nexloop.commitment.mark_communication` 逐条标记为 `communication`，标记留证。标记之后，带 `commitment_ref` 且已送达的外发即为合格证据。落点见 §3.2、§4.2、测试 26a。
+- **D6**：已写入 ADR-023 §3（main `8bcd4c1`）。联系限制只挡触达该客户的外发 effect；不触达客户的服务交付照常派发，附带的客户通知仍受限制；类别由 Action 定义声明，未声明按“触达客户”处理。NX-026 用新迁移调整 0109 的判定（不改 0109），落点见 §6.3、§8 第 2 项、测试 25a。
 
-实现前提：NX-025 合入 main，以及 D3、D6 的结论。
+实现前提：NX-025 合入 main（调度员通知），临时迁移号届时再定。
 
 ## 13. 实现切片建议（NX-025 合入后）
 
@@ -349,6 +373,7 @@ linked 会话 nx019-extract、nx021-recall 的分支相对 main 没有提交，�
 2. **切片二**：
    - 到期 feed、违约、T7 与异常；
    - `commitment_ref` 与 effect 证据；
-   - ADR-023 与 NX-022 交互；
-   - 测试 3–5、8、9、13、22–26。
+   - ADR-023 与 NX-022 交互，含 D6 的 effect 类别旁表与联系判定包装；
+   - D3 的 `mark_communication`；
+   - 测试 3–5、8、9、13、22–26，以及 25a、26a。
 3. **切片三**：v6 open_work commitment 子段与 `read_open_commitments`，测试 6，并附 E2E（真实 Host/Pi）。
