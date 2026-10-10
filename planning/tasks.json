@@ -2227,6 +2227,18 @@
         "ref": "ci:sice/20261010T114655Z-164058bd6603",
         "summary": "Full CI on clean CI host for 164058b (integration-s4j): 2736 passed / 11 failed, all within baseline; NX-049 serial deadline phase 2/2. Merged to main as 8c6dcc9 (+230aca2, comment-only note on 0127).",
         "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b2dbb98",
+        "summary": "Merged the reviewer evidence page (L2): pending-review evidence message bodies through the ADR-025 reviewer derivation, one audit row per read (purpose review_evidence), ended reviews show no text; reviewer gets 403 on other workbench pages.",
+        "recorded_at": "2026-10-10T21:34:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T124251Z-b2dbb9819e7a",
+        "summary": "Full CI for b2dbb98 (integration-s4k): 2738 passed / 11 failed, all within baseline; deadline phase 2/2.",
+        "recorded_at": "2026-10-10T21:34:00+08:00"
       }
     ]
   },
