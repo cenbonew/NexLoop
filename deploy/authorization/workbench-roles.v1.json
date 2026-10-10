@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-workbench-roles/1",
-  "manifest_version": 1,
-  "decision": "NX-028 D1/D2 (owner 2026-10-10, all as recommended): the owner workbench is its own browser business application; enterprise members are existing browser Humans written by trusted configuration only (no self-registration); a customer principal never holds a workbench grant. A role is a set of Action grants, compiled per member by nexloop_eios.workbench_roles and applied through trusted configuration (0050); the member list is private deployment data and never part of this file. Releasing a contact restriction (ADR-023 §2.4), cancelling a commitment, marking a communication commitment and goals/metrics/budget/pause stay owner-only. Actions marked slice 2/3 are declared by those slices; holding a grant before the Action is published grants nothing.",
+  "manifest_version": 2,
+  "decision": "NX-028 D1/D2 (owner 2026-10-10, all as recommended): the owner workbench is its own browser business application; enterprise members are existing browser Humans written by trusted configuration only (no self-registration); a customer principal never holds a workbench grant. A role is a set of Action grants, compiled per member by nexloop_eios.workbench_roles and applied through trusted configuration (0050); the member list is private deployment data and never part of this file. Releasing a contact restriction (ADR-023 §2.4), cancelling a commitment, marking a communication commitment and goals/metrics/budget/pause stay owner-only. Actions marked slice 2/3 are declared by those slices; holding a grant before the Action is published grants nothing. v2 (NX-028 slice 3): the three slice-3 Actions are named as published in business-actions (nexloop.conversation.takeover, nexloop.conversation.handback, nexloop.message.staff_send); v1 named them without the nexloop. prefix, which granted nothing.",
   "roles": {
     "owner": [
       "eios:action:nexloop.workbench.read:1",
@@ -20,9 +20,9 @@
       "eios:action:Commitment.mark_communication:1",
       "eios:action:nexloop.plan.request_reevaluation:1",
       "eios:action:nexloop.service.query_request:1",
-      "eios:action:conversation.takeover:1",
-      "eios:action:conversation.handback:1",
-      "eios:action:message.staff_send:1"
+      "eios:action:nexloop.conversation.takeover:1",
+      "eios:action:nexloop.conversation.handback:1",
+      "eios:action:nexloop.message.staff_send:1"
     ],
     "operator": [
       "eios:action:nexloop.workbench.read:1",
@@ -33,9 +33,9 @@
       "eios:action:Commitment.condition_met:1",
       "eios:action:nexloop.plan.request_reevaluation:1",
       "eios:action:nexloop.service.query_request:1",
-      "eios:action:conversation.takeover:1",
-      "eios:action:conversation.handback:1",
-      "eios:action:message.staff_send:1"
+      "eios:action:nexloop.conversation.takeover:1",
+      "eios:action:nexloop.conversation.handback:1",
+      "eios:action:nexloop.message.staff_send:1"
     ],
     "reviewer": [
       "eios:action:ontology.schema.review:1"
@@ -45,6 +45,6 @@
     "slice_1_reads": ["nexloop.workbench.read", "nexloop.contact.read", "nexloop.commitment.read"],
     "existing_governed": ["Goal.publish", "Goal.propose", "Metric.approve", "Budget.set", "Control.set", "Contact.release", "Commitment.cancel", "Commitment.extend", "Commitment.attest", "Commitment.condition_met", "Commitment.mark_communication", "ontology.schema.review"],
     "slice_2": ["nexloop.plan.request_reevaluation", "nexloop.service.query_request"],
-    "slice_3": ["conversation.takeover", "conversation.handback", "message.staff_send"]
+    "slice_3": ["nexloop.conversation.takeover", "nexloop.conversation.handback", "nexloop.message.staff_send"]
   }
 }

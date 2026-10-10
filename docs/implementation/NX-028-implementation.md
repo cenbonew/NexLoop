@@ -13,7 +13,7 @@
 签名详见设计稿 §15.2a（已通知调度员转 L3）。
 
 ### HTTP 与 Python
-- `nexloop_eios/workbench_actions_http.py`：`POST /api/v1/workbench/actions/{operation}`，同源、登录 Cookie、CSRF、`Idempotency-Key`（作为受治理请求 id，重放返回终态结果）。操作：`set_control`、`release_contact_restriction`、承诺五项、`request_plan_reevaluation`、`request_effect_query`；字段逐项校验，多余字段或非 UTC 时间为 422。错误码：401 / 403（含无授权）/ 404（租户未发布该 Action）/ 409 `not_allowed_in_state`（handler 拒绝该状态）/ 409 `conflict` / 422 / 503（授权或依赖暂时无法核验）。
+- `nexloop_eios/workbench_actions_http.py`：`POST /api/v1/workbench/actions/{operation}`，同源、工作台登录域（切片 1 的独立浏览器应用与 `__Host-nexloop_workbench` Cookie，经 `backend.authenticate_workbench`；WebChat 顾客 Cookie 一律 401，合入切片 1 后改）、CSRF、`Idempotency-Key`（作为受治理请求 id，重放返回终态结果）。操作：`set_control`、`release_contact_restriction`、承诺五项、`request_plan_reevaluation`、`request_effect_query`；字段逐项校验，多余字段或非 UTC 时间为 422。错误码：401 / 403（含无授权）/ 404（租户未发布该 Action）/ 409 `not_allowed_in_state`（handler 拒绝该状态）/ 409 `conflict` / 422 / 503（授权或依赖暂时无法核验）。
 - `WorkbenchActions`：每次请求重新做浏览器人类认证，经 `GoalGovernedActions` 提交；`http_api.py` 只追加挂载（`backend.py` 未改）。
 - `GoalGovernedActions` 增加 `request_plan_reevaluation`、`request_effect_query`；`business_actions.PROFILES` 与 `business-actions.v1.json`（v6）增加两项 human_owner Action：`nexloop.plan.request_reevaluation:1`、`nexloop.service.query_request:1`（类型挂 Consumer v1）。
 
@@ -22,7 +22,7 @@
 
 ### 测试（Mac，`-n 3`，开跑负载约 5–7）
 - `tests/test_governed_entry_pg.py` 4 例：注册表内容、append-only、错误 handler 被拒、旧入口无授权；预判与真实派发一致（暂停 → 拒绝且 provider 零请求；恢复后旧意图 `control_revision_stale` 且仍被拒；复评后的新意图可派发并派发一次；附带通知与联系限制；预判不留锁）；手动复评（服务主体持同授权被拒、计划进入 feed、重放不重复、非 active 计划被拒）；查询执行结果（排队中的意图被拒；unknown 时只把 outbox 的到期时间提前，状态、fence、意图数不变）。
-- `tests/test_workbench_actions_http.py` 4 例：未登录 / CSRF 不符 / 未知操作 / 字段错误 / 多余字段 / 非 UTC / 缺 Idempotency-Key 全部拒绝且不写；工作台暂停与恢复与派发一致（AT-006 界面部分的后端）且同键重放不重复写；解除联系限制、标记沟通类、延期、已取消承诺再取消返回 409、手动复评；登录但无授权的人类 403 且不写。
+- `tests/test_workbench_actions_http.py` 5 例（合入切片 1 后新增第 5 例：顾客 Cookie 401；顾客登录工作台域无授权 403；operator 调暂停、解除联系限制 403，手动复评 200；owner 暂停 200；角色授权由 `workbench-roles` 编译）：未登录 / CSRF 不符 / 未知操作 / 字段错误 / 多余字段 / 非 UTC / 缺 Idempotency-Key 全部拒绝且不写；工作台暂停与恢复与派发一致（AT-006 界面部分的后端）且同键重放不重复写；解除联系限制、标记沟通类、延期、已取消承诺再取消返回 409、手动复评；登录但无授权的人类 403 且不写。
 - 回归 99 + 21 例通过（review_http、goal_controls、contact_refusal、承诺三组、nx022 派发、清单、db_boundary、计划复评、effect 派发、闭环知识、web chat、http_api 等）；`check_definer_search_path.py` 0 问题。
 - `test_bootstrap.py` 在临时号下有 2 例预期失败（0116–0149 断档）；把 0150 临时改为 0116 后 4/4 通过（未提交）。
 
@@ -58,7 +58,9 @@
 - 清单：`business-actions.v1.json` v8 增加 `nexloop.message.staff_send:1`（human_owner，挂 Consumer v1）。
 - 已知限制：v0.1 员工回复必须绑定一条来信（不支持无 `reply_to` 的主动消息）；外部渠道不支持（NXC07）；员工消息不经渠道回执，状态即“已接受”。
 
-### 新增 Action 汇总（需切片 1 的角色映射；按设计稿 D2，owner 与 operator 都持有）
+### 新增 Action 汇总（切片 1 的角色映射已写入 `workbench-roles`；按设计稿 D2，owner 与 operator 都持有）
+`workbench-roles` v2：v1 中三项切片 3 Action 漏了 `nexloop.` 前缀（授权落空），已按 business-actions 的发布名更正。
+
 `nexloop.plan.request_reevaluation:1`、`nexloop.service.query_request:1`（切片 2）；`nexloop.conversation.takeover:1`、`nexloop.conversation.handback:1`、`nexloop.message.staff_send:1`（切片 3）。服务授权 `service-grants.v1.json` v11：reply_guarantor 增加 `NexLoop.feed.takeover-expiry:1`、`nexloop.takeover.expire:1`。
 
 ### 测试（Mac，`-n 3`；真实 Pi 单独串行；开跑负载 5–12，含其他线）

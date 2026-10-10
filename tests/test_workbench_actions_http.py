@@ -1,7 +1,8 @@
 """NX-028 slice 2: the workbench write entry through the production app, a real login cookie and the governed entry.
 
-Production create_app (workbench_actions_http + 0150 registry + 0151 lookup), real PG identity login and CSRF, browser
-HUMAN authority for the human Actions; the actual governed effect executor and loopback provider for the dispatch
+Production create_app (workbench_actions_http + 0150 registry + 0151 lookup), real PG identity login into the workbench
+realm (its own cookie, slice 1) and CSRF, browser HUMAN authority for the human Actions; the WebChat customer cookie is
+refused and roles come from deploy/authorization/workbench-roles (owner / operator); the actual governed effect executor and loopback provider for the dispatch
 consistency check (AT-006 UI part). Synthetic data; admin seeds configuration fixtures and probes.
 """
 import json
@@ -17,6 +18,7 @@ from nexloop_eios.http_api import ApiConfiguration,create_app
 from commitment_fixture import HUMAN_ACTIONS,REQUEST_ACTIONS,TENANT,commitments,deadline,publish_request_actions  # noqa: F401
 from effect_execution_fixture import governed_effect_executor,execution_plan  # noqa: F401
 from test_browser_http import ORIGIN,login
+from test_workbench_read_pg import CALLER,ROLES,WORKBENCH_APP,add_human,members_file,workbench_login,write_facts
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_commitments_pg import active_plan,fresh,plan_triggers
@@ -51,7 +53,8 @@ def workbench(commitments,identity,uow,admin,pg,tmp_path):
     signer=c['signer'];(tmp_path/'app-artifacts').mkdir(mode=0o700)
     config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',signer.material),
         tmp_path/'app-artifacts',signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
-        TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test')
+        TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',
+        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,'synthetic-browser-app',ORIGIN))
     c['app']=lambda:TestClient(create_app(config),base_url=ORIGIN);c['identity']=identity
     return c
 
@@ -62,7 +65,8 @@ def act(client,csrf,operation,body,*,key=None):
 
 
 def session(client,identity):
-    response=login(client,identity);assert response.status_code==200
+    """The owner's workbench login (workbench realm and cookie)."""
+    response=workbench_login(client,{'username':identity[3].username,'password':identity[-1]});assert response.status_code==200
     return response.json()['csrf_token']
 
 
@@ -139,9 +143,58 @@ def test_a_human_without_the_grant_is_forbidden(commitments,identity,uow,admin,p
     signer=c['signer'];(tmp_path/'app-artifacts').mkdir(mode=0o700)
     config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',signer.material),
         tmp_path/'app-artifacts',signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
-        TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test')
+        TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',
+        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,'synthetic-browser-app',ORIGIN))
     with TestClient(create_app(config),base_url=ORIGIN) as client:
         csrf=session(client,identity)
         response=act(client,csrf,'cancel_commitment',{'commitment_id':commitment,'reason':'无权取消'})
         assert response.status_code==403 and response.json()['code']=='forbidden',response.text
     assert c.commitment(commitment)['properties']['status']=='open'
+
+
+def test_customer_cookie_is_refused_and_roles_bound_the_workbench_writes(commitments,identity,uow,admin,pg,tmp_path):
+    """The write entry accepts only the workbench realm: a WebChat customer cookie is 401 (a customer who logs into the
+    workbench realm holds nothing there: 403). Members act within their role (workbench-roles): the operator may request a
+    reevaluation but not pause or release a contact restriction (owner-only); the owner may pause."""
+    from nexloop_eios.workbench_roles import apply_members,compile_members
+    c=commitments;publish_request_actions(admin);publish_goal_actions(admin);plan=active_plan(c)
+    def private(name,content):
+        path=tmp_path/name;path.write_bytes(content if isinstance(content,bytes) else content.encode());path.chmod(0o600);return path
+    # The workbench: its own browser application and business application (slice 1, D1); staff members by trusted configuration.
+    admin.execute('insert into control.nexloop_browser_applications values(%s,%s,1,true)',(TENANT,WORKBENCH_APP))
+    admin.execute('insert into control.nexloop_browser_business_applications values(%s,%s,%s,%s,%s)',(TENANT,WORKBENCH_APP,CALLER,'1',Jsonb(['action.execute'])))
+    admin.execute("insert into control.nexloop_browser_rate_policies values(%s,'local_login','nexloop_identity',50,60,true) on conflict do nothing",(TENANT,))
+    owner,operator=add_human(admin,'owner'),add_human(admin,'operator')
+    admin.execute('alter role nexloop_configurator login')
+    members=members_file((owner,'owner'),(operator,'operator'))
+    apply_members(ROLES,members,database_url_file=private('configurator-dsn',make_conninfo(pg,user='nexloop_configurator')))
+    write_facts(admin,compile_members(ROLES,members))
+    signer=c['signer'];(tmp_path/'app-artifacts').mkdir(mode=0o700)
+    config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',signer.material),
+        tmp_path/'app-artifacts',signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
+        TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',
+        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,WORKBENCH_APP,ORIGIN))
+    pause={'scope_kind':'consumer','scope_ref':c['consumer'],'paused':True,'reason':'暂停'}
+    events=lambda:admin.execute('select count(*) from control.nexloop_control_events').fetchone()[0]
+    with TestClient(create_app(config),base_url=ORIGIN) as client:
+        # The WebChat customer cookie is not a workbench session.
+        customer=login(client,identity);assert customer.status_code==200
+        refused=act(client,customer.json()['csrf_token'],'set_control',pause)
+        assert refused.status_code==401 and refused.json()['code']=='unauthenticated'
+        assert act(client,customer.json()['csrf_token'],'request_plan_reevaluation',{'plan_id':str(plan),'reason':'x'}).status_code==401
+    with TestClient(create_app(config),base_url=ORIGIN) as client:
+        # The same customer in the workbench realm: authenticated, but no workbench grant.
+        csrf=session(client,identity)
+        assert act(client,csrf,'request_plan_reevaluation',{'plan_id':str(plan),'reason':'x'}).status_code==403
+    with TestClient(create_app(config),base_url=ORIGIN) as client:
+        csrf=workbench_login(client,operator).json()['csrf_token']
+        for operation,body in [('set_control',pause),('release_contact_restriction',{'consumer_id':c['consumer'],'reason':'x'})]:
+            denied=act(client,csrf,operation,body)
+            assert denied.status_code==403 and denied.json()['code']=='forbidden',(operation,denied.text)
+        allowed=act(client,csrf,'request_plan_reevaluation',{'plan_id':str(plan),'reason':'客户情况有变'})
+        assert allowed.status_code==200,allowed.text
+    assert events()==0
+    assert admin.execute('select kind,principal_id from runtime.nexloop_human_requests').fetchall()==[('plan_reevaluation',operator['principal_id'])]
+    with TestClient(create_app(config),base_url=ORIGIN) as client:
+        csrf=workbench_login(client,owner).json()['csrf_token']
+        assert act(client,csrf,'set_control',pause).status_code==200 and events()==1
