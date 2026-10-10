@@ -58,16 +58,24 @@ def tombstones(admin,item_class):
 
 def test_settings_are_seeded_canonically_and_bounded(tmp_path,admin,commitments):
     value=retention.load_settings(SETTINGS);text,digest=retention.canonical_settings(SETTINGS)
-    stored,stored_digest=admin.execute('select definition,definition_digest from control.nexloop_retention_settings where version=1').fetchone()
+    stored,stored_digest=admin.execute('select definition,definition_digest from control.nexloop_retention_settings order by version desc limit 1').fetchone()
     assert stored==json.loads(text)==value and stored_digest==digest
     assert value['classes']['prompt_text']['days']<=value['classes']['message_text']['days']
     for change in ({'prompt_text':{'days':120,'source':'message_text'}},{'job_input':{'days':0,'source':None}},{'unknown':{'days':1,'source':None}},
                    {'claim_quote':{'days':10,'source':'nothing'}}):
         bad=json.loads(SETTINGS.read_text());bad['classes'].update(change);path=tmp_path/'bad.json';path.write_text(json.dumps(bad))
         with pytest.raises(ValueError):retention.load_settings(path)
-        bad['version']=2
+        bad['version']=9
         with pytest.raises(psycopg.errors.InvalidParameterValue),admin.transaction():
-            admin.execute("insert into control.nexloop_retention_settings(version,definition,definition_digest,published_by) values(2,%s,%s,'synthetic')",(Jsonb(bad),'0'*64))
+            admin.execute("insert into control.nexloop_retention_settings(version,definition,definition_digest,published_by) values(9,%s,%s,'synthetic')",(Jsonb(bad),'0'*64))
+    # Slice 4 (NX-035 D4): ledger and tombstones must outlive every backup.
+    for records in ({'deletion_ledger_days':30,'tombstone_days':365,'backup_max_retention_days':35},{'deletion_ledger_days':365,'tombstone_days':365,'backup_max_retention_days':365},
+                    {'deletion_ledger_days':365,'tombstone_days':365}):
+        bad=json.loads(SETTINGS.read_text());bad['records']=records;path=tmp_path/'bad.json';path.write_text(json.dumps(bad))
+        with pytest.raises(ValueError):retention.load_settings(path)
+        bad['version']=9
+        with pytest.raises(psycopg.errors.InvalidParameterValue),admin.transaction():
+            admin.execute("insert into control.nexloop_retention_settings(version,definition,definition_digest,published_by) values(9,%s,%s,'synthetic')",(Jsonb(bad),'0'*64))
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute('delete from control.nexloop_retention_settings')
 
 
