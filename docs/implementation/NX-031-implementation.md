@@ -21,11 +21,8 @@
   - **会话与消息**：每个顾客用自己的浏览器会话（真实口令认证）经 `ConversationMessagePort` 写入。走的是 0046 写入路径，所以 0109 拒绝检查、NX-051 投影和提取 feed 都照常运行；
   - **工作台**：1 名 owner、2 名 operator 经 configurator 写入；请求类、接管类、目标类 Action 发布到租户。
 - **顺序**：身份 → Consumer 与归属 → 全部授权事实 → 逐个顾客写消息 → 工作台配置。这样每个已认证的会话快照在使用时都仍然有效（授权事实一变，旧会话快照就会失效）。
-- **本切片未装载**：商业事件、承诺、活跃计划，`template.json` 中如实列出。
-  - 商业事件要经签名 webhook 和 test 连接器（`data_mode=test`、world `test`，D1）；
-  - 承诺要经提取 worker 和确定性模型；
-  - 计划要经计划建立入口；
-  - 这三项放进切片 1，与负载驱动一起做。
+- **商业事件（已装载）**：用 test 连接器（`data_mode=test`、world `test`，D1），经 configurator 配置；每条事件用连接器密钥签名后交给实际的 intake 函数（与 webhook 同一入口），recorder 把 feed 排空后再做模板。test world 的连接器只能关联 test world 的 Consumer，所以 customer_ref 不做关联。小规模测试核对：全部 202 接受、只写入 world `test`、feed 排空。
+- **本切片未装载**：承诺（要经提取 worker 和确定性模型）、活跃计划（要经计划建立入口），`template.json` 中如实列出，放进切片 1。
 
 ### 模板与克隆
 - 装载完成后，用 `pg_basebackup -X stream -c fast` 对运行中的集群做在线一致副本，作为模板（`<out>/pgdata`）。
@@ -71,3 +68,34 @@
 - `test_load_synthetic` 2 例；`test_load_template_pg` 1 例（6 个消费者装载、治理记录、归属、模板与两个克隆）。
 - `test_connection_budget` 与 `test_background_services_pg` 等共 61 例（含 conversations、community container）；连接预算相关 43 例（含 domain_worker 与 live 实测）。
 - 串行：`test_plan_role_launcher_pg` 5 例、`test_reply_fallback_pg` 7 例。首次运行时 launcher 池为 1，两例新用例失败，这就是上面的实测结论；改为 2 后通过。
+
+## D7 最小可用池实测（调度员裁定 3）
+
+方法（`scripts/load/measure_pools.py` + `tests/pool_probe/sitecustomize.py`，只用于测量，不改产品代码）：
+- 每个服务在池大小 1 和 2 下各跑一遍它的功能测试。探针把目标池强制设为该大小，选择方式有两种：
+  - 按服务自己的入口模块（包括 `python -m` 启动的子进程）；
+  - 按服务的 DB 角色（同一测试里该角色的所有池，比只压服务自己的池更严）。
+- 判定“可用”：功能测试全部通过，且探测到的池没有超时（`requests_errors=0`）。排队次数和等待时长另行记录。
+- 本机 `-n 3`，含子进程或 Pi 的测试串行运行，开跑负载 3.5–6.5。
+- 第一轮里 relay、outbound-recorder、guard 子进程以 `python -m` 启动，探针没有命中（池计数为 0），结果作废。修正模块匹配后重测，下表用的是第二轮的结果。
+
+| 服务 | 进程数 | 池 1 | 池 2 | 实测最小池 | 建议池 | 建议合计 |
+|---|---|---|---|---|---|---|
+| api | 2 | 2 例失败 | 15 例通过，排队 2 次 / 2 ms | 2 | **4**（见注 1） | 8 |
+| domain-worker | 1 | 等待第二个连接直到超时 | 通过（含 resume） | 2 | 2 | 2 |
+| action-worker（effect_worker） | 1 | 3 例失败，1 次池超时（30 s） | 10 例通过，排队 3 次 / 5 ms | 2 | 2 | 2 |
+| scheduler | 0 | — | — | 无对应进程（见注 2） | 0 | 0 |
+| runtime-worker 调度父进程 | 1 | 未单测 | 沿用 | 2（代码约定） | 2 | 2 |
+| runtime-worker guard 子进程 | 4 | 1 例失败（代码也要求 ≥2） | 3 例通过，排队 2 次 / 3 ms | 2 | **4**（见注 3） | 16 |
+| 10 个后台服务（每个） | 各 1 | 全部通过，无超时（claim-extraction-worker 排队 6 次 / 42 ms） | 全部通过 | 1 | 1 | 10 |
+| 两个 launcher 的 API 池 | 各 1 | 不启动 Run | 启动 Run | 2 | 2 | 4 |
+| message relay | 1 | 8 例失败 | 22 例通过，排队 6 次 / 9 ms | 2 | 2 | 2 |
+| outbound-recorder | 1 | 1 例失败 | 6 例通过，排队 2 次 / 2 ms | 2 | 2 | 2 |
+| **合计** | | | | 全部取最小值：**36** | | **48 ≤ 60** |
+
+- 注 1：API 每进程的 LifecycleLock 容量等于池大小的一半。池为 2 时每个进程同一时刻只处理 1 个请求，会直接影响 ACK 吞吐（方案 B 同类问题），所以建议维持 4，等夜间压测的 ACK 数据再议。
+- 注 2：预算中的 `scheduler`（4）对应交接包 Compose 模板里的 `nexloop-scheduler`，代码里没有这个入口。建议去掉这一项，或者明确作为预留，需要裁定。
+- 注 3：guard 池从 4 降到 2，每个子进程同一时刻只能处理 1 个 guard 请求，与 2 s 工具时限直接相关。功能测试在 2 下通过，但要改就必须先在 2 下重跑 ADR-022 的串行时限门槛，所以建议暂时维持 4。
+- 关于 claim-extraction-scheduler：按入口模块选择时，池为 1 也通过；按 `nexloop_api` 角色选择、池为 1 时有 7 次超时。后者把同一测试里夹具自己的 `nexloop_api` 池也压成了 1，不能算作它自己的下限，结论取前者。
+- **结论**：按建议池合计 48，在 60 以内；全部取实测最小值时合计 36。relay 和 outbound-recorder 都已按建议池计入；如果 `scheduler` 作为预留保留 4，合计 52，也在 60 以内。
+- 按裁定，部署配置文件的数值暂不改动，仍是 `adf5200` 的版本：后台服务 2、launcher 2、domain-worker 2，合计 60，relay 和 outbound-recorder 尚未登记。等表确认后再按建议值一次修改，并把 relay、outbound-recorder 纳入预算文件和 doctor 的核对。

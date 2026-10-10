@@ -1,6 +1,6 @@
 """NX-031 slice 0: build the load template (run only through scripts/load/build_template.sh; outside `testpaths`, so CI never
 collects it). Disposable PostgreSQL from the test fixtures (bootstrap of the clean catalog), the fixed-seed manifest loaded only
-through governed entries (tests/load_template.py), the workbench Actions and members (owner, two operators) by trusted
+through governed entries (tests/load_template.py; commercial events through the signed intake of a test connector), the workbench Actions and members (owner, two operators) by trusted
 configuration, then an online pg_basebackup of the loaded cluster. Writes into $NEXLOOP_LOAD_OUT:
   manifest.jsonl, template.json (seed, digest, counts, timings, code commit, catalog revision; no secrets),
   private/credentials.json and private/signing.json (0600; synthetic accounts and the template's signing key),
@@ -24,7 +24,8 @@ from test_conversation_messages import conversations  # noqa: F401
 from commitment_fixture import TAKEOVER_ACTIONS, publish_request_actions
 from test_workbench_actions_http import publish_goal_actions
 from test_workbench_read_pg import CALLER, ROLES, TENANT, WORKBENCH_APP, add_human, members_file, write_facts
-from load_template import load, snapshot
+from commercial_fixture import commercial_env  # noqa: F401
+from load_template import load, load_commercial, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/load'))
@@ -38,7 +39,7 @@ def private(path, content):
     return path
 
 
-def test_build_load_template(conversations, admin, pg, tmp_path):
+def test_build_load_template(commercial_env, conversations, admin, pg, tmp_path):
     from nexloop_eios.workbench_roles import apply_members, compile_members
     out = Path(os.environ['NEXLOOP_LOAD_OUT'])
     seed, consumers = int(os.environ['NEXLOOP_LOAD_SEED']), int(os.environ['NEXLOOP_LOAD_CONSUMERS'])
@@ -48,6 +49,7 @@ def test_build_load_template(conversations, admin, pg, tmp_path):
     started = time.monotonic()
     result = load(conversations, admin, records,
                   progress=lambda n, s: print(f'loaded {n}/{consumers} consumers in {s:.0f} s', flush=True))
+    commercial = load_commercial(commercial_env, records)
     publish_request_actions(admin)
     publish_request_actions(admin, names=TAKEOVER_ACTIONS)
     publish_goal_actions(admin)
@@ -71,6 +73,7 @@ def test_build_load_template(conversations, admin, pg, tmp_path):
     catalog = admin.execute('select max(version) from control.schema_migrations').fetchone()[0]
     commit = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     (out / 'template.json').write_text(json.dumps({'schema': 'nexloop.load-template.v1', 'seed': seed, 'manifest_digest': synthetic.digest(lines),
-        'manifest_totals': trailer['totals'], 'loaded': result['counts'], 'seconds': {**result['seconds'], 'total_load': load_seconds, 'pg_basebackup': backup_seconds},
+        'manifest_totals': trailer['totals'], 'loaded': {**result['counts'], 'commercial_events': commercial['statuses']},
+        'seconds': {**result['seconds'], **{'commercial_' + k: v for k, v in commercial['seconds'].items()}, 'total_load': load_seconds, 'pg_basebackup': backup_seconds},
         'tenant': TENANT, 'world': 'real', 'workbench_members': {'owner': 1, 'operator': 2}, 'commit': commit, 'catalog_revision': catalog,
-        'not_loaded_in_slice_0': ['commercial_events', 'commitments', 'active_plans']}, ensure_ascii=False, indent=2) + '\n')
+        'not_loaded_in_slice_0': ['commitments', 'active_plans']}, ensure_ascii=False, indent=2) + '\n')

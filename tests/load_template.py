@@ -180,3 +180,34 @@ class Clone:
 
 def manifest_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def load_commercial(env, records, *, connector_id='load-shop'):
+    """Commercial events of the manifest (D1: a test connector, data_mode test, world test), signed with the connector key and
+    passed to the actual intake function as the webhook does; then the recorder drains the commercial-record feed. Customer
+    refs stay unlinked (a test-world connector links only test-world Consumers). Returns counts and seconds."""
+    started = time.monotonic()
+    env.connector(connector_id, world='test', data_mode='test', currencies=('CNY',))
+    statuses = {}
+    for record in records:
+        payment = None
+        for event in record['commercial_events']:
+            body = {'event_id': event['event_key'], 'external_id': event['event_key'], 'occurred_at': datetime.now(UTC).isoformat(),
+                    'amount_minor': event['amount_minor'], 'currency': event['currency'], 'customer_ref': record['username']}
+            if event['kind'] == 'payment' or payment is None:
+                body['type'] = 'payment.succeeded'
+                payment = payment or (event['event_key'], event['amount_minor'])
+            else:
+                body.update(type='refund.succeeded', amount_minor=min(event['amount_minor'], payment[1]),
+                            related_kind='payment', related_external_id=payment[0])
+            status = int(env.post(body, connector_id=connector_id).get('status', 0))
+            statuses[status] = statuses.get(status, 0) + 1
+    ingest_seconds = time.monotonic() - started
+    started = time.monotonic()
+    ticks = 0
+    while True:
+        summary = env.recorder('test').run_once()
+        ticks += 1
+        if not any(v for v in summary.values() if type(v) is int):
+            break
+    return {'statuses': statuses, 'ticks': ticks, 'seconds': {'ingest': round(ingest_seconds, 1), 'record': round(time.monotonic() - started, 1)}}
