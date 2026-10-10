@@ -1,4 +1,4 @@
-# NX-028 负责人工作台与人工接管：设计稿（调度员已审，D7–D10 已裁定，D1–D6 待负责人；未实现）
+# NX-028 负责人工作台与人工接管：设计稿（D1–D10 全部定案；未实现）
 
 分支 `nx028-design`，从 `nx026-impl` `af68908`（= s4g）切出。本稿只有文档：没有代码，也没有迁移；文中迁移号都是占位。NX-028 依赖 NX-027（L3 正在开工），实现等审核和依赖合入后再定。
 
@@ -217,23 +217,77 @@ M20 其他：
 | `deploy/authorization/service-grants.v1.json`、`business-actions.v1.json` | NX-027（commercial_recorder 等） | manifest_version 递增，按合入顺序 |
 | `planning/*` | 调度员 | 本线不改 |
 
-## 14. 需要负责人 / 调度员决定的事（附推荐）
+## 14. 决定事项（全部定案）
 
-- **D1 企业成员身份**：推荐沿用浏览器密码登录链，新增独立的 `workbench` 业务应用和企业成员资格，由可信配置写入，不能自助注册；顾客主体永远不能持有工作台授权。备选：外部 SSO（v0.1 不推荐，增加依赖）。
-- **D2 角色划分**：推荐 owner / operator / reviewer 三个角色（§2 表）；解除联系限制、承诺取消、标记沟通类承诺、目标/预算/暂停只给 owner；运营可接管、员工回复、attest、condition_met、延期、查询执行结果、手动复评。
-- **D3 接管粒度与默认期限**：推荐以会话为单位（也允许整个 consumer），默认期限 2 小时、上限 24 小时，写入版本化配置；到期自动交还并升级。
-- **D4 顾客视图**：推荐显示“人工客服处理中”状态条，不显示逐条“处理中”占位（与 ADR-021 一致）。
-- **D5 交还时的积压来信**：推荐只对最后一条未结清来信恢复正常待回复处理，更早的记入接管记录并结清，不补发；计划复评负责后续。
-- **D6 员工回复与联系限制**：推荐员工同样受 ADR-023 §2.6 约束（只能绑定来信回复），主动联系需负责人先解除限制。
+负责人 2026-10-10 对 D1–D6 的回复（调度员转达）：“全部按推荐”。D7–D10 由调度员 2026-10-10 裁定。以下保留原推荐文字，即为定案内容。
+
+
+- **D1 企业成员身份**：**已定（负责人 2026-10-10，“全部按推荐”）**：推荐沿用浏览器密码登录链，新增独立的 `workbench` 业务应用和企业成员资格，由可信配置写入，不能自助注册；顾客主体永远不能持有工作台授权。备选：外部 SSO（v0.1 不推荐，增加依赖）。
+- **D2 角色划分**：**已定（负责人 2026-10-10，“全部按推荐”）**：推荐 owner / operator / reviewer 三个角色（§2 表）；解除联系限制、承诺取消、标记沟通类承诺、目标/预算/暂停只给 owner；运营可接管、员工回复、attest、condition_met、延期、查询执行结果、手动复评。
+- **D3 接管粒度与默认期限**：**已定（负责人 2026-10-10，“全部按推荐”）**：推荐以会话为单位（也允许整个 consumer），默认期限 2 小时、上限 24 小时，写入版本化配置；到期自动交还并升级。
+- **D4 顾客视图**：**已定（负责人 2026-10-10，“全部按推荐”）**：推荐显示“人工客服处理中”状态条，不显示逐条“处理中”占位（与 ADR-021 一致）。
+- **D5 交还时的积压来信**：**已定（负责人 2026-10-10，“全部按推荐”）**：推荐只对最后一条未结清来信恢复正常待回复处理，更早的记入接管记录并结清，不补发；计划复评负责后续。
+- **D6 员工回复与联系限制**：**已定（负责人 2026-10-10，“全部按推荐”）**：推荐员工同样受 ADR-023 §2.6 约束（只能绑定来信回复），主动联系需负责人先解除限制。
 - **D7 “查询执行结果”的执行者**：**已裁定（调度员 2026-10-10）**：人类发起，执行器服务执行一次 QUERY（复用 0065）；人类不持有对账 Action。
 - **D8 工作台读接口契约**：**已裁定**：v0.1 只为承诺和联系限制两个投影建 `packages/contracts` 契约，其余放在 OpenAPI 组件；`conversation-message` 的 `sender_kind` 放宽为 `[agent, human_takeover]`，随 NX-028 实现一起改（§10）。
 - **D9 `goal_governed_action` 的扩展方式**：**已裁定**：只做一次“改名保留 + 新包装 + capability 注册表”，由 NX-028 实现时做（§11 第 1 项）；NX-027 及之后的任务只往注册表加行。
 - **D10 商业记录待关联列表的人工关联**：**已裁定**：Action 归 NX-027，NX-028 只提供页面入口。
 
-D1–D6 已由调度员提交负责人，结论到后再补入本节。
 
-## 15. 实现切片建议（NX-027 合入、D1–D6 定案后；NX-051 已在 s4h）
+## 15. 实现切片与两条线的边界（s4h 合入后由调度员分派；拟 L2 做切片 1，L4 做切片 2、3）
 
-1. 统一入口（0116 注册表）与身份、读端口：企业成员与角色、`workbench_read`、总览/消费者/承诺/限制/计划/Action 只读页面，AT-045 页面状态。
-2. 写入口：暂停与恢复（AT-006 界面）、解除限制、承诺五项 Action、手动复评、查询执行结果。
-3. 人工接管：接管状态、派发拒绝、中继与兜底跳过、员工回复（含契约放宽）、交还复评、顾客状态条，AT-044 与真实 Pi 端到端。
+### 15.1 迁移归属（占位号，接在 0115 之后）
+
+| 占位号 | 归属 | 内容 |
+|---|---|---|
+| 0116 `nx028_governed_entry` | 切片 2（L4） | D9 统一入口注册表；派发预判函数 `control.nexloop_intent_dispatch_prediction(tenant,world,intent)` 首版（暂停 / 控制 revision / 联系限制 / 效果类别，复用派发检查同一组函数，只读不抛错，返回 `{dispatchable, reason, detail}`）；`nexloop.plan.request_reevaluation`、`nexloop.service.query_request` 两项注册与处理函数 |
+| 0117 `nx028_staff_identity` | 切片 1（L2） | `workbench` 业务应用、企业成员资格、顾客主体不得持有工作台授权的配置校验 |
+| 0118 `nx028_takeover` | 切片 3（L4） | 接管状态与事件、注册表加接管/交还/员工回复三项、NXC06 派发拒绝、中继与兜底跳过、0079 约束放宽与员工外发、0114 默认事实函数加 `nexloop.staff`；以 create or replace 让 0116 的预判函数认得 `taken_over` |
+| 0119 `nx028_workbench_read` | 切片 1（L2） | `authz.nexloop_workbench_read`（人类会话、按动词要求读 Action）；各动词复用已有视图函数与 0116 的预判函数 |
+
+- 切片 1 的 0119 依赖 0116 的预判函数签名；签名在 0116 首版定下后不改，切片 3 只换函数体。若 L2 先于 0116 开工，可先按 §15.2 的签名写读端口与测试，合并时以 0116 为准。
+- 两条线都不改对方的迁移文件；临时号冲突由调度员合并时重排。
+
+### 15.2 接口约定（两条线共同遵守）
+
+1. **Action 名与角色**（可信配置，一处定义）：
+   - 读：`nexloop.workbench.read:1`、`nexloop.contact.read:1`、`nexloop.commitment.read:1`；
+   - 写：`goals.*`（已有）、`goals.contact.release`（已有，owner）、`commitment.*` 五项（已有）、`nexloop.plan.request_reevaluation:1`、`nexloop.service.query_request:1`（切片 2 新增）、`conversation.takeover:1`、`conversation.handback:1`、`message.staff_send:1`（切片 3 新增）；
+   - 角色到 Action 的映射（owner / operator / reviewer，§2 表）由切片 1 写进部署清单；切片 2、3 只新增 Action 定义，不改映射以外的角色逻辑。
+2. **预判函数**：`control.nexloop_intent_dispatch_prediction(p_tenant text, p_world text, p_intent uuid) returns jsonb`，返回 `{"dispatchable": bool, "reason": null | "control_paused" | "control_revision_stale" | "goal_version_stale" | "object_revision_stale" | "contact_restricted" | "attached_notification" | "taken_over", "detail": {...}}`，owner-only，SECURITY DEFINER，不抛异常。
+3. **读端口动词与返回形状**（切片 1 实现，切片 2、3 的写入只需在返回中出现对应字段）：`overview`、`goals`、`consumers`、`consumer`、`conversation`、`plans`、`actions`（每个意图带预判）、`commitments` / `commitment`（`commitment-view` 契约）、`contact`（`contact-restriction-view` 契约）、`takeovers`（切片 3 加表后返回内容，此前返回空列表 + `status:'unavailable'`）。
+4. **HTTP 路由**：
+   - 切片 1：`GET /api/v1/workbench/*`（`workbench_http.py`）；
+   - 切片 2、3：`POST /api/v1/workbench/actions/{operation}`（`workbench_actions_http.py`，CSRF + Idempotency-Key，正文即受治理 Action 载荷，服务端补 request_id），返回 `{outcome_id, operation, ...}` 或固定错误码（`forbidden`、`not_allowed_in_state`、`conflict`、`unavailable`）。
+5. **Python 服务**：切片 1 新增 `Backend.authenticate_workbench(inspected_session)` → `WorkbenchServices`（只读）；切片 2、3 新增 `WorkbenchActions`（同一认证入口返回，写入走 `GoalGovernedActions` 与新 Action 适配器）。两类放在不同模块。
+6. **前端**：
+   - 切片 1：工作台壳与导航、`apps/web/src/workbench/api.ts`（读客户端与 AT-045 状态模型）、各页面只读组件 `apps/web/src/workbench/pages/*.tsx`；每个页面预留 `actions` 插槽（`ReactNode`），默认不渲染；
+   - 切片 2、3：`apps/web/src/workbench/actions/*.tsx` 与 `actions-api.ts`，通过插槽挂到页面；顾客端接管状态条（`WebChat.tsx`、`chat-api.ts`）归切片 3；
+   - 共享的 `styles.css` 只追加，不改已有规则。
+
+### 15.3 文件边界
+
+| 文件 / 目录 | 切片 1（L2） | 切片 2、3（L4） |
+|---|---|---|
+| 0116、0118 | — | 独占 |
+| 0117、0119 | 独占 | — |
+| `packages/contracts/commitment-view.schema.json`、`contact-restriction-view.schema.json` 与生成产物 | 独占 | — |
+| `packages/contracts/conversation-message.schema.json`（sender_kind 放宽）与生成产物 | — | 独占（切片 3）；生成产物文本冲突按合并顺序重生成 |
+| `workbench_http.py`、`WorkbenchServices` | 独占 | — |
+| `workbench_actions_http.py`、`WorkbenchActions`、`goal_controls.py` 新方法 | — | 独占 |
+| `http_api.py`（挂路由）、`backend.py`（认证入口） | 新增读路由与 `authenticate_workbench` | 只在同一入口追加写路由与 `WorkbenchActions` |
+| `deploy/authorization/service-grants.v1.json`、成员/角色清单 | 独占（角色映射） | — |
+| `deploy/configuration/business-actions.v1.json` | — | 新增五项 Action 声明 |
+| `deploy/configuration/takeover.v1.json`（D3 期限） | — | 独占（切片 3） |
+| `message_relay.py`、`contact_restrictions.py`、`reply_fallback.py` | — | 独占（切片 3） |
+| `apps/web/src/workbench/pages/*`、`workbench/api.ts`、`App.tsx`/`Account.tsx` 导航 | 独占 | — |
+| `apps/web/src/workbench/actions/*`、`actions-api.ts`、`WebChat.tsx`、`chat-api.ts` | — | 独占 |
+| 测试 | `test_workbench_read_*`、`apps/web/test/workbench-*.test.ts` | `test_workbench_actions_*`、`test_takeover_*`（含真实 Pi 端到端，单独串行） |
+
+### 15.4 切片内容与验收
+
+1. **切片 1 身份与读端口（L2）**：企业成员与角色；读端口与只读页面；AT-045 页面状态；AT-003 界面部分；两个投影契约。测试 §12 第 1、2、13、14 项与 15 项的只读部分。
+2. **切片 2 写入口（L4）**：D9 统一入口注册表；派发预判；暂停与恢复（AT-006 界面）；解除联系限制；承诺五项 Action；手动复评；查询执行结果。测试 §12 第 3、10、11、12、16 项。
+3. **切片 3 人工接管（L4）**：接管状态与到期、NXC06、中继与兜底跳过、员工回复（含契约放宽）、交还复评、顾客状态条。测试 §12 第 4–9 项（第 9 项真实 Host/Pi，guard 4 进程，单独串行）。
+
+切片 2、3 的页面联调在切片 1 合入后进行；此前两条线各自用 HTTP 与 SQL 测试验收。
