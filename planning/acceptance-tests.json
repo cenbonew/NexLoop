@@ -95,7 +95,15 @@
     "name": "暂停队列",
     "given": "排队后暂停策略",
     "expected": "dispatch前拒绝旧动作，UI状态一致",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "tests/test_closure_refusal_versions_pg.py",
+        "summary": "Synthetic test environment, merged at bde5703: Dispatch side passed: test_pause_refuses_the_queued_intent_and_resume_reevaluates_instead_of_replaying (queued intent refused at dispatch, provider zero requests). Stays not_run: the owner UI part belongs to NX-028.",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-007",
@@ -104,7 +112,15 @@
     "name": "过期计划",
     "given": "客户状态改变后唤醒旧计划",
     "expected": "重新评估，不继续已失效步骤",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_closure_refusal_versions_pg.py",
+        "summary": "Synthetic test environment, merged at bde5703: test_goal_change_during_a_run_refuses_its_outcome_and_intent_and_rebinds_the_next; test_customer_state_change_wakes_the_plan_and_stop_if_ends_it_without_a_run; tests/test_plan_wake_pg.py; tests/test_plan_reevaluation_pg.py.",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-008",
@@ -346,7 +362,15 @@
     "name": "版本冲突",
     "given": "两更新基于同对象revision",
     "expected": "一个成功，一个409并重评估",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_closure_knowledge_pg.py",
+        "summary": "Synthetic test environment, merged at bde5703: test_same_revision_updates_one_wins_other_reevaluates; tests/test_claim_matching_pg.py::test_same_revision_conflict_one_wins_other_reassessed. Passed at the governed layer (40001); the HTTP 409 form does not apply in v0.1.",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-022",
@@ -450,7 +474,15 @@
     "name": "不行动",
     "given": "当前无合理交付/触达必要",
     "expected": "正常no_action，不为完成KR硬发消息",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_closure_plan_run_pg.py",
+        "summary": "Synthetic test environment, merged at bde5703: test_no_reasonable_contact_is_a_normal_no_action (real Host/Pi Run reads the v6 plan entry and writes back no_action: zero intents, zero outbound, plan stays active, every model call recorded); tests/test_plan_outcome_pg.py::test_normal_outcome_records_once_replays_and_conflicts.",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-030",

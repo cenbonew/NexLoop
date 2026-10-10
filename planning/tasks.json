@@ -2081,7 +2081,7 @@
       "M14"
     ],
     "deliverable": "明确拒绝优先、重复提取、关键注入/冲突/版本用例",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -2100,6 +2100,24 @@
         "ref": "docs/implementation/NX-025-plan.md",
         "summary": "Acceptance plan reviewed (dispatcher rulings on G3/G4/G5 and AT bookkeeping; G2 hard refusal stop decided by the owner as ADR-023); implementation in progress on branch nx025-impl.",
         "recorded_at": "2026-10-10T08:33:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bde5703",
+        "summary": "Merged NX-025: knowledge and goal closure tests (E2E-A knowledge chain, E2E-B real Host/Pi plan Run no_action and action paths, E2E-C refusal/pause/goal-change/customer-state), plan context and wake (0108), ADR-023 inbound refusal hard stop with bound replies and pending replies (0109), LLM fallback reply Run with a single bound-reply tool and owner escalation (0110); Pi E2E tests run on four guard processes (398dad7, bde5703). Known: 0109 still blocks every effect for a restricted consumer; the ADR-023 §3 customer-reaching distinction lands in NX-026.",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T053750Z-bde57030e2dc",
+        "summary": "Full CI on clean CI host for bde5703 (integration-s4f): 2613 passed / 10 failed; NX-049 serial deadline phase 2/2 passed; 5 failures within baseline; 5 new (test_closure_plan_run_pg x2, test_closure_refusal_versions_pg C1, test_agent_host_run_limit x2: real Host/Pi Runs under the 2 s guard deadline) failed only in the parallel phase and passed serially 2/2 each on the same checkout with four guard processes (deployment shape); registered as load-sensitive (baseline B).",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
+      },
+      {
+        "type": "command",
+        "ref": "scheduler: /tmp/s4f_serial.sh on CI lane",
+        "summary": "sice serial rerun on run 20261010T053750Z-bde57030e2dc checkout (bde5703): run_limit 2/2, closure_plan_run 2/2, closure_refusal_versions 2/2 (5 tests each round).",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
       }
     ]
   },
@@ -2739,6 +2757,12 @@
         "ref": "ba5c1b2",
         "summary": "Merged into main: ADR-022 §4 gate and CI serial deadline phase, ADR-024 stage deployment configuration (four guard processes, dispatcher pool, doctor connection budget). Agent Host global concurrency cap (nx049-host-concurrency) follows in the next integration.",
         "recorded_at": "2026-10-10T12:05:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bde5703",
+        "summary": "Merged the Agent Host global concurrency cap (maximum_active_runs default 4, bounded queue before any guard request, retryable refusal) with doctor check of the deployment premise (a08c719), and the run-limit tests on four guard processes (537ba5f).",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
       }
     ]
   },
@@ -2785,6 +2809,27 @@
         "ref": "ci:sice/20261009T191236Z-4448c40e6458",
         "summary": "Full CI on clean CI host for 4448c40 (integration-s3w): 2469 passed / 17 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T03:52:00+08:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-051",
+    "stage": "S4",
+    "title": "Message provider 序号与引用回复",
+    "dependencies": [
+      "NX-025"
+    ],
+    "modules": [
+      "M09"
+    ],
+    "deliverable": "入站消息保存 provider 序号、发送时间与引用（reply_to），接收顺序（sequence）不变；乱序入站与引用回复下重建对话保留原顺序与接收顺序，不改写原始证据；外发回复的引用由服务端推导（ADR-023 §2.6）；AT-014 可判定",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-051-design.md",
+        "summary": "Split out of NX-019/NX-025 by the dispatcher (AT-014 had no provider sequence or reply_to on Message); design reviewed with five dispatcher rulings, implementation after NX-025 (L2 line).",
+        "recorded_at": "2026-10-10T14:31:00+08:00"
       }
     ]
   }
