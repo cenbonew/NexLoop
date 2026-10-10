@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "workbench-smoke",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["scripts/dev/workbench_smoke.sh"],
+      "port": 8744,
+      "url": "http://127.0.0.1:8744"
+    }
+  ]
+}
