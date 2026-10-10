@@ -27,7 +27,8 @@ def consumer_type():
         properties=(PropertyDefinition(property_name='display_name',value_type=PropertyValueType.STRING),))
 
 
-REQUESTS={'nexloop.plan.request_reevaluation':'plan.request_reevaluation','nexloop.service.query_request':'service.query_request'}
+REQUESTS={'nexloop.plan.request_reevaluation':'plan.request_reevaluation','nexloop.service.query_request':'service.query_request',
+    'nexloop.conversation.takeover':'conversation.takeover','nexloop.conversation.handback':'conversation.handback'}
 COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'commitment.extend','Commitment.attest':'commitment.attest',
     'Commitment.condition_met':'commitment.condition_met','Commitment.mark_communication':'commitment.mark_communication'}
 

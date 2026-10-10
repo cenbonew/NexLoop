@@ -70,7 +70,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
     ('claim-matcher',{'applied':0,'changed':0,'conversations':0,'dead_lettered':0,'glued':0,'lease_lost':0,'matched':0,'retry':0}),
     ('recall-indexer',{'changed':0,'dead_lettered':0,'indexed':0,'lease_lost':0,'removed':0,'retry':0,'skipped':0}),
     ('plan-reevaluator',{'changed':0,'closed':0,'dead_lettered':0,'invalidated':0,'launched':0,'lease_lost':0,'paused':0,'retry':0,'throttled':0}),
-    ('reply-guarantor',{'changed':0,'dead_lettered':0,'escalated':0,'fallback_started':0,'lease_lost':0,'retry':0,'settled':0}),
+    ('reply-guarantor',{'changed':0,'dead_lettered':0,'escalated':0,'fallback_started':0,'lease_lost':0,'retry':0,'settled':0,'taken_over':0,
+        **{'takeover_'+k:0 for k in ('changed','dead_lettered','ended','expired','lease_lost','retry','waiting')}}),
     ('commitment-keeper',{'changed':0,'dead_lettered':0,'lease_lost':0,'reaffirmed':0,'registered':0,'retry':0,'settled':0,'skipped':0,'transitions':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()

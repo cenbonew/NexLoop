@@ -1,0 +1,11 @@
+{
+  "schema": "nexloop-takeover/1",
+  "version": 1,
+  "decision": "NX-028 D3–D5 (owner 2026-10-10, \"all as recommended\"): a staff member takes over one conversation (or one whole consumer); default 2 hours, at most 24 hours. While taken over the Agent does not compete: no message Run, no fallback reply Run, Agent outbound refused at dispatch (NXC06). Expiry ends it automatically and escalates to the owner. On hand-back or expiry only the latest still unanswered inbound message returns to normal pending-reply handling; earlier ones are recorded as settled by the takeover and never replayed; plan reevaluation takes it from there. Initial values; owner-adjustable by a new version.",
+  "default_seconds": 7200,
+  "max_seconds": 86400,
+  "worker": {
+    "batch": 20,
+    "lease_seconds": 60
+  }
+}

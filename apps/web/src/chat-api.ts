@@ -66,3 +66,7 @@ export function scopeDenial(value:unknown):MessageScopeDenial{
   return {message_id:messageId,denial:{record_id:id(d.record_id),code:'outside_catalog_terms',scope:s as DeliveryScope,recorded_at:d.recorded_at}};
 }
 export async function readScopeDenial(messageId:string){const value=scopeDenial(await request(`/api/v1/messages/${encodeURIComponent(id(messageId))}/scope-denial`));if(value.message_id!==messageId)throw new Error('响应无效');return value;}
+// NX-028 D4: whether a person is handling the conversation; only "agent" | "human", nothing about who or until when.
+export type Handling={conversation_id:string;handled_by:'agent'|'human'};
+export function handling(value:unknown):Handling{const v=object(value);if(!['agent','human'].includes(String(v.handled_by))||typeof v.handled_by!=='string')throw new Error('响应无效');return {conversation_id:id(v.conversation_id),handled_by:v.handled_by as Handling['handled_by']};}
+export async function readHandling(conversationId:string){const value=handling(await request(`/api/v1/conversations/${encodeURIComponent(id(conversationId))}/handling`));if(value.conversation_id!==conversationId)throw new Error('响应无效');return value;}

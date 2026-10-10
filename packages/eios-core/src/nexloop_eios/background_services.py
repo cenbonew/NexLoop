@@ -6,7 +6,8 @@
 ``nexloop-recall-indexer``             (nexloop_domain_worker) recall-instance feed → instance index
 ``nexloop-plan-reevaluator``           (nexloop_domain_worker) plan-reevaluate feed → precheck → bounded Role Run
                                        (Role issuance and activation through a second, nexloop_api backend)
-``nexloop-reply-guarantor``            (nexloop_domain_worker) reply-due feed → settled / one fallback reply Run / escalation
+``nexloop-reply-guarantor``            (nexloop_domain_worker) reply-due feed → settled / one fallback reply Run / escalation;
+                                       takeover-expiry feed → expired takeovers ended and escalated (NX-028)
                                        (fallback issuance with the consumer's message relay identities on a nexloop_api backend)
 ``nexloop-commitment-keeper``         (nexloop_domain_worker) commitment-register / commitment-monitor feeds → governed
                                        Commitment create / ledger-derived transitions, due stages, plan marking, exceptions
@@ -154,7 +155,11 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
         return CommitmentKeeper(pool,session,signer,settings=load_settings(arguments.settings_file)).run_once()
     if service=='reply-guarantor':
         from nexloop_eios.contact_restrictions import ReplyGuaranteeWorker,load_reply_policy
-        return ReplyGuaranteeWorker(pool,session,signer,policy=load_reply_policy(arguments.policy_file),launcher=launcher).run_once()
+        summary=ReplyGuaranteeWorker(pool,session,signer,policy=load_reply_policy(arguments.policy_file),launcher=launcher).run_once()
+        # NX-028 D3: the same process ends expired takeovers (D5 settlement, hand-back event, owner escalation).
+        from nexloop_eios.takeovers import TakeoverExpiryWorker
+        summary.update({'takeover_'+k:v for k,v in TakeoverExpiryWorker(pool,session,signer).run_once().items()})
+        return summary
     if service=='plan-reevaluator':
         from nexloop_eios.plan_reevaluation import PlanReevaluationWorker,load_settings
         return PlanReevaluationWorker(pool,session,signer,settings=load_settings(arguments.settings_file),launcher=launcher).run_once()

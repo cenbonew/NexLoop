@@ -585,6 +585,11 @@
       "version": "0151",
       "name": "0151_nx028_workbench_actions.sql",
       "sha256": "acc74ce30fa33b091dcaa9dc5a3fd251c261ec3295c44a9e08cea42f9d27ca4a"
+    },
+    {
+      "version": "0152",
+      "name": "0152_nx028_takeover.sql",
+      "sha256": "e318468afbba05cd6ae8e58b9807acbf195788d2f68e8b6091d3f45008ea565e"
     }
   ]
 }

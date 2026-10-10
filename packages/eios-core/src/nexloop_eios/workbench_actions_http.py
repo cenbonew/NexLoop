@@ -76,6 +76,10 @@ OPERATIONS={
     'mark_commitment_communication':{'commitment_id':_id(_HEX),'reason':_reason},
     'request_plan_reevaluation':{'plan_id':_id(_UUID),'reason':_reason},
     'request_effect_query':{'intent_id':_id(_UUID),'reason':_reason},
+    # Slice 3 (D3): the duration is optional in the governed Action; the page always sends it (default from policy).
+    'take_over_conversation':{'scope_kind':lambda v:v if v in ('conversation','consumer') else (_ for _ in ()).throw(ValueError('scope')),
+        'scope_ref':_id(_HEX),'duration_seconds':lambda v:v if type(v) is int and 60<=v<=604800 else (_ for _ in ()).throw(ValueError('duration')),'reason':_reason},
+    'hand_back_conversation':{'takeover_id':_id(_UUID),'reason':_reason},
 }
 
 

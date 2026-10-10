@@ -94,6 +94,14 @@ def create_app(config:ApiConfiguration):
             # NX-028 slice 2: governed human writes (0150 registry); backend.py itself is unchanged.
             return WorkbenchActions(backend, inspected_session)
         app.include_router(workbench_actions_router(config.browser, ports_for_browser=workbench_action_ports))
+        from nexloop_eios.conversation_takeover_http import router as takeover_state_router
+        def takeover_backend(request):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            return backend
+        # NX-028 D4: the customer's "a person is handling this" status (0152); backend.py itself is unchanged.
+        app.include_router(takeover_state_router(config.browser, backend_for=takeover_backend))
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')
