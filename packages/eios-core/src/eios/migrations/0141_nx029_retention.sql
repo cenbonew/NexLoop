@@ -116,7 +116,7 @@ alter function runtime.nexloop_erasure_permits(text,text,text,jsonb,jsonb) owner
 grant execute on function runtime.nexloop_erasure_permits(text,text,text,jsonb,jsonb) to public;
 
 -- Shared append-only trigger bodies (same functions, same triggers): ask the erasure scope first.
-create or replace function control.nexloop_nx022_append_only() returns trigger language plpgsql set search_path=pg_catalog as $$
+create or replace function control.nexloop_nx022_append_only() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
 begin
  if runtime.nexloop_erasure_permits(current_user::text,tg_table_schema||'.'||tg_table_name,tg_op,to_jsonb(old),case when tg_op='UPDATE' then to_jsonb(new) end) then
   if tg_op='DELETE' then return old;end if;
@@ -124,7 +124,7 @@ begin
  end if;
  raise exception '% is append-only',tg_table_name using errcode='42501';
 end $$;
-create or replace function control.nexloop_context_append_only() returns trigger language plpgsql set search_path=pg_catalog as $$
+create or replace function control.nexloop_context_append_only() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
 begin
  if runtime.nexloop_erasure_permits(current_user::text,tg_table_schema||'.'||tg_table_name,tg_op,to_jsonb(old),case when tg_op='UPDATE' then to_jsonb(new) end) then
   if tg_op='DELETE' then return old;end if;
