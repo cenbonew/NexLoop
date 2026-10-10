@@ -2671,8 +2671,8 @@
       "M06",
       "M23"
     ],
-    "deliverable": "按 ADR-022：在部署主机（即 CI 测试机）上，2 s 工具时限不放宽的前提下，relationship_context_v4[complete] 与两 Pi Role 用例在全量 CI 连续 2 轮通过，且同一检出串行 5 次全部通过；先行手段为 O5b 级别 1（锁后尾验完整重跑）；达成后从合并基线 B 类移除该用例",
-    "status": "in_progress",
+    "deliverable": "按 ADR-022：在部署主机（即 CI 测试机）上，2 s 工具时限不放宽的前提下，relationship_context_v4[complete] 与两 Pi Role 用例在全量 CI 连续 2 轮通过，且同一检出串行 5 次全部通过；先行手段为 O5b 级别 1（锁后尾验完整重跑）；达成后从合并基线 B 类移除该用例。门槛测量方式按 ADR-022 §4 修订（负责人 2026-10-10）：CI 串行时限阶段（guard 4 进程）连续两轮全量通过 + 同一检出串行各 5 次全部通过；生产 Agent Host 全局并发 ≤ 4、guard 4 进程为部署前提",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -2721,6 +2721,24 @@
         "ref": "ci:sice/20261010T015928Z-bbf0fa75d7dc",
         "summary": "Full CI on bbf0fa7 (integration-s4c: submit-path SQL reduction 0107 with stress and mutation evidence, ADR-024 adopted): 2538 passed / 4 failed (previous run 8), no new failures; v4[complete] passed in the full parallel phase with a single guard process. Deploy host serial with four guard processes on 5a416ef: v4[complete] 5/5, two Pi 5/5. Owner approved ADR-022 §4 (gate measured in a serial CI phase with four guard processes).",
         "recorded_at": "2026-10-10T10:46:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T024630Z-f4ed4c6516d6",
+        "summary": "Gate round 1 on f4ed4c6 (integration-s4d): serial deadline phase with four guard processes 2/2 passed (134 s); full parallel phase 2562 passed / 4 failed, all within baseline, no new failures.",
+        "recorded_at": "2026-10-10T12:05:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T032734Z-f4ed4c6516d6",
+        "summary": "Gate round 2 on the same commit: serial deadline phase 2/2 passed (133 s); full parallel phase 2558 passed / 8 failed, all within baseline, no new failures. Together with serial x5 each on the deploy host (v4[complete] 5/5, two Pi 5/5 with four guard processes), the ADR-022 §4 gate is met.",
+        "recorded_at": "2026-10-10T12:05:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ba5c1b2",
+        "summary": "Merged into main: ADR-022 §4 gate and CI serial deadline phase, ADR-024 stage deployment configuration (four guard processes, dispatcher pool, doctor connection budget). Agent Host global concurrency cap (nx049-host-concurrency) follows in the next integration.",
+        "recorded_at": "2026-10-10T12:05:00+08:00"
       }
     ]
   },
