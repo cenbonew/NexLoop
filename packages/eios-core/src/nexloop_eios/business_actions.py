@@ -27,6 +27,8 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'commitment.mark_communication':'human_owner',
     # NX-028 slice 2: human requests through the governed entry's capability registry (0150).
     'plan.request_reevaluation':'human_owner','service.query_request':'human_owner',
+    # NX-027 on the 0124 registry (0140): commitment commercial binding and operator-entered costs.
+    'commitment.bind_commercial':'human_owner','cost.record':'human_owner',
     'conversation.takeover':'human_owner','conversation.handback':'human_owner','message.staff_send':'human_owner',
     # NX-027: the human owner's read of commercial observations, costs and key results (0134).
     'commercial.observe':'human_owner'}
