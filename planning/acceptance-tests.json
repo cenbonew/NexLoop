@@ -245,7 +245,15 @@
     "name": "消息次序",
     "given": "乱序入站与引用回复",
     "expected": "保留原顺序与接收顺序，不破坏证据",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_message_provider_order_pg.py",
+        "summary": "Synthetic test environment, merged at 5f0023e: test_out_of_order_client_sequence_keeps_receipt_order_and_both_orders_are_visible; test_reply_links_resolved_pending_late_foreign_and_self; test_facts_and_links_append_only_and_not_reachable_by_runtime_roles; test_skewed_client_time_is_flagged_and_message_still_accepted; test_replay_records_facts_once_and_ignores_restated_client_values; tests/test_message_provider_extraction_pg.py (signed-channel order drives correction and anchor, server refuses corrections against the effective order). Signed-channel ordering is evidenced with the synthetic namespace only; real-channel evidence is added when a real channel is connected (dispatcher ruling 5).",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-015",
@@ -352,6 +360,12 @@
         "ref": "tests/test_claim_matching_pg.py",
         "summary": "Synthetic test environment, merged at d823be1: test_rerun_same_claims_is_idempotent; extraction debounce and crash idempotency.",
         "recorded_at": "2026-10-10T00:22:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "tests/test_commitments_pg.py",
+        "summary": "Synthetic test environment, merged at 5f0023e: commitment registration is idempotent under re-extraction, keeper replay and crash after create (NX-026); late reply resolution is a new input version without duplicate Claims (NX-051).",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
       }
     ]
   },
@@ -673,7 +687,15 @@
     "name": "履行证据",
     "given": "消息发送成功但问题未解决",
     "expected": "不标客户问题已解决/承诺已兑现",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_commitments_pg.py",
+        "summary": "Synthetic test environment, merged at 5f0023e: test_at040_* and tests/test_commitment_e2e_pg.py (real Host/Pi, four guard processes): a delivered message, a customer verbal confirmation or an Agent self-report never marks a commitment fulfilled; only qualifying ledger evidence does.",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-041",
@@ -682,7 +704,15 @@
     "name": "承诺到期",
     "given": "到期未完成",
     "expected": "触发复评/异常，负责人可见",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_commitments_pg.py",
+        "summary": "Synthetic test environment, merged at 5f0023e: test_at041_*: before-due and violation stages mark the plan for reevaluation, the violation exception is visible to the owner through the governed commitment query port (the workbench page comes with NX-028), violations are still recorded while paused, later qualifying evidence becomes fulfilled-late.",
+        "recorded_at": "2026-10-10T17:24:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-042",
