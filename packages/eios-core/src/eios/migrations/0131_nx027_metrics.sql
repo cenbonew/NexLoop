@@ -37,7 +37,7 @@ create table control.nexloop_metric_sources (
  primary key(tenant_id,world,metric_id,metric_version),
  check(source_kind<>'commercial_record' or (cardinality(record_kinds)>=1 and record_kinds<@array['order','payment','renewal','refund']
   and cardinality(statuses)>=1 and statuses<@array['pending','paid','succeeded','failed','cancelled','refunded_partial','refunded'])),
- check(source_kind<>'cost_entry' or (cardinality(cost_kinds)>=1 and cost_kinds<@array['model','channel','discount','service','labour'] and value='amount')),
+ check(source_kind<>'cost_entry' or (cardinality(cost_kinds)>=1 and cost_kinds<@array['model','channel','discount','service','labour'])),
  check(cohort_kinds is null or (cardinality(cohort_kinds)>=1 and cohort_kinds<@array['order','payment','renewal'])),
  foreign key(tenant_id,world,metric_id,metric_version) references control.nexloop_metric_definitions(tenant_id,world,metric_id,version));
 create table control.nexloop_metric_cohort_heads (

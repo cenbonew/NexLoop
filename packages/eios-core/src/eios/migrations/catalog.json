@@ -574,7 +574,12 @@
     {
       "version": "0131",
       "name": "0131_nx027_metrics.sql",
-      "sha256": "360fbe2fc353d9c235fea133b409795b7fbb68c06f06e34909d9e962d18aadb0"
+      "sha256": "c888378290b0bf5a758e6e4d05280c4bbfb7f85ffeeb6d01f562ac9bc0d637df"
+    },
+    {
+      "version": "0132",
+      "name": "0132_nx027_costs.sql",
+      "sha256": "a4712613669839147c933f1581ba7d2baa548513ef6e4019e355aca88ea8c29b"
     }
   ]
 }

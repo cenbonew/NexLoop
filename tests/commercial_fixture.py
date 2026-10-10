@@ -34,7 +34,7 @@ TENANT='synthetic-a'
 SETTINGS=ROOT/'deploy/configuration/commercial.v1.json'
 TYPES=['order.created','order.paid','order.cancelled','payment.pending','payment.succeeded','payment.failed','subscription.renewed','refund.succeeded']
 RECORDER_TARGETS=[(r,ResourceType.ACTION,Operation.EXECUTE) for r in ('eios:action:NexLoop.feed.commercial-record:1','eios:action:nexloop.commercial.record:1',
-    'eios:action:nexloop.commercial.read:1','eios:action:CommercialRecord.create:1','eios:action:CommercialRecord.edit:1')]+[
+    'eios:action:nexloop.commercial.read:1','eios:action:nexloop.cost.read:1','eios:action:CommercialRecord.create:1','eios:action:CommercialRecord.edit:1')]+[
     ('eios:object_type:CommercialRecord',ResourceType.OBJECT_TYPE,Operation.READ)]
 
 

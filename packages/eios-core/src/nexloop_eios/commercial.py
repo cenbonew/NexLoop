@@ -16,6 +16,7 @@ chain (AT-011). ``CommercialReadPort`` is the query port before NX-028.
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 
 import psycopg
@@ -30,6 +31,7 @@ from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied,retry_delay
 
 RECORD_ACTION='eios:action:nexloop.commercial.record:1'
 READ_ACTION='eios:action:nexloop.commercial.read:1'
+COST_READ_ACTION='eios:action:nexloop.cost.read:1'
 RECORD_FEED='commercial-record'
 TYPE='CommercialRecord'
 CREATE=('CommercialRecord.create',1)
@@ -62,7 +64,8 @@ def load_settings(path):
     if type(rates) is not list:raise ValueError('channel_unit_rates')
     for rate in rates:
         if (type(rate) is not dict or set(rate)!={'action','version','currency','amount_per_unit'} or type(rate['version']) is not int
-            or rate['currency'] not in exponents or type(rate['amount_per_unit']) is not str):raise ValueError('channel_unit_rates entry')
+            or rate['currency'] not in exponents or type(rate['amount_per_unit']) is not str
+            or not re.fullmatch(r'[0-9]{1,12}(\.[0-9]{1,8})?',rate['amount_per_unit'])):raise ValueError('channel_unit_rates entry')
     worker=value['worker']
     if type(worker) is not dict or set(worker)!=set(_WORKER):raise ValueError('commercial worker settings')
     for key,(low,high) in _WORKER.items():
@@ -103,6 +106,25 @@ class CommercialReadPort(_SignedPort):
     def record(self,record_id):return self._signed({'verb':'record','record_id':str(record_id)})
     def exceptions(self):return self._signed({'verb':'exceptions'})['exceptions']
     def receipts(self):return self._signed({'verb':'receipts'})['receipts']
+
+
+class CostReadPort(_SignedPort):
+    """Cost entries (model, channel, discount) and budget settlements, 0132 (eios:action:nexloop.cost.read:1).
+
+    ``summary`` groups per kind, currency and scale; amounts in different currencies are never added together and
+    unpriced channel units are reported as units only (D7).
+    """
+    PROTOCOL='nexloop-cost-read-v1';ACTION=COST_READ_ACTION;FUNCTION='nexloop_cost_read'
+
+    def summary(self):return self._signed({'verb':'summary'})['costs']
+
+    def entries(self,*,run_id=None,cost_kind=None):
+        payload={'verb':'entries'}
+        if run_id is not None:payload['run_id']=str(run_id)
+        if cost_kind is not None:payload['cost_kind']=str(cost_kind)
+        return self._signed(payload)['entries']
+
+    def settlements(self):return self._signed({'verb':'settlements'})['settlements']
 
 
 def _code(error):
