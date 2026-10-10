@@ -104,12 +104,34 @@
 
 ## 8. 已知限制与需要决定的事项
 
-1. **员工看不到任何消息原文**：浏览器 Human 的配置型 Message READ 在 SQL 读断言中走不通。
-   - 原因：`authz.nexloop_assert_read_authority` → 0011 `authz.nexloop_fact_coverage` 只接受服务和 Agent 的事实集，而浏览器 Human 的事实是 `browser_authentication`。
-   - 后果：即使给员工配置了某条 Message 的 READ，原文仍显示“需授权”。这是失败关闭，不会泄露。
-   - 开放它需要新增浏览器读断言路径（改名保留 + 新包装 `assert_read_authority` / `fact_coverage`），属于共享安全基础设施，超出切片 1 的文件边界，没有改。
-   - 我写过一个“授予 READ 后可见”的正例测试，因为这个限制跑不通，已删除，没有提交。
+1. ~~员工看不到任何消息原文~~：已由 ADR-025 后续实现解决，见 §9。
 2. **总览的“队列积压”块**是 unavailable：切片 1 没有人类可读的 work feed backlog 端口。
 3. **派发预判**依赖切片 2 的 0116；合并前统一显示“派发预判暂不可用”。
 4. **其他依赖块**：接管块依赖切片 3 的 0118，商业与费用块依赖 NX-027，此前都是 unavailable。
 5. **测试中授权事实的写入方式**：由 admin 写入，代替 0050 清单应用（0050 已有覆盖）；成员配置走真实的 configurator 函数。
+
+## 9. 后续：工作台成员读取消息原文与客户资料（ADR-025，分支 `nx028-s1b`）
+
+- **迁移 `0145_nx028_workbench_member_read.sql`**（临时号 0145–0149）新增读派生 `workbench-member-v1`：
+  - `authz.nexloop_assert_read_authority` 改名保留为 `_before_workbench_v0144`（即 0107 的 memo 包装，逻辑不变）；
+  - 新包装只把带 `derivation='workbench-member-v1'` 的声明交给新判定，其余声明（顾客、服务、Agent、Run、配置授权或已有派生）原样交给原函数；
+  - `authz.nexloop_fact_coverage` 不涉及，也没有改动。
+- **判定**：每次读取都在 SQL 中重新计算，依据是当前的工作台会话、成员资格、角色和读取目标。
+  - 会话必须是工作台应用的 Human 会话，主体是当前成员，且不是顾客主体；
+  - owner、operator：本租户、本 world 的 Message（对象与字段），以及 Consumer 和它的属性；属性不在任何属性组里，或所在组被负责人标为受限（`property_group_restriction`），都不开放；
+  - reviewer：只能读 `pending_review` 候选所依赖 Claim 的证据消息，候选状态改变后立即失效；
+  - 其他租户、其他 world、伪造声明一律拒绝。
+- **审计**：每次派生读取，在同一事务里按对象写一条 `runtime.nexloop_workbench_read_audit`。
+  - 字段：成员、角色、对象类别、目标、用途（页面）、时间；
+  - 表只追加、FORCE RLS，应用角色无权限；审计写入失败时读取一并失败；
+  - 审计只经 `authz.nexloop_workbench_audit_read` 开放给 owner（`GET /api/v1/workbench/audit`）。ADR 提到的“审计角色”在 D2 中没有定义，目前只有 owner。
+- **Consumer 字段**：`authz.nexloop_workbench_consumer_fields` 给出字段名和可读标记；受限字段在界面上列为 `withheld`，从不读取它的值。
+- **Python**：`WorkbenchReader.read_object` 用派生声明读取，用途取自所在页面（conversation、contact、commitment、consumer、review_evidence），不再走 `AuthorizedObjectReader` 的配置授权路径。
+- **测试**：`tests/test_workbench_member_read_pg.py` 按 ADR-025 §3 逐项覆盖：
+  - owner 和 operator 能读正文、命中原文和属性，每次读取有一条审计（AT-003 正例补回）；
+  - 受限属性组读不到；
+  - 只限本租户、本 world；
+  - reviewer 只能读证据，审核结束后失效；
+  - 角色变更、移除成员、会话吊销后，下一次读取即失效；
+  - 审计写入失败则读取失败，非 owner 读不到审计；
+  - 回归：顾客会话与服务主体在每条读取路径上，改动前后结果一致；工作台派生对它们无效，也不留审计。

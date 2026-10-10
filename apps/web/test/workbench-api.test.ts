@@ -79,3 +79,11 @@ test('routes are URL state and reject malformed ids',()=>{
   expect(parseRoute('/workbench/unknown')).toEqual({page:'overview'});
   expect(routePath({page:'consumers',id:id('c'),sub:'conversation'})).toBe('/workbench/consumers/conversations/'+id('c'));
 });
+
+test('ADR-025: owner-restricted properties are listed as withheld; the audit is parsed strictly',async()=>{
+  const {consumer,audit}=await import('../src/workbench/api');
+  const detail=consumer({consumer_id:id('2'),paused:false,restriction:null,conversations:[],commitments:[],properties:{status:'ok',values:{favorite_sport:'网球'},withheld:['income_band']}});
+  expect(detail.properties).toEqual({status:'ok',values:{favorite_sport:'网球'},withheld:['income_band']});
+  expect(audit({items:[{audit_id:3,principal_id:'p',role:'owner',object_kind:'message',target_resource:'eios:object:Message/'+id('4'),read_purpose:'conversation',read_at:'2026-10-10T09:00:00+00:00'}]})[0].read_purpose).toBe('conversation');
+  expect(()=>audit({items:[{audit_id:3,principal_id:'p',role:'owner',object_kind:'claim',target_resource:'x',read_purpose:'x',read_at:'x'}]})).toThrow(WorkbenchError);
+});

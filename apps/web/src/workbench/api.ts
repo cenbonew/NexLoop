@@ -125,11 +125,13 @@ export function consumers(value:unknown):ConsumerPage{
 }
 export const readConsumers=(after?:string)=>get('/api/v1/workbench/consumers'+(after?'?after='+encodeURIComponent(after):''),consumers);
 export type ConsumerDetail={consumer_id:string;paused:boolean;restriction:{active:boolean;control_revision:number;rule_id:string;restricted_at:string;released_at:string|null}|null;
-  conversations:{conversation_id:string;last_sequence:number}[];commitments:string[];properties:{status:'ok';values:Record<string,unknown>}|{status:'forbidden';values:null}};
+  conversations:{conversation_id:string;last_sequence:number}[];commitments:string[];properties:{status:'ok';values:Record<string,unknown>;withheld:string[]}|{status:'forbidden';values:null;withheld:string[]}};
 export function consumer(value:unknown):ConsumerDetail{
   const v=object(value);const p=object(v.properties);
   const restriction=v.restriction===null?null:(()=>{const r=object(v.restriction);return {active:flag(r.active),control_revision:count(r.control_revision),rule_id:text(r.rule_id),restricted_at:text(r.restricted_at),released_at:maybeText(r.released_at)};})();
-  const properties=p.status==='ok'?{status:'ok' as const,values:object(p.values)}:p.status==='forbidden'&&p.values===null?{status:'forbidden' as const,values:null}:(()=>{throw new WorkbenchError('invalid');})();
+  // ADR-025: owner-restricted property groups are listed by name as withheld, never shown.
+  const withheld=list(p.withheld??[]).map(text);
+  const properties=p.status==='ok'?{status:'ok' as const,values:object(p.values),withheld}:p.status==='forbidden'&&p.values===null?{status:'forbidden' as const,values:null,withheld}:(()=>{throw new WorkbenchError('invalid');})();
   return {consumer_id:id(v.consumer_id),paused:flag(v.paused),restriction,conversations:list(v.conversations).map(x=>{const o=object(x);return {conversation_id:id(o.conversation_id),last_sequence:count(o.last_sequence)};}),
     commitments:list(v.commitments).map(id),properties};
 }
@@ -231,3 +233,11 @@ export function settings(value:unknown):Settings{
     roles:Object.fromEntries(Object.entries(r).map(([k,a])=>[k,list(a).map(text)]))};
 }
 export const readSettings=()=>get('/api/v1/workbench/settings',settings);
+
+// ---- member-read audit (ADR-025, owner only) ----
+export type AuditRow={audit_id:number;principal_id:string;role:string;object_kind:'message'|'consumer';target_resource:string;read_purpose:string;read_at:string};
+export function audit(value:unknown):AuditRow[]{
+  return list(object(value).items).map(x=>{const o=object(x);if(o.object_kind!=='message'&&o.object_kind!=='consumer')throw new WorkbenchError('invalid');
+    return {audit_id:count(o.audit_id),principal_id:text(o.principal_id),role:text(o.role),object_kind:o.object_kind,target_resource:text(o.target_resource),read_purpose:text(o.read_purpose),read_at:text(o.read_at)};});
+}
+export const readAudit=()=>get('/api/v1/workbench/audit',audit);

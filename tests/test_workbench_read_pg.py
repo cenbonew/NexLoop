@@ -145,7 +145,7 @@ def test_customer_never_member_or_grant_and_member_never_customer(workbench):
     with psycopg.connect(make_conninfo(w['f']['pg'], user='nexloop_api')) as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
         db.execute("select control.nexloop_configure_workbench('synthetic-a','{}'::jsonb,'{}'::jsonb)")
     rows = admin.execute('select manifest_version,roles_version,members from control.nexloop_workbench_configurations order by manifest_version').fetchall()
-    assert [r[:2] for r in rows] == [(1, 1), (2, 1)] and rows[-1][2] == {w['owner']['principal_id']: 'owner'}
+    assert [r[:2] for r in rows] == [(1, ROLES['manifest_version']), (2, ROLES['manifest_version'])] and rows[-1][2] == {w['owner']['principal_id']: 'owner'}
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         admin.execute('delete from control.nexloop_workbench_configurations')
 
@@ -209,27 +209,28 @@ def test_partial_grants_give_partial_sections_and_revocation_is_immediate(workbe
         assert client.get('/api/v1/workbench/overview').json()['goals']['status'] == 'forbidden'
 
 
-def test_message_content_needs_message_read(workbench):
-    """AT-003 (interface part): without that Message's READ the matched text, bodies and actors stay hidden and marked."""
+def test_owner_views_and_contract(workbench):
+    """Slice 1 views over real data; since ADR-025 the owner's role derives the Message reads (negative cases:
+    test_workbench_member_read_pg — restricted groups, non-evidence reviewer reads, revocation, audit failure)."""
     w = workbench
     provision(w)
     f = w['f']
     with w['client']() as client:
         assert workbench_login(client, w['owner']).status_code == 200
         contact = client.get('/api/v1/workbench/contact')
-        assert contact.status_code == 200 and '短信' not in contact.text
+        assert contact.status_code == 200
         import jsonschema
         jsonschema.validate(contact.json(), json.loads((Path(__file__).resolve().parents[1] / 'packages/contracts/contact-restriction-view.schema.json').read_text()))
         restriction = contact.json()['restrictions'][0]
-        assert restriction['consumer_id'] == f['consumer'] and restriction['matched_text'] is None and restriction['matched_text_status'] == 'restricted'
-        assert restriction['rule_id'] == 'stop-contact' and restriction['hits'][0]['matched_text_status'] == 'restricted'
+        assert restriction['consumer_id'] == f['consumer'] and restriction['matched_text_status'] == 'ok' and restriction['matched_text'] in '请不要再给我发短信了'
+        assert restriction['rule_id'] == 'stop-contact' and restriction['hits'][0]['matched_text_status'] == 'ok'
         view = client.get('/api/v1/workbench/conversations/' + w['conversation']['id'])
-        assert view.status_code == 200 and '短信' not in view.text
         message = view.json()['messages'][0]
-        assert message['id'] == w['refusal']['id'] and message['content'] == {'status': 'restricted'} and message['direction'] == 'inbound'
+        assert message['id'] == w['refusal']['id'] and message['content']['status'] == 'ok' and message['direction'] == 'inbound'
         assert message['provider']['namespace'] == 'nexloop.api'
         consumer = client.get('/api/v1/workbench/consumers/' + f['consumer'])
-        assert consumer.status_code == 200 and consumer.json()['properties'] == {'status': 'forbidden', 'values': None}
+        # The fixture's Consumer type has no properties: an empty, readable set (never "forbidden" for the owner).
+        assert consumer.status_code == 200 and consumer.json()['properties'] == {'status': 'ok', 'values': {}, 'withheld': []}
         assert consumer.json()['restriction']['active'] is True and consumer.json()['conversations'][0]['conversation_id'] == w['conversation']['id']
         listed = client.get('/api/v1/workbench/consumers').json()
         assert listed['items'][0]['consumer_id'] == f['consumer'] and listed['items'][0]['restricted'] is True and listed['next_cursor'] is None

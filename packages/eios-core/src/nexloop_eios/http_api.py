@@ -92,6 +92,22 @@ def create_app(config:ApiConfiguration):
             # NX-023 human-only Manifest read (0094); backend.py itself is unchanged.
             return ContextAuditPorts(backend, inspected_session)
         app.include_router(context_audit_router(config.browser, ports_for_browser=context_audit_ports))
+        from nexloop_eios.conversation_takeover_http import router as takeover_state_router
+        def takeover_backend(request):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            return backend
+        # NX-028 D4: the customer's "a person is handling this" status (0152); backend.py itself is unchanged.
+        app.include_router(takeover_state_router(config.browser, backend_for=takeover_backend))
+        from nexloop_eios.commercial_observe_http import ObservePorts, router as observe_router
+        def observe_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # NX-027 human-only reads of records, costs and key results (0134).
+            return ObservePorts(backend, inspected_session)
+        app.include_router(observe_router(config.browser, ports_for_browser=observe_ports))
     if config.browser is not None and config.workbench is not None:
         # NX-028 slice 1: workbench login realm (own cookie) and governed human reads.
         from nexloop_eios.browser_http import WORKBENCH_COOKIE, router as auth_router
@@ -103,6 +119,17 @@ def create_app(config:ApiConfiguration):
                 raise BackendClosed('backend is unavailable')
             return backend.authenticate_workbench(inspected_session)
         app.include_router(workbench_router(config.workbench, ports_for_workbench=workbench_ports))
+        from nexloop_eios.workbench_actions_http import WorkbenchActions, router as workbench_actions_router
+        def workbench_action_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # NX-028 slice 2: governed human writes (0150 registry) for the workbench login realm only.
+            return WorkbenchActions(backend, inspected_session)
+        app.include_router(workbench_actions_router(config.workbench, ports_for_browser=workbench_action_ports))
+    # NX-027 signed commercial webhook: the connector signature authenticates (no session).
+    from nexloop_eios.commercial_http import router as commercial_router
+    app.include_router(commercial_router())
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')

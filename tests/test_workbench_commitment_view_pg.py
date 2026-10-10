@@ -20,7 +20,8 @@ class _Reader:
     def __init__(self, readable):
         self.readable = readable
 
-    def _readable(self, message_id):
+    def _readable(self, message_id, purpose):
+        assert purpose == 'commitment'
         return self.readable and message_id is not None
 
 

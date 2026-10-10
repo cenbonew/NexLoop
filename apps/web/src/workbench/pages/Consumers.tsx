@@ -25,6 +25,7 @@ export function ConsumerDetail({consumerId,actions,onConversation}:{consumerId:s
     <h2>属性</h2>
     {data.properties.status==='ok'?(Object.keys(data.properties.values).length?<dl>{Object.entries(data.properties.values).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{typeof v==='string'?v:JSON.stringify(v)}</dd></div>)}</dl>:<p className="note">没有可读属性。</p>)
       :<p className="note" role="status">无属性读取权限：字段与证据不显示（AT-003）。</p>}
+    {data.properties.withheld.length?<p className="note">负责人标为受限的属性不显示：{data.properties.withheld.join('、')}</p>:null}
     <h2>会话</h2>
     {data.conversations.length?<ul>{data.conversations.map(c=><li key={c.conversation_id}><button type="button" className="link" onClick={()=>onConversation(c.conversation_id)}><Short value={c.conversation_id}/></button>（{c.last_sequence} 条）</li>)}</ul>:<p className="note">暂无会话。</p>}
     <h2>承诺</h2>

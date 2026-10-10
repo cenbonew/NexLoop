@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nexloop:contracts:v1:conversation-message",
   "title": "conversation-message",
-  "description": "NX-051 (AT-014). The read projection of one conversation Message, as the conversation read API returns it. `sequence` and `accepted_at` are this system's receipt order and time (assigned at commit, never rewritten). `provider` is the channel's own order, time and reference as evidence (trust: server = produced here, signed = a verified signed channel, client = what the browser client stated; client values never order anything and are never a time anchor). `reply_to_message_id` is the resolved reply target in the same conversation: for an Agent reply it mirrors the server-derived trigger_message_id; for an inbound message it is the reference the channel carried, once resolved (null while pending, for another conversation, or none). Server-derived; grants nothing.",
+  "description": "NX-051 (AT-014). The read projection of one conversation Message, as the conversation read API returns it. `sequence` and `accepted_at` are this system's receipt order and time (assigned at commit, never rewritten). `provider` is the channel's own order, time and reference as evidence (trust: server = produced here, signed = a verified signed channel, client = what the browser client stated; client values never order anything and are never a time anchor). `reply_to_message_id` is the resolved reply target in the same conversation: for an Agent reply it mirrors the server-derived trigger_message_id; for an inbound message it is the reference the channel carried, once resolved (null while pending, for another conversation, or none). Server-derived; grants nothing. NX-028 (ruling B, approved contract change): an outbound message is an Agent reply (sender_kind=agent, with its governed intent_id) or a staff reply written during the author's own takeover of a native WebChat conversation (sender_kind=human_takeover, no intent: it does not go through the effect ledger); both carry the server-checked trigger_message_id.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -14,7 +14,7 @@
     "accepted_at": {"type": "string", "minLength": 1, "maxLength": 64, "description": "This system's acceptance time as stored with the Message (PostgreSQL timestamptz text)."},
     "status": {"const": "accepted"},
     "direction": {"const": "outbound"},
-    "sender_kind": {"const": "agent"},
+    "sender_kind": {"enum": ["agent", "human_takeover"]},
     "intent_id": {"type": "string", "format": "uuid"},
     "trigger_message_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "reply_to_message_id": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^[a-f0-9]{64}$"}]},
@@ -34,6 +34,8 @@
   },
   "required": ["id", "conversation_id", "sequence", "actor", "body", "accepted_at", "status"],
   "allOf": [
-    {"if": {"required": ["direction"]}, "then": {"required": ["sender_kind", "intent_id", "trigger_message_id"]}}
+    {"if": {"required": ["direction"]}, "then": {"required": ["sender_kind", "trigger_message_id"]}},
+    {"if": {"required": ["sender_kind"], "properties": {"sender_kind": {"const": "agent"}}}, "then": {"required": ["intent_id"]}},
+    {"if": {"required": ["sender_kind"], "properties": {"sender_kind": {"const": "human_takeover"}}}, "then": {"not": {"required": ["intent_id"]}}}
   ]
 }

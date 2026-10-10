@@ -256,7 +256,8 @@ def message(context_message,admin,pg):
 @pytest.mark.parametrize('mutation',MUTATIONS)
 def test_derived_message_memo_never_serves_a_revoked_deleted_or_moved_allow(message,mutation):
     m=message
-    undo=mutate(m['admin'],mutation,'authz.nexloop_assert_read_authority(text,text,jsonb)',
+    # ADR-025 (0145) renamed the 0107 memo wrapper and kept it unchanged behind the workbench-member dispatch.
+    undo=mutate(m['admin'],mutation,'authz.nexloop_assert_read_authority_before_workbench_v0144(text,text,jsonb)',
         ['authz.nexloop_authority_facts','ontology.objects','runtime.nexloop_conversation_messages'])
     # Own writes inside a statement: deletion and leaving the conversation advance no epoch,
     # so the invalidation triggers are their only guard within the transaction (rolled back).

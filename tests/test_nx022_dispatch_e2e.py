@@ -184,7 +184,10 @@ def test_runtime_model_budget_is_reserved_per_run_and_exhaustion_denies(accepted
     assert result['task_id']==accepted['task_id']
     if expected=='succeeded':
         assert result['status']=='succeeded'
-        assert admin.execute("select consumption_id,amount::text from control.nexloop_budget_consumption").fetchall()==[('run:'+issued.run_id,budget['maximum_cost'])]
+        # NX-027 (D5): the terminal task settles the reservation by an appended release row (this Run recorded no model cost).
+        assert admin.execute("select consumption_id,amount::text from control.nexloop_budget_consumption order by consumption_id").fetchall()==[
+            ('run:'+issued.run_id,budget['maximum_cost']),('run:'+issued.run_id+':settle','-'+budget['maximum_cost'])]
+        assert admin.execute('select outcome from runtime.nexloop_budget_settlements').fetchall()==[('released',)]
     else:
         assert result['status']=='failed' and result['result']['code']=='budget_exhausted'
         assert admin.execute('select count(*) from control.nexloop_budget_consumption').fetchone()==(0,)

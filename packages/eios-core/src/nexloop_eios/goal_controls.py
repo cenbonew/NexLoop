@@ -32,7 +32,13 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'release_contact_restriction':'goals.contact.release',
     # NX-026: human-only commitment Actions (SQL refuses services and Agents even with a grant).
     'cancel_commitment':'commitment.cancel','extend_commitment':'commitment.extend','attest_commitment':'commitment.attest',
-    'commitment_condition_met':'commitment.condition_met','mark_commitment_communication':'commitment.mark_communication'}
+    'commitment_condition_met':'commitment.condition_met','mark_commitment_communication':'commitment.mark_communication',
+    # NX-028 slice 2 (0150 registry): human requests.
+    'request_plan_reevaluation':'plan.request_reevaluation','request_effect_query':'service.query_request',
+    # NX-028 slice 3 (0152): human takeover and hand-back.
+    'take_over_conversation':'conversation.takeover','hand_back_conversation':'conversation.handback',
+    # NX-028 ruling B (0153): a staff reply written during the author's own takeover.
+    'send_staff_reply':'message.staff_send'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -185,6 +191,38 @@ class GoalGovernedActions:
 
     def mark_commitment_communication(self,*,action_name,action_version,request_id,commitment_id,reason):
         return self._commitment(action_name,action_version,request_id,'mark_commitment_communication',commitment_id,reason)
+
+    # NX-028 slice 2: a human asks for one plan reevaluation now, or for the result of an unknown effect (D7: the executor queries).
+    def request_plan_reevaluation(self,*,action_name,action_version,request_id,plan_id,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(plan_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('plan id and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'request_plan_reevaluation','plan_id':str(plan_id),'reason':reason})
+
+    def request_effect_query(self,*,action_name,action_version,request_id,intent_id,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(intent_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('intent id and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'request_effect_query','intent_id':str(intent_id),'reason':reason})
+
+    # NX-028 slice 3 (D3): a person takes over a conversation or a consumer; hand-back ends it (D5).
+    def take_over_conversation(self,*,action_name,action_version,request_id,scope_kind,scope_ref,reason,duration_seconds=None):
+        if scope_kind not in ('conversation','consumer') or not re.fullmatch(r'[a-f0-9]{64}',str(scope_ref)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('takeover scope and reason required')
+        payload={'request_id':request_id,'operation':'take_over_conversation','scope_kind':scope_kind,'scope_ref':scope_ref,'reason':reason}
+        if duration_seconds is not None:
+            if type(duration_seconds) is not int or duration_seconds<60:raise ValueError('duration_seconds')
+            payload['duration_seconds']=duration_seconds
+        return self._submit(action_name,action_version,payload)
+
+    def hand_back_conversation(self,*,action_name,action_version,request_id,takeover_id,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(takeover_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('takeover id and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'hand_back_conversation','takeover_id':str(takeover_id),'reason':reason})
+
+    def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
+            raise ValueError('conversation, bound inbound message and text required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'send_staff_reply','conversation_id':conversation_id,
+            'reply_to':reply_to,'text':text})
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

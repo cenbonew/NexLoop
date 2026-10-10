@@ -227,6 +227,11 @@ def test_agent_reply_persisted_delivered_materialized_extracted_and_read(assembl
         material=delivery_material(tmp_path)
         with delivery_service(c,tmp_path,material):
             assert 'fulfilled' in effect_worker(c,tmp_path,material['provider_config'],material['secret'])
+        # NX-027 (D7): the accepted delivery is one channel cost unit, unpriced while no unit rate is configured.
+        with admin.transaction():
+            admin.execute('set local role nexloop_owner');admin.execute("select set_config('eios.tenant_id',%s,true)",(tenant,))
+            assert admin.execute("select entry_id,cost_kind,units::text,amount,basis,consumer_ref from runtime.nexloop_cost_entries where cost_kind='channel'").fetchall()==[
+                ('channel:'+intent,'channel','1',None,'unpriced',admin.execute('select consumer_id from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()[0])]
         # (3) Ledger-driven, monotonic, ends delivered.
         history=events(admin,tenant)
         assert history[0][0]=='persisted' and history[-1][1]=='delivered' and all((a,b) in TRANSITIONS for a,b,_ in history)

@@ -140,15 +140,16 @@ def active_plan(c,consumer=None):
     """An active NX-024 plan of the Consumer (plan rows seeded by admin; the plan port itself is covered by NX-024 tests)."""
     plan=uuid.uuid4();a=c['admin']
     a.execute('''insert into runtime.nexloop_plans(tenant_id,world,plan_id,version,consumer_id,goal_version_ref,context_strategy_ref,recipe,settings,control_snapshot,created_by)
-        values(%s,'real',%s,1,%s,'goal:synthetic-goal@1','context-strategy:recent_plus_required@1','{}',%s,'{}','synthetic')''',
-        (TENANT,plan,consumer or c['consumer'],Jsonb({'self_window_seconds':600,'self_trigger_cap':2,'min_reassess_seconds':0})))
+        values(%s,'real',%s,1,%s,'goal:synthetic-goal@1','context-strategy:recent_plus_required@1','{}',%s,%s,'synthetic')''',
+        (TENANT,plan,consumer or c['consumer'],Jsonb({'self_window_seconds':600,'self_trigger_cap':2,'min_reassess_seconds':0}),
+         Jsonb({'scopes':[{'kind':'consumer','ref':consumer or c['consumer']}]})))  # as 0106 establishes it
     a.execute("insert into runtime.nexloop_plan_events(tenant_id,world,plan_id,version,status,reason) values(%s,'real',%s,1,'active','established')",(TENANT,plan))
     return plan
 
 
 def plan_triggers(c,plan):
     row=c['admin'].execute("select payload from runtime.nexloop_work_feed where feed='plan-reevaluate' and item_key=%s",('plan:'+str(plan),)).fetchone()
-    return [] if row is None else [(t['kind'],t['ref']) for t in row[0]['triggers']]
+    return [] if row is None else [(t['kind'],t.get('ref')) for t in row[0]['triggers']]
 
 
 def test_at041_due_soon_marks_plans_breach_is_owner_visible_and_late_evidence_fulfils(commitments,admin,identity,uow):
@@ -166,7 +167,8 @@ def test_at041_due_soon_marks_plans_breach_is_owner_visible_and_late_evidence_fu
     assert p['status']=='breached'
     (_,reason,detail),=[e for e in c.exceptions(commitment) if e[1]=='breached']
     assert detail['paused'] is True and detail['contact_restricted'] is False
-    assert plan_triggers(c,plan)==[('commitment_due','commitment:'+commitment)]
+    # The pause itself also marks the plan (its snapshot names the consumer); the breach marks it again (T7).
+    assert ('commitment_due','commitment:'+commitment) in plan_triggers(c,plan)
     assert [x['subject_ref'] for x in c.reader().exceptions() if x['reason']=='breached']==['commitment:'+commitment]
     assert [x['commitment_id'] for x in c.reader().commitments(c['consumer'])]==[commitment]  # breached is still open work
     # Late human attestation: fulfilled, late; the breach stays in the history.

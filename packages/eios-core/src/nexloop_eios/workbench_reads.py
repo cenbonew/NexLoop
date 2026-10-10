@@ -3,9 +3,13 @@
 Every call runs on the actual Human's own current browser session (re-authenticated in PostgreSQL per request) and
 needs that Human's current EXECUTE on the verb's read Action; SQL also requires the session to belong to the tenant's
 workbench application and the principal to be a current workbench member whose role carries that Action, and never a
-customer principal. Message content (bodies, actors, the promised words, a refusal hit's matched text) is shown only
-where the same Human also holds that Message's READ (AT-003): otherwise it is withheld and marked, never blanked silently.
+customer principal. Message content (bodies, actors, the promised words, a refusal hit's matched text) and Consumer
+properties are read through the ADR-025 `workbench-member-v1` derivation: SQL decides from the live member and role at every
+read (owner/operator: the tenant's Messages and Consumers except owner-restricted property groups; reviewer: evidence of
+pending review items only) and appends an audit row with the read's purpose. Anything not derived is withheld and marked
+(AT-003), never blanked silently.
 """
+from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
 
@@ -34,7 +38,6 @@ def _denied(error):
 class WorkbenchReader:
     def __init__(self, pool, session, signer):
         self.pool, self.session, self.signer = pool, session, signer
-        self._objects = None
 
     def call(self, verb, **payload):
         from nexloop_eios.assembly import verify_application_role
@@ -60,21 +63,67 @@ class WorkbenchReader:
         except psycopg.errors.InsufficientPrivilege:
             raise WorkbenchForbidden(verb) from None
 
-    # Message content under the caller's own Message READ (configured grants or the 0077/0086 derivation).
-    def message_fields(self, message_id, fields):
-        from nexloop_eios.object_reads import AuthorizedObjectReader
-        if self._objects is None:
-            self._objects = AuthorizedObjectReader(self.pool, self.session, self.signer)
+    # ADR-025: role-derived content reads, each audited with its purpose by SQL.
+    def _derived(self, kind, name, purpose):
+        auth = self.session.authentication
+        target = f'eios:{kind}:{name}'
+        return {'tenant_id': auth.tenant_id, 'principal_id': auth.subject_principal_id, 'credential_id': auth.credential_id,
+                'directory_hash': self.session.directory_hash, 'world': self.session.world, 'resource_id': target, 'target_resource': target,
+                'operation': 'read', 'expires_at': (datetime.now(UTC) + timedelta(seconds=25)).isoformat(), 'facts': [],
+                'derivation': 'workbench-member-v1', 'read_purpose': purpose}
+
+    def read_object(self, type_name, object_id, fields, purpose):
+        """Properties dict, or None when the member's role does not derive this read (withheld, AT-003)."""
+        from nexloop_eios.assembly import verify_application_role
+        fields = tuple(sorted(set(fields)))
+        claims = self._derived('object', f'{type_name}/{object_id}', purpose)
+        claims.update(protocol='nexloop-object-read-v1', key_id=self.signer.key_id, type_name=type_name, object_id=object_id, fields=fields,
+                      property_authorities=[self._derived('property', f'{type_name}/{object_id}/{f}', purpose) for f in fields])
+        text = canonical_payload(claims)
+        signature = hmac.new(self.signer.material, ('nexloop-object-read-v1:' + text).encode(), 'sha256').hexdigest()
         try:
-            value = self._objects.get('Message', message_id, fields=tuple(fields))
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                value = db.execute('select authz.nexloop_read_object(%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature)).fetchone()[0]
+        except psycopg.errors.InsufficientPrivilege:
+            return None
+        return value.get('properties') if isinstance(value, dict) else None
+
+    def message_fields(self, message_id, fields, purpose='conversation'):
+        return self.read_object('Message', message_id, fields, purpose)
+
+    def _readable(self, message_id, purpose):
+        return message_id is not None and self.message_fields(message_id, ('body',), purpose) is not None
+
+    def consumer_fields(self, consumer_id):
+        from nexloop_eios.assembly import verify_application_role
+        try:
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                return db.execute('select authz.nexloop_workbench_consumer_fields(%s,%s,%s)', (self.session.token_digest, self.session.world, consumer_id)).fetchone()[0]
+        except psycopg.errors.InsufficientPrivilege:
+            raise WorkbenchForbidden('consumer fields') from None
+
+    def audit(self, *, limit=100, before=None):
+        """ADR-025 §2.3: the read audit, owner only (SQL refuses everyone else)."""
+        from nexloop_eios.assembly import verify_application_role
+        from nexloop_eios.context_engine.authority import action_claims
+        try:
+            claims = action_claims(self.pool, self.session, WORKBENCH_READ)
         except Exception as error:
             if _denied(error):
-                return None
+                raise WorkbenchForbidden('audit') from None
             raise
-        return (value or {}).get('properties') if isinstance(value, dict) else None
-
-    def _readable(self, message_id):
-        return message_id is not None and self.message_fields(message_id, ('body',)) is not None
+        body = canonical_payload({'limit': limit, **({'before': str(before)} if before else {})})
+        claims = {**claims, 'protocol': 'nexloop-workbench-audit-v1', 'key_id': self.signer.key_id, 'parameters_digest': hashlib.sha256(body.encode()).hexdigest()}
+        text = canonical_payload(claims)
+        signature = hmac.new(self.signer.material, ('nexloop-workbench-audit-v1:' + text).encode(), 'sha256').hexdigest()
+        try:
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                return db.execute('select authz.nexloop_workbench_audit_read(%s,%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature, body)).fetchone()[0]
+        except psycopg.errors.InsufficientPrivilege:
+            raise WorkbenchForbidden('audit') from None
 
 
 def _section(load):
@@ -149,22 +198,23 @@ class WorkbenchQueries:
         return value
 
     def _consumer_properties(self, consumer_id):
-        from nexloop_eios.object_reads import AuthorizedObjectReader
-        reader = AuthorizedObjectReader(self.reader.pool, self.reader.session, self.reader.signer)
+        # ADR-025: owner-restricted groups are listed as withheld, never read; SQL re-checks every field it returns.
         try:
-            value = reader.get('Consumer', consumer_id)
-        except Exception as error:
-            if _denied(error):
-                return {'status': 'forbidden', 'values': None}
-            raise
-        return {'status': 'ok', 'values': (value or {}).get('properties', {})}
+            fields = self.reader.consumer_fields(consumer_id) or []
+        except WorkbenchForbidden:
+            return {'status': 'forbidden', 'values': None, 'withheld': []}
+        readable = [f['name'] for f in fields if f['readable'] and f['present']]
+        values = self.reader.read_object('Consumer', consumer_id, readable, 'consumer')
+        if values is None:
+            return {'status': 'forbidden', 'values': None, 'withheld': []}
+        return {'status': 'ok', 'values': values, 'withheld': sorted(f['name'] for f in fields if not f['readable'])}
 
     def conversation(self, *, conversation_id):
         value = self.reader.call('conversation', conversation_id=conversation_id)
         if value is None:
             return None
         for item in value['messages']:
-            content = self.reader.message_fields(item['id'], ('actor', 'body'))
+            content = self.reader.message_fields(item['id'], ('actor', 'body'), 'conversation')
             item['content'] = {'status': 'ok', 'actor': content.get('actor'), 'body': content.get('body')} if content is not None else {'status': 'restricted'}
         return value
 
@@ -183,7 +233,7 @@ class WorkbenchQueries:
     def _commitment(self, view):
         # The promised words are Message content: shown only with that Message's READ (design §6, AT-003).
         source = view.pop('source_message_id', None)
-        if view.get('quote') is not None and not self.reader._readable(source):
+        if view.get('quote') is not None and not self.reader._readable(source, 'commitment'):
             view['quote'] = None
             view['quote_status'] = 'restricted'
         else:
@@ -205,7 +255,7 @@ class WorkbenchQueries:
 
         def visible(message_id):
             if message_id not in readable:
-                readable[message_id] = self.reader._readable(message_id)
+                readable[message_id] = self.reader._readable(message_id, 'contact')
             return readable[message_id]
 
         # A refusal hit's matched text is the customer's own words (design §5).
@@ -217,3 +267,6 @@ class WorkbenchQueries:
                     item['matched_text'] = None
                     item['matched_text_status'] = 'restricted'
         return value
+
+    def audit(self, *, limit=100, before=None):
+        return self.reader.audit(limit=limit, before=before)
