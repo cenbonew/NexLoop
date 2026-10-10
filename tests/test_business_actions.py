@@ -36,7 +36,7 @@ COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'c
 
 NX027_REGISTRY={'nexloop.commitment.bind_commercial':'commitment.bind_commercial','nexloop.cost.record':'cost.record'}
 NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
-    'nexloop.retention.release_hold':'retention.release_hold'}
+    'nexloop.retention.release_hold':'retention.release_hold','nexloop.consumer.export':'consumer.export'}
 NX030_SILENCE={'nexloop.alert.silence':'alert.silence'}
 
 

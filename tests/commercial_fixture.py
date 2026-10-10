@@ -63,7 +63,8 @@ def publish_commercial_type(admin,worlds=('real','test'),tenant=TENANT):
 REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment.bind_commercial'),'nexloop.cost.record':('Consumer','cost.record'),
     # NX-029 slice 2 (0142), typed on Consumer v1.
     'nexloop.consumer.erase':('Consumer','consumer.erase'),'nexloop.message.erase':('Consumer','message.erase'),
-    'nexloop.retention.hold':('Consumer','retention.hold'),'nexloop.retention.release_hold':('Consumer','retention.release_hold')}
+    'nexloop.retention.hold':('Consumer','retention.hold'),'nexloop.retention.release_hold':('Consumer','retention.release_hold'),
+    'nexloop.consumer.export':('Consumer','consumer.export')}
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

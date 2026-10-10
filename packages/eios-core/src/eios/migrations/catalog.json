@@ -665,6 +665,26 @@
       "version": "0133",
       "name": "0133_nx030_ui.sql",
       "sha256": "c7188a4ec91c085e814d65c0440b3c50c439e83a59580e33c3364b4ccc2298ab"
+    },
+    {
+      "version": "0134",
+      "name": "0134_nx029_erasing_perf.sql",
+      "sha256": "a284e32f53a5176839f59fb1120eba3980d17f197bfe902dc359319bc63df2bd"
+    },
+    {
+      "version": "0135",
+      "name": "0135_nx029_deletion_replay.sql",
+      "sha256": "4fba28a9ea056d0c1bd38111babf68853fcd6594b70184d20bfb47abb38167ba"
+    },
+    {
+      "version": "0136",
+      "name": "0136_nx029_export.sql",
+      "sha256": "57c6096f66374f242ef5125d6b9ff458725884f74f50cc05e58725de54696c88"
+    },
+    {
+      "version": "0137",
+      "name": "0137_nx029_summaries.sql",
+      "sha256": "802b705374fefe5c0ee415f77432e8d957d50f32c0c0e517314f8b6d4a76dbf0"
     }
   ]
 }

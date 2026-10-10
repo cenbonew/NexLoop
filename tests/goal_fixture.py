@@ -88,11 +88,12 @@ def seed_agent_author(admin,pool,names,*,suffix='-goal-agent'):
     return token
 
 
-def seed_human_owner(admin,pool,names,identity,uow):
-    """Actual password/browser HUMAN session with current EXECUTE grants on `names`; returns the BrowserSession."""
+def seed_human_owner(admin,pool,names,identity,uow,extra_targets=()):
+    """Actual password/browser HUMAN session with current EXECUTE grants on `names` (and `extra_targets`: further
+    (resource, type, operation) grants, e.g. object/property READ); returns the BrowserSession."""
     from test_browser_session_creation import create
     from test_browser_evidence import authenticate
-    session,_=seed_multi_authority(admin,pool,action_targets(*names),identity_suffix='-goal-owner')
+    session,_=seed_multi_authority(admin,pool,action_targets(*names)+list(extra_targets),identity_suffix='-goal-owner')
     auth=session.authentication;subject=identity[1].subject_id;principal=identity[2].principal_id
     convert=_converter({auth.subject_id:subject,auth.subject_principal_id:principal,'service':'human'})
     with admin.transaction():
