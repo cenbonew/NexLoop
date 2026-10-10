@@ -444,3 +444,14 @@ def test_cli_guard_workers_invalid_count_fails_closed(accepted_input,synthetic_c
         with worker_process(arguments+['--once','--guard-workers',value],ready=False) as (process,out,err):assert process.wait(timeout=10)!=0
         assert_redacted(out,err,args,synthetic_credentials,issued)
         assert admin.execute('select fencing_token from runtime.jobs where job_id=%s',(accepted['task_id'],)).fetchone()[0]==0
+
+
+def test_backend_pool_size_is_explicit(accepted_input,synthetic_credentials,pg,tmp_path):
+    """open_core used the StorageSettings default (4) and ignored NEX_EIOS_DB_POOL_MAX; the size is now explicit."""
+    from nexloop_eios.backend import open_backend
+    with open_backend(database_url=make_conninfo(pg,user='nexloop_domain_worker'),artifact_root=tmp_path/'pool-artifacts',
+            signing_key_file=tmp_path/'synthetic-authority',signing_key_id='synthetic-runtime',pool_max_size=3) as backend:
+        assert backend._pool.max_size==3 and backend._lock._capacity==1
+    with pytest.raises(ValueError):
+        with open_backend(database_url=make_conninfo(pg,user='nexloop_domain_worker'),artifact_root=tmp_path/'pool-artifacts',
+                signing_key_file=tmp_path/'synthetic-authority',signing_key_id='synthetic-runtime',pool_max_size=0):pass

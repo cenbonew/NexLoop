@@ -596,7 +596,7 @@ class Backend:
 
 
 @contextmanager
-def open_backend(*, database_url, artifact_root, signing_key_file, signing_key_id='active'):
+def open_backend(*, database_url, artifact_root, signing_key_file, signing_key_id='active', pool_max_size=4):
     """Open mandatory PG/Artifact services; close all owned resources on exit.
 
     The owner must provision the same signing key in PostgreSQL beforehand.
@@ -606,7 +606,9 @@ def open_backend(*, database_url, artifact_root, signing_key_file, signing_key_i
     """
     signer = AuthoritySigner.from_file(signing_key_file, key_id=signing_key_id)
     # Verify the restricted role and exact catalog before creating directories.
-    with open_core(database_url) as pool:
+    if type(pool_max_size) is not int or not 1 <= pool_max_size <= 32:
+        raise ValueError('database pool size must be 1..32')
+    with open_core(database_url, pool_max_size) as pool:
         verify_backend_signer(pool, signer)
         with LocalBlobStore(artifact_root) as store:
             backend = Backend(pool, store, signer)

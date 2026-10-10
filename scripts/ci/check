@@ -35,6 +35,14 @@ WORKSPACE_BUILD_TESTS=(tests/test_build_provider_environment.py tests/test_commu
   tests/test_community_launcher.py tests/test_wheel_install.py)
 uv run --frozen pytest -q -p no:xdist "${WORKSPACE_BUILD_TESTS[@]}" --junitxml=.ci-results/python-build.xml
 uv run --frozen python scripts/check_test_report.py .ci-results/python-build.xml
+# Phase 1b (serial, NX-049 deadline gate, ADR-022 §4): the real-Pi cases that must finish under the
+# 2 s tool deadline run alone, with the deployment guard topology (4 guard worker processes).
+DEADLINE_GATE_TESTS=('tests/test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]'
+  'tests/test_role_pi_effect_checkpoint.py::test_actual_two_pi_role_runs_one_shared_intent_one_real_loopback_effect')
+# A gate failure is recorded and reported at the end, so the remaining phases still run for diagnosis.
+deadline_gate_rc=0
+NEXLOOP_TEST_GUARD_WORKERS=4 uv run --frozen pytest -q -p no:xdist "${DEADLINE_GATE_TESTS[@]}" --junitxml=.ci-results/python-deadline-gate.xml || deadline_gate_rc=$?
+uv run --frozen python scripts/check_test_report.py .ci-results/python-deadline-gate.xml || deadline_gate_rc=1
 # Phase 2 (parallel by test): everything else; each test owns its PGDATA, port and temp dirs.
 # NEXLOOP_CI_PYTEST_WORKERS=0 runs serially for diagnosis.
 ignore_args=(); for t in "${WORKSPACE_BUILD_TESTS[@]}"; do ignore_args+=(--ignore="$t"); done
@@ -48,3 +56,5 @@ uv run --frozen python scripts/check_test_report.py .ci-results/pi.xml
 
 pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/runtime.xml
 uv run --frozen python scripts/check_test_report.py .ci-results/runtime.xml
+# NX-049 deadline gate result (ADR-022 §4).
+if [[ $deadline_gate_rc -ne 0 ]]; then echo "NX-049 deadline gate failed (rc=$deadline_gate_rc)" >&2; exit 1; fi

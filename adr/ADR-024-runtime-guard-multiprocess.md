@@ -16,7 +16,7 @@
 Agent Host 每次调用模型或工具前，都要经过 Runtime Worker 的 loopback guard 授权（`authorize`、`effects/submit`、`effects/find`）。Host 对每个请求设 2 s 时限，不自动重试。
 
 现在的 guard 运行在 Runtime Worker **同一个 Python 进程**内（`ThreadingHTTPServer`），与调度器共用一个 `Backend`：
-- 连接池 `NEX_EIOS_DB_POOL_MAX` 默认 4；
+- 连接池默认 4（更正：`NEX_EIOS_DB_POOL_MAX` 在 `5f00e66` 之前并未被 NexLoop 读取，连接池上限一直是 4）；
 - `LifecycleLock` 的准入容量为 `pool_max // 2` = 2。
 
 同一 Run 的并行工具调用、多个 Role 同时运行，会让 2–4 个 guard 请求重叠。它们的 Python 部分在 GIL 下串行执行。
@@ -67,7 +67,7 @@ NX-049 的剖析结论：
 | 配置 | 通过 | 两 Pi 墙钟 |
 |---|---|---|
 | base（N=1，连接池 4） | 4/6 | 约 75 s |
-| pool8（N=1，`NEX_EIOS_DB_POOL_MAX=8`） | 5/6 | 约 75 s |
+| pool8（N=1，`NEX_EIOS_DB_POOL_MAX=8`；**更正：该变量当时未生效，实际仍为 4 个连接，本行不能用来评价调大连接池**） | 5/6 | 约 75 s |
 | **mp4（N=4，每个子进程连接池 4）** | **6/6** | **64–65 s** |
 
 **部署主机剖析**（8a+8b，单进程，扣除探针；用来估算多进程的收益，见设计稿 §6）：
@@ -113,7 +113,7 @@ Runtime Worker 占用的连接：
 
 要求：
 - 部署 doctor（D0/D1）按“每个服务进程的 pool max × 进程数”逐项求和，确认 ≤ 60，并且 `max_connections` ≥ 80。不满足时启动前就失败，不在运行中无界等待。
-- 建议给父进程单独提供连接池上限（例如 `--dispatcher-pool-max 2`），因为父进程只跑调度器。原型目前让父子进程共用 `NEX_EIOS_DB_POOL_MAX`，这一项作为采用后的跟进。
+- 建议给父进程单独提供连接池上限（例如 `--dispatcher-pool-max 2`），因为父进程只跑调度器。已在 `5f00e66` 实现：`--dispatcher-pool-max`（默认 2）作用于父进程，guard 连接池取 `NEX_EIOS_DB_POOL_MAX`（默认 4），该变量从此生效。
 - 实际的服务进程数以部署时的 inventory 为准，上表只是示意，不是确认的事实。
 
 ## 6. 部署机资源核算（APP_HOST）
