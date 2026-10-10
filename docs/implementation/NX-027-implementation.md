@@ -6,7 +6,7 @@
 
 | 临时号 | 内容 | 依赖的已有对象 |
 |---|---|---|
-| 0130 `nx027_commercial_intake` | 设置表（`commercial.v1.json` 逐字种入）；连接器（configurator 写，real 连接器须负责人确认，test 连接器只写非 real 世界，D1）、客户关联、回执、原始事件、记录登记、异常；签名入口 `authz.nexloop_commercial_ingest`（HMAC v1、当前/上一把密钥、重放窗口、严格载荷、去重/冲突）；记录状态推导 `runtime.nexloop_commercial_target`（顺序无关：晚到、更正、退款链、币种冲突）；CommercialRecord 对象守卫；recorder 端口与读端口；D6 假名化端口；work feed `commercial-record` | 0093/0111 work feed、0084 属性授权派生、0106 `_SignedPort` 端口 |
+| 0130 `nx027_commercial_intake` | 设置表 `control.nexloop_commercial_settings`（`commercial.v1.json` 逐字种入；无租户维度，按 0111 修复的做法放在 control）；连接器（configurator 写，real 连接器须负责人确认，test 连接器只写非 real 世界，D1）、客户关联、回执、原始事件、记录登记、异常；签名入口 `authz.nexloop_commercial_ingest`（HMAC v1、当前/上一把密钥、重放窗口、严格载荷、去重/冲突）；记录状态推导 `runtime.nexloop_commercial_target`（顺序无关：晚到、更正、退款链、币种冲突）；CommercialRecord 对象守卫；recorder 端口与读端口；D6 假名化端口；work feed `commercial-record` | 0093/0111 work feed、0084 属性授权派生、0106 `_SignedPort` 端口 |
 | 0131 `nx027_metrics` | 观察表加更正链列（supersedes / retracted / excluded_reason / subject_ref）；指标来源声明（configurator）；记录投影为观察（净额/总额/不适用退款规则，异币种排除）；`authz.nexloop_compute_key_result` 改名包一层：只取链上最新、冻结 cohort 比率 | 0068 控制面 |
 | 0132 `nx027_costs` | 模型请求结果带 Run 预算币种（D4）；费用条目 model / channel / discount（append-only）；Run 任务终态时追加释放行结算模型预留（D5）；cost_entry 指标投影；费用读端口 | 0089/0100 模型请求、0042 effect 账本、0068 预算、0001 jobs、0131 |
 | 0133 `nx027_commercial_links` | recorder 下游钩子：每个对象新修订一次，唤醒关联 Consumer 的 active 计划（NX-024，触发种类 `commercial_event`），并给已绑定的承诺写 `commercial_event` 证据（NX-026）；承诺绑定表与 owner 内部绑定接口 | 0106 计划 feed、0111 承诺证据与 touch |
@@ -53,7 +53,7 @@
 - 折扣 Action：仓库里还没有发放折扣的 Action，discount 条目来自任何 incentive 预留。
 - J01 端到端（真实 Host/Pi：付款 → 唤醒 → 复评结论“不再提醒”）未做；本分支验证到计划 feed 被标记为止，复评本身由 NX-024/025 的测试覆盖。
 - `financial_retention_days` 短于指标成熟窗口时的 doctor 告警未做；到期清理由 NX-029 执行。
-- `test_service_grants_pg` 三项失败：CommercialRecord 缺负责人的受限属性组决定（`owner-property-restrictions.json`），等负责人决定后补。
+- 负责人已决定 CommercialRecord 不设受限组（main `0810381`，随 main `036c640` 合入）；`test_service_grants_pg` 已通过。
 
 ## 6. 契约提案（未改契约文件）
 
