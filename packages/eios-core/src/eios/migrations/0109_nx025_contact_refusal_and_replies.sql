@@ -20,7 +20,7 @@
 --    only adds evidence.
 -- 5. Query port (nexloop.contact.read): active restrictions with reason and evidence, reply escalations.
 -- 6. Pending reply: every inbound consumer message registers a 'reply-due' work-feed item due at accepted_at +
---    reply window; an Agent reply bound to it that the channel accepted settles it (deleted in that transaction).
+--    fallback start_after_seconds (within the reply window); an Agent reply bound to it that the channel accepted settles it (deleted in that transaction).
 --    The reply worker escalates what is still unsettled (the fallback reply Run is attached by the same worker).
 
 -- 1. Versioned rules and reply policy -------------------------------------------------------------------------
@@ -33,7 +33,12 @@ create table control.nexloop_reply_policies (
  version integer primary key check(version>=1),definition jsonb not null check(jsonb_typeof(definition)='object'),
  definition_digest text not null check(definition_digest~'^[0-9a-f]{64}$'),published_by text not null,
  published_at timestamptz not null default clock_timestamp(),check((definition->>'version')::integer=version),
- check(jsonb_typeof(definition->'reply_window_seconds')='number' and (definition->>'reply_window_seconds')::integer between 60 and 604800)
+ check(jsonb_typeof(definition->'reply_window_seconds')='number' and (definition->>'reply_window_seconds')::integer between 60 and 604800),
+ -- The fallback must start, and its Run must end, inside the reply window (ADR-023 §2.6/§2.7).
+ check(jsonb_typeof(definition->'fallback'->'start_after_seconds')='number'
+  and (definition->'fallback'->>'start_after_seconds')::integer>=1
+  and (definition->'fallback'->>'start_after_seconds')::integer+greatest((definition->'fallback'->>'run_ttl_seconds')::integer,
+   (definition->'fallback'->'run_budget'->>'active_timeout_seconds')::integer)<(definition->>'reply_window_seconds')::integer)
 );
 alter table control.nexloop_contact_refusal_rules owner to nexloop_owner;
 alter table control.nexloop_reply_policies owner to nexloop_owner;
@@ -44,14 +49,19 @@ revoke all on control.nexloop_contact_refusal_rules,control.nexloop_reply_polici
 insert into control.nexloop_contact_refusal_rules(version,definition,definition_digest,published_by)
  values(1,'{"decision":"ADR-023 §2.1/§3: deterministic protective check on each inbound consumer message, in the same transaction as its persistence; no model call. A refuse or uncertain rule hit restricts contact (uncertain is restricted too: when in doubt, restrict). Exclusions first remove clearly non-contact phrases (wrong goods, shipping, discounts, change) from the text; the rules are matched on what remains. Patterns are PostgreSQL ARE, case-insensitive. A new version is a new file and a new published row; versions are never edited.","exclusions":[{"id":"goods-and-shipping","pattern":"(发|寄)\\s*(错|漏|顺丰|快递|货|过来|到)"},{"id":"discount-and-payment","pattern":"打\\s*(折|包|开|印|款|钱|车)"},{"id":"change","pattern":"找\\s*(零|钱|补)"}],"refuse":[{"id":"stop-contact","pattern":"(不要|别|不用|勿|请勿|不必|甭)\\s*(再|在|继续)?\\s*(给我|跟我|向我|和我|对我|找我)?\\s*(发|打|推送|推|联系|打扰|骚扰|找|call|text)"},{"id":"unsubscribe","pattern":"(退订|取消订阅|unsubscribe|拉黑|屏蔽你们|删除我的(号码|手机号|联系方式))"},{"id":"threat-if-contacted","pattern":"(再|继续)\\s*(发|打|联系|骚扰|推送).{0,8}(投诉|报警|举报|起诉)"},{"id":"sms-stop-keyword","pattern":"^\\s*(stop|td)\\s*[。.!！]?\\s*$"}],"schema":"nexloop-contact-refusal-rules/1","uncertain":[{"id":"less-contact","pattern":"(少|别老|别总|不要老|不要总|别一直|不要一直)\\s*(给我)?\\s*(发|打|联系|推)"},{"id":"annoyed","pattern":"(烦死了|很烦|太烦了|别烦我|不胜其烦)"}],"version":1}'::jsonb,'03efe14ff76b74c85c49dfd509c92176bc3bf8a4683761c08620079145e2bd03','deploy/configuration/contact-refusal-rules.v1.json');
 insert into control.nexloop_reply_policies(version,definition,definition_digest,published_by)
- values(1,'{"decision":"ADR-023 §2.6/§2.7: every accepted inbound consumer message gets a reply. A reply is an Agent outbound bound (server-derived trigger_message_id) to that message, same conversation and consumer. Under a contact restriction only such a bound reply may dispatch, at most one per inbound message, within reply_window_seconds of its acceptance. A message still unsettled when the window ends starts one fallback reply Run (LLM-generated, single reply tool, fixed small budget); if that fails too, the owner is escalated with evidence. Initial values; owner-adjustable by a new version.","fallback":{"batch":10,"context_strategy":"recent_plus_required","lease_seconds":120,"max_attempts":1,"run_budget":{"active_timeout_seconds":60,"currency":"USD","maximum_cost":"0.20","maximum_model_turns":2,"maximum_tool_calls":2},"run_ttl_seconds":120,"runtime_profile":"deepseek-flash"},"reply_window_seconds":900,"schema":"nexloop-reply-guarantee/1","version":1}'::jsonb,'272a4a3eff421bc329cc874e82feffc2c7088da81d4eb66da5b3356842f3de8a','deploy/configuration/reply-guarantee.v1.json');
+ values(1,'{"decision":"ADR-023 §2.6/§2.7 (dispatcher defaults 2026-10-10): every accepted inbound consumer message gets a reply. A reply is an Agent outbound bound (server-derived trigger_message_id) to that message, same conversation and consumer. Under a contact restriction only such a bound reply may dispatch, at most one per inbound message, within reply_window_seconds of its acceptance. A message still unsettled start_after_seconds after its acceptance starts at most one fallback reply Run (LLM-generated, single bound-reply tool, fixed small budget); if that fails too, the owner is escalated with evidence. Loading refuses a policy where start_after_seconds + the fallback Run''s longest duration is not below reply_window_seconds. Initial values; owner-adjustable by a new version.","fallback":{"batch":10,"context_strategy":"recent_plus_required","lease_seconds":120,"max_attempts":1,"run_budget":{"active_timeout_seconds":60,"currency":"USD","maximum_cost":"0.20","maximum_model_turns":2,"maximum_tool_calls":2},"run_ttl_seconds":120,"runtime_profile":"deepseek-flash","start_after_seconds":300},"reply_window_seconds":1800,"schema":"nexloop-reply-guarantee/1","version":1}'::jsonb,'8db7dfd7c3270d406a56c3ca69e59f949dcaccf1b8526661aca2d0801bb67c6c','deploy/configuration/reply-guarantee.v1.json');
 
 create function control.nexloop_reply_window_seconds() returns integer
  language sql stable security definer set search_path=pg_catalog,pg_temp as $$
  select (definition->>'reply_window_seconds')::integer from control.nexloop_reply_policies order by version desc limit 1
 $$;
+create function control.nexloop_reply_fallback_after_seconds() returns integer
+ language sql stable security definer set search_path=pg_catalog,pg_temp as $$
+ select (definition->'fallback'->>'start_after_seconds')::integer from control.nexloop_reply_policies order by version desc limit 1
+$$;
 alter function control.nexloop_reply_window_seconds() owner to nexloop_owner;
-revoke all on function control.nexloop_reply_window_seconds() from public;
+alter function control.nexloop_reply_fallback_after_seconds() owner to nexloop_owner;
+revoke all on function control.nexloop_reply_window_seconds(),control.nexloop_reply_fallback_after_seconds() from public;
 
 -- Deterministic match. Exclusions remove clearly non-contact phrases first; refuse, then uncertain rules.
 -- No rule set, or an error, is uncertain: restricted (ADR-023 §3, when in doubt restrict).
@@ -148,12 +158,12 @@ begin
    values(new.tenant_id,new.world,new.message_id,v_consumer,new.conversation_id,(hit->>'rule_version')::integer,hit->>'rule_id',hit->>'certainty',hit->>'matched_text',rev)
    on conflict do nothing;
  end if;
- -- ADR-023 §2.7: every accepted inbound message is a pending reply, due when the reply window ends.
+ -- ADR-023 §2.7: every accepted inbound message is a pending reply, due when the fallback may start.
  v_at:=coalesce((new.record->>'accepted_at')::timestamptz,clock_timestamp());
  insert into runtime.nexloop_work_feed(tenant_id,world,feed,item_key,payload,available_at)
   values(new.tenant_id,new.world,'reply-due','reply:'||new.message_id,
    jsonb_build_object('message_id',new.message_id,'conversation_id',new.conversation_id,'consumer_id',v_consumer),
-   v_at+make_interval(secs=>control.nexloop_reply_window_seconds()))
+   v_at+make_interval(secs=>control.nexloop_reply_fallback_after_seconds()))
   on conflict(tenant_id,world,feed,item_key) do nothing;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return null;

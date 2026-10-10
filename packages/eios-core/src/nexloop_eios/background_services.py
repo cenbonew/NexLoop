@@ -6,6 +6,8 @@
 ``nexloop-recall-indexer``             (nexloop_domain_worker) recall-instance feed → instance index
 ``nexloop-plan-reevaluator``           (nexloop_domain_worker) plan-reevaluate feed → precheck → bounded Role Run
                                        (Role issuance and activation through a second, nexloop_api backend)
+``nexloop-reply-guarantor``            (nexloop_domain_worker) reply-due feed → settled / one fallback reply Run / escalation
+                                       (fallback issuance with the consumer's message relay identities on a nexloop_api backend)
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -31,7 +33,9 @@ SERVICES={
     'claim-matcher':('Claim Matcher','nexloop_domain_worker'),
     'recall-indexer':('Recall Indexer','nexloop_domain_worker'),
     'plan-reevaluator':('Plan Reevaluator','nexloop_domain_worker'),
+    'reply-guarantor':('Reply Guarantor','nexloop_domain_worker'),
 }
+RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
 LAUNCH_CREDENTIALS=('source','planner','queue','executor')
 _TYPE=re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')
@@ -64,6 +68,10 @@ def _parser(service):
         parser.add_argument('--settings-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         for name in LAUNCH_CREDENTIALS:parser.add_argument(f'--{name}-credential-file',type=Path,required=True)
         parser.add_argument('--effect-action',required=True)
+    if service=='reply-guarantor':
+        parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
+        parser.add_argument('--recipe-file',type=Path,required=True)
+        for name in RELAY_CREDENTIALS:parser.add_argument(f'--{name}-credential-file',type=Path,required=True)
     return parser
 
 
@@ -136,6 +144,9 @@ class LazyModelProvider:
 
 
 def _tick(service,arguments,pool,session,signer,launcher=None):
+    if service=='reply-guarantor':
+        from nexloop_eios.contact_restrictions import ReplyGuaranteeWorker,load_reply_policy
+        return ReplyGuaranteeWorker(pool,session,signer,policy=load_reply_policy(arguments.policy_file),launcher=launcher).run_once()
     if service=='plan-reevaluator':
         from nexloop_eios.plan_reevaluation import PlanReevaluationWorker,load_settings
         return PlanReevaluationWorker(pool,session,signer,settings=load_settings(arguments.settings_file),launcher=launcher).run_once()
@@ -180,7 +191,7 @@ def run(service,arguments,stop):
             signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id))
         with backend._pool.connection() as connection:
             if verify_application_role(connection)!=role:raise ValueError('restricted service role required')
-        launcher=_launcher(stack,arguments) if service=='plan-reevaluator' else None
+        launcher=_launcher(stack,arguments) if service=='plan-reevaluator' else _reply_launcher(stack,arguments) if service=='reply-guarantor' else None
         def services():
             # Re-read the credential and re-authenticate every tick: revocation applies at once.
             current=backend.authenticate(read_private_text(arguments.service_credential_file,maximum=16384),world=arguments.world)
@@ -218,6 +229,27 @@ def _launcher(stack,arguments):
         executor_token=lambda:read_private_text(arguments.executor_credential_file,maximum=16384),settings=settings,effect_action=arguments.effect_action)
 
 
+def _reply_launcher(stack,arguments):
+    """Fallback reply issuance with the consumer's message relay identities on a nexloop_api backend. The reply policy is
+    validated first: a fallback that could not start and finish inside the reply window refuses to start the process."""
+    from nexloop_eios.assembly import verify_application_role
+    from nexloop_eios.backend import open_backend
+    from nexloop_eios.contact_restrictions import load_reply_policy
+    from nexloop_eios.private_configuration import read_private_text
+    from nexloop_eios.reply_fallback import FallbackReplyLauncher
+    policy=load_reply_policy(arguments.policy_file)
+    for name in RELAY_CREDENTIALS:read_private_text(getattr(arguments,name+'_credential_file'),maximum=16384)
+    recipe=json.loads(read_private_text(arguments.recipe_file,maximum=65536))
+    api=stack.enter_context(open_backend(database_url=read_private_text(arguments.api_database_url_file,maximum=16384),artifact_root=arguments.artifact_root,
+        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id))
+    with api._pool.connection() as connection:
+        if verify_application_role(connection)!='nexloop_api':raise ValueError('restricted service role required')
+    def session(name):
+        return lambda:api.authenticate(read_private_text(getattr(arguments,name+'_credential_file'),maximum=16384),world=arguments.world)
+    return FallbackReplyLauncher(route=session('route'),source=session('source'),planner=session('planner'),
+        executor_token=lambda:read_private_text(arguments.executor_credential_file,maximum=16384),recipe=recipe,policy=policy)
+
+
 def main_for(service,argv=None):
     arguments=_arguments(service,argv);stop=threading.Event();previous={}
     logger=logging.getLogger('psycopg.pool');disabled=logger.disabled;logger.disabled=True
@@ -237,6 +269,7 @@ def claim_extraction_worker(argv=None):return main_for('claim-extraction-worker'
 def claim_matcher(argv=None):return main_for('claim-matcher',argv)
 def recall_indexer(argv=None):return main_for('recall-indexer',argv)
 def plan_reevaluator(argv=None):return main_for('plan-reevaluator',argv)
+def reply_guarantor(argv=None):return main_for('reply-guarantor',argv)
 
 
 if __name__=='__main__':

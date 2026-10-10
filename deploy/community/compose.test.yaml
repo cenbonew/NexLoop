@@ -270,6 +270,26 @@ services:
     labels:
       nexloop.purpose: disposable-community-test
 
+  reply-guarantor:
+    # NX-025 / ADR-023 opt-in (profile "background"): needs trusted-configuration material in
+    # background_config/reply-guarantor (guarantor credential and restricted DSN, the consumer's message relay
+    # credentials and recipe, the API DSN, signer, reply-guarantee policy); not provisioned by the disposable test profile.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [reply-guarantor]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
   api-test:
     image: ${BACKEND_IMAGE:?locally built tested image required}
     user: '10001:10001'

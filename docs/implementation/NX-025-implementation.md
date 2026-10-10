@@ -73,13 +73,33 @@
 | AT-029 | passed | `test_closure_plan_run_pg.py::test_no_reasonable_contact_is_a_normal_no_action`；`test_plan_outcome_pg.py::test_normal_outcome_records_once_replays_and_conflicts` |
 | AT-014 | 不归 NX-025（调度员新开 M09 任务，S4） | — |
 
+## 3a. ADR-023：明确拒绝的硬性停发与“来信必回”（负责人 2026-10-10，迁移 0109、0110，临时号）
+
+- **入站即检查（0109）**：入站消息写入的同一事务内，用版本化确定性规则检查（`deploy/configuration/contact-refusal-rules.v1.json`，迁移种入的 v1 与文件逐字一致）。命中、不确定、规则缺失、匹配出错都按限制处理：经 NX-022 控制写入器写 consumer 级 `contact_restricted` 事件（推进控制 revision），记录规则版本、规则 id 与原文片段；消息本身照常持久化、照常进中继。
+- **派发**：既有 `nexloop_assert_dispatch_controls` 先跑（限制之前排队的意图因 revision 过期 NXC02 被拒）；之后 `control.nexloop_contact_assert_intent`：受限期间只放行“绑定入站来信的回复”——外发记录的 `trigger_message_id` 由服务端从消息 Run 推导，不由模型给出；同会话、同 consumer、在 `reply_window_seconds`（1800 s）内、每条来信至多一条；其余 NXC05（`contact_restricted`）。回复不解除限制。
+- **解除**：只有受治理的人类 Action（`goals.contact.release`，经 NX-022 governed 入口，要求 human 主体）；Agent、服务主体持同样授权也被拒；后台 constraint Claim 只补证据。查询端口 `nexloop.contact.read`（受限客户、原因、命中证据、升级记录）。
+- **来信必回（0109 + 0110，方案 A 消息路径）**：每条入站消息登记 `reply-due`，`start_after_seconds`（300 s）后到期；渠道接受的绑定回复在同一事务结清。到期未结清时，回复担保 worker 启动**至多一个**兜底回复 Run：
+  - 签发 `authz.nexloop_reply_fallback_command`：独立的兜底签发表（主键=消息，至多一个；同一签发可重放，第二个为冲突），MessageAssignment 检查同 0049；在 `reply-due` 行锁下与结清互斥（已结清或未到期不签发）。原单 Run 路径不变。
+  - 上下文：兜底 v6（`authz.nexloop_context_v6_fallback_command`，0105 绑定 + 0053/0062 核心，走兜底签发与独立兜底绑定表），包含这条来信、会话近况与联系限制等钉住约束。
+  - 按 Run 查找签发/绑定的既有函数（激活、目录元数据、范围拒绝、Artifact 读取、v6 绑定、外发记录）以最新函数体复制、只把按 Run 查找改为兼容兜底；所有按消息查找的原路径未动。
+  - 工具限制在服务端：兜底 Run 的唯一效果是绑定本来信的回复 `submit`；`find`、无回复正文的提交在 SQL 拒绝；计划结果写回由 0106 拒绝（非计划 Run）；第二条不同回复因同槽位冲突被拒。
+  - 派发：兜底回复始终适用绑定回复规则；本来信已有被接受的回复时兜底回复被拒。
+  - 预算小且固定（`reply-guarantee.v1.json`：2 轮/2 次工具/60 s/0.20 USD，Run TTL 120 s），生产走 LLM（`deepseek-flash`），测试经配置换为确定性 provider。
+  - 失败升级：兜底无法启动（`fallback_failed`）、兜底 Run 在其最长时长后仍未结清（`fallback_unanswered`，含模型不可用/超时、回复被拒、渠道故障）、未配置 launcher（`fallback_unavailable`）都写入升级记录并留证；不退回模板。
+  - 配置加载校验：`start_after_seconds + max(run_ttl, active_timeout) < reply_window_seconds`，不满足则 `load_reply_policy` 报错、`nexloop-reply-guarantor` 拒绝启动（SQL 侧同一约束为表 CHECK）。
+- **测试（全部真实 PG；E2E 走真实 NX-047 链路、真实 Host/Pi，确定性 provider）**：
+  - `test_contact_refusal_pg.py`：配置与种入一致；规则正例 16/不确定 4/反例 9/误判负例 7/接受的多挡 2；入站同事务限制且消息不丢、待回复登记；只有负责人能解除（Agent、服务主体同授权被拒）；查询端口与到期升级。
+  - `test_contact_reply_dispatch_pg.py`：受限客户来信的绑定回复派发、送达并结清；窗口外回复被拒，零投递。
+  - `test_closure_refusal_versions_pg.py` C1/C1b：Pi 故意外发被拒（`contact_restricted`），provider 零请求；限制前排队的意图同样被拒。
+  - `test_reply_fallback_pg.py`：未回复来信到期 → 兜底 Run（v6 带本来信）→ Pi 一条绑定回复 → 送达结清；每条来信至多一个兜底（重复触发/重启不签第二个）、`find`/计划结果/第二条回复被拒；已结清不签发；签发后原回复被接受 → 兜底回复派发被拒；兜底仍未回复 → 升级；受限客户的来信同样得到绑定兜底回复，限制不解除。
+  - `test_background_services_pg.py`：`reply-guarantor` 空转与“启动时间+兜底时长≥窗口”拒绝启动。
+- **未改契约**：仓库 `packages/contracts` 中没有 Message 契约，回复绑定沿用外发记录中服务端推导的 `trigger_message_id`。
+
 ## 4. 未完成与限制
 
-- **G2 明确拒绝优先（等待负责人裁定 1）**：`test_explicit_refusal_stops_contact_even_if_the_run_tries` 为 strict xfail。实测现状：
-  - Run 不顾拒绝提交的意图会被执行器正常派发，provider 收到请求；
-  - 该 Role Source 没有 Conversation READ，因此 v6 只声明 evidence 不可读，拒绝原文没有进入上下文。
-  - 裁定落地后这个用例会转为通过（strict xfail 届时报 XPASS 失败，提醒移除标记）。
-  - 早期一版在 1 s 执行器租约下误报 XPASS，原因是租约在 prepare 之前就已过期。已改为 5 s 租约并核实，不是拒绝生效。
+- **G2 已由 ADR-023 解决**（见 §3a），E2E-C1 去掉 xfail 并通过。E2E-C1 的夹具没有浏览器通道，入站拒绝消息按 0046 提交路径的同一表结构写入（真实提交路径由 `test_contact_refusal_pg.py` 覆盖）。
+- **时间注入**：待回复到期、窗口外回复两处由 admin 前移时间（`available_at`、`accepted_at`），未改业务逻辑。
+- **兜底测试的授权播种**：回复担保 worker 的授权需在会话开始前播种；会话中途播种会改变 Source 目录、使已签发的原 Run 失效（既有正确行为）。
 - **reviewer 身份**：E2E-A 中审核人与发消息的 Human 是同一个合成浏览器身份。授予 `ontology.schema.review` 会替换该身份的浏览器应用事实（`grant_human`），所以下一轮对话的消息在审核之前写入，其提取与匹配在审核之后进行。
 - **执行器租约**：被拒绝的派发尝试会让 outbox 保持 leased 直到租约到期，再次尝试需要等待真实到期。测试用 5 s 租约加等待，没有注入故障。
 - **迁移连续性**：0108 之前缺 0107，`test_bootstrap.py::test_clean_bootstrap_and_exact_reopen` 要求迁移号连续，在本分支失败，属于编号造成的预期失败。临时改名为 0107 后验证通过（命令见报告）。

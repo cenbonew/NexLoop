@@ -49,7 +49,7 @@ def load_reply_policy(path):
     if value['schema']!='nexloop-reply-guarantee/1' or type(value['version']) is not int or value['version']<1:raise ValueError('reply policy version')
     if type(value['reply_window_seconds']) is not int or not 60<=value['reply_window_seconds']<=604800:raise ValueError('reply window')
     fallback=value['fallback']
-    if type(fallback) is not dict or set(fallback)!={'context_strategy','runtime_profile','run_budget','run_ttl_seconds','batch','lease_seconds','max_attempts'}:
+    if type(fallback) is not dict or set(fallback)!={'start_after_seconds','context_strategy','runtime_profile','run_budget','run_ttl_seconds','batch','lease_seconds','max_attempts'}:
         raise ValueError('fallback shape')
     budget=fallback['run_budget']
     if type(budget) is not dict or set(budget)!=set(_BUDGET):raise ValueError('fallback budget')
@@ -58,9 +58,18 @@ def load_reply_policy(path):
     if Decimal(budget['maximum_cost'])<=0 or re.fullmatch('[A-Z]{3}',budget['currency']) is None:raise ValueError('fallback cost')
     if fallback['runtime_profile'] not in ('deterministic-test','deepseek-flash'):raise ValueError('fallback runtime profile')
     if re.fullmatch(r'[a-z][a-z0-9_]{0,63}',str(fallback['context_strategy'])) is None:raise ValueError('fallback context strategy')
-    for key,low,high in (('run_ttl_seconds',30,300),('batch',1,100),('lease_seconds',10,3600),('max_attempts',1,10)):
+    for key,low,high in (('start_after_seconds',1,86400),('run_ttl_seconds',30,300),('batch',1,100),('lease_seconds',10,3600),('max_attempts',1,10)):
         if type(fallback[key]) is not int or not low<=fallback[key]<=high:raise ValueError('fallback '+key)
+    # ADR-023: the fallback starts and its Run ends inside the reply window; otherwise refuse to start.
+    if fallback['start_after_seconds']+fallback_duration(value)>=value['reply_window_seconds']:
+        raise ValueError('fallback start plus Run duration must be below the reply window')
     return value
+
+
+def fallback_duration(policy):
+    """Longest a fallback reply Run may live: its credential TTL or its active budget, whichever is longer."""
+    fallback=policy['fallback']
+    return max(fallback['run_ttl_seconds'],fallback['run_budget']['active_timeout_seconds'])
 
 
 class ContactReadPort(_SignedPort):
@@ -83,11 +92,13 @@ class ReplyPort(_SignedPort):
 
 
 class ReplyGuaranteeWorker:
-    """One tick: each due pending reply is settled, answered by one fallback reply Run, or escalated (never dropped).
+    """One tick: each due pending reply is settled, answered by its one fallback reply Run, or escalated (never dropped).
 
-    ``launcher`` (optional) starts the fallback reply Run for a message and returns a short outcome code; without a
-    launcher, or when it fails, the message is escalated to the owner with evidence. A message whose fallback Run
-    already ran and is still unsettled when its item is due again is escalated as well.
+    ``launcher`` (``reply_fallback.FallbackReplyLauncher``) starts the fallback reply Run of a message; the item is then
+    checked again once the fallback Run's longest duration has passed. A message still unsettled at that point (model
+    unavailable or timed out, reply refused, channel failure), a message whose fallback cannot start, or any message
+    when no launcher is configured, is escalated to the owner with evidence. At most one fallback Run per message
+    (SQL, 0110).
     """
 
     def __init__(self,pool,session,signer,*,policy,launcher=None):
@@ -98,28 +109,31 @@ class ReplyGuaranteeWorker:
     @authority_request_scoped
     def run_once(self):
         summary={'settled':0,'fallback_started':0,'escalated':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
-        fallback=self.policy['fallback']
+        fallback=self.policy['fallback'];recheck=fallback_duration(self.policy)+30
         for item in self.feed.claim(limit=fallback['batch'],lease_seconds=fallback['lease_seconds']):
             message_id=item['payload']['message_id']
             try:
                 state=self.port.state(message_id)
-                if state['settled'] or state['escalated']:
-                    outcome='settled'
+                if state['settled'] or state['escalated']:outcome='settled'
+                elif state.get('fallback_run_id'):
+                    # The one fallback Run had its full duration and the message is still unanswered.
+                    self.port.escalate(message_id,'fallback_unanswered',{'fallback_run_id':str(state['fallback_run_id']),'restricted':state['restricted']});outcome='escalated'
                 elif self.launcher is None:
                     self.port.escalate(message_id,'fallback_unavailable',{'restricted':state['restricted'],'in_flight':state['in_flight']});outcome='escalated'
                 else:
-                    try:
-                        started=self.launcher.start(message_id=message_id,state=state)
+                    try:started=self.launcher.start(message_id=message_id,state=state)
                     except Exception as error:
                         self.port.escalate(message_id,'fallback_failed',{'error':type(error).__name__,'restricted':state['restricted']});outcome='escalated'
                     else:
-                        if started=='started':outcome='fallback_started'
+                        if started!='started':
+                            self.port.escalate(message_id,'fallback_not_started',{'restricted':state['restricted']});outcome='escalated'
                         else:
-                            # Already ran for this message (or refused to start): the owner takes it over.
-                            self.port.escalate(message_id,'fallback_'+re.sub('[^a-z_]','_',str(started))[:40],{'restricted':state['restricted']});outcome='escalated'
+                            status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='fallback_started',delay_seconds=recheck,
+                                max_attempts=fallback['max_attempts']+3)
+                            summary['fallback_started' if status=='pending' else status]+=1;continue
             except WorkFeedDenied:raise
             except Exception:
-                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='reply_unavailable',delay_seconds=30,max_attempts=fallback['max_attempts']+2)
+                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='reply_unavailable',delay_seconds=30,max_attempts=fallback['max_attempts']+3)
                 summary['retry' if status=='pending' else status]+=1;continue
             status=self.feed.complete(item_key=item['item_key'],fence=item['fence'])
             summary[outcome if status=='completed' else status]+=1

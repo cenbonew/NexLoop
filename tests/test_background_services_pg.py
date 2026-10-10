@@ -15,12 +15,16 @@ from nexloop_eios import background_services as B
 from test_service_grants_pg import TENANT,deployment,private  # noqa: F401
 
 ROOT=Path(__file__).resolve().parents[1]
+SYNTHETIC_RECIPE={'consumer_id':'a'*64,'control_id':'b'*64,'control_revision':1,'consumer_revision':1,'valid_until':'2099-01-01T00:00:00+00:00',
+    'role_ref':'role:synthetic','context_manifest_ref':'artifact:synthetic','runtime_profile':'deterministic-test',
+    'budget':{'maximum_model_turns':2,'maximum_tool_calls':2,'active_timeout_seconds':60,'maximum_cost':'0.20','currency':'USD'},
+    'runtime_owner_epoch':1,'queue':'operations','offering_id':'c'*64,'offering_binding_id':'d'*64}
 ROLES={'claim-extraction-scheduler':('claim_extraction_scheduler','nexloop_api'),'claim-extraction-worker':('claim_extraction_worker','nexloop_domain_worker'),
     'claim-matcher':('claim_matcher','nexloop_domain_worker'),'recall-indexer':('recall_indexer','nexloop_domain_worker'),
-    'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker')}
+    'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker'),'reply-guarantor':('reply_guarantor','nexloop_domain_worker')}
 
 
-def argv(d,tmp_path,service,*,role=None):
+def argv(d,tmp_path,service,*,role=None,policy=None):
     principal,database_role=ROLES[service]
     reference=next(p for p in d['manifest']['principals'] if p['role']==principal)['credential_reference']
     root=tmp_path/service
@@ -42,6 +46,13 @@ def argv(d,tmp_path,service,*,role=None):
             '--api-database-url-file',str(private(root,'api_database_url',make_conninfo(d['pg'],user='nexloop_api'))),
             '--effect-action','eios:action:nexloop.service.request:1']
         for name in B.LAUNCH_CREDENTIALS:args+=[f'--{name}-credential-file',str(private(root,name+'_credential','synthetic-unused-'+name))]
+    if service=='reply-guarantor':
+        # Idle tick: nothing is due, so the relay identities are read but never authenticated (synthetic placeholders);
+        # the fallback itself is exercised by tests/test_reply_fallback_pg.py.
+        args+=['--policy-file',str(policy or ROOT/'deploy/configuration/reply-guarantee.v1.json'),
+            '--api-database-url-file',str(private(root,'api_database_url',make_conninfo(d['pg'],user='nexloop_api'))),
+            '--recipe-file',str(private(root,'relay-recipe.json',json.dumps(SYNTHETIC_RECIPE)))]
+        for name in B.RELAY_CREDENTIALS:args+=[f'--{name}-credential-file',str(private(root,name+'_credential','synthetic-unused-'+name))]
     return args
 
 
@@ -55,7 +66,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
 @pytest.mark.parametrize('service,expected',[('claim-extraction-scheduler',{'enqueued':0}),('claim-extraction-worker',{'status':'idle'}),
     ('claim-matcher',{'applied':0,'changed':0,'conversations':0,'dead_lettered':0,'glued':0,'lease_lost':0,'matched':0,'retry':0}),
     ('recall-indexer',{'changed':0,'dead_lettered':0,'indexed':0,'lease_lost':0,'removed':0,'retry':0,'skipped':0}),
-    ('plan-reevaluator',{'changed':0,'closed':0,'dead_lettered':0,'invalidated':0,'launched':0,'lease_lost':0,'paused':0,'retry':0,'throttled':0})])
+    ('plan-reevaluator',{'changed':0,'closed':0,'dead_lettered':0,'invalidated':0,'launched':0,'lease_lost':0,'paused':0,'retry':0,'throttled':0}),
+    ('reply-guarantor',{'changed':0,'dead_lettered':0,'escalated':0,'fallback_started':0,'lease_lost':0,'retry':0,'settled':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()
     assert B.main_for(service,argv(d,tmp_path,service))==0
@@ -111,3 +123,16 @@ def test_plan_reevaluator_launch_backend_must_be_the_api_role(deployment,tmp_pat
     assert out=='' and err=='Plan Reevaluator unavailable\n'
     with pytest.raises(SystemExit) as exit_:B.main_for('plan-reevaluator',argv(d,tmp_path,'plan-reevaluator')[:-2]+['--effect-action','not an action'])
     assert exit_.value.code==2
+
+
+def test_reply_guarantor_refuses_to_start_when_the_fallback_cannot_finish_inside_the_reply_window(deployment,tmp_path,capsys):
+    """ADR-023: start_after_seconds + the fallback Run's longest duration must be below reply_window_seconds."""
+    d=deployment;d['apply']()
+    policy=json.loads((ROOT/'deploy/configuration/reply-guarantee.v1.json').read_text())
+    policy['fallback']['start_after_seconds']=policy['reply_window_seconds']-60  # 60 s left, the Run may live 120 s
+    bad=tmp_path/'bad-reply-guarantee.json';bad.write_text(json.dumps(policy))
+    from nexloop_eios.contact_restrictions import load_reply_policy
+    with pytest.raises(ValueError,match='reply window'):load_reply_policy(bad)
+    assert B.main_for('reply-guarantor',argv(d,tmp_path,'reply-guarantor',policy=bad))==1
+    out,err=capsys.readouterr()
+    assert out=='' and err=='Reply Guarantor unavailable\n'

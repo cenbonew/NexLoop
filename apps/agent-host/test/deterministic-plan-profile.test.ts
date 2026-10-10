@@ -20,3 +20,10 @@ describe('deterministic plan-reevaluation profile',()=>{
   expect(()=>setup(extra).open()).toThrow('runtime configuration refused');
  });
 });
+describe('deterministic fallback-reply profile',()=>{
+ const reply=(extra:Record<string,unknown>={})=>setup({plan_outcome_tool:undefined,deterministic_plan_outcome:undefined,deterministic_reply_once:true,...extra});
+ it('constructs only as an explicit v6 test profile',()=>{expect(reply().open()).toBeInstanceOf(RuntimeHost);});
+ it.each([{deterministic_reply_once:'yes'},{effect_tools:false},{context_input_protocol:'nexloop.context-pack.v5'},{deterministic_message_from_input:true},{deterministic_plan_outcome:'no_action',plan_outcome_tool:true}])('rejects %j',extra=>{
+  expect(()=>reply(extra).open()).toThrow('runtime configuration refused');
+ });
+});

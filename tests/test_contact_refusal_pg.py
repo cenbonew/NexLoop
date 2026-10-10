@@ -70,7 +70,7 @@ def restriction(admin,consumer):
 
 
 def reply_items(admin):
-    return admin.execute("select item_key,payload,available_at-clock_timestamp()>interval '800 seconds' from runtime.nexloop_work_feed where feed='reply-due' order by item_key").fetchall()
+    return admin.execute("select item_key,payload,available_at-clock_timestamp()>interval '200 seconds' from runtime.nexloop_work_feed where feed='reply-due' order by item_key").fetchall()
 
 
 @pytest.mark.parametrize('published_action',['with-preference'],indirect=True)
