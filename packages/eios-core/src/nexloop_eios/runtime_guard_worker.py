@@ -89,6 +89,9 @@ def run_child(arguments, stop):
 
 
 def main(argv=None):
+    # NX-030 / AT-049: every log record leaves this process as one allowlisted structured line (IDs, codes, durations only).
+    from nexloop_eios.structured_log import configure as _structured_logging
+    _structured_logging('runtime-guard')
     arguments = _arguments(argv)
     stop = threading.Event()
     import logging

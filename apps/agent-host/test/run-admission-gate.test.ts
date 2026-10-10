@@ -73,3 +73,20 @@ describe('RuntimeHost refuses an invalid active-Run limit at startup',()=>{
    expect(()=>open(extra)).toThrow('runtime configuration refused');
  });
 });
+
+describe('NX-030 admission metrics',()=>{
+ it('counts admissions, waits and timeouts as numbers only',async()=>{
+  const {admissionMetrics}=await import('../src/run-admission-gate.js');
+  const before=admissionMetrics();
+  const gate=new RunAdmissionGate(1,20);
+  const slot=await gate.acquire('metrics-a',far());
+  const during=admissionMetrics();
+  expect(during.available).toBe(true);expect(during.runs_started-before.runs_started).toBe(1);
+  expect(during.active_runs-before.active_runs).toBe(1);expect(during.max_active_runs-before.max_active_runs).toBe(1);
+  await expect(gate.acquire('metrics-b',far())).rejects.toMatchObject({code:'runtime_capacity_exhausted'});
+  const after=admissionMetrics();
+  expect(after.admission_timeouts-before.admission_timeouts).toBe(1);
+  slot!.release();expect(admissionMetrics().active_runs-before.active_runs).toBe(0);
+  expect(Object.values(admissionMetrics()).every(value=>typeof value==='number'||typeof value==='boolean')).toBe(true);
+ });
+});

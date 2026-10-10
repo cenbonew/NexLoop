@@ -184,3 +184,24 @@ def _free_port():
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
         return s.getsockname()[1]
+
+
+def test_doctor_observability_gate(observed, tmp_path):
+    import json as _json
+    import subprocess
+    import sys
+    from nexloop_eios.doctor import observability
+    o = observed
+    dsn = private(tmp_path, 'metrics-dsn', make_conninfo(o['pg'], user='nexloop_metrics'))
+    before = observability(dsn, RULES)
+    assert before['checks']['metrics_export'] is True and before['checks']['alert_evaluator_recent'] is False
+    record_sample(o['w']['f']['reader'].pool, 'pool', 'synthetic-api', {'requests_waiting': 0, 'pool_size': 2, 'max_size': 4})
+    o['evaluate']()
+    after = observability(dsn, RULES)
+    assert all(after['checks'].values()), after
+    assert after['details']['observability']['backup'] == ['unavailable']
+    result = subprocess.run([sys.executable, '-m', 'nexloop_eios.doctor', '--observability', '--metrics-database-url-file', str(dsn), '--alert-rules', str(RULES)],
+        capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0 and _json.loads(result.stdout)['foundation_checks_passed'] is True and 'password' not in result.stdout
+    wrong = private(tmp_path, 'api-dsn', make_conninfo(o['pg'], user='nexloop_api'))
+    assert observability(wrong, RULES)['checks']['metrics_export'] is False  # only the read-only metrics role is accepted

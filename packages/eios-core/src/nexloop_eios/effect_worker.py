@@ -97,6 +97,9 @@ def run(arguments,stop):
 
 
 def main(argv=None):
+    # NX-030 / AT-049: every log record leaves this process as one allowlisted structured line (IDs, codes, durations only).
+    from nexloop_eios.structured_log import configure as _structured_logging
+    _structured_logging('effect-worker')
     arguments=_arguments(argv);stop=threading.Event();previous={}
     logger=logging.getLogger('psycopg.pool');disabled=logger.disabled;logger.disabled=True
     def terminate(signum,frame):stop.set()

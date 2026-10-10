@@ -181,6 +181,37 @@ def flush_guard(pool, service='runtime-guard'):
     record_pool_sample(pool, service)
 
 
+class HostCounters:
+    """Agent Host counters → one window's sample: gauges as read, cumulative counters as the increase since the last
+    read (a Host restart resets them: the current value is the increase)."""
+    CUMULATIVE = ('runs_started', 'admission_timeouts')
+
+    def __init__(self):
+        self.previous = None
+
+    def sample(self, host):
+        if host is None or not host.get('available'):
+            self.previous = None
+            return None
+        out = {k: host[k] for k in ('active_runs', 'waiting', 'max_active_runs') if k in host}
+        for k in self.CUMULATIVE:
+            now = host.get(k, 0)
+            before = (self.previous or {}).get(k)
+            out[k] = now if before is None or now < before else now - before
+        if self.previous is None:
+            out = {k: v for k, v in out.items() if k not in self.CUMULATIVE}  # the first read only sets the baseline
+        self.previous = dict(host)
+        out['available'] = True
+        return out
+
+
+def flush_host(pool, config, counters, service='agent-host'):
+    from nexloop_eios.host_control import read_host_metrics
+    sample = counters.sample(read_host_metrics(config))
+    if sample is not None:
+        record_sample(pool, 'host', service, sample)
+
+
 # ---- optional loopback text export (D1, off by default; read-only role D4) -------------------------------------------------
 # Snapshot levels whose keys are data (codes, states, reasons, queues, feeds, services, budget kinds): rendered as a label.
 MAPS = frozenset({'last_5m', 'last_hour', 'by_state', 'escalations_last_hour', 'exceptions', 'exceptions_last_hour', 'queues', 'feeds', 'by_service', 'budgets'})
@@ -280,6 +311,8 @@ def main(argv=None):
     export = sub.add_parser('export')
     export.add_argument('--database-url-file', type=Path, required=True)
     export.add_argument('--port', type=int, required=True)
+    from nexloop_eios.structured_log import configure as _structured_logging
+    _structured_logging('metrics')
     a = p.parse_args(argv)
     try:
         if a.command == 'rules':

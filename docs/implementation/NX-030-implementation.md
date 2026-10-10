@@ -25,6 +25,7 @@
     - 只接受执行者本人的 intent；
     - 同一 intent、同一代码在 10 分钟内只记一次，因为 worker 每次 claim 都会重试；
     - 派发判定和结果都不变，仍返回 `admission_unavailable`。
+    - **调度员裁定（接受）**：这一写入可能失败，例如连接中断时。失败时只会让指标偏少，派发安全不受影响：拒绝已经发生，并且已经回滚。
 - **进程样本** `runtime.nexloop_process_samples`：部署级，无租户列；FORCE RLS 加 owner-only 策略，应用角色没有任何权限。
   - 写入入口 `authz.nexloop_record_process_sample`：按种类只允许白名单键，值只能是数字。
   - `runtime.nexloop_observability_maintain()` 做小时汇总和保留（D5：分钟样本 7 天、小时汇总 90 天），由评估器每轮调用。
@@ -85,9 +86,37 @@
 
 ## 4. 未完成项（需排期或决定）
 
-1. **Agent Host 并发样本（M09）**：Host 侧的 `/internal/v1/metrics` 和 runtime worker 拉取后代写没有做。它改的是 L3 的 Host 文件（`run-admission-gate.ts`、`main.ts`），按重叠表需要先与 L3 约定；在此之前 `host` 区块为 unavailable，`host_admission_timeout` 规则不会触发。
+1. ~~Agent Host 并发样本（M09）~~：已在第二部分完成，见 §5。
 2. **告警静默**（owner 专属 Action `nexloop.alert.silence:1`）：要在 0124 的统一入口注册表、business-actions 和角色清单里各加一项，这三处都与 L4 重叠，等 nx028-ui 合入后与告警页一起做。
 3. **工作台的告警页、运行状态页和审计页**：按调度员要求，等 L4 的 nx028-ui 合入后再挂；后端接口已就绪。
-4. **AT-049 统一结构化日志与哨兵扫描、doctor `--observability`**：不在本轮清单内，下一项做。
+4. ~~AT-049 统一结构化日志与哨兵扫描、doctor `--observability`~~：已在第二部分完成，见 §5。
 5. **备份年龄（M12）**：等 NX-035 的备份清单表。
-6. **连接数没有按角色细分**：`pg_stat_activity` 对非超级用户不可见，需要 `pg_read_all_stats`，属于权限变更，没有做。
+6. **已知限制：连接数不按角色细分**。调度员裁定不授予 `pg_read_all_stats`，因为它会让 owner 能读到所有会话的查询文本。总连接数继续取自 `pg_stat_database`。
+
+## 5. 第二部分（调度员排期：M09、AT-049、doctor `--observability`）
+
+- **Agent Host 并发样本（M09）**：只改了 `run-admission-gate.ts` 和 `main.ts`。
+  - `run-admission-gate.ts` 维护进程级计数：已登记的 gate、admit 次数、等待超时次数，以及活跃数、排队数、上限。
+  - `main.ts` 新增 `GET /internal/v1/metrics`。它与其他 internal 路由一样只接受 loopback，要求 Host 头正确、没有 Origin 和 Cookie，并要求 Bearer 内部密钥；返回内容只有数字。没有 runtime 配置时返回 `{"host":{"available":false}}`。
+  - Python 侧 `host_control.read_host_metrics` 沿用健康探测的做法（不走代理、不跟随重定向、要求 Bearer），只接受规定的数字字段。
+  - `observability.HostCounters` 把累计计数换算成每个窗口的增量；Host 重启后以当前值作为增量。
+  - runtime worker 每分钟拉取一次并代写样本。guard 为单进程时，同一处也写 guard 时延；多进程时子进程自己写。
+- **AT-049 统一结构化日志**：新增 `nexloop_eios/structured_log.py`。
+  - 每个进程入口都调用 `configure(service)`：api、background services、runtime worker、effect worker、runtime guard、message relay、outbound recorder、metrics。uvicorn 用 `uvicorn_log_config`。
+  - 事件名只取日志调用的模板，从不取格式化后的参数。
+  - detail 只取单个 JSON 对象参数里白名单内的字段；字符串必须像代码或 ID，否则替换为 `[redacted]`。
+  - 异常只保留类名，不输出堆栈、消息和 SQL。
+  - 现有各进程固定输出的摘要行（本来就只有计数）保持不变。
+- **哨兵扫描**：`tests/test_log_secrets_at049_pg.py` 在真实的 NX-047 链路上运行：HTTPS API、relay、带真实 Host/Pi 的 Runtime Worker、effect worker、JSON 投递服务、recorder。
+  - 顾客消息中带哨兵原话和哨兵密钥。
+  - 失败分支：同一幂等键改写内容（在 SQL 中抛出冲突，409）、超长正文（422）、用哨兵密钥伪造 Bearer（401）。
+  - 断言：所有进程的 stdout 和 stderr、PostgreSQL 服务端日志里都没有这两个哨兵；原话只存在于应该存放的地方（顾客的 Message）。
+- **doctor `--observability`**：只通过只读角色 `nexloop_metrics` 读取。
+  - 检查各活跃租户 real world 的评估器在最近 5 分钟内跑过，库中规则版本与文件一致，进程样本在持续写入。
+  - 备份在 NX-035 之前报告为 unavailable，不算失败；用 API 角色连接会被拒绝。
+- **测试**：
+  - `tests/test_host_metrics_pg.py`（3 个，真实 Host）：真实 Run 后 runs_started 加 1；错误密钥、伪造 Host 头、未鉴权都拿不到数据；无 runtime 时为 unavailable；Host 重启时的计数处理。
+  - `apps/agent-host/test/run-admission-gate.test.ts` 新增计数用例。
+  - `tests/test_structured_log.py`：参数、异常、未知字段、psycopg 和 uvicorn 的日志都不会带出原文或密钥。
+  - `tests/test_log_secrets_at049_pg.py`：上面的哨兵扫描（AT-049）。
+  - `tests/test_observability_pg.py::test_doctor_observability_gate`：评估前失败，评估后通过；CLI 退出码与输出；API 角色被拒。
