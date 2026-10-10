@@ -14,6 +14,8 @@
 ``nexloop-commercial-recorder``       (nexloop_domain_worker) commercial-record feed → governed CommercialRecord create /
                                        derived edits, metric observations, plan marking, commitment evidence (NX-027);
                                        --world real or test (a test connector only writes the test world)
+``nexloop-retention-keeper``          (nexloop_domain_worker) due retention classes → bounded SQL sweep passes (redaction /
+                                       deletion with tombstones, NX-029); no table privilege, no content
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -42,6 +44,7 @@ SERVICES={
     'reply-guarantor':('Reply Guarantor','nexloop_domain_worker'),
     'commitment-keeper':('Commitment Keeper','nexloop_domain_worker'),
     'commercial-recorder':('Commercial Recorder','nexloop_domain_worker'),
+    'retention-keeper':('Retention Keeper','nexloop_domain_worker'),
 }
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
@@ -154,6 +157,9 @@ class LazyModelProvider:
 
 
 def _tick(service,arguments,pool,session,signer,launcher=None):
+    if service=='retention-keeper':
+        from nexloop_eios.retention import RetentionKeeper
+        return RetentionKeeper(pool,session,signer).run_once()
     if service=='commercial-recorder':
         from nexloop_eios.commercial import CommercialRecorder,load_settings
         return CommercialRecorder(pool,session,signer,settings=load_settings(arguments.settings_file)).run_once()
@@ -298,6 +304,7 @@ def plan_reevaluator(argv=None):return main_for('plan-reevaluator',argv)
 def reply_guarantor(argv=None):return main_for('reply-guarantor',argv)
 def commitment_keeper(argv=None):return main_for('commitment-keeper',argv)
 def commercial_recorder(argv=None):return main_for('commercial-recorder',argv)
+def retention_keeper(argv=None):return main_for('retention-keeper',argv)
 
 
 if __name__=='__main__':
