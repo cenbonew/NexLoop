@@ -10,6 +10,9 @@
                                        (fallback issuance with the consumer's message relay identities on a nexloop_api backend)
 ``nexloop-commitment-keeper``         (nexloop_domain_worker) commitment-register / commitment-monitor feeds → governed
                                        Commitment create / ledger-derived transitions, due stages, plan marking, exceptions
+``nexloop-commercial-recorder``       (nexloop_domain_worker) commercial-record feed → governed CommercialRecord create /
+                                       derived edits, metric observations, plan marking, commitment evidence (NX-027);
+                                       --world real or test (a test connector only writes the test world)
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -37,6 +40,7 @@ SERVICES={
     'plan-reevaluator':('Plan Reevaluator','nexloop_domain_worker'),
     'reply-guarantor':('Reply Guarantor','nexloop_domain_worker'),
     'commitment-keeper':('Commitment Keeper','nexloop_domain_worker'),
+    'commercial-recorder':('Commercial Recorder','nexloop_domain_worker'),
 }
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
@@ -54,7 +58,7 @@ def _parser(service):
     for name in ('database-url-file','signing-key-file','service-credential-file','artifact-root'):
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--signing-key-id',default='active')
-    parser.add_argument('--world',required=True,choices=['real'])
+    parser.add_argument('--world',required=True,choices=['real','test'] if service=='commercial-recorder' else ['real'])
     parser.add_argument('--tick-seconds',type=float,default=2.0)
     parser.add_argument('--once',action='store_true')
     if service=='claim-extraction-scheduler':
@@ -71,7 +75,7 @@ def _parser(service):
         parser.add_argument('--settings-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         for name in LAUNCH_CREDENTIALS:parser.add_argument(f'--{name}-credential-file',type=Path,required=True)
         parser.add_argument('--effect-action',required=True)
-    if service=='commitment-keeper':
+    if service in ('commitment-keeper','commercial-recorder'):
         parser.add_argument('--settings-file',type=Path,required=True)
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
@@ -149,6 +153,9 @@ class LazyModelProvider:
 
 
 def _tick(service,arguments,pool,session,signer,launcher=None):
+    if service=='commercial-recorder':
+        from nexloop_eios.commercial import CommercialRecorder,load_settings
+        return CommercialRecorder(pool,session,signer,settings=load_settings(arguments.settings_file)).run_once()
     if service=='commitment-keeper':
         from nexloop_eios.commitments import CommitmentKeeper,load_settings
         return CommitmentKeeper(pool,session,signer,settings=load_settings(arguments.settings_file)).run_once()
@@ -196,6 +203,9 @@ def run(service,arguments,stop):
     if service=='claim-matcher':load_match_configuration(arguments.match_config_file)
     if service=='commitment-keeper':
         from nexloop_eios.commitments import load_settings
+        load_settings(arguments.settings_file)
+    if service=='commercial-recorder':
+        from nexloop_eios.commercial import load_settings
         load_settings(arguments.settings_file)
     with ExitStack() as stack:
         backend=stack.enter_context(open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
@@ -282,6 +292,7 @@ def recall_indexer(argv=None):return main_for('recall-indexer',argv)
 def plan_reevaluator(argv=None):return main_for('plan-reevaluator',argv)
 def reply_guarantor(argv=None):return main_for('reply-guarantor',argv)
 def commitment_keeper(argv=None):return main_for('commitment-keeper',argv)
+def commercial_recorder(argv=None):return main_for('commercial-recorder',argv)
 
 
 if __name__=='__main__':
