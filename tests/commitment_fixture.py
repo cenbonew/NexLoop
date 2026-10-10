@@ -121,6 +121,10 @@ class Commitments(dict):
             run_id=run.run_id,run_token=run.token,executor_token=plan['executor_token'])
         return backend.authenticate_run(run.token,world='real',run_id=run.run_id).submit_effect_intent(parameters=parameters)
 
+    def issue_run(self):
+        plan=self['plan'];submitter=plan['backend'].authenticate(plan['submitter_token'],world='real')
+        return submitter.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])
+
     def dispatch(self,provider):
         from test_nx022_dispatch_e2e import dispatch_once
         return dispatch_once(self['fixture'],provider)
@@ -186,6 +190,18 @@ class Commitments(dict):
                 values(%s,'real','Message',%s,1,%s,'nexloop-action',%s,clock_timestamp(),clock_timestamp())''',
                 (TENANT,message,Jsonb({'conversation_id':conversation,'sequence':seq,'actor':'synthetic-agent-principal','body':body,'accepted_at':ts(accepted_at)}),'agent-message-'+str(intent)))
         return {'message_id':message,'conversation_id':conversation,'intent_id':str(intent),'body':body,'accepted_at':accepted_at}
+
+    def inbound(self,body,*,consumer=None):
+        """An accepted inbound consumer message in the stream (admin seed of the 0046 write); the 0109 trigger runs on it."""
+        a=self['admin'];consumer=consumer or self['consumer'];conversation=self.conversation(consumer);self['n']+=1
+        message=hashlib.sha256(f'inbound-{self["n"]}-{secrets.token_hex(4)}'.encode()).hexdigest()
+        with a.transaction():
+            a.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+            seq=a.execute('update runtime.nexloop_conversations set last_sequence=last_sequence+1 where tenant_id=%s and conversation_id=%s returning last_sequence',(TENANT,conversation)).fetchone()[0]
+            a.execute('''insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
+                values(%s,'real',%s,%s,%s,%s,%s,%s)''',(TENANT,conversation,seq,message,'synthetic-inbound-'+str(self['n']),'d'*64,
+                Jsonb({'body':body,'accepted_at':ts(datetime.now(UTC)),'conversation_id':conversation,'sequence':seq,'actor':'synthetic-human-principal'})))
+        return message
 
     def conversation(self,consumer):
         key=self.setdefault('conversations',{})
