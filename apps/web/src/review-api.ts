@@ -16,6 +16,14 @@ export type CandidateDetail=QueueItem&{evidence:Evidence[];similar:Similar[];coo
 /** forbidden: the queue is not visible to this session (no current ontology.schema.review). */
 export type Queue={visible:false}|{visible:true;items:QueueItem[];decisions:Decisions};
 
+/** Where the governed review routes live: the NX-046 browser realm (kept) or the workbench login realm (reviewers decide there). */
+export type ReviewEndpoints={base:string;csrf:()=>Promise<string>};
+export const BROWSER_REVIEW:ReviewEndpoints={base:'/api/v1/review',csrf:async()=>(await refreshCsrf()).csrf};
+export const WORKBENCH_REVIEW:ReviewEndpoints={base:'/api/v1/workbench/review-decisions',csrf:async()=>{
+  const response=await fetch('/api/v1/workbench/auth/csrf',{method:'POST',credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw new ApiError(response.status);
+  const token=(await response.json() as {csrf_token?:unknown}).csrf_token;if(typeof token!=='string'||!token)throw new Error('响应无效');return token;}};
+
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const kinds=['object_type','property','vocabulary_value','alias','object_instance'];
 function object(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('响应无效');return value as Record<string,unknown>;}
@@ -58,13 +66,13 @@ export function candidateDetail(value:unknown):CandidateDetail{
   return {...queueItem(v),evidence,similar,cooldown,decisions:decisions(v.decisions),derivation_impact:derivationImpact(v.derivation_impact)};
 }
 async function request(path:string):Promise<unknown>{const response=await fetch(path,{credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new ApiError(response.status);return response.json();}
-export async function readQueue(limit=50):Promise<Queue>{
-  try{const v=object(await request(`/api/v1/review/queue?limit=${limit}`));if(!Array.isArray(v.items))throw new Error('响应无效');return {visible:true,items:v.items.map(queueItem),decisions:decisions(v.decisions)};}
+export async function readQueue(limit=50,endpoints:ReviewEndpoints=BROWSER_REVIEW):Promise<Queue>{
+  try{const v=object(await request(`${endpoints.base}/queue?limit=${limit}`));if(!Array.isArray(v.items))throw new Error('响应无效');return {visible:true,items:v.items.map(queueItem),decisions:decisions(v.decisions)};}
   catch(error){if(error instanceof ApiError&&error.status===403)return {visible:false};throw error;}
 }
-export async function readCandidate(candidateId:string):Promise<CandidateDetail>{
+export async function readCandidate(candidateId:string,endpoints:ReviewEndpoints=BROWSER_REVIEW):Promise<CandidateDetail>{
   if(!uuid.test(candidateId))throw new Error('候选编号无效');
-  return candidateDetail(await request(`/api/v1/review/candidates/${candidateId}`));
+  return candidateDetail(await request(`${endpoints.base}/candidates/${candidateId}`));
 }
 export function decisionResult(value:unknown):DecisionResult{
   const v=object(value);const outcome=v.outcome;const reflow=v.reflow_status;
@@ -75,11 +83,11 @@ export function decisionResult(value:unknown):DecisionResult{
   return {replay:v.replay,decision_id:text(v.decision_id),outcome:outcome as DecisionResult['outcome'],reflow_status:reflow as DecisionResult['reflow_status'],gate_failures:gates,
     schema_revision_after:publication&&typeof publication.schema_revision_after==='string'?publication.schema_revision_after:null};
 }
-export async function decide(candidateId:string,body:{decision:Decision;expected_revision:number;rationale:string;merge_target_ref?:string},idempotencyKey:string):Promise<DecisionResult>{
+export async function decide(candidateId:string,body:{decision:Decision;expected_revision:number;rationale:string;merge_target_ref?:string},idempotencyKey:string,endpoints:ReviewEndpoints=BROWSER_REVIEW):Promise<DecisionResult>{
   if(!uuid.test(candidateId))throw new Error('候选编号无效');
   if(!body.rationale.trim())throw new Error('请填写决定理由');
-  const {csrf}=await refreshCsrf();
-  const response=await fetch(`/api/v1/review/candidates/${candidateId}/decisions`,{method:'POST',credentials:'same-origin',cache:'no-store',
+  const csrf=await endpoints.csrf();
+  const response=await fetch(`${endpoints.base}/candidates/${candidateId}/decisions`,{method:'POST',credentials:'same-origin',cache:'no-store',
     headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':idempotencyKey},body:JSON.stringify(body)});
   if(!response.ok)throw new ApiError(response.status);
   return decisionResult(await response.json());
@@ -124,8 +132,8 @@ export function awaitingItem(value:unknown):AwaitingItem{
   return {decision_id:text(v.decision_id),candidate_id:text(v.candidate_id),decision:v.decision as Decision,outcome:v.outcome as AwaitingItem['outcome'],display_name:text(v.display_name),
     reflow_status:v.reflow_status as AwaitingItem['reflow_status'],reason:(v.reason as string|null|undefined)??null,published_refs:v.published_refs.map(text),waiting_claim_count:count(v.waiting_claim_count)};
 }
-export async function readAwaiting():Promise<AwaitingItem[]>{
-  const v=object(await request('/api/v1/review/awaiting'));if(!Array.isArray(v.items))throw new Error('响应无效');return v.items.map(awaitingItem);
+export async function readAwaiting(endpoints:ReviewEndpoints=BROWSER_REVIEW):Promise<AwaitingItem[]>{
+  const v=object(await request(`${endpoints.base}/awaiting`));if(!Array.isArray(v.items))throw new Error('响应无效');return v.items.map(awaitingItem);
 }
 export function awaitingMessage(item:AwaitingItem):string{
   const what=item.outcome==='published'?'已发布':'已并入已有定义';

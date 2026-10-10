@@ -69,3 +69,36 @@ test('silencing is offered to the owner only, sends the chosen rule and selector
   expect(typeof GOVERNED_SLOTS.alerts).toBe('function');
   expect(parseRoute('/workbench/alerts')).toEqual({page:'alerts'});expect(parseRoute('/workbench/audit')).toEqual({page:'audit'});
 });
+
+test('overview backlog block renders the NX-030 shape: feed name, pending count and oldest wait; empty queues read “无”, never blank',async()=>{
+  const {overview}=await import('../src/workbench/api');
+  const {Overview}=await import('../src/workbench/pages/Overview');
+  const unavailable={status:'unavailable',data:null};
+  const body={goals:unavailable,commitments:unavailable,actions:unavailable,contact:unavailable,takeovers:unavailable,commercial:unavailable,
+    backlog:{status:'ok',data:{queues:{},feeds:{'recall-instance':{pending:5,dead_lettered:0,dead_lettered_last_hour:0,oldest_pending_seconds:12578}},
+      extraction:{pending_messages:2,oldest_pending_seconds:12578}}}};
+  const html=render(client([[['workbench','overview'],overview(body)]]),h(Overview,{onOpen:()=>{}}));
+  const block=html.slice(html.indexOf('aria-label="队列积压"'));
+  expect(block).toContain('recall-instance：待处理 5，死信 0，最久等待 3 小时');
+  expect(block).toContain('队列</h3><p class="note">无（没有排队中的任务）。');
+  expect(block).toContain('待提取消息 2 条，最久等待 3 小时');
+  // A malformed backlog is refused, never rendered as an empty success.
+  expect(()=>overview({...body,backlog:{status:'ok',data:{queues:{},feeds:{x:{pending:-1}},extraction:{pending_messages:0,oldest_pending_seconds:null}}}})).toThrow(WorkbenchError);
+});
+
+test('overview commercial block: unavailable today is labelled; when served, budgets and 24 h costs render and empties read “无”',async()=>{
+  const {overview}=await import('../src/workbench/api');
+  const {Overview}=await import('../src/workbench/pages/Overview');
+  const unavailable={status:'unavailable',data:null};
+  const base={goals:unavailable,commitments:unavailable,actions:unavailable,contact:unavailable,takeovers:unavailable,backlog:unavailable};
+  const off=render(client([[['workbench','overview'],overview({...base,commercial:unavailable})]]),h(Overview,{onOpen:()=>{}}));
+  expect(off.slice(off.indexOf('aria-label="商业事件与费用"'))).toContain('role="status"');
+  const served={status:'ok',data:{budgets:{model_tokens:{limit:'100',unit:'CNY',consumed:'12.5',ratio:0.125}},
+    last_24h:[{cost_kind:'model',data_mode:'real',currency:'CNY',amount:'12.50',entries:3,unpriced:1}]}};
+  const on=render(client([[['workbench','overview'],overview({...base,commercial:served})]]),h(Overview,{onOpen:()=>{}}));
+  const block=on.slice(on.indexOf('aria-label="商业事件与费用"'));
+  expect(block).toContain('model_tokens：已用 12.5 / 100 CNY（12.5%）');expect(block).toContain('model（real）：12.50 CNY，3 条');expect(block).toContain('其中 1 条未定价');
+  const empty=render(client([[['workbench','overview'],overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[]}}})]]),h(Overview,{onOpen:()=>{}}));
+  expect(empty).toContain('无（没有设置预算）。');expect(empty).toContain('无（最近 24 小时没有费用记录）。');
+  expect(()=>overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[{...served.data.last_24h[0],amount:'12,5'}]}}})).toThrow(WorkbenchError);
+});
