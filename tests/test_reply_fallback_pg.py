@@ -90,7 +90,7 @@ def run_fallback_on_host(c,tmp_path,g,mode='reply_once'):
     o=c['o'];p=c['p']
     spawn=dict(database_url=make_conninfo(o['pg'],user='nexloop_domain_worker'),signing_key_file=p['backend_signing'],signing_key_id='explicit-configuration',
         artifact_root=tmp_path/'reply-worker-artifacts',token=c['tokens']['assembly-runtime-worker'],world='real')  # the deployed four guard processes (ADR-024)
-    with guard_server(worker,tmp_path/'fallback-host',guard_key,spawn=spawn) as port:
+    with guard_server(worker,tmp_path/'fallback-host',guard_key,spawn=spawn,workers=4) as port:  # deployment shape (ADR-022 §4, ADR-024)
         config=effect_configuration(tmp_path/'fallback-host',port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message')
         body.update(context_input_protocol='nexloop.context-pack.v6',deterministic_reply_once=True);config.write_text(json.dumps(body))
         with host(runtime,key,config) as (_,client,headers):

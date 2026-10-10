@@ -62,7 +62,7 @@ def actual_host(f,tmp_path,worker,mode,spawn=None):
     from test_runtime_effect_tools import effect_configuration
     runtime,key=files(tmp_path)
     guard_key=tmp_path/'guard-key';guard_key.write_text(secrets.token_hex(32));guard_key.chmod(0o600)
-    with guard_server(worker,tmp_path,guard_key,spawn=spawn) as port:
+    with guard_server(worker,tmp_path,guard_key,spawn=spawn,workers=4) as port:  # deployment shape (ADR-022 §4, ADR-024)
         config=effect_configuration(tmp_path,port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message')
         body.update(context_input_protocol='nexloop.context-pack.v6',plan_outcome_tool=True,deterministic_plan_outcome=mode);config.write_text(json.dumps(body))
         with host(runtime,key,config) as (_,client,headers):yield runtime,client,headers
