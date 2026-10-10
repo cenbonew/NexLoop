@@ -4,6 +4,9 @@
 
 这是 `NX-049-multiprocess-guard.md` §7 第 1、2 步的原型：**可开关、默认关闭**，不改默认值，也不改部署形态（那两件事需要 ADR 和负责人确认）。没有迁移，也没有新的 SQL 函数。
 
+
+> **更正（nx049-deploy-config）**：在此之前，`open_backend` → `open_core` 构造 `StorageSettings(database_url=…)` 时用的是默认值 4，**并不读取 `NEX_EIOS_DB_POOL_MAX`**（只有 `StorageSettings.from_env()` 读它，NexLoop 的路径不调用）。因此本文中“由 `NEX_EIOS_DB_POOL_MAX` 控制连接池”的说法当时并不成立；部署主机上的 pool8 对比实际仍是 4 个连接。现在 Runtime Worker 会显式把这个值传给 guard 所用的 Backend，见 `NX-049-deploy-config.md`。
+
 ## 1. 改动
 
 | 文件 | 改动 |

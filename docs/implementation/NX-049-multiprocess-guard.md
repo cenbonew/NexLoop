@@ -8,6 +8,9 @@
 - 剖析数据见 `NX-049-analysis-round2.md` 与 `NX-049-resolve.md`。
 - 部署主机数据为 `deploy-8ab-r{1,2,3}`（8a+8b，带 PG 函数探针，下文的耗时都已扣除探针时间）。
 
+
+> **更正（nx049-deploy-config）**：在此之前，`open_backend` → `open_core` 构造 `StorageSettings(database_url=…)` 时用的是默认值 4，**并不读取 `NEX_EIOS_DB_POOL_MAX`**（只有 `StorageSettings.from_env()` 读它，NexLoop 的路径不调用）。因此本文中“由 `NEX_EIOS_DB_POOL_MAX` 控制连接池”的说法当时并不成立；部署主机上的 pool8 对比实际仍是 4 个连接。现在 Runtime Worker 会显式把这个值传给 guard 所用的 Backend，见 `NX-049-deploy-config.md`。
+
 ## 0. 结论先行
 
 1. **瓶颈的结构**：所有 guard 请求都在**同一个 Python 进程**里，由线程处理。同一 Run 内的并行工具调用、多个 Role 同时运行，都会让 2–4 个请求重叠，Python 部分在 GIL 下串行。
