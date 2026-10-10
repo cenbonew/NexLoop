@@ -85,7 +85,7 @@ class Commercial(dict):
     def connector(self,connector_id='synthetic-shop',*,world='real',data_mode='real',types=TYPES,currencies=('CNY','USD','JPY'),key_id='k1',
                   confirmation='synthetic owner confirmation',rotation_seconds=86400):
         key=self.key_file(f'{connector_id}-{key_id}')
-        result=commercial.configure_connector(self['configurator_dsn'],tenant=TENANT,world=world,connector_id=connector_id,data_mode=data_mode,
+        result=commercial.configure_connector(self['configurator_dsn'],tenant=self["tenant"],world=world,connector_id=connector_id,data_mode=data_mode,
             event_types=types,currencies=currencies,key_id=key_id,key_file=key,owner_confirmation=confirmation,rotation_seconds=rotation_seconds)
         self.setdefault('keys',{})[connector_id]=bytes.fromhex(key.read_text())
         return result
@@ -100,7 +100,7 @@ class Commercial(dict):
         """A Consumer object (admin seed of the governed Consumer.create write, as other fixtures do)."""
         object_id=hashlib.sha256(secrets.token_bytes(16)).hexdigest()
         self['admin'].execute('''insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
-            values(%s,%s,'Consumer',%s,1,'{}','nexloop-action',%s,clock_timestamp(),clock_timestamp())''',(TENANT,world,object_id,'synthetic-consumer-'+object_id[:12]))
+            values(%s,%s,'Consumer',%s,1,'{}','nexloop-action',%s,clock_timestamp(),clock_timestamp())''',(self["tenant"],world,object_id,'synthetic-consumer-'+object_id[:12]))
         return object_id
 
     # -- events (actual intake function, as the API calls it) -----------------------------------------------------
@@ -135,25 +135,25 @@ class Commercial(dict):
                cost_kinds=(),cohort_kinds=None,declare=True):
         self['admin'].execute("""insert into control.nexloop_metric_definitions(tenant_id,world,metric_id,version,name,aggregation,unit,currency,maturity_seconds,
             refund_rule,cohort_rule,status,approved_by,intent_id) values(%s,%s,%s,1,%s,%s,%s,%s,%s,%s,%s,'approved','synthetic-owner',%s)""",
-            (TENANT,world,metric_id,metric_id,aggregation,'minor' if value=='amount' else 'count',currency,maturity,refund_rule,
+            (self["tenant"],world,metric_id,metric_id,aggregation,'minor' if value=='amount' else 'count',currency,maturity,refund_rule,
              'synthetic cohort rule' ,'metric-'+metric_id))
         if declare:
-            return commercial.declare_metric_source(self['configurator_dsn'],tenant=TENANT,world=world,metric_id=metric_id,metric_version=1,
+            return commercial.declare_metric_source(self['configurator_dsn'],tenant=self["tenant"],world=world,metric_id=metric_id,metric_version=1,
                 source_kind=source_kind,value=value,record_kinds=kinds if source_kind=='commercial_record' else (),
                 statuses=statuses if source_kind=='commercial_record' else (),cost_kinds=cost_kinds,cohort_kinds=cohort_kinds)
 
     def kr(self,goal_id,metric_id,window,*,target='0',world='real'):
         a=self['admin']
         with a.transaction():
-            a.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+            a.execute("select set_config('eios.tenant_id',%s,true)",(self["tenant"],))
             a.execute("insert into control.nexloop_goals(tenant_id,world,goal_id,goal_kind,owner_principal_id,current_version) values(%s,%s,%s,'long_term','synthetic-owner',1)",
-                (TENANT,world,goal_id))
+                (self["tenant"],world,goal_id))
             a.execute("""insert into control.nexloop_goal_versions(tenant_id,world,goal_id,version,objective,period_start,period_end,priority,budget,constraints,
                 status,publisher_principal_id,publisher_kind,change_summary,impact,control_revision,intent_id)
                 values(%s,%s,%s,1,'synthetic objective',%s,%s,2,'{}','[]','published','synthetic-owner','human','synthetic','{}',1,%s)""",
-                (TENANT,world,goal_id,window[0]-timedelta(days=1),window[1]+timedelta(days=1),'goal-'+goal_id))
+                (self["tenant"],world,goal_id,window[0]-timedelta(days=1),window[1]+timedelta(days=1),'goal-'+goal_id))
             a.execute("""insert into control.nexloop_key_results(tenant_id,world,goal_id,goal_version,kr_key,metric_id,metric_version,target,direction,window_start,window_end)
-                values(%s,%s,%s,1,'kr',%s,1,%s,'at_least',%s,%s)""",(TENANT,world,goal_id,metric_id,target,window[0],window[1]))
+                values(%s,%s,%s,1,'kr',%s,1,%s,'at_least',%s,%s)""",(self["tenant"],world,goal_id,metric_id,target,window[0],window[1]))
 
     def compute(self,goal_id,world='real',as_of=None):
         from nexloop_eios.goal_controls import ControlPlane
@@ -161,18 +161,18 @@ class Commercial(dict):
 
     # -- probes ---------------------------------------------------------------------------------------------------
     def record_key(self,kind,external_id,connector_id='synthetic-shop',world='real'):
-        return self['admin'].execute('select runtime.nexloop_commercial_key(%s,%s,%s,%s,%s)',(TENANT,world,connector_id,kind,external_id)).fetchone()[0]
+        return self['admin'].execute('select runtime.nexloop_commercial_key(%s,%s,%s,%s,%s)',(self["tenant"],world,connector_id,kind,external_id)).fetchone()[0]
 
     def record(self,kind,external_id,connector_id='synthetic-shop',world='real'):
         key=self.record_key(kind,external_id,connector_id,world)
         row=self['admin'].execute('''select o.properties,o.nexloop_revision,o.object_id from runtime.nexloop_commercial_records r
             join ontology.objects o on o.tenant_id=r.tenant_id and o.world=r.world and o.type_name='CommercialRecord' and o.object_id=r.object_id
-            where r.tenant_id=%s and r.world=%s and r.record_key=%s''',(TENANT,world,key)).fetchone()
+            where r.tenant_id=%s and r.world=%s and r.record_key=%s''',(self["tenant"],world,key)).fetchone()
         return None if row is None else {'properties':row[0],'revision':row[1],'object_id':row[2]}
 
     def exceptions(self,world='real'):
         return self['admin'].execute('select subject_ref,reason,detail from runtime.nexloop_commercial_exceptions where tenant_id=%s and world=%s order by raised_at,reason',
-            (TENANT,world)).fetchall()
+            (self["tenant"],world)).fetchall()
 
 
 @pytest.fixture
@@ -183,17 +183,17 @@ def commercial_env(published_action,admin,pg,tmp_path):
 
 
 @contextmanager
-def commercial_setup(admin,pg,tmp_path,*,api_pool,signer):
+def commercial_setup(admin,pg,tmp_path,*,api_pool,signer,tenant=TENANT):
     """The commercial configuration on an already bootstrapped catalog (also used on top of the NX-026 commitment fixture)."""
-    publish_commercial_type(admin)
+    publish_commercial_type(admin,tenant=tenant)
     admin.execute('alter role nexloop_configurator login')
     dsn=tmp_path/'configurator-dsn';dsn.write_text(make_conninfo(pg,user='nexloop_configurator'));dsn.chmod(0o600)
     with ExitStack() as stack:
         worker=stack.enter_context(open_core(make_conninfo(pg,user='nexloop_domain_worker')))
         tokens={}
         for world in ('real','test'):
-            _,tokens[world]=seed_multi_authority(admin,worker,RECORDER_TARGETS,identity_suffix='-commercial-recorder-'+world,world=world,tenant=TENANT)
-        for principal, in admin.execute("select distinct entity_key[1] from authz.nexloop_authority_facts where fact_kind='grants' and entity_key[2]='eios:action:nexloop.commercial.record:1'").fetchall():
-            state_rule(admin,principal)
+            _,tokens[world]=seed_multi_authority(admin,worker,RECORDER_TARGETS,identity_suffix='-commercial-recorder-'+world,world=world,tenant=tenant)
+        for principal, in admin.execute("select distinct entity_key[1] from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[2]='eios:action:nexloop.commercial.record:1'",(tenant,)).fetchall():
+            state_rule(admin,principal,tenant)
         yield Commercial(admin=admin,pg=pg,tmp_path=tmp_path,worker=worker,api_pool=api_pool,signer=signer,tokens=tokens,
-            configurator_dsn=dsn,settings=commercial.load_settings(SETTINGS))
+            configurator_dsn=dsn,settings=commercial.load_settings(SETTINGS),tenant=tenant)

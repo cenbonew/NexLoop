@@ -10,6 +10,7 @@
 | 0131 `nx027_metrics` | 观察表加更正链列（supersedes / retracted / excluded_reason / subject_ref）；指标来源声明（configurator）；记录投影为观察（净额/总额/不适用退款规则，异币种排除）；`authz.nexloop_compute_key_result` 改名包一层：只取链上最新、冻结 cohort 比率 | 0068 控制面 |
 | 0132 `nx027_costs` | 模型请求结果带 Run 预算币种（D4）；费用条目 model / channel / discount（append-only）；Run 任务终态时追加释放行结算模型预留（D5）；cost_entry 指标投影；费用读端口 | 0089/0100 模型请求、0042 effect 账本、0068 预算、0001 jobs、0131 |
 | 0133 `nx027_commercial_links` | recorder 下游钩子：每个对象新修订一次，唤醒关联 Consumer 的 active 计划（NX-024，触发种类 `commercial_event`），并给已绑定的承诺写 `commercial_event` 证据（NX-026）；承诺绑定表与 owner 内部绑定接口 | 0106 计划 feed、0111 承诺证据与 touch |
+| 0134 `nx027_commercial_observe` | 人类只读入口 `authz.nexloop_commercial_observe`（CommercialRecord.observe:1，只限人类，身份先于授权，照 0095）：记录、费用与结算、KR；投影与服务读端口共用（`runtime.nexloop_commercial_view` / `runtime.nexloop_cost_view`） | 0095 模式、0130/0132 投影、0131 KR |
 
 已发布迁移一字未改（0131 在切片三中放宽了自己未发布的 cost_entry 检查）。新函数一律 `search_path=pg_catalog,pg_temp`，SECURITY DEFINER 函数 owner 为 `nexloop_owner` 并撤销 PUBLIC。
 
@@ -34,6 +35,9 @@
 - `deploy/configuration/business-actions.v1.json` v6：CommercialRecord.create / .edit（service，commercial_recorder）。
 - `deploy/authorization/service-grants.v1.json` v11：commercial_recorder 主体、feed、record、commercial.read、cost.read、两个 Action、对象类型 READ、`commercial_state` 属性规则。
 - 连接器、客户关联、指标来源用 configurator 函数配置（`nexloop_eios.commercial.configure_connector` 等；密钥从私有文件读取，不回显）。
+- `business-actions` v7：CommercialRecord.observe（human_owner，capability `commercial.observe`）；人类授权来自可信配置，不在 service-grants。
+- HTTP（同源、人类浏览器会话、只读）：`GET /api/v1/commercial-observations[?consumer_id]`、`/commercial-observations/{record_id}`、`/costs`、`/costs/entries[?cost_kind&run_id]`、`/metrics/{goal_id}/{version}/{kr_key}`；每个回答带 world，每项带 data_mode。
+- 治理入口 handler（NX-028 注册表签名，注册表行待 0150 合入后补）：`control.nexloop_commercial_bind_commitment_handler`（0133，capability 拟 `commitment.bind_commercial`）、`control.nexloop_cost_record_handler`（0132，service/labour 人工费用，capability 拟 `cost.record`；更正追加 `corrects_entry_id`，汇总与指标只计链上最新）。
 - 后台入口 `nexloop-commercial-recorder`（`--world real|test`，容器作业 `commercial-recorder`，compose 可选 profile `background`）；HTTP `POST /api/v1/webhooks/commercial/{connector_id}`。
 
 ## 4. 与设计稿的差异
@@ -49,9 +53,9 @@
 
 ## 5. 未完成与缺口
 
-- service / labour 费用的人类 Action（`nexloop.cost.record:1`）与 `/costs` HTTP 读接口：随 NX-028 工作台；现在只有读端口 `CostReadPort`。
+- service / labour 费用与承诺绑定：handler 已按注册表签名写好，注册表行与 `goal_controls.CAPABILITIES` 映射待 0150 合入后补；在此之前没有入口调用它们。
 - 折扣 Action：仓库里还没有发放折扣的 Action，discount 条目来自任何 incentive 预留。
-- J01 端到端（真实 Host/Pi：付款 → 唤醒 → 复评结论“不再提醒”）未做；本分支验证到计划 feed 被标记为止，复评本身由 NX-024/025 的测试覆盖。
+- J01 端到端只覆盖“付款 → 唤醒 → 复评 Run 结论 no_action（不再提醒）”；“已排队的提醒在派发时按控制快照处理”由 NX-024/025 的派发测试覆盖，未在本测试重复。
 - `financial_retention_days` 短于指标成熟窗口时的 doctor 告警未做；到期清理由 NX-029 执行。
 - 负责人已决定 CommercialRecord 不设受限组（main `0810381`，随 main `036c640` 合入）；`test_service_grants_pg` 已通过。
 
@@ -64,5 +68,8 @@
 - `tests/test_commercial_intake_pg.py`（16）：AT-012 去重与并发、冲突、签名/窗口/载荷/停用、密钥轮换、晚到与更正、退款、币种冲突、AT-011 守卫、关联/取消关联、D1、D6、角色、读端口、HTTP。
 - `tests/test_commercial_metrics_pg.py`（7）：净额/总额、补记退款、更正、撤回、异币种排除、AT-042、成熟度、冻结 cohort。
 - `tests/test_costs_pg.py`（4）：AT-043 模型费用与 D4 币种、终态释放、未知结果不释放、折扣费用与成本指标、D7 单价。
-- `tests/test_commercial_links_pg.py`（2）：付款证据使承诺兑现并唤醒计划、不匹配/未绑定/test 世界不写证据。
+- `tests/test_commercial_links_pg.py`（3）：付款证据使承诺兑现并唤醒计划、不匹配/未绑定/test 世界不写证据、绑定 handler。
+- `tests/test_costs_pg.py` 另含 service/labour 人工费用 handler（更正取代、重放、意图复用、非法输入、角色）。
+- `tests/test_commercial_observe_pg.py`（2）：人类读取记录/费用/KR、服务被拒（无授权；持人类声明也在身份处被拒）、HTTP 路由（422/403/405/401）。
+- `tests/test_commercial_j01_pg.py`（1，真实 Host/Pi，guard workers=4，串行）：已核验续费付款唤醒该 Consumer 的计划 → 复评 Run 结论 no_action，无 intent、无外发、计划保持 active；Run 的模型调用带预算币种并有对应费用条目。
 - `tests/test_outbound_messages_pg.py` 真实 Pi 链路追加：已接受的投递得到一条未计价渠道费用。
