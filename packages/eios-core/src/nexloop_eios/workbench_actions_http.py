@@ -5,7 +5,9 @@ that operation (0150 capability registry): pause / resume a scope, release a con
 human commitment Actions (NX-026), a manual plan reevaluation and a query of an unknown effect result (D7). The
 browser names an operation, never an Action or a tenant: tenant, world and principal come from the inspected session;
 the tenant's Action for the capability is looked up in SQL (0151); the governed entry re-checks EXECUTE, the human
-subject, the registry and every fence. The Idempotency-Key header is the governed request id (replays are answered from
+subject, the registry and every fence. Only the workbench login realm is accepted (its own browser application and the
+``__Host-nexloop_workbench`` cookie, slice 1); a WebChat customer cookie is never a workbench session (401), and a member
+acts only within the grants of their role (an operator calling an owner-only operation is 403). The Idempotency-Key header is the governed request id (replays are answered from
 the terminal outcome). Fixed error codes: unauthenticated 401, forbidden 403, not_found 404 (no Action published for it),
 invalid_request 422, not_allowed_in_state 409, conflict 409, unavailable 503 (authority or a dependency cannot be verified).
 """
@@ -23,7 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from eios.identity.errors import CredentialInvalid
 from eios.identity.ports import TrustedIdentityOperator
 from eios.identity.sessions import BrowserSessionService
-from nexloop_eios.browser_http import COOKIE
+from nexloop_eios.browser_http import WORKBENCH_COOKIE
 from nexloop_eios.goal_controls import CAPABILITIES
 
 _HEX=re.compile(r'[0-9a-f]{64}')
@@ -86,7 +88,7 @@ OPERATIONS={
 
 
 class WorkbenchActions:
-    """Governed human writes for one inspected browser session (re-authenticated on every call)."""
+    """Governed human writes for one inspected workbench session (re-authenticated on every call)."""
 
     def __init__(self,backend,inspected_session):
         self.backend,self.inspected_session=backend,inspected_session
@@ -95,7 +97,7 @@ class WorkbenchActions:
         from nexloop_eios.authorization import authority_request_scope
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.goal_controls import GoalGovernedActions
-        self.backend.authenticate_browser_reviewer(self.inspected_session)  # open backend + current Human authentication
+        self.backend.authenticate_workbench(self.inspected_session)  # open backend + current Human authentication (workbench realm)
         with authority_request_scope():
             pool=self.backend._pool;human=authenticate_browser_business(pool,self.inspected_session,world='real')
             with pool.connection() as db:
@@ -107,7 +109,7 @@ class WorkbenchActions:
 
 
 def router(config,*,ports_for_browser):
-    """ports_for_browser(request, inspected_session) → WorkbenchActions."""
+    """config: the workbench BrowserConfiguration; ports_for_browser(request, inspected_session) → WorkbenchActions."""
     if not callable(ports_for_browser):raise ValueError('governed browser ports required')
     routes=APIRouter(prefix='/api/v1/workbench/actions')
     origin=urlsplit(config.origin)
@@ -118,11 +120,11 @@ def router(config,*,ports_for_browser):
 
     def bound(request):
         if request.headers.get('host')!=origin.netloc or request.headers.get('origin')!=config.origin:raise PermissionError()
-        store=getattr(request.app.state,'browser_store',None)
+        store=getattr(request.app.state,'workbench_store',None)
         if store is None:raise RuntimeError()
         op=TrustedIdentityOperator(operator_principal_id='nexloop_identity',request_id=str(uuid.uuid4()),trace_id=str(uuid.uuid4()))
         sessions=BrowserSessionService(store,store,application_id=config.application_id,operator=op)
-        session=sessions.inspect(request.cookies.get(COOKIE,''))
+        session=sessions.inspect(request.cookies.get(WORKBENCH_COOKIE,''))
         sessions.verify_csrf(session,request.headers.get('x-csrf-token',''))
         if session.restricted:raise PermissionError()
         return ports_for_browser(request,session)
