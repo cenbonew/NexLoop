@@ -214,3 +214,16 @@ M08–M10 的样本表是只追加的运行数据，定期汇总后删除，保�
 - **D6 test / simulation 数据**：推荐指标分 world 和 data_mode 统计，工作台带标签，告警只对 `real`，避免测试数据触发负责人告警（M20 验收：模拟不显示为真实）。
 - **D7 工作台读端口扩展方式**：推荐新增独立函数（`authz.nexloop_workbench_metrics_read` 等）并在 Python 侧分派，不改 0117 的函数体，避免与 NX-028 后续切片争同一个函数。备选：create or replace 0117。
 - **D8 派发拒绝持久化**：SQL 拒绝会回滚派发事务，所以拒绝行不能在派发函数里写。推荐新增只追加的 `runtime.nexloop_dispatch_refusals`，由已经持久化拒绝结果的那个事务一并写入：Run 派发是 `finish_task`，effect 派发是 effect worker 的拒绝/终态记录。两条路径都不改派发判定本身，也不碰 NX-028 切片 3 的派发包装。需要调度员确认这两个“结束”函数的归属（L3 的 runtime worker、L4 的 effect 路径）。备选：只从 `runtime.jobs.result.code` 统计，受任务保留期限制，且看不到 effect 派发的拒绝。
+
+## 11. 调度员裁定（2026-10-10，已审 1fb5c12）
+
+- **D4 采用推荐**：新建 `nexloop_metrics` 角色，可登录，只能执行快照函数，不能读业务表和原文；在连接预算中计 1 个。
+- **D6 采用推荐**：指标按 world 和 data_mode 分别统计，工作台显示标签，告警只针对 `real`。
+- **D7 采用推荐**：工作台的指标、告警、审计各用独立读函数，在 Python 侧分派，不改 0117 的函数体。
+- **D8 采用推荐**：新增只追加的 `runtime.nexloop_dispatch_refusals`，由已经持久化拒绝结果的那个事务一并写入：
+  - Run 路径在 `finish_task`；
+  - effect 路径在 effect worker 的终态记录。
+  
+  两条路径由 L2 实现时统一修改，只加写拒绝行这一步，不改派发判定，也不碰 L4 的派发包装；合并时由调度员协调。
+- **D1、D2、D3、D5 已报负责人**，结论到后转达。D5 的保留期要与 L3 的 NX-029 保留总表一致，由调度员对齐。
+- 实现等 NX-028 合入后再分派。
