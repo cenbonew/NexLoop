@@ -2257,6 +2257,18 @@
         "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
         "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "caaf3ae",
+        "summary": "Follow-up from the browser smoke test (workbench login, pause/resume, takeover, staff reply, hand-back, audit all passed on the local smoke environment): overview backlog and commercial blocks now render the NX-030 data shapes (were blank); review decisions moved into the workbench knowledge page for the reviewer role on the workbench login realm; staff blocks removed from the customer page; dev-only one-command smoke script with reliable PostgreSQL stop.",
+        "recorded_at": "2026-10-11T06:24:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T214015Z-caaf3aeea5fe",
+        "summary": "Full CI for caaf3ae (integration-s4n): 2781 passed / 14 failed, all within baseline; deadline phase 2/2.",
+        "recorded_at": "2026-10-11T06:24:00+08:00"
       }
     ]
   },
