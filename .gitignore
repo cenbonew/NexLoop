@@ -63,3 +63,5 @@ htmlcov/
 # Volatile live planning validation report; frozen handoff snapshot stays tracked.
 /planning/handoff-validation.json
 scripts/perf/out/
+# Dev-machine workbench smoke environment (scripts/dev/workbench_smoke.sh): credentials and temp data
+.dev-smoke/
