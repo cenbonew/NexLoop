@@ -119,3 +119,23 @@ def test_round_trip_ledger_to_replay_is_a_no_op_on_the_same_database(erasing,adm
     out=owner_call(admin,'select runtime.nexloop_replay_deletions(%s,%s)',('restore-rt',Jsonb([e for e in ledger(admin) if e['kind']!='item_class'])))
     assert out['consumers']==0 and out['messages']==0 and out['already_applied']>=2
     owner_call(admin,'select runtime.nexloop_replay_finish(%s)',('restore-rt',))
+
+
+def test_doctor_reports_stuck_erasures_failing_purges_and_overdue_classes(erasing,admin):
+    """The retention status (doctor) names what does not progress; injected states only (disposable database)."""
+    import uuid
+    c=erasing;consumer=c['consumer']
+    def warnings():
+        with admin.transaction():
+            # As the retention port calls it: inside the caller's tenant.
+            admin.execute('set local role nexloop_owner');admin.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+            return {w['code'] for w in admin.execute('select runtime.nexloop_retention_warnings(%s,%s)',(TENANT,'real')).fetchone()[0]}
+    assert warnings()==set()
+    keeper(c).run_once()                                                    # every class has a completed sweep now
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica');admin.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+        admin.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark,updated_at)
+            values(%s,'real','stuck-1',%s,'owner','synthetic','synthetic','waiting_unknown_effects',nextval('control.nexloop_deletion_watermark'),clock_timestamp()-interval '2 days')""",(TENANT,consumer))
+        admin.execute("insert into runtime.nexloop_run_purge_items(tenant_id,world,run_id,request_ref,reason,attempts) values(%s,'real',%s,'erasure:x','consumer_erasure',3)",(TENANT,str(uuid.uuid4())))
+        admin.execute("update runtime.nexloop_retention_sweeps set last_completed_at=clock_timestamp()-interval '1 day' where item_class='message_text'")
+    assert warnings()=={'erasure_waiting_for_unknown_effects','run_purge_failing','retention_class_overdue'}

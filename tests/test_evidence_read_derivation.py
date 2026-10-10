@@ -185,3 +185,20 @@ def test_erasing_consumer_refuses_the_conversation_window_and_its_consumer_read(
     with pytest.raises(psycopg.errors.InsufficientPrivilege, match=ERASING), admin.transaction():direct()
     with pytest.raises(Exception):extractor.load_window(conversation_id=conversation_id, message_ids=ids)
     withdraw(admin, 'synthetic-a', consumer); direct()
+
+
+def test_erased_message_clears_the_summaries_built_from_it(window, admin):
+    """NX-029 (AT-026 'summaries'): erasing a Message clears the topic label and summary of every topic built from it."""
+    fixture, conversation_id, ids = window
+    extractor = claim_extractor(fixture, admin, conversation_id, suffix='-claim-summary')
+    registered(extractor, conversation_id, ids)
+    extractor.extract(conversation_id=conversation_id, message_ids=ids)
+    topics = admin.execute('select topic_key,topic,conversation_summary,message_ids from ontology.nexloop_conversation_topics where conversation_id=%s', (conversation_id,)).fetchall()
+    assert topics and all(t[1] and t[2] for t in topics)
+    erased = topics[0][3][0]
+    with admin.transaction():
+        admin.execute('set local role nexloop_owner')
+        admin.execute("select runtime.nexloop_erase_message('synthetic-a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')", (erased,))
+    after = {t[0]: (t[1], t[2]) for t in admin.execute('select topic_key,topic,conversation_summary from ontology.nexloop_conversation_topics where conversation_id=%s', (conversation_id,)).fetchall()}
+    for key, _, _, message_ids in topics:
+        assert (after[key] == ('', '')) == (erased in message_ids)
