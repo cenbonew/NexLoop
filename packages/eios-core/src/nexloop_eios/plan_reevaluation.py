@@ -139,6 +139,7 @@ class PlanReevaluationWorker:
     def __init__(self,pool,session,signer,*,settings,launcher):
         self.feed=WorkFeed(pool,session,signer,feed=FEED)
         self.port=PlanPort(pool,session,signer)
+        self.pool,self.session=pool,session
         self.settings,self.launcher=settings,launcher
 
     def _retry(self,item,code,delay=None,max_attempts=None):
@@ -164,6 +165,10 @@ class PlanReevaluationWorker:
                     budget=run_budget(self.settings,decision['plan_steps']) if 'plan_steps' in decision else self.settings['run_budget']
                     run=self.launcher.issue(decision,budget)
                     self.port.link_run(plan_id=plan_id,version=decision['version'],run_id=run.run_id,triggers=triggers)
+                    # The Run's NX-022 goal version (0068 trace): intents it submits capture it (0097) and are refused at
+                    # dispatch once that goal changes, exactly as for any goal-bound Run.
+                    from nexloop_eios.goal_controls import ControlPlane
+                    ControlPlane(self.pool,self.session).bind_run(run_id=run.run_id,goal_ref=decision['goal_version_ref'])
                     self.launcher.activate(run,decision,budget,triggers)
                 outcome='launched' if kind=='reevaluate' else kind
             except WorkFeedDenied:raise
