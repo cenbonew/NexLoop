@@ -375,6 +375,17 @@ class ReviewServices:
         return self._backend._invoke_review(self._inspected_session, 'candidate', candidate_id=candidate_id)
 
 
+class WorkbenchServices:
+    """NX-028 slice 1 owner workbench reads (read-only); writes are slice 2/3 WorkbenchActions."""
+    def __init__(self, backend, inspected_session):
+        self._backend, self._inspected_session = backend, inspected_session
+
+    def __getattr__(self, operation):
+        if operation.startswith('_'):
+            raise AttributeError(operation)
+        return lambda **arguments: self._backend._invoke_workbench(self._inspected_session, operation, **arguments)
+
+
 class Backend:
     def __init__(self, pool, store, signer):
         from nexloop_eios.request_connection import RequestConnectionPool
@@ -428,6 +439,27 @@ class Backend:
             # principal to a service credential or accepts caller-supplied scope.
             authenticate_browser_business(self._pool, inspected_session, world='real')
             return BrowserServices(self, inspected_session)
+
+    def authenticate_workbench(self, inspected_session):
+        """NX-028 slice 1: owner workbench reads for an actual Human session of the workbench application (0141)."""
+        from nexloop_eios.browser_authorization import authenticate_browser_business
+        with self._lock:
+            self._assert_open()
+            authenticate_browser_business(self._pool, inspected_session, world='real')
+            return WorkbenchServices(self, inspected_session)
+
+    def _invoke_workbench(self, inspected_session, operation, **arguments):
+        from nexloop_eios.browser_authorization import authenticate_browser_business
+        from nexloop_eios.workbench_reads import WorkbenchQueries, WorkbenchReader
+        allowed = {'overview', 'goals', 'consumers', 'consumer', 'conversation', 'plans', 'actions', 'takeovers', 'settings',
+            'commitments', 'commitment', 'contact'}
+        with self._lock, authority_request_scope(), request_connection_scope(self._pool):
+            self._assert_open()
+            if operation not in allowed:
+                raise ValueError('unsupported workbench operation')
+            # Current PG authentication of the Human session on every request (revocation applies at once).
+            session = authenticate_browser_business(self._pool, inspected_session, world='real')
+            return getattr(WorkbenchQueries(WorkbenchReader(self._pool, session, self._signer)), operation)(**arguments)
 
     def authenticate_browser_reviewer(self, inspected_session):
         from nexloop_eios.browser_authorization import authenticate_browser_business

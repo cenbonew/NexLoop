@@ -2177,7 +2177,7 @@
       "M20"
     ],
     "deliverable": "所有薄切片页面与暂停/对账/证据交互",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
@@ -2190,6 +2190,18 @@
         "ref": "bd0df2c8f2c36810e1bbf31682a847c9e677a830",
         "summary": "ADR-019 owner specification/contract/planning baseline; not implementation completion",
         "recorded_at": "2026-10-08T10:59:36.767453+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "daf63fa",
+        "summary": "Slice 1 merged (L2, nx028-s1 4fe9f4a): workbench member identity in a separate browser application, configured only through trusted configuration, customer and member mutually exclusive (0116); workbench read port requiring the matching read Action per verb (0117); owner/operator/reviewer role manifest; commitment-view and contact-restriction-view contracts; read-only workbench pages with AT-045 page states. Message bodies stayed fail-closed until ADR-025. Slices 2-3 (actions, takeover, staff reply) and the ADR-025 member read are integrated next.",
+        "recorded_at": "2026-10-10T18:55:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T101027Z-ab1cffb49742",
+        "summary": "Full CI for ab1cffb (integration-s4i): 2672 passed / 10 failed; 9 within baseline, 1 new (test_message_runtime_effect_e2e same-message receipt state) passed serially 3/3 on the same checkout, registered as parallel-load jitter (C); deadline phase 2/2.",
+        "recorded_at": "2026-10-10T18:55:00+08:00"
       }
     ]
   },

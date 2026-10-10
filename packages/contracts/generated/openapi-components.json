@@ -1270,6 +1270,487 @@
           }
         ]
       },
+      "CommitmentView": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:commitment-view",
+        "title": "commitment-view",
+        "description": "NX-028 (D8). The owner workbench's read projection of one Commitment (NX-026 runtime.nexloop_commitment_view). `status` lives only in `properties.status`; the interface never infers it. The four evidence columns are separate: a delivered message proves delivery only, never fulfilment (AT-040); `problem_resolved` is unavailable in v0.1 (NX-026 D5). `quote` is the promised words, shown only while the source Message exists AND the reader holds that Message's READ (`quote_status`: ok, restricted = withheld for lack of READ, unavailable = source deleted, none = no source message). Server-derived; grants nothing.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "commitment_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "consumer_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "properties": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "conditional",
+                  "open",
+                  "in_progress",
+                  "fulfilled",
+                  "breached",
+                  "cancelled",
+                  "superseded"
+                ]
+              }
+            }
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            ]
+          },
+          "quote_status": {
+            "enum": [
+              "ok",
+              "restricted",
+              "unavailable",
+              "none"
+            ]
+          },
+          "source_available": {
+            "type": "boolean"
+          },
+          "origin": {
+            "enum": [
+              "claim",
+              "extend"
+            ]
+          },
+          "registered_at": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            ]
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requested",
+              "delivered",
+              "customer_confirmed",
+              "problem_resolved"
+            ],
+            "properties": {
+              "requested": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "ref",
+                    "occurred_at"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    },
+                    "occurred_at": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  }
+                }
+              },
+              "delivered": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "ref",
+                    "occurred_at"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    },
+                    "occurred_at": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  }
+                }
+              },
+              "customer_confirmed": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "ref",
+                    "occurred_at"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    },
+                    "occurred_at": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  }
+                }
+              },
+              "problem_resolved": {
+                "const": "unavailable"
+              }
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "ref",
+                "detail",
+                "principal_id",
+                "recorded_at"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "detail": {
+                  "type": "object"
+                },
+                "principal_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recorded_at": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "exceptions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason",
+                "detail",
+                "raised_at"
+              ],
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "pattern": "^[a-z_]{1,64}$"
+                },
+                "detail": {
+                  "type": "object"
+                },
+                "raised_at": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "commitment_id",
+          "consumer_id",
+          "revision",
+          "properties",
+          "quote",
+          "quote_status",
+          "source_available",
+          "origin",
+          "registered_at",
+          "evidence",
+          "events",
+          "exceptions"
+        ]
+      },
+      "ContactRestrictionView": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:contact-restriction-view",
+        "title": "contact-restriction-view",
+        "description": "NX-028 (D8). The owner workbench's read projection of contact restrictions and reply escalations (ADR-023, 0109). A refusal hit's `matched_text` is the customer's own words: it is present only when the reader also holds that Message's READ (`matched_text_status` ok), otherwise null with status restricted (shown as \"rule <rule_id> matched; text needs authorization\"). Only the owner can release a restriction (ADR-023 §2.4); a release never replays refused intents. Server-derived; grants nothing.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "restrictions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "consumer_id",
+                "active",
+                "control_revision",
+                "message_id",
+                "conversation_id",
+                "rule_version",
+                "rule_id",
+                "certainty",
+                "matched_text",
+                "matched_text_status",
+                "restricted_at",
+                "released_at",
+                "released_by",
+                "release_reason",
+                "hits"
+              ],
+              "properties": {
+                "consumer_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "control_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "message_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "conversation_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "rule_version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "rule_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "certainty": {
+                  "enum": [
+                    "refuse",
+                    "uncertain"
+                  ]
+                },
+                "matched_text": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 8192
+                    }
+                  ]
+                },
+                "matched_text_status": {
+                  "enum": [
+                    "ok",
+                    "restricted"
+                  ]
+                },
+                "restricted_at": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "released_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "released_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "release_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "hits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "message_id",
+                      "rule_version",
+                      "rule_id",
+                      "certainty",
+                      "matched_text",
+                      "matched_text_status",
+                      "recorded_at"
+                    ],
+                    "properties": {
+                      "message_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "rule_version": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "rule_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "certainty": {
+                        "enum": [
+                          "refuse",
+                          "uncertain"
+                        ]
+                      },
+                      "matched_text": {
+                        "anyOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 8192
+                          }
+                        ]
+                      },
+                      "matched_text_status": {
+                        "enum": [
+                          "ok",
+                          "restricted"
+                        ]
+                      },
+                      "recorded_at": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "escalations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "message_id",
+                "conversation_id",
+                "consumer_id",
+                "reason",
+                "detail",
+                "escalated_at"
+              ],
+              "properties": {
+                "message_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "conversation_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "consumer_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "reason": {
+                  "type": "string",
+                  "pattern": "^[a-z_]{1,64}$"
+                },
+                "detail": {
+                  "type": "object"
+                },
+                "escalated_at": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "restrictions",
+          "escalations"
+        ]
+      },
       "ContextManifest": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:context-manifest",
@@ -4486,6 +4967,8 @@
     "action-intent.schema.json": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90",
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
     "claim.schema.json": "dbb4683b5f18d6d3dd1c5fcacc3dd76277be5290ccb410e92591459a4e0101c7",
+    "commitment-view.schema.json": "f7c8290bacf1bbc70d23ba8da3a8cf4125ac8ac3d1d2b37f85c967c392909502",
+    "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
     "context-pack-v6.schema.json": "86a84f3bafca2a00b5327256f351f14023cfee17234236b216d6cc19122c2b3d",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",

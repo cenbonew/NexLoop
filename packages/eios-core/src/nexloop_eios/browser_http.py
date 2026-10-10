@@ -13,6 +13,8 @@ from eios.identity.errors import CredentialInvalid
 from nexloop_eios.browser_rate_limits import PostgresBrowserRateLimiter,client_digest
 
 COOKIE='__Host-nexloop_session'
+# NX-028: the owner workbench is its own browser application with its own login realm and cookie (D1).
+WORKBENCH_COOKIE='__Host-nexloop_workbench'
 
 @dataclass(frozen=True)
 class BrowserConfiguration:
@@ -27,12 +29,13 @@ class BrowserConfiguration:
         if any(type(v) is not str or not v or v!=v.strip() for v in (self.tenant_id,self.application_id)):raise ValueError('server realm required')
 
 
-def router(config):
-    routes=APIRouter(prefix='/api/v1/auth')
+def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser_store'):
+    COOKIE=cookie
+    routes=APIRouter(prefix=prefix)
     def response(code,status):return JSONResponse({'code':code},status_code=status,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
     def same_origin(request):return request.headers.get('origin')==config.origin and request.headers.get('host')==urlsplit(config.origin).netloc
     def services(request):
-        store=getattr(request.app.state,'browser_store',None)
+        store=getattr(request.app.state,store_attribute,None)
         if store is None:raise RuntimeError()
         op=TrustedIdentityOperator(operator_principal_id='nexloop_identity',request_id=str(uuid.uuid4()),trace_id=str(uuid.uuid4()))
         return store,op,BrowserSessionService(store,store,application_id=config.application_id,operator=op)

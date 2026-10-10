@@ -27,6 +27,8 @@ class ApiConfiguration:
     execution_profile:str|None=None
     conversation_stream_seconds:int=180
     cache_wakeup:object|None=None
+    # NX-028: the owner workbench's own browser application (same identity store, realm and origin; own login and cookie).
+    workbench:object|None=None
 
 
 def create_app(config:ApiConfiguration):
@@ -35,6 +37,7 @@ def create_app(config:ApiConfiguration):
         with ExitStack() as stack:
             app.state.backend=None
             app.state.browser_store=None
+            app.state.workbench_store=None
             try:
                 dsn=read_private_text(config.database_url_file,maximum=16384)
                 app.state.backend=stack.enter_context(open_backend(database_url=dsn,
@@ -50,11 +53,14 @@ def create_app(config:ApiConfiguration):
                     if len(key)!=32:raise ValueError()
                     app.state.browser_rate_key=key
                     app.state.browser_store=PostgresBrowserSessionUnitOfWork(pool,tenant_id=config.browser.tenant_id,application_id=config.browser.application_id)
+                    if config.workbench is not None:
+                        app.state.workbench_store=PostgresBrowserSessionUnitOfWork(pool,tenant_id=config.workbench.tenant_id,application_id=config.workbench.application_id)
                 except Exception:pass
             try:yield
             finally:
                 app.state.backend=None
                 app.state.browser_store=None
+                app.state.workbench_store=None
                 app.state.browser_rate_key=None
     app=FastAPI(title='NexLoop API',version='0.1.0',lifespan=lifespan,docs_url=None,redoc_url=None)
     if config.browser is not None:
@@ -102,6 +108,28 @@ def create_app(config:ApiConfiguration):
             return backend
         # NX-028 D4: the customer's "a person is handling this" status (0152); backend.py itself is unchanged.
         app.include_router(takeover_state_router(config.browser, backend_for=takeover_backend))
+        from nexloop_eios.commercial_observe_http import ObservePorts, router as observe_router
+        def observe_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # NX-027 human-only reads of records, costs and key results (0134).
+            return ObservePorts(backend, inspected_session)
+        app.include_router(observe_router(config.browser, ports_for_browser=observe_ports))
+    if config.browser is not None and config.workbench is not None:
+        # NX-028 slice 1: workbench login realm (own cookie) and governed human reads.
+        from nexloop_eios.browser_http import WORKBENCH_COOKIE, router as auth_router
+        from nexloop_eios.workbench_http import router as workbench_router
+        app.include_router(auth_router(config.workbench, prefix='/api/v1/workbench/auth', cookie=WORKBENCH_COOKIE, store_attribute='workbench_store'))
+        def workbench_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            return backend.authenticate_workbench(inspected_session)
+        app.include_router(workbench_router(config.workbench, ports_for_workbench=workbench_ports))
+    # NX-027 signed commercial webhook: the connector signature authenticates (no session).
+    from nexloop_eios.commercial_http import router as commercial_router
+    app.include_router(commercial_router())
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')
@@ -151,6 +179,14 @@ def create_app(config:ApiConfiguration):
     if config.web_root is not None:
         from fastapi.staticfiles import StaticFiles
         if config.web_root.is_symlink() or not config.web_root.is_dir():raise ValueError('built frontend directory required')
+        # NX-028: workbench pages live in the URL (/workbench/<page>[/<id>]); the built single page serves them.
+        from fastapi.responses import FileResponse
+        index=config.web_root/'index.html'
+        @app.get('/workbench',include_in_schema=False)
+        @app.get('/workbench/{rest:path}',include_in_schema=False)
+        def workbench_page(rest:str=''):
+            if not index.is_file():return JSONResponse(status_code=404,content={'code':'not_found','message':'Resource unavailable','trace_id':str(uuid.uuid4()),'retryable':False,'details':{}})
+            return FileResponse(index,headers={'Cache-Control':'no-store'})
         app.mount('/',StaticFiles(directory=str(config.web_root),html=True),name='web')
     return app
 
@@ -169,6 +205,7 @@ def main():
     p.add_argument('--tls-certificate-file',type=Path);p.add_argument('--tls-key-file',type=Path)
     p.add_argument('--identity-database-url-file',type=Path);p.add_argument('--browser-rate-key-file',type=Path)
     p.add_argument('--browser-tenant-id');p.add_argument('--browser-application-id');p.add_argument('--browser-origin')
+    p.add_argument('--workbench-application-id')
     a=p.parse_args()
     if not 1024<=a.port<=65535:p.error('unprivileged local port required')
     tls={}
@@ -185,6 +222,11 @@ def main():
         from nexloop_eios.browser_http import BrowserConfiguration
         try:browser=BrowserConfiguration(*browser_values)
         except ValueError:p.error('valid fixed HTTPS browser realm required')
+    workbench=None
+    if a.workbench_application_id is not None:
+        if browser is None or a.workbench_application_id==a.browser_application_id:p.error('workbench needs the browser realm and its own application')
+        from nexloop_eios.browser_http import BrowserConfiguration
+        workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin)
     host_control=None
     if any(v is not None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):
         if any(v is None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):p.error('complete Host control configuration required')
@@ -197,7 +239,7 @@ def main():
         except Exception:p.error('private cache configuration unavailable')
     import uvicorn
     # Foundation console is localhost-only; no accidental LAN/plaintext login.
-    uvicorn.run(create_app(ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,execution_profile=a.execution_profile,cache_wakeup=cache)),
+    uvicorn.run(create_app(ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,execution_profile=a.execution_profile,cache_wakeup=cache,workbench=workbench)),
         host='127.0.0.1',port=a.port,access_log=False,log_level='warning',**tls)
     return 0
 

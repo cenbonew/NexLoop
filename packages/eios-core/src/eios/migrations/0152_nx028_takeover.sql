@@ -117,7 +117,7 @@ alter table control.nexloop_control_events add constraint nexloop_control_events
  check(event_kind in ('pause','resume','budget','goal_version','agent_goal','metric','contact_restricted','contact_released','takeover','handback'));
 alter table runtime.nexloop_work_feed drop constraint nexloop_work_feed_feed_check;
 alter table runtime.nexloop_work_feed add constraint nexloop_work_feed_feed_check
- check(feed in ('recall-instance','claim-match','plan-reevaluate','reply-due','commitment-register','commitment-monitor','takeover-expiry'));
+ check(feed in ('recall-instance','claim-match','plan-reevaluate','reply-due','commitment-register','commitment-monitor','commercial-record','takeover-expiry'));
 
 -- The active takeover covering a consumer or one of its conversations (null: none). Never waits for expiry processing.
 create function control.nexloop_takeover_active(p_tenant text,p_world text,p_consumer text,p_conversation text) returns uuid
@@ -255,14 +255,14 @@ alter function authz.nexloop_takeover_command(text,text,text,text,text) owner to
 revoke all on function authz.nexloop_takeover_command(text,text,text,text,text) from public;
 grant execute on function authz.nexloop_takeover_command(text,text,text,text,text) to nexloop_domain_worker;
 
--- Work feed port: 0111 body, 'takeover-expiry' added.
+-- Work feed port: latest body (0111, 'commercial-record' added by NX-027), 'takeover-expiry' added.
 create or replace function authz.nexloop_work_feed(p_digest text,p_world text,p_text text,p_signature text,p_payload text)
  returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare a jsonb:=p_text::jsonb;c jsonb:=p_payload::jsonb;k bytea;v_tenant text:=a->>'tenant_id';v_feed text:=c->>'feed';v_verb text:=c->>'verb';
  v_result jsonb;v_limit integer;v_lease integer;v_delay integer;v_max integer;r runtime.nexloop_work_feed%rowtype;ident jsonb;
 begin
  if session_user<>'nexloop_domain_worker' or p_world is null or octet_length(p_text)>1048576 or octet_length(p_payload)>65536
-  or v_feed is null or v_feed not in ('recall-instance','claim-match','plan-reevaluate','reply-due','commitment-register','commitment-monitor','takeover-expiry')
+  or v_feed is null or v_feed not in ('recall-instance','claim-match','plan-reevaluate','reply-due','commitment-register','commitment-monitor','commercial-record','takeover-expiry')
   or v_verb is null or v_verb not in ('claim','complete','retry','backlog')
   or a->>'protocol' is distinct from 'nexloop-work-feed-v1' or a->>'operation' is distinct from 'execute'
   or a->>'action_resource' is distinct from 'eios:action:NexLoop.feed.'||v_feed||':1' or a->>'resource_id' is distinct from a->>'action_resource'

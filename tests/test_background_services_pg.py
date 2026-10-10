@@ -22,7 +22,7 @@ SYNTHETIC_RECIPE={'consumer_id':'a'*64,'control_id':'b'*64,'control_revision':1,
 ROLES={'claim-extraction-scheduler':('claim_extraction_scheduler','nexloop_api'),'claim-extraction-worker':('claim_extraction_worker','nexloop_domain_worker'),
     'claim-matcher':('claim_matcher','nexloop_domain_worker'),'recall-indexer':('recall_indexer','nexloop_domain_worker'),
     'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker'),'reply-guarantor':('reply_guarantor','nexloop_domain_worker'),
-    'commitment-keeper':('commitment_keeper','nexloop_domain_worker')}
+    'commitment-keeper':('commitment_keeper','nexloop_domain_worker'),'commercial-recorder':('commercial_recorder','nexloop_domain_worker')}
 
 
 def argv(d,tmp_path,service,*,role=None,policy=None):
@@ -49,6 +49,8 @@ def argv(d,tmp_path,service,*,role=None,policy=None):
         for name in B.LAUNCH_CREDENTIALS:args+=[f'--{name}-credential-file',str(private(root,name+'_credential','synthetic-unused-'+name))]
     if service=='commitment-keeper':
         args+=['--settings-file',str(ROOT/'deploy/configuration/commitments.v1.json')]
+    if service=='commercial-recorder':
+        args+=['--settings-file',str(ROOT/'deploy/configuration/commercial.v1.json')]
     if service=='reply-guarantor':
         # Idle tick: nothing is due, so the relay identities are read but never authenticated (synthetic placeholders);
         # the fallback itself is exercised by tests/test_reply_fallback_pg.py.
@@ -72,7 +74,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
     ('plan-reevaluator',{'changed':0,'closed':0,'dead_lettered':0,'invalidated':0,'launched':0,'lease_lost':0,'paused':0,'retry':0,'throttled':0}),
     ('reply-guarantor',{'changed':0,'dead_lettered':0,'escalated':0,'fallback_started':0,'lease_lost':0,'retry':0,'settled':0,'taken_over':0,
         **{'takeover_'+k:0 for k in ('changed','dead_lettered','ended','expired','lease_lost','retry','waiting')}}),
-    ('commitment-keeper',{'changed':0,'dead_lettered':0,'lease_lost':0,'reaffirmed':0,'registered':0,'retry':0,'settled':0,'skipped':0,'transitions':0})])
+    ('commitment-keeper',{'changed':0,'dead_lettered':0,'lease_lost':0,'reaffirmed':0,'registered':0,'retry':0,'settled':0,'skipped':0,'transitions':0}),
+    ('commercial-recorder',{'changed':0,'created':0,'dead_lettered':0,'edited':0,'late':0,'lease_lost':0,'retry':0,'unchanged':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()
     assert B.main_for(service,argv(d,tmp_path,service))==0

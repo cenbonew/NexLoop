@@ -56,11 +56,16 @@ def test_compiles_both_profiles_with_explicit_snapshots():
     rows=BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
-            **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()}})
+            **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()},'commercial.observe':capability('commercial.observe')})
     names={r['definition']['stable_name']:r for r in rows}
-    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,*REQUESTS}
+    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,*REQUESTS,
+        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe'}
     # NX-028 slice 2: two human requests, typed on Consumer v1, never service-executed.
     assert all(by_name['authority']=='human_owner' for by_name in MANIFEST['actions'] if by_name['stable_name'] in REQUESTS)
+    observe=next(a for a in MANIFEST['actions'] if a['stable_name']=='CommercialRecord.observe')
+    assert observe['authority']=='human_owner' and observe['executor_role']=='human_owner' and observe['capability_name']=='commercial.observe'
+    # NX-027: the commercial recorder's create/edit on CommercialRecord v1 (service authority only).
+    assert all(names[n]['definition']['object_types'][0]['stable_name']=='CommercialRecord' for n in ('CommercialRecord.create','CommercialRecord.edit'))
     # NX-026: the keeper's create/edit and five human-owner commitment Actions, all on Commitment v1.
     by={a['stable_name']:a for a in MANIFEST['actions']}
     assert by['Commitment.create']['executor_role']==by['Commitment.edit']['executor_role']=='commitment_keeper'

@@ -9,3 +9,22 @@
 .messages li.outbound{border-left:3px solid #2f6f4f;background:#f2f8f4}
 .messages li.outbound>span{font-weight:600;color:#2f6f4f}
 .review .warning{border-left:4px solid #b54708;background:#fffaeb;color:#7a2e0e;padding:10px 14px;font-size:15px;line-height:24px;margin:12px 0}
+
+/* NX-028 slice 1: owner workbench (appended; existing rules unchanged). */
+.workbench-layout{display:grid;grid-template-columns:minmax(10rem,14rem) 1fr;gap:1.5rem;align-items:start}
+.workbench-layout nav ul{list-style:none;margin:0;padding:0}
+.workbench-layout nav a{display:block;padding:.35rem .5rem;border-radius:.375rem;text-decoration:none}
+.workbench-layout nav a[aria-current="page"]{font-weight:600;background:rgba(0,0,0,.06)}
+.workbench-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:1rem}
+.workbench-block{border:1px solid rgba(0,0,0,.12);border-radius:.5rem;padding:.75rem 1rem}
+.workbench-block-forbidden,.workbench-block-unavailable{border-style:dashed}
+.workbench-actions:empty{display:none}
+.workbench-state{border-left:3px solid #b26b00;padding:.25rem .75rem}
+.workbench-state-forbidden,.workbench-state-unauthenticated{border-left-color:#8a8a8a}
+.workbench .pending{color:#8a5a00}
+.workbench table{border-collapse:collapse;width:100%}
+.workbench th,.workbench td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid rgba(0,0,0,.08);vertical-align:top}
+.workbench .link{background:none;border:none;padding:0;color:inherit;text-decoration:underline;cursor:pointer}
+.evidence-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:1rem}
+.workbench-messages .message-outbound{margin-left:2rem}
+@media (max-width:720px){.workbench-layout{grid-template-columns:1fr}}
