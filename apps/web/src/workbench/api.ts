@@ -77,11 +77,22 @@ export async function workbenchLogout():Promise<void>{
 // ---- overview ----
 export type Overview={goals:Section<{goals:{goal_id:string;goal_kind:string;objective:string;current_version:number;key_results:number}[];control_revision:number;paused_scopes:{scope_kind:string;scope_ref:string;reason:string}[]}>;
   commitments:Section<{open:number;breached:number;exceptions:{reason:string;count:number}[]}>;actions:Section<{count:number;oldest_age_seconds:number|null}>;
-  contact:Section<{restricted:number;escalations:number}>;takeovers:Section<Takeover[]>;backlog:Section<Backlog>;commercial:Section<unknown>};
+  contact:Section<{restricted:number;escalations:number}>;takeovers:Section<Takeover[]>;backlog:Section<Backlog>;commercial:Section<Commercial>};
 /** NX-030 M06/M07 (overview block): queues, work feeds and the extraction feed from the SQL metrics snapshot; counts and ages only. */
 export type Backlog={queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null}};
 export function backlog(value:unknown):Backlog{const v=object(value);const ex=object(v.extraction);
   return {queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)}};}
+/** Overview “商业事件与费用” block. The backend serves it unavailable today; when wired it carries the NX-030 snapshot cost
+ * shape (budgets and the last 24 h of NX-027 cost entries): codes, decimal strings and counts only. */
+export type Commercial={budgets:Record<string,{limit:string;unit:string;consumed:string;ratio:number|null}>;
+  last_24h:{cost_kind:string;data_mode:string;currency:string;amount:string;entries:number;unpriced:number}[]};
+function decimalText(value:unknown):string{const t=text(value);if(!/^-?\d+(\.\d+)?$/.test(t))throw new WorkbenchError('invalid');return t;}
+export function commercial(value:unknown):Commercial{const v=object(value);
+  return {budgets:Object.fromEntries(Object.entries(object(v.budgets)).map(([k,x])=>{const b=object(x);
+      const ratio=b.ratio===null?null:Number(decimalText(typeof b.ratio==='number'?String(b.ratio):b.ratio));
+      return [k,{limit:decimalText(b.limit),unit:text(b.unit),consumed:decimalText(b.consumed),ratio}];})),
+    last_24h:list(v.last_24h).map(x=>{const o=object(x);return {cost_kind:text(o.cost_kind),data_mode:text(o.data_mode),currency:text(o.currency),amount:decimalText(o.amount),
+      entries:count(o.entries),unpriced:count(o.unpriced)};})};}
 export const ageText=(seconds:number|null|undefined)=>seconds===null||seconds===undefined?'—':seconds<120?`${seconds} 秒`:seconds<7200?`${Math.round(seconds/60)} 分钟`:`${Math.round(seconds/3600)} 小时`;
 export const OVERVIEW_SECTIONS=['goals','commitments','actions','contact','takeovers','backlog','commercial'] as const;
 export function section<T>(value:unknown,data:(value:unknown)=>T):Section<T>{
@@ -99,7 +110,7 @@ export function overview(value:unknown):Overview{
     commitments:section(v.commitments,d=>{const c=object(d);return {open:count(c.open),breached:count(c.breached),exceptions:list(c.exceptions).map(x=>{const o=object(x);return {reason:text(o.reason),count:count(o.count)};})};}),
     actions:section(v.actions,d=>{const a=object(d);return {count:count(a.count),oldest_age_seconds:a.oldest_age_seconds===null?null:count(a.oldest_age_seconds)};}),
     contact:section(v.contact,d=>{const c=object(d);return {restricted:count(c.restricted),escalations:count(c.escalations)};}),
-    takeovers:section(v.takeovers,d=>takeovers(d).takeovers),backlog:section(v.backlog,backlog),commercial:section(v.commercial,d=>d),
+    takeovers:section(v.takeovers,d=>takeovers(d).takeovers),backlog:section(v.backlog,backlog),commercial:section(v.commercial,commercial),
   };
 }
 export const readOverview=()=>get('/api/v1/workbench/overview',overview);
