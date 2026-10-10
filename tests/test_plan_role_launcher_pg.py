@@ -26,7 +26,13 @@ from test_plan_reevaluation_pg import SETTINGS,make_due,publish_goal,reevaluator
 
 
 @pytest.fixture
-def role_planning(monkeypatch,admin,request):
+def role_settings():
+    """The deployment settings; actual-Host tests override this with the deterministic runtime profile."""
+    return SETTINGS
+
+
+@pytest.fixture
+def role_planning(monkeypatch,admin,request,role_settings):
     install=fixture.install_runtime_catalog
     def installed(admin_,tenant,*args):
         out=install(admin_,tenant,*args);seed_strategy(admin_,tenant,STRATEGY);return out
@@ -41,8 +47,8 @@ def role_planning(monkeypatch,admin,request):
     api=plan['api']
     launcher=RoleRunLauncher(source=lambda:api.authenticate(plan['source_tokens'][0],world='real'),
         queue_service=lambda:api.authenticate(plan['owner_token'],world='real'),planner=lambda:api.authenticate(plan['planner_token'],world='real'),
-        executor_token=plan['executor_token'],settings=SETTINGS,effect_action='eios:action:'+fixture.EFFECT+':1')
-    def worker():return PlanReevaluationWorker(*services(session()),settings=SETTINGS,launcher=launcher)
+        executor_token=plan['executor_token'],settings=role_settings,effect_action='eios:action:'+fixture.EFFECT+':1')
+    def worker():return PlanReevaluationWorker(*services(session()),settings=role_settings,launcher=launcher)
     def establish(**changes):
         s=spec(plan,recipe=recipe,**changes);PlanPort(*services(session())).establish(s);make_due(admin);return s
     yield dict(plan=plan,admin=admin,worker=worker,establish=establish,principal=principal)
