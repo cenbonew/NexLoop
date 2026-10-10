@@ -50,12 +50,33 @@ def diagnose(*,database_url,artifact_root,environment=None):
             'product_ready':False,'not_verified':['governed_instance_write','real_effect_action','pi_run_recovery','artifact_write_smoke','community_compose']}
 
 
+def connection_budget(*,budget_file,database_url):
+    """ADR-024 / 11_DEPLOYMENT §6: declared pools (sum <= 60) and the server's max_connections (>= 80)."""
+    from nexloop_eios import connection_budget as budget
+    max_connections=None
+    try:
+        with psycopg.connect(database_url,connect_timeout=5) as c:
+            max_connections=int(c.execute('show max_connections').fetchone()[0])
+    except Exception:pass
+    try:
+        result=budget.evaluate(budget.load(budget_file),max_connections=max_connections)
+    except budget.BudgetInvalid as error:
+        return {'checks':{'connection_budget_file':False},'details':{'connection_budget_error':str(error)}}
+    checks={'connection_budget_file':True,'connection_budget_total':result['checks']['application_pool_total'],
+        'max_connections':result['checks'].get('max_connections',False)}
+    return {'checks':checks,'details':{'connection_budget':result['details']}}
+
+
 def main():
     parser=argparse.ArgumentParser(description='Read-only NexLoop foundation doctor')
-    parser.add_argument('--artifact-root',required=True)
+    parser.add_argument('--artifact-root')
     parser.add_argument('--database-url-file',type=Path)
     parser.add_argument('--mode',choices=['test'])
+    parser.add_argument('--connection-budget',type=Path,help='versioned connection budget (deploy/stage/connection-budget.v1.json)')
+    parser.add_argument('--budget-only',action='store_true',help='only the connection budget and max_connections checks (pre-start gate)')
     args=parser.parse_args()
+    if args.budget_only and not args.connection_budget:parser.error('--budget-only requires --connection-budget')
+    if not args.budget_only and not args.artifact_root:parser.error('--artifact-root is required')
     configured_file=args.database_url_file or os.environ.get('DATABASE_URL_FILE')
     database_url='';configured=True
     if configured_file:
@@ -66,8 +87,14 @@ def main():
         source='environment'
         database_url=os.environ.get('NEXLOOP_DATABASE_URL','')
         configured=bool(database_url.strip())
-    result=diagnose(database_url=database_url,artifact_root=args.artifact_root,
-        environment={'MODEL_PROVIDER':'test'} if args.mode=='test' else None)
+    if args.budget_only:
+        result={'checks':{},'details':{},'product_ready':False}
+    else:
+        result=diagnose(database_url=database_url,artifact_root=args.artifact_root,
+            environment={'MODEL_PROVIDER':'test'} if args.mode=='test' else None)
+    if args.connection_budget:
+        budget=connection_budget(budget_file=args.connection_budget,database_url=database_url)
+        result['checks'].update(budget['checks']);result['details'].update(budget['details'])
     result['checks']['database_configuration']=configured
     result['details']['database_configuration_source']=source
     result['details']['mode']=args.mode or 'configured'

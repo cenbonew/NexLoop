@@ -40,8 +40,9 @@ def verify_application_role(connection):
 
 
 @contextmanager
-def open_core(database_url: str):
-    pool: ConnectionPool = create_pool(StorageSettings(database_url=database_url), open_pool=True)
+def open_core(database_url: str, pool_max_size: int = 4):
+    # pool_max_size is explicit (NX-049): LifecycleLock admits pool_max_size // 2 requests.
+    pool: ConnectionPool = create_pool(StorageSettings(database_url=database_url, pool_max_size=pool_max_size), open_pool=True)
     try:
         pool.wait(timeout=10)
         with pool.connection() as connection:

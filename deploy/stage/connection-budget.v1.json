@@ -1,0 +1,11 @@
+{
+  "schema": "nexloop.connection-budget.v1",
+  "decision": "11_DEPLOYMENT §6 and ADR-024: list every APP_HOST service process that opens a PostgreSQL pool. nexloop-doctor --budget-only sums pool max x process count (<= 60) and requires the server's max_connections >= 80 before any service starts. Process counts follow 11_DEPLOYMENT §7; adjust this file together with the service configuration.",
+  "services": [
+    {"name": "api", "processes": 2, "pool_max": 4},
+    {"name": "domain-worker", "processes": 1, "pool_max": 4},
+    {"name": "action-worker", "processes": 1, "pool_max": 4},
+    {"name": "scheduler", "processes": 1, "pool_max": 4},
+    {"name": "runtime-worker", "processes": 1, "guard_workers": 4, "dispatcher_pool_max": 2, "guard_pool_max": 4}
+  ]
+}

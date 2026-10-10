@@ -1,0 +1,76 @@
+# APP_HOST Runtime Worker (ADR-024: guard served by 4 child processes). Example only:
+# every host, path, image and port comes from the private env file; nothing here is a real address.
+# Requires the Agent Host on the same host with global concurrency <= 4 (deploy/stage/README.md).
+# Rollback: set --guard-workers 1 below and restart the service (no schema/data change).
+services:
+  runtime-worker-budget:
+    image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+    entrypoint: [nexloop-doctor]
+    command: [--budget-only, --connection-budget, /etc/nexloop/connection-budget.v1.json, --database-url-file, /run/secrets/runtime_worker_dsn]
+    secrets: [runtime_worker_dsn]
+    volumes: [./connection-budget.v1.json:/etc/nexloop/connection-budget.v1.json:ro]
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  runtime-worker:
+    image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+    depends_on:
+      runtime-worker-budget:
+        condition: service_completed_successfully
+    entrypoint: [nexloop-runtime-worker]
+    command:
+      - --database-url-file
+      - /run/secrets/runtime_worker_dsn
+      - --signing-key-file
+      - /run/secrets/runtime_worker_signing_key
+      - --signing-key-id
+      - ${NEXLOOP_SIGNING_KEY_ID:?signing key id required}
+      - --service-credential-file
+      - /run/secrets/runtime_worker_credential
+      - --artifact-root
+      - /var/lib/nexloop/artifacts
+      - --world
+      - real
+      - --queue
+      - operations
+      - --host-origin
+      - https://127.0.0.1:${NEXLOOP_AGENT_HOST_PORT:?Agent Host loopback port required}
+      - --host-control-key-file
+      - /run/secrets/host_control_key
+      - --host-ca-file
+      - /run/secrets/host_ca
+      - --guard-port
+      - ${NEXLOOP_GUARD_PORT:?guard loopback port required}
+      - --guard-key-file
+      - /run/secrets/guard_key
+      - --guard-certificate-file
+      - /run/secrets/guard_certificate
+      - --guard-tls-key-file
+      - /run/secrets/guard_tls_key
+      - --guard-workers
+      - '4'
+      - --dispatcher-pool-max
+      - '2'
+    environment:
+      NEX_EIOS_DB_POOL_MAX: '4'
+    secrets: [runtime_worker_dsn, runtime_worker_signing_key, runtime_worker_credential, host_control_key, host_ca, guard_key, guard_certificate, guard_tls_key]
+    volumes: ['${NEXLOOP_ARTIFACT_DIR:?private artifact directory required}:/var/lib/nexloop/artifacts']
+    network_mode: host  # loopback guard and Agent Host on the same APP_HOST
+    user: '${NEXLOOP_SERVICE_UID:?service uid required}:${NEXLOOP_SERVICE_GID:?service gid required}'
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: on-failure
+    # Children drain up to 15 s, the parent waits up to 20 s for them.
+    stop_grace_period: 40s
+secrets:
+  runtime_worker_dsn: {file: '${NEXLOOP_SECRET_DIR:?private secret directory required}/runtime_worker_dsn'}
+  runtime_worker_signing_key: {file: '${NEXLOOP_SECRET_DIR}/runtime_worker_signing_key'}
+  runtime_worker_credential: {file: '${NEXLOOP_SECRET_DIR}/runtime_worker_credential'}
+  host_control_key: {file: '${NEXLOOP_SECRET_DIR}/host_control_key'}
+  host_ca: {file: '${NEXLOOP_SECRET_DIR}/host_ca'}
+  guard_key: {file: '${NEXLOOP_SECRET_DIR}/guard_key'}
+  guard_certificate: {file: '${NEXLOOP_SECRET_DIR}/guard_certificate'}
+  guard_tls_key: {file: '${NEXLOOP_SECRET_DIR}/guard_tls_key'}

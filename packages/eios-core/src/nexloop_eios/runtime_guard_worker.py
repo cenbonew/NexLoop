@@ -1,4 +1,4 @@
-"""Runtime guard child processes (NX-049 multi-process prototype, off by default).
+"""Runtime guard child processes (ADR-024; off by default, stage deployment uses N=4).
 
 `nexloop-runtime-worker --guard-workers N` (N > 1) keeps the dispatcher in the
 parent and serves the loopback guard from N child processes. The parent creates
@@ -38,9 +38,11 @@ def _arguments(argv):
                    'guard-key-file', 'guard-certificate-file', 'guard-tls-key-file'):
         parser.add_argument('--' + option, type=Path, required=True)
     parser.add_argument('--signing-key-id', default='active')
+    parser.add_argument('--pool-max', type=int, default=4)
     parser.add_argument('--world', required=True)
     args = parser.parse_args(argv)
-    if args.listen_fd < 3 or not 1024 <= args.guard_port <= 65535 or not args.world or len(args.world) > 255:
+    if (args.listen_fd < 3 or not 1024 <= args.guard_port <= 65535 or not args.world or len(args.world) > 255
+            or not 2 <= args.pool_max <= 32):
         parser.error('configuration')
     return args
 
@@ -56,7 +58,8 @@ def run_child(arguments, stop):
         dsn = read_private_text(arguments.database_url_file, maximum=16384)
         read_private_text(arguments.service_credential_file, maximum=16384)
         with open_backend(database_url=dsn, artifact_root=arguments.artifact_root,
-                          signing_key_file=arguments.signing_key_file, signing_key_id=arguments.signing_key_id) as backend:
+                          signing_key_file=arguments.signing_key_file, signing_key_id=arguments.signing_key_id,
+                          pool_max_size=arguments.pool_max) as backend:
             with backend._pool.connection() as connection:
                 if verify_application_role(connection) not in {'nexloop_domain_worker', 'nexloop_scheduler'}:
                     raise ValueError('restricted Worker role required')
@@ -126,13 +129,15 @@ class GuardFiles:
 class GuardWorkerPool:
     """Parent side: one bound loopback listener shared by N supervised guard children."""
 
-    def __init__(self, files, *, port, workers, ready_timeout=30.0, stop_timeout=20.0,
+    def __init__(self, files, *, port, workers, pool_max=4, ready_timeout=30.0, stop_timeout=20.0,
                  max_restarts=4, restart_window=60.0, on_failure=None):
         if type(workers) is not int or not 2 <= workers <= 16:
             raise ValueError('guard worker count must be 2..16')
         if type(port) is not int or not (port == 0 or 1024 <= port <= 65535):
             raise ValueError('unprivileged loopback port required')
-        self.files, self.workers, self.port = files, workers, port
+        if type(pool_max) is not int or not 2 <= pool_max <= 32:
+            raise ValueError('guard pool size must be 2..32')
+        self.files, self.workers, self.port, self.pool_max = files, workers, port, pool_max
         self.ready_timeout, self.stop_timeout = ready_timeout, stop_timeout
         self.max_restarts, self.restart_window = max_restarts, restart_window
         self.on_failure = on_failure
@@ -170,7 +175,7 @@ class GuardWorkerPool:
         f = self.files
         fd = self._listener.fileno()
         child = subprocess.Popen([sys.executable, '-m', 'nexloop_eios.runtime_guard_worker',
-            '--listen-fd', str(fd), '--guard-port', str(self.port),
+            '--listen-fd', str(fd), '--guard-port', str(self.port), '--pool-max', str(self.pool_max),
             '--database-url-file', str(f.database_url_file), '--signing-key-file', str(f.signing_key_file),
             '--signing-key-id', f.signing_key_id, '--service-credential-file', str(f.service_credential_file),
             '--artifact-root', str(f.artifact_root), '--world', f.world, '--guard-key-file', str(f.guard_key_file),
