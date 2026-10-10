@@ -1,0 +1,13 @@
+{
+  "schema": "nexloop-commitments/1",
+  "version": 1,
+  "decision": "NX-026 (M18, dispatcher rulings 2026-10-10): an enterprise commitment Claim from a delivered outbound Message is registered as a governed Commitment object; its status only moves on ledger evidence. lead_seconds before due_at the Consumer's active plans are marked for reevaluation (NX-024 T7); at due_at an open or in-progress commitment without qualifying evidence is breached, an owner-visible exception is raised and the plans are marked again. A commitment without a determinable due date marks the plans at registration (clarify) and raises no_due_date after unspecified_max_open_seconds. Initial values; owner-adjustable by a new version.",
+  "lead_seconds": 3600,
+  "unspecified_max_open_seconds": 604800,
+  "worker": {
+    "batch": 20,
+    "lease_seconds": 120,
+    "max_attempts": 8,
+    "retry_base_seconds": 30
+  }
+}

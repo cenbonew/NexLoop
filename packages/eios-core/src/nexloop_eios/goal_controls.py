@@ -29,7 +29,10 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 PROTOCOL='nexloop-goal-governed-v1'
 CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.version.publish',
     'propose_agent_goal':'goals.agent.propose','set_control':'goals.control.set','set_budget':'goals.budget.set',
-    'release_contact_restriction':'goals.contact.release'}
+    'release_contact_restriction':'goals.contact.release',
+    # NX-026: human-only commitment Actions (SQL refuses services and Agents even with a grant).
+    'cancel_commitment':'commitment.cancel','extend_commitment':'commitment.extend','attest_commitment':'commitment.attest',
+    'commitment_condition_met':'commitment.condition_met','mark_commitment_communication':'commitment.mark_communication'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -161,6 +164,27 @@ class GoalGovernedActions:
             raise ValueError('consumer id and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_contact_restriction',
             'consumer_id':consumer_id,'reason':reason})
+
+    def _commitment(self,action_name,action_version,request_id,operation,commitment_id,reason,**extra):
+        if not re.fullmatch(r'[0-9a-f]{64}',str(commitment_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('commitment id and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':operation,'commitment_id':commitment_id,'reason':reason,**extra})
+
+    # NX-026 (D4, D8): commitment cancel / extend / attest / condition met / communication marking are human Actions only.
+    def cancel_commitment(self,*,action_name,action_version,request_id,commitment_id,reason):
+        return self._commitment(action_name,action_version,request_id,'cancel_commitment',commitment_id,reason)
+
+    def extend_commitment(self,*,action_name,action_version,request_id,commitment_id,due_at,reason):
+        return self._commitment(action_name,action_version,request_id,'extend_commitment',commitment_id,reason,due_at=_utc(due_at))
+
+    def attest_commitment(self,*,action_name,action_version,request_id,commitment_id,occurred_at,reason):
+        return self._commitment(action_name,action_version,request_id,'attest_commitment',commitment_id,reason,occurred_at=_utc(occurred_at))
+
+    def commitment_condition_met(self,*,action_name,action_version,request_id,commitment_id,reason):
+        return self._commitment(action_name,action_version,request_id,'commitment_condition_met',commitment_id,reason)
+
+    def mark_commitment_communication(self,*,action_name,action_version,request_id,commitment_id,reason):
+        return self._commitment(action_name,action_version,request_id,'mark_commitment_communication',commitment_id,reason)
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

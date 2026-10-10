@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-service-grants/1",
-  "manifest_version": 9,
-  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks). v5: deployment plan B (0099) — message_read_rules bind Message/Conversation READ to the work itself: the extraction worker reads only the Conversation and Messages of an extraction task its credential currently leases; the matcher reads only the evidence Message and Conversation of a Claim still to be matched. Derived in SQL at each use; rule or Action revocation, Message deletion, leaving the Conversation, task completion or Claim resolution end it. v6: nexloop.context.assemble:1 is issued with each Run (0104): the Source carries the Run credential it issued for that Run, valid only while the Run is active and for that Run's own pack; the standing context_assembler principal is retired and its grants are revoked on apply. v7: NX-024 plan reevaluation — plan_reevaluator drains plan-reevaluate and runs the deterministic precheck (nexloop.plan.reevaluate); runtime_worker records run-outcomes of reevaluation Runs (nexloop.plan.outcome), bound in SQL to the live activation and its own task lease. v8: ADR-023 reply guarantee — reply_guarantor drains reply-due (pending replies registered in the inbound Message's own transaction, 0109), reads the state of one pending reply, starts its fallback reply Run or escalates it to the owner with evidence (nexloop.reply.guarantee), and reads contact restrictions and escalations (nexloop.contact.read). It cannot write, lift or weaken a contact restriction. v9: ADR-023 fallback reply Run (0110) — message_relay also issues the one fallback reply Run of an unanswered inbound message (nexloop.reply.fallback), with the same MessageAssignment checks as the original message Run; SQL refuses a second one and refuses it once the message is settled.",
+  "manifest_version": 10,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks). v5: deployment plan B (0099) — message_read_rules bind Message/Conversation READ to the work itself: the extraction worker reads only the Conversation and Messages of an extraction task its credential currently leases; the matcher reads only the evidence Message and Conversation of a Claim still to be matched. Derived in SQL at each use; rule or Action revocation, Message deletion, leaving the Conversation, task completion or Claim resolution end it. v6: nexloop.context.assemble:1 is issued with each Run (0104): the Source carries the Run credential it issued for that Run, valid only while the Run is active and for that Run's own pack; the standing context_assembler principal is retired and its grants are revoked on apply. v7: NX-024 plan reevaluation — plan_reevaluator drains plan-reevaluate and runs the deterministic precheck (nexloop.plan.reevaluate); runtime_worker records run-outcomes of reevaluation Runs (nexloop.plan.outcome), bound in SQL to the live activation and its own task lease. v8: ADR-023 reply guarantee — reply_guarantor drains reply-due (pending replies registered in the inbound Message's own transaction, 0109), reads the state of one pending reply, starts its fallback reply Run or escalates it to the owner with evidence (nexloop.reply.guarantee), and reads contact restrictions and escalations (nexloop.contact.read). It cannot write, lift or weaken a contact restriction. v9: ADR-023 fallback reply Run (0110) — message_relay also issues the one fallback reply Run of an unanswered inbound message (nexloop.reply.fallback), with the same MessageAssignment checks as the original message Run; SQL refuses a second one and refuses it once the message is settled. v10: NX-026 commitments — commitment_keeper drains commitment-register (commitment Claims marked in their own transaction) and commitment-monitor (evidence, human requests, restrictions, due stages), prepares registrations and evaluates transitions in SQL (nexloop.commitment.keep), creates Commitment objects with exactly the prepared properties (Commitment.create) and applies only ledger-derived transitions (Commitment.edit) under a per-object EDIT derived only for the commitment_lifecycle group; it reads commitments and exceptions (nexloop.commitment.read). It writes no evidence of its own and holds no human commitment Action.",
   "valid_from": "2026-10-09T00:00:00+00:00",
   "world": "real",
   "principals": [
@@ -103,6 +103,17 @@
       "database_role": "nexloop_api",
       "purpose": "Route an accepted inbound Message to a Run activation event.",
       "source_task": "NX-016"
+    },
+    {
+      "role": "commitment_keeper",
+      "subject_id": "nexloop-service-commitment-keeper",
+      "principal_id": "nexloop-service-commitment-keeper-principal",
+      "credential_id": "nexloop-service-commitment-keeper-key",
+      "credential_reference": "commitment_keeper",
+      "application_id": "eios:application:nexloop-commitment-keeper",
+      "database_role": "nexloop_domain_worker",
+      "purpose": "Register enterprise commitments from delivered commitment Claims and move their status only on ledger evidence; marks plans at due stages and raises owner-visible exceptions.",
+      "source_task": "NX-026"
     }
   ],
   "grants": [
@@ -147,7 +158,21 @@
     {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.conversation.route:1", "operations": ["execute"],
      "purpose": "Route an accepted inbound Message into a Run activation.", "source_task": "NX-016"},
     {"principal": "outbound_message_recorder", "resource_type": "action", "resource_id": "eios:action:Message.agent_create:1", "operations": ["execute"],
-     "purpose": "Governed creation of the Message object for an outbound reply already accepted by the channel (ADR-020 §2).", "source_task": "NX-047"}
+     "purpose": "Governed creation of the Message object for an outbound reply already accepted by the channel (ADR-020 §2).", "source_task": "NX-047"},
+    {"principal": "commitment_keeper", "resource_type": "action", "resource_id": "eios:action:NexLoop.feed.commitment-register:1", "operations": ["execute"],
+     "purpose": "Lease commitment Claims marked in the same transaction that recorded them (0111).", "source_task": "NX-026"},
+    {"principal": "commitment_keeper", "resource_type": "action", "resource_id": "eios:action:NexLoop.feed.commitment-monitor:1", "operations": ["execute"],
+     "purpose": "Lease commitments marked by evidence, human requests, contact restrictions and due stages (0111).", "source_task": "NX-026"},
+    {"principal": "commitment_keeper", "resource_type": "action", "resource_id": "eios:action:nexloop.commitment.keep:1", "operations": ["execute"],
+     "purpose": "Prepare registrations from the Claim and its delivered outbound Message, record them, evaluate and settle ledger-derived transitions (0111).", "source_task": "NX-026"},
+    {"principal": "commitment_keeper", "resource_type": "action", "resource_id": "eios:action:nexloop.commitment.read:1", "operations": ["execute"],
+     "purpose": "Read commitments with their evidence columns and exceptions (query port before NX-028).", "source_task": "NX-026"},
+    {"principal": "commitment_keeper", "resource_type": "action", "resource_id": "eios:action:Commitment.create:1", "operations": ["execute"],
+     "purpose": "Governed creation of a Commitment with exactly the prepared properties (SQL guard, 0111).", "source_task": "NX-026"},
+    {"principal": "commitment_keeper", "resource_type": "action", "resource_id": "eios:action:Commitment.edit:1", "operations": ["execute"],
+     "purpose": "Governed status transition derived from the evidence ledger (SQL guard, 0111); per-object EDIT comes from the commitment_lifecycle rule.", "source_task": "NX-026"},
+    {"principal": "commitment_keeper", "resource_type": "object_type", "resource_id": "eios:object_type:Commitment", "operations": ["read"],
+     "purpose": "Type-level READ carried by the derived per-object Commitment EDIT proofs.", "source_task": "NX-026"}
   ],
   "deferred": [
     {"resource_id": "eios:action:nexloop.service.request:1", "reason": "Real outbound effect execution; channel enablement and REAL_DISPATCH_ENABLED need the owner's own confirmation (ADR-020 §3).", "source_task": "NX-015/NX-016"},
@@ -167,7 +192,12 @@
      "property_groups": ["channel_tech", "demographics", "lifestyle", "needs_intent", "other", "pain_point", "preference", "purchase_behavior", "sentiment_attitude", "spending_power"],
      "include_review_published": true, "basis_schema_version": 1, "valid_until": "2027-10-09T00:00:00+00:00",
      "purpose": "Apply accepted Claims to every real-world Consumer without per-object grants; all ten ADR-019 §2 groups (owner decision 2026-10-09: none restricted); groups restricted by the owner are never derived.",
-     "source_task": "NX-044"}
+     "source_task": "NX-044"},
+    {"principal": "commitment_keeper", "type_name": "Commitment", "operations": ["edit", "read"],
+     "property_groups": ["commitment_lifecycle"],
+     "include_review_published": false, "basis_schema_version": 1, "valid_until": "2027-10-10T00:00:00+00:00",
+     "purpose": "Edit only the lifecycle properties (status, late, fulfillment_basis, fulfillment_evidence) of every real-world Commitment; content properties are outside the rule and the SQL guard accepts only ledger-derived transitions.",
+     "source_task": "NX-026"}
   ],
   "message_read_rules": [
     {"principal": "claim_extraction_worker", "read_purpose": "claim_extraction", "fields": ["accepted_at", "actor", "body", "conversation_id", "sequence"],

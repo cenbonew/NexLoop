@@ -1,0 +1,211 @@
+{
+  "schema_version": "nexloop-business-object-types/1",
+  "manifest_version": 1,
+  "decision": "NX-026 D1 (dispatcher ruling 2026-10-10): NexLoop core business object types (M18 Commitment first), published at deployment through trusted configuration (0050) from this versioned declaration; never written to schema tables directly and never through the human review candidate path. Kept apart from system-object-types: those are system metadata never granted to any service principal, while business types are written by service principals through governed Actions (Commitment.create / Commitment.edit) and per-object derived authority (property_access_rules).",
+  "object_types": [
+    {
+      "type_name": "Commitment",
+      "version": 1,
+      "purpose": "Enterprise commitment to a Consumer, registered from a commitment Claim of a delivered outbound Message; status moves only on ledger evidence (0111).",
+      "source_task": "NX-026",
+      "definition": {
+        "type_name": "Commitment",
+        "display_name": "承诺",
+        "description": "企业对顾客作出的承诺（M18）；状态只随证据账本推进",
+        "properties": [
+          {
+            "property_name": "made_to",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "承诺对象：服务端从已验证会话推导的 Consumer id",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "made_by",
+            "value_type": "json",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "承诺方：外发记录的发送方种类、主体、Role、Run 与意图",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "content_ref",
+            "value_type": "json",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "内容引用：Claim、Message 与原文区间；不复制正文",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "promised_at",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "作出承诺的时刻（渠道接受并物化外发消息的时刻，UTC ISO 8601）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "due_at",
+            "value_type": "string",
+            "required": false,
+            "nullable": true,
+            "default_value": null,
+            "description": "到期时刻（UTC ISO 8601）；无法确定时为空",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "due_precision",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "exact / latest_bound / unspecified",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "condition",
+            "value_type": "string",
+            "required": false,
+            "nullable": true,
+            "default_value": null,
+            "description": "条件原文；无条件为空",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "related_goal_ref",
+            "value_type": "string",
+            "required": false,
+            "nullable": true,
+            "default_value": null,
+            "description": "外发 Run 绑定的 NX-022 目标版本",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "supersedes",
+            "value_type": "string",
+            "required": false,
+            "nullable": true,
+            "default_value": null,
+            "description": "被本承诺取代的承诺（改期）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "status",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "open / conditional / in_progress / fulfilled / breached / cancelled",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "late",
+            "value_type": "boolean",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "到期之后才有合格证据",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "fulfillment_basis",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "undetermined / communication（只由人类受治理 Action 标记）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "fulfillment_evidence",
+            "value_type": "json",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "推进为 fulfilled 的合格证据引用",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          }
+        ],
+        "version": 1,
+        "title_property": "",
+        "icon": "",
+        "color": "",
+        "plural_display_name": "",
+        "property_groups": [
+          {
+            "group_name": "commitment_content",
+            "display_name": "承诺内容",
+            "property_names": [
+              "made_to",
+              "made_by",
+              "content_ref",
+              "promised_at",
+              "due_at",
+              "due_precision",
+              "condition",
+              "related_goal_ref",
+              "supersedes"
+            ]
+          },
+          {
+            "group_name": "commitment_lifecycle",
+            "display_name": "承诺状态",
+            "property_names": [
+              "status",
+              "late",
+              "fulfillment_basis",
+              "fulfillment_evidence"
+            ]
+          }
+        ],
+        "primary_key": [],
+        "derived_properties": [],
+        "only_edit_via_actions": true
+      }
+    }
+  ]
+}
