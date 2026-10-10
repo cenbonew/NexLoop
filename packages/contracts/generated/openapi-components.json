@@ -3041,6 +3041,167 @@
           "user_statement"
         ]
       },
+      "ConversationMessage": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:conversation-message",
+        "title": "conversation-message",
+        "description": "NX-051 (AT-014). The read projection of one conversation Message, as the conversation read API returns it. `sequence` and `accepted_at` are this system's receipt order and time (assigned at commit, never rewritten). `provider` is the channel's own order, time and reference as evidence (trust: server = produced here, signed = a verified signed channel, client = what the browser client stated; client values never order anything and are never a time anchor). `reply_to_message_id` is the resolved reply target in the same conversation: for an Agent reply it mirrors the server-derived trigger_message_id; for an inbound message it is the reference the channel carried, once resolved (null while pending, for another conversation, or none). Server-derived; grants nothing.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "actor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "accepted_at": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "This system's acceptance time as stored with the Message (PostgreSQL timestamptz text)."
+          },
+          "status": {
+            "const": "accepted"
+          },
+          "direction": {
+            "const": "outbound"
+          },
+          "sender_kind": {
+            "const": "agent"
+          },
+          "intent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trigger_message_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "reply_to_message_id": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "namespace": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9.-]{1,63}$"
+                  },
+                  "message_ref": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      }
+                    ]
+                  },
+                  "sequence": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    ]
+                  },
+                  "sent_at": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    ]
+                  },
+                  "trust": {
+                    "enum": [
+                      "server",
+                      "signed",
+                      "client"
+                    ]
+                  },
+                  "skewed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "namespace",
+                  "message_ref",
+                  "sequence",
+                  "sent_at",
+                  "trust",
+                  "skewed"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "conversation_id",
+          "sequence",
+          "actor",
+          "body",
+          "accepted_at",
+          "status"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "direction"
+              ]
+            },
+            "then": {
+              "required": [
+                "sender_kind",
+                "intent_id",
+                "trigger_message_id"
+              ]
+            }
+          }
+        ]
+      },
       "EventEnvelope": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:event-envelope",
@@ -4289,6 +4450,7 @@
     "claim.schema.json": "dbb4683b5f18d6d3dd1c5fcacc3dd76277be5290ccb410e92591459a4e0101c7",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
     "context-pack-v6.schema.json": "86a84f3bafca2a00b5327256f351f14023cfee17234236b216d6cc19122c2b3d",
+    "conversation-message.schema.json": "b0ba5225488addcd9c15deadfbcd781124b2585f83891e065a716cb535c65155",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",

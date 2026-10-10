@@ -340,9 +340,10 @@ class BrowserServices:
         return self._backend._invoke_browser(self._inspected_session, 'accept_message',
             conversation_id=conversation_id, idempotency_key=idempotency_key, body=body)
 
-    def accept_native_message(self, *, conversation_id, idempotency_key, provider_event_id, body):
+    def accept_native_message(self, *, conversation_id, idempotency_key, provider_event_id, body, client_sequence=None, client_sent_at=None, reply_to=None):
         return self._backend._invoke_browser(self._inspected_session, 'accept_native_message',
-            conversation_id=conversation_id, idempotency_key=idempotency_key, provider_event_id=provider_event_id, body=body)
+            conversation_id=conversation_id, idempotency_key=idempotency_key, provider_event_id=provider_event_id, body=body,
+            client_sequence=client_sequence, client_sent_at=client_sent_at, reply_to=reply_to)
 
     def read_messages(self, *, conversation_id, after_sequence=0, limit=50):
         return self._backend._invoke_browser(self._inspected_session, 'read_messages',

@@ -257,6 +257,15 @@ def test_agent_reply_persisted_delivered_materialized_extracted_and_read(assembl
         assert admin.execute('select count(*) from runtime.nexloop_message_inbox where tenant_id=%s and message_id=%s',(tenant,agent_message['id'])).fetchone()==(0,)
         visible=client.get('/api/v1/conversations/'+conversation_id+'/messages').json()['items']
         assert next(m for m in visible if m['id']==agent_message['id'])['direction']=='outbound'
+        # NX-051 (AT-014): the Agent reply's link mirrors the server-derived trigger; its provider facts carry the
+        # delivery service's reference and observation time; consumer messages keep server-default facts.
+        shown=next(m for m in visible if m['id']==agent_message['id'])
+        assert shown['reply_to_message_id']==agent_message['trigger_message_id']==consumer['id']
+        reference,observed=admin.execute('select provider_reference,observed_at from runtime.nexloop_effect_observations where tenant_id=%s and intent_id=%s and provider_reference is not null order by observed_at desc limit 1',(tenant,intent)).fetchone()
+        assert shown['provider']['namespace']=='nexloop.agent' and shown['provider']['trust']=='server' and shown['provider']['message_ref']==reference and shown['provider']['sequence'] is None
+        assert admin.execute('select provider_sent_at from runtime.nexloop_message_provider_facts where tenant_id=%s and message_id=%s',(tenant,agent_message['id'])).fetchone()==(observed,)
+        assert admin.execute('select raw_kind,raw_ref,reply_to_message_id,resolution,source from runtime.nexloop_message_reply_links where tenant_id=%s and message_id=%s',(tenant,agent_message['id'])).fetchall()==[('message',consumer['id'],consumer['id'],'resolved','server')]
+        assert all(m['provider']['namespace']=='nexloop.api' and m['reply_to_message_id'] is None for m in visible if m.get('direction')!='outbound')
         # (6) Governed READ derivation covers the delivered outbound Message for the Source.
         from nexloop_eios.message_read import message_read_basis,derived_message_read_envelope,_sign
         from nexloop_eios.postgres_artifacts import canonical_payload

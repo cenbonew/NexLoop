@@ -96,7 +96,7 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
                 result[key] = value
             return result
         value = json.loads(data, object_pairs_hook=pairs)
-        if type(value) is not dict or set(value) != fields:
+        if type(value) is not dict or (set(value) != fields if isinstance(fields, (set, frozenset)) else set(value) not in fields):
             raise ValueError()
         return value
 
@@ -160,13 +160,20 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
     @routes.post('/conversations/{conversation_id}/native-messages')
     async def native_send(conversation_id: str, request: Request):
         try:
-            value = await body(request, {'schema_version','provider_event_id','body'})
-            if value['schema_version'] != 'nexloop.native-message.v1' or type(value['provider_event_id']) is not str or not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',value['provider_event_id']):
+            v1 = {'schema_version','provider_event_id','body'}
+            # NX-051 v2: optional client-level order/time/reply evidence (never ordering, never a time anchor).
+            v2 = frozenset(v1 | {'client_sequence','client_sent_at','reply_to'})
+            value = await body(request, (frozenset(v1), v2))
+            expected = 'nexloop.native-message.v2' if set(value) == v2 else 'nexloop.native-message.v1'
+            if value['schema_version'] != expected or type(value['provider_event_id']) is not str or not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',value['provider_event_id']):
                 raise ValueError()
             if type(value['body']) is not str or not 0 < len(value['body']) <= 8192 or not value['body'].strip():
                 raise ValueError()
+            client = {name: value[name] for name in ('client_sequence','client_sent_at','reply_to')} if set(value) == v2 else {}
+            from nexloop_eios.native_web_inbound import _client_fields
+            _client_fields(client.get('client_sequence'), client.get('client_sent_at'), client.get('reply_to'))  # shape before any write
             return await invoke(request, 'accept_native_message', write=True,conversation_id=conversation_id,
-                body=value['body'],provider_event_id=value['provider_event_id'],idempotency_key=key(request))
+                body=value['body'],provider_event_id=value['provider_event_id'],idempotency_key=key(request),**client)
         except TimeoutError:
             return error('request_timeout',408)
         except (ValueError,UnicodeError):

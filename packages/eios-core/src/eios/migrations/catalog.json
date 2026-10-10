@@ -550,6 +550,16 @@
       "version": "0110",
       "name": "0110_nx025_reply_fallback_run.sql",
       "sha256": "4a3c07c1a7ae31bb44f5cb9089fe1782f719a49cf5c8ae6194a31bac16a5c218"
+    },
+    {
+      "version": "0120",
+      "name": "0120_nx051_message_provider_facts.sql",
+      "sha256": "82b7a34b40baeba65f8a4e76e9234f97265cd471f96ec195c1acf92d90a6fe87"
+    },
+    {
+      "version": "0121",
+      "name": "0121_nx051_claim_correction_order.sql",
+      "sha256": "d9596270ff83b69c80acc4dceb8ea63dd1bcbb7a54e0520071ecbfe8120e148a"
     }
   ]
 }

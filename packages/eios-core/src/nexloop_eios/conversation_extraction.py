@@ -82,9 +82,44 @@ class SourceMessage:
     speaker: str
     body: str
     accepted_at: datetime
+    # NX-051 provider evidence (runtime projection) and the resolved reply target in this conversation, if any.
+    provider: dict|None=None
+    reply_to: str|None=None
 
     @property
     def content_hash(self):return hashlib.sha256(self.body.encode()).hexdigest()
+
+
+def _trusted_order(messages):
+    """Channel order only when every message carries a SIGNED provider sequence of one namespace (dispatcher rulings
+    3/4: client-stated order never orders anything); otherwise None (receipt order)."""
+    facts=[m.provider for m in messages]
+    if not messages or any(f is None or f.get('trust')!='signed' or f.get('sequence') is None or f.get('skewed') for f in facts):return None
+    if len({f['namespace'] for f in facts})!=1 or len({f['sequence'] for f in facts})!=len(facts):return None
+    return {m.sequence:f['sequence'] for m,f in zip(messages,facts)}
+
+
+def effective_rank(messages):
+    """receipt sequence -> position in the effective order (trusted channel order, else receipt order)."""
+    order=_trusted_order(messages)
+    keyed=sorted(messages,key=(lambda m:order[m.sequence]) if order else (lambda m:m.sequence))
+    return {m.sequence:i for i,m in enumerate(keyed)},order is not None
+
+
+def anchor_time(message):
+    """Time anchor: a signed channel's time within its skew window, else this system's acceptance time."""
+    f=message.provider
+    if f and f.get('trust')=='signed' and not f.get('skewed') and f.get('sent_at'):
+        return datetime.fromisoformat(f['sent_at'].replace('Z','+00:00'))
+    return message.accepted_at
+
+
+def _provider_evidence(message):
+    """The provider evidence that changes what the extractor sees (None when absent, keeping the v1 payload)."""
+    f=message.provider or {}
+    stated={k:f.get(k) for k in ('sequence','sent_at') if f.get(k) is not None} if f.get('trust') in ('signed','client') else {}
+    if not stated and message.reply_to is None:return None
+    return {'trust':f.get('trust'),'namespace':f.get('namespace'),**stated,'skewed':bool(f.get('skewed')),'reply_to':message.reply_to}
 
 
 @dataclass(frozen=True)
@@ -161,14 +196,28 @@ class OpenAICompatibleExtractionProvider:
 
 def build_user_payload(messages,context):
     zone=ZoneInfo(context.timezone)
-    rows=[{'ref':m.sequence,'speaker':'顾客' if m.speaker=='consumer' else '客服',
-           'time':m.accepted_at.astimezone(zone).isoformat(timespec='minutes'),'text':m.body} for m in messages]
+    rank,trusted=effective_rank(messages)
+    by_id={m.message_id:m.sequence for m in messages}
+    rows=[]
+    for m in sorted(messages,key=lambda m:rank[m.sequence]):
+        row={'ref':m.sequence,'speaker':'顾客' if m.speaker=='consumer' else '客服',
+             'time':anchor_time(m).astimezone(zone).isoformat(timespec='minutes'),'text':m.body}
+        evidence=_provider_evidence(m)
+        if evidence is not None:
+            # NX-051: channel evidence. A signed channel's order arranges the rows; a client's statement is shown as such only.
+            if evidence['trust']=='signed' and trusted:
+                row['channel_order']=evidence.get('sequence')
+                row['late']=any(o.sequence<m.sequence and rank[o.sequence]>rank[m.sequence] for o in messages)
+            elif evidence['trust']=='client' and ('sequence' in evidence or 'sent_at' in evidence):
+                row['customer_stated']={k:evidence[k] for k in ('sequence','sent_at') if k in evidence}
+            if m.reply_to is not None:row['reply_to_ref']=by_id.get(m.reply_to,'outside_window')
+        rows.append(row)
     return canonical({'conversation_data':rows,'timezone':context.timezone,'output':'JSON only'})
 
 
 def input_digest(messages,context,provider):
     return digest({'tenant_id':context.tenant_id,'world':context.world,'conversation_id':context.conversation_id,
-        'messages':[[m.message_id,m.sequence,m.content_hash,m.speaker] for m in messages],'timezone':context.timezone,
+        'messages':[[m.message_id,m.sequence,m.content_hash,m.speaker]+([_provider_evidence(m)] if _provider_evidence(m) is not None else []) for m in messages],'timezone':context.timezone,
         'extractor_version':EXTRACTOR_VERSION,'prompt_version':PROMPT_VERSION,'prompt_digest':PROMPT_DIGEST,
         'provider':provider.provider,'model_id':provider.model_id})
 
@@ -442,8 +491,10 @@ def normalize(raw_output,messages,context):
             # Same span/meaning emitted twice by the provider: technical duplicate only.
             rejected.append({'claim_index':index,'reason':'duplicate_claim_in_output'});accepted[index]=next(c for c in claims if c['claim_id']==claim['claim_id']);continue
         accepted[index]=claim;claims.append(claim)
-    # Explicit evidence first; hypotheses after the statements they derive from.
-    claims.sort(key=lambda c:(c['epistemic_kind']=='hypothesis',c['source_sequence'] or 0,c['span_start'] or 0,c['claim_id']))
+    # Explicit evidence first, in the effective order (NX-051: identical to receipt order unless a signed channel
+    # orders the whole window), so a correction always follows its target; hypotheses after what they derive from.
+    rank,_=effective_rank(messages)
+    claims.sort(key=lambda c:(c['epistemic_kind']=='hypothesis',rank.get(c['source_sequence'],-1),c['span_start'] or 0,c['claim_id']))
     return topics,claims,rejected
 
 
@@ -509,8 +560,11 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     if corrects is not None:
         if type(corrects) is not int or kind!='correction':raise _Drop('corrects_invalid')
         target=accepted.get(corrects)
-        if target is None or target['epistemic_kind']=='hypothesis' or target['source_sequence'] is None or target['source_sequence']>message.sequence:
+        rank,trusted=effective_rank(list(by_ref.values()))
+        if (target is None or target['epistemic_kind']=='hypothesis' or target['source_sequence'] is None or target['source_sequence'] not in rank
+                or rank[target['source_sequence']]>rank[message.sequence]):
             raise _Drop('correction_target_unavailable')
+        if trusted:flags.append('correction_order_signed_channel')
         corrects_id=target['claim_id']
     subject_text=subject.get('text','')
     if subject['kind']=='consumer' and subject_text not in SELF_WORDS:
@@ -550,7 +604,8 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     if time_expression and (source is None or time_expression not in source.body):
         flags.append('time_expression_not_in_source');time_expression=''
     if not time_expression and quote:time_expression=find_time_expression(quote)
-    anchor=(source or message).accepted_at
+    anchor=anchor_time(source or message)
+    if anchor is not (source or message).accepted_at:flags.append('anchor_signed_channel_time')
     valid_time=resolve_time(time_expression,anchor,context.timezone)
     if kind=='hypothesis':confidence=min(confidence,0.6)
     subject_ref=context.consumer_id if subject['kind']=='consumer' else ''
