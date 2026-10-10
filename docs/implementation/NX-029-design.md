@@ -142,6 +142,26 @@ requested → blocking → settling → purging → completed
 3. **purging**：按 §4.3 的清单分批执行，每项幂等、单独事务、可重入；每项完成写一条 tombstone（§7.2）。
 4. **completed**：写删除凭据（不含原文，只有请求号、Consumer ID 的摘要、各类清除计数、保留例外引用、水位、完成时间）；Consumer 对象删除，留 tombstone。
 
+#### 4.2a 实现要求：erasing 拒绝读取必须覆盖两层（调度员 2026-10-10 追加）
+
+读检查链最内层的 `authz.nexloop_assert_read_authority_before_message_read_v0072` 被 5 处函数**直接调用**，用于检查“签名的 Consumer READ 必须来自配置授权”，不经过公开入口：
+
+| 调用点 | 位置 |
+|---|---|
+| 0077 消息读派生 | `0077_nx018_message_read_derivation.sql:258` |
+| 0080 外发读派生 | `0080_nx047_outbound_read_derivation.sql:60` |
+| 0084 属性授权派生 | `0084_property_grant_derivation.sql:324` |
+| 0086 证据读派生 | `0086_nx018_evidence_read_derivation.sql:267` |
+| NX-028 员工回复读派生 | `0127_nx028_staff_reply.sql`（NX-028 临时号；说明见 `nx028-staff-read-note` `c3a10aa` 与 NX-028 实现说明） |
+
+因此“Consumer 处于 erasing 时拒绝读取”必须**同时**放在：
+1. 公开入口 `authz.nexloop_assert_read_authority`（外包一层）；
+2. v0072 这一层：把 `_before_message_read_v0072` 再改名保留，用同名新包装先检查 erasing 再调用原函数，使上述 5 个直接调用点自动经过检查（调用点本身不改）。
+
+只放在 v0072 也不够：派生的 Message 读在派生层就直接返回，不经过 v0072，所以公开入口那一层同样必需。
+
+测试：对上述 5 个调用点分别加负例——Consumer 处于 erasing 时每个调用点都拒绝；另对公开入口与派生 Message 读各加一条负例；Consumer 未处于 erasing 时 5 个调用点的结果与改动前一致（回归）。
+
 ### 4.3 清单（数据类 → 动作）
 
 | 数据类 | 动作 | 说明 |
@@ -269,7 +289,7 @@ NX-027 D6 的商业 tombstone 落在同一张表（item_class `commercial_record
 | AT-059 | 备份（测试库快照）含已删除的 Consumer；恢复后不重放则 readiness 不就绪；重放后不可联系、不可检索 |
 | AT-003（导出部分） | 无敏感属性权限的发起人，导出中不含该字段与证据；无消息读权限时不含原文 |
 | AT-050（接口部分） | 水位与删除列表写入备份清单（与 NX-035 联合） |
-| 其它 | 只追加表在无清除登记时仍拒绝 UPDATE/DELETE；服务与 Agent 不能发起删除、保留例外、导出；保留期偏序校验；到期扫描幂等与可重入；unknown 外部结果先对账；Pi 文件清除；doctor 告警 |
+| 其它 | erasing 时 v0072 的 5 个直接调用点、公开入口与派生 Message 读各自拒绝（§4.2a）；只追加表在无清除登记时仍拒绝 UPDATE/DELETE；服务与 Agent 不能发起删除、保留例外、导出；保留期偏序校验；到期扫描幂等与可重入；unknown 外部结果先对账；Pi 文件清除；doctor 告警 |
 
 测试全部在一次性测试库与临时目录中进行；破坏性命令默认 dry-run（`12:68`），CI 不调用任何真实删除 API。
 
