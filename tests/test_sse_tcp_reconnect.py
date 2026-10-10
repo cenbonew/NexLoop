@@ -78,7 +78,7 @@ def test_actual_tls_socket_disconnect_last_event_id_replays_all_committed(assemb
             third=connect_stream(port,cert,cookie,base+'/events','4')
             try:assert event(third) is None  # heartbeat: no committed duplicate
             finally:third.close()
-            read=client.get(base+'/messages');assert read.status_code==200 and read.json()['items']==receipts
+            read=client.get(base+'/messages');assert read.status_code==200 and read.json()['items']==[{**r,**{'reply_to_message_id':None,'provider':{'namespace':'nexloop.api','message_ref':None,'sequence':None,'sent_at':None,'trust':'server','skewed':False}}} for r in receipts]  # NX-051 read projection
             assert admin.execute('select count(*) from runtime.nexloop_message_outbox').fetchone()==(4,)
             output=tmp_path/'actual-sse-frames.json'
             supplied=os.environ.get('NEXLOOP_OWNED_SSE_EVIDENCE_FILE')

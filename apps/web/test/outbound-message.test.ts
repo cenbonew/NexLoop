@@ -21,3 +21,17 @@ test.each([
  ['inbound with forged sender fields',{...base,sender_kind:'agent'}],
  ['inbound with forged intent',{...base,intent_id:outbound.intent_id}],
 ])('rejects %s',(_,value)=>{expect(()=>message(value)).toThrow('响应无效');});
+const evidence={namespace:'native.webchat',message_ref:'5f0c8c8e-3b1a-4c6d-9e2f-1a2b3c4d5e6f',sequence:2,sent_at:'2026-10-09T01:59:58.000Z',trust:'client',skewed:false};
+test('NX-051 projection: reply target and provider evidence parse; receipt sequence is untouched',()=>{
+ const item=message({...base,reply_to_message_id:'c'.repeat(64),provider:evidence});
+ expect(item).toMatchObject({sequence:2,reply_to_message_id:'c'.repeat(64),provider:evidence});
+ expect(message({...outbound,reply_to_message_id:'c'.repeat(64),provider:{...evidence,namespace:'nexloop.agent',message_ref:null,sequence:null,sent_at:null,trust:'server'}}).provider?.trust).toBe('server');
+ expect(message({...base,reply_to_message_id:null,provider:null})).toMatchObject({reply_to_message_id:null,provider:null});
+});
+test.each([
+ ['malformed reply target',{...base,reply_to_message_id:'x'}],
+ ['unknown trust',{...base,provider:{...evidence,trust:'verified'}}],
+ ['extra provider field',{...base,provider:{...evidence,order:1}}],
+ ['missing provider field',{...base,provider:{...evidence,skewed:undefined}}],
+ ['non-positive provider sequence',{...base,provider:{...evidence,sequence:0}}],
+])('NX-051 rejects %s',(_,value)=>{expect(()=>message(value)).toThrow('响应无效');});

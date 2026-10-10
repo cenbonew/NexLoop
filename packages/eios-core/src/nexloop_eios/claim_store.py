@@ -11,6 +11,7 @@ import json
 import re
 
 import psycopg
+from psycopg.types.json import Jsonb
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationError
 from eios.authz.operations import Operation
@@ -68,6 +69,21 @@ class ConversationClaimExtractor:
             'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
 
+    def _with_provider_evidence(self,messages):
+        """NX-051: provider facts and the resolved reply target of each Message, under the same Message READ (0120)."""
+        import dataclasses
+        from nexloop_eios.assembly import verify_application_role
+        proofs=[self.reader._authority(ResourceType.OBJECT,'Message/'+m.message_id) for m in messages]
+        with self.pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            projection=db.execute('select authz.nexloop_message_provider_read(%s,%s,%s)',(self.session.token_digest,self.session.world,Jsonb(proofs))).fetchone()[0]
+        out=[]
+        for m in messages:
+            item=projection.get(m.message_id) or {}
+            reply=item.get('reply') or {}
+            out.append(dataclasses.replace(m,provider=item.get('provider'),reply_to=reply.get('reply_to_message_id') if reply.get('resolution')=='resolved' else None))
+        return out
+
     def _source_proofs(self,conversation_id,message_ids):
         proofs=[self.reader._authority(ResourceType.OBJECT,'Conversation/'+conversation_id)]
         proofs+=[self.reader._authority(ResourceType.PROPERTY,'Conversation/'+conversation_id+'/'+f) for f in CONVERSATION_FIELDS]
@@ -90,6 +106,7 @@ class ConversationClaimExtractor:
                 speaker='consumer' if values['actor']==conversation['owner_principal'] else 'agent',
                 body=values['body'],accepted_at=_timestamp(values['accepted_at'])))
         messages.sort(key=lambda m:m.sequence)
+        messages=self._with_provider_evidence(messages)
         context=ExtractionContext(tenant_id=self.session.authentication.tenant_id,world=self.session.world,
             conversation_id=conversation_id,consumer_id=conversation['consumer_id'],timezone=self.timezone)
         return context,messages

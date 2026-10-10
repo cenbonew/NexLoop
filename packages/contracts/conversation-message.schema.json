@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:conversation-message",
+  "title": "conversation-message",
+  "description": "NX-051 (AT-014). The read projection of one conversation Message, as the conversation read API returns it. `sequence` and `accepted_at` are this system's receipt order and time (assigned at commit, never rewritten). `provider` is the channel's own order, time and reference as evidence (trust: server = produced here, signed = a verified signed channel, client = what the browser client stated; client values never order anything and are never a time anchor). `reply_to_message_id` is the resolved reply target in the same conversation: for an Agent reply it mirrors the server-derived trigger_message_id; for an inbound message it is the reference the channel carried, once resolved (null while pending, for another conversation, or none). Server-derived; grants nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "conversation_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "actor": {"type": "string", "minLength": 1, "maxLength": 512},
+    "body": {"type": "string", "minLength": 1, "maxLength": 8192},
+    "accepted_at": {"type": "string", "minLength": 1, "maxLength": 64, "description": "This system's acceptance time as stored with the Message (PostgreSQL timestamptz text)."},
+    "status": {"const": "accepted"},
+    "direction": {"const": "outbound"},
+    "sender_kind": {"const": "agent"},
+    "intent_id": {"type": "string", "format": "uuid"},
+    "trigger_message_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reply_to_message_id": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^[a-f0-9]{64}$"}]},
+    "provider": {"anyOf": [{"type": "null"}, {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{1,63}$"},
+        "message_ref": {"anyOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 256}]},
+        "sequence": {"anyOf": [{"type": "null"}, {"type": "integer", "minimum": 1, "maximum": 9007199254740991}]},
+        "sent_at": {"anyOf": [{"type": "null"}, {"type": "string", "format": "date-time"}]},
+        "trust": {"enum": ["server", "signed", "client"]},
+        "skewed": {"type": "boolean"}
+      },
+      "required": ["namespace", "message_ref", "sequence", "sent_at", "trust", "skewed"]
+    }]}
+  },
+  "required": ["id", "conversation_id", "sequence", "actor", "body", "accepted_at", "status"],
+  "allOf": [
+    {"if": {"required": ["direction"]}, "then": {"required": ["sender_kind", "intent_id", "trigger_message_id"]}}
+  ]
+}

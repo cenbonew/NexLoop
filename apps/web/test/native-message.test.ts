@@ -17,7 +17,7 @@ test('actual API client retries same frozen message after lost response via nati
  }));
  await expect(sendMessage(item)).rejects.toThrow('synthetic lost response');expect((await sendMessage(item)).created).toBe(false);
  expect(writes).toHaveLength(2);expect(writes[0].path).toBe(`/api/v1/conversations/${conversation}/native-messages`);
- expect(JSON.parse(String(writes[0].init.body))).toEqual({schema_version:'nexloop.native-message.v1',provider_event_id:item.providerEventId,body:item.body});
+ expect(JSON.parse(String(writes[0].init.body))).toEqual({schema_version:'nexloop.native-message.v2',provider_event_id:item.providerEventId,body:item.body,client_sequence:item.clientSequence,client_sent_at:item.clientSentAt,reply_to:null});
  expect(writes[0].init.body).toBe(writes[1].init.body);expect((writes[0].init.headers as Record<string,string>)['Idempotency-Key']).not.toBe((writes[1].init.headers as Record<string,string>)['Idempotency-Key']);
  expect(writes[0].init.credentials).toBe('same-origin');
 });
@@ -29,4 +29,12 @@ test.each(['event','namespace','conversation','body'])('client rejects mismatche
 });
 test('invalid provider ID and body fail before transport',()=>{
  const item=nativeMessage(conversation,'body');expect(()=>nativeAttempt({...item,providerEventId:'internal-generated-sequence'})).toThrow();expect(()=>nativeMessage(conversation,' ')).toThrow();expect(()=>nativeMessage(conversation,'x'.repeat(8193))).toThrow();
+});
+test('NX-051 v2: per-conversation local order, frozen client time, optional quoted reply; legacy item still sends v1',()=>{
+ const other='d'.repeat(64);const a=nativeMessage(other,'one'),b=nativeMessage(other,'two',conversation);
+ expect(b.clientSequence).toBe(a.clientSequence!+1);expect(a.clientSentAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+ expect(nativeAttempt(b).body).toEqual({schema_version:'nexloop.native-message.v2',provider_event_id:b.providerEventId,body:'two',client_sequence:b.clientSequence,client_sent_at:b.clientSentAt,reply_to:{kind:'message',ref:conversation}});
+ expect(nativeAttempt(b).body).toEqual(nativeAttempt(b).body);
+ expect(nativeAttempt({conversationId:other,providerEventId:crypto.randomUUID(),body:'x'}).body.schema_version).toBe('nexloop.native-message.v1');
+ expect(()=>nativeMessage(other,'x','not-an-id')).toThrow();expect(()=>nativeAttempt({...a,clientSequence:0})).toThrow();expect(()=>nativeAttempt({...a,clientSentAt:'yesterday'})).toThrow();
 });
