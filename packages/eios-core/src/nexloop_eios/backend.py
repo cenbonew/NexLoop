@@ -452,7 +452,7 @@ class Backend:
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.workbench_reads import WorkbenchQueries, WorkbenchReader
         allowed = {'overview', 'goals', 'consumers', 'consumer', 'conversation', 'plans', 'actions', 'takeovers', 'settings',
-            'commitments', 'commitment', 'contact', 'audit', 'review_queue', 'review_evidence'}
+            'commitments', 'commitment', 'contact', 'audit', 'review_queue', 'review_evidence', 'me'}
         with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
             if operation not in allowed:

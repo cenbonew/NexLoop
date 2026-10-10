@@ -645,6 +645,11 @@
       "version": "0129",
       "name": "0129_nx029_retention.sql",
       "sha256": "79943356b12c822ce7fcc5684fdd71b7f23caa4dd442b2898cb37b77a01ab289"
+    },
+    {
+      "version": "0130",
+      "name": "0130_nx028_workbench_ui_reads.sql",
+      "sha256": "383c64694d52ec7d0a53b4415ac909482c18fc0a9e6f853afadbde3e79136524"
     }
   ]
 }

@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {readOverview} from '../api';
 import {Block,Page} from './Page';
+import {takeoverText} from '../actions';
 
 export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:string)=>void}){
   const query=useQuery({queryKey:['workbench','overview'],queryFn:readOverview});
@@ -21,7 +22,7 @@ export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:strin
     <Block title="联系限制" section={data.contact}>{c=><>
       <p>受限客户 {c.restricted} 位；来信必回升级 {c.escalations} 条</p>
       <button type="button" onClick={()=>onOpen('contact')}>查看限制</button></>}</Block>
-    <Block title="人工接管" section={data.takeovers}>{()=>null}</Block>
+    <Block title="人工接管" section={data.takeovers}>{t=>t.length?<ul>{t.map(x=><li key={x.takeover_id}>{takeoverText(x)}</li>)}</ul>:<p className="note">当前没有人工接管。</p>}</Block>
     <Block title="队列积压" section={data.backlog}>{()=>null}</Block>
     <Block title="商业事件与费用" section={data.commercial}>{()=>null}</Block>
   </div>}</Page>;

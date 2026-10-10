@@ -170,7 +170,7 @@ def test_http_roles_401_403_and_separate_realm(workbench):
         assert overview.status_code == 200 and overview.headers['cache-control'] == 'no-store'
         sections = overview.json()
         assert {k: v['status'] for k, v in sections.items()} == {'goals': 'ok', 'commitments': 'ok', 'actions': 'ok', 'contact': 'ok',
-            'takeovers': 'unavailable', 'backlog': 'unavailable', 'commercial': 'unavailable'}
+            'takeovers': 'ok', 'backlog': 'unavailable', 'commercial': 'unavailable'}
         assert sections['contact']['data'] == {'restricted': 1, 'escalations': 0}
         settings = client.get('/api/v1/workbench/settings')
         assert settings.status_code == 200 and {m['role'] for m in settings.json()['members']} == {'owner', 'operator'}
@@ -178,7 +178,7 @@ def test_http_roles_401_403_and_separate_realm(workbench):
         assert client.get('/api/v1/workbench/consumers?limit=0').status_code == 422
         assert client.get('/api/v1/workbench/commitments/' + 'e' * 64).status_code == 404
         assert client.get('/api/v1/workbench/conversations/' + 'e' * 64).status_code == 404
-        assert client.get('/api/v1/workbench/takeovers').json()['status'] == 'unavailable'
+        assert client.get('/api/v1/workbench/takeovers').json()['status'] == 'ok'  # slice 3 (0126) + page integration (0160)
         assert client.get('/api/v1/workbench/overview', headers={'Host': 'other.example'}).status_code == 403
     with w['client']() as client:
         assert workbench_login(client, w['operator']).status_code == 200

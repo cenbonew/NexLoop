@@ -72,3 +72,44 @@
 - `tests/test_takeover_relay_pg.py` 新增 1 例（真实 HTTPS）：顾客经 API 读到员工回复（`sender_kind=human_takeover`、无 `intent_id`、`reply_to_message_id`）；Source 的受治理 READ 派生得到 actor 与 body；提取时员工消息是企业一方，承诺成为 speaker=agent 的 commitment Claim。
 - `apps/web/test/handling.test.ts` vitest（全量 40 例通过）；`tsc --noEmit` 通过。
 - 回归：slice 2/3 相关 87 例、relay/计划/目标/派发/HTTP 80 例、Pi 串行 13 例（`test_reply_fallback_pg`、`test_contact_reply_dispatch_pg`、`test_closure_refusal_versions_pg`）全部通过；`check_definer_search_path.py` 0 问题。
+
+## 页面集成（L4，分支 `nx028-ui`，从 main `a5d7c48` 切出）
+
+### 迁移 0160 `nx028_workbench_ui_reads`（临时号）
+以最新函数体替换 0117 的 `authz.nexloop_workbench_read`，Action 与各项检查都不变，只改两个 verb：
+- `takeovers`：返回生效中的接管（未结束且未到 `expires_at`，与派发判断一致），每条带 `mine`（是否本人发起），另附接管策略（默认时长与上限）；原先固定返回 `unavailable`。
+- `me`：返回成员的角色和该角色的 Action 列表（来自 `workbench-roles`），只用于决定显示哪些操作；每次写入仍由受治理入口按当前授权判定。
+- 对应改动：`workbench_reads.VERBS`、`Backend._invoke_workbench` 的允许列表、`GET /api/v1/workbench/me`；切片 1 测试中 takeovers 的期望由 `unavailable` 改为 `ok`。
+
+### 前端（`apps/web/src/workbench`）
+- `api.ts`：
+  - `readMe`、`readTakeovers`、`takeoverOf`（会话级或整个客户的接管，规则同派发）；
+  - 写入客户端 `workbenchAct`：先取工作台 CSRF，再 `POST /api/v1/workbench/actions/{operation}`，带 `Idempotency-Key`；
+  - 操作到 Action 的映射 `OPERATION_ACTION` 和 `offers`（只显示角色带有的操作）；
+  - 结果文案 `WRITE_TEXT`（AT-045）：401/403/404/409（状态不允许 / 冲突）/422/408 各有准确文案；503、网络中断、响应格式不符一律是“无法确认是否已执行”，不显示成失败或成功；取不到 CSRF 时是“未提交”。
+- `actions.tsx`：各页操作区（切片 1 预留的 slot，可按路由取当前对象）。
+  - 目标与对齐：暂停/恢复（owner）。
+  - 消费者详情：暂停/恢复本客户、解除联系限制（owner，仅在受限时显示）、接管整个客户。
+  - 会话页：接管状态、接管本会话（默认时长取策略）、交还；本人接管期间可以人工客服身份回复，选择要回复的来信，原文经 ADR-025 读取；他人接管时提示只有发起人可回复。
+  - 承诺详情：承诺五项（取消、标记沟通类只给 owner），只对未结束的承诺显示。
+  - 计划与运行：手动复评。
+  - Action / 异常：对“待核对”的意图查询执行结果（明确不是重发）。
+  - 联系限制：解除限制（owner）。
+- `governedWrite`：
+  - 结果未知时保留同一请求号，重试会被受治理入口按终态回放，不会执行两次；
+  - 结果确定（成功或 4xx）后，下一次提交换新的请求号；
+  - 无论成功、失败还是未知，都让 `['workbench']` 下的所有读取失效，所以下一次读取一定显示当前状态。
+- 总览的人工接管区块显示生效中的接管；会话中员工消息标为“人工客服回复（员工主体）”。
+
+### 测试
+- `apps/web/test/workbench-actions.test.ts` 6 例：
+  - 写入结果分类与文案；
+  - 未知结果用同一请求号重试，结果确定后换新号；
+  - D2：operator 看不到 owner 专属操作，角色未知时不猜；
+  - 接管页：只有发起人能回复；
+  - **AT-006 界面部分**：暂停后下一次读取显示“已暂停”，客户操作变为“恢复主动联系”；恢复后显示“控制已变更，派发时将被拒，等待复评”，不是重放；
+  - 总览接管区块。
+- `tests/test_workbench_ui_pg.py` 2 例：生产 app，真实工作台登录 Cookie，请求与前端一致（同一请求体、CSRF、幂等键）。
+  - 角色读取：operator 暂停返回 403。AT-006：owner 暂停后，Action 列表的预判为 `control_paused`，客户显示已暂停，实际派发被拒、provider 零请求；恢复后预判为 `control_revision_stale`。
+  - 接管页：operator 接管，策略为默认 7200 秒、上限 86400 秒；经 ADR-025 读到来信原文；以员工身份回复，员工消息的 actor 和 body 可读；owner 看到的接管 `mine=false`，回复返回 403；owner 交还后接管列表清空。
+- 页面未在真实浏览器中做目视检查；界面证据来自静态渲染测试和 HTTP 联调。
