@@ -580,6 +580,11 @@
       "version": "0150",
       "name": "0150_nx028_governed_entry.sql",
       "sha256": "c6c329c42cd5c0df8d2db83c44ee45849e1e3bcd55c465acb5858d3188dc303e"
+    },
+    {
+      "version": "0151",
+      "name": "0151_nx028_workbench_actions.sql",
+      "sha256": "acc74ce30fa33b091dcaa9dc5a3fd251c261ec3295c44a9e08cea42f9d27ca4a"
     }
   ]
 }

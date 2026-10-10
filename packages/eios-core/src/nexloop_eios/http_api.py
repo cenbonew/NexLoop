@@ -86,6 +86,14 @@ def create_app(config:ApiConfiguration):
             # NX-023 human-only Manifest read (0094); backend.py itself is unchanged.
             return ContextAuditPorts(backend, inspected_session)
         app.include_router(context_audit_router(config.browser, ports_for_browser=context_audit_ports))
+        from nexloop_eios.workbench_actions_http import WorkbenchActions, router as workbench_actions_router
+        def workbench_action_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # NX-028 slice 2: governed human writes (0150 registry); backend.py itself is unchanged.
+            return WorkbenchActions(backend, inspected_session)
+        app.include_router(workbench_actions_router(config.browser, ports_for_browser=workbench_action_ports))
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')
