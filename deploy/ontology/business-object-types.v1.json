@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-business-object-types/1",
-  "manifest_version": 1,
-  "decision": "NX-026 D1 (dispatcher ruling 2026-10-10): NexLoop core business object types (M18 Commitment first), published at deployment through trusted configuration (0050) from this versioned declaration; never written to schema tables directly and never through the human review candidate path. Kept apart from system-object-types: those are system metadata never granted to any service principal, while business types are written by service principals through governed Actions (Commitment.create / Commitment.edit) and per-object derived authority (property_access_rules).",
+  "manifest_version": 2,
+  "decision": "NX-026 D1 (dispatcher ruling 2026-10-10): NexLoop core business object types (M18 Commitment first), published at deployment through trusted configuration (0050) from this versioned declaration; never written to schema tables directly and never through the human review candidate path. Kept apart from system-object-types: those are system metadata never granted to any service principal, while business types are written by service principals through governed Actions (Commitment.create / Commitment.edit) and per-object derived authority (property_access_rules). v2 (NX-027): CommercialRecord, written only by the commercial_recorder service through CommercialRecord.create / CommercialRecord.edit with exactly the state SQL derives from verified signed commercial events (0130).",
   "object_types": [
     {
       "type_name": "Commitment",
@@ -199,6 +199,275 @@
               "late",
               "fulfillment_basis",
               "fulfillment_evidence"
+            ]
+          }
+        ],
+        "primary_key": [],
+        "derived_properties": [],
+        "only_edit_via_actions": true
+      }
+    },
+    {
+      "type_name": "CommercialRecord",
+      "version": 1,
+      "purpose": "Canonical commercial state (order, payment, renewal, refund) derived only from verified signed commercial events (0130); a customer's own words never create or change it.",
+      "source_task": "NX-027",
+      "definition": {
+        "type_name": "CommercialRecord",
+        "display_name": "商业记录",
+        "description": "由已核验的签名商业事件推导的订单、付款、续费或退款（M08）；顾客陈述不能产生或改变它",
+        "version": 1,
+        "title_property": "",
+        "icon": "",
+        "color": "",
+        "plural_display_name": "",
+        "properties": [
+          {
+            "property_name": "kind",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "记录种类：order / payment / renewal / refund",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "external_id",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "商业系统中的订单、付款或退款号",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "connector_id",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "来源连接器",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "data_mode",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "real 或 test；test 只出现在非 real world（D1）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "currency",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "ISO 4217 币种，取自首个到达的事件且不再改变；金额以最小单位整数记录，不同币种不相加",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "occurred_at",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "最早的业务发生时间（UTC ISO 8601）；晚到的更早事件可使其前移",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "related_record_id",
+            "value_type": "string",
+            "required": false,
+            "nullable": true,
+            "default_value": null,
+            "description": "退款记录指向的原记录；其他记录为空",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "verification_state",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "只有已核验的签名事件能产生记录：verified",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "status",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "由已核验事件推导的状态：pending / paid / succeeded / failed / cancelled / refunded_partial / refunded",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "status_at",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "决定当前状态的事件的业务时间（UTC ISO 8601）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "amount_minor",
+            "value_type": "integer",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "金额（最小单位整数；更正事件取规范顺序中最新的金额）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "refunded_minor",
+            "value_type": "integer",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "同币种已成功退款合计（最小单位整数）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "consumer_ref",
+            "value_type": "string",
+            "required": false,
+            "nullable": true,
+            "default_value": null,
+            "description": "经连接器客户关联解析的 Consumer；未关联或已假名化时为空",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "link_state",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "linked / unlinked / pseudonymized（D6）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "event_count",
+            "value_type": "integer",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "已核验事件数",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "late_event_count",
+            "value_type": "integer",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "晚到事件数（只入链，不改状态）",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "provider_sequence",
+            "value_type": "integer",
+            "required": false,
+            "nullable": true,
+            "default_value": null,
+            "description": "provider 序号最大值",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          },
+          {
+            "property_name": "last_event_ref",
+            "value_type": "string",
+            "required": true,
+            "nullable": false,
+            "default_value": null,
+            "description": "最近到达的已核验事件引用",
+            "display_name": "",
+            "render_hint": "plain",
+            "visibility": "normal",
+            "type_descriptor": null
+          }
+        ],
+        "property_groups": [
+          {
+            "group_name": "commercial_identity",
+            "display_name": "商业记录标识",
+            "property_names": [
+              "kind",
+              "external_id",
+              "connector_id",
+              "data_mode",
+              "currency",
+              "related_record_id",
+              "verification_state"
+            ]
+          },
+          {
+            "group_name": "commercial_state",
+            "display_name": "商业记录状态",
+            "property_names": [
+              "occurred_at",
+              "status",
+              "status_at",
+              "amount_minor",
+              "refunded_minor",
+              "consumer_ref",
+              "link_state",
+              "event_count",
+              "late_event_count",
+              "provider_sequence",
+              "last_event_ref"
             ]
           }
         ],

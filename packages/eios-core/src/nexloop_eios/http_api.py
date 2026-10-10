@@ -86,6 +86,9 @@ def create_app(config:ApiConfiguration):
             # NX-023 human-only Manifest read (0094); backend.py itself is unchanged.
             return ContextAuditPorts(backend, inspected_session)
         app.include_router(context_audit_router(config.browser, ports_for_browser=context_audit_ports))
+    # NX-027 signed commercial webhook: the connector signature authenticates (no session).
+    from nexloop_eios.commercial_http import router as commercial_router
+    app.include_router(commercial_router())
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')

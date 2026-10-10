@@ -55,7 +55,10 @@ def test_compiles_both_profiles_with_explicit_snapshots():
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
             **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()}})
     names={r['definition']['stable_name']:r for r in rows}
-    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN}
+    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,
+        'CommercialRecord.create','CommercialRecord.edit'}
+    # NX-027: the commercial recorder's create/edit on CommercialRecord v1 (service authority only).
+    assert all(names[n]['definition']['object_types'][0]['stable_name']=='CommercialRecord' for n in ('CommercialRecord.create','CommercialRecord.edit'))
     # NX-026: the keeper's create/edit and five human-owner commitment Actions, all on Commitment v1.
     by={a['stable_name']:a for a in MANIFEST['actions']}
     assert by['Commitment.create']['executor_role']==by['Commitment.edit']['executor_role']=='commitment_keeper'
