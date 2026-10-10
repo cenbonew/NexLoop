@@ -157,11 +157,11 @@ def test_channel_rate_comes_only_from_a_versioned_configured_rate(commercial_env
     """D7: units always; an amount only when the current settings version carries a well-formed rate for the Action."""
     rate=lambda action,version:admin.execute('select runtime.nexloop_cost_channel_rate(%s,%s)',(action,version)).fetchone()[0]
     assert rate('nexloop.service.request',1) is None                                 # v1 ships no rates: unpriced
-    current=admin.execute('select definition from runtime.nexloop_commercial_settings order by version desc limit 1').fetchone()[0]
+    current=admin.execute('select definition from control.nexloop_commercial_settings order by version desc limit 1').fetchone()[0]
     v2=dict(current,version=2,channel_unit_rates=[{'action':'nexloop.service.request','version':1,'currency':'CNY','amount_per_unit':'0.05'},
         {'action':'nexloop.bad.rate','version':1,'currency':'CNY','amount_per_unit':'1e3'}])
     with admin.transaction():
         admin.execute('set local role nexloop_owner')
-        admin.execute("insert into runtime.nexloop_commercial_settings(version,definition,definition_digest,published_by) values(2,%s,%s,'synthetic-owner')",(Jsonb(v2),'0'*64))
+        admin.execute("insert into control.nexloop_commercial_settings(version,definition,definition_digest,published_by) values(2,%s,%s,'synthetic-owner')",(Jsonb(v2),'0'*64))
     assert rate('nexloop.service.request',1)=={'action':'nexloop.service.request','version':1,'currency':'CNY','amount_per_unit':'0.05'}
     assert rate('nexloop.service.request',2) is None and rate('nexloop.bad.rate',1) is None

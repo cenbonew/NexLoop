@@ -239,7 +239,7 @@ def test_read_port_and_settings(commercial_env):
     from nexloop_eios import commercial
     from commercial_fixture import SETTINGS
     text,digest=commercial.canonical_settings(SETTINGS)
-    row=c['admin'].execute('select definition::text,definition_digest from runtime.nexloop_commercial_settings where version=1').fetchone()
+    row=c['admin'].execute('select definition::text,definition_digest from control.nexloop_commercial_settings where version=1').fetchone()
     assert json.loads(row[0])==json.loads(text) and row[1]==digest
     bad=json.loads(SETTINGS.read_text());bad['financial_retention_days']=0
     path=c['tmp_path']/'bad.json';path.write_text(json.dumps(bad))

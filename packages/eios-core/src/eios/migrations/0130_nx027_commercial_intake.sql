@@ -20,7 +20,9 @@
 -- Published migrations are not edited; the work feed port is replaced by its latest body (0111) plus one feed.
 
 -- 0. Versioned settings (deploy/configuration/commercial.v1.json, byte-equal canonical JSON) -----------------------
-create table runtime.nexloop_commercial_settings (
+-- Deployment configuration without a tenant dimension (as 0109 control.nexloop_reply_policies and 0111
+-- control.nexloop_commitment_settings): control schema, owner-only, append-only, read only through the setting function.
+create table control.nexloop_commercial_settings (
  version integer primary key check(version>=1),definition jsonb not null check(jsonb_typeof(definition)='object'),
  definition_digest text not null check(definition_digest~'^[0-9a-f]{64}$'),published_by text not null,
  published_at timestamptz not null default clock_timestamp(),check((definition->>'version')::integer=version),
@@ -28,16 +30,16 @@ create table runtime.nexloop_commercial_settings (
  check((definition->>'replay_window_seconds')::integer between 30 and 3600 and (definition->>'max_payload_bytes')::integer between 1024 and 262144),
  check((definition->>'financial_retention_days')::integer between 1 and 36500)
 );
-alter table runtime.nexloop_commercial_settings owner to nexloop_owner;
-create trigger nx027_append_only before update or delete on runtime.nexloop_commercial_settings for each row execute function control.nexloop_nx022_append_only();
-revoke all on runtime.nexloop_commercial_settings from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
-insert into runtime.nexloop_commercial_settings(version,definition,definition_digest,published_by)
+alter table control.nexloop_commercial_settings owner to nexloop_owner;
+create trigger nx027_append_only before update or delete on control.nexloop_commercial_settings for each row execute function control.nexloop_nx022_append_only();
+revoke all on control.nexloop_commercial_settings from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
+insert into control.nexloop_commercial_settings(version,definition,definition_digest,published_by)
  values(1,'{"channel_unit_rates":[],"currency_exponents":{"CNY":2,"EUR":2,"GBP":2,"HKD":2,"JPY":0,"KRW":0,"SGD":2,"USD":2},"decision":"NX-027 (M08/M19, dispatcher rulings 2026-10-10, owner decision D6): verified signed commercial events from a configured connector are the only source of CommercialRecord objects; a customer''s own words never are. A connector is bound to one world and data mode (test connectors only write the test world, D1). Event types map to a record kind and status; money is an integer amount in minor units with an ISO 4217 currency (exponents below); currencies are never added together. CommercialRecord objects and cost entries are kept financial_retention_days (default 365, owner decision D6, enterprise-configurable by a new version); raw events follow the event and message retention. Channel cost is recorded in units; an amount is computed only for actions with a unit rate here (D7). Initial values; owner-adjustable by a new version.","event_types":{"order.cancelled":{"kind":"order","status":"cancelled"},"order.created":{"kind":"order","status":"pending"},"order.paid":{"kind":"order","status":"paid"},"payment.failed":{"kind":"payment","status":"failed"},"payment.pending":{"kind":"payment","status":"pending"},"payment.succeeded":{"kind":"payment","status":"succeeded"},"refund.succeeded":{"kind":"refund","status":"succeeded"},"subscription.renewed":{"kind":"renewal","status":"succeeded"}},"financial_retention_days":365,"max_future_skew_seconds":300,"max_payload_bytes":65536,"replay_window_seconds":300,"schema":"nexloop-commercial/1","version":1,"worker":{"batch":20,"lease_seconds":120,"max_attempts":8,"retry_base_seconds":30}}'::jsonb,
   'c079d5b3cdc717b0a0c719babc935eff248e0a1e8dce2a0632a182ca29b76de5','deploy/configuration/commercial.v1.json');
 
 create function runtime.nexloop_commercial_settings_current() returns jsonb
  language sql stable security definer set search_path=pg_catalog,pg_temp as $$
- select definition from runtime.nexloop_commercial_settings order by version desc limit 1
+ select definition from control.nexloop_commercial_settings order by version desc limit 1
 $$;
 alter function runtime.nexloop_commercial_settings_current() owner to nexloop_owner;
 revoke all on function runtime.nexloop_commercial_settings_current() from public;
