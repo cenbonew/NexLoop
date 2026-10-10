@@ -532,6 +532,11 @@
       "sha256": "c9197d85bc3bbed9aa85d81dd8e280942f85ecc087b77dbb38b2c3480225a8b2"
     },
     {
+      "version": "0107",
+      "name": "0107_nx049_submit_sql.sql",
+      "sha256": "b7b3b79b6b04f9a4e9c11588e613e2b30df50db3a4192f33bbb8bd453c5afe2e"
+    },
+    {
       "version": "0108",
       "name": "0108_nx025_plan_context_and_wake.sql",
       "sha256": "24b70831fcc4394b2b2cb45718ce9d70dc458a3d75da969223bb5e33f8c94d4b"

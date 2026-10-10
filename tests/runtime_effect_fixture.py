@@ -148,6 +148,7 @@ def runtime_effect_plan(admin,pg,tmp_path):
         runs=[source.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1']) for source in sources]
         for run in runs:planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,consumer_revision=1,control_revision=1,run_id=run.run_id,run_token=run.token,executor_token=executor_token)
         worker=backend_worker.authenticate(worker_token,world='real')
+        worker_spawn=dict(database_url=make_conninfo(pg,user='nexloop_domain_worker'),artifact_root=tmp_path/'worker-artifacts',token=worker_token,world='real',**config)
         commands=[];activations=[];jobs=[]
         for index,run in enumerate(runs):
             command={'schema_version':'1.0','run_id':run.run_id,'tenant_id':tenant,'world_id':'real','mode':'real','request_id':'runtime-effect-'+str(uuid.uuid4()),'trigger_event_id':str(uuid.uuid4()),
@@ -160,5 +161,5 @@ def runtime_effect_plan(admin,pg,tmp_path):
             assert job['task_id']==accepted['task_id']
             activation=worker.create_runtime_activation(queue='operations',task_id=job['task_id'],fence=job['fence'],run_id=run.run_id,command=command,input='persist one service intent',owner_epoch=1)
             commands.append(command);activations.append(activation['activation_ref']);jobs.append(job)
-        yield PrivatePlan(api=api,backend_worker=backend_worker,owner=owner,planner=planner,owner_token=owner_token,planner_token=planner_token,sources=sources,source_tokens=source_tokens,worker=worker,worker_token=worker_token,commands=commands,activations=activations,runs=runs,
+        yield PrivatePlan(api=api,backend_worker=backend_worker,owner=owner,planner=planner,owner_token=owner_token,planner_token=planner_token,sources=sources,source_tokens=source_tokens,worker=worker,worker_token=worker_token,worker_spawn=worker_spawn,commands=commands,activations=activations,runs=runs,
             consumer=consumer,goal=goal,step=step,control=control,tenant=tenant,executor_token=executor_token,signing_key=key,signing_key_id='runtime-effect',pg=pg,jobs=jobs)

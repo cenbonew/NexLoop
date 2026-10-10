@@ -1,0 +1,50 @@
+# APP_HOST Runtime Worker (ADR-024: guard served by 4 child processes). Example only:
+# copy to /etc/systemd/system/nexloop-runtime-worker.service and set the private values in
+# /etc/nexloop/runtime-worker.env: NEXLOOP_PRIVATE_DIR, NEXLOOP_SIGNING_KEY_ID, NEXLOOP_AGENT_HOST_PORT,
+# NEXLOOP_GUARD_PORT (paths, ports and key id only; secrets stay in mode-0600 files under NEXLOOP_PRIVATE_DIR).
+# Requires the Agent Host on the same host with global concurrency <= 4 (deploy/stage/README.md).
+# Rollback: set --guard-workers 1 below, `systemctl daemon-reload`, restart (no schema/data change).
+[Unit]
+Description=NexLoop Runtime Worker (dispatcher + loopback guard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexloop
+Group=nexloop
+EnvironmentFile=/etc/nexloop/runtime-worker.env
+Environment=NEX_EIOS_DB_POOL_MAX=4
+# Pre-start gate: declared pools <= 60 and server max_connections >= 80, else the unit does not start.
+ExecStartPre=/opt/nexloop/venv/bin/nexloop-doctor --budget-only --connection-budget /etc/nexloop/connection-budget.v1.json --database-url-file ${NEXLOOP_PRIVATE_DIR}/runtime_worker_dsn
+ExecStart=/opt/nexloop/venv/bin/nexloop-runtime-worker \
+  --database-url-file ${NEXLOOP_PRIVATE_DIR}/runtime_worker_dsn \
+  --signing-key-file ${NEXLOOP_PRIVATE_DIR}/runtime_worker_signing_key \
+  --signing-key-id ${NEXLOOP_SIGNING_KEY_ID} \
+  --service-credential-file ${NEXLOOP_PRIVATE_DIR}/runtime_worker_credential \
+  --artifact-root /var/lib/nexloop/artifacts \
+  --world real --queue operations \
+  --host-origin https://127.0.0.1:${NEXLOOP_AGENT_HOST_PORT} \
+  --host-control-key-file ${NEXLOOP_PRIVATE_DIR}/host_control_key \
+  --host-ca-file ${NEXLOOP_PRIVATE_DIR}/host_ca \
+  --guard-port ${NEXLOOP_GUARD_PORT} \
+  --guard-key-file ${NEXLOOP_PRIVATE_DIR}/guard_key \
+  --guard-certificate-file ${NEXLOOP_PRIVATE_DIR}/guard_certificate \
+  --guard-tls-key-file ${NEXLOOP_PRIVATE_DIR}/guard_tls_key \
+  --guard-workers 4 \
+  --dispatcher-pool-max 2
+# SIGTERM to the parent only; it forwards to the guard children and waits for them to drain
+# (children up to 15 s, parent up to 20 s). After TimeoutStopSec everything is killed.
+KillMode=mixed
+TimeoutStopSec=40
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# systemd does not expand variables here; keep in sync with --artifact-root.
+ReadWritePaths=/var/lib/nexloop/artifacts
+
+[Install]
+WantedBy=multi-user.target

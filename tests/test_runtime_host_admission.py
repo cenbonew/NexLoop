@@ -27,8 +27,28 @@ INPUT='synthetic activation input'
 class PrivateHeaders(dict):
     def __repr__(self):return '<private synthetic transport headers>'
 
+def guard_workers():
+    """NX-049 prototype: NEXLOOP_TEST_GUARD_WORKERS=N (N>1) serves guard_server(..., spawn=...) from N child processes."""
+    value=os.environ.get('NEXLOOP_TEST_GUARD_WORKERS','1')
+    assert value.isdigit() and 1<=int(value)<=16,'NEXLOOP_TEST_GUARD_WORKERS must be 1..16'
+    return int(value)
+
+
 @contextmanager
-def guard_server(worker,tmp_path,key):
+def guard_server(worker,tmp_path,key,spawn=None):
+    """spawn: dict(database_url, signing_key_file, signing_key_id, artifact_root, token, world) of the
+    same identity and Backend configuration as `worker`; used only in multi-process mode."""
+    if spawn is not None and guard_workers()>1:
+        from nexloop_eios.runtime_guard_worker import GuardFiles,GuardWorkerPool
+        private=tmp_path/'guard-spawn';private.mkdir(mode=0o700,exist_ok=True)
+        dsn=private/'database-url';dsn.write_text(spawn['database_url']);dsn.chmod(0o600)
+        credential=private/'service-credential';credential.write_text(spawn['token']);credential.chmod(0o600)
+        pool=GuardWorkerPool(GuardFiles(dsn,Path(spawn['signing_key_file']),spawn['signing_key_id'],credential,Path(spawn['artifact_root']),
+            spawn['world'],key,tmp_path/'host-cert.pem',tmp_path/'host-key.pem'),port=0,workers=guard_workers())
+        port=pool.start()
+        try:yield port
+        finally:pool.stop()
+        return
     server=create_runtime_guard_server(worker,port=0,key_file=key,
         certificate_file=tmp_path/'host-cert.pem',tls_key_file=tmp_path/'host-key.pem')
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()

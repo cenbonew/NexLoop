@@ -287,7 +287,9 @@ def dispatch_relationship_run(f,tmp_path,admin,monkeypatch):
     o=f['original']
     with open_backend(database_url=make_conninfo(o['pg'],user='nexloop_domain_worker'),artifact_root=tmp_path/'domain-artifacts',signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration') as backend:
         worker=backend.authenticate(f['f']['tokens']['assembly-runtime-worker'],world='real')
-        with guard_server(worker,tmp_path,guard_key) as port:
+        spawn=dict(database_url=make_conninfo(o['pg'],user='nexloop_domain_worker'),signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration',
+            artifact_root=tmp_path/'domain-artifacts',token=f['f']['tokens']['assembly-runtime-worker'],world='real')
+        with guard_server(worker,tmp_path,guard_key,spawn=spawn) as port:
             cfg=configuration(tmp_path,port,guard_key);body=json.loads(cfg.read_text());body.update(effect_tools=True,deterministic_message_from_input=True,deterministic_relationship_from_context=True,context_input_protocol='nexloop.context-pack.v4');cfg.write_text(json.dumps(body))
             with actual_host(runtime,key,cfg) as (_,client,headers):
                 result=RuntimeDispatcher(worker,HostControlConfiguration(str(client.base_url).rstrip('/'),key,tmp_path/'host-cert.pem'),queue='operations',lease_seconds=60,total_timeout=45,request_timeout=10).run_once()

@@ -92,7 +92,11 @@ def analyse_run(run,procs,host,pg,log):
         for burst in bursts:
             if any(overlaps(e,o) for o in burst):burst.append(e);break
         else:bursts.append([e])
-    concurrency={'solo':medians(solo),'overlapped':medians(shared),
+    # Multi-process guard: overlap with any constrained request regardless of process.
+    anywhere=lambda x,y:min(span(x)[1],span(y)[1])-max(span(x)[0],span(y)[0])>0.3*min(x['total'],y['total'])
+    shared_any=[e for e in timed if any(o is not e and anywhere(e,o) for o in timed)]
+    concurrency={'solo':medians(solo),'overlapped':medians(shared),'overlapped_any_process':medians(shared_any),
+        'processes':len({e['pid'] for e in timed}),
         'bursts':[{'requests':len(g),'start_wall':round(min(span(x)[0] for x in g),3),'window_ms':round(1000*(max(span(x)[1] for x in g)-min(span(x)[0] for x in g)),1),
             'max_total_ms':round(max(1000*x['total'] for x in g),1),'totals_ms':[round(1000*x['total']) for x in g]} for g in bursts]}
     result={'node':run['node'],'iteration':run['iteration'],'rc':run['rc'],'wall_s':round(end-start,1),'load':run.get('load'),

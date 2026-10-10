@@ -6,6 +6,8 @@
 # scripts/perf/out/<label>/summary.json and summary.md (see docs/implementation/NX-049-profile.md).
 # Requirements on PATH / env: node v24, PostgreSQL 18 bin dir in NEXLOOP_TEST_PG_BIN, a built
 # Agent Host (apps/agent-host/dist/main.js) and the repository .venv (or uv). No Mac paths.
+# NEXLOOP_TEST_GUARD_WORKERS=N (N>1) runs the guard of both tests in N child processes (NX-049
+# multi-process prototype); each child writes its own proc-<pid>.json.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 label="${1:?usage: nx049_profile.sh <label> [repeats]}"; repeats="${2:-3}"
@@ -24,7 +26,7 @@ NODES=(
  "tests/test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]"
  "tests/test_role_pi_effect_checkpoint.py::test_actual_two_pi_role_runs_one_shared_intent_one_real_loopback_effect"
 )
-{ uname -a; nproc 2>/dev/null || sysctl -n hw.ncpu; node --version; "$NEXLOOP_TEST_PG_BIN/postgres" --version; "${PY[@]}" --version; uptime; } > "$out/host.txt" 2>&1 || true
+{ uname -a; nproc 2>/dev/null || sysctl -n hw.ncpu; node --version; "$NEXLOOP_TEST_PG_BIN/postgres" --version; "${PY[@]}" --version; uptime; echo "guard_workers=${NEXLOOP_TEST_GUARD_WORKERS:-1} pgfunc=${NEXLOOP_PERF_PGFUNC:-0}"; } > "$out/host.txt" 2>&1 || true
 for iteration in $(seq 1 "$repeats"); do
   for node in "${NODES[@]}"; do
     export NEXLOOP_PERF_ITER="$iteration"

@@ -30,7 +30,7 @@ def test_actual_two_pi_role_runs_one_shared_intent_one_real_loopback_effect(role
     monkeypatch.setattr(AuthenticatedServices,'authorize_runtime_activation',measured_authorize)
     runtime,key=files(tmp_path)
     guard_key=tmp_path/'guard-key';guard_key.write_text(secrets.token_hex(32));guard_key.chmod(0o600)
-    with guard_server(plan['worker'],tmp_path,guard_key) as port:
+    with guard_server(plan['worker'],tmp_path,guard_key,spawn=plan['worker_spawn']) as port:
         config=effect_configuration(tmp_path,port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message');body.update(deterministic_message_from_input=True,context_input_protocol='nexloop.context-pack.v5');config.write_text(json.dumps(body))
         with host(runtime,key,config) as (_,client,headers):
             def run(index):

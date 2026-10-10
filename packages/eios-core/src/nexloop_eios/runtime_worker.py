@@ -9,6 +9,7 @@ import argparse
 import json
 import logging
 import math
+import os
 from pathlib import Path
 import re
 import signal
@@ -66,11 +67,30 @@ def _arguments(argv):
     parser.add_argument('--poll-seconds',type=float,default=.05)
     parser.add_argument('--tick-seconds',type=float,default=.25)
     parser.add_argument('--once',action='store_true',help='one bounded dispatch tick; no provider selection or real Action success claim')
+    parser.add_argument('--guard-workers',type=int,default=1,help='serve the guard from N child processes (ADR-024; default 1: in-process thread, stage deployment uses 4)')
+    parser.add_argument('--dispatcher-pool-max',type=int,default=2,help='PG pool max of the dispatcher-only parent when --guard-workers > 1 (ADR-024)')
     args=parser.parse_args(argv)
     if (not 1024<=args.guard_port<=65535 or re.fullmatch('[A-Za-z][A-Za-z0-9_-]{0,63}',args.queue) is None
         or not args.world or len(args.world)>255 or not args.signing_key_id or len(args.signing_key_id)>255
-        or not math.isfinite(args.tick_seconds) or not 0<args.tick_seconds<=30):parser.error('configuration')
+        or not math.isfinite(args.tick_seconds) or not 0<args.tick_seconds<=30 or not 1<=args.guard_workers<=16
+        or not 1<=args.dispatcher_pool_max<=32):parser.error('configuration')
+    try:args.guard_pool_max=guard_pool_max(os.environ)
+    except ValueError:parser.error('configuration')
     return args
+
+
+def guard_pool_max(environ):
+    """PG pool max of every Backend that serves the guard (NEX_EIOS_DB_POOL_MAX, default 4).
+
+    LifecycleLock admits pool_max // 2 guard requests per process, so at least 2."""
+    value=environ.get('NEX_EIOS_DB_POOL_MAX','4').strip()
+    if not value.isdigit() or not 2<=int(value)<=32:raise ValueError('NEX_EIOS_DB_POOL_MAX must be 2..32')
+    return int(value)
+
+
+def backend_pool_max(arguments):
+    """N=1: the single Backend serves dispatcher and guard. N>1: the parent only dispatches."""
+    return arguments.guard_pool_max if arguments.guard_workers==1 else arguments.dispatcher_pool_max
 
 
 def run(arguments,stop):
@@ -86,7 +106,7 @@ def run(arguments,stop):
     tls.load_verify_locations(cadata=read_private_text(arguments.host_ca_file,maximum=32768))
     host=HostControlConfiguration(arguments.host_origin,arguments.host_control_key_file,arguments.host_ca_file)
     with open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
-        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id) as backend:
+        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=backend_pool_max(arguments)) as backend:
         with backend._pool.connection() as connection:
             if verify_application_role(connection) not in {'nexloop_domain_worker','nexloop_scheduler'}:
                 raise ValueError('restricted Worker role required')
@@ -94,12 +114,20 @@ def run(arguments,stop):
         # Preflight current authentication and dispatch config before binding.
         RuntimeDispatcher(guard.service(),host,queue=arguments.queue,lease_seconds=arguments.lease_seconds,
             total_timeout=arguments.total_timeout,request_timeout=arguments.request_timeout,poll_seconds=arguments.poll_seconds,cache_wakeup=cache)
-        server=None;thread=None;thread_started=False
+        server=None;thread=None;thread_started=False;pool=None
         try:
-            server=create_runtime_guard_server(guard,port=arguments.guard_port,key_file=arguments.guard_key_file,
-                certificate_file=arguments.guard_certificate_file,tls_key_file=arguments.guard_tls_key_file)
-            thread=threading.Thread(target=server.serve_forever,name='nexloop-runtime-guard',daemon=True)
-            thread.start();thread_started=True
+            if arguments.guard_workers==1:
+                server=create_runtime_guard_server(guard,port=arguments.guard_port,key_file=arguments.guard_key_file,
+                    certificate_file=arguments.guard_certificate_file,tls_key_file=arguments.guard_tls_key_file)
+                thread=threading.Thread(target=server.serve_forever,name='nexloop-runtime-guard',daemon=True)
+                thread.start();thread_started=True
+            else:
+                from nexloop_eios.runtime_guard_worker import GuardFiles,GuardWorkerPool
+                pool=GuardWorkerPool(GuardFiles(arguments.database_url_file,arguments.signing_key_file,arguments.signing_key_id,
+                    arguments.service_credential_file,arguments.artifact_root,arguments.world,arguments.guard_key_file,
+                    arguments.guard_certificate_file,arguments.guard_tls_key_file),port=arguments.guard_port,workers=arguments.guard_workers,
+                    pool_max=arguments.guard_pool_max,on_failure=stop.set)
+                pool.start()
             print('Runtime Worker ready',flush=True)
             while not stop.is_set():
                 try:
@@ -124,8 +152,13 @@ def run(arguments,stop):
                     # actual credentials and authority without minting a Run.
                 if arguments.once:break
                 stop.wait(arguments.tick_seconds)
+            if pool is not None and pool.failed:
+                # Children kept exiting: stop claiming and leave restart to the service manager.
+                print('Runtime guard workers unavailable',file=sys.stderr,flush=True)
+                return 1
             return 0
         finally:
+            if pool is not None:pool.stop()
             if server is not None:
                 if thread_started:server.shutdown()
                 server.server_close()
