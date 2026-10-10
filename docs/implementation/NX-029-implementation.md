@@ -121,15 +121,20 @@
 | Run（Pi SQLite 目录、提示与作业输入） | 该 Consumer 的 Run 目录经 Host `runs/purge` 删除（只删已 settle 的 Run）；Run 文本清空 | `run_files`：任务终态满 30 天的 Run 入队，同一 Host `runs/purge` 删除，Host 确认后才写 tombstone（理由 `retention_expiry`，进删除列表） | 不适用 | `test_erasure_pg`、`test_host_run_purge`、`run-purge.test.ts`、`test_retention_expiry_pg` |
 | 商业与费用 | NX-027 假名化；费用条目 `consumer_ref` 置空；cohort 换假名 | `financial_retention_days` | 记录更正链既有（NX-027） | `test_erasure_pg`、`test_retention_pg` |
 | 承诺 | `made_to` 改为删除请求引用、条件原文清空，保留至期满（D4） | `commitment_closed`：关闭（fulfilled/cancelled/breached，以最后一次状态事件为准）满 1 年，对象、登记行、事件、证据、异常、商业绑定、监控项一并删除，每个留 tombstone | `source_deleted` / `source_superseded`（既有） | `test_erasure_pg`、`test_retention_expiry_pg` |
-| 计划与策略 | 策略正文、步骤预期结果与前提、Run 结论、自由文本的事件理由清空；状态链（状态、理由代码、版本、摘要）保留 | 计划关闭后 1 年删除尚未执行（D3，不在本次范围） | 不适用 | `test_erasure_propagation_pg` |
+| 计划与策略 | 策略正文、步骤预期结果与前提、Run 结论、自由文本的事件理由清空；状态链（状态、理由代码、版本、摘要）保留 | `plan_closed`：当前状态（最后一个事件）为 closed/invalidated 满 1 年，全部版本、步骤、事件、Run、结论及不再被引用的策略删除，每个计划留 tombstone（D3，§11） | 不适用 | `test_erasure_propagation_pg` |
 | 引用该 Consumer 的形式对象 | RelationshipAssessment（含修订历史）、ConsumerRoleLink、Goal、PlanStep、EffectControl、ConsumerServiceOffering 等带该 Consumer `consumer_id` 的对象，连同对象事件与关系删除，每个留 tombstone | 不随时间到期（持续事实） | 不适用 | `test_erasure_propagation_pg` |
-| effect 账本 | 该 Consumer 的意图（及 Message.erase 时发出该消息的意图）的 `frozen_request` 置为 `{"erased":true}`；状态、回执、摘要保留；dispatching/unknown 不动 | 正文跟随消息原文的到期尚未执行（不在本次范围） | 不适用 | `test_erasure_propagation_pg` |
+| effect 账本 | 该 Consumer 的意图（及 Message.erase 时发出该消息的意图）的 `frozen_request` 置为 `{"erased":true}`；状态、回执、摘要保留；dispatching/unknown 不动 | `effect_text`：意图创建满 90 天且已终态，`frozen_request` 置为 erased（跟随 `message_text`，§11） | 不适用 | `test_erasure_propagation_pg` |
 | 读取：WebChat 历史与事件流、上下文组装的 Claim 证据 | 已清除的消息不再返回（分页保持连续）；原文已清除的陈述不再进入 Claim 证据视图 | 同（到期清空后同样排除） | 不适用 | `test_conversation_messages`、`test_evidence_read_derivation` |
+| 运行时作业 | 该 Consumer 的作业输入清空（既有） | `job_records`：终态满 1 年，作业事件、inbox/outbox 删除；无 Run 绑定的作业整行删除，有绑定的作业保留行、载荷置为 erased；满 1 年的幂等记录删除 | 不适用 | `test_retention_expiry_pg` |
+| 模型请求清单 | 该 Consumer 的提示原文清空（既有） | `model_request_manifest`：请求满 1 年，清单行与提示行删除（费用条目按财务保留期另计，D3） | 不适用 | `test_retention_expiry_pg` |
+| 读取审计（ADR-025） | 保留，只有 ID（D6） | `read_audit`：满 1 年删除，只留按日、用途、对象种类的计数（`runtime.nexloop_read_audit_daily`，D6） | 不适用 | `test_retention_expiry_pg` |
+| 治理审计 | — | `governance_audit`：满 1 年删除审计事件、已被同一范围更新事件取代的控制事件（每个范围最新的一条保留）、人类请求、已过期的导出请求；删除请求在其删除列表条目消失后才删除（D6） | 不适用 | `test_retention_expiry_pg` |
+| 删除列表与 tombstone | — | `records`：各自满 `deletion_ledger_days` / `tombstone_days`（默认 365）删除；重放进行中不删；最短保留期见 §11 | 不适用 | `test_retention_expiry_pg`、`test_retention_pg` |
 | 恢复后不复活（AT-059） | 重放删除列表，立即阻断，执行者清除，幂等 | 重放的类立即到期 | — | `test_deletion_replay_pg` |
 
 端到端检查：`test_erasure_propagation_pg::test_consumer_erasure_reaches_plans_formal_objects_and_the_effect_ledger` 在删除完成后扫描 ontology、runtime、control、authz、public 五个 schema 的每张表，断言原文（手机号、回复、计划与关系判断中的文字）一处不剩，且没有任何形式对象、关系、对象事件或关系判断修订仍指向该 Consumer。
 
-仍不在 AT-026 本次范围内（设计表中的其他到期类）：计划关闭后 1 年删除（D3）、effect 账本正文 90 天到期、运行时作业终态 1 年删除、模型请求清单 1 年、读取与治理审计 1 年、删除列表与 tombstone 自身的到期。Consumer 删除后仍以 64 位内部 ID 作为键保留的行：会话行、删除请求、删除列表、tombstone、联系限制、承诺登记（D4，至期满）、Claim 行（值已 erased）、计划行（文本已清空），它们不含原文。
+设计表中由 NX-029 执行的到期类已全部实现（§10、§11）。NX-030 的观测样本、小时汇总与告警事件由 NX-030 自己的维护函数执行，不在本表。Consumer 删除后仍以 64 位内部 ID 作为键保留的行：会话行、删除请求、删除列表、tombstone、联系限制、承诺登记（D4，至期满）、Claim 行（值已 erased）、计划行（文本已清空），它们不含原文。
 
 ## 10. NX-029 收尾：删除传播与三类到期（迁移 0140、0141）
 
@@ -137,3 +142,11 @@
 - 0141 `nx029_expiry_classes`：保留设置 v3 增加 `run_files`（30 天）、`commitment_closed`（365 天）、`claim_superseded`（365 天）；0132 的保留例外包装原地替换为先查例外、再分派三类；`ontology.nexloop_claims.superseded_at` 由触发器在变为 superseded 时盖时间（迁移时已是 superseded 的行取迁移时间，从现在起算一年）；`authz.nexloop_erasure_command` 的 `run_purged` 按队列项自己的理由写 tombstone。
 - 与设计稿的差异：设计表写“被取代 Claim 删除行”；实现改为把结构化值标 erased、清空其余原文，行与 ID 保留。理由：变更提议、匹配、审核与抽取运行都引用该行，删除行要级联这些审计记录；而“值”才是 D2 要去掉的内容。
 
+
+## 11. NX-029 收尾：其余到期类、删除列表与 tombstone 的到期、Claim 值副本（迁移 0142）
+
+- 保留设置 v4 新增：`plan_closed` 365、`effect_text` 90（跟随 `message_text`）、`job_records` 365、`model_request_manifest` 365、`read_audit` 365、`governance_audit` 365；执行者另跑 `records`（删除列表与 tombstone，取 `records` 设置）。各类的起算点与动作见 §9 表；每次真正删除或清空数据都写 tombstone 并进入删除列表（计划逐个，其余按批），恢复后重放时这些类立即到期。
+- 0089 的模型请求守卫原地替换，只放行登记过的清除；读取审计删除时先折算为按日计数，计数表不含主体、会话或目标。
+- 被取代或被删除的 Claim（值标 erased 时）由触发器同时清除 NX-020 的值副本：变更提议的 `proposal`、`apply_args`、`receipt`，匹配记录的 `decision` 与 `recall`。取代它的新 Claim 自己的副本保留。
+- 删除列表与 tombstone 的最短保留期：设备份最长可恢复期为 B（`backup_max_retention_days`，NX-035 D4 为 35 天）。一份在 T_b 开始的备份（其删除水位取开始时刻，NX-035 §5）最晚在 T_b + B 被恢复；恢复后需要重放的是 T_b 之后进入删除列表的条目，到恢复时最多 B 天。因此删除列表必须严格长于 B；tombstone 是每次删除的凭据，同理。保留设置的校验（0135，SQL 触发器与 `load_settings` 双重）拒绝 B ≥ min(`deletion_ledger_days`, `tombstone_days`) 的版本，所以允许的最短值是 B + 1 天（B = 35 时为 36 天）；默认 365 天（D6，删除凭据一年）。另外两条保护：重放进行中（`runtime.nexloop_erasure_readiness` 为 false）不删除；一条删除请求在它的删除列表条目消失之前不随治理审计删除。NX-035 的库外恢复日志尚未实现，它每分钟导出删除列表；实现时 `records` 还须不越过已导出的序号（对接点，已在迁移头注释记录）。
+- 作业的取舍：设计表写“终态后 1 年删除”。有 Run 绑定（`authz.nexloop_runtime_run_bindings`）的作业行被授权注册表以外键引用，删除要连带删 Run 绑定、激活记录等授权历史；实现改为保留这类作业行、把输入、计划快照、结果与错误置为 erased，事件与 inbox/outbox 照样删除。没有绑定的作业整行删除。

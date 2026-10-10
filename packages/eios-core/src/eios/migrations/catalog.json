@@ -695,6 +695,11 @@
       "version": "0141",
       "name": "0141_nx029_expiry_classes.sql",
       "sha256": "8a3f1d2a563d3ab67ca0ce5e0d03f75576419102aa4c7f00f421a6ca1f9b3c22"
+    },
+    {
+      "version": "0142",
+      "name": "0142_nx029_retention_completion.sql",
+      "sha256": "ac1749753237f8b35c9203c0a3c8b6274c7e315c4c54467b489210d589ff8207"
     }
   ]
 }
