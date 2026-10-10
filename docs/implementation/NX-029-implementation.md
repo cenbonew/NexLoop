@@ -1,4 +1,4 @@
-# NX-029 保留、删除与导出闭环：实现说明（切片一、二）
+# NX-029 保留、删除与导出闭环：实现说明（切片一至四）
 
 设计稿 `NX-029-design.md`（D1–D7 负责人“全部按推荐”，D8/D9 调度员裁定）。分支 `nx029-s1`，切自 `nx027-registry`（main `a5d7c48` + NX-027 注册表提交），带上设计稿提交。临时迁移号 0141（本任务可用 0141–0149），合并时由调度员重排。
 
@@ -65,7 +65,7 @@
 
 - `deploy/configuration/business-actions.v1.json` v10：`nexloop.consumer.erase`、`nexloop.message.erase`、`nexloop.retention.hold`、`nexloop.retention.release_hold`（human_owner，定型在 Consumer v1）。
 - `deploy/authorization/workbench-roles.v1.json` v4：四项只给 owner（不可逆删除与法定例外留给负责人）。
-- `deploy/authorization/service-grants.v1.json` v14：`retention_keeper` 增加 `nexloop.erasure.execute`。
+- `deploy/authorization/service-grants.v1.json` v15（集成 s4l 时合成的版本号）：`retention_keeper` 增加 `nexloop.erasure.execute`。
 - `goal_controls.CAPABILITIES` 与方法 `erase_consumer`、`erase_message`、`hold_retention`、`release_retention_hold`。
 - `retention.py`：`ErasurePort`、`HostPurger`（TLS 到 127.0.0.1，Host 内部密钥）、执行者扩展（删除步骤、Run 文件、Artifact）。
 - 后台入口 `retention-keeper` 新增 `--host-port/--host-key-file/--host-ca-file`（三者同时给或都不给；不给时 Run 文件留在队列）；执行者使用服务自身的 Artifact 根目录。
@@ -91,3 +91,36 @@
 4. 计划与策略的自由文本、关系判断（RelationshipAssessment）与 ConsumerRoleLink 等引用该 Consumer 的其他对象，本切片未清除，留待后续切片。
 5. D5 的无身份联系键已写入，但“重新导入时拒绝联系”的执行点（NX-018 身份关联）尚未接入；负责人撤销联系键的入口也未做。
 6. erased 消息在 WebChat 历史与上下文组装中尚未排除或标注。
+
+
+## 7. 切片三：导出（迁移 0141）
+
+- 人类 Action `nexloop.consumer.export`（注册表 `consumer.export` / `export_consumer`，human；`business-actions` v12；`workbench-roles` 只给 owner）记录导出请求 `control.nexloop_data_exports`（请求人、Consumer、7 天有效），erasing 中的 Consumer 拒绝。
+- `authz.nexloop_data_export`（`nexloop-data-export-v1`，须持有 `nexloop.consumer.export:1` 的 EXECUTE；身份先于授权，照 0095/0122）：`open` 只给请求人本人、未过期、Consumer 不在 erasing 的请求，返回 Consumer ID、属性名与未清除的 Message ID；`record` 写下载审计（计数与载荷摘要，无内容）。
+- `nexloop_eios/data_export.py`：`DataExporter` 用请求人自己的工作台会话、经 ADR-025 成员读取组装：负责人受限的属性组与角色不派生的 Message 被扣留并计数，从不由服务端代读；每次读取在 `runtime.nexloop_workbench_read_audit` 留一行，用途 `export`；商业记录只在请求人持有 observe Action 时包含。导出不在服务端存储。
+- `GET /api/v1/workbench/data-exports/{export_id}`（`data_export_http.py`，工作台登录域的 cookie 与会话存储；同源；附件下载；401/403/404/422/405）。
+- 与设计稿的差异：设计稿写的是导出工作者生成 Artifact（保留 7 天）后下载；实现改为下载时用请求人的会话现场组装、不落盘。理由：服务端代读会绕过请求人的读取权限（AT-003），且存储的导出文件本身又成为需要保留与删除的个人数据。
+
+## 8. 切片四：删除水位与重放、doctor（迁移 0140、0142）
+
+- `control.nexloop_deletion_ledger`（owner 独占、只追加、跨租户，供 NX-035 恢复日志读取）：Consumer 删除在脱离 `pending_confirmation` 时、Message 删除与每次真正清除了数据的到期扫描（带截止时间）在各自 tombstone 写入时入列；序号取全局序列 `control.nexloop_deletion_watermark`；无内容。
+- 与 NX-035 §6.2 对齐的重放接口（owner 专用，恢复工具调用）：`runtime.nexloop_replay_begin(restore_ref, from_seq)` → `runtime.nexloop_replay_deletions(restore_ref, entries)`（条目即恢复日志的 deletion 条目：`seq, tenant_id, world, kind, subject_ref, request_ref, cutoff`）→ `runtime.nexloop_replay_finish(restore_ref)`；`runtime.nexloop_erasure_readiness()` 在重放未完成时为 false；`runtime.nexloop_deletion_ledger_since(seq, limit)` 读出条目。重放按原 ID 幂等：Consumer 走与负责人相同的受治理处理（立即阻断联系与读取，执行者随后清除），Message 走 `runtime.nexloop_erase_message`，数据类立即到期（扫描重算截止时间）。
+- 保留设置 v2：`records`（删除列表与 tombstone 365 天，最长备份保留 35 天，NX-035 D4）；不满足“删除列表与 tombstone 长于最长备份”的版本被拒（SQL 触发器与 `load_settings` 双重校验）。删除列表与 tombstone 自身的到期清除尚未执行（它们至少保留 1 年，长于备份）。
+- doctor：`runtime.nexloop_retention_warnings`（经保留端口 `status`）增加 `erasure_waiting_for_unknown_effects`（超过 24 小时）、`run_purge_failing`（≥3 次）、`artifact_deletion_failing`、`retention_class_overdue`（超过 3 个扫描周期）。
+- 0142：消息正文一被清除（到期、Message.erase、Consumer 删除、重放），由该消息生成的 NX-019 话题标签与会话摘要在同一事务清空（AT-026 的“摘要”）。
+
+## 9. AT-026 逐类覆盖
+
+| 类别 | 删除（Consumer 删除 / Message 删除） | 到期 | 更正传播 | 测试 |
+|---|---|---|---|---|
+| 原文：会话流、relay 副本、Message 对象 | 清空并标 erased；Message 对象连同对象事件、关系删除 | `message_text` 90 天 | 不适用（消息不更正，只删除） | `test_erasure_pg`、`test_retention_pg` |
+| 原文副本：Claim quote、提示原文、作业输入 | quote、主体文本、条件、时间表达清空，value 标 erased；该 Consumer 的 Run 提示原文与作业输入清空；引用过被删 Message 的 Run 提示原文清空 | `claim_quote` 跟随来源、`prompt_text` 30 天、`job_input` 30 天 | Claim 被取代时 NX-026 记 `source_superseded`（既有）；被取代 Claim 的结构化值 1 年后删除（D2）**未实现** | `test_erasure_pg`、`test_retention_pg`、`test_retention_prompts_pg` |
+| 摘要：NX-019 话题标签与会话摘要 | 随消息清除而清空（0142 触发器） | 随 `message_text` | 不适用 | `test_evidence_read_derivation::test_erased_message_clears_the_summaries_built_from_it` |
+| 向量 / 召回索引 | Message 与 Consumer 对象删除经 NX-021 feed 移除；端到端断言该 Consumer 的召回条目为 0 | 消息清空后对象更新触发重建（只含空正文） | 对象属性更正经 NX-021 feed 重建（既有，AT-025 已通过） | `test_erasure_pg`；NX-021 既有测试 |
+| Artifact（上下文、提示） | 该 Consumer 的 Run 的上下文与提示 Artifact 入队，经跨主体清理端口删除（删后才写 tombstone 与审计） | 已到 `retention_until` 的 Artifact 同一端口删除 | 不适用 | `test_erasure_pg::test_run_files_and_artifacts_leave_only_when_their_deletion_is_confirmed` |
+| Run（Pi SQLite 目录、提示与作业输入） | 该 Consumer 的 Run 目录经 Host `runs/purge` 删除（只删已 settle 的 Run）；Run 文本清空 | Run 目录的到期清理**未实现**（只有删除驱动） | 不适用 | `test_erasure_pg`、`test_host_run_purge`、`run-purge.test.ts` |
+| 商业与费用 | NX-027 假名化；费用条目 `consumer_ref` 置空；cohort 换假名 | `financial_retention_days` | 记录更正链既有（NX-027） | `test_erasure_pg`、`test_retention_pg` |
+| 承诺 | `made_to` 改为删除请求引用、条件原文清空，保留至期满（D4） | 关闭后 1 年**未实现** | `source_deleted` / `source_superseded`（既有） | `test_erasure_pg` |
+| 恢复后不复活（AT-059） | 重放删除列表，立即阻断，执行者清除，幂等 | 重放的类立即到期 | — | `test_deletion_replay_pg` |
+
+尚未覆盖、应在 AT-026 判定时考虑的：计划与策略的自由文本、RelationshipAssessment 与 ConsumerRoleLink 等引用该 Consumer 的其他对象未清除；Run 目录的到期清理、承诺关闭后 1 年删除、被取代 Claim 1 年后删除未执行；erased 消息在 WebChat 历史与上下文组装中尚未排除或标注。

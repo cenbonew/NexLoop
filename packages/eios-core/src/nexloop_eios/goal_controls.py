@@ -43,6 +43,8 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'bind_commitment_commercial':'commitment.bind_commercial','record_cost':'cost.record',
     # NX-029 slice 2 (0142): erasure and retention holds, human owner only.
     'erase_consumer':'consumer.erase','erase_message':'message.erase','hold_retention':'retention.hold','release_retention_hold':'retention.release_hold',
+    # NX-029 slice 3 (0141): export of one Consumer for the requester.
+    'export_consumer':'consumer.export',
     # NX-030: the owner silences one alert rule (optionally one selector) for at most 7 days.
     'silence_alert':'alert.silence'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
@@ -285,6 +287,11 @@ class GoalGovernedActions:
     def release_retention_hold(self,*,action_name,action_version,request_id,hold_id,reason):
         if type(hold_id) is not str or not hold_id or type(reason) is not str or not 1<=len(reason)<=500:raise ValueError('hold and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_retention_hold','hold_id':hold_id,'reason':reason})
+
+    def export_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'export_consumer','consumer_id':consumer_id,'reason':reason})
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

@@ -179,5 +179,14 @@ def test_run_files_and_artifacts_leave_only_when_their_deletion_is_confirmed(era
         assert admin.execute("select count(*) from runtime.audit_events where event_id=%s",('artifact-purge:'+gone,)).fetchone()==(1,)
         from nexloop_eios.plan_reevaluation import PlanUnavailable
         with pytest.raises(PlanUnavailable):port.artifact_claim(young,secrets.token_hex(16))   # 42501 in SQL
+        # Not yet expired but queued for an erasing Consumer: purged now (tombstone reason consumer_erasure).
+        from erasure_support import mark_erasing
+        mark_erasing(admin,TENANT,c['consumer'])
+        with admin.transaction():
+            admin.execute('set local role nexloop_owner');admin.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+            admin.execute("insert into runtime.nexloop_erasure_artifacts(tenant_id,world,artifact_id,request_id) values(%s,'real',%s,%s)",
+                (TENANT,young,'test-erasure-'+c['consumer'][:16]))
+        assert keeper(c,artifact_store=store).run_once()['artifacts_deleted']==1
+        assert admin.execute("select reason from runtime.nexloop_erasure_tombstones where subject_key=%s",(young,)).fetchone()==('consumer_erasure',)
     # Only the keeper's own grant reaches the port: a service without it is refused.
     with pytest.raises(Exception):retention.ErasurePort(c['env']['worker'],c['env'].session(),c['env']['signer']).requests()

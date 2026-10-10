@@ -20,7 +20,8 @@ from nexloop_eios.plan_reevaluation import _SignedPort
 ACTION='eios:action:nexloop.retention.execute:1'
 ERASURE_ACTION='eios:action:nexloop.erasure.execute:1'
 CLASSES=('message_text','claim_quote','prompt_text','job_input','commercial_receipt','metric_observation')
-SETTINGS_KEYS={'schema','version','decision','classes','sweep'}
+SETTINGS_KEYS={'schema','version','decision','classes','sweep','records'}
+RECORDS=('deletion_ledger_days','tombstone_days','backup_max_retention_days')
 _SWEEP={'batch':(1,1000),'max_passes':(1,100),'interval_seconds':(60,86400)}
 
 
@@ -40,6 +41,11 @@ def load_settings(path):
     if type(sweep) is not dict or set(sweep)!=set(_SWEEP):raise ValueError('retention sweep settings')
     for key,(low,high) in _SWEEP.items():
         if type(sweep[key]) is not int or not low<=sweep[key]<=high:raise ValueError('retention sweep '+key)
+    # v2 (slice 4, NX-035 D4): deletions in a backup stay replayable — ledger and tombstones outlive every backup.
+    records=value['records']
+    if (type(records) is not dict or set(records)!=set(RECORDS) or any(type(records[k]) is not int or not 1<=records[k]<=36500 for k in RECORDS)
+            or records['backup_max_retention_days']>=min(records['deletion_ledger_days'],records['tombstone_days'])):
+        raise ValueError('retention records')
     return value
 
 

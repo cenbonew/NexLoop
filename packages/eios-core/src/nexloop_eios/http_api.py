@@ -119,6 +119,14 @@ def create_app(config:ApiConfiguration):
                 raise BackendClosed('backend is unavailable')
             return backend.authenticate_workbench(inspected_session)
         app.include_router(workbench_router(config.workbench, ports_for_workbench=workbench_ports))
+        from nexloop_eios.data_export_http import ExportPorts, router as export_router
+        def export_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # NX-029 slice 3: the requester's own export, assembled with the requester's member reads (0141, ADR-025).
+            return ExportPorts(backend, inspected_session)
+        app.include_router(export_router(config.workbench, ports_for_browser=export_ports))
         from nexloop_eios.workbench_actions_http import WorkbenchActions, router as workbench_actions_router
         def workbench_action_ports(request, inspected_session):
             backend = getattr(request.app.state, 'backend', None)
