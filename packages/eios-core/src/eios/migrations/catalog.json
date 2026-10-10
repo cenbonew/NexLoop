@@ -685,6 +685,11 @@
       "version": "0137",
       "name": "0137_nx029_summaries.sql",
       "sha256": "802b705374fefe5c0ee415f77432e8d957d50f32c0c0e517314f8b6d4a76dbf0"
+    },
+    {
+      "version": "0140",
+      "name": "0140_nx029_erasure_propagation.sql",
+      "sha256": "0590eac99c8dd1ec8429762c2d501f04720d604f16f0466d14a512f24d1b9bf7"
     }
   ]
 }

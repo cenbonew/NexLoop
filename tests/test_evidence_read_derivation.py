@@ -202,3 +202,21 @@ def test_erased_message_clears_the_summaries_built_from_it(window, admin):
     after = {t[0]: (t[1], t[2]) for t in admin.execute('select topic_key,topic,conversation_summary from ontology.nexloop_conversation_topics where conversation_id=%s', (conversation_id,)).fetchall()}
     for key, _, _, message_ids in topics:
         assert (after[key] == ('', '')) == (erased in message_ids)
+
+
+def test_erased_message_claims_leave_the_evidence_view(window, admin):
+    """NX-029 (AT-026, Context assembly): the Claim evidence view no longer returns a statement whose source text was
+    erased (claim.schema.json requires a quote); the other statements stay and every item still validates."""
+    fixture, conversation_id, ids = window
+    extractor = claim_extractor(fixture, admin, conversation_id, suffix='-claim-erased-view')
+    registered(extractor, conversation_id, ids)
+    extractor.extract(conversation_id=conversation_id, message_ids=ids)
+    statements = extractor.read(conversation_id=conversation_id)['statements']
+    erased = statements[0]['source']['message_id']
+    assert statements
+    with admin.transaction():
+        admin.execute('set local role nexloop_owner')
+        admin.execute("select runtime.nexloop_erase_message('synthetic-a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')", (erased,))
+    after = extractor.read(conversation_id=conversation_id)['statements']
+    assert all(s['source']['message_id'] != erased for s in after)
+    assert {s['claim_id'] for s in after} == {s['claim_id'] for s in statements if s['source']['message_id'] != erased}
