@@ -53,6 +53,13 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
             self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)))
             self.send_header('Connection','close');self.end_headers();self.wfile.write(body);self.close_connection=True
         def do_POST(self):
+            # NX-030 M08: per-process guard latency (a call reaching the 2 s deadline counts as a timeout); numbers only.
+            started=time.monotonic()
+            try:self._post()
+            finally:
+                from nexloop_eios.observability import GUARD
+                GUARD.observe((time.monotonic()-started)*1000)
+        def _post(self):
             if not slots.acquire(blocking=False):self.send(503,{'authorized':False});return
             try:
                 expected=f'127.0.0.1:{self.server.server_port}'

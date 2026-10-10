@@ -16,6 +16,8 @@
                                        --world real or test (a test connector only writes the test world)
 ``nexloop-retention-keeper``          (nexloop_domain_worker) due retention classes → bounded SQL sweep passes (redaction /
                                        deletion with tombstones, NX-029); no table privilege, no content
+``nexloop-alert-evaluator``          (nexloop_domain_worker) alert rules on the metrics snapshot → deduplicated alert state/events
+                                       (NX-030; world real only), sample rollup and retention
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -45,6 +47,7 @@ SERVICES={
     'commitment-keeper':('Commitment Keeper','nexloop_domain_worker'),
     'commercial-recorder':('Commercial Recorder','nexloop_domain_worker'),
     'retention-keeper':('Retention Keeper','nexloop_domain_worker'),
+    'alert-evaluator':('Alert Evaluator','nexloop_domain_worker'),
 }
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
@@ -160,6 +163,10 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
     if service=='retention-keeper':
         from nexloop_eios.retention import RetentionKeeper
         return RetentionKeeper(pool,session,signer).run_once()
+    if service=='alert-evaluator':
+        # NX-030: alert rules on the SQL metrics snapshot (world real only, D6); also rolls up and expires process samples (D5).
+        from nexloop_eios.observability import AlertEvaluator
+        return AlertEvaluator(pool,session,signer).run_once()
     if service=='commercial-recorder':
         from nexloop_eios.commercial import CommercialRecorder,load_settings
         return CommercialRecorder(pool,session,signer,settings=load_settings(arguments.settings_file)).run_once()
@@ -283,6 +290,9 @@ def _reply_launcher(stack,arguments):
 
 
 def main_for(service,argv=None):
+    # NX-030 / AT-049: every log record leaves this process as one allowlisted structured line (IDs, codes, durations only).
+    from nexloop_eios.structured_log import configure as _structured_logging
+    _structured_logging(service)
     arguments=_arguments(service,argv);stop=threading.Event();previous={}
     logger=logging.getLogger('psycopg.pool');disabled=logger.disabled;logger.disabled=True
     def terminate(signum,frame):stop.set()
@@ -305,6 +315,7 @@ def reply_guarantor(argv=None):return main_for('reply-guarantor',argv)
 def commitment_keeper(argv=None):return main_for('commitment-keeper',argv)
 def commercial_recorder(argv=None):return main_for('commercial-recorder',argv)
 def retention_keeper(argv=None):return main_for('retention-keeper',argv)
+def alert_evaluator(argv=None):return main_for('alert-evaluator',argv)
 
 
 if __name__=='__main__':

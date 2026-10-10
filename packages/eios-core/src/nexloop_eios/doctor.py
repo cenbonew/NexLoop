@@ -78,6 +78,32 @@ def agent_host_concurrency(config_file):
     return {'checks':{'agent_host_concurrency':result['passed']},'details':{'agent_host_concurrency':result['details']}}
 
 
+def observability(metrics_database_url_file,rules_file):
+    """NX-030: the alert evaluator ran in the last five minutes for each active tenant's real world, with the rule version of
+    the file; process samples are being written. Read through the read-only nexloop_metrics role only (D4); backups are reported
+    (unavailable until NX-035) but never fail the check."""
+    from nexloop_eios.observability import load_rules,read_export
+    try:
+        version=load_rules(rules_file)['version']
+    except Exception:
+        return {'checks':{'alert_rules_file':False},'details':{'observability_error':'alert rules file invalid'}}
+    try:
+        export=read_export(metrics_database_url_file)
+    except Exception:
+        return {'checks':{'alert_rules_file':True,'metrics_export':False},'details':{'observability_error':'metrics export unavailable'}}
+    real=[snapshot for snapshot in export if snapshot['world']=='real']
+    evaluators={s['tenant_id']:s.get('evaluator') or {} for s in real}
+    checks={'alert_rules_file':True,'metrics_export':True,
+        'alert_evaluator_recent':bool(real) and all(e.get('stale') is False for e in evaluators.values()),
+        'alert_rules_current':bool(real) and all(e.get('rules_version')==version for e in evaluators.values()),
+        'process_samples_recent':any((s.get(kind) or {}).get('status')=='ok' for s in real for kind in ('guard','pool','host'))}
+    details={'observability':{'rules_file_version':version,'tenants':{t:{'rules_version':e.get('rules_version'),'last_evaluated_at':e.get('last_evaluated_at'),
+        'stale':e.get('stale')} for t,e in sorted(evaluators.items())},
+        'samples':{kind:sorted({(s.get(kind) or {}).get('status','unavailable') for s in real}) for kind in ('guard','pool','host')},
+        'backup':sorted({(s.get('backup') or {}).get('status','unavailable') for s in real})}}
+    return {'checks':checks,'details':details}
+
+
 def main():
     parser=argparse.ArgumentParser(description='Read-only NexLoop foundation doctor')
     parser.add_argument('--artifact-root')
@@ -87,7 +113,16 @@ def main():
     parser.add_argument('--budget-only',action='store_true',help='only the connection budget and max_connections checks (pre-start gate)')
     parser.add_argument('--agent-host-config',type=Path,help='private Agent Host runtime configuration (maximum_active_runs <= 4)')
     parser.add_argument('--agent-host-only',action='store_true',help='only the Agent Host concurrency check (Agent Host pre-start gate)')
+    parser.add_argument('--observability',action='store_true',help='NX-030: alert evaluator, rule version and process samples (read-only metrics role)')
+    parser.add_argument('--metrics-database-url-file',type=Path,help='private DSN of the read-only nexloop_metrics role')
+    parser.add_argument('--alert-rules',type=Path,help='deploy/configuration/alert-rules.v<N>.json')
     args=parser.parse_args()
+    if args.observability:
+        if not args.metrics_database_url_file or not args.alert_rules:parser.error('--observability requires --metrics-database-url-file and --alert-rules')
+        result=observability(args.metrics_database_url_file,args.alert_rules)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.budget_only and args.agent_host_only:parser.error('--budget-only and --agent-host-only are separate pre-start gates')
     if args.agent_host_only:
         if not args.agent_host_config:parser.error('--agent-host-only requires --agent-host-config')

@@ -650,6 +650,11 @@
       "version": "0130",
       "name": "0130_nx028_workbench_ui_reads.sql",
       "sha256": "383c64694d52ec7d0a53b4415ac909482c18fc0a9e6f853afadbde3e79136524"
+    },
+    {
+      "version": "0131",
+      "name": "0131_nx030_observability.sql",
+      "sha256": "69b4e181d9371de6050104d658a90b02fd074d554d0287a6e5fa3f2fcbaafe75"
     }
   ]
 }

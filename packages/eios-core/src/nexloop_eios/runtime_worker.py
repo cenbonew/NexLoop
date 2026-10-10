@@ -128,6 +128,15 @@ def run(arguments,stop):
                     arguments.guard_certificate_file,arguments.guard_tls_key_file),port=arguments.guard_port,workers=arguments.guard_workers,
                     pool_max=arguments.guard_pool_max,on_failure=stop.set)
                 pool.start()
+            # NX-030 M08–M10: once a minute, the Agent Host's concurrency counters (pulled over the same loopback + key), this
+            # process's pool counters and, with an in-process guard, its latency. Best effort; numbers only.
+            from nexloop_eios.observability import HostCounters, flush_guard, flush_host, record_pool_sample, start_sampler
+            counters=HostCounters()
+            def observe():
+                flush_host(backend._pool,host,counters)
+                if arguments.guard_workers==1:flush_guard(backend._pool)
+                else:record_pool_sample(backend._pool,'runtime-worker')
+            start_sampler(stop,60,observe)
             print('Runtime Worker ready',flush=True)
             while not stop.is_set():
                 try:
@@ -168,6 +177,9 @@ def run(arguments,stop):
 
 
 def main(argv=None):
+    # NX-030 / AT-049: every log record leaves this process as one allowlisted structured line (IDs, codes, durations only).
+    from nexloop_eios.structured_log import configure as _structured_logging
+    _structured_logging('runtime-worker')
     arguments=_arguments(argv);stop=threading.Event();previous={}
     # Pool retry diagnostics may contain connection host/user/error context.
     # This dedicated CLI exposes only its fixed summaries, even on bad DSNs.
