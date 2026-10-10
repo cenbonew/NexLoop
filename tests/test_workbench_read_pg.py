@@ -170,7 +170,7 @@ def test_http_roles_401_403_and_separate_realm(workbench):
         assert overview.status_code == 200 and overview.headers['cache-control'] == 'no-store'
         sections = overview.json()
         assert {k: v['status'] for k, v in sections.items()} == {'goals': 'ok', 'commitments': 'ok', 'actions': 'ok', 'contact': 'ok',
-            'takeovers': 'unavailable', 'backlog': 'unavailable', 'commercial': 'unavailable'}
+            'takeovers': 'unavailable', 'backlog': 'ok', 'commercial': 'unavailable'}  # NX-030 serves the backlog block
         assert sections['contact']['data'] == {'restricted': 1, 'escalations': 0}
         settings = client.get('/api/v1/workbench/settings')
         assert settings.status_code == 200 and {m['role'] for m in settings.json()['members']} == {'owner', 'operator'}

@@ -104,9 +104,9 @@ def check_http_container():
 def main():
     parser=argparse.ArgumentParser(description='Community test bootstrap/PG-Artifact diagnostic jobs')
     parser.add_argument('job',choices=['bootstrap','check-test','api-test','check-http-test','cache-bootstrap','host-bootstrap','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder',
-        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder'])
+        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','alert-evaluator'])
     args=parser.parse_args()
-    if args.job in ('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder'):
+    if args.job in ('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','alert-evaluator'):
         # Long-running restricted background services (opt-in compose profile "background"). Their private
         # files are provisioned by trusted configuration (service-grants), never here; optional files are
         # passed only when present.

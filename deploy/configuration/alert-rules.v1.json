@@ -1,0 +1,28 @@
+{
+  "schema_version": "nexloop-alert-rules/1",
+  "version": 1,
+  "decision": "NX-030 D3 (owner 2026-10-10, all as recommended): default thresholds of design §2. Evaluated once a minute on the SQL snapshot, world 'real' only (D6); one alert per rule and selector, resolved when the condition clears; shown to the owner in the workbench (D2). metric is a dotted path into runtime.nexloop_metrics_snapshot; one '*' segment iterates its children (the child key becomes the selector); selector picks one key of a map. A new version is a new file.",
+  "rules": [
+    {"rule_id": "refusal_budget_exhausted", "metric": "refusals.last_5m", "selector": "NXB01", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "critical", "purpose": "M01: model or incentive budget exhausted; new work is being refused."},
+    {"rule_id": "refusal_control_stale", "metric": "refusals.last_hour", "selector": "NXC02", "condition": "gt", "threshold": 20, "for_seconds": 0, "severity": "warning", "purpose": "M01: many dispatches refused for a stale control revision; reevaluation is not keeping up."},
+    {"rule_id": "refusal_goal_stale", "metric": "refusals.last_hour", "selector": "NXC03", "condition": "gt", "threshold": 20, "for_seconds": 0, "severity": "warning", "purpose": "M01: many dispatches refused for a superseded goal version."},
+    {"rule_id": "unknown_oldest", "metric": "effects.unknown.oldest_age_seconds", "condition": "gt", "threshold": 900, "for_seconds": 0, "severity": "warning", "purpose": "M02: an external result has been unknown for more than 15 minutes; query, never resend."},
+    {"rule_id": "unknown_oldest_escalated", "metric": "effects.unknown.oldest_age_seconds", "condition": "gt", "threshold": 7200, "for_seconds": 0, "severity": "critical", "purpose": "M02: an external result has been unknown for more than 2 hours."},
+    {"rule_id": "unknown_over_24h", "metric": "effects.unknown.over_24h", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "critical", "purpose": "M03: reconciliation left an effect unknown for more than 24 hours."},
+    {"rule_id": "reply_escalated", "metric": "replies.escalations_last_hour", "selector": "*", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "critical", "purpose": "M04: a fallback reply failed or did not start (ADR-023: every inbound message gets a reply)."},
+    {"rule_id": "commitment_breached", "metric": "commitments.exceptions_last_hour", "selector": "breached", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "critical", "purpose": "M05: a commitment passed its due date unfulfilled."},
+    {"rule_id": "commitment_under_restriction", "metric": "commitments.exceptions_last_hour", "selector": "made_under_contact_restriction", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "warning", "purpose": "M05: a commitment was made to a contact-restricted customer."},
+    {"rule_id": "queue_dead_letter", "metric": "queues.*.dead_lettered_last_hour", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "critical", "purpose": "M06: a queued task was dead-lettered."},
+    {"rule_id": "queue_backlog_age", "metric": "queues.*.oldest_pending_seconds", "condition": "gt", "threshold": 600, "for_seconds": 0, "severity": "warning", "purpose": "M06: the oldest due task has waited more than 10 minutes."},
+    {"rule_id": "feed_dead_letter", "metric": "feeds.*.dead_lettered_last_hour", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "critical", "purpose": "M06: a work feed item was dead-lettered."},
+    {"rule_id": "feed_backlog_age", "metric": "feeds.*.oldest_pending_seconds", "condition": "gt", "threshold": 600, "for_seconds": 0, "severity": "warning", "purpose": "M06/M07: a work feed has waited more than 10 minutes."},
+    {"rule_id": "extraction_lag", "metric": "extraction.oldest_pending_seconds", "condition": "gt", "threshold": 1800, "for_seconds": 0, "severity": "warning", "purpose": "M07: an accepted message has waited more than 30 minutes for extraction."},
+    {"rule_id": "guard_timeout_rate", "metric": "guard.timeout_rate", "condition": "gt", "threshold": 0.01, "for_seconds": 0, "severity": "warning", "purpose": "M08: more than 1% of guard calls hit the 2 s deadline in the last 5 minutes."},
+    {"rule_id": "guard_latency_p95", "metric": "guard.p95_ms_max", "condition": "gt", "threshold": 1500, "for_seconds": 0, "severity": "warning", "purpose": "M08: guard p95 above 1500 ms, close to the 2 s deadline."},
+    {"rule_id": "host_admission_timeout", "metric": "host.by_service.*.sum.admission_timeouts", "condition": "gt", "threshold": 0, "for_seconds": 0, "severity": "warning", "purpose": "M09: a Run waited past the Agent Host admission window (runtime_capacity_exhausted)."},
+    {"rule_id": "pool_waiting", "metric": "pool.by_service.*.max.requests_waiting", "condition": "gt", "threshold": 0, "for_seconds": 300, "severity": "warning", "purpose": "M10: connection pool requests have been waiting for 5 minutes."},
+    {"rule_id": "connections_high", "metric": "connections.total", "condition": "gt", "threshold": 50, "for_seconds": 0, "severity": "critical", "purpose": "M10: more than 50 database connections (deployment limit 60)."},
+    {"rule_id": "budget_near_limit", "metric": "cost.budgets.*.ratio", "condition": "gt", "threshold": 0.8, "for_seconds": 0, "severity": "warning", "purpose": "M11: more than 80% of a budget used (the limit itself is enforced by NX-022)."},
+    {"rule_id": "backup_age", "metric": "backup.age_seconds", "condition": "gt", "threshold": 93600, "for_seconds": 0, "severity": "critical", "purpose": "M12: last backup older than 26 hours (wired when NX-035 provides the backup manifest; unavailable until then)."}
+  ]
+}

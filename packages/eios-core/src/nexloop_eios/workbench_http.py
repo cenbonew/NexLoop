@@ -179,6 +179,32 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'settings')
 
+    @routes.get('/metrics')
+    async def metrics(request: Request):
+        # NX-030: the SQL metrics snapshot of this tenant and world (codes, counts, ages; no raw text).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'metrics')
+
+    @routes.get('/alerts')
+    async def alerts(request: Request):
+        try:
+            q = query(request, ('limit',))
+            limit = limit_of(q['limit']) if 'limit' in q else 100
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'alerts', limit=limit)
+
+    @routes.get('/human-actions')
+    async def human_actions(request: Request):
+        # NX-030 §4: who did which governed human Action when, plus ADR-025 reads; owner only.
+        try:
+            q = query(request, ('limit',))
+            limit = limit_of(q['limit']) if 'limit' in q else 100
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'human_actions', limit=limit)
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.

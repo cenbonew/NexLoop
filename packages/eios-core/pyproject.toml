@@ -36,6 +36,7 @@ nexloop-reply-guarantor = "nexloop_eios.background_services:reply_guarantor"
 nexloop-commitment-keeper = "nexloop_eios.background_services:commitment_keeper"
 nexloop-commercial-recorder = "nexloop_eios.background_services:commercial_recorder"
 nexloop-recall-indexer = "nexloop_eios.background_services:recall_indexer"
+nexloop-alert-evaluator = "nexloop_eios.background_services:alert_evaluator"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/eios", "src/nexloop_eios"]

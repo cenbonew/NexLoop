@@ -65,6 +65,9 @@ def run_child(arguments, stop):
                     raise ValueError('restricted Worker role required')
             guard = _FreshGuard(backend, arguments.service_credential_file, arguments.world)
             guard.service()  # current authentication before accepting any connection
+            # NX-030 M08/M10: once a minute this guard process writes its latency and pool counters (best effort, numbers only).
+            from nexloop_eios.observability import flush_guard, start_sampler
+            start_sampler(stop, 60, lambda: flush_guard(backend._pool))
             server = create_runtime_guard_server(guard, port=arguments.guard_port, key_file=arguments.guard_key_file,
                 certificate_file=arguments.guard_certificate_file, tls_key_file=arguments.guard_tls_key_file,
                 listen_socket=listener)

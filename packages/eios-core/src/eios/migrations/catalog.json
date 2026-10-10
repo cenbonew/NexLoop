@@ -635,6 +635,11 @@
       "version": "0127",
       "name": "0127_nx028_staff_reply.sql",
       "sha256": "25f1bb687a7761cbc46b23edc5214030d7227405e0563cd0f6ebb753e04aceba"
+    },
+    {
+      "version": "0151",
+      "name": "0151_nx030_observability.sql",
+      "sha256": "69b4e181d9371de6050104d658a90b02fd074d554d0287a6e5fa3f2fcbaafe75"
     }
   ]
 }
