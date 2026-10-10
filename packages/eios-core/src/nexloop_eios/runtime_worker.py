@@ -34,10 +34,14 @@ class _Parser(argparse.ArgumentParser):
 class _FreshGuard:
     def __init__(self,backend,credential_file,world):
         self.backend,self.credential_file,self.world=backend,credential_file,world
+        self._request=threading.local()
 
     def service(self):
         token=read_private_text(self.credential_file,maximum=16384)
-        return self.backend.authenticate(token,world=self.world)
+        current=self.backend.authenticate(token,world=self.world)
+        # The guard answers one request per connection thread (Connection: close), so this is the current request's session.
+        self._request.current=current
+        return current
 
     def runtime_effect_tool(self,**arguments):
         return self.service().runtime_effect_tool(**arguments)
@@ -48,7 +52,11 @@ class _FreshGuard:
 
     def record_tool_timing(self,*,run_id,elapsed_ms):
         # NX-031 D6: one tool request's time added to its Run (the Run must belong to this guard's tenant; numbers only).
-        current=self.service()
+        # Reuses the session this same request just authenticated (no second credential read and authentication, ~1 ms);
+        # revocation still takes effect immediately: the SQL function re-checks that the credential is active and unexpired
+        # and its tenant active at write time (0004/0033). A request that authenticated nothing authenticates afresh.
+        current=getattr(self._request,'current',None) or self.service()
+        self._request.current=None
         with current._backend._pool.connection() as db,db.transaction():
             db.execute('select authz.nexloop_record_run_tool_timing(%s::text,%s::text,%s::uuid,%s::numeric)',(current._session.token_digest,current._session.world,run_id,elapsed_ms))
 
