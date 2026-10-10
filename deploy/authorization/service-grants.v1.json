@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-service-grants/1",
-  "manifest_version": 7,
-  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks). v5: deployment plan B (0099) — message_read_rules bind Message/Conversation READ to the work itself: the extraction worker reads only the Conversation and Messages of an extraction task its credential currently leases; the matcher reads only the evidence Message and Conversation of a Claim still to be matched. Derived in SQL at each use; rule or Action revocation, Message deletion, leaving the Conversation, task completion or Claim resolution end it. v6: nexloop.context.assemble:1 is issued with each Run (0104): the Source carries the Run credential it issued for that Run, valid only while the Run is active and for that Run's own pack; the standing context_assembler principal is retired and its grants are revoked on apply. v7: NX-024 plan reevaluation — plan_reevaluator drains plan-reevaluate and runs the deterministic precheck (nexloop.plan.reevaluate); runtime_worker records run-outcomes of reevaluation Runs (nexloop.plan.outcome), bound in SQL to the live activation and its own task lease.",
+  "manifest_version": 9,
+  "decision": "ADR-020 §3: minimal Action/queue authority for NexLoop's own service principals, applied by the scheduler through trusted configuration (0050) only. v2: claim_matcher follows successor versions of Consumer.edit published by human review decisions (follow_latest_version). v3: claim_matcher per-object Consumer property READ/EDIT derived from a type rule (property_access_rules, docs/implementation/property-grant-derivation.md); restricted groups come only from the separate owner file deploy/authorization/owner-property-restrictions.json. v4: background feeds (0092) — recall_indexer drains recall-instance, claim_matcher drains claim-match (feed authority only; indexing/matching/writes keep their own checks). v5: deployment plan B (0099) — message_read_rules bind Message/Conversation READ to the work itself: the extraction worker reads only the Conversation and Messages of an extraction task its credential currently leases; the matcher reads only the evidence Message and Conversation of a Claim still to be matched. Derived in SQL at each use; rule or Action revocation, Message deletion, leaving the Conversation, task completion or Claim resolution end it. v6: nexloop.context.assemble:1 is issued with each Run (0104): the Source carries the Run credential it issued for that Run, valid only while the Run is active and for that Run's own pack; the standing context_assembler principal is retired and its grants are revoked on apply. v7: NX-024 plan reevaluation — plan_reevaluator drains plan-reevaluate and runs the deterministic precheck (nexloop.plan.reevaluate); runtime_worker records run-outcomes of reevaluation Runs (nexloop.plan.outcome), bound in SQL to the live activation and its own task lease. v8: ADR-023 reply guarantee — reply_guarantor drains reply-due (pending replies registered in the inbound Message's own transaction, 0109), reads the state of one pending reply, starts its fallback reply Run or escalates it to the owner with evidence (nexloop.reply.guarantee), and reads contact restrictions and escalations (nexloop.contact.read). It cannot write, lift or weaken a contact restriction. v9: ADR-023 fallback reply Run (0110) — message_relay also issues the one fallback reply Run of an unanswered inbound message (nexloop.reply.fallback), with the same MessageAssignment checks as the original message Run; SQL refuses a second one and refuses it once the message is settled.",
   "valid_from": "2026-10-09T00:00:00+00:00",
   "world": "real",
   "principals": [
@@ -59,6 +59,17 @@
       "database_role": "nexloop_domain_worker",
       "purpose": "Lease due plans, run the deterministic precheck and link one bounded reevaluation Run; writes only plan working state, never business facts.",
       "source_task": "NX-024"
+    },
+    {
+      "role": "reply_guarantor",
+      "subject_id": "nexloop-service-reply-guarantor",
+      "principal_id": "nexloop-service-reply-guarantor-principal",
+      "credential_id": "nexloop-service-reply-guarantor-key",
+      "credential_reference": "reply_guarantor",
+      "application_id": "eios:application:nexloop-reply-guarantor",
+      "database_role": "nexloop_domain_worker",
+      "purpose": "Drain due pending replies; start the fallback reply Run for an unanswered inbound message or escalate it to the owner with evidence. Never sends on its own and never touches contact restrictions.",
+      "source_task": "NX-025"
     },
     {
       "role": "runtime_worker",
@@ -121,10 +132,18 @@
      "purpose": "Lease plans marked in the same transaction as the change that may invalidate them (0106).", "source_task": "NX-024"},
     {"principal": "plan_reevaluator", "resource_type": "action", "resource_id": "eios:action:nexloop.plan.reevaluate:1", "operations": ["execute"],
      "purpose": "Establish plans, precheck them against current controls and facts, mark them invalid/closed and link reevaluation Runs.", "source_task": "NX-024"},
+    {"principal": "reply_guarantor", "resource_type": "action", "resource_id": "eios:action:NexLoop.feed.reply-due:1", "operations": ["execute"],
+     "purpose": "Lease pending replies registered in the inbound Message's own transaction (0109).", "source_task": "NX-025"},
+    {"principal": "reply_guarantor", "resource_type": "action", "resource_id": "eios:action:nexloop.reply.guarantee:1", "operations": ["execute"],
+     "purpose": "Read the state of one pending reply; start its fallback reply Run or escalate it with evidence (0109).", "source_task": "NX-025"},
+    {"principal": "reply_guarantor", "resource_type": "action", "resource_id": "eios:action:nexloop.contact.read:1", "operations": ["execute"],
+     "purpose": "Read contact restrictions and reply escalations (query port before NX-028).", "source_task": "NX-025"},
     {"principal": "runtime_worker", "resource_type": "action", "resource_id": "eios:action:nexloop.plan.outcome:1", "operations": ["execute"],
      "purpose": "Record a reevaluation Run's run-outcome from its Host; SQL binds it to the live activation under this worker's own task lease.", "source_task": "NX-024"},
     {"principal": "runtime_worker", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.operations:1", "operations": ["execute"],
      "purpose": "Claim/renew/finish Run activation tasks (queue name as deployed by the message recipe).", "source_task": "NX-013/NX-014"},
+    {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.reply.fallback:1", "operations": ["execute"],
+     "purpose": "Issue the one fallback reply Run of an inbound message still unanswered when its fallback time comes (ADR-023 §2.7, 0110).", "source_task": "NX-025"},
     {"principal": "message_relay", "resource_type": "action", "resource_id": "eios:action:nexloop.conversation.route:1", "operations": ["execute"],
      "purpose": "Route an accepted inbound Message into a Run activation.", "source_task": "NX-016"},
     {"principal": "outbound_message_recorder", "resource_type": "action", "resource_id": "eios:action:Message.agent_create:1", "operations": ["execute"],

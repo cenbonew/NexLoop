@@ -95,7 +95,8 @@ def assembled_message(business_plan,admin,tmp_path,request):
         'applies_to':[{'object_type':refs[name]} for name in ['Consumer','Conversation','Message']], 'input_schema':input_schema,'output_schema':output_schema}))
     function_cap=CapabilityContractSnapshot.model_validate_json(json.dumps({'capability_name':QUERY_CAPABILITY,'capability_version':'1','schema_hash':digest,
         'kind':'atomic','has_side_effects':False,'idempotent':True,'required_scopes':['function.execute']}))
-    specs={'assembly-route':[ROUTE,QUEUE],'assembly-planner':['Goal.create','PlanStep.create','MessageAssignment.create',BIND],
+    route=[ROUTE,QUEUE]+(['nexloop.reply.fallback'] if 'reply_fallback' in request.keywords else [])  # NX-025: fallback issuance (0110)
+    specs={'assembly-route':route,'assembly-planner':['Goal.create','PlanStep.create','MessageAssignment.create',BIND],
         'assembly-source':['nexloop.service.request'],'assembly-executor':['nexloop.service.request','nexloop.service.query'],'assembly-runtime-worker':[QUEUE]}
     secrets_map=json.loads(original['paths']['secrets'].read_text());credentials=list(manifest['service_credentials'])
     facts={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};tokens={}
@@ -125,7 +126,7 @@ def assembled_message(business_plan,admin,tmp_path,request):
     apply_manifest(updated,database_url_file=original['paths']['dsn'],signing_key_file=original['paths']['signing'],signing_key_id='explicit-configuration',service_secrets_file=original['paths']['secrets'])
     f['paths']['executor-credential-file'].write_text(tokens['assembly-executor'])
     # Dedicated two-Run correction scenario gets two units through normal setup.
-    if getattr(request.node,'originalname',None)=='test_real_human_message_v4_bound_artifact':
+    if getattr(request.node,'originalname',None) in ('test_real_human_message_v4_bound_artifact','test_fallback_reply_is_refused_once_the_original_reply_was_accepted'):
         f['recipe']['control']['budget_units']=2
         f['paths']['recipe-file'].write_text(json.dumps(f['recipe']))
     setup=invoke(f);assert setup.returncode==0,'real governed setup failed';public=json.loads(setup.stdout)

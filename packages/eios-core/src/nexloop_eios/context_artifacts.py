@@ -138,7 +138,7 @@ def v6_call(db,authority,session,signer,function,payload,proofs,run=None):
     With ``run`` the assemble authority is the one issued with that Run (0104), which SQL
     accepts only for the pack's own Run; without it, the Source's standing grant.
     """
-    if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command'):raise ValueError('v6 bind function')
+    if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command','authz.nexloop_context_v6_fallback_command'):raise ValueError('v6 bind function')
     body=canonical_payload(payload)
     from nexloop_eios.context_engine.authority import run_assemble_claims
     assemble=authority._proof(session,ASSEMBLE_RESOURCE) if run is None else run_assemble_claims(session,run)
@@ -239,3 +239,17 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             self.last_diagnostic=(type(error).__name__,getattr(getattr(error,'diag',None),'message_primary',None))
             if isinstance(error,psycopg.Error) and error.diag.message_primary=='context artifact conflict':raise ContextArtifactConflict() from None
             raise ContextArtifactUnavailable() from None
+
+
+class FallbackContextV6Producer(ContextV6ArtifactProducer):
+    """ADR-023 §2.7 fallback reply Run: the same message Context v6 (this inbound message as the user statement, recent
+    conversation, pinned constraints such as a contact restriction), bound over the fallback issuance (0110)."""
+    def __init__(self,services,strategy_id):
+        super().__init__(services,strategy_id)
+
+    def _call(self,db,parameters,run,definition,capability,claim_binding=None):
+        text,signature,body=self._envelope(parameters,run,definition,capability,claim_binding)
+        return db.execute('select authz.nexloop_context_artifact_fallback_command(%s,%s,%s,%s,%s)',(self.session.token_digest,'real',text,signature,body)).fetchone()[0]
+
+    def _v6_call(self,db,payload,proofs):
+        return v6_call(db,self.authority,self.session,self.signer,'authz.nexloop_context_v6_fallback_command',payload,proofs,run=self.run)

@@ -51,7 +51,7 @@ export function validateContextAttestation(command:RunCommand,value:unknown):Con
   if(attestation.artifact_ref!==command.context_manifest_ref||attestation.command_binding_digest!==contextCommandDigest(command))return fail();
   return attestation as ContextAttestation;
 }
-export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone}{
+export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone;plans?:Array<{ref:string;plan_ref:string}>}{
   const command=validateRunCommand(untrustedCommand);
   if(typeof input!=='string'||Buffer.byteLength(input,'utf8')>65536)return fail();
   let parsed:unknown;try{parsed=JSON.parse(input);}catch{return fail();}
@@ -116,7 +116,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     if(goal.control_snapshot===null){if(!insufficient.some(row=>['control_paused','goal_not_current'].includes(String((row as Record<string,unknown>).code))))return fail();}
     else exact(goal.control_snapshot,['control_revision','scopes','goals','objects','budgets']);
     // Formal zone never carries Claims or hypotheses; hypotheses only as labelled evidence.
-    const kinds:Record<string,string[]>={constraints:['formal_object','policy'],consumer_state:['formal_object','policy'],open_work:['formal_object','execution_state'],
+    const kinds:Record<string,string[]>={constraints:['formal_object','policy'],consumer_state:['formal_object','policy'],open_work:['formal_object','execution_state','policy'],
       evidence:['user_statement','conversation','hypothesis','memory'],semantics:['schema'],experience:['memory']};
     for(const [section,allowed] of Object.entries(kinds)){
       const rows=pack[section];if(!Array.isArray(rows)||rows.length>256)return fail();
@@ -140,7 +140,13 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},baseProtocol);
     const goalFact=(pack.formal_facts as Array<Record<string,unknown>>).find(row=>row.type==='Goal')!;
     if(goalRef!=='goal:'+goalFact.id+'@'+goalFact.revision)return fail();
-    return validated;
+    // NX-025: the Consumer's active plans (read-only open-work policy items, re-derived by SQL at bind).
+    const plans=(pack.open_work as Array<Record<string,unknown>>).filter(item=>item.subsection==='plan').map(item=>{
+      const ref=text(item.ref,64,/^nexloop:plan:[0-9a-f-]{36}@[1-9][0-9]{0,5}$/);const content=(item.content&&typeof item.content==='object'&&!Array.isArray(item.content)?item.content:fail()) as Record<string,unknown>;
+      if(item.evidence_kind!=='policy'||content.plan_ref!=='plan:'+ref.slice('nexloop:plan:'.length))return fail();
+      return {ref,plan_ref:String(content.plan_ref)};
+    });
+    return {...validated,plans};
   }
   if(protocol===CONTEXT_PROTOCOL_V5){
     // v5 = v3 Role Context + governed Role policy provenance (never an authority grant).

@@ -28,7 +28,8 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 
 PROTOCOL='nexloop-goal-governed-v1'
 CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.version.publish',
-    'propose_agent_goal':'goals.agent.propose','set_control':'goals.control.set','set_budget':'goals.budget.set'}
+    'propose_agent_goal':'goals.agent.propose','set_control':'goals.control.set','set_budget':'goals.budget.set',
+    'release_contact_restriction':'goals.contact.release'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -37,7 +38,7 @@ _DECIMAL=re.compile(r'-?\d{1,18}(\.\d{1,12})?')
 # Stable reasons the dispatch/budget checks report. A stale control is not a
 # failure to retry blindly: the queued work must be re-evaluated.
 REASONS={'NXC01':'control_paused','NXC02':'control_revision_stale','NXC03':'goal_version_stale',
-    'NXC04':'object_revision_stale','NXB01':'budget_exhausted','NXB02':'budget_consumption_conflict',
+    'NXC04':'object_revision_stale','NXC05':'contact_restricted','NXB01':'budget_exhausted','NXB02':'budget_consumption_conflict',
     'NXB03':'budget_unconfigured','NXM01':'observation_conflict'}
 
 
@@ -153,6 +154,13 @@ class GoalGovernedActions:
         if budget_kind not in ('model','incentive'):raise ValueError('budget kind required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_budget','budget_kind':budget_kind,
             'unit':unit,'limit_amount':_decimal(limit_amount),'period_start':_utc(period_start),'period_end':_utc(period_end)})
+
+    def release_contact_restriction(self,*,action_name,action_version,request_id,consumer_id,reason):
+        # ADR-023 §2.4: only a human owner's governed Action releases a contact restriction (SQL enforces human).
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer id and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_contact_restriction',
+            'consumer_id':consumer_id,'reason':reason})
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

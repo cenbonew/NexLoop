@@ -23,4 +23,4 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["performance: upstream algorithmic complexity checks"]
+markers = ["performance: upstream algorithmic complexity checks", "reply_fallback: the message relay identity also holds nexloop.reply.fallback (NX-025)"]

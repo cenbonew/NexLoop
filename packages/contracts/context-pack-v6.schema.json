@@ -1091,7 +1091,8 @@
           "evidence_kind": {
             "enum": [
               "formal_object",
-              "execution_state"
+              "execution_state",
+              "policy"
             ]
           },
           "access_decision_ref": {

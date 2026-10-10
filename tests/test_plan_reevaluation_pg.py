@@ -70,7 +70,7 @@ def spec(plan,**changes):
 class FakeLauncher:
     """Records the bounded Run the worker would start (the Role launcher is exercised separately)."""
     def __init__(self,plan):self.plan,self.activated=plan,[]
-    def issue(self):
+    def issue(self,decision=None,budget=None):
         source=self.plan['api'].authenticate(self.plan['source_tokens'][0],world='real')  # current session (seeding moves the directory)
         run=source.issue_run_credential(action_resources=['eios:action:'+fixture.EFFECT+':1'])
         return LaunchedRun(run.run_id,run.token,run.expires_at)

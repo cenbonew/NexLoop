@@ -535,6 +535,21 @@
       "version": "0107",
       "name": "0107_nx049_submit_sql.sql",
       "sha256": "b7b3b79b6b04f9a4e9c11588e613e2b30df50db3a4192f33bbb8bd453c5afe2e"
+    },
+    {
+      "version": "0108",
+      "name": "0108_nx025_plan_context_and_wake.sql",
+      "sha256": "24b70831fcc4394b2b2cb45718ce9d70dc458a3d75da969223bb5e33f8c94d4b"
+    },
+    {
+      "version": "0109",
+      "name": "0109_nx025_contact_refusal_and_replies.sql",
+      "sha256": "e4baa561eaeb0126b7b76fd8442029a03c2cea0615908a36b15d5dbe12349688"
+    },
+    {
+      "version": "0110",
+      "name": "0110_nx025_reply_fallback_run.sql",
+      "sha256": "4a3c07c1a7ae31bb44f5cb9089fe1782f719a49cf5c8ae6194a31bac16a5c218"
     }
   ]
 }

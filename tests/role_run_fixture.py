@@ -154,4 +154,5 @@ def role_runtime_plan(monkeypatch,admin,request):
         from nexloop_eios.role_policies import RolePolicyPort
         return RolePolicyPort(editor).edit(kind=kind,intent_id='edit-'+kind+'-'+str(index)+'-'+'-'.join(sorted(patch)),object_id=object_id,expected_revision=current[1],properties={**current[0],**patch})
     plan['edit_policy']=edit_policy;plan['role_policies']=policies
+    plan['role_selection']=roles;plan['role_catalogs']=catalogs  # NX-025: plan recipes name the same governed Role objects
     return plan
