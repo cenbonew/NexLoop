@@ -10,6 +10,7 @@ remove their temporary directories. Passwords are written only to <out>/credenti
 """
 import json
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -39,6 +40,9 @@ def test_hold_workbench_smoke(conversations, admin, pg, tmp_path):
     from nexloop_eios.workbench_roles import apply_members, compile_members
     assert os.environ.get('REAL_DISPATCH_ENABLED') == 'false', 'dev smoke runs with REAL_DISPATCH_ENABLED=false only'
     out = Path(os.environ['NEXLOOP_DEV_SMOKE_DIR'])
+    # The fixture's throwaway cluster lives in its own mkdtemp directory (host= is its socket dir): record it so the wrapper
+    # can stop that exact cluster if this process dies before its teardown (SIGKILL, timeout).
+    (out / 'pg-root').write_text(str(Path(dict(x.split('=', 1) for x in pg.split())['host']).parent) + '\n')
     port = int(os.environ['NEXLOOP_DEV_SMOKE_PORT'])
     web = Path(os.environ['NEXLOOP_DEV_SMOKE_WEB'])
     origin = f'https://127.0.0.1:{port}'
@@ -85,5 +89,10 @@ def test_hold_workbench_smoke(conversations, admin, pg, tmp_path):
     with os.fdopen(descriptor, 'w') as handle:
         json.dump(credentials, handle, ensure_ascii=False, indent=2)
     (out / 'ready').write_text(origin + '\n')
+    # uvicorn (0.54) restores the previous handler after a graceful stop and re-raises the signal it caught; with the default
+    # SIGTERM action that kills this process before the fixtures' teardown stops PostgreSQL. A no-op previous handler lets
+    # uvicorn.run return, so the teardown runs.
+    for handled in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(handled, lambda *_: None)
     uvicorn.run(create_app(config), host='127.0.0.1', port=port, ssl_certfile=str(certificate), ssl_keyfile=str(key),
                 access_log=False, log_level='warning')

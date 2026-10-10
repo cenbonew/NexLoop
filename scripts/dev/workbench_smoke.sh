@@ -10,6 +10,11 @@
 # secure context for the browser; the self-signed certificate is accepted only by the proxy). Accounts and random passwords
 # are in .dev-smoke/credentials.json (mode 0600, git-ignored); nothing secret is printed. Ctrl-C / SIGTERM stops both servers
 # and removes .dev-smoke/.
+#
+# Shutdown: SIGTERM goes to the holder (pytest) itself, so uvicorn stops and the fixtures' teardown stops PostgreSQL and
+# removes its temp directory. If the holder does not exit within 30 s (or was killed), the exact cluster it recorded in
+# .dev-smoke/pg-root is stopped with `pg_ctl stop -m fast` and that directory removed. Manual check after a run:
+#   kill -TERM <script pid>; pgrep -fl 'postgres -D .*/nexloop-pg-'   # prints nothing
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
@@ -25,15 +30,31 @@ if [[ -e "$DIR" ]]; then
   exit 1
 fi
 mkdir -m 700 "$DIR" "$DIR/tmp"
+PG_BIN="${NEXLOOP_TEST_PG_BIN:-/opt/homebrew/opt/postgresql@18/bin}"
 child='';web=''
+stop_pid() {  # TERM, wait up to $2 seconds, then KILL
+  local pid=$1 limit=$2
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in $(seq 1 $((limit * 2))); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
 cleanup() {
   trap - EXIT INT TERM
-  for pid in $web $child; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
+  stop_pid "$web" 10
+  # The holder's own teardown stops PostgreSQL; give it time.
+  stop_pid "$child" 30
+  # Fallback: the exact cluster the holder recorded, only if its teardown did not run.
+  if [[ -s "$DIR/pg-root" ]]; then
+    pg_root=$(cat "$DIR/pg-root")
+    tmp=$(cd "${TMPDIR:-/tmp}" && pwd -P)
+    if [[ "$(basename "$pg_root")" == nexloop-pg-* && "$(cd "$(dirname "$pg_root")" 2>/dev/null && pwd -P)" == "$tmp" && -d "$pg_root/data" ]]; then
+      echo "workbench smoke: holder did not stop PostgreSQL; stopping it" >&2
+      "$PG_BIN/pg_ctl" -D "$pg_root/data" -m fast -w stop >/dev/null 2>&1 || true
+      rm -rf "$pg_root"
     fi
-  done
+  fi
   # Only the directory this script created.
   [[ "$DIR" == "$ROOT/.dev-smoke" ]] && rm -rf "$DIR"
 }
@@ -49,7 +70,9 @@ echo "workbench smoke: building the Web (also served by the API itself)"
 (cd apps/web && npx vite build --outDir "$DIR/web" --emptyOutDir >/dev/null)
 
 echo "workbench smoke: starting PostgreSQL and the API (synthetic data only)"
-uv run --frozen pytest -q -s -p no:xdist -p no:randomly -p no:cacheprovider --basetemp "$DIR/tmp" \
+# The project interpreter itself (not the `uv run` wrapper), so the holder is the process that receives SIGTERM.
+PYTHON=$(uv run --frozen python -c 'import sys; print(sys.executable)')
+"$PYTHON" -m pytest -q -s -p no:xdist -p no:randomly -p no:cacheprovider --basetemp "$DIR/tmp" \
   scripts/dev/workbench_smoke_hold.py >"$DIR/server.log" 2>&1 &
 child=$!
 for _ in $(seq 1 240); do
