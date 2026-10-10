@@ -2160,8 +2160,21 @@
       "M19"
     ],
     "deliverable": "签名事件、核验状态、币种/窗口、real/test分开",
-    "status": "not_started",
-    "evidence": []
+    "status": "done",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "8c6dcc9",
+        "summary": "Merged NX-027 (L3, nx027-impl 40ab1bd): signed commercial webhook intake with dedup, corrections, refunds and fixed currency, CommercialRecord state derived in SQL from verified events only (0118); metric projection with corrections, withdrawals and frozen cohorts, real world excludes test data (0119); model, service and labour costs with budget release on terminal state (0120); commitment-to-commercial links through the governed entry handler (0121); human-only observe reads of records, costs and key results (0122). D6: pseudonymised retention, financial_retention_days default 365. Known: the discount Action does not exist yet; the doctor warning for retention shorter than metric maturity is not done; registry rows for the two handlers follow in a small commit.",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T114655Z-164058bd6603",
+        "summary": "Full CI on clean CI host for 164058b (integration-s4j): 2736 passed / 11 failed, all within baseline; NX-049 serial deadline phase 2/2. Merged to main as 8c6dcc9 (+230aca2, comment-only note on 0127).",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-028",
@@ -2202,6 +2215,18 @@
         "ref": "ci:sice/20261010T101027Z-ab1cffb49742",
         "summary": "Full CI for ab1cffb (integration-s4i): 2672 passed / 10 failed; 9 within baseline, 1 new (test_message_runtime_effect_e2e same-message receipt state) passed serially 3/3 on the same checkout, registered as parallel-load jitter (C); deadline phase 2/2.",
         "recorded_at": "2026-10-10T18:55:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "8c6dcc9",
+        "summary": "Merged NX-028 slices 2-3 (L4) and ADR-025 (L2): governed human entry with capability registry and dispatch prediction (0124), workbench write actions on the workbench login realm only (0125), conversation takeover with expiry, NXC06 dispatch refusal, relay and fallback skipped while taken over, customer status bar (0126), staff reply (ruling B: native WebChat only, shares the one-reply-per-inbound rule, settles the pending reply, 0127); ADR-025 role-derived member read of message bodies and Consumer properties with per-read audit (0123). Remaining for done: workbench page integration of the action, takeover and reply components; reviewer evidence page.",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T114655Z-164058bd6603",
+        "summary": "Full CI on clean CI host for 164058b (integration-s4j): 2736 passed / 11 failed, all within baseline; NX-049 serial deadline phase 2/2. Merged to main as 8c6dcc9 (+230aca2, comment-only note on 0127).",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
       }
     ]
   },

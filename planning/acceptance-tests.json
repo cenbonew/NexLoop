@@ -52,7 +52,15 @@
     "name": "属性权限",
     "given": "无敏感属性权限的检索/详情/导出",
     "expected": "字段与证据不可见，不能经向量结果泄漏",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "tests/test_workbench_member_read_pg.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: Retrieval and detail parts pass: without READ, fields, quotes and properties stay hidden; with ADR-025 role-derived READ they are visible with one audit row per read. Export part belongs to NX-029, so AT-003 stays not_run.",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-004",
@@ -102,6 +110,12 @@
         "ref": "tests/test_closure_refusal_versions_pg.py",
         "summary": "Synthetic test environment, merged at bde5703: Dispatch side passed: test_pause_refuses_the_queued_intent_and_resume_reevaluates_instead_of_replaying (queued intent refused at dispatch, provider zero requests). Stays not_run: the owner UI part belongs to NX-028.",
         "recorded_at": "2026-10-10T14:31:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "tests/test_workbench_realm_pg.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: Workbench pause write followed by a read shows the paused state; dispatch side already passed. Stays not_run until the workbench action components are integrated in the pages.",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
       }
     ]
   },
@@ -198,7 +212,15 @@
     "name": "付款陈述",
     "given": "消费者称已付款但无交易证据",
     "expected": "只记录statement，不更新verified payment",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_commercial_intake_pg.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: the AT-011 guard: a customer statement of payment never enters the CommercialRecord chain; only verified signed events derive the record state.",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-012",
@@ -207,7 +229,15 @@
     "name": "商业事件幂等",
     "given": "同签名付款webhook重复10次",
     "expected": "一条规范业务变化；退款和币种正确处理",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_commercial_intake_pg.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: AT-012 dedup and concurrency: repeated signed webhooks give one canonical change; refunds, corrections and fixed currency (conflicting currency raises an exception, record unchanged).",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-013",
@@ -721,7 +751,15 @@
     "name": "指标世界",
     "given": "test/simulation payment",
     "expected": "不计入real收入/续费",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_commercial_metrics_pg.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: AT-042: real-world key results never read test or simulation data (structural, plus test).",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-043",
@@ -730,7 +768,15 @@
     "name": "成本上限",
     "given": "达到tenant模型/优惠预算",
     "expected": "阻断新消耗，保留已有合法结果",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "tests/test_costs_pg.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: Model cost budget, terminal-state release and unknown-result non-release covered; the discount/offer budget part has no discount Action yet, so AT-043 stays not_run.",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-044",
@@ -739,7 +785,15 @@
     "name": "人工接管",
     "given": "人类接管会话期间有新消息",
     "expected": "Agent不竞争回复；交还后重评估",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_takeover_e2e_pg.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: real Pi: during a takeover new inbound messages start no Agent Run, Agent intents are refused at dispatch (NXC06), fallback does not start; hand-back advances the control revision and the plan is reevaluated; tests/test_takeover_relay_pg.py (real HTTPS inbound and relay CLI, staff reply visible to the customer as human_takeover); tests/test_staff_reply_pg.py negatives (non-WebChat NXC07, not taken over, restricted second reply NXC05, unbound, outside window).",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-045",
@@ -748,7 +802,15 @@
     "name": "界面错误态",
     "given": "未知/加载/403/部分数据",
     "expected": "准确标签，无空白伪成功",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_workbench_http.py",
+        "summary": "Synthetic test environment, merged at 8c6dcc9: workbench page states for 401, 403, 404, 422, 503, malformed, empty, partial and pending data on the server side, and workbench-api/workbench-render vitest on the client side.",
+        "recorded_at": "2026-10-10T20:38:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-046",
