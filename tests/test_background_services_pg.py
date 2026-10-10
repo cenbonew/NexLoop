@@ -21,7 +21,8 @@ SYNTHETIC_RECIPE={'consumer_id':'a'*64,'control_id':'b'*64,'control_revision':1,
     'runtime_owner_epoch':1,'queue':'operations','offering_id':'c'*64,'offering_binding_id':'d'*64}
 ROLES={'claim-extraction-scheduler':('claim_extraction_scheduler','nexloop_api'),'claim-extraction-worker':('claim_extraction_worker','nexloop_domain_worker'),
     'claim-matcher':('claim_matcher','nexloop_domain_worker'),'recall-indexer':('recall_indexer','nexloop_domain_worker'),
-    'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker'),'reply-guarantor':('reply_guarantor','nexloop_domain_worker')}
+    'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker'),'reply-guarantor':('reply_guarantor','nexloop_domain_worker'),
+    'commitment-keeper':('commitment_keeper','nexloop_domain_worker')}
 
 
 def argv(d,tmp_path,service,*,role=None,policy=None):
@@ -46,6 +47,8 @@ def argv(d,tmp_path,service,*,role=None,policy=None):
             '--api-database-url-file',str(private(root,'api_database_url',make_conninfo(d['pg'],user='nexloop_api'))),
             '--effect-action','eios:action:nexloop.service.request:1']
         for name in B.LAUNCH_CREDENTIALS:args+=[f'--{name}-credential-file',str(private(root,name+'_credential','synthetic-unused-'+name))]
+    if service=='commitment-keeper':
+        args+=['--settings-file',str(ROOT/'deploy/configuration/commitments.v1.json')]
     if service=='reply-guarantor':
         # Idle tick: nothing is due, so the relay identities are read but never authenticated (synthetic placeholders);
         # the fallback itself is exercised by tests/test_reply_fallback_pg.py.
@@ -67,7 +70,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
     ('claim-matcher',{'applied':0,'changed':0,'conversations':0,'dead_lettered':0,'glued':0,'lease_lost':0,'matched':0,'retry':0}),
     ('recall-indexer',{'changed':0,'dead_lettered':0,'indexed':0,'lease_lost':0,'removed':0,'retry':0,'skipped':0}),
     ('plan-reevaluator',{'changed':0,'closed':0,'dead_lettered':0,'invalidated':0,'launched':0,'lease_lost':0,'paused':0,'retry':0,'throttled':0}),
-    ('reply-guarantor',{'changed':0,'dead_lettered':0,'escalated':0,'fallback_started':0,'lease_lost':0,'retry':0,'settled':0})])
+    ('reply-guarantor',{'changed':0,'dead_lettered':0,'escalated':0,'fallback_started':0,'lease_lost':0,'retry':0,'settled':0}),
+    ('commitment-keeper',{'changed':0,'dead_lettered':0,'lease_lost':0,'reaffirmed':0,'registered':0,'retry':0,'settled':0,'skipped':0,'transitions':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()
     assert B.main_for(service,argv(d,tmp_path,service))==0

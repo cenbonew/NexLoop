@@ -76,7 +76,7 @@ def test_root_docker_context_is_fail_closed():
     assert (ROOT/'.dockerignore').read_text().splitlines()[1]=='**'
     source=yaml.safe_load((ROOT/'deploy/community/compose.test.yaml').read_text())
     assert set(source['services'])=={'postgres','bootstrap','api-test','check-test','cache-bootstrap','valkey','host-bootstrap','host-test','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder',
-        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor'}
+        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper'}
     assert source['services']['bootstrap']['secrets']==['bootstrap_dsn']
     assert 'pg_bootstrap_password' not in source['services']['check-test'].get('secrets',[])
     assert source['services']['valkey']['user']=='10001:10001'
@@ -116,7 +116,7 @@ def test_outbound_recorder_is_opt_in_restricted_and_not_mounted_elsewhere():
     assert all(not service.get('profiles') for name,service in source['services'].items() if name not in ('outbound-recorder',)+BACKGROUND)
 
 
-BACKGROUND=('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor')
+BACKGROUND=('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper')
 
 
 def test_background_services_are_opt_in_restricted_and_not_mounted_elsewhere():
