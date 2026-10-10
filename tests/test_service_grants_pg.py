@@ -222,6 +222,11 @@ def test_property_access_rule_and_owner_restriction_are_written_only_by_trusted_
     commitment=dict(admin.execute("select fact_kind,payload from authz.nexloop_authority_facts where fact_kind in ('property_access_rule','property_group_restriction') and payload->>'type_name'='Commitment'").fetchall())
     assert commitment['property_access_rule']['principal_id']==keeper['principal_id'] and commitment['property_access_rule']['property_groups']==['commitment_lifecycle']
     assert commitment['property_access_rule']['include_review_published'] is False and commitment['property_group_restriction']['restricted_groups']==[]
+    # NX-027: the recorder's state-only CommercialRecord rule, under the owner's CommercialRecord decision (no group restricted).
+    recorder=next(p for p in d['manifest']['principals'] if p['role']=='commercial_recorder')
+    commercial=dict(admin.execute("select fact_kind,payload from authz.nexloop_authority_facts where fact_kind in ('property_access_rule','property_group_restriction') and payload->>'type_name'='CommercialRecord'").fetchall())
+    assert commercial['property_access_rule']['principal_id']==recorder['principal_id'] and commercial['property_access_rule']['property_groups']==['commercial_state']
+    assert commercial['property_access_rule']['include_review_published'] is False and commercial['property_group_restriction']['restricted_groups']==[]
     assert G.doctor(d['manifest'],TENANT,database_url_file=d['paths']['dsn'])['in_sync'] is True
     # A rule listing a restricted group is reported, not rejected; the group is still never derived (SQL).
     # Synthetic owner restriction: the mechanism is exercised although the real decision restricts nothing.
@@ -233,7 +238,7 @@ def test_property_access_rule_and_owner_restriction_are_written_only_by_trusted_
     # Removing the rule deactivates it (never deletes it).
     removed=copy.deepcopy(d['manifest']);removed.pop('property_access_rules')
     assert {'kind':'property_access_rule','key':[matcher['principal_id'],'Consumer']} in d['apply'](G.validate(removed))['facts_written']
-    assert admin.execute("select array_agg(payload->>'active' order by payload->>'type_name') from authz.nexloop_authority_facts where fact_kind='property_access_rule'").fetchone()==(['false','false'],)
+    assert admin.execute("select array_agg(payload->>'active' order by payload->>'type_name') from authz.nexloop_authority_facts where fact_kind='property_access_rule'").fetchone()==(['false','false','false'],)
 
 
 def test_rule_without_owner_restriction_is_reported_and_service_manifest_cannot_carry_restrictions(deployment,admin):
@@ -241,8 +246,10 @@ def test_rule_without_owner_restriction_is_reported_and_service_manifest_cannot_
     report=d['apply'](owner=None)
     matcher=next(p for p in d['manifest']['principals'] if p['role']=='claim_matcher')
     keeper=next(p for p in d['manifest']['principals'] if p['role']=='commitment_keeper')
+    recorder=next(p for p in d['manifest']['principals'] if p['role']=='commercial_recorder')
     assert report['property_access']==[{'state':'owner_restriction_missing','principal_id':matcher['principal_id'],'type_name':'Consumer'},
-        {'state':'owner_restriction_missing','principal_id':keeper['principal_id'],'type_name':'Commitment'}]
+        {'state':'owner_restriction_missing','principal_id':keeper['principal_id'],'type_name':'Commitment'},
+        {'state':'owner_restriction_missing','principal_id':recorder['principal_id'],'type_name':'CommercialRecord'}]
     assert admin.execute("select count(*) from authz.nexloop_authority_facts where fact_kind='property_group_restriction'").fetchone()==(0,)
     assert G.doctor(d['manifest'],TENANT,database_url_file=d['paths']['dsn'])['in_sync'] is False
     smuggled=copy.deepcopy(d['manifest']);smuggled['property_group_restrictions']=[]
