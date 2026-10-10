@@ -33,7 +33,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'consumer.erase':'human_owner','message.erase':'human_owner','retention.hold':'human_owner','retention.release_hold':'human_owner',
     'conversation.takeover':'human_owner','conversation.handback':'human_owner','message.staff_send':'human_owner',
     # NX-027: the human owner's read of commercial observations, costs and key results (0134).
-    'commercial.observe':'human_owner'}
+    'commercial.observe':'human_owner',
+    # NX-030 on the 0124 registry (0150): the owner silences an alert rule for at most 7 days.
+    'alert.silence':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

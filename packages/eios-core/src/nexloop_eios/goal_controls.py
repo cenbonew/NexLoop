@@ -42,7 +42,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-027 on the registry (0140): commitment commercial binding and operator-entered costs, human only.
     'bind_commitment_commercial':'commitment.bind_commercial','record_cost':'cost.record',
     # NX-029 slice 2 (0142): erasure and retention holds, human owner only.
-    'erase_consumer':'consumer.erase','erase_message':'message.erase','hold_retention':'retention.hold','release_retention_hold':'retention.release_hold'}
+    'erase_consumer':'consumer.erase','erase_message':'message.erase','hold_retention':'retention.hold','release_retention_hold':'retention.release_hold',
+    # NX-030: the owner silences one alert rule (optionally one selector) for at most 7 days.
+    'silence_alert':'alert.silence'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -221,6 +223,15 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(takeover_id)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('takeover id and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'hand_back_conversation','takeover_id':str(takeover_id),'reason':reason})
+
+    # NX-030 (0150): owner-only alert silence; alerts are still evaluated and recorded, only marked as silenced.
+    def silence_alert(self,*,action_name,action_version,request_id,rule_id,selector,until,reason):
+        if (not re.fullmatch(r'[a-z][a-z0-9_]{0,63}',str(rule_id)) or (selector is not None and not re.fullmatch(r'[A-Za-z0-9_.:-]{1,64}',str(selector)))
+                or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('rule, selector and reason required')
+        until=until.isoformat() if hasattr(until,'isoformat') else str(until)
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'silence_alert','rule_id':rule_id,'selector':selector,
+            'until':until,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

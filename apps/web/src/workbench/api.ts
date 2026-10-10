@@ -303,6 +303,8 @@ export const OPERATION_ACTION={
   request_plan_reevaluation:'eios:action:nexloop.plan.request_reevaluation:1',request_effect_query:'eios:action:nexloop.service.query_request:1',
   take_over_conversation:'eios:action:nexloop.conversation.takeover:1',hand_back_conversation:'eios:action:nexloop.conversation.handback:1',
   send_staff_reply:'eios:action:nexloop.message.staff_send:1',
+  // NX-030: owner only (workbench-roles v4).
+  silence_alert:'eios:action:nexloop.alert.silence:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -350,3 +352,68 @@ export async function workbenchAct(operation:Operation,body:Record<string,unknow
   try{return object(value);}catch{throw new WorkbenchWriteError('invalid');}
 }
 export function writeKindOf(error:unknown):WriteFailure{return error instanceof WorkbenchWriteError?error.kind:'unavailable';}
+
+
+// ---- NX-030: alerts, operations status (metrics snapshot) and the owner's audit ----
+export type Severity='warning'|'critical';
+export type FiringAlert={dedupe_key:string;rule_id:string;severity:Severity;selector:string|null;value:string|null;first_fired_at:string;last_fired_at:string;fire_count:number;silenced_until:string|null};
+export type AlertEvent={event_id:number;rule_id:string;severity:Severity;kind:'firing'|'resolved';selector:string|null;value:string|null;threshold:string|null;recorded_at:string};
+export type Alerts={firing:FiringAlert[];events:AlertEvent[];silences:{rule_id:string;selector:string|null;until:string}[];evaluator:{last_evaluated_at:string|null;rules_version:number|null;stale:boolean}};
+function severity(value:unknown):Severity{if(value!=='warning'&&value!=='critical')throw new WorkbenchError('invalid');return value;}
+export function alerts(value:unknown):Alerts{
+  const v=object(value);const e=object(v.evaluator);
+  if(v.real_world_only!==true)throw new WorkbenchError('invalid');
+  return {firing:list(v.firing).map(x=>{const o=object(x);return {dedupe_key:text(o.dedupe_key),rule_id:text(o.rule_id),severity:severity(o.severity),selector:maybeText(o.selector),
+      value:maybeText(o.value),first_fired_at:text(o.first_fired_at),last_fired_at:text(o.last_fired_at),fire_count:count(o.fire_count),silenced_until:maybeText(o.silenced_until)};}),
+    events:list(v.events).map(x=>{const o=object(x);if(o.kind!=='firing'&&o.kind!=='resolved')throw new WorkbenchError('invalid');
+      return {event_id:count(o.event_id),rule_id:text(o.rule_id),severity:severity(o.severity),kind:o.kind,selector:maybeText(o.selector),value:maybeText(o.value),
+        threshold:maybeText(o.threshold),recorded_at:text(o.recorded_at)};}),
+    silences:list(v.silences??[]).map(x=>{const o=object(x);return {rule_id:text(o.rule_id),selector:maybeText(o.selector),until:text(o.until)};}),
+    evaluator:{last_evaluated_at:maybeText(e.last_evaluated_at),rules_version:e.rules_version===null?null:count(e.rules_version),stale:flag(e.stale)}};
+}
+export const readAlerts=()=>get('/api/v1/workbench/alerts',alerts);
+/** A silenced alert is still evaluated and recorded; the page only marks it. The evaluator's own staleness cannot be silenced. */
+export const SEVERITY_TEXT:Record<Severity,string>={warning:'警告',critical:'严重'};
+export const EVALUATOR_STALE_TEXT='告警系统不可用：评估器超过 5 分钟没有运行，下面的列表可能已过期（这一条不能静默）。';
+
+/** The SQL metrics snapshot: codes, counts, ages and ratios only. Process sections may be unavailable (never shown as 0). */
+export type Process={status:'unavailable'}|{status:'ok';by_service:Record<string,{sum:Record<string,number>;max:Record<string,number>}>;timeout_rate?:number;p95_ms_max?:number};
+export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<string,number>};effects:{by_state:Record<string,number>;unknown:{count:number;oldest_age_seconds:number|null;over_24h:number}};
+  replies:{pending:{count:number;oldest_age_seconds:number|null};escalations_last_hour:Record<string,number>;escalations_total:number};
+  commitments:{exceptions:Record<string,number>;exceptions_last_hour:Record<string,number>};
+  queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
+  guard:Process;host:Process;pool:Process;connections:{total:number};backup:{status:string};computed_at:string};
+function counts(value:unknown):Record<string,number>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,count(v)]));}
+function maybeCount(value:unknown):number|null{return value===null||value===undefined?null:count(value);}
+function nested(value:unknown):Record<string,Record<string,number|null>>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,Object.fromEntries(Object.entries(object(v)).map(([f,n])=>[f,maybeCount(n)]))]));}
+function processSection(value:unknown):Process{
+  const o=object(value);if(o.status==='unavailable')return {status:'unavailable'};if(o.status!=='ok')throw new WorkbenchError('invalid');
+  const by=object(o.by_service);
+  return {status:'ok',by_service:Object.fromEntries(Object.entries(by).map(([k,v])=>{const s=object(v);
+      const nums=(x:unknown)=>Object.fromEntries(Object.entries(object(x??{})).map(([f,n])=>{if(typeof n!=='number'||!Number.isFinite(n))throw new WorkbenchError('invalid');return [f,n];}));
+      return [k,{sum:nums(s.sum),max:nums(s.max)}];})),
+    ...(typeof o.timeout_rate==='number'?{timeout_rate:o.timeout_rate}:{}),...(typeof o.p95_ms_max==='number'?{p95_ms_max:o.p95_ms_max}:{})};
+}
+export function metrics(value:unknown):Metrics{
+  const v=object(value);const r=object(v.refusals);const ef=object(v.effects);const u=object(ef.unknown);const rp=object(v.replies);const pend=object(rp.pending);
+  const cm=object(v.commitments);const ex=object(v.extraction);const cn=object(v.connections);const bk=object(v.backup);
+  return {refusals:{last_5m:counts(r.last_5m),last_hour:counts(r.last_hour)},
+    effects:{by_state:counts(ef.by_state),unknown:{count:count(u.count),oldest_age_seconds:maybeCount(u.oldest_age_seconds),over_24h:count(u.over_24h)}},
+    replies:{pending:{count:count(pend.count),oldest_age_seconds:maybeCount(pend.oldest_age_seconds)},escalations_last_hour:counts(rp.escalations_last_hour),escalations_total:count(rp.escalations_total)},
+    commitments:{exceptions:counts(cm.exceptions),exceptions_last_hour:counts(cm.exceptions_last_hour)},
+    queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
+    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:{status:text(bk.status)},computed_at:text(v.computed_at)};
+}
+export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
+export const PROCESS_UNAVAILABLE_TEXT='最近 5 分钟没有样本：未加载，不代表为零。';
+export const REFUSAL_TEXT:Record<string,string>={NXC01:'已暂停',NXC02:'控制已变更（需复评）',NXC03:'目标已改版',NXC04:'对象已变更',NXC05:'客户联系受限',NXC06:'人工接管中',
+  NXB01:'预算耗尽',NXB02:'预算记账冲突',NXB03:'预算未配置',NXM01:'观测冲突'};
+
+/** Owner-only audit: who did which governed human Action when, and ADR-025 member reads. IDs, kinds and times only. */
+export type AuditItem={category:'action'|'read';action:string;principal_id:string;role?:string;target_kind:string;target_ref:string|null;intent_id:string|null;occurred_at:string};
+export function humanActions(value:unknown):AuditItem[]{
+  return list(object(value).items).map(x=>{const o=object(x);if(o.category!=='action'&&o.category!=='read')throw new WorkbenchError('invalid');
+    return {category:o.category,action:text(o.action),principal_id:text(o.principal_id),...(o.role===undefined?{}:{role:text(o.role)}),target_kind:text(o.target_kind),
+      target_ref:maybeText(o.target_ref),intent_id:maybeText(o.intent_id),occurred_at:text(o.occurred_at)};});
+}
+export const readHumanActions=()=>get('/api/v1/workbench/human-actions',humanActions);

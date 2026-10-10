@@ -84,6 +84,9 @@ OPERATIONS={
     'hand_back_conversation':{'takeover_id':_id(_UUID),'reason':_reason},
     # Ruling B (0153): native WebChat only, bound to one inbound message.
     'send_staff_reply':{'conversation_id':_id(_HEX),'reply_to':_id(_HEX),'text':lambda v:v if type(v) is str and 1<=len(v)<=8192 else (_ for _ in ()).throw(ValueError('text'))},
+    # NX-030 (0150): owner-only; selector null silences every selector of the rule; at most 7 days (SQL).
+    'silence_alert':{'rule_id':_id(re.compile(r'[a-z][a-z0-9_]{0,63}')),'selector':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9_.:-]{1,64}',v)) else (_ for _ in ()).throw(ValueError('selector')),
+        'until':_utc,'reason':_reason},
 }
 
 

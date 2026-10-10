@@ -87,8 +87,8 @@
 ## 4. 未完成项（需排期或决定）
 
 1. ~~Agent Host 并发样本（M09）~~：已在第二部分完成，见 §5。
-2. **告警静默**（owner 专属 Action `nexloop.alert.silence:1`）：要在 0124 的统一入口注册表、business-actions 和角色清单里各加一项，这三处都与 L4 重叠，等 nx028-ui 合入后与告警页一起做。
-3. **工作台的告警页、运行状态页和审计页**：按调度员要求，等 L4 的 nx028-ui 合入后再挂；后端接口已就绪。
+2. ~~告警静默~~：已在 UI 部分完成，见 §6。
+3. ~~工作台的告警页、运行状态页和审计页~~：已在 UI 部分完成，见 §6。
 4. ~~AT-049 统一结构化日志与哨兵扫描、doctor `--observability`~~：已在第二部分完成，见 §5。
 5. **备份年龄（M12）**：等 NX-035 的备份清单表。
 6. **已知限制：连接数不按角色细分**。调度员裁定不授予 `pg_read_all_stats`，因为它会让 owner 能读到所有会话的查询文本。总连接数继续取自 `pg_stat_database`。
@@ -120,3 +120,29 @@
   - `tests/test_structured_log.py`：参数、异常、未知字段、psycopg 和 uvicorn 的日志都不会带出原文或密钥。
   - `tests/test_log_secrets_at049_pg.py`：上面的哨兵扫描（AT-049）。
   - `tests/test_observability_pg.py::test_doctor_observability_gate`：评估前失败，评估后通过；CLI 退出码与输出；API 角色被拒。
+
+## 6. UI 部分（调度员排期：告警静默、三个工作台页面、NX-031 D6）
+
+分支 `nx030-ui`，切自 `dispatch/integration-s4l` `9a70a64`（第一、二部分在 s4l 中的迁移号为 0131，service-grants 为 v14）。本部分迁移临时号 `0150_nx030_ui`（调度员指定 0150–0159）。
+
+- **告警静默**（owner 专属 Action `nexloop.alert.silence:1`）：
+  - 走 0124 的统一入口：注册表新增 `('alert.silence','silence_alert','human', control.nexloop_governed_alert_silence, 'NX-030')`；工作台写入口 `POST /api/v1/workbench/actions/silence_alert`，字段为 `rule_id`、`selector`（可为 null）、`until`、`reason`。
+  - handler 校验：当前角色必须是 owner（以 `nexloop_workbench_role` 的当前事实为准，否则 403）；`until` 必须在未来、且不超过 7 天；规则必须存在于最新规则版本。不满足时返回 409 `not_allowed_in_state`，不写入任何数据。
+  - `control.nexloop_alert_silences`：只追加、FORCE RLS，按 `(tenant, world, intent_id)` 去重，重放得到同一结果。
+  - **静默只影响展示，不停止评估**：评估器照常评估、记录事件；读取时 firing 项带 `silenced_until`，alerts 另返回生效中的 `silences` 列表；人类 Action 审计汇入 `alert.silence`。
+  - 清单：business-actions v10 新增 `nexloop.alert.silence`；workbench-roles v4 只给 owner（`owner_only` 校验同步）。
+- **工作台页面**（挂进 nx028-ui 的框架和操作区，状态提示沿用 AT-045）：
+  - `告警`：评估器过期时显式提示；只针对 real world；触发中的告警（critical 未静默时加粗），最近事件；owner 在操作区静默（1–168 小时，填写理由）。
+  - `运行状态`：指标快照各区块；进程样本缺失时标为“未接入/暂不可用”，不显示为 0；备份在 NX-035 之前标为未接入。
+  - `审计`：只给 owner（与后端 `human_actions` 一致），只显示 ID、类别和时间。
+- **NX-031 D6（逐 Run 工具耗时）**：
+  - 守卫在每次带 `command.run_id` 的工具请求（effects、outcomes、通用工具；authorize 不计）**发出响应之前**，把本次耗时加到该 Run 上：`authz.nexloop_record_run_tool_timing`，只限 domain_worker / scheduler，且 Run 必须属于调用者所在租户。在响应之前记录，是为了保证 Run 结束后读取的摘要一定包含最后一次调用。记录失败不影响工具结果。
+  - `runtime.nexloop_run_tool_timings` 只存三个数字：`calls`、`total_ms`、`max_ms`。7 天后由 `nexloop_observability_maintain` 清理。
+  - Runtime Dispatcher 写终态结果时，把 `tool_timing` 写入 `runtime.jobs.result`（尽力而为）。
+  - 顺带修复：`runtime_control._post` 中有一个局部的 `import re`，它让函数内所有 `re` 都成了局部变量。去掉它（模块顶部已经导入了 `re`）。
+- **测试**：
+  - `tests/test_alert_silence_pg.py`（2 个）：
+    - owner 静默：重放只有一行；告警页带标记；超过 7 天和未知规则返回 409；非法选择器返回 422；审计可见；表只追加；
+    - operator 返回 403，顾客返回 401，均不写入。
+  - `tests/test_run_tool_timing_pg.py`（1 个，真实 Pi）：NX-047 链路的终态结果中，`tool_timing.calls` 不少于工具调用数，0 < max ≤ total；表行与之一致；API 角色和他租户的 Run 被拒。
+  - `apps/web/test/workbench-observability.test.ts`（4 个）：三个页面的渲染、缺失区块的标注、静默表单只在 owner 的操作区出现。
