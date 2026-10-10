@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from eios.identity.errors import CredentialInvalid
 from nexloop_eios.commercial import CommercialObserver
+from nexloop_eios import commercial_observe_http as H
 from nexloop_eios.commercial_observe_http import router
 from nexloop_eios.context_engine.authority import ContextDenied,action_claims
 from commercial_fixture import TENANT,commercial_env,published_action  # noqa: F401
@@ -83,6 +84,13 @@ def test_same_origin_routes(observed):
         assert client.get('/api/v1/costs',headers=h).json()['costs'][0]['cost_kind']=='discount'
         assert client.get('/api/v1/costs/entries?cost_kind=discount',headers=h).json()['entries'][0]['entry_id']=='discount:coupon-1'
         assert Decimal(client.get('/api/v1/metrics/g-revenue/1/kr',headers=h).json()['value'])==12000
+        # Every answer has exactly its published OpenAPI component shape.
+        for path,model in (('/api/v1/commercial-observations',H.CommercialObservations),('/api/v1/commercial-observations/'+record_id,H.CommercialObservation),
+                           ('/api/v1/costs',H.CostSummary),('/api/v1/costs/entries',H.CostEntries),('/api/v1/metrics/g-revenue/1/kr',H.KeyResultObservation)):
+            model.model_validate(client.get(path,headers=h).json())
+        H.ObserveError.model_validate(client.get('/api/v1/costs/entries?cost_kind=rent',headers=h).json())
+        components=app.openapi()['components']['schemas']
+        assert {'CommercialObservations','CommercialObservation','CostSummary','CostEntries','KeyResultObservation','ObserveError'}<=set(components)
         for path in ('/api/v1/commercial-observations?consumer_id=x','/api/v1/commercial-observations/nope','/api/v1/costs/entries?cost_kind=rent',
                      '/api/v1/costs/entries?run_id=x','/api/v1/metrics/G/1/kr','/api/v1/metrics/g-revenue/0/kr'):
             assert client.get(path,headers=h).status_code==422,path

@@ -36,7 +36,7 @@
 - `deploy/authorization/service-grants.v1.json` v11：commercial_recorder 主体、feed、record、commercial.read、cost.read、两个 Action、对象类型 READ、`commercial_state` 属性规则。
 - 连接器、客户关联、指标来源用 configurator 函数配置（`nexloop_eios.commercial.configure_connector` 等；密钥从私有文件读取，不回显）。
 - `business-actions` v7：CommercialRecord.observe（human_owner，capability `commercial.observe`）；人类授权来自可信配置，不在 service-grants。
-- HTTP（同源、人类浏览器会话、只读）：`GET /api/v1/commercial-observations[?consumer_id]`、`/commercial-observations/{record_id}`、`/costs`、`/costs/entries[?cost_kind&run_id]`、`/metrics/{goal_id}/{version}/{kr_key}`；每个回答带 world，每项带 data_mode。
+- HTTP（同源、人类浏览器会话、只读）：`GET /api/v1/commercial-observations[?consumer_id]`、`/commercial-observations/{record_id}`、`/costs`、`/costs/entries[?cost_kind&run_id]`、`/metrics/{goal_id}/{version}/{kr_key}`；每个回答带 world，每项带 data_mode。返回形状是本 API 的 OpenAPI 组件（`commercial_observe_http` 中的响应模型），未新增 `packages/contracts` 契约（D8）。只接受未受限的人类浏览器会话且须持有 `CommercialRecord.observe:1` 的 EXECUTE；服务、Agent、Run 凭据在 SQL 身份检查处被拒，没有该授权的人类（含顾客会话）在授权处被拒。
 - 治理入口 handler（NX-028 注册表签名，注册表行待 0150 合入后补）：`control.nexloop_commercial_bind_commitment_handler`（0133，capability 拟 `commitment.bind_commercial`）、`control.nexloop_cost_record_handler`（0132，service/labour 人工费用，capability 拟 `cost.record`；更正追加 `corrects_entry_id`，汇总与指标只计链上最新）。
 - 后台入口 `nexloop-commercial-recorder`（`--world real|test`，容器作业 `commercial-recorder`，compose 可选 profile `background`）；HTTP `POST /api/v1/webhooks/commercial/{connector_id}`。
 

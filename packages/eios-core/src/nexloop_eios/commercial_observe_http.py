@@ -13,12 +13,134 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from eios.identity.errors import CredentialInvalid
+from pydantic import BaseModel, ConfigDict
 
 _HEX = re.compile(r'[0-9a-f]{64}')
 _RUN = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 _SLUG = re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KINDS = ('model', 'channel', 'discount', 'service', 'labour')
 _DENIED = ('ContextDenied', 'ActionAuthorizationDenied', 'AuthorizationUnavailable', 'AuthorizationFactDenied')
+
+
+# Response shapes, published as this API's OpenAPI components (no packages/contracts schema: D8).
+class _Shape(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+class CommercialRecordView(_Shape):
+    record_id: str
+    revision: int
+    properties: dict  # the CommercialRecord v1 properties, including data_mode, currency and amounts in minor units
+
+
+class CommercialObservations(_Shape):
+    world: str
+    records: list[CommercialRecordView]
+
+
+class CommercialEventView(_Shape):
+    event_ref: str
+    event_type: str
+    status: str
+    amount_minor: int
+    currency: str
+    occurred_at: str
+    received_at: str
+    provider_sequence: int | None
+    disposition: str | None
+
+
+class CommercialExceptionView(_Shape):
+    reason: str
+    detail: dict
+    raised_at: str
+
+
+class CommercialObservation(_Shape):
+    world: str
+    record_id: str
+    data_mode: str
+    revision: int
+    properties: dict
+    events: list[CommercialEventView]
+    exceptions: list[CommercialExceptionView]
+
+
+class CostLine(_Shape):
+    cost_kind: str
+    data_mode: str
+    currency: str | None  # null: unpriced units (D7); amounts in different currencies are never added
+    amount_unit: str | None
+    amount: str | None
+    entries: int
+    units: str
+
+
+class BudgetSettlementView(_Shape):
+    consumption_id: str
+    reserved: str
+    actual: str | None
+    released: str
+    unit: str
+    outcome: str
+
+
+class CostSummary(_Shape):
+    world: str
+    costs: list[CostLine]
+    settlements: list[BudgetSettlementView]
+
+
+class CostEntryView(_Shape):
+    entry_id: str
+    cost_kind: str
+    data_mode: str
+    units: str
+    amount: str | None
+    currency: str | None
+    amount_unit: str | None
+    basis: str
+    source_ref: str
+    run_id: str | None
+    consumer_ref: str | None
+    occurred_at: str
+    corrects_entry_id: str | None
+    superseded: bool
+
+
+class CostEntries(_Shape):
+    world: str
+    entries: list[CostEntryView]
+
+
+class KeyResultObservation(BaseModel):
+    """0131 key result; further counters (corrections, exclusions, cohort) are additional properties."""
+    model_config = ConfigDict(extra='allow')
+    world: str
+    goal_id: str
+    goal_version: int
+    kr_key: str
+    metric_id: str
+    metric_version: int
+    value: str | None
+    target: str
+    direction: str
+    met: bool | None
+
+
+class ObserveError(_Shape):
+    code: str
+    message: str
+    trace_id: str
+    retryable: bool
+    details: dict
+
+
+_ERRORS = {status: {'model': ObserveError} for status in (401, 403, 422, 503)}
+
+
+def _ok(model):
+    return {200: {'model': model}, **_ERRORS}
 
 
 class ObservePorts:
@@ -79,29 +201,29 @@ def router(config, *, ports_for_browser, inspect=_inspect):
             return error('dependency_unavailable', 503)
         return JSONResponse(value, headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
 
-    @routes.get('/commercial-observations')
+    @routes.get('/commercial-observations', responses=_ok(CommercialObservations))
     async def records(request: Request, consumer_id: str | None = None):
         if consumer_id is not None and not _HEX.fullmatch(consumer_id):
             return error('invalid_request', 422)
         return await answer(request, lambda o: o.records(consumer_id))
 
-    @routes.get('/commercial-observations/{record_id}')
+    @routes.get('/commercial-observations/{record_id}', responses=_ok(CommercialObservation))
     async def record(record_id: str, request: Request):
         if not _HEX.fullmatch(record_id):
             return error('invalid_request', 422)
         return await answer(request, lambda o: o.record(record_id))
 
-    @routes.get('/costs')
+    @routes.get('/costs', responses=_ok(CostSummary))
     async def costs(request: Request):
         return await answer(request, lambda o: o.costs())
 
-    @routes.get('/costs/entries')
+    @routes.get('/costs/entries', responses=_ok(CostEntries))
     async def entries(request: Request, run_id: str | None = None, cost_kind: str | None = None):
         if (run_id is not None and not _RUN.fullmatch(run_id)) or (cost_kind is not None and cost_kind not in _KINDS):
             return error('invalid_request', 422)
         return await answer(request, lambda o: o.cost_entries(run_id=run_id, cost_kind=cost_kind))
 
-    @routes.get('/metrics/{goal_id}/{goal_version}/{kr_key}')
+    @routes.get('/metrics/{goal_id}/{goal_version}/{kr_key}', responses=_ok(KeyResultObservation))
     async def metric(goal_id: str, goal_version: str, kr_key: str, request: Request):
         if not _SLUG.fullmatch(goal_id) or not re.fullmatch(r'[1-9][0-9]{0,8}', goal_version) or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}', kr_key):
             return error('invalid_request', 422)
