@@ -165,3 +165,32 @@ def test_channel_rate_comes_only_from_a_versioned_configured_rate(commercial_env
         admin.execute("insert into control.nexloop_commercial_settings(version,definition,definition_digest,published_by) values(2,%s,%s,'synthetic-owner')",(Jsonb(v2),'0'*64))
     assert rate('nexloop.service.request',1)=={'action':'nexloop.service.request','version':1,'currency':'CNY','amount_per_unit':'0.05'}
     assert rate('nexloop.service.request',2) is None and rate('nexloop.bad.rate',1) is None
+
+
+def test_service_and_labour_costs_entered_by_the_owner_are_corrected_by_supersession(commercial_env,admin):
+    """Governed-entry handler (NX-028 registry signature); the registry row follows once 0150 is merged."""
+    import json
+    env=commercial_env;now=datetime.now(UTC).replace(microsecond=0)
+    env.metric('service-cost',source_kind='cost_entry',kinds=(),statuses=(),cost_kinds=('service','labour'))
+    env.kr('g-service','service-cost',(now-timedelta(days=1),now+timedelta(days=1)))
+    record=lambda intent,body:admin.execute("select control.nexloop_cost_record_handler(%s,'real','human-principal','consumer',%s,%s::jsonb)",
+        (TENANT,intent,json.dumps(body))).fetchone()[0]
+    first={'request_id':'r1','cost_kind':'service','amount':'50000','currency':'CNY','amount_unit':'minor','occurred_at':now.isoformat()}
+    assert record('intent-1',first)=={'entry_id':'manual:intent-1','replayed':False,'corrects_entry_id':None}
+    assert record('intent-1',first)['replayed'] is True                                        # same intent, same body
+    with pytest.raises(psycopg.errors.UniqueViolation):record('intent-1',dict(first,amount='1'))
+    assert Decimal(env.compute('g-service')['value'])==50000
+    fix=dict(first,request_id='r2',amount='45000',corrects_entry_id='manual:intent-1')
+    assert record('intent-2',fix)['corrects_entry_id']=='manual:intent-1'
+    kr=env.compute('g-service');assert Decimal(kr['value'])==45000 and kr['corrections_applied']==1
+    port=CostReadPort(env['worker'],env.session(),env['signer'])
+    assert port.summary()==[{'cost_kind':'service','data_mode':'real','currency':'CNY','amount_unit':'minor','amount':'45000.00000000','entries':1,'units':'1'}]
+    assert [(e['entry_id'],e['superseded'],e['corrects_entry_id']) for e in port.entries(cost_kind='service')]==[
+        ('manual:intent-1',True,None),('manual:intent-2',False,'manual:intent-1')]
+    assert admin.execute("select basis,recorded_by from runtime.nexloop_cost_entries where entry_id='manual:intent-2'").fetchone()==('operator_entered','human-principal')
+    for bad in (dict(first,cost_kind='model'),dict(first,amount='1.5'),dict(first,amount='-1'),dict(first,currency='cny'),dict(first,extra=1),
+                dict(first,occurred_at=(now+timedelta(days=1)).isoformat()),dict(first,corrects_entry_id='manual:intent-1'),   # already corrected
+                dict(first,cost_kind='labour',corrects_entry_id='manual:intent-2'),dict(first,units='0')):
+        with pytest.raises(psycopg.errors.InvalidParameterValue):record('intent-bad',bad)
+    for role in ('nexloop_api','nexloop_domain_worker','nexloop_configurator'):
+        assert admin.execute("select has_function_privilege(%s,'control.nexloop_cost_record_handler(text,text,text,text,text,jsonb)','execute')",(role,)).fetchone()==(False,)

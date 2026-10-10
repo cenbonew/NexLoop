@@ -88,8 +88,14 @@ alter table control.nexloop_metric_observations add constraint nexloop_metric_ob
  check(excluded_reason in ('other_currency','other_unit'));
 create function runtime.nexloop_cost_project(e runtime.nexloop_cost_entries) returns integer
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare s control.nexloop_metric_sources;m control.nexloop_metric_definitions;n integer:=0;v_excluded text;v_value numeric;
+declare s control.nexloop_metric_sources;m control.nexloop_metric_definitions;n integer:=0;v_excluded text;v_value numeric;v_root text:=e.entry_id;
+ v_next text:=e.corrects_entry_id;
 begin
+ -- A correction (operator entries, corrects_entry_id) supersedes the observation of its chain's first entry.
+ while v_next is not null loop
+  v_root:=v_next;
+  select x.corrects_entry_id into v_next from runtime.nexloop_cost_entries x where x.tenant_id=e.tenant_id and x.world=e.world and x.entry_id=v_root;
+ end loop;
  for s in select * from control.nexloop_metric_sources x where x.tenant_id=e.tenant_id and x.world=e.world and x.source_kind='cost_entry'
    and e.cost_kind=any(x.cost_kinds) order by x.metric_id,x.metric_version loop
   select * into m from control.nexloop_metric_definitions where tenant_id=e.tenant_id and world=e.world and metric_id=s.metric_id and version=s.metric_version;
@@ -99,7 +105,7 @@ begin
    v_excluded:=case when m.currency is distinct from e.currency then 'other_currency' when m.unit is distinct from e.amount_unit then 'other_unit' end;
    v_value:=case when v_excluded is null then e.amount else 0 end;
   end if;
-  if control.nexloop_metric_project(e.tenant_id,e.world,m,'cost:'||e.entry_id,'ce.'||encode(sha256(convert_to(e.entry_id,'UTF8')),'hex'),true,
+  if control.nexloop_metric_project(e.tenant_id,e.world,m,'cost:'||v_root,'ce.'||encode(sha256(convert_to(e.entry_id,'UTF8')),'hex'),true,
     v_value,v_excluded,e.occurred_at,e.data_mode,e.consumer_ref,jsonb_build_array('cost:'||e.entry_id,e.source_ref)) is not null then
    n:=n+1;end if;
  end loop;
@@ -243,17 +249,21 @@ declare v jsonb;
 begin
  perform set_config('eios.tenant_id',t,true);
  if c->>'verb'='summary' then
-  -- Per kind, currency and scale; unpriced units separately. Never one total across currencies.
+  -- Per kind, currency and scale; unpriced units separately. Never one total across currencies. A corrected entry
+  -- counts only through its latest correction.
   select coalesce(jsonb_agg(jsonb_build_object('cost_kind',k.cost_kind,'data_mode',k.data_mode,'currency',k.currency,'amount_unit',k.amount_unit,
     'amount',k.amount::text,'entries',k.n,'units',k.units::text) order by k.cost_kind,k.currency nulls last),'[]'::jsonb) into v
    from (select cost_kind,data_mode,currency,amount_unit,sum(amount) amount,count(*) n,sum(units) units from runtime.nexloop_cost_entries
-     where tenant_id=t and world=p_world group by cost_kind,data_mode,currency,amount_unit) k;
+     where tenant_id=t and world=p_world and not exists(select 1 from runtime.nexloop_cost_entries x where x.tenant_id=t and x.world=p_world
+      and x.corrects_entry_id=runtime.nexloop_cost_entries.entry_id) group by cost_kind,data_mode,currency,amount_unit) k;
   return jsonb_build_object('world',p_world,'costs',v);
  elsif c->>'verb'='entries' then
   if c ? 'run_id' and coalesce(c->>'run_id','')!~'^[0-9a-f-]{36}$' then raise exception 'cost read invalid' using errcode='22023';end if;
   select coalesce(jsonb_agg(jsonb_build_object('entry_id',e.entry_id,'cost_kind',e.cost_kind,'data_mode',e.data_mode,'units',e.units::text,'amount',e.amount::text,'currency',e.currency,
     'amount_unit',e.amount_unit,'basis',e.basis,'source_ref',e.source_ref,'run_id',e.run_id,'consumer_ref',e.consumer_ref,
-    'occurred_at',runtime.nexloop_commercial_ts(e.occurred_at)) order by e.occurred_at,e.entry_id),'[]'::jsonb) into v
+    'occurred_at',runtime.nexloop_commercial_ts(e.occurred_at),'corrects_entry_id',e.corrects_entry_id,
+    'superseded',exists(select 1 from runtime.nexloop_cost_entries x where x.tenant_id=t and x.world=p_world and x.corrects_entry_id=e.entry_id))
+    order by e.occurred_at,e.entry_id),'[]'::jsonb) into v
    from runtime.nexloop_cost_entries e where e.tenant_id=t and e.world=p_world and (not (c ? 'run_id') or e.run_id=(c->>'run_id')::uuid)
     and (not (c ? 'cost_kind') or e.cost_kind=c->>'cost_kind');
   return jsonb_build_object('entries',v);
@@ -278,3 +288,47 @@ end $$;
 alter function authz.nexloop_cost_read(text,text,text,text,text) owner to nexloop_owner;
 revoke all on function authz.nexloop_cost_read(text,text,text,text,text) from public;
 grant execute on function authz.nexloop_cost_read(text,text,text,text,text) to nexloop_domain_worker,nexloop_api;
+
+-- 5. Service / labour costs entered by the human owner: governed-entry handler (NX-028 registry signature, design
+-- §15.2a). The registry row (capability 'cost.record', subject_rule 'human') is inserted once 0150 is merged; until
+-- then no entry reaches it. Body: {request_id, cost_kind service|labour, amount (decimal string), currency, amount_unit
+-- major|minor, occurred_at, units?, consumer_id?, corrects_entry_id?}. A correction appends a new entry that supersedes
+-- the earlier one of the same kind and currency (it is never rewritten); the entry id is the governed intent.
+create function control.nexloop_cost_record_handler(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb)
+ returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare e runtime.nexloop_cost_entries;prior runtime.nexloop_cost_entries;v_created boolean;
+begin
+ if jsonb_typeof(body) is distinct from 'object' or exists(select 1 from jsonb_object_keys(body) k where k not in
+   ('request_id','cost_kind','amount','currency','amount_unit','occurred_at','units','consumer_id','corrects_entry_id'))
+  or body->>'cost_kind' not in ('service','labour') or coalesce(body->>'amount','')!~'^[0-9]{1,12}(\.[0-9]{1,8})?$'
+  or coalesce(body->>'currency','')!~'^[A-Z]{3}$' or body->>'amount_unit' not in ('major','minor')
+  or coalesce(body->>'occurred_at','')!~'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|\+00:00)$'
+  or (body ? 'units' and coalesce(body->>'units','')!~'^[0-9]{1,9}(\.[0-9]{1,4})?$')
+  or (body ? 'consumer_id' and coalesce(body->>'consumer_id','')!~'^[a-f0-9]{64}$')
+  or coalesce(p_intent,'')!~'^[A-Za-z0-9._:-]{1,190}$' then
+  raise exception 'cost entry invalid' using errcode='22023';end if;
+ if (body->>'amount_unit')='minor' and (body->>'amount')::numeric<>trunc((body->>'amount')::numeric) then
+  raise exception 'cost entry invalid' using errcode='22023';end if;
+ if (body->>'occurred_at')::timestamptz>clock_timestamp()+interval '5 minutes' then raise exception 'cost entry in the future' using errcode='22023';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ if body ? 'corrects_entry_id' then
+  select * into prior from runtime.nexloop_cost_entries where tenant_id=p_tenant and world=p_world and entry_id=body->>'corrects_entry_id';
+  if prior.entry_id is null or prior.basis<>'operator_entered' or prior.cost_kind<>body->>'cost_kind' or prior.currency<>body->>'currency'
+   or prior.amount_unit<>body->>'amount_unit'
+   or exists(select 1 from runtime.nexloop_cost_entries x where x.tenant_id=p_tenant and x.world=p_world and x.corrects_entry_id=prior.entry_id) then
+   raise exception 'cost correction target unavailable' using errcode='22023';end if;
+ end if;
+ e.tenant_id:=p_tenant;e.world:=p_world;e.entry_id:='manual:'||p_intent;e.data_mode:=runtime.nexloop_cost_data_mode(p_world);
+ e.cost_kind:=body->>'cost_kind';e.units:=coalesce((body->>'units')::numeric,1);e.amount:=(body->>'amount')::numeric;e.currency:=body->>'currency';
+ e.amount_unit:=body->>'amount_unit';e.basis:='operator_entered';e.source_ref:='operator:'||p_intent;e.consumer_ref:=body->>'consumer_id';
+ e.corrects_entry_id:=prior.entry_id;e.occurred_at:=(body->>'occurred_at')::timestamptz;e.recorded_by:=p_principal;
+ if e.units<=0 then raise exception 'cost entry invalid' using errcode='22023';end if;
+ v_created:=runtime.nexloop_cost_record(e);
+ if not v_created and not exists(select 1 from runtime.nexloop_cost_entries x where x.tenant_id=p_tenant and x.world=p_world and x.entry_id=e.entry_id
+   and x.cost_kind=e.cost_kind and x.amount=e.amount and x.currency=e.currency and x.amount_unit=e.amount_unit and x.occurred_at=e.occurred_at
+   and x.units=e.units and x.consumer_ref is not distinct from e.consumer_ref and x.corrects_entry_id is not distinct from e.corrects_entry_id) then
+  raise exception 'cost entry intent reused' using errcode='23505';end if;
+ return jsonb_build_object('entry_id',e.entry_id,'replayed',not v_created,'corrects_entry_id',e.corrects_entry_id);
+end $$;
+alter function control.nexloop_cost_record_handler(text,text,text,text,text,jsonb) owner to nexloop_owner;
+revoke all on function control.nexloop_cost_record_handler(text,text,text,text,text,jsonb) from public;
