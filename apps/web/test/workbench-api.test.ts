@@ -87,3 +87,16 @@ test('ADR-025: owner-restricted properties are listed as withheld; the audit is 
   expect(audit({items:[{audit_id:3,principal_id:'p',role:'owner',object_kind:'message',target_resource:'eios:object:Message/'+id('4'),read_purpose:'conversation',read_at:'2026-10-10T09:00:00+00:00'}]})[0].read_purpose).toBe('conversation');
   expect(()=>audit({items:[{audit_id:3,principal_id:'p',role:'owner',object_kind:'claim',target_resource:'x',read_purpose:'x',read_at:'x'}]})).toThrow(WorkbenchError);
 });
+
+test('reviewer evidence: pending items show bodies or the restricted label; an ended review shows nothing readable',async()=>{
+  const {reviewEvidence,reviewQueue,REVIEW_ENDED_TEXT}=await import('../src/workbench/api');
+  const cid='5f0c8c8e-3b1a-4c6d-9e2f-1a2b3c4d5e6f';
+  expect(reviewQueue({items:[{candidate_id:cid,kind:'property',display_name:'联系偏好',created_at:'2026-10-10T09:00:00+00:00',evidence_count:1}]})[0].evidence_count).toBe(1);
+  const pending=reviewEvidence({candidate_id:cid,status:'pending_review',kind:'property',display_name:'联系偏好',
+    evidence:[{claim_id:'c1',predicate:'联系偏好',source_message_id:id('4'),content:{status:'ok',body:'请不要再给我发短信了'}},{claim_id:'c2',predicate:null,source_message_id:id('5'),content:{status:'restricted'}}]});
+  expect(pending.status==='pending_review'&&pending.evidence.map(e=>e.content.status)).toEqual(['ok','restricted']);
+  expect(reviewEvidence({candidate_id:cid,status:'ended',evidence:[]})).toEqual({candidate_id:cid,status:'ended'});
+  expect(()=>reviewEvidence({candidate_id:cid,status:'ended',evidence:[{claim_id:'c1'}]})).toThrow(WorkbenchError);
+  expect(REVIEW_ENDED_TEXT).toContain('不再可读');
+  expect(parseRoute('/workbench/knowledge/'+cid)).toEqual({page:'knowledge',id:cid});
+});

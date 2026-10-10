@@ -270,3 +270,35 @@ class WorkbenchQueries:
 
     def audit(self, *, limit=100, before=None):
         return self.reader.audit(limit=limit, before=before)
+
+    # NX-028 known limitation closed: the reviewer's evidence page. The queue and the candidate come from the NX-046 review
+    # reads (ontology.schema.review EXECUTE; a decided candidate is no longer returned); the evidence Message bodies are read
+    # through the ADR-025 reviewer derivation (pending_review evidence only, audited with purpose review_evidence).
+    def _review(self):
+        from nexloop_eios.candidate_merge import ReviewQueueReader
+        return ReviewQueueReader(self.reader.pool, self.reader.session, self.reader.signer)
+
+    def review_queue(self, *, limit=50):
+        try:
+            items = self._review().pending(limit=limit)
+        except PermissionError:
+            raise WorkbenchForbidden('review') from None
+        return {'items': [{'candidate_id': x['candidate_id'], 'kind': x['kind'], 'display_name': (x.get('candidate') or {}).get('proposed', {}).get('display_name'),
+                           'created_at': x['created_at'], 'evidence_count': x['dependent_claim_count']} for x in items]}
+
+    def review_evidence(self, *, candidate_id):
+        try:
+            detail = self._review().candidate(candidate_id)
+        except PermissionError:
+            raise WorkbenchForbidden('review') from None
+        if detail is None:
+            # Decided, superseded or unknown: the review is over and its evidence is no longer readable for the reviewer.
+            return {'candidate_id': candidate_id, 'status': 'ended', 'evidence': []}
+        evidence = []
+        for item in detail.get('evidence', []):
+            message = item.get('source_message_id')
+            content = self.reader.message_fields(message, ('body',), 'review_evidence') if message else None
+            evidence.append({'claim_id': item['claim_id'], 'predicate': item.get('predicate'), 'source_message_id': message,
+                             'content': {'status': 'ok', 'body': content.get('body')} if content is not None else {'status': 'restricted'}})
+        return {'candidate_id': candidate_id, 'status': 'pending_review', 'kind': detail['kind'],
+                'display_name': (detail.get('candidate') or {}).get('proposed', {}).get('display_name'), 'evidence': evidence}

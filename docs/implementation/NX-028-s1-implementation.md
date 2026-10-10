@@ -135,3 +135,18 @@
   - 角色变更、移除成员、会话吊销后，下一次读取即失效；
   - 审计写入失败则读取失败，非 owner 读不到审计；
   - 回归：顾客会话与服务主体在每条读取路径上，改动前后结果一致；工作台派生对它们无效，也不留审计。
+
+## 10. 后续：审核人证据页（分支 `nx028-reviewer`，解除 NX-028 的已知限制）
+
+- 不需要新迁移：
+  - 队列和候选详情沿用 NX-046 的审核读取（`nexloop_read_review_queue` / `nexloop_read_review_candidate`，要求 `ontology.schema.review` 的 EXECUTE），由工作台会话调用；
+  - 证据消息原文走 ADR-025 的 reviewer 派生，每读一次审计一条，用途为 `review_evidence`。
+- 接口：
+  - `GET /api/v1/workbench/review`：待审核条目，含名称、类别、证据数；
+  - `GET /api/v1/workbench/review/{candidate_id}`：证据列表，读到原文时 `content.status` 为 `ok`，否则为 `restricted`。
+  - 候选一旦决定或被取代，审核读取不再返回它，此时返回 `{"status":"ended","evidence":[]}`：不读取原文，也不写审计。
+- 页面：知识工作台入口改成只读页 `pages/Knowledge.tsx`，含列表和证据详情；审核结束后显示“审核已结束，证据原文不再可读”。审核决定仍在 NX-046 的审核页完成。
+- 权限：reviewer 角色只有审核 Action，看不到工作台其他页面（403）；owner 和 operator 的角色不含审核 Action，看不到这一页（403）；顾客登录工作台也是 403。
+- 测试：
+  - `tests/test_workbench_review_evidence_pg.py`（2 个）：待审核证据可读且留审计；决定后显示已结束，不读取、不写审计；其他页面 403；无审核授权时 403；顾客 403；
+  - vitest：证据解析、结束状态、路由。

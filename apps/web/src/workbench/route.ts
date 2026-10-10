@@ -4,12 +4,14 @@ export const PAGES={overview:'总览',goals:'目标与对齐',consumers:'消费�
 export type PageKey=keyof typeof PAGES;
 export type Route={page:PageKey;id?:string;sub?:'conversation'};
 const hex64=/^[a-f0-9]{64}$/;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function parseRoute(pathname:string):Route{
   const parts=pathname.replace(/^\/workbench\/?/,'').split('/').filter(Boolean);
   const page=(parts[0]??'overview') as PageKey;
   if(!(page in PAGES))return {page:'overview'};
   if(page==='consumers'&&parts[1]==='conversations'&&hex64.test(parts[2]??''))return {page,id:parts[2],sub:'conversation'};
   if((page==='consumers'||page==='commitments')&&hex64.test(parts[1]??''))return {page,id:parts[1]};
+  if(page==='knowledge'&&uuid.test(parts[1]??''))return {page,id:parts[1]};
   return {page};
 }
 export function routePath(route:Route):string{

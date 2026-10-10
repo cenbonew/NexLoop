@@ -241,3 +241,25 @@ export function audit(value:unknown):AuditRow[]{
     return {audit_id:count(o.audit_id),principal_id:text(o.principal_id),role:text(o.role),object_kind:o.object_kind,target_resource:text(o.target_resource),read_purpose:text(o.read_purpose),read_at:text(o.read_at)};});
 }
 export const readAudit=()=>get('/api/v1/workbench/audit',audit);
+
+// ---- reviewer evidence (NX-028 known limitation; ADR-025 reviewer derivation) ----
+const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function candidateId(value:unknown):string{const v=text(value);if(!uuidPattern.test(v))throw new WorkbenchError('invalid');return v;}
+export type ReviewItem={candidate_id:string;kind:string;display_name:string|null;created_at:string;evidence_count:number};
+export function reviewQueue(value:unknown):ReviewItem[]{
+  return list(object(value).items).map(x=>{const o=object(x);return {candidate_id:candidateId(o.candidate_id),kind:text(o.kind),display_name:maybeText(o.display_name),created_at:text(o.created_at),evidence_count:count(o.evidence_count)};});
+}
+export type ReviewEvidence={candidate_id:string;status:'ended'}|{candidate_id:string;status:'pending_review';kind:string;display_name:string|null;
+  evidence:{claim_id:string;predicate:string|null;source_message_id:string|null;content:{status:'ok';body:string|null}|{status:'restricted'}}[]};
+export function reviewEvidence(value:unknown):ReviewEvidence{
+  const v=object(value);
+  if(v.status==='ended'){if(list(v.evidence).length)throw new WorkbenchError('invalid');return {candidate_id:candidateId(v.candidate_id),status:'ended'};}
+  if(v.status!=='pending_review')throw new WorkbenchError('invalid');
+  return {candidate_id:candidateId(v.candidate_id),status:'pending_review',kind:text(v.kind),display_name:maybeText(v.display_name),evidence:list(v.evidence).map(x=>{
+    const o=object(x);const c=object(o.content);
+    const content=c.status==='ok'?{status:'ok' as const,body:maybeText(c.body)}:c.status==='restricted'?{status:'restricted' as const}:(()=>{throw new WorkbenchError('invalid');})();
+    return {claim_id:text(o.claim_id),predicate:maybeText(o.predicate),source_message_id:o.source_message_id===null||o.source_message_id===undefined?null:id(o.source_message_id),content};})};
+}
+export const readReviewQueue=()=>get('/api/v1/workbench/review',reviewQueue);
+export const readReviewEvidence=(candidate:string)=>get('/api/v1/workbench/review/'+candidate,reviewEvidence);
+export const REVIEW_ENDED_TEXT='审核已结束，证据原文不再可读。';

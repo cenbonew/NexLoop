@@ -179,6 +179,22 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'settings')
 
+    @routes.get('/review')
+    async def review_queue(request: Request):
+        # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.
+        try:
+            q = query(request, ('limit',))
+            limit = limit_of(q['limit']) if 'limit' in q else 50
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'review_queue', limit=limit)
+
+    @routes.get('/review/{candidate_id}')
+    async def review_evidence(candidate_id: str, request: Request):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', candidate_id) or request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'review_evidence', candidate_id=candidate_id)
+
     @routes.get('/audit')
     async def audit(request: Request):
         # ADR-025 §2.3: the member-read audit, owner only (SQL refuses everyone else with 403).

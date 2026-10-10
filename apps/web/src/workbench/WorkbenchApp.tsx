@@ -9,6 +9,7 @@ import {Actions} from './pages/Actions';
 import {CommitmentDetail,Commitments} from './pages/Commitments';
 import {Contact} from './pages/Contact';
 import {NotEnabled,Settings} from './pages/Settings';
+import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
 
 /** Slice 2/3 attach governed Action controls per page here (ReactNode slots); slice 1 renders none. */
 export type ActionSlots=Partial<Record<PageKey,ReactNode>>;
@@ -37,7 +38,7 @@ export function WorkbenchPage({route,go,slots={}}:{route:Route;go:(route:Route)=
     case 'commitments':return route.id?<CommitmentDetail commitmentId={route.id} actions={a}/>:<Commitments actions={a} onOpen={id=>go({page:'commitments',id})}/>;
     case 'contact':return <Contact actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
-    case 'knowledge':return <section className="workbench-page"><h1>知识工作台</h1><p>审核队列沿用现有页面（NX-046/NX-044）：<a href="/">打开审核工作台</a>。候选定义只显示为“候选”，不会出现在正式本体视图中。</p></section>;
+    case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
     case 'ontology':return <NotEnabled title={PAGES.ontology}/>;
     case 'experiments':return <NotEnabled title={PAGES.experiments}/>;
   }
