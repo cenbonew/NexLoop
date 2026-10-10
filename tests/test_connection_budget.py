@@ -16,7 +16,8 @@ def runtime(document):return next(s for s in document['services'] if s['name']==
 
 def test_declared_stage_budget_is_within_policy():
     result=budget.evaluate(DOCUMENT,max_connections=80)
-    assert result['passed'] and result['details']['application_pool_total']==38
+    # NX-031 D7: api 8 + domain-worker 2 + action 4 + scheduler 4 + runtime 18 + 10 background services x 2 + 2 launcher API pools x 2 = 60.
+    assert result['passed'] and result['details']['application_pool_total']==60
     assert result['details']['services']['runtime-worker']==2+4*4
 
 
@@ -32,11 +33,11 @@ def test_max_connections_floor(max_connections,passed):
 
 
 def test_total_over_sixty_fails():
-    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=6  # 2 + 6*4 = 26 -> 46 total, still ok
+    document=copy.deepcopy(DOCUMENT)  # the declared deployment sits exactly at the limit (60)
     assert budget.evaluate(document)['passed']
-    runtime(document)['guard_workers']=10  # 2 + 40 -> 62 total
+    runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 64 total
     result=budget.evaluate(document)
-    assert not result['passed'] and result['details']['application_pool_total']==62
+    assert not result['passed'] and result['details']['application_pool_total']==64
 
 
 @pytest.mark.parametrize('mutate',[
@@ -137,3 +138,31 @@ def test_runtime_worker_pool_sizes(monkeypatch,tmp_path):
     monkeypatch.delenv('NEX_EIOS_DB_POOL_MAX')
     for value in ('0','33'):
         with pytest.raises(SystemExit):_arguments(base+['--dispatcher-pool-max',value])
+
+
+def test_every_background_service_is_budgeted_with_the_pool_it_opens():
+    """NX-031 D7: each background service process (and the two launchers' API pools) is declared with exactly the pool size
+    the code opens by default, so the doctor's sum is the real ceiling."""
+    from nexloop_eios import background_services as B
+    declared={s['name']:s for s in DOCUMENT['services']}
+    for service in B.SERVICES:
+        assert declared[service]=={'name':service,'processes':1,'pool_max':B.POOL_MAX},service
+        assert B._parser(service).parse_args(['--database-url-file','x','--signing-key-file','x','--service-credential-file','x',
+            '--artifact-root','x','--world','real',*_required(service)]).pool_max==B.POOL_MAX
+    for service in ('plan-reevaluator','reply-guarantor'):
+        assert declared[service+'-launcher']=={'name':service+'-launcher','processes':1,'pool_max':B.API_POOL_MAX}
+        assert B._parser(service).parse_args(['--database-url-file','x','--signing-key-file','x','--service-credential-file','x','--artifact-root','x',
+            '--world','real',*_required(service)]).api_pool_max==B.API_POOL_MAX
+    assert (B.POOL_MAX,B.API_POOL_MAX)==(2,2)
+    from nexloop_eios import domain_worker
+    assert declared['domain-worker']['pool_max']==domain_worker.POOL_MAX==2
+
+
+def _required(service):
+    from nexloop_eios import background_services as B
+    extra={'claim-extraction-worker':['--model-env-file','x'],'claim-matcher':['--model-env-file','x','--match-config-file','x'],
+        'recall-indexer':['--types-file','x'],'commitment-keeper':['--settings-file','x'],'commercial-recorder':['--settings-file','x'],
+        'plan-reevaluator':['--settings-file','x','--api-database-url-file','x','--effect-action','eios:action:x:1',
+            *[a for n in B.LAUNCH_CREDENTIALS for a in (f'--{n}-credential-file','x')]],
+        'reply-guarantor':['--policy-file','x','--api-database-url-file','x','--recipe-file','x',*[a for n in B.RELAY_CREDENTIALS for a in (f'--{n}-credential-file','x')]]}
+    return extra.get(service,[])

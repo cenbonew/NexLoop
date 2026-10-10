@@ -1,11 +1,23 @@
 {
   "schema": "nexloop.connection-budget.v1",
-  "decision": "11_DEPLOYMENT §6 and ADR-024: list every APP_HOST service process that opens a PostgreSQL pool. nexloop-doctor --budget-only sums pool max x process count (<= 60) and requires the server's max_connections >= 80 before any service starts. Process counts follow 11_DEPLOYMENT §7; adjust this file together with the service configuration.",
+  "decision": "11_DEPLOYMENT §6 and ADR-024: list every APP_HOST service process that opens a PostgreSQL pool. nexloop-doctor --budget-only sums pool max x process count (<= 60) and requires the server's max_connections >= 80 before any service starts. Process counts follow 11_DEPLOYMENT §7; adjust this file together with the service configuration. NX-031 D7: every background service (nexloop_eios.background_services, one single-loop process each) is listed with its pool (POOL_MAX 2), and the plan-reevaluator and reply-guarantor launchers with their second nexloop_api pool (API_POOL_MAX 2: measured, a launch needs two connections). To stay within 60 the domain-worker (one bounded Artifact maintenance page per run, domain_worker.POOL_MAX) is declared with 2.",
   "services": [
     {"name": "api", "processes": 2, "pool_max": 4},
-    {"name": "domain-worker", "processes": 1, "pool_max": 4},
+    {"name": "domain-worker", "processes": 1, "pool_max": 2},
     {"name": "action-worker", "processes": 1, "pool_max": 4},
     {"name": "scheduler", "processes": 1, "pool_max": 4},
-    {"name": "runtime-worker", "processes": 1, "guard_workers": 4, "dispatcher_pool_max": 2, "guard_pool_max": 4}
+    {"name": "runtime-worker", "processes": 1, "guard_workers": 4, "dispatcher_pool_max": 2, "guard_pool_max": 4},
+    {"name": "claim-extraction-scheduler", "processes": 1, "pool_max": 2},
+    {"name": "claim-extraction-worker", "processes": 1, "pool_max": 2},
+    {"name": "claim-matcher", "processes": 1, "pool_max": 2},
+    {"name": "recall-indexer", "processes": 1, "pool_max": 2},
+    {"name": "plan-reevaluator", "processes": 1, "pool_max": 2},
+    {"name": "reply-guarantor", "processes": 1, "pool_max": 2},
+    {"name": "commitment-keeper", "processes": 1, "pool_max": 2},
+    {"name": "commercial-recorder", "processes": 1, "pool_max": 2},
+    {"name": "retention-keeper", "processes": 1, "pool_max": 2},
+    {"name": "alert-evaluator", "processes": 1, "pool_max": 2},
+    {"name": "plan-reevaluator-launcher", "processes": 1, "pool_max": 2},
+    {"name": "reply-guarantor-launcher", "processes": 1, "pool_max": 2}
   ]
 }

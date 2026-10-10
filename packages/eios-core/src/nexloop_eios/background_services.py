@@ -52,6 +52,11 @@ SERVICES={
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
 LAUNCH_CREDENTIALS=('source','planner','queue','executor')
+# NX-031 D7 (deploy/stage/connection-budget.v1.json): each background service is one single-loop process; its pool holds at
+# most POOL_MAX connections, and the Role / fallback launcher's second (nexloop_api) pool at most API_POOL_MAX. Measured: a
+# launch needs two connections of that pool at once (with one, no Run is issued), so API_POOL_MAX is 2, not the planned 1.
+POOL_MAX=2
+API_POOL_MAX=2
 _TYPE=re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')
 
 
@@ -68,6 +73,9 @@ def _parser(service):
     parser.add_argument('--world',required=True,choices=['real','test'] if service=='commercial-recorder' else ['real'])
     parser.add_argument('--tick-seconds',type=float,default=2.0)
     parser.add_argument('--once',action='store_true')
+    parser.add_argument('--pool-max',type=int,default=POOL_MAX)
+    if service in ('plan-reevaluator','reply-guarantor'):
+        parser.add_argument('--api-pool-max',type=int,default=API_POOL_MAX)
     if service=='claim-extraction-scheduler':
         parser.add_argument('--quiet-seconds',type=int,default=5);parser.add_argument('--window',type=int,default=50)
         parser.add_argument('--max-attempts',type=int,default=3)
@@ -97,7 +105,8 @@ def _parser(service):
 def _arguments(service,argv):
     parser=_parser(service);arguments=parser.parse_args(argv)
     if (not math.isfinite(arguments.tick_seconds) or not 0<arguments.tick_seconds<=60
-        or re.fullmatch('[A-Za-z0-9_.:-]{1,64}',arguments.signing_key_id) is None):parser.error('configuration')
+        or re.fullmatch('[A-Za-z0-9_.:-]{1,64}',arguments.signing_key_id) is None
+        or not 1<=arguments.pool_max<=8 or not 1<=getattr(arguments,'api_pool_max',1)<=8):parser.error('configuration')
     if service=='claim-extraction-scheduler' and (not 0<=arguments.quiet_seconds<=3600 or not 1<=arguments.window<=200 or not 1<=arguments.max_attempts<=10):
         parser.error('configuration')
     if service=='plan-reevaluator' and re.fullmatch(r'eios:action:[A-Za-z][A-Za-z0-9_.-]{0,127}:[1-9][0-9]{0,5}',arguments.effect_action) is None:
@@ -230,7 +239,7 @@ def run(service,arguments,stop):
         load_settings(arguments.settings_file)
     with ExitStack() as stack:
         backend=stack.enter_context(open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
-            signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id))
+            signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.pool_max))
         with backend._pool.connection() as connection:
             if verify_application_role(connection)!=role:raise ValueError('restricted service role required')
         launcher=_launcher(stack,arguments) if service=='plan-reevaluator' else _reply_launcher(stack,arguments) if service=='reply-guarantor' else None
@@ -268,7 +277,7 @@ def _launcher(stack,arguments):
     settings=load_settings(arguments.settings_file)
     for name in LAUNCH_CREDENTIALS:read_private_text(getattr(arguments,name+'_credential_file'),maximum=16384)
     api=stack.enter_context(open_backend(database_url=read_private_text(arguments.api_database_url_file,maximum=16384),artifact_root=arguments.artifact_root,
-        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id))
+        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.api_pool_max))
     with api._pool.connection() as connection:
         if verify_application_role(connection)!='nexloop_api':raise ValueError('restricted service role required')
     def session(name):
@@ -289,7 +298,7 @@ def _reply_launcher(stack,arguments):
     for name in RELAY_CREDENTIALS:read_private_text(getattr(arguments,name+'_credential_file'),maximum=16384)
     recipe=json.loads(read_private_text(arguments.recipe_file,maximum=65536))
     api=stack.enter_context(open_backend(database_url=read_private_text(arguments.api_database_url_file,maximum=16384),artifact_root=arguments.artifact_root,
-        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id))
+        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.api_pool_max))
     with api._pool.connection() as connection:
         if verify_application_role(connection)!='nexloop_api':raise ValueError('restricted service role required')
     def session(name):
