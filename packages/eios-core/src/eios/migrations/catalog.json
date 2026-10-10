@@ -690,6 +690,11 @@
       "version": "0140",
       "name": "0140_nx029_erasure_propagation.sql",
       "sha256": "0590eac99c8dd1ec8429762c2d501f04720d604f16f0466d14a512f24d1b9bf7"
+    },
+    {
+      "version": "0141",
+      "name": "0141_nx029_expiry_classes.sql",
+      "sha256": "8a3f1d2a563d3ab67ca0ce5e0d03f75576419102aa4c7f00f421a6ca1f9b3c22"
     }
   ]
 }
