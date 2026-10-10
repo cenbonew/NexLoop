@@ -224,6 +224,12 @@ begin
  return ident->'binding';
 end $$;
 
+-- Nested Consumer READ (kept from 0080 unchanged): the signed Consumer envelope is checked by the innermost configured-grant
+-- layer authz.nexloop_assert_read_authority_before_message_read_v0072, like 0077/0080/0084/0086 do. Deliberately not the public
+-- entry: the outer layers are derivations (0077 message, 0084 property, 0123 workbench member) and the memo, so the public
+-- entry could accept a derived Consumer READ here (derivations must not chain). Today no outer layer refuses, so nothing is
+-- skipped. NX-029 (refuse reads while erasing) must cover this layer too, not only wrap the public entry: these five nested
+-- call sites never pass through an outer wrapper.
 create or replace function authz.nexloop_assert_derived_message_read_actor_body_v0080(p_digest text,p_world text,p_claims jsonb) returns jsonb
 language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare ident jsonb;tenant text;principal text;basis jsonb:=p_claims->'derivation_basis';message text;rule jsonb;
@@ -283,6 +289,7 @@ begin
   or consumer->>'type_name' is distinct from 'Consumer' or consumer->>'object_id' is distinct from conv.consumer_id
   or consumer->>'resource_id' is distinct from 'eios:object:Consumer/'||conv.consumer_id
   or (p_claims->>'expires_at')::timestamptz>(consumer->>'expires_at')::timestamptz then raise exception 'derived message consumer READ required' using errcode='42501';end if;
+ -- Configured-grant READ of the Consumer only (see the note above the function; NX-029 must cover this layer).
  perform authz.nexloop_assert_read_authority_before_message_read_v0072(p_digest,p_world,consumer);
  if (p_claims->>'expires_at')::timestamptz<=clock_timestamp() then raise exception 'derived message read expired' using errcode='42501';end if;
  return ident->'binding';
