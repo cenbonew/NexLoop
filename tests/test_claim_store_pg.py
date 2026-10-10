@@ -254,8 +254,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # those Messages; no Claim value is read or projected.
         # NX-029 0141 (D2) only blanks the quote of a Claim whose source message text expired; 0142 blanks the quotes of an erased
         # Message and erases an erased Consumer's Claims. No Claim value is read or projected.
+        # NX-029 final: 0140 (propagation) relaxes the conditional-condition check for erased Claims and drops quote-less statements
+        # from the evidence view; 0141 (expiry) stamps superseded_at and erases a superseded Claim's value after a year.
         '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order','_nx028_staff_reply','_nx028_workbench_member_read',
-        '_nx029_retention','_nx029_erasure')) for name in migrations)
+        '_nx029_retention','_nx029_erasure','_nx029_expiry_classes')) for name in migrations)
 
 
 def correction_window(conversations):
