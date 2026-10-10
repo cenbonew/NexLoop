@@ -560,6 +560,11 @@
       "version": "0112",
       "name": "0112_nx026_contact_effect_categories.sql",
       "sha256": "9fcfda13858c59a8898a6918d86024f715121e1720e5131f4fc6a720fbe93ffd"
+    },
+    {
+      "version": "0113",
+      "name": "0113_nx026_commitment_context.sql",
+      "sha256": "4f518a0ac701a26a9c1fecff30f849e24b3abef19575212153194f4b6f133cdd"
     }
   ]
 }

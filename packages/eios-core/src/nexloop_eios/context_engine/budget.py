@@ -37,7 +37,8 @@ class Item:
     @property
     def pinned(self):
         # NX-025 (G4): plans in open work are pinned like unconfirmed execution (SQL requires every active plan).
-        return self.section in MANDATORY_SECTIONS or bool(self.tags&PIN_TAGS) or (self.section=='open_work' and self.subsection=='plan')
+        # NX-026: so are live commitments (SQL requires every one made to the Consumer).
+        return self.section in MANDATORY_SECTIONS or bool(self.tags&PIN_TAGS) or (self.section=='open_work' and self.subsection in ('plan','commitment'))
 
     @property
     def content_hash(self):return hashlib.sha256(canonical_payload(self.content).encode()).hexdigest()

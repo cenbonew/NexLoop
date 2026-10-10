@@ -104,7 +104,7 @@ def test_rejected_intent_admission_leaves_no_outbound(admin,pg):
 
 
 @contextmanager
-def chain(f,admin,tmp_path,*,body=REPLY,host_update=None):
+def chain(f,admin,tmp_path,*,body=REPLY,host_update=None,guard_workers=None):
     """Actual HTTPS consumer Message → relay → Pi Run; yields before any delivery."""
     import httpx
     o=f['original'];p=o['paths'];tenant=o['tenant'];tokens=f['tokens'];credentials=f['credential_files']
@@ -152,6 +152,7 @@ def chain(f,admin,tmp_path,*,body=REPLY,host_update=None):
                     '--host-origin',str(host_client.base_url).rstrip('/'),'--host-control-key-file',str(host_key),'--host-ca-file',str(host_tls/'host-cert.pem'),
                     '--guard-port',str(guard_port),'--guard-key-file',str(guard_key),
                     '--guard-certificate-file',str(guard_tls/'host-cert.pem'),'--guard-tls-key-file',str(guard_tls/'host-key.pem'),'--total-timeout','20']
+                if guard_workers is not None:worker+=['--guard-workers',str(guard_workers)]  # deployment shape (ADR-022 §4, ADR-024)
                 runtime_output=once('nexloop_eios.runtime_worker',worker,hidden)
             database=runtime/run['run_id']/'runtime.sqlite'
             calls,receipts=tool_evidence(database) if host_update is None else ([],[])
