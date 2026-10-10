@@ -27,10 +27,16 @@ def outcome(kind='no_action',**changes):
     return {'schema_version':'1.0','kind':kind,'reasons':['客户刚确认过，暂不打扰'],'reassess_at':None,'evidence_refs':[],'intent_ref':None,'plan_update':None}|changes
 
 
-def outcome_worker(plan,admin,suffix):
+def outcome_worker_and_spawn(plan,admin,suffix):
+    """The outcome-capable runtime worker, and its guard_server spawn configuration (same identity and Backend
+    configuration; used when NEXLOOP_TEST_GUARD_WORKERS>1, as the deployed four guard processes, ADR-024)."""
     token=fixture.seed_multi_uuid(admin,plan['tenant'],[('eios:action:'+fixture.QUEUE+':1',ResourceType.ACTION,Operation.EXECUTE),
         ('eios:action:nexloop.plan.outcome:1',ResourceType.ACTION,Operation.EXECUTE)],suffix=suffix)
-    return plan['backend_worker'].authenticate(token,world='real')
+    return plan['backend_worker'].authenticate(token,world='real'),{**plan['worker_spawn'],'token':token}
+
+
+def outcome_worker(plan,admin,suffix):
+    return outcome_worker_and_spawn(plan,admin,suffix)[0]
 
 
 def reevaluation_run(plan,worker,label):

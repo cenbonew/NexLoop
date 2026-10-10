@@ -97,14 +97,15 @@ def test_explicit_refusal_stops_contact_even_if_the_run_tries(role_planning,admi
     """ADR-023 / E2E-C1: after the Consumer's refusal, a reevaluation Run that nevertheless submits a message is refused at
     dispatch (contact_restricted), zero provider requests; the restriction is the inbound check's, not the model's."""
     f=role_planning;p=f['plan']
-    worker=Timed(outcome_worker(p,admin,'-nx025-refusal'))
+    from test_plan_outcome_pg import outcome_worker_and_spawn
+    service,spawn=outcome_worker_and_spawn(p,admin,'-nx025-refusal');worker=Timed(service)
     inbound_refusal(admin,p)
     assert admin.execute('select active,rule_id from control.nexloop_contact_restrictions where consumer_id=%s',(p['consumer'],)).fetchone()==(True,'stop-contact')
     s=f['establish'](steps=[within_ceiling()])
     assert f['worker']().run_once()['launched']==1
     run_id,command,text=launched(f,s['plan_id'])
     # The deterministic protocol deliberately submits a message anyway (a model ignoring its Context).
-    with actual_host(f,tmp_path,worker,'action_intent') as (runtime,client,headers):
+    with actual_host(f,tmp_path,worker,'action_intent',spawn) as (runtime,client,headers):
         result=run_on_host(client,headers,worker,command,text)
     assert result['runtime_outcome']=='succeeded'
     (intent,),=admin.execute('select intent_id::text from runtime.nexloop_effect_submissions where run_id=%s',(run_id,)).fetchall()

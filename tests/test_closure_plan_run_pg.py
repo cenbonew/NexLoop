@@ -20,7 +20,7 @@ import pytest
 import runtime_effect_fixture as fixture
 from role_run_fixture import role_runtime_plan  # noqa: F401
 from runtime_effect_fixture import runtime_effect_plan  # noqa: F401
-from test_plan_outcome_pg import outcome_worker
+from test_plan_outcome_pg import outcome_worker_and_spawn
 from test_plan_role_launcher_pg import role_planning,within_ceiling  # noqa: F401
 from test_plan_reevaluation_pg import SETTINGS,feed,make_due
 
@@ -56,13 +56,13 @@ def launched(f,plan_id):
 
 
 @contextmanager
-def actual_host(f,tmp_path,worker,mode):
+def actual_host(f,tmp_path,worker,mode,spawn=None):
     from test_agent_host import files
     from test_runtime_host_admission import guard_server,host
     from test_runtime_effect_tools import effect_configuration
     runtime,key=files(tmp_path)
     guard_key=tmp_path/'guard-key';guard_key.write_text(secrets.token_hex(32));guard_key.chmod(0o600)
-    with guard_server(worker,tmp_path,guard_key) as port:
+    with guard_server(worker,tmp_path,guard_key,spawn=spawn) as port:
         config=effect_configuration(tmp_path,port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message')
         body.update(context_input_protocol='nexloop.context-pack.v6',plan_outcome_tool=True,deterministic_plan_outcome=mode);config.write_text(json.dumps(body))
         with host(runtime,key,config) as (_,client,headers):yield runtime,client,headers
@@ -90,6 +90,11 @@ def tool_names(runtime,run_id):
 
 
 def assert_within_tool_limit(timed):
+    from test_runtime_host_admission import guard_workers
+    if guard_workers()>1:
+        # Multi-process guard (deployment, ADR-024): the Host's requests are served by child processes, not timed here;
+        # the Host's own 2 s timeout still applies to each of them (a late one fails the Run or its inspect with 503).
+        return
     summary={}
     for name,op,d in timed.durations:summary.setdefault(f'{name}:{op}',[]).append(round(d*1000))
     print('NX025_GUARD_MS',json.dumps(summary,sort_keys=True))  # evidence: guard-side milliseconds per request (pytest -s)
@@ -101,13 +106,13 @@ def test_no_reasonable_contact_is_a_normal_no_action(role_planning,admin,tmp_pat
     """AT-029 end to end on the actual Host: KR not met, yet no message is forced."""
     f=role_planning
     # Provision the runtime worker first: seeding authority later would change the Source directory the Run was issued under.
-    worker=Timed(outcome_worker(f['plan'],admin,'-nx025-runtime-a'))
+    service,spawn=outcome_worker_and_spawn(f['plan'],admin,'-nx025-runtime-a');worker=Timed(service)
     s=f['establish'](steps=[within_ceiling()])
     assert f['worker']().run_once()['launched']==1
     run_id,command,text=launched(f,s['plan_id'])
     pack=json.loads(text)
     assert [i['ref'] for i in pack['open_work'] if i['subsection']=='plan']==[f"nexloop:plan:{s['plan_id']}@1"]
-    with actual_host(f,tmp_path,worker,'no_action') as (runtime,client,headers):
+    with actual_host(f,tmp_path,worker,'no_action',spawn) as (runtime,client,headers):
         result=run_on_host(client,headers,worker,command,text)
     assert result['runtime_outcome']=='succeeded'
     assert tool_names(runtime,run_id)==['nexloop.plan.outcome']
@@ -130,11 +135,11 @@ def test_action_intent_then_external_result_launches_the_next_reevaluation(role_
     from psycopg.conninfo import make_conninfo
     from support.effect_provider import effect_provider
     f=role_planning;p=f['plan']
-    worker=Timed(outcome_worker(p,admin,'-nx025-runtime-b'))
+    service,spawn=outcome_worker_and_spawn(p,admin,'-nx025-runtime-b');worker=Timed(service)
     s=f['establish'](steps=[within_ceiling()])
     assert f['worker']().run_once()['launched']==1
     run_id,command,text=launched(f,s['plan_id'])
-    with actual_host(f,tmp_path,worker,'action_intent') as (runtime,client,headers):
+    with actual_host(f,tmp_path,worker,'action_intent',spawn) as (runtime,client,headers):
         assert run_on_host(client,headers,worker,command,text)['runtime_outcome']=='succeeded'
     assert tool_names(runtime,run_id)==['nexloop.service.request','nexloop.plan.outcome']
     (intent,)=admin.execute('select intent_id::text from runtime.nexloop_effect_submissions where run_id=%s',(run_id,)).fetchone()

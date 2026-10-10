@@ -104,4 +104,5 @@
 - **执行器租约**：被拒绝的派发尝试会让 outbox 保持 leased 直到租约到期，再次尝试需要等待真实到期。测试用 5 s 租约加等待，没有注入故障。
 - **迁移连续性**：0108 之前缺 0107，`test_bootstrap.py::test_clean_bootstrap_and_exact_reopen` 要求迁移号连续，在本分支失败，属于编号造成的预期失败。临时改名为 0107 后验证通过（命令见报告）。
 - **全量运行中的偶发失败**：首次全量运行时 `test_context_v6_relationships_pg.py::test_v6_carries_v4_relationships_with_hypotheses_as_evidence_only` 失败一次（Pi 派发），单独复跑 2 项全部通过，属于负载下的偶发，与 NX-049 同类。
+- **部署主机 503（s4e 退回，已修复）**：E2E-B/C1 与兜底测试原先调用 `guard_server(worker,…)` 时没有传 `spawn`，因此即使 CI 设置了 `NEXLOOP_TEST_GUARD_WORKERS=4`，guard 也始终是单进程。Run 自身的 model/tool 授权与 50 ms 一次的 inspect 轮询（每次 inspect 两次 guard 授权，Role 链单次在 Mac 上约 0.36–0.4 s）在同一进程里按 GIL 串行，在部署主机上部分请求超过 Host 的 2 s guard 超时，Host 中止请求，inspect 返回 503。修复：三处测试按 main 的写法传入与 worker 同身份、同 Backend 配置的 `spawn`（ADR-024 的部署形态为四个 guard 进程）。2 s 时限与断言不变；单进程模式下仍记录逐请求耗时。
 - **Host 构建产物**：Host 的 `dist/` 被 git 忽略，修改 TS 后需要先执行 `pnpm run build`。
