@@ -1,0 +1,6 @@
+{"commitment_id":"1111111111111111111111111111111111111111111111111111111111111111","consumer_id":"2222222222222222222222222222222222222222222222222222222222222222","revision":2,
+ "properties":{"status":"open","due_at":"2026-10-11T10:00:00+08:00","precision":"latest_bound"},"quote":null,"quote_status":"restricted","source_available":true,"origin":"claim",
+ "registered_at":"2026-10-10T09:00:00+00:00",
+ "evidence":{"requested":[{"kind":"requested","ref":"intent:5f0c8c8e-3b1a-4c6d-9e2f-1a2b3c4d5e6f","occurred_at":"2026-10-10T09:01:00+00:00"}],"delivered":[{"kind":"delivered_message","ref":"message:3333333333333333333333333333333333333333333333333333333333333333","occurred_at":"2026-10-10T09:02:00+00:00"}],"customer_confirmed":[],"problem_resolved":"unavailable"},
+ "events":[{"kind":"registered","ref":null,"detail":{},"principal_id":null,"recorded_at":"2026-10-10T09:00:00+00:00"}],
+ "exceptions":[]}

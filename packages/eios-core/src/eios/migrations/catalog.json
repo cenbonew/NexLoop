@@ -575,6 +575,16 @@
       "version": "0115",
       "name": "0115_nx051_claim_correction_order.sql",
       "sha256": "d9596270ff83b69c80acc4dceb8ea63dd1bcbb7a54e0520071ecbfe8120e148a"
+    },
+    {
+      "version": "0140",
+      "name": "0140_nx028_staff_identity.sql",
+      "sha256": "33143ccadd10831828a955653b76f55da1c93bdce52e2fa5c927139e24cc21e2"
+    },
+    {
+      "version": "0141",
+      "name": "0141_nx028_workbench_read.sql",
+      "sha256": "8c46f2fc0ecd1b682ca351e5a1306157518e74cfd736146ead23a9fb9b4e6ffa"
     }
   ]
 }
