@@ -5,11 +5,12 @@ objects, published policy and ledger execution state. Claims are candidate knowl
 hypotheses are excluded unless a non-real research strategy opts in (and then only as
 labelled hypotheses); Claims still under review appear only as their verbatim source
 text (ADR-019 decisions 2/5, AT-064). Outbound replies not yet accepted by the channel
-are execution state, never conversation (ADR-020 §2).
+are execution state, never conversation (ADR-020 §2). The Consumer's active plans are open work as
+read-only policy items (NX-025 G4); they stay runtime records, never ontology.
 """
 from nexloop_eios.context_engine.budget import Item
 
-FORMAL_SECTIONS={'constraints':('formal_object','policy'),'consumer_state':('formal_object','policy'),'open_work':('formal_object','execution_state')}
+FORMAL_SECTIONS={'constraints':('formal_object','policy'),'consumer_state':('formal_object','policy'),'open_work':('formal_object','execution_state','policy')}
 EVIDENCE_SUBSECTIONS={'conversation','claim_evidence','relationships','recall','hypotheses'}
 UNCONFIRMED_OUTBOUND=('persisted','dispatching','unknown')
 CHANNEL_ACCEPTED=('provider_accepted','delivered')
@@ -70,6 +71,10 @@ def open_work_items(open_work,*,decision):
             {'delivery_state':state,'since':row['delivery_changed_at'],'note':'not confirmed as delivered to the consumer'},
             'execution_state',decision,relevance=1.0 if state in UNCONFIRMED_OUTBOUND else 0.5,at=row['delivery_changed_at'],
             tags=frozenset({'unconfirmed'}) if state in UNCONFIRMED_OUTBOUND else frozenset()))
+    for plan in open_work.get('plans',()):
+        # Current active version only, re-derived by SQL at bind; pinned (a reevaluation Run reads its plan).
+        out.append(Item('open_work','plan','nexloop:plan:'+plan['plan_id']+'@'+str(plan['version']),str(plan['version']),plan['content'],'policy',decision,
+            relevance=1.0,at=plan['created_at']))
     return assert_partition(out)
 
 

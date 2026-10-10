@@ -35,7 +35,9 @@ class Item:
         object.__setattr__(self,'tags',frozenset(self.tags))
 
     @property
-    def pinned(self):return self.section in MANDATORY_SECTIONS or bool(self.tags&PIN_TAGS)
+    def pinned(self):
+        # NX-025 (G4): plans in open work are pinned like unconfirmed execution (SQL requires every active plan).
+        return self.section in MANDATORY_SECTIONS or bool(self.tags&PIN_TAGS) or (self.section=='open_work' and self.subsection=='plan')
 
     @property
     def content_hash(self):return hashlib.sha256(canonical_payload(self.content).encode()).hexdigest()

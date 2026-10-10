@@ -116,7 +116,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     if(goal.control_snapshot===null){if(!insufficient.some(row=>['control_paused','goal_not_current'].includes(String((row as Record<string,unknown>).code))))return fail();}
     else exact(goal.control_snapshot,['control_revision','scopes','goals','objects','budgets']);
     // Formal zone never carries Claims or hypotheses; hypotheses only as labelled evidence.
-    const kinds:Record<string,string[]>={constraints:['formal_object','policy'],consumer_state:['formal_object','policy'],open_work:['formal_object','execution_state'],
+    const kinds:Record<string,string[]>={constraints:['formal_object','policy'],consumer_state:['formal_object','policy'],open_work:['formal_object','execution_state','policy'],
       evidence:['user_statement','conversation','hypothesis','memory'],semantics:['schema'],experience:['memory']};
     for(const [section,allowed] of Object.entries(kinds)){
       const rows=pack[section];if(!Array.isArray(rows)||rows.length>256)return fail();

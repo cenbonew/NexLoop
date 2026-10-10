@@ -530,6 +530,11 @@
       "version": "0106",
       "name": "0106_nx024_plan_reevaluation.sql",
       "sha256": "c9197d85bc3bbed9aa85d81dd8e280942f85ecc087b77dbb38b2c3480225a8b2"
+    },
+    {
+      "version": "0108",
+      "name": "0108_nx025_plan_context_and_wake.sql",
+      "sha256": "784ac1f76c89cd87c89ca10c84c631fc9029d1b86a66d09646b040db1e4d48e5"
     }
   ]
 }

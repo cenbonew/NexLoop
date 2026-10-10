@@ -10,7 +10,13 @@ Synthetic data only; admin seeds and probes.
 """
 from datetime import UTC,datetime,timedelta
 
+import json
+
 import pytest
+from nexloop_eios.context_artifacts import ContextArtifactUnavailable
+from nexloop_eios.postgres_artifacts import canonical_payload
+from nexloop_eios.role_context_artifacts import RoleContextV6ArtifactProducer
+from nexloop_eios.plan_reevaluation import run_budget
 import runtime_effect_fixture as fixture
 from role_run_fixture import role_runtime_plan  # noqa: F401
 from runtime_effect_fixture import runtime_effect_plan  # noqa: F401
@@ -68,6 +74,16 @@ def test_due_plan_launches_a_governed_role_run_on_v6(role_planning):
     assert command['budget']=={'maximum_model_turns':6,'maximum_tool_calls':8,'active_timeout_seconds':60,'maximum_cost':'1.0','currency':'USD'}
     assert command['goal_version_ref'].startswith('goal:'+f['plan']['goal']+':revision:1:') and command['runtime_profile']==SETTINGS['runtime_profile']
     assert admin.execute('select count(*) from runtime.nexloop_context_packs where run_id=%s',(run_id,)).fetchone()==(1,)
+    # G4: the Run's v6 Context carries its plan (current version, read-only policy item), recorded in the source manifest.
+    pack=json.loads(admin.execute('select pack_text from runtime.nexloop_role_context_artifacts where run_id=%s',(run_id,)).fetchone()[0])
+    (item,)=[i for i in pack['open_work'] if i['subsection']=='plan']
+    assert item['ref']==f"nexloop:plan:{s['plan_id']}@1" and item['evidence_kind']=='policy' and item['revision']=='1' and item['tags']==[]
+    content=item['content']
+    assert content['plan_ref']==f"plan:{s['plan_id']}@1" and content['strategy']==s['strategy']['content'] and content['goal_version_ref']=='goal:renewal-q4@1'
+    assert [x['step_key'] for x in content['steps']]==['confirm-renewal'] and content['steps'][0]['expected_result']==s['steps'][0]['expected_result']
+    source=admin.execute('select s.revision,s.content_hash,s.evidence_kind,s.status from runtime.nexloop_context_sources s join runtime.nexloop_context_packs c '
+        'on c.tenant_id=s.tenant_id and c.world=s.world and c.context_id=s.context_id where c.run_id=%s and s.ref=%s',(run_id,item['ref'])).fetchone()
+    assert source==('1',item['content_hash'],'policy','included')
 
 
 def test_budget_above_the_role_ceiling_issues_nothing_and_retries(role_planning):
@@ -80,3 +96,31 @@ def test_budget_above_the_role_ceiling_issues_nothing_and_retries(role_planning)
     assert admin.execute('select count(*) from authz.nexloop_run_credentials').fetchone()[0]==before
     assert admin.execute('select count(*) from runtime.nexloop_plan_runs where plan_id=%s',(s['plan_id'],)).fetchone()==(0,)
     assert admin.execute("select status,last_code from runtime.nexloop_work_feed where feed='plan-reevaluate'").fetchone()==('pending','reevaluation_failed')
+
+
+def _without_plan(pack):
+    pack['open_work']=[i for i in pack['open_work'] if i['subsection']!='plan']
+    pack['budget_report']['sections']['open_work']['included']=len(pack['open_work'])
+
+
+def _rewritten_plan(pack):
+    import hashlib
+    (item,)=[i for i in pack['open_work'] if i['subsection']=='plan']
+    item['content']['steps'][0]['expected_result']='直接催促续费'
+    item['content_hash']=hashlib.sha256(canonical_payload(item['content']).encode()).hexdigest()
+
+
+@pytest.mark.parametrize('change,expected',[(_without_plan,'context v6 pinned source missing'),(_rewritten_plan,'context source content mismatch')])
+def test_sql_refuses_a_pack_that_drops_or_rewrites_the_plan(role_planning,monkeypatch,change,expected):
+    """G4: the plan item is re-derived by SQL at bind and pinned; a producer cannot drop or rewrite it."""
+    f=role_planning;admin=f['admin']
+    s=f['establish'](steps=[within_ceiling()])
+    original=RoleContextV6ArtifactProducer.assemble;seen=[]
+    def assemble(self,snapshot,command):
+        body,outcome,items,proofs=original(self,snapshot,command);change(body);seen.append(self);return body,outcome,items,proofs
+    monkeypatch.setattr(RoleContextV6ArtifactProducer,'assemble',assemble)
+    w=f['worker']();decision=w.port.precheck(s['plan_id'],[]);budget=run_budget(SETTINGS,decision['plan_steps'])
+    run=w.launcher.issue(decision,budget)
+    with pytest.raises(ContextArtifactUnavailable):w.launcher.activate(run,decision,budget,[])
+    assert seen[-1].last_diagnostic[1]==expected
+    assert admin.execute('select count(*) from runtime.nexloop_context_packs where run_id=%s',(run.run_id,)).fetchone()==(0,)

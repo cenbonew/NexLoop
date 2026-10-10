@@ -2585,7 +2585,8 @@
                 "evidence_kind": {
                   "enum": [
                     "formal_object",
-                    "execution_state"
+                    "execution_state",
+                    "policy"
                   ]
                 },
                 "access_decision_ref": {
@@ -4287,7 +4288,7 @@
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
     "claim.schema.json": "dbb4683b5f18d6d3dd1c5fcacc3dd76277be5290ccb410e92591459a4e0101c7",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-v6.schema.json": "1634e0cbc4aeb7703d82c22f3273ef6bd0af243241744a068119235b7f0b8d1f",
+    "context-pack-v6.schema.json": "86a84f3bafca2a00b5327256f351f14023cfee17234236b216d6cc19122c2b3d",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
