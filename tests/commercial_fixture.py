@@ -11,7 +11,7 @@ On top of the published Consumer fixture (bootstrap, Consumer type and Action, s
 * events signed with the connector key and passed to the actual intake function as the API role does.
 Every record write after that goes through the recorder, the governed Actions and the SQL guard.
 """
-from contextlib import ExitStack
+from contextlib import ExitStack,contextmanager
 from datetime import UTC,datetime,timedelta
 import hashlib,json,secrets,time,uuid
 from pathlib import Path
@@ -177,6 +177,13 @@ class Commercial(dict):
 @pytest.fixture
 def commercial_env(published_action,admin,pg,tmp_path):
     reader,_,_=published_action
+    with commercial_setup(admin,pg,tmp_path,api_pool=reader.pool,signer=reader.signer) as env:
+        yield env
+
+
+@contextmanager
+def commercial_setup(admin,pg,tmp_path,*,api_pool,signer):
+    """The commercial configuration on an already bootstrapped catalog (also used on top of the NX-026 commitment fixture)."""
     publish_commercial_type(admin)
     admin.execute('alter role nexloop_configurator login')
     dsn=tmp_path/'configurator-dsn';dsn.write_text(make_conninfo(pg,user='nexloop_configurator'));dsn.chmod(0o600)
@@ -187,5 +194,5 @@ def commercial_env(published_action,admin,pg,tmp_path):
             _,tokens[world]=seed_multi_authority(admin,worker,RECORDER_TARGETS,identity_suffix='-commercial-recorder-'+world,world=world,tenant=TENANT)
         for principal, in admin.execute("select distinct entity_key[1] from authz.nexloop_authority_facts where fact_kind='grants' and entity_key[2]='eios:action:nexloop.commercial.record:1'").fetchall():
             state_rule(admin,principal)
-        yield Commercial(admin=admin,pg=pg,tmp_path=tmp_path,worker=worker,api_pool=reader.pool,signer=reader.signer,tokens=tokens,
+        yield Commercial(admin=admin,pg=pg,tmp_path=tmp_path,worker=worker,api_pool=api_pool,signer=signer,tokens=tokens,
             configurator_dsn=dsn,settings=commercial.load_settings(SETTINGS))

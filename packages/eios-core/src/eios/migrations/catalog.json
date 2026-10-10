@@ -580,6 +580,11 @@
       "version": "0132",
       "name": "0132_nx027_costs.sql",
       "sha256": "a4712613669839147c933f1581ba7d2baa548513ef6e4019e355aca88ea8c29b"
+    },
+    {
+      "version": "0133",
+      "name": "0133_nx027_commercial_links.sql",
+      "sha256": "67df464bb109652a23bdef6ef5647608b9a5e79ec9d3f44c21355a1926101534"
     }
   ]
 }
