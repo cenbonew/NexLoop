@@ -1,0 +1,15 @@
+{
+  "schema": "nexloop-reply-guarantee/1",
+  "version": 1,
+  "decision": "ADR-023 §2.6/§2.7: every accepted inbound consumer message gets a reply. A reply is an Agent outbound bound (server-derived trigger_message_id) to that message, same conversation and consumer. Under a contact restriction only such a bound reply may dispatch, at most one per inbound message, within reply_window_seconds of its acceptance. A message still unsettled when the window ends starts one fallback reply Run (LLM-generated, single reply tool, fixed small budget); if that fails too, the owner is escalated with evidence. Initial values; owner-adjustable by a new version.",
+  "reply_window_seconds": 900,
+  "fallback": {
+    "context_strategy": "recent_plus_required",
+    "runtime_profile": "deepseek-flash",
+    "run_budget": {"maximum_model_turns": 2, "maximum_tool_calls": 2, "active_timeout_seconds": 60, "maximum_cost": "0.20", "currency": "USD"},
+    "run_ttl_seconds": 120,
+    "batch": 10,
+    "lease_seconds": 120,
+    "max_attempts": 1
+  }
+}

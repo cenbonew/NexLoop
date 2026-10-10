@@ -1,0 +1,20 @@
+{
+  "schema": "nexloop-contact-refusal-rules/1",
+  "version": 1,
+  "decision": "ADR-023 §2.1/§3: deterministic protective check on each inbound consumer message, in the same transaction as its persistence; no model call. A refuse or uncertain rule hit restricts contact (uncertain is restricted too: when in doubt, restrict). Exclusions first remove clearly non-contact phrases (wrong goods, shipping, discounts, change) from the text; the rules are matched on what remains. Patterns are PostgreSQL ARE, case-insensitive. A new version is a new file and a new published row; versions are never edited.",
+  "refuse": [
+    {"id": "stop-contact", "pattern": "(不要|别|不用|勿|请勿|不必|甭)\\s*(再|在|继续)?\\s*(给我|跟我|向我|和我|对我|找我)?\\s*(发|打|推送|推|联系|打扰|骚扰|找|call|text)"},
+    {"id": "unsubscribe", "pattern": "(退订|取消订阅|unsubscribe|拉黑|屏蔽你们|删除我的(号码|手机号|联系方式))"},
+    {"id": "threat-if-contacted", "pattern": "(再|继续)\\s*(发|打|联系|骚扰|推送).{0,8}(投诉|报警|举报|起诉)"},
+    {"id": "sms-stop-keyword", "pattern": "^\\s*(stop|td)\\s*[。.!！]?\\s*$"}
+  ],
+  "uncertain": [
+    {"id": "less-contact", "pattern": "(少|别老|别总|不要老|不要总|别一直|不要一直)\\s*(给我)?\\s*(发|打|联系|推)"},
+    {"id": "annoyed", "pattern": "(烦死了|很烦|太烦了|别烦我|不胜其烦)"}
+  ],
+  "exclusions": [
+    {"id": "goods-and-shipping", "pattern": "(发|寄)\\s*(错|漏|顺丰|快递|货|过来|到)"},
+    {"id": "discount-and-payment", "pattern": "打\\s*(折|包|开|印|款|钱|车)"},
+    {"id": "change", "pattern": "找\\s*(零|钱|补)"}
+  ]
+}

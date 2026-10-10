@@ -1,9 +1,8 @@
 """NX-025 E2E-C: explicit refusal, pause/resume and version interleaving across the plan / Run / dispatch chain.
 
-* C1 explicit refusal first (G2) — EXPECTED TO FAIL on this baseline (strict xfail): after the Consumer says
-  "以后别再给我发消息了", a reevaluation Run that nevertheless submits a message is not stopped at dispatch; the only
-  hard stop today is an owner pause. Owner decision 1 (protective check at inbound commit → consumer-level contact
-  restriction → refused by the existing dispatch controls) is pending; this test turns green when it lands.
+* C1 explicit refusal first (ADR-023): after the Consumer says "以后别再给我发消息了", a reevaluation Run that
+  nevertheless submits a message is refused at dispatch (contact_restricted), zero provider requests; an intent queued
+  before the refusal is refused as well.
 * C2 AT-006 dispatch side: a pause after an intent was queued refuses it at dispatch (zero provider requests); the
   due plan waits without a Run; resume is a fresh reevaluation (new Run), never a replay of the old intent.
 * C3 AT-007 / G9: the goal changes while a reevaluation Run is active: its outcome write-back is refused (40001), its
@@ -65,15 +64,42 @@ def dispatch_attempt(p,tmp_path,intent):
         return denied,provider.control('snapshot')['requests']
 
 
-@pytest.mark.xfail(strict=True,reason='G2: no dispatch-time protective check for an explicit contact refusal yet (owner decision 1 pending)')
+def inbound_refusal(admin,p,body='以后别再给我发消息了'):
+    """An inbound consumer Message row exactly as the 0046 commit writes it (this fixture has no browser channel; the
+    commit path itself, with a real Human, is tests/test_contact_refusal_pg.py). The 0109 trigger runs on this insert."""
+    import hashlib
+    from datetime import UTC,datetime
+    conversation=hashlib.sha256(('nx025-conversation-'+p['tenant']).encode()).hexdigest()
+    admin.execute("insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key) values(%s,'real',%s,%s,'synthetic-human','nx025-refusal') on conflict do nothing",
+        (p['tenant'],conversation,p['consumer']))
+    sequence=admin.execute('select coalesce(max(sequence),0)+1 from runtime.nexloop_conversation_messages where conversation_id=%s',(conversation,)).fetchone()[0]
+    message=hashlib.sha256((conversation+str(sequence)).encode()).hexdigest()
+    record={'id':message,'conversation_id':conversation,'sequence':sequence,'actor':'synthetic-human','body':body,'accepted_at':datetime.now(UTC).isoformat(),'status':'accepted'}
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)",(p['tenant'],))  # tenant context of the commit path's triggers
+        admin.execute('insert into runtime.nexloop_conversation_messages values(%s,%s,%s,%s,%s,%s,%s,%s)',
+            (p['tenant'],'real',conversation,sequence,message,'nx025-refusal-'+str(sequence),'0'*64,json.dumps(record)))
+    return message
+
+
+def dispatch_reason(p,tmp_path,intent):
+    """The control-plane verdict the executor's admission reads (ControlDenied reason, or None when allowed)."""
+    from nexloop_eios.goal_controls import ControlDenied,ControlPlane
+    with open_backend(database_url=make_conninfo(p['pg'],user='nexloop_action_worker'),artifact_root=tmp_path/('reason-'+intent[:8]),
+            signing_key_file=p['signing_key'],signing_key_id=p['signing_key_id']) as backend:
+        executor=backend.authenticate(p['executor_token'],world='real')
+        try:ControlPlane(executor._backend._pool,executor._session).assert_intent_dispatch(intent)
+        except ControlDenied as denied:return str(denied)
+    return None
+
+
 def test_explicit_refusal_stops_contact_even_if_the_run_tries(role_planning,admin,tmp_path):
+    """ADR-023 / E2E-C1: after the Consumer's refusal, a reevaluation Run that nevertheless submits a message is refused at
+    dispatch (contact_restricted), zero provider requests; the restriction is the inbound check's, not the model's."""
     f=role_planning;p=f['plan']
     worker=Timed(outcome_worker(p,admin,'-nx025-refusal'))
-    # The Consumer's refusal, as background extraction records it (NX-019 table shape; extraction itself is E2E-A).
-    conversation=str(uuid.uuid4()).replace('-','')*2
-    admin.execute("insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key) values(%s,'real',%s,%s,'synthetic-human','nx025-refusal')",
-        (p['tenant'],conversation,p['consumer']))
-    Claims(admin,p['tenant'],conversation,p['consumer']).add('refusal','联系方式偏好','不要再发消息',kind='constraint',quote='以后别再给我发消息了')
+    inbound_refusal(admin,p)
+    assert admin.execute('select active,rule_id from control.nexloop_contact_restrictions where consumer_id=%s',(p['consumer'],)).fetchone()==(True,'stop-contact')
     s=f['establish'](steps=[within_ceiling()])
     assert f['worker']().run_once()['launched']==1
     run_id,command,text=launched(f,s['plan_id'])
@@ -82,6 +108,21 @@ def test_explicit_refusal_stops_contact_even_if_the_run_tries(role_planning,admi
         result=run_on_host(client,headers,worker,command,text)
     assert result['runtime_outcome']=='succeeded'
     (intent,),=admin.execute('select intent_id::text from runtime.nexloop_effect_submissions where run_id=%s',(run_id,)).fetchall()
+    assert dispatch_reason(p,tmp_path,intent)=='contact_restricted'
+    denied,requests=dispatch_attempt(p,tmp_path,intent)
+    assert denied and requests==[]
+
+
+def test_intent_queued_before_the_refusal_is_refused_too(role_planning,admin,tmp_path):
+    f=role_planning;p=f['plan']
+    worker=outcome_worker(p,admin,'-nx025-refusal-queued')
+    s=f['establish'](steps=[within_ceiling()])
+    assert f['worker']().run_once()['launched']==1
+    run_id,command,text=launched(f,s['plan_id'])
+    ref=activated(worker,command,text);intent=submit(worker,ref,command)
+    assert dispatch_reason(p,tmp_path,intent) is None  # dispatchable before the refusal
+    inbound_refusal(admin,p,'退订')
+    assert dispatch_reason(p,tmp_path,intent) in ('control_revision_stale','contact_restricted')
     denied,requests=dispatch_attempt(p,tmp_path,intent)
     assert denied and requests==[]
 

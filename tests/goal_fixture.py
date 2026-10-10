@@ -16,7 +16,7 @@ from multi_authority_fixture import seed_multi_authority
 
 TENANT='synthetic-a'
 ACTIONS={'Metric.approve':'goals.metric.approve','Goal.publish':'goals.version.publish','Goal.propose':'goals.agent.propose',
-    'Control.set':'goals.control.set','Budget.set':'goals.budget.set'}
+    'Control.set':'goals.control.set','Budget.set':'goals.budget.set','Contact.release':'goals.contact.release'}
 MODELS={'subject':F.SubjectFacts,'membership':F.MembershipFacts,'actor':F.ActorFacts,'authentication':F.CredentialAuthenticationFacts,
     'application':F.ApplicationFacts,'subject_authority':F.SubjectAuthorityFacts,'grants':F.GrantFacts,'scope':F.ScopeAuthorityFacts,
     'controls':F.ControlFacts,'policies':F.PolicyFacts,'resource_graph':F.ResourceGraphFacts,'revision':F.RevisionSourceFacts}
@@ -102,7 +102,9 @@ def seed_human_owner(admin,pool,names,identity,uow):
                 continue
             _rewrite(admin,kind,key,payload,convert)
         admin.execute('delete from authz.nexloop_service_credentials where credential_id=%s',(auth.credential_id,))
-        admin.execute('insert into control.nexloop_browser_business_applications values(%s,%s,%s,%s,%s)',
+        # Another browser fixture (e.g. conversations) may already map this browser app: the owner's facts take over.
+        admin.execute('insert into control.nexloop_browser_business_applications values(%s,%s,%s,%s,%s) on conflict(tenant_id,application_id) do update '
+            'set caller_application_id=excluded.caller_application_id,application_version=excluded.application_version,requested_scopes=excluded.requested_scopes',
             (TENANT,uow.application_id,auth.caller_application_id,'1',Jsonb(['action.execute'])))
     return create(uow,identity,authenticate(uow,identity).evidence).session
 

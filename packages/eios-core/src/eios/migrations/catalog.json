@@ -535,6 +535,11 @@
       "version": "0108",
       "name": "0108_nx025_plan_context_and_wake.sql",
       "sha256": "24b70831fcc4394b2b2cb45718ce9d70dc458a3d75da969223bb5e33f8c94d4b"
+    },
+    {
+      "version": "0109",
+      "name": "0109_nx025_contact_refusal_and_replies.sql",
+      "sha256": "bb60843154228d40eacba6bfe0bf221a2bd5b91c1cb14b06093b496b09deaf67"
     }
   ]
 }
