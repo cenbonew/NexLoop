@@ -1,7 +1,8 @@
 -- NX-027 (temporary number 0132): cost entries and budget settlement (M19; AT-043), docs/implementation/NX-027-design.md §6.
 --
--- 1. D4: every model request result carries the Run budget's currency (the Host already refuses a Run whose trusted
---    provider profile currency differs from the budget currency, so the recorded cost is in that currency).
+-- 1. D4: every model request result of a bound Run carries the Run budget's currency (the Host already refuses a Run
+--    whose trusted provider profile currency differs from the budget currency, so the recorded cost is in that
+--    currency); a cost without a currency is refused.
 -- 2. runtime.nexloop_cost_entries (append-only, one entry per source, never added across currencies):
 --    model    = each recorded model result with a cost (provider_reported, major currency units);
 --    channel  = one unit per effect intent the provider accepted; an amount only when the versioned settings carry a
@@ -25,7 +26,9 @@ begin
  if tg_op='UPDATE' and old.result_status is null and new.result_status is not null then
   select j.normalized_input->'run_command'->'budget'->>'currency' into v_currency from authz.nexloop_runtime_run_bindings b
    join runtime.jobs j on j.tenant_id=b.tenant_id and j.job_id=b.task_id where b.run_id=new.run_id;
-  if v_currency is null or v_currency!~'^[A-Z]{3}$' then raise exception 'model result without a Run budget currency' using errcode='22023';end if;
+  if found and coalesce(v_currency,'')!~'^[A-Z]{3}$' then raise exception 'model result without a Run budget currency' using errcode='22023';end if;
+  -- A cost is never recorded without its currency (D4).
+  if v_currency is null and new.cost is not null then raise exception 'model cost without a Run budget currency' using errcode='22023';end if;
   new.currency:=v_currency;
  elsif new.currency is distinct from old.currency then raise exception 'model request currency is set with its result' using errcode='22023';
  end if;
