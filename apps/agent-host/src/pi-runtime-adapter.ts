@@ -55,7 +55,7 @@ function privateDirectory(path:string){
 }
 function syncDirectory(path:string){const fd=openSync(path,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);try{fsyncSync(fd);}finally{closeSync(fd);}}
 const liveStorageOwners=new Set<string>();
-type OpenRun={path:string;device:number;inode:number;timer?:ReturnType<typeof setTimeout>;db:Awaited<ReturnType<typeof openNodeSqliteDatabase>>;harness:Harness;command:RunCommand;binding:Binding};
+type OpenRun={path:string;device:number;inode:number;timer?:ReturnType<typeof setTimeout>;settled?:Promise<void>;db:Awaited<ReturnType<typeof openNodeSqliteDatabase>>;harness:Harness;command:RunCommand;binding:Binding};
 export class PiRuntimeAdapter implements RuntimeAdapter{
   private readonly options:PiRuntimeOptions;
   private readonly root:string;
@@ -251,10 +251,15 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       run.timer.unref();
     }
     const submission=await conversation.submit({type:'input',requestId:valid.request_id,content:input},BACKGROUND_CONTEXT);
+    // ADR-022 §4: the Run counts as active until its submission settled and no task of it is live.
+    // A closed harness or an abort at the deadline also ends it here.
+    run.settled=(async()=>{try{await submission.wait(BACKGROUND_CONTEXT);await run.harness.waitForIdle(BACKGROUND_CONTEXT);}catch{/* no longer executing here */}})();
     await run.harness.commit(async tx=>{const state=await tx.doc(BindingDoc);state.submission_id=submission.id;},BACKGROUND_CONTEXT);
     run.binding=(await run.harness.snapshot(BindingDoc,BACKGROUND_CONTEXT))!;
     return this.receipt(run);
   });}
+  /** Resolves once the Run's latest admitted submission settled and its harness is idle (or the Run is closed). */
+  settled(command:unknown):Promise<void>{const valid=validateRunCommand(command);return this.runs.get(valid.run_id.toLowerCase())?.settled??Promise.resolve();}
   start(command:unknown,input:string){return this.admit(command,input,false);}
   resume(command:unknown,input:string){return this.admit(command,input,true);}
   inspect(command:unknown):Promise<RuntimeInspection>{return this.serial(async()=>{

@@ -67,6 +67,17 @@ def connection_budget(*,budget_file,database_url):
     return {'checks':checks,'details':{'connection_budget':result['details']}}
 
 
+def agent_host_concurrency(config_file):
+    """ADR-022 §4: the deployed Agent Host runs at most 4 Runs at once (pre-start gate)."""
+    from nexloop_eios import host_concurrency
+    try:
+        result=host_concurrency.evaluate(host_concurrency.load(read_private_text(config_file,maximum=32768)))
+    except Exception as error:
+        reason=str(error) if isinstance(error,host_concurrency.HostConcurrencyInvalid) else 'Agent Host configuration is unavailable'
+        return {'checks':{'agent_host_concurrency':False},'details':{'agent_host_concurrency_error':reason}}
+    return {'checks':{'agent_host_concurrency':result['passed']},'details':{'agent_host_concurrency':result['details']}}
+
+
 def main():
     parser=argparse.ArgumentParser(description='Read-only NexLoop foundation doctor')
     parser.add_argument('--artifact-root')
@@ -74,7 +85,16 @@ def main():
     parser.add_argument('--mode',choices=['test'])
     parser.add_argument('--connection-budget',type=Path,help='versioned connection budget (deploy/stage/connection-budget.v1.json)')
     parser.add_argument('--budget-only',action='store_true',help='only the connection budget and max_connections checks (pre-start gate)')
+    parser.add_argument('--agent-host-config',type=Path,help='private Agent Host runtime configuration (maximum_active_runs <= 4)')
+    parser.add_argument('--agent-host-only',action='store_true',help='only the Agent Host concurrency check (Agent Host pre-start gate)')
     args=parser.parse_args()
+    if args.budget_only and args.agent_host_only:parser.error('--budget-only and --agent-host-only are separate pre-start gates')
+    if args.agent_host_only:
+        if not args.agent_host_config:parser.error('--agent-host-only requires --agent-host-config')
+        result=agent_host_concurrency(args.agent_host_config)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.budget_only and not args.connection_budget:parser.error('--budget-only requires --connection-budget')
     if not args.budget_only and not args.artifact_root:parser.error('--artifact-root is required')
     configured_file=args.database_url_file or os.environ.get('DATABASE_URL_FILE')
@@ -95,6 +115,9 @@ def main():
     if args.connection_budget:
         budget=connection_budget(budget_file=args.connection_budget,database_url=database_url)
         result['checks'].update(budget['checks']);result['details'].update(budget['details'])
+    if args.agent_host_config:
+        host=agent_host_concurrency(args.agent_host_config)
+        result['checks'].update(host['checks']);result['details'].update(host['details'])
     result['checks']['database_configuration']=configured
     result['details']['database_configuration_source']=source
     result['details']['mode']=args.mode or 'configured'

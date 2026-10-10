@@ -1,0 +1,12 @@
+{
+  "guard_url": "https://127.0.0.1:8101/internal/v1/runtime/authorize",
+  "guard_key_file": "/run/secrets/guard_key",
+  "guard_ca_file": "/run/secrets/guard_certificate",
+  "runtime_profile": "deepseek-flash",
+  "model_configuration_file": "/run/secrets/model_configuration.json",
+  "maximum_request_cost": "1.0",
+  "effect_tools": true,
+  "context_input_protocol": "nexloop.context-pack.v6",
+  "maximum_active_runs": 4,
+  "run_admission_wait_ms": 500
+}
