@@ -265,6 +265,16 @@ M20 其他：
    - 切片 2、3：`apps/web/src/workbench/actions/*.tsx` 与 `actions-api.ts`，通过插槽挂到页面；顾客端接管状态条（`WebChat.tsx`、`chat-api.ts`）归切片 3；
    - 共享的 `styles.css` 只追加，不改已有规则。
 
+### 15.2a 已定签名（切片 2 首个提交，临时迁移 0150，对应设计占位 0116）
+
+1. **统一入口注册表**（D9）：`control.nexloop_governed_capabilities`
+   - 列：`capability text primary key`（如 `goals.control.set`）、`operation text unique`（载荷 `operation` 必须等于它）、`subject_rule text`（`human` | `agent_or_human`）、`handler regprocedure`、`source_task text`（`NX-0xx`）、`registered_at`；
+   - owner-only、append-only；插入触发器要求 handler 是 `nexloop_owner` 拥有、位于 `control` 或 `runtime` schema、签名恰为 `(p_tenant text, p_world text, p_principal text, p_subject text, p_intent text, body jsonb) returns jsonb` 的非集合函数；
+   - `authz.nexloop_goal_governed_action` 已改名保留为 `authz.nexloop_goal_governed_action_before_registry_v0115`（无授权），新包装按注册表校验 operation 与主体规则，再以 `select <handler>(tenant, world, principal, subject_kind, intent, body)` 调用；签名、许可、已发布合同、实时身份、claim 栅栏与提交尾校验与 0111 函数体相同；
+   - 已种入 13 行：goals.* 6 项、goals.contact.release、commitment.* 5 项（handler 为对原函数的薄适配），以及 NX-028 的 `plan.request_reevaluation`、`service.query_request`；
+   - **其他任务（NX-027 起）怎么加**：在自己的迁移里新建 handler 函数（上述签名、owner 为 `nexloop_owner`、撤销 PUBLIC），再 `insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values(...)`；Python 侧在 `goal_controls.CAPABILITIES` 加 operation → capability，并加提交方法；不再改入口函数。
+2. **派发预判**：`control.nexloop_intent_dispatch_prediction(p_tenant text, p_world text, p_intent uuid) returns jsonb`，owner-only，SECURITY DEFINER，不抛异常、不写入（检查在一个总会回滚的子事务里运行）。返回 `{"dispatchable": bool, "reason": ..., "detail": {...}}`，`reason` 取值：`null`（可派发）、`not_queued`（不在排队：意图非 accepted 或 outbox 不在 pending/leased）、`control_paused`、`control_revision_stale`（含快照缺失）、`goal_version_stale`、`object_revision_stale`、`contact_restricted`、`attached_notification`、`taken_over`（切片 3 起）、`unavailable`（意图不存在或其他错误）。检查逻辑：0097 最新快照 → `control.nexloop_dispatch_controls_check`（0068 派发检查的无身份版本，规则相同）→ `control.nexloop_contact_assert_intent`（0109/0110/0112 链）。
+
 ### 15.3 文件边界
 
 | 文件 / 目录 | 切片 1（L2） | 切片 2、3（L4） |

@@ -24,7 +24,9 @@ ACTION={'stable_name','version','object_type','capability_name','authority','ris
 PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','context.strategy.publish':'human_owner','context.audit':'human_owner',
     # NX-026: human-owner commitment Actions through the NX-022 governed entry (0111).
     'commitment.cancel':'human_owner','commitment.extend':'human_owner','commitment.attest':'human_owner','commitment.condition_met':'human_owner',
-    'commitment.mark_communication':'human_owner'}
+    'commitment.mark_communication':'human_owner',
+    # NX-028 slice 2: human requests through the governed entry's capability registry (0150).
+    'plan.request_reevaluation':'human_owner','service.query_request':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

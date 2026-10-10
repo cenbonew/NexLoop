@@ -57,6 +57,7 @@ def test_every_business_action_object_type_is_published_or_a_system_type():
     granted={g['resource_id'] for g in GRANTS['grants']}
     for action in ACTIONS['actions']:
         ref=(action['object_type']['stable_name'],action['object_type']['version'])
+        if ref in core and action['authority']=='human_owner':continue  # NX-028: human requests about a Consumer; never a service grant
         if ref in core:
             assert f"eios:action:{action['stable_name']}:{action['version']}" in granted,action['stable_name'];continue
         assert ref in published|system|business,action['stable_name']

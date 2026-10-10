@@ -27,6 +27,7 @@ def consumer_type():
         properties=(PropertyDefinition(property_name='display_name',value_type=PropertyValueType.STRING),))
 
 
+REQUESTS={'nexloop.plan.request_reevaluation':'plan.request_reevaluation','nexloop.service.query_request':'service.query_request'}
 COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'commitment.extend','Commitment.attest':'commitment.attest',
     'Commitment.condition_met':'commitment.condition_met','Commitment.mark_communication':'commitment.mark_communication'}
 
@@ -53,9 +54,11 @@ def test_compiles_both_profiles_with_explicit_snapshots():
     rows=BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
-            **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()}})
+            **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()}})
     names={r['definition']['stable_name']:r for r in rows}
-    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN}
+    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,*REQUESTS}
+    # NX-028 slice 2: two human requests, typed on Consumer v1, never service-executed.
+    assert all(by_name['authority']=='human_owner' for by_name in MANIFEST['actions'] if by_name['stable_name'] in REQUESTS)
     # NX-026: the keeper's create/edit and five human-owner commitment Actions, all on Commitment v1.
     by={a['stable_name']:a for a in MANIFEST['actions']}
     assert by['Commitment.create']['executor_role']==by['Commitment.edit']['executor_role']=='commitment_keeper'

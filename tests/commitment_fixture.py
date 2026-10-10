@@ -37,6 +37,7 @@ ROOT=Path(__file__).resolve().parents[1]
 TENANT='synthetic-a'
 SETTINGS=ROOT/'deploy/configuration/commitments.v1.json'
 HUMAN_ACTIONS=('Commitment.cancel','Commitment.extend','Commitment.attest','Commitment.condition_met','Commitment.mark_communication')
+REQUEST_ACTIONS=('nexloop.plan.request_reevaluation','nexloop.service.query_request')  # NX-028 slice 2 (0150)
 KEEPER_TARGETS=[(r,ResourceType.ACTION,Operation.EXECUTE) for r in ('eios:action:NexLoop.feed.commitment-register:1','eios:action:NexLoop.feed.commitment-monitor:1',
     'eios:action:nexloop.commitment.keep:1','eios:action:nexloop.commitment.read:1','eios:action:Commitment.create:1','eios:action:Commitment.edit:1')]+[
     ('eios:object_type:Commitment',ResourceType.OBJECT_TYPE,Operation.READ)]
@@ -63,6 +64,18 @@ def publish_commitment_type(admin,tenant=TENANT,*,actions=True):
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
             (tenant,'real',f"eios:action:{d['stable_name']}:{d['version']}",Jsonb(d),Jsonb(row['capability'])))
     return rows
+
+
+def publish_request_actions(admin,tenant=TENANT):
+    """NX-028 slice 2: the two human request Actions compiled from the business manifest (typed on the tenant's Consumer v1)."""
+    consumer=admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1",(tenant,)).fetchone()[0]
+    base=governance_inputs()['capability_snapshot']
+    caps={n:base.model_copy(update={'capability_name':n,'has_side_effects':True}) for n in ('plan.request_reevaluation','service.query_request')}
+    for row in business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
+            created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=[consumer],capabilities=caps,select=REQUEST_ACTIONS):
+        d=row['definition']
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
+            (tenant,'real',f"eios:action:{d['stable_name']}:{d['version']}",Jsonb(d),Jsonb(row['capability'])))
 
 
 def lifecycle_rule(admin,principal,tenant=TENANT,**changes):
@@ -145,7 +158,7 @@ class Commitments(dict):
         from goal_fixture import authenticate_human,seed_human_owner
         from nexloop_eios.goal_controls import GoalGovernedActions
         pool=self['plan']['backend']._pool
-        if 'browser' not in self:self['browser']=seed_human_owner(self['admin'],pool,list(HUMAN_ACTIONS),identity,uow)
+        if 'browser' not in self:self['browser']=seed_human_owner(self['admin'],pool,list(HUMAN_ACTIONS)+list(self.get('extra_human_actions',())),identity,uow)
         human=authenticate_human(pool,self['browser'])
         return GoalGovernedActions(pool,human,self['signer']),human
 
@@ -154,7 +167,7 @@ class Commitments(dict):
         from goal_fixture import seed_service
         from nexloop_eios.goal_controls import GoalGovernedActions
         pool=self['plan']['backend']._pool
-        token=seed_service(self['admin'],pool,list(HUMAN_ACTIONS),suffix=suffix)
+        token=seed_service(self['admin'],pool,list(HUMAN_ACTIONS)+list(self.get('extra_human_actions',())),suffix=suffix)
         actions=GoalGovernedActions(pool,authenticate_service(pool,token,world='real'),self['signer']);actions.token=token
         return actions
 

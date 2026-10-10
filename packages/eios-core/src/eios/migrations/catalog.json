@@ -575,6 +575,11 @@
       "version": "0115",
       "name": "0115_nx051_claim_correction_order.sql",
       "sha256": "d9596270ff83b69c80acc4dceb8ea63dd1bcbb7a54e0520071ecbfe8120e148a"
+    },
+    {
+      "version": "0150",
+      "name": "0150_nx028_governed_entry.sql",
+      "sha256": "c6c329c42cd5c0df8d2db83c44ee45849e1e3bcd55c465acb5858d3188dc303e"
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-business-actions/1",
-  "manifest_version": 5,
-  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant. v5 (NX-026): Commitment.create / Commitment.edit, executed by commitment_keeper (the edit is constrained in SQL to the transition derived from the evidence ledger, 0111), and five human-owner commitment Actions (cancel, extend, attest, condition met, mark as communication commitment) through the NX-022 governed entry; SQL refuses services and Agents even with a grant.",
+  "manifest_version": 6,
+  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant. v5 (NX-026): Commitment.create / Commitment.edit, executed by commitment_keeper (the edit is constrained in SQL to the transition derived from the evidence ledger, 0111), and five human-owner commitment Actions (cancel, extend, attest, condition met, mark as communication commitment) through the NX-022 governed entry; SQL refuses services and Agents even with a grant. v6 (NX-028 slice 2, D7/D9): two human requests through the governed entry's capability registry (0150): nexloop.plan.request_reevaluation (marks one active plan due now; precheck still decides) and nexloop.service.query_request (brings an unknown effect forward for the executor's one QUERY; nothing is resent). Typed on Consumer v1, the business object they concern.",
   "actions": [
     {
       "stable_name": "Consumer.edit",
@@ -244,6 +244,50 @@
       "executor_role": "human_owner",
       "purpose": "Mark one commitment as a communication commitment: delivered messages bound to it afterwards are qualifying evidence (D3). Human owner only; SQL refuses services, Agents and Run credentials even with a grant (NX-026).",
       "source_task": "NX-026"
+    },
+    {
+      "stable_name": "nexloop.plan.request_reevaluation",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Consumer",
+        "version": 1
+      },
+      "capability_name": "plan.request_reevaluation",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Ask for one reevaluation of an active plan now (cause human); the NX-024 precheck still decides whether a bounded Run starts. Human only; SQL refuses services, Agents and Run credentials even with a grant (NX-028).",
+      "source_task": "NX-028"
+    },
+    {
+      "stable_name": "nexloop.service.query_request",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Consumer",
+        "version": 1
+      },
+      "capability_name": "service.query_request",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Ask the executor service to query the result of an unknown or query-pending effect now (D7); never a resend, never a new idempotency key; the human holds no reconcile Action. Human only; SQL refuses services, Agents and Run credentials even with a grant (NX-028).",
+      "source_task": "NX-028"
     }
   ]
 }
