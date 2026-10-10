@@ -190,3 +190,12 @@ def ingest(pool,connector_id,timestamp,signature,body):
     with pool.connection() as db,db.transaction():
         verify_application_role(db)
         return db.execute('select authz.nexloop_commercial_ingest(%s,%s,%s,%s)',(connector_id,timestamp,signature,body)).fetchone()[0]
+
+
+def declare_metric_source(database_url_file,*,tenant,world,metric_id,metric_version,source_kind,value,record_kinds=(),statuses=(),cost_kinds=(),
+                          cohort_kinds=None):
+    """Bind an approved MetricDefinition version to its source (append-only; deployment configuration)."""
+    with _configurator(database_url_file) as c:
+        return c.execute('select control.nexloop_metric_source_declare(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            (tenant,world,metric_id,metric_version,source_kind,list(record_kinds),list(statuses),list(cost_kinds),value,
+             None if cohort_kinds is None else list(cohort_kinds))).fetchone()[0]

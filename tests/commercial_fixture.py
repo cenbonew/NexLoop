@@ -128,6 +128,36 @@ class Commercial(dict):
             if not any(out[-1].values()):break
         return out
 
+    # -- metrics (admin seeds the approved definition and the KR as configuration; the source via the configurator) --
+    def metric(self,metric_id,*,aggregation='sum',currency='CNY',refund_rule='net_of_refunds',maturity=0,world='real',
+               source_kind='commercial_record',value='amount',kinds=('order','payment','renewal'),statuses=('paid','succeeded','refunded_partial','refunded'),
+               cost_kinds=(),cohort_kinds=None,declare=True):
+        self['admin'].execute("""insert into control.nexloop_metric_definitions(tenant_id,world,metric_id,version,name,aggregation,unit,currency,maturity_seconds,
+            refund_rule,cohort_rule,status,approved_by,intent_id) values(%s,%s,%s,1,%s,%s,%s,%s,%s,%s,%s,'approved','synthetic-owner',%s)""",
+            (TENANT,world,metric_id,metric_id,aggregation,'minor' if value=='amount' else 'count',currency,maturity,refund_rule,
+             'synthetic cohort rule' ,'metric-'+metric_id))
+        if declare:
+            return commercial.declare_metric_source(self['configurator_dsn'],tenant=TENANT,world=world,metric_id=metric_id,metric_version=1,
+                source_kind=source_kind,value=value,record_kinds=kinds if source_kind=='commercial_record' else (),
+                statuses=statuses if source_kind=='commercial_record' else (),cost_kinds=cost_kinds,cohort_kinds=cohort_kinds)
+
+    def kr(self,goal_id,metric_id,window,*,target='0',world='real'):
+        a=self['admin']
+        with a.transaction():
+            a.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+            a.execute("insert into control.nexloop_goals(tenant_id,world,goal_id,goal_kind,owner_principal_id,current_version) values(%s,%s,%s,'long_term','synthetic-owner',1)",
+                (TENANT,world,goal_id))
+            a.execute("""insert into control.nexloop_goal_versions(tenant_id,world,goal_id,version,objective,period_start,period_end,priority,budget,constraints,
+                status,publisher_principal_id,publisher_kind,change_summary,impact,control_revision,intent_id)
+                values(%s,%s,%s,1,'synthetic objective',%s,%s,2,'{}','[]','published','synthetic-owner','human','synthetic','{}',1,%s)""",
+                (TENANT,world,goal_id,window[0]-timedelta(days=1),window[1]+timedelta(days=1),'goal-'+goal_id))
+            a.execute("""insert into control.nexloop_key_results(tenant_id,world,goal_id,goal_version,kr_key,metric_id,metric_version,target,direction,window_start,window_end)
+                values(%s,%s,%s,1,'kr',%s,1,%s,'at_least',%s,%s)""",(TENANT,world,goal_id,metric_id,target,window[0],window[1]))
+
+    def compute(self,goal_id,world='real',as_of=None):
+        from nexloop_eios.goal_controls import ControlPlane
+        return ControlPlane(self['worker'],self.session(world)).compute_key_result(goal_id=goal_id,goal_version=1,kr_key='kr',as_of=as_of)
+
     # -- probes ---------------------------------------------------------------------------------------------------
     def record_key(self,kind,external_id,connector_id='synthetic-shop',world='real'):
         return self['admin'].execute('select runtime.nexloop_commercial_key(%s,%s,%s,%s,%s)',(TENANT,world,connector_id,kind,external_id)).fetchone()[0]

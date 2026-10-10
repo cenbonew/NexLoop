@@ -570,6 +570,11 @@
       "version": "0130",
       "name": "0130_nx027_commercial_intake.sql",
       "sha256": "20647418d5d4a815c3b8f9846150b4e4c1175628e82a490f0844cdb1fa980ca7"
+    },
+    {
+      "version": "0131",
+      "name": "0131_nx027_metrics.sql",
+      "sha256": "360fbe2fc353d9c235fea133b409795b7fbb68c06f06e34909d9e962d18aadb0"
     }
   ]
 }
