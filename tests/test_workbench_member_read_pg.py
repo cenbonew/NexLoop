@@ -209,35 +209,58 @@ def test_audit_failure_fails_the_read_and_only_the_owner_reads_the_audit(workben
         admin.execute('delete from runtime.nexloop_workbench_read_audit')
 
 
-def test_customer_service_and_forged_claims_keep_their_previous_results(workbench):
-    """Regression: every read path other than workbench-member-v1 gives exactly the result it gave before the members were
-    configured (same value, or the same refusal); a workbench-member-v1 claim from anyone but a member fails and leaves no audit."""
+def test_customer_service_agent_and_run_reads_keep_their_previous_results(workbench):
+    """ADR-025 §3 regression: the customer session, a service, an Agent and a Run credential get exactly the result they got
+    before any workbench member was configured (same value, or the same refusal), on every read path; the workbench-member-v1
+    derivation does nothing for any of them and leaves no audit row."""
     w = workbench
-    f = w['f']
+    f, admin = w['f'], w['admin']
+    pool, signer, message = f['reader'].pool, f['reader'].signer, w['refusal']['id']
+    from eios.authz.operations import Operation
+    from eios.authz.resources import ResourceType
+    from agent_authority_fixture import seed_agent
+    from multi_authority_fixture import seed_multi_authority
+    from nexloop_eios.authorization import authenticate_service
+    from nexloop_eios.conversation_messages import ConversationMessagePort
     from nexloop_eios.object_reads import AuthorizedObjectReader
-    def customer():
-        session = authenticate_browser_business(f['reader'].pool, f['base']['issued'].session, world='real')
-        return AuthorizedObjectReader(f['reader'].pool, session, f['reader'].signer), session
+    from nexloop_eios.run_credentials import AUDIENCE, issue_run_credential
+    # A service with configured READ on the message (a successful baseline), able to issue a Run; and an Agent.
+    _, service_token = seed_multi_authority(admin, pool, [('eios:action:Consumer.create:1', ResourceType.ACTION, Operation.EXECUTE),
+        ('eios:object:Message/' + message, ResourceType.OBJECT, Operation.READ), ('eios:property:Message/' + message + '/body', ResourceType.PROPERTY, Operation.READ)],
+        identity_suffix='-adr025-service')
+    agent_token, _ = seed_agent(admin)
+
+    def sessions():
+        """Every credential re-authenticated, as every request is; a Run is short-lived and bound to its issuer's current
+        directory, so each observation issues its own (configuration writes end earlier Runs, as designed)."""
+        run = issue_run_credential(pool, authenticate_service(pool, service_token, world='real'), signer, action_resources=['eios:action:Consumer.create:1'])
+        return {'customer': authenticate_browser_business(pool, f['base']['issued'].session, world='real'),
+                'service': authenticate_service(pool, service_token, world='real'),
+                'agent': authenticate_service(pool, agent_token, world='real'),
+                'run': authenticate_service(pool, run.token, world='real', run_id=run.run_id, audience=AUDIENCE)}
+
     def outcome(read):
         try:
             return ('ok', read())
         except Exception as error:
             return ('refused', type(error).__name__)
+
     def observe():
-        from nexloop_eios.conversation_messages import ConversationMessagePort
-        reader, session = customer()  # re-authenticated, as every HTTP request is
-        port = ConversationMessagePort(f['reader'].pool, session, f['reader'].signer)
-        service = AuthorizedObjectReader(f['reader'].pool, f['reader'].session, f['reader'].signer)
-        return [outcome(lambda: reader.get('Message', w['refusal']['id'], fields=('body',))),
-                outcome(lambda: service.get('Message', w['refusal']['id'], fields=('body',))),
-                outcome(lambda: reader.get('Conversation', w['conversation']['id'])),
-                outcome(lambda: [m['body'] for m in port.read_messages(conversation_id=w['conversation']['id'])['items']])]
+        current = sessions()
+        assert current['agent'].agent_invocation is not None and current['run'].run_context is not None
+        result = {name: [outcome(lambda: AuthorizedObjectReader(pool, session, signer).get('Message', message, fields=('body',))),
+                         outcome(lambda: AuthorizedObjectReader(pool, session, signer).get('Conversation', w['conversation']['id']))]
+                  for name, session in current.items()}
+        result['customer'].append(outcome(lambda: [m['body'] for m in ConversationMessagePort(pool, current['customer'], signer).read_messages(
+            conversation_id=w['conversation']['id'])['items']]))
+        return result
+
     before = observe()
+    assert before['service'][0][0] == 'ok' and before['service'][0][1]['properties'] == {'body': BODY}
+    assert before['customer'][2] == ('ok', [BODY])
     provision(w)
-    assert observe() == before and before[3] == ('ok', [BODY])
-    _, human = customer()
-    # The customer (WebChat session) and a service credential presenting the member derivation: refused by SQL, no audit row.
-    for session in (human, f['reader'].session):
-        forged = WorkbenchReader(f['reader'].pool, session, f['reader'].signer)
-        assert forged.message_fields(w['refusal']['id'], ('body',)) is None
-    assert audit_rows(w['admin']) == []
+    assert observe() == before
+    # The member derivation presented by each of them: refused by SQL, no audit row.
+    for name, session in sessions().items():
+        assert WorkbenchReader(pool, session, signer).message_fields(message, ('body',)) is None, name
+    assert audit_rows(admin) == []

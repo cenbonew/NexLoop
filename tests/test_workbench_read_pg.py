@@ -145,7 +145,7 @@ def test_customer_never_member_or_grant_and_member_never_customer(workbench):
     with psycopg.connect(make_conninfo(w['f']['pg'], user='nexloop_api')) as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
         db.execute("select control.nexloop_configure_workbench('synthetic-a','{}'::jsonb,'{}'::jsonb)")
     rows = admin.execute('select manifest_version,roles_version,members from control.nexloop_workbench_configurations order by manifest_version').fetchall()
-    assert [r[:2] for r in rows] == [(1, 1), (2, 1)] and rows[-1][2] == {w['owner']['principal_id']: 'owner'}
+    assert [r[:2] for r in rows] == [(1, ROLES['manifest_version']), (2, ROLES['manifest_version'])] and rows[-1][2] == {w['owner']['principal_id']: 'owner'}
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         admin.execute('delete from control.nexloop_workbench_configurations')
 
