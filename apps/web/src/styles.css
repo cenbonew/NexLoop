@@ -28,3 +28,6 @@
 .evidence-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:1rem}
 .workbench-messages .message-outbound{margin-left:2rem}
 @media (max-width:720px){.workbench-layout{grid-template-columns:1fr}}
+
+/* NX-030: a critical alert that is not silenced stands out (appended). */
+.workbench tr.critical td{font-weight:600}

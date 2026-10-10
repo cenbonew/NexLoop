@@ -8,7 +8,7 @@
 import {useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
 import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,readContact,
-  readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,type Me,type Operation,type Takeover} from './api';
+  readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
 import {Short} from './pages/Page';
 
@@ -26,6 +26,7 @@ export const DONE_TEXT:Record<Operation,string>={
   take_over_conversation:'已接管：接管期间 Agent 不回复，顾客看到“人工客服处理中”。',
   hand_back_conversation:'已交还：只有最新一条未回复的来信恢复待回复，更早的记为接管期间已处理；计划将重新评估。',
   send_staff_reply:'已发送给顾客；不代表问题已解决或承诺已兑现。',
+  silence_alert:'已静默：期间仍会评估和记录，只是不再提示；到期自动结束。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -219,7 +220,28 @@ export function ConversationControls({conversationId}:{conversationId:string}){
 }
 
 /** Page slots (WorkbenchPage resolves a function against the current route). */
+/** NX-030: silence one firing rule (optionally only its selector) for at most 7 days; owner only (the role decides the offer). */
+export function silenceUntil(hours:number,now:number=Date.now()):string{
+  const bounded=Math.min(Math.max(hours,1),7*24);return new Date(now+bounded*3600_000).toISOString().replace(/\.\d{3}Z$/,'Z');
+}
+export function SilenceForm({member}:{member:Me}){
+  const firing=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
+  const [key,setKey]=useState('');const [onlySelector,setOnlySelector]=useState(true);const [hours,setHours]=useState(24);const [reason,setReason]=useState('');
+  const options=firing.data?.firing??[];const chosen=options.find(a=>a.dedupe_key===key)??options[0];
+  return <Form operation="silence_alert" title="静默告警" member={member} disabled={!chosen||!reason.trim()}
+    body={()=>chosen?{rule_id:chosen.rule_id,selector:onlySelector?chosen.selector:null,until:silenceUntil(hours),reason}:null}>
+    {options.length?<div className="field"><label htmlFor="silence-alert">告警</label><select id="silence-alert" value={chosen?.dedupe_key} onChange={e=>setKey(e.target.value)}>
+      {options.map(a=><option key={a.dedupe_key} value={a.dedupe_key}>{a.rule_id}{a.selector?` · ${a.selector}`:''}</option>)}</select></div>
+      :<p className="note">当前没有可静默的触发中告警。</p>}
+    {chosen?.selector?<label><input type="checkbox" checked={onlySelector} onChange={e=>setOnlySelector(e.target.checked)}/> 只静默这一对象（{chosen.selector}）</label>:null}
+    <div className="field"><label htmlFor="silence-hours">时长（小时，最多 168）</label><input id="silence-hours" type="number" min={1} max={168} value={hours} onChange={e=>setHours(Number(e.target.value))}/></div>
+    <Reason id="silence-reason" value={reason} onChange={setReason}/>
+    <p className="note">静默期间仍会评估和记录；“告警系统不可用”不能静默。</p>
+  </Form>;
+}
+
 export const GOVERNED_SLOTS:Slots={
+  alerts:()=><WithMember>{member=><SilenceForm member={member}/>}</WithMember>,
   goals:()=><WithMember>{member=><ControlForm member={member}/>}</WithMember>,
   consumers:route=>route.sub==='conversation'&&route.id?<ConversationControls conversationId={route.id}/>:route.id?<ConsumerControls consumerId={route.id}/>:null,
   plans:()=><WithMember>{member=><ReevaluateForm member={member}/>}</WithMember>,

@@ -38,7 +38,9 @@ def test_actual_pg_host_worker_runtime_completion(accepted_input,admin,tmp_path,
         assert set(receipt)=={'request_id','conversation_id','submission_id','persistence'}
         assert receipt['request_id']==args['command']['request_id']
         assert receipt['persistence']=={'journal_mode':'wal','synchronous':2}
-        assert result['result']=={'scope':'runtime_only','business_action_success':False,'runtime_outcome':'succeeded','run_id':issued.run_id,'runtime_receipt':receipt}
+        # NX-031 D6: the Run's summed guard tool time, numbers only (this Run calls no guard tool).
+        assert result['result']=={'scope':'runtime_only','business_action_success':False,'runtime_outcome':'succeeded','run_id':issued.run_id,'runtime_receipt':receipt,
+            'tool_timing':{'calls':0,'total_ms':0,'max_ms':0}}
         durable=worker.inspect_task(queue='operations',task_id=accepted['task_id'])
         assert durable['status']=='succeeded' and durable['result']==result['result']
         assert admin.execute('select count(*) from ontology.objects').fetchone()[0]==0

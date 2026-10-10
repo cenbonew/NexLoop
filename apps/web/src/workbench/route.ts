@@ -1,6 +1,6 @@
 /** Workbench routes live in the URL (/workbench/<page>[/<id>]) so a page and its object can be linked and reloaded. */
 export const PAGES={overview:'总览',goals:'目标与对齐',consumers:'消费者',plans:'计划与运行',actions:'Action / 异常',commitments:'承诺 / 交付',contact:'联系限制',
-  knowledge:'知识工作台',settings:'设置与治理',ontology:'本体 / 演进',experiments:'实验空间'} as const;
+  knowledge:'知识工作台',alerts:'告警',operations:'运行状态',audit:'审计',settings:'设置与治理',ontology:'本体 / 演进',experiments:'实验空间'} as const;
 export type PageKey=keyof typeof PAGES;
 export type Route={page:PageKey;id?:string;sub?:'conversation'};
 const hex64=/^[a-f0-9]{64}$/;

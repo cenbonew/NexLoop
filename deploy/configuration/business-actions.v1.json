@@ -1,6 +1,6 @@
 {
   "schema_version": "nexloop-business-actions/1",
-  "manifest_version": 9,
+  "manifest_version": 10,
   "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant. v5 (NX-026): Commitment.create / Commitment.edit, executed by commitment_keeper (the edit is constrained in SQL to the transition derived from the evidence ledger, 0111), and five human-owner commitment Actions (cancel, extend, attest, condition met, mark as communication commitment) through the NX-022 governed entry; SQL refuses services and Agents even with a grant. v6 (NX-027): CommercialRecord.create / CommercialRecord.edit, executed only by commercial_recorder. v7 (NX-027): CommercialRecord.observe, the human owner's read of commercial records, costs and key results (0134). v8 (NX-028 slices 2–3, one version on top of NX-027 v7): slice 2 (D7/D9), two human requests through the governed entry's capability registry (0150): nexloop.plan.request_reevaluation (marks one active plan due now; precheck still decides) and nexloop.service.query_request (brings an unknown effect forward for the executor's one QUERY; nothing is resent). Typed on Consumer v1, the business object they concern. Slice 3 (D3–D5): nexloop.conversation.takeover / nexloop.conversation.handback, human only, typed on Consumer v1 (0152). Slice 3 (dispatcher ruling B): nexloop.message.staff_send — a staff reply written by the author of the active takeover directly into a native WebChat conversation (no effect ledger), bound to one inbound message, under ADR-023 §2.6/§2.7 like any reply (0153). v9 (NX-027, on the NX-028 registry 0124): nexloop.commitment.bind_commercial and nexloop.cost.record, human only, registered in 0140 (handlers 0121 / 0120).",
   "actions": [
     {
@@ -464,6 +464,28 @@
       "executor_role": "human_owner",
       "purpose": "Enter a service or labour cost (operator_entered) or correct an earlier one by supersession; never rewritten, never added across currencies. Human only through the governed entry registry (0120 handler, 0140 row).",
       "source_task": "NX-027"
+    },
+    {
+      "stable_name": "nexloop.alert.silence",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Consumer",
+        "version": 1
+      },
+      "capability_name": "alert.silence",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Silence one alert rule (optionally one selector) for at most 7 days with a reason; alerts are still evaluated and recorded, the workbench only marks them. Owner only: the role manifest grants it to owner alone and the handler checks the current workbench role. Human only through the governed entry registry (0150 handler and row).",
+      "source_task": "NX-030"
     }
   ]
 }

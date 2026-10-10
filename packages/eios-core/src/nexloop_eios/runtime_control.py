@@ -49,12 +49,19 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
             super().setup();self.connection.settimeout(3);self.connection.do_handshake()
         def send(self,status,value):
             body=json.dumps(value,separators=(',',':')).encode()
+            if getattr(self,'_tool_run',None) is not None:
+                # NX-031 D6: a tool request's time is added to its Run before the response leaves, so the Run's
+                # terminal summary (read after the Run ends) always includes it; numbers only, best effort.
+                run,self._tool_run=self._tool_run,None
+                if callable(getattr(worker,'record_tool_timing',None)):
+                    try:worker.record_tool_timing(run_id=run,elapsed_ms=round((time.monotonic()-self._started)*1000,1))
+                    except Exception:pass
             self.send_response(status);self.send_header('Content-Type','application/json')
             self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)))
             self.send_header('Connection','close');self.end_headers();self.wfile.write(body);self.close_connection=True
         def do_POST(self):
             # NX-030 M08: per-process guard latency (a call reaching the 2 s deadline counts as a timeout); numbers only.
-            started=time.monotonic()
+            self._started=started=time.monotonic();self._tool_run=None
             try:self._post()
             finally:
                 from nexloop_eios.observability import GUARD
@@ -81,6 +88,9 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 if not 1<=size<=262144:self.send(413,{'authorized':False});return
                 try:body=json.loads(self.rfile.read(size))
                 except (json.JSONDecodeError,UnicodeDecodeError):self.send(400,{'authorized':False});return
+                if self.path!='/internal/v1/runtime/authorize' and type(body) is dict and type(body.get('command')) is dict:
+                    tool_run_id=body['command'].get('run_id')
+                    if type(tool_run_id) is str and re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',tool_run_id):self._tool_run=tool_run_id
                 if self.path=='/internal/v1/runtime/outcomes/record':
                     # NX-024 run-outcome of a plan reevaluation Run (contract run-outcome 1.0).
                     if (type(body) is not dict or set(body)!={'activation_ref','command','outcome'} or type(body['command']) is not dict
@@ -135,7 +145,6 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 # Never serialize the backend object or a raw EIOS identity row.
                 projected={'authorized':True,'run_id':result['run_id'],'ever_execution_authorized':result['ever_execution_authorized']}
                 if 'context_artifact' in result:
-                    import re
                     artifact=result['context_artifact']
                     if (type(artifact) is not dict or set(artifact)!={'artifact_ref','sha256','command_binding_digest'}
                         or any(type(v) is not str for v in artifact.values())

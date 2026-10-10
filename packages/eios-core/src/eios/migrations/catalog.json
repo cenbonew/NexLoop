@@ -655,6 +655,11 @@
       "version": "0131",
       "name": "0131_nx030_observability.sql",
       "sha256": "69b4e181d9371de6050104d658a90b02fd074d554d0287a6e5fa3f2fcbaafe75"
+    },
+    {
+      "version": "0150",
+      "name": "0150_nx030_ui.sql",
+      "sha256": "c7188a4ec91c085e814d65c0440b3c50c439e83a59580e33c3364b4ccc2298ab"
     }
   ]
 }

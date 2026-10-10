@@ -10,6 +10,7 @@ import {CommitmentDetail,Commitments} from './pages/Commitments';
 import {Contact} from './pages/Contact';
 import {NotEnabled,Settings} from './pages/Settings';
 import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
+import {Alerts,Audit,Operations} from './pages/Observability';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -40,6 +41,9 @@ export function WorkbenchPage({route,go,slots={}}:{route:Route;go:(route:Route)=
     case 'contact':return <Contact actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
+    case 'alerts':return <Alerts actions={a}/>;
+    case 'operations':return <Operations actions={a}/>;
+    case 'audit':return <Audit actions={a}/>;
     case 'ontology':return <NotEnabled title={PAGES.ontology}/>;
     case 'experiments':return <NotEnabled title={PAGES.experiments}/>;
   }
