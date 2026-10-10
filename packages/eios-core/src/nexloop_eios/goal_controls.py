@@ -38,7 +38,13 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-028 slice 3 (0152): human takeover and hand-back.
     'take_over_conversation':'conversation.takeover','hand_back_conversation':'conversation.handback',
     # NX-028 ruling B (0153): a staff reply written during the author's own takeover.
-    'send_staff_reply':'message.staff_send'}
+    'send_staff_reply':'message.staff_send',
+    # NX-027 on the registry (0140): commitment commercial binding and operator-entered costs, human only.
+    'bind_commitment_commercial':'commitment.bind_commercial','record_cost':'cost.record',
+    # NX-029 slice 2 (0142): erasure and retention holds, human owner only.
+    'erase_consumer':'consumer.erase','erase_message':'message.erase','hold_retention':'retention.hold','release_retention_hold':'retention.release_hold',
+    # NX-030: the owner silences one alert rule (optionally one selector) for at most 7 days.
+    'silence_alert':'alert.silence'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -218,11 +224,67 @@ class GoalGovernedActions:
             raise ValueError('takeover id and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'hand_back_conversation','takeover_id':str(takeover_id),'reason':reason})
 
+    # NX-030 (0150): owner-only alert silence; alerts are still evaluated and recorded, only marked as silenced.
+    def silence_alert(self,*,action_name,action_version,request_id,rule_id,selector,until,reason):
+        if (not re.fullmatch(r'[a-z][a-z0-9_]{0,63}',str(rule_id)) or (selector is not None and not re.fullmatch(r'[A-Za-z0-9_.:-]{1,64}',str(selector)))
+                or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('rule, selector and reason required')
+        until=until.isoformat() if hasattr(until,'isoformat') else str(until)
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'silence_alert','rule_id':rule_id,'selector':selector,
+            'until':until,'reason':reason})
+
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
             raise ValueError('conversation, bound inbound message and text required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'send_staff_reply','conversation_id':conversation_id,
             'reply_to':reply_to,'text':text})
+
+    # NX-027 (0121 handler): only verified signed events of this reference become the commitment's commercial evidence.
+    def bind_commitment_commercial(self,*,action_name,action_version,request_id,commitment_id,connector_id,record_kind,external_id,statuses=None):
+        if (not re.fullmatch(r'[a-f0-9]{64}',str(commitment_id)) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,62}',str(connector_id))
+                or record_kind not in ('order','payment','renewal','refund') or type(external_id) is not str or not 1<=len(external_id)<=200):
+            raise ValueError('commitment and commercial reference required')
+        payload={'request_id':request_id,'operation':'bind_commitment_commercial','commitment_id':commitment_id,'connector_id':connector_id,
+            'record_kind':record_kind,'external_id':external_id}
+        if statuses is not None:
+            if type(statuses) not in (list,tuple) or not statuses or any(type(x) is not str for x in statuses):raise ValueError('statuses')
+            payload['statuses']=list(statuses)
+        return self._submit(action_name,action_version,payload)
+
+    # NX-027 (0120 handler): a service or labour cost entered by a person; a correction supersedes, never rewrites.
+    def record_cost(self,*,action_name,action_version,request_id,cost_kind,amount,currency,amount_unit,occurred_at,units=None,consumer_id=None,
+                    corrects_entry_id=None):
+        if (cost_kind not in ('service','labour') or not re.fullmatch(r'[0-9]{1,12}(\.[0-9]{1,8})?',str(amount))
+                or not re.fullmatch(r'[A-Z]{3}',str(currency)) or amount_unit not in ('major','minor')):
+            raise ValueError('cost kind, amount, currency and unit required')
+        payload={'request_id':request_id,'operation':'record_cost','cost_kind':cost_kind,'amount':str(amount),'currency':currency,
+            'amount_unit':amount_unit,'occurred_at':_utc(occurred_at)}
+        if units is not None:payload['units']=str(units)
+        if consumer_id is not None:payload['consumer_id']=str(consumer_id)
+        if corrects_entry_id is not None:payload['corrects_entry_id']=str(corrects_entry_id)
+        return self._submit(action_name,action_version,payload)
+
+    # NX-029 (0142): erase a Consumer (blocking at once, purge by the keeper) or one Message; register or release a hold.
+    def erase_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_consumer','consumer_id':consumer_id,'reason':reason})
+
+    def erase_message(self,*,action_name,action_version,request_id,message_id,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(message_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('message and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_message','message_id':message_id,'reason':reason})
+
+    def hold_retention(self,*,action_name,action_version,request_id,scope_kind,scope_ref,basis,valid_until=None):
+        if scope_kind not in ('consumer','item_class') or type(scope_ref) is not str or type(basis) is not str or not 1<=len(basis)<=1000:
+            raise ValueError('hold scope and basis required')
+        payload={'request_id':request_id,'operation':'hold_retention','scope_kind':scope_kind,'scope_ref':scope_ref,'basis':basis}
+        if valid_until is not None:payload['valid_until']=_utc(valid_until)
+        return self._submit(action_name,action_version,payload)
+
+    def release_retention_hold(self,*,action_name,action_version,request_id,hold_id,reason):
+        if type(hold_id) is not str or not hold_id or type(reason) is not str or not 1<=len(reason)<=500:raise ValueError('hold and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_retention_hold','hold_id':hold_id,'reason':reason})
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

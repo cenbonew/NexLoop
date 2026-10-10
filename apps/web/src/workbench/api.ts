@@ -77,7 +77,7 @@ export async function workbenchLogout():Promise<void>{
 // ---- overview ----
 export type Overview={goals:Section<{goals:{goal_id:string;goal_kind:string;objective:string;current_version:number;key_results:number}[];control_revision:number;paused_scopes:{scope_kind:string;scope_ref:string;reason:string}[]}>;
   commitments:Section<{open:number;breached:number;exceptions:{reason:string;count:number}[]}>;actions:Section<{count:number;oldest_age_seconds:number|null}>;
-  contact:Section<{restricted:number;escalations:number}>;takeovers:Section<unknown>;backlog:Section<unknown>;commercial:Section<unknown>};
+  contact:Section<{restricted:number;escalations:number}>;takeovers:Section<Takeover[]>;backlog:Section<unknown>;commercial:Section<unknown>};
 export const OVERVIEW_SECTIONS=['goals','commitments','actions','contact','takeovers','backlog','commercial'] as const;
 export function section<T>(value:unknown,data:(value:unknown)=>T):Section<T>{
   const v=object(value);
@@ -94,7 +94,7 @@ export function overview(value:unknown):Overview{
     commitments:section(v.commitments,d=>{const c=object(d);return {open:count(c.open),breached:count(c.breached),exceptions:list(c.exceptions).map(x=>{const o=object(x);return {reason:text(o.reason),count:count(o.count)};})};}),
     actions:section(v.actions,d=>{const a=object(d);return {count:count(a.count),oldest_age_seconds:a.oldest_age_seconds===null?null:count(a.oldest_age_seconds)};}),
     contact:section(v.contact,d=>{const c=object(d);return {restricted:count(c.restricted),escalations:count(c.escalations)};}),
-    takeovers:section(v.takeovers,d=>d),backlog:section(v.backlog,d=>d),commercial:section(v.commercial,d=>d),
+    takeovers:section(v.takeovers,d=>takeovers(d).takeovers),backlog:section(v.backlog,d=>d),commercial:section(v.commercial,d=>d),
   };
 }
 export const readOverview=()=>get('/api/v1/workbench/overview',overview);
@@ -263,3 +263,157 @@ export function reviewEvidence(value:unknown):ReviewEvidence{
 export const readReviewQueue=()=>get('/api/v1/workbench/review',reviewQueue);
 export const readReviewEvidence=(candidate:string)=>get('/api/v1/workbench/review/'+candidate,reviewEvidence);
 export const REVIEW_ENDED_TEXT='审核已结束，证据原文不再可读。';
+
+// ---- me: the member's role (NX-028 page integration, 0160; display only, every write is decided by SQL) ----
+export type Role='owner'|'operator'|'reviewer';
+export type Me={principal_id:string;role:Role;actions:string[]};
+export function me(value:unknown):Me{
+  const v=object(value);
+  if(v.role!=='owner'&&v.role!=='operator'&&v.role!=='reviewer')throw new WorkbenchError('invalid');
+  return {principal_id:text(v.principal_id),role:v.role,actions:list(v.actions).map(text)};
+}
+export const readMe=()=>get('/api/v1/workbench/me',me);
+
+// ---- takeovers in effect (slice 3, 0126/0160) ----
+export type Takeover={takeover_id:string;scope_kind:'conversation'|'consumer';scope_ref:string;consumer_id:string;taken_by:string;mine:boolean;reason:string;started_at:string;expires_at:string};
+export type Takeovers={takeovers:Takeover[];policy:{default_seconds:number;max_seconds:number}};
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export function takeovers(value:unknown):Takeovers{
+  const v=object(value);
+  if(v.status!=='ok')throw new WorkbenchError('unavailable');
+  const p=object(v.policy);
+  return {policy:{default_seconds:count(p.default_seconds),max_seconds:count(p.max_seconds)},takeovers:list(v.takeovers).map(x=>{const o=object(x);
+    if(o.scope_kind!=='conversation'&&o.scope_kind!=='consumer')throw new WorkbenchError('invalid');
+    const takeover_id=text(o.takeover_id);if(!uuid.test(takeover_id))throw new WorkbenchError('invalid');
+    return {takeover_id,scope_kind:o.scope_kind,scope_ref:id(o.scope_ref),consumer_id:id(o.consumer_id),taken_by:text(o.taken_by),mine:flag(o.mine),reason:text(o.reason),
+      started_at:text(o.started_at),expires_at:text(o.expires_at)};})};
+}
+export const readTakeovers=()=>get('/api/v1/workbench/takeovers',takeovers);
+/** The takeover covering a conversation: the conversation itself or its whole consumer (the same rule dispatch uses). */
+export function takeoverOf(list:Takeover[],conversationId:string,consumerId:string):Takeover|null{
+  return list.find(t=>(t.scope_kind==='conversation'&&t.scope_ref===conversationId)||(t.scope_kind==='consumer'&&t.scope_ref===consumerId))??null;
+}
+
+// ---- governed writes: POST /api/v1/workbench/actions/{operation} (slice 2/3) ----
+/** Operation → the Action resource a role must carry to be offered the control (workbench-roles; SQL still decides). */
+export const OPERATION_ACTION={
+  set_control:'eios:action:Control.set:1',release_contact_restriction:'eios:action:Contact.release:1',
+  cancel_commitment:'eios:action:Commitment.cancel:1',extend_commitment:'eios:action:Commitment.extend:1',attest_commitment:'eios:action:Commitment.attest:1',
+  commitment_condition_met:'eios:action:Commitment.condition_met:1',mark_commitment_communication:'eios:action:Commitment.mark_communication:1',
+  request_plan_reevaluation:'eios:action:nexloop.plan.request_reevaluation:1',request_effect_query:'eios:action:nexloop.service.query_request:1',
+  take_over_conversation:'eios:action:nexloop.conversation.takeover:1',hand_back_conversation:'eios:action:nexloop.conversation.handback:1',
+  send_staff_reply:'eios:action:nexloop.message.staff_send:1',
+  // NX-030: owner only (workbench-roles v4).
+  silence_alert:'eios:action:nexloop.alert.silence:1',
+} as const;
+export type Operation=keyof typeof OPERATION_ACTION;
+export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
+
+export type WriteFailure=FailureKind|'not_allowed_in_state'|'conflict'|'request_timeout'|'not_sent';
+export class WorkbenchWriteError extends Error{constructor(readonly kind:WriteFailure){super(kind);}}
+/** Exact outcome text (AT-045). 503/network/invalid response: the result is not known, never shown as failed or done. */
+export const WRITE_TEXT:Record<WriteFailure,string>={
+  unauthenticated:'会话已失效，请重新登录工作台；操作未提交。',
+  forbidden:'当前账号无权执行此操作（403），未执行。',
+  not_found:'本租户未发布此操作或对象不存在（404），未执行。',
+  invalid_request:'填写内容无效（422），未执行。',
+  not_allowed_in_state:'当前状态不允许此操作（409），未执行；请查看最新状态。',
+  conflict:'与同时进行的其他操作冲突（409），未执行；请刷新后重试。',
+  request_timeout:'请求超时（408），未提交。',
+  not_sent:'暂时无法连接服务，操作未提交；请稍后重试。',
+  unavailable:'服务暂时不可用（503），无法确认是否已执行。请稍后刷新查看结果；重试使用同一请求号，不会重复执行。',
+  invalid:'已提交，但服务器响应格式不符，结果未确认；请刷新查看。',
+};
+/** Unknown result: keep the same Idempotency-Key for a retry (the governed entry answers a replay from its terminal outcome). */
+export const UNKNOWN_RESULT:WriteFailure[]=['unavailable','invalid'];
+export function writeFailureOf(status:number,code:unknown):WriteFailure{
+  if(status===409)return code==='conflict'?'conflict':'not_allowed_in_state';
+  if(status===408)return 'request_timeout';
+  return failureOf(status);
+}
+export function newRequestKey():string{
+  const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);
+  return 'wb-'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+}
+export async function workbenchAct(operation:Operation,body:Record<string,unknown>,key:string):Promise<Record<string,unknown>>{
+  let token:string;
+  try{
+    const csrf=await fetch('/api/v1/workbench/auth/csrf',{method:'POST',credentials:'same-origin',cache:'no-store'});
+    if(!csrf.ok)throw new WorkbenchWriteError(csrf.status===401?'unauthenticated':'not_sent');
+    token=text(object(await csrf.json()).csrf_token);
+  }catch(error){if(error instanceof WorkbenchWriteError)throw error;throw new WorkbenchWriteError('not_sent');}
+  let response:Response;
+  try{response=await fetch('/api/v1/workbench/actions/'+operation,{method:'POST',credentials:'same-origin',cache:'no-store',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':token,'Idempotency-Key':key},body:JSON.stringify(body)});}
+  catch{throw new WorkbenchWriteError('unavailable');}
+  let value:unknown;
+  try{value=await response.json();}catch{throw new WorkbenchWriteError(response.ok?'invalid':writeFailureOf(response.status,null));}
+  if(!response.ok)throw new WorkbenchWriteError(writeFailureOf(response.status,value&&typeof value==='object'?(value as Record<string,unknown>).code:null));
+  try{return object(value);}catch{throw new WorkbenchWriteError('invalid');}
+}
+export function writeKindOf(error:unknown):WriteFailure{return error instanceof WorkbenchWriteError?error.kind:'unavailable';}
+
+
+// ---- NX-030: alerts, operations status (metrics snapshot) and the owner's audit ----
+export type Severity='warning'|'critical';
+export type FiringAlert={dedupe_key:string;rule_id:string;severity:Severity;selector:string|null;value:string|null;first_fired_at:string;last_fired_at:string;fire_count:number;silenced_until:string|null};
+export type AlertEvent={event_id:number;rule_id:string;severity:Severity;kind:'firing'|'resolved';selector:string|null;value:string|null;threshold:string|null;recorded_at:string};
+export type Alerts={firing:FiringAlert[];events:AlertEvent[];silences:{rule_id:string;selector:string|null;until:string}[];evaluator:{last_evaluated_at:string|null;rules_version:number|null;stale:boolean}};
+function severity(value:unknown):Severity{if(value!=='warning'&&value!=='critical')throw new WorkbenchError('invalid');return value;}
+export function alerts(value:unknown):Alerts{
+  const v=object(value);const e=object(v.evaluator);
+  if(v.real_world_only!==true)throw new WorkbenchError('invalid');
+  return {firing:list(v.firing).map(x=>{const o=object(x);return {dedupe_key:text(o.dedupe_key),rule_id:text(o.rule_id),severity:severity(o.severity),selector:maybeText(o.selector),
+      value:maybeText(o.value),first_fired_at:text(o.first_fired_at),last_fired_at:text(o.last_fired_at),fire_count:count(o.fire_count),silenced_until:maybeText(o.silenced_until)};}),
+    events:list(v.events).map(x=>{const o=object(x);if(o.kind!=='firing'&&o.kind!=='resolved')throw new WorkbenchError('invalid');
+      return {event_id:count(o.event_id),rule_id:text(o.rule_id),severity:severity(o.severity),kind:o.kind,selector:maybeText(o.selector),value:maybeText(o.value),
+        threshold:maybeText(o.threshold),recorded_at:text(o.recorded_at)};}),
+    silences:list(v.silences??[]).map(x=>{const o=object(x);return {rule_id:text(o.rule_id),selector:maybeText(o.selector),until:text(o.until)};}),
+    evaluator:{last_evaluated_at:maybeText(e.last_evaluated_at),rules_version:e.rules_version===null?null:count(e.rules_version),stale:flag(e.stale)}};
+}
+export const readAlerts=()=>get('/api/v1/workbench/alerts',alerts);
+/** A silenced alert is still evaluated and recorded; the page only marks it. The evaluator's own staleness cannot be silenced. */
+export const SEVERITY_TEXT:Record<Severity,string>={warning:'警告',critical:'严重'};
+export const EVALUATOR_STALE_TEXT='告警系统不可用：评估器超过 5 分钟没有运行，下面的列表可能已过期（这一条不能静默）。';
+
+/** The SQL metrics snapshot: codes, counts, ages and ratios only. Process sections may be unavailable (never shown as 0). */
+export type Process={status:'unavailable'}|{status:'ok';by_service:Record<string,{sum:Record<string,number>;max:Record<string,number>}>;timeout_rate?:number;p95_ms_max?:number};
+export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<string,number>};effects:{by_state:Record<string,number>;unknown:{count:number;oldest_age_seconds:number|null;over_24h:number}};
+  replies:{pending:{count:number;oldest_age_seconds:number|null};escalations_last_hour:Record<string,number>;escalations_total:number};
+  commitments:{exceptions:Record<string,number>;exceptions_last_hour:Record<string,number>};
+  queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
+  guard:Process;host:Process;pool:Process;connections:{total:number};backup:{status:string};computed_at:string};
+function counts(value:unknown):Record<string,number>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,count(v)]));}
+function maybeCount(value:unknown):number|null{return value===null||value===undefined?null:count(value);}
+function nested(value:unknown):Record<string,Record<string,number|null>>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,Object.fromEntries(Object.entries(object(v)).map(([f,n])=>[f,maybeCount(n)]))]));}
+function processSection(value:unknown):Process{
+  const o=object(value);if(o.status==='unavailable')return {status:'unavailable'};if(o.status!=='ok')throw new WorkbenchError('invalid');
+  const by=object(o.by_service);
+  return {status:'ok',by_service:Object.fromEntries(Object.entries(by).map(([k,v])=>{const s=object(v);
+      const nums=(x:unknown)=>Object.fromEntries(Object.entries(object(x??{})).map(([f,n])=>{if(typeof n!=='number'||!Number.isFinite(n))throw new WorkbenchError('invalid');return [f,n];}));
+      return [k,{sum:nums(s.sum),max:nums(s.max)}];})),
+    ...(typeof o.timeout_rate==='number'?{timeout_rate:o.timeout_rate}:{}),...(typeof o.p95_ms_max==='number'?{p95_ms_max:o.p95_ms_max}:{})};
+}
+export function metrics(value:unknown):Metrics{
+  const v=object(value);const r=object(v.refusals);const ef=object(v.effects);const u=object(ef.unknown);const rp=object(v.replies);const pend=object(rp.pending);
+  const cm=object(v.commitments);const ex=object(v.extraction);const cn=object(v.connections);const bk=object(v.backup);
+  return {refusals:{last_5m:counts(r.last_5m),last_hour:counts(r.last_hour)},
+    effects:{by_state:counts(ef.by_state),unknown:{count:count(u.count),oldest_age_seconds:maybeCount(u.oldest_age_seconds),over_24h:count(u.over_24h)}},
+    replies:{pending:{count:count(pend.count),oldest_age_seconds:maybeCount(pend.oldest_age_seconds)},escalations_last_hour:counts(rp.escalations_last_hour),escalations_total:count(rp.escalations_total)},
+    commitments:{exceptions:counts(cm.exceptions),exceptions_last_hour:counts(cm.exceptions_last_hour)},
+    queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
+    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:{status:text(bk.status)},computed_at:text(v.computed_at)};
+}
+export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
+export const PROCESS_UNAVAILABLE_TEXT='最近 5 分钟没有样本：未加载，不代表为零。';
+export const REFUSAL_TEXT:Record<string,string>={NXC01:'已暂停',NXC02:'控制已变更（需复评）',NXC03:'目标已改版',NXC04:'对象已变更',NXC05:'客户联系受限',NXC06:'人工接管中',
+  NXB01:'预算耗尽',NXB02:'预算记账冲突',NXB03:'预算未配置',NXM01:'观测冲突'};
+
+/** Owner-only audit: who did which governed human Action when, and ADR-025 member reads. IDs, kinds and times only. */
+export type AuditItem={category:'action'|'read';action:string;principal_id:string;role?:string;target_kind:string;target_ref:string|null;intent_id:string|null;occurred_at:string};
+export function humanActions(value:unknown):AuditItem[]{
+  return list(object(value).items).map(x=>{const o=object(x);if(o.category!=='action'&&o.category!=='read')throw new WorkbenchError('invalid');
+    return {category:o.category,action:text(o.action),principal_id:text(o.principal_id),...(o.role===undefined?{}:{role:text(o.role)}),target_kind:text(o.target_kind),
+      target_ref:maybeText(o.target_ref),intent_id:maybeText(o.intent_id),occurred_at:text(o.occurred_at)};});
+}
+export const readHumanActions=()=>get('/api/v1/workbench/human-actions',humanActions);

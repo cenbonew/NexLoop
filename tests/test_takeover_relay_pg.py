@@ -7,6 +7,8 @@ chain in front of them is covered by test_takeover_pg and test_workbench_actions
 """
 import json,secrets
 
+import psycopg
+import pytest
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 from local_message_assembly_fixture import assembled_message,business_plan,configured  # noqa: F401
@@ -118,6 +120,15 @@ def test_staff_reply_reaches_the_customer_and_is_read_and_extracted_as_the_enter
         with sp.connection() as db,db.transaction():
             read=db.execute('select authz.nexloop_read_object(%s,%s,%s,%s)',(ss.token_digest,'real',envelope['text'],envelope['signature'])).fetchone()[0]
         assert read['properties']=={'actor':'synthetic-staff-principal','body':text}
+        # NX-029 §4.2a: while the Consumer is erasing, the 0127 actor body (staff branch, direct v0072 call) refuses too.
+        from erasure_support import ERASING,mark_erasing,withdraw
+        erasing=admin.execute('select consumer_id from runtime.nexloop_conversations where conversation_id=%s',(conversation,)).fetchone()[0]
+        mark_erasing(admin,tenant,erasing)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING),sp.connection() as db,db.transaction():
+            db.execute('select authz.nexloop_read_object(%s,%s,%s,%s)',(ss.token_digest,'real',envelope['text'],envelope['signature']))
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING),admin.transaction():
+            admin.execute('select authz.nexloop_assert_derived_message_read_actor_body_v0080(%s,%s,%s)',(ss.token_digest,'real',Jsonb(json.loads(envelope['text']))))
+        withdraw(admin,tenant,erasing)
         # Extraction: the staff message is the enterprise side (speaker agent), its promise a commitment Claim.
         ids=[r[0] for r in admin.execute('select message_id from runtime.nexloop_conversation_messages where tenant_id=%s and conversation_id=%s order by sequence',(tenant,conversation)).fetchall()]
         session,_=seed_multi_authority(admin,sp,source_targets(conversation,ids),identity_suffix='-nx028-staff-extractor',tenant=tenant)

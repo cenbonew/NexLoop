@@ -18,7 +18,9 @@ from nexloop_eios.commercial import CostReadPort
 from test_context_v6_pg import v6,owner,request_snapshot
 from test_context_artifacts import context_message,source_declarations
 from local_message_assembly_fixture import assembled_message,business_plan,configured
-from commercial_fixture import TENANT,commercial_env,published_action
+from commercial_fixture import TENANT,commercial_env,published_action,publish_registry_actions
+from test_browser_identity_reads import identity  # noqa: F401
+from test_browser_session_creation import uow  # noqa: F401
 
 OK={'call_sequence':1,'result_status':'succeeded','usage':{'input':120,'output':30,'cache_read':0,'cache_write':0,'total':150},'cost':'0.00012000','response_digest':'b'*64}
 
@@ -167,30 +169,50 @@ def test_channel_rate_comes_only_from_a_versioned_configured_rate(commercial_env
     assert rate('nexloop.service.request',2) is None and rate('nexloop.bad.rate',1) is None
 
 
-def test_service_and_labour_costs_entered_by_the_owner_are_corrected_by_supersession(commercial_env,admin):
-    """Governed-entry handler (NX-028 registry signature); the registry row follows once 0150 is merged."""
+def test_service_and_labour_costs_entered_by_the_owner_through_the_governed_entry(commercial_env,admin,identity,uow):
+    """cost.record on the governed entry registry (0140): the owner enters and corrects by supersession; services are refused."""
     import json
-    env=commercial_env;now=datetime.now(UTC).replace(microsecond=0)
+    from nexloop_eios.goal_controls import GoalGovernedActions
+    from goal_fixture import authenticate_human,seed_human_owner,seed_service
+    from nexloop_eios.authorization import authenticate_service
+    env=commercial_env;now=datetime.now(UTC).replace(microsecond=0);pool=env['api_pool']
+    publish_registry_actions(admin,('nexloop.cost.record',))
     env.metric('service-cost',source_kind='cost_entry',kinds=(),statuses=(),cost_kinds=('service','labour'))
     env.kr('g-service','service-cost',(now-timedelta(days=1),now+timedelta(days=1)))
-    record=lambda intent,body:admin.execute("select control.nexloop_cost_record_handler(%s,'real','human-principal','consumer',%s,%s::jsonb)",
-        (TENANT,intent,json.dumps(body))).fetchone()[0]
-    first={'request_id':'r1','cost_kind':'service','amount':'50000','currency':'CNY','amount_unit':'minor','occurred_at':now.isoformat()}
-    assert record('intent-1',first)=={'entry_id':'manual:intent-1','replayed':False,'corrects_entry_id':None}
-    assert record('intent-1',first)['replayed'] is True                                        # same intent, same body
-    with pytest.raises(psycopg.errors.UniqueViolation):record('intent-1',dict(first,amount='1'))
+    service_token=seed_service(admin,pool,['nexloop.cost.record'],suffix='-cost-service')
+    browser=seed_human_owner(admin,pool,['nexloop.cost.record'],identity,uow)
+    human=authenticate_human(pool,browser);principal=human.authentication.subject_principal_id
+    owner=GoalGovernedActions(pool,human,env['signer'])
+    record=lambda request_id,**kw:owner.record_cost(action_name='nexloop.cost.record',action_version=1,request_id=request_id,
+        **{'cost_kind':'service','amount':'50000','currency':'CNY','amount_unit':'minor','occurred_at':now,**kw})
+    first=record('cost-1')
+    assert first['entry_id']=='manual:cost-1' and first['replayed'] is False and first['operation']=='record_cost'
+    assert record('cost-1')['replayed'] is True                                                     # the entry replays the terminal outcome
     assert Decimal(env.compute('g-service')['value'])==50000
-    fix=dict(first,request_id='r2',amount='45000',corrects_entry_id='manual:intent-1')
-    assert record('intent-2',fix)['corrects_entry_id']=='manual:intent-1'
+    assert record('cost-2',amount='45000',corrects_entry_id='manual:cost-1')['corrects_entry_id']=='manual:cost-1'
     kr=env.compute('g-service');assert Decimal(kr['value'])==45000 and kr['corrections_applied']==1
     port=CostReadPort(env['worker'],env.session(),env['signer'])
     assert port.summary()==[{'cost_kind':'service','data_mode':'real','currency':'CNY','amount_unit':'minor','amount':'45000.00000000','entries':1,'units':'1'}]
     assert [(e['entry_id'],e['superseded'],e['corrects_entry_id']) for e in port.entries(cost_kind='service')]==[
-        ('manual:intent-1',True,None),('manual:intent-2',False,'manual:intent-1')]
-    assert admin.execute("select basis,recorded_by from runtime.nexloop_cost_entries where entry_id='manual:intent-2'").fetchone()==('operator_entered','human-principal')
-    for bad in (dict(first,cost_kind='model'),dict(first,amount='1.5'),dict(first,amount='-1'),dict(first,currency='cny'),dict(first,extra=1),
-                dict(first,occurred_at=(now+timedelta(days=1)).isoformat()),dict(first,corrects_entry_id='manual:intent-1'),   # already corrected
-                dict(first,cost_kind='labour',corrects_entry_id='manual:intent-2'),dict(first,units='0')):
-        with pytest.raises(psycopg.errors.InvalidParameterValue):record('intent-bad',bad)
+        ('manual:cost-1',True,None),('manual:cost-2',False,'manual:cost-1')]
+    assert admin.execute("select basis,recorded_by from runtime.nexloop_cost_entries where entry_id='manual:cost-2'").fetchone()==('operator_entered',principal)
+    # Through the entry the handler still refuses what it refuses (a second correction of the same entry, a minor fraction).
+    for request_id,kw in (('cost-bad-1',{'corrects_entry_id':'manual:cost-1'}),('cost-bad-2',{'amount':'1.5'})):
+        with pytest.raises(Exception):record(request_id,**kw)
+    with pytest.raises(ValueError):record('cost-bad-3',cost_kind='model')                           # refused before any call
+    assert admin.execute("select count(*) from runtime.nexloop_cost_entries where entry_id like 'manual:cost-bad%'").fetchone()==(0,)
+    # A service holding the very same grant is refused by the entry (human only), and writes nothing.
+    service=GoalGovernedActions(pool,authenticate_service(pool,service_token,world='real'),env['signer'])
+    with pytest.raises(Exception,match='human goal authority required'):
+        service.record_cost(action_name='nexloop.cost.record',action_version=1,request_id='cost-svc',cost_kind='service',amount='1',currency='CNY',
+            amount_unit='minor',occurred_at=now)
+    assert admin.execute("select count(*) from runtime.nexloop_cost_entries where entry_id='manual:cost-svc'").fetchone()==(0,)
+    # The handler's own body checks (the entry adds 'operation' and 'request_id'; the adapter drops 'operation' only).
+    direct=lambda body:admin.execute("select control.nexloop_governed_cost_record(%s,'real','human-principal','human','intent-direct',%s::jsonb)",
+        (TENANT,json.dumps(body))).fetchone()[0]
+    base={'operation':'record_cost','request_id':'intent-direct','cost_kind':'service','amount':'1','currency':'CNY','amount_unit':'minor','occurred_at':now.isoformat()}
+    for bad in (dict(base,amount='-1'),dict(base,currency='cny'),dict(base,extra=1),dict(base,occurred_at=(now+timedelta(days=1)).isoformat()),dict(base,units='0')):
+        with pytest.raises(psycopg.errors.InvalidParameterValue):direct(bad)
     for role in ('nexloop_api','nexloop_domain_worker','nexloop_configurator'):
-        assert admin.execute("select has_function_privilege(%s,'control.nexloop_cost_record_handler(text,text,text,text,text,jsonb)','execute')",(role,)).fetchone()==(False,)
+        for f in ('control.nexloop_cost_record_handler','control.nexloop_governed_cost_record'):
+            assert admin.execute("select has_function_privilege(%s,%s,'execute')",(role,f+'(text,text,text,text,text,jsonb)')).fetchone()==(False,)

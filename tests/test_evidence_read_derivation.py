@@ -166,3 +166,22 @@ def test_relationship_reader_message_envelope_through_derivation(context_message
     admin.execute("update authz.nexloop_authority_facts set payload=%s where tenant_id=%s and fact_kind='message_read_rule' and entity_key=%s", (Jsonb(rule), tenant, [principal]))
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         admin.execute('select authz.nexloop_relationship_message_read(%s,%s,%s,%s)', (source._session.token_digest, 'real', mid, Jsonb(envelope)))
+
+
+def test_erasing_consumer_refuses_the_conversation_window_and_its_consumer_read(window, admin):
+    """NX-029 §4.2a: 0086 calls v0072 directly for the Consumer READ of a Conversation read; it refuses while erasing."""
+    from erasure_support import ERASING, mark_erasing, withdraw
+    from nexloop_eios.object_reads import AuthorizedObjectReader
+    fixture, conversation_id, ids = window
+    extractor = claim_extractor(fixture, admin, conversation_id); consumer = consumer_of(admin, conversation_id)
+    reader = AuthorizedObjectReader(fixture['reader'].pool, extractor.session, fixture['reader'].signer)
+    (claims,) = reader.authorities([(ResourceType.OBJECT, 'Conversation/' + conversation_id)])
+    assert claims['derivation'] == 'accepted-message-v1'
+    direct = lambda: admin.execute('select authz.nexloop_assert_derived_consumer_read(%s,%s,%s,%s)',
+        (extractor.session.token_digest, 'real', Jsonb(claims), consumer)).fetchone()
+    direct()
+    registered(extractor, conversation_id, ids)
+    mark_erasing(admin, 'synthetic-a', consumer)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match=ERASING), admin.transaction():direct()
+    with pytest.raises(Exception):extractor.load_window(conversation_id=conversation_id, message_ids=ids)
+    withdraw(admin, 'synthetic-a', consumer); direct()

@@ -19,11 +19,22 @@ export function validateAdmissionConfiguration(maximum:unknown,waitMs:unknown){
   return {maximum:limit as number,waitMs:wait as number};
 }
 
+/** NX-030 M09: process-level counters of this Host's gates (numbers only), read by the authenticated loopback
+ * metrics endpoint and recorded by the runtime worker; never a Run id, a command or any request content. */
+const gates=new Set<RunAdmissionGate>();
+const counters={admitted:0,admissionTimeouts:0};
+export function admissionMetrics(){
+  let active=0,waiting=0,maximum=0;
+  for(const gate of gates){active+=gate.activeRuns;waiting+=gate.waiting;maximum+=gate.maximum;}
+  return {available:gates.size>0,active_runs:active,waiting,max_active_runs:maximum,runs_started:counters.admitted,admission_timeouts:counters.admissionTimeouts};
+}
+
 export class RunAdmissionGate{
   private readonly active=new Set<string>();
   private readonly queue:Waiter[]=[];
   constructor(readonly maximum:number,readonly waitMs:number,private readonly now:()=>number=Date.now){
     validateAdmissionConfiguration(maximum,waitMs);
+    gates.add(this);
   }
   get activeRuns(){return this.active.size;}
   get waiting(){return this.queue.length;}
@@ -32,17 +43,17 @@ export class RunAdmissionGate{
     if(this.active.has(runId))return Promise.resolve(undefined);
     if(this.active.size<this.maximum&&this.queue.length===0)return Promise.resolve(this.take(runId));
     const remaining=Math.min(this.now()+this.waitMs,notAfter)-this.now();
-    if(remaining<=0)return Promise.reject(new RuntimeError('runtime_capacity_exhausted'));
+    if(remaining<=0){counters.admissionTimeouts++;return Promise.reject(new RuntimeError('runtime_capacity_exhausted'));}
     return new Promise((resolve,reject)=>{
       const waiter:Waiter={runId,resolve,timer:setTimeout(()=>{
         const index=this.queue.indexOf(waiter);if(index>=0)this.queue.splice(index,1);
-        reject(new RuntimeError('runtime_capacity_exhausted'));
+        counters.admissionTimeouts++;reject(new RuntimeError('runtime_capacity_exhausted'));
       },remaining)};
       this.queue.push(waiter);
     });
   }
   private take(runId:string):RunSlot{
-    this.active.add(runId);let released=false;
+    this.active.add(runId);counters.admitted++;let released=false;
     return {release:()=>{if(released)return;released=true;this.active.delete(runId);this.drain();}};
   }
   private drain(){

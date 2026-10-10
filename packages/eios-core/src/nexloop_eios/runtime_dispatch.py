@@ -198,6 +198,13 @@ class RuntimeDispatcher:
         result={'scope':'runtime_only','business_action_success':False,'runtime_outcome':outcome}
         if command is not None:result['run_id']=command.get('run_id')
         if receipt is not None:result['runtime_receipt']=receipt
+        if receipt is not None and command is not None:
+            # NX-031 D6: the Run's summed tool time (guard-side, numbers only) in the terminal result; best effort.
+            try:
+                with self.worker._backend._pool.connection() as db,db.transaction():
+                    result['tool_timing']=db.execute('select authz.nexloop_run_tool_timing(%s::text,%s::text,%s::uuid)',
+                        (self.worker._session.token_digest,self.worker._session.world,command['run_id'])).fetchone()[0]
+            except Exception:pass
         if code is not None:result['code']=code
         try:
             self.worker.assert_task_lease(queue=self.queue,task_id=task_id,fence=fence)

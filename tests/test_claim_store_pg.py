@@ -252,7 +252,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
     assert migrations and all(any(tag in name for tag in ('_nx019_','_nx020_','_nx023_','_nx044_','_nx045_','_nx046_','_nx050_','_nx025_plan_context_','_nx025_reply_fallback_',
         # ADR-025 (NX-028 0145) only looks up which evidence Messages a pending review depends on, so a reviewer may read exactly
         # those Messages; no Claim value is read or projected.
-        '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order','_nx028_staff_reply','_nx028_workbench_member_read')) for name in migrations)
+        # NX-029 0141 (D2) only blanks the quote of a Claim whose source message text expired; 0142 blanks the quotes of an erased
+        # Message and erases an erased Consumer's Claims. No Claim value is read or projected.
+        '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order','_nx028_staff_reply','_nx028_workbench_member_read',
+        '_nx029_retention','_nx029_erasure')) for name in migrations)
 
 
 def correction_window(conversations):

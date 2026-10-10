@@ -104,9 +104,9 @@ def check_http_container():
 def main():
     parser=argparse.ArgumentParser(description='Community test bootstrap/PG-Artifact diagnostic jobs')
     parser.add_argument('job',choices=['bootstrap','check-test','api-test','check-http-test','cache-bootstrap','host-bootstrap','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder',
-        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder'])
+        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator'])
     args=parser.parse_args()
-    if args.job in ('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder'):
+    if args.job in ('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator'):
         # Long-running restricted background services (opt-in compose profile "background"). Their private
         # files are provisioned by trusted configuration (service-grants), never here; optional files are
         # passed only when present.
@@ -120,8 +120,10 @@ def main():
                 ('--settings-file','plan-reevaluation.json'),('--api-database-url-file','api_database_url'),('--source-credential-file','source_credential'),
                 ('--planner-credential-file','planner_credential'),('--queue-credential-file','queue_credential'),('--executor-credential-file','executor_credential'),
                 ('--policy-file','reply-guarantee.json'),('--recipe-file','relay-recipe.json'),('--route-credential-file','route_credential'),
-                ('--settings-file','commitments.json'),('--settings-file','commercial.json')):
+                ('--settings-file','commitments.json'),('--settings-file','commercial.json'),
+                ('--host-key-file','host_internal_key'),('--host-ca-file','host_ca.pem')):
             if (root/name).exists():argv+=[option,str(root/name)]
+        if (root/'host_port').exists():argv+=['--host-port',read_private_text(root/'host_port',maximum=8).strip()]
         if (root/'effect_action').exists():argv+=['--effect-action',read_private_text(root/'effect_action',maximum=256).strip()]
         return main_for(args.job,argv)
     if args.job=='outbound-recorder':

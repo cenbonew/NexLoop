@@ -1,0 +1,14 @@
+{
+  "schema": "nexloop-retention/1",
+  "version": 1,
+  "decision": "NX-029 slice 1 (design docs/implementation/NX-029-design.md §3, owner decisions D1–D7 'all as recommended' 2026-10-10, dispatcher D8/D9): tenant-level retention (D9) for the classes the retention keeper executes in slice 1. Product defaults, not legal periods (03:96, 13:31); enterprises adjust by a new version. A derived class never outlives its source (prompt text, Claim quotes and job inputs follow the message text). Financial records and cost entries use financial_retention_days of the commercial settings (NX-027 D6), not a second value here. Expired message text, Claim quotes, prompt text and job inputs are redacted in place (rows, digests and order stay); commercial receipts, metric observations, commercial records and cost entries are deleted; every pass leaves a tombstone without content.",
+  "classes": {
+    "message_text": {"days": 90, "source": null},
+    "claim_quote": {"days": 90, "source": "message_text"},
+    "prompt_text": {"days": 30, "source": "message_text"},
+    "job_input": {"days": 30, "source": "message_text"},
+    "commercial_receipt": {"days": 90, "source": null},
+    "metric_observation": {"days": 365, "source": null}
+  },
+  "sweep": {"batch": 200, "max_passes": 20, "interval_seconds": 3600}
+}

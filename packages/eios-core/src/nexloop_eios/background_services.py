@@ -14,6 +14,10 @@
 ``nexloop-commercial-recorder``       (nexloop_domain_worker) commercial-record feed → governed CommercialRecord create /
                                        derived edits, metric observations, plan marking, commitment evidence (NX-027);
                                        --world real or test (a test connector only writes the test world)
+``nexloop-retention-keeper``          (nexloop_domain_worker) due retention classes → bounded SQL sweep passes (redaction /
+                                       deletion with tombstones, NX-029); no table privilege, no content
+``nexloop-alert-evaluator``          (nexloop_domain_worker) alert rules on the metrics snapshot → deduplicated alert state/events
+                                       (NX-030; world real only), sample rollup and retention
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -42,6 +46,8 @@ SERVICES={
     'reply-guarantor':('Reply Guarantor','nexloop_domain_worker'),
     'commitment-keeper':('Commitment Keeper','nexloop_domain_worker'),
     'commercial-recorder':('Commercial Recorder','nexloop_domain_worker'),
+    'retention-keeper':('Retention Keeper','nexloop_domain_worker'),
+    'alert-evaluator':('Alert Evaluator','nexloop_domain_worker'),
 }
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
@@ -78,6 +84,9 @@ def _parser(service):
         parser.add_argument('--effect-action',required=True)
     if service in ('commitment-keeper','commercial-recorder'):
         parser.add_argument('--settings-file',type=Path,required=True)
+    if service=='retention-keeper':
+        # NX-029 D8: the Agent Host's loopback runs/purge (all three or none; without them Run files stay queued).
+        parser.add_argument('--host-port',type=int);parser.add_argument('--host-key-file',type=Path);parser.add_argument('--host-ca-file',type=Path)
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         parser.add_argument('--recipe-file',type=Path,required=True)
@@ -154,6 +163,13 @@ class LazyModelProvider:
 
 
 def _tick(service,arguments,pool,session,signer,launcher=None):
+    if service=='retention-keeper':
+        from nexloop_eios.retention import RetentionKeeper
+        return RetentionKeeper(pool,session,signer,**(launcher or {})).run_once()
+    if service=='alert-evaluator':
+        # NX-030: alert rules on the SQL metrics snapshot (world real only, D6); also rolls up and expires process samples (D5).
+        from nexloop_eios.observability import AlertEvaluator
+        return AlertEvaluator(pool,session,signer).run_once()
     if service=='commercial-recorder':
         from nexloop_eios.commercial import CommercialRecorder,load_settings
         return CommercialRecorder(pool,session,signer,settings=load_settings(arguments.settings_file)).run_once()
@@ -218,6 +234,12 @@ def run(service,arguments,stop):
         with backend._pool.connection() as connection:
             if verify_application_role(connection)!=role:raise ValueError('restricted service role required')
         launcher=_launcher(stack,arguments) if service=='plan-reevaluator' else _reply_launcher(stack,arguments) if service=='reply-guarantor' else None
+        if service=='retention-keeper':
+            from nexloop_eios.retention import HostPurger
+            host_args=(arguments.host_port,arguments.host_key_file,arguments.host_ca_file)
+            if any(a is not None for a in host_args) and not all(a is not None for a in host_args):raise ValueError('host purge configuration')
+            launcher={'artifact_store':backend._store,
+                'host':HostPurger(port=arguments.host_port,key_file=arguments.host_key_file,ca_file=arguments.host_ca_file) if all(a is not None for a in host_args) else None}
         def services():
             # Re-read the credential and re-authenticate every tick: revocation applies at once.
             current=backend.authenticate(read_private_text(arguments.service_credential_file,maximum=16384),world=arguments.world)
@@ -277,6 +299,9 @@ def _reply_launcher(stack,arguments):
 
 
 def main_for(service,argv=None):
+    # NX-030 / AT-049: every log record leaves this process as one allowlisted structured line (IDs, codes, durations only).
+    from nexloop_eios.structured_log import configure as _structured_logging
+    _structured_logging(service)
     arguments=_arguments(service,argv);stop=threading.Event();previous={}
     logger=logging.getLogger('psycopg.pool');disabled=logger.disabled;logger.disabled=True
     def terminate(signum,frame):stop.set()
@@ -298,6 +323,8 @@ def plan_reevaluator(argv=None):return main_for('plan-reevaluator',argv)
 def reply_guarantor(argv=None):return main_for('reply-guarantor',argv)
 def commitment_keeper(argv=None):return main_for('commitment-keeper',argv)
 def commercial_recorder(argv=None):return main_for('commercial-recorder',argv)
+def retention_keeper(argv=None):return main_for('retention-keeper',argv)
+def alert_evaluator(argv=None):return main_for('alert-evaluator',argv)
 
 
 if __name__=='__main__':

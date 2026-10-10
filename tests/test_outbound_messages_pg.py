@@ -283,6 +283,16 @@ def test_agent_reply_persisted_delivered_materialized_extracted_and_read(assembl
             with sp.connection() as db,db.transaction():
                 return db.execute('select authz.nexloop_read_object(%s,%s,%s,%s)',(session.token_digest,world,value['text'],value['signature'])).fetchone()[0]
         assert read(envelope)['properties']=={'actor':agent_message['actor'],'body':REPLY}
+        # NX-029 §4.2a: while the Consumer is erasing, the 0127 actor body (outbound branch, direct v0072 call) refuses too.
+        from erasure_support import ERASING,mark_erasing,withdraw
+        from psycopg.types.json import Jsonb
+        erasing=admin.execute('select consumer_id from runtime.nexloop_conversations where conversation_id=%s',(conversation_id,)).fetchone()[0]
+        mark_erasing(admin,c['tenant'],erasing)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING):read(envelope)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING),admin.transaction():
+            admin.execute('select authz.nexloop_assert_derived_message_read_actor_body_v0080(%s,%s,%s)',(ss.token_digest,'real',Jsonb(json.loads(envelope['text']))))
+        withdraw(admin,c['tenant'],erasing)
+        assert read(envelope)['properties']['body']==REPLY
         # (12) Negative derivations: other world, forged Consumer, principal without rule, other tenant.
         with pytest.raises(psycopg.errors.InsufficientPrivilege):read(envelope,world='shadow')
         forged=json.loads(envelope['text']);forged['derivation_basis']['consumer_id']='f'*64;text=canonical_payload(forged)

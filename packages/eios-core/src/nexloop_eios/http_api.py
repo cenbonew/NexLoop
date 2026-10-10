@@ -192,6 +192,9 @@ def create_app(config:ApiConfiguration):
 
 
 def main():
+    # NX-030 / AT-049: every log record leaves this process as one allowlisted structured line (IDs, codes, durations only).
+    from nexloop_eios.structured_log import configure as _structured_logging
+    _structured_logging('api')
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--database-url-file',type=Path,required=True);p.add_argument('--signing-key-file',type=Path,required=True)
     p.add_argument('--artifact-root',type=Path,required=True);p.add_argument('--signing-key-id',required=True)
@@ -240,7 +243,7 @@ def main():
     import uvicorn
     # Foundation console is localhost-only; no accidental LAN/plaintext login.
     uvicorn.run(create_app(ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,execution_profile=a.execution_profile,cache_wakeup=cache,workbench=workbench)),
-        host='127.0.0.1',port=a.port,access_log=False,log_level='warning',**tls)
+        host='127.0.0.1',port=a.port,access_log=False,log_level='warning',log_config=__import__('nexloop_eios.structured_log',fromlist=['x']).uvicorn_log_config('api'),**tls)
     return 0
 
 

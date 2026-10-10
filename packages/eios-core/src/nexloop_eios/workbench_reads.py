@@ -23,7 +23,7 @@ WORKBENCH_READ = 'nexloop.workbench.read'
 COMMITMENT_READ = 'nexloop.commitment.read'
 CONTACT_READ = 'nexloop.contact.read'
 VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKBENCH_READ, 'conversation': WORKBENCH_READ,
-         'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ,
+         'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -104,6 +104,27 @@ class WorkbenchReader:
         except psycopg.errors.InsufficientPrivilege:
             raise WorkbenchForbidden('consumer fields') from None
 
+    def observe(self, verb, **payload):
+        """NX-030 (D7): metrics, alerts and the human-action audit through their own function (0151); 0117 unchanged."""
+        from nexloop_eios.assembly import verify_application_role
+        from nexloop_eios.context_engine.authority import action_claims
+        try:
+            claims = action_claims(self.pool, self.session, WORKBENCH_READ)
+        except Exception as error:
+            if _denied(error):
+                raise WorkbenchForbidden(verb) from None
+            raise
+        body = canonical_payload({'verb': verb, **payload})
+        claims = {**claims, 'protocol': 'nexloop-workbench-observe-v1', 'key_id': self.signer.key_id, 'parameters_digest': hashlib.sha256(body.encode()).hexdigest()}
+        text = canonical_payload(claims)
+        signature = hmac.new(self.signer.material, ('nexloop-workbench-observe-v1:' + text).encode(), 'sha256').hexdigest()
+        try:
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                return db.execute('select authz.nexloop_workbench_observe_read(%s,%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature, body)).fetchone()[0]
+        except psycopg.errors.InsufficientPrivilege:
+            raise WorkbenchForbidden(verb) from None
+
     def audit(self, *, limit=100, before=None):
         """ADR-025 §2.3: the read audit, owner only (SQL refuses everyone else)."""
         from nexloop_eios.assembly import verify_application_role
@@ -176,10 +197,16 @@ class WorkbenchQueries:
         def unavailable():
             raise LookupError('not in this slice')
 
+        def backlog():
+            # NX-030 M06/M07: queues, work feeds and the extraction feed from the SQL metrics snapshot.
+            m = r.observe('metrics')
+            return {'queues': m['queues'], 'feeds': m['feeds'], 'extraction': m['extraction']}
+
         return {'goals': _section(goals), 'commitments': _section(commitments), 'actions': _section(actions),
                 'contact': _section(contact), 'takeovers': _section(takeovers),
-                # Work-feed backlog and commercial/cost summaries (NX-027) are not served by slice 1.
-                'backlog': _section(unavailable), 'commercial': _section(unavailable)}
+                'backlog': _section(backlog),
+                # Commercial/cost summaries (NX-027) are not served here yet.
+                'commercial': _section(unavailable)}
 
     def goals(self, *, limit=50):
         return self.reader.call('goals', limit=limit)
@@ -226,6 +253,10 @@ class WorkbenchQueries:
 
     def takeovers(self):
         return self.reader.call('takeovers')
+
+    def me(self):
+        # NX-028 page integration (0160): role and role Actions, for showing only the controls the role carries.
+        return self.reader.call('me')
 
     def settings(self):
         return self.reader.call('settings')
@@ -302,3 +333,13 @@ class WorkbenchQueries:
                              'content': {'status': 'ok', 'body': content.get('body')} if content is not None else {'status': 'restricted'}})
         return {'candidate_id': candidate_id, 'status': 'pending_review', 'kind': detail['kind'],
                 'display_name': (detail.get('candidate') or {}).get('proposed', {}).get('display_name'), 'evidence': evidence}
+
+    # NX-030: metrics snapshot, alerts (world real only, D6) and the owner's human-action audit.
+    def metrics(self):
+        return self.reader.observe('metrics')
+
+    def alerts(self, *, limit=100):
+        return self.reader.observe('alerts', limit=limit)
+
+    def human_actions(self, *, limit=100):
+        return self.reader.observe('human_actions', limit=limit)

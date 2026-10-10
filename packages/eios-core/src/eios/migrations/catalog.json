@@ -635,6 +635,36 @@
       "version": "0127",
       "name": "0127_nx028_staff_reply.sql",
       "sha256": "25f1bb687a7761cbc46b23edc5214030d7227405e0563cd0f6ebb753e04aceba"
+    },
+    {
+      "version": "0128",
+      "name": "0128_nx027_governed_registry.sql",
+      "sha256": "30d7c49b9d04a38edd15889a9c117cd026e94c96687683a6f948b12ab0612c08"
+    },
+    {
+      "version": "0129",
+      "name": "0129_nx029_retention.sql",
+      "sha256": "90144dc82ae1ef1b5ccaae1a80d28b440a508e98cd8df64be88024d31bed728c"
+    },
+    {
+      "version": "0130",
+      "name": "0130_nx028_workbench_ui_reads.sql",
+      "sha256": "383c64694d52ec7d0a53b4415ac909482c18fc0a9e6f853afadbde3e79136524"
+    },
+    {
+      "version": "0131",
+      "name": "0131_nx030_observability.sql",
+      "sha256": "69b4e181d9371de6050104d658a90b02fd074d554d0287a6e5fa3f2fcbaafe75"
+    },
+    {
+      "version": "0132",
+      "name": "0132_nx029_erasure.sql",
+      "sha256": "2ddecf964655250c9ba2d6cae5566307144cd4a2093822a228b00bbdbe3e9e2c"
+    },
+    {
+      "version": "0133",
+      "name": "0133_nx030_ui.sql",
+      "sha256": "c7188a4ec91c085e814d65c0440b3c50c439e83a59580e33c3364b4ccc2298ab"
     }
   ]
 }

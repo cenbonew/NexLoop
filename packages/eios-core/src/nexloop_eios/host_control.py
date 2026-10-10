@@ -65,3 +65,32 @@ def probe_host(config: HostControlConfiguration):
     except Exception:
         pass
     return report
+
+
+HOST_METRICS = ('available', 'active_runs', 'waiting', 'max_active_runs', 'runs_started', 'admission_timeouts')
+
+
+def read_host_metrics(config: HostControlConfiguration):
+    """NX-030 M09: the Host's concurrency counters (GET /internal/v1/metrics, loopback + control key). Numbers only;
+    anything else (extra keys, text, oversize) is rejected as unavailable (None)."""
+    try:
+        key = read_private_text(config.key_file, maximum=64)
+        if not re.fullmatch('[0-9a-f]{64}', key):
+            return None
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=read_private_text(config.ca_file, maximum=32768))
+        opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPSHandler(context=context))
+        request = Request(config.origin + '/internal/v1/metrics', headers={'Authorization': 'Bearer ' + key}, method='GET')
+        with opener.open(request, timeout=1) as response:
+            raw = response.read(4097)
+            if response.code != 200 or len(raw) > 4096:
+                return None
+        value = json.loads(raw)
+        host = value.get('host') if type(value) is dict and set(value) == {'host'} else None
+        if type(host) is not dict or not set(host) <= set(HOST_METRICS) or 'available' not in host:
+            return None
+        if any(type(v) is not (bool if k == 'available' else int) for k, v in host.items()):
+            return None
+        return host
+    except Exception:
+        return None

@@ -281,7 +281,20 @@ class EffectExecutionPort:
                     action_claim_revision=claim.claim_revision,action_fencing_token=claim.fencing_token)
             # Commit has completed before these trusted frozen parameters escape.
             return {key:result[key] for key in ('parameters','provider_payload_digest')}
-        except Exception:raise EffectExecutionUnavailable() from None
+        except Exception as error:
+            # NX-030 D8: a refused admission rolled back; the refusal itself is recorded in its own transaction. Same outcome.
+            self._record_refusal(intent_id,error)
+            raise EffectExecutionUnavailable() from None
+
+    def _record_refusal(self,intent_id,error):
+        from nexloop_eios.goal_controls import ControlDenied,REASONS
+        code=next((c for c,r in REASONS.items() if isinstance(error,ControlDenied) and r==error.reason),None)
+        if code is None and isinstance(error,psycopg.Error) and re.fullmatch(r'NX[CBM][0-9]{2}',str(getattr(error,'sqlstate','') or '')):code=error.sqlstate
+        if code is None:return
+        try:
+            with self.pool.connection() as db,db.transaction():
+                db.execute('select authz.nexloop_record_effect_refusal(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),code))
+        except Exception:pass  # best effort: never turns a refusal into anything else
 
     def record_effect_unknown(self,*,intent_id,fence):
         try:

@@ -328,6 +328,44 @@ services:
     labels:
       nexloop.purpose: disposable-community-test
 
+  retention-keeper:
+    # NX-029 opt-in (profile "background"): needs trusted-configuration material in background_config/retention-keeper
+    # (keeper credential and restricted DSN, signer); not provisioned by the disposable test profile.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [retention-keeper]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
+  alert-evaluator:
+    # NX-030 opt-in (profile "background"): needs trusted-configuration material in background_config/alert-evaluator
+    # (alert_evaluator credential and restricted DSN, signer); alert rules are trusted configuration; not provisioned by the disposable test profile.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [alert-evaluator]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
   api-test:
     image: ${BACKEND_IMAGE:?locally built tested image required}
     user: '10001:10001'
