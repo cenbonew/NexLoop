@@ -33,7 +33,7 @@ def v6_pack():
 def test_v6_is_parsed_as_data_with_the_frozen_v2_core_validated(tmp_path):
     command,pack=v6_pack()
     out=json.loads(run_parser(tmp_path,command,pack))
-    assert out=={'body':pack['user_statement']['body'],'run_id':command['run_id']}
+    assert out=={'body':pack['user_statement']['body'],'run_id':command['run_id'],'plans':[]}  # NX-025: plans in open work (none here)
 
 
 def _set(path,value):
