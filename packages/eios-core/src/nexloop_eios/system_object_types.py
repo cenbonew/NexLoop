@@ -20,8 +20,8 @@ class SystemObjectTypesRejected(ValueError):
     pass
 
 
-def validate(value):
-    if type(value) is not dict or set(value)!=TOP or value['schema_version']!=SCHEMA or type(value['manifest_version']) is not int or value['manifest_version']<1:
+def validate(value,*,schema=SCHEMA):
+    if type(value) is not dict or set(value)!=TOP or value['schema_version']!=schema or type(value['manifest_version']) is not int or value['manifest_version']<1:
         raise SystemObjectTypesRejected('manifest shape')
     if type(value['object_types']) is not list or not value['object_types']:raise SystemObjectTypesRejected('object_types')
     seen=set();out=[]
@@ -40,10 +40,10 @@ def validate(value):
     return out
 
 
-def load(path):
-    return validate(json.loads(Path(path).read_text()))
+def load(path,*,schema=SCHEMA):
+    return validate(json.loads(Path(path).read_text()),schema=schema)
 
 
-def trusted_object_types(path):
+def trusted_object_types(path,*,schema=SCHEMA):
     """Rows for the trusted-configuration manifest ``object_types`` list."""
-    return [definition.model_dump(mode='json') for definition in load(path)]
+    return [definition.model_dump(mode='json') for definition in load(path,schema=schema)]

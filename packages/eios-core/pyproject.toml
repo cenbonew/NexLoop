@@ -33,6 +33,7 @@ nexloop-claim-extraction-worker = "nexloop_eios.background_services:claim_extrac
 nexloop-claim-matcher = "nexloop_eios.background_services:claim_matcher"
 nexloop-plan-reevaluator = "nexloop_eios.background_services:plan_reevaluator"
 nexloop-reply-guarantor = "nexloop_eios.background_services:reply_guarantor"
+nexloop-commitment-keeper = "nexloop_eios.background_services:commitment_keeper"
 nexloop-recall-indexer = "nexloop_eios.background_services:recall_indexer"
 
 [tool.hatch.build.targets.wheel]

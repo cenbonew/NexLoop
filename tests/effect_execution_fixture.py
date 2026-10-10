@@ -26,8 +26,14 @@ from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
 from generic_offering_fixture import install_generic_catalog
 
+# Optional indirect parameter: 'commitment-service' publishes the effect Action as a non-message service delivery that
+# may name the commitment it fulfils (NX-026) and carries an optional customer notification parameter.
+SERVICE_SCHEMAS={'commitment-service':{'type':'object','properties':{'service':{'type':'string','minLength':1},'notice':{'type':'string'},
+    'message':{'type':'string'},'commitment_ref':{'type':'string','minLength':1}},'required':['service'],'additionalProperties':False}}
+
+
 @pytest.fixture
-def execution_plan(admin,pg,tmp_path):
+def execution_plan(admin,pg,tmp_path,request):
     bootstrap(admin)
     assert admin.execute("select to_regclass('control.nexloop_effect_control_ledger')").fetchone()[0]
     tenant='synthetic-a';material=secrets.token_bytes(32);key=tmp_path/'key';key.write_bytes(material);key.chmod(0o600)
@@ -51,6 +57,7 @@ def execution_plan(admin,pg,tmp_path):
         if name in (CONFIGURE,BIND):body['input_schema']=registrar_schema('configure' if name==CONFIGURE else 'bind')
         if name==EFFECT:body['governance']['change_scope']['target_systems']=['service']
         if name==EFFECT:body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
+        if name==EFFECT and getattr(request,'param',None) in SERVICE_SCHEMAS:body['input_schema']=copy.deepcopy(SERVICE_SCHEMAS[request.param])
         if name=='nexloop.service.receipt_reconcile':
             body['governance']['change_scope']['target_systems']=['service']
             body['governance']['idempotency']['key_fields']=['intent_id']
@@ -72,7 +79,7 @@ def execution_plan(admin,pg,tmp_path):
         expiry=(datetime.now(UTC)+timedelta(minutes=3)).isoformat()
         consumer=create(owner,'Consumer','real-plan-consumer',{})
         control=create(owner,'EffectControl','real-plan-control',{'consumer_id':consumer,'owner_principal':owner_session.authentication.subject_principal_id,
-            'executor_principal':executor_session.authentication.subject_principal_id,'budget_units':1,'allow_effect':True,'valid_until':expiry})
+            'executor_principal':executor_session.authentication.subject_principal_id,'budget_units':8 if getattr(request,'param',None) in SERVICE_SCHEMAS else 1,'allow_effect':True,'valid_until':expiry})
         goal=create(planner,'Goal','real-plan-goal',{'consumer_id':consumer,'state':'active','valid_until':expiry})
         _,goal_editor_token=seed_multi_authority(admin,backend._pool,[
             ('eios:action:Goal.edit:1',ResourceType.ACTION,Operation.EXECUTE),

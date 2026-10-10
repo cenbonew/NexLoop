@@ -27,9 +27,15 @@ def consumer_type():
         properties=(PropertyDefinition(property_name='display_name',value_type=PropertyValueType.STRING),))
 
 
+COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'commitment.extend','Commitment.attest':'commitment.attest',
+    'Commitment.condition_met':'commitment.condition_met','Commitment.mark_communication':'commitment.mark_communication'}
+
+
 def object_types():
+    from nexloop_eios import business_object_types
     return ([s.model_dump(mode='json') for s in conversation_schemas()]+[context_strategy_object_type().model_dump(mode='json'),
-        context_manifest_object_type().model_dump(mode='json'),consumer_type().model_dump(mode='json')])
+        context_manifest_object_type().model_dump(mode='json'),consumer_type().model_dump(mode='json')]
+        +business_object_types.trusted_object_types(ROOT/'deploy/ontology/business-object-types.v1.json'))
 
 
 def test_manifest_declares_service_create_and_human_owner_strategy_publication():
@@ -46,9 +52,15 @@ def test_manifest_declares_service_create_and_human_owner_strategy_publication()
 def test_compiles_both_profiles_with_explicit_snapshots():
     rows=BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
-            PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY)})
+            PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
+            **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()}})
     names={r['definition']['stable_name']:r for r in rows}
-    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION}
+    assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN}
+    # NX-026: the keeper's create/edit and five human-owner commitment Actions, all on Commitment v1.
+    by={a['stable_name']:a for a in MANIFEST['actions']}
+    assert by['Commitment.create']['executor_role']==by['Commitment.edit']['executor_role']=='commitment_keeper'
+    assert all(by[n]['authority']=='human_owner' and by[n]['capability_name']==c for n,c in COMMITMENT_HUMAN.items())
+    assert all([t['stable_name'] for t in names[n]['definition']['object_types']]==['Commitment'] for n in ('Commitment.create','Commitment.edit',*COMMITMENT_HUMAN))
     edit=names['Consumer.edit']
     assert edit['capability']['capability_name']=='ontology.object.edit' and edit['definition']['governance']['risk_level']=='low'
     assert [t['stable_name'] for t in edit['definition']['object_types']]==['Consumer']

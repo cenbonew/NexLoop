@@ -1,0 +1,14 @@
+{
+  "schema_version": "nexloop-action-effect-categories/1",
+  "manifest_version": 1,
+  "decision": "ADR-023 §3 (owner decision 2026-10-10, NX-026 D6; dispatcher confirmation 2026-10-10 that this side table is how an Action definition declares its effect category): a contact restriction stops only effects that reach the customer. Each effect Action declares customer_contact or non_contact_service; a non-contact Action lists the input parameters that carry a customer notification (an intent with any of them non-empty is refused while the customer is restricted: send the notification as a reply bound to an inbound message instead). Applied by trusted configuration only (nexloop_configurator) and frozen by the digest of the tenant's published definition; an Action without a row for its current digest is treated as customer_contact.",
+  "actions": [
+    {
+      "stable_name": "nexloop.service.request",
+      "version": 1,
+      "category": "customer_contact",
+      "notification_parameters": [],
+      "purpose": "The Agent reply / outbound message channel (NX-047): every request reaches the customer."
+    }
+  ]
+}

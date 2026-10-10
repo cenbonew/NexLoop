@@ -1,0 +1,15 @@
+{
+  "id": "1111111111111111111111111111111111111111111111111111111111111111",
+  "conversation_id": "2222222222222222222222222222222222222222222222222222222222222222",
+  "sequence": 3,
+  "actor": "synthetic-agent-principal",
+  "body": "好的，我会在明天下午前给你处理进展。",
+  "accepted_at": "2026-10-10T08:00:03Z",
+  "status": "accepted",
+  "direction": "outbound",
+  "sender_kind": "agent",
+  "intent_id": "5f0c8c8e-3b1a-4c6d-9e2f-1a2b3c4d5e6f",
+  "trigger_message_id": "3333333333333333333333333333333333333333333333333333333333333333",
+  "reply_to_message_id": "3333333333333333333333333333333333333333333333333333333333333333",
+  "provider": {"namespace": "nexloop.agent", "message_ref": "synthetic-delivery-1", "sequence": null, "sent_at": "2026-10-10T08:00:02Z", "trust": "server", "skewed": false}
+}

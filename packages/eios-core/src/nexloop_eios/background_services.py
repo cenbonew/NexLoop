@@ -8,6 +8,8 @@
                                        (Role issuance and activation through a second, nexloop_api backend)
 ``nexloop-reply-guarantor``            (nexloop_domain_worker) reply-due feed → settled / one fallback reply Run / escalation
                                        (fallback issuance with the consumer's message relay identities on a nexloop_api backend)
+``nexloop-commitment-keeper``         (nexloop_domain_worker) commitment-register / commitment-monitor feeds → governed
+                                       Commitment create / ledger-derived transitions, due stages, plan marking, exceptions
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -34,6 +36,7 @@ SERVICES={
     'recall-indexer':('Recall Indexer','nexloop_domain_worker'),
     'plan-reevaluator':('Plan Reevaluator','nexloop_domain_worker'),
     'reply-guarantor':('Reply Guarantor','nexloop_domain_worker'),
+    'commitment-keeper':('Commitment Keeper','nexloop_domain_worker'),
 }
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
@@ -68,6 +71,8 @@ def _parser(service):
         parser.add_argument('--settings-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         for name in LAUNCH_CREDENTIALS:parser.add_argument(f'--{name}-credential-file',type=Path,required=True)
         parser.add_argument('--effect-action',required=True)
+    if service=='commitment-keeper':
+        parser.add_argument('--settings-file',type=Path,required=True)
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         parser.add_argument('--recipe-file',type=Path,required=True)
@@ -144,6 +149,9 @@ class LazyModelProvider:
 
 
 def _tick(service,arguments,pool,session,signer,launcher=None):
+    if service=='commitment-keeper':
+        from nexloop_eios.commitments import CommitmentKeeper,load_settings
+        return CommitmentKeeper(pool,session,signer,settings=load_settings(arguments.settings_file)).run_once()
     if service=='reply-guarantor':
         from nexloop_eios.contact_restrictions import ReplyGuaranteeWorker,load_reply_policy
         return ReplyGuaranteeWorker(pool,session,signer,policy=load_reply_policy(arguments.policy_file),launcher=launcher).run_once()
@@ -186,6 +194,9 @@ def run(service,arguments,stop):
     read_private_text(arguments.service_credential_file,maximum=16384)
     if service=='recall-indexer':load_types(arguments.types_file)
     if service=='claim-matcher':load_match_configuration(arguments.match_config_file)
+    if service=='commitment-keeper':
+        from nexloop_eios.commitments import load_settings
+        load_settings(arguments.settings_file)
     with ExitStack() as stack:
         backend=stack.enter_context(open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
             signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id))
@@ -270,6 +281,7 @@ def claim_matcher(argv=None):return main_for('claim-matcher',argv)
 def recall_indexer(argv=None):return main_for('recall-indexer',argv)
 def plan_reevaluator(argv=None):return main_for('plan-reevaluator',argv)
 def reply_guarantor(argv=None):return main_for('reply-guarantor',argv)
+def commitment_keeper(argv=None):return main_for('commitment-keeper',argv)
 
 
 if __name__=='__main__':

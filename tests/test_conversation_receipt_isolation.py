@@ -14,7 +14,9 @@ def test_two_real_humans_read_own_messages_not_other_consumer_receipt(two_browse
     assert f['humans'][0]['membership'].principal_id!=f['humans'][1]['membership'].principal_id and f['consumers'][0]!=f['consumers'][1]
     for index,client in enumerate(clients):
         own=client.get('/api/v1/conversations/'+conversations[index]['id']+'/messages')
-        assert own.status_code==200 and own.json()['items']==[messages[index]]
+        # NX-051 read projection: server-default provider facts, no reply link.
+        projection={'reply_to_message_id':None,'provider':{'namespace':'nexloop.api','message_ref':None,'sequence':None,'sent_at':None,'trust':'server','skewed':False}}
+        assert own.status_code==200 and own.json()['items']==[{**messages[index],**projection}]
         result=client.get(receipt_path(messages[index]));assert result.status_code==200
         assert result.json()=={'message_id':messages[index]['id'],'run':None,'receipt':None}
     f['bridge'].bind_message(message_id=messages[0]['id'],run_token=f['run'].token,command=f['command'])

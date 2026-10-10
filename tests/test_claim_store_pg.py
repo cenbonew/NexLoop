@@ -244,8 +244,13 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
     assert readers==[]
     migrations=[path.name for path in (root/'eios/migrations').glob('*.sql') if 'nexloop_claims' in path.read_text()]
     # NX-025 0108 replaces the 0094 v6 item verifier and section check (plan items added) and 0110 the 0099 v6 copy-read dependency
-    # (fallback-aware binding lookup); their Claim rules are copied unchanged.
-    assert migrations and all(any(tag in name for tag in ('_nx019_','_nx020_','_nx023_','_nx044_','_nx045_','_nx046_','_nx050_','_nx025_plan_context_','_nx025_reply_fallback_')) for name in migrations)
+    # (fallback-aware binding lookup); their Claim rules are copied unchanged. NX-026 0111 registers enterprise commitment Claims
+    # (speaker=agent, delivered outbound source) as governed Commitments: it reads only those Claims and sets them resolved, never
+    # a formal value from a Claim; 0113 copies the 0108 v6 verifier with commitment items added (Claim rules unchanged).
+    # NX-051 wraps the 0069 recorder so a correction's target order is the effective (signed-channel or receipt) order; its
+    # correction link is copied unchanged.
+    assert migrations and all(any(tag in name for tag in ('_nx019_','_nx020_','_nx023_','_nx044_','_nx045_','_nx046_','_nx050_','_nx025_plan_context_','_nx025_reply_fallback_',
+        '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order')) for name in migrations)
 
 
 def correction_window(conversations):

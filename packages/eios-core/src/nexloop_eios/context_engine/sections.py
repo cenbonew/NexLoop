@@ -75,6 +75,10 @@ def open_work_items(open_work,*,decision):
         # Current active version only, re-derived by SQL at bind; pinned (a reevaluation Run reads its plan).
         out.append(Item('open_work','plan','nexloop:plan:'+plan['plan_id']+'@'+str(plan['version']),str(plan['version']),plan['content'],'policy',decision,
             relevance=1.0,at=plan['created_at']))
+    for commitment in open_work.get('commitments',()):
+        # NX-026: live commitments made to this Consumer, current revision, re-derived by SQL at bind; pinned.
+        out.append(Item('open_work','commitment','eios:object:Commitment/'+commitment['commitment_id'],str(commitment['revision']),commitment['content'],
+            'formal_object',decision,relevance=1.0,at=commitment['registered_at']))
     return assert_partition(out)
 
 

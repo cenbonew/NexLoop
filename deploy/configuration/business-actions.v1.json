@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-business-actions/1",
-  "manifest_version": 4,
-  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant.",
+  "manifest_version": 5,
+  "decision": "ADR-020 §3 (scheduler decision 2026-10-09): Action definitions NexLoop itself needs are published at deployment through trusted configuration (0050), compiled from this versioned declaration; never constructed ad hoc and never written to definition tables directly. Human-owner Actions (authority human_owner) are granted to the owner's human principal, never to service principals. v4 (dispatcher ruling 2026-10-10, NX-050): the service ontology.object.edit Capability profile, declared through Consumer.edit:1 (executed by claim_matcher, whose grant is already in service-grants). Review-approved new types reuse the tenant's published ontology.object.create / ontology.object.edit snapshots for their <Type>.create / <Type>.edit (0101); a capability definition, not a grant. v5 (NX-026): Commitment.create / Commitment.edit, executed by commitment_keeper (the edit is constrained in SQL to the transition derived from the evidence ledger, 0111), and five human-owner commitment Actions (cancel, extend, attest, condition met, mark as communication commitment) through the NX-022 governed entry; SQL refuses services and Agents even with a grant.",
   "actions": [
     {
       "stable_name": "Consumer.edit",
@@ -90,6 +90,160 @@
       "executor_role": "human_owner",
       "purpose": "Read one model-call Manifest (sources, versions, request digest). Humans only (owner / audit role, owner decision 2026-10-09); SQL refuses services, Agents and Run credentials even with a grant; never in service-grants (NX-023).",
       "source_task": "NX-023"
+    },
+    {
+      "stable_name": "Commitment.create",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Commitment",
+        "version": 1
+      },
+      "capability_name": "ontology.object.create",
+      "authority": "service",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "commitment_keeper",
+      "purpose": "Create the Commitment object of an enterprise commitment Claim from a delivered outbound Message (or a human extension); SQL accepts only the properties prepared from that evidence (0111).",
+      "source_task": "NX-026"
+    },
+    {
+      "stable_name": "Commitment.edit",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Commitment",
+        "version": 1
+      },
+      "capability_name": "ontology.object.edit",
+      "authority": "service",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "commitment_keeper",
+      "purpose": "Apply the status transition SQL derives from the evidence ledger (in progress, fulfilled, breached, cancelled, communication basis); any other edit is refused (0111).",
+      "source_task": "NX-026"
+    },
+    {
+      "stable_name": "Commitment.cancel",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Commitment",
+        "version": 1
+      },
+      "capability_name": "commitment.cancel",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Cancel an open, conditional or in-progress commitment with a reason (never a breached one). Human owner only; SQL refuses services, Agents and Run credentials even with a grant (NX-026).",
+      "source_task": "NX-026"
+    },
+    {
+      "stable_name": "Commitment.extend",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Commitment",
+        "version": 1
+      },
+      "capability_name": "commitment.extend",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Governed extension: a new Commitment with the new due date supersedes the old one; the old one is kept. Human owner only; SQL refuses services, Agents and Run credentials even with a grant (NX-026).",
+      "source_task": "NX-026"
+    },
+    {
+      "stable_name": "Commitment.attest",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Commitment",
+        "version": 1
+      },
+      "capability_name": "commitment.attest",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Human attestation of fulfilment (qualifying evidence) with a reason and the time it happened. Human owner only; SQL refuses services, Agents and Run credentials even with a grant (NX-026).",
+      "source_task": "NX-026"
+    },
+    {
+      "stable_name": "Commitment.condition_met",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Commitment",
+        "version": 1
+      },
+      "capability_name": "commitment.condition_met",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Record that the condition of a conditional commitment is met (v0.1: humans only, D4). Human owner only; SQL refuses services, Agents and Run credentials even with a grant (NX-026).",
+      "source_task": "NX-026"
+    },
+    {
+      "stable_name": "Commitment.mark_communication",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Commitment",
+        "version": 1
+      },
+      "capability_name": "commitment.mark_communication",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "Mark one commitment as a communication commitment: delivered messages bound to it afterwards are qualifying evidence (D3). Human owner only; SQL refuses services, Agents and Run credentials even with a grant (NX-026).",
+      "source_task": "NX-026"
     }
   ]
 }

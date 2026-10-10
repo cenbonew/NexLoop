@@ -410,6 +410,15 @@ class ContextPackV6InsufficientItem(BaseModel):
     section: None | str
     refs: list[str]
 
+class ConversationMessageProvider1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    namespace: str
+    message_ref: None | str
+    sequence: None | int
+    sent_at: None | str
+    trust: Literal['server', 'signed', 'client']
+    skewed: bool
+
 class OntologyMutationOperationsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     op: Literal['create_object', 'set_property', 'invalidate_property', 'link_relation', 'end_relation', 'supersede_claim']
@@ -586,6 +595,22 @@ class ContextPackV6(_Contract):
     experience: list[ContextPackV6ExperienceItem]
     budget_report: ContextPackV6BudgetReport
     insufficient: list[ContextPackV6InsufficientItem]
+
+class ConversationMessage(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:conversation-message","title":"conversation-message","description":"NX-051 (AT-014). The read projection of one conversation Message, as the conversation read API returns it. `sequence` and `accepted_at` are this system\'s receipt order and time (assigned at commit, never rewritten). `provider` is the channel\'s own order, time and reference as evidence (trust: server = produced here, signed = a verified signed channel, client = what the browser client stated; client values never order anything and are never a time anchor). `reply_to_message_id` is the resolved reply target in the same conversation: for an Agent reply it mirrors the server-derived trigger_message_id; for an inbound message it is the reference the channel carried, once resolved (null while pending, for another conversation, or none). Server-derived; grants nothing.","type":"object","additionalProperties":false,"properties":{"id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"sequence":{"type":"integer","minimum":1},"actor":{"type":"string","minLength":1,"maxLength":512},"body":{"type":"string","minLength":1,"maxLength":8192},"accepted_at":{"type":"string","minLength":1,"maxLength":64,"description":"This system\'s acceptance time as stored with the Message (PostgreSQL timestamptz text)."},"status":{"const":"accepted"},"direction":{"const":"outbound"},"sender_kind":{"const":"agent"},"intent_id":{"type":"string","format":"uuid"},"trigger_message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"reply_to_message_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"provider":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"namespace":{"type":"string","pattern":"^[a-z][a-z0-9.-]{1,63}$"},"message_ref":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":256}]},"sequence":{"anyOf":[{"type":"null"},{"type":"integer","minimum":1,"maximum":9007199254740991}]},"sent_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time"}]},"trust":{"enum":["server","signed","client"]},"skewed":{"type":"boolean"}},"required":["namespace","message_ref","sequence","sent_at","trust","skewed"]}]}},"required":["id","conversation_id","sequence","actor","body","accepted_at","status"],"allOf":[{"if":{"required":["direction"]},"then":{"required":["sender_kind","intent_id","trigger_message_id"]}}]}')
+    id: str
+    conversation_id: str
+    sequence: int
+    actor: str
+    body: str
+    accepted_at: str
+    status: Literal['accepted']
+    direction: Literal['outbound'] | None = None
+    sender_kind: Literal['agent'] | None = None
+    intent_id: str | None = None
+    trigger_message_id: str | None = None
+    reply_to_message_id: None | str | None = None
+    provider: None | ConversationMessageProvider1 | None = None
 
 class EventEnvelope(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:event-envelope","title":"event-envelope","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"event_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"event_type":{"type":"string","pattern":"^[a-z][a-z0-9_.]+$"},"source":{"type":"string","minLength":1},"source_event_id":{"type":"string","minLength":1},"occurred_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"recorded_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"subject_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"correlation_id":{"type":"string","format":"uuid"},"causation_id":{"anyOf":[{"type":"string","format":"uuid"},{"type":"null"}]},"payload":{"type":"object"}},"required":["schema_version","event_id","tenant_id","world_id","mode","event_type","source","source_event_id","occurred_at","recorded_at","subject_ref","correlation_id","causation_id","payload"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')

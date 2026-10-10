@@ -47,6 +47,10 @@ def test_manifest_validation(change):
 def test_every_business_action_object_type_is_published_or_a_system_type():
     published={(s.type_name,s.version) for s in conversation_schemas()}  # governed conversation types (0046)
     system={(t.type_name,t.version) for t in SOT.load(PATH)}
+    # NX-026 D1: core business types published from their own manifest; service principals write them through governed Actions.
+    from nexloop_eios import business_object_types
+    business={(t.type_name,t.version) for t in business_object_types.load(ROOT/'deploy/ontology/business-object-types.v1.json')}
+    assert not business&system
     # The deployment's core business type: its v1 Schema comes from the owner's trusted manifest, and the service
     # grant manifest already names the Action (claim_matcher holds Consumer.edit:1). Only that exact Action may bind it.
     core={('Consumer',1)}
@@ -55,7 +59,7 @@ def test_every_business_action_object_type_is_published_or_a_system_type():
         ref=(action['object_type']['stable_name'],action['object_type']['version'])
         if ref in core:
             assert f"eios:action:{action['stable_name']}:{action['version']}" in granted,action['stable_name'];continue
-        assert ref in published|system,action['stable_name']
+        assert ref in published|system|business,action['stable_name']
     # System types are configuration metadata: never a service grant target.
     assert not any(t in g['resource_id'] for t,_ in system for g in GRANTS['grants'])
 
