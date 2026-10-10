@@ -34,7 +34,8 @@ OLD=datetime.now(UTC)-timedelta(days=400)
 def kept(commitments,admin,pg,tmp_path):
     c=commitments
     with open_core(make_conninfo(pg,user='nexloop_api')) as api,commercial_setup(admin,pg,tmp_path,api_pool=api,signer=c['signer']) as env:
-        _,token=seed_multi_authority(admin,env['worker'],[('eios:action:nexloop.retention.execute:1',ResourceType.ACTION,Operation.EXECUTE)],
+        _,token=seed_multi_authority(admin,env['worker'],[('eios:action:nexloop.retention.execute:1',ResourceType.ACTION,Operation.EXECUTE),
+            ('eios:action:nexloop.erasure.execute:1',ResourceType.ACTION,Operation.EXECUTE)],
             identity_suffix='-retention-keeper',tenant=TENANT)
         env.connector();env.link('cust-1',c['consumer'])
         c['keeper_session']=lambda:authenticate_service(env['worker'],token,world='real')
@@ -125,7 +126,7 @@ def test_keeper_redacts_expired_text_deletes_expired_records_and_leaves_tombston
         request_id,normalized_input,plan_snapshot,status,created_at,updated_at,world,queue) values(%s,'inv-1','nexloop.run','1','runtime','async',%s,'a','t','r',%s,'{}',
         'succeeded',%s,%s,'real','operations')''',(job,TENANT,Jsonb({'input':'三个月前的输入','run_command':{'run_id':'00000000-0000-0000-0000-000000000001'}}),OLD,OLD))
     first=keeper(c,env).run_once()
-    assert first['classes']==7 and first['incomplete']==0 and first['processed']>=4
+    assert first['classes']==7 and first['incomplete']==0 and first['processed']>=4 and first['erasure_steps']==0
     # Message text: the old body is gone everywhere it was kept; order, ids and digests stay; the new one is untouched.
     rec=lambda m:admin.execute('select record,payload_digest from runtime.nexloop_conversation_messages where message_id=%s',(m['message_id'],)).fetchone()
     old_rec,old_digest=rec(old_msg)
@@ -151,7 +152,7 @@ def test_keeper_redacts_expired_text_deletes_expired_records_and_leaves_tombston
     text=json.dumps(admin.execute('select jsonb_agg(t) from runtime.nexloop_erasure_tombstones t').fetchone()[0],ensure_ascii=False)
     assert '三个月前' not in text and 'pay-old' not in text and 'cust-1' not in text and '10000' not in text
     # Idempotent: nothing is due again within the interval; a forced second pass finds nothing.
-    assert keeper(c,env).run_once()=={'classes':0,'passes':0,'processed':0,'incomplete':0}
+    assert {k:v for k,v in keeper(c,env).run_once().items() if v}=={}
     again=retention.RetentionPort(env['worker'],c['keeper_session'](),env['signer']).sweep('message_text','sweep:00000000-0000-0000-0000-000000000000')
     assert again['processed']==0 and again['more'] is False
     status=retention.RetentionPort(env['worker'],c['keeper_session'](),env['signer']).status()

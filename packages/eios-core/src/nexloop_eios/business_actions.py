@@ -29,6 +29,8 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'plan.request_reevaluation':'human_owner','service.query_request':'human_owner',
     # NX-027 on the 0124 registry (0140): commitment commercial binding and operator-entered costs.
     'commitment.bind_commercial':'human_owner','cost.record':'human_owner',
+    # NX-029 slice 2 (0142): erasure and retention holds, human owner only.
+    'consumer.erase':'human_owner','message.erase':'human_owner','retention.hold':'human_owner','retention.release_hold':'human_owner',
     'conversation.takeover':'human_owner','conversation.handback':'human_owner','message.staff_send':'human_owner',
     # NX-027: the human owner's read of commercial observations, costs and key results (0134).
     'commercial.observe':'human_owner'}

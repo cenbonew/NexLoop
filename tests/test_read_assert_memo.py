@@ -446,3 +446,17 @@ def test_concurrent_revocation_never_serves_a_stale_allow(memo):
           f'assertions={statements*6} allowed={allowed} hits={hits} violations={len(violations)}')
     assert len(revocations) >= 200 and statements >= 200 and stale_statements >= 50 and hits > 0 and allowed > 0
     assert violations == [], violations[:5]
+
+
+def test_erasing_consumer_refuses_the_public_entry_and_the_inner_v0072(memo):
+    """NX-029 §4.2a: a configured Consumer READ is refused while erasing at the public entry and at v0072 itself."""
+    import psycopg
+    from erasure_support import ERASING, mark_erasing, withdraw
+    admin=memo['admin']
+    call=lambda function:admin.execute(f'select {function}(%s,%s,%s)',(memo['session'].token_digest,'real',Jsonb(memo['claims']()))).fetchone()[0]
+    with admin.transaction():assert call('authz.nexloop_assert_read_authority')
+    mark_erasing(admin,'synthetic-a',memo['object_id'])
+    for function in ('authz.nexloop_assert_read_authority','authz.nexloop_assert_read_authority_before_message_read_v0072'):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING),admin.transaction():call(function)
+    withdraw(admin,'synthetic-a',memo['object_id'])
+    with admin.transaction():assert call('authz.nexloop_assert_read_authority')

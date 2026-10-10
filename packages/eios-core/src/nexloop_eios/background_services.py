@@ -84,6 +84,9 @@ def _parser(service):
         parser.add_argument('--effect-action',required=True)
     if service in ('commitment-keeper','commercial-recorder'):
         parser.add_argument('--settings-file',type=Path,required=True)
+    if service=='retention-keeper':
+        # NX-029 D8: the Agent Host's loopback runs/purge (all three or none; without them Run files stay queued).
+        parser.add_argument('--host-port',type=int);parser.add_argument('--host-key-file',type=Path);parser.add_argument('--host-ca-file',type=Path)
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         parser.add_argument('--recipe-file',type=Path,required=True)
@@ -162,7 +165,7 @@ class LazyModelProvider:
 def _tick(service,arguments,pool,session,signer,launcher=None):
     if service=='retention-keeper':
         from nexloop_eios.retention import RetentionKeeper
-        return RetentionKeeper(pool,session,signer).run_once()
+        return RetentionKeeper(pool,session,signer,**(launcher or {})).run_once()
     if service=='alert-evaluator':
         # NX-030: alert rules on the SQL metrics snapshot (world real only, D6); also rolls up and expires process samples (D5).
         from nexloop_eios.observability import AlertEvaluator
@@ -231,6 +234,12 @@ def run(service,arguments,stop):
         with backend._pool.connection() as connection:
             if verify_application_role(connection)!=role:raise ValueError('restricted service role required')
         launcher=_launcher(stack,arguments) if service=='plan-reevaluator' else _reply_launcher(stack,arguments) if service=='reply-guarantor' else None
+        if service=='retention-keeper':
+            from nexloop_eios.retention import HostPurger
+            host_args=(arguments.host_port,arguments.host_key_file,arguments.host_ca_file)
+            if any(a is not None for a in host_args) and not all(a is not None for a in host_args):raise ValueError('host purge configuration')
+            launcher={'artifact_store':backend._store,
+                'host':HostPurger(port=arguments.host_port,key_file=arguments.host_key_file,ca_file=arguments.host_ca_file) if all(a is not None for a in host_args) else None}
         def services():
             # Re-read the credential and re-authenticate every tick: revocation applies at once.
             current=backend.authenticate(read_private_text(arguments.service_credential_file,maximum=16384),world=arguments.world)

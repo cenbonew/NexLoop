@@ -40,7 +40,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-028 ruling B (0153): a staff reply written during the author's own takeover.
     'send_staff_reply':'message.staff_send',
     # NX-027 on the registry (0140): commitment commercial binding and operator-entered costs, human only.
-    'bind_commitment_commercial':'commitment.bind_commercial','record_cost':'cost.record'}
+    'bind_commitment_commercial':'commitment.bind_commercial','record_cost':'cost.record',
+    # NX-029 slice 2 (0142): erasure and retention holds, human owner only.
+    'erase_consumer':'consumer.erase','erase_message':'message.erase','hold_retention':'retention.hold','release_retention_hold':'retention.release_hold'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -250,6 +252,28 @@ class GoalGovernedActions:
         if consumer_id is not None:payload['consumer_id']=str(consumer_id)
         if corrects_entry_id is not None:payload['corrects_entry_id']=str(corrects_entry_id)
         return self._submit(action_name,action_version,payload)
+
+    # NX-029 (0142): erase a Consumer (blocking at once, purge by the keeper) or one Message; register or release a hold.
+    def erase_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_consumer','consumer_id':consumer_id,'reason':reason})
+
+    def erase_message(self,*,action_name,action_version,request_id,message_id,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(message_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('message and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_message','message_id':message_id,'reason':reason})
+
+    def hold_retention(self,*,action_name,action_version,request_id,scope_kind,scope_ref,basis,valid_until=None):
+        if scope_kind not in ('consumer','item_class') or type(scope_ref) is not str or type(basis) is not str or not 1<=len(basis)<=1000:
+            raise ValueError('hold scope and basis required')
+        payload={'request_id':request_id,'operation':'hold_retention','scope_kind':scope_kind,'scope_ref':scope_ref,'basis':basis}
+        if valid_until is not None:payload['valid_until']=_utc(valid_until)
+        return self._submit(action_name,action_version,payload)
+
+    def release_retention_hold(self,*,action_name,action_version,request_id,hold_id,reason):
+        if type(hold_id) is not str or not hold_id or type(reason) is not str or not 1<=len(reason)<=500:raise ValueError('hold and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_retention_hold','hold_id':hold_id,'reason':reason})
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)

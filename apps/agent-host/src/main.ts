@@ -46,7 +46,9 @@ async function serve() {
     if (request.method==='GET' && request.url==='/health/live') { respond(response,200,{alive:true}); return; }
     const runtimeOperation=runtime&&request.method==='POST'?/^\/internal\/v1\/runs\/(start|resume|inspect|cancel)$/.exec(request.url??'')?.[1]:undefined;
     const metrics=request.method==='GET' && request.url==='/internal/v1/metrics';
-    if (!runtimeOperation && !metrics && (request.method!=='GET' || request.url!=='/internal/v1/health/ready')) {request.resume();error(response,404);return;}
+    // NX-029 D8: the retention keeper's purge of one settled Run directory (same loopback and internal key).
+    const purgeOperation=runtime&&request.method==='POST'&&request.url==='/internal/v1/runs/purge';
+    if (!runtimeOperation && !metrics && !purgeOperation && (request.method!=='GET' || request.url!=='/internal/v1/health/ready')) {request.resume();error(response,404);return;}
     try {
       if (!ownerHealthy()) { error(response,503);return; }
       const key=readKey(), header=request.headers.authorization;
@@ -54,6 +56,11 @@ async function serve() {
           || !timingSafeEqual(key,Buffer.from(header.slice(7),'hex'))) {error(response,401);return;}
       // NX-030 M09: concurrency counters only (numbers), same loopback + key as every internal route.
       if(metrics){respond(response,200,{host:runtime?admissionMetrics():{available:false}});return;}
+      if(purgeOperation){
+        try{respond(response,200,await runtime!.purge(await runtimeModule!.readRuntimeBody(request)));}
+        catch(cause){const code=(cause as {code?:string}).code??'dependency_unavailable';const status=code==='runtime_run_active'?409:code.startsWith('invalid_')?400:503;respond(response,status,{code,message:'Resource unavailable',trace_id:randomUUID(),retryable:status!==400,details:{}});}
+        return;
+      }
       if(runtimeOperation){
         try{const result=await runtime!.dispatch(runtimeOperation,await runtimeModule!.readRuntimeBody(request));respond(response,runtimeOperation==='start'||runtimeOperation==='resume'?202:200,result);}
         catch(cause){const code=(cause as {code?:string}).code??'dependency_unavailable';const status=code==='runtime_request_conflict'?409:code==='runtime_request_too_large'?413:code.startsWith('invalid_')?400:503;respond(response,status,{code,message:'Resource unavailable',trace_id:randomUUID(),retryable:status===503,details:{}});}

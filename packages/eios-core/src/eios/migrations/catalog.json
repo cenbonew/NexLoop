@@ -655,6 +655,11 @@
       "version": "0131",
       "name": "0131_nx030_observability.sql",
       "sha256": "69b4e181d9371de6050104d658a90b02fd074d554d0287a6e5fa3f2fcbaafe75"
+    },
+    {
+      "version": "0132",
+      "name": "0132_nx029_erasure.sql",
+      "sha256": "2ddecf964655250c9ba2d6cae5566307144cd4a2093822a228b00bbdbe3e9e2c"
     }
   ]
 }

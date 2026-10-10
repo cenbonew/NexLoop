@@ -120,8 +120,10 @@ def main():
                 ('--settings-file','plan-reevaluation.json'),('--api-database-url-file','api_database_url'),('--source-credential-file','source_credential'),
                 ('--planner-credential-file','planner_credential'),('--queue-credential-file','queue_credential'),('--executor-credential-file','executor_credential'),
                 ('--policy-file','reply-guarantee.json'),('--recipe-file','relay-recipe.json'),('--route-credential-file','route_credential'),
-                ('--settings-file','commitments.json'),('--settings-file','commercial.json')):
+                ('--settings-file','commitments.json'),('--settings-file','commercial.json'),
+                ('--host-key-file','host_internal_key'),('--host-ca-file','host_ca.pem')):
             if (root/name).exists():argv+=[option,str(root/name)]
+        if (root/'host_port').exists():argv+=['--host-port',read_private_text(root/'host_port',maximum=8).strip()]
         if (root/'effect_action').exists():argv+=['--effect-action',read_private_text(root/'effect_action',maximum=256).strip()]
         return main_for(args.job,argv)
     if args.job=='outbound-recorder':

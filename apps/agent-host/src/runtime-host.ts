@@ -238,5 +238,12 @@ export class RuntimeHost{
       return await this.adapter.cancel(command);
     }finally{this.pending--;slot?.release();}
   }
+  /** NX-029 D8: purge one settled Run's directory; body {run_id} only. */
+  async purge(body:Record<string,unknown>){
+    if(Object.keys(body).join(',')!=='run_id'||typeof body.run_id!=='string')throw new RuntimeError('invalid_runtime_request');
+    const runId=body.run_id.toLowerCase(),outcome=await this.adapter.purge(runId);
+    this.activations.delete(runId);
+    return {run_id:runId,outcome};
+  }
   async close(){await this.adapter.close();}
 }

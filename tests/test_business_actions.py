@@ -35,6 +35,8 @@ COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'c
 
 
 NX027_REGISTRY={'nexloop.commitment.bind_commercial':'commitment.bind_commercial','nexloop.cost.record':'cost.record'}
+NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
+    'nexloop.retention.release_hold':'retention.release_hold'}
 
 
 def object_types():
@@ -60,10 +62,12 @@ def test_compiles_both_profiles_with_explicit_snapshots():
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
             **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()},'commercial.observe':capability('commercial.observe'),
-            **{cap:capability(cap) for cap in NX027_REGISTRY.values()}})
+            **{cap:capability(cap) for cap in NX027_REGISTRY.values()},**{cap:capability(cap) for cap in NX029_ERASURE.values()}})
     names={r['definition']['stable_name']:r for r in rows}
     assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,*REQUESTS,
-        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe',*NX027_REGISTRY}
+        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe',*NX027_REGISTRY,*NX029_ERASURE}
+    # NX-029 (0142): human owner only, typed on Consumer v1.
+    assert all(a['authority']=='human_owner' and a['capability_name']==NX029_ERASURE[a['stable_name']] for a in MANIFEST['actions'] if a['stable_name'] in NX029_ERASURE)
     # NX-027 on the registry (0140): human only, typed on Commitment v1 / Consumer v1.
     assert all(a['authority']=='human_owner' and a['capability_name']==NX027_REGISTRY[a['stable_name']] for a in MANIFEST['actions'] if a['stable_name'] in NX027_REGISTRY)
     assert [t['stable_name'] for t in names['nexloop.commitment.bind_commercial']['definition']['object_types']]==['Commitment']

@@ -261,3 +261,18 @@ def test_review_workbench_reports_derivation_impact_before_approve(review):
     # A service credential cannot read it (Human review read protocol only).
     from nexloop_eios.review_actions import ReviewDecisionPort
     with pytest.raises(PermissionError):ReviewDecisionPort(f['api'],current(f),f['signer'])
+
+
+def test_erasing_consumer_refuses_derived_property_access(review):
+    """NX-029 §4.2a: 0084 hands v0072 a type-level READ, so its own claims are checked on the function itself."""
+    from erasure_support import ERASING, mark_erasing, withdraw
+    f=review;admin=f['admin'];published(f,'er')
+    session=service(f);principal=session.authentication.subject_principal_id
+    rule(admin,principal);restrict(admin);session=current(f)
+    claims=proof(f,session);assert assert_edit(admin,session,claims)
+    direct=lambda op:admin.execute('select authz.nexloop_assert_derived_property_access(%s,%s,%s,%s)',(session.token_digest,'real',Jsonb(claims),op)).fetchone()
+    mark_erasing(admin,f['tenant'],f['consumer'])
+    with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING),admin.transaction():assert_edit(admin,session,claims)   # public edit entry
+    for op in ('edit','read'):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING),admin.transaction():direct(op)
+    withdraw(admin,f['tenant'],f['consumer']);assert assert_edit(admin,session,claims)

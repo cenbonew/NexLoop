@@ -9,6 +9,7 @@ import {Harness,GenerationTask,hook,ToolResultEntry,createRegistry,defineDoc,typ
 import {openNodeSqliteDatabase} from '@earendil-works/pi-durable/storage/sqlite/node';
 import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
 import {safeProviderMessage,safeProviderStream} from './runtime-provider-boundary.js';
+import {purgeRunDirectory,validRunId} from './run-purge.js';
 import {RuntimeError,validateRunCommand,type RunCommand,type RuntimeAdapter,type RuntimeReceipt,type RuntimeInspection} from './runtime-adapter.js';
 export type RuntimeOperation='start'|'resume'|'inspect'|'cancel'|'model'|'tool';
 /** Actual provider request of one model call (Context v6, AT-027). The guard recomputes
@@ -310,6 +311,18 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     const conversation=await run.harness.conversation(run.binding.conversation_id as ConversationId,BACKGROUND_CONTEXT);
     if(!conversation)throw new RuntimeError('runtime_state_missing');
     await conversation.abort(BACKGROUND_CONTEXT);return {run_id:valid.run_id,status:'cancel_requested'};
+  });}
+  /** NX-029 D8: closes a settled Run (if this process opened it) and removes its private directory. */
+  purge(runId:string):Promise<'purged'|'absent'>{return this.serial(async()=>{
+    if(!validRunId(runId))throw new RuntimeError('invalid_runtime_request');
+    const open=this.runs.get(runId);
+    if(open){
+      const settled=await Promise.race([(open.settled??Promise.resolve()).then(()=>true),new Promise<boolean>(resolve=>setTimeout(()=>resolve(false),50))]);
+      if(!settled)throw new RuntimeError('runtime_run_active');
+      if(open.timer)clearTimeout(open.timer);
+      await open.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(open.path);this.runs.delete(runId);
+    }
+    return purgeRunDirectory(this.root,runId);
   });}
   close(){return this.serial(async()=>{this.closed=true;for(const run of this.runs.values())if(run.timer)clearTimeout(run.timer);const results=await Promise.allSettled([...this.runs.values()].map(async run=>{await run.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(run.path);}));this.runs.clear();if(results.some(r=>r.status==='rejected'))throw new RuntimeError('runtime_close_failed');});}
 }
