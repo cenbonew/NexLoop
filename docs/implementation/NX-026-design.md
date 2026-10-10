@@ -196,13 +196,14 @@ conditional ───────────► open ──start──► in_pr
   - **类别声明**：business-actions 清单的每个 effect Action 新增 `effect_category ∈ {customer_contact, non_contact_service}`。非触达类还要声明 `notification_parameters`，即哪些参数是给客户的通知（例如 `message`）。
     - 声明经可信配置编译进一张旁表 `control.nexloop_action_effect_categories(action_name, action_version, definition_digest, category, notification_parameters)`。
     - 不改 EIOS `ActionDefinition` 模型，避免已发布定义的 digest 变化。旁表行和 intent 冻结的 `action_definition` 按 digest 对应；对不上就视为未声明。
+    - 这是对 ADR-023 §3“由 Action 定义中声明”的实现方式，由调度员 2026-10-10 确认。条件：旁表只能由可信配置写入；按定义摘要冻结，摘要不一致按“触达客户”处理；应用角色不能写旁表。
   - **派发判定**：用新迁移包装 0109 的 `control.nexloop_contact_assert_intent`，rename 为私有 alias，再加新 wrapper。受限 consumer 的 intent 满足以下**全部**条件时直接放行：
     1. 旁表把该 Action 声明为 `non_contact_service`，且 digest 一致；
     2. intent 没有 NX-047 外发记录；
     3. `frozen_request.parameters` 中声明的通知参数全部为空或缺省。
 
     其余情况交给 0109 原逻辑处理，即只放行绑定来信的回复，否则 NXC05。所以未声明类别、触达类、带附带通知的 intent 都会被拒。
-  - **附带通知不拆分**：一个 intent 对应一次 provider 请求，派发时无法只发服务、不发通知。带通知的服务交付整条被拒（NXC05，原因 `attached_notification`），Run 可以去掉通知后重新提交。
+  - **附带通知不拆分**：一个 intent 对应一次 provider 请求，派发时无法只发服务、不发通知。带通知的服务交付整条被拒（NXC05，原因 `attached_notification`），Run 可以去掉通知后重新提交。调度员 2026-10-10 确认，符合 ADR-023 §3“宁可多挡”。受限客户如果有待回复的来信，通知内容可以作为绑定该来信的独立回复，按 ADR-023 §2.6 发出，不得借服务交付的 intent 夹带。
 - 履约外发（触达类）在受限期间仍然被拒：只有绑定入站来信的回复放行，主动的履约外发返回 NXC05，provider 收到零请求。
 - **承诺侧的处理**：
   - 履约 intent 被拒（NXC05）时，记异常 `blocked_by_contact_restriction`，负责人可见。承诺**不自动取消**，也不改期。
@@ -316,6 +317,8 @@ ADR-023：
    - 未声明类别的 effect；
    - 旁表 digest 与 intent 冻结定义不一致的 effect；
    - 声明通知参数非空的 `non_contact_service` effect（`attached_notification`）。
+
+   - 带通知的服务 intent，即使客户刚发来来信（待回复、仍在回复时间窗内），也照样被拒（`attached_notification`）；通知内容改为绑定该来信的独立回复后可以派发。
 
    同一服务去掉通知后重新提交，可以派发。旁表不能被应用角色写入。非受限客户的派发不受这些判定影响（回归）。
 
