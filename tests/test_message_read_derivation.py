@@ -185,3 +185,26 @@ def test_run_credential_never_derives_property_access(context_message, admin):
     with pool.connection() as db, db.transaction():
         refused = db.execute("select authz.nexloop_property_access_basis(%s,'real',%s,'read')", (run_session.token_digest, target)).fetchone()[0]
     assert refused == {'mode': 'configured'}
+
+
+def test_erasing_consumer_refuses_every_derived_message_read_layer(context_message, admin):
+    """NX-029 §4.2a: the public entry and each function that calls v0072 directly refuse while the Consumer is erasing."""
+    from psycopg.types.json import Jsonb
+    from erasure_support import ERASING, mark_erasing, withdraw
+    f = context_message; tenant = f['original']['tenant']; consumer = f['f']['recipe']['consumer_id']
+    _, session, _ = parts(f); value = envelope(f); claims = json.loads(value['text'])
+    consumer_claims = json.loads(claims['derivation_basis']['consumer_read']['text'])
+    assert read(f, value)['properties']['body'] == f['message']['body']
+    direct = lambda function, c: admin.execute(f'select {function}(%s,%s,%s)', (session.token_digest, 'real', Jsonb(c))).fetchone()[0]
+    sites = ('authz.nexloop_assert_derived_message_read',                      # 0086 wrapper of every Message read
+             'authz.nexloop_assert_derived_message_read_actor_body_v0080',     # 0080 name, 0127 body
+             'authz.nexloop_assert_derived_message_read_inbound_v0077')        # 0077 body
+    for function in sites:assert direct(function, claims)
+    mark_erasing(admin, tenant, consumer)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match=ERASING):read(f, value)                  # public entry
+    for function in sites:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match=ERASING), admin.transaction():direct(function, claims)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match=ERASING), admin.transaction():          # the inner v0072
+        direct('authz.nexloop_assert_read_authority_before_message_read_v0072', consumer_claims)
+    withdraw(admin, tenant, consumer)
+    assert read(f, value)['properties']['body'] == f['message']['body']

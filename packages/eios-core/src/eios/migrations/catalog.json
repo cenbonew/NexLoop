@@ -645,6 +645,11 @@
       "version": "0141",
       "name": "0141_nx029_retention.sql",
       "sha256": "79943356b12c822ce7fcc5684fdd71b7f23caa4dd442b2898cb37b77a01ab289"
+    },
+    {
+      "version": "0142",
+      "name": "0142_nx029_erasure.sql",
+      "sha256": "2ddecf964655250c9ba2d6cae5566307144cd4a2093822a228b00bbdbe3e9e2c"
     }
   ]
 }

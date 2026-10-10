@@ -77,7 +77,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
         **{'takeover_'+k:0 for k in ('changed','dead_lettered','ended','expired','lease_lost','retry','waiting')}}),
     ('commitment-keeper',{'changed':0,'dead_lettered':0,'lease_lost':0,'reaffirmed':0,'registered':0,'retry':0,'settled':0,'skipped':0,'transitions':0}),
     ('commercial-recorder',{'changed':0,'created':0,'dead_lettered':0,'edited':0,'late':0,'lease_lost':0,'retry':0,'unchanged':0}),
-    ('retention-keeper',{'classes':7,'incomplete':0,'passes':7,'processed':0})])
+    ('retention-keeper',{'artifacts_deleted':0,'artifacts_failed':0,'classes':7,'erasure_steps':0,'incomplete':0,'passes':7,'processed':0,
+        'runs_failed':0,'runs_purged':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()
     assert B.main_for(service,argv(d,tmp_path,service))==0
