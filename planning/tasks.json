@@ -2287,6 +2287,18 @@
         "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
         "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "102d96a",
+        "summary": "Merged slices 3-4 and the erasing fast path (L3): erasing read check with a tenant-level partial index, a message_id index and a single lookup (0134; per call 13.4 -> 3.9 us locally); deletion ledger and replay after restore with doctor checks (0135, AT-059); governed export assembled at download time with the requester session, nothing stored (0136, AT-003 export part); conversation summaries erased with their messages (0137). Remaining for done: erase plan/strategy free text and other objects referencing the Consumer (RelationshipAssessment, ConsumerRoleLink), mark erased messages in WebChat history and context assembly, and timed deletion for settled Pi Run directories, closed commitments after 1 year and superseded Claim values after 1 year (D2), each with tests (AT-026).",
+        "recorded_at": "2026-10-11T05:13:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T202717Z-567671294a30",
+        "summary": "Full CI for 5676712 (integration-s4m): 2782 passed / 12 failed, all within baseline; NX-049 serial deadline phase 2/2 (v4 72.1 s). Merged as 102d96a.",
+        "recorded_at": "2026-10-11T05:13:00+08:00"
       }
     ]
   },
@@ -2314,6 +2326,12 @@
         "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
         "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "102d96a",
+        "summary": "D6 tool timing write reuses the service session already authenticated for the same request; SQL still re-checks the credential on every write.",
+        "recorded_at": "2026-10-11T05:13:00+08:00"
       }
     ]
   },

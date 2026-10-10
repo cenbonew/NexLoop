@@ -52,13 +52,19 @@
     "name": "属性权限",
     "given": "无敏感属性权限的检索/详情/导出",
     "expected": "字段与证据不可见，不能经向量结果泄漏",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "note",
         "ref": "tests/test_workbench_member_read_pg.py",
         "summary": "Synthetic test environment, merged at 8c6dcc9: Retrieval and detail parts pass: without READ, fields, quotes and properties stay hidden; with ADR-025 role-derived READ they are visible with one audit row per read. Export part belongs to NX-029, so AT-003 stays not_run.",
         "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "tests/test_data_export_pg.py",
+        "summary": "Synthetic test environment, merged at 102d96a: test_export_holds_only_what_the_requesting_member_may_read (export assembled with the requester session, fields and quotes without READ stay out); retrieval and detail parts already evidenced (ADR-025 member read, AT-025 retrieval isolation).",
+        "recorded_at": "2026-10-11T05:13:00+08:00"
       }
     ]
   },
@@ -488,6 +494,12 @@
         "ref": "tests/test_erasure_pg.py",
         "summary": "Synthetic test environment, merged at 9a74026: Consumer erasure chain merged (slice 2). Stays not_run until the line confirms per-category coverage of correction propagation in its final report.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-029-implementation.md",
+        "summary": "Synthetic test environment, merged at 102d96a: Not yet passed: plan/strategy free text and objects referencing the Consumer are not erased, erased messages are not yet excluded or marked in WebChat history and context assembly, and three timed deletions (Pi Run directories, closed commitments, superseded Claim values) lack executors and tests. Follow-up assigned to L3.",
+        "recorded_at": "2026-10-11T05:13:00+08:00"
       }
     ]
   },
@@ -982,7 +994,15 @@
     "name": "数据恢复删除",
     "given": "旧备份含已删除消费者",
     "expected": "先重放删除清单，不能恢复可联系状态",
-    "status": "not_run"
+    "status": "passed",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "tests/test_deletion_replay_pg.py",
+        "summary": "Synthetic test environment, merged at 102d96a: test_at059_replay_after_restore_blocks_at_once_purges_and_is_idempotent (a restored snapshot holding an erased Consumer is blocked at once by the deletion ledger replay, purged and not contactable; replay is idempotent); ledger without content and in order; doctor reports stuck erasures. Restore drills on real backups belong to NX-035 (AT-050).",
+        "recorded_at": "2026-10-11T05:13:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-060",
