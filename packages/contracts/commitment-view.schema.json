@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:commitment-view",
+  "title": "commitment-view",
+  "description": "NX-028 (D8). The owner workbench's read projection of one Commitment (NX-026 runtime.nexloop_commitment_view). `status` lives only in `properties.status`; the interface never infers it. The four evidence columns are separate: a delivered message proves delivery only, never fulfilment (AT-040); `problem_resolved` is unavailable in v0.1 (NX-026 D5). `quote` is the promised words, shown only while the source Message exists AND the reader holds that Message's READ (`quote_status`: ok, restricted = withheld for lack of READ, unavailable = source deleted, none = no source message). Server-derived; grants nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "commitment_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "consumer_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "properties": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "conditional",
+            "open",
+            "in_progress",
+            "fulfilled",
+            "breached",
+            "cancelled",
+            "superseded"
+          ]
+        }
+      }
+    },
+    "quote": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        }
+      ]
+    },
+    "quote_status": {
+      "enum": [
+        "ok",
+        "restricted",
+        "unavailable",
+        "none"
+      ]
+    },
+    "source_available": {
+      "type": "boolean"
+    },
+    "origin": {
+      "enum": [
+        "claim",
+        "extend"
+      ]
+    },
+    "registered_at": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "delivered",
+        "customer_confirmed",
+        "problem_resolved"
+      ],
+      "properties": {
+        "requested": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "ref",
+              "occurred_at"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "occurred_at": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          }
+        },
+        "delivered": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "ref",
+              "occurred_at"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "occurred_at": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          }
+        },
+        "customer_confirmed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "ref",
+              "occurred_at"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "occurred_at": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          }
+        },
+        "problem_resolved": {
+          "const": "unavailable"
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "ref",
+          "detail",
+          "principal_id",
+          "recorded_at"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detail": {
+            "type": "object"
+          },
+          "principal_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recorded_at": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "detail",
+          "raised_at"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,64}$"
+          },
+          "detail": {
+            "type": "object"
+          },
+          "raised_at": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "commitment_id",
+    "consumer_id",
+    "revision",
+    "properties",
+    "quote",
+    "quote_status",
+    "source_available",
+    "origin",
+    "registered_at",
+    "evidence",
+    "events",
+    "exceptions"
+  ]
+}

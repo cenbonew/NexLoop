@@ -1,0 +1,5 @@
+{"restrictions":[{"consumer_id":"2222222222222222222222222222222222222222222222222222222222222222","active":true,"control_revision":7,"message_id":"4444444444444444444444444444444444444444444444444444444444444444",
+ "conversation_id":"5555555555555555555555555555555555555555555555555555555555555555","rule_version":1,"rule_id":"stop-contact","certainty":"refuse","matched_text":null,"matched_text_status":"restricted",
+ "restricted_at":"2026-10-10T09:00:00+00:00","released_at":null,"released_by":null,"release_reason":null,
+ "hits":[{"message_id":"4444444444444444444444444444444444444444444444444444444444444444","rule_version":1,"rule_id":"stop-contact","certainty":"refuse","matched_text":null,"matched_text_status":"restricted","recorded_at":"2026-10-10T09:00:00+00:00"}]}],
+ "escalations":[]}
