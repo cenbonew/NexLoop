@@ -1,4 +1,4 @@
-# NX-026 承诺与价值履行：设计稿（待调度员审核，未实现）
+# NX-026 承诺与价值履行：设计稿（调度员已审，D3/D6 待负责人；未实现）
 
 分支 `nx026-design`，从 main `9016021` 切出。本稿只有文档：没有代码，没有迁移；文中迁移号都是占位。NX-026 依赖 NX-025（L2 收尾中），实现等审核后再定。
 
@@ -89,7 +89,7 @@
 
 ### 3.3 更正与删除
 - **更正**：correction Claim 把 commitment Claim 标为 superseded 时，**不自动取消**承诺，因为话已经送达。系统只记异常 `source_superseded`，由负责人决定取消或改期。
-- **删除**：来源 Message 被删除（数据权利请求）时，承诺保留 `content_ref`，正文不可读。此时记异常 `source_deleted`。删除传播的完整语义随删除任务另定，见 D7。
+- **删除**：来源 Message 被删除（数据权利请求）时，NX-026 只保证两点：承诺不再暴露原文（`content_ref` 只剩引用，读取端口与 v6 不再返回引文）；状态、证据与事件审计保留。同时记异常 `source_deleted`。保留期、删除传播与导出的完整语义归 NX-029（D7 裁定）。
 
 ## 4. 状态机与证据
 
@@ -136,7 +136,7 @@ conditional ───────────► open ──start──► in_pr
 | `effect_fulfilled` | effect 账本触发器 | `intent:<id>`，attempt 或 observation | **是**：intent 引用了本承诺、属于同一 consumer，账本状态为 `fulfilled`/`confirmed` |
 | `delivered_message` | 外发投递触发器 | `message:<id>` | 默认否，只在 `fulfillment_basis='communication'` 时合格（D3） |
 | `consumer_confirmation` | Claim 登记 | `claim:<id>` | 否。顾客陈述只作展示，即“客户确认”这一栏 |
-| `problem_resolution` | Problem 证据（D5） | — | 否，单独一栏 |
+| `problem_resolution` | Problem 证据（D5：Problem 不进 NX-026，另开任务） | — | 否，单独一栏；v0.1 显示为“不可用” |
 | `commercial_event` | NX-027 的核验通道 | `commercial:<id>` | 是，限已核验的签名事件 |
 | `operator_attestation` | 人类 Action `nexloop.commitment.attest` | 人类主体与理由 | 是 |
 | `condition_met` | 人类 Action 或已核验证据 | — | 只用于 conditional → open |
@@ -238,7 +238,7 @@ conditional ───────────► open ──start──► in_pr
    - 端口：`nexloop_commitment_command` 与 `nexloop_commitment_read`；`authz.nexloop_work_feed` 改为 create or replace 版本，加入两个新 feed。
    - intent 受理链接受 `commitment_ref`：采用 rename 私有 alias 加新 wrapper 的方式，不改已发布函数体。
 2. `nx026_commitment_context`：v6 open_work 的 commitment 子段（SQL 重导出与比对）。0108 合入后再写，并依赖它。
-3. 对象类型 `Commitment v1` 和 Action 定义**不写在迁移里**，经可信配置清单发布（ADR-020 §3），见 D1。
+3. 对象类型 `Commitment v1` 和 Action 定义**不写在迁移里**，经可信配置清单 `deploy/ontology/business-object-types.v1.json` 与 business-actions 清单发布（ADR-020 §3，D1 裁定）。
 
 已发布迁移不改。所有替换都采用 rename 私有 alias 加新 wrapper，或者 create or replace 新版本。
 
@@ -319,26 +319,29 @@ ADR-023：
 
 linked 会话 nx019-extract、nx021-recall 的分支相对 main 没有提交，看不到未提交的改动。它们如果改动 Claim 插入路径（0066 定义器）或 `correlation_key` 的计算方式，会影响 §3.1 的去重键，需要调度员确认。
 
-## 12. 待调度员 / 负责人决定
+## 12. 裁定（调度员 2026-10-10）与仍待决事项
 
-- **D1 Commitment 类型怎样发布**：
-  - 建议：作为 NexLoop M18 的核心类型，用新清单 `deploy/ontology/business-object-types.v1.json`（或并入 system-object-types），经可信配置在部署时发布。
-  - 备选：走 ADR-019 的人工审核候选路径。这样新租户在审核前完全没有承诺跟踪，只剩 §3.2 的 `schema_gap`。
-- **D2 状态集合**：沿用 03 的六个值，`late` 作为标志、`superseded` 作为取消原因。是否要新增 `superseded` 状态值？建议不新增。
-- **D3 沟通类承诺怎样履约**（例如“明天给你进展”）：
-  - 建议：v0.1 默认 `fulfillment_basis='undetermined'`，送达消息不合格，需要 effect 回执或人类 attest；
-  - 可选：允许负责人或运营把单个承诺标为 `communication`，此后带 `commitment_ref` 且已送达的外发即为合格证据。
-  - 代价：默认口径下，沟通类承诺会大量违约，除非有人工确认。是否在 v0.1 开放这个可选项？
-- **D4**：`condition_met` 是否允许由已核验证据自动推进（例如签名商业事件）？还是 v0.1 只允许人类推进？建议只允许人类。
-- **D5**：Problem 对象类型和 `ADDRESSES` 关系是否进入 NX-026？建议不进入：证据栏“问题解决”先显示为不可用，Problem 另开任务。
-- **D6**：ADR-023 联系限制是否也挡非联系类服务交付 effect（§6.3）？目前 0109 全部都挡。
-- **D7**：来源 Message 删除后，承诺的保留与可读语义归哪个任务？
-- **D8**：人类 Action（cancel / extend / attest / condition_met）在 NX-028 之前，只提供受治理端口加测试是否足够？建议足够，和 ADR-023 的解除方式一致。
+已裁定：
+- **D1 采用**：Commitment v1 作为 M18 核心类型，经可信配置在部署时发布，不走人工审核候选路径。**选择新建 `deploy/ontology/business-object-types.v1.json`，不并入 system-object-types**。理由：
+  - system-object-types 的清单决定写明其中类型是 NexLoop 系统元数据（ContextStrategy、ContextManifest），“不授予任何服务主体”；Commitment 是业务对象，需要 `commitment_registrar`、`commitment_monitor` 两个服务主体经 `Commitment.create:1` / `Commitment.edit:1` 写入，与该清单的约束相反；
+  - 业务类型（今后的 Problem、Offering 等）与系统元数据分开版本化，变更评审范围不互相牵连；
+  - 发布方式与 system-object-types 相同（同一可信配置编译器、同一引用一致性测试），只是另一份清单。
+- **D2 采用**：沿用 03 的六个状态值；`late` 是标志，改期取消的原因记 `superseded:<new>`，不新增状态值。
+- **D4 采用**：v0.1 的 `condition_met` 只允许人类推进（`nexloop.commitment.condition_met`），已核验证据不自动推进。§4.1 表中“或可核验的证据”一项在 v0.1 不实现。
+- **D5 采用**：Problem 类型与 `ADDRESSES` 关系不进 NX-026，以后另开任务；证据栏“问题解决”先显示为不可用。
+- **D7 采用**：归 NX-029。NX-026 只保证删除来源消息后承诺不再暴露原文，状态与审计保留（§3.3）。
+- **D8 采用**：NX-028 之前，cancel / extend / attest / condition_met 只提供受治理端口和测试。
+
+待负责人决定（调度员已转交，有结论后再定实现）：
+- **D3 沟通类承诺怎样履约**（例如“明天给你进展”）。本稿的默认口径：`fulfillment_basis='undetermined'`，送达消息不合格，需要 effect 回执或人类 attest。可选项：允许负责人或运营把单个承诺标为 `communication`，此后带 `commitment_ref` 且已送达的外发即为合格证据。代价：默认口径下沟通类承诺会大量违约，除非有人工确认。
+- **D6 联系限制是否也挡非联系类服务交付 effect**（§6.3）。0109 目前全部都挡；按现状，受限客户的退款、后台修复这类承诺只能违约。
+
+实现前提：NX-025 合入 main，以及 D3、D6 的结论。
 
 ## 13. 实现切片建议（NX-025 合入后）
 
 1. **切片一**：
-   - 类型与 Action 清单（D1）；
+   - `business-object-types.v1.json`（Commitment v1）与 Action 清单（D1）；
    - 登记 feed、worker 与去重；
    - 守卫触发器与证据账本；
    - 查询端口；
