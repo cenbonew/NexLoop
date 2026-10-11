@@ -1,7 +1,7 @@
 {
   "schema": "nexloop-license-policy/1",
   "version": 1,
-  "decision": "NX-036 §2 (design merged at 3b5a684; owner decisions D7 and D8 pending — recommended values applied provisionally, dispatcher 2026-10-11). NexLoop is MIT (ADR-026). Permissive licenses are allowed in every scope. Weak copyleft (LGPL, MPL-2.0) is allowed only for packages listed under 'conditional', used unmodified as separate libraries (never vendored or modified); strong copyleft, non-open-source and unknown licenses are denied. Licenses are never guessed: ambiguous metadata needs a clarification with the hash of the license file it was read from; a package installed only on another platform needs an off-platform record bound to the exact locked artifact (written by --record-off-platform and reviewed). THIRD_PARTY_NOTICES.md is generated from this inventory (D8).",
+  "decision": "NX-036 §2 (design merged at 3b5a684; owner decided D7 and D8 on 2026-10-11: all as recommended). NexLoop is MIT (ADR-026). Permissive licenses are allowed in every scope. Weak copyleft (LGPL, MPL-2.0) is allowed only for packages listed under 'conditional', used unmodified as separate libraries (never vendored or modified); strong copyleft, non-open-source and unknown licenses are denied. Licenses are never guessed: ambiguous metadata needs a clarification with the hash of the license file it was read from; a package installed only on another platform needs an off-platform record bound to the exact locked artifact (written by --record-off-platform and reviewed). THIRD_PARTY_NOTICES.md is generated from this inventory (D8).",
   "project_license": {
     "spdx": "MIT",
     "file": "LICENSE",

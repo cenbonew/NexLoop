@@ -308,7 +308,7 @@ def sbom(release_dir, root=ROOT):
     return {'scanned': True, 'scan': scan}
 
 
-# ---- NX-036: vulnerability policy (D5, D6, D12; recommended values pending the owner's decision) ------------------------
+# ---- NX-036: vulnerability policy (D5, D6, D12; owner decision 2026-10-11: as recommended) ------------------------
 def load_vulnerability_policy(root=ROOT):
     policy = json.loads((root / 'deploy/compliance/vulnerability-policy.v1.json').read_text())
     if (policy.get('schema') != 'nexloop-vulnerability-policy/1' or set(policy.get('thresholds', {})) != {'stage', 'public'}

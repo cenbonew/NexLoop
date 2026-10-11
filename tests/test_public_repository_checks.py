@@ -1,5 +1,5 @@
-"""NX-036 §4 and §5: CI isolation (AT-054 static half), DCO sign-off (D1, provisional), the public files and their
-configured values (D2, D3, D4, D10, provisional), and the publication scan over a whole tree and a source archive.
+"""NX-036 §4 and §5: CI isolation (AT-054 static half), DCO sign-off (D1), the public files and their
+configured values (D2, D3, D4, D10; owner decision 2026-10-11), and the publication scan over a whole tree and a source archive.
 Temporary repositories and synthetic markers only."""
 import json
 import shutil

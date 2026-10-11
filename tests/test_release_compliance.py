@@ -1,4 +1,4 @@
-"""NX-036 §3 and §6 (scripts/release/release.py): the vulnerability policy (D5, D6, D12 recommended values, provisional),
+"""NX-036 §3 and §6 (scripts/release/release.py): the vulnerability policy (D5, D6, D12; owner decision 2026-10-11, as recommended),
 its link to `sbom` (missing tools are still never a pass), the source-SBOM cross-check with the license inventory, and the
 nine-step public preflight in which every missing condition fails. Stand-in tools and runners only; nothing is tagged,
 published or sent anywhere."""
@@ -36,11 +36,11 @@ def waiver(**changes):
     return value
 
 
-def test_the_committed_policy_has_the_recommended_provisional_values():
+def test_the_committed_policy_has_the_decided_values():
     p = release.load_vulnerability_policy()
     assert p['thresholds']['stage']['block'] == [] and p['thresholds']['public']['block'] == [{'severity': 'Critical', 'fix': 'fixed'}]
     assert p['database_max_age_days'] == {'stage': None, 'public': 7} and p['waiver_max_days'] == 90 and p['waivers'] == []
-    assert 'pending' in p['decision'] and all(d in p['decision'] for d in ('D5', 'D6', 'D12'))
+    assert 'owner decided' in p['decision'] and all(d in p['decision'] for d in ('D5', 'D6', 'D12'))
 
 
 def test_stage_lists_but_does_not_block_and_public_blocks_an_unwaived_fixable_critical():

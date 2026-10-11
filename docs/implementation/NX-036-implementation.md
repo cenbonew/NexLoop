@@ -1,15 +1,15 @@
 # NX-036 开源文档与供应链检查：实现说明
 
-分支 `nx036-impl`，从 main `3b5a684` 切出。设计稿 `NX-036-design.md`（已合入）。负责人尚未答复 D1–D12；按调度员 2026-10-11 的安排**暂按推荐值开工**。所有受 D 项影响的值都放在版本化配置文件里，代码中不写死；负责人定案后如有不同，只改配置（以及配置所对应的文档措辞，`check_public_files.py` 会提示两者不一致）。
+分支 `nx036-impl`，从 main `3b5a684` 切出。设计稿 `NX-036-design.md`（已合入）。负责人 2026-10-11 对 D1–D12 回复“全部按推荐”（调度员转达），即设计稿 §8 中每项的推荐值；实现开工时按推荐值暂行，定案后配置值无需改动。所有受 D 项影响的值都放在版本化配置文件里，代码中不写死；将来如要调整，只改配置（以及配置所对应的文档措辞，`check_public_files.py` 会提示两者不一致）。
 
-## 1. 暂按推荐、待负责人定案的 D 项
+## 1. D 项（负责人 2026-10-11 定案（全部按推荐））
 
-| D 项 | 暂行值 | 所在配置 |
+| D 项 | 定案值 | 所在配置 |
 |---|---|---|
 | D1 贡献签署 | DCO，`scripts/check_signoff.py` | `deploy/compliance/public-release.v1.json` `contribution_signoff` |
 | D2 安全报告渠道 | GitHub 私密漏洞报告，另可加一个联系方式；`security_contact` 为 null，public 门槛失败 | 同上 `security_contact`、`placeholder` |
 | D3 响应时限 | 确认 3 个工作日、初评 10 个工作日、修复 Critical 30 天、High 60 天（目标非保证） | 同上 `response_targets_days` |
-| D4 支持版本 | 只支持最新的一个发布 | 同上 `supported_releases` |
+| D4 支持版本 | 1.0 之前只支持最新的一个发布 | 同上 `supported_releases` |
 | D5 漏洞阈值 | stage 不阻断，列出 Critical/High 且有修复；public 阻断未豁免的 Critical 且有修复，列出 High 且有修复 | `deploy/compliance/vulnerability-policy.v1.json` `thresholds` |
 | D6 豁免 | 最长 90 天，负责人批准，到期或格式不对即失败（stage 与 public 都失败） | 同上 `waiver_max_days`、`waivers` |
 | D7 弱 copyleft | 只能按包逐个列入（名称、版本模式、范围、用途、复审日期） | `deploy/compliance/license-policy.v1.json` `conditional` |
@@ -18,7 +18,7 @@
 | D11 秘密扫描工具 | 不新增 | `public-release.v1.json` `secret_scanning_tool: null` |
 | D12 漏洞库时效 | public 发布时漏洞库不超过 7 天 | `vulnerability-policy.v1.json` `database_max_age_days` |
 
-D9（不改写历史）不是配置项：本任务没有改写历史，首个公开发布前的全历史审计由负责人确认（见 §5）。
+D9（不改写历史；历史中出现的凭据、私钥或受限网络标识一律作废并记录；审计结论经负责人确认后才做首个 public release）不是配置项：本任务没有改写历史，`public-preflight` 在没有上一次公开发布时失败，首个公开发布需要全历史审计与负责人确认（见 §5）。
 
 ## 2. 许可合规（D7、D8）
 
@@ -93,7 +93,7 @@ D9（不改写历史）不是配置项：本任务没有改写历史，首个公
   - 仓库 vendored 源码一致，篡改可被发现；
   - 策略形状严格，策略中的平台外记录与锁文件一致。
 - `tests/test_release_compliance.py`（25）：
-  - 策略暂行值；stage 列出不阻断，public 阻断；
+  - 策略定案值；stage 列出不阻断，public 阻断；
   - 豁免只覆盖对应的发现；过期、超期限、未来日期、格式错误都失败；
   - 漏洞库时效；发现只含标识；
   - `sbom` 写出发现，豁免过期时拒绝，缺工具仍判失败；

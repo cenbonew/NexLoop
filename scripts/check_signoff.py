@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NX-036 D1 (provisional: DCO): every non-merge commit in <base>..<head> carries a `Signed-off-by:` trailer that
+"""NX-036 D1 (owner decision 2026-10-11: DCO): every non-merge commit in <base>..<head> carries a `Signed-off-by:` trailer that
 matches its author name and email (Developer Certificate of Origin 1.1). Maintainers run it before merging an external
 change. Exit 0 ok, 1 unsigned commits, 2 input error.
 """
