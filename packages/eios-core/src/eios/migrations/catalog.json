@@ -790,6 +790,11 @@
       "version": "0158",
       "name": "0158_nx052_tenant_fk_control_config.sql",
       "sha256": "1c9df82ca6dcfd2ebde796038f29b3c96417bfe0d11d21d60a05c9f59c67f9cb"
+    },
+    {
+      "version": "0280",
+      "name": "0280_nx037_trial_readiness.sql",
+      "sha256": "7aa3e8124a44f2fd92ac480cdf9409c247d411e1ec2a70427b0005561aba3ac8"
     }
   ]
 }

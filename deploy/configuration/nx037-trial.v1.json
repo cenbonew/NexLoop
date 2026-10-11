@@ -1,0 +1,18 @@
+{
+  "schema": "nexloop.nx037-trial.v1",
+  "decisions": "ROADMAP D-g / D-i (owner, definitive)",
+  "currency": "CNY",
+  "cost_caps": {"cumulative": "100", "per_run": "2", "tenant_monthly": "300"},
+  "calibration_interactions": 3,
+  "plan": {
+    "total": 30,
+    "mix": {"ordinary_reply": 15, "real_delivery": 4, "restricted_after_refusal": 4, "human_takeover": 4, "unknown_reconciliation": 3},
+    "working_days": 2,
+    "window": {"start": "10:00", "end": "18:00"}
+  },
+  "stop": ["unauthorized_send", "wrong_recipient", "contact_after_refusal", "duplicate_external_effect", "cross_tenant_read",
+           "per_run_cost_exceeded", "critical_alert", "owner_stop"],
+  "pause": {"error_window": 10, "error_rate_above": "0.10", "cost_ratio_at_least": "0.80", "unresolved_unknown_effect": true},
+  "alert_rules": "alert-rules.v3.json",
+  "effect_categories": "action-effect-categories.v2.json"
+}
