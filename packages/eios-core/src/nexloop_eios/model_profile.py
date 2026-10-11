@@ -25,7 +25,7 @@ class ModelProfile:
         return self._api_key
 
 
-def load_model_profile(environment=None,*,env_file=None,stage=False):
+def load_model_profile(environment=None,*,env_file=None,stage=False,allow_load_rules=False):
     """Explicit file selection; process environment overrides local .env values.
 
     Local empty mounted secret falls back to env. Stage never takes a key from
@@ -40,6 +40,13 @@ def load_model_profile(environment=None,*,env_file=None,stage=False):
     provider=values.get('MODEL_PROVIDER','').strip() or ('deepseek' if key else 'test')
     if provider not in ('deepseek','test'):
         raise ModelConfigurationError('unsupported model provider')
+    # NX-031 load lane: the test profile's rule-based variant (nexloop_eios.load_rules). Only when the caller runs in test mode,
+    # never on stage, never with a credential; any other variant name is refused.
+    variant=values.get('MODEL_TEST_VARIANT','').strip()
+    if variant:
+        if variant!='load-rules' or provider!='test' or key or stage or not allow_load_rules:
+            raise ModelConfigurationError('load-rules profile is test mode only')
+        return ModelProfile('test','load-rules','','test_only_load_shape','none','')
     if provider=='test' or not key:
         return ModelProfile('test','deterministic-test','', 'test_only_real_validation_blocked','none','')
     model=values.get('MODEL_ID','').strip() or 'deepseek-flash'

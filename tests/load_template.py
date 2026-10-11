@@ -13,7 +13,7 @@ Ordering keeps every authenticated snapshot current: identities, then consumers 
 facts, then one session per customer for its messages, then workbench configuration last.
 The template is an online, consistent pg_basebackup of the loaded cluster; a cell clones it into its own PGDATA and port.
 """
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 import os
@@ -211,3 +211,128 @@ def load_commercial(env, records, *, connector_id='load-shop'):
         if not any(v for v in summary.values() if type(v) is int):
             break
     return {'statuses': statuses, 'ticks': ticks, 'seconds': {'ingest': round(ingest_seconds, 1), 'record': round(time.monotonic() - started, 1)}}
+
+
+def apply_service_grants(admin, pg, private_dir):
+    """The repository service-grants manifest applied through the configurator (as deployed, NX-048), so every service process
+    of a cell authenticates with its own credential. Tokens and the deployment signing key go to `private_dir` (0600)."""
+    from psycopg.conninfo import make_conninfo
+    from nexloop_eios import service_grants as G
+    root = Path(__file__).resolve().parents[1]
+    manifest = G.load(root / 'deploy/authorization/service-grants.v1.json')
+    tokens = {p['credential_reference']: secrets.token_urlsafe(48) for p in manifest['principals']}
+    key = secrets.token_bytes(32)
+    admin.execute('alter role nexloop_configurator login')
+
+    def private(name, content):
+        path = Path(private_dir) / name
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, 'w') as handle:
+            handle.write(content)
+        return path
+    dsn = private('configurator-dsn.tmp', make_conninfo(pg, user='nexloop_configurator'))
+    report = G.apply(manifest, TENANT, database_url_file=dsn, signing_key_file=private('deploy-signing-key', key.hex()),
+                     signing_key_id='load-deploy', service_secrets_file=private('service-tokens.json', json.dumps(tokens)),
+                     credential_expires_at=datetime.now(UTC) + timedelta(days=30),
+                     owner_restrictions=G.load_owner_restrictions(root / 'deploy/authorization/owner-property-restrictions.json'))
+    dsn.unlink()
+    principals = {p['role']: {'credential_reference': p['credential_reference'], 'database_role': p['database_role']} for p in manifest['principals']}
+    private('service-principals.json', json.dumps(principals))
+    return {'credentials_created': len(report['credentials_created']), 'grants_added': len(report['grants_added'])}
+
+
+def load_commitments(f, admin, pg, records, private_dir, workdir, operator):
+    """Commitments of the manifest's `commitment` consumers, only through governed entries: a workbench operator (real login
+    cookie, production app) takes the consumer's first conversation over, replies as staff to its commitment request with the
+    synthetic promise, hands back; the deployed claim-extraction scheduler and worker (their own credentials) extract the window
+    with the load-rules provider (nexloop_eios.load_rules); the deployed commitment keeper registers what the extraction marked. Returns counts and seconds."""
+    from fastapi.testclient import TestClient
+    from psycopg.conninfo import make_conninfo
+    from nexloop_eios.assembly import open_core
+    from nexloop_eios.authorization import authenticate_service
+    from nexloop_eios.browser_http import BrowserConfiguration
+    from nexloop_eios.claim_extraction_jobs import ClaimExtractionScheduler, ClaimExtractionWorker
+    from nexloop_eios.commitments import CommitmentKeeper, load_settings
+    from nexloop_eios.http_api import ApiConfiguration, create_app
+    from nexloop_eios.load_rules import LoadRulesExtractionProvider
+    root = Path(__file__).resolve().parents[1]
+    workdir = Path(workdir)
+    workdir.mkdir(mode=0o700, exist_ok=True)
+
+    def private(name, content):
+        path = workdir / name
+        path.write_bytes(content if isinstance(content, bytes) else content.encode())
+        path.chmod(0o600)
+        return path
+    reader = f['reader']
+    origin = 'https://load-template.invalid'
+    identity = private('identity-dsn', f['base']['identity'][0])
+    rate = private('rate-key', secrets.token_hex(32))
+    (workdir / 'artifacts').mkdir(mode=0o700, exist_ok=True)
+    config = ApiConfiguration(private('business-dsn', make_conninfo(pg, user='nexloop_api')), private('authority-key', reader.signer.material),
+        workdir / 'artifacts', reader.signer.key_id, BrowserConfiguration(identity, rate, TENANT, 'synthetic-browser-app', origin),
+        execution_profile='deterministic-test', workbench=BrowserConfiguration(identity, rate, TENANT, 'synthetic-workbench-app', origin))
+    started = time.monotonic()
+    replies = {}
+    with TestClient(create_app(config), base_url=origin) as client:
+        login = client.post('/api/v1/workbench/auth/login', headers={'Origin': origin}, json={'username': operator['username'], 'password': operator['password']})
+        login.raise_for_status()
+
+        def act(operation, body, key):
+            csrf = client.post('/api/v1/workbench/auth/csrf', headers={'Origin': origin}).json()['csrf_token']
+            response = client.post('/api/v1/workbench/actions/' + operation, json=body, headers={'Origin': origin, 'X-CSRF-Token': csrf, 'Idempotency-Key': key})
+            return response.status_code, response.json()
+        for record in records:
+            if not record['commitment']:
+                continue
+            first = record['conversations'][0]
+            conversation, = admin.execute('select conversation_id from runtime.nexloop_conversations where idempotency_key=%s',
+                                          (f'load-{first["key"]}-conversation',)).fetchone()
+            ask = next(m + 1 for m, message in enumerate(first['messages']) if message['kind'] == 'commitment_ask')
+            message, = admin.execute('select message_id from runtime.nexloop_conversation_messages where idempotency_key=%s',
+                                     (f'load-{first["key"]}-{ask:04d}',)).fetchone()
+            key = f'load-commitment-{record["index"]:05d}'
+            status, taken = act('take_over_conversation', {'scope_kind': 'conversation', 'scope_ref': conversation, 'duration_seconds': 600,
+                                                           'reason': '合成数据：人工跟进'}, key + '-takeover')
+            if status != 200:
+                replies[status] = replies.get(status, 0) + 1
+                continue
+            status, _ = act('send_staff_reply', {'conversation_id': conversation, 'reply_to': message, 'text': f'好的，我会在{1 + record["index"] % 3}天内给您回电话。'}, key + '-reply')
+            replies[status] = replies.get(status, 0) + 1
+            act('hand_back_conversation', {'takeover_id': taken['takeover_id'], 'reason': '合成数据：交还'}, key + '-handback')
+    takeover_seconds = time.monotonic() - started
+    tokens = json.loads((Path(private_dir) / 'service-tokens.json').read_text())
+    principals = json.loads((Path(private_dir) / 'service-principals.json').read_text())
+
+    def session(pool, role):
+        return authenticate_service(pool, tokens[principals[role]['credential_reference']], world='real')
+    # The Commitment type and its Actions (business manifests), and the owner's decision on the Commitment property groups with
+    # the keeper's lifecycle rule (trusted configuration, as tests/commitment_fixture.py configures them).
+    from commitment_fixture import lifecycle_rule, publish_commitment_type
+    publish_commitment_type(admin)
+    with open_core(make_conninfo(pg, user='nexloop_domain_worker')) as domain:
+        lifecycle_rule(admin, session(domain, 'commitment_keeper').authentication.subject_principal_id)
+    started = time.monotonic()
+    extracted = registered = 0
+    with open_core(make_conninfo(pg, user='nexloop_api')) as api, open_core(make_conninfo(pg, user='nexloop_domain_worker')) as domain:
+        while ClaimExtractionScheduler(api, session(api, 'claim_extraction_scheduler'), reader.signer, quiet_seconds=0).run_once(limit=100):
+            pass
+        worker = ClaimExtractionWorker(domain, session(domain, 'claim_extraction_worker'), reader.signer, LoadRulesExtractionProvider(), timezone='Asia/Shanghai')
+        outcomes = {}
+        while True:
+            result = worker.run_once()
+            if result == 'idle':
+                break
+            label = result if isinstance(result, str) else json.dumps(result, sort_keys=True)[:80]
+            outcomes[label] = outcomes.get(label, 0) + 1
+            extracted += 1
+        extraction_seconds = time.monotonic() - started
+        started = time.monotonic()
+        settings = load_settings(root / 'deploy/configuration/commitments.v1.json')
+        while True:
+            summary = CommitmentKeeper(domain, session(domain, 'commitment_keeper'), reader.signer, settings=settings).run_once()
+            registered += summary.get('registered', 0)
+            if not any(v for v in summary.values() if type(v) is int):
+                break
+    return {'staff_replies': replies, 'extraction_tasks': extracted, 'extraction_outcomes': outcomes, 'registered': registered,
+            'seconds': {'takeover_reply': round(takeover_seconds, 1), 'extraction': round(extraction_seconds, 1), 'keeper': round(time.monotonic() - started, 1)}}

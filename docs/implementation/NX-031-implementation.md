@@ -11,7 +11,7 @@
   - 文本只来自代码中固定的中文模板加编号；
   - 受限客户的最后一条来信是拒绝联系语句，能命中 0109 规则；
   - 最后一行是汇总（trailer）。
-- seed 31 下 1000 个消费者的结果：digest `a5ae0862…`，1675 个会话、19395 条消息，受限 74、承诺 229、活跃计划 313、商业事件 1045 条。
+- seed 31 下 1000 个消费者的结果（切片 1 修正后：承诺客户的第一个会话里一定有一条承诺请求）：digest `b880a7f0…`，1733 个会话、20055 条消息，受限 75、承诺 204、活跃计划 322、商业事件 1002 条。
 
 ### 经受治理入口装载（`tests/load_template.py`）
 - 写入路径：
@@ -34,7 +34,7 @@
   - 输出包括：`manifest.jsonl`；`template.json`（seed、digest、清单汇总、实际装载计数、各阶段耗时、代码提交、catalog 版本，不含秘密）；`private/credentials.json` 与 `private/signing.json`（0600）；`pgdata/`；
   - 构建用的一次性集群在构建结束后停止并删除。
 
-### 本机实测（Mac，负载 5–7）
+### 本机实测（开发机，负载 5–7）
 - 100 个消费者（2338 条消息）的模板构建总计 3 分 27 秒：
   - 身份 2.6 秒，Consumer 与归属 6.9 秒，授权 0.9 秒，消息 191.6 秒（单条约 82 ms），`pg_basebackup` 0.8 秒；
   - 模板 82 MB；克隆复制 0.3 秒、启动 0.1 秒，克隆中的消息数与模板一致。
@@ -64,7 +64,7 @@
 - **launcher 池的测试**：`test_plan_role_launcher_pg`、`test_reply_fallback_pg` 各新增一例，在部署取值的 launcher 池上实际启动 Role Run 或兜底 Run。
 - **仍未登记的常驻进程（需要决定）**：message relay（`message_relay_cli`）和 outbound-recorder（`outbound_messages`）都会开池，按代码默认各 4 个连接。登记后合计会超过 60，需要调度员或负责人决定。
 
-### 测试（Mac，`-n ≤3`；Pi 相关单独串行；负载 4–7）
+### 测试（开发机，`-n ≤3`；Pi 相关单独串行；负载 4–7）
 - `test_load_synthetic` 2 例；`test_load_template_pg` 1 例（6 个消费者装载、治理记录、归属、模板与两个克隆）。
 - `test_connection_budget` 与 `test_background_services_pg` 等共 61 例（含 conversations、community container）；连接预算相关 43 例（含 domain_worker 与 live 实测）。
 - 串行：`test_plan_role_launcher_pg` 5 例、`test_reply_fallback_pg` 7 例。首次运行时 launcher 池为 1，两例新用例失败，这就是上面的实测结论；改为 2 后通过。
@@ -105,3 +105,81 @@
   - doctor 的预算核对新增 `connection_budget_services`：每个常驻服务（`connection_budget.required_services()`：基础 7 项、10 个后台服务、2 个 launcher）都必须登记，漏一项即退出码 1；
   - 负例：逐一去掉每个必需条目，`evaluate` 都判不通过；doctor 去掉 outbound-recorder 时退出码 1，且总和那一项仍为通过。
 - 新默认值下的功能回归全部通过：预算 25 例；后台服务、live 实测、domain_worker、effect_worker CLI 等 37 例；串行的 message relay 20 例、outbound 6 例、计划 launcher 5 例、兜底回复 7 例、接管 relay 2 例。
+
+## 切片 1（分支 `nx031-s1`：`nx031-s0` 合并 main `7f5823f`，带上 NX-030 D6 的 `tool_timing`）
+
+不需要迁移，没有占用临时号 0150–0159。输出对齐 L2 的结果目录契约（`nx031-report` `a35602c`，`NX-031-results-contract.md`）。
+
+### 矩阵文件 `deploy/load/matrix.v1.json`
+- 设计 §3.2 的 8 格，门槛格只有 C4 和 C4-low；
+- Host 并发 1/2/4/8，C4 系列的速率 0.2/1/3（D2）；后台关闭只在 C4-quiet，同机 CI 只在 C4-ci；
+- 时序：预热 120 s、稳态 600 s、排空最长 600 s、快照间隔 30 s；
+- 消息组合；模型时延（D5）；预期拒绝码 NXC05、NXC06；越权探测 50 对。
+- 执行器会校验矩阵文件：8 个格子缺一不可，门槛格只能是 C4 和 C4-low。
+
+### 矩阵执行器 `scripts/load/matrix.py`（含 `stack.py`、`driver.py`、`collect.py`）
+- **参数**：`--template --matrix --out --lane-root`；另有 `--cells` 只跑部分格子，`--timing-scale` 只用于本机小规模验证，车道上固定为 1.0。
+- **安全前提**：`REAL_DISPATCH_ENABLED` 不为 false 时直接拒绝运行。
+- **每个格子的流程**：
+  1. 在 `lane-root/<cell>` 下克隆模板；
+  2. 起服务：API 2 个进程（loopback HTTPS，浏览器域和工作台域）；后台开启时再起 10 个后台服务，各用自己的凭据；
+  3. 消息 Run 链的挂点（见下文）；
+  4. 顾客登录、预热；
+  5. 稳态窗口：同时运行泊松负载、工作台活动（owner 每分钟读一次总览；operator 走一轮接管 → 员工回复 → 交还）、每 30 秒一次 NX-030 快照；
+  6. 停止入站，排空；
+  7. 越权探测；
+  8. 采集写入，按契约 §2；
+  9. 停掉所有进程，删除克隆和该格的私有文件。
+- **中止**：失败的格子写 `completed: false`，`aborted` 取 `template_clone_failed`、`service_start_failed`、`service_exited`、`ci_command_missing`、`runner_error` 之一；只要有格子中止，进程退出码就非零。
+- **C4-ci**：
+  - 用 `LOAD_CI_COMMAND` 在稳态开始时启动全量 CI，自己不取锁；
+  - 由一个等待线程记录 CI 的真实墙钟时间；
+  - 只统计本次 CI 写出的 junit 文件，旧的 `.ci-results` 文件不计入。
+- **`cell.json`**：`host_metrics` 暂为 `approx`（NX-030 M09 未交付）；另附 `message_runs`、`login_failures`、`sent`、`workbench_events`、`timing_scale`。这几个是契约之外的说明字段，报告可以忽略。
+- **`checks.json`**，按 §4.4 的 7 项：
+  - 实际核对的：外发归属、Claim 归属、越权探测（由驱动执行）、重复副作用、未结局工作；
+  - Run 绑定、模型上下文这两项要等消息 Run 链，`checked` 为 0，不把请求数当作已核对。
+
+### 装载补充（模板）
+- **服务凭据**：按 service-grants 清单经 configurator 发放各服务主体，令牌只存在 `private/service-tokens.json`（0600）。
+- **承诺**，全部经受治理入口：
+  - 用进程内的生产 app 和真实工作台登录 Cookie，由 operator 对每个承诺客户接管其第一个会话，以员工身份回复一句合成的承诺语句，绑定到客户的请求，再交还；
+  - 部署形态的提取 scheduler 和 worker 用各自的凭据，配合 `LoadRulesProvider`（只认合成模板「我会在…」的规则式确定性 provider，不是模型）做提取；
+  - 部署形态的 keeper 登记承诺。
+  - 发布 Commitment 类型和 Action，以及“负责人对 Commitment 属性组的决定”与 keeper 生命周期规则，都按 `commitment_fixture` 的可信配置方式写入。
+  - 小规模验证：8 个消费者时 3 条承诺全部登记，Claim 都是 speaker=agent 的 commitment；30 个消费者的模板中 7 条承诺全部登记，55 个会话全部提取。
+- **活跃计划：未装载**。计划建立需要每个客户的 role、offering、binding、control（plan recipe），与多客户 relay 要登记的每客户 recipe 是同一份，所以等 L2 交付后再做。
+
+### 本机验证（`--timing-scale 0.05`，稳态约 30 秒）
+- 20 个消费者，C4：完成；ACK 22 条，全部 202，p95 88 ms；接管、员工回复、交还都是 200；越权探测 19 对，全部被拒；连接峰值 29；没有残留进程。
+- 30 个消费者，C4-low 完成；C4-ci 不设 `LOAD_CI_COMMAND` 时正确中止，设为替代命令时完成（CI 墙钟 3 秒，没有 junit 文件时 `failed` 为空）。
+
+### 已知限制（都与消息 Run 链未启动有关，没有伪造任何数据）
+1. `runs.jsonl` 和 `dispatch.jsonl` 为空，按契约报告会判定逐 Run 分解缺失。
+2. 模板里的历史来信都没有回复，reply-due 积压，格子排空不了，“未结局”核对全部是未结局。应当在构建模板时由消息链给历史来信回复。
+3. ~~运行期提取一直重试~~：已按调度员裁定解决，见下节。
+
+### 需要 L2 知道的接口约束（多客户 relay，方案 A）
+- **进程形态**：执行器为每个格子起 **1 个** relay 进程，池为 2，凭据来自 service-grants 清单的 relay 主体（模板的 `private/service-tokens.json`），不再为每个客户准备 recipe 文件。
+- **每客户 recipe 的登记**：要有一个能在构建模板时于进程内调用的受治理登记入口，函数或 CLI 都可以；要幂等，1000 个客户在分钟级内完成。登记的内容即 recipe 的各项：control、offering、binding、role、link、step 的 id 和 revision。
+- **计划建立要读取每客户 recipe**：执行器装载活跃计划时，要能按 `consumer_id` 读到该客户已登记的 recipe 中的 role_id、link_id、step_id、offering_id、binding_id、control_id，只读即可。
+- **Host 并发**：每个格子的 Agent Host 用压测专用配置，`maximum_active_runs` 等于该格的 Host 并发，C8 为 8，不经 doctor；runtime worker 固定 `--guard-workers 4`。
+- **D6 字段**：消息 Run 结束时 `runtime.jobs.result.tool_timing` 中要有 `total_ms` 和 `calls`；执行器据此写 `runs.jsonl`，并按 trigger 消息关联 e2e 和 outcome。
+
+### 压测专用的提取 provider：load-rules（调度员 2026-10-11 裁定）
+- **定位**：`nexloop_eios/load_rules.py` 的 `LoadRulesExtractionProvider`，是 test 模型档案的一个变体：`MODEL_PROVIDER=test` 加上 `MODEL_TEST_VARIANT=load-rules`。
+  - 只认合成数据里的承诺句「我会在…」：企业一侧的这类句子生成承诺 Claim，其他文本只给话题、不生成 Claim；
+  - 不调用任何模型和网络，没有凭据；
+  - **它只用来让压测时的提取链路有真实的负载形状，提取质量不作为任何 AT 的依据**。
+- **准入**：
+  - `model_profile.load_model_profile` 只在调用方显式允许（`allow_load_rules`）、不是 stage、没有 key、变体名正确时才接受，否则报配置错误；
+  - 提取 worker 新增 `--mode`，默认 `stage`；只有 `--mode test` 时允许这个变体，否则在连库之前就拒绝启动；matcher 一律拒绝；
+  - doctor 在非 test 模式下核对模型配置时，这个变体判为不通过。
+  - 负例测试（`test_load_rules.py`）：默认、stage、带 key、错误变体名、错误 provider 都被拒；提取 worker 不带 `--mode` 或 `--mode stage` 时拒绝启动，matcher 拒绝启动，`--mode test` 时正常启动；stage doctor 判不通过；provider 不发起任何网络请求。
+- **执行器**：每格的提取 worker 用这个变体并加 `--mode test`。模板构建时进程内的提取也改用同一个产品类，删掉了测试里那份重复实现。
+
+### 顺带修复的产品缺陷：提取 worker 处理任何非空窗口都会出错
+- **现象**：部署形态的提取 worker（`background_services.LazyModelProvider`）在处理非空窗口时总是抛 AttributeError，任务记为 `unexpected` 并进入 `retry_wait`。原因是 extractor 计算输入 digest 时要读 `provider` 和 `model_id`，而 `LazyModelProvider` 没有这两个属性。原有测试只覆盖空闲的 tick，所以一直没有暴露。
+- **修复**：provider 在首次使用时解析，并对外提供这两个属性；解析失败时按原语义抛 provider 不可用的错误。测试 `test_lazy_provider_names_its_provider_and_model_for_the_input_digest`。
+- **验证**：本机格子里，负载期间的 59 个提取任务全部 `succeeded/recorded`；修复前有 24 个卡在 `retry_wait/unexpected`。
+- **诊断**：`cell.json` 新增 `jobs` 字段，按队列、状态、结果代码计数（只有代码），供夜间排查。

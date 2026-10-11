@@ -66,6 +66,9 @@ def generate(seed, consumers):
                 if commitment and c == 0 and m == 1:
                     kind = 'commitment_ask'
                 messages.append({'kind': kind, 'body': _text(rng, kind, index * 1000 + sequence)})
+            if commitment and c == 0 and not any(m['kind'] == 'commitment_ask' for m in messages):
+                sequence += 1  # a commitment consumer always asks for something the enterprise can promise (slice 1 loads the promise)
+                messages.append({'kind': 'commitment_ask', 'body': _text(rng, 'commitment_ask', index * 1000 + sequence)})
             conversations.append({'key': f'c{index:05d}-{c + 1}', 'messages': messages})
         if restricted:  # the refusal is the consumer's latest message in its last conversation (0109 restricts from there)
             conversations[-1]['messages'].append({'kind': 'refusal', 'body': _text(rng, 'refusal', index)})

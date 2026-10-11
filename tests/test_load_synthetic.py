@@ -24,6 +24,7 @@ def test_shape_and_proportions():
     assert 0.05<t['restricted']/1000<0.11 and 0.16<t['commitment']/1000<0.25 and 0.25<t['active_plan']/1000<0.35
     assert 15<t['messages']/1000<25 and all(1<=len(r['conversations'])<=3 for r in consumers)
     assert len({r['username'] for r in consumers})==1000
+    assert all(any(m['kind']=='commitment_ask' for m in r['conversations'][0]['messages']) for r in consumers if r['commitment'])
     restricted=[r for r in consumers if r['restricted']]
     assert all(r['conversations'][-1]['messages'][-1]['kind']=='refusal' for r in restricted)
     assert all(e['currency']=='CNY' and e['amount_minor']>0 for r in consumers for e in r['commercial_events'])

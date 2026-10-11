@@ -82,6 +82,8 @@ def _parser(service):
         parser.add_argument('--max-attempts',type=int,default=3)
     if service=='claim-extraction-worker':
         parser.add_argument('--model-env-file',type=Path,required=True);parser.add_argument('--timezone',default='Asia/Shanghai')
+        # NX-031: `test` admits the load lane's load-rules profile variant; the default refuses it at startup.
+        parser.add_argument('--mode',choices=['stage','test'],default='stage')
     if service=='claim-matcher':
         parser.add_argument('--model-env-file',type=Path,required=True);parser.add_argument('--match-config-file',type=Path,required=True)
         parser.add_argument('--embedding-env-file',type=Path)
@@ -161,15 +163,32 @@ class LazyModelProvider:
     """Built from the private model env file at first use. A missing/test profile fails the task
     with the given provider error (retried, visible in backlog), never invents output."""
 
-    def __init__(self,path,unavailable):self.path,self.unavailable,self._provider=path,unavailable,None
+    def __init__(self,path,unavailable,*,allow_load_rules=False):
+        self.path,self.unavailable,self._provider,self.allow_load_rules=path,unavailable,None,allow_load_rules
+
+    def _resolve(self):
+        if self._provider is None:
+            from nexloop_eios.conversation_extraction import OpenAICompatibleExtractionProvider
+            from nexloop_eios.model_profile import load_model_profile
+            try:
+                profile=load_model_profile({},env_file=self.path,allow_load_rules=self.allow_load_rules)
+                if profile.model_id=='load-rules':
+                    from nexloop_eios.load_rules import LoadRulesExtractionProvider
+                    self._provider=LoadRulesExtractionProvider()
+                else:self._provider=OpenAICompatibleExtractionProvider(profile)
+            except Exception:raise self.unavailable('model profile unavailable') from None
+        return self._provider
+
+    # The extractor records which provider and model produced a window (input digest): resolved on first use too.
+    @property
+    def provider(self):return self._resolve().provider
+
+    @property
+    def model_id(self):return self._resolve().model_id
 
     def complete(self,system_prompt,user_payload):
-        if self._provider is None:
-            from nexloop_eios.conversation_extraction import ExtractionProviderUnavailable,OpenAICompatibleExtractionProvider
-            from nexloop_eios.model_profile import load_model_profile
-            try:self._provider=OpenAICompatibleExtractionProvider(load_model_profile({},env_file=self.path))
-            except Exception:raise self.unavailable('model profile unavailable') from None
-        try:return self._provider.complete(system_prompt,user_payload)
+        provider=self._resolve()
+        try:return provider.complete(system_prompt,user_payload)
         except Exception as error:
             if isinstance(error,self.unavailable):raise
             raise self.unavailable('model call failed') from None
@@ -206,7 +225,8 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
     if service=='claim-extraction-worker':
         from nexloop_eios.claim_extraction_jobs import ClaimExtractionWorker
         from nexloop_eios.conversation_extraction import ExtractionProviderUnavailable
-        status=ClaimExtractionWorker(pool,session,signer,LazyModelProvider(arguments.model_env_file,ExtractionProviderUnavailable),
+        status=ClaimExtractionWorker(pool,session,signer,LazyModelProvider(arguments.model_env_file,ExtractionProviderUnavailable,
+            allow_load_rules=arguments.mode=='test'),
             timezone=arguments.timezone).run_once()
         return {'status':status if status in {'idle','succeeded','failed','retry_wait','dead_lettered'} else 'unavailable'}
     if service=='claim-matcher':
@@ -231,6 +251,13 @@ def run(service,arguments,stop):
     from nexloop_eios.backend import open_backend
     from nexloop_eios.private_configuration import read_private_text
     label,role=SERVICES[service]
+    if service in ('claim-extraction-worker','claim-matcher'):
+        # NX-031: the load-rules profile variant starts only for the extraction worker in --mode test; anywhere else it is
+        # refused here, before any connection (a stage/real service never runs on it).
+        from nexloop_eios.provider_credentials import configuration_values
+        if configuration_values({},env_file=arguments.model_env_file,prefix='MODEL').get('MODEL_TEST_VARIANT','').strip() and \
+                (service!='claim-extraction-worker' or arguments.mode!='test'):
+            raise ValueError('load-rules profile is test mode only')
     dsn=read_private_text(arguments.database_url_file,maximum=16384)
     read_private_text(arguments.service_credential_file,maximum=16384)
     if service=='recall-indexer':load_types(arguments.types_file)

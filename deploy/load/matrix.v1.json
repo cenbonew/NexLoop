@@ -1,0 +1,21 @@
+{
+  "schema": "nexloop.load-matrix.v1",
+  "version": 1,
+  "decision": "NX-031 design §3 (D1–D9 settled; owner 2026-10-10 \"all as recommended\"; dispatcher 2026-10-10 D3/D5–D9). Eight cells; the guard stays at 4 processes and every other service at its deployed process count and pool (connection-budget.v1.json, total 52). Gate cells are only C4 and C4-low (D4); C8 runs a load-lane-only Host configuration beyond the deployment premise and is never a basis for raising it (D3). Rates are assumptions until business data exists (D2). Model: deterministic provider with injected log-normal latency, median 1.5 s, p95 4 s, never a real model (D5).",
+  "timing": {"warmup_seconds": 120, "steady_seconds": 600, "drain_max_seconds": 600, "snapshot_interval_seconds": 30, "resource_interval_seconds": 10},
+  "load": {"zipf_s": 1.1, "message_mix": {"ask": 0.60, "commitment_ask": 0.15, "refusal": 0.03, "to_restricted": 0.05, "replay": 0.02, "burst3": 0.05, "followup": 0.10},
+           "workbench": {"overview_every_seconds": 60, "takeover_cycle_every_seconds": 600}},
+  "model_latency": {"distribution": "lognormal", "median_ms": 1500, "p95_ms": 4000},
+  "expected_refusals": ["NXC05", "NXC06"],
+  "cross_access_probe_pairs": 50,
+  "cells": [
+    {"cell": "C1", "role": "observe", "host_concurrency": 1, "rate_per_s": 1.0, "background": true, "ci_background": false},
+    {"cell": "C2", "role": "observe", "host_concurrency": 2, "rate_per_s": 1.0, "background": true, "ci_background": false},
+    {"cell": "C4", "role": "gate", "host_concurrency": 4, "rate_per_s": 1.0, "background": true, "ci_background": false},
+    {"cell": "C8", "role": "observe", "host_concurrency": 8, "rate_per_s": 1.0, "background": true, "ci_background": false},
+    {"cell": "C4-low", "role": "gate", "host_concurrency": 4, "rate_per_s": 0.2, "background": true, "ci_background": false},
+    {"cell": "C4-peak", "role": "observe", "host_concurrency": 4, "rate_per_s": 3.0, "background": true, "ci_background": false},
+    {"cell": "C4-quiet", "role": "observe", "host_concurrency": 4, "rate_per_s": 1.0, "background": false, "ci_background": false},
+    {"cell": "C4-ci", "role": "observe", "host_concurrency": 4, "rate_per_s": 1.0, "background": true, "ci_background": true}
+  ]
+}

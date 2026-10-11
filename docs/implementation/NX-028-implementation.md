@@ -20,7 +20,7 @@
 ### 新增 Action（需切片 1 的角色映射）
 - `nexloop.plan.request_reevaluation:1`、`nexloop.service.query_request:1`：建议 owner 与 operator 都持有（设计稿 §2 表）。
 
-### 测试（Mac，`-n 3`，开跑负载约 5–7）
+### 测试（开发机，`-n 3`，开跑负载约 5–7）
 - `tests/test_governed_entry_pg.py` 4 例：注册表内容、append-only、错误 handler 被拒、旧入口无授权；预判与真实派发一致（暂停 → 拒绝且 provider 零请求；恢复后旧意图 `control_revision_stale` 且仍被拒；复评后的新意图可派发并派发一次；附带通知与联系限制；预判不留锁）；手动复评（服务主体持同授权被拒、计划进入 feed、重放不重复、非 active 计划被拒）；查询执行结果（排队中的意图被拒；unknown 时只把 outbox 的到期时间提前，状态、fence、意图数不变）。
 - `tests/test_workbench_actions_http.py` 5 例（合入切片 1 后新增第 5 例：顾客 Cookie 401；顾客登录工作台域无授权 403；operator 调暂停、解除联系限制 403，手动复评 200；owner 暂停 200；角色授权由 `workbench-roles` 编译）：未登录 / CSRF 不符 / 未知操作 / 字段错误 / 多余字段 / 非 UTC / 缺 Idempotency-Key 全部拒绝且不写；工作台暂停与恢复与派发一致（AT-006 界面部分的后端）且同键重放不重复写；解除联系限制、标记沟通类、延期、已取消承诺再取消返回 409、手动复评；登录但无授权的人类 403 且不写。
 - 回归 99 + 21 例通过（review_http、goal_controls、contact_refusal、承诺三组、nx022 派发、清单、db_boundary、计划复评、effect 派发、闭环知识、web chat、http_api 等）；`check_definer_search_path.py` 0 问题。
@@ -64,7 +64,7 @@
 
 `nexloop.plan.request_reevaluation:1`、`nexloop.service.query_request:1`（切片 2）；`nexloop.conversation.takeover:1`、`nexloop.conversation.handback:1`、`nexloop.message.staff_send:1`（切片 3）。服务授权 `service-grants.v1.json` v11：reply_guarantor 增加 `NexLoop.feed.takeover-expiry:1`、`nexloop.takeover.expire:1`。
 
-### 测试（Mac，`-n 3`；真实 Pi 单独串行；开跑负载 5–12，含其他线）
+### 测试（开发机，`-n 3`；真实 Pi 单独串行；开跑负载 5–12，含其他线）
 - `tests/test_takeover_pg.py` 5 例：人类专用（服务主体持同授权被拒）、时长上限、默认 2 小时、接管开始不唤醒计划、重复/冲突接管被拒、会话级 Agent 回复 NXC06 而服务交付仍可派发、consumer 级接管下排队意图预判 `taken_over` 且真实派发零请求、交还 D5（最新一条恢复、更早一条结清、已回复的不涉及、接管前的不受影响、计划以 handback 唤醒、二次交还被拒）、到期（到期即失效、worker 结束并升级、最新来信恢复、到期条目移除）、回复担保遇接管不升级不兜底、顾客状态只给本人且只有 `handled_by`。
 - `tests/test_takeover_relay_pg.py` 1 例（真实 HTTPS 来信 + 实际 relay CLI，无 Pi）：接管期间 relay 不签发 Run（固定错误行、无私密信息），状态条为 human；交还后只路由最新一条，更早一条不补发。
 - `tests/test_takeover_e2e_pg.py` 1 例（真实 Host/Pi，guard 4 进程）：接管前已排队的 Pi 回复派发被拒，provider 零请求，不物化。

@@ -25,7 +25,7 @@ from commitment_fixture import TAKEOVER_ACTIONS, publish_request_actions
 from test_workbench_actions_http import publish_goal_actions
 from test_workbench_read_pg import CALLER, ROLES, TENANT, WORKBENCH_APP, add_human, members_file, write_facts
 from commercial_fixture import commercial_env  # noqa: F401
-from load_template import load, load_commercial, snapshot
+from load_template import apply_service_grants, load, load_commercial, load_commitments, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/load'))
@@ -63,17 +63,21 @@ def test_build_load_template(commercial_env, conversations, admin, pg, tmp_path)
     members = members_file(*((h, 'owner' if k == 'owner' else 'operator') for k, h in staff.items()))
     apply_members(ROLES, members, database_url_file=dsn)
     write_facts(admin, compile_members(ROLES, members))
+    (out / 'private').mkdir(mode=0o700)
+    granted = apply_service_grants(admin, pg, out / 'private')  # every service's own credential (service-grants manifest)
+    # Commitments: staff promises through the workbench write entry, then extraction and keeper with their own credentials.
+    promised = load_commitments(conversations, admin, pg, records, out / 'private', tmp_path / 'commitments', staff['operator-1'])
     load_seconds = round(time.monotonic() - started, 1)
     backup_seconds = snapshot(pg, out)
     reader = conversations['reader']
-    (out / 'private').mkdir(mode=0o700)
     private(out / 'private/credentials.json', json.dumps({'customers': result['credentials'],
         'workbench': {k: {'username': h['username'], 'password': h['password'], 'principal_id': h['principal_id']} for k, h in staff.items()}}))
     private(out / 'private/signing.json', json.dumps({'key_id': reader.signer.key_id, 'material_hex': reader.signer.material.hex()}))
     catalog = admin.execute('select max(version) from control.schema_migrations').fetchone()[0]
     commit = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     (out / 'template.json').write_text(json.dumps({'schema': 'nexloop.load-template.v1', 'seed': seed, 'manifest_digest': synthetic.digest(lines),
-        'manifest_totals': trailer['totals'], 'loaded': {**result['counts'], 'commercial_events': commercial['statuses']},
-        'seconds': {**result['seconds'], **{'commercial_' + k: v for k, v in commercial['seconds'].items()}, 'total_load': load_seconds, 'pg_basebackup': backup_seconds},
-        'tenant': TENANT, 'world': 'real', 'workbench_members': {'owner': 1, 'operator': 2}, 'commit': commit, 'catalog_revision': catalog,
-        'not_loaded_in_slice_0': ['commitments', 'active_plans']}, ensure_ascii=False, indent=2) + '\n')
+        'manifest_totals': trailer['totals'], 'loaded': {**result['counts'], 'commercial_events': commercial['statuses'], 'commitments_registered': promised['registered'],
+                   'staff_promises': promised['staff_replies'], 'extraction_tasks': promised['extraction_tasks']},
+        'seconds': {**result['seconds'], **{'commercial_' + k: v for k, v in commercial['seconds'].items()}, **{'commitments_' + k: v for k, v in promised['seconds'].items()}, 'total_load': load_seconds, 'pg_basebackup': backup_seconds},
+        'tenant': TENANT, 'world': 'real', 'workbench_members': {'owner': 1, 'operator': 2}, 'service_grants': granted, 'commit': commit, 'catalog_revision': catalog,
+        'not_loaded': ['active_plans (needs the per-consumer recipe of the multi-consumer relay, L2)']}, ensure_ascii=False, indent=2) + '\n')
