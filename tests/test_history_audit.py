@@ -92,7 +92,7 @@ def test_a_hit_brought_in_by_a_merge_and_a_commit_message_hit(repo):
 
 
 def test_rotation_categories_exit_two_and_the_report_never_repeats_the_match(repo, tmp_path):
-    commit(repo, {'deploy/key.pem': KEY_HEADER + '\nabc\n', 'conf.env.example': f'X={SECRET}\n', 'net.md': f'gw {PRIVATE_ADDRESS}\n',
+    commit(repo, {'deploy/key.pem': KEY_HEADER + '\nkeybody-zq\n', 'conf.env.example': f'X={SECRET}\n', 'net.md': f'gw {PRIVATE_ADDRESS}\n',
                   'fp.md': f'host key {FINGERPRINT[:7]}{"Q" * 20}\n'}, 'oops')
     commit(repo, {'deploy/key.pem': 'removed\n'}, 'remove key')
     report = H.audit()
@@ -104,7 +104,8 @@ def test_rotation_categories_exit_two_and_the_report_never_repeats_the_match(rep
     out_json, out_md = tmp_path / 'r.json', tmp_path / 'r.md'
     assert H.main(['--json', str(out_json), '--markdown', str(out_md)]) == 2
     text = out_json.read_text() + out_md.read_text()
-    for secret in (SECRET, PRIVATE_ADDRESS, KEY_HEADER, FINGERPRINT, ALIAS, USER_PATH, 'abc'):
+    # The marker is not hexadecimal: the report carries commit and blob ids, which may contain any short hex run.
+    for secret in (SECRET, PRIVATE_ADDRESS, KEY_HEADER, FINGERPRINT, ALIAS, USER_PATH, 'keybody-zq'):
         assert secret not in text
     assert H.main(['--json', str(out_json)]) == 3  # never overwrites a report
     assert out_json.stat().st_mode & 0o077 == 0
