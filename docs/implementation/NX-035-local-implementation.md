@@ -139,7 +139,7 @@
 - 无法核实的渠道如果没有处于暂停状态，就拒绝开放；
 - 全部 scope 开放后，状态进入 `open`，同时记录实测 RPO（窗口结束减去恢复目标时刻）和 RTO（从恢复开始到 `verified_readonly`）；
 - 开放后，被暂停的渠道仍然阻断（NXC01），需要负责人用现有的 resume 解除。
-- 配套变更：business-actions v13、workbench-roles v7、HTTP 操作表、`GoalGovernedActions.open_restore_scope`。
+- 配套变更：business-actions v14、workbench-roles v7、HTTP 操作表、`GoalGovernedActions.open_restore_scope`。
 
 ### 迁移门槛（AT-056、Q3）
 `authz.nexloop_migration_gate()` 列出当前不能迁移的全部原因：
@@ -185,6 +185,19 @@
 - **Q1**：恢复日志分段不在本地加密，用哈希链加 0600 权限。分段中只有 ID、哈希、序号和时间，有测试断言其中没有原文字段或消息内容。分段的静态加密由文件备份仓库（restic，客户端加密）在部署时完成，是受控试运行前的门槛项。不引入 age。
 - **Q2**：本切片不重建意图。恢复报告逐个渠道列出“无法核实”计数和被暂停的 action_type；`open_scope` 之后被暂停的渠道仍然阻断（已有测试证明）。
 - **Q3**：不提供任何豁免。测试用 `pg_basebackup` 做真实备份，用 `pg_verifybackup` 校验；清单存在但校验失败时同样拒绝迁移（已有测试）。
+
+## 7. 待负责人裁定：`nexloop.restore.open_scope` 的风险级别
+
+- **现状**：business-actions v14 暂按 EIOS 风险 `low` 发布，NexLoop 的分类是 `high`。
+  - 原因与 AT-043 D2 相同：vendored EIOS 的 ActionGovernor 对 `low` 以上的风险一律要求审批证据，NexLoop 的部署清单校验也只接受 `low`。
+  - ActionGovernor 没有改动。
+  - 清单（v14）的 decision 和 purpose 里都已写明“暂按 low，待负责人裁定”。
+- **补偿控制**：
+  - 只有 owner 能执行（角色清单加 handler 双重检查）；
+  - 按 scope 逐个开放；
+  - 有“无法核实”计数的渠道，只要未处于暂停，就不能开放；
+  - 恢复报告是前置条件（重放、窗口对账、`bootstrap.verify`、`verified_readonly`）；
+  - 每次开放都留下 scope 行（开放人、意图 ID、时间）和受治理入口的意图记录。
 
 ## 7. 未完成项
 
