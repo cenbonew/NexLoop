@@ -10,6 +10,7 @@ from nexloop_eios.browser_evidence import PostgresBrowserEvidenceStore
 from nexloop_eios.browser_identity import open_browser_identity
 from test_browser_identity_reads import identity
 from test_browser_account_failures import OP
+from support.tenants import TENANT_OTHER
 
 @pytest.fixture
 def store(identity):
@@ -71,7 +72,7 @@ def test_duplicate_ids_digest_and_stale_facts_are_denied(store,identity,admin):
     record=inspect(store,authenticate(store,identity).evidence)
     facts=AuthenticationEvidenceFacts(**{k:getattr(record,k) for k in AuthenticationEvidenceFacts.__dataclass_fields__})
     with pytest.raises(IdentityUnavailable):store.issue(record.evidence_id,b'y'*32,facts)
-    with pytest.raises(IdentityUnavailable):store.issue('synthetic-other',record.proof_digest,facts)
+    with pytest.raises(IdentityUnavailable):store.issue(TENANT_OTHER,record.proof_digest,facts)
     with pytest.raises(AuthenticationEvidenceRejected):store.issue('synthetic-stale',b'z'*32,replace(facts,credential_revision=99))
     with ThreadPoolExecutor(max_workers=4) as executor:
         def issue(_):

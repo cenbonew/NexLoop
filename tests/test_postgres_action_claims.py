@@ -16,11 +16,12 @@ from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios.postgres_action_claims import PostgresActionClaimPort
 from authority_fixture import seed_authority,replace_fact
+from support.tenants import TENANT_A, TENANT_B
 
 @pytest.fixture
 def action_port(admin,pg):
     bootstrap(admin)
-    token,_=seed_authority(admin,'synthetic-a','eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
+    token,_=seed_authority(admin,TENANT_A,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
     signer=AuthoritySigner('synthetic-action',secrets.token_bytes(32))
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',(signer.key_id,signer.material))
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool:
@@ -30,10 +31,10 @@ def action_port(admin,pg):
 
 def request(*,intent='synthetic-intent-0001',seconds=20):
     now=datetime.now(UTC)
-    ref=DefinitionReference(tenant_id='synthetic-a',definition_type=DefinitionType.ACTION,stable_name='Consumer.create',version=1,contract_digest='a'*64)
+    ref=DefinitionReference(tenant_id=TENANT_A,definition_type=DefinitionType.ACTION,stable_name='Consumer.create',version=1,contract_digest='a'*64)
     binding=M.ClaimBindingPayload(invocation_id='synthetic-invocation',action_reference=ref,request_digest='b'*64,
       capability_binding=CapabilityBinding(capability_name='consumer.create',capability_version='1.0.0',schema_hash='c'*64),adapter_id='nexloop.core',target_system='postgres')
-    return M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id='synthetic-a',action_stable_name='Consumer.create',idempotency_key=intent),binding=binding,requested_at=now,lease_expires_at=now+timedelta(seconds=seconds))
+    return M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=TENANT_A,action_stable_name='Consumer.create',idempotency_key=intent),binding=binding,requested_at=now,lease_expires_at=now+timedelta(seconds=seconds))
 
 
 def finish(claim):
@@ -86,12 +87,12 @@ def test_retryable_preserves_intent_and_advances_fence(action_port):
 
 def test_revoke_after_claim_denies_finalize(action_port,admin):
     claim=action_port.reserve(request()).claim
-    replace_fact(admin,'synthetic-a','grants',['synthetic-a-principal','eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-principal','eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
     with pytest.raises(AuthorizationUnavailable):action_port.finalize(finish(claim))
 
 
 def test_wrong_tenant_rejected_before_any_sql_mutation(action_port):
-    command=request();wrong=command.model_copy(update={'key':command.key.model_copy(update={'tenant_id':'synthetic-b'}),'binding':command.binding.model_copy(update={'action_reference':command.binding.action_reference.model_copy(update={'tenant_id':'synthetic-b'})})})
+    command=request();wrong=command.model_copy(update={'key':command.key.model_copy(update={'tenant_id':TENANT_B}),'binding':command.binding.model_copy(update={'action_reference':command.binding.action_reference.model_copy(update={'tenant_id':TENANT_B})})})
     with pytest.raises(P.ActionClaimContractError):action_port.reserve(wrong)
 
 
@@ -103,7 +104,7 @@ def test_revoke_between_real_decision_and_sql_claim_recheck(action_port,admin,mo
         nonlocal count
         count+=1
         if count==2:
-            replace_fact(admin,'synthetic-a','grants',['synthetic-a-principal','eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
+            replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-principal','eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
         with original(*args,**kwargs) as c:yield c
     monkeypatch.setattr(action_port.pool,'connection',race_connection)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):action_port.reserve(request())
@@ -137,8 +138,8 @@ def governance_inputs(*,approval_required=False):
     from eios.ontology.definitions import ActionDefinition,DefinitionStatus,ActionGovernanceContract,ActionChangeScope,ActionRiskLevel,ActionApprovalMode,ActionIdempotencyPolicy,OntologySchemaReference,OntologySchemaType
     from eios.ontology.version_resolution import CapabilityContractSnapshot,CapabilityContractKind
     command=request();now=datetime.now(UTC);payload={'request_id':command.key.idempotency_key}
-    object_type=OntologySchemaReference(tenant_id='synthetic-a',schema_type=OntologySchemaType.OBJECT_TYPE,stable_name='Consumer',version=1,schema_digest='a'*64)
-    definition=ActionDefinition(tenant_id='synthetic-a',stable_name='Consumer.create',version=1,status=DefinitionStatus.PUBLISHED,
+    object_type=OntologySchemaReference(tenant_id=TENANT_A,schema_type=OntologySchemaType.OBJECT_TYPE,stable_name='Consumer',version=1,schema_digest='a'*64)
+    definition=ActionDefinition(tenant_id=TENANT_A,stable_name='Consumer.create',version=1,status=DefinitionStatus.PUBLISHED,
       created_by='synthetic-owner',created_at=now-timedelta(days=1),required_scopes=('action.execute',),
       capability_binding=command.binding.capability_binding,object_types=(object_type,),
       governance=ActionGovernanceContract(change_scope=ActionChangeScope(object_types=(object_type,),target_systems=('postgres',)),risk_level=ActionRiskLevel.LOW,
@@ -148,8 +149,8 @@ def governance_inputs(*,approval_required=False):
     binding=command.binding.model_copy(update={'action_reference':ref,'request_digest':M.canonical_request_digest(payload)})
     command=command.model_copy(update={'binding':binding})
     snapshot=CapabilityContractSnapshot(**command.binding.capability_binding.model_dump(),kind=CapabilityContractKind.ATOMIC,has_side_effects=True,idempotent=True,required_scopes=('action.execute',))
-    evidence=M.PolicyEvidenceSet(tenant_id='synthetic-a',invocation_id=binding.invocation_id,action_reference=ref,required_policy_references=(),evidence=(),evaluated_at=now)
-    return dict(tenant_id='synthetic-a',invocation_id=binding.invocation_id,action_reference=ref,action_definition=definition,
+    evidence=M.PolicyEvidenceSet(tenant_id=TENANT_A,invocation_id=binding.invocation_id,action_reference=ref,required_policy_references=(),evidence=(),evaluated_at=now)
+    return dict(tenant_id=TENANT_A,invocation_id=binding.invocation_id,action_reference=ref,action_definition=definition,
       capability_snapshot=snapshot,request=payload,claim_request=command,granted_scopes=frozenset({'action.execute'}),policy_evidence=evidence,approval_evidence=None)
 
 

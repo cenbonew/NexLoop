@@ -11,12 +11,13 @@ from context_source_declarations import source_declarations
 from runtime_effect_fixture import seed_multi_uuid
 from test_postgres_action_claims import governance_inputs
 from test_business_setup_pg import declared_service
+from support.tenants import TENANT_A
 
 
 def definitions(tenant):
     original=governance_inputs()['action_definition'];cap=governance_inputs()['capability_snapshot'];result=[]
     for schema in offering_schemas():
-        d=json.loads(json.dumps(original.model_dump(mode='json')).replace('synthetic-a',tenant));d.pop('contract_digest',None)
+        d=json.loads(json.dumps(original.model_dump(mode='json')).replace(TENANT_A,tenant));d.pop('contract_digest',None)
         ref={**d['object_types'][0],'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)}
         d.update(stable_name=schema.type_name+'.create',object_types=[ref]);d['governance']['change_scope']['object_types']=[ref]
         result.append({'definition':type(original).model_validate_json(json.dumps(d)).model_dump(mode='json'),'capability':cap.model_dump(mode='json')})

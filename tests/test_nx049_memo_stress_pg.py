@@ -35,6 +35,7 @@ from nexloop_eios.message_read import derived_message_read_envelope,message_read
 from authority_fixture import seed_authority
 from test_action_definitions import published_action  # noqa: F401
 from test_context_artifacts import context_message, assembled_message, business_plan, configured  # noqa: F401
+from support.tenants import TENANT_A
 
 LOOP="""
 create or replace function public.nx049_stress_loop(p_fn text,p_digest text,p_claims jsonb,p_n int,p_sleep float8,p_between text)
@@ -171,7 +172,7 @@ def run(dsn,*,fn,tenant,resolve,revokers,own_revoke,cycles,asserters=4,deny_wind
 def action(published_action,admin,pg):
     reader,_,_=published_action
     target='eios:action:Consumer.create:1'
-    token,_=seed_authority(admin,'synthetic-a',target,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-nx049-stress')
+    token,_=seed_authority(admin,TENANT_A,target,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-nx049-stress')
     session=authenticate_service(reader.pool,token,world='real')
     key=[session.authentication.subject_principal_id,target]
     grant=admin.execute("select payload from authz.nexloop_authority_facts where fact_kind='grants' and entity_key=%s",(key,)).fetchone()[0]
@@ -210,7 +211,7 @@ def test_action_memo_never_serves_a_revoked_or_expired_allow(action,mutation):
     undo=mutate(a['admin'],mutation,'authz.nexloop_assert_action_authority(text,text,jsonb)',['authz.nexloop_authority_facts'])
     try:
         q=quiet(mutation)
-        summary,violations=run(a['dsn'],fn='authz.nexloop_assert_action_authority',tenant='synthetic-a',resolve=a['resolve'],
+        summary,violations=run(a['dsn'],fn='authz.nexloop_assert_action_authority',tenant=TENANT_A,resolve=a['resolve'],
             revokers=[(a['revoke'],a['restore'],True)] if q['revokers_on'] else [],own_revoke=a['revoke'],cycles=200 if mutation is None else 40,
             asserters=q['asserters'],modes=q['modes'],duration=q['duration'])
     finally:undo()

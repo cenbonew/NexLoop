@@ -22,6 +22,7 @@ from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.object_reads import AuthorizedObjectReader
 from authority_fixture import replace_fact, seed_authority
 from test_action_definitions import published_action  # noqa: F401
+from support.tenants import TENANT_A
 
 INNER = "authz.nexloop_assert_read_authority_before_read_memo_v0095(text,text,jsonb)"
 LOOP = """
@@ -60,13 +61,13 @@ def memo(published_action, admin, pg):
     reader, _, _ = published_action
     object_id = hashlib.sha256(b'o5b-consumer').hexdigest()
     target = 'eios:object:Consumer/' + object_id
-    token, _ = seed_authority(admin, 'synthetic-a', target, operation=Operation.READ, resource_type=ResourceType.OBJECT, identity_suffix='-o5b')
+    token, _ = seed_authority(admin, TENANT_A, target, operation=Operation.READ, resource_type=ResourceType.OBJECT, identity_suffix='-o5b')
     session = authenticate_service(reader.pool, token, world='real')
     projector = AuthorizedObjectReader(reader.pool, session, reader.signer)
     admin.execute(LOOP); admin.execute("set track_functions='pl'")
     # As in the application, the tenant context is already set when assertions run; the
     # pre-call tenant is part of the key (see test_tenant_context_is_part_of_the_key).
-    admin.execute("select set_config('eios.tenant_id','synthetic-a',false)")
+    admin.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-00000000000a',false)")
     state = {'reader': reader, 'admin': admin, 'pg': pg, 'token': token, 'session': session, 'target': target, 'object_id': object_id}
     def claims(expires_in=None, session=None):
         s = session or state['session']
@@ -255,7 +256,7 @@ def test_read_only_transaction_runs_full_checks_without_error(memo):
 
 
 def test_isolation_between_digests_worlds_and_tenants(memo):
-    other_token, _ = seed_authority(memo['admin'], 'synthetic-a', memo['target'], operation=Operation.READ, resource_type=ResourceType.OBJECT, identity_suffix='-o5b-other')
+    other_token, _ = seed_authority(memo['admin'], TENANT_A, memo['target'], operation=Operation.READ, resource_type=ResourceType.OBJECT, identity_suffix='-o5b-other')
     other = authenticate_service(memo['reader'].pool, other_token, world='real')
     memo['reauthenticate'](); value = memo['claims'](); other_value = memo['claims'](session=other)
     with memo['admin'].transaction():
@@ -289,7 +290,7 @@ def api_read(memo, connection, *, revoke=False):
     claims.update(protocol='nexloop-object-read-v1', key_id=reader.signer.key_id, type_name='Consumer', object_id=object_id, fields=(), property_authorities=[])
     text = canonical_payload(claims); signature = hmac.new(reader.signer.material, ('nexloop-object-read-v1:' + text).encode(), 'sha256').hexdigest()
     if revoke:
-        replace_fact(memo['admin'], 'synthetic-a', 'grants', grant_key(memo), F.GrantFacts, grants=[])
+        replace_fact(memo['admin'], TENANT_A, 'grants', grant_key(memo), F.GrantFacts, grants=[])
     return connection.execute('select authz.nexloop_read_object(%s,%s,%s,%s)', (memo['session'].token_digest, 'real', text, signature)).fetchone()[0]
 
 
@@ -304,7 +305,7 @@ def consumer(memo):
     receipt = GovernedObjectCreator(reader.pool, creator, reader.signer).create(action_name='Consumer.create', action_version=1,
         intent_id='o5b-forgery-' + secrets.token_hex(4), type_name='Consumer', properties={})
     memo['object_id'] = receipt['object_id']; memo['target'] = 'eios:object:Consumer/' + receipt['object_id']
-    token, _ = seed_authority(memo['admin'], 'synthetic-a', memo['target'], operation=Operation.READ, resource_type=ResourceType.OBJECT, identity_suffix='-o5b-forge')
+    token, _ = seed_authority(memo['admin'], TENANT_A, memo['target'], operation=Operation.READ, resource_type=ResourceType.OBJECT, identity_suffix='-o5b-forge')
     memo['session'] = authenticate_service(reader.pool, token, world='real')
     memo['projector'] = AuthorizedObjectReader(reader.pool, memo['session'], reader.signer)
     return memo
@@ -410,7 +411,7 @@ def test_concurrent_revocation_never_serves_a_stale_allow(memo):
     def asserter(index):
         try:
             with psycopg.connect(admin_dsn, autocommit=True) as c:
-                c.execute("set track_functions='pl'"); c.execute("select set_config('eios.tenant_id','synthetic-a',false)")
+                c.execute("set track_functions='pl'"); c.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-00000000000a',false)")
                 while not stop.is_set():
                     try:
                         session = authenticate_service(reader.pool, m['token'], world='real')
@@ -455,8 +456,8 @@ def test_erasing_consumer_refuses_the_public_entry_and_the_inner_v0072(memo):
     admin=memo['admin']
     call=lambda function:admin.execute(f'select {function}(%s,%s,%s)',(memo['session'].token_digest,'real',Jsonb(memo['claims']()))).fetchone()[0]
     with admin.transaction():assert call('authz.nexloop_assert_read_authority')
-    mark_erasing(admin,'synthetic-a',memo['object_id'])
+    mark_erasing(admin,TENANT_A,memo['object_id'])
     for function in ('authz.nexloop_assert_read_authority','authz.nexloop_assert_read_authority_before_message_read_v0072'):
         with pytest.raises(psycopg.errors.InsufficientPrivilege,match=ERASING),admin.transaction():call(function)
-    withdraw(admin,'synthetic-a',memo['object_id'])
+    withdraw(admin,TENANT_A,memo['object_id'])
     with admin.transaction():assert call('authz.nexloop_assert_read_authority')

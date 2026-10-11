@@ -12,12 +12,13 @@ from nexloop_eios.assembly import open_core
 from nexloop_eios.authorization import authenticate_service,authorization_service,PostgresAuthorityProvider
 from nexloop_eios.local_artifacts import LocalBlobStore,AuthorizedArtifactAccess,ArtifactAccessDenied
 from authority_fixture import seed_authority,replace_fact
+from support.tenants import TENANT_A, TENANT_B
 
 
 def test_real_pg_service_resolver_authorizes_exact_artifact(admin,pg,tmp_path):
     bootstrap(admin)
     with LocalBlobStore(tmp_path/'blobs') as store:
-        ref=store.put(tenant_id='synthetic-a',world='real',payload=b'synthetic evidence',media_type='text/plain')
+        ref=store.put(tenant_id=TENANT_A,world='real',payload=b'synthetic evidence',media_type='text/plain')
         token,_=seed_authority(admin,ref.tenant_id,ref.resource_id)
         with open_core(make_conninfo(pg,user='nexloop_api')) as pool:
             session=authenticate_service(pool,token,world='real')
@@ -38,26 +39,26 @@ def test_real_pg_service_resolver_authorizes_exact_artifact(admin,pg,tmp_path):
 def test_two_tenants_and_worlds_cannot_forge_server_binding(admin,pg,tmp_path):
     bootstrap(admin)
     resource='eios:artifact:synthetic'
-    a,_=seed_authority(admin,'synthetic-a',resource)
-    seed_authority(admin,'synthetic-b',resource)
+    a,_=seed_authority(admin,TENANT_A,resource)
+    seed_authority(admin,TENANT_B,resource)
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool:
         with pytest.raises(AuthorizationUnavailable):authenticate_service(pool,a,world='shadow')
         with pytest.raises(AuthorizationUnavailable):authenticate_service(pool,'invalid-credential'*4,world='real')
         session=authenticate_service(pool,a,world='real')
-        assert session.authentication.tenant_id=='synthetic-a'
+        assert session.authentication.tenant_id==TENANT_A
         q=session.query(resource_id=resource,resource_type=ResourceType.ARTIFACT,operation=Operation.READ)
-        forged_binding=F.CredentialAuthenticationBinding.model_validate_json(session.authentication.model_dump_json().replace('synthetic-a','synthetic-b'))
-        forged=q.model_copy(update={'tenant_id':'synthetic-b','authentication':forged_binding,
-            'target':q.target.model_copy(update={'tenant_id':'synthetic-b'})})
+        forged_binding=F.CredentialAuthenticationBinding.model_validate_json(session.authentication.model_dump_json().replace(TENANT_A,TENANT_B))
+        forged=q.model_copy(update={'tenant_id':TENANT_B,'authentication':forged_binding,
+            'target':q.target.model_copy(update={'tenant_id':TENANT_B})})
         with pytest.raises(AuthorizationUnavailable):authorization_service(pool,session).decide(forged)
         with pool.connection() as c,c.transaction():
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
-                c.execute('select authz.nexloop_load_authority_fact(%s,%s,%s,%s)',(session.token_digest,'real','subject',['synthetic-b-service']))
+                c.execute('select authz.nexloop_load_authority_fact(%s,%s,%s,%s)',(session.token_digest,'real','subject',[f'{TENANT_B}-service']))
 
 
 @pytest.mark.parametrize('layer',['grants','application','controls','policies','scope','membership','credential'])
 def test_live_revocation_or_missing_authority_fails_closed(admin,pg,layer):
-    bootstrap(admin);tenant='synthetic-a';resource='eios:artifact:synthetic'
+    bootstrap(admin);tenant=TENANT_A;resource='eios:artifact:synthetic'
     token,_=seed_authority(admin,tenant,resource)
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool:
         session=authenticate_service(pool,token,world='real')
@@ -87,7 +88,7 @@ def test_database_policy_can_deny_even_when_grant_and_scope_allow(admin,pg):
     from psycopg.types.json import Jsonb
     from eios.authz.policy.models import Eq,ActionParameterRef,LiteralValue
     from eios.authz.policy.canonical import canonicalize_policy_expression
-    bootstrap(admin);tenant='synthetic-a';resource='eios:artifact:synthetic'
+    bootstrap(admin);tenant=TENANT_A;resource='eios:artifact:synthetic'
     token,records=seed_authority(admin,tenant,resource)
     policy=next(fact for kind,key,fact in records if kind=='policies')
     values=policy.rules[0].model_dump(exclude={'condition','canonical_ast_utf8','canonical_ast_sha256','version_digest','active_version'})
@@ -102,11 +103,11 @@ def test_database_policy_can_deny_even_when_grant_and_scope_allow(admin,pg):
 
 
 def test_suspended_tenant_cannot_authenticate_or_reuse_session(admin,pg):
-    bootstrap(admin);token,_=seed_authority(admin,'synthetic-a','eios:artifact:synthetic')
+    bootstrap(admin);token,_=seed_authority(admin,TENANT_A,'eios:artifact:synthetic')
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool:
         session=authenticate_service(pool,token,world='real')
         q=session.query(resource_id='eios:artifact:synthetic',resource_type=ResourceType.ARTIFACT,operation=Operation.READ)
         assert authorization_service(pool,session).decide(q).allowed
-        admin.execute("update control.nexloop_tenants set status='suspended' where tenant_id='synthetic-a'")
+        admin.execute("update control.nexloop_tenants set status='suspended' where tenant_id='00000000-0000-4000-8000-00000000000a'")
         with pytest.raises(AuthorizationUnavailable):authenticate_service(pool,token,world='real')
         with pytest.raises(AuthorizationUnavailable):authorization_service(pool,session).decide(q)

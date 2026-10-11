@@ -6,9 +6,10 @@ from eios.authz import facts as F
 from eios.authz.applications import ResourceRestriction,OperationRestriction
 from authority_fixture import authority_records
 from nexloop_eios.authorization import authenticate_service
+from support.tenants import TENANT_A
 
 
-def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra_scopes=(),tenant='synthetic-a'):
+def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra_scopes=(),tenant=TENANT_A):
     scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets)|frozenset(extra_scopes)
     records={}; apps=[]
     for target,kind,op in targets:

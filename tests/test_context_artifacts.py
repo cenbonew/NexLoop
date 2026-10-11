@@ -24,6 +24,7 @@ from nexloop_eios.message_relay import MessageRelay,MessageRelayUnavailable
 from nexloop_eios.run_credential_vault import RunCredentialVault
 from nexloop_eios.context_artifacts import ACTION,context_binding_schema,ContextArtifactProducer,ContextArtifactUnavailable
 from nexloop_eios.runtime_dispatch import RuntimeDispatcher,HostControlConfiguration
+from support.tenants import TENANT_A
 
 
 def source_declarations(tenant,catalog_targets=(),*,custom_specs=None,identity_suffix="-assembly-source"):
@@ -77,7 +78,7 @@ def context_message(assembled_message,admin,tmp_path):
         for operation in ('edit',):
             name=schema.type_name+'.'+operation
             if (name,1) in existing_actions:continue
-            d=json.loads(json.dumps(original.model_dump(mode='json')).replace('synthetic-a',tenant));d.pop('contract_digest',None)
+            d=json.loads(json.dumps(original.model_dump(mode='json')).replace(TENANT_A,tenant));d.pop('contract_digest',None)
             ref={**d['object_types'][0],'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)}
             d['stable_name']=name;d['object_types']=[ref];d['governance']['change_scope']['object_types']=[ref]
             capability=cap.model_dump(mode='json')

@@ -15,9 +15,10 @@ from nexloop_eios.local_artifacts import ArtifactAccessDenied
 from nexloop_eios.postgres_artifacts import LocalArtifactService,canonical_payload
 from authority_fixture import seed_authority,replace_fact
 from test_postgres_artifacts import artifact_setup
+from support.tenants import TENANT_A, TENANT_B
 
 
-def orphan_file(store,*,tenant='synthetic-a',world='real',payload=b'orphan'):
+def orphan_file(store,*,tenant=TENANT_A,world='real',payload=b'orphan'):
     ref=store.put(tenant_id=tenant,world=world,payload=payload,media_type='text/plain')
     path=store.root/ref.namespace/ref.artifact_id
     old=(datetime.now(UTC)-timedelta(hours=1)).timestamp();os.utime(path,(old,old))
@@ -31,7 +32,7 @@ def orphan_collector(artifact_setup,pg,admin):
     formal=LocalArtifactService(repo,store).put(request_id='synthetic-orphan-protected-001',payload=b'formal',media_type='text/plain',retention_until=datetime.now(UTC)+timedelta(days=1))
     path=store.root/formal.namespace/formal.artifact_id
     old=(datetime.now(UTC)-timedelta(hours=1)).timestamp();os.utime(path,(old,old))
-    token,_=seed_authority(admin,'synthetic-a','eios:artifact:orphans_real',operation=Operation.DELETE,identity_suffix='-orphan-maintenance')
+    token,_=seed_authority(admin,TENANT_A,'eios:artifact:orphans_real',operation=Operation.DELETE,identity_suffix='-orphan-maintenance')
     with open_core(make_conninfo(pg,user='nexloop_domain_worker')) as pool:
         collector=FinalOrphanCollector(pool,authenticate_service(pool,token,world='real'),signer,store)
         yield collector,token,formal
@@ -50,7 +51,7 @@ def persist_plan(collector):
 def test_final_orphans_cleanup_preserves_registered_and_other_namespaces(orphan_collector,admin):
     collector,_,formal=orphan_collector
     orphan,path=orphan_file(collector.store)
-    other,other_path=orphan_file(collector.store,tenant='synthetic-b')
+    other,other_path=orphan_file(collector.store,tenant=TENANT_B)
     test,test_path=orphan_file(collector.store,world='test')
     result=collector.collect(older_than=cutoff(),limit=50)
     dispositions={r['artifact_id']:r['disposition'] for r in result['outcomes']}
@@ -90,7 +91,7 @@ def test_new_metadata_reservation_after_plan_protects_file(orphan_collector,admi
     plan=persist_plan(collector)
     # Configure distinct normal uploader; business infrastructure reservation still uses its permit chain.
     from nexloop_eios.postgres_artifacts import PostgresArtifactRepository
-    token,_=seed_authority(admin,'synthetic-a','eios:artifact:local_real',operation=Operation.CREATE,identity_suffix='-orphan-uploader')
+    token,_=seed_authority(admin,TENANT_A,'eios:artifact:local_real',operation=Operation.CREATE,identity_suffix='-orphan-uploader')
     repo=PostgresArtifactRepository(collector.pool,authenticate_service(collector.pool,token,world='real'),collector.signer)
     repo.reserve(dict(artifact_id=orphan.artifact_id,sha256=orphan.sha256,size_bytes=orphan.size_bytes,media_type=orphan.media_type,retention_until=(datetime.now(UTC)+timedelta(days=1)).isoformat()))
     # Refresh maintenance identity after authority directory changes, without broadening it.
@@ -123,7 +124,7 @@ def test_revoke_between_signed_lock_and_sql_dispatch_preserves_file(orphan_colle
     original=collector._arguments
     def race(verb,payload):
         args=original(verb,payload)
-        if verb=='lock':replace_fact(admin,'synthetic-a','grants',['synthetic-a-orphan-maintenance-principal','eios:artifact:orphans_real'],F.GrantFacts,grants=[])
+        if verb=='lock':replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-orphan-maintenance-principal','eios:artifact:orphans_real'],F.GrantFacts,grants=[])
         return args
     monkeypatch.setattr(collector,'_arguments',race)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):collector.resume(plan['sweep_id'])

@@ -4,14 +4,15 @@ import pytest
 from nexloop_eios.http_api import ApiConfiguration,create_app
 from nexloop_eios.browser_http import BrowserConfiguration,COOKIE
 from test_browser_identity_reads import identity
+from support.tenants import TENANT_A
 
 ORIGIN='https://synthetic.example'
 @pytest.fixture
 def browser(identity,admin,tmp_path):
     dsn=tmp_path/'identity-dsn';dsn.write_text(identity[0]);dsn.chmod(0o600)
     key=tmp_path/'rate-key';key.write_text(secrets.token_hex(32));key.chmod(0o600)
-    admin.execute("insert into control.nexloop_browser_rate_policies values('synthetic-a','local_login','nexloop_identity',3,60,true)")
-    config=ApiConfiguration(tmp_path/'missing',tmp_path/'missing-key',tmp_path/'unused','missing',BrowserConfiguration(dsn,key,'synthetic-a','synthetic-browser-app',ORIGIN))
+    admin.execute("insert into control.nexloop_browser_rate_policies values('00000000-0000-4000-8000-00000000000a','local_login','nexloop_identity',3,60,true)")
+    config=ApiConfiguration(tmp_path/'missing',tmp_path/'missing-key',tmp_path/'unused','missing',BrowserConfiguration(dsn,key,TENANT_A,'synthetic-browser-app',ORIGIN))
     with TestClient(create_app(config),base_url=ORIGIN) as client:yield client
 
 
@@ -83,7 +84,7 @@ def test_bounded_malformed_json_never_echoes_credentials(browser,identity):
 def test_invalid_private_key_keeps_browser_unavailable(identity,tmp_path):
     dsn=tmp_path/'identity-dsn';dsn.write_text(identity[0]);dsn.chmod(0o600)
     key=tmp_path/'invalid-key';key.write_text('not-a-key');key.chmod(0o600)
-    config=ApiConfiguration(tmp_path/'missing',tmp_path/'missing-key',tmp_path/'unused','missing',BrowserConfiguration(dsn,key,'synthetic-a','synthetic-browser-app',ORIGIN))
+    config=ApiConfiguration(tmp_path/'missing',tmp_path/'missing-key',tmp_path/'unused','missing',BrowserConfiguration(dsn,key,TENANT_A,'synthetic-browser-app',ORIGIN))
     with TestClient(create_app(config),base_url=ORIGIN) as client:
         result=client.post('/api/v1/auth/login',headers={'Origin':ORIGIN},json={'username':identity[3].username,'password':identity[-1]})
         assert result.status_code==503 and identity[-1] not in result.text

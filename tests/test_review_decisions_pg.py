@@ -27,8 +27,9 @@ from test_candidate_merge_pg import candidates,new_property,setup
 from test_claim_matching_pg import CONSUMER_PROPS,decision,env,matcher_targets,obj,resolution  # noqa: F401
 from test_review_http import REVIEW,grant_human
 from test_review_workbench_pg import to_review
+from support.tenants import TENANT_A
 
-TENANT='synthetic-a'
+TENANT=TENANT_A
 pytestmark=pytest.mark.parametrize('env',[TENANT],indirect=True)
 ROOT=Path(__file__).resolve().parents[1]
 MANIFEST_PATH=ROOT/'deploy/authorization/service-grants.v1.json'

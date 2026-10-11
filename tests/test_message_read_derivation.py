@@ -56,7 +56,7 @@ def test_accepted_message_read_is_derived_without_per_message_authority(context_
 def test_other_tenant_message_is_denied(context_message, admin):
     f = context_message; value = envelope(f); mid = f['message']['id']
     # Disposable fault: the accepted rows now belong to another tenant.
-    admin.execute("update ontology.objects set tenant_id='synthetic-other' where type_name='Message' and object_id=%s", (mid,))
+    admin.execute("update ontology.objects set tenant_id='00000000-0000-4000-8000-00000000000c' where type_name='Message' and object_id=%s", (mid,))
     denied(f, value)
 
 

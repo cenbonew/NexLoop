@@ -37,6 +37,7 @@ from test_browser_business_authorization import browser_business  # noqa: F401
 from test_action_definitions import published_action  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
+from support.tenants import TENANT_A, TENANT_OTHER
 
 READ,EDIT,EXECUTE=Operation.READ,Operation.EDIT,Operation.EXECUTE
 INDEX_FEED=('eios:action:NexLoop.feed.recall-instance:1',ResourceType.ACTION,EXECUTE)
@@ -146,7 +147,7 @@ def test_other_tenant_and_world_never_see_or_drain_the_instance(env):
     # Same grants in the simulation world: real instances are invisible there.
     assert instance_refs(reader(f,targets,suffix='-sim-reader',world='simulation'),'张伟')==[]
     # Another tenant holding grants on the same object id: nothing crosses the tenant boundary.
-    other='synthetic-other'
+    other=TENANT_OTHER
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(other,))
     definition=admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer'",(f['tenant'],)).fetchone()[0]
     admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',1,%s)",(other,Jsonb(definition)))
@@ -201,7 +202,7 @@ PREFERENCE='周末上门服务'
 
 @pytest.fixture
 def pipeline(conversations,admin):
-    fixture=conversations;tenant='synthetic-a'
+    fixture=conversations;tenant=TENANT_A
     conversation_id,ids=make_window(fixture,['我比较喜欢周末上门服务。','好的'],'e2e')
     api=fixture['reader'].pool;signer=fixture['reader'].signer
     consumer=fixture['consumer']
@@ -268,7 +269,7 @@ def test_extracted_claims_are_matched_and_applied_by_the_background_worker(pipel
     # The formal write itself re-marked the Consumer for the instance index.
     assert [r[2] for r in feed_rows(admin,'recall-instance')]==['Consumer/'+s['consumer']]
     # Re-marking the same Conversation (AT-020 rerun) replays: no duplicate proposal or write, no model call.
-    admin.execute("select authz.nexloop_work_feed_touch('synthetic-a','real','claim-match',%s,%s)",(s['conversation_id'],Jsonb({'conversation_id':s['conversation_id']})))
+    admin.execute("select authz.nexloop_work_feed_touch('00000000-0000-4000-8000-00000000000a','real','claim-match',%s,%s)",(s['conversation_id'],Jsonb({'conversation_id':s['conversation_id']})))
     calls=provider.calls
     again=worker.run_once()
     assert again['conversations']==1 and provider.calls==calls

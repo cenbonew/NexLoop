@@ -11,11 +11,12 @@ from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.local_artifacts import LocalBlobStore,ArtifactAccessDenied
 from nexloop_eios.postgres_artifacts import AuthoritySigner,PostgresArtifactRepository,LocalArtifactService,canonical_payload
 from authority_fixture import seed_authority,replace_fact
+from support.tenants import TENANT_A, TENANT_B
 
 @pytest.fixture
 def artifact_setup(admin,pg,tmp_path):
     bootstrap(admin)
-    token,_=seed_authority(admin,'synthetic-a','eios:artifact:local_real',operations=(Operation.CREATE,Operation.READ,Operation.DELETE))
+    token,_=seed_authority(admin,TENANT_A,'eios:artifact:local_real',operations=(Operation.CREATE,Operation.READ,Operation.DELETE))
     signer=AuthoritySigner('synthetic-key',secrets.token_bytes(32))
     admin.execute('insert into authz.nexloop_authority_signing_keys(key_id,key_material,active) values(%s,%s,true)',(signer.key_id,signer.material))
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool,LocalBlobStore(tmp_path/'blobs') as store:
@@ -92,8 +93,8 @@ def test_signature_cannot_be_forged_by_application_role(artifact_setup):
 
 def test_revoke_after_permit_prevents_metadata_reservation(artifact_setup,admin):
     pool,repo,_,_,_=artifact_setup;p=params();permit=repo.issue_permit(Operation.CREATE,p)
-    principal='synthetic-a-principal';resource='eios:artifact:local_real'
-    replace_fact(admin,'synthetic-a','grants',[principal,resource],F.GrantFacts,grants=[])
+    principal=f'{TENANT_A}-principal';resource='eios:artifact:local_real'
+    replace_fact(admin,TENANT_A,'grants',[principal,resource],F.GrantFacts,grants=[])
     with pool.connection() as c,c.transaction():
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             c.execute('select authz.nexloop_reserve_local_artifact(%s,%s,%s,%s,%s,%s)',
@@ -131,7 +132,7 @@ def test_stale_upload_fence_rejected_after_lease_takeover(artifact_setup):
 def test_revoke_after_file_write_blocks_publish_and_read(artifact_setup,admin):
     _,repo,store,_,_=artifact_setup;p=params();claim=repo.reserve(p)
     store.put(tenant_id=claim.reference.tenant_id,world='real',artifact_id=claim.reference.artifact_id,payload=b'hello',media_type='text/plain')
-    admin.execute("update authz.nexloop_service_credentials set status='revoked' where tenant_id='synthetic-a'")
+    admin.execute("update authz.nexloop_service_credentials set status='revoked' where tenant_id='00000000-0000-4000-8000-00000000000a'")
     with pytest.raises(psycopg.errors.InsufficientPrivilege):repo.finalize(claim)
     assert store.read(claim.reference)==b'hello'
 
@@ -140,7 +141,7 @@ def test_other_tenant_cannot_read_artifact_metadata_or_bytes(artifact_setup,admi
     pool,repo,store,_,signer=artifact_setup
     service=LocalArtifactService(repo,store)
     ref=service.put(request_id='synthetic-upload-0001',payload=b'hello',media_type='text/plain',retention_until=datetime.now(UTC)+timedelta(days=30))
-    other,_=seed_authority(admin,'synthetic-b','eios:artifact:local_real',operations=(Operation.CREATE,Operation.READ,Operation.DELETE))
+    other,_=seed_authority(admin,TENANT_B,'eios:artifact:local_real',operations=(Operation.CREATE,Operation.READ,Operation.DELETE))
     session=authenticate_service(pool,other,world='real')
     other_service=LocalArtifactService(PostgresArtifactRepository(pool,session,signer),store)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):other_service.read(ref.artifact_id)
@@ -211,12 +212,12 @@ def test_administrative_repository_dsn_rejected_before_any_business_operation(ar
 def test_revoke_restore_cycle_never_resurrects_old_permit(artifact_setup,admin):
     from psycopg.types.json import Jsonb
     pool,repo,_,_,_=artifact_setup;p=params();permit=repo.issue_permit(Operation.CREATE,p)
-    principal='synthetic-a-principal';resource='eios:artifact:local_real'
-    old=admin.execute("select payload from authz.nexloop_authority_facts where tenant_id='synthetic-a' and fact_kind='grants' and entity_key=%s",([principal,resource],)).fetchone()[0]
-    before=admin.execute("select authority_revision from control.nexloop_tenants where tenant_id='synthetic-a'").fetchone()[0]
-    replace_fact(admin,'synthetic-a','grants',[principal,resource],F.GrantFacts,grants=[])
-    admin.execute("update authz.nexloop_authority_facts set payload=%s where tenant_id='synthetic-a' and fact_kind='grants' and entity_key=%s",(Jsonb(old),[principal,resource]))
-    after=admin.execute("select authority_revision from control.nexloop_tenants where tenant_id='synthetic-a'").fetchone()[0]
+    principal=f'{TENANT_A}-principal';resource='eios:artifact:local_real'
+    old=admin.execute("select payload from authz.nexloop_authority_facts where tenant_id='00000000-0000-4000-8000-00000000000a' and fact_kind='grants' and entity_key=%s",([principal,resource],)).fetchone()[0]
+    before=admin.execute("select authority_revision from control.nexloop_tenants where tenant_id='00000000-0000-4000-8000-00000000000a'").fetchone()[0]
+    replace_fact(admin,TENANT_A,'grants',[principal,resource],F.GrantFacts,grants=[])
+    admin.execute("update authz.nexloop_authority_facts set payload=%s where tenant_id='00000000-0000-4000-8000-00000000000a' and fact_kind='grants' and entity_key=%s",(Jsonb(old),[principal,resource]))
+    after=admin.execute("select authority_revision from control.nexloop_tenants where tenant_id='00000000-0000-4000-8000-00000000000a'").fetchone()[0]
     assert after>before
     with pool.connection() as c,c.transaction():
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -256,11 +257,11 @@ def test_cleanup_discovers_bounded_pages_and_preserves_future_or_live_uploads(ar
 def test_cleanup_candidates_are_tenant_and_principal_bound(artifact_setup,admin):
     pool,repo,store,token,signer=artifact_setup
     owned=expired_artifact(repo,store)
-    other_token,_=seed_authority(admin,'synthetic-a','eios:artifact:local_real',
+    other_token,_=seed_authority(admin,TENANT_A,'eios:artifact:local_real',
         operations=(Operation.CREATE,Operation.READ,Operation.DELETE),identity_suffix='-other')
     other=PostgresArtifactRepository(pool,authenticate_service(pool,other_token,world='real'),signer)
     other_ref=expired_artifact(other,store)
-    tenant_token,_=seed_authority(admin,'synthetic-b','eios:artifact:local_real',
+    tenant_token,_=seed_authority(admin,TENANT_B,'eios:artifact:local_real',
         operations=(Operation.CREATE,Operation.READ,Operation.DELETE))
     tenant=PostgresArtifactRepository(pool,authenticate_service(pool,tenant_token,world='real'),signer)
     tenant_ref=expired_artifact(tenant,store)
@@ -275,11 +276,11 @@ def test_cleanup_discovery_does_not_grant_delete_authority(artifact_setup,admin)
     import json
     pool,repo,store,token,signer=artifact_setup
     ref=expired_artifact(repo,store)
-    key=['synthetic-a-principal','eios:artifact:local_real']
-    payload=admin.execute("select payload from authz.nexloop_authority_facts where tenant_id='synthetic-a' and fact_kind='grants' and entity_key=%s",(key,)).fetchone()[0]
+    key=[f'{TENANT_A}-principal','eios:artifact:local_real']
+    payload=admin.execute("select payload from authz.nexloop_authority_facts where tenant_id='00000000-0000-4000-8000-00000000000a' and fact_kind='grants' and entity_key=%s",(key,)).fetchone()[0]
     facts=F.GrantFacts.model_validate_json(json.dumps(payload))
     readonly=facts.grants[0].model_copy(update={'operations':frozenset({Operation.READ})})
-    replace_fact(admin,'synthetic-a','grants',key,F.GrantFacts,grants=[readonly.model_dump(mode='json')])
+    replace_fact(admin,TENANT_A,'grants',key,F.GrantFacts,grants=[readonly.model_dump(mode='json')])
     repo=PostgresArtifactRepository(pool,authenticate_service(pool,token,world='real'),signer)
     assert repo.cleanup_candidates()==(ref.artifact_id,)
     with pytest.raises(ArtifactAccessDenied):LocalArtifactService(repo,store).collect_expired()
@@ -311,7 +312,7 @@ def test_future_retention_blocks_deletion_without_touching_bytes(artifact_setup)
 
 def test_revocation_between_delete_claim_and_unlink_protects_file(artifact_setup,admin):
     _,repo,store,_,_=artifact_setup;ref=expired_artifact(repo,store);claim=repo.claim_deletion(ref.artifact_id)
-    replace_fact(admin,'synthetic-a','grants',['synthetic-a-principal','eios:artifact:local_real'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-principal','eios:artifact:local_real'],F.GrantFacts,grants=[])
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         with repo.deletion_transaction(claim) as bound:store.remove(bound)
     assert store.read(ref)==b'hello'

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from nexloop_eios.browser_http import BrowserConfiguration
 from nexloop_eios.http_api import ApiConfiguration, create_app
+from support.tenants import TENANT_A
 
 ORIGIN = 'https://synthetic.example'
 
@@ -13,8 +14,8 @@ def app(tmp_path):
     web.mkdir()
     (web / 'index.html').write_text('<!doctype html><div id="root"></div>')
     missing = tmp_path / 'missing'
-    browser = BrowserConfiguration(missing, missing, 'synthetic-a', 'synthetic-browser-app', ORIGIN)
-    workbench = BrowserConfiguration(missing, missing, 'synthetic-a', 'synthetic-workbench-app', ORIGIN)
+    browser = BrowserConfiguration(missing, missing, TENANT_A, 'synthetic-browser-app', ORIGIN)
+    workbench = BrowserConfiguration(missing, missing, TENANT_A, 'synthetic-workbench-app', ORIGIN)
     return create_app(ApiConfiguration(missing, missing, tmp_path / 'artifacts', 'missing', browser, web_root=web, workbench=workbench))
 
 

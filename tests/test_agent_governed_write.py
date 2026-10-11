@@ -11,6 +11,7 @@ from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from authority_fixture import replace_fact
 from agent_authority_fixture import seed_agent,seed_parent
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 
 
 def configuration(reader,pg,tmp_path):
@@ -35,14 +36,14 @@ def test_real_pg_agent_governed_instance_write_with_durable_receipt(published_ac
 @pytest.mark.parametrize('denial',['release-revoked','agent-disabled','ceiling-empty','missing-release','wrong-scope','wrong-actor','grant-empty','incomplete-chain'])
 def test_agent_denials_leave_business_rows_empty(published_action,admin,pg,tmp_path,denial):
     reader,_,_=published_action;token,invocation=seed_agent(admin)
-    if denial=='release-revoked':replace_fact(admin,'synthetic-a','agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
-    elif denial=='agent-disabled':replace_fact(admin,'synthetic-a','agent',[invocation.agent_id],F.AgentFacts,status='disabled')
-    elif denial=='ceiling-empty':replace_fact(admin,'synthetic-a','agent_application',[invocation.agent_application_id,'1'],F.ApplicationFacts,resources=(),operations=())
+    if denial=='release-revoked':replace_fact(admin,TENANT_A,'agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
+    elif denial=='agent-disabled':replace_fact(admin,TENANT_A,'agent',[invocation.agent_id],F.AgentFacts,status='disabled')
+    elif denial=='ceiling-empty':replace_fact(admin,TENANT_A,'agent_application',[invocation.agent_application_id,'1'],F.ApplicationFacts,resources=(),operations=())
     elif denial=='missing-release':admin.execute("delete from authz.nexloop_authority_facts where fact_kind='agent_release'")
-    elif denial=='wrong-actor':replace_fact(admin,'synthetic-a','agent',[invocation.agent_id],F.AgentFacts,actor_principal_id='foreign-principal')
-    elif denial=='grant-empty':replace_fact(admin,'synthetic-a','grants',[invocation.actor_principal_id,'eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
-    elif denial=='incomplete-chain':replace_fact(admin,'synthetic-a','agent_release',[invocation.release_id],F.AgentReleaseFacts,chain_complete=False)
-    else:replace_fact(admin,'synthetic-a','scope',[invocation.actor_principal_id,'eios:action:Consumer.create:1','execute'],F.ScopeAuthorityFacts,authorized_scopes=['action.read'],catalog_scopes=['action.execute','action.read'])
+    elif denial=='wrong-actor':replace_fact(admin,TENANT_A,'agent',[invocation.agent_id],F.AgentFacts,actor_principal_id='foreign-principal')
+    elif denial=='grant-empty':replace_fact(admin,TENANT_A,'grants',[invocation.actor_principal_id,'eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
+    elif denial=='incomplete-chain':replace_fact(admin,TENANT_A,'agent_release',[invocation.release_id],F.AgentReleaseFacts,chain_complete=False)
+    else:replace_fact(admin,TENANT_A,'scope',[invocation.actor_principal_id,'eios:action:Consumer.create:1','execute'],F.ScopeAuthorityFacts,authorized_scopes=['action.read'],catalog_scopes=['action.execute','action.read'])
     with open_backend(**configuration(reader,pg,tmp_path)) as backend:
         service=backend.authenticate(token,world='real')
         with pytest.raises((AuthorizationUnavailable,F.AuthorizationFactDenied,ActionAuthorizationDenied)):service.create_object(**args())
@@ -62,7 +63,7 @@ def test_release_revocation_after_authenticated_session_invalidates_dispatch(pub
     reader,_,_=published_action;token,invocation=seed_agent(admin)
     with open_backend(**configuration(reader,pg,tmp_path)) as backend:
         service=backend.authenticate(token,world='real')
-        replace_fact(admin,'synthetic-a','agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
+        replace_fact(admin,TENANT_A,'agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
         with pytest.raises(AuthorizationUnavailable):service.create_object(**args())
     assert admin.execute('select count(*) from ontology.objects').fetchone()[0]==0
 
@@ -75,8 +76,8 @@ def test_agent_revocation_after_signature_before_sql_rejects_effect(published_ac
     def at_signature(key,msg,*pos,**kwargs):
         nonlocal revoked
         if msg.startswith(b'nexloop-object-create-v1:'):
-            if revocation=='release':replace_fact(admin,'synthetic-a','agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
-            elif revocation=='grant':replace_fact(admin,'synthetic-a','grants',[invocation.actor_principal_id,'eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
+            if revocation=='release':replace_fact(admin,TENANT_A,'agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
+            elif revocation=='grant':replace_fact(admin,TENANT_A,'grants',[invocation.actor_principal_id,'eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
             else:
                 import hashlib
                 admin.execute("update authz.nexloop_service_credentials set status='revoked' where token_digest=%s",(hashlib.sha256(token.encode()).hexdigest(),))
@@ -122,9 +123,9 @@ def test_current_parent_release_chain_allows_governed_child_write(published_acti
 @pytest.mark.parametrize('mutation',['release-revoked','agent-disabled','application-revoked','missing-parent'])
 def test_stale_embedded_parent_cannot_authorize_child(published_action,admin,pg,tmp_path,mutation):
     reader,_,_=published_action;token,invocation=seed_agent(admin);parent=seed_parent(admin,invocation)
-    if mutation=='release-revoked':replace_fact(admin,'synthetic-a','agent_release',[parent.release_id],F.AgentReleaseFacts,status='revoked')
-    elif mutation=='agent-disabled':replace_fact(admin,'synthetic-a','agent',[parent.agent_id],F.AgentFacts,status='disabled')
-    elif mutation=='application-revoked':replace_fact(admin,'synthetic-a','agent_application',[parent.application_id,parent.application_version],F.ApplicationFacts,application_status='revoked',eligible=False)
+    if mutation=='release-revoked':replace_fact(admin,TENANT_A,'agent_release',[parent.release_id],F.AgentReleaseFacts,status='revoked')
+    elif mutation=='agent-disabled':replace_fact(admin,TENANT_A,'agent',[parent.agent_id],F.AgentFacts,status='disabled')
+    elif mutation=='application-revoked':replace_fact(admin,TENANT_A,'agent_application',[parent.application_id,parent.application_version],F.ApplicationFacts,application_status='revoked',eligible=False)
     else:admin.execute("delete from authz.nexloop_authority_facts where fact_kind='agent_release' and entity_key=%s",([parent.release_id],))
     # Fresh authentication cannot revive an unchanged embedded parent frame.
     with open_backend(**configuration(reader,pg,tmp_path)) as backend:
@@ -139,7 +140,7 @@ def test_parent_revoked_between_signed_claim_and_sql_denies_child(published_acti
     def at_signature(key,msg,*pos,**kwargs):
         nonlocal revoked
         if msg.startswith(b'nexloop-object-create-v1:'):
-            replace_fact(admin,'synthetic-a','agent_release',[parent.release_id],F.AgentReleaseFacts,status='revoked')
+            replace_fact(admin,TENANT_A,'agent_release',[parent.release_id],F.AgentReleaseFacts,status='revoked')
             revoked=True
         return original(key,msg,*pos,**kwargs)
     monkeypatch.setattr(module.hmac,'new',at_signature)

@@ -17,6 +17,9 @@ from eios.authz.policy.registry import PolicyEffect
 from eios.identity.models import SubjectKind,MembershipKind
 from nexloop_eios.authorization import WITNESS
 
+# NX-052: the synthetic sandbox tenant of the test profiles (control.nexloop_tenants accepts only uuids).
+SANDBOX_TENANT='00000000-0000-4000-8000-0000000005bd'
+
 
 def _artifact_test_records(tenant,resource_id,world='real',operation=Operation.READ,operations=None,resource_type=ResourceType.ARTIFACT,identity_suffix=""):
     operations=tuple(operations or (operation,))
@@ -82,7 +85,7 @@ def publish_test_artifact_identity(connection):
                   'runtime.nexloop_local_artifacts','ontology.objects'):
         if connection.execute('select count(*) from '+table).fetchone()[0]:
             raise PermissionError('sandbox profile requires empty configuration/business state')
-    tenant='nexloop-sandbox';world='test';resource='eios:artifact:local_test'
+    tenant=SANDBOX_TENANT;world='test';resource='eios:artifact:local_test'
     operations=(Operation.CREATE,Operation.READ,Operation.DELETE);all_records={}
     for operation in operations:
         binding,expiry,rows=_artifact_test_records(tenant,resource,world,operation,operations)

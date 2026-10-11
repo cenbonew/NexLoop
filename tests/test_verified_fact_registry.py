@@ -18,12 +18,13 @@ from nexloop_eios.authorization import FACT_PARSE_CACHE,WITNESS,PostgresAuthorit
 from authority_fixture import authority_records
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 
 TARGET='eios:action:Consumer.create:1'
 
 
 def texts():
-    _,_,rows=authority_records('synthetic-a',TARGET,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
+    _,_,rows=authority_records(TENANT_A,TARGET,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
     return [(type(fact),json.dumps({**fact.model_dump(mode='json'),'repository_witness':WITNESS})) for _,_,fact in rows]
 
 
@@ -108,8 +109,8 @@ def test_resource_id_memo_matches_uncached_and_never_caches_errors():
         kind=value.split(':')[1]
         assert A._typed_resource_id(value,kind,'resource_id') is value
         assert A._typed_resource_id_uncached(value,kind,'resource_id')==value
-        assert A._restriction_digest('synthetic-a',kind,value)==A._restriction_digest_uncached('synthetic-a',kind,value)
-    assert A._restriction_digest('synthetic-a','action',None)==A._restriction_digest_uncached('synthetic-a','action',None)
+        assert A._restriction_digest(TENANT_A,kind,value)==A._restriction_digest_uncached(TENANT_A,kind,value)
+    assert A._restriction_digest(TENANT_A,'action',None)==A._restriction_digest_uncached(TENANT_A,'action',None)
     for _ in range(2):
         with pytest.raises(ValueError):A._typed_resource_id('eios:action:',  'action','resource_id')
         with pytest.raises(ValueError):A._typed_resource_id('eios:object:Consumer','action','resource_id')
@@ -208,7 +209,7 @@ def test_view_reuse_refused_for_unregistered_unequal_or_tampered_originals():
     other=registered(F.SubjectFacts)
     object.__setattr__(other,'status','disabled')  # tampered after registration
     assert R._reusable_views(_Holder(subject=registered(F.SubjectFacts),actor=actor),{'subject':other}) is None
-    _,_,rows=authority_records('synthetic-a',TARGET,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-unequal')
+    _,_,rows=authority_records(TENANT_A,TARGET,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-unequal')
     foreign=next(f for _,_,f in rows if type(f) is F.ActorFacts)
     assert foreign!=actor
     holder2=_Holder(subject=subject,actor=foreign)

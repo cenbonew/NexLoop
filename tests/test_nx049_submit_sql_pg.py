@@ -22,6 +22,7 @@ from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.context_engine.authority import action_claims
 from authority_fixture import seed_authority
 from test_action_definitions import published_action  # noqa: F401
+from support.tenants import TENANT_A
 
 ACTION_INNER='authz.nexloop_assert_action_authority_before_action_memo_v0106(text,text,jsonb)'
 READ_INNER='authz.nexloop_assert_read_authority_before_read_memo_v0095(text,text,jsonb)'
@@ -58,9 +59,9 @@ def looper(admin,fn,inner,digest):
 def action(published_action,admin):
     reader,_,_=published_action
     target='eios:action:Consumer.create:1'
-    token,_=seed_authority(admin,'synthetic-a',target,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-nx049-action')
+    token,_=seed_authority(admin,TENANT_A,target,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-nx049-action')
     session=authenticate_service(reader.pool,token,world='real')
-    admin.execute("select set_config('eios.tenant_id','synthetic-a',false)")
+    admin.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-00000000000a',false)")
     def claims(expires_in=None):
         value=action_claims(reader.pool,session,'Consumer.create')
         if expires_in is not None:value['expires_at']=(datetime.now(UTC)+timedelta(seconds=expires_in)).isoformat()
@@ -105,7 +106,7 @@ def test_action_claims_expiry_is_rechecked_on_every_hit_and_denials_are_not_memo
     oks=[(datetime.fromisoformat(r['t0']),r['ok']) for r in result['results']]
     assert any(ok for _,ok in oks) and all(not ok for t0,ok in oks if t0>=deadline),oks
     assert sum(ok for _,ok in oks)>result['misses']
-    forged=dict(action['claims']());forged['principal_id']='synthetic-a-someone-else'
+    forged=dict(action['claims']());forged['principal_id']=f'{TENANT_A}-someone-else'
     denied=action['loop'](forged,n=3)
     assert [r['ok'] for r in denied['results']]==[False]*3
 

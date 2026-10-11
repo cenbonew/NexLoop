@@ -4,6 +4,7 @@ from datetime import UTC,datetime,timedelta
 import psycopg
 import pytest
 from commercial_fixture import commercial_env,published_action,TENANT  # noqa: F401
+from support.tenants import TENANT_B
 
 
 def test_signed_event_creates_one_verified_record(commercial_env):
@@ -65,7 +66,7 @@ def test_signature_window_connector_and_schema_failures_change_nothing(commercia
     assert c.post(body,timestamp='not-a-time')['outcome']=='replay_window'
     assert c.post(body,connector_id='no-such-shop',signature='v1='+'0'*64)['status']==404
     for change,reason in [({'amount_minor':12.5},'amount_minor'),({'amount_minor':-1},'amount_minor'),({'currency':'XXX'},'currency'),
-            ({'currency':'EUR'},'currency'),({'type':'invoice.paid'},'type'),({'tenant_id':'synthetic-b'},'unknown_field'),
+            ({'currency':'EUR'},'currency'),({'type':'invoice.paid'},'type'),({'tenant_id':TENANT_B},'unknown_field'),
             ({'customer_ref':'pseudonym:'+'a'*32},'customer_ref'),({'occurred_at':'yesterday'},'occurred_at'),
             ({'related_kind':'payment','related_external_id':'p'},'refund_target')]:
         result=c.post(dict(body,**change))
@@ -221,7 +222,7 @@ def test_application_roles_cannot_configure_or_read_connector_keys(commercial_en
     def refused(pool,sql):
         with pool.connection() as db:
             with pytest.raises(psycopg.errors.InsufficientPrivilege):db.execute(sql)
-    refused(c['api_pool'],"select control.nexloop_commercial_configure_connector('synthetic-a','real','x','real','{payment.succeeded}','{CNY}','k','\\x00','c',0)")
+    refused(c['api_pool'],"select control.nexloop_commercial_configure_connector('00000000-0000-4000-8000-00000000000a','real','x','real','{payment.succeeded}','{CNY}','k','\\x00','c',0)")
     refused(c['worker'],'select key_material from control.nexloop_commercial_connectors')
     refused(c['worker'],"select authz.nexloop_commercial_ingest('synthetic-shop','1','v1=00','{}')")
     refused(c['api_pool'],'select * from runtime.nexloop_commercial_events')

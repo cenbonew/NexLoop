@@ -16,6 +16,7 @@ from nexloop_eios.browser_authorization import authenticate_browser_business
 from nexloop_eios.workbench_reads import WorkbenchReader
 from test_workbench_read_pg import (ROLES, TENANT, WORKBENCH_APP, browser_business, configure, conversations, identity,
     provision, published_action, revoke_member, uow, workbench, workbench_login, write_facts)
+from support.tenants import TENANT_B
 
 BODY = '请不要再给我发短信了'
 
@@ -108,7 +109,7 @@ def test_only_this_tenant_and_world(workbench):
     provision(w)
     admin, message = w['admin'], w['refusal']['id']
     copy_object(admin, message, 'e' * 64, world='simulation')
-    copy_object(admin, message, 'f' * 64, tenant='synthetic-b')
+    copy_object(admin, message, 'f' * 64, tenant=TENANT_B)
     _, inspected = staff_session(w, w['owner'])
     reader = reader_for(w, inspected)
     assert reader.message_fields(message, ('body',))['body'] == BODY
@@ -117,7 +118,7 @@ def test_only_this_tenant_and_world(workbench):
     # A forged claim for another tenant is refused before any read.
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         with reader.pool.connection() as db:
-            claims = reader._derived('object', 'Message/' + message, 'conversation') | {'tenant_id': 'synthetic-b'}
+            claims = reader._derived('object', 'Message/' + message, 'conversation') | {'tenant_id': TENANT_B}
             db.execute('select authz.nexloop_assert_read_authority(%s,%s,%s)', (reader.session.token_digest, 'real', Jsonb(claims)))
 
 

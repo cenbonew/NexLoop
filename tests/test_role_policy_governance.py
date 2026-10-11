@@ -9,6 +9,7 @@ from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,Propert
 from eios.ontology.semantics import schema_contract_digest
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def policies(published_action,admin,pg):
@@ -19,8 +20,8 @@ def policies(published_action,admin,pg):
         kind=schema.type_name
         ref=base.object_types[0].model_copy(update={'stable_name':kind,'schema_digest':schema_contract_digest(schema)})
         definition=base.model_copy(update={'stable_name':kind+'.create','required_scopes':('ontology.roles.manage',),'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
-        admin.execute('insert into ontology.object_type_versions values(%s,%s,%s,%s)',('synthetic-a',kind,1,Jsonb(schema.model_dump(mode='json'))))
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':('ontology.roles.manage',)}).model_dump(mode='json'))))
+        admin.execute('insert into ontology.object_type_versions values(%s,%s,%s,%s)',(TENANT_A,kind,1,Jsonb(schema.model_dump(mode='json'))))
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':('ontology.roles.manage',)}).model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.create:1',ResourceType.ACTION,Operation.EXECUTE))
     targets.append(('eios:action:Consumer.create:1',ResourceType.ACTION,Operation.EXECUTE))
     session,token=seed_multi_authority(admin,reader.pool,targets,identity_suffix='-role-maintainer',extra_scopes=('ontology.roles.manage',))

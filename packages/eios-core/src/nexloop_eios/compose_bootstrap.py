@@ -14,7 +14,7 @@ from psycopg.conninfo import make_conninfo,conninfo_to_dict
 
 from nexloop_eios.bootstrap import bootstrap,verify
 from nexloop_eios.private_configuration import read_private_text
-from nexloop_eios.sandbox_profile import publish_test_artifact_identity
+from nexloop_eios.sandbox_profile import SANDBOX_TENANT,publish_test_artifact_identity
 
 KEY_ID='compose-test-v1'
 FILES={'api_dsn','service_credential','artifact_key','profile.json'}
@@ -51,7 +51,7 @@ def _verify_profile(connection,config,artifacts,uid):
     dsn=conninfo_to_dict(values['api_dsn'].decode())
     if dsn['user']!='nexloop_api' or not dsn.get('password') or (dsn.get('host'),int(dsn.get('port',0)),dsn.get('dbname'))!=(connection.info.host,connection.info.port,connection.info.dbname):
         raise PermissionError('restricted test DSN unavailable')
-    credential=connection.execute("select count(*) from authz.nexloop_service_credentials where token_digest=%s and tenant_id='nexloop-sandbox' and worlds=array['test'] and status='active' and expires_at>clock_timestamp()",(hashlib.sha256(values['service_credential']).hexdigest(),)).fetchone()[0]
+    credential=connection.execute("select count(*) from authz.nexloop_service_credentials where token_digest=%s and tenant_id=%s and worlds=array['test'] and status='active' and expires_at>clock_timestamp()",(hashlib.sha256(values['service_credential']).hexdigest(),SANDBOX_TENANT)).fetchone()[0]
     key=connection.execute("select encode(sha256(key_material),'hex') from authz.nexloop_authority_signing_keys where key_id=%s and active",(KEY_ID,)).fetchone()
     if credential!=1 or not key or key[0]!=hashlib.sha256(values['artifact_key']).hexdigest():
         raise PermissionError('test credential or signer requires controlled renewal')

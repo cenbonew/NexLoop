@@ -12,6 +12,7 @@ from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.errors import AuthorizationUnavailable
 from authority_fixture import seed_authority
+from support.tenants import TENANT_A, TENANT_B
 
 TARGET='eios:action:NexLoop.queue.operations:1'
 @pytest.fixture
@@ -20,7 +21,7 @@ def queues(admin,pg):
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',(s.key_id,s.material))
     with ExitStack() as stack:
         existing=[]
-        def port(role,tenant='synthetic-a',suffix='',world='real',target=TARGET):
+        def port(role,tenant=TENANT_A,suffix='',world='real',target=TARGET):
             token,_=seed_authority(admin,tenant,target,world=world,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-'+role+suffix)
             pool=stack.enter_context(open_core(make_conninfo(pg,user=role)))
             result=PostgresDurableQueue(pool,authenticate_service(pool,token,world=world),s,queue='operations')
@@ -124,7 +125,7 @@ def test_outbox_reclaim_and_old_fence_ack_denied(queues):
 @pytest.mark.parametrize('mutation',['tenant','world','resource'])
 def test_queue_boundaries_and_live_grant_denial(queues,mutation):
     api,scheduler,port=queues;event(api)
-    if mutation=='tenant':other=port('nexloop_scheduler',tenant='synthetic-b');assert other.claim() is None
+    if mutation=='tenant':other=port('nexloop_scheduler',tenant=TENANT_B);assert other.claim() is None
     elif mutation=='world':other=port('nexloop_scheduler',suffix='test',world='test');assert other.claim() is None
     else:
         other=port('nexloop_scheduler',suffix='other',target='eios:action:NexLoop.queue.other:1')

@@ -13,9 +13,10 @@ from nexloop_eios.postgres_artifacts import PostgresArtifactRepository,LocalArti
 from authority_fixture import seed_authority,replace_fact
 from eios.authz import facts as F
 from test_postgres_artifacts import artifact_setup
+from support.tenants import TENANT_A, TENANT_B
 
 
-def leftovers(store,tenant='synthetic-a',world='real'):
+def leftovers(store,tenant=TENANT_A,world='real'):
     ref=store.put(tenant_id=tenant,world=world,payload=b'final-protected',media_type='text/plain')
     directory=store.root/ref.namespace
     names=['.tmp-'+format(i,'032x') for i in range(1,6)]
@@ -60,7 +61,7 @@ def test_api_role_cannot_invoke_maintenance_cleanup(artifact_setup):
 
 def test_read_only_identity_denied_even_on_worker_role(artifact_setup,pg,admin):
     _,repo,store,_,signer=artifact_setup;ref,names=leftovers(store)
-    token,_=seed_authority(admin,'synthetic-a','eios:artifact:local_real',operation=Operation.READ,identity_suffix='-temp-reader')
+    token,_=seed_authority(admin,TENANT_A,'eios:artifact:local_real',operation=Operation.READ,identity_suffix='-temp-reader')
     with open_core(make_conninfo(pg,user='nexloop_domain_worker')) as pool:
         with pytest.raises((ArtifactAccessDenied,AuthorizationUnavailable)):
             LocalArtifactService(worker(pool,repo,token,signer),store).collect_temporary_files(older_than=datetime.now(UTC)-timedelta(minutes=5))
@@ -76,7 +77,7 @@ def test_revoke_after_signed_permit_before_guard_denies_cleanup(artifact_setup,p
             nonlocal count
             count+=1
             if count==2:
-                replace_fact(admin,'synthetic-a','grants',['synthetic-a-principal','eios:artifact:local_real'],F.GrantFacts,grants=[])
+                replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-principal','eios:artifact:local_real'],F.GrantFacts,grants=[])
             with original() as c:yield c
         monkeypatch.setattr(repository,'_transaction',race)
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -87,7 +88,7 @@ def test_revoke_after_signed_permit_before_guard_denies_cleanup(artifact_setup,p
 def test_other_tenant_world_namespace_is_untouched(artifact_setup,pg):
     _,repo,store,token,signer=artifact_setup
     own,names=leftovers(store)
-    other,_=leftovers(store,tenant='synthetic-b');test,_=leftovers(store,world='test')
+    other,_=leftovers(store,tenant=TENANT_B);test,_=leftovers(store,world='test')
     with open_core(make_conninfo(pg,user='nexloop_domain_worker')) as pool:
         result=LocalArtifactService(worker(pool,repo,token,signer),store).collect_temporary_files(older_than=datetime.now(UTC)-timedelta(minutes=5))
     assert result['removed']==5

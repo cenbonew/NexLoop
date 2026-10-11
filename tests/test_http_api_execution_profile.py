@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from test_web_chat_http import actual_chat, conversations, browser_business, published_action, uow, identity, browser, login, ORIGIN, create_actual
 
 import nexloop_eios.http_api as module
+from support.tenants import TENANT_A
 
 @pytest.mark.parametrize('profile',[None,'deterministic-test','real-provider','disabled'])
 def test_cli_label_actual_pg_http_without_readiness_claim(actual_chat,monkeypatch,profile):
@@ -32,7 +33,7 @@ def test_cli_label_actual_pg_http_without_readiness_claim(actual_chat,monkeypatc
     from fastapi import FastAPI
     from nexloop_eios.browser_http import BrowserConfiguration
     boundary=FastAPI();boundary.state.browser_store=client.app.state.browser_store;boundary.state.browser_rate_key=client.app.state.browser_rate_key
-    browser_config=BrowserConfiguration(Path('unused'),Path('unused'),'synthetic-a','synthetic-browser-app',ORIGIN)
+    browser_config=BrowserConfiguration(Path('unused'),Path('unused'),TENANT_A,'synthetic-browser-app',ORIGIN)
     boundary.include_router(auth_router(browser_config))
     boundary.include_router(router(browser_config,ports_for_browser=lambda request,session:config.authenticate_browser(session),execution_profile=profile))
     with TestClient(boundary,base_url=ORIGIN) as actual:

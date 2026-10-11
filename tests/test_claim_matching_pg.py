@@ -32,6 +32,7 @@ from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall,RecallIndexer
 from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
+from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
 CHECK=FormatChecker()
@@ -64,7 +65,7 @@ def product_schema():
 
 def publish_action(admin,tenant,name,schema,capability_name=None):
     inputs=governance_inputs();original=inputs['action_definition'];capability=inputs['capability_snapshot']
-    declaration=json.loads(json.dumps(original.model_dump(mode='json')).replace('synthetic-a',tenant));declaration.pop('contract_digest',None)
+    declaration=json.loads(json.dumps(original.model_dump(mode='json')).replace(TENANT_A,tenant));declaration.pop('contract_digest',None)
     ref=original.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)})
     declaration['stable_name']=name;declaration['object_types']=[ref.model_dump(mode='json')]
     declaration['governance']['change_scope']['object_types']=declaration['object_types']

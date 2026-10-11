@@ -10,6 +10,7 @@ from nexloop_eios import business_actions as BA
 from nexloop_eios.context_engine.audit import AUDIT_ACTION,AUDIT_CAPABILITY,context_manifest_object_type
 from nexloop_eios.context_engine.strategy import PUBLISH_ACTION,PUBLISH_CAPABILITY,context_strategy_object_type
 from nexloop_eios.conversation_messages import conversation_schemas
+from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
 MANIFEST=BA.load(ROOT/'deploy/configuration/business-actions.v1.json')
@@ -60,7 +61,7 @@ def test_manifest_declares_service_create_and_human_owner_strategy_publication()
 
 
 def test_compiles_both_profiles_with_explicit_snapshots():
-    rows=BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
+    rows=BA.compile_actions(MANIFEST,tenant=TENANT_A,created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
             **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()},'commercial.observe':capability('commercial.observe'),
@@ -97,12 +98,12 @@ def test_compiles_both_profiles_with_explicit_snapshots():
     assert publish['capability_binding']['capability_name']==PUBLISH_CAPABILITY and publish['governance']['approval_mode']=='none'
     assert [t['stable_name'] for t in publish['object_types']]==['ContextStrategy']
     with pytest.raises(BA.BusinessActionsRejected):  # every declared Action needs its own snapshot
-        BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),capability=capability('ontology.object.create'))
-    only=BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
+        BA.compile_actions(MANIFEST,tenant=TENANT_A,created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),capability=capability('ontology.object.create'))
+    only=BA.compile_actions(MANIFEST,tenant=TENANT_A,created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
         capability=capability('ontology.object.create'),select=('Message.agent_create',))
     assert [r['definition']['stable_name'] for r in only]==['Message.agent_create']
     with pytest.raises(BA.BusinessActionsRejected):
-        BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
+        BA.compile_actions(MANIFEST,tenant=TENANT_A,created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
             capability=capability('ontology.object.create'),select=('Undeclared.action',))
 
 
@@ -138,7 +139,7 @@ def test_edit_profile_requires_a_side_effecting_service_snapshot():
     with pytest.raises(BA.BusinessActionsRejected):BA.validate(m)
     quiet=capability('ontology.object.edit').model_copy(update={'has_side_effects':False})
     with pytest.raises(BA.BusinessActionsRejected):
-        BA.compile_actions(MANIFEST,tenant='synthetic-a',created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
+        BA.compile_actions(MANIFEST,tenant=TENANT_A,created_by='owner',created_at=datetime.now(UTC),object_types=object_types(),
             capabilities={'ontology.object.edit':quiet},select=('Consumer.edit',))
 
 
@@ -149,7 +150,7 @@ def test_deployment_actions_provide_both_type_action_capabilities(admin):
     from psycopg.types.json import Jsonb
     from nexloop_eios.bootstrap import bootstrap
     from nexloop_eios.review_actions import build_publication
-    bootstrap(admin);tenant='synthetic-a'
+    bootstrap(admin);tenant=TENANT_A
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(tenant,))
     types=object_types()
     for t in types:
@@ -194,7 +195,7 @@ def test_doctor_reads_the_tenant_through_the_configurator(admin,pg,tmp_path):
     from psycopg.types.json import Jsonb
     from nexloop_eios.bootstrap import bootstrap
     from test_postgres_action_claims import governance_inputs
-    bootstrap(admin);tenant='synthetic-a'
+    bootstrap(admin);tenant=TENANT_A
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(tenant,))
     inputs=governance_inputs();definition=inputs['action_definition'].model_copy(update={'stable_name':'Consumer.edit','contract_digest':None})
     admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real','eios:action:Consumer.edit:1',%s,%s)",

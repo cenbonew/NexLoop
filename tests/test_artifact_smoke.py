@@ -12,6 +12,7 @@ from authority_fixture import seed_authority
 from eios.authz.operations import Operation
 from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.artifact_smoke import run_smoke, read_private_text, SMOKE_BYTES
+from support.tenants import TENANT_A
 
 
 def private_file(path,value):
@@ -23,7 +24,7 @@ def private_file(path,value):
 @pytest.mark.parametrize('world',['test','real'])
 def test_actual_smoke_cli_uses_restricted_pg_test_world_and_sanitized_result(admin,pg,tmp_path,world):
     bootstrap(admin)
-    token,_=seed_authority(admin,'synthetic-a','eios:artifact:local_'+world,world=world,
+    token,_=seed_authority(admin,TENANT_A,'eios:artifact:local_'+world,world=world,
         operations=(Operation.CREATE,Operation.READ,Operation.DELETE))
     material=secrets.token_bytes(32)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('synthetic-smoke',material))

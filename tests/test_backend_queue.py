@@ -11,6 +11,7 @@ from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from nexloop_eios.backend import BackendClosed, open_backend
 from nexloop_eios.bootstrap import bootstrap
+from support.tenants import TENANT_A
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def backends(admin, pg, tmp_path):
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',
         ('synthetic-backend-queue', material))
     roles = ('nexloop_api', 'nexloop_domain_worker', 'nexloop_scheduler')
-    tokens = {role: seed_authority(admin, 'synthetic-a',
+    tokens = {role: seed_authority(admin, TENANT_A,
         'eios:action:NexLoop.queue.operations:1', operation=Operation.EXECUTE,
         resource_type=ResourceType.ACTION, identity_suffix='-' + role)[0] for role in roles}
     # All synthetic authority configuration completes before authentication;

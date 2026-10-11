@@ -35,6 +35,7 @@ from test_browser_business_authorization import browser_business  # noqa: F401
 from test_action_definitions import published_action  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
+from support.tenants import TENANT_A, TENANT_B
 
 DENIED=(ActionAuthorizationDenied,AuthorizationUnavailable,F.AuthorizationFactDenied,psycopg.errors.InsufficientPrivilege,PermissionError)
 FIELDS=('accepted_at','actor','body','conversation_id','sequence')
@@ -286,7 +287,7 @@ def test_apply_is_idempotent_doctor_in_sync_and_sql_refuses_malformed_rules(depl
     for payload,key in ((rule|{'extra':1},[principal,'claim_matching']),(rule|{'purpose':'anything'},[principal,'anything']),
                         (rule|{'fields':['actor']},[principal,'claim_matching']),(rule|{'fields':['sequence','body']},[principal,'claim_matching']),
                         (rule|{'type_name':'Conversation'},[principal,'claim_matching']),(rule,[principal,'claim_extraction']),
-                        (rule|{'principal_id':'synthetic-a-unknown-principal'},['synthetic-a-unknown-principal','claim_matching'])):
+                        (rule|{'principal_id':f'{TENANT_A}-unknown-principal'},[f'{TENANT_A}-unknown-principal','claim_matching'])):
         with pytest.raises(psycopg.errors.InvalidParameterValue):
             _raw_configure(raw,admin,[{'kind':'message_purpose_rule','key':key,'payload':payload}])
     assert _raw_configure(raw,admin,[{'kind':'message_purpose_rule','key':[principal,'claim_matching'],'payload':rule}])['configured'] is True
@@ -327,19 +328,19 @@ def test_other_tenant_lease_or_claims_never_derive_read(deployed,admin):
     pool,worker,queue,item,proofs=leased_proofs(d,mid)
     # A proof re-labelled for another tenant is refused (identity snapshot pins the tenant).
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
-        signed_read(pool,worker,d['signer'],[{**p,'tenant_id':'synthetic-b'} for p in proofs],'Message',mid,('body',),world='real')
+        signed_read(pool,worker,d['signer'],[{**p,'tenant_id':TENANT_B} for p in proofs],'Message',mid,('body',),world='real')
     # An identical task leased by this very credential in another tenant grants nothing here.
-    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('synthetic-b','active') on conflict do nothing")
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
     admin.execute('''insert into runtime.invocations(invocation_id,tenant_id,capability_name,capability_version,actor_id,trace_id,request_id,correlation_id,input_digest,status,job_id,created_at,updated_at)
-        select 'inv_other_'||invocation_id,'synthetic-b',capability_name,capability_version,actor_id,trace_id,request_id,correlation_id,input_digest,status,'other-'||job_id,created_at,updated_at
+        select 'inv_other_'||invocation_id,'00000000-0000-4000-8000-00000000000b',capability_name,capability_version,actor_id,trace_id,request_id,correlation_id,input_digest,status,'other-'||job_id,created_at,updated_at
         from runtime.invocations where job_id=%s''',(item['task_id'],))
     admin.execute('''insert into runtime.jobs(job_id,invocation_id,capability_name,capability_version,capability_type,execution_mode,tenant_id,actor_id,trace_id,request_id,
         normalized_input,plan_snapshot,status,created_at,updated_at,world,queue,available_at,max_attempts,attempts,fencing_token,lease_until,lease_credential)
-        select 'other-'||job_id,'inv_other_'||invocation_id,capability_name,capability_version,capability_type,execution_mode,'synthetic-b',actor_id,trace_id,request_id,
+        select 'other-'||job_id,'inv_other_'||invocation_id,capability_name,capability_version,capability_type,execution_mode,'00000000-0000-4000-8000-00000000000b',actor_id,trace_id,request_id,
         normalized_input,plan_snapshot,status,created_at,updated_at,world,queue,available_at,max_attempts,attempts,fencing_token,lease_until,lease_credential
         from runtime.jobs where job_id=%s''',(item['task_id'],))
     queue.finish(task_id=item['task_id'],fence=item['fence'],status='succeeded',result={'code':'synthetic'})
-    assert admin.execute("select count(*) from runtime.jobs where tenant_id='synthetic-b' and status='running' and lease_until>clock_timestamp()").fetchone()==(1,)
+    assert admin.execute("select count(*) from runtime.jobs where tenant_id='00000000-0000-4000-8000-00000000000b' and status='running' and lease_until>clock_timestamp()").fetchone()==(1,)
     refused(AuthorizedObjectReader(pool,worker,d['signer']),'Message',mid,('body',))
     forged=[{**p,'derivation_basis':{**p['derivation_basis'],'job_id':'other-'+item['task_id']}} for p in proofs]
     with pytest.raises(psycopg.errors.InsufficientPrivilege):

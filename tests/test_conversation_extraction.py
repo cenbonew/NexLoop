@@ -15,12 +15,13 @@ from nexloop_eios.conversation_extraction import (EPISTEMIC_KINDS,EXTRACTOR_VERS
     ExtractionContext,ExtractionProviderUnavailable,ExtractionRejected,OpenAICompatibleExtractionProvider,SourceMessage,
     build_user_payload,extract,input_digest,resolve_time)
 from nexloop_eios.model_profile import ModelProfile,load_model_profile
+from support.tenants import TENANT_A
 
 DATASET=json.loads((Path(__file__).parent/'data'/'nx019_extraction_cases.json').read_text())
 CASES={case['id']:case for case in DATASET['cases']}
 
 
-def materialize(case,*,tenant='synthetic-a',conversation='c'*64,consumer='d'*64,world=None):
+def materialize(case,*,tenant=TENANT_A,conversation='c'*64,consumer='d'*64,world=None):
     base=datetime.fromisoformat(DATASET['default_base_time'].replace('Z','+00:00'))
     messages=[SourceMessage(message_id=hashlib.sha256(f"nx019:{case['id']}:{index}".encode()).hexdigest(),sequence=index,speaker=item['speaker'],body=item['body'],
         accepted_at=datetime.fromisoformat(item['accepted_at'].replace('Z','+00:00')) if 'accepted_at' in item else base+timedelta(minutes=index-1))

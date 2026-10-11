@@ -22,6 +22,7 @@ from test_action_definitions import published_action  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from local_message_assembly_fixture import assembled_message, business_plan, configured  # noqa: F401
+from support.tenants import TENANT_A
 
 
 def publish_rule(admin, tenant, principal, fields=RULE_FIELDS, *, active=True, valid_until='2999-01-01T00:00:00Z'):
@@ -43,7 +44,7 @@ def claim_extractor(fixture, admin, conversation_id, *, fields=RULE_FIELDS, cons
     if consumer_read:
         targets.append(('eios:object:Consumer/' + consumer_of(admin, conversation_id), ResourceType.OBJECT, Operation.READ))
     session, token = seed_multi_authority(admin, reader.pool, targets, identity_suffix=suffix)
-    publish_rule(admin, 'synthetic-a', session.authentication.subject_principal_id, fields)
+    publish_rule(admin, TENANT_A, session.authentication.subject_principal_id, fields)
     session = authenticate_service(reader.pool, token, world='real')
     extractor_token[0] = token
     assert admin.execute("select count(*) from authz.nexloop_authority_facts where fact_kind='grants' and entity_key[1]=%s and "
@@ -77,7 +78,7 @@ def test_claim_extraction_denied_after_rule_deactivated(window, admin):
     fixture, conversation_id, ids = window
     extractor = claim_extractor(fixture, admin, conversation_id)
     provider, messages = registered(extractor, conversation_id, ids)
-    publish_rule(admin, 'synthetic-a', extractor.session.authentication.subject_principal_id, active=False)
+    publish_rule(admin, TENANT_A, extractor.session.authentication.subject_principal_id, active=False)
     extractor.session = authenticate_service(fixture['reader'].pool, extractor_token[0], world='real')
     with pytest.raises(Exception):
         extractor.extract(conversation_id=conversation_id, message_ids=ids)
@@ -181,10 +182,10 @@ def test_erasing_consumer_refuses_the_conversation_window_and_its_consumer_read(
         (extractor.session.token_digest, 'real', Jsonb(claims), consumer)).fetchone()
     direct()
     registered(extractor, conversation_id, ids)
-    mark_erasing(admin, 'synthetic-a', consumer)
+    mark_erasing(admin, TENANT_A, consumer)
     with pytest.raises(psycopg.errors.InsufficientPrivilege, match=ERASING), admin.transaction():direct()
     with pytest.raises(Exception):extractor.load_window(conversation_id=conversation_id, message_ids=ids)
-    withdraw(admin, 'synthetic-a', consumer); direct()
+    withdraw(admin, TENANT_A, consumer); direct()
 
 
 def test_erased_message_clears_the_summaries_built_from_it(window, admin):
@@ -198,7 +199,7 @@ def test_erased_message_clears_the_summaries_built_from_it(window, admin):
     erased = topics[0][3][0]
     with admin.transaction():
         admin.execute('set local role nexloop_owner')
-        admin.execute("select runtime.nexloop_erase_message('synthetic-a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')", (erased,))
+        admin.execute("select runtime.nexloop_erase_message('00000000-0000-4000-8000-00000000000a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')", (erased,))
     after = {t[0]: (t[1], t[2]) for t in admin.execute('select topic_key,topic,conversation_summary from ontology.nexloop_conversation_topics where conversation_id=%s', (conversation_id,)).fetchall()}
     for key, _, _, message_ids in topics:
         assert (after[key] == ('', '')) == (erased in message_ids)
@@ -216,7 +217,7 @@ def test_erased_message_claims_leave_the_evidence_view(window, admin):
     assert statements
     with admin.transaction():
         admin.execute('set local role nexloop_owner')
-        admin.execute("select runtime.nexloop_erase_message('synthetic-a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')", (erased,))
+        admin.execute("select runtime.nexloop_erase_message('00000000-0000-4000-8000-00000000000a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')", (erased,))
     after = extractor.read(conversation_id=conversation_id)['statements']
     assert all(s['source']['message_id'] != erased for s in after)
     assert {s['claim_id'] for s in after} == {s['claim_id'] for s in statements if s['source']['message_id'] != erased}

@@ -21,6 +21,7 @@ from nexloop_eios.service_offerings import offering_schemas,json_export_example,
 from nexloop_eios.effect_contexts import CONFIGURE,BIND,EFFECT,effect_plan_schemas,registrar_schema
 from authority_fixture import authority_records,seed_authority
 from test_postgres_action_claims import governance_inputs
+from support.tenants import TENANT_A
 QUEUE='NexLoop.queue.operations'
 
 
@@ -74,7 +75,7 @@ def install_runtime_catalog(admin,tenant,api,consumer,sources,expiry):
     schemas=offering_schemas()
     for schema in schemas:
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))
-        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));body.pop('contract_digest',None)
+        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
         reference=definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)})
         body['stable_name']=schema.type_name+'.create';body['object_types']=[reference.model_dump(mode='json')];body['governance']['change_scope']['object_types']=body['object_types'];body['capability_binding']['capability_name']='ontology.object.create'
         published=type(definition).model_validate_json(json.dumps(body))
@@ -107,7 +108,7 @@ def runtime_effect_plan(admin,pg,tmp_path):
     for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
     actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',),'nexloop.service.receipt_reconcile':('Consumer',)})
     for name,types in actions.items():
-        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));body.pop('contract_digest',None)
+        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
         body['stable_name']=name;body['object_types']=[refs[k].model_dump(mode='json') for k in types]
         body['governance']['change_scope']['object_types']=body['object_types']
         capname='ontology.object.create' if name.endswith('.create') else name;body['capability_binding']['capability_name']=capname

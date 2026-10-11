@@ -14,6 +14,7 @@ from test_browser_session_creation import uow  # noqa: F401
 from test_conversation_messages import conversations  # noqa: F401
 from commercial_fixture import commercial_env  # noqa: F401
 from load_template import Clone, apply_service_grants, load, load_commercial, load_commitments, snapshot
+from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('load_synthetic',ROOT/'scripts/load/synthetic.py');S=importlib.util.module_from_spec(spec);spec.loader.exec_module(S)
@@ -30,7 +31,7 @@ def test_governed_load_template_and_independent_clones(commercial_env,conversati
     *records,trailer=[json.loads(x) for x in S.lines(31,8)]
     t=trailer['totals']
     # This fixture tenant has no trusted login policy; seed the test one (the load helpers never write rate policies).
-    admin.execute("insert into control.nexloop_browser_rate_policies values('synthetic-a','local_login','nexloop_identity',50,60,true) on conflict do nothing")
+    admin.execute("insert into control.nexloop_browser_rate_policies values('00000000-0000-4000-8000-00000000000a','local_login','nexloop_identity',50,60,true) on conflict do nothing")
     result=load(conversations,admin,records)
     assert result['counts']=={'consumers':8,'conversations':t['conversations'],'messages':t['messages']}
     expected=(t['conversations'],t['messages'],t['restricted'],8)
@@ -50,7 +51,7 @@ def test_governed_load_template_and_independent_clones(commercial_env,conversati
     # Commercial events through the signed intake (test connector, world test), recorded by the recorder.
     commercial=load_commercial(commercial_env,records)
     assert commercial['statuses']=={202:t['commercial_events']} if t['commercial_events'] else commercial['statuses']=={}
-    assert admin.execute("select count(*) from runtime.nexloop_commercial_events where tenant_id='synthetic-a' and world='test' and data_mode='test'").fetchone()==(t['commercial_events'],)
+    assert admin.execute("select count(*) from runtime.nexloop_commercial_events where tenant_id='00000000-0000-4000-8000-00000000000a' and world='test' and data_mode='test'").fetchone()==(t['commercial_events'],)
     assert admin.execute("select count(*) from runtime.nexloop_commercial_events where world='real'").fetchone()==(0,)
     assert admin.execute("select count(*) from runtime.nexloop_work_feed where feed='commercial-record' and status='pending'").fetchone()==(0,)
     # The deployed service principals (service-grants manifest) on top of the loaded tenant, credentials kept privately.
@@ -63,8 +64,8 @@ def test_governed_load_template_and_independent_clones(commercial_env,conversati
     from nexloop_eios.workbench_roles import apply_members,compile_members
     from commitment_fixture import TAKEOVER_ACTIONS,publish_request_actions
     publish_request_actions(admin,names=TAKEOVER_ACTIONS)
-    admin.execute('insert into control.nexloop_browser_applications values(%s,%s,1,true)',('synthetic-a',WORKBENCH_APP))
-    admin.execute('insert into control.nexloop_browser_business_applications values(%s,%s,%s,%s,%s)',('synthetic-a',WORKBENCH_APP,CALLER,'1',Jsonb(['action.execute'])))
+    admin.execute('insert into control.nexloop_browser_applications values(%s,%s,1,true)',(TENANT_A,WORKBENCH_APP))
+    admin.execute('insert into control.nexloop_browser_business_applications values(%s,%s,%s,%s,%s)',(TENANT_A,WORKBENCH_APP,CALLER,'1',Jsonb(['action.execute'])))
     operator=add_human(admin,'operator-1');members=members_file((operator,'operator'))
     dsn=tmp_path/'cfg-dsn';dsn.write_text(make_conninfo(pg,user='nexloop_configurator'));dsn.chmod(0o600)
     apply_members(ROLES,members,database_url_file=dsn);write_facts(admin,compile_members(ROLES,members))

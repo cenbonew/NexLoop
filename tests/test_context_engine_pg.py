@@ -25,6 +25,7 @@ from test_action_definitions import published_action
 from test_browser_identity_reads import identity
 from test_browser_session_creation import uow
 from test_recall_pg import recall_db,recall_for,A
+from support.tenants import TENANT_B
 
 ROOT=Path(__file__).resolve().parents[1]
 BUILTINS=S.load_builtins(ROOT/'deploy/configuration/context-strategies.v1.json')
@@ -121,15 +122,15 @@ def test_storage_invariants_dense_call_sequence_single_result_and_formal_zone(ad
     bootstrap(admin)
     run=str(uuid.uuid4());context=str(uuid.uuid4());h='a'*64
     with admin.transaction():
-        admin.execute('set local role nexloop_owner');admin.execute("select set_config('eios.tenant_id','synthetic-a',true)")
-        admin.execute("insert into runtime.nexloop_context_packs values('synthetic-a','real',%s,%s,'nexloop.context-pack.v6','context-strategy:recent_plus_required@1',%s,%s,'{}','[]',default)",(context,run,h,'b'*32))
+        admin.execute('set local role nexloop_owner');admin.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-00000000000a',true)")
+        admin.execute("insert into runtime.nexloop_context_packs values('00000000-0000-4000-8000-00000000000a','real',%s,%s,'nexloop.context-pack.v6','context-strategy:recent_plus_required@1',%s,%s,'{}','[]',default)",(context,run,h,'b'*32))
         def source(ordinal,section,kind):
-            admin.execute("insert into runtime.nexloop_context_sources values('synthetic-a','real',%s,%s,%s,'claim:x','1',%s,%s,%s,'included',null)",(context,ordinal,section,h,kind,'decision:'+h))
+            admin.execute("insert into runtime.nexloop_context_sources values('00000000-0000-4000-8000-00000000000a','real',%s,%s,%s,'claim:x','1',%s,%s,%s,'included',null)",(context,ordinal,section,h,kind,'decision:'+h))
         source(0,'evidence','user_statement');source(1,'evidence','hypothesis');source(2,'consumer_state','formal_object')
         for ordinal,(section,kind) in enumerate((('consumer_state','user_statement'),('constraints','hypothesis'),('open_work','conversation'),('consumer_state','hypothesis')),start=10):
             with pytest.raises(psycopg.errors.CheckViolation),admin.transaction():source(ordinal,section,kind)
         def request(seq):
-            admin.execute("insert into runtime.nexloop_model_requests(tenant_id,world,run_id,call_sequence,context_id,model_provider,model_id,tool_manifest_digest,request_digest,prompt_artifact_id,input_token_budget,output_token_budget,settings_digest) values('synthetic-a','real',%s,%s,%s,'test','deterministic-test',%s,%s,%s,16000,4000,%s)",(run,seq,context,h,h,'c'*32,h))
+            admin.execute("insert into runtime.nexloop_model_requests(tenant_id,world,run_id,call_sequence,context_id,model_provider,model_id,tool_manifest_digest,request_digest,prompt_artifact_id,input_token_budget,output_token_budget,settings_digest) values('00000000-0000-4000-8000-00000000000a','real',%s,%s,%s,'test','deterministic-test',%s,%s,%s,16000,4000,%s)",(run,seq,context,h,h,'c'*32,h))
         request(1)
         for bad in (1,3):
             with pytest.raises(psycopg.errors.InvalidParameterValue),admin.transaction():request(bad)
@@ -139,7 +140,7 @@ def test_storage_invariants_dense_call_sequence_single_result_and_formal_zone(ad
                           "update runtime.nexloop_model_requests set request_digest=repeat('d',64),result_status='failed',completed_at=now() where run_id=%s and call_sequence=2",
                           'delete from runtime.nexloop_model_requests where run_id=%s','update runtime.nexloop_context_packs set pack_digest=pack_digest where run_id=%s'):
             with pytest.raises(psycopg.errors.InvalidParameterValue),admin.transaction():admin.execute(statement,(run,))
-        admin.execute("select set_config('eios.tenant_id','synthetic-b',true)")
+        admin.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-00000000000b',true)")
         assert admin.execute('select count(*) from runtime.nexloop_model_requests').fetchone()==(0,)
 
 
@@ -187,7 +188,7 @@ def test_definition_read_requires_gate_proofs_in_sql(semantic):
         signed_read(f['worker'],session,signer,'definitions',{'refs':['eios:property:Consumer/monthly_income']},proofs=[type_proof])
     with pytest.raises(ContextDenied):read_proof(f['worker'],session,ResourceType.PROPERTY,'Consumer/monthly_income')
     # Another tenant's reader cannot see tenant A definitions through tenant A refs.
-    other,_=seed_multi_authority(f['admin'],f['worker'],[('eios:object_type:Consumer',ResourceType.OBJECT_TYPE,Operation.READ)],identity_suffix='-ctx-b',tenant='synthetic-b')
+    other,_=seed_multi_authority(f['admin'],f['worker'],[('eios:object_type:Consumer',ResourceType.OBJECT_TYPE,Operation.READ)],identity_suffix='-ctx-b',tenant=TENANT_B)
     rows=signed_read(f['worker'],other,signer,'definitions',{'refs':['eios:object_type:Consumer']},proofs=[read_proof(f['worker'],other,ResourceType.OBJECT_TYPE,'Consumer')])['items']
     assert rows[0]['display_name']=='客户'  # tenant B's own schema, never tenant A's
 

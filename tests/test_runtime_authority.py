@@ -15,6 +15,7 @@ from agent_authority_fixture import seed_agent
 from test_postgres_action_claims import governance_inputs
 from eios.ontology.models import ObjectTypeDefinition
 from eios.ontology.semantics import schema_contract_digest
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def authority(admin,pg,tmp_path,request):
@@ -26,7 +27,7 @@ def authority(admin,pg,tmp_path,request):
     worker_token,_=seed_authority(admin,tenant,target,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-queue-worker')
     agent_token,invocation=seed_agent(admin,tenant=tenant)
     inputs=governance_inputs()
-    definition=type(inputs['action_definition']).model_validate_json(inputs['action_definition'].model_dump_json().replace('synthetic-a',tenant))
+    definition=type(inputs['action_definition']).model_validate_json(inputs['action_definition'].model_dump_json().replace(TENANT_A,tenant))
     schema=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True)
     ref=definition.object_types[0].model_copy(update={'schema_digest':schema_contract_digest(schema)})
     body=definition.model_dump(mode='json');body.pop('contract_digest',None)

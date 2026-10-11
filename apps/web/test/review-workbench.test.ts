@@ -18,7 +18,7 @@ const render=(c:QueryClient,node:ReactNode)=>renderToStaticMarkup(h(QueryClientP
 afterEach(()=>vi.unstubAllGlobals());
 
 test('the customer home carries no staff blocks: no candidate review, no operations status',()=>{
-  const html=render(client(),h(Account,{session:{authenticated:true,tenant_id:'synthetic-a',principal_id:'synthetic-customer',restricted:false},onLogout:()=>{}}));
+  const html=render(client(),h(Account,{session:{authenticated:true,tenant_id:'00000000-0000-4000-8000-00000000000a',principal_id:'synthetic-customer',restricted:false},onLogout:()=>{}}));
   expect(html).toContain('已登录 NexLoop');
   expect(html).not.toContain('候选定义审核');expect(html).not.toContain('审核服务');expect(html).not.toContain('运营服务');
 });

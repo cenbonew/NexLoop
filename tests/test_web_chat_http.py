@@ -10,6 +10,7 @@ from test_conversation_messages import conversations, browser_business, publishe
 from test_browser_http import browser, identity, login, ORIGIN
 from nexloop_eios.browser_http import BrowserConfiguration
 from nexloop_eios.web_chat_http import router
+from support.tenants import TENANT_A
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ def chat(browser, identity, tmp_path):
         seen.append(session.principal_id)
         raise RuntimeError('synthetic-sensitive-detail-must-not-escape')
     config = BrowserConfiguration(tmp_path/'unused-dsn', tmp_path/'unused-key',
-        'synthetic-a', 'synthetic-browser-app', ORIGIN)
+        TENANT_A, 'synthetic-browser-app', ORIGIN)
     # Separate boundary app reuses the actual open PG identity store; the
     # production app's included routers remain untouched. FastAPI wraps its
     # included routers, so filtering path attributes would not remove them.
@@ -84,9 +85,9 @@ def actual_chat(conversations, admin, tmp_path):
     identity_dsn = private('identity-dsn', fixture['base']['identity'][0])
     key = private('authority-key', fixture['reader'].signer.material)
     rate_key = private('rate-key', secrets.token_hex(32))
-    admin.execute("insert into control.nexloop_browser_rate_policies values('synthetic-a','local_login','nexloop_identity',10,60,true)")
+    admin.execute("insert into control.nexloop_browser_rate_policies values('00000000-0000-4000-8000-00000000000a','local_login','nexloop_identity',10,60,true)")
     config = ApiConfiguration(dsn, key, tmp_path/'artifacts', fixture['reader'].signer.key_id,
-        BrowserConfiguration(identity_dsn, rate_key, 'synthetic-a', 'synthetic-browser-app', ORIGIN),
+        BrowserConfiguration(identity_dsn, rate_key, TENANT_A, 'synthetic-browser-app', ORIGIN),
         execution_profile='deterministic-test', conversation_stream_seconds=1)
     with TestClient(create_app(config), base_url=ORIGIN) as client:
         signed_in = login(client, fixture['base']['identity'])
@@ -162,6 +163,6 @@ def test_actual_http_wrong_owner_and_current_revoke_no_business_fallback(actual_
     created = create_actual(client, headers)
     assert client.get('/api/v1/conversations/'+'f'*64+'/messages').status_code == 403
     assert client.get('/api/v1/conversations/'+'f'*64+'/events').status_code == 403
-    replace_fact(admin, 'synthetic-a', 'grants', [fixture['principal'], 'eios:action:'+READ+':1'], F.GrantFacts, grants=[])
+    replace_fact(admin, TENANT_A, 'grants', [fixture['principal'], 'eios:action:'+READ+':1'], F.GrantFacts, grants=[])
     assert client.get('/api/v1/conversations/'+created['id']+'/messages').status_code == 403
     assert client.get('/api/v1/conversations/'+created['id']+'/events').status_code == 403

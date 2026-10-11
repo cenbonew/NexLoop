@@ -7,11 +7,12 @@ from nexloop_eios.browser_identity import open_browser_identity
 from test_browser_identity_reads import identity
 from test_browser_evidence import authenticate
 from test_browser_account_failures import OP
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def uow(identity):
     with open_browser_identity(identity[0]) as pool:
-        yield PostgresBrowserSessionUnitOfWork(pool,tenant_id='synthetic-a',application_id='synthetic-browser-app')
+        yield PostgresBrowserSessionUnitOfWork(pool,tenant_id=TENANT_A,application_id='synthetic-browser-app')
 
 
 def create(uow,identity,evidence):

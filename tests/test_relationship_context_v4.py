@@ -10,6 +10,7 @@ from nexloop_eios.assessment_actions import FIELDS
 from eios.authz import facts as F
 from eios.authz.resources import ResourceType
 from authority_fixture import replace_fact
+from support.tenants import TENANT_A
 
 def install(admin):
     # Real catalog owns the v4 relationship Context migration; no manual DRAFT SQL.
@@ -23,7 +24,7 @@ def project(port,recipe,consumer):
 def test_protected_current_hypothesis_and_correction(assessment,admin):
     port,creator,values,object_id,token=assessment;install(admin)
     recipe=RelationshipContextRecipe((object_id,))
-    admin.execute('insert into control.nexloop_relationship_context_recipes values(%s,%s,%s,%s,%s)',('synthetic-a','real',port.session.authentication.subject_principal_id,values['source_id'],Jsonb([object_id])))
+    admin.execute('insert into control.nexloop_relationship_context_recipes values(%s,%s,%s,%s,%s)',(TENANT_A,'real',port.session.authentication.subject_principal_id,values['source_id'],Jsonb([object_id])))
     first=project(port,recipe,values['source_id'])
     assert first['current_statements']==[] and first['evidence'][0]['epistemic_kind']=='hypothesis' and first['evidence'][0]['revision']==1
     assert first['evidence'][0]['conclusion']==values['conclusion']
@@ -34,7 +35,7 @@ def test_protected_current_hypothesis_and_correction(assessment,admin):
     with pytest.raises(psycopg.errors.InsufficientPrivilege,match='relationship recipe unavailable'):
         project(port,recipe,'f'*64)
     principal=port.session.authentication.subject_principal_id
-    replace_fact(admin,'synthetic-a','grants',[principal,'eios:property:RelationshipAssessment/'+object_id+'/conclusion'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[principal,'eios:property:RelationshipAssessment/'+object_id+'/conclusion'],F.GrantFacts,grants=[])
     from nexloop_eios.authorization import authenticate_service
     port.session=authenticate_service(port.pool,token,world='real')
     from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
@@ -382,9 +383,9 @@ def test_two_assessment_later_owned_lock_rejects_earlier_signed_proof(assessment
     for ref in ids:
         targets.append(('eios:object:RelationshipAssessment/'+ref,ResourceType.OBJECT,Operation.READ))
         targets.extend(('eios:property:RelationshipAssessment/'+ref+'/'+field,ResourceType.PROPERTY,Operation.READ) for field in FIELDS)
-    session,_=seed_multi_authority(admin,port.pool,targets,identity_suffix='-owned-multi-reader',tenant='synthetic-a')
+    session,_=seed_multi_authority(admin,port.pool,targets,identity_suffix='-owned-multi-reader',tenant=TENANT_A)
     recipe=RelationshipContextRecipe(ids)
-    admin.execute('insert into control.nexloop_relationship_context_recipes values(%s,%s,%s,%s,%s)',('synthetic-a','real',session.authentication.subject_principal_id,values['source_id'],Jsonb(list(ids))))
+    admin.execute('insert into control.nexloop_relationship_context_recipes values(%s,%s,%s,%s,%s)',(TENANT_A,'real',session.authentication.subject_principal_id,values['source_id'],Jsonb(list(ids))))
     envelopes=RelationshipContextReader(port.pool,session,port.signer,recipe).envelopes()
     claim=json.loads(envelopes[0]['text']);claim['expires_at']=(datetime.now(UTC)+timedelta(seconds=.6)).isoformat();text=canonical_payload(claim)
     envelopes[0].update(text=text,signature=hmac.new(port.signer.material,('nexloop-object-read-v1:'+text).encode(),'sha256').hexdigest())
@@ -392,7 +393,7 @@ def test_two_assessment_later_owned_lock_rejects_earlier_signed_proof(assessment
         with port.pool.connection() as db,db.transaction():return db.execute('select authz.nexloop_relationship_context_snapshot(%s,%s,%s,%s)',(session.token_digest,'real',values['source_id'],Jsonb(envelopes))).fetchone()[0]
     with ThreadPoolExecutor(max_workers=1) as executor:
         with admin.transaction():
-            admin.execute('select object_id from ontology.objects where tenant_id=%s and world=%s and object_id=%s for update',('synthetic-a','real',ids[1]))
+            admin.execute('select object_id from ontology.objects where tenant_id=%s and world=%s and object_id=%s for update',(TENANT_A,'real',ids[1]))
             future=executor.submit(read);until=time.monotonic()+3
             while time.monotonic()<until:
                 if admin.execute("select count(*) from pg_stat_activity where wait_event_type='Lock' and pid<>pg_backend_pid()").fetchone()[0]:break

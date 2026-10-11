@@ -18,6 +18,7 @@ from nexloop_eios.role_runs import role_binding_envelope
 from multi_authority_fixture import seed_multi_authority
 from test_role_policy_binding import policy_selection  # noqa: F401
 from test_action_definitions import published_action  # noqa: F401
+from support.tenants import TENANT_A
 
 
 def current(admin, holder, args):
@@ -28,7 +29,7 @@ def current(admin, holder, args):
 
 
 def ceiling_editor(admin, holder, ceiling):
-    tenant = 'synthetic-a'
+    tenant = TENANT_A
     row = admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id='eios:action:RoleExecutionCeiling.create:1'",
                         (tenant,)).fetchone()
     definition, capability = dict(row[0]), dict(row[1])

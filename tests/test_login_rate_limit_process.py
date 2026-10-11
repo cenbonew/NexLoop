@@ -4,6 +4,7 @@ digest) the 11th login from the same client within the window is refused with 42
 import os,secrets,socket,ssl,subprocess,sys,time
 import httpx
 from test_browser_identity_reads import identity
+from support.tenants import TENANT_A
 
 
 def test_eleventh_login_in_the_window_is_refused_with_retry_after(identity,admin,tmp_path):
@@ -12,13 +13,13 @@ def test_eleventh_login_in_the_window_is_refused_with_retry_after(identity,admin
     cert=tmp_path/'cert.pem';key=tmp_path/'key.pem'
     subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(key),'-out',str(cert),'-days','1','-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost'],check=True,capture_output=True)
     cert.chmod(0o600);key.chmod(0o600)
-    admin.execute("insert into control.nexloop_browser_rate_policies values('synthetic-a','local_login','nexloop_identity',10,60,true)")
+    admin.execute("insert into control.nexloop_browser_rate_policies values('00000000-0000-4000-8000-00000000000a','local_login','nexloop_identity',10,60,true)")
     with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
     origin=f'https://localhost:{port}'
     cmd=[sys.executable,'-m','nexloop_eios.http_api','--database-url-file',str(tmp_path/'missing'),
          '--signing-key-file',str(tmp_path/'missing-key'),'--artifact-root',str(tmp_path/'unused'),'--signing-key-id','missing',
          '--mode','test','--port',str(port),'--identity-database-url-file',str(dsn),'--browser-rate-key-file',str(rate),
-         '--browser-tenant-id','synthetic-a','--browser-application-id','synthetic-browser-app','--browser-origin',origin,
+         '--browser-tenant-id',TENANT_A,'--browser-application-id','synthetic-browser-app','--browser-origin',origin,
          '--tls-certificate-file',str(cert),'--tls-key-file',str(key)]
     child=subprocess.Popen(cmd,env={k:v for k,v in os.environ.items() if not k.startswith('MODEL_')},stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     context=ssl.create_default_context(cafile=str(cert))

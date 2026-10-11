@@ -32,9 +32,10 @@ from nexloop_eios.effect_contexts import EFFECT
 from nexloop_eios.property_access import PropertyAccessRule,PropertyGroupRestriction
 from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
+from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
-TENANT='synthetic-a'
+TENANT=TENANT_A
 SETTINGS=ROOT/'deploy/configuration/commitments.v1.json'
 HUMAN_ACTIONS=('Commitment.cancel','Commitment.extend','Commitment.attest','Commitment.condition_met','Commitment.mark_communication')
 REQUEST_ACTIONS=('nexloop.plan.request_reevaluation','nexloop.service.query_request')  # NX-028 slice 2 (0150)

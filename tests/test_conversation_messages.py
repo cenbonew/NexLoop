@@ -26,6 +26,7 @@ from test_browser_business_authorization import browser_business
 from test_action_definitions import published_action
 from test_browser_identity_reads import identity
 from test_browser_session_creation import uow
+from support.tenants import TENANT_A
 
 
 class ConversationFixture(dict):
@@ -35,7 +36,7 @@ class ConversationFixture(dict):
 
 @pytest.fixture
 def conversations(browser_business,admin,pg,tmp_path):
-    base=browser_business;reader=base['reader'];tenant='synthetic-a'
+    base=browser_business;reader=base['reader'];tenant=TENANT_A
     auth,_,_=authority_records(tenant,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
     subject=base['identity'][1].subject_id;principal=base['identity'][2].principal_id
     names=[CREATE,MESSAGE,READ]
@@ -133,7 +134,7 @@ def test_erased_messages_leave_the_history_and_the_event_stream(conversations,ad
     receipts=[port.accept_message(conversation_id=created['id'],idempotency_key='synthetic-erase-key-'+str(index),body='statement '+str(index)) for index in range(3)]
     with admin.transaction():
         admin.execute('set local role nexloop_owner')
-        admin.execute("select runtime.nexloop_erase_message('synthetic-a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')",(receipts[1]['message']['id'],))
+        admin.execute("select runtime.nexloop_erase_message('00000000-0000-4000-8000-00000000000a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')",(receipts[1]['message']['id'],))
     assert [m['sequence'] for m in port.read_messages(conversation_id=created['id'])['items']]==[1,3]
     page=port.read_messages(conversation_id=created['id'],after_sequence=1,limit=1)
     assert [m['sequence'] for m in page['items']]==[3] and page['next_cursor']=='3'
@@ -155,7 +156,7 @@ def test_current_grant_revoke_blocks_write_read_and_preserves_commits(conversati
     fixture=conversations;created=conversation(fixture);port=fixture['port']
     port.accept_message(conversation_id=created['id'],idempotency_key='synthetic-before-revoke',body='kept evidence')
     for action in (MESSAGE,READ):
-        replace_fact(admin,'synthetic-a','grants',[fixture['principal'],'eios:action:'+action+':1'],F.GrantFacts,grants=[])
+        replace_fact(admin,TENANT_A,'grants',[fixture['principal'],'eios:action:'+action+':1'],F.GrantFacts,grants=[])
     with pytest.raises(ConversationUnavailable):port.accept_message(conversation_id=created['id'],idempotency_key='synthetic-after-revoke',body='denied')
     with pytest.raises(ConversationUnavailable):port.read_events(conversation_id=created['id'])
     assert admin.execute('select count(*) from runtime.nexloop_conversation_messages').fetchone()==(1,)

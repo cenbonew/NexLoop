@@ -8,6 +8,7 @@ from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from eios.authz import facts as F
 from authority_fixture import replace_fact
+from support.tenants import TENANT_A
 
 
 def backend_options(port,pg,tmp_path):
@@ -45,7 +46,7 @@ def test_authenticated_backend_actual_create_correct_projection_replay_and_close
 def test_backend_current_property_revocation_denies_fresh_projection(assessment,pg,admin,tmp_path):
     port,creator,p,obj,token=assessment
     principal=port.session.authentication.subject_principal_id
-    replace_fact(admin,'synthetic-a','grants',[principal,'eios:property:RelationshipAssessment/'+obj+'/conclusion'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[principal,'eios:property:RelationshipAssessment/'+obj+'/conclusion'],F.GrantFacts,grants=[])
     with open_backend(**backend_options(port,pg,tmp_path)) as backend:
         services=backend.authenticate(token,world='real')
         with pytest.raises(ActionAuthorizationDenied,match='^object/property read denied$'):

@@ -14,6 +14,7 @@ from psycopg.conninfo import make_conninfo
 
 from authority_fixture import seed_authority
 from eios.authz.operations import Operation
+from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -89,7 +90,7 @@ with psycopg.connect(sys.stdin.read(),autocommit=True) as c:
     assert sandbox.returncode==0,'installed wheel owned sandbox failed'
     sandbox_report=json.loads(sandbox.stdout)
     assert sandbox_report['passed'] and sandbox_report['shutdown_confirmed'] and sandbox_report['cleanup_confirmed']
-    token,_=seed_authority(admin,'synthetic-a','eios:artifact:local_test',world='test',
+    token,_=seed_authority(admin,TENANT_A,'eios:artifact:local_test',world='test',
         operations=(Operation.CREATE,Operation.READ,Operation.DELETE))
     material=secrets.token_bytes(32)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('synthetic-wheel',material))

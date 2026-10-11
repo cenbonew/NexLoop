@@ -19,8 +19,9 @@ from test_claim_matching_pg import env  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_review_http import grant_human
+from support.tenants import TENANT_A
 
-TENANT='synthetic-a'
+TENANT=TENANT_A
 pytestmark=pytest.mark.parametrize('env',[TENANT],indirect=True)
 
 

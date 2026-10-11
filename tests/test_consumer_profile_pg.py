@@ -33,6 +33,7 @@ from nexloop_eios.conversation_messages import conversation_schemas
 from nexloop_eios.bootstrap import bootstrap
 from pathlib import Path
 import hashlib,psycopg
+from support.tenants import TENANT_A
 
 
 @pytest.fixture
@@ -76,7 +77,7 @@ def fresh_consumer_profile_plan(configured,admin,tmp_path):
     actions=[]
     for name,types in {'Consumer.create':['Consumer'],'EffectControl.create':['EffectControl'],'ConsumerOwnership.create':['ConsumerOwnership'],
         CONFIGURE:['EffectControl'],'nexloop.service.request':['Consumer']}.items():
-        declaration=json.loads(json.dumps(original.model_dump(mode='json')).replace('synthetic-a',tenant));declaration.pop('contract_digest',None)
+        declaration=json.loads(json.dumps(original.model_dump(mode='json')).replace(TENANT_A,tenant));declaration.pop('contract_digest',None)
         declaration['stable_name']=name;declaration['object_types']=[refs[t].model_dump(mode='json') for t in types]
         declaration['governance']['change_scope']['object_types']=declaration['object_types']
         capability_name='ontology.object.create' if name.endswith('.create') else name
