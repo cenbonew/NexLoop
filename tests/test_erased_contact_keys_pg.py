@@ -22,6 +22,7 @@ from nexloop_eios.http_api import ApiConfiguration, create_app
 from nexloop_eios.workbench_roles import apply_members, compile_members
 from commercial_fixture import publish_registry_actions
 from commitment_fixture import TENANT, commitments  # noqa: F401
+from support.tenants import TENANT_A
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
@@ -128,7 +129,7 @@ def audits(admin, tenant):
 def test_a_principal_whose_identity_was_erased_is_not_assigned_to_a_new_consumer(conversations, admin):
     from nexloop_eios.object_actions import GovernedObjectCreator
     f = conversations
-    tenant = 'synthetic-a'
+    tenant = TENANT_A
     refs = owner_sql(admin, 'select control.nexloop_principal_identity_refs(%s,%s,%s)', (tenant, 'real', f['principal']))
     assert refs and all(r.startswith('nexloop:browser-local:') for r in refs)
     erase_refs(admin, tenant, refs)
