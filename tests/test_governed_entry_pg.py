@@ -45,7 +45,8 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'consumer.erase':'erase_consumer','message.erase':'erase_message','retention.hold':'hold_retention',
         'retention.release_hold':'release_retention_hold',  # NX-029 (0142)
         'consumer.export':'export_consumer',  # NX-029 slice 3
-        'alert.silence':'silence_alert'}  # NX-030 (0150)
+        'alert.silence':'silence_alert',  # NX-030 (0150)
+        'incentive.issue':'issue_incentive'}  # AT-043 (0160)
     # Append-only; a handler must be an owner function in control/runtime with the one signature.
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute("update control.nexloop_governed_capabilities set subject_rule='agent_or_human'")
     for handler in ('pg_catalog.lower(text)','control.nexloop_nx022_owner_change(text,text,text,text,jsonb)'):

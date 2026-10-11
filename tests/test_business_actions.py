@@ -38,6 +38,7 @@ NX027_REGISTRY={'nexloop.commitment.bind_commercial':'commitment.bind_commercial
 NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
     'nexloop.retention.release_hold':'retention.release_hold','nexloop.consumer.export':'consumer.export'}
 NX030_SILENCE={'nexloop.alert.silence':'alert.silence'}
+AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}
 
 
 def object_types():
@@ -63,10 +64,13 @@ def test_compiles_both_profiles_with_explicit_snapshots():
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit'),
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
             **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()},'commercial.observe':capability('commercial.observe'),
-            **{cap:capability(cap) for cap in NX027_REGISTRY.values()},**{cap:capability(cap) for cap in NX029_ERASURE.values()},**{cap:capability(cap) for cap in NX030_SILENCE.values()}})
+            **{cap:capability(cap) for cap in NX027_REGISTRY.values()},**{cap:capability(cap) for cap in NX029_ERASURE.values()},**{cap:capability(cap) for cap in NX030_SILENCE.values()},
+            **{cap:capability(cap) for cap in AT043_INCENTIVE.values()}})
     names={r['definition']['stable_name']:r for r in rows}
     assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,*REQUESTS,
-        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe',*NX027_REGISTRY,*NX029_ERASURE,*NX030_SILENCE}
+        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe',*NX027_REGISTRY,*NX029_ERASURE,*NX030_SILENCE,*AT043_INCENTIVE}
+    # AT-043 (0160): the incentive issue is a human owner Action on the registry; the executor grant is separate.
+    assert all(a['authority']=='human_owner' and a['capability_name']=='incentive.issue' for a in MANIFEST['actions'] if a['stable_name'] in AT043_INCENTIVE)
     # NX-029 (0142): human owner only, typed on Consumer v1.
     assert all(a['authority']=='human_owner' and a['capability_name']==NX029_ERASURE[a['stable_name']] for a in MANIFEST['actions'] if a['stable_name'] in NX029_ERASURE)
     # NX-030: alert silencing is a human owner Action on the registry.

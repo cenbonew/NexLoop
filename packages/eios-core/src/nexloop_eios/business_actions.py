@@ -36,7 +36,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-027: the human owner's read of commercial observations, costs and key results (0134).
     'commercial.observe':'human_owner',
     # NX-030 on the 0124 registry (0150): the owner silences an alert rule for at most 7 days.
-    'alert.silence':'human_owner'}
+    'alert.silence':'human_owner',
+    # AT-043 (0160): the owner issues a catalog incentive; budgeted at dispatch by the executor.
+    'incentive.issue':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

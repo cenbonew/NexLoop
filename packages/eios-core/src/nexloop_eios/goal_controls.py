@@ -45,6 +45,8 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'erase_consumer':'consumer.erase','erase_message':'message.erase','hold_retention':'retention.hold','release_retention_hold':'retention.release_hold',
     # NX-029 slice 3 (0141): export of one Consumer for the requester.
     'export_consumer':'consumer.export',
+    # AT-043 (0160): a human-owner incentive issue; the executor admits it at dispatch under the incentive budget.
+    'issue_incentive':'incentive.issue',
     # NX-030: the owner silences one alert rule (optionally one selector) for at most 7 days.
     'silence_alert':'alert.silence'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
@@ -292,6 +294,17 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('consumer and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'export_consumer','consumer_id':consumer_id,'reason':reason})
+
+    def issue_incentive(self,*,action_name,action_version,request_id,consumer_id,incentive_offering_id,offering_revision,binding_id,
+                        amount_minor,currency,notification_text=''):
+        """AT-043: issue a catalog incentive (whole minor units); accepted is not issued - the executor admits it at dispatch."""
+        if (not all(re.fullmatch(r'[a-f0-9]{64}',str(v)) for v in (consumer_id,incentive_offering_id,binding_id))
+                or type(offering_revision) is not int or offering_revision<1 or not re.fullmatch(r'[1-9][0-9]{0,15}',str(amount_minor))
+                or not re.fullmatch(r'[A-Z]{3}',str(currency)) or type(notification_text) is not str or len(notification_text)>2000):
+            raise ValueError('incentive issue invalid')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'issue_incentive','consumer_id':consumer_id,
+            'incentive_offering_id':incentive_offering_id,'offering_revision':offering_revision,'binding_id':binding_id,
+            'amount_minor':str(amount_minor),'currency':currency,'notification_text':notification_text})
 
     def _submit(self,action_name,action_version,payload):
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)
