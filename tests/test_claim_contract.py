@@ -21,8 +21,12 @@ def valid(value):return VALIDATOR.is_valid(value)
 def test_example_valid_and_handoff_copy_identical():
     Draft202012Validator.check_schema(SCHEMA);VALIDATOR.validate(EXAMPLE)
     assert Claim.model_validate(EXAMPLE).claim_id==EXAMPLE['claim_id']
+    # docs/handoff is frozen; packages/contracts is the live copy. A divergence passes only when registered (file, reason, task, date).
+    registered={d['file']:d for d in json.loads((ROOT/'packages/contracts/handoff-divergence.json').read_text())['divergences']}
+    assert all(d['reason'] and d['task'].startswith('NX-') and len(d['date'])==10 for d in registered.values())
     for name in ('claim.schema.json','examples/claim.valid.json'):
-        assert (ROOT/'docs/handoff/contracts'/name).read_bytes()==(ROOT/'packages/contracts'/name).read_bytes()
+        same=(ROOT/'docs/handoff/contracts'/name).read_bytes()==(ROOT/'packages/contracts'/name).read_bytes()
+        assert same or name in registered,name
 
 
 def mutate(**changes):

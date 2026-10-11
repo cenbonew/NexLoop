@@ -12,21 +12,11 @@
     },
     "tenant_id": {
       "type": "string",
-      "format": "uuid"
+      "minLength": 1
     },
     "world_id": {
       "type": "string",
       "minLength": 1
-    },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "real",
-        "simulation",
-        "shadow",
-        "test"
-      ],
-      "description": "Derived from world_id by the server, never supplied by a caller: world real -> real; worlds simulation and shadow -> simulation; any other world -> test. The enum matches the other contracts; shadow is excluded below."
     },
     "conversation_id": {
       "type": "string",
@@ -500,7 +490,6 @@
     "claim_id",
     "tenant_id",
     "world_id",
-    "mode",
     "conversation_id",
     "consumer_id",
     "topic_key",
@@ -649,44 +638,6 @@
           "epistemic_kind": {
             "not": {
               "const": "commitment"
-            }
-          }
-        }
-      }
-    },
-    {
-      "description": "claims are derived per world and never carry shadow mode (shadow worlds project as simulation)",
-      "properties": {
-        "mode": {
-          "not": {
-            "const": "shadow"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "mode": {
-            "const": "real"
-          }
-        },
-        "required": [
-          "mode"
-        ]
-      },
-      "then": {
-        "properties": {
-          "world_id": {
-            "const": "real"
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "world_id": {
-            "not": {
-              "const": "real"
             }
           }
         }

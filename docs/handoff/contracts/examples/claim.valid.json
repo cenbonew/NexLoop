@@ -1,8 +1,7 @@
 {
   "claim_id": "9c032ec41af85448d9cc1fc1af16052c8c75bc5fea76324b9e170b6ce6c6ed7f",
-  "tenant_id": "00000000-0000-4000-8000-00000000000a",
+  "tenant_id": "synthetic-a",
   "world_id": "real",
-  "mode": "real",
   "conversation_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "consumer_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
   "topic_key": "fbe6f62ab47ea0d303f0582fd6bce53e529c86b6480d9fc3bf125c24acf3827d",

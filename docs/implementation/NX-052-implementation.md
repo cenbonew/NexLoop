@@ -35,8 +35,8 @@
    - 外键触发器耗时：开启 `track_functions='pl'` 后，`pg_stat_user_functions` 中 `RI_FKey_check_ins`、`RI_FKey_check_upd` 的 `total_time`；
    - 端到端：dispatch 时延的 p50 和 p95，沿用 NX-031 的口径；
    - 锁：`pg_locks` 采样中对 `control.nexloop_tenants` 的 `ROW SHARE` 和 `KEY SHARE` 等待。外键检查会对父行加 `FOR KEY SHARE`，因此要确认它不与租户行的 `authority_revision` 更新（`FOR UPDATE`）互相阻塞。
-3. **判据**（建议值，由调度员确认）：热点表写入语句的中位耗时增加不超过 10%，端到端 p95 增加不超过 5%，并且出现与 authority_revision 更新的锁等待时不得超过 NX-031 的告警阈值。超出时，该表改用“触发器只校验格式”或继续依赖身份快照，并写入 ADR。
-4. **重点关注租户行锁**：`update control.nexloop_tenants set authority_revision=…` 不改键列，取的是 `FOR NO KEY UPDATE`，与外键检查的 `FOR KEY SHARE` 不冲突。但 0050 中有显式的 `select … for update`（第 86 行、第 246 行），它取的是 `FOR UPDATE`，会与 `FOR KEY SHARE` 冲突：配置发布期间，带该租户外键的业务写入会排队等待。测量时必须并发跑“配置发布 + 业务写入”。如果等待超出判据，第 5 批之前需要先把这两处改成 `for no key update`，这需要新迁移包装，并另行评审。
+3. **判据**（第 5 批的验收门槛，调度员 2026-10-11 确认）：热点表写入语句的中位耗时增加不超过 10%，端到端 p95 增加不超过 5%，并且出现与 authority_revision 更新的锁等待时不得超过 NX-031 的告警阈值。超出时，该表改用“触发器只校验格式”或继续依赖身份快照，并写入 ADR。
+4. **重点关注租户行锁**：`update control.nexloop_tenants set authority_revision=…` 不改键列，取的是 `FOR NO KEY UPDATE`，与外键检查的 `FOR KEY SHARE` 不冲突。但 0050 中有显式的 `select … for update`（第 86 行、第 246 行），它取的是 `FOR UPDATE`，会与 `FOR KEY SHARE` 冲突：配置发布期间，带该租户外键的业务写入会排队等待。测量时必须并发跑“配置发布 + 业务写入”。方案：第 5 批之前单独评审一个新迁移，用 `create or replace` 包装这两个函数，只把这两处锁改成 `for no key update`。它们只更新 status 和 authority_revision，都不是键列，因此 `FOR NO KEY UPDATE` 足以串行化同租户的配置发布，又不阻塞外键检查。本批不改。
 
 ### 0.4 与 0050 manifest 顺序的关系
 
@@ -72,7 +72,7 @@
   - 唯一的消费方校验点是 `ClaimStore.read`；
   - 没有外部调用方，契约仍为 v1（目标契约，尚未对外发布）。
   - 若真实部署中存在非 uuid 租户的 Claim，读取时会被拒绝，而不会被放行，该问题与 1b 一起暴露。
-- 交接副本 `docs/handoff/contracts/claim.schema.json` 及其示例同步修改，因为 `test_claim_contract` 要求这两份与 `packages/contracts` 中的版本逐字节一致。
+- `docs/handoff/` 冻结不改；`packages/contracts` 是唯一的活副本，生成物和示例以它为准。偏离登记在 `packages/contracts/handoff-divergence.json`（文件、原因、任务、日期），`test_claim_contract` 只放行“与冻结副本一致或已登记”的情况。
 
 ### 1.2 0230：Claim 投影补 mode
 
