@@ -195,7 +195,7 @@
 - **每次交互之后**：执行器采集证据并判定停止和暂停规则（§3）。
 - **真实模式的前置条件**（任何交互之前检查，不满足即拒绝，退出码 3，列出拒绝原因代码）：
   1. `real_tenant_init.verify` 除三项开关以外的检查全部通过：租户 active，model 预算等于 D-g 累计上限并覆盖试运行期间，告警规则生效；
-  2. 三层开关与计划完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表，经 metrics 角色的 `authz.nexloop_nx037_open_switches`（0310）读取。多开或少开任何一层都会拒绝。
+  2. 三层开关与计划完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表，经 metrics 角色的 `authz.nexloop_nx037_open_switches`（0163）读取。多开或少开任何一层都会拒绝。
   - 前置条件满足时，因为真实 driver 尚无发送路径，入口在第一次交互之前以 `real_driver_unavailable` 退出（退出码 4），不写任何交互记录。
   - 真实模式在 3 次校准交互之后自动暂停（规则 `calibration`），由负责人确认单次费用后用 `--resume` 继续。
 - **停止与暂停**：
