@@ -2476,6 +2476,18 @@
         "ref": "docs/implementation/NX-031-implementation.md",
         "summary": "在 s5a 上本机重跑 C4-low（25 客户、完整时长）：relay 卡死消失（handoff 1 次）、187 个 Run 全部成功、7 项核对违规 0；两个缺陷（对账重试上限超出 work feed 上限导致死信 2 条、排空判断未按租户过滤）已修。派发 p95 仍超过 2 s（容量结论，并入负责人决定 D-a）。下一步：在 main 上补跑 C4-low，NX-052 第一批合入后跑 CI 车道 1000 客户整轮。",
         "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "3d99472",
+        "summary": "压测发现的产品缺陷修复：Host 向 guard 的逐次授权，超时、连接错误或 503 改报 runtime_authorization_unavailable，在 Run 时限内有界重试（最多 3 次，每次仍为 ADR-022 的 2 s），只有 guard 明确拒绝才报 denied；Run 结果带白名单 failure_code；压测报告按失败原因分列；Run 时长改从激活登记起算（派发口径仍为入队到首次执行授权）。不做任务级重试，最终失败由回复保障兜底。",
+        "recorded_at": "2026-10-11T17:47:26.043231+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T165344Z-7b4ce4b6a83e",
+        "summary": "s5e 全量（7b4ce4b）：check 首次自动执行全部测试阶段（NEXLOOP-STAGE 结果行齐全）：门槛 4/4 256 s；integration-parallel 失败 6 项均为基线 B 类；integration-heavy 22 passed；pi-runtime（pi 与 Host 255）通过。合入 main 7b4ce4b。",
+        "recorded_at": "2026-10-11T17:47:26.043231+00:00"
       }
     ]
   },
@@ -2618,6 +2630,18 @@
         "ref": "ci:lane/runs/20261011T145501Z-a90634d21fd1",
         "summary": "s5c 全量（a90634d）：integration-parallel 失败 6 项均为基线 B 类；按 stages v3，串行门槛 4 个用例 4 分 12 秒全部通过（含 Host 并发上限两例，未超 5 分钟上限）；因 check 遇首个失败阶段即停止，integration-heavy 与 pi-runtime 由调度员在同一检出上单独补跑：python-heavy 22 passed（-n 2，4 分 52 秒）、pi 24 passed、runtime 243 passed。合入 main a90634d。",
         "recorded_at": "2026-10-11T15:51:10.641546+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "0c32137",
+        "summary": "check 改为前置阶段失败即停、测试阶段一律执行且退出码取第一个失败测试阶段；每个阶段打印固定格式结果行 NEXLOOP-STAGE；.ci-policy/stages.v4.json 与 required-suites.v2.json（测试阶段 stop_on_failure=false），受信控制器切到 v4 属主机步骤、届时由负责人确认。解决此前 heavy 与 pi-runtime 在集成 CI 中从未执行的问题。",
+        "recorded_at": "2026-10-11T17:47:26.043231+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T165344Z-7b4ce4b6a83e",
+        "summary": "s5e 全量（7b4ce4b）：check 首次自动执行全部测试阶段（NEXLOOP-STAGE 结果行齐全）：门槛 4/4 256 s；integration-parallel 失败 6 项均为基线 B 类；integration-heavy 22 passed；pi-runtime（pi 与 Host 255）通过。合入 main 7b4ce4b。",
+        "recorded_at": "2026-10-11T17:47:26.043231+00:00"
       }
     ]
   },
@@ -3399,6 +3423,18 @@
         "ref": "ci:lane/runs/20261011T155442Z-4db0a9d9b47d",
         "summary": "s5d 全量（4db0a9d）：integration-parallel 失败 3 项均为基线 B 类；串行门槛 4/4 用 254 s；integration-heavy 22 passed、pi 24、runtime 243（调度员在同一检出上单独补跑）。合入 main 4db0a9d。",
         "recorded_at": "2026-10-11T16:50:55.782677+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "344f810",
+        "summary": "第 2 批（迁移 0158，原临时号 0260）：control 配置类 26 张表补租户外键，先 NOT VALID 再 VALIDATE；冷表测量中位写入 +4.0%、p95 +3.2%（判据 +10%/+5% 内）；第 3 批设计（236f560）。",
+        "recorded_at": "2026-10-11T17:47:26.043231+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T165344Z-7b4ce4b6a83e",
+        "summary": "s5e 全量（7b4ce4b）：check 首次自动执行全部测试阶段（NEXLOOP-STAGE 结果行齐全）：门槛 4/4 256 s；integration-parallel 失败 6 项均为基线 B 类；integration-heavy 22 passed；pi-runtime（pi 与 Host 255）通过。合入 main 7b4ce4b。",
+        "recorded_at": "2026-10-11T17:47:26.043231+00:00"
       }
     ]
   },
