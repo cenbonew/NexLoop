@@ -263,7 +263,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # commitment Claim's predicate, quote and money value only to refuse an uncovered incentive promise; it copies the 0113
         # v6 source check unchanged for Claims, and the 0144 erasure step unchanged except an incentives phase (its claims
         # phase erases as before). No Claim value becomes formal or is projected.
-        '_nx029_retention','_nx029_erasure','_nx029_expiry_classes','_relay_erasure','_at043_incentives')) for name in migrations)
+        # NX-031 slice 3 0148 answers the leasing matcher whether a claim-match Conversation still has a Claim to match (a boolean
+        # from the 0102 pending predicate, the same states the purpose READ uses); no Claim value is read, returned or projected.
+        '_nx029_retention','_nx029_erasure','_nx029_expiry_classes','_relay_erasure','_at043_incentives','_claim_match_settled')) for name in migrations)
 
 
 def correction_window(conversations):

@@ -23,6 +23,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import psycopg
+import pytest
 
 from psycopg.conninfo import make_conninfo
 from nexloop_eios.backend import open_backend
@@ -94,6 +95,9 @@ def reply_history(out, pg, tenant, lane, *, dispatch_loops=4):
     return outcome
 
 
+# The chain's relay identity also holds nexloop.reply.fallback, as message_relay does in the service-grants manifest (v9): the
+# reply guarantor's fallback replies are issued with it (without it every fallback failed with fallback_failed escalations).
+@pytest.mark.reply_fallback
 def test_build_load_template(assembled_message, admin, tmp_path):
     f = assembled_message
     o = f['original']

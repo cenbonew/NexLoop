@@ -735,6 +735,16 @@
       "version": "0147",
       "name": "0147_nx035_restore.sql",
       "sha256": "ba974b854f652bc8163c29118a9b708ecf01499b836578b493c867be94bb123a"
+    },
+    {
+      "version": "0148",
+      "name": "0148_claim_match_settled.sql",
+      "sha256": "5287a8f792bd4f2068e50c9379eb3a35e30719c3ce9676511b79d8377a14be01"
+    },
+    {
+      "version": "0149",
+      "name": "0149_feed_due_counts.sql",
+      "sha256": "52d918b27e18b1c98685568ae130e05699748075965249c5f08cd2607ad93ba1"
     }
   ]
 }

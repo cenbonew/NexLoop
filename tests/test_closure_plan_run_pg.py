@@ -56,7 +56,7 @@ def launched(f,plan_id):
 
 
 @contextmanager
-def actual_host(f,tmp_path,worker,mode,spawn=None):
+def actual_host(f,tmp_path,worker,mode,spawn=None,multi=False):
     from test_agent_host import files
     from test_runtime_host_admission import guard_server,host
     from test_runtime_effect_tools import effect_configuration
@@ -64,7 +64,10 @@ def actual_host(f,tmp_path,worker,mode,spawn=None):
     guard_key=tmp_path/'guard-key';guard_key.write_text(secrets.token_hex(32));guard_key.chmod(0o600)
     with guard_server(worker,tmp_path,guard_key,spawn=spawn,workers=4) as port:  # deployment shape (ADR-022 §4, ADR-024)
         config=effect_configuration(tmp_path,port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message')
-        body.update(context_input_protocol='nexloop.context-pack.v6',plan_outcome_tool=True,deterministic_plan_outcome=mode);config.write_text(json.dumps(body))
+        if multi:  # NX-031 slice 3: the load lane's one Host for every Run kind picks the plan protocol from the v6 pack
+            body.update(plan_outcome_tool=True,deterministic_protocols=True,deterministic_plan_outcome=mode)
+        else:body.update(context_input_protocol='nexloop.context-pack.v6',plan_outcome_tool=True,deterministic_plan_outcome=mode)
+        config.write_text(json.dumps(body))
         with host(runtime,key,config) as (_,client,headers):yield runtime,client,headers
 
 
@@ -102,7 +105,8 @@ def assert_within_tool_limit(timed):
     assert timed.durations and not slow,slow
 
 
-def test_no_reasonable_contact_is_a_normal_no_action(role_planning,admin,tmp_path):
+@pytest.mark.parametrize('multi',[False,True])
+def test_no_reasonable_contact_is_a_normal_no_action(role_planning,admin,tmp_path,multi):
     """AT-029 end to end on the actual Host: KR not met, yet no message is forced."""
     f=role_planning
     # Provision the runtime worker first: seeding authority later would change the Source directory the Run was issued under.
@@ -112,7 +116,7 @@ def test_no_reasonable_contact_is_a_normal_no_action(role_planning,admin,tmp_pat
     run_id,command,text=launched(f,s['plan_id'])
     pack=json.loads(text)
     assert [i['ref'] for i in pack['open_work'] if i['subsection']=='plan']==[f"nexloop:plan:{s['plan_id']}@1"]
-    with actual_host(f,tmp_path,worker,'no_action',spawn) as (runtime,client,headers):
+    with actual_host(f,tmp_path,worker,'no_action',spawn,multi=multi) as (runtime,client,headers):
         result=run_on_host(client,headers,worker,command,text)
     assert result['runtime_outcome']=='succeeded'
     assert tool_names(runtime,run_id)==['nexloop.plan.outcome']

@@ -167,7 +167,11 @@ class Stack:
                 options = ['--settings-file', str(cfg / 'plan-reevaluation.v1.json'), '--api-database-url-file', str(api), '--effect-action', 'eios:action:nexloop.service.request:1']
                 names = {'source': 'source', 'planner': 'planner', 'queue': 'route', 'executor': 'executor'}
             else:
-                options = ['--policy-file', str(cfg / 'reply-guarantee.v1.json'), '--api-database-url-file', str(api),
+                # The deployed reply policy with the fallback Run on the lane's deterministic Host (the deployed file names the real model
+                # profile; the published reply window and start time are unchanged).
+                policy = json.loads((cfg / 'reply-guarantee.v1.json').read_text())
+                policy['fallback']['runtime_profile'] = 'deterministic-test'
+                options = ['--policy-file', str(self.file('reply-guarantee.lane.json', json.dumps(policy))), '--api-database-url-file', str(api),
                            '--run-profile-file', str(self.run_profile_file())]
                 names = {'route': 'route', 'source': 'source', 'planner': 'planner', 'executor': 'executor'}
             for name, token in names.items():
@@ -215,7 +219,9 @@ class Stack:
         guard_port, host_port = free_port(), free_port()
         config = self.file('host-runtime-config.json', json.dumps({'guard_url': f'https://127.0.0.1:{guard_port}/internal/v1/runtime/authorize',
             'guard_key_file': str(guard_key), 'guard_ca_file': str(guard_cert), 'runtime_profile': 'deterministic-test', 'effect_tools': True,
-            'deterministic_message_from_input': True, 'context_input_protocol': 'nexloop.context-pack.v2', 'maximum_active_runs': host_concurrency,
+            # One Host for every Run kind (NX-031 slice 3): message Runs (v2), fallback replies and plan reevaluations (v6), each by the
+            # protocol its own start input declares.
+            'deterministic_protocols': True, 'plan_outcome_tool': True, 'maximum_active_runs': host_concurrency,
             **({'deterministic_latency': latency} if latency else {})}))
         node = shutil.which('node')
         if node is None or not (ROOT / 'apps/agent-host/dist/main.js').is_file():
@@ -241,7 +247,9 @@ class Stack:
             '--service-credential-file', str(token['executor']), '--artifact-root', str(self.lane / 'delivery-artifacts'), '--delivery-root', str(self.lane / 'delivery-root'),
             '--certificate-file', str(delivery_cert), '--tls-key-file', str(delivery_key), '--provider-ca-file', str(delivery_cert),
             '--provider-credential-file', str(provider_key), '--origin', origin])
-        provider = self.file('provider-config.json', json.dumps({'origin': origin, 'credential_file': str(provider_key), 'ca_file': str(delivery_cert), 'timeout': 3}))
+        # Provider timeout 10 s, the most the effect worker's 30 s lease allows (lease / 3): under a loaded host the local JSON
+        # delivery's fsync can pass 3 s, and an unknown result then waits for an explicit query (by design, never a blind resend).
+        provider = self.file('provider-config.json', json.dumps({'origin': origin, 'credential_file': str(provider_key), 'ca_file': str(delivery_cert), 'timeout': 10}))
         self._spawn('effect-worker', [sys.executable, '-m', 'nexloop_eios.effect_worker', '--database-url-file', str(action_dsn), *common,
             '--service-credential-file', str(token['executor']), '--artifact-root', str(self.lane / 'effect-artifacts'), '--world', 'real',
             '--provider-config-file', str(provider)])
