@@ -10,6 +10,9 @@ import json
 MAXIMUM_HOST_ACTIVE_RUNS = 4
 HOST_DEFAULT_ACTIVE_RUNS = 4
 HOST_DEFAULT_ADMISSION_WAIT_MS = 500
+# NX-031 D5: keys the Agent Host accepts only for its deterministic-test profile (load lane); a production or stage
+# configuration carrying one fails the doctor, whatever its value.
+TEST_ONLY_KEYS = ('deterministic_latency',)
 
 
 class HostConcurrencyInvalid(ValueError):
@@ -26,9 +29,10 @@ def evaluate(config):
         raise HostConcurrencyInvalid('maximum_active_runs must be an integer 1..64')
     if type(wait) is not int or not 0 <= wait <= 30000:
         raise HostConcurrencyInvalid('run_admission_wait_ms must be an integer 0..30000')
-    return {'passed': limit <= MAXIMUM_HOST_ACTIVE_RUNS,
+    test_only = sorted(key for key in TEST_ONLY_KEYS if key in config)
+    return {'passed': limit <= MAXIMUM_HOST_ACTIVE_RUNS, 'test_only_keys_absent': not test_only,
             'details': {'maximum_active_runs': limit, 'explicit': 'maximum_active_runs' in config,
-                        'run_admission_wait_ms': wait, 'deployment_limit': MAXIMUM_HOST_ACTIVE_RUNS}}
+                        'run_admission_wait_ms': wait, 'deployment_limit': MAXIMUM_HOST_ACTIVE_RUNS, 'test_only_keys': test_only}}
 
 
 def load(text):

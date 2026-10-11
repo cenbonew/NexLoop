@@ -75,8 +75,9 @@ def agent_host_concurrency(config_file):
         result=host_concurrency.evaluate(host_concurrency.load(read_private_text(config_file,maximum=32768)))
     except Exception as error:
         reason=str(error) if isinstance(error,host_concurrency.HostConcurrencyInvalid) else 'Agent Host configuration is unavailable'
-        return {'checks':{'agent_host_concurrency':False},'details':{'agent_host_concurrency_error':reason}}
-    return {'checks':{'agent_host_concurrency':result['passed']},'details':{'agent_host_concurrency':result['details']}}
+        return {'checks':{'agent_host_concurrency':False,'agent_host_test_only_keys_absent':False},'details':{'agent_host_concurrency_error':reason}}
+    return {'checks':{'agent_host_concurrency':result['passed'],'agent_host_test_only_keys_absent':result['test_only_keys_absent']},
+        'details':{'agent_host_concurrency':result['details']}}
 
 
 def observability(metrics_database_url_file,rules_file):
