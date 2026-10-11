@@ -1,4 +1,4 @@
-"""Test harness for 0220: NexLoop's own loopback channels are not external effects in tests.
+"""Test harness for 0153: NexLoop's own loopback channels are not external effects in tests.
 
 Production declares this through trusted configuration (deploy/configuration/action-effect-categories.v2.json:
 external_effect false for nexloop.service.request and nexloop.incentive.issue), applied per tenant by the configurator.

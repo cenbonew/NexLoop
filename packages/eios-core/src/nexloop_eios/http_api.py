@@ -27,6 +27,7 @@ class ApiConfiguration:
     host_control:HostControlConfiguration|None=None
     execution_profile:str|None=None
     conversation_stream_seconds:int=180
+    identity_pool_max:int=4
     cache_wakeup:object|None=None
     # NX-028: the owner workbench's own browser application (same identity store, realm and origin; own login and cookie).
     workbench:object|None=None
@@ -52,7 +53,7 @@ def create_app(config:ApiConfiguration):
                 try:
                     from nexloop_eios.browser_identity import open_browser_identity
                     from nexloop_eios.browser_sessions import PostgresBrowserSessionUnitOfWork
-                    pool=stack.enter_context(open_browser_identity(read_private_text(config.browser.identity_database_url_file,maximum=16384)))
+                    pool=stack.enter_context(open_browser_identity(read_private_text(config.browser.identity_database_url_file,maximum=16384),pool_max=config.identity_pool_max))
                     key=bytes.fromhex(read_private_text(config.browser.rate_key_file,maximum=128))
                     if len(key)!=32:raise ValueError()
                     app.state.browser_rate_key=key
@@ -261,12 +262,15 @@ def parse(argv=None,environ=None):
     p.add_argument('--identity-database-url-file',type=Path);p.add_argument('--browser-rate-key-file',type=Path)
     p.add_argument('--browser-tenant-id');p.add_argument('--browser-application-id');p.add_argument('--browser-origin')
     p.add_argument('--workbench-application-id')
+    # NX-032: the browser identity pool of this process (connection budget entry api-browser-identity, 4 per process).
+    p.add_argument('--identity-pool-max',type=int,default=4)
     a=p.parse_args(argv)
     if a.mode=='test' and a.signing_key_id is None:p.error('--signing-key-id required')
     if a.mode=='stage':
         refusals=stage_refusals(a,environ)
         if refusals:p.error('stage configuration refused: '+'; '.join(refusals))
     if not 1024<=a.port<=65535:p.error('unprivileged local port required')
+    if not 1<=a.identity_pool_max<=8:p.error('identity pool size 1..8')
     tls={}
     if a.tls_certificate_file is not None or a.tls_key_file is not None:
         if a.tls_certificate_file is None or a.tls_key_file is None:p.error('both private TLS files required')
@@ -297,7 +301,7 @@ def parse(argv=None,environ=None):
         try:cache=ValkeyWakeup.from_file(a.cache_configuration_file)
         except Exception:p.error('private cache configuration unavailable')
     return ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,
-        execution_profile=a.execution_profile,cache_wakeup=cache,workbench=workbench,mode=a.mode),a.port,tls
+        execution_profile=a.execution_profile,cache_wakeup=cache,workbench=workbench,mode=a.mode,identity_pool_max=a.identity_pool_max),a.port,tls
 
 
 def main():

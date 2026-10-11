@@ -1,0 +1,147 @@
+"""NX-032 (L5 review 2026-10-11): the APP_HOST stage Compose example orchestrates every process of the connection budget, each with
+its own secret files, the common hardening and a command its real argument parser accepts; the API's browser identity pool is a
+budget entry; doctor --deploy-gate compares Compose and budget both ways. No container is started."""
+import copy
+import json
+import re
+
+import pytest
+import yaml
+
+from nexloop_eios import background_services, connection_budget, deploy_checks, effect_worker, message_relay_cli, outbound_messages, runtime_worker
+from nexloop_eios.browser_identity import open_browser_identity
+from test_deploy_render import ROOT, STAGE, interpolate
+
+BUDGET = json.loads((STAGE / 'connection-budget.v1.json').read_text())
+SHARED = {'signing_key', 'pg_ca', 'host_ca', 'host_control_key'}
+FORBIDDEN_ENV = re.compile(r'^(MODEL_API_KEY|EMBEDDING_API_KEY|NEXLOOP_DATABASE_URL|MODEL_PROVIDER|NEXLOOP_TEST_.*|.*PASSWORD.*|.*_DSN|DATABASE_URL)$')
+
+
+@pytest.fixture(scope='module')
+def compose():
+    return yaml.safe_load(interpolate((STAGE / 'compose.app.example.yaml').read_text(), STAGE / 'compose.app.env.example'))
+
+
+def test_budget_registers_the_identity_pool_and_stays_within_60():
+    result = connection_budget.evaluate(BUDGET)
+    assert result['passed'] and result['details']['application_pool_total'] == 57
+    assert result['details']['services']['api-browser-identity'] == 8 and 'scheduler' not in result['details']['services']
+    missing = copy.deepcopy(BUDGET)
+    missing['services'] = [s for s in missing['services'] if s['name'] != 'api-browser-identity']
+    assert connection_budget.evaluate(missing)['details']['missing_services'] == ['api-browser-identity']
+    for bad in (0, 9):
+        with pytest.raises(ValueError):
+            with open_browser_identity('postgresql://unused', pool_max=bad):
+                pass
+
+
+def test_compose_and_budget_match_both_ways(compose):
+    assert deploy_checks.compose_budget(BUDGET, compose) == {'checks': {'compose_matches_budget': True}, 'details': {'compose_budget': []}}
+    cases = {
+        'budget_entry_without_service:incentive-issuer': lambda c: c['services'].pop('incentive-issuer'),
+        'process_count_differs:api': lambda c: c['services'].pop('api-2'),
+        'unlabelled_service:extra': lambda c: c['services'].update(extra={'image': 'x'}),
+        'service_not_in_budget:mystery': lambda c: c['services'].update(mystery={'labels': {'nexloop.budget-service': 'mystery'}}),
+    }
+    for code, change in cases.items():
+        bad = copy.deepcopy(compose)
+        change(bad)
+        assert code in deploy_checks.compose_budget(BUDGET, bad)['details']['compose_budget'], code
+
+
+def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
+    services = compose['services']
+    owners = {}
+    for name, spec in services.items():
+        if name not in ('app-net', 'agent-host', 'agent-link-relay'):
+            assert spec['network_mode'] == 'service:app-net', name
+        if name != 'app-net':
+            assert spec['read_only'] is True and spec['cap_drop'] == ['ALL'], name
+            assert spec['security_opt'] == ['no-new-privileges:true'] and not spec.get('ports'), name
+        for key in (spec.get('environment') or {}):
+            assert not FORBIDDEN_ENV.match(key), (name, key)
+        for secret in spec.get('secrets', []):
+            owners.setdefault(secret, set()).add(name)
+    shared = {s for s, o in owners.items() if len(o) > 1}
+    assert shared <= SHARED | {'pg_ca'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}}, shared
+    assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca'}
+    # Model credentials only where a model is called; channel provider configuration only in the action worker.
+    assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker'} and owners['claim_matcher_model'] == {'claim-matcher'}
+    assert owners['action_worker_provider'] == {'action-worker'}
+    # Each secret file lives in its own service's directory (shared/ for the four shared ones).
+    for secret, spec in compose['secrets'].items():
+        directory = spec['file'].split('/secrets/')[1].split('/')[0]
+        assert directory == 'shared' if secret in SHARED else directory != 'shared', secret
+    env = (STAGE / 'compose.app.env.example').read_text()
+    assert not [l for l in env.splitlines() if l and not l.startswith('#') and FORBIDDEN_ENV.match(l.split('=', 1)[0])]
+
+
+PARSERS = {name: (lambda svc: lambda argv: background_services._parser(svc).parse_args(argv))(name) for name in background_services.SERVICES}
+PARSERS.update({'message-relay': message_relay_cli.arguments, 'outbound-recorder': outbound_messages._arguments, 'action-worker': effect_worker._arguments,
+                'runtime-worker': runtime_worker._arguments})
+
+
+def test_every_command_is_accepted_by_its_real_parser_and_names_only_its_own_secret_files(compose):
+    services = compose['services']
+    assert set(PARSERS) | {'api-1', 'api-2', 'domain-worker', 'gateway', 'agent-host', 'app-net', 'app-link-relay', 'agent-link-relay'} == set(services)
+    for name, parse in PARSERS.items():
+        command = services[name]['command']
+        parse(command)  # raises SystemExit when a required argument is missing
+        for value in command:
+            if value.startswith('/run/secrets/'):
+                assert value.split('/run/secrets/')[1] in services[name]['secrets'], (name, value)
+    api = services['api-1']['command']
+    assert api[api.index('--identity-pool-max') + 1] == '4' and api[api.index('--mode') + 1] == 'stage'
+    assert 'python -m nexloop_eios.domain_worker' in services['domain-worker']['command'][0]
+
+
+def test_agent_host_has_its_own_namespace_and_only_two_relayed_links(compose):
+    """NX-037 D4: the Agent Host is not in the application namespace; the agent link is internal; exactly two relay rules per side."""
+    services = compose['services']
+    host = services['agent-host']
+    assert 'network_mode' not in host and set(host['networks']) == {'agent_egress', 'agent_link'}
+    assert set(services['app-net']['networks']) == {'app', 'agent_link'} and compose['networks']['agent_link']['internal'] is True
+    assert services['agent-link-relay']['network_mode'] == 'service:agent-host'
+    from nexloop_eios.loopback_relay import parse_rule
+    for name in ('app-link-relay', 'agent-link-relay'):
+        command = services[name]['command']
+        rules = [parse_rule(command[i + 1]) for i, a in enumerate(command) if a == '--rule']
+        assert len(rules) == 2, name
+    app_rules = [parse_rule(r) for r in services['app-link-relay']['command'][1::2]]
+    assert {r[0][1] for r in app_rules} == {8100, 8200}  # Host control out, guard in; nothing else crosses
+
+
+def test_the_relay_carries_end_to_end_tls_with_the_loopback_certificate(tmp_path):
+    """Two relays in a chain (as across the two namespaces); the client still verifies the server's 127.0.0.1 certificate."""
+    import asyncio, socket, ssl, threading, sys
+    sys.path.insert(0, str(ROOT / 'scripts/deploy'))
+    import issue_certs
+    from nexloop_eios import loopback_relay
+    issue_certs.root(tmp_path / 'root')
+    issue_certs.intermediate(tmp_path / 'root', tmp_path / 'ca')
+    issue_certs.leaf('server', tmp_path / 'ca', tmp_path / 'srv', 'host-loopback', sans=['IP:127.0.0.1'])
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(tmp_path / 'srv/host-loopback.chain.crt', tmp_path / 'srv/host-loopback.key')
+    def free():
+        with socket.socket() as s:
+            s.bind(('127.0.0.1', 0))
+            return s.getsockname()[1]
+    target, middle, front = free(), free(), free()
+    listener = socket.socket(); listener.bind(('127.0.0.1', target)); listener.listen()
+    def serve():
+        conn, _ = listener.accept()
+        with server_ctx.wrap_socket(conn, server_side=True) as tls:
+            tls.sendall(tls.recv(64)[::-1])
+    threading.Thread(target=serve, daemon=True).start()
+    ready = threading.Event()
+    rules = [loopback_relay.parse_rule(f'127.0.0.1:{front}=127.0.0.1:{middle}'), loopback_relay.parse_rule(f'127.0.0.1:{middle}=127.0.0.1:{target}')]
+    threading.Thread(target=lambda: asyncio.run(loopback_relay.serve(rules, ready)), daemon=True).start()
+    assert ready.wait(5)
+    client_ctx = ssl.create_default_context(cafile=str(tmp_path / 'root/ca.crt'))
+    with socket.create_connection(('127.0.0.1', front), timeout=5) as raw, client_ctx.wrap_socket(raw, server_hostname='127.0.0.1') as tls:
+        tls.sendall(b'abc')
+        assert tls.recv(64) == b'cba'
+    listener.close()
+    for bad in ('127.0.0.1:1', 'host:1=127.0.0.1:2', '127.0.0.1:0=127.0.0.1:2'):
+        with pytest.raises(ValueError):
+            loopback_relay.parse_rule(bad)

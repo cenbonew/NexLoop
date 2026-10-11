@@ -26,7 +26,7 @@
 ## 每一步通用的前后核对
 
 - 执行前：`ssh "$SSH_ALIAS_<HOST>" python3 - --phase before --planned-ports "$PG_PORT,$VALKEY_PORT" --data-root "$NEXLOOP_ROOT" --out /tmp/nexloop-inventory-before.json < scripts/deploy/inventory.py`。只运行只读命令，写出一个 0600 的文件。
-  - APP_HOST 的 `--planned-ports` 改为 `$GATEWAY_HTTPS_PORT,$GATEWAY_REDIRECT_PORT,$API_INTERNAL_PORT,$HOST_INTERNAL_PORT,$GUARD_PORT`。
+  - APP_HOST 的 `--planned-ports` 改为 `$GATEWAY_HTTPS_PORT,$GATEWAY_REDIRECT_PORT,$API_INTERNAL_PORT,$API_INTERNAL_PORT_2,$HOST_INTERNAL_PORT,$GUARD_PORT`。
 - 执行后：同一命令，改用 `--phase after` 和另一个输出文件。
 - 核对：`nexloop-doctor --deploy-gate <spec>` 中的 `existing_services_unchanged` 必须为 true，即只出现 `nexloop` 前缀的新增项，既有项一项都没变。
 
@@ -145,6 +145,7 @@
   python3 -I scripts/deploy/probe_isolation.py --spec "$PRIVATE_PROBE_SPEC" --out "$EVIDENCE_DIR/at058-<位置>.json"
   ```
   - 脚本与模拟（`scripts/deploy/netns_sim/`）中使用的是同一个；spec 的格式与模拟生成的 spec 相同。
+  - Agent Host 独立命名空间（NX-037 D4）带来的两条负例：从 API 或 Worker 所在的应用命名空间访问模型白名单主机，应被拒；从 Agent Host 访问 DATA_HOST 的 PG 端口或非白名单目标，应被拒。
   - 预期结果见设计稿 §3.3：管理机连 DATA_HOST 不可达；明文、错 CA、SAN 不符、没有客户端证书都被拒；Valkey 明文和 default 用户被拒；内部端口不可达；受信 LAN 能连到 Gateway。
 - **预期输出**：`"passed": true`，退出码 0。报告中只有代号和原因代码。
 - **撤销**：无（只读探测）。

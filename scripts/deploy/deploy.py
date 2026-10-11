@@ -44,7 +44,7 @@ STEPS = {
          'docker compose -p nexloop-data down (no -v)'),
         ('inventory_after_and_gate', 'inventory.py --phase after …; nexloop-doctor --deploy-gate <data spec>', None)],
     'app': [
-        ('inventory_before', 'python3 - --phase before --planned-ports "$GATEWAY_HTTPS_PORT,$GATEWAY_REDIRECT_PORT,$API_INTERNAL_PORT,$HOST_INTERNAL_PORT,$GUARD_PORT" '
+        ('inventory_before', 'python3 - --phase before --planned-ports "$GATEWAY_HTTPS_PORT,$GATEWAY_REDIRECT_PORT,$API_INTERNAL_PORT,$API_INTERNAL_PORT_2,$HOST_INTERNAL_PORT,$GUARD_PORT" '
                              '--data-root "$NEXLOOP_ROOT" --out <private> < scripts/deploy/inventory.py', None),
         ('load_images', 'docker load -i <release>/images/<archive> for each manifest image; compare the loaded digest with the manifest', 'docker image rm <digest>'),
         ('install_configuration', 'scp <out>/{Caddyfile,compose.images.env} "$SSH_ALIAS_APP:$NEXLOOP_ROOT/config/"', 'restore the previous files'),

@@ -16,9 +16,10 @@ def runtime(document):return next(s for s in document['services'] if s['name']==
 
 def test_declared_stage_budget_is_within_policy():
     result=budget.evaluate(DOCUMENT,max_connections=80)
-    # NX-031 D7 (measured smallest workable pools): api 2x4 + domain-worker 2 + action-worker 2 + scheduler 4 (reserve) + runtime 2+4x4
-    # + message-relay 2 + outbound-recorder 2 + 11 background services x 1 + 2 launcher API pools x 2 = 53.
-    assert result['passed'] and result['details']['application_pool_total']==53 and result['details']['missing_services']==[]
+    # NX-031 D7 (measured smallest workable pools): api 2x4 + domain-worker 2 + action-worker 2 + runtime 2+4x4
+    # + message-relay 2 + outbound-recorder 2 + 11 background services x 1 + 2 launcher API pools x 2 = 53,
+    # = 49 without the removed scheduler reserve (dispatcher 2026-10-11), + the API browser identity pools 2 x 4 (NX-032) = 57.
+    assert result['passed'] and result['details']['application_pool_total']==57 and result['details']['missing_services']==[]
     assert result['details']['services']['runtime-worker']==2+4*4
 
 
@@ -46,10 +47,8 @@ def test_max_connections_floor(max_connections,passed):
 
 
 def test_total_over_sixty_fails():
-    # AT-043 added one background service (53 at the default four guard workers): five still fit, six do not.
-    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 57 total, still ok
-    assert budget.evaluate(document)['passed']
-    runtime(document)['guard_workers']=6  # 2 + 6*4 = 26 -> 61 total
+    # 57 at the default four guard workers (NX-032 added the API browser identity pools): one more guard process breaks the limit.
+    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 61 total
     result=budget.evaluate(document)
     assert not result['passed'] and result['details']['application_pool_total']==61
 

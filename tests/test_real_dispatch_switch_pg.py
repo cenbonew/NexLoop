@@ -5,7 +5,7 @@ the tenant switch and the Action switch are all open; otherwise it is refused be
 human owner opens or closes the tenant and Action switches through the governed entry (workbench HTTP here, production
 create_app, members applied by the real configurator, role manifest v9); each change is a new control revision, so a
 snapshot taken before it is superseded. Whether an effect is external comes from the effect category declaration
-(external_effect, 0112 + 0220): undeclared is external. The test cluster declares NexLoop's loopback channels not external
+(external_effect, 0112 + 0153): undeclared is external. The test cluster declares NexLoop's loopback channels not external
 (tests/support/loopback_effects.py); these tests remove that declaration to make the effect external. Actual governed
 effect executor, independent effect Worker and loopback provider (commitment_fixture); synthetic data.
 """
