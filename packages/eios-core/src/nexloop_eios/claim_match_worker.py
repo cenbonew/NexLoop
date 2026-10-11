@@ -19,15 +19,32 @@ FEED='claim-match'
 
 class ClaimMatchWorker:
     def __init__(self,pool,session,signer,*,matcher,gluer=None,batch=10,lease_seconds=300,max_attempts=5,retry_base_seconds=30):
+        self.pool,self.session=pool,session
         self.feed=WorkFeed(pool,session,signer,feed=FEED)
         self.matcher,self.gluer=matcher,gluer
         self.batch,self.lease_seconds,self.max_attempts,self.retry_base_seconds=batch,lease_seconds,max_attempts,retry_base_seconds
 
+    def _settled(self,item):
+        """0150: nothing in this leased item's Conversation is left to match (e.g. the commitment keeper resolved its Claims first);
+        a boolean only. Without this the purpose READ had already ended and every attempt was denied until the item dead-lettered.
+        A matcher without the purpose rule (configured grants on the exact objects) gets no answer and matches as before."""
+        import psycopg
+        from nexloop_eios.assembly import verify_application_role
+        try:
+            with self.pool.connection() as db:
+                verify_application_role(db)
+                return db.execute('select authz.nexloop_claim_match_settled(%s,%s,%s,%s)',
+                    (self.session.token_digest,self.session.world,item['item_key'],item['fence'])).fetchone()[0] is True
+        except psycopg.errors.InsufficientPrivilege:return False
+
     @authority_request_scoped
     def run_once(self):
-        summary={'conversations':0,'matched':0,'applied':0,'glued':0,'changed':0,'retry':0,'dead_lettered':0,'lease_lost':0}
+        summary={'conversations':0,'matched':0,'applied':0,'glued':0,'changed':0,'retry':0,'dead_lettered':0,'lease_lost':0,'settled':0}
         for item in self.feed.claim(limit=self.batch,lease_seconds=self.lease_seconds):
             try:
+                if self._settled(item):
+                    status=self.feed.complete(item_key=item['item_key'],fence=item['fence'])
+                    summary['settled' if status=='completed' else status]+=1;continue
                 result=self.matcher.process_conversation(item['payload']['conversation_id'])
             except WorkFeedDenied:raise
             except Exception as error:
