@@ -637,11 +637,21 @@
           },
           "tenant_id": {
             "type": "string",
-            "minLength": 1
+            "format": "uuid"
           },
           "world_id": {
             "type": "string",
             "minLength": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "real",
+              "simulation",
+              "shadow",
+              "test"
+            ],
+            "description": "Derived from world_id by the server, never supplied by a caller: world real -> real; worlds simulation and shadow -> simulation; any other world -> test. The enum matches the other contracts; shadow is excluded below."
           },
           "conversation_id": {
             "type": "string",
@@ -1115,6 +1125,7 @@
           "claim_id",
           "tenant_id",
           "world_id",
+          "mode",
           "conversation_id",
           "consumer_id",
           "topic_key",
@@ -1263,6 +1274,44 @@
                 "epistemic_kind": {
                   "not": {
                     "const": "commitment"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "description": "claims are derived per world and never carry shadow mode (shadow worlds project as simulation)",
+            "properties": {
+              "mode": {
+                "not": {
+                  "const": "shadow"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "real"
+                }
+              },
+              "required": [
+                "mode"
+              ]
+            },
+            "then": {
+              "properties": {
+                "world_id": {
+                  "const": "real"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "world_id": {
+                  "not": {
+                    "const": "real"
                   }
                 }
               }
@@ -4966,7 +5015,7 @@
   "x-canonical-source-sha256": {
     "action-intent.schema.json": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90",
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
-    "claim.schema.json": "dbb4683b5f18d6d3dd1c5fcacc3dd76277be5290ccb410e92591459a4e0101c7",
+    "claim.schema.json": "aacf6d63c7e9a2f051fe8b08f8004b913557281604170fbb3f219b0d0da80282",
     "commitment-view.schema.json": "f7c8290bacf1bbc70d23ba8da3a8cf4125ac8ac3d1d2b37f85c967c392909502",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
