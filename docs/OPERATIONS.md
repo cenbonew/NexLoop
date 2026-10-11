@@ -142,11 +142,56 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 按 [NX-037 设计稿](implementation/NX-037-design.md) §3 第 2–3 步：渠道配置与凭据只交给 Effect Worker；只对该租户、只对选定的 Action 打开三层真实派发开关（部署总闸、租户、租户与 Action，见 [真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)），由负责人在工作台执行 `set_real_dispatch`。
 
-### 9.4 受控交互：执行器（`nexloop_eios.controlled_interactions`）
+### 9.4 受控交互：运行入口 `scripts/nx037/run_interactions.py`
 
-- 执行器按配比交错排列 30 次交互（前 10 次覆盖全部五类），每次交互有稳定 ID；每次交互的证据在下一次开始前写入 `interactions.jsonl` 并 fsync。证据只有 ID、计数、毫秒数、金额、币种与状态码：端到端、模型、工具、平台四段耗时，模型调用与失败次数，按类别费用，意图状态，拒绝码，交付回执，对账结果，规则判定。
-- 采集器 `PgCollector` 以 metrics 角色读取单个 Run 的证据（`authz.nexloop_nx037_run_evidence`）。
-- **【B】运行**：执行器目前是库接口，需要一个真实 driver（发起交互并返回可观察的事实）；真实 driver 尚未实现【待确认：随 NX-037 B 类工作提供运行入口】。先跑 3 次校准，由负责人确认单次费用后再继续。
+依据：[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md) §7。执行器（`nexloop_eios.controlled_interactions`）按计划顺序逐次发起交互，每次交互的证据在下一次开始前写入 `interactions.jsonl` 并 fsync；证据只有 ID、计数、毫秒数、金额、币种与状态码（端到端、模型、工具、平台四段耗时，模型调用与失败次数，按类别费用，意图状态，拒绝码，交付回执，对账结果，规则判定）。采集器以 metrics 角色读取单个 Run 的证据（`authz.nexloop_nx037_run_evidence`）。
+
+> **真实发送路径尚未实现**：real driver 目前只有接口。real 模式的前置条件全部满足时，入口在第一次交互之前以 `real_driver_unavailable` 退出（退出码 4），不写任何交互记录。真实发送路径属于 NX-037 B 类后续工作。
+
+#### 交互计划文件（负责人可编辑）
+
+[`deploy/configuration/nx037-interaction-plan.v1.json`](../deploy/configuration/nx037-interaction-plan.v1.json)；建议复制到私有目录后修改，用 `--plan-file` 指定。
+
+- `order`：30 次交互的类型与顺序，类型计数必须正好是 普通回复 15、真实交付 4、拒收后受限回复 4、人工接管 4、结果不明对账 3，否则拒绝。**试运行开始后顺序不能再改**（state 中记录了顺序 digest）。
+- `real_dispatch`：负责人**计划打开**的三层真实派发开关状态——`deployment`（部署总闸）、`tenant` 与 `data_mode`（租户开关）、`actions`（打开的 Action 资源 ID 列表）。随附文件里的值只是样例，必须按实际计划修改。real 模式的前置检查要求实际开关与计划**完全一致**：多开或少开任何一层、任何一个 Action 都拒绝。
+
+#### 合成模式（演练，【A】）
+
+```bash
+python scripts/nx037/run_interactions.py --driver synthetic --trial-id <TRIAL_UUID> --out <NEW_TRIAL_DIR> --plan-file <PLAN_FILE>
+```
+
+- 使用确定性 provider 与回环渠道，只在合成租户上运行；可选 `--inject <SEQ>=<FAULT>` 注入违规以演练停止规则，`--calibration-pause` 演练校准暂停。
+
+#### real 模式（【B】负责人本人）
+
+```bash
+python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> --out <PRIVATE_EVIDENCE_DIR> --plan-file <PLAN_FILE> --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE> --owner-session-file <OWNER_SESSION_FILE>
+```
+
+- 私有文件（DSN、负责人会话）必须是 0600 的普通文件；缺参数、带 `--inject` 或文件不私有时，在连接数据库之前就拒绝。
+- **前置检查**（任何交互之前，不满足即退出码 3 并列出原因代码）：
+  1. 9.2 节 verify 中除三项开关以外的检查全部通过：租户 active，model 预算等于 D-g 累计上限并覆盖试运行期间，告警规则生效；
+  2. 三层开关与计划的 `real_dispatch` 完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表（经 metrics 角色的 `authz.nexloop_nx037_open_switches` 读取）。
+- **校准暂停**：第 3 次交互（校准）之后自动暂停（规则 `calibration`），由负责人核对单次费用后再继续。
+
+#### 恢复暂停
+
+在原命令后追加 `--resume <OWNER_CONFIRMATION_REF>`（负责人确认的不透明引用，例如复核记录编号）。
+
+- 引用先追加到 `<试运行目录>/resumes.jsonl` 并 fsync，然后继续；已记录的交互不会再执行，错误窗口重新计数。
+- 暂停后不带 `--resume` 再次运行会被拒绝（`paused_needs_resume`）；没有暂停时带 `--resume` 也会被拒绝。
+- 已停止的试运行不能恢复，需要用新的 trial ID 重新开始。
+
+#### 退出码
+
+| 码 | 含义 |
+|---|---|
+| 0 | 完成 |
+| 1 | 暂停（错误率、费用、未了结的不明效应或校准），等负责人确认后 `--resume` |
+| 2 | 停止（立即停止规则命中），按 9.5 处置 |
+| 3 | 拒绝：输入错误、real 模式前置条件不满足、需要恢复确认、试运行已停止 |
+| 4 | real driver 不可用（`real_driver_unavailable`，真实发送路径尚未实现） |
 
 ### 9.5 停止或暂停之后
 
