@@ -86,7 +86,8 @@ def test_fence_refuses_dispatch_until_the_owner_opens_the_scope_and_a_paused_cha
         assert c.dispatch(provider)['status'] == 'admission_unavailable' and provider.control('snapshot')['effects'] == 0
         assert refusals(admin, 'NXR01') == 1  # recorded by the existing effect refusal path (NX-030 D8)
         # Both dispatch checks (Run tasks and effects) go through the wrapped function.
-        for f in ('authz.nexloop_assert_task_dispatch_controls(text,text,text)', 'authz.nexloop_assert_intent_dispatch_controls(text,text,uuid)'):
+        # (0220 keeps the intent check as …_before_real_dispatch_v0220 and adds the real dispatch switch after it.)
+        for f in ('authz.nexloop_assert_task_dispatch_controls(text,text,text)', 'authz.nexloop_assert_intent_dispatch_controls_before_real_dispatch_v0220(text,text,uuid)'):
             assert 'authz.nexloop_assert_dispatch_controls(' in admin.execute('select prosrc from pg_proc where oid=%s::regprocedure', (f,)).fetchone()[0]
         # Opening is refused before verification.
         with c['app']() as client:

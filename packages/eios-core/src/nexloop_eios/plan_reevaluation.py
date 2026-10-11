@@ -78,6 +78,8 @@ def run_budget(settings,steps):
 
 class _SignedPort:
     PROTOCOL=None;ACTION=None;FUNCTION=None
+    # 0220: a port that admits external effects passes the process's REAL_DISPATCH_ENABLED to its transaction.
+    REAL_DISPATCH=False
 
     def __init__(self,pool,session,signer):
         if session.run_context is not None:raise PlanUnavailable()
@@ -99,6 +101,9 @@ class _SignedPort:
         try:
             with self.pool.connection() as db,db.transaction():
                 verify_application_role(db)
+                if self.REAL_DISPATCH:
+                    from nexloop_eios import real_dispatch
+                    real_dispatch.apply(db)
                 return db.execute(f'select authz.{self.FUNCTION}(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
         except psycopg.errors.InsufficientPrivilege:raise PlanUnavailable() from None
 

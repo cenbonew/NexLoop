@@ -280,6 +280,8 @@ class EffectExecutionPort:
                 # NX-022: owner controls (pause, goal version, later control events)
                 # are re-read in the same transaction that admits the dispatch.
                 from nexloop_eios.goal_controls import ControlPlane
+                from nexloop_eios import real_dispatch
+                real_dispatch.apply(db)  # 0220: the deployment layer of the real dispatch switch, checked in SQL with the others
                 ControlPlane(self.pool,self.session).assert_intent_dispatch(identity['intent_id'],connection=db)
                 result=self._execute(db,'admit',target=SEND,**identity,origin_proof=proof,catalog_envelope=catalog,role_envelope=role,provider_profile_digest=_profile(provider_profile_digest),
                     action_claim_revision=claim.claim_revision,action_fencing_token=claim.fencing_token)

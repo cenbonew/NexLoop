@@ -152,6 +152,20 @@ def backup(metrics_database_url_file,plan_file):
         'deletion_replay_closed':status.get('erasure_ready') is True}
     return {'checks':checks,'details':{'backup':{'plan_version':plan['version'],'restore_state':(status.get('restore') or {}).get('state'),
         'failed':sorted(k for k,v in checks.items() if not v)}}}
+def real_dispatch(metrics_database_url_file,environment=None):
+    """0220: the state of the real dispatch switches, reported only (states and counts): the deployment master switch of this
+    process's environment and how many tenants / tenant Actions are open, through the read-only metrics role. A closed state
+    passes; only an unreadable status or an invalid master switch value fails."""
+    from nexloop_eios.deployment_readiness import dispatch_switch
+    deployment=dispatch_switch(os.environ if environment is None else environment)
+    try:
+        with psycopg.connect(read_private_text(metrics_database_url_file,maximum=16384),connect_timeout=5) as db:
+            if db.execute('select current_user').fetchone()[0]!='nexloop_metrics':raise ValueError('read-only metrics role required')
+            summary=db.execute('select authz.nexloop_real_dispatch_summary()').fetchone()[0]
+    except Exception:
+        return {'checks':{'real_dispatch_status':False,'deployment_switch_valid':deployment!='invalid'},'details':{'real_dispatch':{'deployment':deployment}}}
+    return {'checks':{'real_dispatch_status':True,'deployment_switch_valid':deployment!='invalid'},
+        'details':{'real_dispatch':{'deployment':deployment,'tenants_open':summary.get('tenants_open'),'actions_open':summary.get('actions_open')}}}
 RELAY_SOURCE_PRINCIPAL='nexloop-service-relay-source-principal'
 
 
@@ -195,7 +209,14 @@ def main():
     parser.add_argument('--relay-source',action='store_true',help='relay multi-consumer: the relay Source principal and credential (read-only metrics role)')
     parser.add_argument('--backup',action='store_true',help='NX-035: backups against deploy/configuration/backup.v1.json, restore state (read-only metrics role)')
     parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
+    parser.add_argument('--real-dispatch',action='store_true',help='0220: real dispatch switch states and counts (read-only metrics role)')
     args=parser.parse_args()
+    if args.real_dispatch:
+        if not args.metrics_database_url_file:parser.error('--real-dispatch requires --metrics-database-url-file')
+        result=real_dispatch(args.metrics_database_url_file)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.backup:
         if not args.metrics_database_url_file or not args.backup_plan:parser.error('--backup requires --metrics-database-url-file and --backup-plan')
         result=backup(args.metrics_database_url_file,args.backup_plan)

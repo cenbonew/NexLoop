@@ -3,7 +3,8 @@
 Ready means: PostgreSQL reachable as the service's own restricted role; the applied migration list equals this release's
 catalog exactly; no restore in progress (NX-035: restored or replayed is not ready; verified_readonly is ready for reads and
 inbound only, reported as mode read_only); no deletion replay open (NX-029); and the real-dispatch master switch
-(REAL_DISPATCH_ENABLED) is a valid value and closed while the restore keeps dispatch closed. A service adds its own checks
+(REAL_DISPATCH_ENABLED) is a valid value and closed while the restore keeps dispatch closed. The body also reports how many
+tenants and tenant Actions have real dispatch open (0220), as counts only. A service adds its own checks
 (the API: signer and Artifact directory) as extra (code, passed) pairs.
 """
 from eios.adapters.postgres.migrations import MigrationDrift
@@ -43,10 +44,12 @@ def evaluate(connection_factory, *, environ, extra=()):
                 reasons.append('migration_drift')
                 raise
             facts = connection.execute('select authz.nexloop_service_readiness()').fetchone()[0]
+            # 0220: the real dispatch switches, as counts only (reported, never a readiness condition).
+            real = connection.execute('select authz.nexloop_real_dispatch_summary()').fetchone()[0]
     except Exception:
         if not set(reasons) & {'database_role_invalid', 'migration_drift'}:
             reasons.append('database_unavailable')
-        facts = None
+        facts = real = None
     if facts is not None:
         restore = facts.get('restore') or {}
         if restore.get('ready') is not True:
@@ -64,5 +67,6 @@ def evaluate(connection_factory, *, environ, extra=()):
             reasons.append(code)
     ready = not reasons
     body = {'ready': ready, 'mode': mode if ready else 'not_ready', 'reasons': sorted(set(reasons)),
-            'dispatch_switch': switch if switch != 'invalid' else 'invalid'}
+            'dispatch_switch': switch if switch != 'invalid' else 'invalid',
+            'real_dispatch': {'tenants_open': (real or {}).get('tenants_open'), 'actions_open': (real or {}).get('actions_open')}}
     return (200 if ready else 503), body

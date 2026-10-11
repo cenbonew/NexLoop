@@ -760,6 +760,11 @@
       "version": "0152",
       "name": "0152_reply_unknown_reconcile.sql",
       "sha256": "9a095b97c3163eaa4b1f0cdf91b1f92a0c014d8037dde31c9678c92e5e0d9958"
+    },
+    {
+      "version": "0220",
+      "name": "0220_real_dispatch_switch.sql",
+      "sha256": "81af27fe24af96112eb2eb1bb81a7c584e84e5db5b0e6f27cdc217e41dbe3337"
     }
   ]
 }

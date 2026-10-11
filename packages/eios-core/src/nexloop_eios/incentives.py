@@ -37,7 +37,7 @@ def fixed_amount_example(*,code,max_amount_minor,per_consumer_period_limit_minor
 
 class IncentivePort(_SignedPort):
     """Executor port (eios:action:nexloop.incentive.execute:1; trusted configuration grants it to the issuer service)."""
-    PROTOCOL='nexloop-incentive-v1';ACTION=EXECUTE_ACTION;FUNCTION='nexloop_incentive_command'
+    PROTOCOL='nexloop-incentive-v1';ACTION=EXECUTE_ACTION;FUNCTION='nexloop_incentive_command';REAL_DISPATCH=True
 
     def due(self,limit=50):return self._signed({'verb':'due','limit':limit})['intents']
     def admit(self,intent_id):return self._signed({'verb':'admit','intent_id':str(intent_id)})
