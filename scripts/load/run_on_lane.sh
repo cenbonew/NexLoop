@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # NX-031 full matrix run on the CI lane (design §5, D8, D9). The dispatcher runs it; it is never part of scripts/ci/check.
 #
-#   scripts/load/run_on_lane.sh [--outside-window] [--prune-old]
+#   scripts/load/run_on_lane.sh [--outside-window] [--prune-old] [--resume RUN_ID]
+#
+# --resume RUN_ID continues an interrupted run in .ci-results/load/RUN_ID at the same commit: a complete template is reused,
+# completed cells are kept, an incomplete cell's directory is moved to attempts/<cell>.<n> (never overwritten) and the cell
+# runs again (matrix.py --resume); run.json records each attempt. See docs/implementation/NX-031-lane-runbook.md.
 #
 # What it does, in order, holding the CI resource lock for the whole run:
 #   1. preflight: night window (LOAD_WINDOW, default 22:00-06:00 local), lock, clean checkout, tools, disk, and the §5.1
@@ -27,12 +31,13 @@
 # Exit codes: 0 report written (read AT-060 from it), 1 a step failed, 2 preflight refused, 75 lock busy.
 set -uo pipefail
 
-outside_window=0; prune=0
-for arg in "$@"; do
-  case "$arg" in
-    --outside-window) outside_window=1 ;;
-    --prune-old) prune=1 ;;
-    *) echo "usage: $0 [--outside-window] [--prune-old]" >&2; exit 2 ;;
+outside_window=0; prune=0; resume=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --outside-window) outside_window=1; shift ;;
+    --prune-old) prune=1; shift ;;
+    --resume) [[ $# -ge 2 && "$2" =~ ^20[0-9]{6}T[0-9]{6}Z-[0-9a-f]{7}$ ]] || { echo "--resume needs a run id" >&2; exit 2; }; resume=$2; shift 2 ;;
+    *) echo "usage: $0 [--outside-window] [--prune-old] [--resume RUN_ID]" >&2; exit 2 ;;
   esac
 done
 
@@ -80,8 +85,19 @@ free_gib=$(df -Pk .ci-results/load | awk 'NR==2{print int($4/1048576)}')
 exec 9>>"$NEXLOOP_CI_LOCK" || refuse "cannot open the CI lock"
 if ! flock -w "${LOAD_LOCK_WAIT:-1800}" 9; then echo "CI lock busy after ${LOAD_LOCK_WAIT:-1800} s" >&2; exit 75; fi
 
-run_id="$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:7}"
-run_dir="$root/.ci-results/load/$run_id"
+if [[ -n "$resume" ]]; then
+  run_id=$resume; run_dir="$root/.ci-results/load/$run_id"
+  [[ -d "$run_dir" ]] || refuse "no run directory for $run_id"
+  [[ "${run_id##*-}" == "${commit:0:7}" ]] || refuse "resume needs the interrupted run's commit (${run_id##*-}), checkout is ${commit:0:7}"
+  # The earlier failure record stays beside the new one.
+  stamp=$(date -u +%H%M%S)
+  for f in lane-summary.json failure-summary.md logs; do [[ -e "$run_dir/$f" ]] && mv "$run_dir/$f" "$run_dir/$f.before-resume-$stamp"; done
+  if [[ -f "$run_dir/template/template.json" && -d "$run_dir/template/pgdata" ]]; then template_done=1
+  elif [[ -e "$run_dir/template" ]]; then mv "$run_dir/template" "$run_dir/template.incomplete-$stamp"; fi
+else
+  run_id="$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:7}"
+  run_dir="$root/.ci-results/load/$run_id"
+fi
 mkdir -p "$run_dir/logs" "$run_dir/lane" || exit 1
 chmod 0700 "$run_dir"
 started=$(secs); step=preflight; status=running; code=0; durations=''
@@ -142,9 +158,9 @@ step_run() {
 }
 
 # ---- 2–4. template, matrix, report -------------------------------------------------------------------------------------
-step_run template "$template_cmd" --seed "${LOAD_SEED:-31}" --consumers "${LOAD_CONSUMERS:-1000}" --out "$run_dir/template"
+[[ "${template_done:-0}" -eq 1 ]] || step_run template "$template_cmd" --seed "${LOAD_SEED:-31}" --consumers "${LOAD_CONSUMERS:-1000}" --out "$run_dir/template"
 export LOAD_CI_COMMAND="scripts/ci/check"   # the C4-ci cell runs the full CI inside this lock (design §5.2)
-step_run matrix uv run --frozen python "$runner_cmd" --template "$run_dir/template" --matrix "$matrix" --out "$run_dir" --lane-root "$run_dir/lane"
+step_run matrix uv run --frozen python "$runner_cmd" --template "$run_dir/template" --matrix "$matrix" --out "$run_dir" --lane-root "$run_dir/lane" ${resume:+--resume}
 report_args=("$run_dir" --out "$run_dir")
 [[ -z "${LOAD_CI_BASELINE:-}" ]] || report_args+=(--ci-baseline "$LOAD_CI_BASELINE")
 step_run report uv run --frozen python scripts/load/report.py "${report_args[@]}"

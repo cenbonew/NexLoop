@@ -12,6 +12,7 @@ checks remain authoritative. This module does not claim whole-function timing.
 from datetime import UTC,datetime
 import http.client
 import json
+import math
 import re
 import socket
 import ssl
@@ -34,6 +35,16 @@ class RuntimeDispatchError(RuntimeError):
     def __init__(self,code):
         self.code=code
         super().__init__(code)
+
+
+def model_timing(value):
+    """NX-031 A2: the Host's model time of a Run, passed on only as exactly {calls, total_ms, max_ms} of non-negative numbers
+    (no other key, no text); anything else is dropped (the Run's outcome never depends on it)."""
+    if type(value) is not dict or set(value)!={'calls','total_ms','max_ms'}:return None
+    if type(value['calls']) is not int or not 0<=value['calls']<=10000:return None
+    if any(type(value[k]) not in (int,float) or isinstance(value[k],bool) or not math.isfinite(value[k]) or not 0<=value[k]<=86400000 for k in ('total_ms','max_ms')):return None
+    if value['max_ms']>value['total_ms']:return None
+    return {'calls':value['calls'],'total_ms':value['total_ms'],'max_ms':value['max_ms']}
 
 
 class RuntimeHostClient:
@@ -150,7 +161,7 @@ class RuntimeDispatcher:
             body={'activation_ref':activation['activation_ref'],'command':command}
             if operation in {'start','resume'}:body['input']=input
             return self.client.request(operation,body,deadline=min(deadline,time.monotonic()+self.request_timeout))
-        outcome='unknown';code=None;status='failed';receipt=None
+        outcome='unknown';code=None;status='failed';receipt=None;timing=None
         try:
             payload=job['payload']
             if type(payload) is not dict or set(payload)!={'run_command','input'}:raise RuntimeDispatchError('runtime_task_payload_invalid')
@@ -186,6 +197,7 @@ class RuntimeDispatcher:
                 # Persisted queue result remains readable after its lease ends.
                 receipt={key:inspection[key] for key in ('request_id','conversation_id','submission_id')}
                 receipt['persistence']={'journal_mode':'wal','synchronous':2}
+                timing=model_timing(inspection.get('model_timing'))
             status='succeeded' if outcome=='succeeded' else 'retry_wait' if outcome=='unknown' else 'failed'
             if status!='succeeded':code='runtime_'+outcome
         except StaleQueueLease:
@@ -205,6 +217,7 @@ class RuntimeDispatcher:
                     result['tool_timing']=db.execute('select authz.nexloop_run_tool_timing(%s::text,%s::text,%s::uuid)',
                         (self.worker._session.token_digest,self.worker._session.world,command['run_id'])).fetchone()[0]
             except Exception:pass
+        if timing is not None:result['model_timing']=timing  # NX-031 A2: numbers only, beside tool_timing
         if code is not None:result['code']=code
         try:
             self.worker.assert_task_lease(queue=self.queue,task_id=task_id,fence=fence)
