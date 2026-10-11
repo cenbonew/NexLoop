@@ -82,6 +82,12 @@
         "ref": "docs/implementation/NX-018-L1-report.md",
         "summary": "Role N:M: RoleDefinition/ConsumerRoleLink/ceiling/scope are governed objects; two Roles of two Sources link one Consumer and two short Pi Runs share one business intent with one real effect (test_role_pi_effect_checkpoint, dev machine); Role policy enforced at bind and dispatch (test_role_policy_dispatch passes on the CI host in s3q), unknown metadata fails closed, Roles do not stack. Merged at 57a224c.",
         "recorded_at": "2026-10-09T22:45:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261010T032734Z-f4ed4c6516d6",
+        "summary": "两 Pi 用例（tests/test_role_pi_effect_checkpoint.py::test_actual_two_pi_role_runs_one_shared_intent_one_real_loopback_effect）：CI 主机串行时限阶段在 f4ed4c6 连续两轮通过；5a416ef 上串行 ×5 为 5/5；全量并行阶段按 ADR-022 §4 作为观察项。不再只有开发机证据。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -191,6 +197,12 @@
         "ref": "adr/ADR-022-functional-closure-and-deploy-time-gate.md",
         "summary": "Passed on dev-machine evidence: test_relationship_context_v4.py 33 cases including [complete] (real human correction -> governed Assessment revision -> new v4 Artifact consumed by a second TLS Host/Pi Run, old hypothesis evidence-only), repeated passes after O1/O2a/O2b. Not passing on the deploy host (CI host): 0/5 serial on 57a224c under the 2 s tool deadline; tracked by NX-049, deadline not relaxed.",
         "recorded_at": "2026-10-09T22:45:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261010T032734Z-f4ed4c6516d6",
+        "summary": "NX-049 达成（ADR-022 §4）：CI 主机串行时限阶段（guard 4 进程，2 s 时限不放宽）在 f4ed4c6 连续两轮通过（ci:lane/runs/20261010T024630Z-f4ed4c6516d6 与本 ref）；5a416ef 上串行 ×5 v4[complete] 5/5。同两轮全量并行阶段中本用例仍超时，按 ADR-022 §4 作为负载敏感观察项。此前“部署主机上 0/5”的说明为历史事实，保留。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -471,7 +483,14 @@
     "given": "未通过候选Schema",
     "expected": "active与正式对象不变",
     "status": "not_run",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "tests/test_review_decisions_pg.py",
+        "summary": "S3 人工审核路径的部分证据（合成环境，NX-044，合入 8f2ce3d）：门槛失败时候选保持 pending_review、Schema 不变（test_gate_failure_keeps_candidate_pending_with_reason_and_no_schema_change）。S6 自动演进路径（NX-040）未实现，状态保持 not_run。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      }
+    ]
   },
   {
     "id": "AT-024",
@@ -481,7 +500,14 @@
     "given": "新增类型附带提权Action",
     "expected": "拒绝越权；定义与权限发布分离",
     "status": "not_run",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "tests/test_review_type_actions_pg.py",
+        "summary": "S3 人工审核路径的部分证据（合成环境，NX-044，合入 8f2ce3d）：定义发布与授权分离（租户授权指纹不变、新类型无授权事实），被篡改、多余或改名的新类型 Action 在 SQL 中被拒（test_non_canonical_new_type_actions_are_refused_by_sql）。S6 自动演进路径（NX-040）未实现，状态保持 not_run。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      }
+    ]
   },
   {
     "id": "AT-025",
@@ -845,6 +871,18 @@
         "ref": "docs/implementation/AT-043-implementation.md",
         "summary": "D2 负责人 2026-10-11 定案（“全部按推荐”）：EIOS 风险 low、无审批（vendored ActionGovernor 对非 low 强制审批证据，不修改）；NexLoop 分类 medium，补偿控制为目录单次上限、每 Consumer 周期上限、租户预算三重约束。部署接线（执行者服务主体、incentive_tool 开关、两项 deferred 授权）为后续单独提交，接线前生产上不会派发。",
         "recorded_at": "2026-10-11T05:22:46.329375+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "tests/test_nx022_dispatch_e2e.py::test_runtime_model_budget_is_reserved_per_run_and_exhaustion_denies",
+        "summary": "模型预算部分的直接证据（合成环境）：租户模型预算到上限时派发拒绝且无消耗，额度内 Run 预留后终态结算释放；test_costs_pg 覆盖结算与 unknown 保留。随 s4s 全量 ci:lane/runs/20261011T043144Z-716ace8874a5 通过。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "284d597",
+        "summary": "接线（at043-wiring 82b663e、284d597，经 b55da59 合入 main 5d09b85）：nexloop-incentive-issuer 后台入口、service-grants v17、workbench-roles v8 只给 owner 发放、Agent Host incentive_tool 默认关。取代第 3 条说明中“部署接线为后续单独提交”的表述。仍有的限制：只有回环渠道、工作台无发放页面、未部署。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -879,6 +917,12 @@
         "ref": "tests/test_workbench_http.py",
         "summary": "Synthetic test environment, merged at 8c6dcc9: workbench page states for 401, 403, 404, 422, 503, malformed, empty, partial and pending data on the server side, and workbench-api/workbench-render vitest on the client side.",
         "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "caaf3ae",
+        "summary": "2026-10-11 开发机合成冒烟（负责人同意的测试账号浏览器冒烟）发现：总览“积压”块在有数据时显示空白，违反 AT-045。48da00a 修复（按 NX-030 形状严格解析，空队列显示“无”），商业块同类问题由 475ac90 一并修复，经 9e2f534 合入 caaf3ae。回归测试 apps/web/test/workbench-observability.test.ts 在 scripts/ci/check 门槛内。状态维持 passed。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -1080,7 +1124,14 @@
     "given": "非APP_HOST访问DB/Valkey",
     "expected": "TLS/ACL/网络拒绝，有外部验证证据",
     "status": "not_run",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T091023Z-c20f8a524024",
+        "summary": "NX-032 切片 1 本地证据：一次性 PG 18 开启 TLS 1.3、SCRAM 与 clientcert=verify-full 后，错误 CA、SAN 不匹配、他方 CA 客户端证书、无客户端证书、他角色客户端证书、明文连接、错误密码 7 种情况全部被拒（tests/test_deploy_tls.py）。只是本地 TLS/ACL 证据；非 APP_HOST 来源的网络拒绝与外部验证要在切片 4 模拟与切片 5 真实部署中取得，状态保持 not_run。",
+        "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      }
+    ]
   },
   {
     "id": "AT-059",
@@ -1119,6 +1170,12 @@
         "ref": "docs/implementation/NX-031-implementation.md",
         "summary": "NX-031 切片 2 本机 25 客户（非车道，非 1000 客户）：C4 不通过（过载：D5 注入时延下每 worker 4 并发约 0.36 Run/s，到达 1 条/秒，排队超过 Run 凭据 300 s 后派发失败转回复保障升级；7 项核对违规 0）；C4-low 不通过（死信 9、承诺监控 9 条挂起、5 个 runtime_failed 待查）。首轮因夹具凭据 30 分钟过期作废，结果保留。状态保持 not_run。",
         "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "判定前置（ROADMAP §3/§4）：NX-031 切片 3 合入、本机 C4-low 重跑、CI 车道 1000 客户整轮（含 C4-ci）。v2 消息 Run 目前不记录模型耗时分解，expected 中的“模型分解延迟”口径须在整轮前裁定。整轮之前状态保持 not_run。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },

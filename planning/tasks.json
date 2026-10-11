@@ -2361,7 +2361,7 @@
       "M23"
     ],
     "deliverable": "无原文普通日志、unknown/队列/备份/成本可观测",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -2386,6 +2386,12 @@
         "ref": "4b252f2",
         "summary": "备份年龄指标随 NX-035 本地部分接入 M12：最新已校验备份年龄、完整备份年龄、各仓库年龄、WAL 归档延迟与失败、恢复日志导出延迟、演练年龄与实测 RPO/RTO；无观测时缺省而不是 0；告警规则 v3 新增 7 条。真实备份数据要等 NX-032 部署。",
         "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-035-local-implementation.md",
+        "summary": "完成口径（调度员 2026-10-11 裁定，见 planning/ROADMAP.md §7）：NX-030 的交付是指标快照、告警规则与 M12 备份块。M12 备份块由 NX-035 本地部分接入（实现提交 e5c3828，经 7021e4d 合入 main 5d09b85；原证据中的 4b252f2 为该分支末尾提交），无备份时为 unavailable 而不是 0；告警规则 v3 新增 7 条。证据为本机与 CI 车道的合成环境（pg_basebackup/pg_verifybackup 真实备份与本地 PITR 演练，ci:lane/runs/20261011T064724Z-5d09b854991b）。部署环境的真实备份年龄样本不属于 NX-030，转为 NX-035 部署部分与 AT-050 的验收内容。连接数不按角色细分为已知限制。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -2434,6 +2440,12 @@
         "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
         "summary": "s4u 全量失败集为基线子集；ADR-022 §4 门槛阶段 2/2，并在同检出串行复测 3 轮（v4 72.6–73.4 s，两 Pi 63.7–65.2 s，与 s4m 持平），dispatch_loops 4 未拖慢门槛。本机 C4/C4-low 均不通过（见 AT-060 说明），切片 3 排查死信、承诺监控挂起、runtime_failed 与 NXC02。",
         "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "S4 出口剩余（ROADMAP §3/§4）：(1) 合入切片 3（nx031-s3，未合入：claim-match 死信修复（临时迁移 0150）、派发时延口径、feed 已到期/未到期分计、deterministic-test Host 按 run profile 选协议）；(2) 本机 C4-low 重跑；(3) CI 车道 1000 客户整轮（约 4 小时，持 CI 锁，含 C4-ci 格与 CI 同机影响报告）；(4) AT-060 按设计 §6.2/§7 判定；(5) 若 C4 仍不达标，由负责人在“降低部署前提（修订 ADR-022 §4）”与“另开优化任务”中选择（ROADMAP D-a）。客户拒收后在途消息 Run 作废、由兜底按新上下文重新生成（调度员裁定，约 5 分钟延迟写入容量报告）；“作废时 reply-due 立即到期”为候选，整轮后评估。计划重估与兜底 Run 的负载尚未覆盖；v2 消息 Run 的模型耗时分解缺失，AT-060 的模型分解口径待整轮前裁定。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -2450,8 +2462,33 @@
       "M23"
     ],
     "deliverable": "DATA_HOST 数据/APP_HOST 应用、端口与角色实际验证、无旧服务修改",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "9b571f5",
+        "summary": "NX-032 切片 0–2（本地，不接触服务器）：参数化 stage 模板（DATA_HOST/APP_HOST Compose、pg_hba、postgresql、Valkey、两台主机 nft 防火墙示例）与白名单渲染器（22 个参数、残留占位符/未知键/非 0600 env 一律拒绝）；证书脚本 issue_certs.py（D1：openssl、离线根 CA、1 年中间 CA、90 天服务与客户端证书）；doctor --tls-spec（证书链、SAN、私钥匹配、剩余有效期、DSN 必须 verify-full、Valkey 只开 TLS 端口）；doctor --deploy-gate（guard=4、连接预算登记、端口绑定、角色权限、秘密分发、总闸关闭、inventory 对比，缺输入即不通过）。证书只在测试临时目录生成，测试断言仓库无私钥。运行手册 docs/implementation/NX-032-deploy-runbook.md 列出 B 类步骤 0–9（命令只用参数、预期输出、撤销、核对项）。",
+        "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T091023Z-c20f8a524024",
+        "summary": "s4w 全量（c20f8a5）：test_deploy_render 4、test_deploy_tls 5（一次性 PG 18 上 TLS 1.3+SCRAM+clientcert=verify-full，7 种错误连接全部被拒）、test_deploy_gate 6 等通过；失败 12 项均在基线（C 类 role_tail 同检出串行 2/2），串行门槛 2/2。合入 main c20f8a5。",
+        "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-032-local-implementation.md",
+        "summary": "剩余：切片 3（部署 dry-run、发布清单核对、拒绝回滚、Caddyfile）与切片 4 预检已在 nx032-local 4889b5e 待合入；切片 4 隔离探测改在 CI 主机 rootless Docker 三容器模拟（CI 主机 AppArmor 限制非特权 userns，不改系统设置）；切片 5 真实双机部署为 B 类，按运行手册逐步由负责人确认；Agent Host 出站与 API 共用网络命名空间为开放设计点，NX-037 前必须解决；Valkey 服务端 TLS 负例待模拟环境补齐。",
+        "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "依赖说明（ROADMAP §2）：对 NX-031 的依赖只约束切片 5（真实双机部署，B 类）；切片 0–4 为本地或模拟工作，依据 15 §5 先行，沿用 NX-031 已合入的连接预算登记与 dispatch_loops。切片 5 的前置：NX-031 有结论、负责人对部署前提的决定（ROADMAP D-a）、发布签名材料与工具（O1–O3）。切片 4 在 CI 主机用 rootless Docker 容器模拟（该主机限制非特权 user namespace，不改系统设置），结果只算模拟证据。开放设计点：Agent Host 与 API/Worker 共用网络命名空间，须在接入真实模型（NX-037）前由负责人定案（ROADMAP D-c）。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      }
+    ]
   },
   {
     "id": "NX-033",
@@ -2485,6 +2522,12 @@
         "ref": "docs/implementation/NX-033-local-implementation.md",
         "summary": "剩余：B 类主机步骤（建用户与 bare 仓库、hook、防火墙、依赖代理与缓存、切换 remote、真实主机隔离探测与断连演练）逐步等负责人确认；主机侧 TLS/防火墙与 CI 镜像依赖 NX-032；scripts/ci/check 暂作为一个 suite 阶段，拆分时出新版 stages。",
         "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "剩余分三类（ROADMAP §3）：本地可做——按设计 §4.1 把 scripts/ci/check 拆成阶段并出新版 stages.v1.json，同时处理 ADR-020 §4 基线的退出条件；B 类主机步骤——建 nexloop-git/nexloop-ci 用户、bare 仓库、hook、authorized_keys、防火墙、依赖代理、隔离探测与断连演练、切换 remote（切换后 main 由合并控制器推进，现行“调度员扫描后推送 main”流程随之停用），每一步由负责人确认；风险——CI 主机限制非特权 user namespace，D2 选定的 rootless Podman 运行器可能不可用，主机步骤前先只读核实 Podman，不可用则提交 D2 修订，不改系统安全设置（ROADMAP R1）。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -2518,6 +2561,12 @@
         "ref": "docs/implementation/NX-034-local-implementation.md",
         "summary": "剩余：GitHub 同步与发布归档依赖 NX-033 本地 Git 队列/隔离 CI；签名密钥保管、CI 主机安装 syft/grype 待负责人在 NX-032 部署时确认。",
         "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "第二部分进行中（nx034-s2，未合入）：镜像打包与 docker load 后按 digest 引用的标签规则、归档与 D3 保留、sync-github 接入 NX-033 同步与门槛、preflight 块并入签名清单、源码 SBOM 与许可清单交叉核对。负责人与主机事项（ROADMAP §6）：发布签名密钥离线生成与保管、公钥与 allowed_signers 入库、负责人 tag 签名密钥（O1）；CI 主机安装 syft/grype 并回填 digest、grype 漏洞库出站例外（O3，安装由调度员执行）；GitHub deploy key（O5）；公开 tag 与 GitHub Release 为 B 类，在全历史审计经负责人确认之后。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -2552,6 +2601,12 @@
         "ref": "docs/implementation/NX-035-local-implementation.md",
         "summary": "restore.open_scope 风险分级由负责人 2026-10-11 定案（“全部按推荐”）：EIOS 风险 low、无审批，NexLoop 分类 high，补偿控制为 owner 专属、逐 scope 开放、有无法核实计数的渠道未暂停不能开放、恢复报告前置、每次开放留审计。剩余：pgBackRest/restic 部署、文件备份、命令行恢复工具、意图重建（切片三），依赖 NX-032/NX-034。",
         "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "剩余分两组（ROADMAP §3）：本地可续做——restore_readiness 接入 /health/ready、doctor --backup 与 backup.v1.json、工作台备份块界面、各渠道按时间查询的读取器、意图重建（切片三）、NX-029 记录清扫不越过恢复日志已导出序号；部署切片（依赖 NX-032、NX-034）——pgBackRest/restic 固定版本与非 superuser 实测、restic 文件备份与恢复日志静态加密（受控试运行前的门槛项）、nexloop-restore 命令行、两机首次真实演练（AT-050/056 真实证据）、异地仓库启用。负责人事项：备份口令离线保管、异地仓库、APP_HOST 磁盘加密确认（ROADMAP O6）。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
       }
     ]
   },
@@ -2595,7 +2650,14 @@
     ],
     "deliverable": "真实Provider/交付证据、全部S1–S5验收、已知限制",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "进入条件与未承载工作见 ROADMAP §8：NX-031 结论；NX-032 切片 5 与 AT-058 外部探测；AT-050/053–057 真实主机证据；Agent Host 出站隔离方案定案并落地；恢复日志静态加密；签名密钥、syft/grype、安全联系人就绪；全历史审计经负责人确认；真实渠道 Provider 选型与凭据交付、真实模型 ≥20 条受控交互的计划与费用上限（需先写 NX-037 设计稿）；AT-015 真实浏览器断线重连人工核对；v0.1 完成定义第 8 条“手册可由另一维护者执行”尚无验收项，需负责人指定第二维护者（ROADMAP D-f）。",
+        "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      }
+    ]
   },
   {
     "id": "NX-038",
