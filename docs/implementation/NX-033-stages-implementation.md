@@ -110,3 +110,53 @@
   - 文件齐全时，public 模式通过；
   - 逐个删掉其中一份时，public 模式报 `missing`；
   - 本地 CI 模式不要求这三份文件。
+
+## 6. stages.v3（负责人 D-j 2026-10-11 定案：“全部按推荐”，门槛上限 5 分钟）
+
+分支 `ci-stages-v3`，从 `dispatch/integration-s5b` `9058f02` 切出。实现 §3 的退出方案。
+
+- **串行时限门槛**（`deadline-gate.sh`，junit `python-deadline-gate.xml` 的文件名和位置不变）：
+  - 包含 v4[complete]、两个 Pi 的用例，以及 agent_host_run_limit 的两个用例，共 4 个；
+  - guard 4 进程，2 秒工具时限不放宽；
+  - 这 4 个用例不再在并行阶段运行；
+  - v3 策略中阶段超时为 300 秒，超时即判失败。
+- **并行阶段**（`integration-parallel.sh`）：原 integration 阶段，用 `--deselect` 排除门槛用例和低并行用例。
+- **低并行阶段**（`integration-heavy.sh`，`-n 2`，junit `python-heavy.xml`，必需套件 `python-heavy`）：
+  - 放 closure_plan 两例、closure_refusal，以及大部分 C 类用例，共 19 个 ID，参数化展开后 22 个用例；
+  - 清单在 `scripts/ci/stages/lib.sh`；
+  - 失败即停止，与其他阶段相同。
+- **保留观察**：role_policy_dispatch、read_assert_memo、backend_lifecycle_capacity 不移动；CI 主机上串行也失败的 B 类真实 Pi 用例留在并行阶段观察。
+- **`scripts/ci/check`**：按 v3 的阶段顺序运行，退出码语义不变：门槛失败只记录，继续执行其余阶段，最后退出 1；其他阶段失败即停止。
+- **v1、v2 不变**：`integration.sh` 保留给 v2，它不排除任何用例，所以按 v2 运行不会漏掉用例。控制器只有在受信安装选择 `--stages-version 3` 时才使用 v3 和 `required-suites.v2.json`；默认仍是 v1。
+- **计数转移**（`required-suites.v2.json` 的 `count_groups`）：
+  - python、python-heavy、python-deadline-gate 三个套件按合计核对，合计不得低于上一轮 main 结果中同样三个套件的合计；
+  - 组内套件不再单独核对下降，但 `min_tests` 仍逐个检查；
+  - 组的 `allowed_drop` 为 2：v1 下原有的两个门槛用例在门槛和并行阶段各计一次，所以切换后的第一轮会比原来少 2。之后可以在新版本里改回 0。
+- **基线规则写入受信策略的说明**：
+  - 在指定阶段连续两轮全量通过，即从基线移除；
+  - C 类连续两轮全量失败，升级为 B 或 A；
+  - 带“违规”断言的用例出现任何违规，都按 A 类处理；
+  - 基线清单本身由调度员维护，不入库。
+
+### 测试（`tests/test_ci_stages.py`，用替身记录命令）
+
+- v3 的阶段顺序等于 check 调用的顺序；
+- 各阶段声明的 junit 等于脚本实际写出的文件，合起来正好是必需套件，包含 `python-heavy`；
+- 门槛命令带 `NEXLOOP_TEST_GUARD_WORKERS=4`，并包含这 4 个用例；
+- 并行阶段排除了全部门槛用例和低并行用例；低并行阶段用 `-n 2` 运行清单中的用例，不含门槛用例；
+- 清单中的全部 ID 实际能收集到 26 个用例，ID 过期会使测试失败；
+- 转移不算计数下降，丢失用例算下降；不在组内的套件仍按原规则逐个核对；
+- v2 不变，并且仍引用它自己的脚本。
+
+### 预计门槛时长
+
+| 用例 | 开发机实测（串行，guard 4） | CI 主机 |
+|---|---|---|
+| v4[complete] | 约 30 s（call 27.6 + setup 2.4） | 实测 72.6–73.4 s（s4u） |
+| 两个 Pi 的用例 | 约 29.6 s（23.7 + 6.0） | 实测 63.7–65.2 s（s4u） |
+| agent_host_run_limit 拒绝 | 约 26.4 s（19.9 + 6.5） | 估算约 57–62 s |
+| agent_host_run_limit 排队 | 约 25.8 s（19.7 + 6.1） | 估算约 57–62 s |
+
+- **开发机整体**：门槛脚本整体运行 111 s，4 个用例全部通过。
+- **CI 主机估算**：按前两个用例的 CI 主机与开发机耗时比例（约 2.2–2.4 倍）推算，合计约 255–270 s，低于 300 s，但余量只有约 10%。
+- **超过 300 s 时的备选**：把 run_limit 两例改为门槛之后的独立串行阶段（同样是 guard 4、不放宽时限，单独计时）。这需要负责人另行确认，因为它改变的是“移入门槛”这一决定。

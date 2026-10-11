@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"
-# Phase 2 (parallel by test): everything else; each test owns its PGDATA, port and temp dirs.
+# Phase 2 (parallel by test; stages v2 only, kept unchanged): everything else; v3 and scripts/ci/check use
+# integration-parallel.sh and integration-heavy.sh. Each test owns its PGDATA, port and temp dirs.
 # NEXLOOP_CI_PYTEST_WORKERS=0 runs serially for diagnosis.
 mkdir -p .ci-results
 ignore_args=(); for t in "${WORKSPACE_BUILD_TESTS[@]}"; do ignore_args+=(--ignore="$t"); done

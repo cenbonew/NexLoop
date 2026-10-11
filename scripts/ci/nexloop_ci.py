@@ -9,7 +9,7 @@ repositories, firewall rules or switching remotes are owner-confirmed B-class st
     nexloop_ci.py pre-receive   --repo R --identities F            (stdin: <old> <new> <ref> lines; identity from NEXLOOP_PUSH_IDENTITY)
     nexloop_ci.py post-receive  --repo R --queue Q                 (stdin as above)
     nexloop_ci.py enqueue       --repo R --queue Q --ref REF --sha SHA --identity ID [--kind check|merge] --identities F
-    nexloop_ci.py run-once      --repo R --queue Q --policy D --identities F [--runner F --facts F] [--stages-version 1|2]
+    nexloop_ci.py run-once      --repo R --queue Q --policy D --identities F [--runner F --facts F] [--stages-version 1|2|3]
     nexloop_ci.py ack-policy    --queue Q --sha SHA --identity ID --identities F
     nexloop_ci.py sync          --repo R --queue Q --remote NAME [--timeout S]
     nexloop_ci.py status        --queue Q
@@ -175,18 +175,20 @@ def load_policy(policy_dir, stages_version=1):
     """stages.v1.json (the whole suite as one stage) unless the trusted installation selects another version (v2: one stage
     per scripts/ci/stages script)."""
     policy_dir = Path(policy_dir)
-    if type(stages_version) is not int or stages_version not in (1, 2):
+    if type(stages_version) is not int or stages_version not in (1, 2, 3):
         raise ConfigError('stages version')
     stages_file = policy_dir / f'stages.v{stages_version}.json'
     stages = json.loads(stages_file.read_text())
     if stages.get('version') != stages_version:
         raise ConfigError('policy invalid')
-    suites = json.loads((policy_dir / 'required-suites.v1.json').read_text())
+    # Stages v3 (D-j) go with required-suites v2 (python-heavy, count groups); v1 and v2 with required-suites v1.
+    suites_file = policy_dir / ('required-suites.v2.json' if stages_version == 3 else 'required-suites.v1.json')
+    suites = json.loads(suites_file.read_text())
     if stages.get('schema') != 'nexloop-ci-stages/1' or suites.get('schema') != 'nexloop-ci-required-suites/1':
         raise ConfigError('policy invalid')
     return {'stages': stages, 'suites': suites, 'version': suites['version'],
             'stages_version': stages_version,
-            'digest': hashlib.sha256(stages_file.read_bytes() + (policy_dir / 'required-suites.v1.json').read_bytes()).hexdigest()}
+            'digest': hashlib.sha256(stages_file.read_bytes() + suites_file.read_bytes()).hexdigest()}
 
 
 def junit_counts(path):
@@ -204,6 +206,16 @@ def judge(policy, stages, junit, baseline):
     for stage in stages:
         if stage['status'] != 'passed':
             reasons.append('stage_failed:' + stage['name'])
+    groups = policy['suites'].get('count_groups') or []
+    grouped = {name for group in groups for name in group['suites']}
+    for group in groups:
+        # A registered move between suites (required-suites v2): the group's sum must not drop; a missing baseline suite counts 0.
+        if all((baseline or {}).get(name, {}).get('tests') is None for name in group['suites']):
+            continue
+        before = sum((baseline or {}).get(name, {}).get('tests') or 0 for name in group['suites'])
+        now_sum = sum((junit.get(name) or {}).get('tests') or 0 for name in group['suites'])
+        if now_sum < before - group.get('allowed_drop', 0):
+            reasons.append('test_count_dropped:' + '+'.join(group['suites']))
     for name, rule in policy['suites']['suites'].items():
         got = junit.get(name)
         if got is None:
@@ -214,7 +226,7 @@ def judge(policy, stages, junit, baseline):
         if got['tests'] < rule.get('min_tests', 1):
             reasons.append('suite_too_small:' + name)
         before = (baseline or {}).get(name, {}).get('tests')
-        if before is not None and got['tests'] < before - rule.get('allowed_drop', 0):
+        if name not in grouped and before is not None and got['tests'] < before - rule.get('allowed_drop', 0):
             reasons.append('test_count_dropped:' + name)
     return reasons
 
@@ -569,7 +581,7 @@ def main(argv=None):
             p.add_argument('--kind', choices=('check', 'merge'), default='check')
         if name == 'run-once':
             p.add_argument('--policy', type=Path, required=True)
-            p.add_argument('--stages-version', type=int, choices=(1, 2), default=1)
+            p.add_argument('--stages-version', type=int, choices=(1, 2, 3), default=1)
             p.add_argument('--runner', type=Path)
             p.add_argument('--facts', type=Path)
             p.add_argument('--merge-gate', action='append', default=[])
