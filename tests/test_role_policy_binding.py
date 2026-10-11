@@ -16,6 +16,7 @@ from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.run_credentials import issue_run_credential
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def policy_selection(published_action,admin,request):
@@ -29,8 +30,8 @@ def policy_selection(published_action,admin,request):
         manage=kind in ('RoleDefinition','ConsumerRoleLink','RoleExecutionCeiling','RoleAssignmentScope')
         scopes=('ontology.roles.manage',) if manage else ()
         definition=base.model_copy(update={'stable_name':kind+'.create','contract_digest':None,'required_scopes':scopes,'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
-        admin.execute('insert into ontology.object_type_versions values(%s,%s,1,%s)',('synthetic-a',kind,Jsonb(schema.model_dump(mode='json'))))
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':scopes}).model_dump(mode='json'))))
+        admin.execute('insert into ontology.object_type_versions values(%s,%s,1,%s)',(TENANT_A,kind,Jsonb(schema.model_dump(mode='json'))))
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':scopes}).model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.create:1',ResourceType.ACTION,Operation.EXECUTE))
     session,token=seed_multi_authority(admin,reader.pool,targets,identity_suffix='-policy-config',extra_scopes=('ontology.roles.manage',))
     creator=GovernedObjectCreator(reader.pool,session,reader.signer)

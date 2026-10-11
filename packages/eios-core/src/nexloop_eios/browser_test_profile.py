@@ -17,8 +17,9 @@ from psycopg.types.json import Jsonb
 from eios.identity.models import Subject,SubjectKind,TenantMembership,MembershipKind,LocalAccount,EncodedPasswordHash
 from nexloop_eios.bootstrap import verify
 from nexloop_eios.compose_bootstrap import _write
+from nexloop_eios.sandbox_profile import SANDBOX_TENANT
 
-TENANT='nexloop-sandbox'
+TENANT=SANDBOX_TENANT
 APPLICATION='nexloop-test-browser'
 USERNAME='nexloop-test-user'
 SUBJECT='nexloop-test-human'

@@ -7,6 +7,7 @@ from eios.identity.ports import TrustedIdentityOperator,RecordLocalAccountFailur
 from eios.identity.errors import IdentityUnavailable
 from nexloop_eios.browser_identity import open_browser_identity,PostgresBrowserLocalAccountRepository
 from test_browser_identity_reads import identity
+from support.tenants import TENANT_A, TENANT_B
 
 OP=TrustedIdentityOperator(operator_principal_id='nexloop_identity',request_id='synthetic-password-request',trace_id='synthetic-password-trace')
 
@@ -14,7 +15,7 @@ OP=TrustedIdentityOperator(operator_principal_id='nexloop_identity',request_id='
 def accounts(identity):
     dsn,subject,membership,account,password=identity
     with open_browser_identity(dsn) as pool:
-        yield PostgresBrowserLocalAccountRepository(pool,tenant_id='synthetic-a',application_id='synthetic-browser-app'),dsn,account
+        yield PostgresBrowserLocalAccountRepository(pool,tenant_id=TENANT_A,application_id='synthetic-browser-app'),dsn,account
 
 
 def fail(repo,account):
@@ -29,7 +30,7 @@ def test_failure_lock_is_durable_and_live_lock_never_shortened(accounts,admin):
     assert locked.failed_attempts==0 and locked.lockout_level==1 and locked.locked_until-locked.updated_at==timedelta(minutes=15)
     assert fail(repo,account)==locked
     with open_browser_identity(dsn) as pool:
-        reopened=PostgresBrowserLocalAccountRepository(pool,tenant_id='synthetic-a',application_id='synthetic-browser-app')
+        reopened=PostgresBrowserLocalAccountRepository(pool,tenant_id=TENANT_A,application_id='synthetic-browser-app')
         assert reopened.get_local_account(account.tenant_id,account.local_account_id)==locked
         assert fail(reopened,account)==locked
     assert admin.execute('select count(*) from control.nexloop_browser_login_events').fetchone()[0]==5
@@ -48,7 +49,7 @@ def test_future_time_wrong_tenant_operator_and_app_revoke_fail_without_writes(ac
     repo,dsn,account=accounts
     cmd=RecordLocalAccountFailureCommand(tenant_id=account.tenant_id,local_account_id=account.local_account_id,failed_at=repo.current_time()+timedelta(days=1))
     with pytest.raises(IdentityUnavailable):repo.record_authentication_failure(cmd,operator=OP)
-    cmd=cmd.model_copy(update={'failed_at':repo.current_time(),'tenant_id':'synthetic-b'})
+    cmd=cmd.model_copy(update={'failed_at':repo.current_time(),'tenant_id':TENANT_B})
     with pytest.raises(IdentityUnavailable):repo.record_authentication_failure(cmd,operator=OP)
     with pytest.raises(IdentityUnavailable):repo.record_authentication_failure(cmd.model_copy(update={'tenant_id':account.tenant_id}),operator=OP.model_copy(update={'operator_principal_id':'fake'}))
     admin.execute('update control.nexloop_browser_applications set active=false')

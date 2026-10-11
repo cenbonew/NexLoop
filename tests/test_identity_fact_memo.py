@@ -17,6 +17,7 @@ from nexloop_eios.authorization import IDENTITY_FACT_KINDS,authenticate_service,
 from authority_fixture import replace_fact
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action  # noqa: F401
+from support.tenants import TENANT_A, TENANT_B
 
 ALLOWED=('eios:action:Consumer.create:1','eios:action:Memo.allowed:1')
 EXPIRED='eios:action:Memo.expired:1'
@@ -43,9 +44,9 @@ def varied(published_action,admin):
     principal=session.authentication.subject_principal_id
     row=admin.execute("select payload from authz.nexloop_authority_facts where fact_kind='grants' and entity_key=%s",([principal,EXPIRED],)).fetchone()[0]
     grant=row['grants'][0];grant['valid_until']=(datetime.now(UTC)-timedelta(minutes=1)).isoformat()
-    replace_fact(admin,'synthetic-a','grants',[principal,EXPIRED],F.GrantFacts,grants=[grant])
+    replace_fact(admin,TENANT_A,'grants',[principal,EXPIRED],F.GrantFacts,grants=[grant])
     app=admin.execute("select entity_key,payload from authz.nexloop_authority_facts where fact_kind='application' and payload::text like %s",('%'+OUTSIDE_APP+'%',)).fetchone()
-    replace_fact(admin,'synthetic-a','application',app[0],F.ApplicationFacts,
+    replace_fact(admin,TENANT_A,'application',app[0],F.ApplicationFacts,
         resources=[r for r in app[1]['resources'] if r['resource_id']!=OUTSIDE_APP])
     return reader,authenticate_service(reader.pool,token,world='real'),token
 
@@ -91,9 +92,9 @@ def test_identity_revocation_denies_in_next_request(varied,admin,change):
     reader,session,token=varied;auth=session.authentication
     with authority_request_scope():assert outcome(reader.pool,session,ALLOWED[0])[0] is True
     if change=='membership_suspended':
-        replace_fact(admin,'synthetic-a','membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,status='suspended')
+        replace_fact(admin,TENANT_A,'membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,status='suspended')
     else:
-        replace_fact(admin,'synthetic-a','subject',[auth.subject_id],F.SubjectFacts,status='disabled')
+        replace_fact(admin,TENANT_A,'subject',[auth.subject_id],F.SubjectFacts,status='disabled')
     with authority_request_scope():  # stale session refused before any memo use
         assert outcome(reader.pool,session,ALLOWED[0])[0]=='error'
     fresh=authenticate_service(reader.pool,token,world='real')
@@ -105,7 +106,7 @@ def test_revocation_inside_request_is_not_served_from_memo(varied,admin):
     reader,session,_=varied;auth=session.authentication
     with authority_request_scope():
         assert outcome(reader.pool,session,ALLOWED[0])[0] is True
-        replace_fact(admin,'synthetic-a','membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,status='suspended')
+        replace_fact(admin,TENANT_A,'membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,status='suspended')
         # Another target in the same request: the unit of work re-checks the live directory first.
         assert outcome(reader.pool,session,ALLOWED[1])[0]=='error'
 
@@ -114,7 +115,7 @@ def test_identity_expiry_is_evaluated_per_decision_with_memoized_fact(published_
     reader,_,_=published_action
     session,token=seed_multi_authority(admin,reader.pool,[(t,ResourceType.ACTION,Operation.EXECUTE) for t in ALLOWED],identity_suffix='-memo-expiry')
     auth=session.authentication
-    replace_fact(admin,'synthetic-a','membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,
+    replace_fact(admin,TENANT_A,'membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,
         valid_until=(datetime.now(UTC)+timedelta(seconds=2)).isoformat())
     session=authenticate_service(reader.pool,token,world='real')
     with authority_request_scope():
@@ -129,8 +130,8 @@ def test_memo_never_shared_across_principal_world_tenant(published_action,admin,
     reader,_,_=published_action
     _,token_a=seed_multi_authority(admin,reader.pool,[(ALLOWED[0],ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-memo-a')
     options={'principal':dict(identity_suffix='-memo-b'),'world':dict(identity_suffix='-memo-sim',world='simulation'),
-        'tenant':dict(identity_suffix='-memo-t',tenant='synthetic-b')}[variant]
-    if variant=='tenant':admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('synthetic-b','active') on conflict do nothing")
+        'tenant':dict(identity_suffix='-memo-t',tenant=TENANT_B)}[variant]
+    if variant=='tenant':admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
     _,token_b=seed_multi_authority(admin,reader.pool,[(ALLOWED[0],ResourceType.ACTION,Operation.EXECUTE)],**options)
     a=authenticate_service(reader.pool,token_a,world='real');b=authenticate_service(reader.pool,token_b,world=options.get('world','real'))
     with authority_request_scope():

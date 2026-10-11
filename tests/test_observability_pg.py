@@ -149,7 +149,7 @@ def test_rules_are_trusted_configuration_only(observed):
         with pytest.raises(AlertRulesRejected):
             validate_rules(broken)
     with psycopg.connect(make_conninfo(o['pg'], user='nexloop_api')) as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
-        db.execute("select control.nexloop_configure_alert_rules('synthetic-a','{}'::jsonb)")
+        db.execute("select control.nexloop_configure_alert_rules('00000000-0000-4000-8000-00000000000a','{}'::jsonb)")
     with psycopg.connect(make_conninfo(o['pg'], user='nexloop_api')) as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
         db.execute("select authz.nexloop_alert_evaluate('x','real','{}','x','{}')")
 

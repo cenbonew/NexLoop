@@ -7,9 +7,10 @@ from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from authority_fixture import seed_authority
 from nexloop_eios.authorization import WITNESS
+from support.tenants import TENANT_A
 
 
-def seed_agent(admin,tenant='synthetic-a'):
+def seed_agent(admin,tenant=TENANT_A):
     resource='eios:action:Consumer.create:1'
     token,rows=seed_authority(admin,tenant,resource,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-agent')
     agent='eios:agent:synthetic-writer';release='synthetic-agent-release-1'
@@ -42,19 +43,19 @@ def seed_agent(admin,tenant='synthetic-a'):
 
 def seed_parent(admin,invocation,*,allow=True):
     from authority_fixture import replace_fact
-    row=admin.execute("select payload from authz.nexloop_authority_facts where tenant_id='synthetic-a' and fact_kind='agent_application' and entity_key=%s",([invocation.agent_application_id,invocation.agent_application_version],)).fetchone()[0]
+    row=admin.execute("select payload from authz.nexloop_authority_facts where tenant_id='00000000-0000-4000-8000-00000000000a' and fact_kind='agent_application' and entity_key=%s",([invocation.agent_application_id,invocation.agent_application_version],)).fetchone()[0]
     app={k:v for k,v in row.items() if k not in ('repository_witness','snapshot_digest')}
     app.update(application_id='eios:application:synthetic-parent',version_digest='b'*64,record_digest='b'*64)
     if not allow:app.update(resources=[],operations=[])
     ceiling=F.ParentApplicationAuthorityFact.model_validate_json(json.dumps(app))
     parent_app=F.ApplicationFacts.model_validate_json(json.dumps({**app,'repository_witness':WITNESS}))
-    parent_agent=F.AgentFacts(tenant_id='synthetic-a',repository_witness=WITNESS,agent_id='eios:agent:synthetic-parent',actor_principal_id='synthetic-parent-principal',application_id=ceiling.application_id,status='active',revision=1)
-    parent_release=F.AgentReleaseFacts(tenant_id='synthetic-a',repository_witness=WITNESS,release_id='synthetic-parent-release',parent_release_id=None,agent_id=parent_agent.agent_id,application_id=ceiling.application_id,application_version=ceiling.version,application_version_digest=ceiling.version_digest,release_digest='c'*64,status='active',eligible=True,revision=1,released_at=datetime.now(UTC)-timedelta(hours=2),revoked_at=None,parent_chain=(),chain_complete=True)
+    parent_agent=F.AgentFacts(tenant_id=TENANT_A,repository_witness=WITNESS,agent_id='eios:agent:synthetic-parent',actor_principal_id='synthetic-parent-principal',application_id=ceiling.application_id,status='active',revision=1)
+    parent_release=F.AgentReleaseFacts(tenant_id=TENANT_A,repository_witness=WITNESS,release_id='synthetic-parent-release',parent_release_id=None,agent_id=parent_agent.agent_id,application_id=ceiling.application_id,application_version=ceiling.version,application_version_digest=ceiling.version_digest,release_digest='c'*64,status='active',eligible=True,revision=1,released_at=datetime.now(UTC)-timedelta(hours=2),revoked_at=None,parent_chain=(),chain_complete=True)
     body=parent_release.model_dump(mode='json')
     for key in ('repository_witness','snapshot_digest','parent_chain','chain_complete'):body.pop(key,None)
     body.update(agent_revision=parent_agent.revision,agent_status=parent_agent.status,application=ceiling.model_dump(mode='json'))
     frame=F.ParentAgentReleaseFact.model_validate_json(json.dumps(body))
     for kind,key,fact in [('agent',[parent_agent.agent_id],parent_agent),('agent_release',[parent_release.release_id],parent_release),('agent_application',[parent_app.application_id,parent_app.version],parent_app)]:
-        admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)',('synthetic-a',kind,key,Jsonb(fact.model_dump(mode='json'))))
-    replace_fact(admin,'synthetic-a','agent_release',[invocation.release_id],F.AgentReleaseFacts,parent_release_id=frame.release_id,parent_chain=[frame.model_dump(mode='json')])
+        admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)',(TENANT_A,kind,key,Jsonb(fact.model_dump(mode='json'))))
+    replace_fact(admin,TENANT_A,'agent_release',[invocation.release_id],F.AgentReleaseFacts,parent_release_id=frame.release_id,parent_chain=[frame.model_dump(mode='json')])
     return frame

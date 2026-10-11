@@ -2,6 +2,7 @@ import os,secrets,socket,ssl,subprocess,sys,time
 import httpx
 from test_browser_identity_reads import identity
 from nexloop_eios.browser_http import COOKIE
+from support.tenants import TENANT_A
 
 
 def test_actual_https_process_login_reload_csrf_and_shutdown(identity,admin,tmp_path):
@@ -10,13 +11,13 @@ def test_actual_https_process_login_reload_csrf_and_shutdown(identity,admin,tmp_
     cert=tmp_path/'cert.pem';key=tmp_path/'key.pem'
     subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(key),'-out',str(cert),'-days','1','-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost'],check=True,capture_output=True)
     cert.chmod(0o600);key.chmod(0o600)
-    admin.execute("insert into control.nexloop_browser_rate_policies values('synthetic-a','local_login','nexloop_identity',3,60,true)")
+    admin.execute("insert into control.nexloop_browser_rate_policies values('00000000-0000-4000-8000-00000000000a','local_login','nexloop_identity',3,60,true)")
     with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
     origin=f'https://localhost:{port}'
     cmd=[sys.executable,'-m','nexloop_eios.http_api','--database-url-file',str(tmp_path/'missing'),
          '--signing-key-file',str(tmp_path/'missing-key'),'--artifact-root',str(tmp_path/'unused'),'--signing-key-id','missing',
          '--mode','test','--port',str(port),'--identity-database-url-file',str(dsn),'--browser-rate-key-file',str(rate),
-         '--browser-tenant-id','synthetic-a','--browser-application-id','synthetic-browser-app','--browser-origin',origin,
+         '--browser-tenant-id',TENANT_A,'--browser-application-id','synthetic-browser-app','--browser-origin',origin,
          '--tls-certificate-file',str(cert),'--tls-key-file',str(key)]
     env={k:v for k,v in os.environ.items() if not k.startswith('MODEL_')}
     child=subprocess.Popen(cmd,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)

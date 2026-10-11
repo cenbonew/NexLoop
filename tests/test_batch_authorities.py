@@ -22,6 +22,7 @@ from authority_fixture import replace_fact
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action  # noqa: F401
 from test_identity_fact_memo import ALLOWED,EXPIRED,OUTSIDE_APP,MISSING,TARGETS,varied  # noqa: F401
+from support.tenants import TENANT_A, TENANT_B
 
 
 def query(session,target,kind=ResourceType.ACTION,op=Operation.EXECUTE):
@@ -94,9 +95,9 @@ def test_revocation_denies_in_next_request_and_inside_request(varied,admin,chang
     reader,session,token=varied;auth=session.authentication
     with authority_request_scope():assert [x[0] for x in batched(reader.pool,session,ALLOWED)]==[True,True]
     if change=='membership_suspended':
-        replace_fact(admin,'synthetic-a','membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,status='suspended')
+        replace_fact(admin,TENANT_A,'membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,status='suspended')
     else:
-        replace_fact(admin,'synthetic-a','grants',[auth.subject_principal_id,ALLOWED[1]],F.GrantFacts,grants=[])
+        replace_fact(admin,TENANT_A,'grants',[auth.subject_principal_id,ALLOWED[1]],F.GrantFacts,grants=[])
     with authority_request_scope():  # old session: refused before any batch fact is used
         assert all(x[0]=='error' for x in batched(reader.pool,session,list(ALLOWED)+[EXPIRED]))
     fresh=authenticate_service(reader.pool,token,world='real')
@@ -110,7 +111,7 @@ def test_identity_expiry_judged_per_target_in_batch(published_action,admin):
     reader,_,_=published_action
     session,token=seed_multi_authority(admin,reader.pool,[(t,ResourceType.ACTION,Operation.EXECUTE) for t in ALLOWED],identity_suffix='-batch-expiry')
     auth=session.authentication
-    replace_fact(admin,'synthetic-a','membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,
+    replace_fact(admin,TENANT_A,'membership',[auth.subject_id,auth.subject_principal_id],F.MembershipFacts,
         valid_until=(datetime.now(UTC)+timedelta(seconds=2)).isoformat())
     session=authenticate_service(reader.pool,token,world='real')
     first=batched(reader.pool,session,ALLOWED)
@@ -124,8 +125,8 @@ def test_batches_never_shared_across_principal_world_tenant(published_action,adm
     reader,_,_=published_action
     _,token_a=seed_multi_authority(admin,reader.pool,[(t,ResourceType.ACTION,Operation.EXECUTE) for t in ALLOWED],identity_suffix='-batch-a')
     options={'principal':dict(identity_suffix='-batch-b'),'world':dict(identity_suffix='-batch-sim',world='simulation'),
-        'tenant':dict(identity_suffix='-batch-t',tenant='synthetic-b')}[variant]
-    if variant=='tenant':admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('synthetic-b','active') on conflict do nothing")
+        'tenant':dict(identity_suffix='-batch-t',tenant=TENANT_B)}[variant]
+    if variant=='tenant':admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
     _,token_b=seed_multi_authority(admin,reader.pool,[(ALLOWED[0],ResourceType.ACTION,Operation.EXECUTE)],**options)
     a=authenticate_service(reader.pool,token_a,world='real');b=authenticate_service(reader.pool,token_b,world=options.get('world','real'))
     with authority_request_scope():

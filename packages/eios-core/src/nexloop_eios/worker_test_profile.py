@@ -13,7 +13,7 @@ import psycopg
 from eios.authz.operations import Operation
 from nexloop_eios.bootstrap import verify,catalog
 from nexloop_eios.compose_bootstrap import KEY_ID,_private_read,_write
-from nexloop_eios.sandbox_profile import _artifact_test_records
+from nexloop_eios.sandbox_profile import SANDBOX_TENANT,_artifact_test_records
 from nexloop_eios.private_configuration import read_private_text
 
 
@@ -33,7 +33,7 @@ def initialize_worker_test_profile(connection,*,core_root,worker_root,host,port,
     if hashlib.sha256(material).hexdigest()!=profile['sha256']['artifact_key']:raise PermissionError('test signer drift')
     key=connection.execute('select key_material from authz.nexloop_authority_signing_keys where key_id=%s and active',(KEY_ID,)).fetchone()
     if not key or bytes(key[0])!=material:raise PermissionError('active test signer required')
-    tenant='nexloop-sandbox';world='test'
+    tenant=SANDBOX_TENANT;world='test'
     binding,expiry,rows=_artifact_test_records(tenant,'eios:artifact:orphans_test',world,Operation.DELETE,identity_suffix='-maintenance')
     token=secrets.token_urlsafe(48);password=secrets.token_urlsafe(48)
     root.mkdir(mode=0o700,parents=True,exist_ok=True)
@@ -79,7 +79,7 @@ def check_worker_container():
     from nexloop_eios.domain_worker import run_page
     root=Path('/private/worker');artifacts=Path('/var/lib/nexloop/artifacts')
     profile=json.loads(read_private_text(root/'profile.json',maximum=8192))
-    if profile!={'mode':'test','world':'test','tenant_id':'nexloop-sandbox','catalog':{'lineage':'nexloop-eios-v1','revision':catalog()[-1].version,'migration_count':len(catalog())},'service_uid':os.geteuid(),'business_action_grants':False}:raise PermissionError('explicit disposable worker profile required')
+    if profile!={'mode':'test','world':'test','tenant_id':SANDBOX_TENANT,'catalog':{'lineage':'nexloop-eios-v1','revision':catalog()[-1].version,'migration_count':len(catalog())},'service_uid':os.geteuid(),'business_action_grants':False}:raise PermissionError('explicit disposable worker profile required')
     with open_backend(database_url=read_private_text(root/'maintenance_dsn',maximum=16384),artifact_root=artifacts,signing_key_file=root/'artifact_key',signing_key_id=KEY_ID) as backend:
         with backend._pool.connection() as c:
             role=verify_application_role(c)
@@ -88,7 +88,7 @@ def check_worker_container():
         # Permission checked before this explicitly synthetic filesystem-only fixture.
         service.collect_final_artifact_orphans(older_than=datetime.now(UTC)-timedelta(seconds=120),limit=1)
         with LocalBlobStore(artifacts) as store:
-            ref=store.put(tenant_id='nexloop-sandbox',world='test',payload=b'synthetic-community-worker-orphan',media_type='text/plain')
+            ref=store.put(tenant_id=SANDBOX_TENANT,world='test',payload=b'synthetic-community-worker-orphan',media_type='text/plain')
             path=store.root/ref.namespace/ref.artifact_id
             old=(datetime.now(UTC)-timedelta(seconds=180)).timestamp();os.utime(path,(old,old))
             report=run_page(service,older_than=datetime.now(UTC)-timedelta(seconds=120),limit=25)

@@ -6,7 +6,7 @@ run_id (contract §2).
 """
 import json
 
-TENANT, WORLD = 'synthetic-a', 'real'
+TENANT, WORLD = '00000000-0000-4000-8000-00000000000a', 'real'  # tests/support/tenants.TENANT_A (NX-052)
 
 
 def jsonl(path, rows):

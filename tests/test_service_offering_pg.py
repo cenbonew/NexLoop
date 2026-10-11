@@ -22,6 +22,7 @@ from authority_fixture import authority_records,replace_fact
 from test_trusted_configuration_pg import configured
 from test_business_setup_pg import declared_service
 from test_postgres_action_claims import governance_inputs
+from support.tenants import TENANT_A
 
 
 def read_declaration(tenant,targets):
@@ -48,7 +49,7 @@ def catalog(configured,admin,tmp_path):
     base=governance_inputs();original=base['action_definition'];cap=base['capability_snapshot'];actions=[]
     for schema in schemas:
         name=schema.type_name+'.create'
-        definition=json.loads(json.dumps(original.model_dump(mode='json')).replace('synthetic-a',tenant));definition.pop('contract_digest',None)
+        definition=json.loads(json.dumps(original.model_dump(mode='json')).replace(TENANT_A,tenant));definition.pop('contract_digest',None)
         ref={**definition['object_types'][0],'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)}
         definition['stable_name']=name;definition['object_types']=[ref];definition['governance']['change_scope']['object_types']=[ref]
         actions.append({'definition':type(original).model_validate_json(json.dumps(definition)).model_dump(mode='json'),'capability':cap.model_dump(mode='json')})

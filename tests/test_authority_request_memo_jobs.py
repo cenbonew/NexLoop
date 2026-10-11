@@ -21,6 +21,7 @@ from test_action_definitions import published_action  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_recall_pg import recall_db,recall_for,reader_targets,refs,A as TENANT_A  # noqa: F401
+from support.tenants import TENANT_A
 
 
 @pytest.fixture
@@ -91,7 +92,7 @@ def test_scheduler_revocation_is_observed_by_the_next_unit(services,admin,counte
     assert ClaimExtractionScheduler(s['api'],s['scheduler'],s['signer']).run_once()==[]
     unit=list(counted);assert len(unit)==len(set(unit))
     principal=s['scheduler'].authentication.subject_principal_id
-    replace_fact(admin,'synthetic-a','grants',[principal,EXTRACT_TARGET[0]],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[principal,EXTRACT_TARGET[0]],F.GrantFacts,grants=[])
     fresh=rotate(admin,s['api'],s['scheduler'])
     with pytest.raises(ClaimExtractionDenied):ClaimExtractionScheduler(s['api'],fresh,s['signer']).run_once()
 

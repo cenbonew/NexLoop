@@ -24,10 +24,11 @@ from nexloop_eios.claim_extraction_jobs import ClaimExtractionScheduler,ClaimExt
 from nexloop_eios.durable_queue import PostgresDurableQueue
 from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios import service_grants as G
+from support.tenants import TENANT_A
 
 MANIFEST=Path(__file__).resolve().parents[1]/'deploy/authorization/service-grants.v1.json'
 OWNER=Path(__file__).resolve().parents[1]/'deploy/authorization/owner-property-restrictions.json'
-TENANT='synthetic-a'
+TENANT=TENANT_A
 
 
 class Private(dict):
@@ -133,12 +134,12 @@ def test_doctor_reports_grants_outside_manifest_and_apply_revokes_managed_drift(
     report=G.doctor(d['manifest'],TENANT,database_url_file=d['paths']['dsn'])
     assert report['in_sync'] is False
     extras={(g['principal_id'],g['resource_id'],g['manifest_principal']) for g in report['extra_grants']}
-    assert ('synthetic-a-legacy-service-principal','eios:action:Consumer.create:1',False) in extras
+    assert (f'{TENANT_A}-legacy-service-principal','eios:action:Consumer.create:1',False) in extras
     assert (scheduler['principal_id'],'eios:action:nexloop.claim.match:1',True) in extras
     assert G.main(['--manifest',str(MANIFEST),'--tenant',TENANT,'--doctor','--database-url-file',str(d['paths']['dsn'])])==1
     fixed=d['apply']()
     assert {'principal_id':scheduler['principal_id'],'resource_id':'eios:action:nexloop.claim.match:1'} in fixed['grants_revoked']
-    assert any(g['principal_id']=='synthetic-a-legacy-service-principal' for g in fixed['extra_grants_outside_manifest'])
+    assert any(g['principal_id']==f'{TENANT_A}-legacy-service-principal' for g in fixed['extra_grants_outside_manifest'])
     after=G.doctor(d['manifest'],TENANT,database_url_file=d['paths']['dsn'])
     assert [g for g in after['extra_grants'] if g['manifest_principal']]==[]
     assert all(not g['manifest_principal'] for g in after['extra_grants'])  # foreign principal stays reported only
@@ -270,7 +271,7 @@ def test_configure_manifest_refuses_malformed_property_facts(deployment,admin):
     restriction={'tenant_id':TENANT,'type_name':'Consumer','restricted_groups':['demographics'],'decision':'owner decision'}
     bad_rules=[rule|{'extra':1},rule|{'operations':['delete']},rule|{'property_groups':['Bad-Group']},rule|{'include_review_published':'true'},
         {k:v for k,v in rule.items() if k!='include_review_published'},rule|{'basis_schema_version':0},rule|{'valid_until':None},
-        rule|{'principal_id':'synthetic-a-unknown-principal'}]
+        rule|{'principal_id':f'{TENANT_A}-unknown-principal'}]
     for payload in bad_rules:
         with pytest.raises(psycopg.errors.InvalidParameterValue):
             _raw_configure(d,admin,[{'kind':'property_access_rule','key':[payload['principal_id'],'Consumer'],'payload':payload}])

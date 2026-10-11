@@ -15,6 +15,7 @@ from nexloop_eios.backend import AuthenticatedServices
 from nexloop_eios.role_mapping import role_mapping_schemas,RoleMappingPort
 from nexloop_eios.role_runs import bind_role_run,ROLE_FIELDS,LINK_FIELDS,STEP_FIELDS
 from nexloop_eios.role_policies import CEILING_FIELDS,SCOPE_FIELDS
+from support.tenants import TENANT_A
 # Same bounded budget as runtime_effect_fixture Run commands; must stay within the ceiling.
 # Per-Run distinct-submission ceiling; effect_units tests raise EffectControl budget instead.
 ROLE_EFFECT_UNITS=1
@@ -35,7 +36,7 @@ def role_runtime_plan(monkeypatch,admin,request):
         # 0078: Role ceiling/scope are governed policy objects, never metadata strings.
         schemas=(*role_mapping_schemas(),*role_policy_schemas())
         for schema in schemas:
-            body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));body.pop('contract_digest',None)
+            body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
             ref=definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)})
             body.update(stable_name=schema.type_name+'.create',object_types=[ref.model_dump(mode='json')],required_scopes=['ontology.roles.manage'])
             body['governance']['change_scope']['object_types']=body['object_types'];body['capability_binding']['capability_name']='ontology.object.create'
@@ -57,7 +58,7 @@ def role_runtime_plan(monkeypatch,admin,request):
             policy_cap=CapabilityContractSnapshot.model_validate_json(json.dumps(policy_cap)).model_copy(update={'capability_name':'ontology.object.edit'})
             admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+kind+'.edit:1',Jsonb(policy_def.model_dump(mode='json')),Jsonb(policy_cap.model_dump(mode='json'))))
         from nexloop_eios.role_context_artifacts import ACTION as CONTEXT,role_context_binding_schema
-        context_body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));context_body.pop('contract_digest',None)
+        context_body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));context_body.pop('contract_digest',None)
         actual_ref=admin.execute("select definition->'object_types' from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s",(tenant,'eios:action:'+fixture.EFFECT+':1')).fetchone()[0]
         context_body['object_types']=actual_ref;context_body['governance']['change_scope']['object_types']=actual_ref
         context_body['stable_name']=CONTEXT;context_body['input_schema']=role_context_binding_schema();context_body['capability_binding']['capability_name']=CONTEXT

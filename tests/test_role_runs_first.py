@@ -13,6 +13,7 @@ from nexloop_eios.object_actions import GovernedObjectCreator
 from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.run_credentials import issue_run_credential
 from nexloop_eios.role_runs import bind_role_run,ROLE_FIELDS,LINK_FIELDS,STEP_FIELDS
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def selected(roles,admin):
@@ -24,8 +25,8 @@ def selected(roles,admin):
     base,cap=reader.get('Consumer.create',1)
     ref=base.object_types[0].model_copy(update={'stable_name':'PlanStep','schema_digest':schema_contract_digest(schema)})
     definition=base.model_copy(update={'stable_name':'PlanStep.create','contract_digest':None,'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
-    admin.execute('insert into ontology.object_type_versions values(%s,%s,1,%s)',('synthetic-a','PlanStep',Jsonb(schema.model_dump(mode='json'))))
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','real','eios:action:PlanStep.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
+    admin.execute('insert into ontology.object_type_versions values(%s,%s,1,%s)',(TENANT_A,'PlanStep',Jsonb(schema.model_dump(mode='json'))))
+    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:PlanStep.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
     creator=GovernedObjectCreator(reader.pool,authenticate_service(reader.pool,create.token,world='real'),reader.signer)
     def c(kind,intent,props):return creator.create(action_name=kind+'.create',action_version=1,intent_id=intent,type_name=kind,properties=props)['object_id']
     consumer=c('Consumer','selected-consumer',{})
@@ -64,7 +65,7 @@ def test_selection_failclosed_without_admission_or_ledger(selected,admin,fault):
     if fault=='foreign_consumer':args={**args,'consumer_id':'f'*64}
     elif fault=='role_mismatch':args={**args,'role_id':args['link_id']}
     elif fault=='source_revoked':admin.execute("update authz.nexloop_service_credentials set status='revoked' where token_digest=%s",(source._session.token_digest,))
-    elif fault=='read_revoked':replace_fact(admin,'synthetic-a','grants',[source._session.authentication.subject_principal_id,'eios:property:ConsumerRoleLink/'+args['link_id']+'/scope'],F.GrantFacts,grants=[])
+    elif fault=='read_revoked':replace_fact(admin,TENANT_A,'grants',[source._session.authentication.subject_principal_id,'eios:property:ConsumerRoleLink/'+args['link_id']+'/scope'],F.GrantFacts,grants=[])
     elif fault=='expired':admin.execute("update authz.nexloop_run_credentials set expires_at=issued_at+interval '1 microsecond' where run_id=%s",(run.run_id,))
     elif fault=='ended':admin.execute("update ontology.objects set properties=jsonb_set(properties,'{active}','false') where object_id=%s",(args['link_id'],)) # isolated fault injection
     with pytest.raises(Exception):bind_role_run(source,**args)

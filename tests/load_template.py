@@ -36,8 +36,9 @@ from nexloop_eios.object_actions import GovernedObjectCreator
 from authority_fixture import authority_records
 from test_browser_evidence import authenticate
 from test_browser_session_creation import create
+from support.tenants import TENANT_A
 
-TENANT = 'synthetic-a'
+TENANT = TENANT_A
 PG_BIN = Path(os.environ.get('NEXLOOP_TEST_PG_BIN', '/opt/homebrew/opt/postgresql@18/bin'))
 
 

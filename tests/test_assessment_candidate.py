@@ -9,11 +9,12 @@ from nexloop_eios.object_actions import GovernedObjectCreator
 from nexloop_eios.assessment_actions import GovernedAssessmentCreator,GovernedAssessmentCorrector,FIELDS
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 @pytest.fixture
 def assessment(published_action,admin):
  reader,template,cap=published_action
  endpoint=GovernedObjectCreator(reader.pool,reader.session,reader.signer).create(action_name='Consumer.create',action_version=1,intent_id='endpoint-1',type_name='Consumer',properties={})['object_id']
- return prepare_assessment(reader,template,cap,admin,endpoint,'synthetic-a')
+ return prepare_assessment(reader,template,cap,admin,endpoint,TENANT_A)
 
 def prepare_assessment(reader,template,cap,admin,endpoint,tenant,extra_targets=()):
  schema=ObjectTypeDefinition(type_name='RelationshipAssessment',version=1,only_edit_via_actions=True,properties=tuple(PropertyDefinition(property_name=f,value_type=PropertyValueType.INTEGER if f in ('corrects_revision','relation_version') else PropertyValueType.STRING) for f in FIELDS))
@@ -174,7 +175,7 @@ def test_actual_revoke_after_proof_denies_without_revision(assessment,admin,monk
  def race(value):
   text=original(value)
   if value.get('protocol')=='nexloop-assessment-correct-v1':
-   replace_fact(admin,'synthetic-a','grants',['synthetic-a-corrector-principal','eios:property:RelationshipAssessment/'+obj+'/conclusion'],F.GrantFacts,grants=[])
+   replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-corrector-principal','eios:property:RelationshipAssessment/'+obj+'/conclusion'],F.GrantFacts,grants=[])
   return text
  monkeypatch.setattr(actions,'canonical_payload',race)
  with pytest.raises((psycopg.errors.InsufficientPrivilege,AuthorizationUnavailable,ActionAuthorizationDenied)):
@@ -258,7 +259,7 @@ def test_current_relation_definition_read_revocation_denies(assessment,admin):
  from eios.authz.errors import AuthorizationUnavailable
  from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
  port,creator,p,obj,token=assessment
- replace_fact(admin,'synthetic-a','grants',['synthetic-a-corrector-principal','eios:link_type:contact'],F.GrantFacts,grants=[])
+ replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-corrector-principal','eios:link_type:contact'],F.GrantFacts,grants=[])
  fresh=authenticate_service(port.pool,token,world='real')
  with pytest.raises((AuthorizationUnavailable,ActionAuthorizationDenied,psycopg.errors.InsufficientPrivilege)):
   AuthorizedAssessmentProjection(port.pool,fresh,port.signer).current(obj)
@@ -267,7 +268,7 @@ def test_registered_endpoint_definition_type_is_checked_in_sql(assessment,admin)
  from eios.ontology.models import RelationTypeDefinition
  port,creator,p,obj,token=assessment
  definition=RelationTypeDefinition(relation_name='contact',version=2,source_type='Consumer',target_type='Message')
- admin.execute('insert into ontology.relation_type_versions(tenant_id,relation_name,version,definition) values(%s,%s,%s,%s)',('synthetic-a','contact',2,Jsonb(definition.model_dump(mode='json'))))
+ admin.execute('insert into ontology.relation_type_versions(tenant_id,relation_name,version,definition) values(%s,%s,%s,%s)',(TENANT_A,'contact',2,Jsonb(definition.model_dump(mode='json'))))
  from nexloop_eios.authorization import authenticate_service
  fresh=authenticate_service(port.pool,token,world='real')
  create=GovernedAssessmentCreator(port.pool,fresh,port.signer)
@@ -319,7 +320,7 @@ def test_legitimate_hmac_definition_lock_wait_rechecks_current_expiry(assessment
  monkeypatch.setattr(actions,'canonical_payload',short)
  with ThreadPoolExecutor(max_workers=1) as executor:
   with admin.transaction():
-   admin.execute("select definition from ontology.relation_type_versions where tenant_id='synthetic-a' and relation_name='contact' and version=1 for update")
+   admin.execute("select definition from ontology.relation_type_versions where tenant_id='00000000-0000-4000-8000-00000000000a' and relation_name='contact' and version=1 for update")
    future=executor.submit(AuthorizedAssessmentProjection(port.pool,port.session,port.signer).current,obj)
    assert ready.wait(5),'actual signed command did not arrive'
    time.sleep(.5);assert not future.done(),'actual read did not wait for owned definition row lock'

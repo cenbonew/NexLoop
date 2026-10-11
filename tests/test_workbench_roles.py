@@ -7,10 +7,11 @@ import pytest
 
 from nexloop_eios.trusted_configuration import FACT_MODELS
 from nexloop_eios.workbench_roles import WorkbenchRolesRejected, compile_members, configuration_payloads, load, main, revoke_member, validate_roles
+from support.tenants import TENANT_A
 
 ROOT = Path(__file__).resolve().parents[1]
 ROLES = load(ROOT / 'deploy/authorization/workbench-roles.v1.json')
-MEMBERS = {'schema_version': 'nexloop-workbench-members/1', 'tenant_id': 'synthetic-a', 'application_id': 'synthetic-workbench-app',
+MEMBERS = {'schema_version': 'nexloop-workbench-members/1', 'tenant_id': TENANT_A, 'application_id': 'synthetic-workbench-app',
            'caller_application_id': 'eios:application:synthetic-workbench',
            'members': [{'principal_id': 'owner-principal', 'subject_id': 'owner-subject', 'role': 'owner'},
                        {'principal_id': 'operator-principal', 'subject_id': 'operator-subject', 'role': 'operator'}]}
@@ -43,7 +44,7 @@ def test_compiled_facts_are_human_typed_deterministic_and_never_identity_facts()
     assert all(f['payload']['subject_kind'] == 'human' for f in facts if f['kind'] in ('grants', 'subject_authority'))
     application = next(f for f in facts if f['kind'] == 'application')
     assert {r['resource_id'] for r in application['payload']['resources']} == {a for items in ROLES['roles'].values() for a in items}
-    assert all(f['payload']['grants'] == [] for f in (dict(kind=k, key=key, payload=x.model_dump(mode='json')) for k, key, x in revoke_member(ROLES, 'synthetic-a', 'operator-principal')))
+    assert all(f['payload']['grants'] == [] for f in (dict(kind=k, key=key, payload=x.model_dump(mode='json')) for k, key, x in revoke_member(ROLES, TENANT_A, 'operator-principal')))
 
 
 def test_members_file_is_validated_and_subject_ids_stay_out_of_the_stored_map(tmp_path, capsys):

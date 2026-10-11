@@ -16,6 +16,7 @@ from test_action_definitions import published_action
 from test_browser_identity_reads import identity
 from test_browser_session_creation import uow,create
 from test_browser_evidence import authenticate
+from support.tenants import TENANT_A, TENANT_B
 
 
 class PrivateBrowserPlan(dict):
@@ -26,7 +27,7 @@ class PrivateBrowserPlan(dict):
 @pytest.fixture
 def browser_business(identity,uow,published_action,admin):
     reader,definition,capability=published_action
-    binding,expiry,records=authority_records('synthetic-a','eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
+    binding,expiry,records=authority_records(TENANT_A,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
     subject=identity[1].subject_id;principal=identity[2].principal_id
     def convert(value):
         if isinstance(value,dict):return {k:convert(v) for k,v in value.items()}
@@ -40,9 +41,9 @@ def browser_business(identity,uow,published_action,admin):
         body=convert(fact.model_dump(mode='json'));body.pop('snapshot_digest',None)
         model=type(fact).model_validate_json(json.dumps(body))
         admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s) on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload',
-            ('synthetic-a',name,convert(key),Jsonb(model.model_dump(mode='json'))))
+            (TENANT_A,name,convert(key),Jsonb(model.model_dump(mode='json'))))
     admin.execute('insert into control.nexloop_browser_business_applications values(%s,%s,%s,%s,%s)',
-        ('synthetic-a',uow.application_id,binding.caller_application_id,'1',Jsonb(['action.execute'])))
+        (TENANT_A,uow.application_id,binding.caller_application_id,'1',Jsonb(['action.execute'])))
     issued=create(uow,identity,authenticate(uow,identity).evidence)
     human=authenticate_browser_business(reader.pool,issued.session,world='real')
     return PrivateBrowserPlan(reader=reader,human=human,issued=issued,identity=identity,uow=uow,definition=definition,capability=capability)
@@ -64,7 +65,7 @@ def test_actual_browser_human_full_chain_creates_governed_object(browser_busines
 def test_service_authentication_cannot_swallow_browser_and_crossrealm_fails(browser_business):
     fixture=browser_business;pool=fixture['reader'].pool;session=fixture['issued'].session
     with pytest.raises(AuthorizationUnavailable):authenticate_service(pool,fixture['issued'].session_token.get_secret_value(),world='real')
-    with pytest.raises(AuthorizationUnavailable):authenticate_browser_business(pool,session.model_copy(update={'tenant_id':'synthetic-b'}),world='real')
+    with pytest.raises(AuthorizationUnavailable):authenticate_browser_business(pool,session.model_copy(update={'tenant_id':TENANT_B}),world='real')
     with pytest.raises(AuthorizationUnavailable):authenticate_browser_business(pool,session,world='shadow')
 
 

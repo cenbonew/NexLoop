@@ -35,8 +35,9 @@ from test_browser_session_reads import authenticate,create
 from test_candidate_merge_pg import candidates
 from test_claim_matching_pg import env,matcher_targets,obj,resolution  # noqa: F401
 from test_review_decisions_pg import human,pending,review  # noqa: F401
+from support.tenants import TENANT_A, TENANT_OTHER
 
-TENANT='synthetic-a'
+TENANT=TENANT_A
 pytestmark=pytest.mark.parametrize('env',[TENANT],indirect=True)
 GROUPS=('channel_tech','lifestyle','needs_intent','pain_point','preference','purchase_behavior','sentiment_attitude')
 READ,EDIT=Operation.READ,Operation.EDIT
@@ -202,7 +203,7 @@ def test_scope_tenant_world_object_and_caller_kind(review):
             return admin.execute('select authz.nexloop_property_access_derivation(%s,%s,%s,%s,%s)',(tenant,principal,world,res,op)).fetchone()[0]
     assert derive(TENANT,'real',resource(f))['mode']=='derived'
     assert derive(TENANT,'shadow',resource(f)) is None and derive(TENANT,'simulation',resource(f)) is None
-    assert derive('synthetic-other','real',resource(f)) is None
+    assert derive(TENANT_OTHER,'real',resource(f)) is None
     assert derive(TENANT,'real','eios:property:Consumer/'+'0'*64+'/payment_method') is None  # no such (or deleted) object
     assert derive(TENANT,'real',f"eios:property:Product/{f['product']}/name") is None  # other type: no rule
     assert derive(TENANT,'real',resource(f),'delete') is None and derive(TENANT,'real',resource(f),'execute') is None

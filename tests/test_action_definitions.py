@@ -16,11 +16,12 @@ from authority_fixture import seed_authority
 from test_postgres_action_claims import governance_inputs
 from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
 from eios.ontology.semantics import schema_contract_digest
+from support.tenants import TENANT_A, TENANT_B
 
 @pytest.fixture
 def published_action(admin,pg,request):
     bootstrap(admin)
-    token,_=seed_authority(admin,'synthetic-a','eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
+    token,_=seed_authority(admin,TENANT_A,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
     inputs=governance_inputs();definition=inputs['action_definition'];capability=inputs['capability_snapshot']
     schema=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True,
       properties=(PropertyDefinition(property_name='preference',value_type=PropertyValueType.STRING),) if getattr(request,'param',None) in ('with-preference','strict-input','external-input') else ())
@@ -38,10 +39,10 @@ def published_action(admin,pg,request):
         definition=definition.model_copy(update={'input_schema':contract,'contract_digest':None})
     if getattr(request,'param',None)!='missing-schema':
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',
-          ('synthetic-a','Consumer',1,Jsonb(schema.model_dump(mode='json'))))
+          (TENANT_A,'Consumer',1,Jsonb(schema.model_dump(mode='json'))))
     if getattr(request,'param',None)=='wrong-capability':capability=capability.model_copy(update={'schema_hash':'f'*64})
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-      ('synthetic-a','real','eios:action:Consumer.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+      (TENANT_A,'real','eios:action:Consumer.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     signer=AuthoritySigner('synthetic-reader',secrets.token_bytes(32))
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',(signer.key_id,signer.material))
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool:
@@ -64,7 +65,7 @@ def test_publication_change_invalidates_old_session(published_action,admin):
 
 def test_missing_published_contract_fails_closed(admin,pg):
     bootstrap(admin)
-    token,_=seed_authority(admin,'synthetic-a','eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
+    token,_=seed_authority(admin,TENANT_A,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION)
     signer=AuthoritySigner('synthetic-missing',secrets.token_bytes(32))
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',(signer.key_id,signer.material))
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool:
@@ -221,7 +222,7 @@ def test_revoke_after_governance_before_business_sql_denies_write(published_acti
     def revoke_at_signature(key,msg,*args,**kwargs):
         nonlocal revoked
         if msg.startswith(b'nexloop-object-create-v1:'):
-            replace_fact(admin,'synthetic-a','grants',['synthetic-a-principal','eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
+            replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-principal','eios:action:Consumer.create:1'],F.GrantFacts,grants=[])
             revoked=True
         return original(key,msg,*args,**kwargs)
     monkeypatch.setattr(module.hmac,'new',revoke_at_signature)
@@ -238,7 +239,7 @@ def test_authenticated_object_metadata_read_without_raw_select(published_action,
     reader,_,_=published_action
     receipt=GovernedObjectCreator(reader.pool,reader.session,reader.signer).create(action_name='Consumer.create',action_version=1,intent_id='synthetic-read-create-001',type_name='Consumer',properties={})
     target='eios:object:Consumer/'+receipt['object_id']
-    token,_=seed_authority(admin,'synthetic-a',target,operation=Operation.READ,resource_type=ResourceType.OBJECT,identity_suffix='-reader')
+    token,_=seed_authority(admin,TENANT_A,target,operation=Operation.READ,resource_type=ResourceType.OBJECT,identity_suffix='-reader')
     session=authenticate_service(reader.pool,token,world='real')
     projector=AuthorizedObjectReader(reader.pool,session,reader.signer)
     result=projector.get('Consumer',receipt['object_id'])
@@ -256,12 +257,12 @@ def test_object_read_rechecks_revoke_before_sql(published_action,admin,monkeypat
     reader,_,_=published_action
     receipt=GovernedObjectCreator(reader.pool,reader.session,reader.signer).create(action_name='Consumer.create',action_version=1,intent_id='synthetic-revoke-read-001',type_name='Consumer',properties={})
     target='eios:object:Consumer/'+receipt['object_id']
-    token,_=seed_authority(admin,'synthetic-a',target,operation=Operation.READ,resource_type=ResourceType.OBJECT,identity_suffix='-reader')
+    token,_=seed_authority(admin,TENANT_A,target,operation=Operation.READ,resource_type=ResourceType.OBJECT,identity_suffix='-reader')
     projector=module.AuthorizedObjectReader(reader.pool,authenticate_service(reader.pool,token,world='real'),reader.signer)
     original=module.hmac.new
     def revoke(key,msg,*args,**kwargs):
         if msg.startswith(b'nexloop-object-read-v1:'):
-            replace_fact(admin,'synthetic-a','grants',['synthetic-a-reader-principal',target],F.GrantFacts,grants=[])
+            replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-reader-principal',target],F.GrantFacts,grants=[])
         return original(key,msg,*args,**kwargs)
     monkeypatch.setattr(module.hmac,'new',revoke)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):projector.get('Consumer',receipt['object_id'])
@@ -282,26 +283,26 @@ def test_property_requires_its_own_live_eios_authority(published_action,admin):
     scopes=frozenset({'object.read','property.read'});digest=F.canonical_authority_digest({'resources':[t for _,t in targets]})
     rows={};binding=None;expiry=None
     for kind,target in targets:
-        base,expiry,records=authority_records('synthetic-a',target,operation=Operation.READ,resource_type=kind,identity_suffix='-property-reader')
+        base,expiry,records=authority_records(TENANT_A,target,operation=Operation.READ,resource_type=kind,identity_suffix='-property-reader')
         binding=base.model_copy(update={'requested_scopes':scopes,'caller_application_digest':digest})
         for name,key,fact in records:
             payload=fact.model_dump(mode='json');payload.pop('snapshot_digest',None)
             if name=='authentication':payload.update(binding.model_dump(mode='json'))
             if name=='application':
-                payload.update(version_digest=digest,record_digest=digest,resources=[ResourceRestriction(tenant_id='synthetic-a',resource_type=k.value,resource_id=t).model_dump(mode='json') for k,t in targets])
+                payload.update(version_digest=digest,record_digest=digest,resources=[ResourceRestriction(tenant_id=TENANT_A,resource_type=k.value,resource_id=t).model_dump(mode='json') for k,t in targets])
             if name=='scope':payload.update(catalog_scopes=list(scopes),authorized_scopes=list(scopes))
             fact=type(fact).model_validate_json(json.dumps(payload))
             rows[(name,tuple(key))]=(name,key,fact)
     token=secrets.token_urlsafe(48)
     admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
-      (hashlib.sha256(token.encode()).hexdigest(),'synthetic-a',binding.credential_id,Jsonb(binding.model_dump(mode='json')),['real'],'nexloop-core','active',expiry))
+      (hashlib.sha256(token.encode()).hexdigest(),TENANT_A,binding.credential_id,Jsonb(binding.model_dump(mode='json')),['real'],'nexloop-core','active',expiry))
     for name,key,fact in rows.values():
         admin.execute('insert into authz.nexloop_authority_facts values(%s,%s,%s,%s) on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload',
-          ('synthetic-a',name,key,Jsonb(fact.model_dump(mode='json'))))
+          (TENANT_A,name,key,Jsonb(fact.model_dump(mode='json'))))
     projector=AuthorizedObjectReader(reader.pool,authenticate_service(reader.pool,token,world='real'),reader.signer)
     assert projector.get('Consumer',receipt['object_id'])['properties']=={}
     assert projector.get('Consumer',receipt['object_id'],fields=('preference',))['properties']=={'preference':'blue'}
-    replace_fact(admin,'synthetic-a','grants',[binding.subject_principal_id,targets[1][1]],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[binding.subject_principal_id,targets[1][1]],F.GrantFacts,grants=[])
     refreshed=AuthorizedObjectReader(reader.pool,authenticate_service(reader.pool,token,world='real'),reader.signer)
     assert refreshed.get('Consumer',receipt['object_id'])['properties']=={}
     with pytest.raises(ActionAuthorizationDenied):refreshed.get('Consumer',receipt['object_id'],fields=('preference',))
@@ -313,6 +314,6 @@ def test_tenant_b_cannot_read_tenant_a_object_even_with_same_target_grant(publis
     reader,_,_=published_action
     receipt=GovernedObjectCreator(reader.pool,reader.session,reader.signer).create(action_name='Consumer.create',action_version=1,intent_id='synthetic-tenant-read-001',type_name='Consumer',properties={})
     target='eios:object:Consumer/'+receipt['object_id']
-    token,_=seed_authority(admin,'synthetic-b',target,operation=Operation.READ,resource_type=ResourceType.OBJECT)
+    token,_=seed_authority(admin,TENANT_B,target,operation=Operation.READ,resource_type=ResourceType.OBJECT)
     projector=AuthorizedObjectReader(reader.pool,authenticate_service(reader.pool,token,world='real'),reader.signer)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):projector.get('Consumer',receipt['object_id'])

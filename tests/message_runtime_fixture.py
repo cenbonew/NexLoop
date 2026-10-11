@@ -29,6 +29,7 @@ from runtime_effect_fixture import seed_multi_uuid,PrivatePlan,QUEUE
 from test_postgres_action_claims import governance_inputs
 from test_browser_evidence import authenticate
 from test_browser_session_creation import create
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def message_plan(admin,pg,tmp_path):
@@ -44,7 +45,7 @@ def message_plan(admin,pg,tmp_path):
     for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
     actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),CONTEXT_BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',),READ:('Conversation',),ROUTE:('Conversation',)})
     for name,types in actions.items():
-        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace('synthetic-a',tenant));body.pop('contract_digest',None)
+        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
         body['stable_name']=name;body['object_types']=[refs[k].model_dump(mode='json') for k in types]
         body['governance']['change_scope']['object_types']=body['object_types']
         capname='ontology.object.create' if name.endswith('.create') else name;body['capability_binding']['capability_name']=capname

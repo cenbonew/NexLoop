@@ -20,6 +20,7 @@ from nexloop_eios.object_actions import GovernedObjectCreator
 from authority_fixture import replace_fact,seed_authority
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 
 TARGET='eios:action:Consumer.create:1'
 
@@ -67,7 +68,7 @@ def test_memo_only_inside_scope_and_entries_replayed(published_action,counted):
 def test_revocation_is_observed_by_the_next_request(published_action,admin,counted):
     reader,_,_=published_action;pool,session=reader.pool,reader.session
     with authority_request_scope():assert allowed(pool,session)
-    replace_fact(admin,'synthetic-a','grants',[session.authentication.subject_principal_id,TARGET],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[session.authentication.subject_principal_id,TARGET],F.GrantFacts,grants=[])
     with authority_request_scope():
         assert not allowed(pool,session)  # stale session: directory changed
     fresh=_reauthenticate(admin,pool,session)
@@ -80,7 +81,7 @@ def test_grant_change_between_requests_changes_the_decision(published_action,adm
     with authority_request_scope():assert allowed(pool,session)
     row=admin.execute("select payload from authz.nexloop_authority_facts where fact_kind='grants' and entity_key=%s",([session.authentication.subject_principal_id,TARGET],)).fetchone()[0]
     grant=row['grants'][0];grant.update(operations=['read'],revision=2)
-    replace_fact(admin,'synthetic-a','grants',[session.authentication.subject_principal_id,TARGET],F.GrantFacts,grants=[grant],revision=2)
+    replace_fact(admin,TENANT_A,'grants',[session.authentication.subject_principal_id,TARGET],F.GrantFacts,grants=[grant],revision=2)
     fresh=_reauthenticate(admin,pool,session)
     with authority_request_scope():assert not allowed(pool,fresh)
 
@@ -91,7 +92,7 @@ def test_in_request_memo_cannot_bypass_sql_commit_tail(published_action,admin):
     before=admin.execute("select count(*) from ontology.objects").fetchone()[0]
     with authority_request_scope():
         resolve_authority(pool,session,query(session),[])  # warm the request memo
-        replace_fact(admin,'synthetic-a','grants',[session.authentication.subject_principal_id,TARGET],F.GrantFacts,grants=[])
+        replace_fact(admin,TENANT_A,'grants',[session.authentication.subject_principal_id,TARGET],F.GrantFacts,grants=[])
         with pytest.raises(Exception):
             creator.create(action_name='Consumer.create',action_version=1,intent_id='memo-revoked-'+uuid.uuid4().hex,type_name='Consumer',properties={})
     assert admin.execute("select count(*) from ontology.objects").fetchone()[0]==before
@@ -135,7 +136,7 @@ def test_concurrent_requests_have_isolated_memos(published_action):
 def test_shutdown_waits_for_inflight_request_and_later_requests_fail(published_action,admin,pg,tmp_path):
     reader,_,_=published_action
     key=tmp_path/'memo-key';key.write_bytes(reader.signer.material);key.chmod(0o600)
-    token,_=seed_authority(admin,'synthetic-a',TARGET,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-memo-host')
+    token,_=seed_authority(admin,TENANT_A,TARGET,operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-memo-host')
     entered=threading.Event();release=threading.Event();order=[]
     with open_backend(database_url=make_conninfo(pg,user='nexloop_api'),artifact_root=tmp_path/'blobs',signing_key_file=key,signing_key_id=reader.signer.key_id) as backend:
         services=backend.authenticate(token,world='real')

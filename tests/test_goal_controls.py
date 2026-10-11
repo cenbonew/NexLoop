@@ -26,6 +26,7 @@ from nexloop_eios.authorization import authenticate_service
 from test_action_definitions import published_action
 from test_browser_identity_reads import identity
 from test_browser_session_creation import uow
+from support.tenants import TENANT_A, TENANT_B
 
 NOW=datetime.now(UTC).replace(microsecond=0)
 YEAR=(NOW-timedelta(days=30),NOW+timedelta(days=335))
@@ -145,7 +146,7 @@ def test_owner_publish_requires_current_eios_grant_and_approved_metric(env,admin
         env.owner.publish_goal(action_name='Goal.publish',action_version=1,**goal('unmetered','long_term',0,YEAR,target='1',request_id='unmetered',metric='free-form-sql'))
     with pytest.raises(psycopg.Error,match='goal version conflict'):
         env.owner.publish_goal(action_name='Goal.publish',action_version=1,**goal('q4-stage','stage',0,QUARTER,target='0.9',request_id='stale-expected',parent={'goal_id':'long-term','version':1}))
-    replace_fact(admin,'synthetic-a','grants',[env.human.authentication.subject_principal_id,'eios:action:Goal.publish:1'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[env.human.authentication.subject_principal_id,'eios:action:Goal.publish:1'],F.GrantFacts,grants=[])
     env.reauthenticate()  # a fresh, valid human session without the EXECUTE grant
     with pytest.raises(Exception) as denied:
         env.owner.publish_goal(action_name='Goal.publish',action_version=1,**goal('q4-stage','stage',1,QUARTER,target='0.9',request_id='revoked-owner',parent={'goal_id':'long-term','version':1}))
@@ -201,7 +202,7 @@ def test_at007_goal_revision_and_customer_change_invalidate_old_plan(env,admin):
     definition,capability=ActionDefinition.model_validate_json(json.dumps(raw[0])),CapabilityContractSnapshot.model_validate_json(json.dumps(raw[1]))
     edit=definition.model_copy(update={'stable_name':'Consumer.edit','capability_binding':definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'}),'contract_digest':None})
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-        ('synthetic-a','real','eios:action:Consumer.edit:1',Jsonb(edit.model_dump(mode='json')),Jsonb(capability.model_copy(update={'capability_name':'consumer.edit'}).model_dump(mode='json'))))
+        (TENANT_A,'real','eios:action:Consumer.edit:1',Jsonb(edit.model_dump(mode='json')),Jsonb(capability.model_copy(update={'capability_name':'consumer.edit'}).model_dump(mode='json'))))
     editor_session,_=seed_multi_authority(admin,env.reader.pool,[('eios:action:Consumer.edit:1',ResourceType.ACTION,Operation.EXECUTE),
         ('eios:object:Consumer/'+consumer,ResourceType.OBJECT,Operation.EDIT),('eios:property:Consumer/'+consumer+'/preference',ResourceType.PROPERTY,Operation.EDIT)],identity_suffix='-consumer-editor')
     env.reauthenticate();control=env.control
@@ -304,13 +305,13 @@ def test_at043_tenant_budget_blocks_new_consumption_and_keeps_existing(env,admin
 
 
 def test_tenant_isolation_of_goal_reads(env,admin):
-    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('synthetic-b','active') on conflict do nothing")
-    other,_=seed_multi_authority(admin,env.reader.pool,[('eios:action:Goal.publish:1',ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-other-tenant',tenant='synthetic-b')
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
+    other,_=seed_multi_authority(admin,env.reader.pool,[('eios:action:Goal.publish:1',ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-other-tenant',tenant=TENANT_B)
     foreign=ControlPlane(env.reader.pool,other)
     with pytest.raises(psycopg.Error,match='goal unavailable'):foreign.read_goal('q4-stage')
     assert foreign.snapshot()['control_revision']==0
     with pytest.raises(psycopg.Error,match='key result unavailable'):foreign.compute_key_result(goal_id='q4-stage',goal_version=1,kr_key='renewal')
-    assert admin.execute("select count(*) from control.nexloop_goals where tenant_id='synthetic-b'").fetchone()==(0,)
+    assert admin.execute("select count(*) from control.nexloop_goals where tenant_id='00000000-0000-4000-8000-00000000000b'").fetchone()==(0,)
 
 
 def test_goal_version_ref_matches_contract_pattern():

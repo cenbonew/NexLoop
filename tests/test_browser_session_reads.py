@@ -9,6 +9,7 @@ from test_browser_session_creation import uow,create
 from test_browser_identity_reads import identity
 from test_browser_evidence import authenticate
 from test_browser_account_failures import OP
+from support.tenants import TENANT_B
 
 
 def test_session_inspect_actual_token_reopen_and_no_write(uow,identity,admin):
@@ -37,7 +38,7 @@ def test_canonical_identity_revocation_denies_session(uow,identity,admin,table,c
 
 def test_application_revision_and_wrong_realm_denied(uow,identity,admin):
     issued=create(uow,identity,authenticate(uow,identity).evidence)
-    other=PostgresBrowserSessionUnitOfWork(uow.pool,tenant_id='synthetic-b',application_id=uow.application_id)
+    other=PostgresBrowserSessionUnitOfWork(uow.pool,tenant_id=TENANT_B,application_id=uow.application_id)
     assert other.get_session(issued.session.session_id) is None
     admin.execute('update control.nexloop_browser_applications set revision=2')
     assert uow.get_session(issued.session.session_id) is None

@@ -15,6 +15,7 @@ from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from authority_fixture import replace_fact
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 
 
 @pytest.fixture
@@ -29,11 +30,11 @@ def linker(published_action,admin,request):
     definition=definition.model_copy(update={'stable_name':'Peer.link','capability_binding':binding})
     capability=capability.model_copy(update={'capability_name':'ontology.relation.link'})
     admin.execute('insert into ontology.relation_type_versions(tenant_id,relation_name,version,definition) values(%s,%s,%s,%s)',
-        ('synthetic-a','Peer',1,Jsonb(schema.model_dump(mode='json'))))
+        (TENANT_A,'Peer',1,Jsonb(schema.model_dump(mode='json'))))
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-        ('synthetic-a','real','eios:action:Peer.link:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+        (TENANT_A,'real','eios:action:Peer.link:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     admin.execute('insert into control.nexloop_relation_action_bindings values(%s,%s,%s,%s,%s,%s,%s)',
-        ('synthetic-a','real','eios:action:Peer.link:1',definition.reference().contract_digest,'Peer',1,schema_contract_digest(schema)))
+        (TENANT_A,'real','eios:action:Peer.link:1',definition.reference().contract_digest,'Peer',1,schema_contract_digest(schema)))
     targets=[('eios:action:Peer.link:1',ResourceType.ACTION,Operation.EXECUTE),('eios:relation:Peer',ResourceType.RELATION,Operation.CREATE)]
     targets += [('eios:object:Consumer/'+obj,ResourceType.OBJECT,Operation.EDIT) for obj in ids]
     session,token=seed_multi_authority(admin,reader.pool,targets,identity_suffix='-linker')
@@ -70,7 +71,7 @@ def test_cardinality_conflict_does_not_add_relation(linker,admin):
 
 def test_endpoint_revocation_fresh_login_denies_link(linker,admin):
     service,ids,token=linker
-    replace_fact(admin,'synthetic-a','grants',['synthetic-a-linker-principal','eios:object:Consumer/'+ids[1]],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-linker-principal','eios:object:Consumer/'+ids[1]],F.GrantFacts,grants=[])
     service.session=authenticate_service(service.pool,token,world='real')
     with pytest.raises((AuthorizationUnavailable,ActionAuthorizationDenied)):service.link(**args(ids))
     assert admin.execute('select count(*) from ontology.relations').fetchone()[0]==0
@@ -116,7 +117,7 @@ def test_endpoint_revoked_after_proof_before_dispatch(linker,admin,monkeypatch):
     def race(value):
         text=original(value)
         if value.get('protocol')=='nexloop-relation-link-v1':
-            replace_fact(admin,'synthetic-a','grants',['synthetic-a-linker-principal','eios:object:Consumer/'+ids[1]],F.GrantFacts,grants=[])
+            replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-linker-principal','eios:object:Consumer/'+ids[1]],F.GrantFacts,grants=[])
         return text
     monkeypatch.setattr(relations,'canonical_payload',race)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):service.link(**args(ids))
@@ -135,9 +136,9 @@ def test_missing_relation_binding_denies_before_claim(linker,admin):
 def test_same_endpoint_ids_in_wrong_world_denied(linker,admin):
     service,ids,_=linker
     row=admin.execute('select resource_id,definition,capability from control.nexloop_action_definitions where resource_id=%s',('eios:action:Peer.link:1',)).fetchone()
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','test',row[0],Jsonb(row[1]),Jsonb(row[2])))
+    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'test',row[0],Jsonb(row[1]),Jsonb(row[2])))
     binding=admin.execute('select action_contract_digest,relation_name,relation_version,schema_digest from control.nexloop_relation_action_bindings').fetchone()
-    admin.execute('insert into control.nexloop_relation_action_bindings values(%s,%s,%s,%s,%s,%s,%s)',('synthetic-a','test',row[0],*binding))
+    admin.execute('insert into control.nexloop_relation_action_bindings values(%s,%s,%s,%s,%s,%s,%s)',(TENANT_A,'test',row[0],*binding))
     targets=[('eios:action:Peer.link:1',ResourceType.ACTION,Operation.EXECUTE),('eios:relation:Peer',ResourceType.RELATION,Operation.CREATE)]
     targets += [('eios:object:Consumer/'+obj,ResourceType.OBJECT,Operation.EDIT) for obj in ids]
     session,_=seed_multi_authority(admin,service.pool,targets,identity_suffix='-test-world',world='test')

@@ -9,6 +9,7 @@ from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,Propert
 from eios.ontology.semantics import schema_contract_digest
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def roles(published_action,admin,pg):
@@ -19,8 +20,8 @@ def roles(published_action,admin,pg):
         kind=schema.type_name
         ref=base.object_types[0].model_copy(update={'stable_name':kind,'schema_digest':schema_contract_digest(schema)})
         definition=base.model_copy(update={'stable_name':kind+'.create','required_scopes':('ontology.roles.manage',),'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
-        admin.execute('insert into ontology.object_type_versions values(%s,%s,%s,%s)',('synthetic-a',kind,1,Jsonb(schema.model_dump(mode='json'))))
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':('ontology.roles.manage',)}).model_dump(mode='json'))))
+        admin.execute('insert into ontology.object_type_versions values(%s,%s,%s,%s)',(TENANT_A,kind,1,Jsonb(schema.model_dump(mode='json'))))
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':('ontology.roles.manage',)}).model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.create:1',ResourceType.ACTION,Operation.EXECUTE))
     targets.append(('eios:action:Consumer.create:1',ResourceType.ACTION,Operation.EXECUTE))
     session,token=seed_multi_authority(admin,reader.pool,targets,identity_suffix='-role-maintainer',extra_scopes=('ontology.roles.manage',))
@@ -84,7 +85,7 @@ def test_governed_end_and_actual_property_authorized_projection(roles,admin):
     binding=definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'})
     edit=definition.model_copy(update={'stable_name':'ConsumerRoleLink.edit','capability_binding':binding,'contract_digest':None})
     capability=capability.model_copy(update={'capability_name':'consumer.edit'})
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','real','eios:action:ConsumerRoleLink.edit:1',Jsonb(edit.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:ConsumerRoleLink.edit:1',Jsonb(edit.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     targets=[('eios:action:ConsumerRoleLink.edit:1',ResourceType.ACTION,Operation.EXECUTE),('eios:object:ConsumerRoleLink/'+link,ResourceType.OBJECT,Operation.EDIT),('eios:property:ConsumerRoleLink/'+link+'/active',ResourceType.PROPERTY,Operation.EDIT)]
     for kind,obj,names in [('ConsumerRoleLink',link,props),('RoleDefinition',role,dict(name=1,responsibility=1,ceiling_ref=1,**valid))]:
         targets.append(('eios:object:'+kind+'/'+obj,ResourceType.OBJECT,Operation.READ))
@@ -97,7 +98,7 @@ def test_governed_end_and_actual_property_authorized_projection(roles,admin):
     result=editor.edit(**args);assert editor.edit(**args)==result
     assert projection.get('ConsumerRoleLink',link,fields=tuple(props))['properties']['active'] is False
     before=admin.execute("select properties from ontology.objects where object_id=%s",(link,)).fetchone()
-    replace_fact(admin,'synthetic-a','grants',[session.authentication.subject_principal_id,'eios:property:ConsumerRoleLink/'+link+'/scope'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[session.authentication.subject_principal_id,'eios:property:ConsumerRoleLink/'+link+'/scope'],F.GrantFacts,grants=[])
     with pytest.raises(Exception):projection.get('ConsumerRoleLink',link,fields=('scope',))
     assert admin.execute("select properties from ontology.objects where object_id=%s",(link,)).fetchone()==before
 
@@ -117,7 +118,7 @@ def test_current_management_execute_revocation_denies_dispatch(roles,admin):
     from eios.authz import facts as F
     create,valid,reader=roles
     actor=create.__closure__[0].cell_contents.session.authentication.subject_principal_id
-    replace_fact(admin,'synthetic-a','grants',[actor,'eios:action:RoleDefinition.create:1'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[actor,'eios:action:RoleDefinition.create:1'],F.GrantFacts,grants=[])
     with pytest.raises(Exception):create('RoleDefinition','revoked-manager',dict(name='revoked',responsibility='synthetic',ceiling_ref='eios:ceiling:declared-only',**valid))
     assert admin.execute("select count(*) from ontology.objects where type_name='RoleDefinition'").fetchone()==(0,)
 
@@ -183,7 +184,7 @@ def test_generic_create_without_management_contract_cannot_bypass_role_guard(rol
     raw=admin.execute("select definition,capability from control.nexloop_action_definitions where resource_id='eios:action:RoleDefinition.create:1'").fetchone()
     definition=ActionDefinition.model_validate_json(json.dumps(raw[0])).model_copy(update={'stable_name':'RoleDefinition.unprivileged','required_scopes':(),'contract_digest':None})
     capability=CapabilityContractSnapshot.model_validate_json(json.dumps(raw[1])).model_copy(update={'required_scopes':()})
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','real','eios:action:RoleDefinition.unprivileged:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:RoleDefinition.unprivileged:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     session,_=seed_multi_authority(admin,reader.pool,[('eios:action:RoleDefinition.unprivileged:1',ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-non-management-create')
     creator=GovernedObjectCreator(reader.pool,session,reader.signer)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):creator.create(action_name='RoleDefinition.unprivileged',action_version=1,intent_id='generic-bypass-must-fail',type_name='RoleDefinition',properties=dict(name='bypass',responsibility='synthetic',ceiling_ref='eios:ceiling:declared-only',**valid))
@@ -197,7 +198,7 @@ def test_current_scope_authority_removal_denies_even_requested_manage_still_pres
     create,valid,_=roles
     session=create.__closure__[0].cell_contents.session
     assert 'ontology.roles.manage' in session.authentication.requested_scopes
-    replace_fact(admin,'synthetic-a','scope',[session.authentication.subject_principal_id,'eios:action:RoleDefinition.create:1','execute'],F.ScopeAuthorityFacts,authorized_scopes=sorted(session.authentication.requested_scopes-frozenset({'ontology.roles.manage'})))
+    replace_fact(admin,TENANT_A,'scope',[session.authentication.subject_principal_id,'eios:action:RoleDefinition.create:1','execute'],F.ScopeAuthorityFacts,authorized_scopes=sorted(session.authentication.requested_scopes-frozenset({'ontology.roles.manage'})))
     from nexloop_eios.authorization import authenticate_service
     reader=roles[2]
     refreshed=authenticate_service(reader.pool,create.token,world='real')
@@ -223,7 +224,7 @@ def test_fixed_port_configurable_duties_scope_and_authorized_current_projection(
         definition=ActionDefinition.model_validate_json(json.dumps(raw[0]));capability=CapabilityContractSnapshot.model_validate_json(json.dumps(raw[1]))
         binding=definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'})
         definition=definition.model_copy(update={'stable_name':kind+'.edit','capability_binding':binding,'contract_digest':None});capability=capability.model_copy(update={'capability_name':'consumer.edit'})
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',('synthetic-a','real','eios:action:'+kind+'.edit:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.edit:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.edit:1',ResourceType.ACTION,Operation.EXECUTE))
         for operation in (Operation.READ,Operation.EDIT):
             targets.append(('eios:object:'+kind+'/'+obj,ResourceType.OBJECT,operation))

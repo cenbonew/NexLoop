@@ -13,8 +13,9 @@ from psycopg.types.json import Jsonb
 from erasure_support import ERASING
 from test_read_assert_memo import memo  # noqa: F401
 from test_action_definitions import published_action  # noqa: F401
+from support.tenants import TENANT_A
 
-TENANT='synthetic-a'
+TENANT=TENANT_A
 
 
 def assert_read(m):
@@ -66,7 +67,7 @@ def test_the_check_uses_the_new_indexes(memo,admin):
         admin.execute("""prepare msg(text,text,text) as select cv.consumer_id from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv
           on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id where m.tenant_id=$1 and m.world=$2 and m.message_id=$3 limit 1""")
         admin.execute("prepare one(text,text,text) as select 1 from control.nexloop_consumer_erasures e where e.tenant_id=$1 and e.world=$2 and e.consumer_id=$3 and e.state<>'pending_confirmation' limit 1")
-        for name,args in (('fast',"('synthetic-a','real')"),('msg',"('synthetic-a','real','"+'a'*64+"')"),('one',"('synthetic-a','real','"+'b'*64+"')")):
+        for name,args in (('fast',"('00000000-0000-4000-8000-00000000000a','real')"),('msg',"('00000000-0000-4000-8000-00000000000a','real','"+'a'*64+"')"),('one',"('00000000-0000-4000-8000-00000000000a','real','"+'b'*64+"')")):
             plans[name]='\n'.join(r[0] for r in admin.execute(f'explain (costs off) execute {name}{args}').fetchall())
     print('NX029_PLANS',plans)
     assert 'nexloop_consumer_erasures_erasing' in plans['fast']

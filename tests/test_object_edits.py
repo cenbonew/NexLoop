@@ -17,6 +17,7 @@ from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from authority_fixture import replace_fact
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 
 
 @pytest.fixture
@@ -29,7 +30,7 @@ def editor(published_action, admin):
     definition = definition.model_copy(update={'stable_name':'Consumer.edit','capability_binding':binding})
     capability = capability.model_copy(update={'capability_name':'consumer.edit'})
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-        ('synthetic-a','real','eios:action:Consumer.edit:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+        (TENANT_A,'real','eios:action:Consumer.edit:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     targets=[('eios:action:Consumer.edit:1',ResourceType.ACTION,Operation.EXECUTE),
         ('eios:object:Consumer/'+receipt['object_id'],ResourceType.OBJECT,Operation.EDIT),
         ('eios:property:Consumer/'+receipt['object_id']+'/preference',ResourceType.PROPERTY,Operation.EDIT)]
@@ -61,7 +62,7 @@ def test_stale_revision_does_not_mutate_object(editor,admin):
 @pytest.mark.parametrize('published_action',['with-preference'],indirect=True)
 def test_property_permission_revocation_denies_patch(editor,admin):
     service,obj,token=editor
-    replace_fact(admin,'synthetic-a','grants',['synthetic-a-editor-principal','eios:property:Consumer/'+obj+'/preference'],F.GrantFacts,grants=[])
+    replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-editor-principal','eios:property:Consumer/'+obj+'/preference'],F.GrantFacts,grants=[])
     # Fresh authenticated identity must still deny the revoked property grant.
     service.session=authenticate_service(service.pool,token,world='real')
     from eios.authz.errors import AuthorizationUnavailable
@@ -95,7 +96,7 @@ def test_revocation_after_resolution_before_sql_is_denied(editor,admin,monkeypat
     def race(value):
         text=original(value)
         if value.get('protocol')=='nexloop-object-edit-v1':
-            replace_fact(admin,'synthetic-a','grants',['synthetic-a-editor-principal','eios:property:Consumer/'+obj+'/preference'],F.GrantFacts,grants=[])
+            replace_fact(admin,TENANT_A,'grants',[f'{TENANT_A}-editor-principal','eios:property:Consumer/'+obj+'/preference'],F.GrantFacts,grants=[])
         return text
     monkeypatch.setattr(edits,'canonical_payload',race)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):

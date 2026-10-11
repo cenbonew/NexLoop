@@ -25,12 +25,13 @@ from authority_fixture import seed_authority
 from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
 from generic_offering_fixture import install_generic_catalog
+from support.tenants import TENANT_A
 
 @pytest.fixture
 def plan(admin,pg,tmp_path):
     bootstrap(admin)
     assert admin.execute("select to_regclass('control.nexloop_effect_control_ledger')").fetchone()[0]
-    tenant='synthetic-a';material=secrets.token_bytes(32);key=tmp_path/'key';key.write_bytes(material);key.chmod(0o600)
+    tenant=TENANT_A;material=secrets.token_bytes(32);key=tmp_path/'key';key.write_bytes(material);key.chmod(0o600)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('synthetic-plan',material))
     seed_authority(admin,tenant,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-seed')
     schemas={schema.type_name:schema for schema in effect_plan_schemas()}

@@ -14,7 +14,7 @@ import random
 import sys
 
 SCHEMA = 'nexloop.load-manifest.v2'  # v2 (dispatcher 2026-10-11, history option A): 1–2 recent inbound messages per consumer
-TENANT = 'synthetic-a'  # the fixtures' synthetic tenant inside a disposable cluster (D1: world real, synthetic data only)
+TENANT = '00000000-0000-4000-8000-00000000000a'  # tests/support/tenants.TENANT_A (NX-052); the fixtures' synthetic tenant inside a disposable cluster (D1: world real, synthetic data only)
 # §2.2 proportions (D2).
 P_RESTRICTED = 0.08
 P_COMMITMENT = 0.20

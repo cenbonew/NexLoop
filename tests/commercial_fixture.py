@@ -28,9 +28,10 @@ from nexloop_eios.property_access import PropertyAccessRule,PropertyGroupRestric
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action  # noqa: F401
 from test_postgres_action_claims import governance_inputs
+from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
-TENANT='synthetic-a'
+TENANT=TENANT_A
 SETTINGS=ROOT/'deploy/configuration/commercial.v1.json'
 TYPES=['order.created','order.paid','order.cancelled','payment.pending','payment.succeeded','payment.failed','subscription.renewed','refund.succeeded']
 RECORDER_TARGETS=[(r,ResourceType.ACTION,Operation.EXECUTE) for r in ('eios:action:NexLoop.feed.commercial-record:1','eios:action:nexloop.commercial.record:1',

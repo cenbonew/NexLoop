@@ -39,8 +39,9 @@ from test_claim_store_pg import source_targets
 from test_review_http import REVIEW,grant_human
 from test_browser_session_reads import authenticate,create
 from test_work_feeds_pg import INDEX_FEED,MATCH_FEED,drain
+from support.tenants import TENANT_A
 
-TENANT='synthetic-a'
+TENANT=TENANT_A
 READ,EDIT,EXECUTE=Operation.READ,Operation.EDIT,Operation.EXECUTE
 
 

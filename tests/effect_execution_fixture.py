@@ -25,6 +25,7 @@ from authority_fixture import seed_authority
 from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
 from generic_offering_fixture import install_generic_catalog
+from support.tenants import TENANT_A
 
 # Optional indirect parameter: 'commitment-service' publishes the effect Action as a non-message service delivery that
 # may name the commitment it fulfils (NX-026) and carries an optional customer notification parameter.
@@ -36,7 +37,7 @@ SERVICE_SCHEMAS={'commitment-service':{'type':'object','properties':{'service':{
 def execution_plan(admin,pg,tmp_path,request):
     bootstrap(admin)
     assert admin.execute("select to_regclass('control.nexloop_effect_control_ledger')").fetchone()[0]
-    tenant='synthetic-a';material=secrets.token_bytes(32);key=tmp_path/'key';key.write_bytes(material);key.chmod(0o600)
+    tenant=TENANT_A;material=secrets.token_bytes(32);key=tmp_path/'key';key.write_bytes(material);key.chmod(0o600)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('synthetic-plan',material))
     seed_authority(admin,tenant,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-seed')
     schemas={schema.type_name:schema for schema in effect_plan_schemas()}
@@ -120,7 +121,7 @@ class PrivateConfiguration(dict):
 class GovernedEffectExecutor:
     def __init__(self,plan,pg,tmp_path,admin):
         self.plan,self.pg,self.tmp_path,self.admin=plan,pg,tmp_path,admin
-        self.tenant='synthetic-a';self.executor_principal=plan['executor'].authentication.subject_principal_id
+        self.tenant=TENANT_A;self.executor_principal=plan['executor'].authentication.subject_principal_id
         configure_args=dict(control_id=plan['control'],control_revision=1,executor_token=plan['executor_token'])
         plan['owner'].configure_effect_control(**configure_args)
         self.runs=[plan['issued'],plan['second_submitter'].issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])]

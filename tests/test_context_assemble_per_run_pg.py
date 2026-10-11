@@ -20,6 +20,7 @@ from nexloop_eios.run_credentials import AUDIENCE
 from test_context_v6_pg import v6,bound  # noqa: F401
 from test_context_artifacts import context_message  # noqa: F401
 from local_message_assembly_fixture import assembled_message,business_plan,configured  # noqa: F401
+from support.tenants import TENANT_B
 
 STRATEGY_ID='recent_plus_required'
 EFFECT='eios:action:nexloop.service.request:1'
@@ -92,7 +93,7 @@ def test_other_source_tenant_world_and_forged_claims_are_refused(v6,admin):
     # The Run credential itself is not a Source.
     with pytest.raises(psycopg.errors.InsufficientPrivilege):raw_strategy(f,good,session=run_session)
     # Another tenant / another world / another Run digest / unknown Run / stale directory / standing-style facts.
-    for change in ({'tenant_id':'synthetic-b'},{'world':'simulation'},{'run_assemble':{**good['run_assemble'],'run_digest':'0'*64}},
+    for change in ({'tenant_id':TENANT_B},{'world':'simulation'},{'run_assemble':{**good['run_assemble'],'run_digest':'0'*64}},
                    {'run_assemble':{**good['run_assemble'],'run_id':'00000000-0000-4000-8000-000000000000'}},{'directory_hash':'0'*64},
                    {'run_assemble':{**good['run_assemble'],'extra':1}},{'facts':[{'kind':'grants'}]}):
         with pytest.raises(psycopg.errors.InsufficientPrivilege):raw_strategy(f,{**good,**change})

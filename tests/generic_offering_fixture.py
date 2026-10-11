@@ -11,10 +11,11 @@ from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.service_offerings import offering_schemas,json_export_example,OFFERING_FIELDS,BINDING_FIELDS
 from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
+from support.tenants import TENANT_A
 
 
 def install_generic_catalog(admin,backend,*,consumer_id,valid_until,submitter,second_submitter):
-    tenant='synthetic-a';base=governance_inputs();original=base['action_definition'];cap=base['capability_snapshot']
+    tenant=TENANT_A;base=governance_inputs();original=base['action_definition'];cap=base['capability_snapshot']
     schemas=offering_schemas()
     for schema in schemas:
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))

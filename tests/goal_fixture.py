@@ -13,8 +13,9 @@ from eios.authz.resources import ResourceType
 from eios.identity.models import SubjectKind
 from nexloop_eios.authorization import WITNESS
 from multi_authority_fixture import seed_multi_authority
+from support.tenants import TENANT_A
 
-TENANT='synthetic-a'
+TENANT=TENANT_A
 ACTIONS={'Metric.approve':'goals.metric.approve','Goal.publish':'goals.version.publish','Goal.propose':'goals.agent.propose',
     'Control.set':'goals.control.set','Budget.set':'goals.budget.set','Contact.release':'goals.contact.release'}
 MODELS={'subject':F.SubjectFacts,'membership':F.MembershipFacts,'actor':F.ActorFacts,'authentication':F.CredentialAuthenticationFacts,

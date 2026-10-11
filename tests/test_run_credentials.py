@@ -6,6 +6,7 @@ from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from test_action_definitions import published_action
 from test_agent_governed_write import configuration,args
 from agent_authority_fixture import seed_agent
+from support.tenants import TENANT_A
 
 RESOURCE='eios:action:Consumer.create:1'
 
@@ -69,8 +70,8 @@ def test_cached_run_rechecks_revocation(published_action,admin,pg,tmp_path,mutat
     with open_backend(**configuration(reader,pg,tmp_path)) as backend:
         issued=backend.authenticate(token,world='real').issue_run_credential(action_resources=[RESOURCE])
         run=backend.authenticate_run(issued.token,world='real',run_id=issued.run_id)
-        if mutation=='grant':replace_fact(admin,'synthetic-a','grants',[invocation.actor_principal_id,RESOURCE],F.GrantFacts,grants=[])
-        elif mutation=='release':replace_fact(admin,'synthetic-a','agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
+        if mutation=='grant':replace_fact(admin,TENANT_A,'grants',[invocation.actor_principal_id,RESOURCE],F.GrantFacts,grants=[])
+        elif mutation=='release':replace_fact(admin,TENANT_A,'agent_release',[invocation.release_id],F.AgentReleaseFacts,status='revoked')
         else:admin.execute("update authz.nexloop_run_credentials set status='revoked' where token_digest=%s",(hashlib.sha256(issued.token.encode()).hexdigest(),))
         with pytest.raises(AuthorizationUnavailable):run.create_object(**args())
     assert admin.execute('select count(*) from ontology.objects').fetchone()[0]==0

@@ -21,8 +21,9 @@ from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.embedding_provider import DeterministicTestEmbeddingProvider,EmbeddingDimensionMismatch
 from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall,RecallConfig,RecallIndexer,RecallUnavailable,vocabulary_ref
 from multi_authority_fixture import seed_multi_authority
+from support.tenants import TENANT_A, TENANT_B
 
-A,B='synthetic-a','synthetic-b'
+A,B=TENANT_A,TENANT_B
 READ=Operation.READ
 CONTRACT=json.loads((Path(__file__).resolve().parents[1]/'packages/contracts/candidate-definition.schema.json').read_text())
 RECALL_ITEM=Draft202012Validator(CONTRACT['properties']['recall'])

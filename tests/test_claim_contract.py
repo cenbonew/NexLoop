@@ -7,6 +7,7 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from nexloop_eios.contracts import Claim
+from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
 SCHEMA=json.loads((ROOT/'packages/contracts/claim.schema.json').read_text())
@@ -20,13 +21,19 @@ def valid(value):return VALIDATOR.is_valid(value)
 def test_example_valid_and_handoff_copy_identical():
     Draft202012Validator.check_schema(SCHEMA);VALIDATOR.validate(EXAMPLE)
     assert Claim.model_validate(EXAMPLE).claim_id==EXAMPLE['claim_id']
+    # docs/handoff is frozen; packages/contracts is the live copy. A divergence passes only when registered (file, reason, task, date).
+    registered={d['file']:d for d in json.loads((ROOT/'packages/contracts/handoff-divergence.json').read_text())['divergences']}
+    assert all(d['reason'] and d['task'].startswith('NX-') and len(d['date'])==10 for d in registered.values())
     for name in ('claim.schema.json','examples/claim.valid.json'):
-        assert (ROOT/'docs/handoff/contracts'/name).read_bytes()==(ROOT/'packages/contracts'/name).read_bytes()
+        same=(ROOT/'docs/handoff/contracts'/name).read_bytes()==(ROOT/'packages/contracts'/name).read_bytes()
+        assert same or name in registered,name
 
 
 def mutate(**changes):
     value=copy.deepcopy(EXAMPLE)
-    for key,item in changes.items():value[key]=item
+    for key,item in changes.items():
+        if item is None and key=='mode':value.pop(key)
+        else:value[key]=item
     return value
 
 
@@ -52,6 +59,13 @@ NEGATIVES={
  'bad_digest':dict(claim_id='not-a-digest'),
  'naive_timestamp':dict(recorded_at='2026-10-08 02:00:05'),
  'unknown_resolution':dict(resolution_state='applied'),
+ # NX-052: tenant ids are uuids; mode is derived from the world and never shadow.
+ 'tenant_not_uuid':dict(tenant_id='synthetic-a'),
+ 'shadow_mode':dict(mode='shadow',world_id='shadow'),
+ 'real_world_test_mode':dict(mode='test'),
+ 'simulation_mode_in_real_world':dict(mode='simulation'),
+ 'real_mode_outside_real_world':dict(world_id='sim-1'),
+ 'missing_mode':dict(mode=None),
 }
 
 
@@ -70,6 +84,7 @@ def test_positive_variants():
     unresolved=dict(EXAMPLE['valid_time'],expression='过两天',kind='unparsed',status='unresolved',start=None,end=None)
     assert valid(mutate(valid_time=unresolved))
     assert not valid(mutate(valid_time=dict(unresolved,start='2026-10-09T00:00:00+08:00')))
+    assert valid(mutate(mode='simulation',world_id='simulation')) and valid(mutate(mode='test',world_id='sim-1'))
 
 
 def test_every_frozen_dataset_extraction_conforms():
@@ -78,9 +93,10 @@ def test_every_frozen_dataset_extraction_conforms():
     count=0
     for case in CASES.values():
         if case['expected'].get('error'):continue
-        messages,context,provider=materialize(case)
+        messages,context,provider=materialize(case,tenant=TENANT_A)
         for c in extract(messages,context,provider).claims:
-            wire={'claim_id':c['claim_id'],'tenant_id':context.tenant_id,'world_id':context.world,'conversation_id':context.conversation_id,
+            wire={'claim_id':c['claim_id'],'tenant_id':context.tenant_id,'world_id':context.world,
+                'mode':'real' if context.world=='real' else 'simulation' if context.world in ('simulation','shadow') else 'test','conversation_id':context.conversation_id,
                 'consumer_id':context.consumer_id,'topic_key':c['topic_key'],'subject':{'kind':c['subject_kind'],'ref':c['subject_ref'],'text':c['subject_text']},
                 'predicate':c['predicate'],'value':c['value'],'speaker':c['speaker'],'polarity':c['polarity'],'modality':c['modality'],'condition':c['condition'],
                 'time_expression':c['time_expression'],'valid_time':c['valid_time'],

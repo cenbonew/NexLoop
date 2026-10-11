@@ -15,6 +15,7 @@ from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.backend import open_backend, BackendClosed
 from nexloop_eios.postgres_artifacts import AuthoritySigner
 from test_action_definitions import published_action
+from support.tenants import TENANT_A
 
 
 def signing_file(admin, tmp_path):
@@ -28,7 +29,7 @@ def signing_file(admin, tmp_path):
 
 def test_composed_backend_artifacts_reopen_and_closed_handles(admin, pg, tmp_path):
     bootstrap(admin)
-    token, _ = seed_authority(admin, 'synthetic-a', 'eios:artifact:local_real',
+    token, _ = seed_authority(admin, TENANT_A, 'eios:artifact:local_real',
         operations=(Operation.CREATE, Operation.READ, Operation.DELETE))
     key = signing_file(admin, tmp_path)
     config = dict(database_url=make_conninfo(pg, user='nexloop_api'),
@@ -53,7 +54,7 @@ def test_composed_backend_uses_published_governed_create(published_action, admin
     key = tmp_path/'synthetic-create-key'
     key.write_bytes(reader.signer.material); key.chmod(0o600)
     # Use the current synthetic service identity through normal authentication.
-    token, _ = seed_authority(admin, 'synthetic-a', 'eios:action:Consumer.create:1',
+    token, _ = seed_authority(admin, TENANT_A, 'eios:action:Consumer.create:1',
         operation=Operation.EXECUTE, resource_type=ResourceType.ACTION, identity_suffix='-host')
     with open_backend(database_url=make_conninfo(pg,user='nexloop_api'), artifact_root=tmp_path/'blobs',
         signing_key_file=key, signing_key_id=reader.signer.key_id) as backend:
@@ -62,7 +63,7 @@ def test_composed_backend_uses_published_governed_create(published_action, admin
             intent_id='synthetic-host-create-001', type_name='Consumer', properties={})
         receipt = service.create_object(**args)
         assert service.create_object(**args) == receipt
-        read_token, _ = seed_authority(admin, 'synthetic-a',
+        read_token, _ = seed_authority(admin, TENANT_A,
             'eios:object:Consumer/'+receipt['object_id'], operation=Operation.READ,
             resource_type=ResourceType.OBJECT, identity_suffix='-host-reader')
         result = backend.authenticate(read_token,world='real').read_object(
