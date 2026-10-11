@@ -13,8 +13,8 @@ NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期�
 ## 当前状态
 
 - **当前阶段：S4**，只剩 1,000 客户负载报告（NX-031）；S0–S3 已完成。
-- **数字**（main `7ee5e31`）：任务 38 done / 5 in_progress / 8 not_started（共 51）；验收 58 passed / 12 not_run（共 70）。
-- **S5 本地部分先行**：部署模板、本地 CI 控制器、发布工具与备份恢复已有仓库内实现和本地证据。**尚未部署**：没有连接任何服务器，没有发布版本或可部署镜像，`/health/ready` 保持 503。
+- **数字**（main `f16b037`）：任务 38 done / 6 in_progress / 9 not_started（共 53）；验收 58 passed / 14 not_run（共 72）。v0.1 真实闭环验收（NX-037）的决定已定案，前置新增 NX-052、NX-053。
+- **S5 本地部分先行**：部署模板（含 dry-run 与隔离探测）、本地 CI 控制器、发布工具（构建、归档、GitHub 同步门槛）、备份恢复与开源合规检查已有仓库内实现和本地证据。**尚未部署**：没有连接任何服务器，没有发布版本或可部署镜像，`/health/ready` 保持 503。
 - **真实外发关闭**：真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭。
 
 负责人的规划活文档（阶段出口、关键路径、待决事项）见 [planning/ROADMAP.md](planning/ROADMAP.md)，任务与验收的权威状态在 [`planning/`](planning)。哪些功能已实现、哪些仍是规划，见 [架构说明](docs/ARCHITECTURE.md)（交接规格 [docs/handoff](docs/handoff/00_START_HERE.md) 是目标设计，不等于已实现）。每次合入的变化见 [CHANGELOG](CHANGELOG.md)。

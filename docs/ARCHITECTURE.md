@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：`main` 提交 `7ee5e31`（2026-10-11），迁移目录最高 `0147`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
+> - 事实基线：`main` 提交 `f16b037`（2026-10-11），迁移目录最高 `0149`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -256,14 +256,14 @@ flowchart LR
 
 #### 与目标设计的差异
 
-- 目标设计中的 Caddy Gateway、独立 Web 容器、Domain Worker / Action Worker / Scheduler 的划分（[02_ARCHITECTURE §3](handoff/docs/02_ARCHITECTURE.md)、[11_DEPLOYMENT §7](handoff/docs/11_DEPLOYMENT.md)）尚未落成部署形态。当前可运行的组合只有：一次性社区测试 Compose（[`deploy/community/compose.test.yaml`](../deploy/community/compose.test.yaml)，API 直接以 HTTPS 提供打包前端，只发布到 `127.0.0.1`）和开发机冒烟脚本。双机部署（NX-032）进行中：参数化模板、证书脚本与部署门槛检查（切片 0–2）已合入，**没有连接任何服务器**；APP_HOST Compose 示例 [`compose.app.example.yaml`](../deploy/stage/compose.app.example.yaml) 目前编排 Gateway、API、Runtime Worker、Agent Host、Effect Worker 与告警评估器。
+- 目标设计中的 Caddy Gateway、独立 Web 容器、Domain Worker / Action Worker / Scheduler 的划分（[02_ARCHITECTURE §3](handoff/docs/02_ARCHITECTURE.md)、[11_DEPLOYMENT §7](handoff/docs/11_DEPLOYMENT.md)）尚未落成部署形态。当前可运行的组合只有：一次性社区测试 Compose（[`deploy/community/compose.test.yaml`](../deploy/community/compose.test.yaml)，API 直接以 HTTPS 提供打包前端，只发布到 `127.0.0.1`）和开发机冒烟脚本。双机部署（NX-032）进行中：参数化模板、证书脚本、部署门槛检查（切片 0–2）、部署 dry-run 与回滚拒绝、Gateway 的 Caddy 模板（切片 3）、AT-058 隔离探测脚本与 CI 主机 rootless Docker 双机模拟（切片 4）已合入，**没有连接任何服务器**；APP_HOST Compose 示例 [`compose.app.example.yaml`](../deploy/stage/compose.app.example.yaml) 目前编排 Gateway、API、Runtime Worker、Agent Host、Effect Worker 与告警评估器。
 - 社区测试 Compose 中没有 Effect Worker 与 Message Relay 服务。APP_HOST Compose 示例已编排 Effect Worker；Message Relay、Outbound Recorder 与其余后台服务在连接预算中已声明，但 Compose 示例尚未编排【待确认：随 NX-032 后续切片补上】。
 - 【目标设计】中 API 进程数 2、Domain Worker / Action Worker / Scheduler 各 1 的放置只出现在 [`deploy/stage/connection-budget.v1.json`](../deploy/stage/connection-budget.v1.json) 的连接预算声明中，作为部署前提核算，不代表这些进程已按此编排运行。
 - 目标目录树中的 `packages/nexloop/`、`migrations/nexloop/` 未单独建立：NexLoop 业务模块与 vendored EIOS 内核同在 `packages/eios-core/`，迁移共用一个 catalog（见 [§4](#4-仓库结构与模块索引)）。
 
 ### 3.2 数据与授权模型
 
-**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0147`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
+**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0149`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
 
 **数据库角色。** 迁移创建 `nexloop_owner`（表属主）、`nexloop_api`、`nexloop_runtime`、`nexloop_action_worker`、`nexloop_domain_worker`、`nexloop_scheduler`、`nexloop_identity`、`nexloop_configurator`、`nexloop_metrics`，以及 NX-035 的 `nexloop_backup`（REPLICATION，非超级用户，读不到任何业务表）和 `nexloop_backup_recorder`（只能执行记录函数）等受限角色。常驻进程不使用 owner、superuser 或 BYPASSRLS；应用角色对业务表通常没有直接表权限，只能调用 `SECURITY DEFINER` 签名端口。
 
@@ -474,6 +474,20 @@ flowchart LR
 - 镜像的实际构建与 digest 核对、doctor 对运行中容器的核对、CI 镜像构建与固定，需要 NX-032（双机部署）。
 - 发布归档权限与保留、公开 tag 属于 B 类操作。AT-055、AT-057 目前只有本地证据，验收状态仍为 not_run。
 
+**已实现（NX-034 第二部分）：构建打包、归档保留、GitHub 同步门槛**（只在本机运行，详见 [NX-034 第二部分实现说明](implementation/NX-034-part2-implementation.md)）：
+
+- **构建**：`release.py build --sha --ci-result --release-root`（或 `make build-release SHA=`：build → sbom → stage 预检 → sign → 封存）。前提是 CI 结果写明该提交且通过、检出就是该提交且干净、Docker 使用 containerd 镜像存储；镜像清单在 `deploy/release/images.v1.json`（backend、agent-host、gateway），构建参数按 digest 传入。部署只用 `nexloop/<name>@sha256:<digest>` 引用，从不用标签；`release.py load-check` 在 `docker load` 后核对 digest。gateway 的 digest 尚未固定，构建它会被拒绝。
+- **预检块**：发布清单（`manifest_version` 2）带 `preflight` 块，签名覆盖它；stage 预检做许可检查（阻断）、源码 SBOM 交叉核对（只列出）和漏洞策略；`verify` 拒绝缺块、报告被改、提交不符、预检未通过的清单。
+- **归档**：`scripts/release/archive.py` 的 `seal` 先验签再核对完整性后改为只读；`prune` 默认只演练，保留最近 5 个、90 天内部署过的、`current` 与前一个 known_good，只删镜像归档，清单、签名、SBOM 与预检报告永久保留。
+- **GitHub 同步门槛**：`scripts/release/sync_github.py`（`make sync-github`）只推 `main`（快进）和显式点名的 `v*` tag；推送前要求范围内每个提交都有通过的 CI 结果、整树发布扫描与 prepush-scan 通过，tag 必须是负责人 SSH 签名的附注 tag；不可达时记 `sync_pending` 并退避。测试不碰真实 GitHub。
+
+**已实现（NX-032 切片 3、4）：部署 dry-run 与隔离探测**（详见 [NX-032 实现说明](implementation/NX-032-local-implementation.md)）：
+
+- `scripts/deploy/deploy.py dry-run` 只判断、不执行：核对已签名的发布清单与受信提交，Compose 镜像变量一律由清单生成，私有配置里写了别的 digest 就拒绝；给出当前部署的清单时调用 `rollback-check` 拒绝盲目回滚（AT-055、AT-057 的部署侧）；输出渲染结果与逐步计划（命令与撤销方法只用参数，与运行手册对应）。
+- `scripts/deploy/probe_isolation.py`：AT-058 的 TCP、PG、Valkey 探测，报告只含代号与类别；CI 主机上用 rootless Docker 做四容器双机模拟（`scripts/deploy/netns_sim/`），真实部署（切片 5）复用同一脚本。
+
+**已定案、实现待合入：Agent Host 独立网络命名空间**（NX-037 D4，负责人 2026-10-11）。Agent Host 不再与 API 和各 Worker 共用网络命名空间，只能到达模型 Provider allowlist 与 guard，loopback 证书补上新地址的 SAN；实现在 NX-032 的后续分支，尚未合入 main。
+
 目标设计见 [NX-033 设计](implementation/NX-033-design.md)、[12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) 与 [NX-034 设计](implementation/NX-034-design.md)。
 
 
@@ -503,17 +517,17 @@ stateDiagram-v2
 **尚未实现**：pgBackRest、restic、异地备份与恢复命令行（依赖 NX-032）；Artifact 与已终态 Run 目录的文件备份；意图重建；各渠道的按时间查询读取器（没有证据的渠道一律暂停）；就绪函数尚未接入 `/health/ready`；`doctor --backup` 与 `backup.v1.json` 配置。AT-050 与 AT-056 目前只有本地证据（本地合成数据实测 RTO 约 0.95 s），验收状态仍为 not_run。目标设计见 [NX-035 设计](implementation/NX-035-design.md) 与 [17_OPERATIONS_RUNBOOK](handoff/docs/17_OPERATIONS_RUNBOOK.md)。
 
 
-### 3.12 开源与供应链合规（NX-036，设计中）
+### 3.12 开源与供应链合规（NX-036）
 
-**尚未实现。** [NX-036 设计稿](implementation/NX-036-design.md) 已合入，状态为“待审，未实现”，12 项决定（D1–D12）待负责人确认；planning 中 NX-036 为 not_started。以下只是设计要点：
+**实现已合入**（D1–D12 负责人 2026-10-11 全部按推荐定案，详见 [NX-036 实现说明](implementation/NX-036-implementation.md)），NX-036 在 planning 中为 in_progress：
 
-- **许可合规**：版本化的许可策略文件与检查脚本，对锁定依赖做清单与规范化；强 copyleft 与未知许可拒绝，弱 copyleft 是否允许待 D7。
-- **SBOM 与漏洞**：在 NX-034 的 `release.py sbom` 基础上增加源码 SBOM、与许可清单交叉核对、漏洞阈值与豁免（阈值、豁免期限、漏洞库新鲜度待 D5、D6、D12）。
-- **贡献与安全政策**：CONTRIBUTING、SECURITY、行为准则、治理文件等应包含的可检查条款（贡献签署方式、安全报告渠道、响应时限、支持版本、行为准则待 D1–D4、D10）。
-- **公开仓库卫生**：整棵树与全部历史的扫描模式；历史中非秘密标识的处理待 D9。
-- **公开发布门槛**：计划由 `release.py` 增加 `public-preflight`，依次做干净检出、许可检查、公开文件检查、CI 隔离检查、发布扫描、推送前扫描、SBOM 交叉核对、漏洞阈值，最后输出待负责人确认的摘要；stage 发布只增加许可检查与 SBOM 交叉核对。
+- **许可合规**：`scripts/check_licenses.py` 逐个核对 Python、Node、vendored 源码与自有资产的许可证，不猜测、缺元数据即失败；策略在 `deploy/compliance/license-policy.v1.json`，强 copyleft 与未知许可拒绝，弱 copyleft 逐包登记；`THIRD_PARTY_NOTICES.md` 由脚本生成，本地 CI 检查漂移。
+- **漏洞策略**：`deploy/compliance/vulnerability-policy.v1.json`；stage 只列出，public 阻断未豁免的“Critical 且已有修复版本”；豁免最长 90 天、须负责人批准；public 要求漏洞库不超过 7 天。
+- **贡献与安全**：[CONTRIBUTING.md](../CONTRIBUTING.md)（DCO 签署，`scripts/check_signoff.py`）、[SECURITY.md](../SECURITY.md)、[CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)；`scripts/check_ci_isolation.py` 禁止 `.github/` 工作流使用 `pull_request_target` 或引用 secrets。
+- **公开文件与发布对象**：`scripts/check_public_files.py`（`--public` 为公开门槛）；`check_publication.py --tree` / `--archive` 扫描整棵树与源码归档。
+- **公开发布门槛**：`release.py public-preflight` 九步，清单见 [公开发布检查清单](release/public-release-checklist.md)。
 
-当前已有的公开仓库防护见 [§5.6](#56-贡献须知) 与 [§6.3](#63-许可)：MIT 许可（ADR-026）、`check_publication.py`、`prepush-scan.sh`（受限名单为不入库的私有文件，缺失时拒绝推送）。
+**仍差负责人事项**：安全联系渠道（`security_contact` 为空时公开门槛失败）与首次公开发布前的全历史审计。首个公开版本先发 `v0.1.0-rc`，真实闭环验收（NX-037）完成后再打 `v0.1.0`（NX-037 D6）。
 
 ---
 
@@ -555,7 +569,7 @@ NexLoop/
 | 目录 | 做什么 | 详细说明 |
 |---|---|---|
 | [`packages/eios-core/src/eios`](../packages/eios-core/src/eios) | 从 NEX-EIOS 冻结提交 vendored 的通用内核：actions、authz（resolver / facts / decisions）、identity、ontology、persistence、runtime、PostgreSQL adapter 与迁移执行器 | [07_EIOS_INTEGRATION](handoff/docs/07_EIOS_INTEGRATION.md)、[S0 抽取边界](s0/extraction-boundary.md)、[源码复用清单](s0/source-reuse-inventory.md) |
-| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0147` | [迁移目录审计](s0/migration-catalog-audit.md) |
+| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0149` | [迁移目录审计](s0/migration-catalog-audit.md) |
 | [`packages/eios-core/src/nexloop_eios`](../packages/eios-core/src/nexloop_eios) | NexLoop 业务模块（见 4.2） | — |
 | [`packages/contracts`](../packages/contracts) | 14 个 JSON Schema（action-intent、candidate-definition、claim、commitment-view、contact-restriction-view、context-manifest、context-pack-v6、conversation-message、event-envelope、evolution-candidate、ontology-mutation、review-decision、run-command、run-outcome），各带合法示例；`scripts/generate_contracts.py` 生成 `generated/contracts.ts`、`generated/openapi-components.json` 与 `nexloop_eios/contracts.py`（Pydantic），`--check` 检测漂移 | [09_API_AND_EVENT_CONTRACTS](handoff/docs/09_API_AND_EVENT_CONTRACTS.md)、[契约与许可](s0/contracts-and-licensing.md) |
 | [`apps/agent-host`](../apps/agent-host) | Agent Host：`main.ts`（loopback HTTPS）、`runtime-host.ts`（配置、guard 调用、模型档案）、`pi-runtime-adapter.ts`（Pi Harness 包装、每 Run SQLite、预算与授权）、`run-admission-gate.ts`（全局并发）、`runtime-effect-tools.ts`（业务工具）、`context-input.ts`（上下文包 v1–v6 校验）、`run-purge.ts` | [Host README](../apps/agent-host/README.md)、[agent-host-progress](implementation/agent-host-progress.md)、[pi-runtime-progress](implementation/pi-runtime-progress.md) |
@@ -686,22 +700,22 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 任务与验收的权威状态在 [`planning/tasks.json`](../planning/tasks.json) 与 [`planning/acceptance-tests.json`](../planning/acceptance-tests.json)；阶段出口、关键路径、等负责人决定的事项见 [planning/ROADMAP.md](../planning/ROADMAP.md)。本节只给摘要，不逐任务维护。
 
 - **当前阶段：S4**（最低一个还有未完成任务的阶段）。
-- **三组数字**（截至 main `7ee5e31`）：任务 38 done / 5 in_progress / 8 not_started（共 51）；验收 58 passed / 12 not_run（共 70）；阶段出口 S4 满足 4/5、S5 满足 0/5（口径见 ROADMAP §2–§3）。
+- **三组数字**（截至 main `f16b037`）：任务 38 done / 6 in_progress / 9 not_started（共 53，新增 NX-052、NX-053）；验收 58 passed / 14 not_run（共 72，新增 AT-071、AT-072）；阶段出口 S4 满足 4/5、S5 满足 0/5（口径见 ROADMAP §2–§3）。
 - **各阶段一句话**：
   - S0–S3：完成（审计、可独立启动的内核、可靠性脊柱、知识与目标闭环）。
   - S4：承诺、商业事件、工作台与人工接管、保留删除导出、审计指标与告警都已完成；只剩 1,000 客户负载报告（NX-031）。
-  - S5：本地部分先行——双机部署模板、本地 CI 控制器、发布工具、备份恢复已有仓库内实现与本地证据；开源文档与供应链的实现在下一轮集成；所有服务器操作（B 类）未开始，v0.1 受控真实闭环（NX-037）未开始。
+  - S5：本地部分先行——双机部署（模板、dry-run、隔离探测）、本地 CI 控制器、发布工具（构建、归档、同步门槛）、备份恢复、开源合规检查已有仓库内实现与本地证据；所有服务器操作（B 类）未开始。v0.1 受控真实闭环（NX-037）未开始：D1–D8 已定案，前置新增 NX-052（租户 ID 规范化）与 NX-053（删除后联系键执行点）。
   - S6 / S7：未开始。
 
 ### 6.2 已知限制
 
-- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署只有模板与部署门槛检查（NX-032 切片 0–2），没有连接任何服务器；发布只有本机运行的清单、签名、验签与回滚检查工具，本地 CI 控制器也只有仓库内的代码与模板，主机侧的用户、bare 仓库、防火墙与 remote 切换尚未执行（[§3.10](#310-发布与部署)）；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
+- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署只有模板、部署门槛检查、dry-run 与隔离探测（NX-032 切片 0–4），没有连接任何服务器；发布只有本机运行的清单、签名、验签与回滚检查工具，本地 CI 控制器也只有仓库内的代码与模板，主机侧的用户、bare 仓库、防火墙与 remote 切换尚未执行（[§3.10](#310-发布与部署)）；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
 - **真实外发关闭。** 真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭；服务授权清单拒绝授予真实外发 Action（ADR-020 §3）。当前外部效应只在本地 / 合成 provider 上验证过。
 - **模型。** 自动化测试使用确定性测试 provider；真实 DeepSeek 验证只在显式 opt-in 时运行，CI 不读取凭据。
 - **部署前提。** 2 s 工具时限门槛只在部署并发（Host ≤ 4、guard 4 进程）下证明；在远超部署并发的全量并行负载下相关场景仍可能超时（ADR-022 §4）。生产并发要提高时必须先重新测量。
 - **删除与恢复**：NX-029 已完成；恢复后重放删除记录已在 NX-035 本地演练中验证，部署环境的真实备份演练依赖 NX-032。
 - **可观测（NX-030）**：备份块只有本地数据，部署环境的备份年龄要等 NX-035 部署部分；连接数不按角色细分。
-- **压测容量（NX-031）**：本机 25 个客户实测，注入模型时延后每个 worker 在 4 并发下约 0.36 Run/s；持续每秒 1 条来信会过载，超出部分排队超过 Run 凭据 300 s 有效期后转为回复保障升级。低负载格（C4-low）还有 claim-match 死信与承诺监控条目挂起的问题在排查。1,000 消费者的夜间整轮尚未运行。
+- **压测容量（NX-031）**：本机 25 个客户实测，注入模型时延后每个 worker 在 4 并发下约 0.36 Run/s；持续每秒 1 条来信会过载，超出部分排队超过 Run 凭据 300 s 有效期后转为回复保障升级。低负载格（C4-low）的 claim-match 死信已修复（NX-031 切片 3，迁移 0148/0149），承诺监控条目挂起是否同源【待确认：CHANGELOG 已知限制仍写“在排查”】。1,000 消费者的夜间整轮尚未运行。
 - **压测专用 provider**：load-rules 提取 provider 与 Host 的确定性测试档案只用于压测，其提取质量与固定的模型调用轮数不作为任何验收依据（[NX-031 实现说明](implementation/NX-031-implementation.md)）。
 - **优惠发放**：部署接线已完成：执行者 `nexloop-incentive-issuer`（Compose 可选 profile `background`，独立账本卷）、服务授权清单 v17 的 `incentive_issuer` 与 `runtime_worker` 授权、工作台角色清单 v8 只给 owner 授予 `nexloop.incentive.issue`，负责人经工作台写入口 `POST /api/v1/workbench/actions/issue_incentive` 发放；Agent Host 的 `incentive_tool` 开关默认关闭。仍有的限制：只有回环（测试）发放渠道；工作台前端没有发放页面（只有 HTTP 入口）；优惠许诺识别的金额换算假定两位小数币种（[AT-043 实现说明](implementation/AT-043-implementation.md) §5–6）。
 - **Relay 部署前提**：relay 的 Source 凭据必须使用固定主体 ID `nexloop-service-relay-source-principal`，`nexloop-doctor --relay-source` 核对规则与凭据（[stage README §6](../deploy/stage/README.md)）；单客户 recipe 模式仍保留，与多客户模式互斥。
