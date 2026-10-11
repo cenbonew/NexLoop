@@ -78,10 +78,12 @@ def runs(db, start, end):
 
 
 def dispatch(db, start, end):
-    """Idle-queue dispatch (contract §2): an inbound message accepted in the window → its Run task first claimed."""
-    rows = db.execute(_RUNS + " select r.accepted_at,r.claimed_at from r where r.accepted_at>=%s and r.accepted_at<%s and r.claimed_at is not null",
-                      (TENANT, WORLD, start, end)).fetchall()
-    return [{'dispatch_ms': round((claimed - accepted).total_seconds() * 1000, 1)} for accepted, claimed in rows]
+    """Dispatch latency (contract §2, dispatcher 2026-10-11): a message Run task enqueued (runtime.jobs.created_at) → the Agent Host
+    accepted the Run (its first execution authorization, authz.nexloop_runtime_execution_markers.first_authorized_at). Model time
+    is not part of it (the D5 model latency counts in e2e only); Runs the Host never accepted are left out."""
+    rows = db.execute(_RUNS + """ select r.task_created,(select x.first_authorized_at from authz.nexloop_runtime_execution_markers x where x.run_id=r.run_id::uuid)
+        from r where r.accepted_at>=%s and r.accepted_at<%s""", (TENANT, WORLD, start, end)).fetchall()
+    return [{'dispatch_ms': round((accepted - enqueued).total_seconds() * 1000, 1)} for enqueued, accepted in rows if enqueued and accepted]
 
 
 def checks(db, start, end, cross_access):

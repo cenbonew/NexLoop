@@ -35,7 +35,7 @@ export type PiRuntimeOptions={
   observeModelResponse?:(event:{run_id:string;response_digest:string;tool_call_ids:readonly string[]})=>Promise<void>;
   assertOwner:()=>void;
   /** Context v6: send each actual model request to the guard before the call. */
-  recordModelRequests?:boolean;
+  recordModelRequests?:boolean|((command:RunCommand)=>boolean);
   /** Trusted server implementation must check current identity, PG lease/fence and control revisions. */
   authorize:(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot,result?:ModelResult)=>Promise<{ever_execution_authorized:boolean}>;
 };
@@ -147,8 +147,10 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
         return {call_sequence:call,model_provider:request.model.provider,model_id:request.model.id,request_text,request_digest:hash(request_text),
           tool_manifest_digest:hash(canonical(toolManifest(context))),settings_digest:hash(canonical(settings))};
       };
+      // Fixed per Run (NX-031 multi-protocol deterministic Host: only v6 Runs record their model requests).
+      const recordRequests=typeof this.options.recordModelRequests==='function'?this.options.recordModelRequests(command):this.options.recordModelRequests===true;
       const consume=async(kind:'model'|'tool',request?:{model:Model<Api>;context:unknown;options:unknown})=>{
-        if(kind==='model'&&this.options.recordModelRequests&&!request)throw new RuntimeError('runtime_model_request_unrecorded');
+        if(kind==='model'&&recordRequests&&!request)throw new RuntimeError('runtime_model_request_unrecorded');
         await this.authorize(command,kind);
         await harness!.commit(async tx=>{
           const state=await tx.doc(BindingDoc);
@@ -170,7 +172,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
         const latest=await harness!.snapshot(BindingDoc,BACKGROUND_CONTEXT);
         if(!latest)throw new RuntimeError('runtime_budget_exhausted');
         // The durable per-Run counter numbers the request; the guard requires 1,2,3… densely.
-        await this.authorize(command,kind,kind==='model'&&this.options.recordModelRequests?snapshot(latest.model_calls,request!):undefined);
+        await this.authorize(command,kind,kind==='model'&&recordRequests?snapshot(latest.model_calls,request!):undefined);
         if(Date.now()-latest.started_at>=command.budget.active_timeout_seconds*1000)throw new RuntimeError('runtime_budget_exhausted');
         return latest.model_calls;
       };
@@ -208,8 +210,8 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       }})]}:{})});
       const guardedModels=new Proxy(this.options.models,{get:(target,property)=>{
         const value=Reflect.get(target,property,target);
-        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,this.options.recordModelRequests?settleFor(call):undefined);}catch{throw new RuntimeError('runtime_model_unavailable');}}));
-        if(property==='fetchDeferred'&&typeof value==='function')return async(...args:unknown[])=>{if(this.options.recordModelRequests)throw new RuntimeError('runtime_model_request_unrecorded');await consume('model');try{const message=safeProviderMessage(await Reflect.apply(value,target,args) as AssistantMessage);checkCost(message);return message;}catch{throw new RuntimeError('runtime_model_unavailable');}};
+        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,recordRequests?settleFor(call):undefined);}catch{throw new RuntimeError('runtime_model_unavailable');}}));
+        if(property==='fetchDeferred'&&typeof value==='function')return async(...args:unknown[])=>{if(recordRequests)throw new RuntimeError('runtime_model_request_unrecorded');await consume('model');try{const message=safeProviderMessage(await Reflect.apply(value,target,args) as AssistantMessage);checkCost(message);return message;}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(property==='cancelDeferred'&&typeof value==='function')return async(...args:unknown[])=>{await this.authorize(command,'cancel');try{return await Reflect.apply(value,target,args);}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(typeof value==='function')return (...args:unknown[])=>{try{const result=Reflect.apply(value,target,args);if(result instanceof Promise)return result.catch(()=>{throw new RuntimeError('runtime_model_unavailable');});return result;}catch{throw new RuntimeError('runtime_model_unavailable');}};
         return value;

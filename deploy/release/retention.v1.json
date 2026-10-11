@@ -1,0 +1,8 @@
+{
+  "schema": "nexloop-release-retention/1",
+  "version": 1,
+  "decision": "NX-034 §2.4, D3 (dispatcher 2026-10-11: as recommended). Manifests, signatures, SBOMs, findings and preflight reports are kept forever. Image archives are kept for the 5 most recent releases, every release deployed within the last 90 days, the current release and the previous known-good release; pruning is a dry run unless --apply is given and never touches the current or the previous known-good release. A pruned release can no longer be deployed or rolled back to (§5.5); rebuilding the same commit gives a new release.",
+  "keep_last": 5,
+  "deployed_within_days": 90,
+  "keep_current_and_previous_known_good": true
+}

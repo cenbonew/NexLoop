@@ -4,12 +4,21 @@
 Builds, signs, verifies and scans a release on the machine it runs on. It never pushes, tags, publishes images or connects to any
 server (those steps are owner-confirmed B-class operations and need NX-032/033).
 
+    release.py build     --sha <sha> --ci-result <result.json> --release-root <RELEASE_ROOT> [--sequence N] [--only name]...
     release.py manifest  --sha <sha> --images <images.json> --ci-result <result.json> --out <release_dir> [--sequence N]
+    release.py preflight --release-dir <dir> --category stage|public [--previous-public <ref>]
+    release.py load-check --release-dir <dir>
     release.py sign      --release-dir <dir> --key <private key file>
     release.py verify    --release-dir <dir> --allowed-signers <file> --deploy-sha <sha> [--deploy-image name=sha256:...]...
     release.py sbom      --release-dir <dir>
     release.py rollback-check --current <manifest.json> --target <manifest.json> [--database-head NNNN] [--runtime-format N]
     release.py public-preflight --ref <tag or sha> --out <dir> [--previous-public <ref>] [--release-dir <dir>]
+
+NX-034 part 2: `build` builds every image of deploy/release/images.v1.json from a clean checkout of the released commit, saves
+it with `docker save` into <RELEASE_ROOT>/releases/<release_id>/images/ and writes the manifest (digest = the image manifest
+digest that docker save records; reference nexloop/<name>@<digest>, local tag nexloop/<name>:<release_id>). `preflight` runs the
+stage or public compliance gate on the manifest's commit and records it in the manifest's `preflight` block before signing;
+`verify` checks that block. `load-check` loads every archive and resolves nexloop/<name>@<digest> (deploy side, NX-032).
 
 NX-036 (docs/implementation/NX-036-design.md §3, §6): `sbom` also applies deploy/compliance/vulnerability-policy.v1.json (stage
 category: listed, not blocking; an expired waiver fails); `public-preflight` runs the nine-step public release gate on a
@@ -38,7 +47,8 @@ LOCK_FILES = ('versions.lock.json', 'uv.lock', 'pnpm-lock.yaml')
 NAMESPACE = 'nexloop-release'
 SIGNER_IDENTITY = 'nexloop-release'
 EXPAND_ONLY = '-- nexloop:expand-only'
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2  # 2: images[].reference and the signed `preflight` block (NX-034 part 2)
+IMAGES_CONFIG = ROOT / 'deploy/release/images.v1.json'
 _SHA = re.compile(r'[0-9a-f]{40}')
 _DIGEST = re.compile(r'sha256:[0-9a-f]{64}')
 _NAME = re.compile(r'[a-z0-9][a-z0-9._/-]{0,127}')
@@ -141,6 +151,10 @@ def archive_digests(archive):
     return {m.get('digest') for m in index.get('manifests', []) if isinstance(m, dict)}
 
 
+def release_id(now, sha, sequence):
+    return f"{now.strftime('%Y%m%d')}-{sha[:12]}-{int(sequence)}"
+
+
 # ---- manifest ---------------------------------------------------------------------------------------------------------------
 def build_manifest(*, sha, images, ci_result, out, sequence=1, root=ROOT, migrations=MIGRATIONS, pi=PI_SQLITE_MIGRATIONS, now=None):
     if not _SHA.fullmatch(sha or ''):
@@ -169,17 +183,21 @@ def build_manifest(*, sha, images, ci_result, out, sequence=1, root=ROOT, migrat
             raise Refused(f'image {name}: archive does not contain the declared digest')
         target = out / 'images' / (name.replace('/', '_') + '.tar')
         shutil.copyfile(source, target)
-        entries.append({'name': name, 'digest': item['digest'], 'archive': str(target.relative_to(out)), 'archive_sha256': sha256_file(target),
-                        'base_digest': (lock.get('images', {}).get(item.get('base', '')) or {}).get('digest'), 'sbom_sha256': None})
+        reference = item.get('reference') or f'nexloop/{name}@{item["digest"]}'
+        if reference != f'{reference.rsplit("@", 1)[0]}@{item["digest"]}' or not _NAME.fullmatch(reference.rsplit('@', 1)[0]):
+            raise InputError(f'image {name}: reference must be <repository>@<digest>')
+        entries.append({'name': name, 'digest': item['digest'], 'reference': reference, 'archive': str(target.relative_to(out)),
+                        'archive_sha256': sha256_file(target), 'base_digest': (lock.get('images', {}).get(item.get('base', '')) or {}).get('digest'),
+                        'sbom_sha256': None})
     archive = git('archive', '--format=tar', sha, root=root, binary=True)
     now = now or datetime.now(UTC)
     manifest = {
         'manifest_version': MANIFEST_VERSION,
-        'release_id': f"{now.strftime('%Y%m%d')}-{sha[:12]}-{int(sequence)}",
+        'release_id': release_id(now, sha, sequence),
         'commit': sha, 'parents': git('rev-list', '--parents', '-n', '1', sha, root=root).split()[1:], 'tree': git('rev-parse', sha + '^{tree}', root=root),
         'ci_result_digest': sha256_file(ci_result), 'ci_policy_version': ci.get('policy_version'), 'deadline_gate': ci.get('deadline_gate'),
         'tests': ci.get('counts'),
-        'images': entries, 'scan': None,
+        'images': entries, 'scan': None, 'preflight': None,
         'catalog': catalog_summary(migrations), 'runtime_store_format': runtime_store_format(pi), 'contracts_digest': contracts_digest(root),
         'locks': {name: sha256_file(root / name) for name in LOCK_FILES if (root / name).exists()},
         'source_archive_sha256': hashlib.sha256(archive).hexdigest(),
@@ -227,6 +245,9 @@ def verify(release_dir, *, allowed_signers, deploy_sha, deploy_images):
     verify_signature(release_dir, allowed_signers)
     manifest = json.loads((release_dir / 'manifest.json').read_text())
     failures = []
+    if manifest.get('manifest_version') != MANIFEST_VERSION:
+        failures.append('manifest_version_unsupported')
+    failures += preflight_failures(release_dir, manifest)
     if deploy_sha != manifest['commit']:
         failures.append('deploy_sha_differs_from_tested_commit')
     expected = {i['name']: i for i in manifest['images']}
@@ -452,18 +473,7 @@ def public_preflight(ref, out, *, previous_public=None, release_dir=None, root=R
         steps[name] = {'ok': bool(ok), **({'detail': detail} if detail is not None else {})}
 
     sha = git('rev-parse', '--verify', ref + '^{commit}', root=root)
-    archive, checkout = out / 'source.tar', out / 'checkout'
-    if checkout.exists() or archive.exists():
-        raise InputError('output directory already holds a preflight')
-    code, _ = run(['git', 'archive', '--format=tar', '-o', str(archive), sha], root)
-    if code == 0 and archive.is_file():
-        checkout.mkdir()
-        with tarfile.open(archive) as source:
-            source.extractall(checkout, filter='data')
-        dependency = [run(['uv', 'sync', '--frozen'], checkout)[0], run(['pnpm', 'install', '--frozen-lockfile'], checkout)[0]]
-        record('clean_checkout', dependency == [0, 0], {'commit': sha, 'dependency_exits': dependency})
-    else:
-        record('clean_checkout', False, {'commit': sha, 'archive_exit': code})
+    archive, checkout = _clean_checkout(sha, out, run, root, record)
     ready = steps['clean_checkout']['ok']
     python = ['uv', 'run', '--frozen', 'python']
     inventory_path = out / 'licenses.json'
@@ -510,7 +520,7 @@ def public_preflight(ref, out, *, previous_public=None, release_dir=None, root=R
         'blocking': detail.get('blocking'), 'listed': detail.get('listed'), 'waived': detail.get('waived'), 'waiver_cleanup': detail.get('cleanup'),
         'conditional_licenses': sorted(f"{r['name']} {r['version']} ({r['license']}, {r['scope']})" for r in state.get('inventory', [])
                                        if r.get('category') == 'conditional')}})
-    report = {'ref': ref, 'commit': sha, 'ok': ok, 'steps': {name: steps[name] for name in PREFLIGHT_STEPS}}
+    report = {'ref': ref, 'commit': sha, 'category': 'public', 'ok': ok, 'steps': {name: steps[name] for name in PREFLIGHT_STEPS}}
     text = json.dumps(report, indent=2, sort_keys=True) + '\n'
     (out / 'preflight.json').write_text(text)
     report['report_sha256'] = hashlib.sha256(text.encode()).hexdigest()
@@ -530,6 +540,291 @@ def _own_names(root):
     except (OSError, ValueError, ImportError):
         pass
     return own
+
+
+# ---- NX-034 part 2: preflight block in the signed manifest -------------------------------------------------------------------
+STAGE_PREFLIGHT_STEPS = ('clean_checkout', 'licenses', 'source_sbom', 'vulnerabilities')
+PREFLIGHT_KEEP = ('preflight.json', 'licenses.json', 'source.spdx.json')
+
+
+def _clean_checkout(sha, out, run, root, record):
+    """`git archive` of the commit extracted into <out>/checkout (tracked files only), then the locked dependency phase."""
+    archive, checkout = out / 'source.tar', out / 'checkout'
+    if checkout.exists() or archive.exists():
+        raise InputError('output directory already holds a preflight')
+    code, _ = run(['git', 'archive', '--format=tar', '-o', str(archive), sha], root)
+    if code == 0 and archive.is_file():
+        checkout.mkdir()
+        with tarfile.open(archive) as source:
+            source.extractall(checkout, filter='data')
+        dependency = [run(['uv', 'sync', '--frozen'], checkout)[0], run(['pnpm', 'install', '--frozen-lockfile'], checkout)[0]]
+        record('clean_checkout', dependency == [0, 0], {'commit': sha, 'dependency_exits': dependency})
+    else:
+        record('clean_checkout', False, {'commit': sha, 'archive_exit': code})
+    return archive, checkout
+
+
+def stage_preflight(ref, out, *, root=ROOT, runner=None, sbom_maker=None, today=None):
+    """NX-036 §6 for stage releases: the license check (blocking) and the source SBOM cross-checked with the license inventory
+    (differences listed, not blocking, D5); stage vulnerability policy on the source findings (only invalid or expired waivers
+    fail). A missing tool fails the step: it is never a pass."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    run = runner or _run
+    steps = {}
+
+    def record(name, ok, detail=None):
+        steps[name] = {'ok': bool(ok), **({'detail': detail} if detail is not None else {})}
+
+    sha = git('rev-parse', '--verify', ref + '^{commit}', root=root)
+    _, checkout = _clean_checkout(sha, out, run, root, record)
+    ready = steps['clean_checkout']['ok']
+    inventory_path = out / 'licenses.json'
+    code = run(['uv', 'run', '--frozen', 'python', 'scripts/check_licenses.py', '--check', '--report', str(inventory_path)], checkout)[0] if ready else None
+    record('licenses', code == 0, {'exit': code})
+    state = {}
+    try:
+        spdx, rows, db = (sbom_maker or (lambda: source_sbom(checkout, out, root)))()
+        inventory = json.loads(inventory_path.read_text()) if inventory_path.is_file() else None
+        listed = ['license inventory missing'] if inventory is None else cross_check(spdx, inventory, _own_names(checkout))
+        record('source_sbom', inventory is not None, {'listed': listed[:50], 'listed_count': len(listed), 'packages': len(_purls(spdx))})
+        state.update(findings=rows, db=db)
+    except NotInstalled as error:
+        record('source_sbom', False, {'not_installed': str(error)})
+    except (Refused, OSError, ValueError, InputError) as error:
+        record('source_sbom', False, {'refused': str(error)})
+    if 'findings' in state:
+        policy_root = checkout if (checkout / 'deploy/compliance/vulnerability-policy.v1.json').is_file() else root
+        verdict = evaluate_vulnerabilities(state['findings'], load_vulnerability_policy(policy_root), 'stage', state['db'], today)
+        record('vulnerabilities', not verdict['problems'], {'problems': verdict['problems'], **verdict['summary']})
+    else:
+        record('vulnerabilities', False, {'refused': 'no source scan'})
+    ok = all(step['ok'] for step in steps.values())
+    report = {'ref': ref, 'commit': sha, 'category': 'stage', 'ok': ok, 'steps': {name: steps[name] for name in STAGE_PREFLIGHT_STEPS}}
+    text = json.dumps(report, indent=2, sort_keys=True) + '\n'
+    (out / 'preflight.json').write_text(text)
+    report['report_sha256'] = hashlib.sha256(text.encode()).hexdigest()
+    return report
+
+
+def attach_preflight(release_dir, report, files=()):
+    """Record a preflight report in the release directory and its summary in the manifest (before signing: the signature
+    covers it, and `verify` checks the report file against it)."""
+    release_dir = Path(release_dir)
+    if (release_dir / 'manifest.json.sig').exists():
+        raise InputError('manifest already signed: run the preflight before signing')
+    manifest_path = release_dir / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get('preflight') is not None:
+        raise InputError('preflight already recorded (releases are immutable)')
+    if report.get('commit') != manifest['commit'] or report.get('category') not in ('stage', 'public'):
+        raise InputError('preflight report is for another commit or category')
+    target = release_dir / 'preflight'
+    target.mkdir()
+    for path in files:
+        if Path(path).name in PREFLIGHT_KEEP and Path(path).name != 'preflight.json' and Path(path).is_file():
+            shutil.copyfile(path, target / Path(path).name)
+    body = {k: v for k, v in report.items() if k != 'report_sha256'}
+    (target / 'preflight.json').write_text(json.dumps(body, indent=2, sort_keys=True) + '\n')
+    manifest['preflight'] = {'category': report['category'], 'commit': report['commit'], 'ok': bool(report['ok']), 'report': 'preflight/preflight.json',
+                             'report_sha256': sha256_file(target / 'preflight.json'), 'steps': {k: v['ok'] for k, v in report['steps'].items()}}
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+    return manifest['preflight']
+
+
+def preflight_failures(release_dir, manifest):
+    block = manifest.get('preflight')
+    if not isinstance(block, dict):
+        return ['preflight_missing']
+    failures = []
+    path = Path(release_dir) / str(block.get('report', ''))
+    if block.get('report') != 'preflight/preflight.json' or not path.is_file() or sha256_file(path) != block.get('report_sha256'):
+        return ['preflight_report_changed']
+    report = json.loads(path.read_text())
+    if block.get('commit') != manifest['commit'] or report.get('commit') != manifest['commit']:
+        failures.append('preflight_commit_differs')
+    if report.get('category') != block.get('category') or {k: v['ok'] for k, v in report.get('steps', {}).items()} != block.get('steps'):
+        failures.append('preflight_summary_differs')
+    if not (block.get('ok') is True and report.get('ok') is True):
+        failures.append('preflight_not_passed')
+    return failures
+
+
+def run_preflight(release_dir, category, *, previous_public=None, root=ROOT, runner=None, sbom_maker=None, today=None):
+    release_dir = Path(release_dir)
+    manifest = json.loads((release_dir / 'manifest.json').read_text())
+    if (release_dir / 'manifest.json.sig').exists() or manifest.get('preflight') is not None:
+        raise InputError('preflight must run once, before signing')
+    staging = root / '.ci-results' / 'release-preflight' / f"{manifest['release_id']}-{category}"
+    if staging.exists():
+        raise InputError('preflight staging directory exists')
+    try:
+        if category == 'stage':
+            report = stage_preflight(manifest['commit'], staging, root=root, runner=runner, sbom_maker=sbom_maker, today=today)
+        else:
+            report = public_preflight(manifest['commit'], staging, previous_public=previous_public, release_dir=release_dir, root=root,
+                                      runner=runner, sbom_maker=sbom_maker, today=today)
+            report['category'] = 'public'
+        attach_preflight(release_dir, report, [staging / name for name in PREFLIGHT_KEEP])
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return report
+
+
+# ---- NX-034 part 2: build and package (§2.1) -----------------------------------------------------------------------------------
+def _docker(args, timeout=60):
+    tool = shutil.which('docker')
+    if tool is None:
+        raise NotInstalled('docker not installed')
+    try:
+        result = subprocess.run([tool, *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        raise Refused('docker ' + args[0] + ' timed out') from error
+    return result.returncode, result.stdout
+
+
+def require_containerd_store(docker):
+    """`docker load` keeps the image manifest digest addressable (nexloop/<name>@<digest>) only with the containerd image
+    store; the classic store drops it, so the deploy-side reference could not be resolved. Refuse anything else."""
+    code, out = docker(['info', '--format', '{{json .DriverStatus}}'])
+    if code != 0:
+        raise NotInstalled('docker daemon not available')
+    if 'io.containerd.snapshotter' not in out:
+        raise InputError('docker must use the containerd image store (driver-type io.containerd.snapshotter.v1)')
+
+
+def saved_image_digest(archive, tag_reference):
+    """The manifest digest `docker save` recorded for nexloop/<name>:<tag> in the archive's OCI index.json."""
+    try:
+        with tarfile.open(archive) as tar:
+            index = json.load(tar.extractfile('index.json'))
+    except (KeyError, tarfile.TarError, OSError, ValueError, TypeError) as error:
+        raise Refused('saved archive has no OCI index') from error
+    tag = tag_reference.rsplit(':', 1)[1]
+    names = {tag_reference, 'docker.io/' + tag_reference, 'docker.io/library/' + tag_reference}
+    found = {m.get('digest') for m in index.get('manifests', []) if isinstance(m, dict)
+             and ((m.get('annotations') or {}).get('io.containerd.image.name') in names
+                  or (m.get('annotations') or {}).get('org.opencontainers.image.ref.name') in names | {tag})}
+    if len(found) != 1 or not _DIGEST.fullmatch(next(iter(found)) or ''):
+        raise Refused('saved archive does not name exactly one digest for ' + tag_reference)
+    return found.pop()
+
+
+def pinned_reference(lock, name):
+    entry = lock['images'].get(name) or {}
+    digest = entry.get('digest') or ''
+    if not _DIGEST.fullmatch(digest) or not entry.get('reference'):
+        raise Refused(f'{name}: not pinned by digest in versions.lock.json')
+    return entry['reference'].split('@')[0].rsplit(':', 1)[0] + '@' + digest
+
+
+def require_checkout_at(root, sha):
+    """Images are built from the released commit itself: HEAD is that commit and nothing is modified or untracked."""
+    if git('rev-parse', 'HEAD', root=root) != sha:
+        raise Refused('the checkout is not at the released commit')
+    if git('status', '--porcelain', root=root):
+        raise Refused('the checkout has modified or untracked files')
+
+
+def _prepare(context, target):
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    if context == 'community':
+        from prepare_community_build import prepare
+        prepare(target)
+    elif context == 'host':
+        from prepare_host_build import prepare_host
+        prepare_host(target)
+    else:
+        raise InputError('unknown build context ' + context)
+    return target
+
+
+def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, docker=None, preparer=None, now=None, checkout_check=None):
+    if not _SHA.fullmatch(sha or ''):
+        raise InputError('sha must be a full 40-hex commit')
+    ci = json.loads(Path(ci_result).read_text())
+    if ci.get('sha') != sha or ci.get('status') != 'passed':
+        raise Refused('CI result is not a pass of this commit')
+    (checkout_check or require_checkout_at)(root, sha)
+    config = json.loads((root / 'deploy/release/images.v1.json').read_text())
+    if config.get('schema') != 'nexloop-release-images/1' or config.get('repository_prefix') != 'nexloop':
+        raise InputError('release images config shape')
+    names = sorted(only) if only else sorted(config['images'])
+    if not names or any(name not in config['images'] for name in names):
+        raise InputError('unknown image name')
+    now = now or datetime.now(UTC)
+    rid = release_id(now, sha, sequence)
+    out = Path(release_root) / 'releases' / rid
+    if out.exists():
+        raise InputError('release directory exists (releases are immutable)')
+    docker = docker or _docker
+    require_containerd_store(docker)
+    lock = json.loads((root / 'versions.lock.json').read_text())
+    staging = root / '.ci-results' / 'release-build' / rid
+    if staging.exists():
+        raise InputError('build staging directory exists')
+    staging.mkdir(parents=True)
+    try:
+        spec = {}
+        for name in names:
+            entry, tag = config['images'][name], f'nexloop/{name}:{rid}'
+            if entry['kind'] == 'build':
+                arguments = []
+                for argument, base in sorted(entry['build_args'].items()):
+                    arguments += ['--build-arg', f'{argument}={pinned_reference(lock, base)}']
+                context = (preparer or _prepare)(entry['context'], staging / name)
+                code, _ = docker(['build', '--pull=false', *arguments, '--label', f'org.opencontainers.image.revision={sha}', '--tag', tag, str(context)], 3600)
+                base = entry['base']
+                if base not in entry['build_args'].values():
+                    raise InputError(f'{name}: base must be one of its build arguments')
+            elif entry['kind'] == 'upstream':
+                pinned = pinned_reference(lock, entry['lock'])
+                if docker(['image', 'inspect', '--format', '{{.Id}}', pinned])[0] != 0:
+                    raise Refused(f'{name}: pinned upstream image not present locally (preload it by digest; never pulled by tag)')
+                code, _ = docker(['tag', pinned, tag])
+                base = entry['lock']
+            else:
+                raise InputError(f'{name}: unknown image kind')
+            if code != 0:
+                raise Refused(f'{name}: image build failed')
+            archive = staging / f'{name}.tar'
+            if docker(['save', '-o', str(archive), tag], 1800)[0] != 0 or not archive.is_file():
+                raise Refused(f'{name}: docker save failed')
+            digest = saved_image_digest(archive, tag)
+            code, image_id = docker(['image', 'inspect', '--format', '{{.Id}}', tag])
+            if code != 0 or image_id.strip() != digest:
+                raise Refused(f'{name}: the local image id differs from the saved manifest digest')
+            spec[name] = {'archive': str(archive), 'digest': digest, 'reference': f'nexloop/{name}@{digest}', 'base': base}
+        (staging / 'images.json').write_text(json.dumps(spec))
+        manifest = build_manifest(sha=sha, images=staging / 'images.json', ci_result=ci_result, out=out, sequence=sequence, root=root, now=now)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return {'release_id': manifest['release_id'], 'release_dir': str(out), 'images': {i['name']: i['reference'] for i in manifest['images']}}
+
+
+def load_check(release_dir, *, docker=None):
+    """Deploy side (NX-032 load_images step): every archive loads and nexloop/<name>@<manifest digest> resolves to that digest."""
+    release_dir = Path(release_dir)
+    manifest = json.loads((release_dir / 'manifest.json').read_text())
+    docker = docker or _docker
+    require_containerd_store(docker)
+    failures, loaded = [], {}
+    for image in manifest['images']:
+        archive = release_dir / image['archive']
+        if not archive.is_file() or sha256_file(archive) != image['archive_sha256']:
+            failures.append('archive_changed:' + image['name'])
+            continue
+        if docker(['load', '-q', '-i', str(archive)], 1800)[0] != 0:
+            failures.append('load_failed:' + image['name'])
+            continue
+        code, image_id = docker(['image', 'inspect', '--format', '{{.Id}}', image['reference']])
+        if code != 0 or image_id.strip() != image['digest']:
+            failures.append('loaded_digest_differs:' + image['name'])
+        else:
+            loaded[image['name']] = image['reference']
+    if failures:
+        raise Refused(';'.join(failures))
+    return {'loaded': loaded, 'release_id': manifest['release_id']}
 
 
 # ---- rollback protection (AT-057) -------------------------------------------------------------------------------------------
@@ -567,6 +862,18 @@ def rollback_check(current, target, *, database_head=None, runtime_format=None, 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
+    p = sub.add_parser('build')
+    p.add_argument('--sha', required=True)
+    p.add_argument('--ci-result', required=True, type=Path)
+    p.add_argument('--release-root', required=True, type=Path)
+    p.add_argument('--sequence', type=int, default=1)
+    p.add_argument('--only', action='append', default=[])
+    p = sub.add_parser('preflight')
+    p.add_argument('--release-dir', required=True, type=Path)
+    p.add_argument('--category', required=True, choices=('stage', 'public'))
+    p.add_argument('--previous-public')
+    p = sub.add_parser('load-check')
+    p.add_argument('--release-dir', required=True, type=Path)
     p = sub.add_parser('manifest')
     p.add_argument('--sha', required=True)
     p.add_argument('--images', required=True, type=Path)
@@ -595,7 +902,18 @@ def main(argv=None):
     p.add_argument('--runtime-format', type=int)
     args = parser.parse_args(argv)
     try:
-        if args.command == 'manifest':
+        if args.command == 'build':
+            result = build(args.sha, args.ci_result, args.release_root, sequence=args.sequence, only=args.only or None)
+        elif args.command == 'preflight':
+            report = run_preflight(args.release_dir, args.category, previous_public=args.previous_public)
+            if not report['ok']:
+                print(json.dumps({'ok': False, 'refused': 'preflight failed (recorded in the manifest)', 'category': args.category,
+                                  'steps': {k: v['ok'] for k, v in report['steps'].items()}}))
+                return 1
+            result = {'category': args.category, 'report_sha256': report['report_sha256'], 'steps': {k: v['ok'] for k, v in report['steps'].items()}}
+        elif args.command == 'load-check':
+            result = load_check(args.release_dir)
+        elif args.command == 'manifest':
             m = build_manifest(sha=args.sha, images=args.images, ci_result=args.ci_result, out=args.out, sequence=args.sequence)
             result = {'release_id': m['release_id'], 'commit': m['commit'], 'images': len(m['images'])}
         elif args.command == 'sign':

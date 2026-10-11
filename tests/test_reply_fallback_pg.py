@@ -92,7 +92,10 @@ def run_fallback_on_host(c,tmp_path,g,mode='reply_once'):
         artifact_root=tmp_path/'reply-worker-artifacts',token=c['tokens']['assembly-runtime-worker'],world='real')  # the deployed four guard processes (ADR-024)
     with guard_server(worker,tmp_path/'fallback-host',guard_key,spawn=spawn,workers=4) as port:  # deployment shape (ADR-022 §4, ADR-024)
         config=effect_configuration(tmp_path/'fallback-host',port,guard_key);body=json.loads(config.read_text());body.pop('deterministic_effect_message')
-        body.update(context_input_protocol='nexloop.context-pack.v6',deterministic_reply_once=True);config.write_text(json.dumps(body))
+        if mode=='multi':  # NX-031 slice 3: the load lane's one Host for every Run kind picks the fallback protocol from the v6 pack
+            body.update(plan_outcome_tool=True,deterministic_protocols=True)
+        else:body.update(context_input_protocol='nexloop.context-pack.v6',deterministic_reply_once=True)
+        config.write_text(json.dumps(body))
         with host(runtime,key,config) as (_,client,headers):
             assert client.post('/internal/v1/runs/start',headers=headers,json={'activation_ref':activation,'command':command,'input':text}).status_code==202
             deadline=time.monotonic()+60
@@ -102,7 +105,8 @@ def run_fallback_on_host(c,tmp_path,g,mode='reply_once'):
                 assert time.monotonic()<deadline;time.sleep(.05)
 
 
-def test_unanswered_message_gets_one_llm_fallback_reply_and_settles(assembled_message,admin,tmp_path):
+@pytest.mark.parametrize('host_mode',['reply_once','multi'])
+def test_unanswered_message_gets_one_llm_fallback_reply_and_settles(assembled_message,admin,tmp_path,host_mode):
     f=assembled_message;token=provision(f,admin)
     with chain(f,admin,tmp_path,body='你们的退款什么时候到账？',host_update=silent) as c:
         c['recipe']=f['recipe'];tenant=c['tenant'];consumer=c['consumer']
@@ -115,7 +119,7 @@ def test_unanswered_message_gets_one_llm_fallback_reply_and_settles(assembled_me
             assert admin.execute('select message_id from authz.nexloop_message_fallback_issuances where run_id=%s',(run_id,)).fetchone()==(consumer['id'],)
             pack=json.loads(g['launcher'].last['input'])
             assert pack['schema_version']=='nexloop.context-pack.v6' and pack['user_statement']['message_id']==consumer['id']
-            assert run_fallback_on_host(c,tmp_path,g)['runtime_outcome']=='succeeded'
+            assert run_fallback_on_host(c,tmp_path,g,host_mode)['runtime_outcome']=='succeeded'
             ((intent,state,_,_,_,trigger,_),)=outbound(admin,tenant)
             assert state=='persisted' and trigger==consumer['id']
             material=delivery_material(tmp_path)
