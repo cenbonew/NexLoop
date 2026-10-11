@@ -2715,6 +2715,18 @@
         "ref": "f15f81a",
         "summary": "就绪检查接入恢复状态（restored/replayed 不就绪，verified_readonly 只读）与删除重放；doctor --backup 与 deploy/configuration/backup.v1.json 第一版（只读 metrics 角色读取，缺失即失败）。真实备份数据上的通过情形尚未验证（部署切片）。合入 main 1a3ea6b。",
         "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "3d1383b",
+        "summary": "NX-035 本地剩余（迁移 0156，原临时号 0250）：删除记录清扫不越过恢复日志已导出序号，恢复日志按保留期清理且清理前须已导出；按时间查询的读取器（本地 JSON 投递、优惠回环账本）；outbound-recorder 为 NexLoop 自有渠道、随数据库恢复，恢复报告列出但不暂停；HTTP effect provider 只能按 intent 查询；工作台“备份”只读信息块；意图重建只写设计。",
+        "recorded_at": "2026-10-11T16:50:55.782677+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T155442Z-4db0a9d9b47d",
+        "summary": "s5d 全量（4db0a9d）：integration-parallel 失败 3 项均为基线 B 类；串行门槛 4/4 用 254 s；integration-heavy 22 passed、pi 24、runtime 243（调度员在同一检出上单独补跑）。合入 main 4db0a9d。",
+        "recorded_at": "2026-10-11T16:50:55.782677+00:00"
       }
     ]
   },
@@ -3375,6 +3387,18 @@
         "ref": "ci:lane/runs/20261011T145501Z-a90634d21fd1",
         "summary": "s5c 全量（a90634d）：integration-parallel 失败 6 项均为基线 B 类；按 stages v3，串行门槛 4 个用例 4 分 12 秒全部通过（含 Host 并发上限两例，未超 5 分钟上限）；因 check 遇首个失败阶段即停止，integration-heavy 与 pi-runtime 由调度员在同一检出上单独补跑：python-heavy 22 passed（-n 2，4 分 52 秒）、pi 24 passed、runtime 243 passed。合入 main a90634d。",
         "recorded_at": "2026-10-11T15:51:10.641546+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2c7fb8e",
+        "summary": "第一批 1b（迁移 0157，原临时号 0231）：control.nexloop_tenants 只接受小写规范 uuid，先 NOT VALID 再 VALIDATE；回滚为新迁移 drop constraint。",
+        "recorded_at": "2026-10-11T16:50:55.782677+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T155442Z-4db0a9d9b47d",
+        "summary": "s5d 全量（4db0a9d）：integration-parallel 失败 3 项均为基线 B 类；串行门槛 4/4 用 254 s；integration-heavy 22 passed、pi 24、runtime 243（调度员在同一检出上单独补跑）。合入 main 4db0a9d。",
+        "recorded_at": "2026-10-11T16:50:55.782677+00:00"
       }
     ]
   },
