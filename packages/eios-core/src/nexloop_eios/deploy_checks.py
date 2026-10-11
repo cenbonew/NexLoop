@@ -340,8 +340,6 @@ def inventory_compare(before, after, *, prefix='nexloop'):
 
 # Budget <-> Compose (L5 review 2026-10-11) ---------------------------------------------------------------------------------------
 BUDGET_LABEL = 'nexloop.budget-service'
-# Budget entries that are not a container of their own: a reserve with no process yet (11 §7 scheduler, NX-031 D7).
-BUDGET_RESERVES = ('scheduler',)
 
 
 def compose_budget(budget, compose):
@@ -359,8 +357,6 @@ def compose_budget(budget, compose):
         for entry in label.split(','):
             seen[entry] = seen.get(entry, 0) + 1
     for entry, processes in declared.items():
-        if entry in BUDGET_RESERVES:
-            continue
         if entry not in seen:
             problems.append('budget_entry_without_service:' + entry)
         elif seen[entry] != processes:

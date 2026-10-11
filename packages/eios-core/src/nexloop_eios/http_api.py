@@ -229,7 +229,7 @@ def main():
     p.add_argument('--identity-database-url-file',type=Path);p.add_argument('--browser-rate-key-file',type=Path)
     p.add_argument('--browser-tenant-id');p.add_argument('--browser-application-id');p.add_argument('--browser-origin')
     p.add_argument('--workbench-application-id')
-    # NX-032: the browser identity pool of this process (connection budget entry api-browser-identity; stage runs 2).
+    # NX-032: the browser identity pool of this process (connection budget entry api-browser-identity, 4 per process).
     p.add_argument('--identity-pool-max',type=int,default=4)
     a=p.parse_args()
     if not 1024<=a.port<=65535:p.error('unprivileged local port required')
