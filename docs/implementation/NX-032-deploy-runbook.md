@@ -18,6 +18,7 @@
 | 中间 CA（每年） | `scripts/deploy/issue_certs.py intermediate --root-dir "$OFFLINE_ROOT_CA_DIR" --dir "$CA_DIR"` | `{"issued": "intermediate", ...}` | 有效期 ≤365 天 |
 | 服务证书 | `issue_certs.py server --ca-dir "$CA_DIR" --out "$CERT_DIR" --name pg-server --san "DNS:$DATA_HOST_NAME" --san "IP:$DATA_HOST_ADDR"`；`valkey-server` 同样；`gateway` 用 APP_HOST 的名称和地址 | `{"issued": "server", ...}` | 有效期 ≤90 天（D1） |
 | 客户端证书 | 每个 PG 应用角色一张：`issue_certs.py client --ca-dir "$CA_DIR" --out "$CERT_DIR" --name pg-client-<role> --cn <role>`；Valkey 每个 ACL 用户一张 | 同上 | CN 等于角色名或 ACL 用户名（D2） |
+| 部署 dry-run | `scripts/deploy/deploy.py dry-run --host-role <app\|data> --stage-env "$PRIVATE_STAGE_ENV" --out "$PLAN_DIR" --release-dir "$RELEASE_DIR" --allowed-signers "$ALLOWED_SIGNERS" --repo "$LOCAL_REPO" --trusted-ref main [--current-manifest "$CURRENT_MANIFEST" --database-head <head>]` | `{"ready": true, "executed": false, ...}`，并给出渲染结果和步骤列表 | 发布清单验签通过，SHA 与受信 ref 一致，镜像全部来自清单（DATA_HOST 来自锁文件），回滚检查允许；任一项不符时退出码为 1，不进入后续步骤 |
 | Compose 预检 | `docker compose -f deploy/stage/compose.<data\|app>.example.yaml --env-file "$PRIVATE_COMPOSE_<DATA\|APP>_ENV" config -q` | 退出码 0 | 镜像都是 `name@sha256:…`，来自 CI 测过的发布清单 |
 
 **撤销**：只需删除 `$RENDER_DIR` 和 `$CERT_DIR`。根 CA 不删除。
