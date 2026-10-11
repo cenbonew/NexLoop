@@ -42,7 +42,8 @@ def test_the_load_never_relaxes_the_login_rate_limit():
     (the template keeps its trusted configuration's), every cell aborts unless the policy it runs under is the one the template
     recorded, and the driver's warm-up waits out a 429 (or logs in from distinct loopback sources where the host can bind them)."""
     sources=[*(ROOT/'scripts/load').glob('*.py'),*(ROOT/'scripts/load').glob('*.sh'),ROOT/'tests/load_template.py',ROOT/'tests/load_chain.py']
-    assert not [p.name for p in sources if 'rate_polic' in p.read_text() and p.name!='matrix.py' and p.name!='build_template_hold.py']
+    assert not [p.name for p in sources if 'rate_polic' in p.read_text() and p.name not in ('matrix.py','build_template_hold.py','lane_preflight.py')]
+    assert 'insert into control.nexloop_browser_rate_policies' not in (ROOT/'scripts/load/lane_preflight.py').read_text().replace(r'(insert into|update)\s+','')
     for name in ('matrix.py','build_template_hold.py'):  # read-only use: the policy is selected, never inserted or updated
         text=(ROOT/'scripts/load'/name).read_text()
         assert 'from control.nexloop_browser_rate_policies' in text and 'insert into control.nexloop_browser_rate_policies' not in text
@@ -50,3 +51,41 @@ def test_the_load_never_relaxes_the_login_rate_limit():
     driver=(ROOT/'scripts/load/driver.py').read_text()
     assert "Retry-After" in driver and 'local_address' in driver
     assert "self.abort('login_policy_mismatch')" in (ROOT/'scripts/load/matrix.py').read_text()
+
+
+def test_resume_keeps_completed_cells_and_moves_incomplete_attempts_aside(tmp_path):
+    out,lane=tmp_path/'run',tmp_path/'lane'
+    for cell,completed in (('C4',True),('C4-low',False)):
+        (out/'cells'/cell).mkdir(parents=True);(out/'cells'/cell/'cell.json').write_text(json.dumps({'completed':completed,'aborted':None if completed else 'service_start_failed'}))
+        (lane/cell).mkdir(parents=True);(lane/cell/'marker').write_text(cell)
+    run={'template':{'key':'k'},'commit':'c','manifest_digest':'d'}
+    (out/'run.json').write_text(json.dumps(run))
+    resumed=M.resume_run(out,{'template':{'key':'k'},'commit':'c','manifest_digest':'d'})
+    assert M.prepare_resume(out,resumed,'C4',lane) is False and (out/'cells'/'C4'/'cell.json').is_file()  # kept as is
+    assert M.prepare_resume(out,resumed,'C4-low',lane) is True
+    assert not (out/'cells'/'C4-low').exists() and json.loads((out/'attempts'/'C4-low.1'/'cell.json').read_text())['aborted']=='service_start_failed'
+    assert (lane/'attempts'/'C4-low.1'/'marker').read_text()=='C4-low'
+    assert resumed['attempts']==[{'cell':'C4-low','attempt':1,'aborted':'service_start_failed','kept_in':'attempts/C4-low.1'}] and len(resumed['resumed_at'])==1
+    with pytest.raises(SystemExit):M.resume_run(out,{'template':{'key':'other'},'commit':'c','manifest_digest':'d'})
+
+
+def test_lane_preflight_is_read_only_and_checks_the_template(tmp_path, monkeypatch):
+    spec2=importlib.util.spec_from_file_location('lane_preflight',ROOT/'scripts/load/lane_preflight.py');P=importlib.util.module_from_spec(spec2);spec2.loader.exec_module(P)
+    lock=tmp_path/'ci.lock';lock.write_text('')
+    assert P.lock_idle(str(lock))==(True,'idle') and P.lock_idle(str(tmp_path/'missing'))==(False,'missing')
+    import fcntl
+    with open(lock,'rb') as held:
+        fcntl.flock(held,fcntl.LOCK_EX)
+        assert P.lock_idle(str(lock))==(False,'held')
+    ok,details=P.deployment_premises()
+    assert ok and details['runtime_worker']['guard_workers']==4 and details['runtime_worker']['dispatch_loops']==4 and all(details['chain'].values())
+    assert P.login_limit_untouched()==(True,[])
+    template=tmp_path/'template';(template/'pgdata').mkdir(parents=True)
+    S=P.synthetic
+    meta={'seed':31,'manifest_totals':{'consumers':20},'manifest_digest':S.digest(S.lines(31,20)),'commit':'abc','login_rate_policy':{'maximum_attempts':10,'window_seconds':60,'active':True}}
+    (template/'template.json').write_text(json.dumps(meta))
+    assert P.template_matches(template,31,20,'abc')[0] and not P.template_matches(template,31,21,'abc')[0] and not P.template_matches(template,31,20,'other')[0]
+    before=sorted(p.name for p in tmp_path.rglob('*'))
+    monkeypatch.setenv('NEXLOOP_CI_LOCK',str(lock));monkeypatch.setenv('LOAD_CONSUMERS','20')
+    P.main(['--template',str(template)])
+    assert sorted(p.name for p in tmp_path.rglob('*'))==before  # wrote nothing

@@ -264,6 +264,46 @@ def _count(events):
     return summary
 
 
+def resume_run(out, fresh):
+    """The interrupted run's run.json, kept: same template and commit are required (results must belong to one commit)."""
+    path = out / 'run.json'
+    if not path.is_file():
+        raise SystemExit('resume: no run.json in --out')
+    run = json.loads(path.read_text())
+    if run['template']['key'] != fresh['template']['key'] or run['commit'] != fresh['commit'] or run['manifest_digest'] != fresh['manifest_digest']:
+        raise SystemExit('resume: template, manifest or commit differs from the interrupted run')
+    run.setdefault('resumed_at', []).append(now().isoformat())
+    run['finished_at'] = None
+    return run
+
+
+def prepare_resume(out, run, cell, lane_root=None):
+    """False when the cell completed earlier (kept as is). Otherwise an existing incomplete directory is moved to attempts/ and
+    recorded in run.json, and the cell runs again."""
+    directory = out / 'cells' / cell
+    lane = Path(lane_root) / cell if lane_root else None
+    if not directory.exists():
+        if lane is not None and lane.exists():  # a cell interrupted before writing its result: keep its lane logs aside
+            attempts = Path(lane_root) / 'attempts'
+            attempts.mkdir(exist_ok=True)
+            lane.rename(attempts / f'{cell}.{1 + sum(1 for p in attempts.iterdir() if p.name.startswith(cell + "."))}')
+        return True
+    result = json.loads((directory / 'cell.json').read_text()) if (directory / 'cell.json').is_file() else {}
+    if result.get('completed') is True:
+        return False
+    attempts = out / 'attempts'
+    attempts.mkdir(exist_ok=True)
+    n = 1 + sum(1 for p in attempts.iterdir() if p.name.startswith(cell + '.'))
+    target = attempts / f'{cell}.{n}'
+    directory.rename(target)
+    if lane is not None and lane.exists():  # its lane (stopped cluster copy, process logs) goes beside it
+        (Path(lane_root) / 'attempts').mkdir(exist_ok=True)
+        lane.rename(Path(lane_root) / 'attempts' / f'{cell}.{n}')
+    run.setdefault('attempts', []).append({'cell': cell, 'attempt': n, 'aborted': result.get('aborted'), 'kept_in': f'attempts/{cell}.{n}'})
+    (out / 'run.json').write_text(json.dumps(run, indent=2) + '\n')
+    return True
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--template', required=True)
@@ -272,6 +312,9 @@ def main(argv=None):
     parser.add_argument('--lane-root', required=True)
     parser.add_argument('--cells', default=','.join(CELLS))
     parser.add_argument('--timing-scale', type=float, default=1.0)
+    parser.add_argument('--resume', action='store_true',
+                        help='continue an interrupted run in --out: completed cells are kept, an incomplete cell directory is moved to '
+                             'attempts/<cell>.<n> (kept, never overwritten) and the cell runs again')
     args = parser.parse_args(argv)
     if os.environ.get('REAL_DISPATCH_ENABLED', 'false') != 'false':
         raise SystemExit('REAL_DISPATCH_ENABLED must be false')
@@ -286,10 +329,15 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     Path(args.lane_root).mkdir(parents=True, exist_ok=True)
     run = run_json(args, args.template, matrix)
+    if args.resume:
+        run = resume_run(out, run)
     (out / 'run.json').write_text(json.dumps(run, indent=2) + '\n')
     aborted = 0
     for spec in matrix['cells']:
         if spec['cell'] not in wanted:
+            continue
+        if args.resume and not prepare_resume(out, run, spec['cell'], args.lane_root):
+            print(f'cell {spec["cell"]}: kept (completed earlier)', flush=True)
             continue
         print(f'cell {spec["cell"]}: start', flush=True)
         result = Cell(spec, matrix, args, run).execute()
