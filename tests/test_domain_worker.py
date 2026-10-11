@@ -52,3 +52,16 @@ def test_worker_denied_without_file_effect(orphan_collector,pg,admin,tmp_path,de
     result,report=execute(args,token)
     assert result.returncode==1 and report=={'passed':False,'code':'maintenance_unavailable','product_ready':False}
     assert path.exists() and admin.execute('select count(*) from runtime.nexloop_orphan_sweeps').fetchone()[0]==0
+
+
+def test_bounded_page_with_the_deployed_pool(orphan_collector,pg,admin,tmp_path):
+    """NX-031 D7: the maintenance page and its resume work with the deployed pool (domain_worker.POOL_MAX = 2). Measured:
+    with one connection the page waits for a second connection until the process timeout."""
+    from nexloop_eios import domain_worker
+    collector,token,formal=orphan_collector
+    _,path=orphan_file(collector.store)
+    result,report=execute(command(collector,token,pg,tmp_path)+['--pool-max',str(domain_worker.POOL_MAX)],token)
+    assert domain_worker.POOL_MAX==2 and result.returncode==0 and report['passed'] and not path.exists()
+    plan=persist_plan(collector);(tmp_path/'resume').mkdir()
+    resumed,again=execute(command(collector,token,pg,tmp_path/'resume')+['--pool-max',str(domain_worker.POOL_MAX),'--resume',plan['sweep_id']],token)
+    assert resumed.returncode==0 and again['passed']

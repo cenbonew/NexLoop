@@ -45,7 +45,12 @@ nexloop-doctor --budget-only --connection-budget deploy/stage/connection-budget.
   - 合计必须 **≤ 60**；
   - 服务器的 `max_connections` 必须 **≥ 80**，差额留给运维和故障核对。
 - 任一项不满足，或预算文件格式错误、连不上数据库，退出码都是 1，服务不启动。
-- 当前声明的合计是 `api 2×4 + domain-worker 4 + action-worker 4 + scheduler 4 + runtime-worker 18 = 38`。
+- 当前声明的合计是 52（NX-031 D7，实测的最小可用池，调度员 2026-10-11 批准）：
+  - `api 2×4 + domain-worker 2 + action-worker 2 + scheduler 4（预留）+ runtime-worker 18 + message-relay 2 + outbound-recorder 2`；
+  - 10 个后台服务各 1；
+  - 两个 launcher 的 API 池各 2。
+- doctor 另外核对每个常驻服务都已登记（`connection_budget.required_services()`），漏登记一项就判不通过。
+- `scheduler` 对应交接包 Compose 模板里的 `nexloop-scheduler`，当前代码没有这个入口，这 4 个连接作为预留。
 - 实际的服务进程数以部署时的只读 inventory 为准。每新增一个会连接 PG 的服务进程，都要先在这个文件里登记。
 
 ## 4. 回退

@@ -44,11 +44,12 @@ def role_planning(monkeypatch,admin,request,role_settings):
     selected=plan['role_selection'][principal];catalog=plan['role_catalogs'][principal]
     recipe=dict(role_id=selected['role_id'],link_id=selected['link_id'],step_id=selected['step_id'],offering_id=catalog['offering_id'],
         binding_id=catalog['binding_id'],control_id=catalog['control_id'])
-    api=plan['api']
-    launcher=RoleRunLauncher(source=lambda:api.authenticate(plan['source_tokens'][0],world='real'),
-        queue_service=lambda:api.authenticate(plan['owner_token'],world='real'),planner=lambda:api.authenticate(plan['planner_token'],world='real'),
-        executor_token=plan['executor_token'],settings=role_settings,effect_action='eios:action:'+fixture.EFFECT+':1')
-    def worker():return PlanReevaluationWorker(*services(session()),settings=role_settings,launcher=launcher)
+    def launcher_on(api):
+        return RoleRunLauncher(source=lambda:api.authenticate(plan['source_tokens'][0],world='real'),
+            queue_service=lambda:api.authenticate(plan['owner_token'],world='real'),planner=lambda:api.authenticate(plan['planner_token'],world='real'),
+            executor_token=plan['executor_token'],settings=role_settings,effect_action='eios:action:'+fixture.EFFECT+':1')
+    launcher=launcher_on(plan['api'])
+    def worker(api=None):return PlanReevaluationWorker(*services(session()),settings=role_settings,launcher=launcher if api is None else launcher_on(api))
     def establish(**changes):
         s=spec(plan,recipe=recipe,**changes);PlanPort(*services(session())).establish(s);make_due(admin);return s
     yield dict(plan=plan,admin=admin,worker=worker,establish=establish,principal=principal)
@@ -130,3 +131,18 @@ def test_sql_refuses_a_pack_that_drops_or_rewrites_the_plan(role_planning,monkey
     with pytest.raises(ContextArtifactUnavailable):w.launcher.activate(run,decision,budget,[])
     assert seen[-1].last_diagnostic[1]==expected
     assert admin.execute('select count(*) from runtime.nexloop_context_packs where run_id=%s',(run.run_id,)).fetchone()==(0,)
+
+
+def test_launch_through_the_deployed_launcher_api_pool(role_planning,tmp_path):
+    """NX-031 D7: the reevaluator's launcher runs on its own nexloop_api pool of API_POOL_MAX (2) connections; a due plan launches its
+    governed Role Run (measured: with a one-connection pool no Run is issued, a launch holds two connections at once)."""
+    from nexloop_eios import background_services as B
+    from launcher_pool import launcher_api
+    f=role_planning;admin=f['admin']
+    s=f['establish'](steps=[within_ceiling()])
+    with launcher_api(f['plan']['api'],f['plan']['pg'],tmp_path,B.API_POOL_MAX) as api:
+        assert api._pool.max_size==B.API_POOL_MAX==2
+        summary=f['worker'](api).run_once()
+    assert summary['launched']==1,summary
+    (run_id,)=admin.execute('select run_id::text from runtime.nexloop_plan_runs where plan_id=%s',(s['plan_id'],)).fetchone()
+    assert admin.execute('select count(*) from runtime.nexloop_context_packs where run_id=%s',(run_id,)).fetchone()==(1,)

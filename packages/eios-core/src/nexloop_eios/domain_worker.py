@@ -10,6 +10,9 @@ from pathlib import Path
 from nexloop_eios.backend import open_backend
 from nexloop_eios.private_configuration import read_private_text
 
+# NX-031 D7 (deploy/stage/connection-budget.v1.json, entry domain-worker): one bounded page per run, one connection at a time.
+POOL_MAX=2
+
 
 def run_page(service, *, older_than, limit=25, after='', resume=None):
     """One durable page; identifiers are returned to the trusted scheduler only."""
@@ -30,13 +33,14 @@ def main(argv=None):
     parser.add_argument('--limit',type=int,default=25)
     parser.add_argument('--after',default='')
     parser.add_argument('--resume')
+    parser.add_argument('--pool-max',type=int,default=POOL_MAX)
     args=parser.parse_args(argv)
-    if not 60<=args.minimum_age_seconds<=31536000 or not 1<=args.limit<=50:
+    if not 60<=args.minimum_age_seconds<=31536000 or not 1<=args.limit<=50 or not 1<=args.pool_max<=8:
         parser.error('invalid bounded maintenance policy')
     try:
         with open_backend(database_url=read_private_text(args.database_url_file,maximum=16384),
                 artifact_root=args.artifact_root,signing_key_file=args.signing_key_file,
-                signing_key_id=args.signing_key_id) as backend:
+                signing_key_id=args.signing_key_id,pool_max_size=args.pool_max) as backend:
             service=backend.authenticate(read_private_text(args.service_credential_file,maximum=2048),world=args.world)
             report=run_page(service,older_than=datetime.now(UTC)-timedelta(seconds=args.minimum_age_seconds),
                             limit=args.limit,after=args.after,resume=args.resume)
