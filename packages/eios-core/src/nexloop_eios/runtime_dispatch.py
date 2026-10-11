@@ -37,6 +37,8 @@ class RuntimeDispatchError(RuntimeError):
         super().__init__(code)
 
 
+# Transport ambiguity may recover only the same persisted Run later; a request the Host refuses for its size never will.
+_RETRYABLE=frozenset({'runtime_transport_unavailable','runtime_transport_timeout','runtime_dispatch_timeout','runtime_response_invalid'})
 _FAILURE_CODES=frozenset({'runtime_authorization_unavailable','runtime_authorization_denied'})
 
 
@@ -62,7 +64,7 @@ class RuntimeHostClient:
 
     def request(self,operation,body,*,deadline):
         if operation not in {'start','resume','inspect','cancel'}:raise ValueError('Host operation required')
-        connection=None;timer=None
+        connection=None;timer=None;response=None
         try:
             remaining=deadline-time.monotonic()
             if remaining<=0:raise RuntimeDispatchError('runtime_transport_timeout')
@@ -71,7 +73,8 @@ class RuntimeHostClient:
             context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);context.minimum_version=ssl.TLSVersion.TLSv1_2
             context.load_verify_locations(cadata=read_private_text(self.configuration.ca_file,maximum=32768))
             payload=json.dumps(body,separators=(',',':')).encode()
-            if len(payload)>262144:raise ValueError()
+            # The Host refuses a body above 262144 bytes (413); refused here before sending, as its own code (deterministic).
+            if len(payload)>262144:raise RuntimeDispatchError('runtime_request_too_large')
             origin=urlsplit(self.configuration.origin)
             remaining=deadline-time.monotonic()
             if remaining<=0:raise RuntimeDispatchError('runtime_transport_timeout')
@@ -106,7 +109,9 @@ class RuntimeHostClient:
             if response.status not in ({202} if operation in {'start','resume'} else {200}):
                 if response.status==503 and value.get('code')=='runtime_state_missing':raise RuntimeDispatchError('runtime_state_missing')
                 if response.status==409 and value.get('code')=='runtime_request_conflict':raise RuntimeDispatchError('runtime_request_conflict')
-                raise RuntimeDispatchError('runtime_transport_unavailable')
+                if response.status==413:raise RuntimeDispatchError('runtime_request_too_large')
+                # NX-031: any other Host status keeps its number in the code (retried like before; no longer called transport).
+                raise RuntimeDispatchError('runtime_host_status_%d'%response.status if 100<=response.status<=599 else 'runtime_response_invalid')
             command=body['command']
             if value.get('run_id')!=command['run_id']:raise ValueError()
             if operation!='cancel' and (value.get('request_id')!=command['request_id']
@@ -118,7 +123,12 @@ class RuntimeHostClient:
                     or persistence['journal_mode']!='wal' or type(persistence['synchronous']) is not int or persistence['synchronous']!=2):raise ValueError()
             return value
         except RuntimeDispatchError:raise
-        except Exception:raise RuntimeDispatchError('runtime_transport_unavailable') from None
+        except (TimeoutError,socket.timeout):raise RuntimeDispatchError('runtime_transport_timeout') from None
+        # NX-031: a Host answer that fails validation (type, size, framing, JSON, receipt) is not a transport failure.
+        except Exception:
+            # The deadline timer shuts the socket down; whatever that breaks is the timeout, not a bad answer.
+            if time.monotonic()>=deadline:raise RuntimeDispatchError('runtime_transport_timeout') from None
+            raise RuntimeDispatchError('runtime_response_invalid' if response is not None else 'runtime_transport_unavailable') from None
         finally:
             if timer is not None:timer.cancel()
             if connection is not None:connection.close()
@@ -215,7 +225,7 @@ class RuntimeDispatcher:
             code=error.code if isinstance(error,RuntimeDispatchError) else 'runtime_dispatch_unavailable'
             # Transport ambiguity may recover only the same persisted Run later.
             # Missing reclaimed state/conflict is terminal, never a new start.
-            status='retry_wait' if code in {'runtime_transport_unavailable','runtime_transport_timeout','runtime_dispatch_timeout'} else 'failed'
+            status='retry_wait' if code in _RETRYABLE or code.startswith('runtime_host_status_') else 'failed'
         result={'scope':'runtime_only','business_action_success':False,'runtime_outcome':outcome}
         if command is not None:result['run_id']=command.get('run_id')
         if receipt is not None:result['runtime_receipt']=receipt

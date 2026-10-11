@@ -240,7 +240,10 @@ def test_transport_only_tls_is_bounded_without_redirect_or_proxy(tmp_path,mode,m
         with pytest.raises(RuntimeDispatchError) as failure:
             RuntimeHostClient(configuration).request('inspect',{'activation_ref':'activation_transport_only',
                 'command':{'run_id':'transport-only','request_id':'transport-only'}},deadline=started+.2)
-        assert failure.value.code in {'runtime_transport_timeout','runtime_transport_unavailable'}
+        # NX-031: each cause keeps its own code (no longer all transport_unavailable).
+        expected={'redirect':{'runtime_host_status_307'},'oversize':{'runtime_response_invalid'},'trickle_headers':{'runtime_transport_timeout'},
+                  'silent_handshake':{'runtime_transport_timeout'}}.get(mode,{'runtime_response_invalid'})
+        assert failure.value.code in expected,(mode,failure.value.code)
         assert time.monotonic()-started<.8
         assert key.read_text() not in str(failure.value)
     finally:server.shutdown();server.server_close();thread.join(3)
