@@ -2730,6 +2730,12 @@
         "ref": "docs/implementation/NX-037-design.md",
         "summary": "D1–D8 负责人 2026-10-11 定案（NX-037 设计稿 D 项“全部按推荐”），见 planning/ROADMAP.md §7。D1 交互渠道用原生 WebChat、交付动作接企业自有的幂等端点（HttpEffectProvider）；D2 模型保持 deepseek-flash、embedding 沿用 ADR-019，费用上限三项待负责人给值；D3 由负责人指定的知情内部人员扮演消费者；D4 Agent Host 独立网络命名空间并补 loopback 证书 SAN（NX-032 范围）；D5 第二维护者演练，新增 AT-072，人选待定；D6 公开门槛通过后先发 v0.1.0-rc，NX-037 完成后打 v0.1.0；D7 ≥20 条受控交互，新增 AT-071，样本数/窗口/停止阈值待定；D8 租户 ID 规范化（NX-052）与删除后联系键执行点（NX-053）立为 NX-037 前置，工作台优惠发放页面列为 v0.1 已知限制。前置 A 类实现：按租户与 Action 生效的真实派发开关（进行中）。",
         "recorded_at": "2026-10-11T12:15:29.530624+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "recorded_at": "2026-10-11T14:26:11.100603+00:00",
+        "summary": "D-g、D-h、D-i 与 O1–O6 负责人 2026-10-11 按推荐定案（第二维护者由负责人本人担任），详见 ROADMAP §6、§7。"
       }
     ]
   },
