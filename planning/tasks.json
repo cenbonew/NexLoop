@@ -2488,6 +2488,12 @@
         "ref": "ci:lane/runs/20261011T165344Z-7b4ce4b6a83e",
         "summary": "s5e 全量（7b4ce4b）：check 首次自动执行全部测试阶段（NEXLOOP-STAGE 结果行齐全）：门槛 4/4 256 s；integration-parallel 失败 6 项均为基线 B 类；integration-heavy 22 passed；pi-runtime（pi 与 Host 255）通过。合入 main 7b4ce4b。",
         "recorded_at": "2026-10-11T17:47:26.043231+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "ci:lane/load/20261011T185416Z-2923e56",
+        "summary": "1000 客户整轮首跑（2923e56，seed 31）中止于模板构建的历史回复阶段：装载 1000/1000 用 1489 s 正常；历史回复 20 分钟内 0 条成功，NexLoop.event 死信 177、failed 10，结果码均为 runtime_transport_unavailable，按 HISTORY_TIMEOUT 必然失败，调度员停止以释放车道。同检出 25 客户诊断模板：27 回复、7 未回复（transport_unavailable 与 authorization_unavailable）。与 CI 基线中 CI 主机上的 B 类失败同形态；已派 L4 定位根因（runtime_dispatch 把多类原因归为同一码，需拆分诊断码）。AT-060 未运行。",
+        "recorded_at": "2026-10-11T21:21:46.954806+00:00"
       }
     ]
   },
@@ -2837,7 +2843,7 @@
       "M22"
     ],
     "deliverable": "真实Provider/交付证据、全部S1–S5验收、已知限制",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
@@ -2868,6 +2874,18 @@
         "ref": "ci:lane/runs/20261011T135349Z-9058f0220d13",
         "summary": "s5a（ci:lane/runs/20261011T125849Z-51c198dd9402）与 s5b 全量：s5b 失败 14 项均在基线（参数化后的 closure_plan[False]、C 类 role_tail 与 reclaim 同检出串行各 2/2），s5a 的两项确定性新失败（优惠后台测试未发布 Action 定义、Run 完成测试期望未含 model_timing）已在 s5b 修正并通过；串行门槛 2/2。合入 main 1a3ea6b。",
         "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c6bee39",
+        "summary": "A 类准备合入 main（s5g）：real_tenant_init.py（plan 默认只打印步骤；execute 仅执行受信配置；Budget.set 由负责人本人在工作台执行；verify 只读，经 0161 的 metrics 视图核对三层真实派发开关关闭、D-g 预算与告警规则）；受控交互执行器（D-i 立即停止与暂停规则）；证据包脚本；均在合成环境跑通。真实租户、真实渠道与真实派发仍为 B 类，未执行。",
+        "recorded_at": "2026-10-11T21:21:46.954806+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T202358Z-c6bee390ec12",
+        "summary": "s5g 全量（c6bee39）通过合并规则；test_nx037_controlled_interactions、test_nx037_tenant_init_pg 通过。",
+        "recorded_at": "2026-10-11T21:21:46.954806+00:00"
       }
     ]
   },
@@ -3447,6 +3465,18 @@
         "ref": "ci:lane/runs/20261011T165344Z-7b4ce4b6a83e",
         "summary": "s5e 全量（7b4ce4b）：check 首次自动执行全部测试阶段（NEXLOOP-STAGE 结果行齐全）：门槛 4/4 256 s；integration-parallel 失败 6 项均为基线 B 类；integration-heavy 22 passed；pi-runtime（pi 与 Host 255）通过。合入 main 7b4ce4b。",
         "recorded_at": "2026-10-11T17:47:26.043231+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "89144ba",
+        "summary": "第 3 批合入 main（s5g）：0159 ontology 定义/评审/配置类 10 张表、0160 抽取与 Claim 族 8 张表加 2 张 recall 表的租户外键（NOT VALID 后 VALIDATE）；测量中位 +4.6%、p95 +3.5%（判据 10%/5% 内）；0050 租户行锁降为 FOR NO KEY UPDATE 的评审稿经调度员审过通过（另加“无覆盖 status/authority_revision 的唯一索引”断言），实现在途；第 3c 批（会话与消息表）排在锁改动之后，第 5 批最后。",
+        "recorded_at": "2026-10-11T21:21:46.954806+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T202358Z-c6bee390ec12",
+        "summary": "s5g 全量（c6bee39）：integration-parallel 失败 6 项均为基线 B 类；门槛 4/4 257 s；heavy 22/22；pi 24、runtime 255 通过。",
+        "recorded_at": "2026-10-11T21:21:46.954806+00:00"
       }
     ]
   },
