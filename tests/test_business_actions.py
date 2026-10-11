@@ -39,7 +39,7 @@ NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase'
     'nexloop.retention.release_hold':'retention.release_hold','nexloop.consumer.export':'consumer.export'}
 NX030_SILENCE={'nexloop.alert.silence':'alert.silence','nexloop.restore.open_scope':'restore.open_scope'}  # + NX-035 (0147), owner only
 AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}
-RDS_SWITCH={'nexloop.real_dispatch.set':'real_dispatch.set'}  # 0220 real dispatch switch, owner only
+RDS_SWITCH={'nexloop.real_dispatch.set':'real_dispatch.set'}  # 0153 real dispatch switch, owner only
 
 
 def object_types():

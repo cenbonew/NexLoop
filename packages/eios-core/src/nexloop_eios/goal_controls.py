@@ -51,7 +51,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'silence_alert':'alert.silence',
     # NX-035 (0147): the owner opens one tenant/world scope of a restored, verified database.
     'open_restore_scope':'restore.open_scope',
-    # NX-037 prerequisite (0220): the owner opens or closes real dispatch for the tenant or one Action of it.
+    # NX-037 prerequisite (0153): the owner opens or closes real dispatch for the tenant or one Action of it.
     'set_real_dispatch':'real_dispatch.set'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
@@ -64,7 +64,7 @@ REASONS={'NXC01':'control_paused','NXC02':'control_revision_stale','NXC03':'goal
     'NXC04':'object_revision_stale','NXC05':'contact_restricted','NXB01':'budget_exhausted','NXB02':'budget_consumption_conflict',
     'NXB03':'budget_unconfigured','NXM01':'observation_conflict',
     'NXR01':'restore_unverified',  # NX-035 (0147): restored database not yet opened for this tenant/world
-    'NXC07':'real_dispatch_closed'}  # 0220: a layer of the real dispatch switch is closed for this external effect
+    'NXC07':'real_dispatch_closed'}  # 0153: a layer of the real dispatch switch is closed for this external effect
 
 
 def goal_version_ref(goal_id,version):
@@ -249,7 +249,7 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[A-Za-z0-9._:-]{1,64}',str(restore_ref)):raise ValueError('restore reference required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'open_restore_scope','restore_ref':restore_ref})
 
-    # 0220: owner only. scope 'tenant' (with the tenant's data mode; only 'real' can be open) or 'action_type' (one resource id).
+    # 0153: owner only. scope 'tenant' (with the tenant's data mode; only 'real' can be open) or 'action_type' (one resource id).
     def set_real_dispatch(self,*,action_name,action_version,request_id,scope_kind,enabled,reason,action_type=None,data_mode=None):
         if scope_kind not in ('tenant','action_type') or type(enabled) is not bool or type(reason) is not str or not 1<=len(reason)<=2000:
             raise ValueError('scope, state and reason required')

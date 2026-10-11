@@ -1,4 +1,4 @@
-"""The deployment layer of the real dispatch switch (0220): REAL_DISPATCH_ENABLED of the dispatching worker's own process.
+"""The deployment layer of the real dispatch switch (0153): REAL_DISPATCH_ENABLED of the dispatching worker's own process.
 
 Only the exact value 'true' opens it; absent, empty or anything else is closed. The worker passes it to SQL as the
 transaction-local setting nexloop.real_dispatch_enabled in the transaction that admits the dispatch, where the tenant and

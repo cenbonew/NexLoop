@@ -44,7 +44,7 @@
 - **版本**：每次变更都是一个控制事件（`event_kind='real_dispatch'`），控制版本号加一。开关行记录这个版本号、原因、变更人和意图 ID。
 - **旧快照失效**：派发时，在此之前取得的快照失效，拒绝码为 `NXC02`。
   - 租户级变更是 `tenant` 作用域的事件，0068 原有的检查已经会让该租户的所有快照失效；
-  - Action 级变更会让涉及该 Action 的快照失效（0220 的 `control.nexloop_real_dispatch_superseded`）。
+  - Action 级变更会让涉及该 Action 的快照失效（0153 的 `control.nexloop_real_dispatch_superseded`）。
 - **非 real world**：打开开关会被拒绝。
 
 ### 1.4 派发时复核（SQL）
@@ -87,7 +87,7 @@
 
 ## 2. 文件
 
-- **迁移**：`0220_real_dispatch_switch.sql`，`catalog.json` 已同步，`versions.lock.json` 的 `bootstrap_revision` 为 `0220`。
+- **迁移**：`0153_real_dispatch_switch.sql`（合并时由临时号 0220 重新编号），`catalog.json` 已同步，`versions.lock.json` 的 `bootstrap_revision` 为 `0220`。
 - **Python**：
   - `real_dispatch.py`（部署层）；
   - `effect_execution.py` 和 `plan_reevaluation._SignedPort` / `incentives.IncentivePort`：在准入事务里写入部署级总闸；

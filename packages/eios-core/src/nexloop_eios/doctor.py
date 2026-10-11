@@ -153,7 +153,7 @@ def backup(metrics_database_url_file,plan_file):
     return {'checks':checks,'details':{'backup':{'plan_version':plan['version'],'restore_state':(status.get('restore') or {}).get('state'),
         'failed':sorted(k for k,v in checks.items() if not v)}}}
 def real_dispatch(metrics_database_url_file,environment=None):
-    """0220: the state of the real dispatch switches, reported only (states and counts): the deployment master switch of this
+    """0153: the state of the real dispatch switches, reported only (states and counts): the deployment master switch of this
     process's environment and how many tenants / tenant Actions are open, through the read-only metrics role. A closed state
     passes; only an unreadable status or an invalid master switch value fails."""
     from nexloop_eios.deployment_readiness import dispatch_switch
@@ -209,7 +209,7 @@ def main():
     parser.add_argument('--relay-source',action='store_true',help='relay multi-consumer: the relay Source principal and credential (read-only metrics role)')
     parser.add_argument('--backup',action='store_true',help='NX-035: backups against deploy/configuration/backup.v1.json, restore state (read-only metrics role)')
     parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
-    parser.add_argument('--real-dispatch',action='store_true',help='0220: real dispatch switch states and counts (read-only metrics role)')
+    parser.add_argument('--real-dispatch',action='store_true',help='0153: real dispatch switch states and counts (read-only metrics role)')
     args=parser.parse_args()
     if args.real_dispatch:
         if not args.metrics_database_url_file:parser.error('--real-dispatch requires --metrics-database-url-file')

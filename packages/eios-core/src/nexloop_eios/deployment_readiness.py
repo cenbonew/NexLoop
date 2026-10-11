@@ -4,7 +4,7 @@ Ready means: PostgreSQL reachable as the service's own restricted role; the appl
 catalog exactly; no restore in progress (NX-035: restored or replayed is not ready; verified_readonly is ready for reads and
 inbound only, reported as mode read_only); no deletion replay open (NX-029); and the real-dispatch master switch
 (REAL_DISPATCH_ENABLED) is a valid value and closed while the restore keeps dispatch closed. The body also reports how many
-tenants and tenant Actions have real dispatch open (0220), as counts only. A service adds its own checks
+tenants and tenant Actions have real dispatch open (0153), as counts only. A service adds its own checks
 (the API: signer and Artifact directory) as extra (code, passed) pairs.
 """
 from eios.adapters.postgres.migrations import MigrationDrift
@@ -44,7 +44,7 @@ def evaluate(connection_factory, *, environ, extra=()):
                 reasons.append('migration_drift')
                 raise
             facts = connection.execute('select authz.nexloop_service_readiness()').fetchone()[0]
-            # 0220: the real dispatch switches, as counts only (reported, never a readiness condition).
+            # 0153: the real dispatch switches, as counts only (reported, never a readiness condition).
             real = connection.execute('select authz.nexloop_real_dispatch_summary()').fetchone()[0]
     except Exception:
         if not set(reasons) & {'database_role_invalid', 'migration_drift'}:

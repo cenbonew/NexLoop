@@ -41,7 +41,7 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'incentive.issue':'human_owner',
     # NX-035 (0147): the owner opens a scope of a restored database.
     'restore.open_scope':'human_owner',
-    # 0220 (NX-037 prerequisite): the owner opens or closes real dispatch for the tenant or one of its Actions.
+    # 0153 (NX-037 prerequisite): the owner opens or closes real dispatch for the tenant or one of its Actions.
     'real_dispatch.set':'human_owner'}
 HUMAN_OWNER='human_owner'
 
