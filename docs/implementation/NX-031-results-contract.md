@@ -21,7 +21,7 @@
     process_samples.jsonl       # runtime.nexloop_process_samples 中窗口内的行（guard / pool / host）
     runs.jsonl                  # 每个消息 Run 的分解时延（D6）
     acks.jsonl                  # 驱动端每次入站 POST 的 ACK 时延
-    dispatch.jsonl              # 派发时延（Run 任务入队 → Host 接受 Run，不含模型时间）
+    dispatch.jsonl              # 派发时延（Run 任务入队 → 首次执行授权，不含模型时间）
     refusals.jsonl              # 窗口内的派发拒绝（runtime.nexloop_dispatch_refusals）
     alerts.jsonl                # 窗口内的告警事件（control.nexloop_alert_events）
     checks.json                 # §4.4 的 7 项身份与结局核对
@@ -77,21 +77,22 @@
 每行格式：
 
 ```json
-{"e2e_ms": 5400, "run_ms": 4800, "model_ms": 3100, "tool_ms": 820.5, "tool_calls": 3, "queue_wait_ms": 120, "admission_wait_ms": 0, "outcome": "replied"}
+{"e2e_ms": 5400, "run_ms": 4800, "model_ms": 3100, "tool_ms": 820.5, "tool_calls": 3, "queue_wait_ms": 120, "admission_wait_ms": 0, "outcome": "replied", "failure": null}
 ```
 
 - `tool_ms` 和 `tool_calls` 取自 `runtime.jobs.result.tool_timing`（`total_ms`、`calls`）；没有时为 `null`。
 - `model_ms` 是这个 Run 所有 `runtime.nexloop_model_requests` 的 `completed_at − requested_at` 之和。
 - `e2e_ms` 是触发消息的 `accepted_at` 到回复（或兜底、升级）落库的时间差。还没有回复时（处理中、受限、被接管）为 `null`，这类 Run 只按 outcome 计数。
-- `run_ms`（调度员 2026-10-11）：Host 接受这个 Run（`runtime_execution_markers.first_authorized_at`）到它的任务结束（`runtime.jobs.updated_at`，状态为 succeeded/failed）。平台耗时 = `run_ms − model_ms − tool_ms`，三者覆盖同一时间范围；结果为负视为数据异常，报告计数并判 AT-060 不通过，不会截成 0。端到端不参与相减。
+- `run_ms`（调度员 2026-10-11 裁定 2）：Host 接受这个 Run（runtime worker 首次为它登记激活，`authz.nexloop_runtime_activations.created_at` 的最小值，随即提交 Host start，早于任何 Pi 任务）到它的任务结束（`runtime.jobs.updated_at`，状态为 succeeded/failed）。模型和工具时间都落在这段时间内，平台时间包含授权等待。此前从首次执行授权起算，Pi 生成在等待这次授权时就已开始，guard 慢时会出现负值。平台耗时 = `run_ms − model_ms − tool_ms`，三者覆盖同一时间范围；结果为负视为数据异常，报告计数并判 AT-060 不通过，不会截成 0。端到端不参与相减。
 - `model_ms` 优先取任务结果中 Host 报告的 `model_timing.total_ms`（方案 A2）。
 - `outcome` 取值：`replied`、`fallback`、`escalated`、`restricted`、`takeover`、`in_progress`。
+- `failure`（NX-031，调度员 2026-10-11 裁定 1）：失败的 Run 的原因，未失败为 `null`。`runtime_authorization_unavailable` 是 guard 未应答（Host 对同一次授权有界重试后仍不可用），`runtime_authorization_denied` 是 guard 明确拒绝，其余为任务结果码（如 `runtime_failed`）。报告按原因分开计数。
 - **不写 run_id**：报告用不到，也就不让 ID 进入报告流程。
 
 ### `acks.jsonl` / `dispatch.jsonl`
 
 - `acks.jsonl`：`{"ack_ms": 38.2, "status": 202}`。只有状态为 202 的行计入 ACK 时延；其余状态按代码计数。
-- `dispatch.jsonl`：`{"dispatch_ms": 640}`。口径（调度员 2026-10-11）：消息 Run 任务入队（`runtime.jobs.created_at`）到 Agent Host 接受这个 Run（首次执行授权 `authz.nexloop_runtime_execution_markers.first_authorized_at`）。不含模型时间；D5 注入的模型时延只计入 `runs.jsonl` 的 e2e。Host 没有接受的 Run 不写。2 s 的限值只适用于这个口径。
+- `dispatch.jsonl`：`{"dispatch_ms": 640}`。口径（调度员 2026-10-11）：消息 Run 任务入队（`runtime.jobs.created_at`）到这个 Run 的首次执行授权（`authz.nexloop_runtime_execution_markers.first_authorized_at`）。不含模型时间；D5 注入的模型时延只计入 `runs.jsonl` 的 e2e。Host 没有接受的 Run 不写。2 s 的限值只适用于这个口径。
 
 ### `refusals.jsonl` / `alerts.jsonl`
 

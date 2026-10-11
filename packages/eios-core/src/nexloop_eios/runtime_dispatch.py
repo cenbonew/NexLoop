@@ -37,6 +37,9 @@ class RuntimeDispatchError(RuntimeError):
         super().__init__(code)
 
 
+_FAILURE_CODES=frozenset({'runtime_authorization_unavailable','runtime_authorization_denied'})
+
+
 def model_timing(value):
     """NX-031 A2: the Host's model time of a Run, passed on only as exactly {calls, total_ms, max_ms} of non-negative numbers
     (no other key, no text); anything else is dropped (the Run's outcome never depends on it)."""
@@ -161,7 +164,7 @@ class RuntimeDispatcher:
             body={'activation_ref':activation['activation_ref'],'command':command}
             if operation in {'start','resume'}:body['input']=input
             return self.client.request(operation,body,deadline=min(deadline,time.monotonic()+self.request_timeout))
-        outcome='unknown';code=None;status='failed';receipt=None;timing=None
+        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None
         try:
             payload=job['payload']
             if type(payload) is not dict or set(payload)!={'run_command','input'}:raise RuntimeDispatchError('runtime_task_payload_invalid')
@@ -200,6 +203,12 @@ class RuntimeDispatcher:
                 timing=model_timing(inspection.get('model_timing'))
             status='succeeded' if outcome=='succeeded' else 'retry_wait' if outcome=='unknown' else 'failed'
             if status!='succeeded':code='runtime_'+outcome
+            # NX-031: the Host names an authorization failure with one allowlisted code. A guard that did not answer (after the
+            # Host's bounded retries) is not a denial: the task code says so. The Pi Run is terminal, so the task ends failed and
+            # the reply guarantee's fallback takes the message, as for any failed Run; a denial keeps runtime_failed.
+            if outcome=='failed' and inspection.get('failure_code') in _FAILURE_CODES:
+                failure=inspection['failure_code']
+                if failure=='runtime_authorization_unavailable':code=failure
         except StaleQueueLease:
             return {'claimed':True,'task_id':task_id,'fence':fence,'status':'lease_lost'}
         except Exception as error:
@@ -218,6 +227,7 @@ class RuntimeDispatcher:
                         (self.worker._session.token_digest,self.worker._session.world,command['run_id'])).fetchone()[0]
             except Exception:pass
         if timing is not None:result['model_timing']=timing  # NX-031 A2: numbers only, beside tool_timing
+        if failure is not None:result['failure_code']=failure
         if code is not None:result['code']=code
         try:
             self.worker.assert_task_lease(queue=self.queue,task_id=task_id,fence=fence)

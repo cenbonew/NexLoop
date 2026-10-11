@@ -162,14 +162,17 @@ def pool_summary(samples, start, end):
 
 def decomposition(runs):
     """AT-060 per Run (dispatcher 2026-10-11): platform = Run duration - model - tool, all over the same span (the Host accepted the
-    Run → its task ended). A negative platform time is a data anomaly: counted and reported, never clipped to 0, and kept out of the
+    Run, its first activation → its task ended). A negative platform time is a data anomaly: counted and reported, never clipped to 0, and kept out of the
     platform statistics. End to end (trigger accepted → its reply) is reported on its own and never enters the subtraction. Runs
     without tool or model timing are counted, not guessed."""
     run, model, tool, platform, e2e = [], [], [], [], []
-    anomalies, no_tool, no_model, outcomes = 0, 0, 0, {}
+    anomalies, no_tool, no_model, outcomes, failures = 0, 0, 0, {}, {}
     for row in runs:
         outcome = _code(row.get('outcome'), 'runs.outcome')
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
+        if row.get('failure') is not None:  # NX-031: failed Runs by cause; an unanswered guard is not a denial
+            failure = _code(row['failure'], 'runs.failure')
+            failures[failure] = failures.get(failure, 0) + 1
         if row.get('e2e_ms') is not None:  # no reply yet (in progress, restricted, taken over): no end-to-end time
             e2e.append(_number(row.get('e2e_ms'), 'runs.e2e_ms'))
         duration = _number(row.get('run_ms'), 'runs.run_ms', allow_none=True)
@@ -196,7 +199,7 @@ def decomposition(runs):
     stats = lambda values: {'p50': percentile(values, 0.5), 'p95': percentile(values, 0.95)}
     return {'runs': len(run), 'e2e_ms': stats(e2e), 'run_ms': stats(run), 'model_ms': stats(model), 'tool_ms': stats(tool),
             'platform_ms': stats(platform), 'runs_without_tool_timing': no_tool, 'runs_without_model_timing': no_model,
-            'anomalies': anomalies, 'outcomes': dict(sorted(outcomes.items()))}
+            'anomalies': anomalies, 'outcomes': dict(sorted(outcomes.items())), 'failures': dict(sorted(failures.items()))}
 
 
 def cell_metrics(directory, expected_refusals):
@@ -431,10 +434,10 @@ def markdown(report):
               f"- 预期内派发拒绝：{', '.join(report['expected_refusals'])}",
               f"- **AT-060：{report['at060']['result']}**" + (f"（{'; '.join(report['at060']['reasons'])}）" if report['at060']['reasons'] else ''), '',
               '只含指标、门槛结论、seed、digest 和提交，不含原文与 ID（D8）。门槛只判 C4、C4-low（§6.1）；C8 超出部署前提，只观察。', '',
-              '两个时延口径分开给出：**派发**是 Run 任务入队到 Host 接受 Run，不含模型时间，2 s 限值只适用于它；**端到端**是来信受理到回复（或兜底、升级）落库，'
+              '两个时延口径分开给出：**派发**是 Run 任务入队到首次执行授权，不含模型时间，2 s 限值只适用于它；**端到端**是来信受理到回复（或兜底、升级）落库，'
               '含模型时间（压测中为 D5 注入的确定性时延），见下方分解表。', '',
               '## 各格指标', '',
-              '| 格 | 角色 | 并发 | 速率/s | 后台 | 同机 CI | 完成 | 超时率(5m 最差) | guard p95 max | ACK p95 | 派发 p95（入队→Host 接受） | 端到端 p95 | 积压峰值 | 排空 s | 连接峰值 | critical | 非预期拒绝 | 身份违例 | 未结局 |',
+              '| 格 | 角色 | 并发 | 速率/s | 后台 | 同机 CI | 完成 | 超时率(5m 最差) | guard p95 max | ACK p95 | 派发 p95（入队→首次执行授权） | 端到端 p95 | 积压峰值 | 排空 s | 连接峰值 | critical | 非预期拒绝 | 身份违例 | 未结局 |',
               '|' + '---|' * 19]
     for c in report['cells']:
         m = c['metrics']
@@ -454,18 +457,20 @@ def markdown(report):
             lines.append(f"| {name} | {_fmt(item['value'])} | {_fmt(item['limit'])} | {item['result']} |")
         lines.append('')
     lines += ['## 平台 / 模型 / 工具 分解（逐 Run，ms，p50 / p95）', '',
-              '- Run 时长：Host 接受 Run（首次执行授权）→ 该 Run 的任务结束。平台 = Run 时长 − 模型 − 工具，同一时间范围相减；为负即数据异常（计数，不截成 0，不进统计）。',
+              '- Run 时长：Host 接受 Run（runtime worker 首次为它登记激活，随即提交 Host）→ 该 Run 的任务结束。模型和工具都落在这段时间内，平台 = Run 时长 − 模型 − 工具，包含授权等待；为负即数据异常（计数，不截成 0，不进统计）。',
               '- 模型：Host 报告的 model_timing（生成段时长减去其中的工具调用）；工具：guard 汇总的 tool_timing。',
-              '- 端到端：来信受理 → 回复（或兜底、升级）落库，单独报告，不参与相减；派发：入队 → Host 接受，见上表。', '',
-              '| 格 | Run 数 | 端到端 | Run 时长 | 模型 | 工具 | 平台 | 无工具计时 | 无模型计时 | 数据异常 | Host 样本 |', '|---|---|---|---|---|---|---|---|---|---|---|']
+              '- 端到端：来信受理 → 回复（或兜底、升级）落库，单独报告，不参与相减；派发：入队 → 首次执行授权，见上表。',
+              '- 失败的 Run 按原因计数：授权不可用（guard 未应答，Host 有界重试后仍不可用）和授权拒绝（guard 明确拒绝）分开，其余记任务结果码。', '',
+              '| 格 | Run 数 | 端到端 | Run 时长 | 模型 | 工具 | 平台 | 无工具计时 | 无模型计时 | 数据异常 | 失败（按原因） | Host 样本 |', '|---|---|---|---|---|---|---|---|---|---|---|---|']
     for c in report['cells']:
         d = c.get('decomposition')
         if not d:
-            lines.append(f"| {c['cell']} | missing | | | | | | | | | {c['host_metrics']} |")
+            lines.append(f"| {c['cell']} | missing | | | | | | | | | | {c['host_metrics']} |")
             continue
         pair = lambda k: f"{_fmt(d[k]['p50'])} / {_fmt(d[k]['p95'])}"
         lines.append(f"| {c['cell']} | {d['runs']} | {pair('e2e_ms')} | {pair('run_ms')} | {pair('model_ms')} | {pair('tool_ms')} | {pair('platform_ms')} | "
-                     f"{d['runs_without_tool_timing']} | {d['runs_without_model_timing']} | {d['anomalies']} | {c['host_metrics']} |")
+                     f"{d['runs_without_tool_timing']} | {d['runs_without_model_timing']} | {d['anomalies']} | "
+                     f"{', '.join(f'{k} {v}' for k, v in d.get('failures', {}).items()) or '0'} | {c['host_metrics']} |")
     ci = report['ci_interference']
     lines += ['', '## CI 同机影响（§5.3）', '']
     if not ci:

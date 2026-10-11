@@ -11,6 +11,9 @@ import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter
 import {selectTrustedModel,validateEstimatedReservation} from './trusted-model-profile.js';
 import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
 
+type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation};
+// ADR-022 §4: each guard call keeps its 2 s limit; an unanswered call is retried a bounded number of times.
+export const GUARD_TIMEOUT_MS=2000,GUARD_ATTEMPTS=3,GUARD_BACKOFF_MS=100;
 type Material=(path:string,maximum:number,allowEmpty?:boolean)=>Buffer;
 function record(value:unknown):Record<string,unknown>{
   if(!value||typeof value!=='object'||Array.isArray(value))throw new RuntimeError('invalid_runtime_request');
@@ -24,7 +27,7 @@ export async function readRuntimeBody(request:IncomingMessage){
 }
 export class RuntimeHost{
   private readonly adapter:PiRuntimeAdapter;
-  private readonly activations=new Map<string,{ref:string;input?:string;command?:RunCommand;context?:ContextAttestation}>();
+  private readonly activations=new Map<string,Activation>();
   private readonly guard:URL;
   private readonly caPath:string;
   private readonly keyPath:string;
@@ -90,13 +93,30 @@ export class RuntimeHost{
       // v6: each actual model request is recorded by the guard before the call (AT-027).
       if((requestSnapshot!==undefined||modelResult!==undefined)&&(operation!=='model'||runProtocol(command.run_id)!==CONTEXT_PROTOCOL_V6||(requestSnapshot!==undefined&&modelResult!==undefined)))throw new RuntimeError('runtime_authorization_denied');
       const payload=Buffer.from(JSON.stringify({activation_ref:ref,command,operation,...(input===undefined?{}:{input}),...(requestSnapshot===undefined?{}:{request_snapshot:requestSnapshot}),...(modelResult===undefined?{}:{model_result:modelResult})}));
-      return await new Promise<{ever_execution_authorized:boolean}>((resolve,reject)=>{
-        const request=httpsRequest(this.guard,{method:'POST',ca:privateMaterial(this.caPath,32768),minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(2000),
+      // NX-031 (dispatcher 2026-10-11): a guard that did not answer (timeout, connection error, 503) is not a denial. The same
+      // authorization is retried within the command's time limit (each call keeps the 2 s limit of ADR-022 §4); the guard records
+      // a model call idempotently by call_sequence, and no external effect happens before authorization. Only an explicit answer
+      // (403/400, or a 200 that fails validation) is runtime_authorization_denied.
+      for(let attempt=1;;attempt++){
+        try{return await guardOnce(payload,key,command,operation,input,active);}
+        catch(error){
+          if(!(error instanceof RuntimeError)||error.code!=='runtime_authorization_unavailable'||attempt>=GUARD_ATTEMPTS)throw error;
+          const backoff=GUARD_BACKOFF_MS*attempt;
+          if(Date.parse(command.not_after)<=Date.now()+backoff)throw error;
+          await new Promise(resolve=>setTimeout(resolve,backoff));
+        }
+      }
+    };
+    const guardOnce=(payload:Buffer,key:string,command:RunCommand,operation:string,input:string|undefined,active:Activation|undefined)=>{
+      const unavailable=()=>new RuntimeError('runtime_authorization_unavailable'),denied=()=>new RuntimeError('runtime_authorization_denied');
+      return new Promise<{ever_execution_authorized:boolean}>((resolve,reject)=>{
+        const request=httpsRequest(this.guard,{method:'POST',ca:privateMaterial(this.caPath,32768),minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(GUARD_TIMEOUT_MS),
           headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':payload.length}},response=>{
           let size=0;const chunks:Buffer[]=[];
-          response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>32768){request.destroy();reject(new RuntimeError('runtime_authorization_denied'));}else chunks.push(chunk);});
-          response.on('error',()=>reject(new RuntimeError('runtime_authorization_denied')));
-          response.on('end',()=>{try{const result=record(JSON.parse(Buffer.concat(chunks).toString('utf8')));if(response.statusCode!==200||result.authorized!==true||result.run_id!==command.run_id||typeof result.ever_execution_authorized!=='boolean'||(['model','tool'].includes(operation)&&result.ever_execution_authorized!==true))throw new Error();if(contextMode){
+          response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>32768){request.destroy();reject(denied());}else chunks.push(chunk);});
+          response.on('error',()=>reject(unavailable()));
+          response.on('end',()=>{if(response.statusCode===503){reject(unavailable());return;}
+            try{const result=record(JSON.parse(Buffer.concat(chunks).toString('utf8')));if(response.statusCode!==200||result.authorized!==true||result.run_id!==command.run_id||typeof result.ever_execution_authorized!=='boolean'||(['model','tool'].includes(operation)&&result.ever_execution_authorized!==true))throw new Error();if(contextMode){
             const attestation=validateContextAttestation(command,result.context_artifact);
             const original=input??active?.input;
             if(original!==undefined){
@@ -105,9 +125,9 @@ export class RuntimeHost{
             }
             if(active){active.context=attestation;active.command=command;}
           }
-          resolve({ever_execution_authorized:result.ever_execution_authorized});}catch{reject(new RuntimeError('runtime_authorization_denied'));}});
+          resolve({ever_execution_authorized:result.ever_execution_authorized});}catch{reject(denied());}});
         });
-        request.setTimeout(2000,()=>request.destroy());request.on('error',()=>reject(new RuntimeError('runtime_authorization_denied')));request.end(payload);
+        request.setTimeout(GUARD_TIMEOUT_MS,()=>request.destroy());request.on('error',()=>reject(unavailable()));request.end(payload);
       });
     };
     this.authorizeAdmission=guard;
