@@ -77,7 +77,8 @@ def _arguments(argv):
         parser.add_argument('--'+option,type=Path,required=True)
     parser.add_argument('--cache-configuration-file',type=Path)
     parser.add_argument('--signing-key-id',default='active')
-    parser.add_argument('--world',required=True);parser.add_argument('--queue',required=True)
+    # AT-046: no simulation or shadow Run is dispatched with this worker's real credentials (ROADMAP §10).
+    parser.add_argument('--world',required=True,choices=['real','test']);parser.add_argument('--queue',required=True)
     parser.add_argument('--host-origin',required=True);parser.add_argument('--guard-port',type=int,required=True)
     parser.add_argument('--lease-seconds',type=int,default=30)
     parser.add_argument('--total-timeout',type=float,default=30)

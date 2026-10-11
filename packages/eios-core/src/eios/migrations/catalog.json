@@ -815,6 +815,11 @@
       "version": "0310",
       "name": "0310_nx037_open_switches.sql",
       "sha256": "8b7cdbb99d677ea6bd54661ce5581f3e513ae8e8dfa93cea272119bf3d0870c8"
+    },
+    {
+      "version": "0320",
+      "name": "0320_at046_real_credential_alone.sql",
+      "sha256": "ff78213e81dac089c9f329a82923a62949047c86808204d3f83a7e8884b0da3c"
     }
   ]
 }

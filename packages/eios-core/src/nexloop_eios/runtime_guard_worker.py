@@ -39,7 +39,7 @@ def _arguments(argv):
         parser.add_argument('--' + option, type=Path, required=True)
     parser.add_argument('--signing-key-id', default='active')
     parser.add_argument('--pool-max', type=int, default=4)
-    parser.add_argument('--world', required=True)
+    parser.add_argument('--world', required=True, choices=['real', 'test'])  # AT-046: never simulation or shadow
     args = parser.parse_args(argv)
     if (args.listen_fd < 3 or not 1024 <= args.guard_port <= 65535 or not args.world or len(args.world) > 255
             or not 2 <= args.pool_max <= 32):
