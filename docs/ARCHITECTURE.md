@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：集成分支 `c6bee39`（s5g = main `13c2bd2` + NX-052 第 3 批 + NX-037 A 类前置，2026-10-12），迁移目录最高 `0161`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
+> - 事实基线：main `8335688` 之后的集成分支 s5h（NX-052 租户行锁、全历史审计工具、本更新单，2026-10-12），迁移目录最高 `0162`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -278,7 +278,7 @@ flowchart LR
 - 第 3 批 3b（迁移 0160）：抽取与 Claim 族 8 张表（claims、matches、rematch、话题、抽取运行与 Claim 关联、变更提议、抽取队列）加 recall 的两张表。
 - 3c（会话与消息表）与第 5 批（`ontology.objects`、`ontology.events`、`runtime.jobs`）尚未实现。
 - vendored EIOS 核心表（`ontology.events`、`relations` 与各 type_versions 表）**不加** NexLoop 的租户外键，继续依赖身份快照（调度员 2026-10-12 裁定，测试断言）。
-- **计划中**：评审结论是把配置发布与初始身份创建两个函数在租户行上的显式 `FOR UPDATE` 降为 `FOR NO KEY UPDATE`，避免它们与外键检查的 `FOR KEY SHARE` 冲突（本地探针：`FOR UPDATE` 下插入被阻塞约 0.3 s，降级后不再阻塞）；实现在途，是 3c 的前置（[租户锁评审稿](implementation/NX-052-tenant-lock-review.md)）。详见 [NX-052 实现说明](implementation/NX-052-implementation.md)。
+- **迁移 0162（租户行锁）**：把配置发布与初始身份创建两个函数在租户行上的显式 `FOR UPDATE` 降为 `FOR NO KEY UPDATE`，避免它们与外键检查的 `FOR KEY SHARE` 冲突（本地探针：`FOR UPDATE` 下插入被阻塞约 0.3 s，降级后不再阻塞）；串行语义不变，是 3c 的前置（[租户锁评审稿](implementation/NX-052-tenant-lock-review.md)）。详见 [NX-052 实现说明](implementation/NX-052-implementation.md)。
 
 **`search_path` 规则。** 所有 `SECURITY DEFINER` 函数必须固定 `search_path`，且 `pg_temp` 放在最后（新函数统一为 `pg_catalog, pg_temp`）；只有数据库属主能创建临时对象。CI 用 [`scripts/check_definer_search_path.py`](../scripts/check_definer_search_path.py) 在一次性库上静态检查（见 [sec-function-search-path](implementation/sec-function-search-path.md)）。
 
@@ -584,7 +584,7 @@ NexLoop/
 | 目录 | 做什么 | 详细说明 |
 |---|---|---|
 | [`packages/eios-core/src/eios`](../packages/eios-core/src/eios) | 从 NEX-EIOS 冻结提交 vendored 的通用内核：actions、authz（resolver / facts / decisions）、identity、ontology、persistence、runtime、PostgreSQL adapter 与迁移执行器 | [07_EIOS_INTEGRATION](handoff/docs/07_EIOS_INTEGRATION.md)、[S0 抽取边界](s0/extraction-boundary.md)、[源码复用清单](s0/source-reuse-inventory.md) |
-| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0161` | [迁移目录审计](s0/migration-catalog-audit.md) |
+| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0162` | [迁移目录审计](s0/migration-catalog-audit.md) |
 | [`packages/eios-core/src/nexloop_eios`](../packages/eios-core/src/nexloop_eios) | NexLoop 业务模块（见 4.2） | — |
 | [`packages/contracts`](../packages/contracts) | 14 个 JSON Schema（action-intent、candidate-definition、claim、commitment-view、contact-restriction-view、context-manifest、context-pack-v6、conversation-message、event-envelope、evolution-candidate、ontology-mutation、review-decision、run-command、run-outcome），各带合法示例；Claim 契约的 `tenant_id` 为 uuid 并要求 `mode`（real、test、simulation，NX-052）；与冻结交接副本的差异必须登记在 `handoff-divergence.json`，未登记的差异测试失败；`scripts/generate_contracts.py` 生成 `generated/contracts.ts`、`generated/openapi-components.json` 与 `nexloop_eios/contracts.py`（Pydantic），`--check` 检测漂移 | [09_API_AND_EVENT_CONTRACTS](handoff/docs/09_API_AND_EVENT_CONTRACTS.md)、[契约与许可](s0/contracts-and-licensing.md) |
 | [`apps/agent-host`](../apps/agent-host) | Agent Host：`main.ts`（loopback HTTPS）、`runtime-host.ts`（配置、guard 调用、模型档案）、`pi-runtime-adapter.ts`（Pi Harness 包装、每 Run SQLite、预算与授权）、`run-admission-gate.ts`（全局并发）、`runtime-effect-tools.ts`（业务工具）、`context-input.ts`（上下文包 v1–v6 校验）、`run-purge.ts` | [Host README](../apps/agent-host/README.md)、[agent-host-progress](implementation/agent-host-progress.md)、[pi-runtime-progress](implementation/pi-runtime-progress.md) |
