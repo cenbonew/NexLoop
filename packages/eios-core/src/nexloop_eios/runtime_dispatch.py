@@ -38,6 +38,14 @@ class RuntimeDispatchError(RuntimeError):
 
 
 # Transport ambiguity may recover only the same persisted Run later; a request the Host refuses for its size never will.
+POLL_MAX_SECONDS=.5
+ADMISSION_TIMEOUT_FACTOR=4
+
+
+def next_poll_interval(interval,base):
+    """Inspect polling backs off: double the last interval, at most POLL_MAX_SECONDS (never below the configured base)."""
+    return min(interval*2,max(base,POLL_MAX_SECONDS))
+
 _RETRYABLE=frozenset({'runtime_transport_unavailable','runtime_transport_timeout','runtime_dispatch_timeout','runtime_response_invalid'})
 _FAILURE_CODES=frozenset({'runtime_authorization_unavailable','runtime_authorization_denied'})
 
@@ -173,7 +181,33 @@ class RuntimeDispatcher:
             authority()
             body={'activation_ref':activation['activation_ref'],'command':command}
             if operation in {'start','resume'}:body['input']=input
-            return self.client.request(operation,body,deadline=min(deadline,time.monotonic()+self.request_timeout))
+            # NX-031 (lane-history-fix): a start/resume does two guard authorizations (each up to the 2 s limit of ADR-022 §4) and
+            # creates the Run's durable storage, so it gets ADMISSION_TIMEOUT_FACTOR request timeouts (at most a third of the
+            # lease); giving up earlier left the Run running on the Host while its task went back to the queue.
+            timeout=self.request_timeout if operation not in {'start','resume'} else min(self.lease_seconds/3,self.request_timeout*ADMISSION_TIMEOUT_FACTOR)
+            return self.client.request(operation,body,deadline=min(deadline,time.monotonic()+timeout))
+        def ambiguous(error):
+            return error.code in _RETRYABLE and error.code!='runtime_dispatch_timeout' or error.code.startswith('runtime_host_status_5')
+        def observe():
+            # NX-031 (lane-history-fix): while this loop holds the lease, an ambiguous inspect (timeout, transport, invalid answer,
+            # Host 5xx) is asked again until the deadline. Giving the task back on the first one released the lease while the Run
+            # kept running on the Host, and that Run's next guard authorization was then denied (activation lease denied).
+            while True:
+                try:return request('inspect')
+                except RuntimeDispatchError as error:
+                    if not ambiguous(error) or time.monotonic()>=deadline:raise
+                    time.sleep(min(POLL_MAX_SECONDS,max(0,deadline-time.monotonic())))
+        def submit(operation):
+            # The Host may have admitted the Run although its answer did not arrive; the next inspect tells.
+            try:request(operation)
+            except RuntimeDispatchError as error:
+                if not ambiguous(error):raise
+                try:return observe()
+                except RuntimeDispatchError as missing:
+                    # Not admitted after all: the original ambiguity stands (the task is retried as before).
+                    if missing.code=='runtime_state_missing':raise error from None
+                    raise
+            return observe()
         outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None
         try:
             payload=job['payload']
@@ -188,7 +222,7 @@ class RuntimeDispatcher:
             except ControlDenied as denied:raise RuntimeDispatchError(denied.reason) from None
             activation=self.worker.create_runtime_activation(queue=self.queue,task_id=task_id,fence=fence,
                 run_id=command['run_id'],command=command,input=input,owner_epoch=command['runtime_owner_epoch'])
-            try:inspection=request('inspect')
+            try:inspection=observe()
             except RuntimeDispatchError as error:
                 if error.code!='runtime_state_missing':raise
                 if activation.get('ever_execution_authorized') is not False:raise RuntimeDispatchError('runtime_reclaimed_state_missing')
@@ -197,13 +231,18 @@ class RuntimeDispatcher:
                 if fresh.get('authorized') is not True or fresh.get('ever_execution_authorized') is not False:raise RuntimeDispatchError('runtime_reclaimed_state_missing')
                 # Host performs another fresh guard check at its actual missing
                 # SQLite create boundary. Neither cached snapshot permits reset.
-                request('start');inspection=request('inspect')
+                inspection=submit('start')
             else:
                 if inspection['runtime_outcome'] in {'running','unknown'}:
-                    request('resume');inspection=request('inspect')
+                    inspection=submit('resume')
+            # NX-031 (lane-history-fix): every inspect is a Host request that passes the Host's single serial queue and a full guard
+            # authorization, so a fixed 50 ms poll from every dispatch loop kept that queue full and, as guard latency grows with the
+            # tenant's data, pushed each Host request past request_timeout. The interval now doubles up to POLL_MAX_SECONDS.
+            interval=self.poll_seconds
             while inspection['runtime_outcome']=='running':
-                time.sleep(min(self.poll_seconds,max(0,deadline-time.monotonic())))
-                inspection=request('inspect')
+                time.sleep(min(interval,max(0,deadline-time.monotonic())))
+                interval=next_poll_interval(interval,self.poll_seconds)
+                inspection=observe()
             outcome=inspection['runtime_outcome']
             if outcome in {'succeeded','failed','cancelled'}:
                 # Only an actual validated Host inspection supplies these fields.

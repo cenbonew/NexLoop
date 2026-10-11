@@ -238,9 +238,17 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     const binding=run.binding;
     if(binding.run_id&&(binding.run_id!==command.run_id||binding.request_id!==command.request_id||binding.command_digest!==createHash('sha256').update(canonical(command)).digest('hex')||(digest!==undefined&&binding.payload_digest!==digest)))throw new RuntimeError('runtime_request_conflict');
   }
-  private admit(command:unknown,input:string,resume:boolean){return this.serial(async()=>{
-    const valid=validateRunCommand(command),digest=this.digest(valid,input);
-    const authority=await this.authorize(valid,resume?'resume':'start');
+  private admit(command:unknown,input:string,resume:boolean){
+    // NX-031 (lane-history-fix): the first guard authorization runs before the serial queue (as for inspect); the second one,
+    // after the Run's storage exists and before its submission, stays inside. Closed, owner and not_after are rechecked inside.
+    let valid:RunCommand,digest:string;
+    try{valid=validateRunCommand(command);digest=this.digest(valid,input);}catch(error){return Promise.reject(error);}
+    return this.authorize(valid,resume?'resume':'start').then(authority=>this.admitAuthorized(valid,input,digest,resume,authority));
+  }
+  private admitAuthorized(valid:RunCommand,input:string,digest:string,resume:boolean,authority:{ever_execution_authorized:boolean}){return this.serial(async()=>{
+    if(this.closed)throw new RuntimeError('runtime_closed');
+    this.owner();
+    if(Date.parse(valid.not_after)<=Date.now())throw new RuntimeError('runtime_command_expired');
     const run=await this.open(valid,!resume,authority.ever_execution_authorized===false);this.check(run,valid,digest);
     let conversation=run.binding.conversation_id?await run.harness.conversation(run.binding.conversation_id as ConversationId,BACKGROUND_CONTEXT):undefined;
     if(!conversation){
@@ -268,8 +276,20 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
   settled(command:unknown):Promise<void>{const valid=validateRunCommand(command);return this.runs.get(valid.run_id.toLowerCase())?.settled??Promise.resolve();}
   start(command:unknown,input:string){return this.admit(command,input,false);}
   resume(command:unknown,input:string){return this.admit(command,input,true);}
-  inspect(command:unknown):Promise<RuntimeInspection>{return this.serial(async()=>{
-    const valid=validateRunCommand(command);await this.authorize(valid,'inspect');const run=await this.open(valid,false);this.check(run,valid);
+  inspect(command:unknown):Promise<RuntimeInspection>{
+    // NX-031 (lane-history-fix): the guard authorization of an inspect runs before the Host's single serial queue, not inside
+    // it. Inside, every inspect of every Run waited for the others' guard round trips, so as guard latency grew with the
+    // tenant's data the queue capped the whole Host near one Run every seven seconds and pushed requests past the dispatcher's
+    // limit. The checks that guard storage (closed, owner, not_after) are repeated inside the queue.
+    let valid:RunCommand;
+    try{valid=validateRunCommand(command);}catch(error){return Promise.reject(error);}
+    return this.authorize(valid,'inspect').then(()=>this.inspectAuthorized(valid));
+  }
+  private inspectAuthorized(valid:RunCommand):Promise<RuntimeInspection>{return this.serial(async()=>{
+    if(this.closed)throw new RuntimeError('runtime_closed');
+    this.owner();
+    if(Date.parse(valid.not_after)<=Date.now())throw new RuntimeError('runtime_command_expired');
+    const run=await this.open(valid,false);this.check(run,valid);
     if(!run.binding.submission_id)throw new RuntimeError('runtime_state_missing');
     const submission=await run.harness.submission(run.binding.submission_id as SubmissionId,BACKGROUND_CONTEXT);
     if(!submission)throw new RuntimeError('runtime_state_missing');

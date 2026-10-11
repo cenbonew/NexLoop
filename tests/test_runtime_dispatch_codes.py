@@ -83,3 +83,18 @@ def test_a_body_over_the_host_limit_is_refused_before_sending(tmp_path):
 def test_only_ambiguous_causes_are_retried():
     assert 'runtime_request_too_large' not in _RETRYABLE
     assert {'runtime_transport_unavailable', 'runtime_transport_timeout', 'runtime_response_invalid'} <= _RETRYABLE
+
+
+def test_inspect_polling_backs_off_to_a_bound():
+    from nexloop_eios.runtime_dispatch import POLL_MAX_SECONDS, next_poll_interval
+    interval, seen = .05, []
+    for _ in range(8):
+        seen.append(interval)
+        interval = next_poll_interval(interval, .05)
+    assert seen == [.05, .1, .2, .4, .5, .5, .5, .5] and POLL_MAX_SECONDS == .5
+    assert next_poll_interval(1, 1) == 1  # a configured base above the bound is kept
+    # Over a typical 11 s deterministic Run: 26 inspects instead of 220 at a fixed 50 ms.
+    total, polls, interval = 0, 0, .05
+    while total < 11:
+        total += interval; polls += 1; interval = next_poll_interval(interval, .05)
+    assert polls <= 26
