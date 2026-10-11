@@ -288,7 +288,10 @@
   - outbound recorder 的凭据是 fixture 按 30 分钟签发的，C4-low 开始时（模板构建后约 45 分钟）已经过期；
   - 其他 fixture 凭据的有效期只有 1 小时，同样撑不过一整轮。
 - `report.py` 因 C4-low 的窗口为空，判为违反契约（exit 2）。
-- **作废原因**是执行器的缺陷：模板凭据的有效期短于一轮压测。
+- **作废原因是压测夹具问题，不是产品缺陷**：模板里预先签发的 fixture 凭据有效期短于一轮压测。
+  - 产品行为已核对：部署形态的 recorder（`outbound_messages.run`）和其他常驻服务每个 tick 都重新读取凭据文件并重新认证，轮换时替换文件即可，下一个 tick 生效，不用重启；
+  - 部署凭据的有效期由 `service_grants apply --credential-expires-at` 显式设定，已有凭据保持原有效期，到期通过受信任配置轮换（`credential_rotation_required`）；
+  - 凭据到期后服务停止工作，是有意的安全语义。
   - 修复见提交 `7f39c30`：fixture 默认仍是 1 小时，模板构建时设为 30 天，recorder 的凭据跟随这个值；
   - 两轮之间没有其他代码变化。
 
