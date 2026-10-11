@@ -2693,6 +2693,18 @@
         "ref": "ci:lane/runs/20261011T105303Z-863a46388729",
         "summary": "s4y 全量：test_release_build_archive 14、test_github_sync 10 通过；失败集见 NX-031 同轮说明。剩余：CI 主机首次真实构建时核对 save 注解、{{.Id}} 与 load 后 digest 引用；gateway 镜像缺固定 digest；首次同步需维护者给出基线；部署侧接线 load-check/record-deployment/current 切换随 NX-032 切片 5。",
         "recorded_at": "2026-10-11T12:42:50.820375+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ba6a04c",
+        "summary": "部署侧接线（合入 main，s5f）：deploy.py load-check（核对镜像归档哈希后 docker load，按 nexloop/<名>@<digest> 必须解析回清单 digest，否则拒绝）；deploy.py promote（核对签名、完整性与封存后，原子切换 current 与 known_good 符号链接并写部署记录，中途失败两个链接都恢复原样）；deploy.py rollback-check（目标须为 known_good 或更早的已封存发布、镜像归档仍在、能在当前 schema 上运行，否则拒绝并提示向前修复）；current 与 known_good 指向的发布永不被 prune。load-check 的真实 docker 行为待 CI 主机首次真实构建时核对。",
+        "recorded_at": "2026-10-11T18:52:46.455617+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T175512Z-2923e565a121",
+        "summary": "s5f 全量（2923e56）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 257 s；integration-heavy 与 pi-runtime 通过；test_deploy_release_wiring 5 个通过。",
+        "recorded_at": "2026-10-11T18:52:46.455617+00:00"
       }
     ]
   },
