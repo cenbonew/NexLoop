@@ -160,5 +160,11 @@
       "digest": "sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f",
       "status": "verified_official_index_arm64_host_build_and_container_runtime"
     }
+  },
+  "release_tools": {
+    "decision": "NX-034 D1/D2 (dispatcher 2026-10-11): manifests are signed with OpenSSH ssh-keygen -Y (namespace nexloop-release); SBOMs by syft and vulnerability counts by grype, at exactly these versions. A missing or different tool is reported, never a pass. Binary digests are recorded when the tools are first installed on the CI host from their official release archives (status below).",
+    "syft": {"version": "1.18.1", "source": "https://github.com/anchore/syft/releases/tag/v1.18.1", "status": "pinned_version_binary_digest_pending_ci_install"},
+    "grype": {"version": "0.86.1", "source": "https://github.com/anchore/grype/releases/tag/v0.86.1", "status": "pinned_version_binary_digest_pending_ci_install"},
+    "ssh-keygen": {"minimum_openssh": "8.2", "status": "system_openssh"}
   }
 }
