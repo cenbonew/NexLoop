@@ -105,6 +105,14 @@
 
 ## 6. 启动应用（APP_HOST）
 
+- **镜像载入（启动前，部署主机上）**：
+  ```
+  scripts/deploy/deploy.py load-check --release-dir "$RELEASE_DIR"
+  ```
+  - 它会核对每个镜像归档的哈希，执行 `docker load`，再按 `nexloop/<镜像名>@<清单 digest>` 解析，必须得到清单中的 digest；
+  - 任一项不符就拒绝（退出码 1），不进入后续步骤；
+  - 要求 Docker 使用 containerd 镜像存储，否则退出码为 2（见 `NX-034-part2-implementation.md` §2）。
+  - 也可以在 dry-run 时加 `--load-check` 当场核对（只能在部署主机上加，因为它会调用 docker）。
 - **命令**：
   ```
   ssh "$SSH_ALIAS_APP" docker compose -p nexloop-app -f "$NEXLOOP_ROOT/compose.app.yaml" --env-file "$NEXLOOP_ROOT/compose.app.env" up -d
@@ -119,6 +127,15 @@
   - `agent_host_concurrency`；
   - TLS 各项；
   - `existing_services_unchanged`。
+- **登记为当前发布**（门槛全部通过之后，只在本地发布根目录内操作，不连接服务器）：
+  ```
+  scripts/deploy/deploy.py promote --release-root "$RELEASE_ROOT" --release-id <release_id> --allowed-signers "$ALLOWED_SIGNERS"
+  ```
+  - 先核对签名、完整性和封存状态；
+  - 再把原来的 `current` 记为 `known_good`，把本发布设为 `current`；
+  - 两个符号链接都是先建临时链接再 rename，原子切换；中途任一步失败，都会恢复成原样；
+  - 最后写入部署记录（`deployments.json`，`known_good: true`）。
+  - `current` 和 `known_good` 指向的发布，无论保留规则怎么配置，都不会被清理（`make prune-releases`）。
 
 ## 7. 开放 PG 运维窗口（按次）
 
@@ -131,8 +148,18 @@
 
 ## 8. 回滚（设计稿 §7）
 
-- **镜像回滚**（Schema 兼容时）：按上一份已知可用的发布清单重新渲染 Compose env，然后 `up -d`。Agent Host 仍要先停旧的再启新的。
-  - 发布清单中的 catalog 最高版本低于库内版本时，`release.py rollback-check` 会拒绝回滚（AT-057），改为向前修复。
+- **镜像回滚**（Schema 兼容时）：
+  1. 先检查回滚目标：
+     ```
+     scripts/deploy/deploy.py rollback-check --release-root "$RELEASE_ROOT" --target <release_id> [--database-head <库内 head>]
+     ```
+     回滚目标必须满足全部条件：
+     - 是 `known_good`，或比它更早的已封存发布；
+     - 镜像归档仍在（已被清理的发布不能回滚：重新构建出的镜像不是当初测试和部署的那个）；
+     - 能在当前 schema 上运行（`release.py rollback-check`，AT-057）。
+     否则拒绝并提示向前修复。
+  2. 通过后，用该发布重新执行 dry-run、`load-check`，渲染 Compose env 后执行 `up -d`。Agent Host 仍要先停旧的再启新的。
+  3. 门槛通过后，对该发布执行 `promote`。
 - **防火墙**：执行 `nft delete table inet nexloop_stage`。
 - **证书**：回到上一组证书文件，然后 reload。
 - **整体撤下**：对两份 Compose 都执行 `down`，不加 `-v`；然后用 inventory 对比核对既有服务没有受影响。数据目录保留，不删除。

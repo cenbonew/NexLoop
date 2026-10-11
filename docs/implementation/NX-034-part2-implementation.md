@@ -135,3 +135,27 @@ make build-release SHA=<sha>    # build → sbom → preflight stage → sign �
 - `versions.lock.json` 中 gateway 的 digest（以及 backend、agent-host、web 的“unresolved”状态说明），在首次真实构建后更新。
 - 部署工具（NX-032）切换 `current` 和调用 `record-deployment`、`load-check` 的接线，在 NX-032 合入后进行。
 - 同步积压告警（NX-030）、合并后自动触发同步（D4）、负责人签名公钥文件入库：都属于部署或负责人事项。
+
+## 8. 部署侧接线（分支 deploy-release-wiring，从 main 7f2711d 切出）
+
+- **`deploy.py load-check --release-dir R`**：部署主机上执行，调用 `release.load_check`：先核对归档哈希，再 `docker load`，然后 `nexloop/<镜像名>@<digest>` 必须解析回清单中的 digest，否则拒绝。
+  - dry-run 的 `load_images` 步骤改为执行这条命令；
+  - dry-run 加 `--load-check` 时当场核对，结果记为 `images_loaded_by_digest`。不加时 dry-run 仍然不调用 docker。
+- **`deploy.py promote --release-root ROOT --release-id ID --allowed-signers F`**：部署门槛通过之后执行。
+  - 先用 `archive.check` 核对签名、完整性和封存状态；
+  - 再执行 `archive.promote`：旧的 current 变为 `known_good`，ID 变为 `current`，两个链接都通过“临时链接 + rename”原子切换；
+  - 任一步失败，两个链接都恢复原样；成功后写入部署记录（`known_good: true`）。
+  - 已经是 current 的发布不能再次 promote。
+- **`deploy.py rollback-check --release-root ROOT --target ID [--database-head]`**：
+  - 回滚目标必须是 known_good，或构建时间更早的已封存发布，且镜像归档仍在；
+  - 并且要通过 `release.rollback_check`（当前 current 的清单对比目标清单，检查 schema 和运行时格式）；
+  - 否则拒绝，并提示向前修复。
+- **保留规则**：`current` 和 `known_good` 链接指向的发布永不清理。保留计划中分别记为 `current_link` / `known_good_link`；即使策略关闭了“保留当前和前一个可用发布”，`prune` 也会跳过这两个发布。
+- **测试**：`tests/test_deploy_release_wiring.py`（5 个），用合成的已封存发布和 docker 替身，覆盖：
+  - load 后 digest 不一致被拒；
+  - promote 的原子切换：在两个注入点失败，都恢复原样、不留临时链接，部署记录不变；
+  - 回滚目标的各种拒绝情况；
+  - 保留规则不清理 current 和 known_good；
+  - CLI 退出码。
+- **其他测试的同步**：`test_deploy_dryrun`（步骤列表增加 `promote`）、`test_release_build_archive`（保留理由增加 `current_link`）。
+- **运行手册**：`NX-032-deploy-runbook.md` §6、§8 已同步。
