@@ -470,7 +470,8 @@
     "name": "候选隔离",
     "given": "未通过候选Schema",
     "expected": "active与正式对象不变",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": []
   },
   {
     "id": "AT-024",
@@ -479,7 +480,8 @@
     "name": "结构权限",
     "given": "新增类型附带提权Action",
     "expected": "拒绝越权；定义与权限发布分离",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": []
   },
   {
     "id": "AT-025",
@@ -887,7 +889,8 @@
     "name": "模拟效应隔离",
     "given": "Twin调用真实消息Action",
     "expected": "服务端拒绝，即使模型伪造mode",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": []
   },
   {
     "id": "AT-047",
@@ -913,7 +916,8 @@
     "name": "验证泄漏",
     "given": "同消费者相关对话跨分组",
     "expected": "检测并重分组，冻结留出集",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": []
   },
   {
     "id": "AT-049",
@@ -939,7 +943,15 @@
     "name": "恢复演练",
     "given": "从备份恢复隔离实例",
     "expected": "删除水位、版本、权限与外部效应窗口核验",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
+        "summary": "NX-035 本地部分（迁移 0146/0147）：tests/test_restore_drill_pg.py 在一次性本地 PG 上用 pg_basebackup + WAL 归档做 PITR，恢复到隔离实例，核验删除水位（恢复点早于删除时由恢复日志再次删除）、迁移 catalog、权限（恢复后会话清空、Run 凭据吊销）、外部效应窗口（无法核实的渠道保持暂停），并记录实测 RPO/RTO。只是本地证据：部署环境用 pgBackRest 的演练要在 NX-032 之后完成，状态保持 not_run。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      }
+    ]
   },
   {
     "id": "AT-051",
@@ -982,7 +994,8 @@
     "name": "GitHub断连",
     "given": "阻断GitHub访问",
     "expected": "本地CI/已有依赖构建可用；同步标pending",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": []
   },
   {
     "id": "AT-054",
@@ -991,7 +1004,8 @@
     "name": "CI隔离",
     "given": "CI尝试访问stage secret/数据端口",
     "expected": "不能访问，公开PR不自动执行",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": []
   },
   {
     "id": "AT-055",
@@ -1017,7 +1031,15 @@
     "name": "迁移无备份",
     "given": "没有可验证备份请求迁移",
     "expected": "拒绝，不以开发方便跳过",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
+        "summary": "NX-035 迁移门槛 authz.nexloop_migration_gate（0147）与 nexloop-migrate：没有 PG 备份清单、最近备份未校验或校验失败时拒绝迁移；不提供任何豁免，测试用 pg_basebackup 真实备份并用 pg_verifybackup 校验；全新空库走 bootstrap，不在门槛范围内。只是本地证据，部署链路未执行，状态保持 not_run。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      }
+    ]
   },
   {
     "id": "AT-057",
@@ -1043,7 +1065,8 @@
     "name": "端口安全",
     "given": "非APP_HOST访问DB/Valkey",
     "expected": "TLS/ACL/网络拒绝，有外部验证证据",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": []
   },
   {
     "id": "AT-059",
@@ -1059,6 +1082,12 @@
         "ref": "tests/test_deletion_replay_pg.py",
         "summary": "Synthetic test environment, merged at 102d96a: test_at059_replay_after_restore_blocks_at_once_purges_and_is_idempotent (a restored snapshot holding an erased Consumer is blocked at once by the deletion ledger replay, purged and not contactable; replay is idempotent); ledger without content and in order; doctor reports stuck erasures. Restore drills on real backups belong to NX-035 (AT-050).",
         "recorded_at": "2026-10-11T05:13:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
+        "summary": "NX-035 恢复日志重放与 NX-029 replay_deletions 对接：PITR 恢复到删除之前后，重放使已删除的消费者（含 AT-043 优惠意图的识别信息）再次删除，不恢复可联系状态（test_restore_drill_pg、test_restore_fence_pg）。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
       }
     ]
   },
@@ -1069,7 +1098,15 @@
     "name": "负载与隔离",
     "given": "1000消费者、并发1/2/4/8",
     "expected": "测平台/模型/工具分解延迟，无身份串用",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-031-implementation.md",
+        "summary": "NX-031 切片 2 本机 25 客户（非车道，非 1000 客户）：C4 不通过（过载：D5 注入时延下每 worker 4 并发约 0.36 Run/s，到达 1 条/秒，排队超过 Run 凭据 300 s 后派发失败转回复保障升级；7 项核对违规 0）；C4-low 不通过（死信 9、承诺监控 9 条挂起、5 个 runtime_failed 待查）。首轮因夹具凭据 30 分钟过期作废，结果保留。状态保持 not_run。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      }
+    ]
   },
   {
     "id": "AT-061",

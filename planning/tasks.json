@@ -2185,6 +2185,12 @@
         "ref": "716ace8",
         "summary": "AT-043 优惠发放合入 main（迁移 0145，business-actions v13 nexloop.incentive.issue，人类入口与 Agent 入口，派发前预算，删除流程覆盖优惠意图表）；s4s 全量证据见 ci:lane/runs/20261011T043144Z-716ace8874a5。部署接线另行提交。",
         "recorded_at": "2026-10-11T05:22:46.329375+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "284d597",
+        "summary": "AT-043 部署接线（at043-wiring）：后台入口 nexloop-incentive-issuer（单进程、池 1、每 tick 重新认证，回环账本为唯一 provider）、两项授权由 deferred 转正式、Agent Host incentive_tool 开关（默认关）、owner 经工作台发放（workbench-roles v8，operator/reviewer 被拒）、D2 定案写入 business-actions v15；合入 main 5d09b85（ci:lane/runs/20261011T064724Z-5d09b854991b）。前端发放页面未做。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
       }
     ]
   },
@@ -2374,6 +2380,12 @@
         "ref": "102d96a",
         "summary": "D6 tool timing write reuses the service session already authenticated for the same request; SQL still re-checks the credential on every write.",
         "recorded_at": "2026-10-11T05:13:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4b252f2",
+        "summary": "备份年龄指标随 NX-035 本地部分接入 M12：最新已校验备份年龄、完整备份年龄、各仓库年龄、WAL 归档延迟与失败、恢复日志导出延迟、演练年龄与实测 RPO/RTO；无观测时缺省而不是 0；告警规则 v3 新增 7 条。真实备份数据要等 NX-032 部署。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
       }
     ]
   },
@@ -2410,6 +2422,18 @@
         "ref": "ci:lane/20261011T021219Z-284befce2098",
         "summary": "Full CI for 284befc (integration-s4q, squash integration): round 1 had one new deterministic failure (AT-064 boundary whitelist missing the relay erasure step), fixed in the integration branch; round 2: 2859 passed / 10 failed, all within baseline; deadline phase 2/2 (v4 70.6 s).",
         "recorded_at": "2026-10-11T10:59:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "8ea6f98",
+        "summary": "切片 2（nx031-s2）：产品改动 runtime-worker --dispatch-loops N（默认 4，共用队列，claim/lease/fencing 分配，doctor 要求 processes×dispatch_loops≤4）；deterministic-test Host 的 faux 自动补充与 D5 时延注入（只限测试 profile）；消息 Run 链、历史来信方案 A、活跃计划方案 B（只装数据）、登录限流保持正式值。合入 main 5d09b85。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
+        "summary": "s4u 全量失败集为基线子集；ADR-022 §4 门槛阶段 2/2，并在同检出串行复测 3 轮（v4 72.6–73.4 s，两 Pi 63.7–65.2 s，与 s4m 持平），dispatch_loops 4 未拖慢门槛。本机 C4/C4-low 均不通过（见 AT-060 说明），切片 3 排查死信、承诺监控挂起、runtime_failed 与 NXC02。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
       }
     ]
   },
@@ -2490,8 +2514,27 @@
       "M23"
     ],
     "deliverable": "恢复隔离实例、删除水位、外部效应窗口、实际RPO/RTO",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "4b252f2",
+        "summary": "NX-035 本地部分（nx035-local，迁移 0180/0181 合并时重新编号为 0146/0147）：备份清单表、恢复日志（哈希链、只含 ID/哈希/序号/时间、本地未加密，部署时由 restic 客户端加密，是受控试运行前的门槛项）、恢复围栏（NXR01，负责人逐 scope 开放）、删除/联系限制/撤权重放、外部效应窗口对账（不重建意图，无法核实的渠道暂停）、迁移门槛（无豁免）、本地 PITR 演练、M12 备份指标与告警规则 v3。备份账号 REPLICATION、非 superuser、读不到业务表。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
+        "summary": "s4t（ci:lane/runs/20261011T055024Z-50cd61565318）与 s4u 全量：失败集为基线子集；s4t 中两项合并引起的确定性失败（测试写死 service-grants v16 与临时号 0181）由 54b360e 修正；串行门槛 2/2。合入 main 5d09b85。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-035-local-implementation.md",
+        "summary": "restore.open_scope 风险分级由负责人 2026-10-11 定案（“全部按推荐”）：EIOS 风险 low、无审批，NexLoop 分类 high，补偿控制为 owner 专属、逐 scope 开放、有无法核实计数的渠道未暂停不能开放、恢复报告前置、每次开放留审计。剩余：pgBackRest/restic 部署、文件备份、命令行恢复工具、意图重建（切片三），依赖 NX-032/NX-034。",
+        "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      }
+    ]
   },
   {
     "id": "NX-036",
