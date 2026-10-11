@@ -780,6 +780,11 @@
       "version": "0156",
       "name": "0156_nx035_journal_retention.sql",
       "sha256": "2984f52e35f3d9dd3daee5b0c559d07595bcee2640529d4a1e0b8af1a209d3c0"
+    },
+    {
+      "version": "0157",
+      "name": "0157_nx052_tenant_id_uuid.sql",
+      "sha256": "9d1b51bbe6ca9ccd81ada30d21bb471742477b775e742d8aa033f6208d89c86d"
     }
   ]
 }

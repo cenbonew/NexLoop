@@ -4,6 +4,8 @@ import subprocess
 import uuid
 from pathlib import Path
 
+import pytest
+
 from support import tenants
 from nexloop_eios import browser_test_profile
 
@@ -40,3 +42,16 @@ def test_sql_tenant_positions_name_only_synthetic_tenants():
     found = {m for path in tracked('tests') if path.endswith('.py') for m in position.findall((ROOT / path).read_text(encoding='utf-8'))}
     assert found and found <= known, found - known
 
+
+def test_tenant_root_accepts_only_canonical_uuids(admin):
+    """NX-052 1b: the CHECK on control.nexloop_tenants is validated and refuses non-uuid, uppercase and braced ids."""
+    import psycopg
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    row = admin.execute("select convalidated from pg_constraint where conname='nexloop_tenants_tenant_id_uuid' and conrelid='control.nexloop_tenants'::regclass").fetchone()
+    assert row == (True,)
+    for bad in ('synthetic-a', tenants.TENANT_A.upper(), '{' + tenants.TENANT_A + '}', tenants.TENANT_A.replace('-', '')):
+        with admin.transaction(), pytest.raises(psycopg.errors.CheckViolation):
+            admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')", (bad,))
+    with admin.transaction():
+        admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (tenants.TENANT_B,))
