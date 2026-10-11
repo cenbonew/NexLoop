@@ -1,0 +1,160 @@
+{
+  "schema": "nexloop-ci-stages/1",
+  "version": 2,
+  "decision": "NX-033 §4.1 (D1–D5 settled): scripts/ci/check split into stage scripts (scripts/ci/stages/), run one stage at a time in the order scripts/ci/check runs them, so each stage has its own exit status, time and JUnit files. v1 stays as it was (the whole suite as one stage); the controller uses v2 only when the trusted installation selects it (nexloop_ci.py --stages-version 2), an owner-confirmed policy change. Dependency stages are the only ones with network (egress.v1.json); every other stage runs offline from the warm cache with loopback only. A failing stage stops the run, except the NX-049 deadline gate (stop_on_failure false: recorded, and the remaining stages still run for diagnosis, as in scripts/ci/check). The required suites and their JUnit file names are unchanged (required-suites.v1.json). The order differs from the design's list in two places, deliberately, to keep scripts/ci/check's behaviour unchanged: static checks run before the Node dependency phase, and build-artifacts before unit-contract.",
+  "stages": [
+    {
+      "name": "dependency-python",
+      "network": "dependency",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/dependency-python.sh"
+      ],
+      "timeout_seconds": 1800
+    },
+    {
+      "name": "static",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/static.sh"
+      ],
+      "timeout_seconds": 900,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      }
+    },
+    {
+      "name": "dependency-node",
+      "network": "dependency",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/dependency-node.sh"
+      ],
+      "timeout_seconds": 1800
+    },
+    {
+      "name": "licenses",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/licenses.sh"
+      ],
+      "timeout_seconds": 300,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      }
+    },
+    {
+      "name": "build-artifacts",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/build-artifacts.sh"
+      ],
+      "timeout_seconds": 1800,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      }
+    },
+    {
+      "name": "unit-contract",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/unit-contract.sh"
+      ],
+      "timeout_seconds": 1800,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/deepseek-sdk.xml",
+        ".ci-results/web.xml",
+        ".ci-results/scope-ui.xml"
+      ]
+    },
+    {
+      "name": "serial-build",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/serial-build.sh"
+      ],
+      "timeout_seconds": 3600,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/python-build.xml"
+      ]
+    },
+    {
+      "name": "deadline-gate",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/deadline-gate.sh"
+      ],
+      "timeout_seconds": 1800,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/python-deadline-gate.xml"
+      ],
+      "stop_on_failure": false
+    },
+    {
+      "name": "integration",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/integration.sh"
+      ],
+      "timeout_seconds": 7200,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/python.xml"
+      ]
+    },
+    {
+      "name": "pi-runtime",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/pi-runtime.sh"
+      ],
+      "timeout_seconds": 1800,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/pi.xml",
+        ".ci-results/runtime.xml"
+      ]
+    },
+    {
+      "name": "isolation-probe",
+      "network": "test",
+      "argv": [
+        "python3",
+        "/trusted/nexloop_ci.py",
+        "isolation-probe",
+        "--targets",
+        "/trusted/probe-targets.json"
+      ],
+      "timeout_seconds": 120
+    }
+  ]
+}
