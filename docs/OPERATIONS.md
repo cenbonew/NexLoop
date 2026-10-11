@@ -2,7 +2,7 @@
 
 面向部署与运维 NexLoop 的人。本文只做导航：说明每类运维工作当前做到哪一步、入口命令是什么、详细步骤在哪份文档里，不重复实现细节。
 
-> **现状（以 [`planning/tasks.json`](../planning/tasks.json) 与 [CHANGELOG](../CHANGELOG.md) 为准）**：NexLoop **尚未部署**。双机部署（NX-032）只有参数化模板、证书脚本和部署门槛检查，没有连接任何服务器；本地 CI 队列（NX-033）、发布工具（NX-034）和备份恢复（NX-035）只完成了本地部分。真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭；`/health/ready` 固定返回 503。
+> **现状（以 [`planning/tasks.json`](../planning/tasks.json)、[ROADMAP](../planning/ROADMAP.md) 与 [CHANGELOG](../CHANGELOG.md) 为准）**：NexLoop **尚未部署**。双机部署（NX-032）只有参数化模板、证书脚本、部署门槛检查、dry-run 与隔离探测，没有连接任何服务器；本地 CI 队列（NX-033）、发布工具（NX-034）和备份恢复（NX-035）只完成了本地部分。真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭；`/health/ready` 固定返回 503。
 >
 > 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机。真实主机名、地址、用户、端口和路径只存在于负责人管理机上的私有 env 文件或私有目录中，不进入仓库。
 
@@ -22,6 +22,8 @@
 | 证书 | `scripts/deploy/issue_certs.py root|intermediate|server|client`（离线根 CA、年度中间 CA、≤90 天服务证书、按角色的客户端证书） | 同上 |
 | 只读盘点 | `scripts/deploy/inventory.py`（部署前后对比，只允许出现 `nexloop` 前缀的新增项） | 同上 |
 | 部署模板 | `deploy/stage/`：两机 Compose 示例、配置与防火墙模板、连接预算、Runtime Worker 与 Agent Host 示例 | [deploy/stage/README.md](../deploy/stage/README.md) |
+| 部署预演 | `scripts/deploy/deploy.py dry-run`：只判断不执行，核对已签名发布清单与受信提交、由清单生成镜像变量、拒绝盲目回滚，输出渲染结果与逐步计划 | 同上（切片 3） |
+| 隔离探测（AT-058） | `scripts/deploy/probe_isolation.py`；CI 主机上的 rootless Docker 双机模拟 `scripts/deploy/netns_sim/` | 同上（切片 4） |
 | 首次部署范围 | 只放合成租户，真实外发保持关闭；真实租户与渠道属于 NX-037 | 运行手册“首次部署内容” |
 
 ## 3. 启动前与日常检查：`nexloop-doctor`
@@ -60,6 +62,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 ## 6. 发布与回滚（NX-034、NX-036）
 
 - 本地发布工具 `scripts/release/release.py`：`manifest`（发布清单）→ `sbom`（锁定版本的 syft/grype）→ `sign` → `verify`（部署的 SHA 与镜像 digest 必须等于测过的清单）；`rollback-check` 拒绝跨越未声明 expand-only 的迁移或降级运行时格式的盲目回滚，提示向前修复。只在本机运行，不推送、不打 tag、不连接服务器。见 [NX-034 本地部分实现说明](implementation/NX-034-local-implementation.md)。
+- 构建、归档与同步（NX-034 第二部分）：`make build-release SHA=`（build → sbom → stage 预检 → sign → 封存）、`release.py load-check`、`scripts/release/archive.py seal|check|prune|record-deployment`、`make sync-github`（只快进 main 与负责人签名的 tag）。见 [NX-034 第二部分实现说明](implementation/NX-034-part2-implementation.md)。
 - 公开发布：`release.py public-preflight` 九步门槛加负责人确认，见 [公开发布检查清单](release/public-release-checklist.md)。
 - 部署侧回滚（重新渲染上一份已知可用的发布清单、防火墙与证书回退、整体撤下但保留数据）见 [NX-032 部署运行手册](implementation/NX-032-deploy-runbook.md) §8。
 
@@ -89,4 +92,4 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 - 真实双机部署、AT-058 外部隔离探测、CI 主机上的隔离探测与断连演练（依赖 NX-032、NX-033 的 B 类步骤）。
 - pgBackRest、restic、异地备份、恢复命令行与部署环境演练（NX-035 部署部分）；Artifact 与 Run 目录的文件备份。
 - `doctor --backup` 与可配置的备份阈值；恢复就绪状态尚未接入 `/health/ready`。
-- Gateway 的 Caddyfile 模板、只放行 Agent Host 的模型出站。
+- 只放行 Agent Host 的模型出站：独立网络命名空间已定案（NX-037 D4），实现待合入。Gateway 的 Caddy 模板已提供（`deploy/stage/config/Caddyfile.template`）。
