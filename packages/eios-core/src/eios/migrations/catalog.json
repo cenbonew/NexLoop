@@ -745,6 +745,26 @@
       "version": "0149",
       "name": "0149_feed_due_counts.sql",
       "sha256": "52d918b27e18b1c98685568ae130e05699748075965249c5f08cd2607ad93ba1"
+    },
+    {
+      "version": "0150",
+      "name": "0150_relay_handoff.sql",
+      "sha256": "0d12b24f0191fa5136d7c6c10ba8d2bdcce58f660892d095c16aeecec361ac08"
+    },
+    {
+      "version": "0151",
+      "name": "0151_service_readiness.sql",
+      "sha256": "cb9197a44cbdf0382f3cbc75c1771e42bdd7c36ee8fe738161058deef6782e78"
+    },
+    {
+      "version": "0152",
+      "name": "0152_reply_unknown_reconcile.sql",
+      "sha256": "d7a6c722ba5f98be6ff90a7a51f8737c1dae0795f968da1a53be7ea317088d97"
+    },
+    {
+      "version": "0153",
+      "name": "0153_real_dispatch_switch.sql",
+      "sha256": "81af27fe24af96112eb2eb1bb81a7c584e84e5db5b0e6f27cdc217e41dbe3337"
     }
   ]
 }

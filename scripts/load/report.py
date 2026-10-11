@@ -161,27 +161,42 @@ def pool_summary(samples, start, end):
 
 
 def decomposition(runs):
-    """AT-060 platform / model / tool per Run: platform = e2e - model - tool (D6). Runs without tool timing are counted, not guessed."""
-    model, tool, platform, e2e, negative, no_tool = [], [], [], [], 0, 0
-    outcomes = {}
+    """AT-060 per Run (dispatcher 2026-10-11): platform = Run duration - model - tool, all over the same span (the Host accepted the
+    Run → its task ended). A negative platform time is a data anomaly: counted and reported, never clipped to 0, and kept out of the
+    platform statistics. End to end (trigger accepted → its reply) is reported on its own and never enters the subtraction. Runs
+    without tool or model timing are counted, not guessed."""
+    run, model, tool, platform, e2e = [], [], [], [], []
+    anomalies, no_tool, no_model, outcomes = 0, 0, 0, {}
     for row in runs:
-        total = _number(row.get('e2e_ms'), 'runs.e2e_ms')
-        m = _number(row.get('model_ms') or 0, 'runs.model_ms')
-        t = _number(row.get('tool_ms'), 'runs.tool_ms', allow_none=True)
         outcome = _code(row.get('outcome'), 'runs.outcome')
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
-        e2e.append(total), model.append(m)
-        if t is None:  # no tool timing: tool and platform unknown for this Run, counted but never guessed as 0
+        if row.get('e2e_ms') is not None:  # no reply yet (in progress, restricted, taken over): no end-to-end time
+            e2e.append(_number(row.get('e2e_ms'), 'runs.e2e_ms'))
+        duration = _number(row.get('run_ms'), 'runs.run_ms', allow_none=True)
+        if duration is None:
+            continue
+        m = _number(row.get('model_ms'), 'runs.model_ms', allow_none=True)
+        t = _number(row.get('tool_ms'), 'runs.tool_ms', allow_none=True)
+        run.append(duration)
+        if m is not None:
+            model.append(m)
+        if t is not None:
+            tool.append(t)
+        if t is None:
             no_tool += 1
             continue
-        rest = total - m - t
+        if m is None:
+            no_model += 1
+            continue
+        rest = duration - m - t
         if rest < 0:
-            negative += 1
-            rest = 0
-        tool.append(t), platform.append(rest)
+            anomalies += 1
+            continue
+        platform.append(rest)
     stats = lambda values: {'p50': percentile(values, 0.5), 'p95': percentile(values, 0.95)}
-    return {'runs': len(e2e), 'e2e_ms': stats(e2e), 'model_ms': stats(model), 'tool_ms': stats(tool), 'platform_ms': stats(platform),
-            'runs_without_tool_timing': no_tool, 'inconsistent_runs': negative, 'outcomes': dict(sorted(outcomes.items()))}
+    return {'runs': len(run), 'e2e_ms': stats(e2e), 'run_ms': stats(run), 'model_ms': stats(model), 'tool_ms': stats(tool),
+            'platform_ms': stats(platform), 'runs_without_tool_timing': no_tool, 'runs_without_model_timing': no_model,
+            'anomalies': anomalies, 'outcomes': dict(sorted(outcomes.items()))}
 
 
 def cell_metrics(directory, expected_refusals):
@@ -323,6 +338,8 @@ def at060(cells):
             reasons.append(f"{c['cell']}:not_completed" + (f":{c['aborted']}" if c['aborted'] else ''))
         if not c.get('decomposition') or not c['decomposition']['runs']:
             reasons.append(f"{c['cell']}:no_decomposition")
+        elif c['decomposition']['anomalies']:
+            reasons.append(f"{c['cell']}:decomposition_anomaly:{c['decomposition']['anomalies']}")
         identity = c['metrics'].get('identity_violations')
         if identity is None:
             reasons.append(f"{c['cell']}:identity_checks_missing")
@@ -437,15 +454,18 @@ def markdown(report):
             lines.append(f"| {name} | {_fmt(item['value'])} | {_fmt(item['limit'])} | {item['result']} |")
         lines.append('')
     lines += ['## 平台 / 模型 / 工具 分解（逐 Run，ms，p50 / p95）', '',
-              '| 格 | Run 数 | 端到端 | 模型 | 工具 | 平台 | 无工具计时 | 不一致 | Host 样本 |', '|---|---|---|---|---|---|---|---|---|']
+              '- Run 时长：Host 接受 Run（首次执行授权）→ 该 Run 的任务结束。平台 = Run 时长 − 模型 − 工具，同一时间范围相减；为负即数据异常（计数，不截成 0，不进统计）。',
+              '- 模型：Host 报告的 model_timing（生成段时长减去其中的工具调用）；工具：guard 汇总的 tool_timing。',
+              '- 端到端：来信受理 → 回复（或兜底、升级）落库，单独报告，不参与相减；派发：入队 → Host 接受，见上表。', '',
+              '| 格 | Run 数 | 端到端 | Run 时长 | 模型 | 工具 | 平台 | 无工具计时 | 无模型计时 | 数据异常 | Host 样本 |', '|---|---|---|---|---|---|---|---|---|---|---|']
     for c in report['cells']:
         d = c.get('decomposition')
         if not d:
-            lines.append(f"| {c['cell']} | missing | | | | | | | {c['host_metrics']} |")
+            lines.append(f"| {c['cell']} | missing | | | | | | | | | {c['host_metrics']} |")
             continue
         pair = lambda k: f"{_fmt(d[k]['p50'])} / {_fmt(d[k]['p95'])}"
-        lines.append(f"| {c['cell']} | {d['runs']} | {pair('e2e_ms')} | {pair('model_ms')} | {pair('tool_ms')} | {pair('platform_ms')} | "
-                     f"{d['runs_without_tool_timing']} | {d['inconsistent_runs']} | {c['host_metrics']} |")
+        lines.append(f"| {c['cell']} | {d['runs']} | {pair('e2e_ms')} | {pair('run_ms')} | {pair('model_ms')} | {pair('tool_ms')} | {pair('platform_ms')} | "
+                     f"{d['runs_without_tool_timing']} | {d['runs_without_model_timing']} | {d['anomalies']} | {c['host_metrics']} |")
     ci = report['ci_interference']
     lines += ['', '## CI 同机影响（§5.3）', '']
     if not ci:

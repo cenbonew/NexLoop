@@ -77,12 +77,14 @@
 每行格式：
 
 ```json
-{"e2e_ms": 5400, "model_ms": 3100, "tool_ms": 820.5, "tool_calls": 3, "queue_wait_ms": 120, "admission_wait_ms": 0, "outcome": "replied"}
+{"e2e_ms": 5400, "run_ms": 4800, "model_ms": 3100, "tool_ms": 820.5, "tool_calls": 3, "queue_wait_ms": 120, "admission_wait_ms": 0, "outcome": "replied"}
 ```
 
 - `tool_ms` 和 `tool_calls` 取自 `runtime.jobs.result.tool_timing`（`total_ms`、`calls`）；没有时为 `null`。
 - `model_ms` 是这个 Run 所有 `runtime.nexloop_model_requests` 的 `completed_at − requested_at` 之和。
-- `e2e_ms` 是触发消息的 `accepted_at` 到回复（或兜底、升级）落库的时间差。
+- `e2e_ms` 是触发消息的 `accepted_at` 到回复（或兜底、升级）落库的时间差。还没有回复时（处理中、受限、被接管）为 `null`，这类 Run 只按 outcome 计数。
+- `run_ms`（调度员 2026-10-11）：Host 接受这个 Run（`runtime_execution_markers.first_authorized_at`）到它的任务结束（`runtime.jobs.updated_at`，状态为 succeeded/failed）。平台耗时 = `run_ms − model_ms − tool_ms`，三者覆盖同一时间范围；结果为负视为数据异常，报告计数并判 AT-060 不通过，不会截成 0。端到端不参与相减。
+- `model_ms` 优先取任务结果中 Host 报告的 `model_timing.total_ms`（方案 A2）。
 - `outcome` 取值：`replied`、`fallback`、`escalated`、`restricted`、`takeover`、`in_progress`。
 - **不写 run_id**：报告用不到，也就不让 ID 进入报告流程。
 

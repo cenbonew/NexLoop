@@ -39,6 +39,7 @@ NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase'
     'nexloop.retention.release_hold':'retention.release_hold','nexloop.consumer.export':'consumer.export'}
 NX030_SILENCE={'nexloop.alert.silence':'alert.silence','nexloop.restore.open_scope':'restore.open_scope'}  # + NX-035 (0147), owner only
 AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}
+RDS_SWITCH={'nexloop.real_dispatch.set':'real_dispatch.set'}  # 0153 real dispatch switch, owner only
 
 
 def object_types():
@@ -65,10 +66,10 @@ def test_compiles_both_profiles_with_explicit_snapshots():
             PUBLISH_CAPABILITY:capability(PUBLISH_CAPABILITY),AUDIT_CAPABILITY:capability(AUDIT_CAPABILITY),
             **{cap:capability(cap) for cap in COMMITMENT_HUMAN.values()},**{cap:capability(cap) for cap in REQUESTS.values()},'commercial.observe':capability('commercial.observe'),
             **{cap:capability(cap) for cap in NX027_REGISTRY.values()},**{cap:capability(cap) for cap in NX029_ERASURE.values()},**{cap:capability(cap) for cap in NX030_SILENCE.values()},
-            **{cap:capability(cap) for cap in AT043_INCENTIVE.values()}})
+            **{cap:capability(cap) for cap in AT043_INCENTIVE.values()},**{cap:capability(cap) for cap in RDS_SWITCH.values()}})
     names={r['definition']['stable_name']:r for r in rows}
     assert set(names)=={'Message.agent_create','Consumer.edit',PUBLISH_ACTION,AUDIT_ACTION,'Commitment.create','Commitment.edit',*COMMITMENT_HUMAN,*REQUESTS,
-        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe',*NX027_REGISTRY,*NX029_ERASURE,*NX030_SILENCE,*AT043_INCENTIVE}
+        'CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe',*NX027_REGISTRY,*NX029_ERASURE,*NX030_SILENCE,*AT043_INCENTIVE,*RDS_SWITCH}
     # AT-043 (0145): the incentive issue is a human owner Action on the registry; the executor grant is separate.
     assert all(a['authority']=='human_owner' and a['capability_name']=='incentive.issue' for a in MANIFEST['actions'] if a['stable_name'] in AT043_INCENTIVE)
     # NX-029 (0142): human owner only, typed on Consumer v1.

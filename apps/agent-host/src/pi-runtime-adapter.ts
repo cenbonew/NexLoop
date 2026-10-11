@@ -10,6 +10,7 @@ import {openNodeSqliteDatabase} from '@earendil-works/pi-durable/storage/sqlite/
 import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
 import {safeProviderMessage,safeProviderStream} from './runtime-provider-boundary.js';
 import {purgeRunDirectory,validRunId} from './run-purge.js';
+import {modelTiming} from './model-timing.js';
 import {RuntimeError,validateRunCommand,type RunCommand,type RuntimeAdapter,type RuntimeReceipt,type RuntimeInspection} from './runtime-adapter.js';
 export type RuntimeOperation='start'|'resume'|'inspect'|'cancel'|'model'|'tool';
 /** Actual provider request of one model call (Context v6, AT-027). The guard recomputes
@@ -276,11 +277,13 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     if(synchronous!==2||journal!=='wal')throw new RuntimeError('runtime_durability_refused');
     // Scan the real durable history: empty active_tasks or a settled submission
     // alone must never turn a failed/faulted Tool/Generation into success.
+    let scanned:readonly Parameters<typeof modelTiming>[0][number][]=[];
     const runtimeOutcome=await run.harness.commit(async tx=>{
       const tasks=[];let cursor;
       do{const page=await tx.scanTasks({},256,cursor);tasks.push(...page.items);cursor=page.next;
         if(tasks.length>1024||cursor&&tasks.length>=1024)return 'unknown' as const;
       }while(cursor);
+      scanned=tasks;
       if(tasks.some(task=>task.state.status!=='terminal'))return 'running' as const;
       if(tasks.some(task=>task.state.status==='terminal'&&['failed','faulted','orphaned'].includes(task.state.outcome.status)))return 'failed' as const;
       if(tasks.some(task=>task.state.status==='terminal'&&task.state.outcome.status==='aborted'))return 'cancelled' as const;
@@ -306,7 +309,9 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       if(!generation||generation.state.status!=='terminal'||generation.state.outcome.status!=='completed')return 'unknown' as const;
       return 'succeeded' as const;
     },BACKGROUND_CONTEXT);
-    return {...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2}};
+    // NX-031 A2: numbers only, from the same durable task records (a restarted Host reports the same figure).
+    return {...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2},
+      model_timing:modelTiming(scanned)};
   });}
   cancel(command:unknown):Promise<{run_id:string;status:'cancel_requested'}>{return this.serial(async()=>{
     const valid=validateRunCommand(command);await this.authorize(valid,'cancel');const run=await this.open(valid,false);this.check(run,valid);

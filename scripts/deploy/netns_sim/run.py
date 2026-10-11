@@ -36,8 +36,8 @@ DATA_NAME = 'data.sim.invalid'
 DB = 'nexloop_stage'
 SIM_STAGE = {
     'APP_HOST_ADDR': APP_DATA_ADDR, 'DATA_HOST_ADDR': DATA_ADDR, 'APP_HOST_NAME': 'app.sim.invalid', 'DATA_HOST_NAME': DATA_NAME,
-    'TRUSTED_LAN_CIDR': '198.51.100.0/24', 'MGMT_SOURCE_CIDR': '198.51.100.0/24', 'APP_CONTAINER_CIDR': '192.0.2.0/24',
-    'PG_PORT': '5432', 'VALKEY_PORT': '6379', 'GATEWAY_HTTPS_PORT': '8443', 'GATEWAY_REDIRECT_PORT': '8080', 'API_INTERNAL_PORT': '8000',
+    'TRUSTED_LAN_CIDR': '198.51.100.0/24', 'MGMT_SOURCE_CIDR': '198.51.100.0/24', 'APP_CONTAINER_CIDR': '192.0.2.0/24', 'AGENT_EGRESS_CIDR': '203.0.113.128/25',
+    'PG_PORT': '5432', 'VALKEY_PORT': '6379', 'GATEWAY_HTTPS_PORT': '8443', 'GATEWAY_REDIRECT_PORT': '8080', 'API_INTERNAL_PORT': '8000', 'API_INTERNAL_PORT_2': '8001',
     'HOST_INTERNAL_PORT': '8100', 'GUARD_PORT': '8200', 'NEXLOOP_ROOT': '/srv/nexloop', 'NEXLOOP_DB': DB,
     'APP_PG_ROLES': 'nexloop_api,nexloop_metrics', 'MIGRATION_PG_ROLE': 'nexloop_bootstrap', 'VALKEY_MAXMEMORY': '64mb',
     'AGENT_HOST_UID': '10002', 'CI_UID': '10003', 'MODEL_PROVIDER_ALLOWLIST': '203.0.113.5'}
@@ -49,6 +49,10 @@ EVIDENCE = {
     'internal_port_loopback': 'real: the internal API port is bound to 127.0.0.1 inside app',
     'data_unreachable_from_management_and_host': 'topology: outsider is not on data_net; the host CI user cannot route into rootless bridges '
                                                  '(equivalent of the DATA_HOST firewall rules, which are not loaded here)',
+    'agent_host_namespace': 'topology: the Agent Host is only on agent_link (internal) and agent_egress, so DATA_HOST, unlisted targets and '
+                            'the application namespace\'s other ports are unreachable from it, and the application namespace cannot reach the '
+                            'model host; in the deployment the same split is enforced by the per-namespace nft rules (not loaded here). The two '
+                            'relays are real (nexloop_eios.loopback_relay).',
     'valkey_from_lan_neighbour': 'topology gap: Valkey has no source restriction of its own; in the deployment the firewall stops a LAN '
                                  'neighbour, in the simulation it reaches the TLS port (the probe records it as reachable)',
 }
@@ -107,6 +111,7 @@ def prepare(work):
         private(probe / f'{name}_password', passwords[name])
     private(probe / 'wrong_password', 'x' * 32)
     shutil.copy(ROOT / 'scripts/deploy/probe_isolation.py', probe / 'probe_isolation.py')
+    shutil.copy(ROOT / 'packages/eios-core/src/nexloop_eios/loopback_relay.py', probe / 'loopback_relay.py')
     for path in [*data.rglob('*'), *probe.rglob('*')]:
         if path.is_file():
             path.chmod(0o644 if path.suffix in ('.crt', '.conf', '.py', '.json', '.acl') or path.name == '10-roles.sh' else 0o600)
@@ -129,7 +134,9 @@ def probe_specs(base='/sim'):
     vk = lambda code, expect, **kw: {'code': code, 'kind': 'valkey', 'target': 'DATA_VALKEY', 'expect': expect, 'ca': f('ca.crt'),
                                      'server_name': DATA_NAME, 'cert': f('valkey-client-cache.chain.crt'), 'key': f('valkey-client-cache.key'), **kw}
     tcp = lambda code, target, expect: {'code': code, 'kind': 'tcp', 'target': target, 'expect': expect}
-    app = {'location': 'APP_HOST', 'targets': {**pg_targets, 'APP_API_LOOPBACK': {'host': '127.0.0.1', 'port': 8000}}, 'probes': [
+    model = {'MODEL_ALLOWLISTED': {'host': '203.0.113.70', 'port': 8443}}
+    app = {'location': 'APP_HOST', 'targets': {**pg_targets, **model, 'APP_API_LOOPBACK': {'host': '127.0.0.1', 'port': 8000},
+                                               'HOST_CONTROL_VIA_RELAY': {'host': '127.0.0.1', 'port': 8100}}, 'probes': [
         pg('pg_ok', 'authenticated', password_file=f('api_password')),
         pg('pg_plaintext', 'server_refused', sslmode='disable'),
         pg('pg_wrong_ca', 'client_refused', ca=f('other-ca.crt')),
@@ -145,7 +152,18 @@ def probe_specs(base='/sim'):
         vk('valkey_no_client_cert', 'server_refused', cert=None, key=None),
         vk('valkey_wrong_ca', 'client_refused', ca=f('other-ca.crt')),
         vk('valkey_plaintext', 'server_refused', plaintext=True),
-        tcp('app_api_loopback', 'APP_API_LOOPBACK', 'reachable')]}
+        tcp('app_api_loopback', 'APP_API_LOOPBACK', 'reachable'),
+        # NX-037 D4: the application namespace never reaches a model host; it reaches the Host only through the relay.
+        tcp('model_from_application_namespace', 'MODEL_ALLOWLISTED', 'unreachable'),
+        tcp('host_control_via_relay', 'HOST_CONTROL_VIA_RELAY', 'reachable')]}
+    agent = {'location': 'AGENT_HOST', 'targets': {**model, 'DATA_PG': {'host': DATA_ADDR, 'port': 5432}, 'DATA_VALKEY': {'host': DATA_ADDR, 'port': 6379},
+                                                   'UNLISTED': {'host': APP_MGMT_ADDR, 'port': 8443}, 'GUARD_VIA_RELAY': {'host': '127.0.0.1', 'port': 8200},
+                                                   'APP_API_LOOPBACK': {'host': '127.0.0.1', 'port': 8000}, 'APP_LINK_API': {'host': '203.0.113.18', 'port': 8000}}, 'probes': [
+        tcp('model_allowlisted', 'MODEL_ALLOWLISTED', 'reachable'),
+        tcp('data_pg_from_agent', 'DATA_PG', 'unreachable'), tcp('data_valkey_from_agent', 'DATA_VALKEY', 'unreachable'),
+        tcp('unlisted_target_from_agent', 'UNLISTED', 'unreachable'),
+        tcp('guard_via_relay', 'GUARD_VIA_RELAY', 'reachable'),
+        tcp('api_not_relayed', 'APP_API_LOOPBACK', 'unreachable'), tcp('api_on_link_not_relayed', 'APP_LINK_API', 'unreachable')]}
     neighbour = {'location': 'LAN_NEIGHBOUR', 'targets': pg_targets, 'probes': [
         tcp('data_pg_tcp', 'DATA_PG', 'reachable'),
         pg('pg_valid_identity_wrong_source', 'server_refused', password_file=f('api_password')),
@@ -156,7 +174,7 @@ def probe_specs(base='/sim'):
     host = {'location': 'CI_HOST_USER', 'targets': by_addr, 'probes': [
         tcp('data_pg', 'DATA_PG', 'unreachable'), tcp('data_valkey', 'DATA_VALKEY', 'unreachable'),
         tcp('app_gateway', 'APP_GATEWAY', 'unreachable')]}
-    return {'app': app, 'neighbour': neighbour, 'outsider': outsider, 'host': host}
+    return {'app': app, 'agent': agent, 'neighbour': neighbour, 'outsider': outsider, 'host': host}
 
 
 def docker(*args, env=None, check=True, timeout=600):
@@ -196,7 +214,7 @@ def main(argv=None):
             return 2
         a.out.mkdir(mode=0o700, parents=True)
         reports = {}
-        for location in ('app', 'neighbour', 'outsider'):
+        for location in ('app', 'agent', 'neighbour', 'outsider'):
             run = docker(*compose, 'exec', '-T', location, 'python3', '-I', '/sim/probe_isolation.py', '--spec', f'/sim/spec-{location}.json',
                          env=env, check=False, timeout=180)
             reports[location] = json.loads(run.stdout) if run.stdout.strip().startswith('{') else {'passed': False, 'error': run.stderr[-500:]}

@@ -57,7 +57,7 @@ def provision(f,admin):
 
 
 @contextmanager
-def guarantor(c,admin,tmp_path,token,api=None):
+def guarantor(c,admin,tmp_path,token,api=None,policy=None):
     """The reply worker (domain worker) with its launcher (message relay identities on the API backend, or on `api`)."""
     o=c['o'];p=c['p']
     with open_backend(database_url=make_conninfo(o['pg'],user='nexloop_domain_worker'),artifact_root=tmp_path/'reply-worker-artifacts',
@@ -68,7 +68,7 @@ def guarantor(c,admin,tmp_path,token,api=None):
             executor_token=tokens['assembly-executor'],recipe=c['recipe'],policy=TEST_POLICY)
         def worker(with_launcher=True):
             current=domain.authenticate(token,world='real')
-            return ReplyGuaranteeWorker(domain._pool,current._session,domain._signer,policy=TEST_POLICY,launcher=launcher if with_launcher else None)
+            return ReplyGuaranteeWorker(domain._pool,current._session,domain._signer,policy=policy or TEST_POLICY,launcher=launcher if with_launcher else None)
         def read():
             current=domain.authenticate(token,world='real');return ContactReadPort(domain._pool,current._session,domain._signer)
         yield dict(worker=worker,launcher=launcher,read=read,domain=domain)
@@ -202,7 +202,10 @@ def test_fallback_reply_is_refused_once_the_original_reply_was_accepted(assemble
                 fallback_intent=next(r[0] for r in outbound(admin,tenant) if r[0]!=agent_intent)
                 assert 'fulfilled' not in effect_worker(c,tmp_path,material['provider_config'],material['secret'])
             states=dict((r[0],r[1]) for r in outbound(admin,tenant))
-            assert states[agent_intent]=='delivered' and states[fallback_intent] in ('persisted','failed')
+            # 0152: the refused fallback reply (NXC05, one reply per inbound message) is terminal: failed, not pending forever.
+            assert states[agent_intent]=='delivered' and states[fallback_intent]=='failed'
+            assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(fallback_intent,)).fetchone()==('failed',)
+            assert admin.execute("select code from runtime.nexloop_dispatch_refusals where intent_id=%s",(fallback_intent,)).fetchall()==[('NXC05',)]
             assert len([p for p in material['root'].iterdir() if p.name.endswith('.export.json')])==1
 
 

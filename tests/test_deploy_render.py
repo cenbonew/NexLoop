@@ -92,7 +92,7 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
     published = {name: s.get('ports') for name, s in app['services'].items() if s.get('ports')}
     assert list(published) == ['app-net'] and all(p.startswith('${APP_HOST_ADDR') for p in published['app-net'])
     for name, s in app['services'].items():
-        if name != 'app-net':
+        if name not in ('app-net', 'agent-host', 'agent-link-relay'):  # NX-037 D4: the Agent Host has its own namespace
             assert s['network_mode'] == 'service:app-net' and s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == 'false', name
         image = s['image']
         assert image.startswith('${') and 'by digest' in image, name

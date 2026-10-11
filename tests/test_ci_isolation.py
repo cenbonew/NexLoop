@@ -130,7 +130,8 @@ def test_trusted_policy_matches_the_suite_and_keeps_tests_offline():
     # The isolation probe runs the trusted copy, not the candidate's.
     assert stages['isolation-probe']['argv'][1].startswith('/trusted/')
     # The required suites are exactly the JUnit reports scripts/ci/check writes; the deadline gate is one of them.
-    written = set(re.findall(r'\.ci-results/([a-z0-9_-]+)\.xml', (ROOT / 'scripts/ci/check').read_text()))
+    # (scripts/ci/check runs the stage scripts of scripts/ci/stages/, which write them.)
+    written = set(re.findall(r'\.ci-results/([a-z0-9_-]+)\.xml', ''.join(p.read_text() for p in sorted((ROOT / 'scripts/ci/stages').glob('*.sh')))))
     assert set(policy['suites']['suites']) == written and policy['suites']['deadline_gate_suite'] in written
     egress = json.loads((ROOT / '.ci-policy/egress.v1.json').read_text())
     assert 'github.com' not in egress['allow'] and set(egress['allow']) == {'pypi.org', 'files.pythonhosted.org', 'registry.npmjs.org'}

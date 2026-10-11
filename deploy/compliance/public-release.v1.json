@@ -1,7 +1,7 @@
 {
   "schema": "nexloop-public-release/1",
   "version": 1,
-  "decision": "NX-036 §4 (design merged at 3b5a684; owner decided D1, D2, D3, D4, D10 and D11 on 2026-10-11: all as recommended). D1: contributions are signed off with the Developer Certificate of Origin (scripts/check_signoff.py). D2: GitHub private vulnerability reporting, optionally one more contact provided by the owner; until security_contact is filled in, SECURITY.md states that there is no formal response channel and the public gate fails. D3: response targets, not guarantees. D4: before 1.0 only the latest release is supported. D10: Contributor Covenant 2.1, adopted by reference. D11: no additional secret-scanning tool. Values are placeholders in the documents and are filled from this file; the documents are not edited for a decision change.",
+  "decision": "NX-036 §4 (design merged at 3b5a684; owner decided D1, D2, D3, D4, D10 and D11 on 2026-10-11: all as recommended). D1: contributions are signed off with the Developer Certificate of Origin (scripts/check_signoff.py). D2: GitHub private vulnerability reporting, optionally one more contact provided by the owner; until security_contact is filled in, SECURITY.md states that there is no formal response channel and the public gate fails. D3: response targets, not guarantees. D4: before 1.0 only the latest release is supported. D10: Contributor Covenant 2.1, adopted by reference. D11: no additional secret-scanning tool. Dispatcher ruling 2026-10-11: docs/CONNECTORS.md, docs/EVALUATION.md and docs/OPERATIONS.md are also required for the first public release. Values are placeholders in the documents and are filled from this file; the documents are not edited for a decision change.",
   "contribution_signoff": "dco",
   "security_contact": null,
   "placeholder": "<SECURITY_CONTACT>",
@@ -11,7 +11,7 @@
   "secret_scanning_tool": null,
   "required_files": {
     "ci": ["LICENSE", "NOTICE", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md"],
-    "public": ["LICENSE", "NOTICE", "README.md", "README.zh-CN.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "GOVERNANCE.md", "docs/release/public-release-checklist.md"]
+    "public": ["LICENSE", "NOTICE", "README.md", "README.zh-CN.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "GOVERNANCE.md", "docs/release/public-release-checklist.md", "docs/CONNECTORS.md", "docs/EVALUATION.md", "docs/OPERATIONS.md"]
   },
   "readme_pair": ["README.md", "README.zh-CN.md"],
   "placeholder_free": ["SECURITY.md", "CODE_OF_CONDUCT.md"],

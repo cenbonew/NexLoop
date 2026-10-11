@@ -15,6 +15,7 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import re
+from datetime import UTC,datetime
 
 from nexloop_eios.authorization import authority_request_scoped
 from nexloop_eios.plan_reevaluation import PlanUnavailable,_SignedPort
@@ -43,13 +44,24 @@ def load_refusal_rules(path):
     return value
 
 
+# Reconciliation of an unknown original reply (AGENTS: an unknown external result is queried first, never blindly retried).
+RECONCILE_WINDOW_DEFAULT=600
+RECONCILE_WINDOW_MAX=3600
+
+
+def reconcile_window(policy):
+    return policy['fallback'].get('reconcile_window_seconds',RECONCILE_WINDOW_DEFAULT)
+
+
 def load_reply_policy(path):
     value=_json(path)
     if type(value) is not dict or set(value)!={'schema','version','decision','reply_window_seconds','fallback'}:raise ValueError('reply policy shape')
     if value['schema']!='nexloop-reply-guarantee/1' or type(value['version']) is not int or value['version']<1:raise ValueError('reply policy version')
     if type(value['reply_window_seconds']) is not int or not 60<=value['reply_window_seconds']<=604800:raise ValueError('reply window')
     fallback=value['fallback']
-    if type(fallback) is not dict or set(fallback)!={'start_after_seconds','context_strategy','runtime_profile','run_budget','run_ttl_seconds','batch','lease_seconds','max_attempts'}:
+    keys={'start_after_seconds','context_strategy','runtime_profile','run_budget','run_ttl_seconds','batch','lease_seconds','max_attempts'}
+    # v2: reconcile_window_seconds (optional; v1 policies get the default).
+    if type(fallback) is not dict or not keys<=set(fallback)<=keys|{'reconcile_window_seconds'}:
         raise ValueError('fallback shape')
     budget=fallback['run_budget']
     if type(budget) is not dict or set(budget)!=set(_BUDGET):raise ValueError('fallback budget')
@@ -60,8 +72,11 @@ def load_reply_policy(path):
     if re.fullmatch(r'[a-z][a-z0-9_]{0,63}',str(fallback['context_strategy'])) is None:raise ValueError('fallback context strategy')
     for key,low,high in (('start_after_seconds',1,86400),('run_ttl_seconds',30,300),('batch',1,100),('lease_seconds',10,3600),('max_attempts',1,10)):
         if type(fallback[key]) is not int or not low<=fallback[key]<=high:raise ValueError('fallback '+key)
-    # ADR-023: the fallback starts and its Run ends inside the reply window; otherwise refuse to start.
-    if fallback['start_after_seconds']+fallback_duration(value)>=value['reply_window_seconds']:
+    window=fallback.get('reconcile_window_seconds',RECONCILE_WINDOW_DEFAULT)
+    if type(window) is not int or not 30<=window<=RECONCILE_WINDOW_MAX:raise ValueError('fallback reconcile_window_seconds')
+    # ADR-023: the fallback starts and its Run ends inside the reply window, also after a reconciliation that ended in an
+    # explicit failure; otherwise refuse to start.
+    if fallback['start_after_seconds']+window+fallback_duration(value)>=value['reply_window_seconds']:
         raise ValueError('fallback start plus Run duration must be below the reply window')
     return value
 
@@ -89,6 +104,7 @@ class ReplyPort(_SignedPort):
 
     def state(self,message_id):return self._signed({'verb':'state','message_id':str(message_id)})
     def escalate(self,message_id,reason,detail):return self._signed({'verb':'escalate','message_id':str(message_id),'reason':reason,'detail':dict(detail)})
+    def reconcile(self,message_id):return self._signed({'verb':'reconcile','message_id':str(message_id)})
 
 
 class ReplyGuaranteeWorker:
@@ -108,8 +124,8 @@ class ReplyGuaranteeWorker:
 
     @authority_request_scoped
     def run_once(self):
-        summary={'settled':0,'fallback_started':0,'escalated':0,'taken_over':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
-        fallback=self.policy['fallback'];recheck=fallback_duration(self.policy)+30
+        summary={'settled':0,'fallback_started':0,'escalated':0,'taken_over':0,'reconciling':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
+        fallback=self.policy['fallback'];recheck=fallback_duration(self.policy)+30;window=reconcile_window(self.policy)
         for item in self.feed.claim(limit=fallback['batch'],lease_seconds=fallback['lease_seconds']):
             message_id=item['payload']['message_id']
             try:
@@ -121,6 +137,20 @@ class ReplyGuaranteeWorker:
                 elif state.get('fallback_run_id'):
                     # The one fallback Run had its full duration and the message is still unanswered.
                     self.port.escalate(message_id,'fallback_unanswered',{'fallback_run_id':str(state['fallback_run_id']),'restricted':state['restricted']});outcome='escalated'
+                elif state.get('reply_unknown_intent'):
+                    # AGENTS: the original reply's external result is unknown; query and reconcile before any second reply.
+                    started=state.get('reconcile_started_at')
+                    if started is None:
+                        started=self.port.reconcile(message_id)['reconcile_started_at']
+                    elapsed=(datetime.now(UTC)-datetime.fromisoformat(str(started).replace('Z','+00:00'))).total_seconds()
+                    if elapsed<window:
+                        status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='reply_reconciling',
+                            # The work feed allows at most 20 attempts (SQL); a reconciliation takes two ticks (start, end).
+                            delay_seconds=max(5,min(int(window-elapsed)+1,window)),max_attempts=min(20,fallback['max_attempts']+5))
+                        summary['reconciling' if status=='pending' else status]+=1;continue
+                    # Still unknown at the end of the window: the owner decides; no fallback (it could be a second reply).
+                    self.port.escalate(message_id,'reply_unknown',{'intent_id':str(state['reply_unknown_intent']),'reconcile_started_at':str(started),
+                        'window_seconds':window,'restricted':state['restricted']});outcome='escalated'
                 elif self.launcher is None:
                     self.port.escalate(message_id,'fallback_unavailable',{'restricted':state['restricted'],'in_flight':state['in_flight']});outcome='escalated'
                 else:

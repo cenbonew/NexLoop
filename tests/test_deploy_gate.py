@@ -133,12 +133,12 @@ def test_secret_distribution_and_the_rendered_compose(tmp_path):
     root = secret_tree(tmp_path / 's-compose')
     bad = copy.deepcopy(compose)
     # The YAML anchor shares one environment mapping between services: each change gets its own copy.
-    bad['services']['api']['environment'] = {**bad['services']['api']['environment'], 'DATABASE_URL': 'postgresql://synthetic'}
+    bad['services']['api-1']['environment'] = {**bad['services']['api-1']['environment'], 'DATABASE_URL': 'postgresql://synthetic'}
     bad['services']['agent-host']['secrets'] = [*bad['services']['agent-host']['secrets'], 'api_dsn']
-    bad['services']['effect-worker']['environment'] = {**bad['services']['effect-worker']['environment'], 'REAL_DISPATCH_ENABLED': 'true'}
+    bad['services']['action-worker']['environment'] = {**bad['services']['action-worker']['environment'], 'REAL_DISPATCH_ENABLED': 'true'}
     out = deploy_checks.secret_distribution(root, compose=bad)
-    assert {'secret_in_environment:api', 'agent_host_mounts_service_secret'} <= set(out['details']['secrets']['problems'])
-    assert out['checks']['real_dispatch_closed'] is False and out['details']['secrets']['dispatch_open'] == ['effect-worker']
+    assert {'secret_in_environment:api-1', 'agent_host_mounts_service_secret'} <= set(out['details']['secrets']['problems'])
+    assert out['checks']['real_dispatch_closed'] is False and out['details']['secrets']['dispatch_open'] == ['action-worker']
     assert 'postgresql://synthetic' not in json.dumps(out)
 
 

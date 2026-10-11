@@ -17,7 +17,7 @@ https://__APP_HOST_NAME__:8443 {
         respond "Not found" 404
     }
     handle {
-        reverse_proxy https://127.0.0.1:__API_INTERNAL_PORT__ {
+        reverse_proxy https://127.0.0.1:__API_INTERNAL_PORT__ https://127.0.0.1:__API_INTERNAL_PORT_2__ {
             transport http {
                 tls_trusted_ca_certs /run/secrets/api_loopback_ca
                 tls_server_name 127.0.0.1

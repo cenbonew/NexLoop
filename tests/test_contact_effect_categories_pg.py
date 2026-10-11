@@ -125,3 +125,22 @@ def test_commitment_made_while_restricted_is_flagged_for_the_owner(commitments,a
     commitment,_=fresh(c,due_in=timedelta(days=3))
     assert [e[1] for e in c.exceptions(commitment)]==['made_under_contact_restriction']
     assert c.commitment(commitment)['properties']['status']=='open'  # registered all the same: the words were delivered
+
+
+def test_contact_restricted_refusal_is_not_terminal_and_dispatches_once_the_restriction_no_longer_applies(commitments,admin,tmp_path):
+    """0152: only the one-reply rule fails an intent; a contact-restriction NXC05 leaves it accepted and dispatchable. Admin turns
+    the restriction off without a control event (state injection), so the intent's snapshot stays current; the governed
+    release (Contact.release, a control event) goes through re-submission by a new Run, covered by test_nx022_dispatch_e2e."""
+    import time
+    c=commitments;c.configure_categories(category='customer_contact');restricted(c)
+    receipt=c.submit({'service':'短信通知'})
+    with effect_provider(tmp_path/'provider.sqlite') as provider:
+        refused(c,provider)
+        assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(receipt['intent_id'],)).fetchone()==('accepted',)
+        assert admin.execute('select state from runtime.nexloop_effect_outbox where intent_id=%s',(receipt['intent_id'],)).fetchone()[0] in ('pending','leased')
+        admin.execute("update control.nexloop_contact_restrictions set active=false,released_at=clock_timestamp(),released_by='synthetic-owner',"
+                      "release_intent='synthetic-release-injection',release_reason='synthetic release' where consumer_id=%s",(c['consumer'],))
+        time.sleep(3.1)  # the refused claim's lease ends; the Worker takes the same intent again
+        c.deliver(provider,receipt['intent_id'])
+        assert provider.control('snapshot')['effects']==1
+

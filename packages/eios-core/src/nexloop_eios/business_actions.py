@@ -40,7 +40,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # AT-043 (0145): the owner issues a catalog incentive; budgeted at dispatch by the executor.
     'incentive.issue':'human_owner',
     # NX-035 (0147): the owner opens a scope of a restored database.
-    'restore.open_scope':'human_owner'}
+    'restore.open_scope':'human_owner',
+    # 0153 (NX-037 prerequisite): the owner opens or closes real dispatch for the tenant or one of its Actions.
+    'real_dispatch.set':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

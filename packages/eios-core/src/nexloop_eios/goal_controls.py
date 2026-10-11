@@ -50,7 +50,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-030: the owner silences one alert rule (optionally one selector) for at most 7 days.
     'silence_alert':'alert.silence',
     # NX-035 (0147): the owner opens one tenant/world scope of a restored, verified database.
-    'open_restore_scope':'restore.open_scope'}
+    'open_restore_scope':'restore.open_scope',
+    # NX-037 prerequisite (0153): the owner opens or closes real dispatch for the tenant or one Action of it.
+    'set_real_dispatch':'real_dispatch.set'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -61,7 +63,8 @@ _DECIMAL=re.compile(r'-?\d{1,18}(\.\d{1,12})?')
 REASONS={'NXC01':'control_paused','NXC02':'control_revision_stale','NXC03':'goal_version_stale',
     'NXC04':'object_revision_stale','NXC05':'contact_restricted','NXB01':'budget_exhausted','NXB02':'budget_consumption_conflict',
     'NXB03':'budget_unconfigured','NXM01':'observation_conflict',
-    'NXR01':'restore_unverified'}  # NX-035 (0147): restored database not yet opened for this tenant/world
+    'NXR01':'restore_unverified',  # NX-035 (0147): restored database not yet opened for this tenant/world
+    'NXC07':'real_dispatch_closed'}  # 0153: a layer of the real dispatch switch is closed for this external effect
 
 
 def goal_version_ref(goal_id,version):
@@ -82,9 +85,10 @@ def _nx022_goal(ref):
 
 
 class ControlDenied(Exception):
-    def __init__(self,reason):
+    def __init__(self,reason,detail=None):
         super().__init__(reason)
-        self.reason=reason
+        # detail: the SQL refusal's fixed message text (no data), e.g. which one-reply rule refused (0152).
+        self.reason,self.detail=reason,detail
 
 
 def _utc(value):
@@ -245,6 +249,16 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[A-Za-z0-9._:-]{1,64}',str(restore_ref)):raise ValueError('restore reference required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'open_restore_scope','restore_ref':restore_ref})
 
+    # 0153: owner only. scope 'tenant' (with the tenant's data mode; only 'real' can be open) or 'action_type' (one resource id).
+    def set_real_dispatch(self,*,action_name,action_version,request_id,scope_kind,enabled,reason,action_type=None,data_mode=None):
+        if scope_kind not in ('tenant','action_type') or type(enabled) is not bool or type(reason) is not str or not 1<=len(reason)<=2000:
+            raise ValueError('scope, state and reason required')
+        body={'request_id':request_id,'operation':'set_real_dispatch','scope_kind':scope_kind,'enabled':enabled,'reason':reason}
+        # The handler (SQL) decides which of them the scope needs (tenant: data_mode; action_type: action_type) and refuses the rest.
+        if data_mode is not None:body['data_mode']=data_mode
+        if action_type is not None:body['action_type']=action_type
+        return self._submit(action_name,action_version,body)
+
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
             raise ValueError('conversation, bound inbound message and text required')
@@ -359,7 +373,7 @@ class ControlPlane:
             except psycopg.Error as error:
                 reason=REASONS.get(getattr(error,'sqlstate',None))
                 if reason is None:raise
-                raise ControlDenied(reason) from None
+                raise ControlDenied(reason,getattr(error.diag,'message_primary',None)) from None
         if connection is not None:
             verify_application_role(connection)
             return run(connection)

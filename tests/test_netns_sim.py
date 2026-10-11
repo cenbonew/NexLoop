@@ -43,6 +43,10 @@ def test_preparation_renders_the_stage_templates_and_keeps_secrets_where_they_be
         assert cache_password not in text and 'BEGIN' not in text
     assert [p['code'] for p in specs['outsider']['probes']] == ['data_pg', 'data_valkey', 'app_api_internal', 'app_gateway']
     assert {p['expect'] for p in specs['host']['probes']} == {'unreachable'}
+    agent = {p['code']: p['expect'] for p in specs['agent']['probes']}
+    assert agent['data_pg_from_agent'] == agent['unlisted_target_from_agent'] == 'unreachable' and agent['model_allowlisted'] == 'reachable'
+    assert {p['code']: p['expect'] for p in specs['app']['probes']}['model_from_application_namespace'] == 'unreachable'
+    assert (work / 'probe/loopback_relay.py').is_file()
     assert (work / 'probe/probe_isolation.py').read_text() == (ROOT / 'scripts/deploy/probe_isolation.py').read_text()  # the shared script
 
 
@@ -55,9 +59,12 @@ def compose_env(tmp_path):
 def test_compose_topology_and_docker_compose_config(tmp_path):
     spec = yaml.safe_load((SIM / 'compose.sim.yaml').read_text())
     services = spec['services']
-    assert set(services) == {'data', 'data-valkey', 'app', 'neighbour', 'outsider'}
-    assert set(services['outsider']['networks']) == {'mgmt_net'} and set(services['app']['networks']) == {'data_net', 'mgmt_net'}
+    assert set(services) == {'data', 'data-valkey', 'app', 'agent', 'model', 'neighbour', 'outsider'}
+    assert set(services['outsider']['networks']) == {'mgmt_net'} and set(services['app']['networks']) == {'data_net', 'mgmt_net', 'agent_link'}
     assert set(services['neighbour']['networks']) == {'data_net'} and services['data-valkey']['network_mode'] == 'service:data'
+    # NX-037 D4: the Agent Host's own namespace (internal link + its egress), the model host only on that egress.
+    assert set(services['agent']['networks']) == {'agent_link', 'agent_egress'} and set(services['model']['networks']) == {'agent_egress'}
+    assert 'agent_egress' not in services['app']['networks'] and spec['networks']['agent_link']['internal'] is True
     assert all(s.get('pull_policy') == 'never' for s in services.values())
     assert all(not s.get('ports') for s in services.values())  # nothing is published to the host
     images = sim.lock_images()
@@ -76,7 +83,7 @@ def test_prepare_only_cli_starts_nothing(tmp_path):
     run = subprocess.run([sys.executable, '-I', str(SIM / 'run.py'), '--out', str(tmp_path / 'reports'), '--prepare-only'], capture_output=True, text=True,
                          timeout=120)
     out = json.loads(run.stdout)
-    assert run.returncode == 0 and out['prepared'] is True and set(out['locations']) == {'app', 'neighbour', 'outsider', 'host'}
+    assert run.returncode == 0 and out['prepared'] is True and set(out['locations']) == {'app', 'agent', 'neighbour', 'outsider', 'host'}
     assert not (tmp_path / 'reports').exists()
     (tmp_path / 'reports').mkdir()
     again = subprocess.run([sys.executable, '-I', str(SIM / 'run.py'), '--out', str(tmp_path / 'reports')], capture_output=True, text=True, timeout=60)

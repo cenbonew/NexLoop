@@ -100,7 +100,7 @@ def run(config,stop):
                         status=MessageRelay(route=route,source=source,planner=planner,
                             executor_token=executor,vault=vault,**{current[0]:current[1]},context_strategy=config.context_strategy).run_once()
                         if config.once:
-                            if status not in {'idle','queued','requires_governed_replan'}: raise ValueError()
+                            if status not in {'idle','queued','requires_governed_replan','handed_to_fallback'}: raise ValueError()
                             print(json.dumps({'status':status},separators=(',',':')),flush=True)
                             return 0
                     except Exception:
