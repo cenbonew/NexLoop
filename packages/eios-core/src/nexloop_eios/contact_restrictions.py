@@ -145,7 +145,8 @@ class ReplyGuaranteeWorker:
                     elapsed=(datetime.now(UTC)-datetime.fromisoformat(str(started).replace('Z','+00:00'))).total_seconds()
                     if elapsed<window:
                         status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='reply_reconciling',
-                            delay_seconds=max(5,min(int(window-elapsed)+1,window)),max_attempts=fallback['max_attempts']+window//5+3)
+                            # The work feed allows at most 20 attempts (SQL); a reconciliation takes two ticks (start, end).
+                            delay_seconds=max(5,min(int(window-elapsed)+1,window)),max_attempts=min(20,fallback['max_attempts']+5))
                         summary['reconciling' if status=='pending' else status]+=1;continue
                     # Still unknown at the end of the window: the owner decides; no fallback (it could be a second reply).
                     self.port.escalate(message_id,'reply_unknown',{'intent_id':str(state['reply_unknown_intent']),'reconcile_started_at':str(started),

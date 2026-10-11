@@ -16,6 +16,7 @@ from local_message_assembly_fixture import assembled_message, business_plan, con
 
 pytestmark = pytest.mark.reply_fallback
 POLICY = {**TEST_POLICY, 'fallback': {**TEST_POLICY['fallback'], 'reconcile_window_seconds': 30}}
+DEFAULT_WINDOW_POLICY = TEST_POLICY  # v1 policy: the 600 s default window (the work feed's attempt bound must hold for it too)
 
 
 def lease_expired(admin, intent):
@@ -69,6 +70,22 @@ def test_unknown_reply_is_reconciled_by_query_then_settles_without_fallback(asse
             assert not any(g['worker']().run_once().values())
             assert issuances(admin) == 0 and g['read']().escalations() == []
             assert len(list(material['root'].glob('*.export.json'))) == 1
+
+
+def test_default_window_keeps_the_reply_due_and_reconciling(assembled_message, admin, tmp_path):
+    """Found on the load lane: with the default 600 s window the retry asked for more attempts than the work feed allows (1..20),
+    every tick failed and the reply-due item dead-lettered (reply_unavailable)."""
+    f = assembled_message
+    token = provision(f, admin)
+    with chain(f, admin, tmp_path, body='能改收货地址吗？') as c:
+        c['recipe'] = f['recipe']
+        unknown_reply(c, admin, tmp_path)
+        with guarantor(c, admin, tmp_path, token, policy=DEFAULT_WINDOW_POLICY) as g:
+            for _ in range(3):
+                make_due(admin)
+                summary = g['worker']().run_once()
+                assert summary['reconciling'] == 1 and summary['retry'] == 0 and summary['dead_lettered'] == 0, summary
+            assert admin.execute("select status,last_code from runtime.nexloop_work_feed where feed='reply-due'").fetchone() == ('pending', 'reply_reconciling')
 
 
 def test_reply_still_unknown_after_the_window_escalates_without_fallback(assembled_message, admin, tmp_path):
