@@ -97,8 +97,10 @@ def _backlog(snapshot):
     for group in ('queues', 'feeds'):
         for value in (snapshot.get(group) or {}).values():
             value = value or {}
-            pending += _number(value.get('pending') or 0, f'{group}.pending') + _number(value.get('retry_wait') or 0, f'{group}.retry_wait')
-            age = _number(value.get('oldest_pending_seconds'), f'{group}.oldest', allow_none=True)
+            # Feeds count only due items when the snapshot splits them (0151): items scheduled for later are not a backlog.
+            due = group == 'feeds' and 'due' in value
+            pending += _number(value.get('due' if due else 'pending') or 0, f'{group}.pending') + _number(value.get('retry_wait') or 0, f'{group}.retry_wait')
+            age = _number(value.get('oldest_due_seconds' if due else 'oldest_pending_seconds'), f'{group}.oldest', allow_none=True)
             oldest = age if oldest is None or (age is not None and age > oldest) else oldest
     extraction = snapshot.get('extraction') or {}
     pending += _number(extraction.get('pending_messages') or 0, 'extraction.pending_messages')

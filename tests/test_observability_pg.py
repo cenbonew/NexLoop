@@ -77,6 +77,23 @@ def test_snapshot_is_codes_counts_and_ages_never_raw_text(observed):
         assert client.get('/api/v1/workbench/metrics').status_code == 403
 
 
+def test_feed_counts_split_due_and_scheduled(observed):
+    """NX-031 slice 3 (0151): a pending item scheduled for later is not due work; pending stays due + scheduled."""
+    admin = observed['admin']
+    counts = lambda feed: (lambda f: (f.get('pending', 0), f.get('due', 0), f.get('scheduled', 0)))(
+        admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'feeds'", (TENANT,)).fetchone()[0].get(feed) or {})
+    before = {feed: counts(feed) for feed in ('commitment-monitor', 'reply-due')}
+    for key, offset in (('due-a', '-1 minute'), ('due-b', '-5 seconds'), ('later', '2 days')):
+        admin.execute("insert into runtime.nexloop_work_feed(tenant_id,world,feed,item_key,payload,available_at) values(%s,'real','commitment-monitor',%s,'{}',clock_timestamp()+%s::interval)",
+                      (TENANT, key, offset))
+    admin.execute("insert into runtime.nexloop_work_feed(tenant_id,world,feed,item_key,payload,available_at) values(%s,'real','reply-due','only-later','{}',clock_timestamp()+interval '5 minutes')", (TENANT,))
+    delta = lambda feed: tuple(a - b for a, b in zip(counts(feed), before[feed]))
+    assert delta('commitment-monitor') == (3, 2, 1) and delta('reply-due') == (1, 0, 1)
+    feeds = admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'feeds'", (TENANT,)).fetchone()[0]
+    assert feeds['commitment-monitor']['oldest_due_seconds'] >= 0
+    assert all(f['pending'] == f['due'] + f['scheduled'] for f in feeds.values())
+
+
 def test_evaluator_fires_once_deduplicates_resolves_and_waits_for_duration(observed):
     o = observed
     w, admin = o['w'], o['admin']
