@@ -2,8 +2,10 @@
 # run.py, which prepares every file under SIM_WORK (a private temporary directory) first. Addresses are RFC 5737 documentation
 # ranges inside the simulation's own bridges.
 #
-#   data_net (192.0.2.0/24)    data (PostgreSQL + Valkey in one network namespace, like one DATA_HOST), app, neighbour
-#   mgmt_net (198.51.100.0/24) app, outsider
+#   data_net (192.0.2.0/24)        data (PostgreSQL + Valkey in one network namespace, like one DATA_HOST), app, neighbour
+#   mgmt_net (198.51.100.0/24)     app, outsider
+#   agent_link (203.0.113.16/29)   app, agent — internal; the two loopback relays of NX-037 D4 (Host control, guard)
+#   agent_egress (203.0.113.64/26) agent, model — the Agent Host's own egress; `model` stands for an allowlisted model host
 # outsider is not on data_net: "the management network cannot reach DATA_HOST" is expressed by topology (no nft rule is loaded).
 # neighbour stands for another LAN host that can reach DATA_HOST over TCP: what stops it is PostgreSQL's pg_hba (real).
 name: nexloop-sim
@@ -55,13 +57,32 @@ services:
     depends_on: [data]
   app:
     <<: *probe
-    # Models APP_HOST: an internal API port bound to loopback only and a Gateway port on its addresses.
-    command: [sh, -c, "python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 & python3 -m http.server 8443 --bind 0.0.0.0 >/dev/null 2>&1 & wait"]
+    # Models APP_HOST's application namespace: an internal API port and the guard bound to loopback only, a Gateway port on its
+    # addresses, and its side of the agent link relay (Host control out, guard in).
+    command: [sh, -c, "python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 & python3 -m http.server 8200 --bind 127.0.0.1 >/dev/null 2>&1 & python3 -m http.server 8443 --bind 0.0.0.0 >/dev/null 2>&1 & python3 -I /sim/loopback_relay.py --rule 127.0.0.1:8100=203.0.113.19:8100 --rule 203.0.113.18:8200=127.0.0.1:8200 & wait"]
     networks:
       data_net:
         ipv4_address: 192.0.2.10
       mgmt_net:
         ipv4_address: 198.51.100.10
+      agent_link:
+        ipv4_address: 203.0.113.18
+  agent:
+    <<: *probe
+    # Models the Agent Host in its own namespace: the Host control port on loopback and its side of the relay (guard out, Host in).
+    command: [sh, -c, "python3 -m http.server 8100 --bind 127.0.0.1 >/dev/null 2>&1 & python3 -I /sim/loopback_relay.py --rule 127.0.0.1:8200=203.0.113.18:8200 --rule 203.0.113.19:8100=127.0.0.1:8100 & wait"]
+    networks:
+      agent_link:
+        ipv4_address: 203.0.113.19
+      agent_egress:
+        ipv4_address: 203.0.113.66
+  model:
+    <<: *probe
+    # An allowlisted model host stand-in (port 8443: an unprivileged container cannot bind 443).
+    command: [python3, -m, http.server, "8443", --bind, 0.0.0.0]
+    networks:
+      agent_egress:
+        ipv4_address: 203.0.113.70
   neighbour:
     <<: *probe
     command: [sleep, infinity]
@@ -81,3 +102,10 @@ networks:
   mgmt_net:
     ipam:
       config: [{subnet: 198.51.100.0/24}]
+  agent_link:
+    internal: true
+    ipam:
+      config: [{subnet: 203.0.113.16/29}]
+  agent_egress:
+    ipam:
+      config: [{subnet: 203.0.113.64/26}]

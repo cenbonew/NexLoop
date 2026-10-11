@@ -2,8 +2,12 @@
 # variables); images are referenced by digest from the release manifest (NX-034); generated from one service table, so commands,
 # secrets and budget labels stay consistent.
 #
-# One network namespace (the `app-net` anchor) holds every service, so the internal HTTPS links stay on 127.0.0.1 as today (API -> Host,
-# Worker <-> guard); only the Gateway ports are published, and only on APP_HOST_ADDR. Every service mounts its own secret files one by
+# Two network namespaces (NX-037 D4, owner ruling 2026-10-11). The `app-net` anchor holds the Gateway, the API and every worker on the
+# application network (egress: DATA_HOST's PostgreSQL and Valkey only, never a model address); the Agent Host has its own namespace on
+# the agent egress network (egress: the model provider allowlist only, never DATA_HOST). The two meet only on `agent_link`, an
+# internal network without any route outside, where two loopback relays (nexloop_eios.loopback_relay) carry exactly the two needed
+# links with their loopback endpoints unchanged: API/Runtime Worker -> Host control (127.0.0.1:HOST_INTERNAL_PORT) and Host -> guard
+# (127.0.0.1:GUARD_PORT). TLS stays end to end between the original peers. Only the Gateway ports are published, on APP_HOST_ADDR. Every service mounts its own secret files one by
 # one (never a directory) and nothing else's; the Agent Host gets no DSN, service credential, signing key, channel credential or
 # Artifact directory (design §4.2); no service gets a secret through its environment (only REAL_DISPATCH_ENABLED, which starts false, D9).
 #
@@ -29,9 +33,21 @@ services:
     ports:
       - "${APP_HOST_ADDR:?APP_HOST address}:${GATEWAY_HTTPS_PORT:?Gateway HTTPS port}:8443"
       - "${APP_HOST_ADDR:?APP_HOST address}:${GATEWAY_REDIRECT_PORT:?Gateway redirect port}:8080"
+    networks:
+      app: {}
+      agent_link:
+        ipv4_address: ${APP_LINK_ADDR:?application side of the agent link}
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.budget-service: none
+  app-link-relay:
+    # Application side: 127.0.0.1:HOST_INTERNAL_PORT -> the Agent Host (over agent_link); the agent link's guard port -> 127.0.0.1 guard.
+    <<: *service
+    entrypoint: [python, -m, nexloop_eios.loopback_relay]
+    command: [--rule, "127.0.0.1:${HOST_INTERNAL_PORT:?Host port}=${AGENT_LINK_ADDR:?Agent Host side of the agent link}:${HOST_INTERNAL_PORT:?Host port}",
+              --rule, "${APP_LINK_ADDR:?application side of the agent link}:${GUARD_PORT:?guard port}=127.0.0.1:${GUARD_PORT:?guard port}"]
     labels:
       nexloop.budget-service: none
   gateway:
@@ -43,12 +59,32 @@ services:
     labels:
       nexloop.budget-service: none
   agent-host:
-    <<: *service
+    # Its own namespace: not the shared anchor (same hardening, written out).
     image: ${AGENT_HOST_IMAGE:?Agent Host image by digest}
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      REAL_DISPATCH_ENABLED: "false"
+    networks:
+      agent_egress: {}
+      agent_link:
+        ipv4_address: ${AGENT_LINK_ADDR:?Agent Host side of the agent link}
     user: "${AGENT_HOST_UID:?Agent Host UID}:${AGENT_HOST_UID:?Agent Host UID}"
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/runtime:/private/runtime
     secrets: [host_cert, host_key, host_transport_key, guard_ca]
+    labels:
+      nexloop.budget-service: none
+  agent-link-relay:
+    # Agent Host side: 127.0.0.1:GUARD_PORT -> the guard (over agent_link); the agent link's Host port -> 127.0.0.1 Host.
+    <<: *service
+    network_mode: service:agent-host
+    entrypoint: [python, -m, nexloop_eios.loopback_relay]
+    command: [--rule, "127.0.0.1:${GUARD_PORT:?guard port}=${APP_LINK_ADDR:?application side of the agent link}:${GUARD_PORT:?guard port}",
+              --rule, "${AGENT_LINK_ADDR:?Agent Host side of the agent link}:${HOST_INTERNAL_PORT:?Host port}=127.0.0.1:${HOST_INTERNAL_PORT:?Host port}"]
     labels:
       nexloop.budget-service: none
   api-1:
@@ -294,6 +330,15 @@ services:
     secrets: [incentive_issuer_dsn, incentive_issuer_pg_client_cert, incentive_issuer_pg_client_key, incentive_issuer_credential, signing_key, pg_ca]
     labels:
       nexloop.budget-service: incentive-issuer
+networks:
+  app: {}
+  agent_egress:
+    ipam:
+      config: [{subnet: "${AGENT_EGRESS_CIDR:?Agent Host egress network}"}]
+  agent_link:
+    internal: true
+    ipam:
+      config: [{subnet: "${AGENT_LINK_CIDR:?agent link network}"}]
 secrets:
   # One file per secret under NEXLOOP_ROOT/secrets/<service>/ (directory 0700, file 0600, owner = the service UID); shared/ holds what
   # several services need (signing key, database CA, Host CA and control key), each still mounted file by file.

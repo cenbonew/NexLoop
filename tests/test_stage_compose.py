@@ -53,8 +53,10 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     services = compose['services']
     owners = {}
     for name, spec in services.items():
+        if name not in ('app-net', 'agent-host', 'agent-link-relay'):
+            assert spec['network_mode'] == 'service:app-net', name
         if name != 'app-net':
-            assert spec['network_mode'] == 'service:app-net' and spec['read_only'] is True and spec['cap_drop'] == ['ALL'], name
+            assert spec['read_only'] is True and spec['cap_drop'] == ['ALL'], name
             assert spec['security_opt'] == ['no-new-privileges:true'] and not spec.get('ports'), name
         for key in (spec.get('environment') or {}):
             assert not FORBIDDEN_ENV.match(key), (name, key)
@@ -81,7 +83,7 @@ PARSERS.update({'message-relay': message_relay_cli.arguments, 'outbound-recorder
 
 def test_every_command_is_accepted_by_its_real_parser_and_names_only_its_own_secret_files(compose):
     services = compose['services']
-    assert set(PARSERS) | {'api-1', 'api-2', 'domain-worker', 'gateway', 'agent-host', 'app-net'} == set(services)
+    assert set(PARSERS) | {'api-1', 'api-2', 'domain-worker', 'gateway', 'agent-host', 'app-net', 'app-link-relay', 'agent-link-relay'} == set(services)
     for name, parse in PARSERS.items():
         command = services[name]['command']
         parse(command)  # raises SystemExit when a required argument is missing
@@ -91,3 +93,55 @@ def test_every_command_is_accepted_by_its_real_parser_and_names_only_its_own_sec
     api = services['api-1']['command']
     assert api[api.index('--identity-pool-max') + 1] == '4' and api[api.index('--mode') + 1] == 'stage'
     assert 'python -m nexloop_eios.domain_worker' in services['domain-worker']['command'][0]
+
+
+def test_agent_host_has_its_own_namespace_and_only_two_relayed_links(compose):
+    """NX-037 D4: the Agent Host is not in the application namespace; the agent link is internal; exactly two relay rules per side."""
+    services = compose['services']
+    host = services['agent-host']
+    assert 'network_mode' not in host and set(host['networks']) == {'agent_egress', 'agent_link'}
+    assert set(services['app-net']['networks']) == {'app', 'agent_link'} and compose['networks']['agent_link']['internal'] is True
+    assert services['agent-link-relay']['network_mode'] == 'service:agent-host'
+    from nexloop_eios.loopback_relay import parse_rule
+    for name in ('app-link-relay', 'agent-link-relay'):
+        command = services[name]['command']
+        rules = [parse_rule(command[i + 1]) for i, a in enumerate(command) if a == '--rule']
+        assert len(rules) == 2, name
+    app_rules = [parse_rule(r) for r in services['app-link-relay']['command'][1::2]]
+    assert {r[0][1] for r in app_rules} == {8100, 8200}  # Host control out, guard in; nothing else crosses
+
+
+def test_the_relay_carries_end_to_end_tls_with_the_loopback_certificate(tmp_path):
+    """Two relays in a chain (as across the two namespaces); the client still verifies the server's 127.0.0.1 certificate."""
+    import asyncio, socket, ssl, threading, sys
+    sys.path.insert(0, str(ROOT / 'scripts/deploy'))
+    import issue_certs
+    from nexloop_eios import loopback_relay
+    issue_certs.root(tmp_path / 'root')
+    issue_certs.intermediate(tmp_path / 'root', tmp_path / 'ca')
+    issue_certs.leaf('server', tmp_path / 'ca', tmp_path / 'srv', 'host-loopback', sans=['IP:127.0.0.1'])
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(tmp_path / 'srv/host-loopback.chain.crt', tmp_path / 'srv/host-loopback.key')
+    def free():
+        with socket.socket() as s:
+            s.bind(('127.0.0.1', 0))
+            return s.getsockname()[1]
+    target, middle, front = free(), free(), free()
+    listener = socket.socket(); listener.bind(('127.0.0.1', target)); listener.listen()
+    def serve():
+        conn, _ = listener.accept()
+        with server_ctx.wrap_socket(conn, server_side=True) as tls:
+            tls.sendall(tls.recv(64)[::-1])
+    threading.Thread(target=serve, daemon=True).start()
+    ready = threading.Event()
+    rules = [loopback_relay.parse_rule(f'127.0.0.1:{front}=127.0.0.1:{middle}'), loopback_relay.parse_rule(f'127.0.0.1:{middle}=127.0.0.1:{target}')]
+    threading.Thread(target=lambda: asyncio.run(loopback_relay.serve(rules, ready)), daemon=True).start()
+    assert ready.wait(5)
+    client_ctx = ssl.create_default_context(cafile=str(tmp_path / 'root/ca.crt'))
+    with socket.create_connection(('127.0.0.1', front), timeout=5) as raw, client_ctx.wrap_socket(raw, server_hostname='127.0.0.1') as tls:
+        tls.sendall(b'abc')
+        assert tls.recv(64) == b'cba'
+    listener.close()
+    for bad in ('127.0.0.1:1', 'host:1=127.0.0.1:2', '127.0.0.1:0=127.0.0.1:2'):
+        with pytest.raises(ValueError):
+            loopback_relay.parse_rule(bad)

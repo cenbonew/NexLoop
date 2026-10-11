@@ -91,7 +91,7 @@ def _uid(v):
 # The whitelist: parameter → kind. A template may use only these.
 PARAMETERS = {
     'APP_HOST_ADDR': _addr, 'DATA_HOST_ADDR': _addr, 'APP_HOST_NAME': _hostname_or_addr, 'DATA_HOST_NAME': _hostname_or_addr,
-    'TRUSTED_LAN_CIDR': _cidr, 'MGMT_SOURCE_CIDR': _cidr, 'APP_CONTAINER_CIDR': _cidr,
+    'TRUSTED_LAN_CIDR': _cidr, 'MGMT_SOURCE_CIDR': _cidr, 'APP_CONTAINER_CIDR': _cidr, 'AGENT_EGRESS_CIDR': _cidr,
     'PG_PORT': _port, 'VALKEY_PORT': _port, 'GATEWAY_HTTPS_PORT': _port, 'GATEWAY_REDIRECT_PORT': _port,
     'API_INTERNAL_PORT': _port, 'API_INTERNAL_PORT_2': _port, 'HOST_INTERNAL_PORT': _port, 'GUARD_PORT': _port,
     'NEXLOOP_ROOT': _path, 'NEXLOOP_DB': _match(_NAME), 'APP_PG_ROLES': _roles, 'MIGRATION_PG_ROLE': _match(_ROLE),
