@@ -181,3 +181,36 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 - **触发器采样**：1 次调用，耗时 0.01 ms。
 - **锁探针**：无外键时插入等待 0.2 ms；有外键时等待 0.307 s，正好等于 `FOR UPDATE` 的持有时长。这在本地复现了 §0.3 第 4 点中的冲突。冷表的配置写入与配置发布本来就在同一个运维窗口里，影响可以接受；但第 5 批之前，“改为 `for no key update`”的评审是必需的。
 - **端到端 p95**：本批的表不在 dispatch 主路径上，端到端 p95 按定义不受影响。第 3 至 5 批要用 NX-031 的矩阵测量端到端 p95，而不是本节的语句级 p95。
+
+## 4. 批次 3 设计（只写设计，尚未实现）
+
+### 4.1 范围与分组
+
+第 3 批覆盖 ontology 中除 `ontology.objects` 外的 24 张表，以及会话、消息、Claim 族。热点表 `ontology.objects` 和 `runtime.jobs` 不在本批。表按写入频率和来源分为四组，每组一个迁移，按 3a → 3d 的顺序合入：
+
+| 组 | 表 | 写入频率 | 说明 |
+|---|---|---|---|
+| 3a 定义与配置 | `ontology.nexloop_merge_configurations`、`nexloop_recall_settings`、`nexloop_embedding_profiles`、`nexloop_definition_aliases`、`nexloop_candidate_definitions`、`nexloop_candidate_events`、`nexloop_candidate_rejections`、`nexloop_review_decisions`、`nexloop_instance_approvals`、`nexloop_assessment_revisions` | 冷：评审或治理动作 | 与第 2 批同类，可直接沿用第 2 批的做法 |
+| 3b 抽取与 Claim | `ontology.nexloop_claims`、`nexloop_claim_matches`、`nexloop_claim_rematch`、`nexloop_conversation_topics`、`nexloop_extraction_runs`、`nexloop_extraction_run_claims`、`nexloop_mutation_proposals`、`runtime.nexloop_claim_extraction_feed` | 中：每条消息的抽取会写几行到几十行 | 一次抽取在一个事务里多行写入，外键检查会对同一租户行加多次 `FOR KEY SHARE`（同一事务内只锁一次，代价主要是索引查找） |
+| 3c 会话与消息 | `runtime.nexloop_conversations`、`nexloop_conversation_messages`、`nexloop_message_inbox`、`nexloop_message_outbox`、`nexloop_message_routes`、`nexloop_message_provider_facts`、`nexloop_message_reply_links`、`nexloop_message_relay_leases`、`nexloop_relay_claims`、`nexloop_relay_consumer_cursors`、`nexloop_outbound_messages`、`nexloop_native_web_events`、`nexloop_native_web_transports`、`nexloop_staff_replies` | 中到高：每条入站或出站消息都会写入 | 位于消息受理的 ACK 前路径，端到端时延必须实测 |
+| 3d 上游 EIOS 核心表 | `ontology.events`、`relations`、`object_type_versions`、`event_type_versions`、`relation_type_versions`，以及 `nexloop_recall_entries`、`nexloop_recall_embeddings` | `events` 随对象变更写入，接近热点；其余为冷表 | 需要先决定，见 4.4 |
+
+### 4.2 迁移与回滚
+
+- 做法与第 2 批相同：每组一个迁移，先 `not valid`，再逐表 `validate`；回滚时新开迁移 `drop constraint if exists`。
+- 3c 中的表在真实部署里可能较大。如果预检发现单表 VALIDATE 超过迁移窗口（建议上限 60 秒，可在部署副本上实测），就把该表的 VALIDATE 拆到下一次发布。
+- 擦除路径（NX-029）删除或改写的是子表的行，外键不会影响子行的删除。
+
+### 4.3 测量
+
+- **3a**：只做语句级测量，方法同 §3.3。
+- **3b、3c**：用 NX-031 压测矩阵测量端到端时延。在 1b 之后的同一模板上，分别跑加外键前和加外键后两个状态，各 3 轮，比较 dispatch 时延的 p50 和 p95，判据为 p95 增加不超过 5%。语句级采样同时用 `tenant_fk_cost.py` 覆盖 `nexloop_conversation_messages` 和 `nexloop_claims`。需要在 TABLES 中加入这两张表；它们带触发器，清理语句要走测试专用路径。
+- **锁**：3c 位于消息受理的事务里，必须并发跑“配置发布（0050 的 `FOR UPDATE`）+ 消息受理”的锁探针。如果“改为 `for no key update`”的评审尚未完成，并且锁等待超出判据，那么 3c 要等这项评审完成后再合入。
+
+### 4.4 待决定
+
+1. **3d 是否加外键**：`ontology.events`、`relations` 等 5 张表来自 vendored EIOS 核心（0001）。给它们加 NexLoop 的 `control.nexloop_tenants` 外键，会让核心 schema 依赖 NexLoop 的控制面表。建议的处理方式二选一：
+   - 只给 NexLoop 自己的 recall 表加外键，核心表继续依赖身份快照；
+   - 以 ADR 记录这一偏离，然后再加外键。
+2. **`ontology.events` 的归类**：它随对象变更写入，写入量接近 `ontology.objects`。建议把它归入第 5 批，与 `objects` 一起测量。
+3. **3c 与 0050 锁评审的先后**：建议先完成“改为 `for no key update`”的评审，再合入 3c。
