@@ -2904,6 +2904,18 @@
         "ref": "ci:lane/runs/20261011T202358Z-c6bee390ec12",
         "summary": "s5g 全量（c6bee39）通过合并规则；test_nx037_controlled_interactions、test_nx037_tenant_init_pg 通过。",
         "recorded_at": "2026-10-11T21:21:46.954806+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7d6b981",
+        "summary": "受控交互运行入口合入 main（s5i）：scripts/nx037/run_interactions.py（synthetic 与 real 两种 driver；交互计划文件 nx037-interaction-plan.v1.json，30 次配比 15/4/4/4/3、开始后不可改；real 模式前置检查 verify 与三层开关须与计划完全一致，经 0163 的 metrics 只读视图读取；第 3 次校准后自动暂停；--resume 须负责人确认引用；停止后不可恢复）。real driver 只有接口，满足前置时以退出码 4 退出、不产生任何交互；真实发送路径属 B 类后续工作。运维手册 §9.4 同步（acda99a）。",
+        "recorded_at": "2026-10-11T23:25:27.307452+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T222536Z-83bcdc2510e9",
+        "summary": "s5i 全量（83bcdc2）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 255 s；heavy 22/22；pi 24、runtime 255 通过；test_nx037_run_interactions 等 NX-037 测试通过。",
+        "recorded_at": "2026-10-11T23:25:27.307452+00:00"
       }
     ]
   },
