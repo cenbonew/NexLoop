@@ -222,3 +222,24 @@ def test_only_the_owner_asks_and_only_the_executor_admits(incentives,admin):
     with pytest.raises(PlanUnavailable):IncentivePort(c['env']['worker'],authenticate_service(c['env']['worker'],token,world='real'),c['env']['signer']).due()
     with pytest.raises(psycopg.errors.InsufficientPrivilege),admin.transaction():
         admin.execute('set local role nexloop_api');admin.execute('select * from runtime.nexloop_incentive_issues')
+
+
+def test_a_promised_incentive_outside_the_catalog_is_an_exception_never_a_commitment(incentives,admin):
+    """D5: the enterprise's own delivered words promise a discount; without a catalog entry for this Consumer it is an
+    exception for the owner (unauthorized_incentive_promise), no Commitment, nothing issued."""
+    c=incentives
+    message=c.outbound('这次给您打八折，下单时自动生效')
+    claim=c.claim(message,'给您打八折',predicate='优惠承诺')
+    c.tick()
+    assert c.by_claim(claim) is None
+    assert ('claim:'+claim,'unauthorized_incentive_promise') in [(r[0],r[1]) for r in c.exceptions()]
+    assert admin.execute('select count(*) from runtime.nexloop_incentive_issues').fetchone()==(0,)
+    # The same kind of promise to a Consumer whose catalog covers it registers as an ordinary commitment.
+    seed_offering(c,admin)
+    covered=c.claim(c.outbound('您的续费优惠券我们会在今天内发放'),'续费优惠券我们会在今天内发放',predicate='发放优惠券')
+    c.tick()
+    assert c.by_claim(covered) is not None
+    # An ordinary service promise is not an incentive and is untouched by the rule.
+    service=c.claim(c.outbound('我会在明天下午前给你处理进展'),'我会在明天下午前给你处理进展',predicate='处理进展')
+    c.tick()
+    assert c.by_claim(service) is not None

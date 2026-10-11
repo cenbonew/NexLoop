@@ -60,6 +60,10 @@ def seed_multi_uuid(admin,tenant,targets,*,suffix,extra_scopes=()):
     return token
 
 
+# Extra Source authority a test module may add (monkeypatched per test, empty by default), e.g. AT-043's incentive Action.
+SOURCE_EXTRA_TARGETS=()
+
+
 def install_runtime_catalog(admin,tenant,api,consumer,sources,expiry):
     """Config-only publication followed by genuine maintainer governed CREATE.
 
@@ -81,7 +85,7 @@ def install_runtime_catalog(admin,tenant,api,consumer,sources,expiry):
     for letter,source in zip(('A','B'),sources,strict=True):
         keeper=api.authenticate(keeper_token,world='real')
         binding=keeper.create_object(action_name='ConsumerServiceOffering.create',action_version=1,intent_id='runtime-effect-catalog-binding-'+letter,type_name='ConsumerServiceOffering',properties={'consumer_id':consumer,'offering_id':offered['object_id'],'offering_revision':1,'source_principal':source._session.authentication.subject_principal_id,'active':True})
-        targets=[('eios:action:'+EFFECT+':1',ResourceType.ACTION,Operation.EXECUTE)]
+        targets=[('eios:action:'+EFFECT+':1',ResourceType.ACTION,Operation.EXECUTE),*SOURCE_EXTRA_TARGETS]
         for receipt,fields in ((offered,OFFERING_FIELDS),(binding,BINDING_FIELDS)):
             target=receipt['type_name']+'/'+receipt['object_id'];targets.append(('eios:object:'+target,ResourceType.OBJECT,Operation.READ))
             targets.extend(('eios:property:'+target+'/'+field,ResourceType.PROPERTY,Operation.READ) for field in fields)

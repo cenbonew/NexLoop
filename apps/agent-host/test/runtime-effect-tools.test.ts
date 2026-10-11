@@ -66,4 +66,21 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
     await expect(silent.client.call(silent.cmd,'submit',{message:'service'})).rejects.toMatchObject({code:'runtime_effect_unavailable'});
     expect(Date.now()-start).toBeLessThan(2600);
   });
+  it('AT-043: offers the incentive tool only when asked, sends the exact parameters and accepts only a fixed receipt',async()=>{
+    const offer={incentive_offering_id:'d'.repeat(64),offering_revision:1,binding_id:'e'.repeat(64),amount_minor:'200',currency:'CNY',notification_text:''};
+    const accepted=(body:Record<string,unknown>)=>({run_id:body.run_id,intent_id:'incentive-run:'+String(body.run_id)+':'+'d'.repeat(64),state:'accepted',replayed:false,origin:'plan',business_action_success:false});
+    const {client,cmd,bodies}=await bridge({change:accepted});
+    expect(client.toolsForRun(cmd).map(tool=>tool.name)).not.toContain('nexloop.incentive.issue');
+    expect(client.toolsForRun(cmd,{incentive:true}).map(tool=>tool.name)).toContain('nexloop.incentive.issue');
+    const out=await client.issueIncentive(cmd,offer);
+    expect(out.state).toBe('accepted');expect(out.origin).toBe('plan');
+    expect(Object.keys(bodies[0]!).sort()).toEqual(['activation_ref','command','parameters']);expect(bodies[0]!.parameters).toEqual(offer);
+    // Malformed arguments never reach the network; a forged receipt is refused.
+    await expect(client.issueIncentive(cmd,{...offer,amount_minor:'1.5'})).rejects.toMatchObject({code:'invalid_incentive_request'});
+    expect(bodies).toHaveLength(1);
+    const forged=await bridge({change:body=>({...accepted(body),business_action_success:true})});
+    await expect(forged.client.issueIncentive(forged.cmd,offer)).rejects.toMatchObject({code:'incentive_unavailable'});
+    const outside=await bridge({status:403,change:()=>({code:'outside_catalog_terms'})});
+    await expect(outside.client.issueIncentive(outside.cmd,offer)).rejects.toMatchObject({code:'outside_catalog_terms'});
+  });
 });

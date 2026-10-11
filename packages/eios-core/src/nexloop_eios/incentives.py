@@ -14,6 +14,7 @@ from nexloop_eios.plan_reevaluation import _SignedPort
 
 ISSUE_ACTION='eios:action:nexloop.incentive.issue:1'
 EXECUTE_ACTION='eios:action:nexloop.incentive.execute:1'
+RUN_SUBMIT_ACTION='eios:action:nexloop.incentive.run_submit:1'
 OFFERING_FIELDS=('active','currency','eligibility','incentive_code','kind','max_amount_minor','per_consumer_period_limit_minor','title','valid_until')
 BINDING_FIELDS=('consumer_id','offering_id','offering_revision','source_principal','active')
 
@@ -45,6 +46,21 @@ class IncentivePort(_SignedPort):
         if provider_reference is not None:payload['provider_reference']=str(provider_reference)
         return self._signed(payload)
     def status(self,intent_id):return self._signed({'verb':'status','intent_id':str(intent_id)})
+
+
+class RunIncentivePort(_SignedPort):
+    """Runtime worker side of the Agent's incentive tool (eios:action:nexloop.incentive.run_submit:1). The guard has
+    already re-authorized the Run's live activation; SQL checks the lease, the exact command, the Run's resources, the
+    Role ceiling and the catalog, and derives the Consumer, the origin and the business key itself."""
+    PROTOCOL='nexloop-run-incentive-v1';ACTION=RUN_SUBMIT_ACTION;FUNCTION='nexloop_run_incentive_command'
+
+    def submit(self,*,activation_ref,command,parameters):
+        import re
+        from nexloop_eios.postgres_artifacts import canonical_payload
+        if not isinstance(activation_ref,str) or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError('activation reference')
+        if type(parameters) is not dict or set(parameters)!={'incentive_offering_id','offering_revision','binding_id','amount_minor','currency','notification_text'}:
+            raise ValueError('incentive parameters')
+        return self._signed({'activation_ref':activation_ref,'command_text':canonical_payload(command),'parameters':parameters})
 
 
 class ProviderUnknown(Exception):
@@ -114,4 +130,4 @@ class IncentiveIssuer:
         return summary
 
 
-__all__=['IncentiveIssuer','IncentivePort','LocalIncentiveLedger','ProviderUnknown','offering_schemas','fixed_amount_example']
+__all__=['IncentiveIssuer','IncentivePort','RunIncentivePort','LocalIncentiveLedger','ProviderUnknown','offering_schemas','fixed_amount_example']

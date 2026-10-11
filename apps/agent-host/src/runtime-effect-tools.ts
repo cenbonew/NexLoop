@@ -4,6 +4,7 @@ import {Type} from '@earendil-works/pi-ai';
 import {defineTool,type ToolRegistration} from '@earendil-works/pi-durable';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 
+export type IncentiveReceipt={run_id:string;intent_id:string;state:'accepted'|'dispatching'|'unknown'|'fulfilled'|'failed'|'refused';replayed:boolean;origin:'reply'|'plan'|'agent';business_action_success:false};
 export type EffectRequestScope={offering_id:string;offering_revision:number;requested_guarantees:readonly string[];requested_discounts:readonly string[]};
 export function requestScope(value:unknown):EffectRequestScope{
   const row=exact(value,['offering_id','offering_revision','requested_guarantees','requested_discounts']);
@@ -127,6 +128,50 @@ export class RuntimeEffectClient{
       throw new RuntimeError('runtime_effect_unavailable');
     }
   }
+  /** AT-043: issue a catalog incentive inside this Run; accepted is not issued (the executor admits it at dispatch under the budget). */
+  async issueIncentive(command:RunCommand,arguments_:unknown):Promise<IncentiveReceipt>{
+    const valid=validateRunCommand(command);
+    try{
+      const row=exact(arguments_,['incentive_offering_id','offering_revision','binding_id','amount_minor','currency','notification_text']);
+      if(typeof row.incentive_offering_id!=='string'||!sha.test(row.incentive_offering_id)||typeof row.binding_id!=='string'||!sha.test(row.binding_id)
+        ||typeof row.offering_revision!=='number'||!Number.isSafeInteger(row.offering_revision)||row.offering_revision<1
+        ||typeof row.amount_minor!=='string'||!/^[1-9][0-9]{0,15}$/.test(row.amount_minor)||typeof row.currency!=='string'||!/^[A-Z]{3}$/.test(row.currency)
+        ||typeof row.notification_text!=='string'||[...row.notification_text].length>2000)throw new RuntimeError('invalid_incentive_request');
+      const ref=this.configuration.activationForRun(valid.run_id);
+      if(!ref||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(ref)||Date.parse(valid.not_after)<=Date.now())throw new Error();
+      const key=this.configuration.privateMaterial(this.configuration.keyPath,64).toString('utf8');
+      if(!/^[0-9a-f]{64}$/.test(key))throw new Error();
+      const ca=this.configuration.privateMaterial(this.configuration.caPath,32768);
+      const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,parameters:row}));
+      if(body.length>65536)throw new Error();
+      const url=new URL('/internal/v1/runtime/incentives/issue',this.origin);
+      return await new Promise<IncentiveReceipt>((resolve,reject)=>{
+        const fail=(code='incentive_unavailable')=>reject(new RuntimeError(code));
+        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(2000),
+          headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':body.length}},response=>{
+          let size=0;const chunks:Buffer[]=[];
+          if(response.headers['content-type']!=='application/json'||response.headers['content-encoding']!==undefined){response.destroy();fail();return;}
+          response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>8192){response.destroy();request.destroy();fail();}else chunks.push(chunk);});
+          response.on('error',()=>fail());
+          response.on('end',()=>{try{
+            const result=JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+            if(response.statusCode!==200){const denied=exact(result,['code']);
+              if(typeof denied.code==='string'&&['outside_catalog_terms','incentive_payload_conflict','invalid_incentive_request'].includes(denied.code)){fail(denied.code);return;}
+              throw new Error();}
+            const out=exact(result,['run_id','intent_id','state','replayed','origin','business_action_success']);
+            if(out.run_id!==valid.run_id||typeof out.intent_id!=='string'||!/^[A-Za-z0-9._:-]{1,190}$/.test(out.intent_id)||typeof out.state!=='string'
+              ||!['accepted','dispatching','unknown','fulfilled','failed','refused'].includes(out.state)||typeof out.replayed!=='boolean'
+              ||typeof out.origin!=='string'||!['reply','plan','agent'].includes(out.origin)||out.business_action_success!==false)throw new Error();
+            resolve(out as IncentiveReceipt);
+          }catch{fail();}});
+        });
+        request.setTimeout(2000,()=>request.destroy());request.on('error',()=>fail());request.end(body);
+      });
+    }catch(error){
+      if(error instanceof RuntimeError&&['outside_catalog_terms','incentive_payload_conflict','invalid_incentive_request'].includes(error.code))throw error;
+      throw new RuntimeError('incentive_unavailable');
+    }
+  }
   /** NX-024: the reevaluation Run's outcome; the guard re-authorizes the live activation and SQL binds it to the plan. */
   async recordOutcome(command:RunCommand,outcome:unknown):Promise<RecordedOutcome>{
     const valid=validateRunCommand(command);const body_=runOutcome(outcome);
@@ -165,7 +210,7 @@ export class RuntimeEffectClient{
       throw new RuntimeError('run_outcome_unavailable');
     }
   }
-  toolsForRun(command:RunCommand,options:{planOutcome?:boolean}={}):readonly ToolRegistration[]{
+  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
     const invoke=async(operation:'submit'|'find',args:unknown)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(await this.call(bound,operation,args))}]};}
@@ -181,8 +226,19 @@ export class RuntimeEffectClient{
         try{return {content:[{type:'text' as const,text:JSON.stringify(await this.recordOutcome(bound,args))}]};}
         catch(error){if(error instanceof RuntimeError&&['plan_version_not_current','invalid_run_outcome'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('run_outcome_unavailable');}
       }})]:[];
+    // AT-043: offered only when the Run is meant to issue incentives (its credential names nexloop.incentive.issue:1; SQL re-checks it).
+    const incentiveTool=options.incentive===true?[defineTool({name:'nexloop.incentive.issue',
+      description:'Issue one incentive from the customer\'s own catalog (an IncentiveOffering bound to this customer). accepted is not issued: the executor admits it at dispatch under the budget and may refuse it. Never promise an incentive that is not in the catalog. One issue per offering per Run; retries return the original receipt.',
+      parameters:Type.Object({incentive_offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),
+        binding_id:Type.String({pattern:'^[a-f0-9]{64}$'}),amount_minor:Type.String({pattern:'^[1-9][0-9]{0,15}$'}),currency:Type.String({pattern:'^[A-Z]{3}$'}),
+        notification_text:Type.String({maxLength:2000})},{additionalProperties:false}),
+      replay:'safe',execute:async args=>{
+        try{return {content:[{type:'text' as const,text:JSON.stringify(await this.issueIncentive(bound,args))}]};}
+        catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','incentive_payload_conflict','invalid_incentive_request'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('incentive_unavailable');}
+      }})]:[];
     return [
       ...outcomeTool,
+      ...incentiveTool,
       defineTool({name:'nexloop.service.request',description:'Persist a governed service intent in the current plan slot. accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
         parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt for an existing service intent. Does not send or create a new effect.',
