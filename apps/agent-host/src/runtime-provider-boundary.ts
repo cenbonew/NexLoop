@@ -1,7 +1,7 @@
 /** Strip provider error/debug payloads before Pi can persist them as transcript. */
 import type {AssistantMessage,AssistantMessageEventStream} from '@earendil-works/pi-ai';
 import {RuntimeError} from './runtime-adapter.js';
-const safeCodes=new Set(['runtime_model_unavailable','runtime_budget_exhausted','runtime_cost_policy_missing','runtime_model_cost_unavailable','runtime_model_cost_mismatch','runtime_authorization_denied','runtime_command_expired','runtime_owner_unavailable']);
+const safeCodes=new Set(['runtime_model_unavailable','runtime_budget_exhausted','runtime_cost_policy_missing','runtime_model_cost_unavailable','runtime_model_cost_mismatch','runtime_authorization_denied','runtime_authorization_unavailable','runtime_command_expired','runtime_owner_unavailable']);
 function safeFailure(error:unknown):RuntimeError{return new RuntimeError(error instanceof RuntimeError&&safeCodes.has(error.code)?error.code:'runtime_model_unavailable');}
 export function safeProviderMessage(message:AssistantMessage):AssistantMessage{
   const value=structuredClone(message);

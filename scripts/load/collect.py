@@ -51,7 +51,8 @@ _RUNS = """with r as (
 def runs(db, start, end):
     """D6 per message Run whose trigger was accepted in the window (contract §2; no run_id): end to end (trigger accepted → its
     reply, fallback reply or escalation), model time (the Host's model_timing, else the sum of the Run's model requests), tool time and calls (the Dispatcher's
-    tool_timing), queue wait (task created → first claimed), Run duration (Host accepted → task ended). admission_wait_ms stays null: the Host's admission wait has no
+    tool_timing), queue wait (task created → first claimed), Run duration (Host accepted: first activation → task ended), failure (the
+    allowlisted authorization failure_code of a failed Run, else the task code). admission_wait_ms stays null: the Host's admission wait has no
     per-Run record (NX-030 M09 is not delivered)."""
     rows = db.execute(_RUNS + """
       select r.accepted_at,r.result,r.task_created,r.claimed_at,
@@ -62,7 +63,7 @@ def runs(db, start, end):
         exists(select 1 from control.nexloop_takeover_settlements s where s.message_id=r.message_id) takeover,
         exists(select 1 from control.nexloop_contact_restrictions c where c.tenant_id=%s and c.world=%s and c.consumer_id=r.consumer_id and c.active) restricted,
         (select sum(extract(epoch from q.completed_at-q.requested_at)*1000) from runtime.nexloop_model_requests q where q.run_id=r.run_id and q.completed_at is not null) model_ms,
-        (select x.first_authorized_at from authz.nexloop_runtime_execution_markers x where x.run_id=r.run_id::uuid) host_accepted,
+        (select min(a.created_at) from authz.nexloop_runtime_activations a where a.run_id=r.run_id::uuid) host_accepted,
         case when r.task_status in ('succeeded','failed') then r.task_updated end run_ended
       from r where r.accepted_at>=%s and r.accepted_at<%s order by r.accepted_at""",
       (TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, start, end)).fetchall()
@@ -80,10 +81,13 @@ def runs(db, start, end):
                     'model_ms': round(float(model_ms), 1) if model_ms is not None else None,
                     'tool_ms': timing.get('total_ms') if timing else None, 'tool_calls': timing.get('calls') if timing else None,
                     'queue_wait_ms': round((claimed - created).total_seconds() * 1000, 1) if claimed and created else None,
-                    # Run duration (dispatcher 2026-10-11): the Host accepted the Run (first execution authorization) → its task ended.
-                    # The platform time is this minus model and tool time, over the same span.
+                    # Run duration (dispatcher 2026-10-11, ruling 2): the Host accepted the Run (the runtime worker's first activation of it,
+                    # registered right before the Host start; earlier than any Pi task) → its task ended. Model and tool time fall inside
+                    # this span, so the platform time (this minus model and tool) includes the authorization waits.
                     'run_ms': round((run_ended - host_accepted).total_seconds() * 1000, 1) if run_ended and host_accepted else None,
-                    'admission_wait_ms': None, 'outcome': outcome})
+                    'admission_wait_ms': None, 'outcome': outcome,
+                    # NX-031: an unanswered guard and a denial counted apart (null for a Run that did not fail).
+                    'failure': (result.get('failure_code') or result.get('code')) if isinstance(result, dict) and result.get('runtime_outcome') == 'failed' else None})
     return out
 
 

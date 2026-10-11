@@ -205,3 +205,16 @@ def test_negative_platform_time_is_an_anomaly_not_zero():
     cells=[{'cell':name,'completed':True,'aborted':None,'decomposition':d,'metrics':{'identity_violations':0},'role':'observe'} for name in R.CELLS]
     result=R.at060(cells)
     assert result['result']=='failed' and 'C4-low:decomposition_anomaly:1' in result['reasons']
+
+
+def test_failed_runs_are_counted_by_cause():
+    """NX-031 (dispatcher 2026-10-11, ruling 1): an unanswered guard and a denial are counted apart; a Run that did not fail has none."""
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('load_report_failures',Path(__file__).resolve().parents[1]/'scripts/load/report.py')
+    R=importlib.util.module_from_spec(spec);spec.loader.exec_module(R)
+    base={'e2e_ms':None,'run_ms':3000,'model_ms':2000,'tool_ms':500,'tool_calls':1,'queue_wait_ms':1,'admission_wait_ms':None,'outcome':'in_progress'}
+    runs=[{**base,'failure':'runtime_authorization_unavailable'},{**base,'failure':'runtime_authorization_unavailable'},
+          {**base,'failure':'runtime_authorization_denied'},{**base,'failure':'runtime_failed'},{**base,'failure':None},{**base}]
+    d=R.decomposition(runs)
+    assert d['failures']=={'runtime_authorization_denied':1,'runtime_authorization_unavailable':2,'runtime_failed':1}
+    with pytest.raises(R.ContractError):R.decomposition([{**base,'failure':'not a code!'}])

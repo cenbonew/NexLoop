@@ -12,7 +12,7 @@ export class RuntimeError extends Error {
   constructor(code:string){super(code);this.code=code;this.name='RuntimeError';}
 }
 export type RuntimeReceipt={run_id:string;request_id:string;conversation_id:number;submission_id:number};
-export type RuntimeInspection=RuntimeReceipt & {submission_status:string;scheduling:string;active_tasks:number;runtime_outcome:'running'|'succeeded'|'failed'|'cancelled'|'unknown';persistence:{journal_mode:'wal';synchronous:2};model_timing?:{calls:number;total_ms:number;max_ms:number}};
+export type RuntimeInspection=RuntimeReceipt & {submission_status:string;scheduling:string;active_tasks:number;runtime_outcome:'running'|'succeeded'|'failed'|'cancelled'|'unknown';persistence:{journal_mode:'wal';synchronous:2};model_timing?:{calls:number;total_ms:number;max_ms:number};failure_code?:'runtime_authorization_unavailable'|'runtime_authorization_denied'};
 export interface RuntimeAdapter {
   start(command:unknown,input:string):Promise<RuntimeReceipt>;
   resume(command:unknown,input:string):Promise<RuntimeReceipt>;

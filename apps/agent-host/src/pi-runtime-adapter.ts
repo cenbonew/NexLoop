@@ -80,7 +80,9 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     this.owner();
     if(Date.parse(command.not_after)<=Date.now())throw new RuntimeError('runtime_command_expired');
     let authority:{ever_execution_authorized:boolean};
-    try{authority=await this.options.authorize(structuredClone(command),operation,request,result);if(!authority||typeof authority.ever_execution_authorized!=='boolean')throw new Error();}catch{throw new RuntimeError('runtime_authorization_denied');}
+    try{authority=await this.options.authorize(structuredClone(command),operation,request,result);if(!authority||typeof authority.ever_execution_authorized!=='boolean')throw new Error();}
+    // An unanswered guard stays distinguishable from a denial all the way to the Run outcome (NX-031); anything else is a denial.
+    catch(error){throw new RuntimeError(error instanceof RuntimeError&&error.code==='runtime_authorization_unavailable'?error.code:'runtime_authorization_denied');}
     this.owner();
     if(Date.parse(command.not_after)<=Date.now())throw new RuntimeError('runtime_command_expired');
     return authority;
@@ -278,6 +280,10 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     // Scan the real durable history: empty active_tasks or a settled submission
     // alone must never turn a failed/faulted Tool/Generation into success.
     let scanned:readonly Parameters<typeof modelTiming>[0][number][]=[];
+    // NX-031: a failed Run names an authorization failure with one allowlisted code (no transcript): an unanswered guard
+    // (runtime_authorization_unavailable) wins over a denial, so a retryable cause is never reported as a refusal.
+    let unavailable=false,denied=false;
+    const marks=(message:unknown)=>{if(message==='runtime_authorization_unavailable')unavailable=true;else if(message==='runtime_authorization_denied')denied=true;};
     const runtimeOutcome=await run.harness.commit(async tx=>{
       const tasks=[];let cursor;
       do{const page=await tx.scanTasks({},256,cursor);tasks.push(...page.items);cursor=page.next;
@@ -285,8 +291,9 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       }while(cursor);
       scanned=tasks;
       if(tasks.some(task=>task.state.status!=='terminal'))return 'running' as const;
-      if(tasks.some(task=>task.state.status==='terminal'&&['failed','faulted','orphaned'].includes(task.state.outcome.status)))return 'failed' as const;
-      if(tasks.some(task=>task.state.status==='terminal'&&task.state.outcome.status==='aborted'))return 'cancelled' as const;
+      for(const task of tasks)if(task.state.status==='terminal'&&task.state.outcome.status==='failed')marks((task.state.outcome as {error?:{message?:unknown}}).error?.message);
+      const taskFailed=tasks.some(task=>task.state.status==='terminal'&&['failed','faulted','orphaned'].includes(task.state.outcome.status));
+      if(!taskFailed&&tasks.some(task=>task.state.status==='terminal'&&task.state.outcome.status==='aborted'))return 'cancelled' as const;
       // Pi deliberately completes ToolTask for a returned isError result.
       // Check public persisted ToolResultEntry across every conversation used
       // by this per-Run Harness; never return its transcript to the dispatcher.
@@ -295,13 +302,15 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       for(const conversationId of conversations){
         let entryCursor;
         do{const page=await tx.scanEntries({conversationId},256,entryCursor);entryCount+=page.items.length;entryCursor=page.next;
-          if(entryCount>1024||entryCursor&&entryCount>=1024)return 'unknown' as const;
+          if(entryCount>1024||entryCursor&&entryCount>=1024)return taskFailed?'failed' as const:'unknown' as const;
           for(const entry of page.items)if(ToolResultEntry.is(entry)){
-            if(entry.model?.some(message=>message.role==='toolResult'&&message.isError)
-              ||entry.data.diagnostics.some(diagnostic=>diagnostic.severity==='error'))return 'failed' as const;
+            for(const diagnostic of entry.data.diagnostics)if(diagnostic.severity==='error')marks(diagnostic.message);
+            if(!taskFailed&&(entry.model?.some(message=>message.role==='toolResult'&&message.isError)
+              ||entry.data.diagnostics.some(diagnostic=>diagnostic.severity==='error')))return 'failed' as const;
           }
         }while(entryCursor);
       }
+      if(taskFailed)return 'failed' as const;
 
       if(status.type!=='input'||status.status!=='done')return status.status==='unanswered'?'failed' as const:'unknown' as const;
       const answers=await tx.scanEntries({conversationId:run.binding.conversation_id as ConversationId,minEntryId:status.answer,maxEntryId:status.answer},1);
@@ -311,7 +320,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     },BACKGROUND_CONTEXT);
     // NX-031 A2: numbers only, from the same durable task records (a restarted Host reports the same figure).
     return {...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2},
-      model_timing:modelTiming(scanned)};
+      model_timing:modelTiming(scanned),...(runtimeOutcome!=='failed'?{}:unavailable?{failure_code:'runtime_authorization_unavailable' as const}:denied?{failure_code:'runtime_authorization_denied' as const}:{})};
   });}
   cancel(command:unknown):Promise<{run_id:string;status:'cancel_requested'}>{return this.serial(async()=>{
     const valid=validateRunCommand(command);await this.authorize(valid,'cancel');const run=await this.open(valid,false);this.check(run,valid);
