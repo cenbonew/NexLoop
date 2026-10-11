@@ -2,19 +2,20 @@ import {nativeMessage,type PendingNativeMessage} from './native-message';
 import {useEffect,useState} from 'react';
 import {MessageReceipt} from './MessageReceipt';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
-import {chatError,createConversation,listConversations,messagePresentation,readHandling,readMessages,sendMessage,subscribe,type Message} from './chat-api';
+import {chatError,createConversation,listConversations,mergeCommitted,messagePresentation,readHandling,readMessages,sendMessage,subscribe,type Message} from './chat-api';
 export function WebChat(){
-  const cache=useQueryClient();const [selected,setSelected]=useState('');const [draft,setDraft]=useState('');const [streamUnavailable,setStreamUnavailable]=useState(false);
+  const cache=useQueryClient();const [selected,setSelected]=useState('');const [draft,setDraft]=useState('');const [streamUnavailable,setStreamUnavailable]=useState(false);const [streamGeneration,setStreamGeneration]=useState(0);
   const [pending,setPending]=useState<PendingNativeMessage|null>(null);const [createKey,setCreateKey]=useState(()=>crypto.randomUUID());
   const conversations=useQuery({queryKey:['conversations'],queryFn:()=>listConversations(),retry:false});
   const moreConversations=useMutation({mutationFn:()=>listConversations(conversations.data?.next_cursor??''),retry:false,onSuccess:page=>cache.setQueryData(['conversations'],(old:{items:NonNullable<typeof conversations.data>['items'];next_cursor:string|null}|undefined)=>old?{items:[...old.items,...page.items.filter(item=>!old.items.some(previous=>previous.id===item.id))],next_cursor:page.next_cursor}:page)});
-  const messages=useQuery({queryKey:['messages',selected],queryFn:()=>readMessages(selected),enabled:!!selected,retry:false});
+  const messages=useQuery({queryKey:['messages',selected],queryFn:()=>readMessages(selected),enabled:!!selected,retry:false,structuralSharing:(old,fresh)=>mergeCommitted(old as Parameters<typeof mergeCommitted>[0],fresh as Parameters<typeof mergeCommitted>[1])});
   const handled=useQuery({queryKey:['handling',selected],queryFn:()=>readHandling(selected),enabled:!!selected,retry:false,refetchInterval:30000});
   const more=useMutation({mutationFn:()=>readMessages(selected,messages.data?.items.reduce((n,item)=>Math.max(n,item.sequence),0)??0),retry:false,onSuccess:page=>cache.setQueryData(['messages',selected],(old:{items:Message[];next_cursor:string|null}|undefined)=>old?{items:[...old.items,...page.items.filter(item=>!old.items.some(previous=>previous.id===item.id))].sort((a,b)=>a.sequence-b.sequence),next_cursor:page.next_cursor}:page)});
   const create=useMutation({mutationFn:()=>createConversation(createKey),retry:false,onSuccess:result=>{setSelected(result.id);setCreateKey(crypto.randomUUID());void cache.invalidateQueries({queryKey:['conversations']});}});
   const send=useMutation({mutationFn:(item:PendingNativeMessage)=>sendMessage(item),retry:false,onSuccess:()=>{setPending(null);setDraft('');void cache.invalidateQueries({queryKey:['messages',selected]});}});
   useEffect(()=>{if(!selected&&conversations.data?.items.length)setSelected(conversations.data.items[0].id);},[selected,conversations.data]);
-  useEffect(()=>{if(!selected||!messages.data)return;const after=messages.data.items.reduce((n,item)=>Math.max(n,item.sequence),0);return subscribe(selected,after,event=>{setStreamUnavailable(false);cache.setQueryData(['messages',selected],(old:{items:Message[];next_cursor:string|null}|undefined)=>old?{...old,items:[...old.items.filter(item=>item.id!==event.data.id),event.data].sort((a,b)=>a.sequence-b.sequence)}:old);},()=>setStreamUnavailable(true),()=>setStreamUnavailable(false));},[selected,!!messages.data,cache]);
+  // A stream the server closed (or the browser abandoned) is opened again after the rows on screen, 5 s later.
+  useEffect(()=>{if(!selected||!messages.data)return;const after=messages.data.items.reduce((n,item)=>Math.max(n,item.sequence),0);let retry:ReturnType<typeof setTimeout>|undefined;const close=subscribe(selected,after,event=>{setStreamUnavailable(false);cache.setQueryData(['messages',selected],(old:{items:Message[];next_cursor:string|null}|undefined)=>old?{...old,items:[...old.items.filter(item=>item.id!==event.data.id),event.data].sort((a,b)=>a.sequence-b.sequence)}:old);},()=>setStreamUnavailable(true),()=>setStreamUnavailable(false),()=>{retry=setTimeout(()=>setStreamGeneration(n=>n+1),5000);});return ()=>{clearTimeout(retry);close();};},[selected,!!messages.data,cache,streamGeneration]);
   const current=conversations.data?.items.find(item=>item.id===selected);
   function submit(){const item=pending??nativeMessage(selected,draft);setPending(item);send.mutate(item);}
   return <section className="chat" aria-labelledby="chat-heading"><h2 id="chat-heading">消费者对话</h2>
