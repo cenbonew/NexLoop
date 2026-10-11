@@ -755,6 +755,11 @@
       "version": "0151",
       "name": "0151_service_readiness.sql",
       "sha256": "cb9197a44cbdf0382f3cbc75c1771e42bdd7c36ee8fe738161058deef6782e78"
+    },
+    {
+      "version": "0152",
+      "name": "0152_reply_unknown_reconcile.sql",
+      "sha256": "9a095b97c3163eaa4b1f0cdf91b1f92a0c014d8037dde31c9678c92e5e0d9958"
     }
   ]
 }
