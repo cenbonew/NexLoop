@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The authoritative local CI suite (NX-033): the stage scripts of scripts/ci/stages/ in their fixed order (.ci-policy/stages.v2.json
-# runs the same scripts one stage at a time). Behaviour and exit status are those of the former single script: the first failing
+# The authoritative local CI suite (NX-033): the stage scripts of scripts/ci/stages/ in their fixed order, the stages of
+# .ci-policy/stages.v3.json (owner decision D-j 2026-10-11: deadline gate with the Agent Host run limit, low-parallelism stage). Behaviour and exit status are those of the former single script: the first failing
 # stage stops the run with its exit status, except the NX-049 deadline gate, which is recorded and reported at the end so the
 # remaining phases still run for diagnosis.
 source "$(dirname "$0")/stages/lib.sh"
@@ -14,7 +14,8 @@ bash "$stages/unit-contract.sh"
 bash "$stages/serial-build.sh"
 deadline_gate_rc=0
 bash "$stages/deadline-gate.sh" || deadline_gate_rc=$?
-bash "$stages/integration.sh"
+bash "$stages/integration-parallel.sh"
+bash "$stages/integration-heavy.sh"
 bash "$stages/pi-runtime.sh"
 # NX-049 deadline gate result (ADR-022 §4).
 if [[ $deadline_gate_rc -ne 0 ]]; then echo "NX-049 deadline gate failed (rc=$deadline_gate_rc)" >&2; exit 1; fi

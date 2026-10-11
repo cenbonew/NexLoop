@@ -1,0 +1,176 @@
+{
+  "schema": "nexloop-ci-stages/1",
+  "version": 3,
+  "decision": "NX-033 §4.1, ADR-020 §4 baseline exit (owner decision D-j 2026-10-11, 'all as recommended' on the proposal in docs/implementation/NX-033-stages-implementation.md §3; gate limit 5 minutes). As v2, with three changes, all in scripts/ci/check too: (1) the deadline gate (python-deadline-gate) runs the two real-Pi deadline cases and the two Agent Host run-limit cases alone with 4 guard worker processes and the 2 s tool deadline unchanged, at most 300 s (a longer gate is a failed stage); these four are no longer run in the parallel stage; (2) integration-parallel is the former integration stage without the gate cases and the low-parallelism cases (scripts/ci/stages/lib.sh); (3) integration-heavy runs the low-parallelism cases (classes B and C of the baseline that pass serially and time out under the full parallel load) with 2 workers, required as python-heavy; a failure stops the run like any other stage. Baseline rule (the list itself is the dispatcher's, kept outside the repository): a case leaves the baseline after two consecutive full runs pass in its assigned stage; a class C case that fails two consecutive full runs is raised to class B or A; a case with a violation assertion (for example read_assert_memo) is class A on any violation. Test counts move between suites as registered in required-suites.v2.json (count_groups). v1 and v2 are unchanged; the controller uses v3 only when the trusted installation selects it (--stages-version 3).",
+  "stages": [
+    {
+      "name": "dependency-python",
+      "network": "dependency",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/dependency-python.sh"
+      ],
+      "timeout_seconds": 1800
+    },
+    {
+      "name": "static",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/static.sh"
+      ],
+      "timeout_seconds": 900,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      }
+    },
+    {
+      "name": "dependency-node",
+      "network": "dependency",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/dependency-node.sh"
+      ],
+      "timeout_seconds": 1800
+    },
+    {
+      "name": "licenses",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/licenses.sh"
+      ],
+      "timeout_seconds": 300,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      }
+    },
+    {
+      "name": "build-artifacts",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/build-artifacts.sh"
+      ],
+      "timeout_seconds": 1800,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      }
+    },
+    {
+      "name": "unit-contract",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/unit-contract.sh"
+      ],
+      "timeout_seconds": 1800,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/deepseek-sdk.xml",
+        ".ci-results/web.xml",
+        ".ci-results/scope-ui.xml"
+      ]
+    },
+    {
+      "name": "serial-build",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/serial-build.sh"
+      ],
+      "timeout_seconds": 3600,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/python-build.xml"
+      ]
+    },
+    {
+      "name": "deadline-gate",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/deadline-gate.sh"
+      ],
+      "timeout_seconds": 300,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/python-deadline-gate.xml"
+      ],
+      "stop_on_failure": false
+    },
+    {
+      "name": "integration-parallel",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/integration-parallel.sh"
+      ],
+      "timeout_seconds": 7200,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/python.xml"
+      ]
+    },
+    {
+      "name": "integration-heavy",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/integration-heavy.sh"
+      ],
+      "timeout_seconds": 5400,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/python-heavy.xml"
+      ]
+    },
+    {
+      "name": "pi-runtime",
+      "network": "test",
+      "argv": [
+        "bash",
+        "scripts/ci/stages/pi-runtime.sh"
+      ],
+      "timeout_seconds": 1800,
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/pi.xml",
+        ".ci-results/runtime.xml"
+      ]
+    },
+    {
+      "name": "isolation-probe",
+      "network": "test",
+      "argv": [
+        "python3",
+        "/trusted/nexloop_ci.py",
+        "isolation-probe",
+        "--targets",
+        "/trusted/probe-targets.json"
+      ],
+      "timeout_seconds": 120
+    }
+  ]
+}

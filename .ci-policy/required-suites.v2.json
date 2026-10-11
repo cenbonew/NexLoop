@@ -1,0 +1,55 @@
+{
+  "schema": "nexloop-ci-required-suites/1",
+  "version": 2,
+  "decision": "NX-033 §4.3: the judgement is the trusted controller's. Each suite below must be present, with no failure, error or skip, and with at least as many tests as the last main result minus allowed_drop (0 unless a removal is registered here in a new version). The NX-049 deadline gate is its own suite. v2 (stages v3, D-j 2026-10-11): python-heavy (the low-parallelism stage) is a required suite; the gate cases and the low-parallelism cases move out of python. A move is registered as a count group: the summed tests of python, python-heavy and python-deadline-gate must not fall below the summed tests of the same suites in the last main result (minus the group's allowed_drop, 0), so the move itself is not a drop while a lost test still is. A suite in a group is checked by its group, not alone; min_tests still applies to each suite.",
+  "deadline_gate_suite": "python-deadline-gate",
+  "suites": {
+    "python-build": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "python-deadline-gate": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "python": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "web": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "scope-ui": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "deepseek-sdk": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "pi": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "runtime": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    },
+    "python-heavy": {
+      "min_tests": 1,
+      "allowed_drop": 0
+    }
+  },
+  "count_groups": [
+    {
+      "suites": [
+        "python",
+        "python-heavy",
+        "python-deadline-gate"
+      ],
+      "allowed_drop": 2,
+      "reason": "D-j: gate and low-parallelism cases moved out of the parallel stage; under v1 the two former gate cases were counted twice (gate and parallel stage), so the first v3 run is 2 lower. A later version may set this back to 0."
+    }
+  ]
+}
