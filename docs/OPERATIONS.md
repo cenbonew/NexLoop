@@ -69,7 +69,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 ## 7. 本地 CI（NX-033，本地部分）
 
-- 权威入口 `bash scripts/ci/check`（已拆成 `scripts/ci/stages/` 下可单独调用的阶段）；控制器 `scripts/ci/nexloop_ci.py`（ref 规则、按 SHA 入队、全新检出、受信判定、只快进合并、GitHub 同步）与 `Makefile` 命令契约。
+- 权威入口 `bash scripts/ci/check`（已拆成 `scripts/ci/stages/` 下可单独调用的阶段，按 `stages.v3` 顺序运行）；控制器 `scripts/ci/nexloop_ci.py`（ref 规则、按 SHA 入队、全新检出、受信判定、只快进合并、GitHub 同步）与 `Makefile` 命令契约。
 - 主机侧（服务用户、bare 仓库与 hook、防火墙、remote 切换）属于 B 类，尚未执行。见 [deploy/stage/ci/README.md](../deploy/stage/ci/README.md) 与 [NX-033 本地部分实现说明](implementation/NX-033-local-implementation.md)。
 
 ## 8. 常见运维操作的入口
@@ -81,6 +81,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 | 暂停 / 恢复（租户、角色、客户、策略、Action 类型） | 工作台写入口（负责人），受治理 Action `Control.set`；恢复不回放旧任务，只登记复评 |
 | 结果不明的效应 | 工作台“查询执行结果”（只把对账提前，不重发） |
 | 解除联系限制 | 只有负责人（ADR-023） |
+| 撤销删除后联系键的拦截 | 只有负责人，写明理由，工作台写入口 `revoke_contact_key`（NX-053） |
 | 人工接管 / 交还 | 工作台（负责人、运营），默认 2 小时、上限 24 小时 |
 | 删除客户或消息、保留例外、数据导出 | 只有负责人，经工作台受治理 Action（NX-029） |
 | 服务授权清单 | `python -m nexloop_eios.service_grants --check|--doctor|--apply`（configurator 连接；`--doctor` 只读报告漂移） |
