@@ -1,0 +1,44 @@
+{
+  "schema": "nexloop.nx037-interaction-plan.v1",
+  "note": "Owner-editable: the order must hold the trial mix (15/4/4/4/3). real_dispatch is the switch state the owner opened for a real-mode trial; the run entry refuses a real trial whose switches differ.",
+  "order": [
+    "ordinary_reply",
+    "real_delivery",
+    "ordinary_reply",
+    "restricted_after_refusal",
+    "human_takeover",
+    "ordinary_reply",
+    "unknown_reconciliation",
+    "ordinary_reply",
+    "ordinary_reply",
+    "real_delivery",
+    "ordinary_reply",
+    "restricted_after_refusal",
+    "human_takeover",
+    "ordinary_reply",
+    "ordinary_reply",
+    "unknown_reconciliation",
+    "ordinary_reply",
+    "real_delivery",
+    "restricted_after_refusal",
+    "ordinary_reply",
+    "human_takeover",
+    "ordinary_reply",
+    "ordinary_reply",
+    "unknown_reconciliation",
+    "ordinary_reply",
+    "real_delivery",
+    "restricted_after_refusal",
+    "ordinary_reply",
+    "human_takeover",
+    "ordinary_reply"
+  ],
+  "real_dispatch": {
+    "deployment": true,
+    "tenant": true,
+    "data_mode": "real",
+    "actions": [
+      "eios:action:nexloop.service.request:1"
+    ]
+  }
+}

@@ -17,8 +17,10 @@ dispatch switch and holds no credential.
 Every record is written (fsync) before the next interaction starts, so a stop or a crash leaves the evidence of everything that
 happened. Records hold only ids, digests, numbers, codes and times (checked by `scripts/nx037/evidence_pack.py`).
 """
+import hashlib
 import json
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -27,13 +29,18 @@ from pathlib import Path
 KINDS = ('ordinary_reply', 'real_delivery', 'restricted_after_refusal', 'human_takeover', 'unknown_reconciliation')
 STOP_RULES = ('unauthorized_send', 'wrong_recipient', 'contact_after_refusal', 'duplicate_external_effect', 'cross_tenant_read',
               'per_run_cost_exceeded', 'critical_alert', 'owner_stop')
-PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unknown_effect')
+PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unknown_effect', 'calibration')
+_REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
 
 
 class PlanInvalid(ValueError):
     pass
+
+
+class TrialPaused(RuntimeError):
+    """A paused trial continues only with an explicit resume carrying the owner's confirmation reference."""
 
 
 def _money(value, name):
@@ -77,9 +84,25 @@ def load_plan(path, *, cost_caps=None):
     return validate_plan(json.loads(Path(path).read_text(encoding='utf-8')), cost_caps=cost_caps)
 
 
-def schedule(plan, *, trial_id):
-    """The interactions in order: kinds interleaved evenly (largest remainder), so every kind appears early. Deterministic for a
-    trial id; each interaction has a stable id that survives retries and restarts."""
+def validate_order(plan, order):
+    """An owner-edited order (a list of kinds) must hold exactly the plan's mix."""
+    if type(order) is not list or any(k not in KINDS for k in order) or len(order) != plan['total'] \
+            or {k: order.count(k) for k in KINDS} != plan['mix']:
+        raise PlanInvalid('order does not match the mix')
+    return order
+
+
+def order_digest(order):
+    return hashlib.sha256(json.dumps(order, separators=(',', ':')).encode()).hexdigest()
+
+
+def schedule(plan, *, trial_id, order=None):
+    """The interactions in order: the owner's order when given (validated against the mix), otherwise kinds interleaved evenly
+    (largest remainder), so every kind appears early. Deterministic for a trial id; each interaction has a stable id that
+    survives retries and restarts."""
+    if order is not None:
+        return [{'seq': i + 1, 'kind': k, 'interaction_id': str(uuid.uuid5(NAMESPACE, f'{trial_id}:{i + 1}'))}
+                for i, k in enumerate(validate_order(plan, order))]
     remaining = dict(plan['mix'])
     total = plan['total']
     order = []
@@ -149,11 +172,15 @@ def read_records(directory):
     return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
 
 
-def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0)):
+def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0), order=None,
+        resume=None, calibration_pause=False):
     """Runs (or resumes after a pause) the trial into `directory`: interactions.jsonl (one record per interaction, written
     before the next starts) and state.json (the outcome). An interaction already recorded is never run again: resuming
     continues after the last record (the error window restarts after a pause). A stopped trial does not resume (the owner
-    reviews and starts a new trial id, a uuid)."""
+    reviews and starts a new trial id, a uuid). A paused trial raises TrialPaused unless `resume` is the owner's confirmation
+    reference, which is appended to resumes.jsonl (fsync) before anything runs; the interaction order may not change across
+    resumes. With `calibration_pause` the trial pauses after the plan's calibration interactions (rule 'calibration') so the
+    owner confirms the cost per interaction before the rest."""
     if str(uuid.UUID(trial_id)) != trial_id:
         raise ValueError('trial id must be a lowercase uuid')
     clock = clock or (lambda: datetime.now(UTC))
@@ -161,13 +188,27 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     root = Path(directory)
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     state_path = root / 'state.json'
-    if state_path.exists() and json.loads(state_path.read_text())['status'] == 'stopped':
+    previous = json.loads(state_path.read_text()) if state_path.exists() else None
+    if previous and previous['status'] == 'stopped':
         raise RuntimeError('trial stopped')
+    interactions = schedule(plan, trial_id=trial_id, order=order)
+    digest = order_digest([i['kind'] for i in interactions])
+    if previous and previous.get('order_digest', digest) != digest:
+        raise PlanInvalid('the interaction order changed')
+    if previous and previous['status'] == 'paused':
+        if resume is None:
+            raise TrialPaused(','.join(previous['rules']))
+        if not _REF.fullmatch(str(resume)):
+            raise ValueError('owner confirmation must be an opaque reference')
+        _append(root / 'resumes.jsonl', {'after_seq': previous['at_seq'], 'rules': previous['rules'], 'confirmation_ref': resume,
+                                         'at': _iso(clock())})
+    elif resume is not None:
+        raise ValueError('the trial is not paused')
     history = read_records(root)
     cumulative = sum((_decimal(r['cost']['total']) for r in history), Decimal(0))
     done = {r['interaction_id'] for r in history}
     status, rules, at_seq = 'completed', [], None
-    for interaction in schedule(plan, trial_id=trial_id):
+    for interaction in interactions:
         if interaction['interaction_id'] in done:
             continue
         if owner_stop():
@@ -198,6 +239,8 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
         cumulative += total
         decision, fired = evaluate(record, history, plan, cumulative=cumulative, monthly=month_cost_before + cumulative,
                                    owner_stop=owner_stop())
+        if decision is None and calibration_pause and interaction['seq'] == plan['calibration']:
+            decision, fired = 'pause', ['calibration']
         record['decision'] = {'action': decision or 'continue', 'rules': fired}
         _append(root / 'interactions.jsonl', record)
         history.append(record)
@@ -205,11 +248,17 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             status, rules, at_seq = ('stopped' if decision == 'stop' else 'paused'), fired, interaction['seq']
             break
     state = {'trial_id': trial_id, 'status': status, 'rules': rules, 'at_seq': at_seq, 'recorded': len(history),
-             'planned': plan['total'], 'cumulative_cost': str(cumulative), 'currency': plan['currency'], 'updated_at': _iso(clock())}
+             'planned': plan['total'], 'cumulative_cost': str(cumulative), 'currency': plan['currency'], 'order_digest': digest,
+             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock())}
     tmp = state_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(state, sort_keys=True))
     os.replace(tmp, state_path)
     return state
+
+
+def read_resumes(directory):
+    path = Path(directory) / 'resumes.jsonl'
+    return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
 
 
 class PgCollector:
