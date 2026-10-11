@@ -39,7 +39,10 @@ def test_actual_pg_host_worker_runtime_completion(accepted_input,admin,tmp_path,
         assert receipt['request_id']==args['command']['request_id']
         assert receipt['persistence']=={'journal_mode':'wal','synchronous':2}
         # NX-031 D6: the Run's summed guard tool time, numbers only (this Run calls no guard tool).
-        assert result['result']=={'scope':'runtime_only','business_action_success':False,'runtime_outcome':'succeeded','run_id':issued.run_id,'runtime_receipt':receipt,
+        # NX-031 A2: the Host reports the Run's model time (numbers only); its values depend on the run, its shape does not.
+        model=result['result'].get('model_timing')
+        assert set(model)=={'calls','total_ms','max_ms'} and all(type(v) is int and v>=0 for v in model.values()) and model['max_ms']<=model['total_ms']
+        assert {k:v for k,v in result['result'].items() if k!='model_timing'}=={'scope':'runtime_only','business_action_success':False,'runtime_outcome':'succeeded','run_id':issued.run_id,'runtime_receipt':receipt,
             'tool_timing':{'calls':0,'total_ms':0,'max_ms':0}}
         durable=worker.inspect_task(queue='operations',task_id=accepted['task_id'])
         assert durable['status']=='succeeded' and durable['result']==result['result']
