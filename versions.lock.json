@@ -162,16 +162,26 @@
     }
   },
   "release_tools": {
-    "decision": "NX-034 D1/D2 (dispatcher 2026-10-11): manifests are signed with OpenSSH ssh-keygen -Y (namespace nexloop-release); SBOMs by syft and vulnerability counts by grype, at exactly these versions. A missing or different tool is reported, never a pass. Binary digests are recorded when the tools are first installed on the CI host from their official release archives (status below).",
+    "decision": "NX-034 D1/D2 (dispatcher 2026-10-11): manifests are signed with OpenSSH ssh-keygen -Y (namespace nexloop-release); SBOMs by syft and vulnerability counts by grype, at exactly these versions. A missing or different tool is reported, never a pass. Binary digests are recorded when the tools are first installed on the CI host from their official release archives (status below). Installed on the CI host on 2026-10-11 (owner decision O3): official release archives checked against the published checksums on the development machine and again on the CI host, binaries in the CI user's own directory (no root); the archive and binary digests above are what a re-install must reproduce. The grype vulnerability database is fetched by a daily update job only.",
     "syft": {
       "version": "1.18.1",
       "source": "https://github.com/anchore/syft/releases/tag/v1.18.1",
-      "status": "pinned_version_binary_digest_pending_ci_install"
+      "status": "installed_ci_host",
+      "installed_at": "2026-10-11",
+      "archive": "syft_1.18.1_linux_amd64.tar.gz",
+      "archive_sha256": "066c251652221e4d44fcc4d115ce3df33a91769da38c830a8533199db2f65aab",
+      "binary_sha256_linux_amd64": "3aa0fd1c2479f8976122802422480e45dd6c814a693da4f550b4d39af14f8cae",
+      "git_commit": "5e16e5031a13f8a11057feb8544decebfc43b4ed"
     },
     "grype": {
       "version": "0.86.1",
       "source": "https://github.com/anchore/grype/releases/tag/v0.86.1",
-      "status": "pinned_version_binary_digest_pending_ci_install"
+      "status": "installed_ci_host",
+      "installed_at": "2026-10-11",
+      "archive": "grype_0.86.1_linux_amd64.tar.gz",
+      "archive_sha256": "2d1533dae213a27b741e0cb31b2cd354159a283325475512ae90c1c2412f4098",
+      "binary_sha256_linux_amd64": "09654d92ae31ad3a07b04889cd2be00f174a9c1399ff485cf16bb587ce1aad3c",
+      "git_commit": "5c4fee7b1170976ab435de052fc3611bc955f1f1"
     },
     "ssh-keygen": {
       "minimum_openssh": "8.2",
