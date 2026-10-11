@@ -2606,6 +2606,18 @@
         "ref": "ci:lane/runs/20261011T135349Z-9058f0220d13",
         "summary": "s5a（ci:lane/runs/20261011T125849Z-51c198dd9402）与 s5b 全量：s5b 失败 14 项均在基线（参数化后的 closure_plan[False]、C 类 role_tail 与 reclaim 同检出串行各 2/2），s5a 的两项确定性新失败（优惠后台测试未发布 Action 定义、Run 完成测试期望未含 model_timing）已在 s5b 修正并通过；串行门槛 2/2。合入 main 1a3ea6b。",
         "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2541859",
+        "summary": "stages v3（负责人 D-j）：v4[complete] 与两 Pi 用例只在串行门槛运行，Host 并发上限两例移入门槛，新增 integration-heavy（-n 2）承载 closure 类与大部分 C 类用例，测试计数分组登记。合入 main a90634d。已知问题：check 遇首个失败阶段即停止，基线 B 类使 integration-parallel 每轮失败，导致其后的 heavy 与 pi-runtime 阶段在集成 CI 中未执行（含此前各轮的 pi-runtime）；改为测试阶段全部执行、退出码不变，进行中。",
+        "recorded_at": "2026-10-11T15:51:10.641546+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T145501Z-a90634d21fd1",
+        "summary": "s5c 全量（a90634d）：integration-parallel 失败 6 项均为基线 B 类；按 stages v3，串行门槛 4 个用例 4 分 12 秒全部通过（含 Host 并发上限两例，未超 5 分钟上限）；因 check 遇首个失败阶段即停止，integration-heavy 与 pi-runtime 由调度员在同一检出上单独补跑：python-heavy 22 passed（-n 2，4 分 52 秒）、pi 24 passed、runtime 243 passed。合入 main a90634d。",
+        "recorded_at": "2026-10-11T15:51:10.641546+00:00"
       }
     ]
   },
@@ -3344,13 +3356,25 @@
       "M01"
     ],
     "deliverable": "Claim 契约 tenant_id 为 uuid 格式并携带 mode 及 mode↔world 条件；control.nexloop_tenants 校验约束；按 schema 分批补齐租户外键并测量热点表写入成本；测试租户常量统一（依据 docs/implementation/tenant-id-audit.md）",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/implementation/tenant-id-audit.md",
         "summary": "由 NX-037 设计稿 D8 立项，排在 NX-037 之前。负责人 2026-10-11 定案（NX-037 设计稿 D 项“全部按推荐”），见 planning/ROADMAP.md §7。",
         "recorded_at": "2026-10-11T12:15:29.530624+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "03217b7",
+        "summary": "第一批 1a（合入 main a90634d）：Claim 契约 tenant_id 改为 uuid 格式并新增 mode 与 mode↔world 条件（Schema 变更，10588e6）；测试租户常量统一到 tests/support/tenants.py，Claim 投影补 mode（迁移 0155，原临时号 0230）；冻结交接副本保持原文，偏离登记在 packages/contracts/handoff-divergence.json；租户守护测试防止旧格式回流（合并时拦下 NX-053 测试中的一处旧租户，已改）。1b（control.nexloop_tenants 的 uuid CHECK）待下一轮；后续批次按实现说明的 5 批计划。",
+        "recorded_at": "2026-10-11T15:51:10.641546+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T145501Z-a90634d21fd1",
+        "summary": "s5c 全量（a90634d）：integration-parallel 失败 6 项均为基线 B 类；按 stages v3，串行门槛 4 个用例 4 分 12 秒全部通过（含 Host 并发上限两例，未超 5 分钟上限）；因 check 遇首个失败阶段即停止，integration-heavy 与 pi-runtime 由调度员在同一检出上单独补跑：python-heavy 22 passed（-n 2，4 分 52 秒）、pi 24 passed、runtime 243 passed。合入 main a90634d。",
+        "recorded_at": "2026-10-11T15:51:10.641546+00:00"
       }
     ]
   },
@@ -3366,13 +3390,25 @@
       "M09"
     ],
     "deliverable": "身份关联与 Consumer 创建路径比对已删除联系键并拒绝联系（AT-059 口径）；owner 专属的受治理撤销 Action 与工作台入口；测试覆盖重新导入被拒、撤销后可联系、只有 owner 能撤销",
-    "status": "not_started",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
         "ref": "planning/ROADMAP.md",
         "summary": "由 NX-037 设计稿 D8 立项，排在 NX-037 之前（NX-029 删除流程只保存了哈希化的已删除联系键，执行点与撤销入口未承载）。负责人 2026-10-11 定案（NX-037 设计稿 D 项“全部按推荐”），见 planning/ROADMAP.md §7。",
         "recorded_at": "2026-10-11T12:15:29.530624+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ef1be5d",
+        "summary": "NX-053（nx053-rebased，迁移 0154，原临时号 0240）：身份关联、Consumer 创建与来信识别路径在建立联系前比对已删除联系键（只比对哈希），命中即拒绝联系（NXK01，不泄露命中的键），记审计；owner 专属受治理撤销（0124 注册表，须写理由，工作台 HTTP 入口，无前端页面）；撤销与拦截进入恢复日志并按版本重放，恢复后不丢失也不回退。",
+        "recorded_at": "2026-10-11T15:51:10.641546+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T145501Z-a90634d21fd1",
+        "summary": "s5c 全量（a90634d）：integration-parallel 失败 6 项均为基线 B 类；按 stages v3，串行门槛 4 个用例 4 分 12 秒全部通过（含 Host 并发上限两例，未超 5 分钟上限）；因 check 遇首个失败阶段即停止，integration-heavy 与 pi-runtime 由调度员在同一检出上单独补跑：python-heavy 22 passed（-n 2，4 分 52 秒）、pi 24 passed、runtime 243 passed。合入 main a90634d。",
+        "recorded_at": "2026-10-11T15:51:10.641546+00:00"
       }
     ]
   }
