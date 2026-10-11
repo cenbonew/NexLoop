@@ -81,6 +81,24 @@ D9（不改写历史；历史中出现的凭据、私钥或受限网络标识一
 - 各步使用被发布 ref 自己的脚本与策略。报告写入 `<out>/preflight.json`，并输出它的 sha256。命令缺失按失败处理（不算通过）。
 - 本工具不创建 tag 或 GitHub Release（B 类操作，由负责人本人执行），也不改写历史。
 
+### 5.1 首个公开 release 前的全历史审计（`scripts/release/history_audit.py`）
+
+- **用法**：`python scripts/release/history_audit.py [<ref>] [--all-refs] --json <私有证据目录>/history-audit.json --markdown <私有证据目录>/history-audit.md`
+  - 默认 ref 为 HEAD；`--all-refs` 扫描全部本地分支与 tag。
+  - 报告文件以 0600 新建，已存在时拒绝（退出码 3）。报告存入负责人的私有证据目录，不入库。
+- **范围**：ref 可达的全部提交。合并提交按每个父提交分别取差异（`git diff-tree -m`），根提交与空树比较。
+  - 每个新增或修改的 blob（按 blob 与路径去重）：直接调用 `check_publication.violation`（同一套规则：私有路径、私网地址、私钥、模型凭据；含 NUL 的 blob 视为二进制，只检查路径；没有大小上限，与它一致）；
+  - 同一 blob 的文本与每个提交消息：再应用 `prepush-scan.sh` 的两条规则：
+    - 受限标识：名单位置与 prepush-scan 相同（主克隆的 `local-only/restricted-identifiers.txt` 或 `NEXLOOP_RESTRICTED_IDENTIFIERS_FILE`），缺失或为空即失败；
+    - 凭据值：表达式在运行时从 `prepush-scan.sh` 中读出，不另存一份。
+- **输出**：只有类别、规则编号（受限标识按名单行号，如 `identifier:3`）、路径或“commit message”、引入它的提交、首次与末次提交、ref 当前树中该路径是否仍命中。不复述命中内容。
+- **分类与处置（D9）**：
+  - 须轮换或作废：`credential`、`private_key`、`restricted_network_identifier`；
+  - 接受留在历史：`host_alias`、`local_path`、`hardware`、`other`（如私有路径规则）。
+  - 受限标识的类别：名单中可用 `# [host_alias]`、`# [local_path]`、`# [hardware]`、`# [restricted_network_identifier]` 分节标注；未标注时按形状判断（地址或主机指纹为 `restricted_network_identifier`，含 `/` 为 `local_path`，其余为 `host_alias`）。
+- **退出码**：0 无命中；1 仅有可接受类；2 存在须轮换类；3 输入错误（ref 无效、名单缺失或为空、报告文件已存在）。
+- **注意**：凭据值规则与 prepush-scan 共用，也会命中“`MODEL_API_KEY=` 后接变量名”这类环境变量引用。报告只给出位置，需要人工判断是否为真实凭据，不能据此自动轮换。
+
 ## 6. 测试（合成数据，本地，不联网）
 
 - `tests/test_license_compliance.py`（28）：合成锁文件与策略。覆盖：
