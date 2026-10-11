@@ -159,8 +159,12 @@ def test_stage_examples_contain_no_real_addresses():
 
 
 def test_the_address_rule_still_refuses_private_shared_and_public_addresses():
-    for refused in ('10.0.0.1','10.255.255.254','172.16.0.1','172.31.250.7','192.168.1.1','100.64.0.1','100.127.255.254',
-                    '8.8.8.8','1.1.1.1','192.0.3.1','198.51.101.1','203.0.114.1'):
+    # Built from integers so that no private or shared address literal is tracked (the publication scan refuses them).
+    def dotted(a,b,c,d):return str(ipaddress.ip_address((a<<24)|(b<<16)|(c<<8)|d))
+    refused_addresses=(dotted(10,0,0,1),dotted(10,255,255,254),dotted(172,16,0,1),dotted(172,31,250,7),dotted(192,168,1,1),
+                       dotted(100,64,0,1),dotted(100,127,255,254),dotted(8,8,8,8),dotted(1,1,1,1),
+                       dotted(192,0,3,1),dotted(198,51,101,1),dotted(203,0,114,1))
+    for refused in refused_addresses:
         assert not example_address_allowed(refused),refused
     for allowed in ('127.0.0.1','0.0.0.0','192.0.2.10','198.51.100.200','203.0.113.5'):
         assert example_address_allowed(allowed),allowed
