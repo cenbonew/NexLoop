@@ -152,12 +152,30 @@ def test_reply_guarantor_refuses_to_start_when_the_fallback_cannot_finish_inside
     assert out=='' and err=='Reply Guarantor unavailable\n'
 
 
+def publish_loopback_incentive(admin,d):
+    """The deployment publishes nexloop.incentive.issue (business-actions manifest) and declares, through trusted configuration
+    (action-effect-categories v2, nexloop_configurator), that its loopback ledger is not an external effect (0153): the
+    real dispatch switch then does not apply. Undeclared it is external and refused with every switch closed."""
+    from commercial_fixture import publish_registry_actions
+    from nexloop_eios import effect_categories
+    from support.loopback_effects import make_external
+    from test_business_actions import consumer_type
+    admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s) on conflict do nothing',
+        (TENANT,'Consumer',Jsonb(consumer_type().model_dump(mode='json'))))
+    publish_registry_actions(admin,('nexloop.incentive.issue',),tenant=TENANT)
+    make_external(admin,TENANT,'eios:action:nexloop.incentive.issue:1')  # not the test harness: the trusted configuration declares it
+    manifest=effect_categories.load(Path(__file__).resolve().parents[1]/'deploy/configuration/action-effect-categories.v2.json')
+    manifest['actions']=[a for a in manifest['actions'] if a['stable_name']=='nexloop.incentive.issue']
+    assert effect_categories.apply(manifest,TENANT,database_url_file=d['paths']['dsn'])['externality_written']==1
+
+
 def test_incentive_issuer_entry_admits_an_accepted_intent_and_issues_it_once(deployment,admin,tmp_path,capsys):
     """AT-043 wiring: the deployed entry, with the manifest's incentive_issuer credential, admits an accepted intent at
     dispatch under the tenant budget and issues it once through the loopback ledger; a second tick finds nothing."""
     import secrets
     from datetime import UTC,datetime,timedelta
     d=deployment;d['apply']()
+    publish_loopback_incentive(admin,d)
     consumer,offering,binding=(secrets.token_hex(32) for _ in range(3));now=datetime.now(UTC)
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')
