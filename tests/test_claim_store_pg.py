@@ -257,7 +257,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # NX-029 final: 0140 (propagation) relaxes the conditional-condition check for erased Claims and drops quote-less statements
         # from the evidence view; 0141 (expiry) stamps superseded_at and erases a superseded Claim's value after a year.
         '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order','_nx028_staff_reply','_nx028_workbench_member_read',
-        '_nx029_retention','_nx029_erasure','_nx029_expiry_classes')) for name in migrations)
+        # Relay multi-consumer 0144 copies the latest NX-029 erasure step (Claim erasure unchanged) and adds the enrollment
+        # withdrawal; no Claim value is read or projected.
+        '_nx029_retention','_nx029_erasure','_nx029_expiry_classes','_relay_erasure')) for name in migrations)
 
 
 def correction_window(conversations):
