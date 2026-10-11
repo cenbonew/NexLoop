@@ -1,21 +1,47 @@
 #!/usr/bin/env bash
 # The authoritative local CI suite (NX-033): the stage scripts of scripts/ci/stages/ in their fixed order, the stages of
-# .ci-policy/stages.v3.json (owner decision D-j 2026-10-11: deadline gate with the Agent Host run limit, low-parallelism stage). Behaviour and exit status are those of the former single script: the first failing
-# stage stops the run with its exit status, except the NX-049 deadline gate, which is recorded and reported at the end so the
-# remaining phases still run for diagnosis.
+# .ci-policy/stages.v4.json (v3's stages, D-j 2026-10-11, run to the end).
+# - Preparation stages (dependencies, static checks, licenses, builds) stop the run at the first failure: nothing after them
+#   could run.
+# - Test stages (unit-contract … pi-runtime, and any test stage added later) all run to the end, each writing its own JUnit;
+#   the exit status is that of the first failing test stage (0 when none failed). The NX-049 deadline gate is still reported on
+#   its own line and counts as status 1.
+# - Every stage prints one line: NEXLOOP-STAGE name=<stage> rc=<status> seconds=<elapsed> junit=<files or ->.
 source "$(dirname "$0")/stages/lib.sh"
+set +e
 stages=scripts/ci/stages
-bash "$stages/dependency-python.sh"
-bash "$stages/static.sh"
-bash "$stages/dependency-node.sh"
-bash "$stages/licenses.sh"
-bash "$stages/build-artifacts.sh"
-bash "$stages/unit-contract.sh"
-bash "$stages/serial-build.sh"
+junit_of(){
+  case "$1" in
+    unit-contract) echo .ci-results/deepseek-sdk.xml,.ci-results/web.xml,.ci-results/scope-ui.xml;;
+    serial-build) echo .ci-results/python-build.xml;;
+    deadline-gate) echo .ci-results/python-deadline-gate.xml;;
+    integration-parallel) echo .ci-results/python.xml;;
+    integration-heavy) echo .ci-results/python-heavy.xml;;
+    pi-runtime) echo .ci-results/pi.xml,.ci-results/runtime.xml;;
+    *) echo -;;
+  esac
+}
+run_stage(){
+  local name=$1 started rc
+  started=$(date +%s)
+  bash "$stages/$name.sh"
+  rc=$?
+  printf 'NEXLOOP-STAGE name=%s rc=%d seconds=%d junit=%s\n' "$name" "$rc" "$(( $(date +%s) - started ))" "$(junit_of "$name")"
+  return "$rc"
+}
+for name in dependency-python static dependency-node licenses build-artifacts; do
+  run_stage "$name" || exit $?
+done
+first_rc=0
 deadline_gate_rc=0
-bash "$stages/deadline-gate.sh" || deadline_gate_rc=$?
-bash "$stages/integration-parallel.sh"
-bash "$stages/integration-heavy.sh"
-bash "$stages/pi-runtime.sh"
+for name in unit-contract serial-build deadline-gate integration-parallel integration-heavy pi-runtime; do
+  run_stage "$name"
+  rc=$?
+  if [[ $rc -ne 0 ]]; then
+    if [[ $name == deadline-gate ]]; then deadline_gate_rc=$rc; rc=1; fi
+    [[ $first_rc -eq 0 ]] && first_rc=$rc
+  fi
+done
 # NX-049 deadline gate result (ADR-022 §4).
-if [[ $deadline_gate_rc -ne 0 ]]; then echo "NX-049 deadline gate failed (rc=$deadline_gate_rc)" >&2; exit 1; fi
+if [[ $deadline_gate_rc -ne 0 ]]; then echo "NX-049 deadline gate failed (rc=$deadline_gate_rc)" >&2; fi
+exit "$first_rc"
