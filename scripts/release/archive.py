@@ -8,7 +8,9 @@ Layout under <RELEASE_ROOT> (a parameter; never a path written in the repository
                           preflight/{preflight,licenses,source.spdx}.json
     index.json            one entry per sealed release, rebuilt from the directories (derived; safe to delete)
     deployments.json      append-only deployment records written by the deploy tool (release_id, deployed_at, known_good)
-    current               symbolic link to releases/<release_id>, switched by the deploy tool (NX-032), never by this tool
+    current               symbolic link to releases/<release_id>: the release deployed now
+    known_good            symbolic link to releases/<release_id>: the release that was current before it (the rollback target)
+                          Both are switched only by promote (deploy.py promote, after the deploy gate passed), atomically.
 
     archive.py seal   --root R --release-id ID --allowed-signers F   check completeness and signature, make read-only, index
     archive.py check  --root R --release-id ID --allowed-signers F   read-only: signature, completeness, sealed (verify-release)
@@ -140,9 +142,71 @@ def rebuild_index(root):
                         'preflight': {k: (manifest.get('preflight') or {}).get(k) for k in ('category', 'ok')},
                         'sealed': _is_sealed(directory), 'images_present': all(p.is_file() for p in images),
                         'images': {image['name']: image['reference'] for image in manifest['images']}})
-    index = {'schema': 'nexloop-release-index/1', 'count': len(entries), 'releases': entries, 'current': current(root)}
+    index = {'schema': 'nexloop-release-index/1', 'count': len(entries), 'releases': entries, 'current': current(root), 'known_good': known_good(root)}
     _write_atomic(root / 'index.json', index)
     return index
+
+
+def _link_target(root, name):
+    link = Path(root) / name
+    if not link.is_symlink():
+        return None
+    target = os.readlink(link)
+    rid = Path(target).name
+    return rid if _RELEASE_ID.fullmatch(rid) and Path(target).parent.name == 'releases' and not Path(target).is_absolute() else None
+
+
+def known_good(root):
+    return _link_target(root, 'known_good')
+
+
+def _switch_link(root, name, release_id):
+    """Atomic: a new relative link under a temporary name, then rename over the old one (never a moment without it)."""
+    root = Path(root)
+    temporary = root / f'.{name}.tmp-{os.getpid()}-{os.urandom(4).hex()}'
+    os.symlink(f'releases/{release_id}', temporary)
+    try:
+        os.replace(temporary, root / name)
+    finally:
+        if temporary.is_symlink():
+            temporary.unlink()
+    directory = os.open(root, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def promote(root, release_id, *, at=None, _fail_after=None):
+    """After the deploy gate passed: the previous current becomes known_good, release_id becomes current, the deployment is
+    recorded as known good. Each link is switched atomically; if a later step fails, the links are put back as they were.
+    _fail_after (tests only): raise after the named step to prove nothing is left half-done."""
+    root = Path(root)
+    directory = _release_dir(root, release_id)
+    if not (directory / 'manifest.json').is_file() or not _is_sealed(directory):
+        raise release.Refused('only a sealed release can be promoted')
+    before = {'current': current(root), 'known_good': known_good(root)}
+    if before['current'] == release_id:
+        raise release.InputError('release is already current')
+    try:
+        if before['current'] is not None:
+            _switch_link(root, 'known_good', before['current'])
+        if _fail_after == 'known_good':
+            raise OSError('injected failure')
+        _switch_link(root, 'current', release_id)
+        if _fail_after == 'current':
+            raise OSError('injected failure')
+        record = record_deployment(root, release_id, known_good=True, at=at)
+    except BaseException:
+        for name, previous in before.items():
+            if previous is None:
+                if (root / name).is_symlink():
+                    (root / name).unlink()
+            else:
+                _switch_link(root, name, previous)
+        raise
+    rebuild_index(root)
+    return {'current': release_id, 'known_good': before['current'], 'deployment': record}
 
 
 def current(root):
@@ -187,6 +251,10 @@ def retention_plan(root, now=None, policy=None):
         previous = next((r['release_id'] for r in reversed(deployments) if r['known_good'] and r['release_id'] != live), None)
         if previous in reasons:
             reasons[previous].append('previous_known_good')
+    # The current and known_good links are the deploy tool's own state: their releases are never pruned, whatever the policy.
+    for name, rid in (('current_link', index['current']), ('known_good_link', index['known_good'])):
+        if rid in reasons:
+            reasons[rid].append(name)
     keep = {rid: sorted(set(why)) for rid, why in reasons.items() if why}
     remove = sorted(e['release_id'] for e in releases if e['release_id'] not in keep and e['images_present'])
     return {'keep': keep, 'remove_images': remove, 'current': live}
@@ -197,7 +265,7 @@ def prune(root, *, apply=False, now=None, policy=None):
     removed = []
     if apply:
         for release_id in plan['remove_images']:
-            if release_id == plan['current']:
+            if release_id in (plan['current'], known_good(root)):
                 continue  # never, whatever the plan says
             directory = _release_dir(root, release_id)
             images = directory / 'images'

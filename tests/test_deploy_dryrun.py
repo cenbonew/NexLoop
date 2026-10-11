@@ -53,8 +53,9 @@ def test_app_dry_run_verifies_the_release_renders_the_host_and_executes_nothing(
     assert 'https://app.stage.invalid:8443' in caddy and 'reverse_proxy https://127.0.0.1:8000' in caddy and 'respond "Not found" 404' in caddy
     assert '__' not in caddy and 'tls1.3' in caddy
     assert [s['step'] for s in out['steps']] == ['inventory_before', 'load_images', 'install_configuration', 'firewall', 'backup_gate',
-                                                 'stop_old_agent_host', 'start_app', 'inventory_after_and_gate']
-    assert all('$SSH_ALIAS' in s['command'] or 'docker' in s['command'] or 'inventory' in s['command'] or 'backup' in s['command'] for s in out['steps'])
+                                                 'stop_old_agent_host', 'start_app', 'inventory_after_and_gate', 'promote']
+    assert all('$SSH_ALIAS' in s['command'] or 'docker' in s['command'] or 'inventory' in s['command'] or 'backup' in s['command']
+               or s['command'].startswith('deploy.py ') for s in out['steps'])  # promote: local release root only (NX-034 part 2)
 
 
 def test_app_dry_run_refuses_an_untrusted_commit_a_foreign_digest_or_a_tampered_archive(signed, stage, tmp_path):

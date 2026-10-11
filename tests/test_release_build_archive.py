@@ -329,7 +329,7 @@ def test_retention_keeps_recent_recently_deployed_current_and_previous_known_goo
     (root / 'current').symlink_to(f'releases/{ids[3]}')
     plan = archive.prune(root, now=now)
     assert plan['dry_run'] is True and plan['removed'] == [] and all((root / 'releases' / r / 'images/backend.tar').exists() for r in ids)
-    assert plan['keep'] == {**{r: ['recent'] for r in ids[5:]}, ids[2]: ['deployed_recently'], ids[3]: ['current', 'deployed_recently'],
+    assert plan['keep'] == {**{r: ['recent'] for r in ids[5:]}, ids[2]: ['deployed_recently'], ids[3]: ['current', 'current_link', 'deployed_recently'],
                             ids[1]: ['previous_known_good']}
     assert plan['remove_images'] == [ids[0], ids[4]]
     applied = archive.prune(root, apply=True, now=now)
