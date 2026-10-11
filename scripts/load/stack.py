@@ -247,7 +247,9 @@ class Stack:
             '--service-credential-file', str(token['executor']), '--artifact-root', str(self.lane / 'delivery-artifacts'), '--delivery-root', str(self.lane / 'delivery-root'),
             '--certificate-file', str(delivery_cert), '--tls-key-file', str(delivery_key), '--provider-ca-file', str(delivery_cert),
             '--provider-credential-file', str(provider_key), '--origin', origin])
-        provider = self.file('provider-config.json', json.dumps({'origin': origin, 'credential_file': str(provider_key), 'ca_file': str(delivery_cert), 'timeout': 3}))
+        # Provider timeout 10 s, the most the effect worker's 30 s lease allows (lease / 3): under a loaded host the local JSON
+        # delivery's fsync can pass 3 s, and an unknown result then waits for an explicit query (by design, never a blind resend).
+        provider = self.file('provider-config.json', json.dumps({'origin': origin, 'credential_file': str(provider_key), 'ca_file': str(delivery_cert), 'timeout': 10}))
         self._spawn('effect-worker', [sys.executable, '-m', 'nexloop_eios.effect_worker', '--database-url-file', str(action_dsn), *common,
             '--service-credential-file', str(token['executor']), '--artifact-root', str(self.lane / 'effect-artifacts'), '--world', 'real',
             '--provider-config-file', str(provider)])

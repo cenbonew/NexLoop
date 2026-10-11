@@ -317,3 +317,89 @@
 - **两轮的差异**：
   - C4 的形态一致：都过载，任务因有效期失败，升级比例相近（562 和 460）；
   - 第二轮 C4-low 才真正跑完，第一轮没有 C4-low 的数据。
+
+## 切片 3（分支 `nx031-s3`，基于 main `aefe1fb`）：排查 C4-low 的阻碍，派发口径，单 Host 服务全部 Run
+
+### 排查结论（调查格：25 个客户，C4-low 和 C4 各一格，格子开始和拆除前各导出一次现场）
+- **a. claim-match 有 9 条死信，是产品缺陷，已修（临时迁移 0150）**
+  - 提取在同一事务里同时标记 claim-match 和 commitment-register；
+  - commitment keeper 先把承诺 Claim 置为 resolved 后，matcher 对该会话的 purpose 派生读取随之结束（0102 只对待匹配的 Claim 派生读取）；
+  - 于是每次尝试都以 `denied` 被拒，5 次后进入死信。生产上只要 keeper 先于 matcher 执行就会发生。
+  - 修复：`authz.nexloop_claim_match_settled` 对 matcher 当前持有租约的那一条条目（按 fence）只回答一个布尔值：会话里还有没有待匹配的 Claim。授权条件和派生读取相同（purpose 规则加上 purpose Action 的授权）。`ClaimMatchWorker` 遇到已了结的条目直接完结；没有 purpose 规则的 matcher 照原流程匹配。
+  - 测试：`test_claim_match_settled_pg.py`，3 个用例。
+- **b. 排空失败：不是 commitment-monitor 的问题**
+  - commitment-monitor 的 9 条条目要 1–3 天后才到期（承诺的到期时间），不算待处理工作。
+  - C4-low 的实际阻碍：失败 Run 那几条消息的 reply-due 要等回复保障的 300 s 起始时间，而兜底 Run 不能在消息用的确定性 Host 上运行，最后只能以升级了结。
+  - C4 的实际阻碍：过载积压。
+  - 快照原来把未到期的条目也计入 pending，所以改为分开计数（0151，见下）。
+- **c. `runtime_failed`：拒收联系生效时的安全行为**
+  - 失败的 Run 都属于刚产生 `contact_restricted` 事件的客户；guard 按当前控制拒绝了在途 Run 的后续步骤，或者 effect 派发被拒。
+  - 结果不明的 effect 由明确的查询来对账，不会盲目重发。
+- **d. NXC02：控制版本的作用域正确**
+  - 拒绝只落在发生拒收联系（或接管、交还）的客户自己身上，不存在租户级刷新。
+  - C4 次数多，是因为热门客户在过载积压时拒收。
+- **c 和 d 的语义（调度员 2026-10-11 裁定，方案 A）**
+  - 客户拒收联系后，限制之前规划的消息 Run 一律作废，由兜底 Run 按新的控制重新生成回复；
+  - 这些来信的回复因此延迟约 5 分钟，这个边界情况可以接受，写进容量报告；
+  - 后续候选项（本次不做）：消息 Run 因控制版本作废时，把对应的 reply-due 提前为立即到期。
+
+### 派发时延口径（调度员裁定）
+- `dispatch_ms` 定义为：消息 Run 任务入队（`jobs.created_at`）到 Host 接受这个 Run（`runtime_execution_markers.first_authorized_at`），不含模型时间。2 s 的限值只适用于这个口径。
+- 端到端时延（含 D5 注入的模型时延）在 `runs.jsonl` 里。`report.md` 同时给出两个口径。
+
+### 产品改动：快照把 feed 的已到期和未到期分开计数（临时迁移 0151）
+- 每个 feed 新增 `due`、`scheduled`、`oldest_due_seconds` 三个字段；`pending` 仍等于 `due + scheduled`，已有的读取方和告警规则不受影响。
+- 实现方式和 0146 相同：原快照函数改名保留，外面包一层。
+- 压测报告的积压量只计已到期的条目，格子的排空判断也只看已到期的条目。
+
+### Host：一个 deterministic-test Host 服务全部 Run（`deterministic_protocols`）
+- 每个 Run 按自己启动输入声明的协议（`schema_version`）校验，每一轮模型调用也按这个协议生成确定性输出：
+  - v2 → 消息协议；
+  - v6 且上下文里带计划 → 计划结局（`deterministic_plan_outcome`，默认 no_action）；
+  - 其他 v6 → 兜底回复。
+- 只有 v6 Run 记录模型请求（AT-027）。适配器的 `recordModelRequests` 改为可以按 Run 判断。
+- 约束：只在 deterministic-test 下可用，必须带 effect 工具和计划结局工具，不能同时设 Host 级上下文协议，也不能同时设任何单协议开关。
+- 压测车道的 Host 改用这个模式。reply-guarantor 读车道私有目录里的一份回复策略副本，把兜底 Run 的 profile 改为 deterministic-test。数据库里发布的回复窗口和起始时间不变，`deploy/` 下的正式策略也不变。
+- **deepseek-flash 路径没有变化**：
+  - 新键在 deepseek-flash 下被拒绝；
+  - 所有新分支都以 multi 开关为前提；单协议配置安装的确定性响应和以前完全相同；真实模型路径不会进入这些分支。
+  - 测试：Host 全部 vitest 通过；兜底回复和计划 no_action 的端到端测试在单协议和多协议 Host 上都通过。
+
+### 车道配置
+- 本地 JSON 投递 provider 的超时从 3 s 提高到 10 s，这是 effect worker 30 s 租约允许的上限（租约的三分之一）。
+- 原因：负载高时 fsync 会超过 3 s，投递结果就成为 unknown，只能等明确的查询来对账（按设计，不会盲目重发）。
+- 模板构建里出现过 1 条历史来信因此没有回复：它的 Run 成功了，但外发结果是 unknown。
+
+### 车道身份：兜底签发授权
+- 链路里 relay 用的身份（装配 fixture 的 route 主体）没有 `nexloop.reply.fallback` 授权，所以每次兜底在签发时就被拒（`PlanUnavailable`），升级为 `fallback_failed`。
+- 生产上，部署清单 service-grants v9 把这项授权给了 message_relay 主体。
+- 修复：模板构建的测试函数加上 `reply_fallback` 标记，装配 fixture 因此给 route 主体加上这项授权，和兜底测试的做法相同。
+- 切片 2 两轮压测里的 `fallback_failed` 升级都是这个原因。
+
+### 本机重跑 C4-low（25 个客户，完整时长；本机测试证据）
+- **第一次（low4）**：Host 已改为多协议模式，provider 超时 10 s。
+  - 死信 0；派发 p50 1.50 s，p95 7.37 s；排空 601 s 仍未完成。
+  - 原因有两个：兜底签发授权缺失（见上，Host 上没有出现任何 v6 Run）；某个客户的来信被 relay 卡住，20 条未路由。
+- **第二次（low5）**：在 low4 基础上加了兜底签发授权。
+  - ACK 133 条，全部 202，p95 87.6 ms；
+  - 窗口内 120 个消息 Run：112 个回复，8 个升级；e2e p50 8.0 s，p95 451 s（被卡住的那些来信）；工具耗时 p50 1.07 s；
+  - **派发（入队到 Host 接受）p50 1.66 s，p95 8.29 s，超过 2 s 的限值**；这个口径不含模型时间，主要是排队：4 个派发循环被每个约 11 s 的 Run 占满，queue_wait p95 6.6 s；
+  - **死信 0**；claim-match 不再进死信；commitment-monitor 的 9 条全部是未到期条目；
+  - 兜底 Run 已经跑通：model_context 核对有 11 个 v6 Run 的模型请求记录，违规 0；
+  - 7 项核对违规都是 0；未结局 0（共 131 条）；
+  - **排空 601 s 仍未完成**：一个客户的 11 条来信一直没有路由（见下）；另外剩 15 条 recall-instance 正在处理，8 个 effect 处于 unknown，8 个处于 accepted。
+
+### 新发现：relay 重试已绑定的来信时，控制版本一变就永远卡住（产品缺陷，待调度员裁定修复归属）
+- 现象：被拒收联系的客户（以及控制版本变化的其他客户）有一条来信卡在路由里，按 D2“同一客户一次只处理一条”的规则，这个客户后面的所有来信都不会被路由。
+- 诊断：临时在 relay CLI 里打印失败阶段（只在本地，已还原，未提交），观察到的顺序是：
+  1. 一次 `context_prepare: ContextArtifactConflict`；
+  2. 9 次 `context_prepare: ContextArtifactUnavailable`；
+  3. 之后每次都是 `requires_governed_replan`。
+- 推断的链路：
+  - 这条来信第一次处理时已经签发了 Run 凭证、绑定了上下文，但后续某一步失败，条目没有释放；
+  - relay 重新领取时会按当前读取 recipe，其中的控制版本已经改变，命令随之改变，与已有的上下文绑定不一致，于是冲突；
+  - 300 s 后凭证过期，每次都是 `requires_governed_replan`，而 relay 对这个状态既不释放也不升级，条目永远挂起。
+- 影响：该客户之后的来信都得不到 Agent 回复，只能等回复保障在 300 s 后走兜底；排空永远无法完成。
+- 修复方向（待裁定）：
+  - 对这种无法完成的来信做终结处理，例如释放给回复保障并升级，不再挡住后面的来信；
+  - 或者重试时沿用首次签发时的命令。
