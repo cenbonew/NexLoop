@@ -2670,7 +2670,9 @@
       "NX-036",
       "NX-017",
       "NX-025",
-      "NX-027"
+      "NX-027",
+      "NX-052",
+      "NX-053"
     ],
     "modules": [
       "M01",
@@ -2686,6 +2688,12 @@
         "ref": "planning/ROADMAP.md",
         "summary": "进入条件与未承载工作见 ROADMAP §8：NX-031 结论；NX-032 切片 5 与 AT-058 外部探测；AT-050/053–057 真实主机证据；Agent Host 出站隔离方案定案并落地；恢复日志静态加密；签名密钥、syft/grype、安全联系人就绪；全历史审计经负责人确认；真实渠道 Provider 选型与凭据交付、真实模型 ≥20 条受控交互的计划与费用上限（需先写 NX-037 设计稿）；AT-015 真实浏览器断线重连人工核对；v0.1 完成定义第 8 条“手册可由另一维护者执行”尚无验收项，需负责人指定第二维护者（ROADMAP D-f）。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-037-design.md",
+        "summary": "D1–D8 负责人 2026-10-11 定案（NX-037 设计稿 D 项“全部按推荐”），见 planning/ROADMAP.md §7。D1 交互渠道用原生 WebChat、交付动作接企业自有的幂等端点（HttpEffectProvider）；D2 模型保持 deepseek-flash、embedding 沿用 ADR-019，费用上限三项待负责人给值；D3 由负责人指定的知情内部人员扮演消费者；D4 Agent Host 独立网络命名空间并补 loopback 证书 SAN（NX-032 范围）；D5 第二维护者演练，新增 AT-072，人选待定；D6 公开门槛通过后先发 v0.1.0-rc，NX-037 完成后打 v0.1.0；D7 ≥20 条受控交互，新增 AT-071，样本数/窗口/停止阈值待定；D8 租户 ID 规范化（NX-052）与删除后联系键执行点（NX-053）立为 NX-037 前置，工作台优惠发放页面列为 v0.1 已知限制。前置 A 类实现：按租户与 Action 生效的真实派发开关（进行中）。",
+        "recorded_at": "2026-10-11T12:15:29.530624+00:00"
       }
     ]
   },
@@ -3207,6 +3215,50 @@
         "ref": "ci:lane/20261010T083937Z-32c914d48cfe",
         "summary": "Full CI on clean CI host for 32c914d (integration-s4h): 2656 passed / 11 failed, all within baseline (load-sensitive real Host/Pi cases), no new failures; NX-049 serial deadline phase 2/2 passed. Merged to main as 5f0023e. First round (integration-s4g, af68908) had one new deterministic failure (runtime.nexloop_commitment_settings without forced RLS), fixed in 080b6c9.",
         "recorded_at": "2026-10-10T17:24:00+08:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-052",
+    "stage": "S5",
+    "title": "租户 ID 规范化",
+    "dependencies": [
+      "NX-025",
+      "NX-047"
+    ],
+    "modules": [
+      "M01"
+    ],
+    "deliverable": "Claim 契约 tenant_id 为 uuid 格式并携带 mode 及 mode↔world 条件；control.nexloop_tenants 校验约束；按 schema 分批补齐租户外键并测量热点表写入成本；测试租户常量统一（依据 docs/implementation/tenant-id-audit.md）",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/implementation/tenant-id-audit.md",
+        "summary": "由 NX-037 设计稿 D8 立项，排在 NX-037 之前。负责人 2026-10-11 定案（NX-037 设计稿 D 项“全部按推荐”），见 planning/ROADMAP.md §7。",
+        "recorded_at": "2026-10-11T12:15:29.530624+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-053",
+    "stage": "S5",
+    "title": "删除后联系键的执行点与撤销入口",
+    "dependencies": [
+      "NX-029",
+      "NX-018"
+    ],
+    "modules": [
+      "M09"
+    ],
+    "deliverable": "身份关联与 Consumer 创建路径比对已删除联系键并拒绝联系（AT-059 口径）；owner 专属的受治理撤销 Action 与工作台入口；测试覆盖重新导入被拒、撤销后可联系、只有 owner 能撤销",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "planning/ROADMAP.md",
+        "summary": "由 NX-037 设计稿 D8 立项，排在 NX-037 之前（NX-029 删除流程只保存了哈希化的已删除联系键，执行点与撤销入口未承载）。负责人 2026-10-11 定案（NX-037 设计稿 D 项“全部按推荐”），见 planning/ROADMAP.md §7。",
+        "recorded_at": "2026-10-11T12:15:29.530624+00:00"
       }
     ]
   }
