@@ -1,0 +1,54 @@
+{
+  "schema": "nexloop-ci-stages/1",
+  "version": 1,
+  "decision": "NX-033 §4.1 (D1–D5 settled): the stages the trusted controller runs for one SHA in a fresh checkout. The controller and this policy come from the trusted installation (main as released), never from the candidate. scripts/ci/check stays the authoritative suite and is run whole as the 'suite' stage; splitting it into admission … pi-runtime stages is left to a later version of this file. The dependency stages are the only ones with network, through the allowlisted proxy (egress.v1.json); every later stage runs offline from the warm cache (UV_OFFLINE, npm offline) with loopback only. A cache miss without network fails the build as dependency_unavailable, never a skipped test (§6). The isolation probe uses the trusted controller copy and the private targets file mounted read-only.",
+  "stages": [
+    {
+      "name": "dependency-python",
+      "network": "dependency",
+      "argv": [
+        "uv",
+        "sync",
+        "--frozen"
+      ],
+      "timeout_seconds": 1800
+    },
+    {
+      "name": "dependency-node",
+      "network": "dependency",
+      "argv": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "timeout_seconds": 1800
+    },
+    {
+      "name": "suite",
+      "network": "test",
+      "argv": [
+        "scripts/ci/check"
+      ],
+      "env": {
+        "UV_OFFLINE": "1",
+        "npm_config_offline": "true"
+      },
+      "junit": [
+        ".ci-results/*.xml"
+      ],
+      "timeout_seconds": 7200
+    },
+    {
+      "name": "isolation-probe",
+      "network": "test",
+      "argv": [
+        "python3",
+        "/trusted/nexloop_ci.py",
+        "isolation-probe",
+        "--targets",
+        "/trusted/probe-targets.json"
+      ],
+      "timeout_seconds": 120
+    }
+  ]
+}

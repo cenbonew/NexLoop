@@ -1,0 +1,3 @@
+#!/bin/sh
+# Example hook: only validates the ref namespace, resolves the SHA and writes one queue file; it never builds or runs candidate code.
+exec python3 <TRUSTED_CI_DIR>/nexloop_ci.py post-receive --repo "$PWD" --queue <QUEUE_DIR>

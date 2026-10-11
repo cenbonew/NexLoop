@@ -1,0 +1,14 @@
+# Example systemd unit (user nexloop-ci). The program is the trusted installation (main as released), never a candidate.
+[Unit]
+Description=NexLoop CI controller (one build at a time)
+
+[Service]
+Type=oneshot
+User=nexloop-ci
+ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/nexloop_ci.py run-once --repo <GIT_ROOT>/nexloop.git --queue <QUEUE_DIR> --policy <TRUSTED_CI_DIR>/.ci-policy --identities <PRIVATE_IDENTITIES_FILE> --runner <PRIVATE_RUNNER_FILE> --facts <PRIVATE_FACTS_FILE> --merge-gate <TRUSTED_CI_DIR>/merge-gate
+CPUWeight=20
+MemoryMax=<CI_MEMORY_MAX>
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=<QUEUE_DIR> <CI_CACHE>
+InaccessiblePaths=<SECRET_ROOT> <RUNTIME_ROOT> <ARTIFACT_ROOT> <BACKUP_ROOT>

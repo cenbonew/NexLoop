@@ -1,0 +1,11 @@
+{
+  "_comment": "Example only; the real file is private (0600) and names each push identity and its role.",
+  "identities": {
+    "line-a": "developer",
+    "line-b": "developer",
+    "integrator-a": "integrator",
+    "maintainer-a": "maintainer",
+    "merge-controller": "controller",
+    "release-tool": "release"
+  }
+}

@@ -1,0 +1,8 @@
+# Example (user nexloop-git, not nexloop-ci): fast-forward push of main to the GitHub sync remote; unreachable = sync_pending.
+[Unit]
+Description=NexLoop GitHub sync (never force, never mirror)
+
+[Service]
+Type=oneshot
+User=nexloop-git
+ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/nexloop_ci.py sync --repo <GIT_ROOT>/nexloop.git --queue <QUEUE_DIR> --remote github --timeout 30
