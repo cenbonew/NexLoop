@@ -11,7 +11,7 @@
     "tests": "58",
     "time": "144.374",
     "timestamp": "2026-10-09T00:44:44.460724+08:00",
-    "hostname": "MacBook-Pro-4.local"
+    "hostname": "dev-machine"
   },
   "warnings": [
     "2 existing httpx verify=<str> TLS deprecation warnings"

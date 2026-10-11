@@ -11,7 +11,7 @@
     "tests": "33",
     "time": "65.259",
     "timestamp": "2026-10-09T00:34:10.690433+08:00",
-    "hostname": "MacBook-Pro-4.local"
+    "hostname": "dev-machine"
   },
   "report_sha256": "38cd98820c6908ac2a696af35a62c3e86a69d02622ec77b22b878b397586060e",
   "source_freeze": {

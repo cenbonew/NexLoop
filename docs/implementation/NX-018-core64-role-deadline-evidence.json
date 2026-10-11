@@ -17,7 +17,7 @@
         "tests": "40",
         "time": "188.245",
         "timestamp": "2026-10-09T06:34:42.832803+08:00",
-        "hostname": "MacBook-Pro-4.local"
+        "hostname": "dev-machine"
       },
       "sha256": "b663f85c69393be2a21061e3c79929d148858ba7fc8a917f66f2bf6758483652"
     },
@@ -31,7 +31,7 @@
         "tests": "1",
         "time": "46.106",
         "timestamp": "2026-10-09T06:39:25.385989+08:00",
-        "hostname": "MacBook-Pro-4.local"
+        "hostname": "dev-machine"
       },
       "sha256": "0d26bb453ae5fea597f08d3f6d6acd53bdc6cfe5abb37b50fdd2e2bedb20ed60"
     }

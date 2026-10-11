@@ -20,7 +20,7 @@
         "tests": "61",
         "time": "161.979",
         "timestamp": "2026-10-09T06:09:48.493448+08:00",
-        "hostname": "MacBook-Pro-4.local"
+        "hostname": "dev-machine"
       },
       "sha256": "b67ae049159daa11d2c3d0fa33c981eb3219b38a3e5644bfeaa9926591c2dd43"
     },
@@ -34,7 +34,7 @@
         "tests": "1",
         "time": "48.192",
         "timestamp": "2026-10-09T06:13:20.443994+08:00",
-        "hostname": "MacBook-Pro-4.local"
+        "hostname": "dev-machine"
       },
       "sha256": "d2158f1db5bdc5e0bbc3d9fd10094fc4c2feac2a4dce16f61cbe7c69a65f807f"
     },
@@ -48,7 +48,7 @@
         "tests": "23",
         "time": "36.592",
         "timestamp": "2026-10-09T06:17:38.491025+08:00",
-        "hostname": "MacBook-Pro-4.local"
+        "hostname": "dev-machine"
       },
       "sha256": "c72efc075ad268947cad3c870eedf786b9b5760faa779ab1e65827535e7d1692"
     }

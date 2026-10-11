@@ -12,7 +12,7 @@
     "tests": "38",
     "time": "54.336",
     "timestamp": "2026-10-09T00:22:05.864708+08:00",
-    "hostname": "MacBook-Pro-4.local"
+    "hostname": "dev-machine"
   },
   "report_sha256": "21b2d198095a340f902124483175151df9abdf1ca7d97e236e846187f92a8545",
   "source_check": {
