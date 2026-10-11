@@ -66,3 +66,28 @@ nexloop-doctor --budget-only --connection-budget deploy/stage/connection-budget.
 N=4 时，DSN、服务凭据、签名密钥、guard 密钥和 guard TLS 私钥由 5 个进程持有（父进程 1 个，子进程 4 个）；Host 控制密钥和 Host CA 只有父进程持有。
 
 所有进程都使用同一个服务用户和同一组 mode 0600 私有文件，机密不经过环境变量或命令行；子进程只输出一行固定的 ready 信息，不输出任何其他内容（ADR-024 §7）。
+
+## 6. Message relay（多客户，迁移 0160–0162）
+
+设计与实现：`docs/implementation/relay-multi-consumer-design.md`。
+
+- **一个 relay 进程服务所有已登记的客户**：
+  - 启动参数用 `--run-profile-file`，指向部署级的 Run 设置，共 6 个键：`role_ref`、`context_manifest_ref`、`runtime_profile`、`budget`、`runtime_owner_epoch`、`queue`。它与单客户的 `--recipe-file` 互斥，两者同时给出时进程不启动。reply-guarantor 的参数相同。
+  - 容器入口在私有目录中看到 `relay-run-profile.json` 时传入这个参数。
+- **登记客户**：business setup（Consumer、EffectControl、归属）和 catalog setup（offering、binding）完成后，用 `nexloop-relay-enroll --enrollment-file <私有文件>` 登记，调用者必须是该 EffectControl 的 owner 凭据。
+  - 登记、撤销和读取都是受治理的签名端口，relay 自己不能登记；
+  - 撤销登记、客户进入删除流程（NX-029）或被接管时，relay 在下一次认领或签发时就会停止服务该客户，兜底回复的签发同样如此。
+- **Source 主体固定**：relay 的 Source 凭据（`--source-credential-file`）**必须使用主体 ID `nexloop-service-relay-source-principal`**。
+  - service-grants v16 的 `relay_source_read_rules` 只为这个主体发布读派生规则（0161）：它对已登记客户的 Consumer、offering 和 binding 的读取，在每次读取时由 SQL 派生，不配置任何逐对象授权；
+  - 用其他主体 ID 的 Source，读不到任何客户；
+  - catalog setup 创建 binding 时，`source_principal` 也必须是这个主体。
+  - 这个 Source 的其他授权（`nexloop.service.request` 等）仍按原方式由 owner 配置，不在 service-grants 中。
+- **部署检查**：
+  ```bash
+  nexloop-doctor --relay-source --metrics-database-url-file <只读 nexloop_metrics 的私有 DSN 文件>
+  ```
+  - 对每个有已登记客户的 real 租户核对三件事：存在针对固定主体、处于 active 的规则；该主体有 active 的服务凭据；没有其他 Source 主体的 active 规则。
+  - 任一项不通过时退出码为 1。
+- **告警**：使用 `deploy/configuration/alert-rules.v2.json`，比 v1 多两条：
+  - `relay_unenrolled_pending`（critical）：有待处理消息、却没有任何 relay 登记的客户；
+  - `relay_backlog_age`（warning）。

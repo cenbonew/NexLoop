@@ -78,6 +78,13 @@ def test_consumer_erasure_reaches_plans_formal_objects_and_the_effect_ledger(era
     # A conditional statement keeps a condition while it lives; the erasure clears it too.
     c.claim(c.outbound('如果红色款到货就通知您'),'红色款到货就通知您',modality='conditional',condition='红色款到货')
     seeded=seed_references(c,admin,plan)
+    # Relay multi-consumer (0160-0163): an enrollment of this consumer with its rotation cursor and a claim record, as the relay leaves them.
+    relay_ids=[secrets.token_hex(32) for _ in range(4)]
+    admin.execute('''insert into control.nexloop_relay_enrollments(tenant_id,world,consumer_id,enrollment_revision,state,relay_principal,control_id,offering_id,binding_id,enrolled_by,intent_id)
+        values(%s,'real',%s,1,'active','synthetic-relay',%s,%s,%s,'synthetic-owner','synthetic-relay-enrollment')''',(TENANT,consumer,*relay_ids[:3]))
+    admin.execute("insert into runtime.nexloop_relay_consumer_cursors values(%s,'real',%s,clock_timestamp())",(TENANT,consumer))
+    admin.execute("insert into runtime.nexloop_relay_claims(tenant_id,world,message_id,consumer_id,enrollment_revision,relay_principal,fence) values(%s,'real',%s,%s,1,'synthetic-relay',1)",
+        (TENANT,relay_ids[3],consumer))
     before=scan(admin,TEXTS)
     assert {'runtime.nexloop_strategies','runtime.nexloop_plan_steps','runtime.nexloop_plan_events','runtime.nexloop_plan_outcomes',
             'ontology.objects','ontology.nexloop_assessment_revisions','runtime.nexloop_effect_intents'}<=set().union(*before.values())
@@ -92,6 +99,11 @@ def test_consumer_erasure_reaches_plans_formal_objects_and_the_effect_ledger(era
     assert admin.execute('select count(*) from ontology.events where object_id=any(%s)',([consumer,seeded['assessment'],seeded['link']],)).fetchone()==(0,)
     assert admin.execute('select count(*) from ontology.nexloop_assessment_revisions where assessment_id=%s',(seeded['assessment'],)).fetchone()==(0,)
     assert admin.execute("select count(*) from ontology.objects where type_name='RoleDefinition' and object_id=%s",(seeded['role'],)).fetchone()==(1,)
+    # The consumer's relay enrollments, cursor and claim records are cleared, with one content-free tombstone (0163).
+    for table in ('control.nexloop_relay_enrollments','runtime.nexloop_relay_consumer_cursors','runtime.nexloop_relay_claims'):
+        assert admin.execute(f'select count(*) from {table} where consumer_id=%s',(consumer,)).fetchone()==(0,)
+    assert admin.execute("select subject_key,action,counts from runtime.nexloop_erasure_tombstones where item_class='relay_enrollment'").fetchall()==[
+        (consumer,'deleted',{'relay_enrollments':1,'relay_cursors':1,'relay_claims':1})]
     deleted={k for (k,) in admin.execute("select split_part(subject_key,'/',1) from runtime.nexloop_erasure_tombstones where item_class='formal_object' and action='deleted'").fetchall()}
     assert {'RelationshipAssessment','ConsumerRoleLink','Goal','PlanStep','EffectControl','ConsumerServiceOffering'}<=deleted
     # Plans keep their status chain (codes, versions, digests) without text; the Commitment keeps D4 handling.

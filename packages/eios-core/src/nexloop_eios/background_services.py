@@ -98,7 +98,10 @@ def _parser(service):
         parser.add_argument('--host-port',type=int);parser.add_argument('--host-key-file',type=Path);parser.add_argument('--host-ca-file',type=Path)
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
-        parser.add_argument('--recipe-file',type=Path,required=True)
+        # Relay multi-consumer D4: one consumer's recipe, or the deployment Run profile with enrolled consumers (0160).
+        mode=parser.add_mutually_exclusive_group(required=True)
+        mode.add_argument('--recipe-file',type=Path)
+        mode.add_argument('--run-profile-file',type=Path)
         for name in RELAY_CREDENTIALS:parser.add_argument(f'--{name}-credential-file',type=Path,required=True)
     return parser
 
@@ -297,7 +300,8 @@ def _reply_launcher(stack,arguments):
     from nexloop_eios.reply_fallback import FallbackReplyLauncher
     policy=load_reply_policy(arguments.policy_file)
     for name in RELAY_CREDENTIALS:read_private_text(getattr(arguments,name+'_credential_file'),maximum=16384)
-    recipe=json.loads(read_private_text(arguments.recipe_file,maximum=65536))
+    if arguments.recipe_file is not None:mode={'recipe':json.loads(read_private_text(arguments.recipe_file,maximum=65536))}
+    else:mode={'run_profile':json.loads(read_private_text(arguments.run_profile_file,maximum=65536))}
     api=stack.enter_context(open_backend(database_url=read_private_text(arguments.api_database_url_file,maximum=16384),artifact_root=arguments.artifact_root,
         signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.api_pool_max))
     with api._pool.connection() as connection:
@@ -305,7 +309,7 @@ def _reply_launcher(stack,arguments):
     def session(name):
         return lambda:api.authenticate(read_private_text(getattr(arguments,name+'_credential_file'),maximum=16384),world=arguments.world)
     return FallbackReplyLauncher(route=session('route'),source=session('source'),planner=session('planner'),
-        executor_token=lambda:read_private_text(arguments.executor_credential_file,maximum=16384),recipe=recipe,policy=policy)
+        executor_token=lambda:read_private_text(arguments.executor_credential_file,maximum=16384),policy=policy,**mode)
 
 
 def main_for(service,argv=None):

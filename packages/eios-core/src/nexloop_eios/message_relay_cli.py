@@ -13,7 +13,7 @@ import sys
 import threading
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.backend import open_backend
-from nexloop_eios.message_relay import MessageRelay, validate_recipe
+from nexloop_eios.message_relay import MessageRelay, validate_recipe, validate_run_profile
 from nexloop_eios.private_configuration import read_private_text
 from nexloop_eios.run_credential_vault import RunCredentialVault
 
@@ -28,8 +28,13 @@ class _Parser(argparse.ArgumentParser):
 def arguments(argv):
     parser=_Parser(description=__doc__)
     for name in ('database-url-file','signing-key-file','route-credential-file','source-credential-file',
-        'planner-credential-file','executor-credential-file','artifact-root','vault-root','recipe-file'):
+        'planner-credential-file','executor-credential-file','artifact-root','vault-root'):
         parser.add_argument('--'+name,type=Path,required=True)
+    # Exactly one mode (relay multi-consumer D4): one consumer's recipe, or the deployment Run profile for every consumer
+    # enrolled for this relay principal (0160).
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--recipe-file',type=Path)
+    mode.add_argument('--run-profile-file',type=Path)
     parser.add_argument('--signing-key-id',default='active')
     parser.add_argument('--tick-seconds',type=float,default=.25)
     parser.add_argument('--once',action='store_true')
@@ -42,7 +47,7 @@ def arguments(argv):
     return result
 
 
-def _recipe(path):
+def _strict_json(path):
     def pairs(items):
         result={}
         for key,value in items:
@@ -50,12 +55,20 @@ def _recipe(path):
             result[key]=value
         return result
     def constant(unused): raise ValueError()
-    return validate_recipe(json.loads(read_private_text(path,maximum=32768),object_pairs_hook=pairs,parse_constant=constant))
+    return json.loads(read_private_text(path,maximum=32768),object_pairs_hook=pairs,parse_constant=constant)
+
+
+def _recipe(path):return validate_recipe(_strict_json(path))
+def _run_profile(path):return validate_run_profile(_strict_json(path))
+
+
+def _configuration(config):
+    return ('recipe',_recipe(config.recipe_file)) if config.recipe_file is not None else ('run_profile',_run_profile(config.run_profile_file))
 
 
 def run(config,stop):
     dsn=read_private_text(config.database_url_file,maximum=16384)
-    initial_recipe=_recipe(config.recipe_file)
+    initial=_configuration(config)
     # Runtime Artifacts and bearer vault must have separate directory trees.
     artifact=config.artifact_root.resolve(); vault_path=config.vault_root.resolve()
     if artifact==vault_path or artifact in vault_path.parents or vault_path in artifact.parents: raise ValueError()
@@ -77,15 +90,15 @@ def run(config,stop):
                 print('Message relay ready',flush=True)
                 while not stop.is_set():
                     try:
-                        recipe=_recipe(config.recipe_file)
+                        current=_configuration(config)
                         # Rotation cannot alter stable business assignments in place.
-                        if recipe!=initial_recipe: raise ValueError()
+                        if current!=initial: raise ValueError()
                         route,source,planner=services()
                         executor=read_private_text(config.executor_credential_file,maximum=16384)
                         vault._check()
                         if stop.is_set(): break
                         status=MessageRelay(route=route,source=source,planner=planner,
-                            executor_token=executor,vault=vault,recipe=recipe,context_strategy=config.context_strategy).run_once()
+                            executor_token=executor,vault=vault,**{current[0]:current[1]},context_strategy=config.context_strategy).run_once()
                         if config.once:
                             if status not in {'idle','queued','requires_governed_replan'}: raise ValueError()
                             print(json.dumps({'status':status},separators=(',',':')),flush=True)

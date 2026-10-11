@@ -76,6 +76,11 @@ RETIRED='retired_principals'
 RETIRED_PRINCIPAL={'role','principal_id','retired_in','reason','source_task'}
 MESSAGE_RULE={'principal','read_purpose','fields','valid_until','purpose','source_task'}
 MESSAGE_FIELDS=('accepted_at','actor','body','conversation_id','sequence')
+# 0161: per relay principal of this manifest, the Source principal that prepares its message Contexts (READ derived in SQL
+# from the relay enrollments, docs/implementation/relay-multi-consumer-design.md §11).
+RELAY_SOURCE_RULES='relay_source_read_rules'
+RELAY_SOURCE_RULE={'relay','source_principal_id','valid_until','purpose','source_task'}
+RELAY_ACTION='eios:action:nexloop.conversation.route:1'
 # Read purpose -> Action grants the principal must hold in the same manifest.
 READ_PURPOSES={'claim_extraction':('eios:action:nexloop.claim.extract:1','eios:action:NexLoop.queue.claim-extraction:1'),
     'claim_matching':('eios:action:nexloop.claim.match:1',)}
@@ -92,7 +97,7 @@ ALLOWED={'action':('execute',re.compile(r'eios:action:[A-Za-z0-9][A-Za-z0-9._-]{
 FORBIDDEN_MARKERS=('schema.review','real_dispatch','nexloop.service.request','nexloop.service.query',
     'nexloop.service.receipt_reconcile','nexloop.receipt.reconcile','channel.enable','external_effect')
 ORDER=('subject','membership','actor','authentication','application','subject_authority','resource_graph','grants','scope','controls','policies','revision',
-    'property_group_restriction','property_access_rule','message_purpose_rule')
+    'property_group_restriction','property_access_rule','message_purpose_rule','relay_source_read_rule')
 _ID=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ROLE=re.compile(r'[a-z][a-z0-9_]{0,63}')
 NAMESPACE=uuid.UUID('9b7f3c52-2f43-4b0e-8f0e-4e5800480048')
@@ -108,7 +113,7 @@ def _reject(reason):raise ServiceGrantsRejected(reason)
 
 def validate(value):
     """Structural and policy validation of the public manifest (no I/O)."""
-    if type(value) is not dict or set(value)-{RULES,MESSAGE_RULES,RETIRED}!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
+    if type(value) is not dict or set(value)-{RULES,MESSAGE_RULES,RETIRED,RELAY_SOURCE_RULES}!=TOP or value['schema_version']!=SCHEMA:_reject('manifest_shape')
     if type(value['manifest_version']) is not int or value['manifest_version']<1:_reject('manifest_version')
     if type(value['world']) is not str or re.fullmatch(r'[a-z][a-z0-9_-]{0,79}',value['world']) is None:_reject('world')
     try:valid_from=datetime.fromisoformat(value['valid_from'])
@@ -118,7 +123,7 @@ def validate(value):
         if type(value[key]) is not list or len(value[key])>512:_reject('manifest_shape')
     # Policy exclusions apply to everything that would become authority.
     authority_text=canonical_payload({'principals':value['principals'],'grants':value['grants'],'rules':value.get(RULES,[]),
-        'message_rules':value.get(MESSAGE_RULES,[])}).lower()
+        'message_rules':value.get(MESSAGE_RULES,[]),'relay_source_rules':value.get(RELAY_SOURCE_RULES,[])}).lower()
     for marker in FORBIDDEN_MARKERS:
         if marker in authority_text:_reject('excluded_by_policy:'+marker)
     principals={};identifiers=set()
@@ -149,6 +154,7 @@ def validate(value):
         if not any(g['principal']==role for g in value['grants']):_reject('principal_without_grant')
     _validate_rules(value,principals)
     _validate_message_rules(value,principals)
+    _validate_relay_source_rules(value,principals,identifiers)
     _validate_retired(value,principals,identifiers)
     return value
 
@@ -201,6 +207,24 @@ def _validate_message_rules(value,principals):
         key=(item['principal'],item['read_purpose'])
         if key in seen:_reject('message_read_rule_duplicate')
         seen.add(key)
+
+
+def _validate_relay_source_rules(value,principals,identifiers):
+    if RELAY_SOURCE_RULES not in value:return
+    rules=value[RELAY_SOURCE_RULES]
+    if type(rules) is not list or len(rules)>32:_reject('relay_source_rule_shape')
+    seen=set()
+    for item in rules:
+        if type(item) is not dict or set(item)!=RELAY_SOURCE_RULE or item.get('relay') not in principals:_reject('relay_source_rule_shape')
+        if any(type(item[k]) is not str or not item[k] for k in RELAY_SOURCE_RULE):_reject('relay_source_rule_shape')
+        # The Source is the relay's own Context source, never a managed background principal of this manifest.
+        if _ID.fullmatch(item['source_principal_id']) is None or item['source_principal_id'] in identifiers:_reject('relay_source_rule_principal')
+        if not any(g['principal']==item['relay'] and g['resource_id']==RELAY_ACTION for g in value['grants']):_reject('relay_source_rule_requires_route_grant')
+        try:until=datetime.fromisoformat(item['valid_until'])
+        except Exception:_reject('relay_source_rule_shape')
+        if until.tzinfo is None or until.utcoffset().total_seconds()!=0:_reject('relay_source_rule_shape')
+        if item['source_principal_id'] in seen:_reject('relay_source_rule_duplicate')
+        seen.add(item['source_principal_id'])
 
 
 def _validate_retired(value,principals,identifiers):
@@ -425,6 +449,29 @@ def _message_rule_plan(manifest,tenant,current):
     return writes
 
 
+def compile_relay_source_rules(manifest,tenant):
+    from nexloop_eios.property_access import RelaySourceReadRule
+    roles={p['role']:p for p in manifest['principals']}
+    return [('relay_source_read_rule',[item['source_principal_id']],RelaySourceReadRule(tenant_id=tenant,principal_id=item['source_principal_id'],
+        relay_principal=roles[item['relay']]['principal_id'],active=True,valid_until=datetime.fromisoformat(item['valid_until'])))
+        for item in manifest.get(RELAY_SOURCE_RULES,[])]
+
+
+def _relay_source_rule_plan(manifest,tenant,current):
+    """Rule writes; a rule for a relay of this manifest that is no longer listed is deactivated (never deleted)."""
+    from nexloop_eios.property_access import RelaySourceReadRule
+    writes=[];rules=compile_relay_source_rules(manifest,tenant)
+    for kind,key,fact in rules:
+        stored=current.get((kind,tuple(key)))
+        if stored is None or _model(kind,stored)!=fact:writes.append((kind,key,fact))
+    relays={p['principal_id'] for p in manifest['principals']};listed={tuple(k) for _,k,_ in rules}
+    for (kind,key),payload in current.items():
+        if kind=='relay_source_read_rule' and payload.get('relay_principal') in relays and key not in listed and payload.get('active') is True:
+            old=_model(kind,payload)
+            if old is not None:writes.append((kind,list(key),RelaySourceReadRule(**{**old.model_dump(),'active':False})))
+    return writes
+
+
 def compile_owner_restrictions(owner,tenant):
     from nexloop_eios.property_access import PropertyGroupRestriction
     decision=(owner['decision']+' — '+owner['decided_by'])[:500]
@@ -523,6 +570,7 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictio
     property_writes,property_findings=_property_access_plan(manifest,tenant,current,owner_restrictions)
     writes+=property_writes
     writes+=_message_rule_plan(manifest,tenant,current)
+    writes+=_relay_source_rule_plan(manifest,tenant,current)
     if ('revision',('catalog',)) not in current:writes.append(_revision_fact(tenant))
     unique={}
     for kind,key,fact in writes:unique[(kind,tuple(key))]=(kind,key,fact)

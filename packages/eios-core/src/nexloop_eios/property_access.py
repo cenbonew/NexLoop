@@ -89,3 +89,31 @@ def derived_claims(session,resource_id,operation,basis,type_read):
         'resource_id':resource_id,'target_resource':resource_id,'operation':operation,'expires_at':expires,'facts':[],
         'derivation':DERIVATION,'derivation_basis':{k:basis[k] for k in ('rule_hash','restriction_hash','type_name','schema_version','property_group','review_decision_id')}
             |{'type_read':type_read}}
+
+
+RELAY_SOURCE_DERIVATION='relay-source-v1'
+
+
+class RelaySourceReadRule(BaseModel):
+    """Trusted-configuration ``relay_source_read_rule`` payload (key: [source principal]; 0161).
+
+    The Source principal that prepares the message Contexts of ``relay_principal``. SQL derives, at each read, READ on the
+    Consumer, ServiceOffering and ConsumerServiceOffering of consumers actively enrolled for that relay (0160) whose binding
+    names this Source; nothing per object is configured."""
+    model_config=ConfigDict(extra='forbid',frozen=True)
+    tenant_id:str
+    principal_id:str=Field(min_length=1,max_length=320)
+    relay_principal:str=Field(min_length=1,max_length=320)
+    active:bool
+    valid_until:AwareDatetime
+
+
+def relay_source_claims(session,resource_id,basis):
+    """Typed relay-source proof (READ only; no nested type READ): SQL re-derives it at every use."""
+    authentication=session.authentication
+    expires=min(datetime.fromisoformat(basis['rule_valid_until']),datetime.now(UTC)+timedelta(seconds=25)).isoformat()
+    return {'tenant_id':authentication.tenant_id,'principal_id':authentication.subject_principal_id,
+        'credential_id':authentication.credential_id,'directory_hash':session.directory_hash,'world':session.world,
+        'resource_id':resource_id,'target_resource':resource_id,'operation':'read','expires_at':expires,'facts':[],
+        'derivation':RELAY_SOURCE_DERIVATION,
+        'derivation_basis':{k:basis[k] for k in ('rule_hash','type_name','consumer_id','enrollment_revision','restriction_hash')}}

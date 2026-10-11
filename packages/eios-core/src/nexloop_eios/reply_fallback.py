@@ -43,19 +43,25 @@ class FallbackReplyLauncher:
     """Launches the fallback reply Run of one message as the consumer's message relay identities would.
 
     ``route``, ``source`` and ``planner`` may be callables returning current sessions (re-authenticated per use);
-    ``recipe`` is the consumer's message relay recipe; ``policy`` the reply-guarantee configuration.
+    Exactly one of ``recipe`` (one consumer's message relay recipe) and ``run_profile`` (the deployment Run profile; the
+    consumer's profile is then read from its relay enrollment, 0160, under the relay's route identity) is given; ``policy`` is
+    the reply-guarantee configuration.
     """
 
-    def __init__(self,*,route,source,planner,executor_token,recipe,policy):
-        from nexloop_eios.message_relay import validate_recipe
+    def __init__(self,*,route,source,planner,executor_token,policy,recipe=None,run_profile=None):
+        from nexloop_eios.message_relay import validate_recipe,validate_run_profile
+        if (recipe is None)==(run_profile is None):raise FallbackUnavailable('exactly one of recipe and run profile')
         self._route,self._source,self._planner,self._executor=route,source,planner,executor_token
-        self.recipe=validate_recipe(recipe);self.policy=policy
+        self.recipe=None if recipe is None else validate_recipe(recipe)
+        self.run_profile=None if run_profile is None else validate_run_profile(run_profile)
+        self.policy=policy
 
     @staticmethod
     def _current(value):return value() if callable(value) else value
 
-    def _create(self,planner,type_name,message_id,properties):
-        intent='reply-fallback-'+hashlib.sha256(canonical_payload([message_id,type_name,self.recipe]).encode()).hexdigest()
+    def _create(self,planner,type_name,message_id,properties,recipe=None):
+        recipe=self.recipe if recipe is None else recipe
+        intent='reply-fallback-'+hashlib.sha256(canonical_payload([message_id,type_name,recipe]).encode()).hexdigest()
         return planner.create_object(action_name=type_name+'.create',action_version=1,intent_id=intent,type_name=type_name,properties=properties)['object_id']
 
     def start(self,*,message_id,state):
@@ -63,19 +69,28 @@ class FallbackReplyLauncher:
         from nexloop_eios.message_relay import MessageRelayPort
         route,source,planner=(self._current(x) for x in (self._route,self._source,self._planner))
         executor_token=self._current(self._executor)
-        recipe=self.recipe;fallback=self.policy['fallback']
-        if state.get('consumer_id')!=recipe['consumer_id']:raise FallbackUnavailable('recipe is for another consumer')
+        fallback=self.policy['fallback']
+        if self.recipe is not None:
+            recipe=self.recipe
+            if state.get('consumer_id')!=recipe['consumer_id']:raise FallbackUnavailable('recipe is for another consumer')
+        else:
+            from nexloop_eios.message_relay import MessageRelayPort,MessageRelayUnavailable,recipe_from_profile
+            try:profile=MessageRelayPort(route).call('profile',consumer_id=state.get('consumer_id'))
+            except MessageRelayUnavailable:raise FallbackUnavailable('relay profile unavailable') from None
+            # Not enrolled, withdrawn, erasing or not servable: no fallback Run; the guarantor escalates to the owner.
+            if profile is None:raise FallbackUnavailable('consumer not enrolled for this relay')
+            recipe=recipe_from_profile(self.run_profile,profile)
         tenant=source._session.authentication.tenant_id
         principal=source._session.authentication.subject_principal_id
         executor=route._backend.authenticate(executor_token,world='real')._session.authentication.subject_principal_id
-        goal=self._create(planner,'Goal',message_id,{'consumer_id':recipe['consumer_id'],'state':'active','valid_until':recipe['valid_until']})
+        goal=self._create(planner,'Goal',message_id,{'consumer_id':recipe['consumer_id'],'state':'active','valid_until':recipe['valid_until']},recipe)
         step=self._create(planner,'PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,'control_id':recipe['control_id'],
-            'submitter_principals':[principal],'action_name':'nexloop.service.request','state':'ready'})
+            'submitter_principals':[principal],'action_name':'nexloop.service.request','state':'ready'},recipe)
         assignment={'message_id':message_id,'consumer_id':recipe['consumer_id'],'goal_id':goal,'goal_revision':1,'step_id':step,'step_revision':1,
             'control_id':recipe['control_id'],'control_revision':recipe['control_revision'],'consumer_revision':recipe['consumer_revision'],
             'source_principal':principal,'executor_principal':executor,'recipe_digest':hashlib.sha256(canonical_payload(recipe).encode()).hexdigest(),
             'allowed_actions':[EFFECT],'state':'active','valid_until':recipe['valid_until']}
-        assignment_id=self._create(planner,'MessageAssignment',message_id,assignment)
+        assignment_id=self._create(planner,'MessageAssignment',message_id,assignment,recipe)
         assignment_text=canonical_payload(assignment)
         run_id=str(uuid.uuid4());token=secrets.token_hex(48);token_digest=hashlib.sha256(token.encode()).hexdigest()
         source_digest,proofs,definition,capability=MessageRelayPort(route).source_proofs(source)

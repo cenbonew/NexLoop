@@ -63,6 +63,27 @@ def validate_recipe(recipe):
     return deepcopy(recipe)
 
 
+RUN_PROFILE_KEYS=frozenset({'role_ref','context_manifest_ref','runtime_profile','budget','runtime_owner_epoch','queue'})
+_PLACEHOLDER='0'*64
+
+
+def validate_run_profile(profile):
+    """Relay multi-consumer (0160): the deployment-level Run settings, the same for every consumer."""
+    if type(profile) is not dict or set(profile)!=RUN_PROFILE_KEYS: raise MessageRelayUnavailable()
+    validate_recipe({**profile,'consumer_id':_PLACEHOLDER,'control_id':_PLACEHOLDER,'offering_id':_PLACEHOLDER,'offering_binding_id':_PLACEHOLDER,
+        'control_revision':1,'consumer_revision':1,'valid_until':'2999-01-01T00:00:00+00:00'})
+    from copy import deepcopy
+    return deepcopy(profile)
+
+
+def recipe_from_profile(run_profile,profile):
+    """The per-message recipe: the consumer's enrolled profile (current revisions, read in SQL at claim) + the Run settings."""
+    if type(profile) is not dict: raise MessageRelayUnavailable()
+    return validate_recipe({**run_profile,'consumer_id':profile.get('consumer_id'),'control_id':profile.get('control_id'),
+        'offering_id':profile.get('offering_id'),'offering_binding_id':profile.get('binding_id'),'control_revision':profile.get('control_revision'),
+        'consumer_revision':profile.get('consumer_revision'),'valid_until':profile.get('valid_until')})
+
+
 class MessageRelayPort:
     """Only real authenticated Backend services; all calls own current RLock."""
     def __init__(self, services):
@@ -102,7 +123,7 @@ class MessageRelayPort:
 
 
 class MessageRelay:
-    def __init__(self,*,route,source,planner,executor_token,vault,recipe,relationship_recipe=None,context_strategy=None):
+    def __init__(self,*,route,source,planner,executor_token,vault,recipe=None,run_profile=None,relationship_recipe=None,context_strategy=None):
         from nexloop_eios.relationship_context import RelationshipContextRecipe
         if relationship_recipe is not None and type(relationship_recipe) is not RelationshipContextRecipe:raise MessageRelayUnavailable()
         # NX-023: an explicit strategy selects Context v6 (v2 core, or the v4 core when a
@@ -115,19 +136,32 @@ class MessageRelay:
         self.route,self.source,self.planner=route,source,planner
         self.executor_token=executor_token
         self.vault=vault
-        self.recipe=validate_recipe(recipe)
+        # Exactly one mode (D4): a single consumer's recipe (claim by consumer) or the deployment Run profile (claim_next over
+        # the consumers enrolled for this relay, 0160).
+        if (recipe is None)==(run_profile is None): raise MessageRelayUnavailable()
+        self.recipe=None if recipe is None else validate_recipe(recipe)
+        self.run_profile=None if run_profile is None else validate_run_profile(run_profile)
         if any(service._backend is not route._backend for service in (source,planner)): raise MessageRelayUnavailable()
 
-    def _create(self,type_name,message_id,properties):
-        intent='message-relay-'+hashlib.sha256(canonical_payload([message_id,type_name,self.recipe]).encode()).hexdigest()
+    def _create(self,type_name,message_id,properties,recipe=None):
+        recipe=self.recipe if recipe is None else recipe
+        intent='message-relay-'+hashlib.sha256(canonical_payload([message_id,type_name,recipe]).encode()).hexdigest()
         result=self.planner.create_object(action_name=type_name+'.create',action_version=1,
             intent_id=intent,type_name=type_name,properties=properties)
         return result['object_id']
 
     def run_once(self):
         try:
-            item=self.port.call('claim',consumer_id=self.recipe['consumer_id'],lease_seconds=30)
-            if item is None: return 'idle'
+            if self.recipe is not None:
+                recipe=self.recipe
+                item=self.port.call('claim',consumer_id=recipe['consumer_id'],lease_seconds=30)
+                if item is None: return 'idle'
+            else:
+                item=self.port.call('claim_next',lease_seconds=30)
+                if item is None: return 'idle'
+                recipe=recipe_from_profile(self.run_profile,item.get('profile'))
+                if recipe['consumer_id']!=item['consumer_id']: raise MessageRelayUnavailable()
+            self.last_consumer=recipe['consumer_id']
             message_id=item['message_id']; fence=item['fence']
             from nexloop_eios.context_runtime_bridge import ContextConversationRuntimeBridge
             bridge=ContextConversationRuntimeBridge(self.route)
@@ -136,20 +170,20 @@ class MessageRelay:
                 if recovered is not None:
                     self.port.call('release',message_id=message_id,fence=fence)
                     return 'queued'
-            if datetime.fromisoformat(self.recipe['valid_until'])<=datetime.now(UTC): return 'requires_governed_replan'
+            if datetime.fromisoformat(recipe['valid_until'])<=datetime.now(UTC): return 'requires_governed_replan'
             principal=self.source._session.authentication.subject_principal_id
             executor=self.route._backend.authenticate(self.executor_token,world='real')._session.authentication.subject_principal_id
-            goal=self._create('Goal',message_id,{'consumer_id':self.recipe['consumer_id'],'state':'active','valid_until':self.recipe['valid_until']})
-            step=self._create('PlanStep',message_id,{'consumer_id':self.recipe['consumer_id'],'goal_id':goal,
-                'control_id':self.recipe['control_id'],'submitter_principals':[principal],
-                'action_name':'nexloop.service.request','state':'ready'})
-            assignment={'message_id':message_id,'consumer_id':self.recipe['consumer_id'],
+            goal=self._create('Goal',message_id,{'consumer_id':recipe['consumer_id'],'state':'active','valid_until':recipe['valid_until']},recipe)
+            step=self._create('PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,
+                'control_id':recipe['control_id'],'submitter_principals':[principal],
+                'action_name':'nexloop.service.request','state':'ready'},recipe)
+            assignment={'message_id':message_id,'consumer_id':recipe['consumer_id'],
                 'goal_id':goal,'goal_revision':1,'step_id':step,'step_revision':1,
-                'control_id':self.recipe['control_id'],'control_revision':self.recipe['control_revision'],
-                'consumer_revision':self.recipe['consumer_revision'],'source_principal':principal,
-                'executor_principal':executor,'recipe_digest':hashlib.sha256(canonical_payload(self.recipe).encode()).hexdigest(),
-                'allowed_actions':[EFFECT],'state':'active','valid_until':self.recipe['valid_until']}
-            assignment_id=self._create('MessageAssignment',message_id,assignment)
+                'control_id':recipe['control_id'],'control_revision':recipe['control_revision'],
+                'consumer_revision':recipe['consumer_revision'],'source_principal':principal,
+                'executor_principal':executor,'recipe_digest':hashlib.sha256(canonical_payload(recipe).encode()).hexdigest(),
+                'allowed_actions':[EFFECT],'state':'active','valid_until':recipe['valid_until']}
+            assignment_id=self._create('MessageAssignment',message_id,assignment,recipe)
             key=self.vault.message_key(item['tenant_id'],'real',message_id)
             record=self.vault.prepare(message_key=key,assignment_digest=hashlib.sha256(canonical_payload(assignment).encode()).hexdigest())
             if record.state=='requires_governed_replan': return 'requires_governed_replan'
@@ -161,35 +195,35 @@ class MessageRelay:
             if issued['state']=='requires_governed_replan': return 'requires_governed_replan'
             record=self.vault.mark_issued(message_key=key,run_id=issued['run_id'],token_digest=record.token_digest,expires_at=issued['expires_at'])
             self.planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,
-                consumer_revision=self.recipe['consumer_revision'],control_revision=self.recipe['control_revision'],
+                consumer_revision=recipe['consumer_revision'],control_revision=recipe['control_revision'],
                 run_id=record.run_id,run_token=record.token,executor_token=self.executor_token)
             command={'schema_version':'1.0','run_id':record.run_id,'tenant_id':item['tenant_id'],
                 'world_id':'real','mode':'real','request_id':record.request_id,
                 'trigger_event_id':canonical_event_id(item['tenant_id'],'real',item['source_event_id']),
-                'role_ref':self.recipe['role_ref'],'consumer_ref':'consumer:'+self.recipe['consumer_id'],
-                'goal_version_ref':'goal:'+goal+':revision:1:step:1:control:'+str(self.recipe['control_revision']),
-                'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':self.recipe['runtime_profile'],
-                'credential_ref':'run:'+record.run_id,'budget':self.recipe['budget'],'not_after':record.expires_at,
-                'runtime_owner_epoch':self.recipe['runtime_owner_epoch']}
+                'role_ref':recipe['role_ref'],'consumer_ref':'consumer:'+recipe['consumer_id'],
+                'goal_version_ref':'goal:'+goal+':revision:1:step:1:control:'+str(recipe['control_revision']),
+                'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':recipe['runtime_profile'],
+                'credential_ref':'run:'+record.run_id,'budget':recipe['budget'],'not_after':record.expires_at,
+                'runtime_owner_epoch':recipe['runtime_owner_epoch']}
             self._diagnostic_stage='context_prepare'
             if self.context_strategy is not None:
                 from nexloop_eios.context_artifacts import ContextV6ArtifactProducer
-                formal=None if self.relationship_recipe is None else {'Consumer':self.recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':self.recipe['control_id']}
+                formal=None if self.relationship_recipe is None else {'Consumer':recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':recipe['control_id']}
                 producer=ContextV6ArtifactProducer(self.source,self.context_strategy,self.relationship_recipe,formal)
-                try:context=producer.prepare(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
+                try:context=producer.prepare(message_id=message_id,run_token=record.token,command=command,offering_id=recipe['offering_id'],binding_id=recipe['offering_binding_id'])
                 finally:self._context_diagnostic=producer.last_diagnostic
             elif self.relationship_recipe is None:
-                context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
+                context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command,offering_id=recipe['offering_id'],binding_id=recipe['offering_binding_id'])
             else:
                 from nexloop_eios.relationship_context_artifacts import RelationshipContextArtifactProducer
-                context=RelationshipContextArtifactProducer(self.source,self.relationship_recipe,{'Consumer':self.recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':self.recipe['control_id']}).prepare(message_id=message_id,run_token=record.token,command=command,offering_id=self.recipe['offering_id'],binding_id=self.recipe['offering_binding_id'])
+                context=RelationshipContextArtifactProducer(self.source,self.relationship_recipe,{'Consumer':recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':recipe['control_id']}).prepare(message_id=message_id,run_token=record.token,command=command,offering_id=recipe['offering_id'],binding_id=recipe['offering_binding_id'])
             command['context_manifest_ref']=context['artifact_ref']
-            bridge.bind_message(message_id=message_id,run_token=record.token,command=command,input=context['input'],queue=self.recipe['queue'])
+            bridge.bind_message(message_id=message_id,run_token=record.token,command=command,input=context['input'],queue=recipe['queue'])
             owned=self.port.call('own_route',message_id=message_id,fence=fence)
             run=self.route._backend.authenticate_run(record.token,world='real',run_id=record.run_id)._session
             bridge._call('authorize',message_id=message_id,fence=owned['route_fence'],run_proofs=bridge._authority._run_proofs(run))
             self._diagnostic_stage='runtime_accept'
-            self.route.accept_runtime_event(queue=self.recipe['queue'],source_id='webchat',event_id=command['trigger_event_id'],
+            self.route.accept_runtime_event(queue=recipe['queue'],source_id='webchat',event_id=command['trigger_event_id'],
                 run_token=record.token,command=command,input=context['input'])
             bridge._call('ack',message_id=message_id,fence=owned['route_fence'],allow_missing=False)
             self.port.call('release',message_id=message_id,fence=fence)

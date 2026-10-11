@@ -700,6 +700,26 @@
       "version": "0140",
       "name": "0140_nx029_retention_completion.sql",
       "sha256": "ac1749753237f8b35c9203c0a3c8b6274c7e315c4c54467b489210d589ff8207"
+    },
+    {
+      "version": "0160",
+      "name": "0160_relay_multi_consumer.sql",
+      "sha256": "5d0ff1cbaab0bbe64cb480ad8da4fbb29b3631151930f522fd3d131d7623cc97"
+    },
+    {
+      "version": "0161",
+      "name": "0161_relay_source_read.sql",
+      "sha256": "d64e645e572aa4dc79d45c2a7e1873150f9624c3b962848ed91efdfbcae22f3a"
+    },
+    {
+      "version": "0162",
+      "name": "0162_relay_fallback_enrollment.sql",
+      "sha256": "a8e7865bed4e7a631965372a22603fc22b31d5c54bb1d914627622a75bf6be8a"
+    },
+    {
+      "version": "0163",
+      "name": "0163_relay_erasure.sql",
+      "sha256": "1349fa1b0feb6fb41f93e7f0e4be43a03ff31c95dad78498dcf71bdba75e0ce2"
     }
   ]
 }

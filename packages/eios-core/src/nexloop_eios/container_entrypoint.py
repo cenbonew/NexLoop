@@ -119,7 +119,7 @@ def main():
         for option,name in (('--model-env-file','model.env'),('--embedding-env-file','embedding.env'),('--match-config-file','match-config.json'),('--types-file','types.json'),
                 ('--settings-file','plan-reevaluation.json'),('--api-database-url-file','api_database_url'),('--source-credential-file','source_credential'),
                 ('--planner-credential-file','planner_credential'),('--queue-credential-file','queue_credential'),('--executor-credential-file','executor_credential'),
-                ('--policy-file','reply-guarantee.json'),('--recipe-file','relay-recipe.json'),('--route-credential-file','route_credential'),
+                ('--policy-file','reply-guarantee.json'),('--recipe-file','relay-recipe.json'),('--run-profile-file','relay-run-profile.json'),('--route-credential-file','route_credential'),
                 ('--settings-file','commitments.json'),('--settings-file','commercial.json'),
                 ('--host-key-file','host_internal_key'),('--host-ca-file','host_ca.pem')):
             if (root/name).exists():argv+=[option,str(root/name)]

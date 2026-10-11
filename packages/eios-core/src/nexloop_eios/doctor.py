@@ -104,6 +104,32 @@ def observability(metrics_database_url_file,rules_file):
     return {'checks':checks,'details':details}
 
 
+RELAY_SOURCE_PRINCIPAL='nexloop-service-relay-source-principal'
+
+
+def relay_source(metrics_database_url_file):
+    """Relay multi-consumer (0161): where a real tenant has enrolled consumers, the relay's Source must be the fixed principal
+    nexloop-service-relay-source-principal: an active relay_source_read_rule for it, and an active service credential under it.
+    Read through the read-only nexloop_metrics role only."""
+    from nexloop_eios.observability import read_export
+    try:
+        export=read_export(metrics_database_url_file)
+    except Exception:
+        return {'checks':{'metrics_export':False},'details':{'relay_source_error':'metrics export unavailable'}}
+    tenants={}
+    for snapshot in export:
+        relay=snapshot.get('relay') or {}
+        if snapshot.get('world')!='real' or not relay.get('enrolled_consumers'):continue
+        rules=[r for r in relay.get('source_rules') or [] if r.get('source_principal')==RELAY_SOURCE_PRINCIPAL]
+        tenants[snapshot['tenant_id']]={'enrolled_consumers':relay['enrolled_consumers'],'rule_active':any(r.get('active') for r in rules),
+            'credential_active':any(r.get('active') and r.get('credential_active') for r in rules),
+            'other_sources':sorted({r.get('source_principal') for r in relay.get('source_rules') or [] if r.get('source_principal')!=RELAY_SOURCE_PRINCIPAL and r.get('active')})}
+    checks={'metrics_export':True,'relay_source_rule':all(t['rule_active'] for t in tenants.values()),
+        'relay_source_credential':all(t['credential_active'] for t in tenants.values()),
+        'relay_source_principal_fixed':all(not t['other_sources'] for t in tenants.values())}
+    return {'checks':checks,'details':{'relay_source':{'expected_principal':RELAY_SOURCE_PRINCIPAL,'tenants':dict(sorted(tenants.items()))}}}
+
+
 def main():
     parser=argparse.ArgumentParser(description='Read-only NexLoop foundation doctor')
     parser.add_argument('--artifact-root')
@@ -116,7 +142,14 @@ def main():
     parser.add_argument('--observability',action='store_true',help='NX-030: alert evaluator, rule version and process samples (read-only metrics role)')
     parser.add_argument('--metrics-database-url-file',type=Path,help='private DSN of the read-only nexloop_metrics role')
     parser.add_argument('--alert-rules',type=Path,help='deploy/configuration/alert-rules.v<N>.json')
+    parser.add_argument('--relay-source',action='store_true',help='relay multi-consumer: the relay Source principal and credential (read-only metrics role)')
     args=parser.parse_args()
+    if args.relay_source:
+        if not args.metrics_database_url_file:parser.error('--relay-source requires --metrics-database-url-file')
+        result=relay_source(args.metrics_database_url_file)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.observability:
         if not args.metrics_database_url_file or not args.alert_rules:parser.error('--observability requires --metrics-database-url-file and --alert-rules')
         result=observability(args.metrics_database_url_file,args.alert_rules)

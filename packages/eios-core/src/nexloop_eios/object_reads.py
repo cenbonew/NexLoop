@@ -37,10 +37,13 @@ class AuthorizedObjectReader:
 
     def _derived(self,kind,name,operation):
         if kind not in (ResourceType.OBJECT,ResourceType.PROPERTY) or operation not in (Operation.READ,Operation.EDIT):return None
-        from nexloop_eios.property_access import derived_claims,property_access_basis
+        from nexloop_eios.property_access import RELAY_SOURCE_DERIVATION,derived_claims,property_access_basis,relay_source_claims
         target=resource_id(kind,name)
         basis=property_access_basis(self.pool,self.session,target,operation.value)
         if basis.get('mode')!='derived':return None
+        # 0161: a relay's Source reads its enrolled consumers' Consumer, offering and binding (READ only, no type READ).
+        if basis.get('derivation')==RELAY_SOURCE_DERIVATION:
+            return relay_source_claims(self.session,target,basis) if operation is Operation.READ else None
         type_read=self._configured(ResourceType.OBJECT_TYPE,basis['type_name'],Operation.READ)
         return derived_claims(self.session,target,operation.value,basis,type_read)
 
