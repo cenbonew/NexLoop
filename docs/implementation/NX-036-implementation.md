@@ -108,7 +108,7 @@ D9（不改写历史；历史中出现的凭据、私钥或受限网络标识一
 ## 7. 已知限制与待办
 
 - `README.zh-CN.md`、`GOVERNANCE.md`、`docs/release/public-release-checklist.md` 由 L5 写作；在此之前 `check_public_files.py --public` 失败（预期如此）。13 §7 要求 `README.md` 为英文、`README.zh-CN.md` 为中文，而现有 `README.md` 是中文，需由 L5 调整。
-- 设计稿 §6 中 stage 发布还应增加许可检查与 SBOM 交叉核对（不阻断）。本次只把漏洞策略接入 `sbom`；stage 的许可检查已由本地 CI 的 `check_licenses.py --check` 覆盖，stage 的源码 SBOM 交叉核对尚未接入 NX-034 发布流程。
-- 弱 copyleft 条目的用途说明写的是“源码发布不再分发”。镜像（内部，不公开，NX-034 D7）中含有 psycopg-binary 等 wheel；若将来公开镜像，需要重新评估分发义务。
-- public-preflight 的结果写在单独的 `preflight.json` 并输出其哈希，不写回已签名的发布清单（避免使签名失效）。是否需要在签名前合并进清单，待 NX-034 发布流程定。
+- 设计稿 §6 中 stage 发布的许可检查与 SBOM 交叉核对（不阻断）：已在 NX-034 第二部分接入（`release.py preflight --category stage`，见 `NX-034-part2-implementation.md`）。
+- 弱 copyleft 条目的用途说明写的是“源码发布不再分发”。镜像（内部，不公开，NX-034 D7）中含有 psycopg-binary 等 wheel；镜像公开前须重新评估分发义务（调度员 2026-10-11：本次不做）。
+- public-preflight 与 stage 预检的结果：NX-034 第二部分改为在签名前写入清单的 `preflight` 块，签名覆盖它，`verify` 核对报告文件与摘要（见 `NX-034-part2-implementation.md`）。
 - `--record-off-platform` 依赖 PyPI 与 npm registry 的公开下载地址；记录写入后检查完全离线。锁文件更新时需重新生成并复核记录（锁中出现无记录的未安装包会以退出码 3 失败）。

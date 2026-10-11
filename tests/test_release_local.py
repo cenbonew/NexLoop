@@ -47,8 +47,18 @@ def inputs(tmp_path):
     return dict(sha=sha, images=tmp_path / 'images.json', ci=tmp_path / 'ci.json', tmp=tmp_path)
 
 
-def make(i, name='release', **kw):
-    return release.build_manifest(sha=i['sha'], images=i['images'], ci_result=i['ci'], out=i['tmp'] / name, **kw)
+def passed_preflight(sha, category='stage'):
+    """A synthetic passed preflight report (the real gate is exercised in tests/test_release_compliance.py)."""
+    steps = release.STAGE_PREFLIGHT_STEPS if category == 'stage' else release.PREFLIGHT_STEPS
+    return {'ref': sha, 'commit': sha, 'category': category, 'ok': True, 'steps': {name: {'ok': True} for name in steps}}
+
+
+def make(i, name='release', preflight=True, **kw):
+    """A manifest as `build` leaves it, with a passed stage preflight recorded (NX-034 part 2: verify requires it)."""
+    manifest = release.build_manifest(sha=i['sha'], images=i['images'], ci_result=i['ci'], out=i['tmp'] / name, **kw)
+    if preflight:
+        manifest['preflight'] = release.attach_preflight(i['tmp'] / name, passed_preflight(i['sha']))
+    return manifest
 
 
 def keypair(tmp, name):
