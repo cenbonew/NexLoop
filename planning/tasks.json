@@ -2450,8 +2450,27 @@
       "M23"
     ],
     "deliverable": "DATA_HOST 数据/APP_HOST 应用、端口与角色实际验证、无旧服务修改",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "9b571f5",
+        "summary": "NX-032 切片 0–2（本地，不接触服务器）：参数化 stage 模板（DATA_HOST/APP_HOST Compose、pg_hba、postgresql、Valkey、两台主机 nft 防火墙示例）与白名单渲染器（22 个参数、残留占位符/未知键/非 0600 env 一律拒绝）；证书脚本 issue_certs.py（D1：openssl、离线根 CA、1 年中间 CA、90 天服务与客户端证书）；doctor --tls-spec（证书链、SAN、私钥匹配、剩余有效期、DSN 必须 verify-full、Valkey 只开 TLS 端口）；doctor --deploy-gate（guard=4、连接预算登记、端口绑定、角色权限、秘密分发、总闸关闭、inventory 对比，缺输入即不通过）。证书只在测试临时目录生成，测试断言仓库无私钥。运行手册 docs/implementation/NX-032-deploy-runbook.md 列出 B 类步骤 0–9（命令只用参数、预期输出、撤销、核对项）。",
+        "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T091023Z-c20f8a524024",
+        "summary": "s4w 全量（c20f8a5）：test_deploy_render 4、test_deploy_tls 5（一次性 PG 18 上 TLS 1.3+SCRAM+clientcert=verify-full，7 种错误连接全部被拒）、test_deploy_gate 6 等通过；失败 12 项均在基线（C 类 role_tail 同检出串行 2/2），串行门槛 2/2。合入 main c20f8a5。",
+        "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-032-local-implementation.md",
+        "summary": "剩余：切片 3（部署 dry-run、发布清单核对、拒绝回滚、Caddyfile）与切片 4 预检已在 nx032-local 4889b5e 待合入；切片 4 隔离探测改在 CI 主机 rootless Docker 三容器模拟（CI 主机 AppArmor 限制非特权 userns，不改系统设置）；切片 5 真实双机部署为 B 类，按运行手册逐步由负责人确认；Agent Host 出站与 API 共用网络命名空间为开放设计点，NX-037 前必须解决；Valkey 服务端 TLS 负例待模拟环境补齐。",
+        "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      }
+    ]
   },
   {
     "id": "NX-033",
