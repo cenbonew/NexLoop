@@ -2286,7 +2286,7 @@
       "M23"
     ],
     "deliverable": "Artifact/Pi/索引/备份删除水位与权限测试",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -2323,6 +2323,18 @@
         "ref": "ci:sice/20261010T231158Z-883a04715721",
         "summary": "Full CI for 883a047 (integration-s4o): round 1 (babf24e) had one new deterministic failure, the background tick expected 7 retention classes instead of 10 (test expectation not updated), fixed in the integration branch; round 2: 2789 passed / 14 failed, all within baseline, deadline phase 2/2. Merged as 393fe85.",
         "recorded_at": "2026-10-11T08:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b0ab320",
+        "summary": "Merged the NX-029 completion (L3, 5f69a53/7401212; 0140): the remaining expiry classes with executors and clock-advance tests (plans after close D3, effect bodies 90 d, runtime jobs, model request manifests, read and governance audits D6, deletion ledger kept at least 36 days so restores within the 35-day backup window replay deletions, tombstones), and superseded Claim value copies in mutation proposals cleared. NX-029 deliverable complete: retention, deletion, export, Artifact/Pi/index/backup deletion watermark and permission tests (AT-003, AT-026, AT-059 passed).",
+        "recorded_at": "2026-10-11T08:58:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/20261011T000203Z-7a28dfb57c37",
+        "summary": "Full CI for 7a28dfb (integration-s4p): 2819 passed / 14 failed; 12 within baseline, 2 new real-Pi delivery tests (runtime_transport_unavailable under parallel load) passed serially 3/3 each on the same checkout (C); deadline phase 2/2. Merged as b0ab320.",
+        "recorded_at": "2026-10-11T08:58:00+08:00"
       }
     ]
   },
@@ -2373,8 +2385,15 @@
       "M22"
     ],
     "deliverable": "固定seed数据、1/2/4/8并发、CI同机影响报告",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "b0ab320",
+        "summary": "Merged slice 0 (L4: fixed-seed synthetic generator, loading through governed entries, cluster template and clones, D7 connection budget measured per service and set to 52 <= 60 with doctor checks for every resident service) and the results side (L2: report generator against the section 6.1 gates for C4/C4-low, lane script holding the CI lock in the night window). Design document NX-031 merged. Message-run chain waits for the multi-consumer relay fix (owner approved 2026-10-11).",
+        "recorded_at": "2026-10-11T08:58:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-032",
