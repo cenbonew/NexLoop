@@ -38,7 +38,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-030 on the 0124 registry (0150): the owner silences an alert rule for at most 7 days.
     'alert.silence':'human_owner',
     # AT-043 (0145): the owner issues a catalog incentive; budgeted at dispatch by the executor.
-    'incentive.issue':'human_owner'}
+    'incentive.issue':'human_owner',
+    # NX-035 (0147): the owner opens a scope of a restored database.
+    'restore.open_scope':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

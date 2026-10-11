@@ -424,6 +424,16 @@
   - **推荐**：负责人逐个 scope 发起受治理的 Action `nexloop.restore.open_scope:1`，owner 专属。外部效应窗口中无法核实的 scope 不允许开放，handler 会检查该 scope 的对账计数。
   - **替代**：维护者用部署命令一次性全部开放（更快，但跳过了逐 scope 的确认）。
 
+### 本地部分的裁定（调度员 2026-10-11）
+
+- **Q1**：恢复日志分段在本地不加密，用哈希链加 0600 权限，只含 ID、哈希、序号和时间。分段的静态加密由文件备份仓库（restic，客户端加密）在部署时完成，是受控试运行前的门槛项。不引入 age。
+- **Q2**：本地部分不重建意图（§6.3 第 2 步）。外部有、库里没有的引用计入“无法核实”；有这类计数的渠道、不能按时间查询的渠道，以及恢复时刻仍有未终态意图的渠道，都由恢复工具通过 NX-022 的 action_type 暂停。`open_scope` 之后这些渠道仍然阻断。重建留给切片三。
+- **Q3**：迁移门槛不提供任何豁免。本地用 `pg_basebackup` 做真实备份，用 `pg_verifybackup` 校验，部署时换成 `pgbackrest verify`。
+
+- **`nexloop.restore.open_scope` 的风险级别（负责人 2026-10-11 定案，“全部按推荐”）**：EIOS 风险为 low，不设审批；NexLoop 的分类为 high。补偿控制：只有 owner 能执行；按 scope 逐个开放；有“无法核实”计数的渠道未暂停就不能开放；恢复报告是前置条件；每次开放都留下审计（scope 行和受治理意图记录）。
+
+实现见 `NX-035-local-implementation.md`。
+
 ## 14. 实现切片建议（NX-032、NX-034 完成后）
 
 1. **切片一**：清单表、`nexloop_backup_recorder`、`nexloop-backup`（PG 部分）、`backup.v1.json`、快照的 `backup` 块、告警规则、doctor `--backup`、迁移门槛和 `nexloop-migrate`（AT-056）。

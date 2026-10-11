@@ -289,7 +289,7 @@ class EffectExecutionPort:
     def _record_refusal(self,intent_id,error):
         from nexloop_eios.goal_controls import ControlDenied,REASONS
         code=next((c for c,r in REASONS.items() if isinstance(error,ControlDenied) and r==error.reason),None)
-        if code is None and isinstance(error,psycopg.Error) and re.fullmatch(r'NX[CBM][0-9]{2}',str(getattr(error,'sqlstate','') or '')):code=error.sqlstate
+        if code is None and isinstance(error,psycopg.Error) and re.fullmatch(r'NX[CBMR][0-9]{2}',str(getattr(error,'sqlstate','') or '')):code=error.sqlstate
         if code is None:return
         try:
             with self.pool.connection() as db,db.transaction():

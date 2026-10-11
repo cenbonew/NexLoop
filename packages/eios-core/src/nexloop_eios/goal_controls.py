@@ -48,7 +48,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # AT-043 (0145): a human-owner incentive issue; the executor admits it at dispatch under the incentive budget.
     'issue_incentive':'incentive.issue',
     # NX-030: the owner silences one alert rule (optionally one selector) for at most 7 days.
-    'silence_alert':'alert.silence'}
+    'silence_alert':'alert.silence',
+    # NX-035 (0147): the owner opens one tenant/world scope of a restored, verified database.
+    'open_restore_scope':'restore.open_scope'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -58,7 +60,8 @@ _DECIMAL=re.compile(r'-?\d{1,18}(\.\d{1,12})?')
 # failure to retry blindly: the queued work must be re-evaluated.
 REASONS={'NXC01':'control_paused','NXC02':'control_revision_stale','NXC03':'goal_version_stale',
     'NXC04':'object_revision_stale','NXC05':'contact_restricted','NXB01':'budget_exhausted','NXB02':'budget_consumption_conflict',
-    'NXB03':'budget_unconfigured','NXM01':'observation_conflict'}
+    'NXB03':'budget_unconfigured','NXM01':'observation_conflict',
+    'NXR01':'restore_unverified'}  # NX-035 (0147): restored database not yet opened for this tenant/world
 
 
 def goal_version_ref(goal_id,version):
@@ -236,6 +239,11 @@ class GoalGovernedActions:
         until=until.isoformat() if hasattr(until,'isoformat') else str(until)
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'silence_alert','rule_id':rule_id,'selector':selector,
             'until':until,'reason':reason})
+
+    # NX-035 (0147): owner only; opens real dispatch for this tenant/world once the restored database is verified_readonly.
+    def open_restore_scope(self,*,action_name,action_version,request_id,restore_ref):
+        if not re.fullmatch(r'[A-Za-z0-9._:-]{1,64}',str(restore_ref)):raise ValueError('restore reference required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'open_restore_scope','restore_ref':restore_ref})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
