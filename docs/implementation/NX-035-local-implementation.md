@@ -189,12 +189,11 @@
 - **Q2**：本切片不重建意图。恢复报告逐个渠道列出“无法核实”计数和被暂停的 action_type；`open_scope` 之后被暂停的渠道仍然阻断（已有测试证明）。
 - **Q3**：不提供任何豁免。测试用 `pg_basebackup` 做真实备份，用 `pg_verifybackup` 校验；清单存在但校验失败时同样拒绝迁移（已有测试）。
 
-## 7. 待负责人裁定：`nexloop.restore.open_scope` 的风险级别
+## 7. `nexloop.restore.open_scope` 的风险级别（负责人 2026-10-11 定案）
 
-- **现状**：business-actions v14 暂按 EIOS 风险 `low` 发布，NexLoop 的分类是 `high`。
-  - 原因与 AT-043 D2 相同：vendored EIOS 的 ActionGovernor 对 `low` 以上的风险一律要求审批证据，NexLoop 的部署清单校验也只接受 `low`。
-  - ActionGovernor 没有改动。
-  - 清单（v14）的 decision 和 purpose 里都已写明“暂按 low，待负责人裁定”。
+- **定案**：负责人 2026-10-11 决定“全部按推荐”：EIOS 风险为 `low`，不设审批；NexLoop 的分类为 `high`；由下列五条补偿控制兜底。
+  - 与 AT-043 D2 同一处理：vendored EIOS 的 ActionGovernor 对 `low` 以上的风险一律要求审批证据，ActionGovernor 不改。
+  - business-actions v14 的 decision 和 purpose 已写明定案。
 - **补偿控制**：
   - 只有 owner 能执行（角色清单加 handler 双重检查）；
   - 按 scope 逐个开放；
@@ -202,7 +201,7 @@
   - 恢复报告是前置条件（重放、窗口对账、`bootstrap.verify`、`verified_readonly`）；
   - 每次开放都留下 scope 行（开放人、意图 ID、时间）和受治理入口的意图记录。
 
-## 7. 未完成项
+## 8. 未完成项
 
 - **重建意图**（`reconstructed` / `effect_succeeded_unverified`，设计稿 §6.3 第 2 步）：留给切片三。
 - **各渠道的“按时间查询”读取器**：例如本地 JSON 投递、出站记录服务。目前对账函数接收调用方提供的证据；没有证据的渠道一律按“不能按时间查询”处理，保持暂停。
