@@ -16,6 +16,8 @@ OP=TrustedIdentityOperator(operator_principal_id='nexloop_api',request_id='synth
 @pytest.fixture
 def limiter(admin,pg):
     bootstrap(admin)
+    # NX-052 batch 2: browser configuration references an existing tenant (trusted configuration creates it first).
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing",(TENANT_A,))
     # Administrative auth policy only. Application role never inserts policy/counters.
     admin.execute('insert into control.nexloop_browser_rate_policies values(%s,%s,%s,%s,%s,true)',(TENANT_A,'local_login',OP.operator_principal_id,2,60))
     with open_core(make_conninfo(pg,user='nexloop_api')) as pool:

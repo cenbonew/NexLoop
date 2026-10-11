@@ -17,6 +17,8 @@ def identity(admin,pg):
     subject=Subject(subject_id='synthetic-human-a',kind=SubjectKind.HUMAN,status='active',created_at=now,updated_at=now,revision=1)
     membership=TenantMembership(tenant_id=TENANT_A,principal_id='synthetic-principal-a',subject_id=subject.subject_id,kind=MembershipKind.HOME,status='active',valid_from=now,valid_until=None,revision=1)
     account=LocalAccount(local_account_id='synthetic-account-a',tenant_id=TENANT_A,subject_id=subject.subject_id,username='synthetic-user',verified_email='synthetic@example.invalid',password_hash=EncodedPasswordHash(hasher.hash(password)),status='active',failed_attempts=0,lockout_level=0,locked_until=None,must_change_password=False,session_epoch=1,created_at=now,updated_at=now,revision=1)
+    # NX-052 batch 2: browser configuration references an existing tenant (trusted configuration creates it first).
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing",(TENANT_A,))
     # Canonical authentication setup only, not a business object write fixture.
     admin.execute('insert into control.nexloop_browser_applications values(%s,%s,1,true)',(TENANT_A,'synthetic-browser-app'))
     admin.execute('insert into control.nexloop_browser_subjects values(%s,%s)',(subject.subject_id,Jsonb(subject.model_dump(mode='json'))))
@@ -75,6 +77,7 @@ def test_global_subject_cannot_cross_unrelated_tenant(identity,admin):
     dsn,subject,membership,account,password=identity
     foreign=subject.model_copy(update={'subject_id':'synthetic-human-b'})
     foreign_member=membership.model_copy(update={'tenant_id':TENANT_B,'principal_id':'synthetic-principal-b','subject_id':foreign.subject_id})
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing",(TENANT_B,))
     admin.execute('insert into control.nexloop_browser_applications values(%s,%s,1,true)',(TENANT_B,'synthetic-browser-app'))
     admin.execute('insert into control.nexloop_browser_subjects values(%s,%s)',(foreign.subject_id,Jsonb(foreign.model_dump(mode='json'))))
     admin.execute('insert into control.nexloop_browser_memberships values(%s,%s,%s,%s)',(foreign_member.tenant_id,foreign_member.principal_id,foreign_member.subject_id,Jsonb(foreign_member.model_dump(mode='json'))))

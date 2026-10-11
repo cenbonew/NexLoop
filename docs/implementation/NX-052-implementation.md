@@ -1,6 +1,6 @@
 # NX-052 租户 ID 规范化：实施说明
 
-依据：`docs/implementation/tenant-id-audit.md`（盘点与方案）、`planning/tasks.json` NX-052 deliverable。目标是让 tenant_id 统一为“小写规范 uuid 文本”，列类型仍为 `text`。本说明的迁移号 0230、0157 是临时号，合入时由调度员重新编号。
+依据：`docs/implementation/tenant-id-audit.md`（盘点与方案）、`planning/tasks.json` NX-052 deliverable。目标是让 tenant_id 统一为“小写规范 uuid 文本”，列类型仍为 `text`。本说明的迁移号 0230、0231 是临时号，合入时由调度员重新编号。
 
 ## 0. 设计
 
@@ -12,12 +12,12 @@
 |---|---|---|---|
 | 1a | Claim 契约 tenant_id 改为 uuid，增加 mode；Claim 投影补 mode（0230）；测试租户常量统一 | — | 本分支 |
 | 1b | `control.nexloop_tenants` 加 uuid 格式 CHECK（0157，先 `NOT VALID` 再 `VALIDATE`） | 冷：租户只由可信配置 manifest 写入 | 本分支 |
-| 2 | control、authz 配置类表补 `foreign key(tenant_id) references control.nexloop_tenants`：浏览器应用、成员、限流策略、服务凭据、告警与工作台配置等 | 冷：配置写入 | 只写计划 |
+| 2 | control 配置类 26 张表补 `foreign key(tenant_id) references control.nexloop_tenants`（0158，见第 3 节） | 冷：可信配置、治理设置或负责人操作写入 | 本分支 nx052-batch2 |
 | 3 | ontology 业务表（除 `ontology.objects` 外）以及 Message、Claim、Conversation 族 | 中：每条消息或抽取会写几行 | 只写计划 |
 | 4 | runtime 队列与运行族（除 `runtime.jobs` 外）：Run、Context、模型请求、效果、成本、可观测 | 中到高 | 只写计划 |
-| 5 | 热点表：`ontology.objects`、`runtime.jobs`、`authz.nexloop_authority_facts` | 高 | 只写计划，以测量结果为前提 |
+| 5 | 热点表：`ontology.objects`、`runtime.jobs`。`authz.nexloop_authority_facts` 自 0004 起已有租户外键（盘点时漏计），它作为现有成本的对照基线 | 高 | 只写计划，以测量结果为前提 |
 
-已有外键的 6 张 control 表（audit §1.1）不动。审计里统计的“92 张缺外键的表”以基线 0073 为准，第 2 批开工前要在当时的 main 上用 `pg_constraint` 重新列一遍。
+已有租户外键的 8 张表不动：0004 的 `authz.nexloop_authority_facts`、`authz.nexloop_service_credentials`，0008 的 action_definitions，0040 的 effect_contexts，0048 的效果回执表，以及 0050 的三张身份与配置表（audit §1.1 只列了 6 张 control 表）。在 s5c 之前的分支上，带 `tenant_id` 的基表共 175 张，其中 167 张缺外键：runtime 78 张、control 54 张、ontology 25 张、authz 10 张。下一批开工前仍需在当时的 main 上重新列一遍。
 
 ### 0.2 每批的迁移与回滚
 
@@ -32,7 +32,7 @@
 1. **基准**：使用 NX-031 压测模板（`tests/load_template.py`、`scripts/load/`）在一次性集群上跑 Run 或消息主路径的固定矩阵。分别在“加外键前”和“加外键后、已 VALIDATE”两个状态下各跑 3 轮，取中位数。
 2. **指标**：
    - 每张热点表的写入语句耗时：`pg_stat_statements` 的 `mean_exec_time` 和 `calls`，按语句归到表；
-   - 外键触发器耗时：开启 `track_functions='pl'` 后，`pg_stat_user_functions` 中 `RI_FKey_check_ins`、`RI_FKey_check_upd` 的 `total_time`；
+   - 外键触发器耗时：外键检查由内部 C 触发器 `RI_FKey_check_ins` 执行，`pg_stat_user_functions` 统计不到（原计划写错，已更正）。改用 `explain (analyze)` 输出中 `RI_ConstraintTrigger` 的 `Time` 和 `Calls`；
    - 端到端：dispatch 时延的 p50 和 p95，沿用 NX-031 的口径；
    - 锁：`pg_locks` 采样中对 `control.nexloop_tenants` 的 `ROW SHARE` 和 `KEY SHARE` 等待。外键检查会对父行加 `FOR KEY SHARE`，因此要确认它不与租户行的 `authority_revision` 更新（`FOR UPDATE`）互相阻塞。
 3. **判据**（第 5 批的验收门槛，调度员 2026-10-11 确认）：热点表写入语句的中位耗时增加不超过 10%，端到端 p95 增加不超过 5%，并且出现与 authority_revision 更新的锁等待时不得超过 NX-031 的告警阈值。超出时，该表改用“触发器只校验格式”或继续依赖身份快照，并写入 ADR。
@@ -103,7 +103,114 @@
 
 ## 2. 批次 1b
 
-0157 在 `control.nexloop_tenants` 上增加约束 `nexloop_tenants_tenant_id_uuid check (tenant_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')`：先 `NOT VALID`，再 `VALIDATE`。
+0231 在 `control.nexloop_tenants` 上增加约束 `nexloop_tenants_tenant_id_uuid check (tenant_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')`：先 `NOT VALID`，再 `VALIDATE`。
 
 - 约束只接受小写规范形式，因为三个契约生成器都输出小写。
 - `NOT VALID` 的约束对新插入的行立即生效；`VALIDATE` 负责检查已有的行。
+
+## 3. 批次 2：control 配置类表的租户外键（0260，临时号）
+
+### 3.1 范围
+
+本批共 26 张表，均在 `control.nexloop_` 前缀下：
+
+- 浏览器配置：`browser_applications`、`browser_business_applications`、`browser_accounts`、`browser_memberships`、`browser_rate_policies`；
+- 告警与工作台：`alert_rules`、`alert_silences`、`workbench_configurations`；
+- 预算与上下文：`budget_limits`、`context_strategies`；
+- 目标与指标：`metric_definitions`、`metric_sources`、`goals`、`goal_versions`、`key_results`；
+- 恢复与保留：`restore_channels`、`restore_scopes`、`retention_holds`；
+- 动作配置：`relation_action_bindings`、`action_effect_categories`；
+- 消费者与转发：`erasure_salts`、`consumer_owners`、`relay_enrollments`；
+- 控制面：`control_heads`、`control_scopes`；
+- 商务：`commercial_connectors`。
+
+这些表都由可信配置、治理设置或负责人操作写入，不按消息或 Run 写入。
+
+control 中下列表留到第 4 批，因为它们按消息、登录或事件写入：
+
+- 事件与日志类：`alert_events`、`alert_state`、`browser_login_events`、`browser_evidence`、`control_events`；
+- 会话与限流计数：`browser_sessions`、`browser_rate_counters`；
+- 预算消耗：`budget_consumption`；
+- 指标观测：`metric_observations`、`metric_cohorts`、`metric_cohort_heads`；
+- 回复与接管：`reply_escalations`、`takeover_*`、`contact_*`；
+- 其他：`deletion_ledger`、`data_exports`、`consumer_*` 的其余表、`effect_*`、`run_goal_bindings`、`relationship_context_recipes`、`erased_contact_keys`。
+
+authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4 批。
+
+迁移先对每张表 `add constraint nexloop_<t>_tenant_fk … not valid`，再逐表 `validate constraint`。
+
+**回滚**：新开一个迁移，逐表执行 `alter table control.nexloop_<t> drop constraint if exists nexloop_<t>_tenant_fk`。数据不变。
+
+### 3.2 写入路径核对
+
+| 写入方 | 表 | 租户是否必然已存在 |
+|---|---|---|
+| 0050 / 0142 `configure_manifest`、`initial_identity_create` | 浏览器应用、业务应用、账户、成员、限流策略 | 同一函数先锁定或插入 `nexloop_tenants` |
+| `commercial_configure_connector`（0118）、`restore_reconcile` / `restore_verified`（0147） | commercial_connectors、restore_channels、restore_scopes | 函数内读取 `nexloop_tenants` |
+| `configure_workbench`（0116）、`context_strategy_publish`（0088）、`erasure_step`（0145） | workbench_configurations、context_strategies、erasure_salts | 调用前经身份快照校验，快照要求租户为 active |
+| `conversation_command`（0138）、`relay_enrollment_command`（0141） | consumer_owners、relay_enrollments | 先经签名授权校验，授权要求租户存在 |
+| nx022 系列（0068）、`configure_alert_rules`（0131）、`governed_alert_silence`（0133）、`governed_retention_hold`（0132）、`configure_effect_categories`（0112）、`metric_source_declare`（0119） | 目标、指标、预算、控制面、告警、保留、效果类别 | 都由已认证的服务或负责人会话调用，租户来自签名声明，并由 `nexloop_service_identity_snapshot` 复核 |
+| `browser_test_profile` | 浏览器配置 | 写入前检查租户为 active（第 40 行） |
+| 无 SQL 写入方 | relation_action_bindings | 只有测试直接写入 |
+
+- **没有删除租户的路径**：仓库中没有 `delete from control.nexloop_tenants`，也没有改租户 id 的语句。
+- **备份恢复不受影响**：`pg_dump` 先装载数据再建约束，所以恢复演练不受影响，相关测试在本批的测试集中已通过。
+- **受影响的只有测试捷径**：`test_browser_identity_reads`、`test_browser_rate_limits` 和 `test_browser_tenant_rotation` 在没有租户行的情况下直接写浏览器配置。现已在写入前先插入租户行，与生产顺序一致。
+- **错误码**：违反外键时报 23503，属于拒绝，不是可重试的成功。
+
+### 3.3 冷表的测量方法验证
+
+工具是 `scripts/load/tenant_fk_cost.py`，只在一次性集群上运行。它的做法：
+
+- 对一张表交替删除和重建其 `_tenant_fk`；
+- 每个变体逐行 autocommit 插入，记录客户端测得的中位数和 p95；
+- 用一次 `explain (analyze)` 采样外键触发器的耗时；
+- 做一次锁探针：另一会话按 0050 的方式对租户行持有 `FOR UPDATE`，同时执行插入。
+
+测量表选用无触发器的 `control.nexloop_commercial_connectors`。`test_load_matrix` 禁止 `scripts/load` 写入登录限流策略，所以不用 `browser_rate_policies`。
+
+本机结果（2026-10-11）：2000 行 × 3 轮，取各轮的中位数；测量时开发机负载约为 6。
+
+| 变体 | 中位耗时 | p95 耗时 |
+|---|---|---|
+| 无外键 | 68.9 µs | 84.4 µs |
+| 有外键 | 71.6 µs | 87.1 µs |
+| 比值 | 1.040 | 1.032 |
+
+- **判据**：中位耗时不超过 +10%、p95 不超过 +5%，本批**通过**。
+- **触发器采样**：1 次调用，耗时 0.01 ms。
+- **锁探针**：无外键时插入等待 0.2 ms；有外键时等待 0.307 s，正好等于 `FOR UPDATE` 的持有时长。这在本地复现了 §0.3 第 4 点中的冲突。冷表的配置写入与配置发布本来就在同一个运维窗口里，影响可以接受；但第 5 批之前，“改为 `for no key update`”的评审是必需的。
+- **端到端 p95**：本批的表不在 dispatch 主路径上，端到端 p95 按定义不受影响。第 3 至 5 批要用 NX-031 的矩阵测量端到端 p95，而不是本节的语句级 p95。
+
+## 4. 批次 3 设计（只写设计，尚未实现）
+
+### 4.1 范围与分组
+
+第 3 批覆盖 ontology 中除 `ontology.objects` 外的 24 张表，以及会话、消息、Claim 族。热点表 `ontology.objects` 和 `runtime.jobs` 不在本批。表按写入频率和来源分为四组，每组一个迁移，按 3a → 3d 的顺序合入：
+
+| 组 | 表 | 写入频率 | 说明 |
+|---|---|---|---|
+| 3a 定义与配置 | `ontology.nexloop_merge_configurations`、`nexloop_recall_settings`、`nexloop_embedding_profiles`、`nexloop_definition_aliases`、`nexloop_candidate_definitions`、`nexloop_candidate_events`、`nexloop_candidate_rejections`、`nexloop_review_decisions`、`nexloop_instance_approvals`、`nexloop_assessment_revisions` | 冷：评审或治理动作 | 与第 2 批同类，可直接沿用第 2 批的做法 |
+| 3b 抽取与 Claim | `ontology.nexloop_claims`、`nexloop_claim_matches`、`nexloop_claim_rematch`、`nexloop_conversation_topics`、`nexloop_extraction_runs`、`nexloop_extraction_run_claims`、`nexloop_mutation_proposals`、`runtime.nexloop_claim_extraction_feed` | 中：每条消息的抽取会写几行到几十行 | 一次抽取在一个事务里多行写入，外键检查会对同一租户行加多次 `FOR KEY SHARE`（同一事务内只锁一次，代价主要是索引查找） |
+| 3c 会话与消息 | `runtime.nexloop_conversations`、`nexloop_conversation_messages`、`nexloop_message_inbox`、`nexloop_message_outbox`、`nexloop_message_routes`、`nexloop_message_provider_facts`、`nexloop_message_reply_links`、`nexloop_message_relay_leases`、`nexloop_relay_claims`、`nexloop_relay_consumer_cursors`、`nexloop_outbound_messages`、`nexloop_native_web_events`、`nexloop_native_web_transports`、`nexloop_staff_replies` | 中到高：每条入站或出站消息都会写入 | 位于消息受理的 ACK 前路径，端到端时延必须实测 |
+| 3d 上游 EIOS 核心表 | `ontology.events`、`relations`、`object_type_versions`、`event_type_versions`、`relation_type_versions`，以及 `nexloop_recall_entries`、`nexloop_recall_embeddings` | `events` 随对象变更写入，接近热点；其余为冷表 | 需要先决定，见 4.4 |
+
+### 4.2 迁移与回滚
+
+- 做法与第 2 批相同：每组一个迁移，先 `not valid`，再逐表 `validate`；回滚时新开迁移 `drop constraint if exists`。
+- 3c 中的表在真实部署里可能较大。如果预检发现单表 VALIDATE 超过迁移窗口（建议上限 60 秒，可在部署副本上实测），就把该表的 VALIDATE 拆到下一次发布。
+- 擦除路径（NX-029）删除或改写的是子表的行，外键不会影响子行的删除。
+
+### 4.3 测量
+
+- **3a**：只做语句级测量，方法同 §3.3。
+- **3b、3c**：用 NX-031 压测矩阵测量端到端时延。在 1b 之后的同一模板上，分别跑加外键前和加外键后两个状态，各 3 轮，比较 dispatch 时延的 p50 和 p95，判据为 p95 增加不超过 5%。语句级采样同时用 `tenant_fk_cost.py` 覆盖 `nexloop_conversation_messages` 和 `nexloop_claims`。需要在 TABLES 中加入这两张表；它们带触发器，清理语句要走测试专用路径。
+- **锁**：3c 位于消息受理的事务里，必须并发跑“配置发布（0050 的 `FOR UPDATE`）+ 消息受理”的锁探针。如果“改为 `for no key update`”的评审尚未完成，并且锁等待超出判据，那么 3c 要等这项评审完成后再合入。
+
+### 4.4 待决定
+
+1. **3d 是否加外键**：`ontology.events`、`relations` 等 5 张表来自 vendored EIOS 核心（0001）。给它们加 NexLoop 的 `control.nexloop_tenants` 外键，会让核心 schema 依赖 NexLoop 的控制面表。建议的处理方式二选一：
+   - 只给 NexLoop 自己的 recall 表加外键，核心表继续依赖身份快照；
+   - 以 ADR 记录这一偏离，然后再加外键。
+2. **`ontology.events` 的归类**：它随对象变更写入，写入量接近 `ontology.objects`。建议把它归入第 5 批，与 `objects` 一起测量。
+3. **3c 与 0050 锁评审的先后**：建议先完成“改为 `for no key update`”的评审，再合入 3c。

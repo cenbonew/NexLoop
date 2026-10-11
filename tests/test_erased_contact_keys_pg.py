@@ -22,7 +22,7 @@ from nexloop_eios.http_api import ApiConfiguration, create_app
 from nexloop_eios.workbench_roles import apply_members, compile_members
 from commercial_fixture import publish_registry_actions
 from commitment_fixture import TENANT, commitments  # noqa: F401
-from support.tenants import TENANT_A
+from support.tenants import TENANT_A, TENANT_B
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
@@ -77,11 +77,14 @@ def keys(admin, tenant):
 @pytest.fixture
 def catalog(admin):
     bootstrap(admin)
+    # NX-052: the synthetic tenants exist before any tenant-scoped configuration row (tenant foreign keys).
+    for tenant in (TENANT_A, TENANT_B):
+        admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (tenant,))
     return admin
 
 
 def test_comparison_is_by_hmac_only_and_revocation_and_a_new_erasure_change_it(catalog):
-    admin, t = catalog, 'synthetic-tenant-a'
+    admin, t = catalog, TENANT_A
     assert erased(admin, t, REF) is False  # no salt, nothing erased
     erase_refs(admin, t, [REF])
     assert erased(admin, t, REF) is True and erased(admin, t, REF.replace('ab', 'cd')) is False and erased(admin, 'other-tenant', REF) is False
@@ -95,7 +98,7 @@ def test_comparison_is_by_hmac_only_and_revocation_and_a_new_erasure_change_it(c
 
 
 def test_a_consumer_never_gains_an_erased_identity_reference(catalog):
-    admin, t = catalog, 'synthetic-tenant-a'
+    admin, t = catalog, TENANT_A
     erase_refs(admin, t, [REF])
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')  # seed a Consumer as its creator leaves it
@@ -212,7 +215,7 @@ def test_only_the_owner_revokes_with_a_reason_and_the_revocation_is_journaled_wi
 
 
 def test_replay_keeps_the_newest_state_of_each_key(catalog):
-    admin, t = catalog, 'synthetic-tenant-a'
+    admin, t = catalog, TENANT_A
     erase_refs(admin, t, [REF])
     digest = keys(admin, t)[0][0]
     entry = lambda revision, revoked: {'subject': 'erased_contact_key', 'tenant_id': t, 'world': 'real', 'key_digest': digest, 'request_id': 'erasure-req-1',
