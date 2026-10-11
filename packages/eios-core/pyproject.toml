@@ -37,6 +37,7 @@ nexloop-relay-enroll = "nexloop_eios.relay_enrollment:main"
 nexloop-commitment-keeper = "nexloop_eios.background_services:commitment_keeper"
 nexloop-commercial-recorder = "nexloop_eios.background_services:commercial_recorder"
 nexloop-retention-keeper = "nexloop_eios.background_services:retention_keeper"
+nexloop-incentive-issuer = "nexloop_eios.background_services:incentive_issuer"
 nexloop-recall-indexer = "nexloop_eios.background_services:recall_indexer"
 nexloop-alert-evaluator = "nexloop_eios.background_services:alert_evaluator"
 

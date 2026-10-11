@@ -76,7 +76,7 @@ def test_root_docker_context_is_fail_closed():
     assert (ROOT/'.dockerignore').read_text().splitlines()[1]=='**'
     source=yaml.safe_load((ROOT/'deploy/community/compose.test.yaml').read_text())
     assert set(source['services'])=={'postgres','bootstrap','api-test','check-test','cache-bootstrap','valkey','host-bootstrap','host-test','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder',
-        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator'}
+        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator','incentive-issuer'}
     assert source['services']['bootstrap']['secrets']==['bootstrap_dsn']
     assert 'pg_bootstrap_password' not in source['services']['check-test'].get('secrets',[])
     assert source['services']['valkey']['user']=='10001:10001'
@@ -116,7 +116,8 @@ def test_outbound_recorder_is_opt_in_restricted_and_not_mounted_elsewhere():
     assert all(not service.get('profiles') for name,service in source['services'].items() if name not in ('outbound-recorder',)+BACKGROUND)
 
 
-BACKGROUND=('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator')
+BACKGROUND=('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator',
+    'incentive-issuer')
 
 
 def test_background_services_are_opt_in_restricted_and_not_mounted_elsewhere():
@@ -126,8 +127,11 @@ def test_background_services_are_opt_in_restricted_and_not_mounted_elsewhere():
         service=source['services'][name]
         assert service['profiles']==['background'] and service['command']==[name] and service['user']=='10001:10001'
         assert service['networks']==['core_test'] and not service.get('secrets') and not service.get('ports')
-        assert service['volumes']==['background_config:/private/background:ro','artifacts:/var/lib/nexloop/artifacts']
+        # AT-043: the incentive issuer adds only its own writable loopback ledger volume (D9).
+        assert service['volumes']==['background_config:/private/background:ro','artifacts:/var/lib/nexloop/artifacts',
+            *(['incentive_ledger:/var/lib/nexloop/incentive-ledger'] if name=='incentive-issuer' else [])]
         assert service['read_only'] is True and service['cap_drop']==['ALL'] and service['security_opt']==['no-new-privileges:true']
     for name,service in source['services'].items():
         if name not in BACKGROUND:assert not any('background_config' in v for v in service.get('volumes',[]))
+        if name!='incentive-issuer':assert not any('incentive_ledger' in v for v in service.get('volumes',[]))
     assert 'background_config' in source['volumes']

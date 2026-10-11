@@ -27,7 +27,7 @@
 
 ### 2.1 名称与参数
 
-- Action：`nexloop.incentive.issue:1`，capability `incentive.issue`，`risk_level=medium`（涉及金钱，见 D2），幂等。
+- Action：`nexloop.incentive.issue:1`，capability `incentive.issue`，幂等。D2（负责人 2026-10-11）：EIOS 风险 low、无审批；NexLoop 分类 medium，补偿控制为三重约束（目录单次上限、每 Consumer 周期上限、租户预算）。
 - 冻结请求（`frozen_request.parameters`，canonical JSON，所有字段必填）：
 
 | 参数 | 类型 | 说明 |
@@ -137,14 +137,14 @@
 
 - **调度员裁定（2026-10-11）**：D1、D3、D6、D8 采用推荐；D8 的 `context-pack-v6` 契约改动获批，只列该客户绑定的、当前有效的目录项和剩余额度区间，不列预算余额。
 - **负责人决定（2026-10-11，经调度员转达）**：D2、D4、D5、D7、D9，原话“全部按推荐”。
-- 实现时发现的冲突（报调度员裁定）：D2 推荐 `risk_level=medium`、`approval_mode=none`，但 vendored EIOS 的 ActionGovernor 对非 low 风险一律要求审批证据（`eios/actions/governance.py` `_validate_approval_evidence`），部署清单也只发布 low 风险 Action。按 medium 发布会使负责人发放必须走审批。实现暂按 low 发布，三重约束（目录单次上限、每 Consumer 周期上限、租户预算）照常生效。
+- D2（负责人 2026-10-11）：EIOS 风险 low、无审批；NexLoop 分类 medium，补偿控制为三重约束（目录单次上限、每 Consumer 周期上限、租户预算）。负责人 2026-10-11 原话“全部按推荐”（经调度员转达）：在 EIOS 里按 low 发布，不接审批流，不改 vendored ActionGovernor（它对非 low 风险一律要求审批证据）。
 - D8 的实现没有改动契约形状：v6 的 `open_work` 条目本身是通用形状（subsection 为字符串、content 任意），优惠目录作为 `incentive` 子段的 formal 条目加入，由 SQL 在 bind 时重算（与 NX-026 承诺条目相同的方式）。
 
 以下为原稿中的各项与推荐：
 
 
 - **D1 Action 形态。** 推荐：独立 Action `nexloop.incentive.issue:1`，不复用 `nexloop.service.request`。理由：类别（不触达）、预算（incentive）、目录与参数都不同；复用会让服务请求可以夹带优惠，破坏 AT-010。
-- **D2 风险级别与审批。** 推荐：`risk_level=medium`、`approval_mode=none`，靠目录上限、每 Consumer 周期上限与租户预算三重约束；替代：单次超过某金额时需要负责人审批（引入审批流，v0.1 不建议）。
+- **D2 风险级别与审批。** 推荐：`risk_level=medium`、`approval_mode=none`，靠目录上限、每 Consumer 周期上限与租户预算三重约束；替代：单次超过某金额时需要负责人审批（引入审批流，v0.1 不建议）。定案：EIOS 风险 low、无审批，NexLoop 分类 medium（见本节开头）。
 - **D3 Role ceiling 是否增加优惠金额上限。** 推荐：v0.1 不改 ceiling 形状（现为精确 9 字段），以 `action_resources` 控制能否发放、以目录控制金额；替代：ceiling 增加 `incentive_limit_minor`，需要迁移 RoleExecutionCeiling 形状与现有对象。
 - **D4 负责人能否在目录外单次发放。** 推荐：不能；负责人先经受治理 Action 在目录中新增或修改 IncentiveOffering，再发放，保证每笔优惠都有目录依据。
 - **D5 口头许诺目录外优惠的处理。** 推荐：NX-026 登记为异常 `unauthorized_incentive_promise` 并提示负责人，不生成可履行的 Commitment，也不自动发放。

@@ -18,6 +18,9 @@
                                        deletion with tombstones, NX-029); no table privilege, no content
 ``nexloop-alert-evaluator``          (nexloop_domain_worker) alert rules on the metrics snapshot → deduplicated alert state/events
                                        (NX-030; world real only), sample rollup and retention
+``nexloop-incentive-issuer``         (nexloop_domain_worker) accepted incentive intents → admitted at dispatch (controls, contact
+                                       restriction, catalog, per-Consumer limit, tenant budget) → loopback ledger once; unknown
+                                       answers queried, never re-sent (AT-043; D9: no real incentive channel)
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -48,6 +51,7 @@ SERVICES={
     'commercial-recorder':('Commercial Recorder','nexloop_domain_worker'),
     'retention-keeper':('Retention Keeper','nexloop_domain_worker'),
     'alert-evaluator':('Alert Evaluator','nexloop_domain_worker'),
+    'incentive-issuer':('Incentive Issuer','nexloop_domain_worker'),
 }
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
@@ -98,6 +102,9 @@ def _parser(service):
     if service=='retention-keeper':
         # NX-029 D8: the Agent Host's loopback runs/purge (all three or none; without them Run files stay queued).
         parser.add_argument('--host-port',type=int);parser.add_argument('--host-key-file',type=Path);parser.add_argument('--host-ca-file',type=Path)
+    if service=='incentive-issuer':
+        # AT-043 D9: the loopback ledger is the only provider (a private, writable directory of fsynced records).
+        parser.add_argument('--ledger-directory',type=Path,required=True)
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         # Relay multi-consumer D4: one consumer's recipe, or the deployment Run profile with enrolled consumers (0160).
@@ -198,6 +205,9 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
     if service=='retention-keeper':
         from nexloop_eios.retention import RetentionKeeper
         return RetentionKeeper(pool,session,signer,**(launcher or {})).run_once()
+    if service=='incentive-issuer':
+        from nexloop_eios.incentives import IncentiveIssuer,LocalIncentiveLedger
+        return IncentiveIssuer(pool,session,signer,LocalIncentiveLedger(arguments.ledger_directory)).run_once()
     if service=='alert-evaluator':
         # NX-030: alert rules on the SQL metrics snapshot (world real only, D6); also rolls up and expires process samples (D5).
         from nexloop_eios.observability import AlertEvaluator
@@ -366,6 +376,7 @@ def commitment_keeper(argv=None):return main_for('commitment-keeper',argv)
 def commercial_recorder(argv=None):return main_for('commercial-recorder',argv)
 def retention_keeper(argv=None):return main_for('retention-keeper',argv)
 def alert_evaluator(argv=None):return main_for('alert-evaluator',argv)
+def incentive_issuer(argv=None):return main_for('incentive-issuer',argv)
 
 
 if __name__=='__main__':

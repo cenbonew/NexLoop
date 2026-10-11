@@ -23,7 +23,7 @@ ROLES={'claim-extraction-scheduler':('claim_extraction_scheduler','nexloop_api')
     'claim-matcher':('claim_matcher','nexloop_domain_worker'),'recall-indexer':('recall_indexer','nexloop_domain_worker'),
     'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker'),'reply-guarantor':('reply_guarantor','nexloop_domain_worker'),
     'commitment-keeper':('commitment_keeper','nexloop_domain_worker'),'commercial-recorder':('commercial_recorder','nexloop_domain_worker'),
-    'retention-keeper':('retention_keeper','nexloop_domain_worker')}
+    'retention-keeper':('retention_keeper','nexloop_domain_worker'),'incentive-issuer':('incentive_issuer','nexloop_domain_worker')}
 
 
 def argv(d,tmp_path,service,*,role=None,policy=None):
@@ -52,6 +52,8 @@ def argv(d,tmp_path,service,*,role=None,policy=None):
         args+=['--settings-file',str(ROOT/'deploy/configuration/commitments.v1.json')]
     if service=='commercial-recorder':
         args+=['--settings-file',str(ROOT/'deploy/configuration/commercial.v1.json')]
+    if service=='incentive-issuer':
+        args+=['--ledger-directory',str(tmp_path/'incentive-ledger')]
     if service=='reply-guarantor':
         # Idle tick: nothing is due, so the relay identities are read but never authenticated (synthetic placeholders);
         # the fallback itself is exercised by tests/test_reply_fallback_pg.py.
@@ -78,7 +80,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
     ('commitment-keeper',{'changed':0,'dead_lettered':0,'lease_lost':0,'reaffirmed':0,'registered':0,'retry':0,'settled':0,'skipped':0,'transitions':0}),
     ('commercial-recorder',{'changed':0,'created':0,'dead_lettered':0,'edited':0,'late':0,'lease_lost':0,'retry':0,'unchanged':0}),
     ('retention-keeper',{'artifacts_deleted':0,'artifacts_failed':0,'classes':17,'erasure_steps':0,'incomplete':0,'passes':17,'processed':0,
-        'runs_failed':0,'runs_purged':0})])
+        'runs_failed':0,'runs_purged':0}),
+    ('incentive-issuer',{'admitted':0,'failed':0,'fulfilled':0,'refused':0,'unknown':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()
     assert B.main_for(service,argv(d,tmp_path,service))==0
@@ -147,3 +150,38 @@ def test_reply_guarantor_refuses_to_start_when_the_fallback_cannot_finish_inside
     assert B.main_for('reply-guarantor',argv(d,tmp_path,'reply-guarantor',policy=bad))==1
     out,err=capsys.readouterr()
     assert out=='' and err=='Reply Guarantor unavailable\n'
+
+
+def test_incentive_issuer_entry_admits_an_accepted_intent_and_issues_it_once(deployment,admin,tmp_path,capsys):
+    """AT-043 wiring: the deployed entry, with the manifest's incentive_issuer credential, admits an accepted intent at
+    dispatch under the tenant budget and issues it once through the loopback ledger; a second tick finds nothing."""
+    import secrets
+    from datetime import UTC,datetime,timedelta
+    d=deployment;d['apply']()
+    consumer,offering,binding=(secrets.token_hex(32) for _ in range(3));now=datetime.now(UTC)
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        for type_name,object_id,properties in (('Consumer',consumer,{}),
+                ('IncentiveOffering',offering,{'incentive_code':'welcome-credit','kind':'fixed_amount','max_amount_minor':'500','per_consumer_period_limit_minor':'1000',
+                    'currency':'CNY','eligibility':'bound_consumer','title':'测试优惠','active':True,'valid_until':(now+timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')}),
+                ('ConsumerIncentiveOffering',binding,{'consumer_id':consumer,'offering_id':offering,'offering_revision':1,'source_principal':'synthetic-owner','active':True})):
+            admin.execute("""insert into ontology.objects(tenant_id,type_name,object_id,schema_version,properties,created_at,updated_at,world,nexloop_revision)
+                values(%s,%s,%s,1,%s,now(),now(),'real',1)""",(TENANT,type_name,object_id,Jsonb(properties)))
+        admin.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+        admin.execute("""insert into control.nexloop_budget_limits(tenant_id,world,budget_kind,unit,limit_amount,period_start,period_end,revision)
+            values(%s,'real','incentive','CNY','1000',%s,%s,1)""",(TENANT,now-timedelta(days=1),now+timedelta(days=30)))
+    with admin.transaction():
+        admin.execute('set local role nexloop_owner')
+        # As the owner's governed entry records it (that path is covered by tests/test_incentives_pg.py).
+        admin.execute("""select runtime.nexloop_incentive_accept(%s,'real','incentive-wiring-1',%s,%s,1,%s,300,'CNY','','human','synthetic-owner','human',null,null)""",
+            (TENANT,consumer,offering,binding))
+    assert B.main_for('incentive-issuer',argv(d,tmp_path,'incentive-issuer'))==0
+    out,err=capsys.readouterr();lines=out.strip().splitlines()
+    assert lines[0]=='Incentive Issuer ready' and json.loads(lines[1])=={'admitted':1,'failed':0,'fulfilled':1,'refused':0,'unknown':0} and err==''
+    assert admin.execute("select state from runtime.nexloop_incentive_issues where intent_id='incentive-wiring-1'").fetchone()==('fulfilled',)
+    assert admin.execute("select amount::text from control.nexloop_budget_consumption where consumption_id='incentive:incentive-wiring-1'").fetchone()==('300',)
+    assert len(list((tmp_path/'incentive-ledger').glob('*.json')))==1
+    assert B.main_for('incentive-issuer',argv(d,tmp_path,'incentive-issuer'))==0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[1])['admitted']==0
+    assert len(list((tmp_path/'incentive-ledger').glob('*.json')))==1
+    assert not any(secret in out+err for secret in hidden(d))

@@ -17,8 +17,8 @@ def runtime(document):return next(s for s in document['services'] if s['name']==
 def test_declared_stage_budget_is_within_policy():
     result=budget.evaluate(DOCUMENT,max_connections=80)
     # NX-031 D7 (measured smallest workable pools): api 2x4 + domain-worker 2 + action-worker 2 + scheduler 4 (reserve) + runtime 2+4x4
-    # + message-relay 2 + outbound-recorder 2 + 10 background services x 1 + 2 launcher API pools x 2 = 52.
-    assert result['passed'] and result['details']['application_pool_total']==52 and result['details']['missing_services']==[]
+    # + message-relay 2 + outbound-recorder 2 + 11 background services x 1 + 2 launcher API pools x 2 = 53.
+    assert result['passed'] and result['details']['application_pool_total']==53 and result['details']['missing_services']==[]
     assert result['details']['services']['runtime-worker']==2+4*4
 
 
@@ -34,11 +34,12 @@ def test_max_connections_floor(max_connections,passed):
 
 
 def test_total_over_sixty_fails():
-    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=6  # 2 + 6*4 = 26 -> 60 total, still ok
+    # AT-043 added one background service (53 at the default four guard workers): five still fit, six do not.
+    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 57 total, still ok
     assert budget.evaluate(document)['passed']
-    runtime(document)['guard_workers']=7  # 2 + 7*4 = 30 -> 64 total
+    runtime(document)['guard_workers']=6  # 2 + 6*4 = 26 -> 61 total
     result=budget.evaluate(document)
-    assert not result['passed'] and result['details']['application_pool_total']==64
+    assert not result['passed'] and result['details']['application_pool_total']==61
 
 
 @pytest.mark.parametrize('mutate',[
@@ -175,6 +176,7 @@ def _required(service):
         'recall-indexer':['--types-file','x'],'commitment-keeper':['--settings-file','x'],'commercial-recorder':['--settings-file','x'],
         'plan-reevaluator':['--settings-file','x','--api-database-url-file','x','--effect-action','eios:action:x:1',
             *[a for n in B.LAUNCH_CREDENTIALS for a in (f'--{n}-credential-file','x')]],
+        'incentive-issuer':['--ledger-directory','x'],
         'reply-guarantor':['--policy-file','x','--api-database-url-file','x','--recipe-file','x',*[a for n in B.RELAY_CREDENTIALS for a in (f'--{n}-credential-file','x')]]}
     return extra.get(service,[])
 
