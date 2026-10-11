@@ -261,7 +261,7 @@ def test_governance_audit_leaves_a_year_after_the_event(erasing,admin):
     # The deletion request stays while its ledger entry does (the ledger outlives every backup).
     assert admin.execute("select count(*) from control.nexloop_consumer_erasures where request_id='erase-old'").fetchone()==(1,)
     backdate(admin,"update control.nexloop_deletion_ledger set recorded_at=%s where request_ref='erase-old'",(now-timedelta(days=366),))
-    record_journal_export(admin)  # 0250: the ledger entry leaves only once the restore journal carrying it is exported
+    record_journal_export(admin)  # 0156: the ledger entry leaves only once the restore journal carrying it is exported
     fresh_tick(c)  # records removes the entry, governance_audit (earlier in the same tick) still saw it
     fresh_tick(c)
     assert admin.execute("select count(*) from control.nexloop_consumer_erasures where request_id='erase-old'").fetchone()==(0,)
@@ -284,7 +284,7 @@ def test_ledger_and_tombstones_outlive_backups_and_never_leave_during_a_replay(e
     assert refs()==['rec-old','rec-old','rec-young','rec-young']
     backdate(admin,"update control.nexloop_deletion_replays set state='replayed',finished_at=now() where restore_ref='restore-1'")
     fresh_tick(c)
-    # 0250: the old tombstone leaves on its days; the old ledger entry waits for the export of its journal entry.
+    # 0156: the old tombstone leaves on its days; the old ledger entry waits for the export of its journal entry.
     assert refs()==['rec-old','rec-young','rec-young']
     record_journal_export(admin)
     fresh_tick(c)

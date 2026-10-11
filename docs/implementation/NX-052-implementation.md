@@ -1,6 +1,6 @@
 # NX-052 租户 ID 规范化：实施说明
 
-依据：`docs/implementation/tenant-id-audit.md`（盘点与方案）、`planning/tasks.json` NX-052 deliverable。目标是让 tenant_id 统一为“小写规范 uuid 文本”，列类型仍为 `text`。本说明的迁移号 0230、0231 是临时号，合入时由调度员重新编号。
+依据：`docs/implementation/tenant-id-audit.md`（盘点与方案）、`planning/tasks.json` NX-052 deliverable。目标是让 tenant_id 统一为“小写规范 uuid 文本”，列类型仍为 `text`。本说明的迁移号 0230、0157 是临时号，合入时由调度员重新编号。
 
 ## 0. 设计
 
@@ -11,7 +11,7 @@
 | 批次 | 内容 | 写入热度 | 状态 |
 |---|---|---|---|
 | 1a | Claim 契约 tenant_id 改为 uuid，增加 mode；Claim 投影补 mode（0230）；测试租户常量统一 | — | 本分支 |
-| 1b | `control.nexloop_tenants` 加 uuid 格式 CHECK（0231，先 `NOT VALID` 再 `VALIDATE`） | 冷：租户只由可信配置 manifest 写入 | 本分支 |
+| 1b | `control.nexloop_tenants` 加 uuid 格式 CHECK（0157，先 `NOT VALID` 再 `VALIDATE`） | 冷：租户只由可信配置 manifest 写入 | 本分支 |
 | 2 | control、authz 配置类表补 `foreign key(tenant_id) references control.nexloop_tenants`：浏览器应用、成员、限流策略、服务凭据、告警与工作台配置等 | 冷：配置写入 | 只写计划 |
 | 3 | ontology 业务表（除 `ontology.objects` 外）以及 Message、Claim、Conversation 族 | 中：每条消息或抽取会写几行 | 只写计划 |
 | 4 | runtime 队列与运行族（除 `runtime.jobs` 外）：Run、Context、模型请求、效果、成本、可观测 | 中到高 | 只写计划 |
@@ -103,7 +103,7 @@
 
 ## 2. 批次 1b
 
-0231 在 `control.nexloop_tenants` 上增加约束 `nexloop_tenants_tenant_id_uuid check (tenant_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')`：先 `NOT VALID`，再 `VALIDATE`。
+0157 在 `control.nexloop_tenants` 上增加约束 `nexloop_tenants_tenant_id_uuid check (tenant_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')`：先 `NOT VALID`，再 `VALIDATE`。
 
 - 约束只接受小写规范形式，因为三个契约生成器都输出小写。
 - `NOT VALID` 的约束对新插入的行立即生效；`VALIDATE` 负责检查已有的行。

@@ -1,4 +1,4 @@
-"""NX-035 (0250): a verified restore journal export, as the backup recorder leaves it after exporting the journal up to its current
+"""NX-035 (0156): a verified restore journal export, as the backup recorder leaves it after exporting the journal up to its current
 sequence (authz.nexloop_record_backup, kind 'journal'). The deletion records sweep only removes what an export covers."""
 
 

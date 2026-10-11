@@ -1,4 +1,4 @@
-"""NX-035 (0250) on clean catalog PostgreSQL: the deletion records sweep never goes past the exported restore journal, and the
+"""NX-035 (0156) on clean catalog PostgreSQL: the deletion records sweep never goes past the exported restore journal, and the
 journal keeps every entry until it is exported and its days are over. The sweep is the retention keeper's 'records' class
 (runtime.nexloop_retention_sweep_records, called as the owner as the keeper's port does); exports are recorded as the backup
 recorder leaves them. Synthetic data only."""
