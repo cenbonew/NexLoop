@@ -18,6 +18,17 @@ _SERVICE_KEYS = {'name', 'processes', 'pool_max'}
 _RUNTIME_KEYS = {'name', 'processes', 'guard_workers', 'dispatcher_pool_max', 'guard_pool_max'}
 
 
+# NX-031 D7: every long-running process that opens a PostgreSQL pool. A deployment budget must declare each of them, so the
+# sum the doctor checks is the real ceiling; a missing entry fails the check (fixed here, like the limits).
+BASE_SERVICES = ('api', 'domain-worker', 'action-worker', 'scheduler', 'runtime-worker', 'message-relay', 'outbound-recorder')
+LAUNCHERS = ('plan-reevaluator-launcher', 'reply-guarantor-launcher')
+
+
+def required_services():
+    from nexloop_eios.background_services import SERVICES
+    return (*BASE_SERVICES, *SERVICES, *LAUNCHERS)
+
+
 class BudgetInvalid(ValueError):
     pass
 
@@ -62,11 +73,12 @@ def evaluate(document, *, max_connections=None):
         raise BudgetInvalid('service names must be unique')
     per_service = {service['name']: service_connections(service) for service in document['services']}
     total = sum(per_service.values())
-    checks = {'application_pool_total': total <= APPLICATION_POOL_LIMIT}
+    missing = sorted(set(required_services()) - set(per_service))
+    checks = {'application_pool_total': total <= APPLICATION_POOL_LIMIT, 'all_services_declared': not missing}
     if max_connections is not None:
         checks['max_connections'] = type(max_connections) is int and max_connections >= MIN_MAX_CONNECTIONS
     return {'checks': checks, 'passed': all(checks.values()),
-            'details': {'services': per_service, 'application_pool_total': total,
+            'details': {'services': per_service, 'application_pool_total': total, 'missing_services': missing,
                         'application_pool_limit': APPLICATION_POOL_LIMIT, 'max_connections': max_connections,
                         'min_max_connections': MIN_MAX_CONNECTIONS}}
 

@@ -57,12 +57,12 @@ def provision(f,admin):
 
 
 @contextmanager
-def guarantor(c,admin,tmp_path,token):
-    """The reply worker (domain worker) with its launcher (message relay identities on the API backend)."""
+def guarantor(c,admin,tmp_path,token,api=None):
+    """The reply worker (domain worker) with its launcher (message relay identities on the API backend, or on `api`)."""
     o=c['o'];p=c['p']
     with open_backend(database_url=make_conninfo(o['pg'],user='nexloop_domain_worker'),artifact_root=tmp_path/'reply-worker-artifacts',
             signing_key_file=p['backend_signing'],signing_key_id='explicit-configuration') as domain:
-        api=c['backend'];tokens=c['tokens']
+        api=api or c['backend'];tokens=c['tokens']
         def session(label):return lambda:api.authenticate(tokens[label],world='real')
         launcher=FallbackReplyLauncher(route=session('assembly-route'),source=session('assembly-source'),planner=session('assembly-planner'),
             executor_token=tokens['assembly-executor'],recipe=c['recipe'],policy=TEST_POLICY)
@@ -233,3 +233,19 @@ def test_restricted_consumer_unanswered_message_still_gets_its_bound_fallback_re
                 assert 'fulfilled' in effect_worker(c,tmp_path,material['provider_config'],material['secret'])
             assert outbound(admin,tenant)[0][1]=='delivered' and pending(admin,tenant)==[]
             assert admin.execute('select active from control.nexloop_contact_restrictions where tenant_id=%s',(tenant,)).fetchone()==(True,)
+
+
+def test_fallback_launch_through_the_deployed_launcher_api_pool(assembled_message,admin,tmp_path):
+    """NX-031 D7: the reply guarantor's launcher runs on its own nexloop_api pool of API_POOL_MAX (2) connections; the fallback
+    Run is issued for the unanswered message (measured: with one connection it is not; the Host run itself is covered above)."""
+    from nexloop_eios import background_services as B
+    from launcher_pool import launcher_api
+    f=assembled_message;token=provision(f,admin)
+    with chain(f,admin,tmp_path,body='你们的退款什么时候到账？',host_update=silent) as c:
+        c['recipe']=f['recipe'];consumer=c['consumer']
+        with launcher_api(c['backend'],c['o']['pg'],tmp_path,B.API_POOL_MAX) as api, guarantor(c,admin,tmp_path,token,api=api) as g:
+            assert api._pool.max_size==B.API_POOL_MAX==2
+            make_due(admin)
+            assert g['worker']().run_once()['fallback_started']==1
+            run_id=g['launcher'].last['run_id']
+            assert admin.execute('select message_id from authz.nexloop_message_fallback_issuances where run_id=%s',(run_id,)).fetchone()==(consumer['id'],)

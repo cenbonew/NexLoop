@@ -129,12 +129,13 @@ def test_keeper_redacts_expired_text_deletes_expired_records_and_leaves_tombston
                 values(%s,'real',%s,'real','discount',1,100,'CNY','minor','budget_reservation','incentive:x',%s,'synthetic')""",(TENANT,entry,at))
     # A terminal job with an old input.
     # A terminal runtime task whose input carried message text (seeded as the queue writes it; triggers suspended for the FK to a synthetic invocation).
-    job='retention-job-1'
+    # Past job_input (30 days), short of job_records (365 days, test_retention_expiry_pg).
+    job='retention-job-1';JOB_AT=datetime.now(UTC)-timedelta(days=60)
     backdate(admin,'''insert into runtime.jobs(job_id,invocation_id,capability_name,capability_version,capability_type,execution_mode,tenant_id,actor_id,trace_id,
         request_id,normalized_input,plan_snapshot,status,created_at,updated_at,world,queue) values(%s,'inv-1','nexloop.run','1','runtime','async',%s,'a','t','r',%s,'{}',
-        'succeeded',%s,%s,'real','operations')''',(job,TENANT,Jsonb({'input':'三个月前的输入','run_command':{'run_id':'00000000-0000-0000-0000-000000000001'}}),OLD,OLD))
+        'succeeded',%s,%s,'real','operations')''',(job,TENANT,Jsonb({'input':'三个月前的输入','run_command':{'run_id':'00000000-0000-0000-0000-000000000001'}}),JOB_AT,JOB_AT))
     first=keeper(c,env).run_once()
-    assert first['classes']==10 and first['incomplete']==0 and first['processed']>=4 and first['erasure_steps']==0
+    assert first['classes']==17 and first['incomplete']==0 and first['processed']>=4 and first['erasure_steps']==0
     # Message text: the old body is gone everywhere it was kept; order, ids and digests stay; the new one is untouched.
     rec=lambda m:admin.execute('select record,payload_digest from runtime.nexloop_conversation_messages where message_id=%s',(m['message_id'],)).fetchone()
     old_rec,old_digest=rec(old_msg)

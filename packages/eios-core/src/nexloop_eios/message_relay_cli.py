@@ -17,6 +17,10 @@ from nexloop_eios.message_relay import MessageRelay, validate_recipe
 from nexloop_eios.private_configuration import read_private_text
 from nexloop_eios.run_credential_vault import RunCredentialVault
 
+# NX-031 D7 (deploy/stage/connection-budget.v1.json): measured smallest workable pool of this single-loop process (1 fails).
+POOL_MAX=2
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self,unused): self.exit(2,'Message relay configuration unavailable\n')
 
@@ -29,10 +33,11 @@ def arguments(argv):
     parser.add_argument('--signing-key-id',default='active')
     parser.add_argument('--tick-seconds',type=float,default=.25)
     parser.add_argument('--once',action='store_true')
+    parser.add_argument('--pool-max',type=int,default=POOL_MAX)
     # NX-023: explicit published strategy selects Context v6; omitted keeps the v2 Context.
     parser.add_argument('--context-strategy')
     result=parser.parse_args(argv)
-    if not math.isfinite(result.tick_seconds) or not .01<=result.tick_seconds<=30 or not re.fullmatch('[A-Za-z0-9_-]{1,64}',result.signing_key_id): parser.error('configuration')
+    if not math.isfinite(result.tick_seconds) or not .01<=result.tick_seconds<=30 or not re.fullmatch('[A-Za-z0-9_-]{1,64}',result.signing_key_id) or not 1<=result.pool_max<=8: parser.error('configuration')
     if result.context_strategy is not None and not re.fullmatch('[a-z][a-z0-9_]{0,63}',result.context_strategy): parser.error('configuration')
     return result
 
@@ -62,7 +67,7 @@ def run(config,stop):
             if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o600 or info.st_nlink!=1: raise ValueError()
             fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
             with open_backend(database_url=dsn,artifact_root=config.artifact_root,
-                signing_key_file=config.signing_key_file,signing_key_id=config.signing_key_id) as backend:
+                signing_key_file=config.signing_key_file,signing_key_id=config.signing_key_id,pool_max_size=config.pool_max) as backend:
                 with backend._pool.connection() as db:
                     if verify_application_role(db)!='nexloop_api': raise ValueError()
                 def services():

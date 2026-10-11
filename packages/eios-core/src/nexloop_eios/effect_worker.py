@@ -17,6 +17,10 @@ from nexloop_eios.effect_provider import EffectProviderConfiguration,HttpEffectP
 from nexloop_eios.private_configuration import read_private_text
 
 
+# NX-031 D7 (deploy/stage/connection-budget.v1.json): measured smallest workable pool of this single-loop process (1 fails).
+POOL_MAX=2
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self,message):self.exit(2,'Effect Worker configuration unavailable\n')
 
@@ -30,8 +34,9 @@ def _arguments(argv):
     parser.add_argument('--lease-seconds',type=int,default=30)
     parser.add_argument('--tick-seconds',type=float,default=.25)
     parser.add_argument('--once',action='store_true')
+    parser.add_argument('--pool-max',type=int,default=POOL_MAX)
     arguments=parser.parse_args(argv)
-    if (not 3<=arguments.lease_seconds<=300 or not math.isfinite(arguments.tick_seconds)
+    if (not 1<=arguments.pool_max<=8 or not 3<=arguments.lease_seconds<=300 or not math.isfinite(arguments.tick_seconds)
         or not 0<arguments.tick_seconds<=30 or re.fullmatch('[A-Za-z0-9_-]{1,64}',arguments.signing_key_id) is None):
         parser.error('configuration')
     return arguments
@@ -69,7 +74,7 @@ def run(arguments,stop):
     # Reject transport bounds and missing private material before claiming.
     if provider.configuration.timeout>arguments.lease_seconds/3:raise ValueError()
     with open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
-        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id) as backend:
+        signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.pool_max) as backend:
         with backend._pool.connection() as connection:
             if verify_application_role(connection)!='nexloop_action_worker':raise ValueError()
         executor=_FreshExecutor(backend,arguments.service_credential_file,arguments.world)
