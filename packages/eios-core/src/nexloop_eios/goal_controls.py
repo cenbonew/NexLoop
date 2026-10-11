@@ -52,7 +52,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-035 (0147): the owner opens one tenant/world scope of a restored, verified database.
     'open_restore_scope':'restore.open_scope',
     # NX-037 prerequisite (0153): the owner opens or closes real dispatch for the tenant or one Action of it.
-    'set_real_dispatch':'real_dispatch.set'}
+    'set_real_dispatch':'real_dispatch.set',
+    # NX-053 (0240): the owner revokes an erased contact key (by key digest or by erasure request), with a reason.
+    'revoke_contact_key':'contact_key.revoke'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -257,6 +259,14 @@ class GoalGovernedActions:
         # The handler (SQL) decides which of them the scope needs (tenant: data_mode; action_type: action_type) and refuses the rest.
         if data_mode is not None:body['data_mode']=data_mode
         if action_type is not None:body['action_type']=action_type
+        return self._submit(action_name,action_version,body)
+
+    # NX-053 (0240): owner only; exactly one of key_digest / erasure_request_id; the handler (SQL) validates and decides.
+    def revoke_contact_key(self,*,action_name,action_version,request_id,reason,key_digest=None,erasure_request_id=None):
+        if type(reason) is not str or not 1<=len(reason)<=500:raise ValueError('reason required')
+        body={'request_id':request_id,'operation':'revoke_contact_key','reason':reason}
+        if key_digest is not None:body['key_digest']=key_digest
+        if erasure_request_id is not None:body['erasure_request_id']=erasure_request_id
         return self._submit(action_name,action_version,body)
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):

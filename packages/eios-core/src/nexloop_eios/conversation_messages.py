@@ -158,7 +158,13 @@ class ConversationOwnershipRegistrar(_ConversationPort):
                 if payload.get('replay'):return payload['result']
                 return self._call(db,'commit_owner',OWNERSHIP,consumer_id=consumer_id,principal_id=principal_id,
                     idempotency_key=key,create=self._create(db,OWNERSHIP,payload['payload']))
-        except Exception as error:self._raise(error)
+        except Exception as error:
+            # NX-053 (0240): the principal's identity was erased; record the refusal (own transaction) and refuse.
+            from nexloop_eios import contact_keys
+            if contact_keys.refused(error):
+                contact_keys.record(self.pool,self.session,'conversation_owner',principal_id)
+                raise ConversationDenied() from None
+            self._raise(error)
 
 
 class ConversationMessagePort(_ConversationPort):

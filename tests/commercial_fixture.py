@@ -68,7 +68,8 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     # AT-043 (0145), typed on Consumer v1.
     'nexloop.incentive.issue':('Consumer','incentive.issue'),
     'nexloop.restore.open_scope':('Consumer','restore.open_scope'),  # NX-035 (0147)
-    'nexloop.real_dispatch.set':('Consumer','real_dispatch.set')}  # 0220
+    'nexloop.real_dispatch.set':('Consumer','real_dispatch.set'),  # 0153
+    'nexloop.contact_key.revoke':('Consumer','contact_key.revoke')}  # NX-053 (0240)
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

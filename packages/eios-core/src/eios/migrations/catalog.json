@@ -765,6 +765,11 @@
       "version": "0153",
       "name": "0153_real_dispatch_switch.sql",
       "sha256": "81af27fe24af96112eb2eb1bb81a7c584e84e5db5b0e6f27cdc217e41dbe3337"
+    },
+    {
+      "version": "0240",
+      "name": "0240_nx053_erased_contact_keys.sql",
+      "sha256": "2849a1aefbdeb65f1d82927cb9108f6113bf1ec3a40708bf00d5298ccbce8c0f"
     }
   ]
 }

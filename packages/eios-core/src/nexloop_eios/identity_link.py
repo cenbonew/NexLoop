@@ -83,4 +83,12 @@ class BrowserConsumerIdentityLink:
         with self.pool.connection() as connection,connection.transaction():
             verify_application_role(connection)
             payload=connection.execute('select authz.nexloop_prepare_browser_identity_link(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature)).fetchone()[0]
-        return GovernedBrowserIdentityEditor(self.pool,self.session,self.signer).edit(action_name='nexloop.consumer.link_authenticated_identity',action_version=1,intent_id=payload['request_id'],type_name=payload['type_name'],object_id=payload['object_id'],expected_revision=payload['expected_revision'],properties=payload['properties'])
+        try:
+            return GovernedBrowserIdentityEditor(self.pool,self.session,self.signer).edit(action_name='nexloop.consumer.link_authenticated_identity',action_version=1,intent_id=payload['request_id'],type_name=payload['type_name'],object_id=payload['object_id'],expected_revision=payload['expected_revision'],properties=payload['properties'])
+        except Exception as error:
+            # NX-053 (0240): the identity was erased (the Consumer guard refused it); record the refusal and refuse.
+            from nexloop_eios import contact_keys
+            if contact_keys.refused(error):
+                contact_keys.record(self.pool,self.session,'identity_link')
+                raise contact_keys.ContactKeyRefused('contact unavailable') from None
+            raise

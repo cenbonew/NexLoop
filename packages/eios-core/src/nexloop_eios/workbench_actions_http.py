@@ -89,6 +89,10 @@ OPERATIONS={
         'until':_utc,'reason':_reason},
     # NX-035 (0147): owner-only; the restore reference names the restore being opened.
     'open_restore_scope':{'restore_ref':_id(re.compile(r'[A-Za-z0-9._:-]{1,64}'))},
+    # NX-053 (0240): owner-only; one of the key digest or the erasure request (the other null), with a reason.
+    'revoke_contact_key':{'key_digest':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[0-9a-f]{64}',v)) else (_ for _ in ()).throw(ValueError('key')),
+        'erasure_request_id':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9._:-]{1,190}',v)) else (_ for _ in ()).throw(ValueError('request')),
+        'reason':lambda v:v if type(v) is str and 1<=len(v.strip())<=500 else (_ for _ in ()).throw(ValueError('reason'))},
     # 0220: owner-only real dispatch switch; the tenant scope names its data mode, the action scope one resource id.
     'set_real_dispatch':{'scope_kind':lambda v:v if v in ('tenant','action_type') else (_ for _ in ()).throw(ValueError('scope')),
         'enabled':lambda v:v if type(v) is bool else (_ for _ in ()).throw(ValueError('enabled')),'reason':_reason,
