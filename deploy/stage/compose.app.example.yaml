@@ -19,7 +19,9 @@ x-service: &service
     REAL_DISPATCH_ENABLED: "false"
 services:
   app-net:
-    image: ${NET_ANCHOR_IMAGE:?minimal pause image by digest}
+    # Holds the shared network namespace; the backend image (already in the release) sleeps, so no extra image is needed.
+    image: ${BACKEND_IMAGE:?backend image by digest}
+    entrypoint: [sleep, infinity]
     restart: unless-stopped
     ports:
       - "${APP_HOST_ADDR:?APP_HOST address}:${GATEWAY_HTTPS_PORT:?Gateway HTTPS port}:8443"
@@ -32,7 +34,7 @@ services:
     image: ${GATEWAY_IMAGE:?gateway image by digest}
     volumes:
       - ${NEXLOOP_ROOT:?root}/config/Caddyfile:/etc/caddy/Caddyfile:ro
-    secrets: [gateway_cert, gateway_key]
+    secrets: [gateway_cert, gateway_key, api_loopback_ca]
   api:
     <<: *service
     entrypoint: [nexloop-api]
@@ -74,6 +76,7 @@ secrets:
   # One file per secret under NEXLOOP_ROOT/secrets/<service>/ (directory 0700, file 0600, owner = the service UID).
   gateway_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/server.crt"}
   gateway_key: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/server.key"}
+  api_loopback_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/api-loopback-ca.crt"}
   api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/api/dsn"}
   api_loopback_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.crt"}
   api_loopback_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.key"}

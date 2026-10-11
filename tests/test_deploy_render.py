@@ -26,7 +26,7 @@ def env(tmp_path):
 
 
 def test_every_placeholder_is_whitelisted_and_every_template_renders_completely(env, tmp_path):
-    assert {p.name for p in TEMPLATES} == {'pg_hba.conf.template', 'postgresql.conf.template', 'valkey.conf.template',
+    assert {p.name for p in TEMPLATES} == {'pg_hba.conf.template', 'postgresql.conf.template', 'valkey.conf.template', 'Caddyfile.template',
                                            'data-host.nft.template', 'app-host.nft.template'}
     values = render.load_env(env)
     for template in TEMPLATES:
