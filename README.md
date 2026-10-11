@@ -13,7 +13,7 @@ NexLoop is an open-source **continuous-operations system** for enterprises. An o
 ## Current status
 
 - **Current stage: S4** — only the 1,000-consumer load report (NX-031) remains. S0–S3 are done.
-- **Numbers** (at `main` `4feb8a9`): tasks 38 done / 6 in progress / 9 not started (53); acceptance tests 58 passed / 14 not run (72). The v0.1 real closed-loop acceptance (NX-037) has its decisions settled and now also depends on NX-052 and NX-053.
+- **Numbers** (at `main` `05681be`): tasks 39 done / 7 in progress / 7 not started (53); acceptance tests 58 passed / 14 not run (72). The v0.1 real closed-loop acceptance (NX-037) has its decisions settled and also depends on NX-052 (tenant ID normalisation, in progress) and NX-053 (done).
 - **S5 is local-first**: deployment templates with dry-run and isolation probes, the local CI controller, the release tool (build, archive, GitHub sync gate), backup/restore and open-source compliance checks exist in the repository with local evidence only. **Nothing is deployed**: no server has been touched, there is no release or deployable image yet, and the stage-mode API with real readiness checks has not run in a deployment yet.
 - **Real outbound dispatch is off**: no real outbound channel is enabled, and the three-layer real dispatch switch (deployment master switch, tenant, tenant+Action) is closed by default; only the owner can open it.
 
