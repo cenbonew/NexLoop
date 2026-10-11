@@ -144,12 +144,15 @@ def _has(db, table, column):
 
 
 def drained(db):
-    """Pending work left: queues (pending/retry_wait/running), work feeds (pending) and inbound messages the relay has not routed."""
-    jobs = db.execute("select count(*) from runtime.jobs where status in ('pending','retry_wait','running')").fetchone()[0]
+    """Pending work of the load tenant: queues (pending/retry_wait/running), due work feeds and inbound messages the relay has not
+    routed. Only the load tenant counts: the template also holds the base fixture's tenant, whose items no cell service serves
+    (counting them kept every cell from draining)."""
+    jobs = db.execute("select count(*) from runtime.jobs where tenant_id=%s and status in ('pending','retry_wait','running')", (TENANT,)).fetchone()[0]
     # plan-reevaluate is excluded: the load plans are data only and the cells run no plan reevaluator (dispatcher 2026-10-11, option B).
     # Items scheduled for later (commitment due stages, reply-due before its time) are not pending work yet.
-    feeds = db.execute("select count(*) from runtime.nexloop_work_feed where status='pending' and feed<>'plan-reevaluate' and available_at<=clock_timestamp()").fetchone()[0]
-    outbox = db.execute("select count(*) from runtime.nexloop_message_outbox where status='pending'").fetchone()[0]
+    feeds = db.execute("select count(*) from runtime.nexloop_work_feed where tenant_id=%s and world=%s and status='pending' and feed<>'plan-reevaluate' "
+                       "and available_at<=clock_timestamp()", (TENANT, WORLD)).fetchone()[0]
+    outbox = db.execute("select count(*) from runtime.nexloop_message_outbox where tenant_id=%s and world=%s and status='pending'", (TENANT, WORLD)).fetchone()[0]
     return jobs + feeds + outbox
 
 

@@ -178,3 +178,15 @@ def test_contract_errors_exit_2_without_writing(run_dir, tmp_path):
     write_lines(run_dir / 'cells/C4/refusals.jsonl', [{'code': SENTINEL, 'at': iso(START)}])
     with pytest.raises(report.ContractError):
         report.build(run_dir)
+
+
+def test_runs_without_end_to_end_time_are_counted_not_rejected():
+    """Found on the s5a C4-low run: a restricted (or in-progress) message Run has no reply yet, so e2e_ms is null; the report counts
+    it by outcome and decomposes only the Runs that have an end-to-end time."""
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('load_report_null',Path(__file__).resolve().parents[1]/'scripts/load/report.py')
+    R=importlib.util.module_from_spec(spec);spec.loader.exec_module(R)
+    runs=[{'e2e_ms':5000,'model_ms':3000,'tool_ms':1000,'tool_calls':3,'queue_wait_ms':100,'admission_wait_ms':None,'outcome':'replied'},
+          {'e2e_ms':None,'model_ms':2000,'tool_ms':900,'tool_calls':2,'queue_wait_ms':80,'admission_wait_ms':None,'outcome':'restricted'}]
+    d=R.decomposition(runs)
+    assert d['runs']==1 and d['outcomes']=={'replied':1,'restricted':1} and d['platform_ms']['p50']==1000

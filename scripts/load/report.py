@@ -165,10 +165,13 @@ def decomposition(runs):
     model, tool, platform, e2e, negative, no_tool = [], [], [], [], 0, 0
     outcomes = {}
     for row in runs:
+        outcome = _code(row.get('outcome'), 'runs.outcome')
+        if row.get('e2e_ms') is None:  # no reply yet (in progress, restricted, taken over): counted by outcome, no end-to-end time
+            outcomes[outcome] = outcomes.get(outcome, 0) + 1
+            continue
         total = _number(row.get('e2e_ms'), 'runs.e2e_ms')
         m = _number(row.get('model_ms') or 0, 'runs.model_ms')
         t = _number(row.get('tool_ms'), 'runs.tool_ms', allow_none=True)
-        outcome = _code(row.get('outcome'), 'runs.outcome')
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
         e2e.append(total), model.append(m)
         if t is None:  # no tool timing: tool and platform unknown for this Run, counted but never guessed as 0
