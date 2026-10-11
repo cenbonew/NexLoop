@@ -37,7 +37,7 @@ COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'c
 NX027_REGISTRY={'nexloop.commitment.bind_commercial':'commitment.bind_commercial','nexloop.cost.record':'cost.record'}
 NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
     'nexloop.retention.release_hold':'retention.release_hold','nexloop.consumer.export':'consumer.export'}
-NX030_SILENCE={'nexloop.alert.silence':'alert.silence'}
+NX030_SILENCE={'nexloop.alert.silence':'alert.silence','nexloop.restore.open_scope':'restore.open_scope'}  # + NX-035 (0181), owner only
 AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}
 
 
@@ -74,7 +74,7 @@ def test_compiles_both_profiles_with_explicit_snapshots():
     # NX-029 (0142): human owner only, typed on Consumer v1.
     assert all(a['authority']=='human_owner' and a['capability_name']==NX029_ERASURE[a['stable_name']] for a in MANIFEST['actions'] if a['stable_name'] in NX029_ERASURE)
     # NX-030: alert silencing is a human owner Action on the registry.
-    assert all(a['authority']=='human_owner' and a['capability_name']=='alert.silence' for a in MANIFEST['actions'] if a['stable_name'] in NX030_SILENCE)
+    assert all(a['authority']=='human_owner' and a['capability_name']==NX030_SILENCE[a['stable_name']] for a in MANIFEST['actions'] if a['stable_name'] in NX030_SILENCE)
     # NX-027 on the registry (0140): human only, typed on Commitment v1 / Consumer v1.
     assert all(a['authority']=='human_owner' and a['capability_name']==NX027_REGISTRY[a['stable_name']] for a in MANIFEST['actions'] if a['stable_name'] in NX027_REGISTRY)
     assert [t['stable_name'] for t in names['nexloop.commitment.bind_commercial']['definition']['object_types']]==['Commitment']

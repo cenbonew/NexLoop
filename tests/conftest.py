@@ -3,9 +3,11 @@ import os, pathlib, shutil, socket, subprocess, tempfile
 import psycopg
 import pytest
 
+DEFAULT_PG_BIN='/opt/homebrew/opt/postgresql@18/bin'
+
 @pytest.fixture
 def pg():
-    bindir=pathlib.Path(os.environ.get('NEXLOOP_TEST_PG_BIN','/opt/homebrew/opt/postgresql@18/bin'))
+    bindir=pathlib.Path(os.environ.get('NEXLOOP_TEST_PG_BIN',DEFAULT_PG_BIN))
     if not (bindir/'initdb').exists():
         raise RuntimeError('PostgreSQL required: set NEXLOOP_TEST_PG_BIN (critical test may not skip)')
     root=pathlib.Path(tempfile.mkdtemp(prefix='nexloop-pg-'))
