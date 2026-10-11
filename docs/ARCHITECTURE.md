@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：`main` 提交 `560f49e`（2026-10-11），迁移目录最高 `0145`，S0–S3 全部完成，S4 大部分完成（NX-030 只差备份年龄，NX-031 进行中），S5 只完成了 NX-034 的本地发布工具部分，部署尚未开始。
+> - 事实基线：`main` 提交 `aefe1fb`（2026-10-11），迁移目录最高 `0147`，S0–S3 全部完成，S4 大部分完成（NX-030 只差备份年龄，NX-031 进行中），S5 完成了 NX-034（发布工具）与 NX-035（备份与恢复）的本地部分，部署尚未开始。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -46,7 +46,7 @@ NexLoop 是面向企业的开源 **持续运营系统**。负责人给出长期�
 | 角色 | 身份来源 | 能做什么（当前实现） | 依据 |
 |---|---|---|---|
 | **顾客（Consumer）** | WebChat 浏览器登录（顾客登录域） | 发消息、看会话与回复、看“人工客服处理中”状态；不能看到任何企业内部区块 | NX-016、NX-028 |
-| **负责人（owner）** | 工作台浏览器登录（独立的 `workbench` 业务应用），成员只能由可信配置添加 | 发布目标、批准指标、设预算、暂停/恢复、解除联系限制、承诺的人类动作、删除/导出/保留例外、告警静默、看审计 | [`workbench-roles.v1.json`](../deploy/authorization/workbench-roles.v1.json)、ADR-025 |
+| **负责人（owner）** | 工作台浏览器登录（独立的 `workbench` 业务应用），成员只能由可信配置添加 | 发布目标、批准指标、设预算、暂停/恢复、解除联系限制、承诺的人类动作、删除/导出/保留例外、告警静默、看审计、从目录发放优惠、从备份恢复后逐个 scope 开放真实派发 | [`workbench-roles.v1.json`](../deploy/authorization/workbench-roles.v1.json)、ADR-025 |
 | **运营（operator）** | 同上 | 读本租户消息与客户资料、手动复评、查询执行结果、人工接管/交还、员工回复，以及承诺的延期、确认履约、确认条件满足与绑定商业引用 | 同上 |
 | **审核人（reviewer）** | 同上 | 处理候选定义审核（approve / merge_into / reject），只能读待审核条目的证据 | ADR-019、ADR-025 |
 | **Agent（Run）** | 服务端签发的短时 Run 凭据，绑定 Run / world / audience / 获准 Action | 读上下文、经 guard 调用已注册工具、提交业务意图、写回 Run 结果；不能审核、不能解除限制、不能改父目标 | NX-012、NX-018、NX-024 |
@@ -248,7 +248,8 @@ flowchart LR
 | Agent Host | `scripts/agent_host.py` 拿目录独占锁后 `execve` Node | 只监听 loopback HTTPS；用 Pi Durable 执行 Run；不持有数据库 DSN、渠道或管理凭据 | [`apps/agent-host/src`](../apps/agent-host/src)、[README](../apps/agent-host/README.md) |
 | Effect Worker | `nexloop-effect-worker` | 领取已受理的业务意图，派发前复核控制条件，执行外部效应，结果不明时查询对账 | `effect_worker.py`、`effect_dispatch.py`、`effect_execution.py`、`effect_provider.py` |
 | Outbound Recorder | `nexloop-outbound-recorder` | 渠道确认接收后，用受治理 `Message.agent_create:1` 把 Agent 回复写入会话 | `outbound_messages.py` |
-| 后台服务（候选粘合在 `claim-matcher` 内执行） | `nexloop-claim-extraction-scheduler`、`-claim-extraction-worker`、`-claim-matcher`、`-recall-indexer`、`-plan-reevaluator`、`-reply-guarantor`、`-commitment-keeper`、`-commercial-recorder`、`-retention-keeper`、`-alert-evaluator` | 各自一个服务主体、最小授权（[`service-grants.v1.json`](../deploy/authorization/service-grants.v1.json)）；Compose 中属可选 profile `background` | `background_services.py` 及各模块 |
+| 后台服务（候选粘合在 `claim-matcher` 内执行） | `nexloop-claim-extraction-scheduler`、`-claim-extraction-worker`、`-claim-matcher`、`-recall-indexer`、`-plan-reevaluator`、`-reply-guarantor`、`-commitment-keeper`、`-commercial-recorder`、`-retention-keeper`、`-alert-evaluator`、`-incentive-issuer`（优惠执行者，需 `--ledger-directory`，当前只有回环账本） | 各自一个服务主体、最小授权（[`service-grants.v1.json`](../deploy/authorization/service-grants.v1.json)）；Compose 中属可选 profile `background` | `background_services.py` 及各模块 |
+| 备份与迁移工具 | `nexloop-backup pg|journal`、`nexloop-migrate` | 用非超级用户 `nexloop_backup` 做 PG 备份并写备份清单、导出恢复日志；`nexloop-migrate` 先过迁移门槛再迁移（本地部分，见 [§3.11](#311-备份与恢复nx-035-本地部分)） | `backup.py` |
 | PostgreSQL 18 + pgvector | — | 业务状态、授权事实、持久队列、work feed、审计；混合召回（向量 + FTS + pg_trgm） | [`eios/migrations`](../packages/eios-core/src/eios/migrations) |
 | Valkey 8.1 | — | 只做可丢失的唤醒提示，不保存事实、输入、凭据、租约或授权；故障时退回 PG 轮询 | `valkey_wakeup.py`、ADR-003 |
 | Artifact 存储 | 本地文件系统 | 上下文包、提示原文等大对象；元数据与授权在 PG，读取经 EIOS 授权 | `local_artifacts.py`、`postgres_artifacts.py` |
@@ -262,9 +263,9 @@ flowchart LR
 
 ### 3.2 数据与授权模型
 
-**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0145`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
+**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0147`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
 
-**数据库角色。** 迁移创建 `nexloop_owner`（表属主）、`nexloop_api`、`nexloop_runtime`、`nexloop_action_worker`、`nexloop_domain_worker`、`nexloop_scheduler`、`nexloop_identity`、`nexloop_configurator`、`nexloop_metrics` 等受限角色。常驻进程不使用 owner、superuser 或 BYPASSRLS；应用角色对业务表通常没有直接表权限，只能调用 `SECURITY DEFINER` 签名端口。
+**数据库角色。** 迁移创建 `nexloop_owner`（表属主）、`nexloop_api`、`nexloop_runtime`、`nexloop_action_worker`、`nexloop_domain_worker`、`nexloop_scheduler`、`nexloop_identity`、`nexloop_configurator`、`nexloop_metrics`，以及 NX-035 的 `nexloop_backup`（REPLICATION，非超级用户，读不到任何业务表）和 `nexloop_backup_recorder`（只能执行记录函数）等受限角色。常驻进程不使用 owner、superuser 或 BYPASSRLS；应用角色对业务表通常没有直接表权限，只能调用 `SECURITY DEFINER` 签名端口。
 
 **行级安全（RLS）。** 业务表按 `tenant_id` 启用 RLS，多数同时 `FORCE ROW LEVEL SECURITY`（迁移中约一百处）。tenant / actor / world / scope 只从服务端认证上下文得出，请求体或模型给出的值不被信任（PRD M01、AT-001/002）。
 
@@ -370,18 +371,19 @@ sequenceDiagram
 - **unknown 先查询再对账**：Effect Worker 对需要对账的意图走 query-first 路径（授权查询 → provider 查询 → 记录观察 → `nexloop.service.receipt_reconcile:1` 对账）；结果不明或查无记录时记为 unknown，不自动重发（`effect_dispatch.py`、`effect_execution.py`）；工作台“查询执行结果”只把 outbox 的到期时间提前，不改状态和 fence（NX-028）。**不宣称通用 exactly-once**。
 - **优惠发放的可靠性（AT-043）**：发放意图的请求内容不可改、终态不再移动；执行者按 fence 记录结果：成功结算预留，明确失败释放预留并追加一条负额冲销费用条目（`basis=budget_release`，计数类指标不重复计数），结果不明保持预留、只查询不重发；过期 fence 的结果被拒。每个 Run 每个目录项一笔，业务键由系统派生。当前只有回环（测试）发放渠道 `LocalIncentiveLedger`。
 - **兜底回复复核登记**：兜底回复 Run 的签发在同一事务里复核客户不在删除中；曾登记过的客户必须对调用的 relay 主体有当前有效登记，否则整次签发回滚（迁移 0143）。
-- **恢复与重放**：Agent Host kill/reopen 后同一 owner 重新打开 Run；Runtime Worker 同 Run reclaim；guard 子进程中途崩溃对 Host 等同于超时（authorize 按拒绝处理，effect 走 `find` 对账，ADR-024 §8）；数据库从备份恢复后先重放删除记录再对外服务（NX-029）。
+- **恢复与重放**：Agent Host kill/reopen 后同一 owner 重新打开 Run；Runtime Worker 同 Run reclaim；guard 子进程中途崩溃对 Host 等同于超时（authorize 按拒绝处理，effect 走 `find` 对账，ADR-024 §8）；数据库从备份恢复后，先在恢复围栏内重放删除、联系限制与吊销，再由负责人逐个 scope 开放派发（NX-029、NX-035，见 [§3.11](#311-备份与恢复nx-035-本地部分)）。
 - **故障测试**：PG 不可达时拒绝新的业务成功；Valkey 不可达时降级为 PG 轮询（`tests/test_infrastructure_faults.py`、`test_precise_pg_admission_outage.py`、`test_local_effect_worker_kill.py`）。
 
 ### 3.6 可观测性（NX-030，只差备份年龄）
 
 - **统一指标快照** `runtime.nexloop_metrics_snapshot(tenant, world)`：只含代码、计数、年龄和比率，不含原文、客户名或属性值；评估器、工作台、导出共用。覆盖派发拒绝、effect 状态与 unknown 年龄、待回复与升级、承诺异常、队列与死信、work feed、提取积压、guard / Host / 连接池样本、连接数、费用；备份年龄在 NX-035 之前固定为 unavailable。
 - **派发拒绝记录**：Run 路径在 `finish` 同一事务记录；effect 路径由 Effect Worker 在拒绝回滚后另开事务记录（写入失败只会让指标偏少，不影响派发安全）。
-- **告警**：规则在版本化文件中，新版本是新文件：[`alert-rules.v1.json`](../deploy/configuration/alert-rules.v1.json) 21 条，[`alert-rules.v2.json`](../deploy/configuration/alert-rules.v2.json) 在其基础上增加 `relay_unenrolled_pending`、`relay_backlog_age` 两条（共 23 条；指标快照新增 `relay` 区块）；只经 configurator 写入；评估器 `nexloop-alert-evaluator` 只评估 `real` world；负责人可静默，最长 7 天。
+- **告警**：规则在版本化文件中，新版本是新文件：[`alert-rules.v1.json`](../deploy/configuration/alert-rules.v1.json) 21 条，[`alert-rules.v2.json`](../deploy/configuration/alert-rules.v2.json) 在其基础上增加 `relay_unenrolled_pending`、`relay_backlog_age` 两条（共 23 条；指标快照新增 `relay` 区块），[`alert-rules.v3.json`](../deploy/configuration/alert-rules.v3.json) 再增加 7 条备份与恢复规则（WAL 归档延迟与失败、异地备份年龄、文件备份年龄、恢复日志导出延迟、演练逾期、备份校验失败，共 30 条）；只经 configurator 写入；评估器 `nexloop-alert-evaluator` 只评估 `real` world；负责人可静默，最长 7 天。
 - **结构化日志**：所有进程一行一条、字段白名单，只记 ID、状态、代码和时长，原文与密钥不进日志（`structured_log.py`，AT-049）。
 - **导出**：独立 `nexloop_metrics` 角色只能执行 `authz.nexloop_metrics_export()`；loopback 导出服务默认关闭；`nexloop-doctor --observability` 检查告警评估与样本。
 - 工作台新增告警、运行状态和审计页（审计只给负责人）。详见 [NX-030 实现说明](implementation/NX-030-implementation.md)。
-- **剩余项**：备份年龄指标依赖 NX-035 的备份清单，在此之前固定为 unavailable，NX-030 因此仍为 in_progress；连接数不按角色细分（不授予读取全部会话统计的权限）。
+- **备份块（M12）**：NX-035 本地部分已把指标快照的 `backup` 块接到备份清单：最近已验证备份年龄、完整备份年龄、各仓库备份年龄、校验失败、WAL 归档年龄与失败、恢复日志导出延迟、演练年龄及实测 RPO/RTO；没有 PG 备份时仍为 `unavailable`，缺数据的字段缺省而不填 0。
+- **剩余项**：NX-030 在 planning 中仍为 in_progress（只差备份年龄的部署环境证据，依赖 NX-035 部署部分）；连接数不按角色细分（不授予读取全部会话统计的权限）。
 
 ### 3.7 数据保留与删除（NX-029，已完成）
 
@@ -402,14 +404,14 @@ sequenceDiagram
 | 约束 | 数值 | 依据 |
 |---|---|---|
 | Host → guard 单次请求时限 | 2 s，不重试，不放宽 | ADR-022、ADR-024 §1 |
-| Agent Host 全局并发 | `maximum_active_runs` 默认 4（可配 1–64；部署前提为 ≤ 4，doctor 核对），排队在任何授权请求之前，等待超时返回可重试拒绝；注意：当前一个 runtime-worker 进程同一时刻只运行 1 个 Run，实际达不到 4，修复（`--dispatch-loops`）进行中 | `run-admission-gate.ts`、`host_concurrency.py`、ADR-022 §4 |
+| Agent Host 全局并发 | `maximum_active_runs` 默认 4（可配 1–64；部署前提为 ≤ 4，doctor 核对），排队在任何授权请求之前，等待超时返回可重试拒绝。Runtime Worker 父进程并行跑 `--dispatch-loops N` 个派发循环（1–16，默认 4，等于 Host 上限），共用同一队列与调度连接池，靠 claim、lease、fence 保证每个任务只被领取一次；doctor 要求 `processes × dispatch_loops ≤ 4` | `run-admission-gate.ts`、`host_concurrency.py`、`runtime_worker.py`、ADR-022 §4、[NX-031 实现说明](implementation/NX-031-implementation.md) |
 | guard 进程数 | 代码默认 1；部署配置 4（`--guard-workers 4`） | ADR-024 |
-| PG 连接预算 | 应用连接池总和 ≤ 60，`max_connections` ≥ 80（20 预留给运维与故障核对）；上限写死在代码里，部署文件不能放宽；当前声明按 NX-031 实测的最小可用池逐服务列出，合计 52，doctor 要求每个常驻服务都已声明 | [11_DEPLOYMENT §6](handoff/docs/11_DEPLOYMENT.md)、ADR-024 §5、`connection_budget.py`、`nexloop-doctor --budget-only` |
+| PG 连接预算 | 应用连接池总和 ≤ 60，`max_connections` ≥ 80（20 预留给运维与故障核对）；上限写死在代码里，部署文件不能放宽；当前声明按 NX-031 实测的最小可用池逐服务列出，加上优惠执行者 1 个连接，合计 53（guard 进程增到 5 仍在上限内，6 个将超过 60），doctor 要求每个常驻服务都已声明 | [11_DEPLOYMENT §6](handoff/docs/11_DEPLOYMENT.md)、ADR-024 §5、`connection_budget.py`、`nexloop-doctor --budget-only` |
 | APP_HOST 工具时限门槛（在 CI 主机上测量） | 在部署并发下（Host ≤ 4、guard 4 进程），CI 串行时限阶段连续两轮通过；在远超部署并发的全量并行负载下仍可能超时，作为观察项 | ADR-022 §4、NX-049（done） |
 | 单 Run 预算（复评） | 8 轮模型 / 12 次工具 / 300 s（配置） | [05_CONTEXT_AND_PLANNING §6](handoff/docs/05_CONTEXT_AND_PLANNING.md)、`plan-reevaluation.v1.json` |
 | 上下文预算 | 初始输入 16k tokens、输出预留 4k；token 估算取保守上界 | NX-023 设计稿 §6 |
 
-授权链做过多轮时延优化（请求内决策去重、事实解析缓存、批量判定、同语句读断言去重等），见 [perf-o1-o4](implementation/perf-o1-o4.md)、[perf-o5b-design](implementation/perf-o5b-design.md) 与 NX-049 系列文档。1,000 消费者与并发矩阵（NX-031）进行中：合成数据生成与装载、连接预算实测、结果报告生成器、矩阵文件 [`deploy/load/matrix.v1.json`](../deploy/load/matrix.v1.json)（8 格，门槛格为 C4 与 C4-low）与执行器 `scripts/load/` 已合入，压测本身尚未在 CI 主机上跑完（[NX-031 设计](implementation/NX-031-design.md)、[实现说明](implementation/NX-031-implementation.md)）。
+授权链做过多轮时延优化（请求内决策去重、事实解析缓存、批量判定、同语句读断言去重等），见 [perf-o1-o4](implementation/perf-o1-o4.md)、[perf-o5b-design](implementation/perf-o5b-design.md) 与 NX-049 系列文档。1,000 消费者与并发矩阵（NX-031）进行中，切片 2 已完成（每格完整消息 Run 链、历史回复、计划数据、逐 Run 结果与 7 项核对）。本机 25 客户实测：注入模型时延后约 0.36 Run/s（每 worker、4 并发），C4（1 条/秒）过载、C4-low（0.2 条/秒）也因死信与承诺监控挂起未通过，两格的 7 项核对违规都为 0。此前：合成数据生成与装载、连接预算实测、结果报告生成器、矩阵文件 [`deploy/load/matrix.v1.json`](../deploy/load/matrix.v1.json)（8 格，门槛格为 C4 与 C4-low）与执行器 `scripts/load/` 已合入，压测本身尚未在 CI 主机上跑完（[NX-031 设计](implementation/NX-031-design.md)、[实现说明](implementation/NX-031-implementation.md)）。
 
 
 ### 3.9 WebChat 实时消息链路
@@ -447,6 +449,32 @@ flowchart LR
 - 测试：`tests/test_release_local.py`（临时目录、临时 ed25519 密钥）。详见 [NX-034 本地部分实现说明](implementation/NX-034-local-implementation.md)。
 
 **尚未实现**：镜像的实际构建与 digest 核对、doctor 对运行中容器的核对需要 NX-032（双机部署）；CI 结果文件由 NX-033（本地 Git 队列与隔离 CI）产出；发布归档权限与保留、GitHub 同步、公开 tag 属于 B 类操作或依赖 NX-033。AT-055、AT-057 目前只有本地证据，验收状态仍为 not_run。目标设计见 [12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) 与 [NX-034 设计](implementation/NX-034-design.md)。
+
+
+### 3.11 备份与恢复（NX-035 本地部分）
+
+**已实现，只在本机一次性 PostgreSQL 集群上实现与演练**（迁移 0146、0147，`backup.py`，详见 [NX-035 本地部分实现说明](implementation/NX-035-local-implementation.md)）。
+
+- **备份清单** `runtime.nexloop_backup_manifests`：只追加、只有 owner 可读，只接受标签、哈希、LSN、数字和时间。开始时由服务端记录集群标识与时间线、迁移 catalog 摘要、删除水位和恢复日志位置；完成时追加 `verified` 或 `failed`，并核对备份确实来自本集群。本地用 `pg_basebackup` + `pg_verifybackup`；部署时换成 pgBackRest（【目标设计】，依赖 NX-032）。
+- **恢复日志** `control.nexloop_restore_journal`：由触发器追加删除台账、联系限制（不含顾客原话）、已删除联系键的哈希、服务凭据吊销、工作台成员暂停或吊销；导出为哈希链串联的 JSON 分段（0600）。**本地未加密**；静态加密由部署时的 restic 文件备份仓库完成，是受控试运行前的门槛项。
+- **恢复工具** `backup.restore()`（库函数，命令行留到部署切片）：拒绝非空目录、已占用端口和未确认旧主库已隔离的恢复；PITR 到新目录与新端口，把所有应用登录角色设为 NOLOGIN，校验日志哈希链（断链即停）后重放，最后停在 `verified_readonly`。
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> restored: 恢复实例（派发全部关闭，NXR01）
+    restored --> replayed: 重放恢复日志<br/>删除 / 联系限制 / 吊销<br/>清空浏览器会话与 Run 凭据
+    replayed --> verified_readonly: 外部效应窗口对账<br/>bootstrap.verify<br/>无可登录应用角色
+    verified_readonly --> open: 负责人逐个 scope 执行 open_scope<br/>记录实测 RPO / RTO
+```
+
+- **恢复围栏**：派发控制检查（`authz.nexloop_assert_dispatch_controls`，Run 与效应派发都要调用）在存在未开放的恢复时一律以 `NXR01 restore_unverified` 拒绝，拒绝照常记入拒绝表；`test` 与 `simulation` 世界要等整个恢复进入 `open` 才开放。就绪函数在 `restored` / `replayed` 时为不就绪，`verified_readonly` 时可读不派发。
+- **重放**：按原键幂等；删除条目走 NX-029 的删除重放；联系限制取控制版本号更新的那条；重放结束时无论日志内容如何，都删除全部浏览器会话、吊销全部 Run 凭据。
+- **外部效应窗口**：按租户、世界与 action type 统计恢复时刻仍未终态的意图（只走查询与对账，不重发）、窗口内外部引用、与终态一致的数量、库里没有的数量（无法核实）。不能按时间查询、有无法核实计数或有未终态意图的渠道，一律经 NX-022 控制面暂停对应 `action_type` scope；范围包括治理效应意图与 AT-043 的优惠意图。
+- **开放** `nexloop.restore.open_scope:1`：只有 owner（角色清单与 handler 双重检查），只能在 `verified_readonly` 时逐个开放本租户的 `real` scope；无法核实的渠道未暂停就拒绝开放；全部开放后进入 `open` 并记录实测 RPO/RTO。开放后被暂停的渠道仍阻断（`NXC01`），需负责人另行 resume。风险分级（负责人定案）：EIOS 中 `low`、无审批；NexLoop 记为 `high`，以五条补偿控制兜底：只有 owner、逐个 scope、无法核实渠道未暂停不能开放、恢复报告为前置、每次开放留审计（CHANGELOG 2026-10-11 下午“安全”）。
+- **迁移门槛**：`nexloop-migrate` 先调用 `authz.nexloop_migration_gate()`，出现任何一项原因就拒绝且不读取迁移文件：没有备份清单、最近备份未通过校验、备份超过 60 分钟、备份来自别的集群或时间线、备份之后已迁移、WAL 归档未开启 / 滞后 / 失败、恢复日志导出滞后、处于恢复围栏中。**没有任何豁免、开关或环境变量。**
+
+**尚未实现**：pgBackRest、restic、异地备份与恢复命令行（依赖 NX-032）；Artifact 与已终态 Run 目录的文件备份；意图重建；各渠道的按时间查询读取器（没有证据的渠道一律暂停）；就绪函数尚未接入 `/health/ready`；`doctor --backup` 与 `backup.v1.json` 配置。AT-050 与 AT-056 目前只有本地证据（本地合成数据实测 RTO 约 0.95 s），验收状态仍为 not_run。目标设计见 [NX-035 设计](implementation/NX-035-design.md) 与 [17_OPERATIONS_RUNBOOK](handoff/docs/17_OPERATIONS_RUNBOOK.md)。
 
 ---
 
@@ -486,7 +514,7 @@ NexLoop/
 | 目录 | 做什么 | 详细说明 |
 |---|---|---|
 | [`packages/eios-core/src/eios`](../packages/eios-core/src/eios) | 从 NEX-EIOS 冻结提交 vendored 的通用内核：actions、authz（resolver / facts / decisions）、identity、ontology、persistence、runtime、PostgreSQL adapter 与迁移执行器 | [07_EIOS_INTEGRATION](handoff/docs/07_EIOS_INTEGRATION.md)、[S0 抽取边界](s0/extraction-boundary.md)、[源码复用清单](s0/source-reuse-inventory.md) |
-| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0145` | [迁移目录审计](s0/migration-catalog-audit.md) |
+| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0147` | [迁移目录审计](s0/migration-catalog-audit.md) |
 | [`packages/eios-core/src/nexloop_eios`](../packages/eios-core/src/nexloop_eios) | NexLoop 业务模块（见 4.2） | — |
 | [`packages/contracts`](../packages/contracts) | 14 个 JSON Schema（action-intent、candidate-definition、claim、commitment-view、contact-restriction-view、context-manifest、context-pack-v6、conversation-message、event-envelope、evolution-candidate、ontology-mutation、review-decision、run-command、run-outcome），各带合法示例；`scripts/generate_contracts.py` 生成 `generated/contracts.ts`、`generated/openapi-components.json` 与 `nexloop_eios/contracts.py`（Pydantic），`--check` 检测漂移 | [09_API_AND_EVENT_CONTRACTS](handoff/docs/09_API_AND_EVENT_CONTRACTS.md)、[契约与许可](s0/contracts-and-licensing.md) |
 | [`apps/agent-host`](../apps/agent-host) | Agent Host：`main.ts`（loopback HTTPS）、`runtime-host.ts`（配置、guard 调用、模型档案）、`pi-runtime-adapter.ts`（Pi Harness 包装、每 Run SQLite、预算与授权）、`run-admission-gate.ts`（全局并发）、`runtime-effect-tools.ts`（业务工具）、`context-input.ts`（上下文包 v1–v6 校验）、`run-purge.ts` | [Host README](../apps/agent-host/README.md)、[agent-host-progress](implementation/agent-host-progress.md)、[pi-runtime-progress](implementation/pi-runtime-progress.md) |
@@ -513,7 +541,7 @@ NexLoop/
 | 知识（对话→本体） | `conversation_extraction`、`claim_store`、`claim_extraction_jobs`、`claim_matching`、`claim_match_worker`、`candidate_merge`、`merge_configuration`、`recall`、`recall_index_worker`、`review_actions`、`review_http` | [NX-019](implementation/NX-019-extraction.md)、[NX-020](implementation/NX-020-matching.md)、[NX-021](implementation/NX-021-recall.md)、[NX-045](implementation/NX-045-candidate-merge.md)、[NX-046](implementation/NX-046-review-workbench.md)、[NX-050](implementation/NX-050-instance-approval.md)、ADR-019 |
 | 目标、计划与闭环 | `goal_controls`、`plan_reevaluation` | [NX-022](implementation/NX-022-goals-controls.md)、[NX-024](implementation/NX-024-implementation.md)、[NX-025](implementation/NX-025-implementation.md) |
 | 承诺、商业与优惠 | `commitments`、`commercial`、`commercial_http`、`commercial_observe_http`、`incentives`（目录、`IncentivePort`、`RunIncentivePort`、回环渠道 `LocalIncentiveLedger`、执行者 `IncentiveIssuer`） | [NX-026](implementation/NX-026-implementation.md)、[NX-027](implementation/NX-027-implementation.md)、[AT-043 实现说明](implementation/AT-043-implementation.md) |
-| 工作台、保留与可观测 | `workbench_http`、`workbench_reads`、`workbench_actions_http`、`retention`、`data_export`、`data_export_http`、`observability` | [NX-028](implementation/NX-028-implementation.md)、[NX-029](implementation/NX-029-implementation.md)、[NX-030](implementation/NX-030-implementation.md) |
+| 工作台、保留、可观测与备份 | `workbench_http`、`workbench_reads`、`workbench_actions_http`、`retention`、`data_export`、`data_export_http`、`observability`、`backup`（备份、恢复日志、恢复工具、迁移门槛） | [NX-028](implementation/NX-028-implementation.md)、[NX-029](implementation/NX-029-implementation.md)、[NX-030](implementation/NX-030-implementation.md)、[NX-035 本地部分实现说明](implementation/NX-035-local-implementation.md) |
 | Artifact | `local_artifacts`、`postgres_artifacts`、`artifact_orphans`、`domain_worker` | [artifact-governance](implementation/artifact-governance-progress.md)、[artifact-retention](implementation/artifact-retention-progress.md) |
 | 仅测试 / 诊断 | `load_rules`（NX-031 压测专用的规则式提取 provider，只在 `--mode test` 下可用，stage 启动即拒绝，doctor 判不通过）、`*_test_profile`、`sandbox_profile`、`core_sandbox`、`compose_bootstrap`、`container_entrypoint`、`artifact_smoke` | [core-sandbox](implementation/core-sandbox-progress.md)、[artifact-smoke](implementation/artifact-smoke-progress.md) |
 
@@ -619,27 +647,27 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 | S3 | 消费者/关系/角色、提取、匹配、召回、目标与控制面、上下文引擎、计划与复评、知识与目标闭环、审核与外发持久化等（NX-018–025、NX-044–048、NX-050） | 完成 |
 | S4 | 承诺（NX-026）、商业事件与费用（NX-027）、工作台与人工接管（NX-028）、渠道序号与引用回复（NX-051） | 完成 |
 | S4 | 保留/删除/导出（NX-029） | 完成 |
-| S4 | 审计指标与告警（NX-030） | **进行中**（只差备份年龄，依赖 NX-035） |
-| S4 | 1,000 消费者与并发矩阵（NX-031） | **进行中**（数据生成、连接预算、结果报告、矩阵与执行器框架、承诺装载已合入；压测未跑完） |
+| S4 | 审计指标与告警（NX-030） | **进行中**（只差备份年龄；备份块已在 NX-035 本地部分接入，部署证据待 NX-035 部署部分） |
+| S4 | 1,000 消费者与并发矩阵（NX-031） | **进行中**（切片 0–2 已合入：数据与模板、矩阵与执行器、完整消息 Run 链与逐 Run 结果；本机 C4 与 C4-low 均未通过，夜间整轮未跑） |
 | S5 | APP_HOST 工具时限达标（NX-049） | 完成 |
 | S5 | 发布归档与 GitHub 同步（NX-034） | **进行中**（本地发布工具已合入；归档、同步、tag 依赖 NX-033） |
-| S5 | 双机 TLS 与隔离部署、本地 Git 队列与隔离 CI、备份/PITR、开源文档与供应链、v0.1 受控真实闭环验收（NX-032、033、035–037） | **未开始**（NX-031～035 的设计文档已合入，负责人决定已写入） |
+| S5 | 备份/PITR 与恢复演练（NX-035） | **进行中**（本地部分已合入：备份清单、恢复日志、恢复围栏、迁移门槛；部署部分依赖 NX-032） |
+| S5 | 双机 TLS 与隔离部署、本地 Git 队列与隔离 CI、开源文档与供应链、v0.1 受控真实闭环验收（NX-032、033、036、037） | **未开始**（NX-031～035 的设计文档已合入，负责人决定已写入） |
 | S6 / S7 | Evo 演进与评估、Schema 受控演进；模拟世界、消费者孪生、策略实验（NX-038–043） | 未开始 |
 
-产品验收（`planning/acceptance-tests.json`）共 70 项：58 项 passed，12 项 not_run（2026-10-11 新增通过 AT-015、AT-043）。
+产品验收（`planning/acceptance-tests.json`）共 70 项：58 项 passed，12 项 not_run（2026-10-11 新增通过 AT-015、AT-043；AT-050、AT-055、AT-056、AT-057 只有本地证据，仍为 not_run）。
 
 ### 6.2 已知限制
 
-- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署、备份恢复尚未开始；发布只有本机运行的清单、签名、验签与回滚检查工具（[§3.10](#310-发布与部署)），GitHub 同步与归档依赖 NX-033。
+- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署尚未开始；发布只有本机运行的清单、签名、验签与回滚检查工具（[§3.10](#310-发布与部署)），GitHub 同步与归档依赖 NX-033；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
 - **真实外发关闭。** 真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭；服务授权清单拒绝授予真实外发 Action（ADR-020 §3）。当前外部效应只在本地 / 合成 provider 上验证过。
 - **模型。** 自动化测试使用确定性测试 provider；真实 DeepSeek 验证只在显式 opt-in 时运行，CI 不读取凭据。
 - **部署前提。** 2 s 工具时限门槛只在部署并发（Host ≤ 4、guard 4 进程）下证明；在远超部署并发的全量并行负载下相关场景仍可能超时（ADR-022 §4）。生产并发要提高时必须先重新测量。
-- **删除与恢复**：NX-029 已完成；但“从备份恢复后先重放删除记录”的完整恢复流程依赖 NX-035（备份/PITR），尚未演练。
-- **可观测（NX-030）**：备份年龄指标要等 NX-035 的备份清单；连接数不按角色细分。
-- **压测（NX-031）**：1,000 消费者与并发矩阵尚未跑完，性能结论目前只有 NX-049 的时限门槛。
-- **压测的消息 Run 链**：NX-031 本机小规模验证中消息 Run 链尚未在格子里启动，逐 Run 分解为空、历史来信的待回复积压排不空（[NX-031 实现说明](implementation/NX-031-implementation.md)“已知限制”）；load-rules 提取 provider 的提取质量不作为任何验收依据。
-- **优惠发放未接入部署**：执行者服务主体、后台入口、Agent Host 的 `incentive_tool` 开关和两项服务授权（`nexloop.incentive.execute:1`、`nexloop.incentive.run_submit:1`，记在服务授权清单的 `deferred`）都还没接；接上之前生产环境不会真正发放优惠，目前只有回环（测试）渠道。优惠许诺识别的金额换算假定两位小数币种。工作台角色清单尚未包含 `nexloop.incentive.issue`，工作台页面也没有发放入口【待确认：是否随部署接线一并补上】。
-- **runtime-worker 并发**：一个 runtime-worker 进程同一时刻只能运行 1 个 Run，达不到设计的 Agent Host 并发 4；产品修复（`--dispatch-loops`）进行中（CHANGELOG 2026-10-11 下午“已知限制”）。
+- **删除与恢复**：NX-029 已完成；恢复后重放删除记录已在 NX-035 本地演练中验证，部署环境的真实备份演练依赖 NX-032。
+- **可观测（NX-030）**：备份块只有本地数据，部署环境的备份年龄要等 NX-035 部署部分；连接数不按角色细分。
+- **压测容量（NX-031）**：本机 25 个客户实测，注入模型时延后每个 worker 在 4 并发下约 0.36 Run/s；持续每秒 1 条来信会过载，超出部分排队超过 Run 凭据 300 s 有效期后转为回复保障升级。低负载格（C4-low）还有 claim-match 死信与承诺监控条目挂起的问题在排查。1,000 消费者的夜间整轮尚未运行。
+- **压测专用 provider**：load-rules 提取 provider 与 Host 的确定性测试档案只用于压测，其提取质量与固定的模型调用轮数不作为任何验收依据（[NX-031 实现说明](implementation/NX-031-implementation.md)）。
+- **优惠发放**：部署接线已完成：执行者 `nexloop-incentive-issuer`（Compose 可选 profile `background`，独立账本卷）、服务授权清单 v17 的 `incentive_issuer` 与 `runtime_worker` 授权、工作台角色清单 v8 只给 owner 授予 `nexloop.incentive.issue`，负责人经工作台写入口 `POST /api/v1/workbench/actions/issue_incentive` 发放；Agent Host 的 `incentive_tool` 开关默认关闭。仍有的限制：只有回环（测试）发放渠道；工作台前端没有发放页面（只有 HTTP 入口）；优惠许诺识别的金额换算假定两位小数币种（[AT-043 实现说明](implementation/AT-043-implementation.md) §5–6）。
 - **Relay 部署前提**：relay 的 Source 凭据必须使用固定主体 ID `nexloop-service-relay-source-principal`，`nexloop-doctor --relay-source` 核对规则与凭据（[stage README §6](../deploy/stage/README.md)）；单客户 recipe 模式仍保留，与多客户模式互斥。
 - **员工回复**只支持 WebChat 且必须绑定一条来信，不能主动发消息；外部渠道接入时改走“接管 Run”方式。
 - **其他**：消息读取投影中的 `accepted_at` 不是严格 RFC 3339；渠道签名顺序只用合成渠道验证；WebChat 界面暂无引用按钮（API 已支持）；Agent 外发首版不含“处理中”占位与撤回（ADR-021）。
