@@ -12,6 +12,7 @@ from support.tenants import TENANT_A, TENANT_B
 @pytest.fixture
 def target(identity,admin):
     m=identity[2].model_copy(update={'tenant_id':TENANT_B,'principal_id':'synthetic-principal-b'})
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing",(TENANT_B,))
     admin.execute('insert into control.nexloop_browser_applications values(%s,%s,1,true)',(TENANT_B,'synthetic-browser-app'))
     admin.execute('insert into control.nexloop_browser_memberships values(%s,%s,%s,%s)',(m.tenant_id,m.principal_id,m.subject_id,Jsonb(m.model_dump(mode='json'))))
     return m

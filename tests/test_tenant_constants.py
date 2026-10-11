@@ -11,7 +11,7 @@ from nexloop_eios import browser_test_profile
 
 ROOT = Path(__file__).resolve().parents[1]
 # synthetic-a-*/synthetic-b-* were tenant-derived identities; synthetic-other-* are owner/intent names, not tenants.
-OLD = re.compile(r'(?<![\w-])(?:(?:synthetic-a|synthetic-b|nexloop-sandbox)(?![\w])|synthetic-other(?![\w-]))')
+OLD = re.compile(r'(?<![\w-])(?:(?:synthetic-a|synthetic-b|nexloop-sandbox)(?![\w])|(?:synthetic-other|synthetic-tenant-[ab])(?![\w-]))')
 # Deliberate: the claim contract negative (a non-uuid tenant is refused) and the frozen NX-019 extraction dataset, whose
 # tenant strings only feed the pure extractor and never reach control.nexloop_tenants.
 ALLOWED = {'tests/test_claim_contract.py', 'tests/test_tenant_constants.py', 'tests/support/tenants.py', 'tests/data/nx019_extraction_cases.json'}

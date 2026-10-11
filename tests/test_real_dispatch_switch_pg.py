@@ -24,6 +24,7 @@ from nexloop_eios.browser_http import BrowserConfiguration
 from nexloop_eios.http_api import ApiConfiguration, create_app
 from nexloop_eios.workbench_roles import apply_members, compile_members
 from support.effect_provider import effect_provider
+from support.tenants import TENANT_A, TENANT_B
 from support.loopback_effects import make_external
 from commercial_fixture import publish_registry_actions
 from commitment_fixture import TENANT, commitments  # noqa: F401
@@ -137,7 +138,7 @@ def layer(admin, tenant, resource, world='real', deployment=True):
 
 
 def test_each_layer_is_fail_closed_and_only_the_opened_tenant_action_passes(catalog_admin):
-    admin, a, b = catalog_admin, 'synthetic-tenant-a', 'synthetic-tenant-b'
+    admin, a, b = catalog_admin, TENANT_A, TENANT_B
     assert layer(admin, a, SEND) == 'tenant'  # nothing recorded: closed
     assert layer(admin, a, SEND, deployment=False) == 'deployment'
     set_switch(admin, a, 'tenant', '*', True, 'real')
@@ -161,11 +162,14 @@ def test_each_layer_is_fail_closed_and_only_the_opened_tenant_action_passes(cata
 def catalog_admin(admin):
     from nexloop_eios.bootstrap import bootstrap
     bootstrap(admin)
+    # NX-052: the synthetic tenants exist before any tenant-scoped configuration row (tenant foreign keys).
+    for tenant in (TENANT_A, TENANT_B):
+        admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (tenant,))
     return admin
 
 
 def test_external_is_the_default_and_only_an_explicit_false_for_this_definition_is_not(catalog_admin):
-    admin, tenant, definition = catalog_admin, 'synthetic-tenant-a', {'stable_name': 'nexloop.service.request', 'version': 1}
+    admin, tenant, definition = catalog_admin, TENANT_A, {'stable_name': 'nexloop.service.request', 'version': 1}
     external = lambda d: admin.execute('select control.nexloop_effect_is_external(%s,%s,%s,%s)', (tenant, 'real', SEND, Jsonb(d))).fetchone()[0]
     assert external(definition) is True  # undeclared
     digest = admin.execute('select control.nexloop_definition_digest(%s)', (Jsonb(definition),)).fetchone()[0]
@@ -228,10 +232,10 @@ def test_only_the_owner_changes_a_switch_and_every_change_is_a_new_control_revis
 def test_readiness_and_doctor_report_states_and_counts_only(catalog_admin, pg, tmp_path, monkeypatch):
     from nexloop_eios import deployment_readiness as readiness
     admin = catalog_admin
-    set_switch(admin, 'synthetic-tenant-a', 'tenant', '*', True, 'real')
-    set_switch(admin, 'synthetic-tenant-a', 'action_type', SEND, True)
-    set_switch(admin, 'synthetic-tenant-b', 'tenant', '*', True, 'test')
-    set_switch(admin, 'synthetic-tenant-b', 'action_type', SEND, True)
+    set_switch(admin, TENANT_A, 'tenant', '*', True, 'real')
+    set_switch(admin, TENANT_A, 'action_type', SEND, True)
+    set_switch(admin, TENANT_B, 'tenant', '*', True, 'test')
+    set_switch(admin, TENANT_B, 'action_type', SEND, True)
     status, body = readiness.evaluate(lambda: psycopg.connect(make_conninfo(pg, user='nexloop_api')), environ={'REAL_DISPATCH_ENABLED': 'true'})
     assert status == 200 and body['dispatch_switch'] == 'open' and body['real_dispatch'] == {'tenants_open': 1, 'actions_open': 1}
     dsn = private(tmp_path, 'metrics-dsn', make_conninfo(pg, user='nexloop_metrics'))
