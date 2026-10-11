@@ -144,11 +144,31 @@ def main():
     parser.add_argument('--observability',action='store_true',help='NX-030: alert evaluator, rule version and process samples (read-only metrics role)')
     parser.add_argument('--metrics-database-url-file',type=Path,help='private DSN of the read-only nexloop_metrics role')
     parser.add_argument('--alert-rules',type=Path,help='deploy/configuration/alert-rules.v<N>.json')
+    parser.add_argument('--deploy-gate',type=Path,help='NX-032 §6: private deploy-gate spec (host_role and input files); every pre-start check of one host')
+    parser.add_argument('--tls-spec',type=Path,help='NX-032: private TLS spec (CA, certificates, DSN files, Valkey configuration); names and codes only in the output')
     parser.add_argument('--relay-source',action='store_true',help='relay multi-consumer: the relay Source principal and credential (read-only metrics role)')
     args=parser.parse_args()
     if args.relay_source:
         if not args.metrics_database_url_file:parser.error('--relay-source requires --metrics-database-url-file')
         result=relay_source(args.metrics_database_url_file)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
+    if args.deploy_gate:
+        from nexloop_eios import deploy_checks
+        try:
+            result=deploy_checks.deploy_gate(json.loads(Path(args.deploy_gate).read_text()))
+        except Exception:
+            result={'checks':{'deploy_gate_spec':False},'details':{'deploy_gate_error':'deploy gate spec unreadable or invalid'}}
+        result.update(foundation_checks_passed=bool(result['checks']) and all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
+    if args.tls_spec:
+        from nexloop_eios import deploy_checks
+        try:
+            result=deploy_checks.tls(json.loads(Path(args.tls_spec).read_text()))
+        except Exception:
+            result={'checks':{'tls_spec':False},'details':{'tls_error':'TLS spec unreadable or invalid'}}
         result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
         print(json.dumps(result,indent=2,default=str))
         return 0 if result['foundation_checks_passed'] else 1

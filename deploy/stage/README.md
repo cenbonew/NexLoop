@@ -9,6 +9,10 @@
 | `connection-budget.v1.json` | 声明 APP_HOST 上每个会打开 PostgreSQL 连接池的服务进程，包括 pool max 和进程数。是 doctor 预算校验的输入 |
 | `compose.runtime-worker.example.yaml` | Compose 示例：一次性的预算检查服务 `runtime-worker-budget`，不通过时不启动 `runtime-worker` |
 | `systemd/nexloop-runtime-worker.service.example` | systemd 示例：预算检查放在 `ExecStartPre`，不通过时 unit 不启动 |
+| `compose.data.example.yaml`、`compose.data.env.example` | NX-032：DATA_HOST 的 PostgreSQL 18 与 Valkey，只在 `DATA_HOST_ADDR` 上发布两个端口 |
+| `compose.app.example.yaml`、`compose.app.env.example` | NX-032：APP_HOST 的 Gateway、API、各 Worker 和 Agent Host。内部链路在同一网络命名空间的 127.0.0.1 上，只发布 Gateway；每个服务只挂载自己的秘密文件 |
+| `config/*.template`、`firewall/*.template` | NX-032：pg_hba、postgresql、Valkey、两机 nftables。由 `scripts/deploy/render.py` 按白名单参数渲染，不允许残留未渲染的占位符 |
+| `stage.env.example` | NX-032：渲染器接受的参数，示例值都是文档保留地址 |
 
 ## 1. Runtime Worker 的进程形态
 

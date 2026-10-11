@@ -1,0 +1,28 @@
+# NX-032 §2.2: PostgreSQL 18 on DATA_HOST. Inside the container PostgreSQL listens on its own interfaces; the host side is
+# limited by the Compose port publication on __DATA_HOST_ADDR__ only and by the firewall (deploy/stage/firewall/).
+listen_addresses = '*'
+port = 5432
+hba_file = '/etc/postgresql/pg_hba.conf'
+ssl = on
+ssl_min_protocol_version = 'TLSv1.3'
+ssl_cert_file = '/run/tls/server.crt'
+ssl_key_file = '/run/tls/server.key'
+ssl_ca_file = '/run/tls/ca.crt'
+password_encryption = 'scram-sha-256'
+max_connections = 80   # application pools total <= 60 (connection-budget.v1.json); 20 reserved for operations and recovery
+shared_buffers = '256MB'
+work_mem = '4MB'
+maintenance_work_mem = '64MB'
+fsync = on
+full_page_writes = on
+synchronous_commit = on
+wal_level = replica
+max_wal_size = '2GB'
+min_wal_size = '256MB'
+log_min_duration_statement = 1000
+log_statement = 'none'
+log_parameter_max_length = 0
+log_parameter_max_length_on_error = 0
+idle_in_transaction_session_timeout = '30s'
+timezone = 'UTC'
+# WAL archiving and backups are NX-035 (archive_mode, archive_command, pgBackRest); not enabled by this template.
