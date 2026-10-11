@@ -91,7 +91,79 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 | 故障处理的目标流程 | [17_OPERATIONS_RUNBOOK](handoff/docs/17_OPERATIONS_RUNBOOK.md) §7 |
 | 安全事件 | [SECURITY.md](../SECURITY.md) 的处置流程：暂停 scope 与派发 → 保留证据 → 撤销凭据 → 核对已发生动作 → 修复验证 → 受控恢复 |
 
-## 9. 尚未具备的运维能力
+## 9. NX-037 受控真实闭环操作说明（负责人本人执行）
+
+> 依据：[NX-037 设计稿](implementation/NX-037-design.md)、[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md)、[ROADMAP](../planning/ROADMAP.md) §6–§7（D-g、D-i 定案）。参数在 [`deploy/configuration/nx037-trial.v1.json`](../deploy/configuration/nx037-trial.v1.json)。
+>
+> **现状**：初始化脚本、交互执行器、证据包与只读核对函数（迁移 0161）已就绪，只在合成或测试环境跑过；**真实 driver（经 WebChat 与企业服务端点发起交互）尚未实现**，属于 NX-037 B 类工作。进入条件见 [ROADMAP §8](../planning/ROADMAP.md)。下文只用占位符（`<TENANT_ID>`、`<DSN_FILE>` 等），不写任何主机、地址或真实值。
+>
+> 标记：**【B】** = 负责人本人执行或逐步授权；**【A】** = 只读或仓库内的操作，维护者可准备。
+
+### 9.1 定案参数
+
+| 项 | 值 |
+|---|---|
+| 费用上限（D-g） | 累计 ¥100；单个 Run ¥2；租户月度 ¥300。先跑 3 次交互校准实际单次费用，由负责人确认或调整；建议在模型账号侧另设消费上限作为第二道防线 |
+| 交互计划（D-i） | 共 30 次，配比：普通回复 15、真实交付 4、拒收后受限回复 4、人工接管 4、结果不明对账 3；两个连续工作日 10:00–18:00 |
+| 立即停止（出现 1 次即停） | 越权发送、发错对象、拒收后仍联系、同一意图执行超过 1 次、跨租户读取、单个 Run 超过 ¥2、critical 告警、负责人叫停 |
+| 暂停 | 最近 10 次中错误超过 10%（即至少 2 次）；累计费用达到累计上限的 80%；本月费用达到月度上限的 80%；对账窗口结束仍有结果不明的效应 |
+
+数据库中只设置累计上限（试运行期间的 model 预算）；单个 Run 与月度上限由执行器的停止与暂停规则执行（预算表每租户每 world 只有一个 model 预算）。
+
+### 9.2 真实租户初始化：`scripts/nx037/real_tenant_init.py`
+
+1. **【A】plan（默认，dry-run）**：只输出将要执行的受治理步骤，什么都不执行。
+
+   ```bash
+   python scripts/nx037/real_tenant_init.py plan --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO>
+   ```
+
+   租户 ID 必须是 uuid，且不能是合成 demo 租户；三个费用上限默认取定案值，覆盖时必须满足“单次 ≤ 累计 ≤ 月度”。输出中包含 `Budget.set` 的完整请求体与稳定的 request_id。
+
+2. **【B】execute（受信配置）**：只执行受信配置入口（服务授权、效应类别、告警规则），以 configurator 角色运行，可重复执行；需要负责人提供私有文件：
+
+   ```bash
+   python scripts/nx037/real_tenant_init.py execute --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --configurator-dsn-file <CONFIGURATOR_DSN_FILE> --signing-key-file <SIGNING_KEY_FILE> --signing-key-id <SIGNING_KEY_ID> --service-secrets-file <SERVICE_SECRETS_FILE> --credential-expires-at <EXPIRES_AT_ISO>
+   ```
+
+   不写任何表、不打开任何真实派发开关、不读取渠道密钥。未声明效应类别的 Action 按“触达客户、外部效应”处理（fail closed）。
+
+3. **【B】Budget.set**：负责人本人登录工作台，用 plan 输出的请求体提交 `Budget.set`（受治理人类 Action，脚本不代为提交），把累计上限设为试运行期间的 model 预算。
+
+4. **【A】verify（只读，metrics 角色）**：
+
+   ```bash
+   python scripts/nx037/real_tenant_init.py verify --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE>
+   ```
+
+   全部满足才算 ready：租户 active；三层真实派发开关都关闭；model 预算等于累计上限、币种一致并覆盖试运行期间；告警规则生效版本等于配置版本。效应类别声明数只报告。
+
+### 9.3 开放真实派发（【B】）
+
+按 [NX-037 设计稿](implementation/NX-037-design.md) §3 第 2–3 步：渠道配置与凭据只交给 Effect Worker；只对该租户、只对选定的 Action 打开三层真实派发开关（部署总闸、租户、租户与 Action，见 [真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)），由负责人在工作台执行 `set_real_dispatch`。
+
+### 9.4 受控交互：执行器（`nexloop_eios.controlled_interactions`）
+
+- 执行器按配比交错排列 30 次交互（前 10 次覆盖全部五类），每次交互有稳定 ID；每次交互的证据在下一次开始前写入 `interactions.jsonl` 并 fsync。证据只有 ID、计数、毫秒数、金额、币种与状态码：端到端、模型、工具、平台四段耗时，模型调用与失败次数，按类别费用，意图状态，拒绝码，交付回执，对账结果，规则判定。
+- 采集器 `PgCollector` 以 metrics 角色读取单个 Run 的证据（`authz.nexloop_nx037_run_evidence`）。
+- **【B】运行**：执行器目前是库接口，需要一个真实 driver（发起交互并返回可观察的事实）；真实 driver 尚未实现【待确认：随 NX-037 B 类工作提供运行入口】。先跑 3 次校准，由负责人确认单次费用后再继续。
+
+### 9.5 停止或暂停之后
+
+- **停止**：已记录的交互证据都已落盘。按 [SECURITY.md](../SECURITY.md) 的处置流程：暂停相关 scope 与派发（必要时关闭三层开关）→ 保留证据 → 撤销相关凭据 → 核对已发生的动作（结果不明只查询对账，不重发）→ 修复验证 → 受控恢复。**已停止的试运行不能恢复**，需要用新的 trial ID 重新开始。
+- **暂停**：负责人复核原因（错误、费用或未了结的不明效应）后可以恢复；恢复后已记录的交互不会再执行，错误窗口重新计数。
+
+### 9.6 证据包：`scripts/nx037/evidence_pack.py`（【A】）
+
+```bash
+python scripts/nx037/evidence_pack.py --out <NEW_EVIDENCE_DIR> --item release_manifest=<MANIFEST_FILE> --item ci_result=<CI_RESULT_FILE> --trial <TRIAL_DIR>
+```
+
+- 证据项：`inventory_before`、`inventory_after`、`release_manifest`、`ci_result`、`restore_drill`、`effect_reconciliation`、`load_report`、`public_preflight`、`third_party_notices`、`known_risks`、`interactions`（14 §7）。
+- 未提供的项记为 `missing`，从不编造；一般文件只记 sha256 与字节数，不复制内容；发布清单只抽取固定字段；交互汇总为计数、耗时 p50/p95、费用、停止或暂停结论与对账状态。
+- 只允许 uuid、哈希、时间、数字、布尔与固定词表中的代码；输出目录不能已存在。证据包保存在负责人的私有证据目录。
+
+## 10. 尚未具备的运维能力
 
 - 真实双机部署、AT-058 外部隔离探测、CI 主机上的隔离探测与断连演练（依赖 NX-032、NX-033 的 B 类步骤）。
 - pgBackRest、restic、异地备份、恢复命令行与部署环境演练（NX-035 部署部分）；Artifact 与 Run 目录的文件备份。
