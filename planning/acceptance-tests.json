@@ -995,7 +995,14 @@
     "given": "阻断GitHub访问",
     "expected": "本地CI/已有依赖构建可用；同步标pending",
     "status": "not_run",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T075522Z-5d8d756e6d68",
+        "summary": "NX-033 本地部分（f760e92）：tests/test_ci_queue.py 中同步 remote 不可达时状态为 sync_pending、积压递增，期间 CI 与合并照常；恢复后补推一次、积压清零。只是本地证据，部署链路未执行，状态保持 not_run。",
+        "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      }
+    ]
   },
   {
     "id": "AT-054",
@@ -1005,7 +1012,14 @@
     "given": "CI尝试访问stage secret/数据端口",
     "expected": "不能访问，公开PR不自动执行",
     "status": "not_run",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T075522Z-5d8d756e6d68",
+        "summary": "NX-033 本地部分（f760e92）：tests/test_ci_isolation.py 中运行器启动检查拒绝 15 种注入（受保护目录挂载含符号链接、secret 环境变量、指向数据主机的值、发布端口、测试阶段联网、非 rootless、特权、容器 socket、越界可写挂载、缺 cgroup 限制等），以 root 或 docker 组运行也拒绝；隔离探测发现可读 secret 或可连端口即失败；外部贡献 review/* 不入队、refs/pull/* 被拒。只是本地证据，真实主机上的隔离探测待 NX-032 后执行，状态保持 not_run。",
+        "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      }
+    ]
   },
   {
     "id": "AT-055",

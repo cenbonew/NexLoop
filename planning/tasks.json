@@ -2466,8 +2466,27 @@
       "M23"
     ],
     "deliverable": "rootless/secret/内网隔离、受信ref与不可变SHA",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "f760e92",
+        "summary": "NX-033 本地部分：scripts/ci/nexloop_ci.py（ref 命名空间规则、post-receive 按 SHA 入队、run-once 全新检出与受信 policy 判定、只快进且需通过结果的合并、check-runner/isolation-probe、GitHub sync 状态）、.ci-policy/ 受信 policy、deploy/stage/ci/ 参数化模板、Makefile 命令契约；与 NX-034 release.py 的 ci_result 契约测试通过。无迁移。",
+        "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T075522Z-5d8d756e6d68",
+        "summary": "s4v 全量（5d8d756）：失败 13 项均在基线（B 类），串行门槛 2/2；合入 main 5d8d756。",
+        "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-033-local-implementation.md",
+        "summary": "剩余：B 类主机步骤（建用户与 bare 仓库、hook、防火墙、依赖代理与缓存、切换 remote、真实主机隔离探测与断连演练）逐步等负责人确认；主机侧 TLS/防火墙与 CI 镜像依赖 NX-032；scripts/ci/check 暂作为一个 suite 阶段，拆分时出新版 stages。",
+        "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      }
+    ]
   },
   {
     "id": "NX-034",
@@ -2549,7 +2568,14 @@
     ],
     "deliverable": "README双语、许可/NOTICE/SBOM/贡献/安全/操作手册",
     "status": "not_started",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-036-design.md",
+        "summary": "NX-036 设计稿（a06e6d6，合入 main 5d8d756）：许可合规检查（Python/Node/vendored/自有资产，版本化策略，不猜测、缺元数据即失败）、源码级 SBOM 与漏洞策略（阈值、到期豁免、漏洞库新鲜度）、CONTRIBUTING/SECURITY/行为准则、公开发布 9 步门槛。D1–D12 待负责人决定；状态保持 not_started。",
+        "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      }
+    ]
   },
   {
     "id": "NX-037",
