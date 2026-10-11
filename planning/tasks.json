@@ -2179,6 +2179,12 @@
         "ref": "9a74026",
         "summary": "Registry rows for commitment.bind_commercial (owner, operator) and cost.record (owner) on the NX-028 governed entry (0128); handlers unchanged through thin adapters.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "716ace8",
+        "summary": "AT-043 优惠发放合入 main（迁移 0145，business-actions v13 nexloop.incentive.issue，人类入口与 Agent 入口，派发前预算，删除流程覆盖优惠意图表）；s4s 全量证据见 ci:lane/runs/20261011T043144Z-716ace8874a5。部署接线另行提交。",
+        "recorded_at": "2026-10-11T05:22:46.329375+00:00"
       }
     ]
   },

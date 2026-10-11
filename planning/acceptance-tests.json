@@ -818,13 +818,31 @@
     "name": "成本上限",
     "given": "达到tenant模型/优惠预算",
     "expected": "阻断新消耗，保留已有合法结果",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "note",
         "ref": "tests/test_costs_pg.py",
         "summary": "Synthetic test environment, merged at 8c6dcc9: Model cost budget, terminal-state release and unknown-result non-release covered; the discount/offer budget part has no discount Action yet, so AT-043 stays not_run.",
         "recorded_at": "2026-10-10T20:38:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c563272",
+        "summary": "优惠部分（at043-impl 155c386/e8ef634/c563272，迁移 0160 合并时重新编号为 0145）：目录内 IncentiveOffering 才能发放（目录外 NXI01）；派发时在行锁下依次复核删除中、所有者控制、联系限制（D6/D7）、目录、每 Consumer 周期上限、租户 incentive 预算（NXB01/NXB03），任一不过即拒绝且 provider 零请求；预算到上限后新发放在派发前被拒，已发放的保留，额度调低不撤销已有发放；unknown 保留预留只查询不重发；failed 释放预留并追加负额冲销。模型预算部分沿用 test_costs_pg。",
+        "recorded_at": "2026-10-11T05:22:46.329375+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T043144Z-716ace8874a5",
+        "summary": "s4s 全量（716ace8）：test_incentives_pg 12、test_incentive_runs_pg 4、test_incentive_context_v6_pg 2、test_incentive_guard_route 10 全部通过。失败 16 项：15 项在基线（B/C），新出现的 test_commercial_j01_pg（计划 Run 查询 503，与 B 类同形态）同检出串行 3/3 通过 ⇒ C；C 类 3 项同检出串行各 2/2 通过；串行门槛 2/2。合成环境与回环 provider，不是真实优惠渠道。",
+        "recorded_at": "2026-10-11T05:22:46.329375+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/AT-043-implementation.md",
+        "summary": "D2 负责人 2026-10-11 定案（“全部按推荐”）：EIOS 风险 low、无审批（vendored ActionGovernor 对非 low 强制审批证据，不修改）；NexLoop 分类 medium，补偿控制为目录单次上限、每 Consumer 周期上限、租户预算三重约束。部署接线（执行者服务主体、incentive_tool 开关、两项 deferred 授权）为后续单独提交，接线前生产上不会派发。",
+        "recorded_at": "2026-10-11T05:22:46.329375+00:00"
       }
     ]
   },
