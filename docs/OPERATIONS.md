@@ -69,7 +69,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 ## 7. 本地 CI（NX-033，本地部分）
 
-- 权威入口 `bash scripts/ci/check`（已拆成 `scripts/ci/stages/` 下可单独调用的阶段，按 `stages.v3` 顺序运行）；控制器 `scripts/ci/nexloop_ci.py`（ref 规则、按 SHA 入队、全新检出、受信判定、只快进合并、GitHub 同步）与 `Makefile` 命令契约。
+- 权威入口 `bash scripts/ci/check`（已拆成 `scripts/ci/stages/` 下可单独调用的阶段；前置阶段失败即停，测试阶段一律跑完，每阶段输出一行 `NEXLOOP-STAGE` 结果）；控制器 `scripts/ci/nexloop_ci.py`（ref 规则、按 SHA 入队、全新检出、受信判定、只快进合并、GitHub 同步）与 `Makefile` 命令契约。
 - 主机侧（服务用户、bare 仓库与 hook、防火墙、remote 切换）属于 B 类，尚未执行。见 [deploy/stage/ci/README.md](../deploy/stage/ci/README.md) 与 [NX-033 本地部分实现说明](implementation/NX-033-local-implementation.md)。
 
 ## 8. 常见运维操作的入口
