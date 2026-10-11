@@ -86,12 +86,14 @@ scripts/load/run_on_lane.sh
 - `failed`：`reasons` 逐条列出原因，例如 `C4:gate_drain_seconds,...`、`<cell>:identity_violations`。
 - `blocked`：有格子没有跑（`cells_not_run:...`）。
 
-三段分解（`report.md` 的“平台 / 模型 / 工具”表，逐 Run 取 p50 / p95）：
-- **模型**：取 Host 报告的 `model_timing.total_ms`（调度员 2026-10-11 裁定，方案 A2）。Host 从该 Run 持久化的 Pi 任务记录计算：每段生成任务的时长减去其中嵌套的工具调用时长。v2、v6 Run 和真实模型都适用；压测里包含 D5 注入的确定性时延；Host 重启后结果不变。runtime worker 只放行 `{calls, total_ms, max_ms}` 这三个数字，写进任务结果；collect 优先用它，没有时才用 v6 Run 的模型请求记录。
-- **工具**：取任务结果里的 `tool_timing.total_ms`，由 guard 逐次记录的工具请求耗时汇总而来（0133）。
-- **平台**：端到端减去模型、减去工具；结果为负时记为 0，并计入“不一致”这一列。
-- 端到端：来信受理到回复（或兜底、升级）落库的时间。
-- 派发时延（入队到 Host 接受）在门槛表里单独列出，不含模型时间。
+三段分解（`report.md` 的“平台 / 模型 / 工具”表，逐 Run 取 p50 / p95；口径由调度员 2026-10-11 裁定）：
+- **Run 时长**：Host 接受 Run（首次执行授权）→ 该 Run 的任务结束。
+- **模型**：Host 报告的 `model_timing.total_ms`（方案 A2）。Host 从该 Run 持久化的 Pi 任务记录计算：每段生成任务的时长减去其中嵌套的工具调用时长；覆盖 Run 内的全部生成，包括回复之后的查询结果、收尾两轮；压测里包含 D5 注入的确定性时延。runtime worker 只放行 `{calls, total_ms, max_ms}` 这三个数字。
+- **工具**：guard 汇总的 `tool_timing.total_ms`（0133）。
+- **平台** = Run 时长 − 模型 − 工具，三者在同一时间范围内相减。出现负数即数据异常：报告里计数（“数据异常”列），AT-060 记一条原因 `<cell>:decomposition_anomaly:<n>`，不会截成 0，也不计入平台的统计。
+- 另外两项单独报告，都不参与相减：
+  - **端到端**：来信受理 → 回复（或兜底、升级）落库；
+  - **派发**：入队 → Host 接受 Run，见门槛表，2 s 限值只适用于它。
 
 已知的容量结论（调度员 2026-10-11 裁定，不调整门槛）：在 D5 时延下，每个 Run 约 11 s，4 个派发循环约 0.36 Run/s。C4（1 条/秒）必然过载；C4-low 的派发 p95（入队到 Host 接受）在本机实测约 8 s，超过 2 s。这两项会判不通过，作为容量结论交给负责人决定（ROADMAP D-a）。
 

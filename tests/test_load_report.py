@@ -78,7 +78,7 @@ def make_cell(cells, name, *, guard=(100, 0, 900.0), ack=120.0, dispatch=600.0, 
         (d / 'checks.json').write_text(json.dumps(checks))
     if 'runs' not in skip:
         # An extra text field (contract violation by a writer) must never reach the report.
-        write_lines(d / 'runs.jsonl', [{'e2e_ms': 5000 + i, 'model_ms': 3000, 'tool_ms': 800.0 if i % 10 else None, 'tool_calls': 3,
+        write_lines(d / 'runs.jsonl', [{'e2e_ms': 5000 + i, 'run_ms': 4500 + i, 'model_ms': 3000, 'tool_ms': 800.0 if i % 10 else None, 'tool_calls': 3,
             'queue_wait_ms': 100, 'admission_wait_ms': 0, 'outcome': 'replied', 'body': SENTINEL} for i in range(50)])
     return d
 
@@ -178,3 +178,30 @@ def test_contract_errors_exit_2_without_writing(run_dir, tmp_path):
     write_lines(run_dir / 'cells/C4/refusals.jsonl', [{'code': SENTINEL, 'at': iso(START)}])
     with pytest.raises(report.ContractError):
         report.build(run_dir)
+
+
+def test_runs_without_end_to_end_time_are_counted_not_rejected():
+    """Found on the s5a C4-low run: a restricted (or in-progress) message Run has no reply yet, so e2e_ms is null; the report counts
+    it by outcome and still decomposes its Run duration (dispatcher 2026-10-11: platform = Run duration - model - tool)."""
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('load_report_null',Path(__file__).resolve().parents[1]/'scripts/load/report.py')
+    R=importlib.util.module_from_spec(spec);spec.loader.exec_module(R)
+    runs=[{'e2e_ms':5000,'run_ms':4200,'model_ms':3000,'tool_ms':1000,'tool_calls':3,'queue_wait_ms':100,'admission_wait_ms':None,'outcome':'replied'},
+          {'e2e_ms':None,'run_ms':3100,'model_ms':2000,'tool_ms':900,'tool_calls':2,'queue_wait_ms':80,'admission_wait_ms':None,'outcome':'restricted'}]
+    d=R.decomposition(runs)
+    assert d['runs']==2 and d['outcomes']=={'replied':1,'restricted':1} and d['e2e_ms']['p50']==5000 and d['anomalies']==0
+    assert d['platform_ms']['p50']==200
+
+
+def test_negative_platform_time_is_an_anomaly_not_zero():
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('load_report_anomaly',Path(__file__).resolve().parents[1]/'scripts/load/report.py')
+    R=importlib.util.module_from_spec(spec);spec.loader.exec_module(R)
+    runs=[{'e2e_ms':5000,'run_ms':3000,'model_ms':2500,'tool_ms':1000,'tool_calls':3,'queue_wait_ms':1,'admission_wait_ms':None,'outcome':'replied'},
+          {'e2e_ms':5000,'run_ms':4000,'model_ms':2500,'tool_ms':1000,'tool_calls':3,'queue_wait_ms':1,'admission_wait_ms':None,'outcome':'replied'},
+          {'e2e_ms':5000,'run_ms':4000,'model_ms':None,'tool_ms':1000,'tool_calls':3,'queue_wait_ms':1,'admission_wait_ms':None,'outcome':'replied'}]
+    d=R.decomposition(runs)
+    assert d['anomalies']==1 and d['platform_ms']['p50']==500 and d['runs_without_model_timing']==1  # never clipped to 0
+    cells=[{'cell':name,'completed':True,'aborted':None,'decomposition':d,'metrics':{'identity_violations':0},'role':'observe'} for name in R.CELLS]
+    result=R.at060(cells)
+    assert result['result']=='failed' and 'C4-low:decomposition_anomaly:1' in result['reasons']
