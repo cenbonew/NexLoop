@@ -2827,6 +2827,18 @@
         "ref": "local-only:audit/history-audit-20261012",
         "summary": "全历史审计（scripts/release/history_audit.py --all-refs，真实受限名单，HEAD 28707a5）：769 个提交、4359 个 blob、147 条命中。须轮换类 2 条经调度员核实为误报（Host 测试把 MODEL_API_KEY 设为变量；test_connection_budget 历史版本中的通用网段边界测试值，非负责人网段），无需轮换；host_alias 17、local_path 128 均已不在当前树，按 D9 接受留在历史中。负责人 2026-10-12 按推荐确认。报告只存私有证据（0600），不入库。剩余公开发布前置：安全联系人（D2）与 public-preflight。",
         "recorded_at": "2026-10-11T22:16:51.102501+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "fe4ed2d",
+        "summary": "全历史审计工具合入 main（s5h）：scripts/release/history_audit.py 遍历全部可达提交（含合并提交各父差异），复用 check_publication 与 prepush-scan 的规则，输出只含类别、规则、路径、首末提交与是否仍在当前树，不复述命中内容；退出码 0/1/2/3；test_history_audit 7 项。",
+        "recorded_at": "2026-10-11T22:24:01.588963+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T212359Z-0ef0953f9648",
+        "summary": "s5h 全量（0ef0953）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 255 s；heavy 22/22；pi 24、runtime 255 通过。其后 28707a5（审计测试改用非十六进制标记，本地 10/10）与 4aab055（planning）未进该轮 CI。",
+        "recorded_at": "2026-10-11T22:24:01.588963+00:00"
       }
     ]
   },
@@ -3483,6 +3495,18 @@
         "ref": "ci:lane/runs/20261011T202358Z-c6bee390ec12",
         "summary": "s5g 全量（c6bee39）：integration-parallel 失败 6 项均为基线 B 类；门槛 4/4 257 s；heavy 22/22；pi 24、runtime 255 通过。",
         "recorded_at": "2026-10-11T21:21:46.954806+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "cb1b29e",
+        "summary": "租户行锁合入 main（s5h）：0162 以 create or replace 复制 configure_manifest（0142）与 initial_identity_create（0050），租户行上的 FOR UPDATE 改为 FOR NO KEY UPDATE；search_path 收紧为 pg_catalog,pg_temp；test_tenant_row_lock_pg 覆盖评审稿 7 个场景的改动前后对比、正文只改锁、无覆盖 status/authority_revision 的唯一索引、锁探针等待 < 持锁 10%。第 3c 批按方案 A（根表加外键、子表经含 tenant_id 的复合外键链传递并断言）实现中，端到端测量放入整轮窗口。",
+        "recorded_at": "2026-10-11T22:24:01.588963+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T212359Z-0ef0953f9648",
+        "summary": "s5h 全量（0ef0953）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 255 s；heavy 22/22；pi 24、runtime 255 通过。其后 28707a5（审计测试改用非十六进制标记，本地 10/10）与 4aab055（planning）未进该轮 CI。",
+        "recorded_at": "2026-10-11T22:24:01.588963+00:00"
       }
     ]
   },
