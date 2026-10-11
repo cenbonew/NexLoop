@@ -14,7 +14,8 @@ The real tenant is a new tenant id, never the synthetic demo tenant, and is init
   period: it needs the owner's own workbench session, so this script prints the request and never performs it;
 - references only for the value catalog (file sha256) and the channel configuration (an opaque reference): the channel itself
   is connected in NX-037 B-class work, not here.
-It never writes a table, never opens a real dispatch switch and never reads a channel secret.
+plan and verify never write; execute performs only the trusted configuration steps above (no direct table write). None of
+the modes opens a real dispatch switch or reads a channel secret.
 
 `verify` (read-only, metrics role, authz.nexloop_nx037_tenant_state of 0161) passes only when: the tenant is active; the three
 real dispatch layers are closed (this process's REAL_DISPATCH_ENABLED is not 'true', no tenant switch open, no Action switch
