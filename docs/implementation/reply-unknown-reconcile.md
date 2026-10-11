@@ -1,4 +1,4 @@
-# 回复保障：原回复结果不明时先对账（分支 `reply-unknown-reconcile`，临时迁移 0210）
+# 回复保障：原回复结果不明时先对账（分支 `reply-unknown-reconcile`，迁移 0152，合并时由临时号 0210 重新编号）
 
 依据：调度员 2026-10-11 裁定，以及 AGENTS 不变式“unknown 的外部结果不能当作失败盲目重试，先查询和对账”。来源是 NX-031 切片 3 的压测发现：原回复投递超时后结果为 unknown，回复保障仍在 300 s 后启动了兜底；兜底回复被 NXC05 拒绝（每条来信只回复一次）后，这个 intent 一直停在 accepted。
 
@@ -15,7 +15,7 @@ reply-due 到期、来信尚未了结时，reply worker 按以下顺序处理（
 5. 原回复明确失败（intent 为 failed），或者根本没有原回复：照常启动兜底 Run。
 
 ## 配置：`reconcile_window_seconds`
-- 回复策略升级为第 2 版：`deploy/configuration/reply-guarantee.v2.json`，0210 把它写进 `control.nexloop_reply_policies`（与文件规范化 JSON 逐字节一致，有测试检查）。v1 文件和数据库里的第 1 版都不变。
+- 回复策略升级为第 2 版：`deploy/configuration/reply-guarantee.v2.json`，0152 把它写进 `control.nexloop_reply_policies`（与文件规范化 JSON 逐字节一致，有测试检查）。v1 文件和数据库里的第 1 版都不变。
 - 键位于 `fallback.reconcile_window_seconds`，默认 600 s，取值范围 30–3600 s。v1 策略没有这个键时使用默认值。
 - 加载时要求：`start_after_seconds + reconcile_window_seconds + 兜底 Run 最长时长 < reply_window_seconds`，保证对账之后如果要走兜底，仍能在回复窗口内完成。v2 是 300 + 600 + 120 < 1800。
 

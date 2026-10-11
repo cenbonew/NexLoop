@@ -151,7 +151,7 @@ class MessageRelay:
         return result['object_id']
 
     def _handoff(self,message_id,fence,reason):
-        """End this message on the relay path (0190): the reply guarantee answers it, the consumer's later messages proceed."""
+        """End this message on the relay path (0150): the reply guarantee answers it, the consumer's later messages proceed."""
         self.last_handoff=reason
         self.port.call('handoff',message_id=message_id,fence=fence,reason=reason)
         return 'handed_to_fallback'
@@ -163,7 +163,7 @@ class MessageRelay:
         except Exception:
             # Root cause of the stuck messages: a failed attempt kept its claim until the lease ran out and was then retried with
             # a changed command. A failed attempt now gives the message back with a bounded count; when the count is used up
-            # the message is handed to the reply guarantee instead of blocking the consumer (0190).
+            # the message is handed to the reply guarantee instead of blocking the consumer (0150).
             if claimed:
                 try:
                     yielded=self.port.call('yield',message_id=claimed['message_id'],fence=claimed['fence'])

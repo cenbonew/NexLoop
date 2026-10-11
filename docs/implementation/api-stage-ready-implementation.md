@@ -43,12 +43,12 @@
 - **总闸**：`dispatch_switch` 只报告状态；总闸打开本身不算不就绪。
 - **后台服务与 Runtime Worker**：目前没有 HTTP 健康入口，所以没有新增。将来增加时，调用同一个 `deployment_readiness.evaluate`。
 
-## 3. 迁移 0200（临时号）`0200_service_readiness.sql`
+## 3. 迁移 0151 `0151_service_readiness.sql`（合并时由临时号 0200 重新编号）
 
 - **`authz.nexloop_service_readiness()`**：返回恢复状态（`runtime.nexloop_restore_readiness`）和删除重放是否进行中（只给布尔值，不带 restore_ref）。授予 api、domain_worker、action_worker、scheduler、metrics 这几个角色。
 - **`authz.nexloop_backup_status()`**：返回 M12 的 backup 块、恢复状态和删除重放布尔值，只授予 `nexloop_metrics`。
 - 两个函数都是 definer 函数，`search_path=pg_catalog,pg_temp`，属主 nexloop_owner，并撤销 public 的执行权。原有的 runtime 函数仍然只有 owner 可执行。
-- `versions.lock.json` 的 `bootstrap_revision` 改为 `0200`。
+- `versions.lock.json` 的 `bootstrap_revision` 随合并改为当时的最新号。
 
 ## 4. doctor `--backup`
 

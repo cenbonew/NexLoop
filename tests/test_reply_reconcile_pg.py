@@ -1,4 +1,4 @@
-"""Reply reconciliation (0210, dispatcher 2026-10-11). AGENTS: an unknown external result is not a failure to blindly retry;
+"""Reply reconciliation (0152, dispatcher 2026-10-11). AGENTS: an unknown external result is not a failure to blindly retry;
 query and reconcile first. When a message's original reply is unknown at its due time, the reply worker triggers one
 reconciliation query on the existing effect query path and keeps the reply due for a bounded window: delivered settles it, an
 explicit failure starts the fallback as before, still unknown at the end escalates (reply_unknown) without a fallback.

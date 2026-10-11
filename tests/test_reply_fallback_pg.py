@@ -202,7 +202,7 @@ def test_fallback_reply_is_refused_once_the_original_reply_was_accepted(assemble
                 fallback_intent=next(r[0] for r in outbound(admin,tenant) if r[0]!=agent_intent)
                 assert 'fulfilled' not in effect_worker(c,tmp_path,material['provider_config'],material['secret'])
             states=dict((r[0],r[1]) for r in outbound(admin,tenant))
-            # 0210: the refused fallback reply (NXC05, one reply per inbound message) is terminal: failed, not pending forever.
+            # 0152: the refused fallback reply (NXC05, one reply per inbound message) is terminal: failed, not pending forever.
             assert states[agent_intent]=='delivered' and states[fallback_intent]=='failed'
             assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(fallback_intent,)).fetchone()==('failed',)
             assert admin.execute("select code from runtime.nexloop_dispatch_refusals where intent_id=%s",(fallback_intent,)).fetchall()==[('NXC05',)]

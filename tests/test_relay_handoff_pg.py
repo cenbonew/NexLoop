@@ -1,4 +1,4 @@
-"""Relay replan fix (0190): a message the relay cannot complete is handed to the reply guarantee (ADR-023) and stops blocking its
+"""Relay replan fix (0150): a message the relay cannot complete is handed to the reply guarantee (ADR-023) and stops blocking its
 consumer (D2); a failed attempt gives the message back with a bounded count. Real PostgreSQL, the production MessageRelay in
 run-profile mode (test_relay_multi_consumer_pg fixture). Failures are injected where a test says so; synthetic data."""
 import pytest

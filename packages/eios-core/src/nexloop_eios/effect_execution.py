@@ -39,7 +39,7 @@ def receipt_reconcile_schema():
 PROTOCOL='nexloop-effect-execution-v1'
 
 
-# Refusals that can never admit the same intent again (0210): the one-reply rule. Control refusals are not terminal: a new Run
+# Refusals that can never admit the same intent again (0152): the one-reply rule. Control refusals are not terminal: a new Run
 # re-submits the same business intent with a current snapshot (NX-022 reevaluation).
 TERMINAL_REFUSALS=frozenset({'NXC05'})
 
@@ -298,7 +298,7 @@ class EffectExecutionPort:
         try:
             with self.pool.connection() as db,db.transaction():
                 db.execute('select authz.nexloop_record_effect_refusal(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),code))
-                # 0210: a terminal refusal (one-reply rule) of a never-dispatched intent makes it failed, not pending forever.
+                # 0152: a terminal refusal (one-reply rule) of a never-dispatched intent makes it failed, not pending forever.
                 if code in TERMINAL_REFUSALS:
                     db.execute('select authz.nexloop_fail_refused_effect(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),code))
         except Exception:pass  # best effort: never turns a refusal into anything else
