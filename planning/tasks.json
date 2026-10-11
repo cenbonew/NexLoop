@@ -2821,6 +2821,12 @@
         "ref": "98acc6a",
         "summary": "docs/CONNECTORS.md（连接器开发指南）与 docs/EVALUATION.md（评估运行指南），调度员裁定为首个公开发布门槛；架构说明 §6 改为摘要并链接 planning/ROADMAP.md。合入 main 1a3ea6b。",
         "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only:audit/history-audit-20261012",
+        "summary": "全历史审计（scripts/release/history_audit.py --all-refs，真实受限名单，HEAD 28707a5）：769 个提交、4359 个 blob、147 条命中。须轮换类 2 条经调度员核实为误报（Host 测试把 MODEL_API_KEY 设为变量；test_connection_budget 历史版本中的通用网段边界测试值，非负责人网段），无需轮换；host_alias 17、local_path 128 均已不在当前树，按 D9 接受留在历史中。负责人 2026-10-12 按推荐确认。报告只存私有证据（0600），不入库。剩余公开发布前置：安全联系人（D2）与 public-preflight。",
+        "recorded_at": "2026-10-11T22:16:51.102501+00:00"
       }
     ]
   },
