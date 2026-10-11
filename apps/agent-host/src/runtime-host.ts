@@ -2,6 +2,7 @@
 import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
 import {type IncomingMessage} from 'node:http';
+import {refillingResponses} from './deterministic-queue.js';
 import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context} from '@earendil-works/pi-ai';
 import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-runtime-adapter.js';
 import {RuntimeEffectClient,requestScope} from './runtime-effect-tools.js';
@@ -118,7 +119,7 @@ export class RuntimeHost{
         if(after.some(item=>item.role==='toolResult'))return fauxAssistantMessage('Synthetic fallback reply protocol complete; no semantic inference.');
         return fauxAssistantMessage(fauxToolCall('nexloop.service.request',{message:'已收到您的来信：'+[...current.body].slice(0,60).join('')},{id:'fallback-reply'}),{stopReason:'toolUse'});
       };
-      faux.setResponses(Array.from({length:16},()=>response));
+      faux.setResponses(refillingResponses(faux,response,16));
     }else if(config.deterministic_plan_outcome!==undefined){
       // Explicit synthetic plan-reevaluation protocol, not semantic reasoning: reads the one plan the bound v6 pack carries
       // and records a fixed outcome through nexloop.plan.outcome (action_intent first submits one governed service intent).
@@ -148,7 +149,7 @@ export class RuntimeHost{
         const intent=record(receipt).intent_id;if(typeof intent!=='string')throw new RuntimeError('deterministic_effect_receipt_missing');
         return fauxAssistantMessage(fauxToolCall('nexloop.plan.outcome',{...base,kind:'action_intent',reasons:[plan.plan_ref+'：提交一次受治理服务意图'],intent_ref:intent},{id:'plan-outcome'}),{stopReason:'toolUse'});
       };
-      faux.setResponses(Array.from({length:16},()=>response));
+      faux.setResponses(refillingResponses(faux,response,16));
     }else if(config.deterministic_message_from_input===true){
       // Explicit synthetic byte-preserving test protocol, not semantic reasoning.
       // Use each conversation's genuine latest user message, never a global
@@ -191,7 +192,7 @@ export class RuntimeHost{
         const intent=record(receipt).intent_id;if(typeof intent!=='string')throw new RuntimeError('deterministic_effect_receipt_missing');
         return fauxAssistantMessage(fauxToolCall('nexloop.service.find',{intent_id:intent},{id:'message-service-find'}),{stopReason:'toolUse'});
       };
-      faux.setResponses(Array.from({length:64},()=>response));
+      faux.setResponses(refillingResponses(faux,response,64));
     }else if(config.effect_tools===true&&typeof config.deterministic_effect_message==='string'){
       // Explicit deterministic acceptance profile, never a real model claim.
       // Distinct tool-call IDs exercise the stable backend business key.
