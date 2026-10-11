@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：`main` 提交 `aefe1fb`（2026-10-11），迁移目录最高 `0147`，S0–S3 全部完成，S4 大部分完成（NX-030 只差备份年龄，NX-031 进行中），S5 完成了 NX-034（发布工具）与 NX-035（备份与恢复）的本地部分，部署尚未开始。
+> - 事实基线：`main` 提交 `3b5a684`（2026-10-11），迁移目录最高 `0147`，S0–S3 全部完成，S4 大部分完成（NX-030 只差备份年龄，NX-031 进行中），S5 完成了 NX-033（本地 Git 队列与隔离 CI）、NX-034（发布工具）与 NX-035（备份与恢复）的本地部分，部署尚未开始。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -448,7 +448,33 @@ flowchart LR
 - **rollback-check**（对应 AT-057）：目标迁移 head 高于当前库是升级而非回滚；低于当前库时，跨越的每个迁移都必须声明 `-- nexloop:expand-only`，否则拒绝并提示向前修复；运行时格式降级也拒绝。已发布迁移不补声明，因此目前跨越任何迁移的回滚都会被拒绝。
 - 测试：`tests/test_release_local.py`（临时目录、临时 ed25519 密钥）。详见 [NX-034 本地部分实现说明](implementation/NX-034-local-implementation.md)。
 
-**尚未实现**：镜像的实际构建与 digest 核对、doctor 对运行中容器的核对需要 NX-032（双机部署）；CI 结果文件由 NX-033（本地 Git 队列与隔离 CI）产出；发布归档权限与保留、GitHub 同步、公开 tag 属于 B 类操作或依赖 NX-033。AT-055、AT-057 目前只有本地证据，验收状态仍为 not_run。目标设计见 [12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) 与 [NX-034 设计](implementation/NX-034-design.md)。
+**已实现（NX-033 本地部分）：本地 Git 队列与隔离 CI 控制器** [`scripts/ci/nexloop_ci.py`](../scripts/ci/nexloop_ci.py)（只用标准库），以及受信策略 [`.ci-policy/`](../.ci-policy)、主机侧部署模板 [`deploy/stage/ci/`](../deploy/stage/ci) 和命令契约 [`Makefile`](../Makefile)。只做了仓库内的代码、模板和测试（详见 [NX-033 本地部分实现说明](implementation/NX-033-local-implementation.md)）。
+
+```mermaid
+flowchart LR
+    P[推送到本地 bare 仓库<br/>incoming/身份/topic 或 integration/*] -->|pre-receive<br/>ref 命名空间规则| Q[post-receive 入队<br/>记录推送时解析出的 SHA]
+    Q --> A[Admission<br/>身份在允许名单、SHA 存在<br/>改动 CI/策略/部署路径则标 policy_change]
+    A --> C[全新目录检出该 SHA<br/>只允许本地协议]
+    C --> R[运行器隔离检查后执行阶段<br/>依赖阶段经代理联网，测试阶段无网络]
+    R --> J{受信 policy 判定<br/>必需 junit 齐全、零失败零跳过<br/>测试数不下降}
+    J -->|通过| M[合并：main 只快进<br/>需 integrator/maintainer 请求<br/>policy_change 需 maintainer 确认<br/>合并门槛通过]
+    J -->|失败| F[结果只追加，保留首次失败<br/>不自动重跑]
+    M --> S[GitHub 同步<br/>只快进、不 force、不 mirror<br/>不可达时记 sync_pending]
+```
+
+- **ref 规则**：开发线只能写 `incoming/<自己的身份>/*`；`integration/*` 只有 integrator 与 maintainer；`main` 只有 controller、只能快进；`tags/v*` 只有 release 身份、建后不可移动；`review/*` 不入队；`refs/pull/*` 等其他 ref 一律拒绝。
+- **受信判定**：判定只用受信安装（main 上已发布）的程序与 `.ci-policy/`，候选提交改了自己的 CI 脚本或策略也不影响判定；必需的 8 份 junit 正是 `scripts/ci/check` 写出的那些，NX-049 时限门槛对应 `python-deadline-gate`。当前 `scripts/ci/check` 作为单一 `suite` 阶段运行，尚未拆分。
+- **结果文件**：`results/<sha>/attempt-<n>/result.json`，只追加；其中 `sha`、`status`、`policy_version`、`deadline_gate`、`counts` 正是 `release.py manifest` 的 CI 结果输入，有契约测试。
+- **运行器隔离**（AT-054）：`check-runner` 在启动时拒绝 root 或 docker 组、非 rootless Podman、特权与额外 capability、测试阶段联网、代理指向数据主机、挂载受保护目录或容器 socket、像 secret 的环境变量、发布端口、缺少 cgroup 限制等；`isolation-probe` 只要读到受保护路径或连上目标端口就判失败。外部贡献不会自动执行。
+- **GitHub 断连**（AT-053）：GitHub 不可达时同步记为 `sync_pending` 并累计积压，入队、构建、判定和合并照常；恢复后补推一次，积压清零。
+- **命令契约**：`make ci SHA= REF= IDENTITY=`（需要已运行的控制器与 `NEXLOOP_CI_REPO/QUEUE/IDENTITIES`）、`make status`；开发机上的单项阶段 `make test`、`test-integration`、`test-recovery`、`test-e2e`、`lint`（默认 `N=3` 个 pytest worker）。
+
+**尚未实现**：
+- NX-033 的主机侧步骤都属于 B 类、需负责人逐项确认，**尚未执行**：在 APP_HOST 上建 `nexloop-git` / `nexloop-ci` 用户、bare 仓库与 hook、`authorized_keys`、控制器与同步的 systemd unit；按 UID 或 cgroup 拒绝 CI 访问 DATA_HOST 与 LAN 的防火墙规则；依赖代理与缓存预热；remote 切换（`origin` 指向 LAN、`github` 作为同步 remote）。AT-053、AT-054 目前只有本地证据，验收状态仍为 not_run。
+- 镜像的实际构建与 digest 核对、doctor 对运行中容器的核对、CI 镜像构建与固定，需要 NX-032（双机部署）。
+- 发布归档权限与保留、公开 tag 属于 B 类操作。AT-055、AT-057 目前只有本地证据，验收状态仍为 not_run。
+
+目标设计见 [NX-033 设计](implementation/NX-033-design.md)、[12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) 与 [NX-034 设计](implementation/NX-034-design.md)。
 
 
 ### 3.11 备份与恢复（NX-035 本地部分）
@@ -476,6 +502,19 @@ stateDiagram-v2
 
 **尚未实现**：pgBackRest、restic、异地备份与恢复命令行（依赖 NX-032）；Artifact 与已终态 Run 目录的文件备份；意图重建；各渠道的按时间查询读取器（没有证据的渠道一律暂停）；就绪函数尚未接入 `/health/ready`；`doctor --backup` 与 `backup.v1.json` 配置。AT-050 与 AT-056 目前只有本地证据（本地合成数据实测 RTO 约 0.95 s），验收状态仍为 not_run。目标设计见 [NX-035 设计](implementation/NX-035-design.md) 与 [17_OPERATIONS_RUNBOOK](handoff/docs/17_OPERATIONS_RUNBOOK.md)。
 
+
+### 3.12 开源与供应链合规（NX-036，设计中）
+
+**尚未实现。** [NX-036 设计稿](implementation/NX-036-design.md) 已合入，状态为“待审，未实现”，12 项决定（D1–D12）待负责人确认；planning 中 NX-036 为 not_started。以下只是设计要点：
+
+- **许可合规**：版本化的许可策略文件与检查脚本，对锁定依赖做清单与规范化；强 copyleft 与未知许可拒绝，弱 copyleft 是否允许待 D7。
+- **SBOM 与漏洞**：在 NX-034 的 `release.py sbom` 基础上增加源码 SBOM、与许可清单交叉核对、漏洞阈值与豁免（阈值、豁免期限、漏洞库新鲜度待 D5、D6、D12）。
+- **贡献与安全政策**：CONTRIBUTING、SECURITY、行为准则、治理文件等应包含的可检查条款（贡献签署方式、安全报告渠道、响应时限、支持版本、行为准则待 D1–D4、D10）。
+- **公开仓库卫生**：整棵树与全部历史的扫描模式；历史中非秘密标识的处理待 D9。
+- **公开发布门槛**：计划由 `release.py` 增加 `public-preflight`，依次做干净检出、许可检查、公开文件检查、CI 隔离检查、发布扫描、推送前扫描、SBOM 交叉核对、漏洞阈值，最后输出待负责人确认的摘要；stage 发布只增加许可检查与 SBOM 交叉核对。
+
+当前已有的公开仓库防护见 [§5.6](#56-贡献须知) 与 [§6.3](#63-许可)：MIT 许可（ADR-026）、`check_publication.py`、`prepush-scan.sh`（受限名单为不入库的私有文件，缺失时拒绝推送）。
+
 ---
 
 ## 4. 仓库结构与模块索引
@@ -483,6 +522,8 @@ stateDiagram-v2
 ```text
 NexLoop/
 ├── AGENTS.md                  # 工程契约（必须遵守）
+├── Makefile                   # NX-033 命令契约：make ci / status / test / test-integration / test-recovery / test-e2e / lint
+├── .ci-policy/                # 受信 CI 策略：阶段、必需 junit、依赖源允许名单
 ├── CHANGELOG.md               # 每次合入 main 的用户可感知变化
 ├── versions.lock.json         # 上游提交、包版本、镜像 digest 的单一锁文件
 ├── adr/                       # ADR-019 起的新 ADR（ADR-001～018 在 docs/handoff/docs/16_ADR.md）
@@ -523,6 +564,7 @@ NexLoop/
 | [`deploy/authorization`](../deploy/authorization)、[`deploy/configuration`](../deploy/configuration)、[`deploy/ontology`](../deploy/ontology) | 版本化可信配置清单（见 [§3.2](#32-数据与授权模型)） | [NX-048](implementation/NX-048-service-grants.md) |
 | [`deploy/load`](../deploy/load)、[`scripts/load`](../scripts/load) | NX-031 压测：矩阵文件；固定种子合成数据（`synthetic.py`）、模板构建（`build_template.sh`）、矩阵执行器（`matrix.py`、`stack.py`、`driver.py`、`collect.py`）、连接池实测（`measure_pools.py`）、结果报告（`report.py`）、CI 主机夜间运行脚本（`run_on_lane.sh`）；只用合成数据 | [NX-031 设计](implementation/NX-031-design.md)、[实现说明](implementation/NX-031-implementation.md)、[结果契约](implementation/NX-031-results-contract.md) |
 | [`deploy/community`](../deploy/community) | 一次性社区测试 Compose 与镜像构建文件 | [社区测试 README](../deploy/community/README.md) |
+| [`scripts/ci/nexloop_ci.py`](../scripts/ci/nexloop_ci.py)、[`.ci-policy/`](../.ci-policy)、[`deploy/stage/ci/`](../deploy/stage/ci)、[`Makefile`](../Makefile) | 本地 Git 队列与隔离 CI：控制器（ref 规则、入队、Admission、检出、受信判定、合并、同步、运行器检查、隔离探测）；受信策略；hook、身份、运行器、systemd 等主机侧模板（全部参数化）；命令契约 | [NX-033 设计](implementation/NX-033-design.md)、[NX-033 本地部分实现说明](implementation/NX-033-local-implementation.md)、[stage/ci README](../deploy/stage/ci/README.md) |
 | [`deploy/stage`](../deploy/stage) | Runtime Worker 的 Compose / systemd 示例、连接预算、Agent Host 运行配置示例；主机、端口、路径、镜像、密钥全部来自私有配置 | [stage README](../deploy/stage/README.md)、[NX-049 部署配置](implementation/NX-049-deploy-config.md) |
 | [`scripts`](../scripts) | `ci/check`（本地 CI）、`ci/prepush-scan.sh`（推送前扫描）、`check_publication.py`、`check_definer_search_path.py`、`check_pi_source.py`、`check_test_report.py`、`generate_contracts.py`、`community_test.py`、`agent_host.py`、`dev/workbench_smoke.sh`、`release/release.py`（本地发布清单、签名、验签、SBOM、回滚检查） | [12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) |
 | [`tests`](../tests) | 扁平的 `tests/test_*.py`，`*_pg.py` 为真实 PostgreSQL 测试；`tests/conftest.py` 每例创建独立的一次性 PG 18（Unix socket、随机端口、无 TCP）；缺 PostgreSQL 时报错而不是跳过 | [14_TEST_ACCEPTANCE](handoff/docs/14_TEST_ACCEPTANCE.md) |
@@ -601,6 +643,8 @@ bash scripts/ci/check
 
 依次执行：锁定依赖检查 → 发布检查（`check_publication.py`）、Pi 源码校验、`search_path` 静态检查、契约漂移检查、planning 校验 → 构建 Web / Pi / Agent Host → Node 与前端测试 → 构建类 Python 测试（串行）→ **NX-049 串行时限阶段**（两个真实 Pi 用例，guard 4 进程）→ 其余 Python 测试并行（`NEXLOOP_CI_PYTEST_WORKERS`，默认 6）→ Pi SQLite conformance 与 Agent Host 测试。全量运行需要数十分钟并占用大量 CPU 与一次性数据库实例，日常开发请只跑与改动相关的定向测试。
 
+开发机上也可以用 `Makefile` 运行单项阶段（默认 3 个 pytest worker）：`make test`、`make test-integration`、`make test-recovery`、`make test-e2e`、`make lint`。`make ci` 把一个 SHA 送进本地 CI 队列并等待结果，需要已运行的控制器（见 [§3.10](#310-发布与部署)）。
+
 ### 5.4 本机工作台冒烟环境
 
 ```bash
@@ -652,14 +696,16 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 | S5 | APP_HOST 工具时限达标（NX-049） | 完成 |
 | S5 | 发布归档与 GitHub 同步（NX-034） | **进行中**（本地发布工具已合入；归档、同步、tag 依赖 NX-033） |
 | S5 | 备份/PITR 与恢复演练（NX-035） | **进行中**（本地部分已合入：备份清单、恢复日志、恢复围栏、迁移门槛；部署部分依赖 NX-032） |
-| S5 | 双机 TLS 与隔离部署、本地 Git 队列与隔离 CI、开源文档与供应链、v0.1 受控真实闭环验收（NX-032、033、036、037） | **未开始**（NX-031～035 的设计文档已合入，负责人决定已写入） |
+| S5 | 本地 Git 队列与隔离 CI（NX-033） | **进行中**（本地部分已合入：控制器、受信策略、主机模板、命令契约；主机侧 B 类步骤未执行） |
+| S5 | 开源文档与供应链（NX-036） | **未开始**（设计稿已合入，D1–D12 待负责人决定） |
+| S5 | 双机 TLS 与隔离部署、v0.1 受控真实闭环验收（NX-032、037） | **未开始**（NX-031～036 的设计文档已合入） |
 | S6 / S7 | Evo 演进与评估、Schema 受控演进；模拟世界、消费者孪生、策略实验（NX-038–043） | 未开始 |
 
-产品验收（`planning/acceptance-tests.json`）共 70 项：58 项 passed，12 项 not_run（2026-10-11 新增通过 AT-015、AT-043；AT-050、AT-055、AT-056、AT-057 只有本地证据，仍为 not_run）。
+产品验收（`planning/acceptance-tests.json`）共 70 项：58 项 passed，12 项 not_run（2026-10-11 新增通过 AT-015、AT-043；AT-050、AT-053、AT-054、AT-055、AT-056、AT-057 只有本地证据，仍为 not_run）。
 
 ### 6.2 已知限制
 
-- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署尚未开始；发布只有本机运行的清单、签名、验签与回滚检查工具（[§3.10](#310-发布与部署)），GitHub 同步与归档依赖 NX-033；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
+- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署尚未开始；发布只有本机运行的清单、签名、验签与回滚检查工具，本地 CI 控制器也只有仓库内的代码与模板，主机侧的用户、bare 仓库、防火墙与 remote 切换尚未执行（[§3.10](#310-发布与部署)）；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
 - **真实外发关闭。** 真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭；服务授权清单拒绝授予真实外发 Action（ADR-020 §3）。当前外部效应只在本地 / 合成 provider 上验证过。
 - **模型。** 自动化测试使用确定性测试 provider；真实 DeepSeek 验证只在显式 opt-in 时运行，CI 不读取凭据。
 - **部署前提。** 2 s 工具时限门槛只在部署并发（Host ≤ 4、guard 4 进程）下证明；在远超部署并发的全量并行负载下相关场景仍可能超时（ADR-022 §4）。生产并发要提高时必须先重新测量。
