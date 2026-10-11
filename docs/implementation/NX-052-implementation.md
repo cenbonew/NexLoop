@@ -254,3 +254,59 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 锁探针：在 `FOR UPDATE` 下，两张表的插入都被阻塞约 0.3 秒；在 `FOR NO KEY UPDATE` 下不再阻塞（0.6–0.7 ms）。这与评审稿的预期一致。
 
 3b 每次抽取会写几行到几十行，按上表的单行增量（约 2–3 µs）估算，一次抽取增加 0.1 ms 以内。端到端 p95 要等 3c 时用 NX-031 矩阵一起实测。
+
+## 6. 批次 3c 设计：会话与消息表（尚未实现）
+
+前置条件：0290（租户行锁改为 `FOR NO KEY UPDATE`）已经实现，等待合入。3c 要在 0290 合入 main 之后再合入。
+
+### 6.1 范围
+
+下面 13 张表在 runtime 下，都位于消息受理、转发或回复的路径上：
+
+| 表 | 已有的复合外键 | 3c 的处理 |
+|---|---|---|
+| `nexloop_conversations` | 无（会话族的根表） | **直接加租户外键** |
+| `nexloop_conversation_messages` | `(tenant_id,world,conversation_id)` 引用会话 | 见 6.2 |
+| `nexloop_outbound_messages` | 引用会话、`effect_intents` | 见 6.2 |
+| `nexloop_message_inbox`、`nexloop_message_outbox`、`nexloop_message_routes`、`nexloop_message_provider_facts`、`nexloop_message_reply_links`、`nexloop_message_relay_leases` | 无 | 直接加 |
+| `nexloop_relay_claims`、`nexloop_relay_consumer_cursors`、`nexloop_staff_replies` | 无 | 直接加 |
+| `nexloop_native_web_events` | 无（原生入站的根表） | 直接加 |
+| `nexloop_native_web_transports` | 引用 `native_web_events`，含 tenant_id | 见 6.2 |
+
+`nexloop_inbox`、`nexloop_outbound_delivery_events`、`nexloop_context_artifact_bindings` 和 `nexloop_fallback_context_bindings` 属于 Run 与效果族，留在第 4 批。
+
+### 6.2 是否只给根表加（需要你决定）
+
+子表的复合外键里已经包含 `tenant_id`，并且引用的是根表的主键。一旦根表有了租户外键，“子行的租户必然存在”就可以沿外键链传递得到。所以对这类子表，可以只给根表加，不给子表加：
+
+- **方案 A（建议）**：只给根表 `nexloop_conversations` 和 `nexloop_native_web_events`，以及其余没有复合外键的表加租户外键；`conversation_messages`、`outbound_messages`、`native_web_transports` 依赖外键链。每条消息少做一到两次外键检查。测试断言这条外键链完整：每个子表都有一个外键，其列以 `tenant_id` 开头，并且引用的父表已有租户外键。
+- **方案 B**：每张表都直接加，规则统一，但每条消息多做一到两次检查。
+
+3b 中 `extraction_runs`、`claims` 等表已经直接加了外键，它们同样可以只依赖会话链，但已合入的部分不回退。
+
+### 6.3 迁移与回滚
+
+- 一个迁移，临时号 0300 起，先 `not valid` 再逐表 `validate`。
+- `nexloop_conversation_messages` 是本批最大的表：先在部署副本上实测 VALIDATE 的时长，超过 60 秒就把它的 VALIDATE 拆到下一次发布。如果采用方案 A，这张表不加约束，问题就不存在。
+- **回滚**：新开迁移，`drop constraint if exists`。
+
+### 6.4 写入路径
+
+所有入站路径都先经过签名授权，或者原生入站的身份校验（取 `FOR SHARE` 或身份快照），之后才写入。所以写入时租户行必然存在。
+
+出站、转发和人工回复路径的写入都晚于会话创建。会话表本身由 0046 的受理函数在授权之后写入。
+
+### 6.5 测量（判据：端到端 p95 增加不超过 5%）
+
+1. **语句级**：用 `tenant_fk_cost.py` 测 `nexloop_conversations` 和 `nexloop_message_inbox`。需要在 TABLES 中加入这两张表；会话表带触发器，清理语句要走测试专用的路径。
+2. **端到端**：在 NX-031 压测模板上跑消息主路径矩阵，分为三个状态，每个状态 3 轮，比较 dispatch 时延的 p50 和 p95：
+   - 0290 之后、3c 之前；
+   - 3c 之后；
+   - 3c 之后，同时并发跑配置发布，每 5 秒发布一次 manifest，验证 0290 的效果。
+
+   这一项需要 L4 车道的整轮窗口，由调度员安排；本机只能跑语句级。
+
+### 6.6 待决定
+
+1. 采用方案 A 还是方案 B。
+2. 端到端测量排在哪个车道窗口。
