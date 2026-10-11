@@ -50,7 +50,7 @@ _RUNS = """with r as (
 
 def runs(db, start, end):
     """D6 per message Run whose trigger was accepted in the window (contract §2; no run_id): end to end (trigger accepted → its
-    reply, fallback reply or escalation), model time (sum of the Run's model requests), tool time and calls (the Dispatcher's
+    reply, fallback reply or escalation), model time (the Host's model_timing, else the sum of the Run's model requests), tool time and calls (the Dispatcher's
     tool_timing), queue wait (task created → first claimed). admission_wait_ms stays null: the Host's admission wait has no
     per-Run record (NX-030 M09 is not delivered)."""
     rows = db.execute(_RUNS + """
@@ -67,6 +67,11 @@ def runs(db, start, end):
     out = []
     for accepted, result, created, claimed, replied, fallback, escalated, takeover, restricted, model_ms in rows:
         timing = (result or {}).get('tool_timing') if isinstance(result, dict) else None
+        # AT-060 model time (dispatcher 2026-10-11, A2): the Host's model_timing in the task result (every Run kind); the v6 model
+        # request records only when it is absent.
+        host_model = (result or {}).get('model_timing') if isinstance(result, dict) else None
+        if isinstance(host_model, dict) and isinstance(host_model.get('total_ms'), (int, float)):
+            model_ms = host_model['total_ms']
         done = replied or escalated
         outcome = ('fallback' if fallback else 'replied') if replied else 'escalated' if escalated else 'takeover' if takeover else 'restricted' if restricted else 'in_progress'
         out.append({'e2e_ms': round((done - accepted).total_seconds() * 1000, 1) if done else None,
