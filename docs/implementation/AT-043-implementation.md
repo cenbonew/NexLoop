@@ -14,6 +14,8 @@
 - D5：NX-026 登记（0127 的 `commitment_prepare_claim` 函数体加一段判定）：规则 `incentive-promise-v1` 识别企业已送达话语中的优惠许诺（折扣、优惠券、代金券、返现、立减、减免、红包、赠送、免单等）；该客户没有覆盖它的有效绑定目录项（金额以两位小数币种的主单位换算，币种一致）时，记异常 `unauthorized_incentive_promise`，不登记 Commitment，也不发放。
 - D8：v6 上下文 `open_work` 增加 `incentive` 条目（ref `eios:object:IncentiveOffering/<id>`，formal_object）：目录项与本周期仍可发给该客户的区间 `issuable_minor`（单次上限与每 Consumer 周期剩余额度取小），不含预算余额；SQL 在 bind 时重算（0113 的 open-work 读取与来源核对函数体各加一个分支）。不钉住：预算紧张时可被裁掉。契约形状未变（open_work 条目本身是通用形状）。
 - D9：只有回环 provider。
+- Consumer 删除（NX-029）：`runtime.nexloop_erasure_step`（0144 函数体复制，加 `incentives` 阶段，位于 commitments 之后）。有 provider 答复未决（dispatching/unknown）的发放时先等待（执行者查询对账，不重发）；accepted 的改为 refused（`consumer_erasing`）；随后经清除登记把 `consumer_id` 换成随机假名、清空 `notification_text`、`reply_to_message_id` 与控制快照（快照里有 Consumer ID）。金额、状态、ID、预算消耗与费用条目不变。受理审计事件不再记录 Consumer ID。表守卫只对登记过的清除放行。
+- 成本计数类指标：冲销条目（`budget_release`）不计单位（0120 `runtime.nexloop_cost_project` 函数体加一个条件），失败一笔只算一次。
 
 ## 2. 代码与配置
 
@@ -27,16 +29,15 @@
 
 ## 3. 测试（真实 PG，回环 provider，合成数据）
 
-- `tests/test_incentives_pg.py`（10）：额度内发放只预留一次、只发一次并记成本；预算耗尽派发前拒绝且已发放的保留；未配置预算；未知结果先查询再对账（写后超时 → fulfilled，写前超时 → 查询未找到 → failed 并释放），过期 fence 被拒；明确失败释放、成本指标净额为 0；目录外不受理；每 Consumer 周期上限；暂停、联系限制带通知、删除中的 Consumer；入口与端口的主体限制；D5 目录外许诺为异常、目录内许诺与普通服务许诺照常登记。
-- `tests/test_incentive_runs_pg.py`（3）：复评 Run 在 Run 内发放（来源 plan、重放），客户受限后派发被拒（D7）；回复来信的 Run 对受限客户可发放，带通知整条拒绝；Run 未列出该 Action、超目录上限、篡改命令都不受理。
+- `tests/test_incentives_pg.py`（12）：失败一笔在计数指标中只算一次；Consumer 删除覆盖意图表（等待未决答复、拒绝 accepted、去掉识别信息、金额汇总不变）；额度内发放只预留一次、只发一次并记成本；预算耗尽派发前拒绝且已发放的保留；未配置预算；未知结果先查询再对账（写后超时 → fulfilled，写前超时 → 查询未找到 → failed 并释放），过期 fence 被拒；明确失败释放、成本指标净额为 0；目录外不受理；每 Consumer 周期上限；暂停、联系限制带通知、删除中的 Consumer；入口与端口的主体限制；D5 目录外许诺为异常、目录内许诺与普通服务许诺照常登记。
+- `tests/test_incentive_runs_pg.py`（4）：复评 Run 在 Run 内发放（来源 plan、重放），客户受限后派发被拒（D7）；回复来信的 Run 对受限客户可发放，带通知整条拒绝；Run 未列出该 Action、超目录上限、篡改命令都不受理；Role Run 的 ceiling 未列出该 Action 时被拒，列出时受理。
+- `tests/test_incentive_guard_route.py`（10）：守卫路由（真实 TLS、假 worker）传递确切参数、只返回固定回执，NXI01 / NXB02 / 其他拒绝 / 参数错误映射为固定码且不带细节，畸形请求不到达 worker，他人 Run 的回执不返回。
 - `tests/test_incentive_context_v6_pg.py`（2）：v6 上下文列出该客户的优惠条目与可发区间、不含预算、不列他人的目录项；放大可发区间的上下文包在 bind 时被拒。
 - `apps/agent-host/test/runtime-effect-tools.test.ts`：工具默认不提供、开启后发送确切参数、只接受固定形状回执。
 
 ## 4. 待定与已知限制
 
 - D2 与 EIOS 治理冲突：负责人选定 `risk_level=medium`、`approval_mode=none`，但 vendored EIOS 的 ActionGovernor 对非 low 风险一律要求审批证据，部署清单也只发布 low 风险 Action；按 medium 发布会让负责人发放必须走审批流。暂按 low 发布（三重约束不变），请调度员裁定：保持 low 并在文档中记录 NexLoop 自己的 medium 分类，或接入审批流。
-- 回复来源的 Agent 测试直接调用 SQL 端口：测试中补写的消息 Run 签发记录不是完整的消息路由，守卫的激活预检会拒绝；激活、租约、命令的权威复核在 SQL 中，守卫预检路径由复评 Run 测试覆盖。Role ceiling 分支没有专门的 Role Run 测试。
+- 回复来源与 Role Run 只在 SQL 端口层测过：测试中按写入者形状补写的消息 Run 签发记录与 Role 绑定不是完整的消息路由 / Role 上下文，守卫调用前的 Python 激活预检（`RuntimeActivationPort.authorize`，要求完整的消息路由或 Role 上下文）会拒绝；构造完整消息路由需要真实的入站投递与消息 Run 签发链路，成本过高。激活、任务租约、命令一致的权威复核都在 SQL 端口中，守卫预检路径由复评 Run 测试经 `issue_run_incentive` 覆盖，守卫路由本身由 `test_incentive_guard_route.py` 覆盖。
 - 部署：执行者服务主体、后台入口、Host 的 `incentive_tool` 开关与两项授权（deferred）待部署配置提交。
-- Consumer 删除（NX-029）尚未覆盖 `runtime.nexloop_incentive_issues`（`consumer_id`、`notification_text`）；表守卫已为登记过的清除留口。
-- 成本“计数”类指标会把冲销条目也计为一个单位；金额类指标正确。
-- D5 的金额换算假定两位小数币种。
+- D5 的金额换算假定两位小数币种（主单位 × 100 = 最小单位）；零位或三位小数的币种需要另行处理，调度员已确认保留此假定。

@@ -243,3 +243,53 @@ def test_a_promised_incentive_outside_the_catalog_is_an_exception_never_a_commit
     service=c.claim(c.outbound('我会在明天下午前给你处理进展'),'我会在明天下午前给你处理进展',predicate='处理进展')
     c.tick()
     assert c.by_claim(service) is not None
+
+
+def test_a_failed_issue_counts_once_in_a_count_metric(incentives,admin,tmp_path):
+    """D6: the reversal entry nets the amount but is not another unit of a count metric."""
+    from decimal import Decimal
+    c=incentives;env=c['env'];seed_budget(admin,1000);offer=seed_offering(c,admin)
+    now=datetime.now(UTC);window=(now-timedelta(days=1),now+timedelta(days=1))
+    env.metric('discount-count',aggregation='count',value='count',currency=None,source_kind='cost_entry',kinds=(),statuses=(),cost_kinds=('discount',))
+    env.kr('g-discount-count','discount-count',window)
+    issue(c,'k1',offer,100);tick(c,LocalIncentiveLedger(tmp_path/'ledger-k',fault='fail'))
+    issue(c,'k2',offer,100);tick(c)
+    assert states(admin)==[('failed',''),('fulfilled','')]
+    assert Decimal(env.compute('g-discount-count')['value'])==2  # two reservations; the reversal adds no unit
+
+
+def test_a_consumer_erasure_reaches_the_incentive_intents_and_keeps_the_money(incentives,admin,tmp_path):
+    """NX-029: the erasure waits for an outstanding provider answer (queried, never re-sent), refuses what is only
+    accepted, then the rows keep amounts, states and ids but not the person; budget and cost sums are unchanged."""
+    c=incentives;consumer=c['consumer'];seed_budget(admin,10000);offer=seed_offering(c,admin)
+    issue(c,'e1',offer,300,notification='优惠已到账，请查收');tick(c)
+    pending=LocalIncentiveLedger(tmp_path/'ledger-e',fault='timeout_after_write')
+    issue(c,'e2',offer,200);tick(c,pending)
+    issue(c,'e3',offer,100)
+    sums=lambda:admin.execute("""select (select sum(amount) from control.nexloop_budget_consumption where budget_kind='incentive'),
+        (select sum(amount) from runtime.nexloop_cost_entries where cost_kind='discount')""").fetchone()
+    before=sums()
+    request='erase-incentives'
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
+        admin.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,phase,watermark)
+            values(%s,'real',%s,%s,'owner','synthetic-owner','synthetic erasure','purging','messages',nextval('control.nexloop_deletion_watermark'))""",(TENANT,request,consumer))
+    def step():
+        with admin.transaction():
+            admin.execute('set local role nexloop_owner')
+            return admin.execute("select runtime.nexloop_erasure_step(%s,'real',%s,200,'synthetic-keeper')",(TENANT,request)).fetchone()[0]
+    for _ in range(30):
+        out=step()
+        if out.get('waiting')=='incentive_results' or out.get('state')=='completed':break
+    assert out.get('waiting')=='incentive_results'  # the unknown answer is settled first
+    pending.fault=None;tick(c,pending)
+    assert intent(admin,'e2')[1]=='fulfilled' and pending.requests.count(('issue',intent(admin,'e2')[0]))==1
+    for _ in range(30):
+        out=step()
+        if out.get('state')=='completed':break
+    assert out['state']=='completed',out
+    rows=admin.execute('select to_jsonb(i)::text,state,refusal_code,notification_text,reply_to_message_id,control_snapshot from runtime.nexloop_incentive_issues i order by created_at').fetchall()
+    assert all(consumer not in r[0] and r[3]=='' and r[4] is None and r[5]=={'erased':True} for r in rows)
+    assert [(r[1],r[2]) for r in rows]==[('fulfilled',None),('fulfilled',None),('refused','consumer_erasing')]
+    assert '优惠已到账' not in ' '.join(r[0] for r in rows)
+    assert sums()==before  # what was reserved and issued keeps its amounts

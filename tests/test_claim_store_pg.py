@@ -261,7 +261,8 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # withdrawal; no Claim value is read or projected.
         # AT-043 0160 copies the 0127 commitment registration body (its Claim rules unchanged) with one D5 check that reads a
         # commitment Claim's predicate, quote and money value only to refuse an uncovered incentive promise; it copies the 0113
-        # v6 source check unchanged for Claims. No Claim value becomes formal or is projected.
+        # v6 source check unchanged for Claims, and the 0144 erasure step unchanged except an incentives phase (its claims
+        # phase erases as before). No Claim value becomes formal or is projected.
         '_nx029_retention','_nx029_erasure','_nx029_expiry_classes','_relay_erasure','_at043_incentives')) for name in migrations)
 
 

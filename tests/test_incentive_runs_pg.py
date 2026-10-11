@@ -151,3 +151,29 @@ def test_outside_the_run_or_the_catalog_nothing_is_accepted(agent):
     with pytest.raises(Exception):w.issue_run_incentive(activation_ref=ref,command=command,parameters={**f['offer'],'amount_minor':'501'})
     with pytest.raises(Exception):w.issue_run_incentive(activation_ref=ref,command={**command,'consumer_ref':'consumer:'+'0'*64},parameters=f['offer'])
     assert admin.execute('select count(*) from runtime.nexloop_incentive_issues').fetchone()==(0,)
+
+
+def test_a_role_run_issues_only_inside_its_role_ceiling(agent):
+    """D3: a Role Run's ceiling (action_resources, shape unchanged) must name the incentive Action as well as its Run.
+    The Role binding is seeded as the Role launcher leaves it (its own path is covered by the NX-018 Role tests); the SQL
+    port is called directly because the guard's activation pre-check would also ask for the full Role context."""
+    f=agent;plan=f['plan'];admin=f['admin'];w=f['worker']
+    def role_run(label,actions):
+        run,command,ref=run_with(plan,w,label,['eios:action:'+fixture.EFFECT+':1',ISSUE])
+        role,ceiling=secrets.token_hex(32),secrets.token_hex(32)
+        with admin.transaction():
+            admin.execute('set local session_replication_role=replica')
+            for type_name,object_id,properties in (('RoleExecutionCeiling',ceiling,{'action_resources':actions,'active':True}),
+                    ('RoleDefinition',role,{'name':'续费','responsibility':'续费跟进','ceiling_ref':ceiling,'active':True})):
+                admin.execute('''insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
+                    values(%s,'real',%s,%s,1,%s,'synthetic','',now(),now())''',(plan['tenant'],type_name,object_id,Jsonb(properties)))
+            admin.execute('''insert into authz.nexloop_role_run_bindings(run_id,source_digest,tenant_id,world,consumer_id,link_id,role_id,step_id,link_revision,role_revision,
+                step_revision,role_ref,scope,expires_at) select run_id,source_digest,%s,'real',%s,%s,%s,%s,1,1,1,'role:renewal','s',now()+interval '60 seconds'
+                from authz.nexloop_run_credentials where run_id=%s''',(plan['tenant'],plan['consumer'],'a'*64,role,plan['step'],run.run_id))
+        return run,command,ref
+    port=lambda:RunIncentivePort(*services(w))
+    run,command,ref=role_run('r1',['eios:action:'+fixture.EFFECT+':1'])
+    with pytest.raises(Exception):port().submit(activation_ref=ref,command=command,parameters=f['offer'])
+    assert admin.execute('select count(*) from runtime.nexloop_incentive_issues').fetchone()==(0,)
+    run,command,ref=role_run('r2',['eios:action:'+fixture.EFFECT+':1',ISSUE])
+    assert port().submit(activation_ref=ref,command=command,parameters=f['offer'])['state']=='accepted'
