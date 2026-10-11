@@ -720,6 +720,11 @@
       "version": "0144",
       "name": "0144_relay_erasure.sql",
       "sha256": "1349fa1b0feb6fb41f93e7f0e4be43a03ff31c95dad78498dcf71bdba75e0ce2"
+    },
+    {
+      "version": "0145",
+      "name": "0145_at043_incentives.sql",
+      "sha256": "d83303a708ae1abeffdc176766f762f576acea066bc46f1154602a523547d099"
     }
   ]
 }

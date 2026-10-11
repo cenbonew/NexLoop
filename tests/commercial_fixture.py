@@ -64,7 +64,9 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     # NX-029 slice 2 (0142), typed on Consumer v1.
     'nexloop.consumer.erase':('Consumer','consumer.erase'),'nexloop.message.erase':('Consumer','message.erase'),
     'nexloop.retention.hold':('Consumer','retention.hold'),'nexloop.retention.release_hold':('Consumer','retention.release_hold'),
-    'nexloop.consumer.export':('Consumer','consumer.export')}
+    'nexloop.consumer.export':('Consumer','consumer.export'),
+    # AT-043 (0145), typed on Consumer v1.
+    'nexloop.incentive.issue':('Consumer','incentive.issue')}
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

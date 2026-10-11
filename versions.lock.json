@@ -46,7 +46,7 @@
       "source_commit": "1e363db982daeca74058453ad12fc4a6cac333da",
       "provenance": "packages/eios-core/PROVENANCE.json",
       "lineage": "nexloop-eios-v1",
-      "bootstrap_revision": "0144",
+      "bootstrap_revision": "0145",
       "dependency_lock": "uv.lock"
     },
     "node": {
@@ -163,8 +163,19 @@
   },
   "release_tools": {
     "decision": "NX-034 D1/D2 (dispatcher 2026-10-11): manifests are signed with OpenSSH ssh-keygen -Y (namespace nexloop-release); SBOMs by syft and vulnerability counts by grype, at exactly these versions. A missing or different tool is reported, never a pass. Binary digests are recorded when the tools are first installed on the CI host from their official release archives (status below).",
-    "syft": {"version": "1.18.1", "source": "https://github.com/anchore/syft/releases/tag/v1.18.1", "status": "pinned_version_binary_digest_pending_ci_install"},
-    "grype": {"version": "0.86.1", "source": "https://github.com/anchore/grype/releases/tag/v0.86.1", "status": "pinned_version_binary_digest_pending_ci_install"},
-    "ssh-keygen": {"minimum_openssh": "8.2", "status": "system_openssh"}
+    "syft": {
+      "version": "1.18.1",
+      "source": "https://github.com/anchore/syft/releases/tag/v1.18.1",
+      "status": "pinned_version_binary_digest_pending_ci_install"
+    },
+    "grype": {
+      "version": "0.86.1",
+      "source": "https://github.com/anchore/grype/releases/tag/v0.86.1",
+      "status": "pinned_version_binary_digest_pending_ci_install"
+    },
+    "ssh-keygen": {
+      "minimum_openssh": "8.2",
+      "status": "system_openssh"
+    }
   }
 }

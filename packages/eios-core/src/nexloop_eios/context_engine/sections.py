@@ -79,6 +79,10 @@ def open_work_items(open_work,*,decision):
         # NX-026: live commitments made to this Consumer, current revision, re-derived by SQL at bind; pinned.
         out.append(Item('open_work','commitment','eios:object:Commitment/'+commitment['commitment_id'],str(commitment['revision']),commitment['content'],
             'formal_object',decision,relevance=1.0,at=commitment['registered_at']))
+    for incentive in open_work.get('incentives',()):
+        # AT-043 D8: a catalog incentive this Consumer may still be issued (issuable range, never the budget), re-derived by SQL at bind.
+        out.append(Item('open_work','incentive','eios:object:IncentiveOffering/'+incentive['offering_id'],str(incentive['revision']),incentive['content'],
+            'formal_object',decision,relevance=0.5,at=incentive['content']['valid_until']))
     return assert_partition(out)
 
 

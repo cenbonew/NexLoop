@@ -77,7 +77,7 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     or not hmac.compare_digest(header,'Bearer '+key())):
                     self.send(401,{'authorized':False});return
                 if self.path not in ('/internal/v1/runtime/authorize','/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find',
-                                     '/internal/v1/runtime/outcomes/record'):self.send(404,{'authorized':False});return
+                                     '/internal/v1/runtime/outcomes/record','/internal/v1/runtime/incentives/issue'):self.send(404,{'authorized':False});return
                 if (self.headers.get('Content-Type')!='application/json'
                     or self.headers.get('Transfer-Encoding') is not None
                     or self.headers.get('Content-Encoding') is not None
@@ -104,6 +104,22 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     if type(result) is not dict or result.get('recorded') is not True:self.send(503,{'code':'run_outcome_unavailable'});return
                     self.send(200,{'run_id':body['command'].get('run_id'),'recorded':True,'replay':result['replay'] is True,'kind':result['kind'],
                         'plan_version':result['version'],'new_version':result.get('new_version')});return
+                if self.path=='/internal/v1/runtime/incentives/issue':
+                    # AT-043: the Agent issues a catalog incentive inside its Run (accepted is not issued).
+                    if (type(body) is not dict or set(body)!={'activation_ref','command','parameters'} or type(body['command']) is not dict
+                        or type(body['activation_ref']) is not str or type(body['parameters']) is not dict):
+                        self.send(400,{'code':'invalid_incentive_request'});return
+                    import psycopg
+                    try:result=worker.issue_run_incentive(activation_ref=body['activation_ref'],command=body['command'],parameters=body['parameters'])
+                    except (ValueError,psycopg.errors.InvalidParameterValue):self.send(400,{'code':'invalid_incentive_request'});return
+                    except psycopg.Error as error:
+                        code={'NXB02':'incentive_payload_conflict','NXI01':'outside_catalog_terms'}.get(getattr(error,'sqlstate',None),'incentive_unavailable')
+                        self.send(409 if code=='incentive_payload_conflict' else 403,{'code':code});return
+                    except Exception:self.send(403,{'code':'incentive_unavailable'});return
+                    if type(result) is not dict or result.get('run_id')!=body['command'].get('run_id') or result.get('state') not in ('accepted','dispatching','unknown','fulfilled','failed','refused'):
+                        self.send(503,{'code':'incentive_unavailable'});return
+                    self.send(200,{'run_id':result['run_id'],'intent_id':result['intent_id'],'state':result['state'],'replayed':result['replayed'] is True,
+                        'origin':result['origin'],'business_action_success':False});return
                 if self.path.startswith('/internal/v1/runtime/effects/'):
                     operation=self.path.rsplit('/',1)[1]
                     field='parameters' if operation=='submit' else 'intent_id'
