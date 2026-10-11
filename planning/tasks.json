@@ -2458,6 +2458,24 @@
         "ref": "ci:lane/runs/20261011T105303Z-863a46388729",
         "summary": "s4y 全量（863a463）：失败 11 项，10 项在基线；新增的 test_background_services_pg[claim-matcher] 为确定性失败（每轮汇总新增 settled 计数，测试期望未同步），17d8219 修正测试后在 s4z 全量（ci:lane/runs/20261011T114947Z-fa3c1536d30f）中通过；串行门槛 2/2。",
         "recorded_at": "2026-10-11T12:42:50.820375+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bc6c3ed",
+        "summary": "压测发现的产品缺陷修复（合入 main 1a3ea6b）：relay 遇到无法完成的来信（需重新规划、凭据过期、绑定冲突、重试用尽）时终结并转交回复保障，吊销首次凭据、释放该客户串行位置，临时失败按有界退避交还（迁移 0150，原 0190）；回复保障在原回复结果不明时先对账查询、窗口结束仍不明则升级，只有“只回复一次”类拒绝终结为 failed（0152，原 0210，修正 618f728、9743f04）；车道运行说明、只读前置检查与续跑（38f7ff8）；AT-060 模型耗时取自 Host inspect（A2，984dabf），平台耗时 = Run 时长 − 模型 − 工具（dbedb24）；排空按租户统计（fc16062）。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T135349Z-9058f0220d13",
+        "summary": "s5a（ci:lane/runs/20261011T125849Z-51c198dd9402）与 s5b 全量：s5b 失败 14 项均在基线（参数化后的 closure_plan[False]、C 类 role_tail 与 reclaim 同检出串行各 2/2），s5a 的两项确定性新失败（优惠后台测试未发布 Action 定义、Run 完成测试期望未含 model_timing）已在 s5b 修正并通过；串行门槛 2/2。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-031-implementation.md",
+        "summary": "在 s5a 上本机重跑 C4-low（25 客户、完整时长）：relay 卡死消失（handoff 1 次）、187 个 Run 全部成功、7 项核对违规 0；两个缺陷（对账重试上限超出 work feed 上限导致死信 2 条、排空判断未按租户过滤）已修。派发 p95 仍超过 2 s（容量结论，并入负责人决定 D-a）。下一步：在 main 上补跑 C4-low，NX-052 第一批合入后跑 CI 车道 1000 客户整轮。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
       }
     ]
   },
@@ -2517,6 +2535,24 @@
         "ref": "4889b5e",
         "summary": "更正：s4x（合入 main d2b4828）实际已包含 nx032-local 的 23c379c（切片 4：AT-058 隔离探测脚本 probe_isolation.py 与 CI 主机 rootless Docker 两主机模拟 scripts/deploy/netns_sim/），此前证据只登记到切片 3 与可行性预检。切片 4 的模拟尚未在 CI 主机实际运行，运行结果只算模拟证据，AT-058 保持 not_run。",
         "recorded_at": "2026-10-11T12:42:50.820375+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "817515f",
+        "summary": "stage Compose 编排预算中的全部进程（18 个服务，命令逐个过真实解析器、秘密逐服务挂载、只读根与 cap_drop），连接预算 57（身份池 4，删去无进程的 scheduler 预留，调度员裁定），doctor 预算与 Compose 双向一致检查；NX-037 D4：Agent Host 独立网络命名空间，经只复制字节的转发 sidecar 连接（不终止 TLS、不持有密钥，57b1d4a），模型出站白名单只作用于 Agent Host，AT-058 探测补两条负例。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "f15f81a",
+        "summary": "nexloop-api --mode stage（缺必需项拒绝启动，test 专用开关与环境变量中的秘密一律拒绝），/health/ready 接入数据库、迁移一致性、恢复状态、删除重放与总闸状态（迁移 0151，原 0200）。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T135349Z-9058f0220d13",
+        "summary": "s5a（ci:lane/runs/20261011T125849Z-51c198dd9402）与 s5b 全量：s5b 失败 14 项均在基线（参数化后的 closure_plan[False]、C 类 role_tail 与 reclaim 同检出串行各 2/2），s5a 的两项确定性新失败（优惠后台测试未发布 Action 定义、Run 完成测试期望未含 model_timing）已在 s5b 修正并通过；串行门槛 2/2。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
       }
     ]
   },
@@ -2558,6 +2594,18 @@
         "ref": "planning/ROADMAP.md",
         "summary": "剩余分三类（ROADMAP §3）：本地可做——按设计 §4.1 把 scripts/ci/check 拆成阶段并出新版 stages.v1.json，同时处理 ADR-020 §4 基线的退出条件；B 类主机步骤——建 nexloop-git/nexloop-ci 用户、bare 仓库、hook、authorized_keys、防火墙、依赖代理、隔离探测与断连演练、切换 remote（切换后 main 由合并控制器推进，现行“调度员扫描后推送 main”流程随之停用），每一步由负责人确认；风险——CI 主机限制非特权 user namespace，D2 选定的 rootless Podman 运行器可能不可用，主机步骤前先只读核实 Podman，不可用则提交 D2 修订，不改系统安全设置（ROADMAP R1）。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "29b5170",
+        "summary": "scripts/ci/check 拆为 10 个可单独调用的阶段脚本与 .ci-policy/stages.v2.json（v1 仍为默认），check 整体入口的命令序列、退出码与 junit 不变（105 种情况替身对照与常驻测试）；公开发布必需文件加入 CONNECTORS/EVALUATION/OPERATIONS；ADR-020 §4 基线退出材料（负责人 D-j 已定案，落地为 stages.v3，进行中）。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T135349Z-9058f0220d13",
+        "summary": "s5a（ci:lane/runs/20261011T125849Z-51c198dd9402）与 s5b 全量：s5b 失败 14 项均在基线（参数化后的 closure_plan[False]、C 类 role_tail 与 reclaim 同检出串行各 2/2），s5a 的两项确定性新失败（优惠后台测试未发布 Action 定义、Run 完成测试期望未含 model_timing）已在 s5b 修正并通过；串行门槛 2/2。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
       }
     ]
   },
@@ -2649,6 +2697,12 @@
         "ref": "planning/ROADMAP.md",
         "summary": "剩余分两组（ROADMAP §3）：本地可续做——restore_readiness 接入 /health/ready、doctor --backup 与 backup.v1.json、工作台备份块界面、各渠道按时间查询的读取器、意图重建（切片三）、NX-029 记录清扫不越过恢复日志已导出序号；部署切片（依赖 NX-032、NX-034）——pgBackRest/restic 固定版本与非 superuser 实测、restic 文件备份与恢复日志静态加密（受控试运行前的门槛项）、nexloop-restore 命令行、两机首次真实演练（AT-050/056 真实证据）、异地仓库启用。负责人事项：备份口令离线保管、异地仓库、APP_HOST 磁盘加密确认（ROADMAP O6）。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "f15f81a",
+        "summary": "就绪检查接入恢复状态（restored/replayed 不就绪，verified_readonly 只读）与删除重放；doctor --backup 与 deploy/configuration/backup.v1.json 第一版（只读 metrics 角色读取，缺失即失败）。真实备份数据上的通过情形尚未验证（部署切片）。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
       }
     ]
   },
@@ -2695,6 +2749,12 @@
         "ref": "a73ac38",
         "summary": "文档交付物（docs-nx036，合入 main 7b0bb1b）：README.md 改为英文并按 13 §7 补齐说明，原中文内容移到 README.zh-CN.md 并互相链接；GOVERNANCE.md；docs/release/public-release-checklist.md（public-preflight 九步逐项注明是否自动化，负责人人工确认项单列）；docs/OPERATIONS.md（运维导航）。连接器与评估指南（docs-20261011-6）待下一轮合入。",
         "recorded_at": "2026-10-11T12:42:50.820375+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "98acc6a",
+        "summary": "docs/CONNECTORS.md（连接器开发指南）与 docs/EVALUATION.md（评估运行指南），调度员裁定为首个公开发布门槛；架构说明 §6 改为摘要并链接 planning/ROADMAP.md。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
       }
     ]
   },
@@ -2736,6 +2796,18 @@
         "ref": "planning/ROADMAP.md",
         "recorded_at": "2026-10-11T14:26:11.100603+00:00",
         "summary": "D-g、D-h、D-i 与 O1–O6 负责人 2026-10-11 按推荐定案（第二维护者由负责人本人担任），详见 ROADMAP §6、§7。"
+      },
+      {
+        "type": "commit",
+        "ref": "accd710",
+        "summary": "按租户与 Action 生效的真实派发开关（NX-037 A 类前置）：部署总闸、租户、（租户，action_type）三层都打开才放行外部效应；effect category 的 external_effect 未声明或非法一律按外部处理，原生 WebChat 回复与回环账本声明为非外部；data_mode=test 与非 real world 视为关闭；只有 owner 经受治理入口改动，版本变化使在途快照失效（迁移 0153，原 0220）。NX-037 设计稿（5f2b1a9）合入。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T135349Z-9058f0220d13",
+        "summary": "s5a（ci:lane/runs/20261011T125849Z-51c198dd9402）与 s5b 全量：s5b 失败 14 项均在基线（参数化后的 closure_plan[False]、C 类 role_tail 与 reclaim 同检出串行各 2/2），s5a 的两项确定性新失败（优惠后台测试未发布 Action 定义、Run 完成测试期望未含 model_timing）已在 s5b 修正并通过；串行门槛 2/2。合入 main 1a3ea6b。",
+        "recorded_at": "2026-10-11T14:50:34.404128+00:00"
       }
     ]
   },
