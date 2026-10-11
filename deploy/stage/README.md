@@ -18,6 +18,12 @@
   - `NEX_EIOS_DB_POOL_MAX=4`：每个 guard 子进程的连接池上限。每个进程同时最多处理 `4 // 2 = 2` 个 guard 请求。
   - N=1 时只有一个 `Backend`，同时负责调度和 guard，连接池上限取 `NEX_EIOS_DB_POOL_MAX`；`--dispatcher-pool-max` 不起作用。
 - 这台 Worker 合计最多 `2 + 4 × 4 = 18` 个 PG 连接（N=1 时是 4 个）。
+- `--dispatch-loops 4`（NX-031，调度员 2026-10-11）：父进程里并行跑 4 个派发循环，共用同一个 queue。
+  - 一个循环一次只驱动一个 Run（轮询 Host 直到这个 Run 结束），所以只有 1 个循环时，Host 同时活跃的 Run 最多 1 个，ADR-022 §4 的“全局并发 ≤ 4”达不到。
+  - 多个循环之间靠 claim/lease fencing 分配任务：一个任务只会被一个循环领取；循环所在进程被 kill 后，lease 到期，任务由 reclaim 恢复，Run 不变、fence 增加。
+  - 循环共用调度连接池（`--dispatcher-pool-max`），不增加连接数。
+  - 代码默认值是 4，等于 Agent Host 的默认 `maximum_active_runs`。部署时两者应当一致；循环数超过 Host 上限，多出的 start 请求只会在 Host 的准入队列里等待，超过 2 s 请求时限后转为重试。
+  - SIGTERM 后每个循环都不再领取新任务，各自把手上的 Run 跑完。
 - **停机**：
   - SIGTERM 只发给父进程（systemd `KillMode=mixed`；Compose 默认就只发给 PID 1）；
   - 父进程停止 claim，转发 SIGTERM 给子进程；
@@ -49,6 +55,7 @@ nexloop-doctor --budget-only --connection-budget deploy/stage/connection-budget.
   - `api 2×4 + domain-worker 2 + action-worker 2 + scheduler 4（预留）+ runtime-worker 18 + message-relay 2 + outbound-recorder 2`；
   - 10 个后台服务各 1；
   - 两个 launcher 的 API 池各 2。
+- doctor 另外核对 Runtime Worker 的 `processes × dispatch_loops ≤ 4`（ADR-022 §4 的 Host 上限，检查项 `runtime_dispatch_loops`）；派发循环不计入连接数。
 - doctor 另外核对每个常驻服务都已登记（`connection_budget.required_services()`），漏登记一项就判不通过。
 - `scheduler` 对应交接包 Compose 模板里的 `nexloop-scheduler`，当前代码没有这个入口，这 4 个连接作为预留。
 - 实际的服务进程数以部署时的只读 inventory 为准。每新增一个会连接 PG 的服务进程，都要先在这个文件里登记。

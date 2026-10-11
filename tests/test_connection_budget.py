@@ -22,6 +22,18 @@ def test_declared_stage_budget_is_within_policy():
     assert result['details']['services']['runtime-worker']==2+4*4
 
 
+def test_dispatch_loops_share_the_dispatcher_pool_and_stay_within_the_host_limit():
+    # NX-031: N loops add no pool; processes x dispatch_loops may not exceed the Agent Host deployment limit (ADR-022 §4).
+    result=budget.evaluate(DOCUMENT)
+    assert result['checks']['runtime_dispatch_loops'] and result['details']['runtime_dispatch_loops']==4==result['details']['host_active_runs_limit']
+    for change in ({'dispatch_loops':5},{'processes':2}):
+        document=copy.deepcopy(DOCUMENT);runtime(document).update(change)
+        over=budget.evaluate(document)
+        assert not over['checks']['runtime_dispatch_loops'] and not over['passed']
+    document=copy.deepcopy(DOCUMENT);runtime(document)['dispatch_loops']=1
+    assert budget.evaluate(document)['details']['services']['runtime-worker']==2+4*4
+
+
 def test_runtime_worker_single_process_counts_only_the_guard_pool():
     entry=dict(runtime(DOCUMENT),guard_workers=1)
     assert budget.service_connections(entry)==entry['guard_pool_max']
@@ -53,6 +65,9 @@ def test_total_over_sixty_fails():
     lambda d:runtime(d).update(guard_pool_max=1),                              # admits no guard request
     lambda d:runtime(d).update(guard_workers=17),
     lambda d:runtime(d).pop('dispatcher_pool_max'),
+    lambda d:runtime(d).pop('dispatch_loops'),
+    lambda d:runtime(d).update(dispatch_loops=0),
+    lambda d:runtime(d).update(dispatch_loops=17),
     lambda d:runtime(d).update(pool_max=4),                                    # mixed shapes
 ])
 def test_invalid_budget_documents_are_refused(mutate):
@@ -74,7 +89,8 @@ def test_doctor_budget_gate_against_real_postgres(pg,tmp_path):
     passed=doctor('--budget-only','--connection-budget',str(STAGE/'connection-budget.v1.json'),'--database-url-file',str(dsn))
     report=json.loads(passed.stdout)
     assert passed.returncode==0,report
-    assert report['checks']=={'connection_budget_file':True,'connection_budget_total':True,'connection_budget_services':True,'max_connections':True,'database_configuration':True}
+    assert report['checks']=={'connection_budget_file':True,'connection_budget_total':True,'connection_budget_services':True,'runtime_dispatch_loops':True,
+                               'max_connections':True,'database_configuration':True}
     assert report['details']['connection_budget']['max_connections']>=80 and pg not in passed.stdout+passed.stderr
     over=copy.deepcopy(DOCUMENT);runtime(over)['guard_workers']=10
     failed=doctor('--budget-only','--connection-budget',str(private(tmp_path/'over.json',json.dumps(over))),'--database-url-file',str(dsn))
@@ -85,6 +101,10 @@ def test_doctor_budget_gate_against_real_postgres(pg,tmp_path):
     report=json.loads(missing.stdout)
     assert missing.returncode==1 and report['checks']['connection_budget_services'] is False and report['checks']['connection_budget_total'] is True
     assert report['details']['connection_budget']['missing_services']==['outbound-recorder']
+    # NX-031: more dispatch loops than the Agent Host deployment limit fail the gate (no extra connection is counted).
+    loops=copy.deepcopy(DOCUMENT);runtime(loops)['dispatch_loops']=5
+    report=json.loads(doctor('--budget-only','--connection-budget',str(private(tmp_path/'loops.json',json.dumps(loops))),'--database-url-file',str(dsn)).stdout)
+    assert report['checks']['runtime_dispatch_loops'] is False and report['checks']['connection_budget_total'] is True
     broken=doctor('--budget-only','--connection-budget',str(private(tmp_path/'broken.json','{')),'--database-url-file',str(dsn))
     assert broken.returncode==1 and json.loads(broken.stdout)['checks']['connection_budget_file'] is False
 
@@ -112,7 +132,8 @@ def test_stage_examples_match_the_declared_budget():
     assert worker['depends_on']=={'runtime-worker-budget':{'condition':'service_completed_successfully'}}
     assert services['runtime-worker-budget']['command'][:3]==['--budget-only','--connection-budget','/etc/nexloop/connection-budget.v1.json']
     unit=(STAGE/'systemd/nexloop-runtime-worker.service.example').read_text()
-    assert f"--guard-workers {entry['guard_workers']} " in unit and f"--dispatcher-pool-max {entry['dispatcher_pool_max']}" in unit
+    assert f"--guard-workers {entry['guard_workers']} " in unit and f"--dispatcher-pool-max {entry['dispatcher_pool_max']} " in unit
+    assert flag(worker['command'],'--dispatch-loops')==str(entry['dispatch_loops'])==str(4) and f"--dispatch-loops {entry['dispatch_loops']}\n" in unit
     assert f"Environment=NEX_EIOS_DB_POOL_MAX={entry['guard_pool_max']}" in unit
     assert re.search(r'^ExecStartPre=\S*nexloop-doctor --budget-only --connection-budget ',unit,re.M)
     assert 'KillMode=mixed' in unit and 'TimeoutStopSec=40' in unit and worker['stop_grace_period']=='40s'
@@ -146,6 +167,9 @@ def test_runtime_worker_pool_sizes(monkeypatch,tmp_path):
     monkeypatch.delenv('NEX_EIOS_DB_POOL_MAX')
     for value in ('0','33'):
         with pytest.raises(SystemExit):_arguments(base+['--dispatcher-pool-max',value])
+    assert single.dispatch_loops==4 and _arguments(base+['--dispatch-loops','1']).dispatch_loops==1  # NX-031 default = Host default
+    for value in ('0','17','x'):
+        with pytest.raises(SystemExit):_arguments(base+['--dispatch-loops',value])
 
 
 def test_every_background_service_is_budgeted_with_the_pool_it_opens():
@@ -186,5 +210,5 @@ def test_a_missing_long_running_service_fails_the_budget():
     for name in budget.required_services():
         document=copy.deepcopy(DOCUMENT);document['services']=[s for s in document['services'] if s['name']!=name]
         result=budget.evaluate(document)
-        assert not result['passed'] and result['checks']=={'application_pool_total':True,'all_services_declared':False}
+        assert not result['passed'] and result['checks']=={'application_pool_total':True,'all_services_declared':False,'runtime_dispatch_loops':True}
         assert result['details']['missing_services']==[name]

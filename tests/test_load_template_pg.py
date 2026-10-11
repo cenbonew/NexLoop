@@ -29,6 +29,8 @@ def counts(db):
 def test_governed_load_template_and_independent_clones(commercial_env,conversations,admin,pg,tmp_path):
     *records,trailer=[json.loads(x) for x in S.lines(31,8)]
     t=trailer['totals']
+    # This fixture tenant has no trusted login policy; seed the test one (the load helpers never write rate policies).
+    admin.execute("insert into control.nexloop_browser_rate_policies values('synthetic-a','local_login','nexloop_identity',50,60,true) on conflict do nothing")
     result=load(conversations,admin,records)
     assert result['counts']=={'consumers':8,'conversations':t['conversations'],'messages':t['messages']}
     expected=(t['conversations'],t['messages'],t['restricted'],8)

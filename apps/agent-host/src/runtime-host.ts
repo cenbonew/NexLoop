@@ -2,6 +2,8 @@
 import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
 import {type IncomingMessage} from 'node:http';
+import {refillingResponses} from './deterministic-queue.js';
+import {delayed,latencySampler,parseDeterministicLatency} from './deterministic-latency.js';
 import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context} from '@earendil-works/pi-ai';
 import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-runtime-adapter.js';
 import {RuntimeEffectClient,requestScope} from './runtime-effect-tools.js';
@@ -32,10 +34,16 @@ export class RuntimeHost{
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
+    // NX-031 D5: injected model latency, deterministic-test only (refused for any other profile) and only with a per-context
+    // scripted protocol (message from input, plan outcome, fallback reply); it sleeps, it never changes a response.
+    const latency=parseDeterministicLatency(config.deterministic_latency,config.runtime_profile);
+    if(latency&&config.deterministic_message_from_input!==true&&config.deterministic_plan_outcome===undefined&&config.deterministic_reply_once===undefined)throw new Error('runtime configuration refused');
+    const sample=latency?latencySampler(latency):undefined;
+    const timed=(response:(context:Context)=>ReturnType<typeof fauxAssistantMessage>)=>sample?delayed(response,sample):response;
     // ADR-022 §4: global active-Run limit of this Host (default 4); doctor binds the deployed value to <= 4.
     const limits=validateAdmissionConfiguration(config.maximum_active_runs,config.run_admission_wait_ms);
     this.admission=new RunAdmissionGate(limits.maximum,limits.waitMs);
@@ -120,7 +128,7 @@ export class RuntimeHost{
         if(after.some(item=>item.role==='toolResult'))return fauxAssistantMessage('Synthetic fallback reply protocol complete; no semantic inference.');
         return fauxAssistantMessage(fauxToolCall('nexloop.service.request',{message:'已收到您的来信：'+[...current.body].slice(0,60).join('')},{id:'fallback-reply'}),{stopReason:'toolUse'});
       };
-      faux.setResponses(Array.from({length:16},()=>response));
+      faux.setResponses(refillingResponses(faux,timed(response),16));
     }else if(config.deterministic_plan_outcome!==undefined){
       // Explicit synthetic plan-reevaluation protocol, not semantic reasoning: reads the one plan the bound v6 pack carries
       // and records a fixed outcome through nexloop.plan.outcome (action_intent first submits one governed service intent).
@@ -150,7 +158,7 @@ export class RuntimeHost{
         const intent=record(receipt).intent_id;if(typeof intent!=='string')throw new RuntimeError('deterministic_effect_receipt_missing');
         return fauxAssistantMessage(fauxToolCall('nexloop.plan.outcome',{...base,kind:'action_intent',reasons:[plan.plan_ref+'：提交一次受治理服务意图'],intent_ref:intent},{id:'plan-outcome'}),{stopReason:'toolUse'});
       };
-      faux.setResponses(Array.from({length:16},()=>response));
+      faux.setResponses(refillingResponses(faux,timed(response),16));
     }else if(config.deterministic_message_from_input===true){
       // Explicit synthetic byte-preserving test protocol, not semantic reasoning.
       // Use each conversation's genuine latest user message, never a global
@@ -193,7 +201,7 @@ export class RuntimeHost{
         const intent=record(receipt).intent_id;if(typeof intent!=='string')throw new RuntimeError('deterministic_effect_receipt_missing');
         return fauxAssistantMessage(fauxToolCall('nexloop.service.find',{intent_id:intent},{id:'message-service-find'}),{stopReason:'toolUse'});
       };
-      faux.setResponses(Array.from({length:64},()=>response));
+      faux.setResponses(refillingResponses(faux,timed(response),64));
     }else if(config.effect_tools===true&&typeof config.deterministic_effect_message==='string'){
       // Explicit deterministic acceptance profile, never a real model claim.
       // Distinct tool-call IDs exercise the stable backend business key.

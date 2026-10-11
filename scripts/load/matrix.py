@@ -77,6 +77,13 @@ def accounts(template):
     return credentials['customers'], restricted, credentials['workbench']
 
 
+def login_policy(dsn, tenant):
+    with psycopg.connect(dsn, autocommit=True) as db:
+        row = db.execute("select maximum_attempts,window_seconds,active from control.nexloop_browser_rate_policies "
+                         "where tenant_id=%s and action='local_login' and operator_principal_id='nexloop_identity'", (tenant,)).fetchone()
+    return {'maximum_attempts': row[0], 'window_seconds': row[1], 'active': row[2]} if row else None
+
+
 class Cell:
     def __init__(self, spec, matrix, args, run):
         self.spec, self.matrix, self.args, self.run = spec, matrix, args, run
@@ -103,11 +110,20 @@ class Cell:
             except Exception:
                 return self.abort('template_clone_failed')
             stack = Stack(clone, self.args.template, self.lane, self.spec)
+            collect.TENANT = stack.tenant
+            # The login rate limit is a security control: the cell runs under the policy the template recorded from its trusted
+            # configuration, never a relaxed one (dispatcher 2026-10-11).
+            self.result['login_rate_policy'] = login_policy(clone.dsn, stack.tenant)
+            if self.result['login_rate_policy'] != json.loads((Path(self.args.template) / 'template.json').read_text()).get('login_rate_policy') \
+                    or not self.result['login_rate_policy']:
+                return self.abort('login_policy_mismatch')
             try:
                 stack.start_api()
                 if self.spec['background']:
                     stack.start_background()
-                pending = stack.start_message_chain(self.spec['host_concurrency'])
+                latency = self.matrix['model_latency']
+                pending = stack.start_message_chain(self.spec['host_concurrency'], latency={'median_ms': latency['median_ms'], 'p95_ms': latency['p95_ms'],
+                                                                                            'seed': self.run['seed']})
                 self.result['message_runs'] = 'started' if pending is None else pending
             except (StackFailed, OSError, subprocess.SubprocessError):
                 return self.abort('service_start_failed')
@@ -165,6 +181,7 @@ class Cell:
                 collect.jsonl(self.dir / 'dispatch.jsonl', collect.dispatch(db, start, end))
                 (self.dir / 'checks.json').write_text(json.dumps(collect.checks(db, start, end, cross), indent=2) + '\n')
                 self.result['jobs'] = collect.jobs_summary(db)
+                self.result['run_durations'] = collect.run_durations(db)
             if ci is not None:
                 self.result['ci'] = self.finish_ci(ci)
         finally:

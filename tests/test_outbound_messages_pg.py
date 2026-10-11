@@ -51,7 +51,8 @@ def publish_recorder(f,admin):
     manifest['actions']+=rows
     grants=service_grants.load(root/'deploy/authorization/service-grants.v1.json')
     principal=next(p for p in grants['principals'] if p['role']=='outbound_message_recorder')
-    end=datetime.now(UTC)+timedelta(minutes=30)
+    import authority_fixture
+    end=datetime.now(UTC)+max(timedelta(minutes=30),authority_fixture.CREDENTIAL_VALIDITY)  # load template: as long as the other seeded credentials
     binding,compiled=service_grants.compile_principal(grants,tenant,principal,credential_expires_at=end)
     facts={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']}
     for kind,key,fact in compiled:

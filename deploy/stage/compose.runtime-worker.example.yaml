@@ -52,6 +52,8 @@ services:
       - '4'
       - --dispatcher-pool-max
       - '2'
+      - --dispatch-loops
+      - '4'
     environment:
       NEX_EIOS_DB_POOL_MAX: '4'
     secrets: [runtime_worker_dsn, runtime_worker_signing_key, runtime_worker_credential, host_control_key, host_ca, guard_key, guard_certificate, guard_tls_key]

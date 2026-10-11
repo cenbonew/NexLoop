@@ -169,10 +169,12 @@ def test_cli_wrong_sql_role_fails_before_claim(accepted_input,synthetic_credenti
         assert admin.execute('select fencing_token from runtime.jobs where job_id=%s',(accepted['task_id'],)).fetchone()[0]==0
 
 
-def test_cli_killed_worker_and_host_automatically_reclaim_same_run(accepted_input,synthetic_credentials,pg,tmp_path,admin):
+@pytest.mark.parametrize('loops',['1','2'])
+def test_cli_killed_worker_and_host_automatically_reclaim_same_run(accepted_input,synthetic_credentials,pg,tmp_path,admin,loops):
+    # NX-031: with several dispatch loops the killed loop's task is reclaimed the same way (lease expiry, higher fence, same Run).
     api,worker,args,issued=accepted_input;accepted=api.accept_runtime_event(**args)
     with stack(pg,tmp_path,synthetic_credentials) as (runtime,node,arguments,port):
-        arguments[arguments.index('--poll-seconds')+1]='1'
+        arguments[arguments.index('--poll-seconds')+1]='1';arguments+=['--dispatch-loops',loops]
         with worker_process(arguments) as (process,out,err):
             database=runtime/issued.run_id/'runtime.sqlite';deadline=time.monotonic()+10
             while True:
@@ -214,7 +216,8 @@ def test_cli_sigterm_drains_current_run_without_claiming_next(accepted_input,aut
         trigger_event_id=str(uuid.uuid4()),credential_ref='run_credential:'+second.run_id,not_after=second.expires_at.isoformat())
     following=api.accept_runtime_event(**{**args,'event_id':str(uuid.uuid4()),'run_token':second.token,'command':command})
     with stack(pg,tmp_path,synthetic_credentials) as (runtime,_,arguments,_):
-        arguments[arguments.index('--poll-seconds')+1]='1'
+        # One loop: the queued second task stays unclaimed (several loops would each take one; see the dispatch-loop test).
+        arguments[arguments.index('--poll-seconds')+1]='1';arguments+=['--dispatch-loops','1']
         with worker_process(arguments) as (process,out,err):
             deadline=time.monotonic()+10;database=runtime/issued.run_id/'runtime.sqlite'
             while True:
@@ -234,6 +237,44 @@ def test_cli_sigterm_drains_current_run_without_claiming_next(accepted_input,aut
         assert admin.execute('select status,fencing_token from runtime.jobs where job_id=%s',(following['task_id'],)).fetchone()==('pending',0)
         with sqlite3.connect(database) as db:
             assert db.execute('select id from submissions').fetchall()==[submission]
+
+
+def test_cli_dispatch_loops_share_the_queue_each_task_claimed_once(accepted_input,authority,synthetic_credentials,pg,tmp_path,admin):
+    """NX-031: two loops run two queued Runs at the same time; each task is claimed by exactly one loop (one running event,
+    fence 1, one Host submission), and SIGTERM lets both in-flight Runs settle."""
+    import copy
+    import uuid
+    api,worker,args,issued=accepted_input;accepted=api.accept_runtime_event(**args)
+    second=authority[0].backend.authenticate(synthetic_credentials['agent'],world='real').issue_run_credential(
+        action_resources=['eios:action:Consumer.create:1'])
+    command=copy.deepcopy(args['command']);command.update(run_id=second.run_id,request_id=str(uuid.uuid4()),
+        trigger_event_id=str(uuid.uuid4()),credential_ref='run_credential:'+second.run_id,not_after=second.expires_at.isoformat())
+    following=api.accept_runtime_event(**{**args,'event_id':str(uuid.uuid4()),'run_token':second.token,'command':command})
+    tasks=(accepted['task_id'],following['task_id'])
+    with stack(pg,tmp_path,synthetic_credentials) as (runtime,_,arguments,_):
+        arguments[arguments.index('--poll-seconds')+1]='1';arguments+=['--dispatch-loops','2']
+        with worker_process(arguments) as (process,out,err):
+            deadline=time.monotonic()+15
+            while admin.execute("select count(*) from runtime.jobs where job_id=any(%s) and status='running'",(list(tasks),)).fetchone()[0]<2:
+                assert time.monotonic()<deadline,'both tasks were never running at the same time';time.sleep(.01)
+            process.terminate();assert process.wait(timeout=20)==0
+        assert_redacted(out,err,args,synthetic_credentials,issued)
+        for task_id,run_id in zip(tasks,(issued.run_id,second.run_id)):
+            done=worker.inspect_task(queue='operations',task_id=task_id)
+            assert done['status']=='succeeded' and done['fence']==1,done
+            assert admin.execute("select count(*) from runtime.job_events where job_id=%s and status='running'",(task_id,)).fetchone()[0]==1
+            with sqlite3.connect(runtime/run_id/'runtime.sqlite') as db:
+                assert db.execute('select count(*) from submissions').fetchone()[0]==1
+
+
+@pytest.mark.parametrize('value',['0','17','x'])
+def test_cli_dispatch_loops_invalid_count_fails_closed(accepted_input,synthetic_credentials,pg,tmp_path,admin,value):
+    api,_,args,_=accepted_input;accepted=api.accept_runtime_event(**args)
+    with stack(pg,tmp_path,synthetic_credentials) as (_,_,arguments,_):
+        with worker_process(arguments+['--dispatch-loops',value],ready=False) as (process,out,err):
+            assert process.wait(timeout=15)==2
+        assert ''.join(out+err).strip()=='Runtime Worker configuration unavailable'
+    assert admin.execute('select status from runtime.jobs where job_id=%s',(accepted['task_id'],)).fetchone()[0]=='pending'
 
 
 def test_cli_live_service_revocation_prevents_pending_claim(accepted_input,synthetic_credentials,pg,tmp_path,admin):

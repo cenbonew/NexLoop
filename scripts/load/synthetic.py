@@ -13,14 +13,17 @@ import json
 import random
 import sys
 
-SCHEMA = 'nexloop.load-manifest.v1'
+SCHEMA = 'nexloop.load-manifest.v2'  # v2 (dispatcher 2026-10-11, history option A): 1–2 recent inbound messages per consumer
 TENANT = 'synthetic-a'  # the fixtures' synthetic tenant inside a disposable cluster (D1: world real, synthetic data only)
 # §2.2 proportions (D2).
 P_RESTRICTED = 0.08
 P_COMMITMENT = 0.20
 P_ACTIVE_PLAN = 0.30
 P_COMMERCIAL = 0.40
-MEAN_HISTORY = 20
+# History option A (dispatcher 2026-10-11): each consumer keeps only its latest one or two inbound messages, in one conversation.
+# The template build replies to all of them through the actual message chain before the snapshot (the v1 mean of 20 messages
+# per consumer would take about ten hours of Runs at 1000 consumers). A governed history import is a later product topic.
+P_SECOND_MESSAGE = 0.5
 
 PRODUCTS = ('会员年卡', '月度套餐', '家庭套装', '入门课程', '进阶课程', '配件礼盒', '季度订阅', '体验装')
 ASKS = ('请问{p}的续费价格是多少？', '{p}什么时候发货？', '我想把{p}换成别的款式。', '{p}的使用说明在哪里看？', '上次买的{p}还没收到。',
@@ -52,26 +55,13 @@ def generate(seed, consumers):
         restricted = rng.random() < P_RESTRICTED
         commitment = rng.random() < P_COMMITMENT
         plan = rng.random() < P_ACTIVE_PLAN
-        conversations = []
-        history = max(1, round(rng.expovariate(1 / MEAN_HISTORY)))
-        count = rng.choice((1, 1, 2, 3))
-        split = sorted(rng.sample(range(1, history), min(count - 1, history - 1))) if history > 1 else []
-        bounds = [0, *split, history]
-        sequence = 0
-        for c in range(len(bounds) - 1):
-            messages = []
-            for m in range(bounds[c + 1] - bounds[c]):
-                sequence += 1
-                kind = 'ask' if m == 0 else 'followup'
-                if commitment and c == 0 and m == 1:
-                    kind = 'commitment_ask'
-                messages.append({'kind': kind, 'body': _text(rng, kind, index * 1000 + sequence)})
-            if commitment and c == 0 and not any(m['kind'] == 'commitment_ask' for m in messages):
-                sequence += 1  # a commitment consumer always asks for something the enterprise can promise (slice 1 loads the promise)
-                messages.append({'kind': 'commitment_ask', 'body': _text(rng, 'commitment_ask', index * 1000 + sequence)})
-            conversations.append({'key': f'c{index:05d}-{c + 1}', 'messages': messages})
-        if restricted:  # the refusal is the consumer's latest message in its last conversation (0109 restricts from there)
-            conversations[-1]['messages'].append({'kind': 'refusal', 'body': _text(rng, 'refusal', index)})
+        first = 'commitment_ask' if commitment else 'ask'
+        messages = [{'kind': first, 'body': _text(rng, first, index * 1000 + 1)}]
+        if restricted:  # the refusal is the consumer's latest message (0109 restricts from there)
+            messages.append({'kind': 'refusal', 'body': _text(rng, 'refusal', index)})
+        elif rng.random() < P_SECOND_MESSAGE:
+            messages.append({'kind': 'followup', 'body': _text(rng, 'followup', index * 1000 + 2)})
+        conversations = [{'key': f'c{index:05d}-1', 'messages': messages}]
         events = []
         if rng.random() < P_COMMERCIAL:
             for e in range(rng.randint(1, 4)):

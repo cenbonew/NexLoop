@@ -15,7 +15,7 @@ MIN_MAX_CONNECTIONS = 80
 SCHEMA = 'nexloop.connection-budget.v1'
 _NAME = re.compile('[a-z][a-z0-9-]{0,63}')
 _SERVICE_KEYS = {'name', 'processes', 'pool_max'}
-_RUNTIME_KEYS = {'name', 'processes', 'guard_workers', 'dispatcher_pool_max', 'guard_pool_max'}
+_RUNTIME_KEYS = {'name', 'processes', 'guard_workers', 'dispatcher_pool_max', 'guard_pool_max', 'dispatch_loops'}
 
 
 # NX-031 D7: every long-running process that opens a PostgreSQL pool. A deployment budget must declare each of them, so the
@@ -54,12 +54,19 @@ def service_connections(service):
         guard = _positive(service['guard_pool_max'], 'guard_pool_max', 32)
         if guard < 2:
             raise BudgetInvalid('guard_pool_max must be at least 2')
+        # NX-031: the dispatch loops share the dispatcher pool (one short transaction at a time each); they add no pool.
+        _positive(service['dispatch_loops'], 'dispatch_loops', 16)
         per_process = guard if workers == 1 else dispatcher + workers * guard
     else:
         if set(service) != _SERVICE_KEYS:
             raise BudgetInvalid('service entry has unexpected fields')
         per_process = _positive(service['pool_max'], 'pool_max', 32)
     return processes * per_process
+
+
+def dispatch_loops(document):
+    """Concurrent Runs the declared Runtime Workers can dispatch: processes x dispatch_loops over every runtime entry."""
+    return sum(service['processes'] * service['dispatch_loops'] for service in document['services'] if 'guard_workers' in service)
 
 
 def evaluate(document, *, max_connections=None):
@@ -74,13 +81,19 @@ def evaluate(document, *, max_connections=None):
     per_service = {service['name']: service_connections(service) for service in document['services']}
     total = sum(per_service.values())
     missing = sorted(set(required_services()) - set(per_service))
-    checks = {'application_pool_total': total <= APPLICATION_POOL_LIMIT, 'all_services_declared': not missing}
+    # Every dispatch loop keeps one Run active on the APP_HOST's Agent Host; more loops than the Host's deployment limit
+    # (ADR-022 §4) would only wait in its admission queue and time out the dispatcher's start request.
+    from nexloop_eios.host_concurrency import MAXIMUM_HOST_ACTIVE_RUNS
+    loops = dispatch_loops(document)
+    checks = {'application_pool_total': total <= APPLICATION_POOL_LIMIT, 'all_services_declared': not missing,
+              'runtime_dispatch_loops': loops <= MAXIMUM_HOST_ACTIVE_RUNS}
     if max_connections is not None:
         checks['max_connections'] = type(max_connections) is int and max_connections >= MIN_MAX_CONNECTIONS
     return {'checks': checks, 'passed': all(checks.values()),
             'details': {'services': per_service, 'application_pool_total': total, 'missing_services': missing,
                         'application_pool_limit': APPLICATION_POOL_LIMIT, 'max_connections': max_connections,
-                        'min_max_connections': MIN_MAX_CONNECTIONS}}
+                        'min_max_connections': MIN_MAX_CONNECTIONS, 'runtime_dispatch_loops': loops,
+                        'host_active_runs_limit': MAXIMUM_HOST_ACTIVE_RUNS}}
 
 
 def load(path):

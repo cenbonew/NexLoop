@@ -183,3 +183,137 @@
 - **修复**：provider 在首次使用时解析，并对外提供这两个属性；解析失败时按原语义抛 provider 不可用的错误。测试 `test_lazy_provider_names_its_provider_and_model_for_the_input_digest`。
 - **验证**：本机格子里，负载期间的 59 个提取任务全部 `succeeded/recorded`；修复前有 24 个卡在 `retry_wait/unexpected`。
 - **诊断**：`cell.json` 新增 `jobs` 字段，按队列、状态、结果代码计数（只有代码），供夜间排查。
+
+## 切片 2（分支 `nx031-s2`，基于 main `c835158`）：消息 Run 链、历史回复、计划数据、逐 Run 结果和 7 项核对
+
+### 消息 Run 链（每格）
+- 进程：
+  - 1 个多客户 relay（run profile 模式，池 2）；
+  - 1 个 Agent Host（deterministic-test，`maximum_active_runs` 等于该格的 Host 并发）；
+  - 1 个 runtime-worker（4 个 guard 子进程，`--dispatch-loops` 等于该格的 Host 并发）；
+  - 本地 JSON 投递 provider、effect worker、outbound recorder 各 1 个。
+- 登记：模板构建时在进程内调用 `relay_enrollment.enroll`，relay 和兜底 launcher 按 `consumer_id` 读取登记的 id；一条 `relay_source_read_rule` 让一个 Source 读取全部已登记客户（`tests/load_chain.py`）。
+- 凭据和 run profile 在模板的 `private/chain.json` 里，不写入任何日志。
+
+### 产品改动 1：runtime-worker `--dispatch-loops N`（调度员 2026-10-11）
+- **问题**：一个 RuntimeDispatcher 循环一次只驱动一个 Run，会一直轮询 Host 直到这个 Run 结束，所以一个 runtime-worker 同一时刻最多 1 个活跃 Run。ADR-022 §4 的“全局并发 4”在生产上达不到。
+- **改动**：
+  - 父进程并行跑 N 个派发循环（1..16），共用同一个 queue；
+  - 任务分配靠已有的 claim、lease 和 fencing；
+  - 默认值 4，等于 Agent Host 默认的 `maximum_active_runs`；stage 部署示例也设为 4；
+  - `--once` 仍然只跑一个有界 tick。
+- **连接预算**：
+  - 各循环共用调度连接池（`dispatcher_pool_max` 2），不增加连接数；
+  - `connection-budget.v1.json` 的 runtime-worker 条目新增 `dispatch_loops`；合计仍是 52；
+  - doctor 新增检查项 `runtime_dispatch_loops`，要求 `processes × dispatch_loops ≤ 4`（ADR-022 §4 的 Host 上限）；
+  - 本机格子实测的总连接数见下文。
+- **测试**：
+  - `test_runtime_worker.py::test_cli_dispatch_loops_share_the_queue_each_task_claimed_once`：两个循环同时跑两个排队的 Run，每个任务只被领取一次（一个 running 事件、fence 1、Host 一个 submission），SIGTERM 后两个 Run 都正常结束；
+  - `test_cli_killed_worker_and_host_automatically_reclaim_same_run[1|2]`：1 个和 2 个循环时，被 kill 的任务都由 reclaim 恢复，还是同一个 Run，fence 增加；
+  - `test_cli_dispatch_loops_invalid_count_fails_closed[0|17|x]`：非法循环数在领取任务之前就拒绝启动；
+  - `test_cli_sigterm_drains_current_run_without_claiming_next`：显式指定 1 个循环，原语义不变；
+  - `test_connection_budget.py`：预算登记和 doctor 负例。
+- **复测**：ADR-022 §4 的串行门槛由调度员在测试机上复测。
+
+### 产品改动 2：Host deterministic-test profile
+- **faux 响应自动补充**（`apps/agent-host/src/deterministic-queue.ts`）：
+  - 原来每个 Host 进程只预置 16 或 64 个按会话生成的响应，消息 Run 每个用 4 个，第 17 个 Run 起全部以 `runtime_model_unavailable` 失败；
+  - 现在每个响应被消费时把自己放回队列，仍然只读本会话的内容，没有全局下标。
+- **D5 时延注入** `deterministic_latency {median_ms, p95_ms, seed}`（`deterministic-latency.ts`）：
+  - 对数正态分布，用固定 seed 的生成器抽样（mulberry32 加 Box–Muller），同一个 seed 得到同一序列；
+  - 只在每个脚本化响应之前 sleep，不改变输出；sleep 发生在模型调用内部，计入模型耗时；
+  - 上限：median 1..10000 ms，median ≤ p95 ≤ 30000 ms，单次抽样最多 30000 ms；
+  - 只允许用于 deterministic-test，并且必须带一个按会话生成的协议（消息、计划结局或兜底回复），否则配置加载直接拒绝；
+  - doctor 遇到部署的 Host 配置带这个键时判不通过，检查项 `agent_host_test_only_keys_absent`；
+  - 矩阵的 `model_latency`（median 1500 ms，p95 4000 ms）加上 run seed，传给每格的 Host。
+- **deepseek-flash 路径没有任何变化**：
+  - 两段代码共用的只有允许键列表；这个键出现在 deepseek-flash 下会被拒绝，和以前作为未知键被拒绝的结果相同；
+  - deepseek 的模型配置文件本来就拒绝未知键；
+  - Host 全部 vitest 220/220 通过。
+
+### 历史来信（方案 A）
+- manifest 升级为 `nexloop.load-manifest.v2`：每个客户 1 个会话，最近 1–2 条来信。
+  - 承诺客户的第一条是承诺请求；受限客户的第二条是拒收；其余客户有一半带一条跟进。
+  - seed 31、1000 客户时共 1547 条，digest 变为 `618fe92f…`（v1 是每客户平均 20 条）。
+- 模板构建在承诺装载之前启动消息链（`scripts/load/stack.py`，4 个派发循环，不注入时延），直到同时满足：没有未路由的来信、没有未结束的 Run 任务、没有待回复项。
+  - 如果所有 Run 都已结束而仍有待回复，60 秒没有变化就停止，未回复数如实写进 `history_unreplied`（兜底 Run 不能在消息 Host 上运行，见下文）。
+- 本机 25 客户：34 条历史全部回复，用时约 59 秒，Run 时长 p50 约 6 s。按这个速度估算，1000 客户约 40 分钟。
+- 受治理的“历史会话导入”记为以后的产品议题。
+
+### 活跃计划（方案 B：只装载数据）
+- 流程：
+  - workbench owner 在进程内用自己的 workbench 会话批准指标（`Metric.approve`）、发布目标（`Goal.publish`）、发布内置上下文策略 `recent_plus_required`（`StrategyPublisher`）；
+  - 发布策略需要的 Action 来自业务清单，owner 的授权按 workbench 角色编译方式加入，发布后 workbench 应用目录恢复为原角色；
+  - 部署的 plan-reevaluator 身份在 `nexloop_domain_worker` 角色上用 `PlanPort.establish` 建立每个计划。
+- recipe 里的 control、offering、binding 来自该客户的登记；role、link、step 是合成 id，因为没有装载 role 链。
+- 每个步骤的 `reassess_at` 都为空。格子不启动 plan-reevaluator，排空判断也不计 plan-reevaluate feed。所以**不会产生计划 Run**。
+- **本轮没有覆盖计划重估 Run 和兜底 Run 的负载，相关指标不能据此声称通过。**
+- 跟进项（调度员裁定）：让 deterministic-test 的 Host 根据 run profile 或请求里声明的协议，选择确定性输出（消息 v2、计划 v6、兜底 reply_once）。这样一个 Host 能服务全部 Run，拓扑和生产一致。只改测试 profile。
+
+### 登录限流（安全控制，不放宽）
+- 构建和压测脚本都不写 `nexloop_browser_rate_policies`。模板保留信任配置的正式值（装配配置为 10 次/60 秒，按 operator 加客户端摘要计）。
+- 构建时把正式值记进 `template.json` 的 `login_rate_policy`。每格开始前从克隆库读出实际生效的策略写进 `cell.json`，不一致就以 `login_policy_mismatch` 中止。
+- 驱动的预热登录不计入测量：
+  - 每个客户绑定独立的 loopback 源地址 127.x.y.z，模拟来自不同地址的客户，每个来源一个限流桶，这和生产上一个来源一个桶的语义一致；
+  - 主机绑不了这些地址时（macOS 只有 127.0.0.1），退回为共用一个地址、遇到 429 按 `Retry-After` 等待。
+- 证据：
+  - `tests/test_load_matrix.py::test_the_load_never_relaxes_the_login_rate_limit`（静态）；
+  - `tests/test_login_rate_limit_process.py`（运行时：真实 http_api 进程，同一来源在 60 秒内第 11 次登录返回 429 并带 `Retry-After`，错误密码同样被限流拒绝）。
+
+### 结果文件（结果契约 §2）
+- `runs.jsonl`：按消息 Run 写 e2e、工具耗时与次数、排队等待和 outcome。
+  - `model_ms` 为 `null`：v2 上下文的消息 Run 不写 `runtime.nexloop_model_requests`（只有 v6 写）。
+  - `admission_wait_ms` 为 `null`：Host 没有逐 Run 的准入等待记录。
+  - 报告会把模型分解标为缺失。
+- `dispatch.jsonl`：按窗口内的投递写出。
+- `checks.json` 7 项全部实测：
+  - 第 4 项 model_context 因为同样的原因 checked=0；
+  - 第 7 项未结局核对此前在管理连接上读不到租户行（security definer 加行级安全），已改为先设置租户上下文。
+- `cell.json` 新增 `jobs`、`run_durations` 和 `login_rate_policy`。
+- 排空判断：任务、已到期的 feed 条目，以及未路由的来信。
+
+### 顺带修复（压测脚本）
+- 格子的排空判断只计已到期的 feed 条目，以前排在未来时间的承诺监控会让格子永远排不空。
+
+### 本机实测（开发机，25 个客户，seed 31；完整时长：预热 120 s，稳态 600 s，排空最多 600 s）
+模板：25 个客户全部登记；历史来信 34 条；活跃计划 9 个；承诺 9 条；登录限流为正式值 10 次/60 s；构建约 2–3 分钟。本机绑不了独立的 loopback 地址，预热登录退回共用地址加 `Retry-After` 等待，预热期间没有登录失败。
+
+**第一轮（作废，结果原样保留）**
+- **C4 完成**：
+  - 发送 770 条，ACK 655 条，全部 202，p95 491 ms；
+  - 窗口内 645 个消息 Run：562 个升级，83 个回复；e2e p50 300.8 s，排队等待 p50 294.5 s；
+  - operations 任务：165 个成功，563 个 `runtime_dispatch_unavailable`，75 个 `control_revision_stale`，1 个 `runtime_failed`；
+  - 7 项核对违规都是 0，未结局为 0（共 645 条）。
+- **C4-low 中止**，`service_start_failed`：
+  - outbound recorder 的凭据是 fixture 按 30 分钟签发的，C4-low 开始时（模板构建后约 45 分钟）已经过期；
+  - 其他 fixture 凭据的有效期只有 1 小时，同样撑不过一整轮。
+- `report.py` 因 C4-low 的窗口为空，判为违反契约（exit 2）。
+- **作废原因是压测夹具问题，不是产品缺陷**：模板里预先签发的 fixture 凭据有效期短于一轮压测。
+  - 产品行为已核对：部署形态的 recorder（`outbound_messages.run`）和其他常驻服务每个 tick 都重新读取凭据文件并重新认证，轮换时替换文件即可，下一个 tick 生效，不用重启；
+  - 部署凭据的有效期由 `service_grants apply --credential-expires-at` 显式设定，已有凭据保持原有效期，到期通过受信任配置轮换（`credential_rotation_required`）；
+  - 凭据到期后服务停止工作，是有意的安全语义。
+  - 修复见提交 `7f39c30`：fixture 默认仍是 1 小时，模板构建时设为 30 天，recorder 的凭据跟随这个值；
+  - 两轮之间没有其他代码变化。
+
+**第二轮（重建模板后，同一模板依次跑两格）**
+- 模板：历史来信 30 条回复，4 条未回复。其中 1 个 Run 是 `runtime_failed`；历史步骤 129 s 后因 60 s 没有变化而停止，未回复数如实记录。
+- **C4（1 条/秒，Host 并发 4）判不通过**：
+  - 发送 776 条，ACK 660 条，全部 202，p50 81 ms，p95 126 ms；
+  - 窗口内 545 个 Run：460 个升级，85 个回复；e2e p50 300.7 s，排队等待 p50 294.7 s；工具耗时 p50 1.07 s（42 个有记录）；
+  - operations 任务：185 个成功，451 个 `runtime_dispatch_unavailable`，67 个 `control_revision_stale`，1 个 `runtime_failed`；
+  - 7 项核对违规都是 0；未结局为 0（共 651 条，大多以升级了结）；
+  - 报告判不通过的项：排空 601 s、死信增量 9、意外拒绝 NXC02 66 次。其余项通过：ACK p95、连接峰值 52、guard p95 416 ms、超时率 0、身份违规 0。
+  - **原因是过载**：在 D5 时延下，一个消息 Run 平均 4 次模型调用加工具，约 11 s；4 个并发约 0.36 Run/s，而到达是 1 条/秒。排队超过 Run 凭据的 300 s 有效期后派发失败，回复保障升级。确定性协议每个 Run 固定 4 次模型调用（提交、重建、查询、收尾），这会高估真实模型的轮数。
+- **C4-low（0.2 条/秒）判不通过**：
+  - 发送 153 条，ACK 133 条，全部 202，p95 87 ms；
+  - 窗口内 126 个 Run 全部回复；e2e p50 6.5 s，p95 15.0 s；排队等待 p50 138 ms，p95 8.3 s；工具耗时 p50 1.04 s；
+  - operations 任务：177 个成功，5 个 `runtime_failed`（原因未查清）；
+  - 7 项核对违规都是 0，未结局为 0；连接峰值 53；
+  - 判不通过的项：排空 601 s、死信增量 9、空闲派发 p95 10.6 s（限值 2 s）。这里的派发时延包含 D5 注入的模型时延，口径是否合适需要裁定。
+- **两格共同的阻碍**：
+  - 死信 9 条，全部来自 claim-match feed，数量和承诺 Claim 相同；
+  - 排空不了，是因为 commitment-monitor 里有 9 条已到期的条目一直挂起；
+  - 这两项都没有查清，留给夜间整轮之前处理。
+- **两轮的差异**：
+  - C4 的形态一致：都过载，任务因有效期失败，升级比例相近（562 和 460）；
+  - 第二轮 C4-low 才真正跑完，第一轮没有 C4-low 的数据。

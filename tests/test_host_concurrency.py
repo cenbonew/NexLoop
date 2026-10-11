@@ -50,13 +50,26 @@ def test_doctor_agent_host_gate(tmp_path,body,code):
         {k:v for k,v in json.loads(EXAMPLE.read_text()).items() if k not in ('maximum_active_runs','run_admission_wait_ms')}))
     result=doctor('--agent-host-only','--agent-host-config',str(config))
     report=json.loads(result.stdout)
-    assert result.returncode==code and report['checks']=={'agent_host_concurrency':code==0},report
+    readable=body!={'maximum_active_runs':'4'}  # an unreadable configuration fails both checks closed
+    assert result.returncode==code and report['checks']=={'agent_host_concurrency':code==0,'agent_host_test_only_keys_absent':readable},report
 
 
 def test_doctor_agent_host_gate_refuses_unreadable_or_public_configuration(tmp_path):
     public=private(tmp_path/'public.json',json.dumps({'maximum_active_runs':4}),0o644)
     for path in (public,private(tmp_path/'broken.json','{'),tmp_path/'missing.json'):
         result=doctor('--agent-host-only','--agent-host-config',str(path))
-        assert result.returncode==1 and json.loads(result.stdout)['checks']=={'agent_host_concurrency':False}
+        assert result.returncode==1 and json.loads(result.stdout)['checks']=={'agent_host_concurrency':False,'agent_host_test_only_keys_absent':False}
     assert doctor('--agent-host-only').returncode==2
     assert doctor().returncode==2  # the foundation doctor still needs --artifact-root
+
+
+@pytest.mark.parametrize('latency',[{'median_ms':1500,'p95_ms':4000,'seed':1},{},None])
+def test_doctor_refuses_test_only_latency_in_a_deployed_configuration(tmp_path,latency):
+    """NX-031 D5: deterministic_latency belongs to the deterministic-test profile; a production/stage configuration carrying it
+    (any value) fails the doctor even though the concurrency limit passes."""
+    assert hc.evaluate({'deterministic_latency':latency})['test_only_keys_absent'] is False
+    config=private(tmp_path/'runtime-config.json',json.dumps({**json.loads(EXAMPLE.read_text()),'deterministic_latency':latency}))
+    result=doctor('--agent-host-only','--agent-host-config',str(config))
+    report=json.loads(result.stdout)
+    assert result.returncode==1 and report['checks']=={'agent_host_concurrency':True,'agent_host_test_only_keys_absent':False},report
+    assert report['details']['agent_host_concurrency']['test_only_keys']==['deterministic_latency']
