@@ -23,7 +23,7 @@ def test_v16_rule_is_written_by_apply_reapplied_as_noop_and_deactivated_when_rem
     d = deployment
     report = d['apply']()
     relay = next(p for p in d['manifest']['principals'] if p['role'] == 'message_relay')['principal_id']
-    assert d['manifest']['manifest_version'] == 16
+    assert d['manifest']['manifest_version'] >= 16  # the v16 relay Source rule stays in later manifests
     ((key, payload),) = stored(admin)
     assert key == [SOURCE] and payload['principal_id'] == SOURCE and payload['relay_principal'] == relay and payload['active'] is True
     assert {'kind': 'relay_source_read_rule', 'key': [SOURCE]} in report['facts_written']

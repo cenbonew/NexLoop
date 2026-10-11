@@ -8,6 +8,7 @@ restored database comes from before the erasure, the journal replay erases the C
 and the drill stops in verified_readonly. Synthetic data; RPO/RTO here are local measurements, not deployment evidence.
 """
 import json
+from pathlib import Path
 import stat
 from datetime import UTC, datetime
 
@@ -23,6 +24,9 @@ from effect_execution_fixture import governed_effect_executor, execution_plan  #
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_commitments_pg import fresh
+
+# The bootstrap head the restored lineage must report: the last migration of the catalog.
+CATALOG_HEAD=json.loads((Path(__file__).resolve().parents[1]/'packages/eios-core/src/eios/migrations/catalog.json').read_text())['migrations'][-1]['version']
 
 pytestmark = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)
 
@@ -86,7 +90,7 @@ def test_at050_pitr_drill_restores_before_an_erasure_and_the_journal_erases_agai
             assert started[0] <= report['journal_from'] < exported['exported_seq']
             assert report['journal_entries'] == exported['exported_seq'] - report['journal_from']
             assert restored.execute('select coalesce(max(seq),0) from control.nexloop_deletion_ledger where seq<=%s', (10**12,)).fetchone()[0] >= started[1]
-            assert report['roles_set_nologin'] >= 3 and report['lineage']['revision'] == '0181'
+            assert report['roles_set_nologin'] >= 3 and report['lineage']['revision'] == CATALOG_HEAD
             # Fence: verified_readonly, never opened in a drill; dispatch refused (NXR01) until a scope is opened.
             state = restored.execute('select state,rto_seconds,window_start,window_end from control.nexloop_restore_state').fetchone()
             assert state[0] == 'verified_readonly' and state[1] > 0
