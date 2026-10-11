@@ -4,7 +4,7 @@
  */
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Process} from '../api';
+import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Backup,type Process} from '../api';
 import {Page} from './Page';
 
 const age=ageText;
@@ -34,6 +34,20 @@ function ProcessBlock({title,section,fields}:{title:string;section:Process;field
   </article>;
 }
 
+/** NX-035 M12 backup block, read only: ages and counts as recorded; a metric without an observation reads “无” (AT-045). */
+function BackupBlock({backup}:{backup:Backup}){
+  if(backup.status==='unavailable')return <article className="workbench-block workbench-block-unavailable" aria-label="备份"><h3>备份</h3><p className="note" role="status">{BACKUP_UNAVAILABLE_TEXT}</p></article>;
+  const value=(n:number|null)=>n===null?'无':age(n);
+  const flag=(n:number|null,bad:string,good:string)=>n===null?'无':n>0?bad:good;
+  const repos=Object.entries(backup.repo_backup_age_seconds);
+  return <article className={'workbench-block workbench-block-'+(backup.verify_failed||backup.wal_archive_failing?'unavailable':'ok')} aria-label="备份"><h3>备份</h3>
+    <table><tbody>{BACKUP_FIELDS.map(f=><tr key={f}><th>{BACKUP_LABELS[f]}</th><td>{value(backup[f])}</td></tr>)}
+      <tr><th>最近一次备份校验</th><td>{flag(backup.verify_failed,'失败','通过')}</td></tr>
+      <tr><th>WAL 归档</th><td>{flag(backup.wal_archive_failing,'出现失败','正常')}</td></tr>
+      <tr><th>各仓库最近备份</th><td>{repos.length?repos.map(([r,n])=>`${r} ${age(n)}`).join('；'):'无'}</td></tr></tbody></table>
+  </article>;
+}
+
 function Counts({values,labels}:{values:Record<string,number>;labels?:Record<string,string>}){
   const entries=Object.entries(values);
   return entries.length?<ul>{entries.map(([k,n])=><li key={k}>{labels?.[k]?`${labels[k]}（${k}）`:k}：{n}</li>)}</ul>:<p className="note">无。</p>;
@@ -60,7 +74,7 @@ export function Operations({actions}:{actions?:ReactNode}){
       <ProcessBlock title="Agent Host 并发" section={m.host} fields={[['active_runs','运行中'],['waiting','排队'],['max_active_runs','上限'],['admission_timeouts','等待超时']]}/>
       <ProcessBlock title="连接池" section={m.pool} fields={[['pool_size','连接'],['requests_waiting','等待'],['requests_errors','错误'],['max_size','上限']]}/>
       <article className="workbench-block"><h3>数据库连接</h3><p>{m.connections.total} 个（部署上限 60；不按角色细分）</p></article>
-      <article className="workbench-block workbench-block-unavailable"><h3>备份</h3><p className="note" role="status">{m.backup.status==='unavailable'?'未接入（NX-035 提供备份清单后显示）：不代表没有备份。':m.backup.status}</p></article>
+      <BackupBlock backup={m.backup}/>
     </div>
   </>}</Page>;
 }
