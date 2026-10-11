@@ -23,8 +23,8 @@
 - `goal_controls.GoalControls.issue_incentive`；`backend` / `runtime_worker.issue_run_incentive`；守卫路由 `POST /internal/v1/runtime/incentives/issue`（400 / 403 `outside_catalog_terms` / 409 `incentive_payload_conflict` / 403 `incentive_unavailable`）。
 - `context_engine/sections.open_work_items` 增加 incentive 条目。
 - Agent Host：`RuntimeEffectClient.issueIncentive` 与工具 `nexloop.incentive.issue`，只在 Host 配置 `incentive_tool: true`（且 `effect_tools: true`）时提供。
-- `business-actions.v1.json` v13：`nexloop.incentive.issue`（human_owner，`risk_level` 见 §4）；`business_actions.PROFILES` 增加 `incentive.issue`。
-- `service-grants.v1.json`：`nexloop.incentive.execute:1`（执行者）与 `nexloop.incentive.run_submit:1`（runtime worker）记入 `deferred`：执行者服务主体、后台入口与 Host 开关属于部署配置改动，另行提交。
+- `business-actions.v1.json` v13/v15：`nexloop.incentive.issue`（human_owner，EIOS 风险 low，D2 见 §4）；`business_actions.PROFILES` 增加 `incentive.issue`。
+- `service-grants.v1.json` v17：新主体 `incentive_issuer`（domain worker）持有 `nexloop.incentive.execute:1`；`runtime_worker` 持有 `nexloop.incentive.run_submit:1`（两项原在 v16 的 `deferred`，接线时转为正式授权，各写明理由）。
 - 测试夹具：`runtime_effect_fixture.SOURCE_EXTRA_TARGETS`（默认空，测试模块按需 monkeypatch，让 Source 可以签发列出优惠 Action 的 Run）；`commercial_fixture.REGISTRY_ACTIONS` 增加该 Action。
 
 ## 3. 测试（真实 PG，回环 provider，合成数据）
@@ -37,7 +37,21 @@
 
 ## 4. 待定与已知限制
 
-- D2 与 EIOS 治理冲突：负责人选定 `risk_level=medium`、`approval_mode=none`，但 vendored EIOS 的 ActionGovernor 对非 low 风险一律要求审批证据，部署清单也只发布 low 风险 Action；按 medium 发布会让负责人发放必须走审批流。暂按 low 发布（三重约束不变），请调度员裁定：保持 low 并在文档中记录 NexLoop 自己的 medium 分类，或接入审批流。
+- D2（负责人 2026-10-11）：EIOS 风险 low、无审批；NexLoop 分类 medium，补偿控制为三重约束（目录单次上限、每 Consumer 周期上限、租户预算）。在 EIOS 里按 low 发布，不接审批流，不改 vendored ActionGovernor；`business-actions.v1.json` v15 的 decision 与 purpose 已同步（v14 留给先合入的 NX-035）（purpose 不进入编译出的 Action 定义，已发布定义不变）。
 - 回复来源与 Role Run 只在 SQL 端口层测过：测试中按写入者形状补写的消息 Run 签发记录与 Role 绑定不是完整的消息路由 / Role 上下文，守卫调用前的 Python 激活预检（`RuntimeActivationPort.authorize`，要求完整的消息路由或 Role 上下文）会拒绝；构造完整消息路由需要真实的入站投递与消息 Run 签发链路，成本过高。激活、任务租约、命令一致的权威复核都在 SQL 端口中，守卫预检路径由复评 Run 测试经 `issue_run_incentive` 覆盖，守卫路由本身由 `test_incentive_guard_route.py` 覆盖。
-- 部署：执行者服务主体、后台入口、Host 的 `incentive_tool` 开关与两项授权（deferred）待部署配置提交。
 - D5 的金额换算假定两位小数币种（主单位 × 100 = 最小单位）；零位或三位小数的币种需要另行处理，调度员已确认保留此假定。
+
+## 5. 部署接线（分支 at043-wiring，从 main 560f49e 切出）
+
+- 后台入口 `nexloop-incentive-issuer`（`background_services` 的 `incentive-issuer`，nexloop_domain_worker，单进程、连接池 1）：每个 tick 重新读取并认证服务凭据，领取 accepted 意图、在派发时 admit、经回环账本发放一次，unknown 只查询；`--ledger-directory` 必填（D9：回环账本是唯一 provider，私有可写目录）。
+- 容器：`container_entrypoint` 增加 `incentive-issuer` 作业（账本目录 `/var/lib/nexloop/incentive-ledger`）；`compose.test.yaml` 增加 opt-in（profile `background`）服务与独立的 `incentive_ledger` 卷，其他服务不挂载它。
+- 连接预算：`connection-budget.v1.json` 增加 `incentive-issuer`（1），默认四个 guard worker 时合计由 52 变为 53（上限 60）；guard worker 增到 5 仍在上限内，6 个将超过 60（原先 6 个恰好 60）。
+- 授权：`service-grants.v1.json` v17（见 §2）。
+- 工作台：`workbench-roles.v1.json` v8（v7 留给先合入的 NX-035）只给 owner 授予 `nexloop.incentive.issue:1`（operator、reviewer 都没有，并列入 owner-only 校验集）；工作台写入口 `POST /api/v1/workbench/actions/issue_incentive` 的操作表加对应条目（字段同受治理入口，Idempotency-Key 即请求 ID）。
+- Agent Host：`incentive_tool` 开关默认关（配置中不出现即关闭；只接受 `true`，且需 `effect_tools: true`）；部署示例 `agent-host.runtime-config.example.json` 保持不开启。
+- 测试：`test_incentive_workbench_pg.py`：owner 经工作台 HTTP（真实工作台登录、CSRF、Idempotency-Key）受理一笔，重放同一提交不重复，参数错误 422；operator 403 且不产生意图。
+- 测试：`test_background_services_pg.py` 中该入口以 manifest 凭据跑一次空闲 tick，并领取一条 accepted 意图完成回环发放（预算预留、账本一条记录，第二次 tick 不重发）；`apps/agent-host/test/incentive-tool-profile.test.ts` 验证未开启时 Host 不暴露该工具、开启时暴露、`incentive_tool` 取非 `true` 值或未开 `effect_tools` 时拒绝启动。
+
+## 6. 未完成项
+
+- 工作台前端的优惠发放页面（apps/web）不在本次范围：负责人现在可经工作台写入口 `issue_incentive` 发放（HTTP 已接通），页面另行排期。

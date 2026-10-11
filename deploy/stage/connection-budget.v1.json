@@ -1,6 +1,6 @@
 {
   "schema": "nexloop.connection-budget.v1",
-  "decision": "11_DEPLOYMENT §6 and ADR-024: list every APP_HOST service process that opens a PostgreSQL pool. nexloop-doctor --budget-only sums pool max x process count (<= 60), requires every long-running service (nexloop_eios.connection_budget.required_services) to be declared, and requires the server's max_connections >= 80 before any service starts. Process counts follow 11_DEPLOYMENT §7; adjust this file together with the service configuration. NX-031 D7 (dispatcher 2026-10-11, measured smallest workable pools): the ten background services 1 each (POOL_MAX); the plan-reevaluator and reply-guarantor launchers' nexloop_api pools 2 (with one no Run is issued); domain-worker, action-worker, message-relay and outbound-recorder 2 (with one they time out or fail); the runtime-worker dispatcher 2; api 4 per process and the four guard processes 4 each are kept (lowering them needs the nightly ACK data and a rerun of the ADR-022 deadline gate). scheduler: the nexloop-scheduler command of the handoff Compose template; the current code has no such entry point; its 4 are kept as a reserve. Total 52.",
+  "decision": "11_DEPLOYMENT §6 and ADR-024: list every APP_HOST service process that opens a PostgreSQL pool. nexloop-doctor --budget-only sums pool max x process count (<= 60), requires every long-running service (nexloop_eios.connection_budget.required_services) to be declared, and requires the server's max_connections >= 80 before any service starts. Process counts follow 11_DEPLOYMENT §7; adjust this file together with the service configuration. NX-031 D7 (dispatcher 2026-10-11, measured smallest workable pools): the eleven background services 1 each (POOL_MAX; AT-043 added incentive-issuer); the plan-reevaluator and reply-guarantor launchers' nexloop_api pools 2 (with one no Run is issued); domain-worker, action-worker, message-relay and outbound-recorder 2 (with one they time out or fail); the runtime-worker dispatcher 2; api 4 per process and the four guard processes 4 each are kept (lowering them needs the nightly ACK data and a rerun of the ADR-022 deadline gate). scheduler: the nexloop-scheduler command of the handoff Compose template; the current code has no such entry point; its 4 are kept as a reserve. Total 53.",
   "services": [
     {"name": "api", "processes": 2, "pool_max": 4},
     {"name": "domain-worker", "processes": 1, "pool_max": 2},
@@ -19,6 +19,7 @@
     {"name": "commercial-recorder", "processes": 1, "pool_max": 1},
     {"name": "retention-keeper", "processes": 1, "pool_max": 1},
     {"name": "alert-evaluator", "processes": 1, "pool_max": 1},
+    {"name": "incentive-issuer", "processes": 1, "pool_max": 1},
     {"name": "plan-reevaluator-launcher", "processes": 1, "pool_max": 2},
     {"name": "reply-guarantor-launcher", "processes": 1, "pool_max": 2}
   ]

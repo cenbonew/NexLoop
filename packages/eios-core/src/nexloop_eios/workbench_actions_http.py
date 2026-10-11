@@ -89,6 +89,12 @@ OPERATIONS={
         'until':_utc,'reason':_reason},
     # NX-035 (0147): owner-only; the restore reference names the restore being opened.
     'open_restore_scope':{'restore_ref':_id(re.compile(r'[A-Za-z0-9._:-]{1,64}'))},
+    # AT-043 (0145): owner-only; a catalog incentive for one Consumer, whole minor units; accepted is not issued (the
+    # executor admits it at dispatch under the catalog, the per-Consumer limit and the tenant budget).
+    'issue_incentive':{'consumer_id':_id(_HEX),'incentive_offering_id':_id(_HEX),
+        'offering_revision':lambda v:v if type(v) is int and 1<=v<=9007199254740991 else (_ for _ in ()).throw(ValueError('revision')),
+        'binding_id':_id(_HEX),'amount_minor':_id(re.compile(r'[1-9][0-9]{0,15}')),'currency':_id(re.compile(r'[A-Z]{3}')),
+        'notification_text':lambda v:v if type(v) is str and len(v)<=2000 else (_ for _ in ()).throw(ValueError('notification'))},
 }
 
 

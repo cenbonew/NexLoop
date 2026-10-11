@@ -104,9 +104,9 @@ def check_http_container():
 def main():
     parser=argparse.ArgumentParser(description='Community test bootstrap/PG-Artifact diagnostic jobs')
     parser.add_argument('job',choices=['bootstrap','check-test','api-test','check-http-test','cache-bootstrap','host-bootstrap','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder',
-        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator'])
+        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator','incentive-issuer'])
     args=parser.parse_args()
-    if args.job in ('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator'):
+    if args.job in ('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator','incentive-issuer'):
         # Long-running restricted background services (opt-in compose profile "background"). Their private
         # files are provisioned by trusted configuration (service-grants), never here; optional files are
         # passed only when present.
@@ -125,6 +125,8 @@ def main():
             if (root/name).exists():argv+=[option,str(root/name)]
         if (root/'host_port').exists():argv+=['--host-port',read_private_text(root/'host_port',maximum=8).strip()]
         if (root/'effect_action').exists():argv+=['--effect-action',read_private_text(root/'effect_action',maximum=256).strip()]
+        # AT-043: the incentive issuer's loopback ledger lives on its own writable volume.
+        if args.job=='incentive-issuer':argv+=['--ledger-directory','/var/lib/nexloop/incentive-ledger']
         return main_for(args.job,argv)
     if args.job=='outbound-recorder':
         # Long-running restricted service (opt-in compose profile). Its private files are
