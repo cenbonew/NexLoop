@@ -1,23 +1,28 @@
 # NexLoop
 
-NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期与阶段目标（O / KR），Agent 在本体限定的受治理 Action 边界内，持续理解消费者、履行承诺、交付价值，并根据真实结果调整计划。
+English | [简体中文](README.zh-CN.md)
 
-- 目标、本体、关系、记忆与承诺长期保存在 PostgreSQL；每次处理是一个短生命周期、事件驱动、有预算的 Run。
-- 只有受治理的 EIOS Action 能修改正式业务对象或产生外部效应；结果不明时先查询对账，不盲目重发。
-- 真实动作的可靠性优先于消费者数字孪生与模拟选优。
-- 技术栈：Python 3.12（FastAPI、psycopg，vendored NEX-EIOS 内核）、Node 24 Agent Host（vendored Pi Durable）、React 19、PostgreSQL 18 + pgvector、Valkey 8.1。模型为 DeepSeek `deepseek-flash`，测试使用确定性 provider。
+NexLoop is an open-source **continuous-operations system** for enterprises. An owner sets long-term and stage goals (objectives and key results); Agents work inside governed Action boundaries defined by the ontology to keep understanding consumers, fulfil commitments, deliver value, and adjust plans based on real outcomes.
 
-## 当前状态
+- Goals, ontology, relationships, memory and commitments persist in PostgreSQL; each piece of work is a short-lived, event-driven Run with a budget.
+- Only governed EIOS Actions may change formal business objects or cause external effects. When an outcome is unknown, NexLoop queries and reconciles first; it never blindly resends.
+- Reliable real-world actions come before consumer digital twins and simulated strategy selection.
+- **This project is still exploratory**: it does not promise more revenue or payment, and interfaces and data structures will change. Agent autonomy is bounded by Action policy (governed Actions, role ceilings, contact restrictions, budgets), not by the model.
+- Stack: Python 3.12 (FastAPI, psycopg, a vendored NEX-EIOS core), a Node 24 Agent Host (vendored Pi Durable), React 19, PostgreSQL 18 + pgvector, Valkey 8.1. The model is DeepSeek `deepseek-flash`; you bring your own model key. Without a key only the explicit deterministic test mode is available (for tests and demos; it is not a real-model acceptance). All example and test data in this repository is synthetic.
 
-- **S0–S3 已完成，S4 大部分完成**：对话→本体处理链与人工审核、目标与控制面、上下文引擎 v6、计划与复评、承诺、商业事件与费用、负责人工作台与人工接管都已合入 `main`。保留/删除/导出（NX-029）已完成；审计指标告警（NX-030）只差备份年龄；1,000 消费者并发矩阵（NX-031）进行中。
-- **尚未部署**：S5 只完成了本地部分：本地 Git 队列与隔离 CI 控制器（NX-033，主机侧步骤未执行）、发布工具（NX-034：发布清单、签名验签、回滚检查）与备份恢复（NX-035：备份清单、恢复日志、恢复围栏、迁移门槛），都只在本机运行与演练；双机部署未开始；没有发布版本或可部署镜像；`/health/ready` 保持 503。
-- **真实外发关闭**：真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭。
+## Current status
 
-任务与验收的实时状态见 [`planning/`](planning)，每次合入的变化见 [CHANGELOG](CHANGELOG.md)。
+- **S0–S3 done, most of S4 done**: the conversation-to-ontology pipeline with human review, goals and the control plane, context engine v6, plans and re-evaluation, commitments, commercial events and costs, and the owner workbench with human takeover are all on `main`. Retention, deletion and export (NX-029) are done; audit metrics and alerting (NX-030) only lack backup age; the 1,000-consumer concurrency matrix (NX-031) is in progress.
+- **Not deployed**: only the local parts of S5 exist — a local Git queue and isolated CI controller (NX-033; host-side steps not yet executed), a release tool (NX-034: release manifest, signing and verification, rollback check) and backup/restore (NX-035: backup manifest, restore journal, restore fence, migration gate), all run and rehearsed on a single machine only. Two-host deployment has not started (NX-032 parameterised deployment templates, a certificate script and deploy-gate checks are in the repository; no server has been touched). There is no release or deployable image yet; `/health/ready` stays 503.
+- **Real outbound dispatch is off**: no real outbound channel is enabled and `REAL_DISPATCH_ENABLED` stays off.
 
-## 快速开始
+What is implemented and what is only planned is stated in section 6 of the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Live task and acceptance status is in [`planning/`](planning); every change merged to `main` is in the [CHANGELOG](CHANGELOG.md).
 
-需要 Python 3.12（[uv](https://docs.astral.sh/uv/)）、Node 24.13.0（`.nvmrc`）、pnpm 10、带 pgvector 的 PostgreSQL 18（测试只会创建一次性实例，不连接已有数据库；非默认位置用 `NEXLOOP_TEST_PG_BIN` 指定 bin 目录）。
+> Most project documents (architecture guide, ADRs, implementation notes, CHANGELOG) are written in Chinese; identifiers and public API names are in English.
+
+## Quick start
+
+You need Python 3.12 ([uv](https://docs.astral.sh/uv/)), Node 24.13.0 (`.nvmrc`), pnpm 10, and PostgreSQL 18 with pgvector (tests only create disposable instances and never connect to an existing database; set `NEXLOOP_TEST_PG_BIN` to the bin directory if it is not in the default location).
 
 ```bash
 nvm use
@@ -27,41 +32,46 @@ nvm use
 uv sync --frozen && pnpm install --frozen-lockfile
 ```
 
-运行一个定向测试：
+Run one targeted test:
 
 ```bash
 LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv run --frozen pytest -q tests/test_bootstrap.py
 ```
 
-在本机起一次性的工作台冒烟环境（仅开发机；合成数据、回环地址、退出时自动清理）：
+Start a disposable workbench smoke environment on your machine (development machines only; synthetic data, loopback only, cleaned up on exit):
 
 ```bash
 scripts/dev/workbench_smoke.sh
 ```
 
-完整本地 CI（耗时数十分钟）：
+Full local CI (takes tens of minutes). Local CI is the release authority; GitHub Actions is not required:
 
 ```bash
 bash scripts/ci/check
 ```
 
-更多内容（社区测试 Compose、测试约定、贡献须知）见 [架构说明 §5](docs/ARCHITECTURE.md#5-开发者上手)。
+More (community test Compose, test conventions, contribution notes) is in [architecture guide §5](docs/ARCHITECTURE.md#5-开发者上手).
 
-## 文档导航
+## Documentation
 
-| 文档 | 内容 |
+| Document | Contents |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 按当前实现撰写的业务架构与技术架构、模块索引、开发者上手、已知限制 |
-| [docs/handoff/](docs/handoff/00_START_HERE.md) | 冻结的交接规格（PRD、目标架构、数据模型、部署、验收等），是目标设计，不等于已实现 |
-| [adr/](adr) | ADR-019 起的架构决策（ADR-001～018 见 [16_ADR](docs/handoff/docs/16_ADR.md)） |
-| [docs/implementation/](docs/implementation) | 按任务的设计稿、实现说明与证据 |
-| [CHANGELOG.md](CHANGELOG.md) | 每次合入 `main` 的用户可感知变化 |
-| [AGENTS.md](AGENTS.md) | 工程契约 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Business and technical architecture as implemented, module index, developer onboarding, known limitations |
+| [docs/handoff/](docs/handoff/00_START_HERE.md) | Frozen handoff specification (PRD, target architecture, data model, deployment, acceptance); target design, not the implementation |
+| [adr/](adr) | Architecture decisions from ADR-019 on (ADR-001–018 are in [16_ADR](docs/handoff/docs/16_ADR.md)) |
+| [docs/implementation/](docs/implementation) | Per-task design notes, implementation notes and evidence |
+| [CHANGELOG.md](CHANGELOG.md) | User-visible changes of every merge to `main` |
+| [AGENTS.md](AGENTS.md) | Engineering contract |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Operations handbook: entry points for deployment, doctor, alerts, backup/restore, release and rollback |
+| [GOVERNANCE.md](GOVERNANCE.md) | Maintainers, decision making, the ADR process, how to propose changes |
+| [docs/release/public-release-checklist.md](docs/release/public-release-checklist.md) | Public release checklist |
 
-## 贡献与安全
+## Contributing and security
 
-仓库是公开的。不要提交 `.env`、密钥、口令、私网地址或运行数据；模型凭据只放在被 Git 忽略的 `.env` 或私有 secret 文件中。提交前运行 `uv run python scripts/check_publication.py --staged`，推送前运行 `scripts/ci/prepush-scan.sh`。
+How to contribute and the DCO sign-off are in [CONTRIBUTING.md](CONTRIBUTING.md); report vulnerabilities as described in [SECURITY.md](SECURITY.md); the code of conduct is [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-## 许可
+This repository is public. Never commit `.env` files, keys, passwords, private network addresses or runtime data; model credentials belong only in the git-ignored `.env` or in private secret files. Run `uv run python scripts/check_publication.py --staged` before committing and `scripts/ci/prepush-scan.sh` before pushing.
 
-自有代码使用 [MIT](LICENSE) 许可（[ADR-026](adr/ADR-026-license-mit.md)，取代交接规格 ADR-016 的 Apache-2.0 建议）；第三方来源与许可见 [NOTICE](NOTICE)、[licenses/](licenses) 与 [versions.lock.json](versions.lock.json)。
+## License
+
+Our own code is licensed under [MIT](LICENSE) ([ADR-026](adr/ADR-026-license-mit.md), which supersedes the Apache-2.0 suggestion in handoff ADR-016). Third-party sources and licenses are listed in [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [licenses/](licenses) and [versions.lock.json](versions.lock.json).
