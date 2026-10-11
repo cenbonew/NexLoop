@@ -304,7 +304,7 @@
     "name": "SSE恢复",
     "given": "客户端断开再Last-Event-ID续传",
     "expected": "无丢失/重复显示已提交消息",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "commit",
@@ -317,6 +317,24 @@
         "ref": "docs/implementation/sse-tcp-reconnect-evidence.json",
         "summary": "保留候选与主线实际范围，Node生产接收器cache去重诊断不等同mountedDOM。",
         "recorded_at": "2026-10-08T15:32:53.883371+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d867a9f",
+        "summary": "挂载的 WebChat（jsdom + React Query，HTML 规范 EventSource 重连语义）：断线重连、重复/乱序事件、列表重读竞态、unavailable 后 5 s 续订四个场景各条已提交消息恰好显示一次；修复 mergeCommitted 与 onClosed 续订两个缺陷（修复前场景 3、4 失败）。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T032513Z-045aec818cef",
+        "summary": "s4r 全量（045aec8）：tests/test_sse_dom_tcp_resume.py 通过——实际 API/TLS/真实登录/PG，经本地中继切断流 TCP，断线期间提交 4、5，第二条连接只收到 4、5（Last-Event-ID 续传），DOM 恰好显示 1–5 各一次，API 列表与 outbox 均为 5；apps/web vitest 通过。全量失败 12 项均在基线（B 11、C 1，C 类 role_tail[role_validity] 同检出串行 3/3 通过），串行门槛 2/2。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/AT-015-browser-dom.md",
+        "summary": "DOM 证据基于 jsdom + undici EventSource，不是真实浏览器引擎；真实浏览器断线重连人工核对作为补充证据另记。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
       }
     ]
   },
@@ -964,7 +982,15 @@
     "name": "镜像发布一致",
     "given": "构建SHA与部署SHA不同",
     "expected": "发布拒绝；release manifest校验",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "87101e9",
+        "summary": "本地发布工具 verify：部署 SHA/镜像 digest 与已签名清单不一致即拒绝（tests/test_release_local.py，s4r 全量通过）。只是本地证据，未在部署链路上执行，状态保持 not_run，待 NX-032/033 部署后验收。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      }
+    ]
   },
   {
     "id": "AT-056",
@@ -982,7 +1008,15 @@
     "name": "版本回滚",
     "given": "不兼容schema/runtime镜像回滚",
     "expected": "阻止盲回滚，走向前修复/恢复流程",
-    "status": "not_run"
+    "status": "not_run",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "87101e9",
+        "summary": "本地 rollback-check：不兼容 schema/runtime 格式拒绝盲回滚并给出向前修复提示（tests/test_release_local.py，s4r 全量通过）。只是本地证据，未在部署链路上执行，状态保持 not_run，待 NX-032/033 部署后验收。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      }
+    ]
   },
   {
     "id": "AT-058",

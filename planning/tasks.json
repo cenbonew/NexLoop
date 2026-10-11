@@ -2450,8 +2450,27 @@
       "M23"
     ],
     "deliverable": "镜像校验、release manifest、GitHub断连不阻断本地",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "87101e9",
+        "summary": "NX-034 本地部分：scripts/release/release.py（manifest/sign/verify/sbom/rollback-check，缺工具从不当作通过）与 tests/test_release_local.py；不 push、不打 tag、不推镜像、不连服务器。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T032513Z-045aec818cef",
+        "summary": "s4r 全量（045aec8）通过本地发布测试；失败集为基线子集，串行门槛 2/2。合入 main 045aec8（快进）。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-034-local-implementation.md",
+        "summary": "剩余：GitHub 同步与发布归档依赖 NX-033 本地 Git 队列/隔离 CI；签名密钥保管、CI 主机安装 syft/grype 待负责人在 NX-032 部署时确认。",
+        "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      }
+    ]
   },
   {
     "id": "NX-035",
