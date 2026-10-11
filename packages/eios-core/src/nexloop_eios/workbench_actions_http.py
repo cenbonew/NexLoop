@@ -89,6 +89,11 @@ OPERATIONS={
         'until':_utc,'reason':_reason},
     # NX-035 (0147): owner-only; the restore reference names the restore being opened.
     'open_restore_scope':{'restore_ref':_id(re.compile(r'[A-Za-z0-9._:-]{1,64}'))},
+    # 0220: owner-only real dispatch switch; the tenant scope names its data mode, the action scope one resource id.
+    'set_real_dispatch':{'scope_kind':lambda v:v if v in ('tenant','action_type') else (_ for _ in ()).throw(ValueError('scope')),
+        'enabled':lambda v:v if type(v) is bool else (_ for _ in ()).throw(ValueError('enabled')),'reason':_reason,
+        'action_type':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'eios:action:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}',v)) else (_ for _ in ()).throw(ValueError('action type')),
+        'data_mode':lambda v:v if v in (None,'real','test') else (_ for _ in ()).throw(ValueError('data mode'))},
     # AT-043 (0145): owner-only; a catalog incentive for one Consumer, whole minor units; accepted is not issued (the
     # executor admits it at dispatch under the catalog, the per-Consumer limit and the tenant budget).
     'issue_incentive':{'consumer_id':_id(_HEX),'incentive_offering_id':_id(_HEX),

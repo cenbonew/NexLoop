@@ -30,7 +30,9 @@ def validate(value):
     if type(value['actions']) is not list or not 1<=len(value['actions'])<=256:raise EffectCategoriesRejected('actions')
     seen=set()
     for item in value['actions']:
-        if type(item) is not dict or set(item)!=ENTRY:raise EffectCategoriesRejected('entry shape')
+        if type(item) is not dict or not ENTRY<=set(item)<=ENTRY|{'external_effect'}:raise EffectCategoriesRejected('entry shape')
+        # 0220 (v2): optional; absent means external (fail closed), only a boolean is accepted.
+        if 'external_effect' in item and type(item['external_effect']) is not bool:raise EffectCategoriesRejected('external_effect')
         if re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,159}',str(item['stable_name'])) is None or type(item['version']) is not int or item['version']<1:
             raise EffectCategoriesRejected('action identity')
         if (item['stable_name'],item['version']) in seen:raise EffectCategoriesRejected('duplicate action')

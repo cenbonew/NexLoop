@@ -160,7 +160,8 @@ def create_app(config:ApiConfiguration):
         backend=getattr(app.state,'backend',None)
         if config.mode=='stage':
             from nexloop_eios.deployment_readiness import dispatch_switch
-            status,body=503,{'ready':False,'mode':'not_ready','reasons':['database_unavailable'],'dispatch_switch':dispatch_switch(os.environ)}
+            status,body=503,{'ready':False,'mode':'not_ready','reasons':['database_unavailable'],'dispatch_switch':dispatch_switch(os.environ),
+                'real_dispatch':{'tenants_open':None,'actions_open':None}}
             try:
                 if backend is not None:status,body=backend.deployment_readiness(os.environ)
             except Exception:pass

@@ -78,7 +78,8 @@ def test_stage_ready_without_a_database_is_503_with_a_code_only(files):
     with TestClient(create_app(config)) as client:
         response = client.get('/health/ready')
     assert response.status_code == 503
-    assert response.json() == {'ready': False, 'mode': 'not_ready', 'reasons': ['database_unavailable'], 'dispatch_switch': 'closed'}
+    assert response.json() == {'ready': False, 'mode': 'not_ready', 'reasons': ['database_unavailable'], 'dispatch_switch': 'closed',
+                               'real_dispatch': {'tenants_open': None, 'actions_open': None}}
 
 
 @pytest.fixture
@@ -109,21 +110,21 @@ def evaluate(pg, environ=None, user='nexloop_api', extra=()):
 
 def test_readiness_states_on_a_clean_catalog(pg, catalog_db):
     admin = catalog_db
-    assert evaluate(pg) == (200, {'ready': True, 'mode': 'normal', 'reasons': [], 'dispatch_switch': 'closed'})
+    assert evaluate(pg) == (200, {'ready': True, 'mode': 'normal', 'reasons': [], 'dispatch_switch': 'closed', 'real_dispatch': {'tenants_open': 0, 'actions_open': 0}})
     assert evaluate(pg, {'REAL_DISPATCH_ENABLED': 'true'})[1]['dispatch_switch'] == 'open'
-    assert evaluate(pg, {'REAL_DISPATCH_ENABLED': 'yes'}) == (503, {'ready': False, 'mode': 'not_ready', 'reasons': ['dispatch_switch_invalid'], 'dispatch_switch': 'invalid'})
+    assert evaluate(pg, {'REAL_DISPATCH_ENABLED': 'yes'}) == (503, {'ready': False, 'mode': 'not_ready', 'reasons': ['dispatch_switch_invalid'], 'dispatch_switch': 'invalid', 'real_dispatch': {'tenants_open': 0, 'actions_open': 0}})
     assert evaluate(pg, user='nexloop_bootstrap')[1]['reasons'] == ['database_role_invalid']
     assert evaluate(pg, extra=(('signer_unavailable', False),))[1]['reasons'] == ['signer_unavailable']
     # Restore in progress: restored, then replayed — not ready; verified_readonly — reads only; open — normal.
     owner(admin, 'select runtime.nexloop_restore_begin(%s,%s,now(),now(),1)', ('ready-check', Jsonb({'backup_id': '20261011-010000F'})))
-    assert evaluate(pg) == (503, {'ready': False, 'mode': 'not_ready', 'reasons': ['restore_in_progress'], 'dispatch_switch': 'closed'})
+    assert evaluate(pg) == (503, {'ready': False, 'mode': 'not_ready', 'reasons': ['restore_in_progress'], 'dispatch_switch': 'closed', 'real_dispatch': {'tenants_open': 0, 'actions_open': 0}})
     set_restore_state(admin, 'replayed')
     assert evaluate(pg)[1]['reasons'] == ['restore_in_progress']
     set_restore_state(admin, 'verified_readonly')
-    assert evaluate(pg) == (200, {'ready': True, 'mode': 'read_only', 'reasons': [], 'dispatch_switch': 'closed'})
+    assert evaluate(pg) == (200, {'ready': True, 'mode': 'read_only', 'reasons': [], 'dispatch_switch': 'closed', 'real_dispatch': {'tenants_open': 0, 'actions_open': 0}})
     assert evaluate(pg, {'REAL_DISPATCH_ENABLED': 'true'})[1]['reasons'] == ['dispatch_switch_open_during_restore']
     set_restore_state(admin, 'open')
-    assert evaluate(pg)[1] == {'ready': True, 'mode': 'normal', 'reasons': [], 'dispatch_switch': 'closed'}
+    assert evaluate(pg)[1] == {'ready': True, 'mode': 'normal', 'reasons': [], 'dispatch_switch': 'closed', 'real_dispatch': {'tenants_open': 0, 'actions_open': 0}}
     # A deletion replay open (NX-029) is not ready.
     owner(admin, 'select runtime.nexloop_replay_begin(%s,%s)', ('ready-replay', 0))
     assert evaluate(pg)[1]['reasons'] == ['deletion_replay_open']
@@ -138,7 +139,7 @@ def test_migration_drift_is_not_ready(pg, catalog_db):
         admin.execute('set local session_replication_role=replica')
         admin.execute('update control.schema_migrations set checksum=%s where version=%s', ('0' * 64, version))
     try:
-        assert evaluate(pg) == (503, {'ready': False, 'mode': 'not_ready', 'reasons': ['migration_drift'], 'dispatch_switch': 'closed'})
+        assert evaluate(pg) == (503, {'ready': False, 'mode': 'not_ready', 'reasons': ['migration_drift'], 'dispatch_switch': 'closed', 'real_dispatch': {'tenants_open': None, 'actions_open': None}})
     finally:
         with admin.transaction():
             admin.execute('set local session_replication_role=replica')

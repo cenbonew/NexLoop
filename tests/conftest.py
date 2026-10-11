@@ -19,6 +19,9 @@ def pg():
     try:
         subprocess.run([str(bindir/'pg_ctl'),'-D',str(data),'-l',str(root/'postgres.log'),'-o',f"-k {sock} -p {port} -c listen_addresses=''",'-w','start'],check=True,stdout=subprocess.DEVNULL)
         started=True
+        # 0220 test harness: loopback channels are declared not external, as trusted configuration does in production.
+        from support.loopback_effects import install as declare_loopback_effects
+        declare_loopback_effects(f'host={sock} port={port} dbname=postgres user=nexloop_bootstrap')
         yield f'host={sock} port={port} dbname=postgres user=nexloop_bootstrap'
     finally:
         if started:subprocess.run([str(bindir/'pg_ctl'),'-D',str(data),'-m','fast','-w','stop'],check=True,stdout=subprocess.DEVNULL)
