@@ -160,3 +160,27 @@
 - **开发机整体**：门槛脚本整体运行 111 s，4 个用例全部通过。
 - **CI 主机估算**：按前两个用例的 CI 主机与开发机耗时比例（约 2.2–2.4 倍）推算，合计约 255–270 s，低于 300 s，但余量只有约 10%。
 - **超过 300 s 时的备选**：把 run_limit 两例改为门槛之后的独立串行阶段（同样是 guard 4、不放宽时限，单独计时）。这需要负责人另行确认，因为它改变的是“移入门槛”这一决定。
+
+## 7. 测试阶段一律跑完（stages.v4，调度员 2026-10-11）
+
+分支 `ci-run-all-stages`，从 main `9e4f4d2` 切出。
+
+- **问题**：`scripts/ci/check` 在第一个失败的阶段就停止。integration-parallel 每轮都有基线里的 B 类失败，所以它之后的 integration-heavy 和 pi-runtime 在集成 CI 里从未执行过，各轮结果里都没有 `pi.xml` / `runtime.xml`。
+- **现在的规则**：
+  - **前置阶段**（dependency-python、static、dependency-node、licenses、build-artifacts）：失败即停，因为后面的阶段无法运行。
+  - **测试阶段**（unit-contract、serial-build、deadline-gate、integration-parallel、integration-heavy、pi-runtime，以及以后新增的测试阶段）：一律跑完，各自写自己的 junit。
+  - **退出码**：等于第一个失败的测试阶段的退出码；没有失败就是 0。
+  - **门槛**：仍单独报告 `NX-049 deadline gate failed (rc=N)`；它失败时按状态 1 计，与原来相同。
+- **阶段结果行**：每个阶段打印一行，格式固定：`NEXLOOP-STAGE name=<阶段> rc=<退出码> seconds=<用时> junit=<逗号分隔的文件，或 ->`。junit 一列与 v4 策略中声明的一致。
+- **`.ci-policy/stages.v4.json`**：
+  - 与 v3 的阶段、脚本和 junit 相同，只是测试阶段改为 `stop_on_failure: false`；
+  - v3 不变；
+  - 控制器使用 `--stages-version 4`，配套 `required-suites.v2.json`。
+- **受信判定**：`judge` 按阶段和套件逐个核对，与执行顺序无关。以下任一情况都判失败：阶段失败；套件缺失；任何套件里有失败、出错或被跳过的测试。
+- **替身对照测试**（`tests/test_ci_stages.py`）：
+  - 前置阶段的命令失败时立即停止，退出码是该命令的；
+  - 测试阶段的命令失败时，该阶段在内部停止，之后的阶段全部照常执行，退出码是该阶段的；
+  - parallel 失败时，heavy 和 pi-runtime 仍然执行并写各自的 junit，结果行里它们的 rc 为 0，最终退出码是 parallel 的；
+  - 门槛失败按 1 计并单独报告；
+  - 结果行逐个阶段齐全，junit 一列与 v4 一致；
+  - v4 与 v3 的阶段内容相同，判定与执行顺序无关。

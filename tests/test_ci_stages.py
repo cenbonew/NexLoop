@@ -47,7 +47,7 @@ exit 0
         env = {'PATH': f'{bin_dir}:/usr/bin:/bin', 'TRACE': str(trace), 'FAIL_AT': str(fail_at), 'FAIL_RC': str(fail_rc), 'HOME': str(tmp_path)}
         done = subprocess.run(['bash', *argv], cwd=ROOT, env=env, capture_output=True, text=True)
         lines = re.sub(r'/[^ \n]*/tmp\.[A-Za-z0-9]+', '<tmp>', trace.read_text()).splitlines() if trace.exists() else []
-        return done.returncode, lines, done.stderr
+        return done.returncode, lines, done.stderr + done.stdout
     return run
 
 
@@ -64,7 +64,8 @@ def test_v3_runs_the_stage_scripts_in_the_order_of_scripts_ci_check():
     v3 = ci.load_policy(ROOT / '.ci-policy', 3)
     names = [s['name'] for s in v3['stages']['stages']]
     assert names == STAGES + ['isolation-probe'] and v3['stages_version'] == 3 and v3['version'] == 2
-    called = re.findall(r'"\$stages/([a-z-]+)\.sh"', (ROOT / 'scripts/ci/check').read_text())
+    # scripts/ci/check lists its stages in two loops: preparation, then the test stages.
+    called = [n for line in re.findall(r'^for name in ([a-z -]+); do', (ROOT / 'scripts/ci/check').read_text(), re.M) for n in line.split()]
     assert called == STAGES
     stages = {s['name']: s for s in v3['stages']['stages']}
     assert stages['deadline-gate']['timeout_seconds'] == 300  # D-j: the gate is at most 5 minutes
@@ -118,7 +119,7 @@ def test_v1_is_unchanged_and_stays_the_default():
     v1 = ci.load_policy(ROOT / '.ci-policy')
     assert v1['stages_version'] == 1 and [s['name'] for s in v1['stages']['stages']] == ['dependency-python', 'dependency-node', 'suite', 'isolation-probe']
     with pytest.raises(ci.ConfigError):
-        ci.load_policy(ROOT / '.ci-policy', 4)
+        ci.load_policy(ROOT / '.ci-policy', 5)
 
 
 def test_check_is_the_stage_scripts_in_sequence(stubs):
@@ -132,18 +133,88 @@ def test_check_is_the_stage_scripts_in_sequence(stubs):
     assert whole == pieces
 
 
-def test_a_failing_command_stops_check_with_its_status_except_the_deadline_gate(stubs):
+PREPARATION = ['dependency-python', 'static', 'dependency-node', 'licenses', 'build-artifacts']
+TEST_STAGES = ['unit-contract', 'serial-build', 'deadline-gate', 'integration-parallel', 'integration-heavy', 'pi-runtime']
+STAGE_LINE = re.compile(r'NEXLOOP-STAGE name=([a-z-]+) rc=(\d+) seconds=(\d+) junit=(\S+)')
+
+
+def spans(stubs):
+    """(first, last) command positions (1-based) of every stage in the whole check trace."""
+    out, at = {}, 0
+    for name in STAGES:
+        _, lines, _ = stubs([f'scripts/ci/stages/{name}.sh'])
+        out[name] = (at + 1, at + len(lines))
+        at += len(lines)
+    return out
+
+
+def test_v4_runs_every_test_stage_to_the_end_and_judges_per_stage():
+    v4 = ci.load_policy(ROOT / '.ci-policy', 4)
+    stages = {s['name']: s for s in v4['stages']['stages']}
+    assert [s['name'] for s in v4['stages']['stages']] == STAGES + ['isolation-probe'] and v4['suites']['version'] == 2
+    assert {n for n, s in stages.items() if s.get('stop_on_failure') is False} == set(TEST_STAGES)
+    assert all(stages[n].get('stop_on_failure', True) for n in PREPARATION)
+    # Same stages, scripts and JUnit as v3; v3 itself is unchanged.
+    v3 = ci.load_policy(ROOT / '.ci-policy', 3)
+    assert [{k: v for k, v in s.items() if k != 'stop_on_failure'} for s in v4['stages']['stages']] == \
+        [{k: v for k, v in s.items() if k != 'stop_on_failure'} for s in v3['stages']['stages']]
+    assert [n for n, s in {s['name']: s for s in v3['stages']['stages']}.items() if s.get('stop_on_failure') is False] == ['deadline-gate']
+    # The judgement is per stage and per suite: a failed or skipped test in any suite fails, whatever ran before or after it.
+    clean = lambda n: {'tests': n, 'passed': n, 'failed': 0, 'errors': 0, 'skipped': 0}
+    junit = {name: clean(5) for name in v4['suites']['suites']}
+    ran = [{'name': n, 'status': 'passed'} for n in STAGES]
+    assert ci.judge(v4, ran, junit, None) == []
+    assert ci.judge(v4, ran, {**junit, 'pi': {**clean(5), 'skipped': 1}}, None) == ['suite_not_clean:pi']
+    failed_parallel = [{**s, 'status': 'failed'} if s['name'] == 'integration-parallel' else s for s in ran]
+    assert ci.judge(v4, failed_parallel, {**junit, 'python': {**clean(5), 'failed': 2}}, None) == ['stage_failed:integration-parallel', 'suite_not_clean:python']
+    assert 'suite_missing:runtime' in ci.judge(v4, ran, {k: v for k, v in junit.items() if k != 'runtime'}, None)
+
+
+def test_preparation_stops_at_its_first_failure_and_test_stages_all_run(stubs):
     _, whole, _ = stubs(['scripts/ci/check'])
-    gate = [i + 1 for i, line in enumerate(whole) if 'python-deadline-gate.xml' in line]
-    # The Node version probe (`node -p`, inside a [[ ]] test) is not a failing command in either form; skip it.
+    span = spans(stubs)
+    # The Node version probe (`node -p`, inside a [[ ]] test) is not a failing command; skip it.
     probe = next(i + 1 for i, line in enumerate(whole) if line.startswith('node -p'))
-    for position in (1, 6, probe + 1, 20, len(whole) - 2, len(whole)):
+    for position in (1, 6, probe + 1, span['build-artifacts'][1]):
         for rc in (1, 2, 5):
             code, lines, _ = stubs(['scripts/ci/check'], position, rc)
             assert code == rc and lines == whole[:position], (position, rc)
+    for name in ('unit-contract', 'serial-build', 'integration-parallel', 'integration-heavy', 'pi-runtime'):
+        first, last = span[name]
+        for position in (first, last):
+            code, lines, out = stubs(['scripts/ci/check'], position, 5)
+            # The failing stage stops inside itself; every later stage still runs; the status is that stage's.
+            assert code == 5 and lines == whole[:position] + whole[last:], (name, position)
+            assert f'NEXLOOP-STAGE name={name} rc=5 ' in out
+
+
+def test_a_parallel_failure_still_runs_heavy_and_pi_runtime_and_returns_the_parallel_status(stubs):
+    span = spans(stubs)
+    code, lines, out = stubs(['scripts/ci/check'], span['integration-parallel'][0], 3)
+    assert code == 3
+    assert any(line.endswith('--junitxml=.ci-results/python-heavy.xml') for line in lines)
+    assert any('.ci-results/pi.xml' in line for line in lines) and any('.ci-results/runtime.xml' in line for line in lines)
+    results = {m.group(1): int(m.group(2)) for m in STAGE_LINE.finditer(out)}
+    assert results['integration-parallel'] == 3 and results['integration-heavy'] == 0 and results['pi-runtime'] == 0
+    # A later failure does not replace the first one's status.
+    both = stubs(['scripts/ci/check'], span['integration-parallel'][0], 3)
+    assert both[0] == 3
+
+
+def test_the_gate_is_reported_on_its_own_and_counts_as_status_one(stubs):
+    _, whole, _ = stubs(['scripts/ci/check'])
+    gate = [i + 1 for i, line in enumerate(whole) if 'python-deadline-gate.xml' in line]
     for position in gate:
-        code, lines, err = stubs(['scripts/ci/check'], position, 5)
+        code, lines, out = stubs(['scripts/ci/check'], position, 5)
         expected = 5 if 'pytest' in whole[position - 1] else 1
-        assert code == 1 and lines == whole and f'NX-049 deadline gate failed (rc={expected})' in err
+        assert code == 1 and lines == whole and f'NX-049 deadline gate failed (rc={expected})' in out
     code, lines, _ = stubs(['scripts/ci/stages/deadline-gate.sh'], 1, 4)
     assert code == 4 and len(lines) == 2  # standalone: the gate's own status, the report still checked
+
+
+def test_every_stage_prints_one_result_line_with_its_junit(stubs):
+    code, _, out = stubs(['scripts/ci/check'])
+    found = [(m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)) for m in STAGE_LINE.finditer(out)]
+    assert code == 0 and [f[0] for f in found] == STAGES and all(f[1] == 0 and f[2] >= 0 for f in found)
+    declared = {s['name']: ','.join(s.get('junit', [])) or '-' for s in ci.load_policy(ROOT / '.ci-policy', 4)['stages']['stages']}
+    assert {f[0]: f[3] for f in found} == {n: declared[n] for n in STAGES}
