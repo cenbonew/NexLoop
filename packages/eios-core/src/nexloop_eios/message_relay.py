@@ -160,7 +160,11 @@ class MessageRelay:
         claimed={}
         try:
             return self._run_once(claimed)
-        except Exception:
+        except Exception as error:
+            # NX-031: the code-only cause of a failed attempt (class, SQLSTATE), so an exhausted message shows which refusal it was.
+            import logging
+            from nexloop_eios.structured_log import failure_detail
+            logging.getLogger('nexloop.message_relay').warning('relay attempt failed %s',failure_detail(error))
             # Root cause of the stuck messages: a failed attempt kept its claim until the lease ran out and was then retried with
             # a changed command. A failed attempt now gives the message back with a bounded count; when the count is used up
             # the message is handed to the reply guarantee instead of blocking the consumer (0150).

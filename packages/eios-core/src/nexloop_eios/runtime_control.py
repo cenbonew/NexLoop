@@ -56,16 +56,18 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 if callable(getattr(worker,'record_tool_timing',None)):
                     try:worker.record_tool_timing(run_id=run,elapsed_ms=round((time.monotonic()-self._started)*1000,1))
                     except Exception:pass
+            self._status=status
             self.send_response(status);self.send_header('Content-Type','application/json')
             self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)))
             self.send_header('Connection','close');self.end_headers();self.wfile.write(body);self.close_connection=True
         def do_POST(self):
             # NX-030 M08: per-process guard latency (a call reaching the 2 s deadline counts as a timeout); numbers only.
-            self._started=started=time.monotonic();self._tool_run=None
+            self._started=started=time.monotonic();self._tool_run=None;self._status=None
             try:self._post()
             finally:
                 from nexloop_eios.observability import GUARD
-                GUARD.observe((time.monotonic()-started)*1000)
+                # NX-031: a 503 (busy slot or transient failure) counts in `errors`, so an unanswered guard is visible here.
+                GUARD.observe((time.monotonic()-started)*1000,error=self._status is None or self._status>=500)
         def _post(self):
             if not slots.acquire(blocking=False):self.send(503,{'authorized':False});return
             try:
@@ -169,8 +171,14 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                         self.send(503,{'authorized':False});return
                     projected['context_artifact']=artifact
                 self.send(200,projected)
-            except Exception:
-                self.send(503,{'authorized':False})
+            except Exception as error:
+                # NX-031: a deterministic refusal is 403 (the Host does not retry it); only a transient failure is 503.
+                from nexloop_eios.runtime_activation import RuntimeAuthorizationRefused
+                import logging
+                from nexloop_eios.structured_log import failure_detail
+                status=403 if isinstance(error,RuntimeAuthorizationRefused) else 503
+                logging.getLogger('nexloop.runtime_guard').warning('guard authorize failed %s',{'status':status,**failure_detail(error)})
+                self.send(status,{'authorized':False})
             finally:slots.release()
         def do_GET(self):self.send(404,{'authorized':False})
     class GuardServer(ThreadingHTTPServer):
@@ -182,6 +190,9 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
             super().__init__(*args,**kwargs)
         def process_request(self,request,client_address):
             if not self.connection_slots.acquire(blocking=False):
+                # NX-031: a connection dropped at the bound never reaches do_POST; count it as an error call.
+                from nexloop_eios.observability import GUARD
+                GUARD.drop()
                 self.shutdown_request(request)
                 return
             try:super().process_request(request,client_address)

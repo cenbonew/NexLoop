@@ -85,3 +85,16 @@ def uvicorn_log_config(service):
                         'uvicorn.error': {'handlers': ['default'], 'level': 'WARNING', 'propagate': False},
                         'uvicorn.access': {'handlers': ['default'], 'level': 'WARNING', 'propagate': False}},
             'root': {'handlers': ['default'], 'level': 'WARNING'}}
+
+
+def failure_detail(error):
+    """NX-031: the code-only cause of a failure for a log line: the first SQLSTATE in the exception chain (also through
+    `raise ... from None`, which keeps __context__) and the class name of that exception, else of the outermost one."""
+    seen, current = set(), error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        state = getattr(current, 'sqlstate', None)
+        if isinstance(state, str) and state:
+            return {'code': type(current).__name__, 'sqlstate': state}
+        current = current.__cause__ or current.__context__
+    return {'code': type(error).__name__}

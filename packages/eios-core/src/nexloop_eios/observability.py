@@ -139,7 +139,13 @@ class GuardTimings:
         self._lock = threading.Lock()
         self._elapsed = []
         self._errors = 0
+        self._dropped = 0
         self._started = time.time()
+
+    def drop(self):
+        """NX-031: a connection dropped at the connection bound: a call and an error, with no latency sample."""
+        with self._lock:
+            self._dropped += 1
 
     def observe(self, elapsed_ms, *, error=False):
         with self._lock:
@@ -148,13 +154,15 @@ class GuardTimings:
 
     def drain(self):
         with self._lock:
-            values, errors, started = sorted(self._elapsed), self._errors, self._started
-            self._elapsed, self._errors, self._started = [], 0, time.time()
+            values, errors, dropped, started = sorted(self._elapsed), self._errors, self._dropped, self._started
+            self._elapsed, self._errors, self._dropped, self._started = [], 0, 0, time.time()
         if not values:
+            if dropped:
+                return {'calls': dropped, 'timeouts': 0, 'errors': dropped}, started
             return None, started
         def rank(q):
             return round(values[min(len(values) - 1, max(0, math.ceil(q * len(values)) - 1))], 1)
-        return {'calls': len(values), 'timeouts': sum(1 for v in values if v >= GUARD_DEADLINE_MS), 'errors': errors,
+        return {'calls': len(values) + dropped, 'timeouts': sum(1 for v in values if v >= GUARD_DEADLINE_MS), 'errors': errors + dropped,
                 'p50_ms': rank(0.50), 'p95_ms': rank(0.95), 'max_ms': round(values[-1], 1)}, started
 
 
