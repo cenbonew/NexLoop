@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：`main` 提交 `c835158`（2026-10-11），迁移目录最高 `0144`，S0–S3 全部完成，S4 大部分完成（NX-030 只差备份年龄，NX-031 进行中），S5 部署阶段尚未开始。
+> - 事实基线：`main` 提交 `414549b`（2026-10-11），迁移目录最高 `0144`，S0–S3 全部完成，S4 大部分完成（NX-030 只差备份年龄，NX-031 进行中），S5 只完成了 NX-034 的本地发布工具部分，部署尚未开始。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -406,6 +406,43 @@ sequenceDiagram
 
 授权链做过多轮时延优化（请求内决策去重、事实解析缓存、批量判定、同语句读断言去重等），见 [perf-o1-o4](implementation/perf-o1-o4.md)、[perf-o5b-design](implementation/perf-o5b-design.md) 与 NX-049 系列文档。1,000 消费者与并发矩阵（NX-031）进行中：合成数据生成与装载、连接预算实测、结果报告生成器、矩阵文件 [`deploy/load/matrix.v1.json`](../deploy/load/matrix.v1.json)（8 格，门槛格为 C4 与 C4-low）与执行器 `scripts/load/` 已合入，压测本身尚未在 CI 主机上跑完（[NX-031 设计](implementation/NX-031-design.md)、[实现说明](implementation/NX-031-implementation.md)）。
 
+
+### 3.9 WebChat 实时消息链路
+
+顾客 WebChat 用 Server-Sent Events 接收已提交的消息（`web_chat_http.py`、`apps/web/src/chat-api.ts`、`WebChat.tsx`）：
+
+1. **列表与订阅**：页面先用 `GET` 读取会话消息列表，再以列表中最高的序号订阅 `GET /api/v1/conversations/{id}/events?after=<序号>`。
+2. **服务端推送**：服务端每秒按游标读取已提交的事件，每条以 `id: <序号>` 推送（事件 `committed`），并发送心跳；单条流有时长上限（`conversation_stream_seconds`，默认 180 s）。读取出错时发送 `event: unavailable` 并结束本条流。
+3. **断线续传**：网络错误由浏览器自带的 EventSource 重连处理，重连时携带 `Last-Event-ID`；服务端优先采用 `Last-Event-ID`，其次才是 `after` 参数，所以只补发断线期间新提交的消息。
+4. **服务端关闭后续订**：收到 `unavailable` 或浏览器把流判为关闭时，客户端在 5 秒后以屏幕上已有的最高序号重新订阅；数据格式无效的事件只关闭、不自动重连，避免对同一个坏事件无限循环。
+5. **列表与实时合并**：列表重新读取（手动核对、发送后刷新、窗口聚焦）可能与实时推送竞态。`mergeCommitted` 在写入缓存时原子合并：新快照覆盖它涵盖的序号范围（范围内被删除的行随之消失，与 NX-029 删除一致），序号更高的实时消息保留，按 id 去重、按序号排序。
+
+效果：断线重连后每条已提交消息恰好显示一次（AT-015 通过）。依据：[AT-015 浏览器端说明](implementation/AT-015-browser-dom.md)，测试 `apps/web/test/sse-resume-dom.test.ts` 与 `tests/test_sse_dom_tcp_resume.py`（真实 API、TLS、PG，经本地中继切断 TCP）。
+
+### 3.10 发布与部署
+
+**已实现（NX-034 本地部分）**：本地发布工具 [`scripts/release/release.py`](../scripts/release/release.py)，只用标准库，**只在执行它的机器上运行**：不 push、不打 tag、不推送镜像、不连接任何服务器。每个子命令输出一个 JSON；退出码 0 通过、1 拒绝、2 输入或环境错误、3 缺少必需的外部工具（缺工具从不当作通过）。
+
+```mermaid
+flowchart LR
+    CI[本地 CI 结果<br/>写明本提交且 passed] --> MF[manifest<br/>提交、CI 结果摘要、镜像 digest、<br/>迁移 catalog、运行时格式、锁文件哈希]
+    MF --> SB[sbom<br/>syft / grype，只记计数]
+    SB --> SG[sign<br/>ssh-keygen -Y sign]
+    SG --> VF{verify<br/>验签 + 部署的 SHA 与镜像<br/>等于测过的清单?}
+    VF -->|是| OK[允许部署]
+    VF -->|否| NO[拒绝]
+    RB[rollback-check<br/>当前清单 vs 目标清单] --> RBQ{迁移 head 与运行时格式兼容?}
+    RBQ -->|否| FF[拒绝，提示向前修复]
+```
+
+- **manifest**：发布 ID、提交、CI 结果文件摘要（必须写明这个提交且 `status=passed`）、镜像 digest 与归档哈希、迁移 catalog 的 head 与摘要、Pi 运行时存储格式、契约摘要与锁文件哈希；只有哈希、digest、版本、计数和时间。发布目录已存在就拒绝，不可覆盖。
+- **sign / verify**：签名命名空间 `nexloop-release`，验签使用 allowed_signers；未签名、换签名者、清单被改、部署的 SHA 或镜像 digest 与清单不一致、出现清单外镜像，都拒绝（对应 AT-055）。
+- **sbom**：syft / grype 版本锁在 `versions.lock.json` 的 `release_tools` 段（二进制 digest 待在 CI 主机首次安装时记录）；只写各严重级别的计数，扫描结果不自动阻断发布。
+- **rollback-check**（对应 AT-057）：目标迁移 head 高于当前库是升级而非回滚；低于当前库时，跨越的每个迁移都必须声明 `-- nexloop:expand-only`，否则拒绝并提示向前修复；运行时格式降级也拒绝。已发布迁移不补声明，因此目前跨越任何迁移的回滚都会被拒绝。
+- 测试：`tests/test_release_local.py`（临时目录、临时 ed25519 密钥）。详见 [NX-034 本地部分实现说明](implementation/NX-034-local-implementation.md)。
+
+**尚未实现**：镜像的实际构建与 digest 核对、doctor 对运行中容器的核对需要 NX-032（双机部署）；CI 结果文件由 NX-033（本地 Git 队列与隔离 CI）产出；发布归档权限与保留、GitHub 同步、公开 tag 属于 B 类操作或依赖 NX-033。AT-055、AT-057 目前只有本地证据，验收状态仍为 not_run。目标设计见 [12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) 与 [NX-034 设计](implementation/NX-034-design.md)。
+
 ---
 
 ## 4. 仓库结构与模块索引
@@ -435,7 +472,7 @@ NexLoop/
 │   └── web/                   # React 19：顾客 WebChat 与负责人工作台
 ├── vendor/pi/                 # Pi 冻结源码（pi-durable / pi-ai / chord / pi-telemetry）
 ├── deploy/                    # 可信配置清单、社区测试 Compose、stage 示例、压测矩阵
-├── scripts/                   # CI、发布检查、契约生成、开发冒烟
+├── scripts/                   # CI、发布检查、本地发布工具、契约生成、压测、开发冒烟
 └── tests/                     # Python / Node 测试（真实 PG 用一次性实例）
 ```
 
@@ -454,7 +491,7 @@ NexLoop/
 | [`deploy/load`](../deploy/load)、[`scripts/load`](../scripts/load) | NX-031 压测：矩阵文件；固定种子合成数据（`synthetic.py`）、模板构建（`build_template.sh`）、矩阵执行器（`matrix.py`、`stack.py`、`driver.py`、`collect.py`）、连接池实测（`measure_pools.py`）、结果报告（`report.py`）、CI 主机夜间运行脚本（`run_on_lane.sh`）；只用合成数据 | [NX-031 设计](implementation/NX-031-design.md)、[实现说明](implementation/NX-031-implementation.md)、[结果契约](implementation/NX-031-results-contract.md) |
 | [`deploy/community`](../deploy/community) | 一次性社区测试 Compose 与镜像构建文件 | [社区测试 README](../deploy/community/README.md) |
 | [`deploy/stage`](../deploy/stage) | Runtime Worker 的 Compose / systemd 示例、连接预算、Agent Host 运行配置示例；主机、端口、路径、镜像、密钥全部来自私有配置 | [stage README](../deploy/stage/README.md)、[NX-049 部署配置](implementation/NX-049-deploy-config.md) |
-| [`scripts`](../scripts) | `ci/check`（本地 CI）、`ci/prepush-scan.sh`（推送前扫描）、`check_publication.py`、`check_definer_search_path.py`、`check_pi_source.py`、`check_test_report.py`、`generate_contracts.py`、`community_test.py`、`agent_host.py`、`dev/workbench_smoke.sh` | [12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) |
+| [`scripts`](../scripts) | `ci/check`（本地 CI）、`ci/prepush-scan.sh`（推送前扫描）、`check_publication.py`、`check_definer_search_path.py`、`check_pi_source.py`、`check_test_report.py`、`generate_contracts.py`、`community_test.py`、`agent_host.py`、`dev/workbench_smoke.sh`、`release/release.py`（本地发布清单、签名、验签、SBOM、回滚检查） | [12_LOCAL_CI_AND_RELEASE](handoff/docs/12_LOCAL_CI_AND_RELEASE.md) |
 | [`tests`](../tests) | 扁平的 `tests/test_*.py`，`*_pg.py` 为真实 PostgreSQL 测试；`tests/conftest.py` 每例创建独立的一次性 PG 18（Unix socket、随机端口、无 TCP）；缺 PostgreSQL 时报错而不是跳过 | [14_TEST_ACCEPTANCE](handoff/docs/14_TEST_ACCEPTANCE.md) |
 
 ### 4.2 `nexloop_eios` 模块索引
@@ -580,14 +617,15 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 | S4 | 审计指标与告警（NX-030） | **进行中**（只差备份年龄，依赖 NX-035） |
 | S4 | 1,000 消费者与并发矩阵（NX-031） | **进行中**（数据生成、连接预算、结果报告、矩阵与执行器框架、承诺装载已合入；压测未跑完） |
 | S5 | APP_HOST 工具时限达标（NX-049） | 完成 |
-| S5 | 双机 TLS 与隔离部署、本地 Git 队列与隔离 CI、发布归档与 GitHub 同步、备份/PITR、开源文档与供应链、v0.1 受控真实闭环验收（NX-032–037） | **未开始**（NX-031～035 的设计文档已合入，负责人决定已写入） |
+| S5 | 发布归档与 GitHub 同步（NX-034） | **进行中**（本地发布工具已合入；归档、同步、tag 依赖 NX-033） |
+| S5 | 双机 TLS 与隔离部署、本地 Git 队列与隔离 CI、备份/PITR、开源文档与供应链、v0.1 受控真实闭环验收（NX-032、033、035–037） | **未开始**（NX-031～035 的设计文档已合入，负责人决定已写入） |
 | S6 / S7 | Evo 演进与评估、Schema 受控演进；模拟世界、消费者孪生、策略实验（NX-038–043） | 未开始 |
 
-产品验收（`planning/acceptance-tests.json`）共 70 项：56 项 passed，14 项 not_run。
+产品验收（`planning/acceptance-tests.json`）共 70 项：57 项 passed，13 项 not_run（本轮新增通过 AT-015）。
 
 ### 6.2 已知限制
 
-- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署、备份恢复、发布归档都属于 S5，尚未开始。
+- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署、备份恢复尚未开始；发布只有本机运行的清单、签名、验签与回滚检查工具（[§3.10](#310-发布与部署)），GitHub 同步与归档依赖 NX-033。
 - **真实外发关闭。** 真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭；服务授权清单拒绝授予真实外发 Action（ADR-020 §3）。当前外部效应只在本地 / 合成 provider 上验证过。
 - **模型。** 自动化测试使用确定性测试 provider；真实 DeepSeek 验证只在显式 opt-in 时运行，CI 不读取凭据。
 - **部署前提。** 2 s 工具时限门槛只在部署并发（Host ≤ 4、guard 4 进程）下证明；在远超部署并发的全量并行负载下相关场景仍可能超时（ADR-022 §4）。生产并发要提高时必须先重新测量。
