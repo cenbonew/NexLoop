@@ -412,15 +412,18 @@ def markdown(report):
               f"- 预期内派发拒绝：{', '.join(report['expected_refusals'])}",
               f"- **AT-060：{report['at060']['result']}**" + (f"（{'; '.join(report['at060']['reasons'])}）" if report['at060']['reasons'] else ''), '',
               '只含指标、门槛结论、seed、digest 和提交，不含原文与 ID（D8）。门槛只判 C4、C4-low（§6.1）；C8 超出部署前提，只观察。', '',
+              '两个时延口径分开给出：**派发**是 Run 任务入队到 Host 接受 Run，不含模型时间，2 s 限值只适用于它；**端到端**是来信受理到回复（或兜底、升级）落库，'
+              '含模型时间（压测中为 D5 注入的确定性时延），见下方分解表。', '',
               '## 各格指标', '',
-              '| 格 | 角色 | 并发 | 速率/s | 后台 | 同机 CI | 完成 | 超时率(5m 最差) | guard p95 max | ACK p95 | 派发 p95 | 积压峰值 | 排空 s | 连接峰值 | critical | 非预期拒绝 | 身份违例 | 未结局 |',
-              '|' + '---|' * 18]
+              '| 格 | 角色 | 并发 | 速率/s | 后台 | 同机 CI | 完成 | 超时率(5m 最差) | guard p95 max | ACK p95 | 派发 p95（入队→Host 接受） | 端到端 p95 | 积压峰值 | 排空 s | 连接峰值 | critical | 非预期拒绝 | 身份违例 | 未结局 |',
+              '|' + '---|' * 19]
     for c in report['cells']:
         m = c['metrics']
         role = c['role'] + ('（超出部署前提）' if c['beyond_deployment_premise'] else '')
         lines.append('| ' + ' | '.join(_fmt(x) for x in (c['cell'], role, c['host_concurrency'], c['rate_per_s'], '开' if c['background'] else '关',
             '是' if c['ci_background'] else '否', '是' if c['completed'] else f"否 {c['aborted'] or ''}", m.get('guard_timeout_rate_5m_max'),
-            m.get('guard_p95_ms_max'), m.get('ack_p95_ms'), m.get('idle_dispatch_p95_ms'), m.get('backlog_pending_max'),
+            m.get('guard_p95_ms_max'), m.get('ack_p95_ms'), m.get('idle_dispatch_p95_ms'),
+            (c.get('decomposition') or {}).get('e2e_ms', {}).get('p95'), m.get('backlog_pending_max'),
             c['drain']['seconds'] if c['drain']['drained'] else '未排空', m.get('connections_peak'), m.get('critical_alerts'),
             m.get('unexpected_refusals'), m.get('identity_violations'), m.get('unresolved_work'))) + ' |')
     lines += ['', '## 门槛判定（C4、C4-low）', '']

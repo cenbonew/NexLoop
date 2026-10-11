@@ -21,7 +21,7 @@
     process_samples.jsonl       # runtime.nexloop_process_samples 中窗口内的行（guard / pool / host）
     runs.jsonl                  # 每个消息 Run 的分解时延（D6）
     acks.jsonl                  # 驱动端每次入站 POST 的 ACK 时延
-    dispatch.jsonl              # 空闲队列派发时延（accepted_at → Run 任务被 claim）
+    dispatch.jsonl              # 派发时延（Run 任务入队 → Host 接受 Run，不含模型时间）
     refusals.jsonl              # 窗口内的派发拒绝（runtime.nexloop_dispatch_refusals）
     alerts.jsonl                # 窗口内的告警事件（control.nexloop_alert_events）
     checks.json                 # §4.4 的 7 项身份与结局核对
@@ -89,7 +89,7 @@
 ### `acks.jsonl` / `dispatch.jsonl`
 
 - `acks.jsonl`：`{"ack_ms": 38.2, "status": 202}`。只有状态为 202 的行计入 ACK 时延；其余状态按代码计数。
-- `dispatch.jsonl`：`{"dispatch_ms": 640}`。
+- `dispatch.jsonl`：`{"dispatch_ms": 640}`。口径（调度员 2026-10-11）：消息 Run 任务入队（`runtime.jobs.created_at`）到 Agent Host 接受这个 Run（首次执行授权 `authz.nexloop_runtime_execution_markers.first_authorized_at`）。不含模型时间；D5 注入的模型时延只计入 `runs.jsonl` 的 e2e。Host 没有接受的 Run 不写。2 s 的限值只适用于这个口径。
 
 ### `refusals.jsonl` / `alerts.jsonl`
 
