@@ -1,0 +1,19 @@
+{
+  "schema": "nexloop-public-release/1",
+  "version": 1,
+  "decision": "NX-036 §4 (design merged at 3b5a684; owner decisions D1, D2, D3, D4, D10 and D11 pending — recommended values applied provisionally, dispatcher 2026-10-11). D1: contributions are signed off with the Developer Certificate of Origin (scripts/check_signoff.py). D2: GitHub private vulnerability reporting, optionally one more contact provided by the owner; until security_contact is filled in, SECURITY.md states that there is no formal response channel and the public gate fails. D3: response targets, not guarantees. D4: only the latest release is supported. D10: Contributor Covenant 2.1, adopted by reference. D11: no additional secret-scanning tool. Values are placeholders in the documents and are filled from this file; the documents are not edited for a decision change.",
+  "contribution_signoff": "dco",
+  "security_contact": null,
+  "placeholder": "<SECURITY_CONTACT>",
+  "response_targets_days": {"acknowledge_working_days": 3, "assess_working_days": 10, "fix_critical_days": 30, "fix_high_days": 60},
+  "supported_releases": "latest",
+  "code_of_conduct": {"name": "Contributor Covenant", "version": "2.1", "url": "https://www.contributor-covenant.org/version/2/1/code_of_conduct/"},
+  "secret_scanning_tool": null,
+  "required_files": {
+    "ci": ["LICENSE", "NOTICE", "README.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md"],
+    "public": ["LICENSE", "NOTICE", "README.md", "README.zh-CN.md", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "GOVERNANCE.md", "docs/release/public-release-checklist.md"]
+  },
+  "readme_pair": ["README.md", "README.zh-CN.md"],
+  "placeholder_free": ["SECURITY.md", "CODE_OF_CONDUCT.md"],
+  "values_in": {"SECURITY.md": ["response_targets_days", "supported_releases"], "CODE_OF_CONDUCT.md": ["code_of_conduct"]}
+}

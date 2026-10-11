@@ -17,8 +17,13 @@ uv run --frozen python scripts/check_pi_source.py
 uv run --frozen python scripts/check_definer_search_path.py
 uv run --frozen python scripts/generate_contracts.py --check
 uv run --frozen python docs/handoff/tools/validate_handoff.py --planning planning
+# NX-036: hosted workflows never run unreviewed code with secrets or write access (AT-054 static half); public files present.
+uv run --frozen python scripts/check_ci_isolation.py
+uv run --frozen python scripts/check_public_files.py
 [[ "$(node -p 'process.versions.node.split(".")[0]')" == 24 ]]
 pnpm install --frozen-lockfile
+# NX-036: license inventory of both lock files, vendored sources and assets; THIRD_PARTY_NOTICES.md drift (offline, after install).
+uv run --frozen python scripts/check_licenses.py --check
 pnpm --filter @nexloop/web build
 pnpm build:pi
 pnpm --filter @nexloop/agent-host build
