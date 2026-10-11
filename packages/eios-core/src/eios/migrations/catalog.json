@@ -735,6 +735,11 @@
       "version": "0147",
       "name": "0147_nx035_restore.sql",
       "sha256": "ba974b854f652bc8163c29118a9b708ecf01499b836578b493c867be94bb123a"
+    },
+    {
+      "version": "0200",
+      "name": "0200_service_readiness.sql",
+      "sha256": "cb9197a44cbdf0382f3cbc75c1771e42bdd7c36ee8fe738161058deef6782e78"
     }
   ]
 }
