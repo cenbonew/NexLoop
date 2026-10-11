@@ -2446,6 +2446,18 @@
         "ref": "planning/ROADMAP.md",
         "summary": "S4 出口剩余（ROADMAP §3/§4）：(1) 合入切片 3（nx031-s3，未合入：claim-match 死信修复（临时迁移 0150）、派发时延口径、feed 已到期/未到期分计、deterministic-test Host 按 run profile 选协议）；(2) 本机 C4-low 重跑；(3) CI 车道 1000 客户整轮（约 4 小时，持 CI 锁，含 C4-ci 格与 CI 同机影响报告）；(4) AT-060 按设计 §6.2/§7 判定；(5) 若 C4 仍不达标，由负责人在“降低部署前提（修订 ADR-022 §4）”与“另开优化任务”中选择（ROADMAP D-a）。客户拒收后在途消息 Run 作废、由兜底按新上下文重新生成（调度员裁定，约 5 分钟延迟写入容量报告）；“作废时 reply-due 立即到期”为候选，整轮后评估。计划重估与兜底 Run 的负载尚未覆盖；v2 消息 Run 的模型耗时分解缺失，AT-060 的模型分解口径待整轮前裁定。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "1131b31",
+        "summary": "切片 3（nx031-s3，合入 main 7b0bb1b）：产品修复——提取同时标记匹配与承诺登记、承诺先被了结时 claim-match 条目完成而不再死信（迁移 0148，原临时号 0150）；快照把 feed 已到期与未到期分开计数（0149，原 0151）；deterministic-test Host 按每个 Run 声明的协议选择输出（只限测试 profile）；派发时延改为“入队到 Host 接受 Run”口径；车道 relay 身份补上兜底签发授权。本机 C4-low 重跑：死信 0、兜底 Run 跑通、派发 p95 8.29 s（容量问题，并入负责人决定 D-a），排空被 relay 卡死缺陷挡住（relay-replan-fix，L2，待合入）。",
+        "recorded_at": "2026-10-11T12:42:50.820375+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T105303Z-863a46388729",
+        "summary": "s4y 全量（863a463）：失败 11 项，10 项在基线；新增的 test_background_services_pg[claim-matcher] 为确定性失败（每轮汇总新增 settled 计数，测试期望未同步），17d8219 修正测试后在 s4z 全量（ci:lane/runs/20261011T114947Z-fa3c1536d30f）中通过；串行门槛 2/2。",
+        "recorded_at": "2026-10-11T12:42:50.820375+00:00"
       }
     ]
   },
@@ -2499,6 +2511,12 @@
         "ref": "ci:lane/runs/20261011T100123Z-09a258c1e19f",
         "summary": "s4x 全量（09a258c）：test_deploy_dryrun 5、test_netns_feasibility 4、test_connection_budget 30 等通过；失败 13 项均在基线（C 类 role_tail 同检出串行 2/2），串行门槛 2/2。第一轮（ci:lane/runs/20261011T095950Z-f4544765b04a）在发布扫描阶段失败：反向断言写了私网地址字面量，09a258c 修正后重跑。",
         "recorded_at": "2026-10-11T10:51:09.086054+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "4889b5e",
+        "summary": "更正：s4x（合入 main d2b4828）实际已包含 nx032-local 的 23c379c（切片 4：AT-058 隔离探测脚本 probe_isolation.py 与 CI 主机 rootless Docker 两主机模拟 scripts/deploy/netns_sim/），此前证据只登记到切片 3 与可行性预检。切片 4 的模拟尚未在 CI 主机实际运行，运行结果只算模拟证据，AT-058 保持 not_run。",
+        "recorded_at": "2026-10-11T12:42:50.820375+00:00"
       }
     ]
   },
@@ -2579,6 +2597,18 @@
         "ref": "planning/ROADMAP.md",
         "summary": "第二部分进行中（nx034-s2，未合入）：镜像打包与 docker load 后按 digest 引用的标签规则、归档与 D3 保留、sync-github 接入 NX-033 同步与门槛、preflight 块并入签名清单、源码 SBOM 与许可清单交叉核对。负责人与主机事项（ROADMAP §6）：发布签名密钥离线生成与保管、公钥与 allowed_signers 入库、负责人 tag 签名密钥（O1）；CI 主机安装 syft/grype 并回填 digest、grype 漏洞库出站例外（O3，安装由调度员执行）；GitHub deploy key（O5）；公开 tag 与 GitHub Release 为 B 类，在全历史审计经负责人确认之后。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "a46389b",
+        "summary": "第二部分（nx034-s2，合入 main 7b0bb1b）：release.py build（只在被发布提交的干净检出上构建，docker save 后从 OCI index.json 读 digest 并与 inspect 比对，清单 v2 每个镜像带 nexloop/<名>@sha256 引用；load-check 供部署侧核对；要求 containerd 镜像存储），scripts/release/archive.py（seal 验签与完整性、只读封存、按 release_id 索引、record-deployment、D3 保留与默认 dry-run 的 prune），sync_github.py（只快进、每个提交须有通过的 CI 结果、整树扫描、临时工作树 prepush-scan、tag 须为负责人 SSH 签名的附注 tag；门槛失败记 sync_blocked，不可达记 sync_pending 并退避），预检结果在签名前写入清单 preflight 块。测试中 GitHub 用本地 bare 仓库代替。",
+        "recorded_at": "2026-10-11T12:42:50.820375+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T105303Z-863a46388729",
+        "summary": "s4y 全量：test_release_build_archive 14、test_github_sync 10 通过；失败集见 NX-031 同轮说明。剩余：CI 主机首次真实构建时核对 save 注解、{{.Id}} 与 load 后 digest 引用；gateway 镜像缺固定 digest；首次同步需维护者给出基线；部署侧接线 load-check/record-deployment/current 切换随 NX-032 切片 5。",
+        "recorded_at": "2026-10-11T12:42:50.820375+00:00"
       }
     ]
   },
@@ -2659,6 +2689,12 @@
         "ref": "docs/implementation/NX-036-implementation.md",
         "summary": "剩余：L5 文档交付物（英文 README、README.zh-CN、GOVERNANCE、公开发布检查清单、OPERATIONS，docs-nx036 a73ac38）待下一轮合入；连接器开发与评估运行指南（调度员裁定为首个公开发布门槛，L5 编写中）；负责人项：安全联系人与 GitHub 私密漏洞报告（ROADMAP O4）、首个公开发布前的全历史审计确认（D9）；内部镜像含弱 copyleft 组件，镜像公开前须重新评估分发义务。public-preflight 在这些完成前预期失败。",
         "recorded_at": "2026-10-11T10:51:09.086054+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "a73ac38",
+        "summary": "文档交付物（docs-nx036，合入 main 7b0bb1b）：README.md 改为英文并按 13 §7 补齐说明，原中文内容移到 README.zh-CN.md 并互相链接；GOVERNANCE.md；docs/release/public-release-checklist.md（public-preflight 九步逐项注明是否自动化，负责人人工确认项单列）；docs/OPERATIONS.md（运维导航）。连接器与评估指南（docs-20261011-6）待下一轮合入。",
+        "recorded_at": "2026-10-11T12:42:50.820375+00:00"
       }
     ]
   },
