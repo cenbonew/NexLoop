@@ -13,9 +13,9 @@ NexLoop is an open-source **continuous-operations system** for enterprises. An o
 ## Current status
 
 - **Current stage: S4** — only the 1,000-consumer load report (NX-031) remains. S0–S3 are done.
-- **Numbers** (at `main` `7ee5e31`): tasks 38 done / 5 in progress / 8 not started (51); acceptance tests 58 passed / 12 not run (70).
-- **S5 is local-first**: deployment templates, the local CI controller, the release tool and backup/restore exist in the repository with local evidence only. **Nothing is deployed**: no server has been touched, there is no release or deployable image, and `/health/ready` stays 503.
-- **Real outbound dispatch is off**: no real outbound channel is enabled and `REAL_DISPATCH_ENABLED` stays off.
+- **Numbers** (at `main` `4feb8a9`): tasks 38 done / 6 in progress / 9 not started (53); acceptance tests 58 passed / 14 not run (72). The v0.1 real closed-loop acceptance (NX-037) has its decisions settled and now also depends on NX-052 and NX-053.
+- **S5 is local-first**: deployment templates with dry-run and isolation probes, the local CI controller, the release tool (build, archive, GitHub sync gate), backup/restore and open-source compliance checks exist in the repository with local evidence only. **Nothing is deployed**: no server has been touched, there is no release or deployable image yet, and the stage-mode API with real readiness checks has not run in a deployment yet.
+- **Real outbound dispatch is off**: no real outbound channel is enabled, and the three-layer real dispatch switch (deployment master switch, tenant, tenant+Action) is closed by default; only the owner can open it.
 
 The owner's living plan — stage exits, critical path, pending decisions — is [planning/ROADMAP.md](planning/ROADMAP.md) (Chinese); authoritative task and acceptance status is in [`planning/`](planning). What is implemented and what is only planned is described in the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Every change merged to `main` is in the [CHANGELOG](CHANGELOG.md).
 

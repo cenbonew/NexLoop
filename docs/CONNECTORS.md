@@ -2,7 +2,7 @@
 
 本文说明 NexLoop **当前仓库里**已有的外部连接点：消息怎么进来、外部效应怎么出去、商业事件怎么接入，以及测试用的回环与合成 provider。只写已有事实；没有实现的标【待确认】或【目标设计】。架构背景见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-> **现状**：只有原生 WebChat 一个真实交互渠道；**没有任何第三方消息渠道连接器**；真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭（服务授权清单拒绝授予真实外发 Action）。开通真实渠道属于 NX-037，需要负责人确认。
+> **现状**：只有原生 WebChat 一个真实交互渠道；**没有任何第三方消息渠道连接器**；真实外发渠道未开通；三层真实派发开关（部署总闸 `REAL_DISPATCH_ENABLED`、租户、租户与 Action）默认全部关闭（服务授权清单也拒绝授予真实外发 Action）。开通真实渠道属于 NX-037，需要负责人确认。
 
 ## 1. 共同规则（所有连接器都必须遵守）
 
@@ -31,7 +31,8 @@ Effect Worker（`nexloop-effect-worker`）通过 `HttpEffectProvider`（`effect_
 | 查询 | `GET /v1/effects/<intent_id>` | 用于 unknown 结果的对账 |
 
 - 配置 `EffectProviderConfiguration`：`origin`（必须 https、只有主机和端口）、`credential_file`、`ca_file`、超时（默认 2 s，≤30 s）；不使用代理、不跟随重定向、有响应期限。只有显式的 `test_loopback_http` 允许 `http://127.0.0.1:<端口>`，且不能带凭据。
-- 每个 Action 必须在 [`action-effect-categories.v1.json`](../deploy/configuration/action-effect-categories.v1.json) 中声明是否触达客户；未声明的一律按触达客户处理，受联系限制约束（ADR-023 §3）。
+- 每个 Action 必须在效应类别声明（`deploy/configuration/action-effect-categories.v*.json`）中声明是否触达客户；未声明的一律按触达客户处理，受联系限制约束（ADR-023 §3）。
+- 同一份声明还有 `external_effect`：由 NexLoop 之外的系统执行的效应（第三方渠道、企业外部服务端点）属于外部效应，只有三层真实派发开关都打开才派发，否则以 `real_dispatch_closed` 拒绝；未声明、定义已变化或取值非法时一律按外部处理。新连接器的 Action 默认就是外部效应（[真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)）。
 - 外发消息在渠道确认接收后才由 `nexloop-outbound-recorder` 写入会话（NX-047）。
 
 ## 4. 商业事件入口（签名 webhook）
