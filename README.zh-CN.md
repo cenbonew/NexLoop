@@ -12,11 +12,12 @@ NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期�
 
 ## 当前状态
 
-- **S0–S3 已完成，S4 大部分完成**：对话→本体处理链与人工审核、目标与控制面、上下文引擎 v6、计划与复评、承诺、商业事件与费用、负责人工作台与人工接管都已合入 `main`。保留/删除/导出（NX-029）已完成；审计指标告警（NX-030）只差备份年龄；1,000 消费者并发矩阵（NX-031）进行中。
-- **尚未部署**：S5 只完成了本地部分：本地 Git 队列与隔离 CI 控制器（NX-033，主机侧步骤未执行）、发布工具（NX-034：发布清单、签名验签、回滚检查）与备份恢复（NX-035：备份清单、恢复日志、恢复围栏、迁移门槛），都只在本机运行与演练；双机部署未开始（NX-032 的参数化部署模板、证书脚本与部署门槛检查已在仓库中，未连接任何服务器）；没有发布版本或可部署镜像；`/health/ready` 保持 503。
+- **当前阶段：S4**，只剩 1,000 客户负载报告（NX-031）；S0–S3 已完成。
+- **数字**（main `7ee5e31`）：任务 38 done / 5 in_progress / 8 not_started（共 51）；验收 58 passed / 12 not_run（共 70）。
+- **S5 本地部分先行**：部署模板、本地 CI 控制器、发布工具与备份恢复已有仓库内实现和本地证据。**尚未部署**：没有连接任何服务器，没有发布版本或可部署镜像，`/health/ready` 保持 503。
 - **真实外发关闭**：真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭。
 
-哪些功能已实现、哪些仍是规划，以 [架构说明](docs/ARCHITECTURE.md) 第 6 节为准（交接规格 [docs/handoff](docs/handoff/00_START_HERE.md) 是目标设计，不等于已实现）。任务与验收的实时状态见 [`planning/`](planning)，每次合入的变化见 [CHANGELOG](CHANGELOG.md)。
+负责人的规划活文档（阶段出口、关键路径、待决事项）见 [planning/ROADMAP.md](planning/ROADMAP.md)，任务与验收的权威状态在 [`planning/`](planning)。哪些功能已实现、哪些仍是规划，见 [架构说明](docs/ARCHITECTURE.md)（交接规格 [docs/handoff](docs/handoff/00_START_HERE.md) 是目标设计，不等于已实现）。每次合入的变化见 [CHANGELOG](CHANGELOG.md)。
 
 ## 快速开始
 
@@ -61,6 +62,8 @@ bash scripts/ci/check
 | [CHANGELOG.md](CHANGELOG.md) | 每次合入 `main` 的用户可感知变化 |
 | [AGENTS.md](AGENTS.md) | 工程契约 |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | 运维手册：部署、doctor、告警、备份恢复、发布与回滚的入口 |
+| [docs/CONNECTORS.md](docs/CONNECTORS.md) | 连接器开发指南：入站渠道、效应 provider 接口、签名商业事件、回环与合成 provider |
+| [docs/EVALUATION.md](docs/EVALUATION.md) | 评估运行指南：确定性回归、显式 opt-in 的真实模型验证、粘合校准、压测矩阵 |
 | [GOVERNANCE.md](GOVERNANCE.md) | 维护者、决策方式、ADR 机制、如何提议变更 |
 | [docs/release/public-release-checklist.md](docs/release/public-release-checklist.md) | 公开发布检查清单 |
 

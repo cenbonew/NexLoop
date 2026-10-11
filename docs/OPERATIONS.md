@@ -45,7 +45,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 - 告警规则是版本化文件，新版本是新文件：[`alert-rules.v1.json`](../deploy/configuration/alert-rules.v1.json)（21 条）、[`v2`](../deploy/configuration/alert-rules.v2.json)（加 relay 两条）、[`v3`](../deploy/configuration/alert-rules.v3.json)（加备份与恢复 7 条，共 30 条）。规则只能经 configurator 写入：`python -m nexloop_eios.observability rules --check|--apply`。
 - 负责人可在工作台静默告警，最长 7 天；工作台有告警、运行状态和审计页（审计只给负责人）。
 - 本机指标导出接口默认关闭，只绑回环；导出只用 `nexloop_metrics` 角色。
-- 详见 [NX-030 实现说明](implementation/NX-030-implementation.md) 与 [架构说明 §3.6](ARCHITECTURE.md#36-可观测性nx-030只差备份年龄)。
+- 详见 [NX-030 实现说明](implementation/NX-030-implementation.md) 与 [架构说明 §3.6](ARCHITECTURE.md#36-可观测性nx-030)。
 
 ## 5. 备份、恢复与迁移（NX-035，本地部分）
 
@@ -79,6 +79,8 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 | 删除客户或消息、保留例外、数据导出 | 只有负责人，经工作台受治理 Action（NX-029） |
 | 服务授权清单 | `python -m nexloop_eios.service_grants --check|--doctor|--apply`（configurator 连接；`--doctor` 只读报告漂移） |
 | Runtime Worker 的进程形态与回退 | [deploy/stage/README.md](../deploy/stage/README.md)（`--guard-workers 4`、`--dispatch-loops 4`，回退改回 1 并重启） |
+| 连接器开发 | [CONNECTORS.md](CONNECTORS.md) |
+| 评估运行 | [EVALUATION.md](EVALUATION.md) |
 | 故障处理的目标流程 | [17_OPERATIONS_RUNBOOK](handoff/docs/17_OPERATIONS_RUNBOOK.md) §7 |
 | 安全事件 | [SECURITY.md](../SECURITY.md) 的处置流程：暂停 scope 与派发 → 保留证据 → 撤销凭据 → 核对已发生动作 → 修复验证 → 受控恢复 |
 
