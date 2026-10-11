@@ -735,6 +735,11 @@
       "version": "0147",
       "name": "0147_nx035_restore.sql",
       "sha256": "ba974b854f652bc8163c29118a9b708ecf01499b836578b493c867be94bb123a"
+    },
+    {
+      "version": "0190",
+      "name": "0190_relay_handoff.sql",
+      "sha256": "0d12b24f0191fa5136d7c6c10ba8d2bdcce58f660892d095c16aeecec361ac08"
     }
   ]
 }
