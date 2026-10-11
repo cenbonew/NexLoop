@@ -795,6 +795,11 @@
       "version": "0270",
       "name": "0270_nx052_tenant_fk_ontology_definitions.sql",
       "sha256": "3fb25e3b8db18bfb383e0823cd356b33fff9a7aca54c5d5eaf5dae65b992ed41"
+    },
+    {
+      "version": "0271",
+      "name": "0271_nx052_tenant_fk_claims_extraction.sql",
+      "sha256": "f715a3f10af3368f217ee06ed990c61f119e4c816abff8a3abb679714401e32c"
     }
   ]
 }
