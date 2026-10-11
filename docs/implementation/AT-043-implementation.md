@@ -47,6 +47,11 @@
 - 容器：`container_entrypoint` 增加 `incentive-issuer` 作业（账本目录 `/var/lib/nexloop/incentive-ledger`）；`compose.test.yaml` 增加 opt-in（profile `background`）服务与独立的 `incentive_ledger` 卷，其他服务不挂载它。
 - 连接预算：`connection-budget.v1.json` 增加 `incentive-issuer`（1），默认四个 guard worker 时合计由 52 变为 53（上限 60）；guard worker 增到 5 仍在上限内，6 个将超过 60（原先 6 个恰好 60）。
 - 授权：`service-grants.v1.json` v17（见 §2）。
+- 工作台：`workbench-roles.v1.json` v8（v7 留给先合入的 NX-035）只给 owner 授予 `nexloop.incentive.issue:1`（operator、reviewer 都没有，并列入 owner-only 校验集）；工作台写入口 `POST /api/v1/workbench/actions/issue_incentive` 的操作表加对应条目（字段同受治理入口，Idempotency-Key 即请求 ID）。
 - Agent Host：`incentive_tool` 开关默认关（配置中不出现即关闭；只接受 `true`，且需 `effect_tools: true`）；部署示例 `agent-host.runtime-config.example.json` 保持不开启。
+- 测试：`test_incentive_workbench_pg.py`：owner 经工作台 HTTP（真实工作台登录、CSRF、Idempotency-Key）受理一笔，重放同一提交不重复，参数错误 422；operator 403 且不产生意图。
 - 测试：`test_background_services_pg.py` 中该入口以 manifest 凭据跑一次空闲 tick，并领取一条 accepted 意图完成回环发放（预算预留、账本一条记录，第二次 tick 不重发）；`apps/agent-host/test/incentive-tool-profile.test.ts` 验证未开启时 Host 不暴露该工具、开启时暴露、`incentive_tool` 取非 `true` 值或未开 `effect_tools` 时拒绝启动。
 
+## 6. 未完成项
+
+- 工作台前端的优惠发放页面（apps/web）不在本次范围：负责人现在可经工作台写入口 `issue_incentive` 发放（HTTP 已接通），页面另行排期。

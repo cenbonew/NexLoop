@@ -87,6 +87,12 @@ OPERATIONS={
     # NX-030 (0150): owner-only; selector null silences every selector of the rule; at most 7 days (SQL).
     'silence_alert':{'rule_id':_id(re.compile(r'[a-z][a-z0-9_]{0,63}')),'selector':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9_.:-]{1,64}',v)) else (_ for _ in ()).throw(ValueError('selector')),
         'until':_utc,'reason':_reason},
+    # AT-043 (0145): owner-only; a catalog incentive for one Consumer, whole minor units; accepted is not issued (the
+    # executor admits it at dispatch under the catalog, the per-Consumer limit and the tenant budget).
+    'issue_incentive':{'consumer_id':_id(_HEX),'incentive_offering_id':_id(_HEX),
+        'offering_revision':lambda v:v if type(v) is int and 1<=v<=9007199254740991 else (_ for _ in ()).throw(ValueError('revision')),
+        'binding_id':_id(_HEX),'amount_minor':_id(re.compile(r'[1-9][0-9]{0,15}')),'currency':_id(re.compile(r'[A-Z]{3}')),
+        'notification_text':lambda v:v if type(v) is str and len(v)<=2000 else (_ for _ in ()).throw(ValueError('notification'))},
 }
 
 
