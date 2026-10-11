@@ -16,8 +16,10 @@
 -- 3. Replay (owner, in 'restored'): journal entries newer than the restored database — deletions through NX-029
 --    runtime.nexloop_replay_deletions, contact restrictions and erased contact keys by their original keys, credential and
 --    membership revocations; then every browser session and Run credential is revoked regardless of the journal.
--- 4. Effect window (owner): per tenant, world and action type — intents not terminal at the restore time (they are only queried
---    and reconciled through the existing query path, never resent), external references in the window from channels that can
+-- 4. Effect window (owner): per tenant, world and action type — governed effect intents and AT-043 incentive issues (action
+--    type nexloop.incentive.issue; a paused incentive is refused at admission, never issued twice) not terminal at the
+--    restore time (they are only queried and reconciled through the existing query path, never resent), external
+--    references in the window from channels that can
 --    be queried by time, how many match a terminal intent, how many are unknown to the database (unverifiable). A channel that
 --    cannot be queried by time, has unverifiable references, or has intents open at the restore time is paused (NX-022
 --    set_control on scope action_type) until the owner resumes it after manual handling.
@@ -210,7 +212,7 @@ begin
  return jsonb_build_object('state','replayed','browser_sessions_revoked',n_sessions,'run_credentials_revoked',n_runs);
 end $$;
 
--- p_evidence: [{tenant_id, world, action_type, time_queryable, external_intent_ids: [uuid, …]}] — what each channel reports for
+-- p_evidence: [{tenant_id, world, action_type, time_queryable, external_intent_ids: [intent id, …]}] — what each channel reports for
 -- the window (time-queryable channels list the intents they saw executed in [window_start, window_end]). Every action type
 -- that has intents but no evidence entry is treated as not queryable by time.
 create function runtime.nexloop_restore_reconcile(p_ref text,p_window_end timestamptz,p_evidence jsonb) returns jsonb
@@ -223,22 +225,26 @@ begin
    or exists(select 1 from jsonb_object_keys(x) k where k not in ('tenant_id','world','action_type','time_queryable','external_intent_ids'))
    or jsonb_typeof(x->'time_queryable') is distinct from 'boolean' or jsonb_typeof(x->'external_intent_ids') is distinct from 'array'
    or coalesce(x->>'action_type','')!~'^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$'
-   or exists(select 1 from jsonb_array_elements_text(x->'external_intent_ids') i where i!~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')) then
+   or exists(select 1 from jsonb_array_elements_text(x->'external_intent_ids') i where i!~'^[A-Za-z0-9._:-]{1,190}$')) then
   raise exception 'restore reconcile invalid' using errcode='22023';end if;
  for v_tenant in select tenant_id from control.nexloop_tenants union select x->>'tenant_id' from jsonb_array_elements(p_evidence) x loop
  perform set_config('eios.tenant_id',v_tenant,true);
  for c in
   with ev as (select x->>'tenant_id' tenant_id,x->>'world' world,x->>'action_type' action_type,(x->>'time_queryable')::boolean time_queryable,
-     array(select i::uuid from jsonb_array_elements_text(x->'external_intent_ids') i) ids from jsonb_array_elements(p_evidence) x where x->>'tenant_id'=v_tenant),
-   types as (select tenant_id,world,action_name action_type from runtime.nexloop_effect_intents where tenant_id=v_tenant union select tenant_id,world,action_type from ev)
+     array(select i from jsonb_array_elements_text(x->'external_intent_ids') i) ids from jsonb_array_elements(p_evidence) x where x->>'tenant_id'=v_tenant),
+   -- Governed effect intents and AT-043 incentive issues (action type nexloop.incentive.issue) are the intents of the window.
+   intents as (select tenant_id,world,action_name action_type,intent_id::text intent_id,state in ('accepted','dispatching','unknown','observed_fulfilled') open_state,
+      state in ('fulfilled','confirmed') done from runtime.nexloop_effect_intents where tenant_id=v_tenant
+     union all select tenant_id,world,'nexloop.incentive.issue',intent_id,state in ('accepted','dispatching','unknown'),state='fulfilled'
+      from runtime.nexloop_incentive_issues where tenant_id=v_tenant),
+   types as (select distinct tenant_id,world,action_type from intents union select tenant_id,world,action_type from ev)
   select t.tenant_id,t.world,t.action_type,coalesce(ev.time_queryable,false) time_queryable,
-   (select count(*) from runtime.nexloop_effect_intents i where i.tenant_id=t.tenant_id and i.world=t.world and i.action_name=t.action_type
-     and i.state in ('accepted','dispatching','unknown','observed_fulfilled'))::integer open_at_restore,
+   (select count(*) from intents i where i.tenant_id=t.tenant_id and i.world=t.world and i.action_type=t.action_type and i.open_state)::integer open_at_restore,
    coalesce(cardinality(ev.ids),0) external_in_window,
-   (select count(*) from runtime.nexloop_effect_intents i where i.intent_id=any(coalesce(ev.ids,'{}')) and i.tenant_id=t.tenant_id and i.world=t.world
-     and i.action_name=t.action_type and i.state in ('fulfilled','confirmed'))::integer consistent,
-   (select count(*) from unnest(coalesce(ev.ids,'{}')) u(id) where not exists(select 1 from runtime.nexloop_effect_intents i where i.intent_id=u.id
-     and i.tenant_id=t.tenant_id and i.world=t.world and i.action_name=t.action_type))::integer unverifiable
+   (select count(*) from intents i where i.intent_id=any(coalesce(ev.ids,'{}')) and i.tenant_id=t.tenant_id and i.world=t.world
+     and i.action_type=t.action_type and i.done)::integer consistent,
+   (select count(*) from unnest(coalesce(ev.ids,'{}')) u(id) where not exists(select 1 from intents i where i.intent_id=u.id
+     and i.tenant_id=t.tenant_id and i.world=t.world and i.action_type=t.action_type))::integer unverifiable
   from types t left join ev on ev.tenant_id=t.tenant_id and ev.world=t.world and ev.action_type=t.action_type
  loop
   if not c.time_queryable or c.unverifiable>0 or c.open_at_restore>0 then

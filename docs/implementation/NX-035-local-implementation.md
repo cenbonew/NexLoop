@@ -2,8 +2,8 @@
 
 依据：`NX-035-design.md`（D1–D8 已定，§13），以及调度员 2026-10-11 对本地部分的三项裁定（Q1–Q3，见 §6）。
 
-- 分支 `nx035-local`，从 main `414549b` 切出。
-- 临时迁移号：`0180_nx035_backup.sql`、`0181_nx035_restore.sql`，依赖 NX-029 切片四（0135）和 NX-030（0131）。
+- 分支 `nx035-local`，从 main `414549b` 切出，后 rebase 到 `560f49e`（AT-043 合入后）。
+- 临时迁移号：`0180_nx035_backup.sql`、`0181_nx035_restore.sql`，依赖 NX-029 切片四（0135）、NX-030（0131）和 AT-043（0145，优惠意图纳入窗口对账）。
 
 **范围**：只在本机的一次性 PostgreSQL 18 集群上实现和测试。不连接任何服务器，不碰任何现有数据库。
 
@@ -130,6 +130,8 @@
 - 有“无法核实”计数的；
 - 有未终态意图的。
 
+统计范围包括治理效应意图和 AT-043 的优惠意图（`runtime.nexloop_incentive_issues`，action type 为 `nexloop.incentive.issue`）。恢复时刻仍未终态的优惠意图，在围栏期间准入会回滚，因为 NXR01 不是终态拒绝；scope 开放后，渠道仍被暂停，准入以 `control_paused` 拒绝，不会重复发放（测试 `test_restore_incentives_pg`）。
+
 结果写入 `control.nexloop_restore_channels`，并列在恢复报告中（每个渠道的计数和是否暂停）。
 
 ### 开放
@@ -176,6 +178,7 @@
 | `tests/backup_cluster.py` | 开启 WAL 归档的一次性集群夹具，覆盖 `pg` 夹具 |
 | `tests/test_backup_pg.py`（5 个） | 两个备份角色读不到任何表、清单拒绝自由文本或换集群、只追加；快照的 `backup` 块（无备份时 unavailable，之后为数字）以及 v3 规则；**AT-056** 门槛的各项拒绝（无清单、**校验失败**、超龄、别的集群、日志滞后、归档失败、恢复围栏、迁移之后）和放行路径，CLI 拒绝时不读迁移文件；不存在任何豁免（扫描 CLI 参数和源码）；日志断链时停止 |
 | `tests/test_restore_fence_pg.py`（1 个） | 真实效应执行器和工作台 HTTP：围栏期间派发返回 NXR01 并记入拒绝表；就绪状态的各阶段；窗口报告逐渠道计数，并暂停 action_type；operator 不能开放、恢复引用不符不能开放；owner 开放后进入 `open`，记录 RPO/RTO；**被暂停的渠道开放后仍是 NXC01、发送数为 0**，resume 之后新意图只派发一次 |
+| `tests/test_restore_incentives_pg.py`（1 个） | 恢复时仍在途的优惠意图：围栏期间不发放，窗口报告中计入并暂停；scope 开放后以 `control_paused` 拒绝，账本请求和预算占用都为 0 |
 | `tests/test_restore_drill_pg.py`（1 个，**AT-050 本地证据 + 备份版 AT-059**） | 真实 `pg_basebackup` 加 `pg_verifybackup`；打命名恢复点；之后加联系限制并由 owner 删除 Consumer，导出日志（分段 0600，不含原文）；恢复工具拒绝占用的端口、非空目录、缺少隔离确认；PITR 到新目录和新端口，恢复点之前的库经日志重放后再次删除 Consumer，联系限制恢复，会话和 Run 凭据清零，应用角色为 NOLOGIN；删除水位位于备份开始水位与最后一次导出之间；计数和抽样哈希一致，catalog 一致；停在 `verified_readonly`，NXR01；源集群不受影响；演练结果写回，快照中可以看到 RPO 和 RTO |
 
 本地实测（合成数据，不是部署证据）：RTO 约 0.95 秒，模拟 RPO 约 0.08 秒。
@@ -208,4 +211,4 @@
 - **readiness 接入**：`runtime.nexloop_restore_readiness()` 尚未接入 API、各后台服务和 Runtime Worker 的 `/health/ready`；派发由围栏保证关闭。
 - **doctor `--backup`**、`deploy/configuration/backup.v1.json`（阈值和计划可配置）、工作台“备份”块的 UI：都未做。按调度员的范围，这次只做快照和告警规则 v3。
 - **部署相关**：pgBackRest 和 restic 的版本固定写入 `versions.lock.json`、非 superuser 的实测、systemd timer 与 `archive_command` 示例，都依赖 NX-032。
-- **迁移编号**：`tests/test_effect_execution_sql.py::test_42_actual_bootstrap_and_publication_checksum` 要求迁移编号连续，即迁移数量等于 head。临时号 0180、0181 会让它失败；集成时按顺序改为正式号（0145、0146）即可恢复。
+- **迁移编号**：`tests/test_effect_execution_sql.py::test_42_actual_bootstrap_and_publication_checksum` 要求迁移编号连续，即迁移数量等于 head。临时号 0180、0181 会让它失败；集成时按顺序改为正式号（0146、0147）即可恢复。
