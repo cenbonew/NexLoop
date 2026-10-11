@@ -1,6 +1,6 @@
 # NX-052 评审稿：租户行 `FOR UPDATE` 改为 `FOR NO KEY UPDATE`
 
-状态：评审稿，未实现。按调度员 2026-10-12 的安排，它是第 3c 批（会话与消息表的租户外键）和第 5 批的前置条件；评审通过后另开迁移实现。
+状态：调度员 2026-10-12 评审通过，已实现：迁移 0290（临时号）、`tests/test_tenant_row_lock_pg.py`，见第 7 节。原稿内容保留不改。
 
 ## 1. 问题
 
@@ -76,3 +76,29 @@
 1. 本评审通过后，实现上述迁移和测试，作为单独的分支提交，进入一次集成。
 2. 之后再做第 3c 批，并用 NX-031 矩阵并发跑“配置发布 + 消息受理”，测量端到端 p95，判据是增加不超过 5%。
 3. 第 5 批（`ontology.objects`、`runtime.jobs`、`ontology.events`）排在最后。
+
+## 7. 实现（0290，临时号）
+
+- **迁移**：新迁移用 `create or replace` 复制两个函数的当前定义（`configure_manifest` 取 0142，`initial_identity_create` 取 0050），只把两处 `for update` 改为 `for no key update`。函数中其他 `for update`（例如锁 `initial_identity_allowances` 的那处）不动。属主和授权不变；已发布迁移的校验和不改。唯一另外的改动：`initial_identity_create` 的 `search_path` 由 `pg_catalog` 改为 `pg_catalog,pg_temp`。0050 定义时它只写了 `pg_catalog`，而重新定义的 SECURITY DEFINER 函数必须通过 definer 检查（pg_temp 必须列在最后）。这是收紧：不显式列出时，pg_temp 会隐式排在最前面。文本对比测试同时覆盖这一处。
+- **评审补充项**：`control.nexloop_tenants` 上没有任何唯一索引覆盖 `status` 或 `authority_revision`（只有主键 `tenant_id`），也没有表达式唯一索引或部分唯一索引。如果有，函数自己的 `update` 会升为 `FOR UPDATE`，这次降级就失效了。测试通过 `pg_index` 断言这一点。
+- **测试**：`tests/test_tenant_row_lock_pg.py` 共 6 项。
+
+  1. **函数正文只改了锁**：迁移里的新定义，等于从 0142、0050 原文中只替换这两处锁后的文本。
+  2. **属性不变**：安装后两个函数的属主仍是 `nexloop_owner`、仍是 SECURITY DEFINER，`proconfig` 和 `proacl` 与替换前一致，函数定义中包含 `for no key update`。
+  3. **唯一索引断言**：即上面的评审补充项。
+  4. **场景 1 至 6 的前后对比**：先在同一个库中重新执行旧定义（取自已发布迁移原文），再装回新定义，各跑一遍。
+
+     | 场景 | 改动前（旧定义） | 改动后（新定义） |
+     |---|---|---|
+     | 1 外键插入，A 持有 `configure_manifest` | 阻塞 | 不阻塞 |
+     | 2 同租户的第二次配置发布 | 阻塞 | 阻塞 |
+     | 3 授权读 `FOR SHARE` | 阻塞 | 阻塞 |
+     | 4 外键插入，A 持有 `initial_identity_create` | 阻塞 | 不阻塞 |
+     | 5 并发的配置发布把租户改为 suspended | 阻塞 | 阻塞 |
+     | 6 另一个租户的外键插入（对照组） | 不阻塞 | 不阻塞 |
+
+     两组结果互为反证：如果测试本身分不出两种状态，这一项就会失败。
+  5. **场景 7**：同一个新租户的两次首次发布并发进行，结果是一个成功，另一个报 23505 或 40001，租户只有一行。
+  6. **锁探针**：在 `FOR NO KEY UPDATE` 下，外键插入的等待时长小于持锁时长的 10%；作为对照，`FOR UPDATE` 下仍然会阻塞。
+
+- **会话角色**：A 用的是生产端口实际使用的受限角色，配置发布用 `nexloop_configurator`，初始身份用 `nexloop_identity`。测试只是复现了这两个端口对 SQL 函数的调用，以便让事务保持打开，没有绕过任何校验。

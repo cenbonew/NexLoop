@@ -805,6 +805,11 @@
       "version": "0161",
       "name": "0161_nx037_trial_readiness.sql",
       "sha256": "09764c81f52928146721361dfbc2d0125878cabbcfa5f3a5067fab2f3469403e"
+    },
+    {
+      "version": "0290",
+      "name": "0290_nx052_tenant_row_no_key_lock.sql",
+      "sha256": "052af25d58fdf1b34574b97a5812713eaf2588ab72164f4eb8e943b14803d9e0"
     }
   ]
 }
