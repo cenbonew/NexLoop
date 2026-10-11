@@ -93,7 +93,7 @@ PARAMETERS = {
     'APP_HOST_ADDR': _addr, 'DATA_HOST_ADDR': _addr, 'APP_HOST_NAME': _hostname_or_addr, 'DATA_HOST_NAME': _hostname_or_addr,
     'TRUSTED_LAN_CIDR': _cidr, 'MGMT_SOURCE_CIDR': _cidr, 'APP_CONTAINER_CIDR': _cidr,
     'PG_PORT': _port, 'VALKEY_PORT': _port, 'GATEWAY_HTTPS_PORT': _port, 'GATEWAY_REDIRECT_PORT': _port,
-    'API_INTERNAL_PORT': _port, 'HOST_INTERNAL_PORT': _port, 'GUARD_PORT': _port,
+    'API_INTERNAL_PORT': _port, 'API_INTERNAL_PORT_2': _port, 'HOST_INTERNAL_PORT': _port, 'GUARD_PORT': _port,
     'NEXLOOP_ROOT': _path, 'NEXLOOP_DB': _match(_NAME), 'APP_PG_ROLES': _roles, 'MIGRATION_PG_ROLE': _match(_ROLE),
     'VALKEY_MAXMEMORY': _match(_SIZE), 'AGENT_HOST_UID': _uid, 'CI_UID': _uid, 'MODEL_PROVIDER_ALLOWLIST': _addresses,
 }

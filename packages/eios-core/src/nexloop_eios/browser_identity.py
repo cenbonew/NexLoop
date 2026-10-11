@@ -18,8 +18,11 @@ def verify_identity_role(c):
 
 
 @contextmanager
-def open_browser_identity(database_url):
-    pool=create_pool(StorageSettings(database_url=database_url),open_pool=True)
+def open_browser_identity(database_url,*,pool_max=4):
+    """pool_max: the API's browser identity pool, declared as 'api-browser-identity' in the connection budget (one per API process,
+    shared by the customer and workbench realms)."""
+    if type(pool_max) is not int or not 1<=pool_max<=8:raise ValueError('identity pool size 1..8')
+    pool=create_pool(StorageSettings(database_url=database_url,pool_min_size=1,pool_max_size=pool_max),open_pool=True)
     try:
         pool.wait(timeout=10)
         with pool.connection() as c,c.transaction():

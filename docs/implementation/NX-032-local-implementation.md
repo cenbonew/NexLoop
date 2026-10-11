@@ -203,6 +203,29 @@ dry-run 只做判断并输出计划：不执行任何步骤，不连接主机，
   - 拓扑结构与 `docker compose config`；
   - `--prepare-only` 不启动任何容器。
 
+## Compose 补齐与预算一致性（L5 核对，2026-10-11）
+
+- **APP_HOST Compose 补齐**：`deploy/stage/compose.app.example.yaml` 现在编排连接预算中的全部进程，共 18 个服务：
+  - 两个 API 进程；
+  - domain-worker、action-worker、runtime-worker、message-relay、outbound-recorder；
+  - 11 个后台服务；
+  - 另加 Gateway 和 Agent Host。
+- **示例由一张服务表生成**，每个服务：
+  - 有可被它真实参数解析器接受的完整命令（测试中逐个解析；原示例中 runtime-worker 和 effect-worker 少了必需的文件参数，无法启动）；
+  - 逐个挂载自己的秘密文件。4 个共享秘密（签名密钥、数据库 CA、Host CA、Host 控制密钥）放在 `shared/` 下，同样逐个挂载；模型凭据只给 claim-extraction-worker 和 claim-matcher，渠道 provider 配置只给 action-worker；
+  - 只读根文件系统、`cap_drop: ALL`、`no-new-privileges`，使用共享网络命名空间，不发布端口；
+  - 环境变量中只有 `REAL_DISPATCH_ENABLED=false`（runtime-worker 另有 pool 设置）。
+- **API 浏览器身份连接池**（`browser_identity.py`）：
+  - 新增 `--identity-pool-max`，默认仍为 4，stage 设为 2；
+  - 登记为预算条目 `api-browser-identity`（2 个进程 × 2），合计 57（≤60）；
+  - doctor 要求必须登记该条目。如果按默认 4 登记，合计为 61，会超过上限。
+- **一致性检查**：每个容器都带 `nexloop.budget-service` 标签（不连 PostgreSQL 的标为 `none`）。`--deploy-gate` 的 `compose_matches_budget` 做双向比对：
+  - 预算中的每个条目，都要有对应数量的容器；
+  - 每个容器的标签，都必须是预算中的条目。
+  - `scheduler` 是没有进程的预留，比对时跳过；两个 launcher 池分别在 plan-reevaluator 和 reply-guarantor 容器中。
+- **api 的环境变量**：按 api-stage-ready（`f15f81a`）的规则，不传 `MODEL_API_KEY`、`EMBEDDING_API_KEY`、`NEXLOOP_DATABASE_URL`、`MODEL_PROVIDER=test` 或 `NEXLOOP_TEST_*`；测试会检查 Compose 和 env 示例中都没有这些变量。api 命令按该分支补上了 `--mode stage`、`--execution-profile`、`--signing-key-id`。
+- **新参数** `API_INTERNAL_PORT_2`：第二个 API 进程的回环端口。Caddyfile 中两个上游轮流转发，防火墙模板中 CI 用户被拒的端口也加上了它。
+
 ## 未完成项
 - **切片 4 在 CI 主机上的实际运行**：由调度员以 CI 用户执行 `python3 -I scripts/deploy/netns_sim/run.py --out <目录>`（见该目录的 README）。Valkey 服务端 TLS 负例在那次运行中得到真实结果。
 - **切片 5**：真实双机部署，属于 B 类，按运行手册逐步由负责人确认。

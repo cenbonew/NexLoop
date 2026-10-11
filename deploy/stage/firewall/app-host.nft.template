@@ -15,6 +15,6 @@ table inet nexloop_stage {
   chain output {
     type filter hook output priority filter - 1; policy accept;
     meta skuid __CI_UID__ ip daddr __DATA_HOST_ADDR__ drop
-    meta skuid __CI_UID__ oifname "lo" tcp dport { __API_INTERNAL_PORT__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } drop
+    meta skuid __CI_UID__ oifname "lo" tcp dport { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } drop
   }
 }

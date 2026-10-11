@@ -1,11 +1,14 @@
-# NX-032 slice 0: APP_HOST stage Compose. Example only: every value comes from the private compose env file
-# (compose.app.env.example lists the variables); images are referenced by digest from the release manifest (NX-034).
+# NX-032: APP_HOST stage Compose. Example only: every value comes from the private compose env file (compose.app.env.example lists the
+# variables); images are referenced by digest from the release manifest (NX-034); generated from one service table, so commands,
+# secrets and budget labels stay consistent.
 #
-# One network namespace (the `app-net` anchor) holds the Gateway, the API, the workers and the Agent Host, so the internal
-# HTTPS links stay on 127.0.0.1 as today (API → Host, Worker ↔ guard); only the Gateway ports are published, and only on
-# APP_HOST_ADDR. Each service mounts its own secret files one by one (never a directory); the Agent Host gets no DSN, service
-# credential, signing key, channel credential or Artifact directory (§4.2). REAL_DISPATCH_ENABLED starts false (D9).
-# Every background service of deploy/stage/connection-budget.v1.json follows the `alert-evaluator` pattern below.
+# One network namespace (the `app-net` anchor) holds every service, so the internal HTTPS links stay on 127.0.0.1 as today (API -> Host,
+# Worker <-> guard); only the Gateway ports are published, and only on APP_HOST_ADDR. Every service mounts its own secret files one by
+# one (never a directory) and nothing else's; the Agent Host gets no DSN, service credential, signing key, channel credential or
+# Artifact directory (design §4.2); no service gets a secret through its environment (only REAL_DISPATCH_ENABLED, which starts false, D9).
+#
+# Each container carries `nexloop.budget-service`: the connection-budget entries (deploy/stage/connection-budget.v1.json) whose pools
+# it opens, or "none". `nexloop-doctor --deploy-gate` compares both directions. The budget's `scheduler` is a reserve without a process.
 name: nexloop-app
 x-service: &service
   image: ${BACKEND_IMAGE:?backend image by digest}
@@ -15,7 +18,7 @@ x-service: &service
   tmpfs: [/tmp]
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
-  environment:
+  environment: &environment
     REAL_DISPATCH_ENABLED: "false"
 services:
   app-net:
@@ -29,32 +32,16 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.budget-service: none
   gateway:
     <<: *service
     image: ${GATEWAY_IMAGE:?gateway image by digest}
     volumes:
       - ${NEXLOOP_ROOT:?root}/config/Caddyfile:/etc/caddy/Caddyfile:ro
     secrets: [gateway_cert, gateway_key, api_loopback_ca]
-  api:
-    <<: *service
-    entrypoint: [nexloop-api]
-    command: [--database-url-file, /run/secrets/api_dsn, --signing-key-file, /run/secrets/signing_key, --artifact-root, /var/lib/nexloop/artifacts,
-              --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
-              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}",
-              --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key]
-    volumes:
-      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [api_dsn, signing_key, host_ca, host_control_key, api_loopback_cert, api_loopback_key, pg_ca, api_pg_client_cert, api_pg_client_key]
-  runtime-worker:
-    <<: *service
-    entrypoint: [nexloop-runtime-worker]
-    # ADR-024: 4 guard processes; dispatcher pool 2; NX-031 dispatch loops 4 (= Agent Host maximum_active_runs).
-    command: [--guard-workers, "4", --dispatcher-pool-max, "2", --dispatch-loops, "4", --guard-port, "${GUARD_PORT:?guard port}",
-              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --world, real, --queue, runtime]
-    environment:
-      REAL_DISPATCH_ENABLED: "false"
-      NEX_EIOS_DB_POOL_MAX: "4"
-    secrets: [runtime_dsn, signing_key, guard_transport_key, guard_cert, guard_key, host_control_key, host_ca, pg_ca, runtime_pg_client_cert, runtime_pg_client_key]
+    labels:
+      nexloop.budget-service: none
   agent-host:
     <<: *service
     image: ${AGENT_HOST_IMAGE:?Agent Host image by digest}
@@ -62,45 +49,353 @@ services:
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/runtime:/private/runtime
     secrets: [host_cert, host_key, host_transport_key, guard_ca]
-  effect-worker:
+    labels:
+      nexloop.budget-service: none
+  api-1:
+    # ADR-024 / 11 §7: two API processes; each also opens the browser identity pool (budget api-browser-identity, 2 per process).
+    <<: *service
+    entrypoint: [nexloop-api]
+    command: [--mode, stage, --execution-profile, "${API_EXECUTION_PROFILE:?real-provider or disabled}", --database-url-file, /run/secrets/api_dsn,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
+              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}", --tls-certificate-file,
+              /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file, /run/secrets/api_identity_dsn,
+              --identity-pool-max, "2", --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
+              --browser-application-id, "${BROWSER_APPLICATION_ID:?application}", --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}",
+              --browser-origin, "${BROWSER_ORIGIN:?https origin}", --web-root, /opt/nexloop/web]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    labels:
+      nexloop.budget-service: "api,api-browser-identity"
+  api-2:
+    # ADR-024 / 11 §7: two API processes; each also opens the browser identity pool (budget api-browser-identity, 2 per process).
+    <<: *service
+    entrypoint: [nexloop-api]
+    command: [--mode, stage, --execution-profile, "${API_EXECUTION_PROFILE:?real-provider or disabled}", --database-url-file, /run/secrets/api_dsn,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
+              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT_2:?second API port}",
+              --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file,
+              /run/secrets/api_identity_dsn, --identity-pool-max, "2", --browser-rate-key-file, /run/secrets/api_browser_rate_key,
+              --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}", --browser-application-id, "${BROWSER_APPLICATION_ID:?application}",
+              --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}", --browser-origin, "${BROWSER_ORIGIN:?https origin}",
+              --web-root, /opt/nexloop/web]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    labels:
+      nexloop.budget-service: "api,api-browser-identity"
+  domain-worker:
+    # One bounded page of Artifact maintenance per run, every 5 minutes (python -m nexloop_eios.domain_worker).
+    <<: *service
+    entrypoint: [sh, -c]
+    command: ["while true; do python -m nexloop_eios.domain_worker --database-url-file /run/secrets/domain_worker_dsn --service-credential-file /run/secrets/domain_worker_credential --signing-key-file /run/secrets/signing_key --signing-key-id ${SIGNING_KEY_ID:?signing key id} --artifact-root /var/lib/nexloop/artifacts --world real; sleep 300; done"]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [domain_worker_dsn, domain_worker_pg_client_cert, domain_worker_pg_client_key, domain_worker_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: domain-worker
+  action-worker:
+    # The only holder of external channel credentials (provider configuration, once real channels are enabled).
     <<: *service
     entrypoint: [nexloop-effect-worker]
-    command: [--world, real]
-    secrets: [action_dsn, signing_key, action_service_credential, pg_ca, action_pg_client_cert, action_pg_client_key]
+    command: [--database-url-file, /run/secrets/action_worker_dsn, --service-credential-file, /run/secrets/action_worker_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --provider-config-file, /run/secrets/action_worker_provider]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [action_worker_dsn, action_worker_pg_client_cert, action_worker_pg_client_key, action_worker_credential, signing_key, pg_ca, action_worker_provider]
+    labels:
+      nexloop.budget-service: action-worker
+  runtime-worker:
+    # ADR-024: 4 guard processes, dispatcher pool 2; NX-031 dispatch loops 4 (= Agent Host maximum_active_runs).
+    <<: *service
+    entrypoint: [nexloop-runtime-worker]
+    command: [--database-url-file, /run/secrets/runtime_worker_dsn, --service-credential-file, /run/secrets/runtime_worker_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --host-control-key-file, /run/secrets/host_control_key, --host-ca-file, /run/secrets/host_ca,
+              --guard-key-file, /run/secrets/guard_transport_key, --guard-certificate-file, /run/secrets/guard_cert, --guard-tls-key-file,
+              /run/secrets/guard_key, --guard-workers, "4", --dispatcher-pool-max, "2", --dispatch-loops, "4", --guard-port, "${GUARD_PORT:?guard port}",
+              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --world, real, --queue, runtime]
+    environment:
+      <<: *environment
+      NEX_EIOS_DB_POOL_MAX: "4"
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [runtime_worker_dsn, runtime_worker_pg_client_cert, runtime_worker_pg_client_key, runtime_worker_credential, signing_key, pg_ca, guard_transport_key, guard_cert, guard_key, host_control_key, host_ca]
+    labels:
+      nexloop.budget-service: runtime-worker
+  message-relay:
+    # Relay multi-consumer (run profile mode): one process, pool 2.
+    <<: *service
+    entrypoint: [python, -m, nexloop_eios.message_relay_cli]
+    command: [--database-url-file, /run/secrets/message_relay_dsn, --signing-key-file, /run/secrets/signing_key, --signing-key-id,
+              "${SIGNING_KEY_ID:?signing key id}", --artifact-root, /var/lib/nexloop/artifacts, --route-credential-file, /run/secrets/message_relay_route_credential,
+              --source-credential-file, /run/secrets/message_relay_source_credential, --planner-credential-file, /run/secrets/message_relay_planner_credential,
+              --executor-credential-file, /run/secrets/message_relay_executor_credential, --vault-root, /var/lib/nexloop/relay-vault,
+              --run-profile-file, /etc/nexloop/relay-run-profile.json]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/data/relay-vault:/var/lib/nexloop/relay-vault
+      - ${NEXLOOP_ROOT:?root}/config/relay-run-profile.json:/etc/nexloop/relay-run-profile.json:ro
+    secrets: [message_relay_dsn, message_relay_pg_client_cert, message_relay_pg_client_key, message_relay_route_credential, message_relay_source_credential, message_relay_planner_credential, message_relay_executor_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: message-relay
+  outbound-recorder:
+    <<: *service
+    entrypoint: [nexloop-outbound-recorder]
+    command: [--database-url-file, /run/secrets/outbound_recorder_dsn, --service-credential-file, /run/secrets/outbound_recorder_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [outbound_recorder_dsn, outbound_recorder_pg_client_cert, outbound_recorder_pg_client_key, outbound_recorder_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: outbound-recorder
+  claim-extraction-scheduler:
+    <<: *service
+    entrypoint: [nexloop-claim-extraction-scheduler]
+    command: [--database-url-file, /run/secrets/claim_extraction_scheduler_dsn, --service-credential-file, /run/secrets/claim_extraction_scheduler_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [claim_extraction_scheduler_dsn, claim_extraction_scheduler_pg_client_cert, claim_extraction_scheduler_pg_client_key, claim_extraction_scheduler_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: claim-extraction-scheduler
+  claim-extraction-worker:
+    # Model credentials only here and in claim-matcher (as files).
+    <<: *service
+    entrypoint: [nexloop-claim-extraction-worker]
+    command: [--database-url-file, /run/secrets/claim_extraction_worker_dsn, --service-credential-file, /run/secrets/claim_extraction_worker_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --model-env-file, /run/secrets/claim_extraction_worker_model, --mode,
+              stage]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [claim_extraction_worker_dsn, claim_extraction_worker_pg_client_cert, claim_extraction_worker_pg_client_key, claim_extraction_worker_credential, signing_key, pg_ca, claim_extraction_worker_model]
+    labels:
+      nexloop.budget-service: claim-extraction-worker
+  claim-matcher:
+    <<: *service
+    entrypoint: [nexloop-claim-matcher]
+    command: [--database-url-file, /run/secrets/claim_matcher_dsn, --service-credential-file, /run/secrets/claim_matcher_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --model-env-file, /run/secrets/claim_matcher_model, --match-config-file,
+              /etc/nexloop/claim-match.json]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/config/claim-match.json:/etc/nexloop/claim-match.json:ro
+    secrets: [claim_matcher_dsn, claim_matcher_pg_client_cert, claim_matcher_pg_client_key, claim_matcher_credential, signing_key, pg_ca, claim_matcher_model]
+    labels:
+      nexloop.budget-service: claim-matcher
+  recall-indexer:
+    <<: *service
+    entrypoint: [nexloop-recall-indexer]
+    command: [--database-url-file, /run/secrets/recall_indexer_dsn, --service-credential-file, /run/secrets/recall_indexer_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --types-file, /etc/nexloop/recall-types.json]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/config/recall-types.json:/etc/nexloop/recall-types.json:ro
+    secrets: [recall_indexer_dsn, recall_indexer_pg_client_cert, recall_indexer_pg_client_key, recall_indexer_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: recall-indexer
+  plan-reevaluator:
+    # Its Role launcher pool (nexloop_api, 2) is budget entry plan-reevaluator-launcher.
+    <<: *service
+    entrypoint: [nexloop-plan-reevaluator]
+    command: [--database-url-file, /run/secrets/plan_reevaluator_dsn, --service-credential-file, /run/secrets/plan_reevaluator_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --settings-file, /etc/nexloop/plan-reevaluation.json, --api-database-url-file,
+              /run/secrets/plan_reevaluator_api_dsn, --source-credential-file, /run/secrets/plan_reevaluator_source_credential,
+              --planner-credential-file, /run/secrets/plan_reevaluator_planner_credential, --queue-credential-file, /run/secrets/plan_reevaluator_queue_credential,
+              --executor-credential-file, /run/secrets/plan_reevaluator_executor_credential, --effect-action, "eios:action:nexloop.service.request:1"]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/config/plan-reevaluation.json:/etc/nexloop/plan-reevaluation.json:ro
+    secrets: [plan_reevaluator_dsn, plan_reevaluator_pg_client_cert, plan_reevaluator_pg_client_key, plan_reevaluator_credential, signing_key, pg_ca, plan_reevaluator_api_dsn, plan_reevaluator_source_credential, plan_reevaluator_planner_credential, plan_reevaluator_queue_credential, plan_reevaluator_executor_credential]
+    labels:
+      nexloop.budget-service: "plan-reevaluator,plan-reevaluator-launcher"
+  reply-guarantor:
+    # Its fallback launcher pool (nexloop_api, 2) is budget entry reply-guarantor-launcher.
+    <<: *service
+    entrypoint: [nexloop-reply-guarantor]
+    command: [--database-url-file, /run/secrets/reply_guarantor_dsn, --service-credential-file, /run/secrets/reply_guarantor_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --policy-file, /etc/nexloop/reply-guarantee.json, --api-database-url-file,
+              /run/secrets/reply_guarantor_api_dsn, --route-credential-file, /run/secrets/reply_guarantor_route_credential, --source-credential-file,
+              /run/secrets/reply_guarantor_source_credential, --planner-credential-file, /run/secrets/reply_guarantor_planner_credential,
+              --executor-credential-file, /run/secrets/reply_guarantor_executor_credential, --run-profile-file, /etc/nexloop/relay-run-profile.json]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/config/reply-guarantee.json:/etc/nexloop/reply-guarantee.json:ro
+      - ${NEXLOOP_ROOT:?root}/config/relay-run-profile.json:/etc/nexloop/relay-run-profile.json:ro
+    secrets: [reply_guarantor_dsn, reply_guarantor_pg_client_cert, reply_guarantor_pg_client_key, reply_guarantor_credential, signing_key, pg_ca, reply_guarantor_api_dsn, reply_guarantor_route_credential, reply_guarantor_source_credential, reply_guarantor_planner_credential, reply_guarantor_executor_credential]
+    labels:
+      nexloop.budget-service: "reply-guarantor,reply-guarantor-launcher"
+  commitment-keeper:
+    <<: *service
+    entrypoint: [nexloop-commitment-keeper]
+    command: [--database-url-file, /run/secrets/commitment_keeper_dsn, --service-credential-file, /run/secrets/commitment_keeper_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --settings-file, /etc/nexloop/commitments.json]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/config/commitments.json:/etc/nexloop/commitments.json:ro
+    secrets: [commitment_keeper_dsn, commitment_keeper_pg_client_cert, commitment_keeper_pg_client_key, commitment_keeper_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: commitment-keeper
+  commercial-recorder:
+    <<: *service
+    entrypoint: [nexloop-commercial-recorder]
+    command: [--database-url-file, /run/secrets/commercial_recorder_dsn, --service-credential-file, /run/secrets/commercial_recorder_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --settings-file, /etc/nexloop/commercial.json]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/config/commercial.json:/etc/nexloop/commercial.json:ro
+    secrets: [commercial_recorder_dsn, commercial_recorder_pg_client_cert, commercial_recorder_pg_client_key, commercial_recorder_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: commercial-recorder
+  retention-keeper:
+    <<: *service
+    entrypoint: [nexloop-retention-keeper]
+    command: [--database-url-file, /run/secrets/retention_keeper_dsn, --service-credential-file, /run/secrets/retention_keeper_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --host-port, "${HOST_INTERNAL_PORT:?Host port}", --host-key-file, /run/secrets/retention_keeper_host_key,
+              --host-ca-file, /run/secrets/host_ca]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [retention_keeper_dsn, retention_keeper_pg_client_cert, retention_keeper_pg_client_key, retention_keeper_credential, signing_key, pg_ca, retention_keeper_host_key, host_ca]
+    labels:
+      nexloop.budget-service: retention-keeper
   alert-evaluator:
     <<: *service
     entrypoint: [nexloop-alert-evaluator]
-    command: [--world, real]
-    secrets: [alert_evaluator_dsn, signing_key, alert_evaluator_credential, pg_ca, alert_evaluator_pg_client_cert, alert_evaluator_pg_client_key]
+    command: [--database-url-file, /run/secrets/alert_evaluator_dsn, --service-credential-file, /run/secrets/alert_evaluator_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [alert_evaluator_dsn, alert_evaluator_pg_client_cert, alert_evaluator_pg_client_key, alert_evaluator_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: alert-evaluator
+  incentive-issuer:
+    <<: *service
+    entrypoint: [nexloop-incentive-issuer]
+    command: [--database-url-file, /run/secrets/incentive_issuer_dsn, --service-credential-file, /run/secrets/incentive_issuer_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --ledger-directory, /var/lib/nexloop/incentive-ledger]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/data/incentive-ledger:/var/lib/nexloop/incentive-ledger
+    secrets: [incentive_issuer_dsn, incentive_issuer_pg_client_cert, incentive_issuer_pg_client_key, incentive_issuer_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: incentive-issuer
 secrets:
-  # One file per secret under NEXLOOP_ROOT/secrets/<service>/ (directory 0700, file 0600, owner = the service UID).
+  # One file per secret under NEXLOOP_ROOT/secrets/<service>/ (directory 0700, file 0600, owner = the service UID); shared/ holds what
+  # several services need (signing key, database CA, Host CA and control key), each still mounted file by file.
   gateway_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/server.crt"}
   gateway_key: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/server.key"}
   api_loopback_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/api-loopback-ca.crt"}
-  api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/api/dsn"}
-  api_loopback_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.crt"}
-  api_loopback_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.key"}
-  api_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.crt"}
-  api_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.key"}
-  signing_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/signing.key"}
-  pg_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/db-ca.crt"}
-  host_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-ca.crt"}
-  host_control_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-control.key"}
-  runtime_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/dsn"}
-  runtime_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.crt"}
-  runtime_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.key"}
-  guard_transport_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard-transport.key"}
-  guard_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard.crt"}
-  guard_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard.key"}
   host_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/server.crt"}
   host_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/server.key"}
   host_transport_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/transport.key"}
   guard_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/guard-ca.crt"}
-  action_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/dsn"}
-  action_service_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/service-credential"}
-  action_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/pg-client.crt"}
-  action_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/pg-client.key"}
+  api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/api/dsn"}
+  api_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.crt"}
+  api_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.key"}
+  api_identity_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-dsn"}
+  api_browser_rate_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/browser-rate.key"}
+  signing_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/signing.key"}
+  pg_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/db-ca.crt"}
+  host_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-ca.crt"}
+  host_control_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-control.key"}
+  api_loopback_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.crt"}
+  api_loopback_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.key"}
+  domain_worker_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/domain-worker/dsn"}
+  domain_worker_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/domain-worker/pg-client.crt"}
+  domain_worker_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/domain-worker/pg-client.key"}
+  domain_worker_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/domain-worker/service-credential"}
+  action_worker_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/dsn"}
+  action_worker_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/pg-client.crt"}
+  action_worker_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/pg-client.key"}
+  action_worker_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/service-credential"}
+  action_worker_provider: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/provider-config"}
+  runtime_worker_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/dsn"}
+  runtime_worker_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.crt"}
+  runtime_worker_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.key"}
+  runtime_worker_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/service-credential"}
+  guard_transport_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard-transport.key"}
+  guard_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard.crt"}
+  guard_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard.key"}
+  message_relay_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/message-relay/dsn"}
+  message_relay_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/message-relay/pg-client.crt"}
+  message_relay_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/message-relay/pg-client.key"}
+  message_relay_route_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/message-relay/route-credential"}
+  message_relay_source_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/message-relay/source-credential"}
+  message_relay_planner_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/message-relay/planner-credential"}
+  message_relay_executor_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/message-relay/executor-credential"}
+  outbound_recorder_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/outbound-recorder/dsn"}
+  outbound_recorder_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/outbound-recorder/pg-client.crt"}
+  outbound_recorder_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/outbound-recorder/pg-client.key"}
+  outbound_recorder_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/outbound-recorder/service-credential"}
+  claim_extraction_scheduler_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-scheduler/dsn"}
+  claim_extraction_scheduler_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-scheduler/pg-client.crt"}
+  claim_extraction_scheduler_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-scheduler/pg-client.key"}
+  claim_extraction_scheduler_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-scheduler/service-credential"}
+  claim_extraction_worker_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-worker/dsn"}
+  claim_extraction_worker_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-worker/pg-client.crt"}
+  claim_extraction_worker_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-worker/pg-client.key"}
+  claim_extraction_worker_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-worker/service-credential"}
+  claim_extraction_worker_model: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-extraction-worker/model.env"}
+  claim_matcher_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/dsn"}
+  claim_matcher_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/pg-client.crt"}
+  claim_matcher_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/pg-client.key"}
+  claim_matcher_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/service-credential"}
+  claim_matcher_model: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/model.env"}
+  recall_indexer_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/dsn"}
+  recall_indexer_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/pg-client.crt"}
+  recall_indexer_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/pg-client.key"}
+  recall_indexer_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/service-credential"}
+  plan_reevaluator_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/dsn"}
+  plan_reevaluator_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/pg-client.crt"}
+  plan_reevaluator_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/pg-client.key"}
+  plan_reevaluator_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/service-credential"}
+  plan_reevaluator_api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/api-dsn"}
+  plan_reevaluator_source_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/source-credential"}
+  plan_reevaluator_planner_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/planner-credential"}
+  plan_reevaluator_queue_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/queue-credential"}
+  plan_reevaluator_executor_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/executor-credential"}
+  reply_guarantor_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/dsn"}
+  reply_guarantor_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/pg-client.crt"}
+  reply_guarantor_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/pg-client.key"}
+  reply_guarantor_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/service-credential"}
+  reply_guarantor_api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/api-dsn"}
+  reply_guarantor_route_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/route-credential"}
+  reply_guarantor_source_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/source-credential"}
+  reply_guarantor_planner_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/planner-credential"}
+  reply_guarantor_executor_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/executor-credential"}
+  commitment_keeper_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/commitment-keeper/dsn"}
+  commitment_keeper_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/commitment-keeper/pg-client.crt"}
+  commitment_keeper_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/commitment-keeper/pg-client.key"}
+  commitment_keeper_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/commitment-keeper/service-credential"}
+  commercial_recorder_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/commercial-recorder/dsn"}
+  commercial_recorder_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/commercial-recorder/pg-client.crt"}
+  commercial_recorder_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/commercial-recorder/pg-client.key"}
+  commercial_recorder_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/commercial-recorder/service-credential"}
+  retention_keeper_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/retention-keeper/dsn"}
+  retention_keeper_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/retention-keeper/pg-client.crt"}
+  retention_keeper_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/retention-keeper/pg-client.key"}
+  retention_keeper_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/retention-keeper/service-credential"}
+  retention_keeper_host_key: {file: "${NEXLOOP_ROOT:?root}/secrets/retention-keeper/host-control.key"}
   alert_evaluator_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/dsn"}
-  alert_evaluator_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/service-credential"}
   alert_evaluator_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/pg-client.crt"}
   alert_evaluator_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/pg-client.key"}
+  alert_evaluator_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/service-credential"}
+  incentive_issuer_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/incentive-issuer/dsn"}
+  incentive_issuer_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/incentive-issuer/pg-client.crt"}
+  incentive_issuer_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/incentive-issuer/pg-client.key"}
+  incentive_issuer_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/incentive-issuer/service-credential"}

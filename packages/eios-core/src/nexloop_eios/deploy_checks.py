@@ -216,7 +216,7 @@ def port_bindings(listening, stage, host_role, *, before_deploy=False):
         internal = {}
     else:
         public = {'GATEWAY_HTTPS_PORT': stage['APP_HOST_ADDR'], 'GATEWAY_REDIRECT_PORT': stage['APP_HOST_ADDR']}
-        internal = {k: None for k in ('API_INTERNAL_PORT', 'HOST_INTERNAL_PORT', 'GUARD_PORT')}
+        internal = {k: None for k in ('API_INTERNAL_PORT', 'API_INTERNAL_PORT_2', 'HOST_INTERNAL_PORT', 'GUARD_PORT')}
     problems = []
     by_port = {}
     for entry in listening:
@@ -338,6 +338,39 @@ def inventory_compare(before, after, *, prefix='nexloop'):
     return {'checks': {'existing_services_unchanged': not problems}, 'details': {'inventory': {'problems': sorted(set(problems)), 'added': added}}}
 
 
+# Budget <-> Compose (L5 review 2026-10-11) ---------------------------------------------------------------------------------------
+BUDGET_LABEL = 'nexloop.budget-service'
+# Budget entries that are not a container of their own: a reserve with no process yet (11 §7 scheduler, NX-031 D7).
+BUDGET_RESERVES = ('scheduler',)
+
+
+def compose_budget(budget, compose):
+    """Every budget entry is opened by the declared number of containers of the rendered APP_HOST Compose (label
+    nexloop.budget-service), and every container names budget entries or "none"; any difference fails."""
+    declared = {s['name']: s['processes'] for s in budget.get('services', []) if type(s) is dict}
+    seen, problems = {}, []
+    for name, spec in (compose.get('services') or {}).items():
+        label = ((spec.get('labels') or {}).get(BUDGET_LABEL) or '').strip()
+        if not label:
+            problems.append('unlabelled_service:' + name)
+            continue
+        if label == 'none':
+            continue
+        for entry in label.split(','):
+            seen[entry] = seen.get(entry, 0) + 1
+    for entry, processes in declared.items():
+        if entry in BUDGET_RESERVES:
+            continue
+        if entry not in seen:
+            problems.append('budget_entry_without_service:' + entry)
+        elif seen[entry] != processes:
+            problems.append('process_count_differs:' + entry)
+    for entry in seen:
+        if entry not in declared:
+            problems.append('service_not_in_budget:' + entry)
+    return {'checks': {'compose_matches_budget': not problems}, 'details': {'compose_budget': sorted(problems)}}
+
+
 # The gate (§6) ----------------------------------------------------------------------------------------------------------------
 REQUIRED_INPUTS = {
     'app': ('stage_env', 'connection_budget', 'running', 'inventory_before', 'inventory_after', 'secret_root', 'compose_json', 'tls_spec',
@@ -374,6 +407,8 @@ def deploy_gate(spec):
         merge(tls(load('tls_spec')))
     if role == 'app' and spec.get('connection_budget'):
         merge(guard_and_registration(load('connection_budget'), load('running') if spec.get('running') else None))
+    if role == 'app' and spec.get('connection_budget') and spec.get('compose_json'):
+        merge(compose_budget(load('connection_budget'), load('compose_json')))
     if spec.get('inventory_before') and spec.get('inventory_after'):
         before, after = load('inventory_before'), load('inventory_after')
         merge(inventory_compare(before, after))

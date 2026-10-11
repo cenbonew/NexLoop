@@ -56,7 +56,7 @@ nexloop-doctor --budget-only --connection-budget deploy/stage/connection-budget.
   - 服务器的 `max_connections` 必须 **≥ 80**，差额留给运维和故障核对。
 - 任一项不满足，或预算文件格式错误、连不上数据库，退出码都是 1，服务不启动。
 - 当前声明的合计是 52（NX-031 D7，实测的最小可用池，调度员 2026-10-11 批准）：
-  - `api 2×4 + domain-worker 2 + action-worker 2 + scheduler 4（预留）+ runtime-worker 18 + message-relay 2 + outbound-recorder 2`；
+  - `api 2×4 + api-browser-identity 2×2 + domain-worker 2 + action-worker 2 + scheduler 4（预留）+ runtime-worker 18 + message-relay 2 + outbound-recorder 2`；
   - 10 个后台服务各 1；
   - 两个 launcher 的 API 池各 2。
 - doctor 另外核对 Runtime Worker 的 `processes × dispatch_loops ≤ 4`（ADR-022 §4 的 Host 上限，检查项 `runtime_dispatch_loops`）；派发循环不计入连接数。

@@ -20,7 +20,7 @@ _RUNTIME_KEYS = {'name', 'processes', 'guard_workers', 'dispatcher_pool_max', 'g
 
 # NX-031 D7: every long-running process that opens a PostgreSQL pool. A deployment budget must declare each of them, so the
 # sum the doctor checks is the real ceiling; a missing entry fails the check (fixed here, like the limits).
-BASE_SERVICES = ('api', 'domain-worker', 'action-worker', 'scheduler', 'runtime-worker', 'message-relay', 'outbound-recorder')
+BASE_SERVICES = ('api', 'api-browser-identity', 'domain-worker', 'action-worker', 'scheduler', 'runtime-worker', 'message-relay', 'outbound-recorder')
 LAUNCHERS = ('plan-reevaluator-launcher', 'reply-guarantor-launcher')
 
 
