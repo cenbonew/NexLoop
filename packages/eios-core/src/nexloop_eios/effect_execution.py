@@ -39,9 +39,20 @@ def receipt_reconcile_schema():
 PROTOCOL='nexloop-effect-execution-v1'
 
 
-# Refusals that can never admit the same intent again (0152): the one-reply rule. Control refusals are not terminal: a new Run
-# re-submits the same business intent with a current snapshot (NX-022 reevaluation).
-TERMINAL_REFUSALS=frozenset({'NXC05'})
+# Refusals that can never admit the same intent again (0152): the one-reply rule only, told apart by the refusal's reason. A
+# contact-restriction NXC05 is not terminal (an owner release can admit it), nor are control refusals (a new Run re-submits the
+# same business intent with a current snapshot, NX-022 reevaluation).
+ONE_REPLY_REASONS=(('inbound message already answered','already_answered'),('reply window closed','reply_window_closed'),
+    ('fallback reply bound to another message','fallback_bound_elsewhere'))
+
+
+def one_reply_reason(error):
+    """The terminal one-reply reason of an NXC05 refusal, or None (any other refusal, including contact restriction)."""
+    from nexloop_eios.goal_controls import ControlDenied
+    if isinstance(error,ControlDenied) and error.reason=='contact_restricted':message=str(error.detail or '')
+    elif isinstance(error,psycopg.Error) and getattr(error,'sqlstate',None)=='NXC05':message=str(getattr(error.diag,'message_primary','') or '')
+    else:return None
+    return next((reason for text,reason in ONE_REPLY_REASONS if text in message),None)
 
 class EffectExecutionUnavailable(PermissionError):
     def __init__(self):super().__init__('effect_execution_unavailable')
@@ -298,9 +309,10 @@ class EffectExecutionPort:
         try:
             with self.pool.connection() as db,db.transaction():
                 db.execute('select authz.nexloop_record_effect_refusal(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),code))
-                # 0152: a terminal refusal (one-reply rule) of a never-dispatched intent makes it failed, not pending forever.
-                if code in TERMINAL_REFUSALS:
-                    db.execute('select authz.nexloop_fail_refused_effect(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),code))
+                # 0152: a one-reply refusal (by its reason) of a never-dispatched bound reply makes it failed, not pending forever.
+                reason=one_reply_reason(error)
+                if reason is not None:
+                    db.execute('select authz.nexloop_fail_refused_effect(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),code,reason))
         except Exception:pass  # best effort: never turns a refusal into anything else
 
     def record_effect_unknown(self,*,intent_id,fence):

@@ -82,9 +82,10 @@ def _nx022_goal(ref):
 
 
 class ControlDenied(Exception):
-    def __init__(self,reason):
+    def __init__(self,reason,detail=None):
         super().__init__(reason)
-        self.reason=reason
+        # detail: the SQL refusal's fixed message text (no data), e.g. which one-reply rule refused (0210).
+        self.reason,self.detail=reason,detail
 
 
 def _utc(value):
@@ -359,7 +360,7 @@ class ControlPlane:
             except psycopg.Error as error:
                 reason=REASONS.get(getattr(error,'sqlstate',None))
                 if reason is None:raise
-                raise ControlDenied(reason) from None
+                raise ControlDenied(reason,getattr(error.diag,'message_primary',None)) from None
         if connection is not None:
             verify_application_role(connection)
             return run(connection)

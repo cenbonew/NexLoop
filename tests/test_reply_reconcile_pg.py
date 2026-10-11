@@ -133,3 +133,27 @@ def test_policy_v2_is_published_and_the_window_is_bounded(admin, tmp_path):
     for window, reply_window in ((29, 1800), (3601, 7200), ('600', 1800), (1400, 1800)):  # the last one: 300+1400+120 >= 1800
         with pytest.raises(ValueError):
             load_reply_policy(written(window, reply_window))
+
+
+def test_only_one_reply_reasons_are_terminal():
+    import psycopg
+    from nexloop_eios.effect_execution import one_reply_reason
+    class Diag:
+        def __init__(self,text):self.message_primary=text
+    class Refusal(psycopg.Error):
+        def __init__(self,state,text):self._state,self._diag=state,Diag(text);super().__init__(text)
+        sqlstate=property(lambda self:self._state);diag=property(lambda self:self._diag)
+    assert one_reply_reason(Refusal('NXC05','inbound message already answered'))=='already_answered'
+    assert one_reply_reason(Refusal('NXC05','contact restricted: inbound message already answered'))=='already_answered'
+    assert one_reply_reason(Refusal('NXC05','contact restricted: reply window closed'))=='reply_window_closed'
+    assert one_reply_reason(Refusal('NXC05','fallback reply bound to another message'))=='fallback_bound_elsewhere'
+    for text in ('contact restricted: outreach is not a reply to an inbound message','contact restricted: reply not bound to an inbound message of this consumer',
+                 'contact restricted: attached_notification (send it as a reply bound to an inbound message)'):
+        assert one_reply_reason(Refusal('NXC05',text)) is None
+    assert one_reply_reason(Refusal('NXC02','inbound message already answered')) is None and one_reply_reason(ValueError('x')) is None
+    # The dispatch path raises ControlDenied (goal_controls) carrying the SQL message as detail.
+    from nexloop_eios.goal_controls import ControlDenied
+    assert one_reply_reason(ControlDenied('contact_restricted','inbound message already answered'))=='already_answered'
+    assert one_reply_reason(ControlDenied('contact_restricted','contact restricted: outreach is not a reply to an inbound message')) is None
+    assert one_reply_reason(ControlDenied('control_revision_stale','inbound message already answered')) is None
+    assert one_reply_reason(ControlDenied('contact_restricted')) is None
