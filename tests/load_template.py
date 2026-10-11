@@ -95,8 +95,6 @@ def load(f, admin, records, *, progress=None):
     identity_dsn = f['base']['identity'][0]
     timings, counts = {}, {'consumers': 0, 'conversations': 0, 'messages': 0}
     hasher = PasswordHasher()
-    admin.execute("insert into control.nexloop_browser_rate_policies values(%s,'local_login','nexloop_identity',100000,60,true) "
-                  "on conflict do nothing", (TENANT,))  # trusted configuration for the load tenant's warm-up logins
     started = time.monotonic()
     identities = [_identity(admin, record, identity_dsn, hasher) for record in records]
     timings['identities'] = time.monotonic() - started
@@ -213,7 +211,7 @@ def load_commercial(env, records, *, connector_id='load-shop'):
     return {'statuses': statuses, 'ticks': ticks, 'seconds': {'ingest': round(ingest_seconds, 1), 'record': round(time.monotonic() - started, 1)}}
 
 
-def apply_service_grants(admin, pg, private_dir):
+def apply_service_grants(admin, pg, private_dir, *, tenant=TENANT):
     """The repository service-grants manifest applied through the configurator (as deployed, NX-048), so every service process
     of a cell authenticates with its own credential. Tokens and the deployment signing key go to `private_dir` (0600)."""
     from psycopg.conninfo import make_conninfo
@@ -231,7 +229,7 @@ def apply_service_grants(admin, pg, private_dir):
             handle.write(content)
         return path
     dsn = private('configurator-dsn.tmp', make_conninfo(pg, user='nexloop_configurator'))
-    report = G.apply(manifest, TENANT, database_url_file=dsn, signing_key_file=private('deploy-signing-key', key.hex()),
+    report = G.apply(manifest, tenant, database_url_file=dsn, signing_key_file=private('deploy-signing-key', key.hex()),
                      signing_key_id='load-deploy', service_secrets_file=private('service-tokens.json', json.dumps(tokens)),
                      credential_expires_at=datetime.now(UTC) + timedelta(days=30),
                      owner_restrictions=G.load_owner_restrictions(root / 'deploy/authorization/owner-property-restrictions.json'))
@@ -241,7 +239,8 @@ def apply_service_grants(admin, pg, private_dir):
     return {'credentials_created': len(report['credentials_created']), 'grants_added': len(report['grants_added'])}
 
 
-def load_commitments(f, admin, pg, records, private_dir, workdir, operator):
+def load_commitments(f, admin, pg, records, private_dir, workdir, operator, *, tenant=TENANT, signer=None, identity_dsn=None,
+                     browser_app='synthetic-browser-app', workbench_app='synthetic-workbench-app'):
     """Commitments of the manifest's `commitment` consumers, only through governed entries: a workbench operator (real login
     cookie, production app) takes the consumer's first conversation over, replies as staff to its commitment request with the
     synthetic promise, hands back; the deployed claim-extraction scheduler and worker (their own credentials) extract the window
@@ -264,14 +263,14 @@ def load_commitments(f, admin, pg, records, private_dir, workdir, operator):
         path.write_bytes(content if isinstance(content, bytes) else content.encode())
         path.chmod(0o600)
         return path
-    reader = f['reader']
+    signer = signer or f['reader'].signer
     origin = 'https://load-template.invalid'
-    identity = private('identity-dsn', f['base']['identity'][0])
+    identity = private('identity-dsn', identity_dsn or f['base']['identity'][0])
     rate = private('rate-key', secrets.token_hex(32))
     (workdir / 'artifacts').mkdir(mode=0o700, exist_ok=True)
-    config = ApiConfiguration(private('business-dsn', make_conninfo(pg, user='nexloop_api')), private('authority-key', reader.signer.material),
-        workdir / 'artifacts', reader.signer.key_id, BrowserConfiguration(identity, rate, TENANT, 'synthetic-browser-app', origin),
-        execution_profile='deterministic-test', workbench=BrowserConfiguration(identity, rate, TENANT, 'synthetic-workbench-app', origin))
+    config = ApiConfiguration(private('business-dsn', make_conninfo(pg, user='nexloop_api')), private('authority-key', signer.material),
+        workdir / 'artifacts', signer.key_id, BrowserConfiguration(identity, rate, tenant, browser_app, origin),
+        execution_profile='deterministic-test', workbench=BrowserConfiguration(identity, rate, tenant, workbench_app, origin))
     started = time.monotonic()
     replies = {}
     with TestClient(create_app(config), base_url=origin) as client:
@@ -309,15 +308,15 @@ def load_commitments(f, admin, pg, records, private_dir, workdir, operator):
     # The Commitment type and its Actions (business manifests), and the owner's decision on the Commitment property groups with
     # the keeper's lifecycle rule (trusted configuration, as tests/commitment_fixture.py configures them).
     from commitment_fixture import lifecycle_rule, publish_commitment_type
-    publish_commitment_type(admin)
+    publish_commitment_type(admin, tenant)
     with open_core(make_conninfo(pg, user='nexloop_domain_worker')) as domain:
-        lifecycle_rule(admin, session(domain, 'commitment_keeper').authentication.subject_principal_id)
+        lifecycle_rule(admin, session(domain, 'commitment_keeper').authentication.subject_principal_id, tenant)
     started = time.monotonic()
     extracted = registered = 0
     with open_core(make_conninfo(pg, user='nexloop_api')) as api, open_core(make_conninfo(pg, user='nexloop_domain_worker')) as domain:
-        while ClaimExtractionScheduler(api, session(api, 'claim_extraction_scheduler'), reader.signer, quiet_seconds=0).run_once(limit=100):
+        while ClaimExtractionScheduler(api, session(api, 'claim_extraction_scheduler'), signer, quiet_seconds=0).run_once(limit=100):
             pass
-        worker = ClaimExtractionWorker(domain, session(domain, 'claim_extraction_worker'), reader.signer, LoadRulesExtractionProvider(), timezone='Asia/Shanghai')
+        worker = ClaimExtractionWorker(domain, session(domain, 'claim_extraction_worker'), signer, LoadRulesExtractionProvider(), timezone='Asia/Shanghai')
         outcomes = {}
         while True:
             result = worker.run_once()
@@ -330,7 +329,7 @@ def load_commitments(f, admin, pg, records, private_dir, workdir, operator):
         started = time.monotonic()
         settings = load_settings(root / 'deploy/configuration/commitments.v1.json')
         while True:
-            summary = CommitmentKeeper(domain, session(domain, 'commitment_keeper'), reader.signer, settings=settings).run_once()
+            summary = CommitmentKeeper(domain, session(domain, 'commitment_keeper'), signer, settings=settings).run_once()
             registered += summary.get('registered', 0)
             if not any(v for v in summary.values() if type(v) is int):
                 break

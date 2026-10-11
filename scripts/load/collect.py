@@ -36,25 +36,63 @@ def alerts(db, start, end):
         (TENANT, WORLD, start, end)).fetchall()]
 
 
+# A message Run: its route (message → run → task), the task's first claim (job_events 'running'), its terminal summary.
+_RUNS = """with r as (
+  select m.message_id,m.run_id,m.task_id,m.command->>'consumer_ref' consumer_ref,(cm.record->>'accepted_at')::timestamptz accepted_at,cv.consumer_id,
+         j.created_at task_created,j.status task_status,j.result,
+         (select min(e.created_at) from runtime.job_events e where e.job_id=m.task_id and e.status='running') claimed_at
+  from runtime.nexloop_message_routes m
+  join runtime.nexloop_conversation_messages cm on cm.tenant_id=m.tenant_id and cm.world=m.world and cm.message_id=m.message_id
+  join runtime.nexloop_conversations cv on cv.tenant_id=cm.tenant_id and cv.world=cm.world and cv.conversation_id=cm.conversation_id
+  left join runtime.jobs j on j.job_id=m.task_id
+  where m.tenant_id=%s and m.world=%s)"""
+
+
 def runs(db, start, end):
-    """Per message Run decomposition (D6). Message Runs are not started by this slice's stack (see stack.py), so there is
-    nothing to decompose; an empty file lets the report mark the decomposition missing instead of inventing it."""
-    return []
+    """D6 per message Run whose trigger was accepted in the window (contract §2; no run_id): end to end (trigger accepted → its
+    reply, fallback reply or escalation), model time (sum of the Run's model requests), tool time and calls (the Dispatcher's
+    tool_timing), queue wait (task created → first claimed). admission_wait_ms stays null: the Host's admission wait has no
+    per-Run record (NX-030 M09 is not delivered)."""
+    rows = db.execute(_RUNS + """
+      select r.accepted_at,r.result,r.task_created,r.claimed_at,
+        (select min((o.record->>'accepted_at')::timestamptz) from runtime.nexloop_conversation_messages o
+          where o.tenant_id=%s and o.world=%s and o.record->>'direction'='outbound' and o.record->>'trigger_message_id'=r.message_id) replied_at,
+        exists(select 1 from authz.nexloop_message_fallback_issuances f where f.message_id=r.message_id) fallback,
+        (select e.escalated_at from control.nexloop_reply_escalations e where e.tenant_id=%s and e.world=%s and e.message_id=r.message_id) escalated_at,
+        exists(select 1 from control.nexloop_takeover_settlements s where s.message_id=r.message_id) takeover,
+        exists(select 1 from control.nexloop_contact_restrictions c where c.tenant_id=%s and c.world=%s and c.consumer_id=r.consumer_id and c.active) restricted,
+        (select sum(extract(epoch from q.completed_at-q.requested_at)*1000) from runtime.nexloop_model_requests q where q.run_id=r.run_id and q.completed_at is not null) model_ms
+      from r where r.accepted_at>=%s and r.accepted_at<%s order by r.accepted_at""",
+      (TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, start, end)).fetchall()
+    out = []
+    for accepted, result, created, claimed, replied, fallback, escalated, takeover, restricted, model_ms in rows:
+        timing = (result or {}).get('tool_timing') if isinstance(result, dict) else None
+        done = replied or escalated
+        outcome = ('fallback' if fallback else 'replied') if replied else 'escalated' if escalated else 'takeover' if takeover else 'restricted' if restricted else 'in_progress'
+        out.append({'e2e_ms': round((done - accepted).total_seconds() * 1000, 1) if done else None,
+                    'model_ms': round(float(model_ms), 1) if model_ms is not None else None,
+                    'tool_ms': timing.get('total_ms') if timing else None, 'tool_calls': timing.get('calls') if timing else None,
+                    'queue_wait_ms': round((claimed - created).total_seconds() * 1000, 1) if claimed and created else None,
+                    'admission_wait_ms': None, 'outcome': outcome})
+    return out
 
 
 def dispatch(db, start, end):
-    """accepted_at → the message Run's task claimed; empty while the message Run chain is not started (stack.py)."""
-    return []
+    """Idle-queue dispatch (contract §2): an inbound message accepted in the window → its Run task first claimed."""
+    rows = db.execute(_RUNS + " select r.accepted_at,r.claimed_at from r where r.accepted_at>=%s and r.accepted_at<%s and r.claimed_at is not null",
+                      (TENANT, WORLD, start, end)).fetchall()
+    return [{'dispatch_ms': round((claimed - accepted).total_seconds() * 1000, 1)} for accepted, claimed in rows]
 
 
 def checks(db, start, end, cross_access):
     """Design §4.4: identity and outcome checks over the cell's window (IDs compared, never text)."""
     one = lambda sql, *a: db.execute(sql, a).fetchone()
-    # 1. Run binding: each message Run's context pack is for the consumer of its trigger message.
-    run_binding = one('''select count(*),count(*) filter (where cv.consumer_id is distinct from p.consumer_id) from runtime.nexloop_context_packs p
-        join authz.nexloop_message_fallback_issuances f on f.run_id=p.run_id join runtime.nexloop_conversation_messages m on m.message_id=f.message_id
-        join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id
-        where p.created_at>=%s and p.created_at<%s''', start, end) if _has(db, 'runtime.nexloop_context_packs', 'consumer_id') else (0, 0)
+    # The SQL helpers below (e.g. runtime.nexloop_inbound_answered) are security definer with row security: they see the tenant's
+    # rows only under its eios.tenant_id (without it every inbound message would read as unanswered).
+    db.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
+    # 1. Run binding: each message Run in the window was issued for the consumer of its trigger message's conversation.
+    run_binding = one(_RUNS + """ select count(*),count(*) filter (where r.consumer_ref is distinct from 'consumer:'||r.consumer_id) from r
+        where r.accepted_at>=%s and r.accepted_at<%s""", TENANT, WORLD, start, end)
     # 2. Outbound ownership: every outbound record (Agent, fallback, staff) in the same conversation as its trigger.
     outbound = one('''select count(*),count(*) filter (where t.conversation_id is distinct from o.conversation_id) from runtime.nexloop_conversation_messages o
         left join runtime.nexloop_conversation_messages t on t.tenant_id=o.tenant_id and t.world=o.world and t.message_id=o.record->>'trigger_message_id'
@@ -65,9 +103,18 @@ def checks(db, start, end, cross_access):
         join runtime.nexloop_conversations cv on cv.tenant_id=c.tenant_id and cv.world=c.world and cv.conversation_id=c.conversation_id
         where c.tenant_id=%s and c.world=%s''', TENANT, WORLD)
     # 5 comes from the driver; 4 and 6 need the message Run chain's records (model requests, effects) in the window.
-    # 4. Model request context ⊆ the Run's consumer: compared against the context manifest once message Runs exist (not checked
-    #    here, so `checked` stays 0 rather than counting requests as verified).
-    model = (0, 0)
+    # 4. Model request context: every ID a model request's context sources cite is the Run's own consumer, one of its
+    #    conversations or messages, or not a Consumer / Conversation / Message at all (IDs compared, never text).
+    model = one(_RUNS + """, q as (select q.run_id,q.context_id from runtime.nexloop_model_requests q where q.tenant_id=%s and q.world=%s
+          and q.requested_at>=%s and q.requested_at<%s),
+        cited as (select q.run_id,(regexp_matches(s.ref,'[0-9a-f]{64}','g'))[1] id from q join runtime.nexloop_context_sources s
+          on s.tenant_id=%s and s.world=%s and s.context_id=q.context_id)
+        select (select count(*) from q),count(*) filter (where
+          exists(select 1 from ontology.objects o where o.tenant_id=%s and o.world=%s and o.type_name='Consumer' and o.object_id=c.id and o.object_id<>r.consumer_id)
+          or exists(select 1 from runtime.nexloop_conversations cv where cv.tenant_id=%s and cv.world=%s and cv.conversation_id=c.id and cv.consumer_id<>r.consumer_id)
+          or exists(select 1 from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world
+                    and cv.conversation_id=m.conversation_id where m.tenant_id=%s and m.world=%s and m.message_id=c.id and cv.consumer_id<>r.consumer_id))
+        from cited c join r on r.run_id=c.run_id""", TENANT, WORLD, TENANT, WORLD, start, end, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD)
     duplicate = one('''select count(*),count(*) filter (where n>1) from (select trigger_message_id,count(*) n from runtime.nexloop_outbound_messages
         where tenant_id=%s and world=%s and delivery_state in ('provider_accepted','delivered') group by 1) x''', TENANT, WORLD)
     # 7. Every inbound message accepted in the window has an outcome: answered, settled by a takeover, or escalated.
@@ -90,10 +137,13 @@ def _has(db, table, column):
 
 
 def drained(db):
-    """Pending work left: queues (pending/retry_wait/running) and work feeds (pending)."""
+    """Pending work left: queues (pending/retry_wait/running), work feeds (pending) and inbound messages the relay has not routed."""
     jobs = db.execute("select count(*) from runtime.jobs where status in ('pending','retry_wait','running')").fetchone()[0]
-    feeds = db.execute("select count(*) from runtime.nexloop_work_feed where status='pending'").fetchone()[0]
-    return jobs + feeds
+    # plan-reevaluate is excluded: the load plans are data only and the cells run no plan reevaluator (dispatcher 2026-10-11, option B).
+    # Items scheduled for later (commitment due stages, reply-due before its time) are not pending work yet.
+    feeds = db.execute("select count(*) from runtime.nexloop_work_feed where status='pending' and feed<>'plan-reevaluate' and available_at<=clock_timestamp()").fetchone()[0]
+    outbox = db.execute("select count(*) from runtime.nexloop_message_outbox where status='pending'").fetchone()[0]
+    return jobs + feeds + outbox
 
 
 def jobs_summary(db):
@@ -102,3 +152,14 @@ def jobs_summary(db):
         from runtime.jobs group by 1,2,3 order by 1,2,3''').fetchall()] if _has(db, 'runtime.jobs', 'last_error_code') else \
         [{'queue': q, 'status': s, 'code': c, 'count': n} for q, s, c, n in db.execute('''select queue,status,coalesce(result->>'code',''),count(*)
         from runtime.jobs group by 1,2,3 order by 1,2,3''').fetchall()]
+
+
+def run_durations(db):
+    """Diagnostics for cell.json: message Run tasks, claimed → finished (succeeded or failed), seconds; p50 / p95 / max / count."""
+    rows = [r[0] for r in db.execute("""select extract(epoch from j.updated_at-(select min(e.created_at) from runtime.job_events e where e.job_id=j.job_id and e.status='running'))
+        from runtime.jobs j where j.queue='operations' and j.status in ('succeeded','failed')""").fetchall() if r[0] is not None] \
+        if _has(db, 'runtime.jobs', 'queue') else []
+    if not rows:
+        return {'count': 0}
+    rows.sort()
+    return {'count': len(rows), 'p50_s': round(float(rows[len(rows) // 2]), 2), 'p95_s': round(float(rows[max(0, int(len(rows) * 0.95) - 1)]), 2), 'max_s': round(float(rows[-1]), 2)}

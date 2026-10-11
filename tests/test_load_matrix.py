@@ -35,3 +35,18 @@ def test_runner_refuses_real_dispatch(monkeypatch,tmp_path):
     monkeypatch.setenv('REAL_DISPATCH_ENABLED','true')
     with pytest.raises(SystemExit,match='REAL_DISPATCH_ENABLED'):
         M.main(['--template',str(tmp_path),'--matrix',str(ROOT/'deploy/load/matrix.v1.json'),'--out',str(tmp_path/'o'),'--lane-root',str(tmp_path/'l')])
+
+
+def test_the_load_never_relaxes_the_login_rate_limit():
+    """Dispatcher 2026-10-11: the login rate limit is a security control. No load script or load test helper writes a rate policy
+    (the template keeps its trusted configuration's), every cell aborts unless the policy it runs under is the one the template
+    recorded, and the driver's warm-up waits out a 429 (or logs in from distinct loopback sources where the host can bind them)."""
+    sources=[*(ROOT/'scripts/load').glob('*.py'),*(ROOT/'scripts/load').glob('*.sh'),ROOT/'tests/load_template.py',ROOT/'tests/load_chain.py']
+    assert not [p.name for p in sources if 'rate_polic' in p.read_text() and p.name!='matrix.py' and p.name!='build_template_hold.py']
+    for name in ('matrix.py','build_template_hold.py'):  # read-only use: the policy is selected, never inserted or updated
+        text=(ROOT/'scripts/load'/name).read_text()
+        assert 'from control.nexloop_browser_rate_policies' in text and 'insert into control.nexloop_browser_rate_policies' not in text
+        assert 'update control.nexloop_browser_rate_policies' not in text
+    driver=(ROOT/'scripts/load/driver.py').read_text()
+    assert "Retry-After" in driver and 'local_address' in driver
+    assert "self.abort('login_policy_mismatch')" in (ROOT/'scripts/load/matrix.py').read_text()

@@ -9,6 +9,7 @@ access (design §4.4 item 5). No message text is written anywhere by the driver.
 import asyncio
 import json
 import random
+import socket
 import time
 
 import httpx
@@ -21,16 +22,37 @@ TEXT = {
 }
 
 
+def source_address(index):
+    """A distinct loopback source address per customer (127.0.0.0/8; as customers arriving from different addresses), or None
+    when this host cannot bind one (macOS binds only 127.0.0.1 without an alias): the login rate limit then applies to all
+    customers as one client and the warm-up waits out its Retry-After."""
+    address = f'127.{index // (254 * 254) % 254}.{index // 254 % 254}.{index % 254 + 1}'
+    try:
+        with socket.socket() as probe:
+            probe.bind((address, 0))
+        return address
+    except OSError:
+        return None
+
+
 class Customer:
     def __init__(self, index, account, origin, ca):
         self.index, self.account, self.origin = index, account, origin
-        self.client = httpx.AsyncClient(base_url=origin, verify=ca, timeout=30, trust_env=False,
-                                        limits=httpx.Limits(max_connections=2, max_keepalive_connections=1))
+        self.source = source_address(index + 2)
+        transport = httpx.AsyncHTTPTransport(verify=ca, local_address=self.source, limits=httpx.Limits(max_connections=2, max_keepalive_connections=1))
+        self.client = httpx.AsyncClient(base_url=origin, verify=ca, timeout=30, trust_env=False, transport=transport)
         self.csrf, self.conversation = None, None
 
-    async def login(self):
-        response = await self.client.post('/api/v1/auth/login', headers={'Origin': self.origin},
-                                          json={'username': self.account['username'], 'password': self.account['password']})
+    async def login(self, waited=0.0):
+        """Warm-up, not measured: under the tenant's login rate policy (never relaxed for the load), a 429 waits its Retry-After."""
+        while True:
+            response = await self.client.post('/api/v1/auth/login', headers={'Origin': self.origin},
+                                              json={'username': self.account['username'], 'password': self.account['password']})
+            if response.status_code != 429 or waited > 3600:
+                break
+            pause = float(response.headers.get('Retry-After', '5'))
+            waited += pause
+            await asyncio.sleep(pause)
         response.raise_for_status()
         self.csrf = response.json()['csrf_token']
         listed = (await self.client.get('/api/v1/conversations')).json()['items']

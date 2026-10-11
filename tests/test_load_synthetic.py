@@ -22,7 +22,8 @@ def test_shape_and_proportions():
     assert t['messages']==sum(len(c['messages']) for r in consumers for c in r['conversations'])
     # §2.2 proportions, within sampling noise of the fixed seed
     assert 0.05<t['restricted']/1000<0.11 and 0.16<t['commitment']/1000<0.25 and 0.25<t['active_plan']/1000<0.35
-    assert 15<t['messages']/1000<25 and all(1<=len(r['conversations'])<=3 for r in consumers)
+    # v2 (history option A): one conversation with the latest one or two inbound messages per consumer
+    assert all(len(r['conversations'])==1 and 1<=len(r['conversations'][0]['messages'])<=2 for r in consumers) and 1.4<t['messages']/1000<1.7
     assert len({r['username'] for r in consumers})==1000
     assert all(any(m['kind']=='commitment_ask' for m in r['conversations'][0]['messages']) for r in consumers if r['commitment'])
     restricted=[r for r in consumers if r['restricted']]

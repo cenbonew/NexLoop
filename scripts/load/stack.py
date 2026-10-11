@@ -5,15 +5,15 @@ tests/load_template.Clone), private files (0600), Artifact roots and each proces
 their deployed process counts and pools (deploy/stage/connection-budget.v1.json) and their own credentials from the template
 (service-grants manifest). REAL_DISPATCH_ENABLED=false; the model is the deterministic test profile.
 
-Started here: the API (2 processes, loopback HTTPS, browser and workbench realms) and, when the cell has `background`, the ten
-background services. The message Run chain (relay, runtime worker with four guard processes, Agent Host, effect worker,
-outbound recorder) is not started: the relay serves one consumer per process (recipe consumer_id), which cannot carry 1000
-consumers; that is reported to the dispatcher and the cell records `message_runs: "not_started"` (runs.jsonl stays empty, so
-the report marks the decomposition missing; nothing is faked).
+Started here: the API (2 processes, loopback HTTPS, browser and workbench realms); when the cell has `background`, the background
+services except the plan reevaluator (the load plans are data only, dispatcher 2026-10-11 option B: no plan Run); and the message
+Run chain (one multi-consumer relay, the runtime worker with four guard processes and one dispatch loop per Host slot, the Agent
+Host with the D5 injected model latency, the local JSON delivery provider, the effect worker and the outbound recorder).
 """
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -23,7 +23,6 @@ from pathlib import Path
 from psycopg.conninfo import make_conninfo
 
 ROOT = Path(__file__).resolve().parents[2]
-TENANT = 'synthetic-a'
 BACKGROUND = ('claim-extraction-scheduler', 'claim-extraction-worker', 'claim-matcher', 'recall-indexer', 'plan-reevaluator', 'reply-guarantor',
               'commitment-keeper', 'commercial-recorder', 'retention-keeper', 'alert-evaluator')
 ROLE_OF = {'claim-extraction-scheduler': 'claim_extraction_scheduler', 'claim-extraction-worker': 'claim_extraction_worker', 'claim-matcher': 'claim_matcher',
@@ -50,6 +49,8 @@ class Stack:
         self.children = {}
         self.api_origins = []
         self.ca_file = None
+        self.chain = json.loads((self.template / 'private/chain.json').read_text())
+        self.tenant = self.chain['tenant']
 
     # -- private files ----------------------------------------------------------------------------------------------
     def file(self, name, content):
@@ -67,21 +68,34 @@ class Stack:
     def admin_dsn(self):
         return self.clone.dsn
 
-    def _spawn(self, name, command, env=None):
+    def _spawn(self, name, command, env=None, inherit=True):
         work = self.lane / 'work' / name
         work.mkdir(parents=True)
         log = open(work / 'process.log', 'w')
-        self.children[name] = (subprocess.Popen(command, cwd=work, stdout=log, stderr=subprocess.STDOUT, env={**os.environ, **(env or {})}), log)
+        self.children[name] = (subprocess.Popen(command, cwd=work, stdout=log, stderr=subprocess.STDOUT,
+                                                env={**(os.environ if inherit else {}), **(env or {})}), log)
 
     # -- API ----------------------------------------------------------------------------------------------------------
-    def start_api(self, processes=2):
-        signing = json.loads((self.template / 'private/signing.json').read_text())
-        key = self.file('api-signing-key', bytes.fromhex(signing['material_hex']))
-        cert, tls_key = self.private / 'tls-cert.pem', self.private / 'tls-key.pem'
-        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', str(tls_key), '-out', str(cert), '-days', '1',
+    def tls(self, name):
+        """A one-day self-signed loopback certificate and key in a private directory (cert host-cert.pem, key host-key.pem)."""
+        directory = self.private / name
+        directory.mkdir(mode=0o700)
+        cert, key = directory / 'host-cert.pem', directory / 'host-key.pem'
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', str(key), '-out', str(cert), '-days', '1',
                         '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], check=True, capture_output=True)
         cert.chmod(0o600)
-        tls_key.chmod(0o600)
+        key.chmod(0o600)
+        return cert, key
+
+    @property
+    def signing(self):
+        if not (self.private / 'chain-signing-key').exists():
+            self.file('chain-signing-key', (self.template / 'private/backend-signing-key').read_bytes())
+        return self.private / 'chain-signing-key', self.chain['signing_key_id']
+
+    def start_api(self, processes=2):
+        key, key_id = self.signing
+        cert, tls_key = self.tls('api-tls')
         self.ca_file = cert
         api_dsn = self.file('api-dsn', self.dsn('nexloop_api'))
         identity_dsn = self.file('identity-dsn', self.dsn('nexloop_identity'))
@@ -91,10 +105,10 @@ class Stack:
             port = free_port()
             origin = f'https://127.0.0.1:{port}'
             self._spawn(f'api-{n + 1}', [sys.executable, '-m', 'nexloop_eios.http_api', '--database-url-file', str(api_dsn), '--signing-key-file', str(key),
-                '--signing-key-id', signing['key_id'], '--artifact-root', str(self.lane / 'api-artifacts'), '--mode', 'test', '--port', str(port),
+                '--signing-key-id', key_id, '--artifact-root', str(self.lane / 'api-artifacts'), '--mode', 'test', '--port', str(port),
                 '--execution-profile', 'deterministic-test', '--tls-certificate-file', str(cert), '--tls-key-file', str(tls_key),
-                '--identity-database-url-file', str(identity_dsn), '--browser-rate-key-file', str(rate), '--browser-tenant-id', TENANT,
-                '--browser-application-id', 'synthetic-browser-app', '--browser-origin', origin, '--workbench-application-id', 'synthetic-workbench-app'])
+                '--identity-database-url-file', str(identity_dsn), '--browser-rate-key-file', str(rate), '--browser-tenant-id', self.tenant,
+                '--browser-application-id', self.chain['browser_application'], '--browser-origin', origin, '--workbench-application-id', 'synthetic-workbench-app'])
             self.api_origins.append(origin)
         self._wait_live()
 
@@ -113,19 +127,22 @@ class Stack:
                 time.sleep(0.25)
 
     # -- background services ------------------------------------------------------------------------------------------
-    def start_background(self):
+    # The load plans are data only (dispatcher 2026-10-11, option B): no plan reevaluator, so no plan Run starts in a cell.
+    CELL_BACKGROUND = tuple(s for s in BACKGROUND if s != 'plan-reevaluator')
+
+    def start_background(self, services=CELL_BACKGROUND):
         tokens = json.loads((self.template / 'private/service-tokens.json').read_text())
         principals = json.loads((self.template / 'private/service-principals.json').read_text())
         signing = self.file('deploy-signing-key', bytes.fromhex((self.template / 'private/deploy-signing-key').read_text().strip()))
         (self.lane / 'artifacts').mkdir(mode=0o700, exist_ok=True)
-        for service in BACKGROUND:
+        for service in services:
             principal = principals[ROLE_OF[service]]
             args = ['--database-url-file', str(self.file(f'{service}-dsn', self.dsn(principal['database_role']))), '--signing-key-file', str(signing),
                     '--signing-key-id', 'load-deploy', '--service-credential-file', str(self.file(f'{service}-credential', tokens[principal['credential_reference']])),
                     '--artifact-root', str(self.lane / 'artifacts'), '--world', 'real', '--tick-seconds', '1']
             args += self._service_options(service, tokens, principals)
             self._spawn(service, [sys.executable, '-c', ENTRY, service, *args])
-        self._wait_ready(BACKGROUND)
+        self._wait_ready(services)
 
     def _service_options(self, service, tokens, principals):
         cfg = ROOT / 'deploy/configuration'
@@ -143,22 +160,18 @@ class Stack:
         if service == 'commercial-recorder':
             return ['--settings-file', str(cfg / 'commercial.v1.json')]
         if service in ('plan-reevaluator', 'reply-guarantor'):
-            # Their launchers start message/Role Runs: without the message Run chain (see module docstring) the launch identities are
-            # placeholders that are read but never authenticated while nothing is due; due items are reported, not faked.
+            # Their launchers run as the chain's relay identities on the API role (multi-consumer relay: run-profile mode).
             api = self.file(f'{service}-api-dsn', self.dsn('nexloop_api'))
+            tokens = self.chain['tokens']
             if service == 'plan-reevaluator':
                 options = ['--settings-file', str(cfg / 'plan-reevaluation.v1.json'), '--api-database-url-file', str(api), '--effect-action', 'eios:action:nexloop.service.request:1']
-                names = ('source', 'planner', 'queue', 'executor')
+                names = {'source': 'source', 'planner': 'planner', 'queue': 'route', 'executor': 'executor'}
             else:
-                recipe = {'consumer_id': 'a' * 64, 'control_id': 'b' * 64, 'control_revision': 1, 'consumer_revision': 1, 'valid_until': '2099-01-01T00:00:00+00:00',
-                          'role_ref': 'role:load', 'context_manifest_ref': 'artifact:load', 'runtime_profile': 'deterministic-test',
-                          'budget': {'maximum_model_turns': 2, 'maximum_tool_calls': 2, 'active_timeout_seconds': 60, 'maximum_cost': '0.20', 'currency': 'USD'},
-                          'runtime_owner_epoch': 1, 'queue': 'operations', 'offering_id': 'c' * 64, 'offering_binding_id': 'd' * 64}
                 options = ['--policy-file', str(cfg / 'reply-guarantee.v1.json'), '--api-database-url-file', str(api),
-                           '--recipe-file', str(self.file('relay-recipe.json', json.dumps(recipe)))]
-                names = ('route', 'source', 'planner', 'executor')
-            for name in names:
-                options += [f'--{name}-credential-file', str(self.file(f'{service}-{name}-credential', 'load-launch-not-started-' + name))]
+                           '--run-profile-file', str(self.run_profile_file())]
+                names = {'route': 'route', 'source': 'source', 'planner': 'planner', 'executor': 'executor'}
+            for name, token in names.items():
+                options += [f'--{name}-credential-file', str(self.file(f'{service}-{name}-credential', tokens[token]))]
             return options
         return []
 
@@ -173,15 +186,90 @@ class Stack:
                 time.sleep(0.2)
 
     # -- message Run chain (slot reserved; dispatcher 2026-10-11, plan A: the multi-consumer relay is L2's prerequisite) ------
-    MESSAGE_CHAIN = {'relay': {'processes': 1, 'pool_max': 2}, 'runtime_worker': {'guard_workers': 4}, 'agent_host': {'processes': 1},
+    MESSAGE_CHAIN = {'relay': {'processes': 1, 'pool_max': 2}, 'runtime_worker': {'guard_workers': 4, 'dispatch_loops': 'host_concurrency'}, 'agent_host': {'processes': 1},
                      'effect_worker': {'processes': 1, 'pool_max': 2}, 'outbound_recorder': {'processes': 1, 'pool_max': 2}}
 
-    def start_message_chain(self, host_concurrency):
-        """One multi-consumer relay (pool 2), the runtime worker with four guard processes, one Agent Host with
-        maximum_active_runs = the cell's host concurrency (load-lane configuration, never through the doctor for C8), the effect
-        worker with the loopback provider and the outbound recorder. Returns the reason it is not started while the
-        multi-consumer relay is not delivered; the runner records it in cell.json and writes no Run data."""
-        return 'awaiting_multi_consumer_relay'
+    def run_profile_file(self):
+        path = self.private / 'run-profile.json'
+        if not path.exists():
+            self.file('run-profile.json', json.dumps(self.chain['run_profile']))
+        return path
+
+    def start_message_chain(self, host_concurrency, latency=None):
+        """One multi-consumer relay (pool 2), the runtime worker with four guard processes (pool 4 each), one Agent Host with
+        maximum_active_runs = the cell's host concurrency (load-lane configuration, never through the doctor; C8 is 8), the
+        local JSON delivery provider, the effect worker and the outbound recorder. Returns None once all are up. `latency`
+        ({median_ms, p95_ms, seed}) is the Host's D5 injected model latency (deterministic-test only); None injects none."""
+        key, key_id = self.signing
+        tokens = self.chain['tokens']
+        token = {name: self.file(f'chain-{name}-credential', value) for name, value in tokens.items()}
+        recorder = token['recorder']  # published with the recorder's Action (the service-grants apply keeps that credential)
+        common = ['--signing-key-file', str(key), '--signing-key-id', key_id]
+        for name in ('host-runtime', 'runtime-artifacts', 'relay-artifacts', 'relay-vault', 'delivery-artifacts', 'delivery-root', 'effect-artifacts', 'recorder-artifacts'):
+            (self.lane / name).mkdir(mode=0o700)
+        # Agent Host (deterministic profile with the D5 injected model latency of the matrix).
+        host_cert, host_tls_key = self.tls('host-tls')
+        host_key = self.file('host-internal-key', secrets.token_hex(32))
+        guard_cert, guard_tls_key = self.tls('guard-tls')
+        guard_key = self.file('guard-key', secrets.token_hex(32))
+        guard_port, host_port = free_port(), free_port()
+        config = self.file('host-runtime-config.json', json.dumps({'guard_url': f'https://127.0.0.1:{guard_port}/internal/v1/runtime/authorize',
+            'guard_key_file': str(guard_key), 'guard_ca_file': str(guard_cert), 'runtime_profile': 'deterministic-test', 'effect_tools': True,
+            'deterministic_message_from_input': True, 'context_input_protocol': 'nexloop.context-pack.v2', 'maximum_active_runs': host_concurrency,
+            **({'deterministic_latency': latency} if latency else {})}))
+        node = shutil.which('node')
+        if node is None or not (ROOT / 'apps/agent-host/dist/main.js').is_file():
+            raise StackFailed('agent-host')
+        host_env = {k: v for k, v in os.environ.items() if not k.startswith(('MODEL_', 'DATABASE_'))}
+        self._spawn('agent-host', [sys.executable, str(ROOT / 'scripts/agent_host.py'), '--node', node, '--runtime-root', str(self.lane / 'host-runtime'),
+            '--internal-key-file', str(host_key), '--port', str(host_port), '--tls-certificate-file', str(host_cert), '--tls-key-file', str(host_tls_key),
+            '--runtime-config-file', str(config)], env=host_env, inherit=False)
+        self._wait_https(f'https://127.0.0.1:{host_port}/health/live', host_cert, 'agent-host')
+        # Runtime worker: four guard processes (ADR-024 deployment shape) and one dispatch loop per Host slot (NX-031 --dispatch-loops).
+        runtime_dsn = self.file('runtime-dsn', self.dsn('nexloop_domain_worker'))
+        self._spawn('runtime-worker', [sys.executable, '-m', 'nexloop_eios.runtime_worker', '--database-url-file', str(runtime_dsn),
+            *common, '--service-credential-file', str(token['runtime_worker']), '--artifact-root', str(self.lane / 'runtime-artifacts'), '--world', 'real',
+            '--queue', self.chain['run_profile']['queue'], '--host-origin', f'https://127.0.0.1:{host_port}', '--host-control-key-file', str(host_key),
+            '--host-ca-file', str(host_cert), '--guard-port', str(guard_port), '--guard-key-file', str(guard_key), '--guard-certificate-file', str(guard_cert),
+            '--guard-tls-key-file', str(guard_tls_key), '--guard-workers', '4', '--dispatch-loops', str(host_concurrency)], env={'NEX_EIOS_DB_POOL_MAX': '4'})
+        # Local JSON delivery provider and the effect worker that dispatches to it.
+        delivery_cert, delivery_key = self.tls('delivery-tls')
+        provider_key = self.file('provider-key', secrets.token_hex(32))
+        origin = f'https://127.0.0.1:{free_port()}'
+        action_dsn = self.file('action-dsn', self.dsn('nexloop_action_worker'))
+        self._spawn('delivery', [sys.executable, '-m', 'nexloop_eios.local_json_delivery', '--database-url-file', str(action_dsn), *common,
+            '--service-credential-file', str(token['executor']), '--artifact-root', str(self.lane / 'delivery-artifacts'), '--delivery-root', str(self.lane / 'delivery-root'),
+            '--certificate-file', str(delivery_cert), '--tls-key-file', str(delivery_key), '--provider-ca-file', str(delivery_cert),
+            '--provider-credential-file', str(provider_key), '--origin', origin])
+        provider = self.file('provider-config.json', json.dumps({'origin': origin, 'credential_file': str(provider_key), 'ca_file': str(delivery_cert), 'timeout': 3}))
+        self._spawn('effect-worker', [sys.executable, '-m', 'nexloop_eios.effect_worker', '--database-url-file', str(action_dsn), *common,
+            '--service-credential-file', str(token['executor']), '--artifact-root', str(self.lane / 'effect-artifacts'), '--world', 'real',
+            '--provider-config-file', str(provider)])
+        # One multi-consumer relay (run profile) and the outbound recorder.
+        api_dsn = self.file('chain-api-dsn', self.dsn('nexloop_api'))
+        self._spawn('relay', [sys.executable, '-m', 'nexloop_eios.message_relay_cli', '--database-url-file', str(api_dsn), *common,
+            '--artifact-root', str(self.lane / 'relay-artifacts'), '--vault-root', str(self.lane / 'relay-vault'), '--run-profile-file', str(self.run_profile_file()),
+            *sum(([f'--{name}-credential-file', str(token[name])] for name in ('route', 'source', 'planner', 'executor')), [])])
+        self._spawn('outbound-recorder', [sys.executable, '-m', 'nexloop_eios.outbound_messages', '--database-url-file', str(api_dsn), *common,
+            '--service-credential-file', str(recorder), '--artifact-root', str(self.lane / 'recorder-artifacts'), '--world', 'real'])
+        time.sleep(3)
+        dead = [name for name in ('runtime-worker', 'delivery', 'effect-worker', 'relay', 'outbound-recorder') if self.children[name][0].poll() is not None]
+        if dead:
+            raise StackFailed(','.join(dead))
+        return None
+
+    def _wait_https(self, url, ca, name, timeout=30):
+        import httpx
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if httpx.get(url, verify=str(ca), timeout=2, trust_env=False).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            if self.children[name][0].poll() is not None or time.monotonic() > deadline:
+                raise StackFailed(name)
+            time.sleep(0.2)
 
     def alive(self):
         return {name: process.poll() is None for name, (process, _) in self.children.items()}
