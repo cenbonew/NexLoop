@@ -2311,6 +2311,18 @@
         "ref": "ci:sice/20261010T202717Z-567671294a30",
         "summary": "Full CI for 5676712 (integration-s4m): 2782 passed / 12 failed, all within baseline; NX-049 serial deadline phase 2/2 (v4 72.1 s). Merged as 102d96a.",
         "recorded_at": "2026-10-11T05:13:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "393fe85",
+        "summary": "Merged erasure propagation (0138): Consumer erasure also clears plan/strategy free text and effect request bodies, deletes formal objects referencing the Consumer (RelationshipAssessment, ConsumerRoleLink, Goal, PlanStep, EffectControl, ConsumerServiceOffering) with tombstones, erased messages leave WebChat history, the event stream and the Claim evidence view; fixed the 0132 conditional-Claim erasure deadlock. Expiry classes run_files (30 d via runs/purge), commitment_closed (365 d), claim_superseded (365 d, value cleared, row kept) (0139). An end-to-end assertion scans every table of five schemas after an erasure. Remaining for done: the other expiry classes (plans D3, effect bodies 90 d, runtime jobs, model request manifests, audits D6, deletion ledger and tombstones) and the mutation_proposals value copy.",
+        "recorded_at": "2026-10-11T08:00:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:sice/20261010T231158Z-883a04715721",
+        "summary": "Full CI for 883a047 (integration-s4o): round 1 (babf24e) had one new deterministic failure, the background tick expected 7 retention classes instead of 10 (test expectation not updated), fixed in the integration branch; round 2: 2789 passed / 14 failed, all within baseline, deadline phase 2/2. Merged as 393fe85.",
+        "recorded_at": "2026-10-11T08:00:00+08:00"
       }
     ]
   },
