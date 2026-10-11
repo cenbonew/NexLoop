@@ -2487,6 +2487,18 @@
         "ref": "planning/ROADMAP.md",
         "summary": "依赖说明（ROADMAP §2）：对 NX-031 的依赖只约束切片 5（真实双机部署，B 类）；切片 0–4 为本地或模拟工作，依据 15 §5 先行，沿用 NX-031 已合入的连接预算登记与 dispatch_loops。切片 5 的前置：NX-031 有结论、负责人对部署前提的决定（ROADMAP D-a）、发布签名材料与工具（O1–O3）。切片 4 在 CI 主机用 rootless Docker 容器模拟（该主机限制非特权 user namespace，不改系统设置），结果只算模拟证据。开放设计点：Agent Host 与 API/Worker 共用网络命名空间，须在接入真实模型（NX-037）前由负责人定案（ROADMAP D-c）。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4889b5e",
+        "summary": "NX-032 切片 3 与切片 4 预检（本地，不接触服务器）：scripts/deploy/deploy.py dry-run（release.py verify 核对已签名清单、受信 SHA、镜像包未改动；Compose 镜像变量由清单生成，私有 env 写了别的 digest 即拒绝；给出当前清单时调用 rollback-check 拒绝盲目回滚；DATA_HOST 的 PG/Valkey 镜像须为 versions.lock.json 固定 digest），Gateway Caddyfile 模板，stage 示例地址规则的反向断言（私网、共享与公网地址被拒；测试中改为运行时构造，09a258c），只读的 netns 可行性检查。",
+        "recorded_at": "2026-10-11T10:51:09.086054+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T100123Z-09a258c1e19f",
+        "summary": "s4x 全量（09a258c）：test_deploy_dryrun 5、test_netns_feasibility 4、test_connection_budget 30 等通过；失败 13 项均在基线（C 类 role_tail 同检出串行 2/2），串行门槛 2/2。第一轮（ci:lane/runs/20261011T095950Z-f4544765b04a）在发布扫描阶段失败：反向断言写了私网地址字面量，09a258c 修正后重跑。",
+        "recorded_at": "2026-10-11T10:51:09.086054+00:00"
       }
     ]
   },
@@ -2622,13 +2634,31 @@
       "M23"
     ],
     "deliverable": "README双语、许可/NOTICE/SBOM/贡献/安全/操作手册",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "file",
         "ref": "docs/implementation/NX-036-design.md",
         "summary": "NX-036 设计稿（a06e6d6，合入 main 5d8d756）：许可合规检查（Python/Node/vendored/自有资产，版本化策略，不猜测、缺元数据即失败）、源码级 SBOM 与漏洞策略（阈值、到期豁免、漏洞库新鲜度）、CONTRIBUTING/SECURITY/行为准则、公开发布 9 步门槛。D1–D12 待负责人决定；状态保持 not_started。",
         "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2a2f975",
+        "summary": "NX-036 实现（nx036-impl 147368b、2a2f975）：scripts/check_licenses.py 与 deploy/compliance/license-policy.v1.json（Python/Node/vendored/自有资产，不猜测许可证，缺元数据即失败；274 个包，257 allowed、17 conditional、0 拒绝），THIRD_PARTY_NOTICES.md 由脚本生成，vulnerability-policy.v1.json（Critical 且有修复版本即阻断，豁免须写理由与到期日、最长 90 天），CONTRIBUTING.md（DCO）、SECURITY.md（报告渠道为参数，未填时 public 门槛失败）、CODE_OF_CONDUCT.md（Contributor Covenant 2.1），check_signoff.py、check_ci_isolation.py、check_public_files.py，release.py public-preflight 九步。D1–D12 由负责人 2026-10-11 全部按推荐定案，写入设计稿 §8 与实现说明 §1。",
+        "recorded_at": "2026-10-11T10:51:09.086054+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261011T100123Z-09a258c1e19f",
+        "summary": "s4x 全量（09a258c）：NX-036 新增测试全部通过；失败集为基线子集，串行门槛 2/2。",
+        "recorded_at": "2026-10-11T10:51:09.086054+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-036-implementation.md",
+        "summary": "剩余：L5 文档交付物（英文 README、README.zh-CN、GOVERNANCE、公开发布检查清单、OPERATIONS，docs-nx036 a73ac38）待下一轮合入；连接器开发与评估运行指南（调度员裁定为首个公开发布门槛，L5 编写中）；负责人项：安全联系人与 GitHub 私密漏洞报告（ROADMAP O4）、首个公开发布前的全历史审计确认（D9）；内部镜像含弱 copyleft 组件，镜像公开前须重新评估分发义务。public-preflight 在这些完成前预期失败。",
+        "recorded_at": "2026-10-11T10:51:09.086054+00:00"
       }
     ]
   },
