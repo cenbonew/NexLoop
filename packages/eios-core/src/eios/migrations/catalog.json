@@ -750,6 +750,11 @@
       "version": "0150",
       "name": "0150_relay_handoff.sql",
       "sha256": "0d12b24f0191fa5136d7c6c10ba8d2bdcce58f660892d095c16aeecec361ac08"
+    },
+    {
+      "version": "0151",
+      "name": "0151_service_readiness.sql",
+      "sha256": "cb9197a44cbdf0382f3cbc75c1771e42bdd7c36ee8fe738161058deef6782e78"
     }
   ]
 }

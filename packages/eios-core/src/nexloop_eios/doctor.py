@@ -106,6 +106,52 @@ def observability(metrics_database_url_file,rules_file):
     return {'checks':checks,'details':details}
 
 
+BACKUP_PLAN_KEYS={'schema','version','decision','pg','wal','files','retention','journal','limits','repos'}
+def load_backup_plan(path):
+    """deploy/configuration/backup.v1.json with bounded validation (NX-035 §3.2); anything else is refused."""
+    plan=json.loads(Path(path).read_text())
+    limits=plan.get('limits') if type(plan) is dict else None
+    if (type(plan) is not dict or set(plan)!=BACKUP_PLAN_KEYS or plan['schema']!='nexloop-backup-plan/1' or type(plan['version']) is not int
+            or type(limits) is not dict or set(limits)!={'max_backup_age_seconds','max_full_backup_age_seconds','max_drill_age_seconds'}
+            or not all(type(v) is int and 0<v<=60*86400 for v in limits.values())
+            or not 0<plan['wal'].get('max_archive_age_seconds',0)<=3600 or not 0<plan['files'].get('max_age_seconds',0)<=86400
+            or not 0<plan['journal'].get('max_lag_seconds',0)<=3600 or plan['retention'].get('max_retention_days')!=35
+            or plan['repos'].get('required')!=['repo1']):
+        raise ValueError('backup plan invalid')
+    return plan
+def read_backup_status(metrics_database_url_file):
+    with psycopg.connect(read_private_text(metrics_database_url_file,maximum=16384),connect_timeout=5) as db:
+        if db.execute('select current_user').fetchone()[0]!='nexloop_metrics':raise ValueError('read-only metrics role required')
+        return db.execute('select authz.nexloop_backup_status()').fetchone()[0]
+def backup(metrics_database_url_file,plan_file):
+    """NX-035 §8: the latest backups against the plan, the restore state and the deletion replay, read through the read-only
+    nexloop_metrics role (authz.nexloop_backup_status). Missing manifests, a missing plan or anything unknown fail."""
+    try:
+        plan=load_backup_plan(plan_file)
+    except Exception:
+        return {'checks':{'backup_plan_file':False},'details':{'backup_error':'backup plan file missing or invalid'}}
+    try:
+        status=read_backup_status(metrics_database_url_file)
+    except Exception:
+        return {'checks':{'backup_plan_file':True,'backup_status':False},'details':{'backup_error':'backup status unavailable'}}
+    b,limits=status.get('backup') or {},plan['limits']
+    def within(key,limit):
+        value=b.get(key)
+        return type(value) in (int,float) and value<=limit
+    checks={'backup_plan_file':True,'backup_status':True,'backup_manifest_present':b.get('status')=='ok',
+        'backup_recent':within('age_seconds',limits['max_backup_age_seconds']),
+        'full_backup_recent':within('full_backup_age_seconds',limits['max_full_backup_age_seconds']),
+        'required_repos_recent':all(type((b.get('repo_backup_age_seconds') or {}).get(r)) in (int,float)
+            and b['repo_backup_age_seconds'][r]<=limits['max_backup_age_seconds'] for r in plan['repos']['required']),
+        'latest_backup_verified':b.get('verify_failed')==0,
+        'wal_archiving':b.get('wal_archive_failing')==0 and within('wal_last_archived_age_seconds',plan['wal']['max_archive_age_seconds']),
+        'file_backup_recent':within('file_backup_age_seconds',plan['files']['max_age_seconds']),
+        'journal_export':within('journal_export_lag_seconds',plan['journal']['max_lag_seconds']),
+        'restore_drill_recent':within('drill_age_seconds',limits['max_drill_age_seconds']),
+        'restore_state_open':(status.get('restore') or {}).get('state') in ('open','never_restored'),
+        'deletion_replay_closed':status.get('erasure_ready') is True}
+    return {'checks':checks,'details':{'backup':{'plan_version':plan['version'],'restore_state':(status.get('restore') or {}).get('state'),
+        'failed':sorted(k for k,v in checks.items() if not v)}}}
 RELAY_SOURCE_PRINCIPAL='nexloop-service-relay-source-principal'
 
 
@@ -147,7 +193,15 @@ def main():
     parser.add_argument('--deploy-gate',type=Path,help='NX-032 §6: private deploy-gate spec (host_role and input files); every pre-start check of one host')
     parser.add_argument('--tls-spec',type=Path,help='NX-032: private TLS spec (CA, certificates, DSN files, Valkey configuration); names and codes only in the output')
     parser.add_argument('--relay-source',action='store_true',help='relay multi-consumer: the relay Source principal and credential (read-only metrics role)')
+    parser.add_argument('--backup',action='store_true',help='NX-035: backups against deploy/configuration/backup.v1.json, restore state (read-only metrics role)')
+    parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
     args=parser.parse_args()
+    if args.backup:
+        if not args.metrics_database_url_file or not args.backup_plan:parser.error('--backup requires --metrics-database-url-file and --backup-plan')
+        result=backup(args.metrics_database_url_file,args.backup_plan)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.relay_source:
         if not args.metrics_database_url_file:parser.error('--relay-source requires --metrics-database-url-file')
         result=relay_source(args.metrics_database_url_file)

@@ -38,7 +38,9 @@ services:
   api:
     <<: *service
     entrypoint: [nexloop-api]
-    command: [--database-url-file, /run/secrets/api_dsn, --signing-key-file, /run/secrets/signing_key, --artifact-root, /var/lib/nexloop/artifacts,
+    # Deployment mode: every required file and value present or the API refuses to start; test-only switches refused.
+    command: [--mode, stage, --execution-profile, "${API_EXECUTION_PROFILE:?real-provider or disabled}", --signing-key-id, "${SIGNING_KEY_ID:?signing key id}",
+              --database-url-file, /run/secrets/api_dsn, --signing-key-file, /run/secrets/signing_key, --artifact-root, /var/lib/nexloop/artifacts,
               --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}",
               --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key]

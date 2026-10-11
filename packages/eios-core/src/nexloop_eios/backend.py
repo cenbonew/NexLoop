@@ -416,13 +416,28 @@ class Backend:
             except Exception:pass
             try:verify_backend_signer(self._pool,self._signer);checks['signer']=True
             except Exception:pass
-            try:
-                opened=os.fstat(self._store._root)
-                current=os.stat(self._store.root,follow_symlinks=False)
-                checks['artifact_directory']=(stat.S_ISDIR(current.st_mode) and current.st_uid==os.geteuid()
-                    and not current.st_mode&0o077 and (opened.st_dev,opened.st_ino)==(current.st_dev,current.st_ino))
-            except Exception:pass
+            checks['artifact_directory']=self._artifact_directory_ok()
             return {'checks':checks,'foundation_ready':all(checks.values()),'product_ready':False}
+
+    def _artifact_directory_ok(self):
+        try:
+            opened=os.fstat(self._store._root)
+            current=os.stat(self._store.root,follow_symlinks=False)
+            return (stat.S_ISDIR(current.st_mode) and current.st_uid==os.geteuid()
+                and not current.st_mode&0o077 and (opened.st_dev,opened.st_ino)==(current.st_dev,current.st_ino))
+        except Exception:
+            return False
+
+    def deployment_readiness(self, environ):
+        """Stage readiness (nexloop_eios.deployment_readiness): (status code, body with fixed reason codes only)."""
+        from nexloop_eios import deployment_readiness as readiness
+        with self._lock:
+            self._assert_open()
+            signer=False
+            try:verify_backend_signer(self._pool,self._signer);signer=True
+            except Exception:pass
+            return readiness.evaluate(self._pool.connection,environ=environ,
+                extra=(('signer_unavailable',signer),('artifact_directory_unavailable',self._artifact_directory_ok())))
 
     def authenticate(self, token, *, world):
         with self._lock:
