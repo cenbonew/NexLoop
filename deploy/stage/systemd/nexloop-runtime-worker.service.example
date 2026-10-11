@@ -32,7 +32,8 @@ ExecStart=/opt/nexloop/venv/bin/nexloop-runtime-worker \
   --guard-certificate-file ${NEXLOOP_PRIVATE_DIR}/guard_certificate \
   --guard-tls-key-file ${NEXLOOP_PRIVATE_DIR}/guard_tls_key \
   --guard-workers 4 \
-  --dispatcher-pool-max 2
+  --dispatcher-pool-max 2 \
+  --dispatch-loops 4
 # SIGTERM to the parent only; it forwards to the guard children and waits for them to drain
 # (children up to 15 s, parent up to 20 s). After TimeoutStopSec everything is killed.
 KillMode=mixed

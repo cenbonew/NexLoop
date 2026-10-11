@@ -83,14 +83,22 @@ def _arguments(argv):
     parser.add_argument('--once',action='store_true',help='one bounded dispatch tick; no provider selection or real Action success claim')
     parser.add_argument('--guard-workers',type=int,default=1,help='serve the guard from N child processes (ADR-024; default 1: in-process thread, stage deployment uses 4)')
     parser.add_argument('--dispatcher-pool-max',type=int,default=2,help='PG pool max of the dispatcher-only parent when --guard-workers > 1 (ADR-024)')
+    parser.add_argument('--dispatch-loops',type=int,default=DEFAULT_DISPATCH_LOOPS,
+        help='concurrent dispatch loops sharing the queue (NX-031; default 4 = the Agent Host default maximum_active_runs, ADR-022 §4)')
     args=parser.parse_args(argv)
     if (not 1024<=args.guard_port<=65535 or re.fullmatch('[A-Za-z][A-Za-z0-9_-]{0,63}',args.queue) is None
         or not args.world or len(args.world)>255 or not args.signing_key_id or len(args.signing_key_id)>255
         or not math.isfinite(args.tick_seconds) or not 0<args.tick_seconds<=30 or not 1<=args.guard_workers<=16
-        or not 1<=args.dispatcher_pool_max<=32):parser.error('configuration')
+        or not 1<=args.dispatcher_pool_max<=32 or not 1<=args.dispatch_loops<=16):parser.error('configuration')
     try:args.guard_pool_max=guard_pool_max(os.environ)
     except ValueError:parser.error('configuration')
     return args
+
+
+# One RuntimeDispatcher loop drives one Run at a time (it polls the Host until the Run settles), so a single loop caps the Host's
+# active Runs at 1. N loops share the queue; claim/lease fencing gives each task to one loop, and a dead loop's lease expires
+# and the task is reclaimed. The default equals the Agent Host's default maximum_active_runs (ADR-022 §4).
+DEFAULT_DISPATCH_LOOPS=4
 
 
 def guard_pool_max(environ):
@@ -152,29 +160,39 @@ def run(arguments,stop):
                 else:record_pool_sample(backend._pool,'runtime-worker')
             start_sampler(stop,60,observe)
             print('Runtime Worker ready',flush=True)
-            while not stop.is_set():
-                try:
-                    # File rotation/current realm facts are read afresh each tick.
-                    dispatcher=RuntimeDispatcher(guard.service(),host,queue=arguments.queue,lease_seconds=arguments.lease_seconds,
-                        total_timeout=arguments.total_timeout,request_timeout=arguments.request_timeout,poll_seconds=arguments.poll_seconds,cache_wakeup=cache)
-                    if stop.is_set():break
-                    result=dispatcher.run_once()
-                    if arguments.once:
-                        # Strict allowlist; no task/Run/ref/payload/exception text.
-                        status=result.get('status','idle')
-                        if status not in {'idle','succeeded','failed','retry_wait','dead_lettered','lease_lost'}:status='unavailable'
-                        summary={'claimed':result.get('claimed') is True,'status':status}
-                        if cache is not None:summary['cache']=cache.health()
-                        print(json.dumps(summary,separators=(',',':')),flush=True)
-                        return 0
-                except Exception:
-                    if arguments.once:
-                        print('Runtime Worker dispatch unavailable',file=sys.stderr,flush=True)
-                        return 1
-                    # Stay silent on repeated failures; every future tick rechecks
-                    # actual credentials and authority without minting a Run.
-                if arguments.once:break
-                stop.wait(arguments.tick_seconds)
+            def dispatch_loop():
+                while not stop.is_set():
+                    try:
+                        # File rotation/current realm facts are read afresh each tick.
+                        dispatcher=RuntimeDispatcher(guard.service(),host,queue=arguments.queue,lease_seconds=arguments.lease_seconds,
+                            total_timeout=arguments.total_timeout,request_timeout=arguments.request_timeout,poll_seconds=arguments.poll_seconds,cache_wakeup=cache)
+                        if stop.is_set():break
+                        result=dispatcher.run_once()
+                        if arguments.once:
+                            # Strict allowlist; no task/Run/ref/payload/exception text.
+                            status=result.get('status','idle')
+                            if status not in {'idle','succeeded','failed','retry_wait','dead_lettered','lease_lost'}:status='unavailable'
+                            summary={'claimed':result.get('claimed') is True,'status':status}
+                            if cache is not None:summary['cache']=cache.health()
+                            print(json.dumps(summary,separators=(',',':')),flush=True)
+                            return 0
+                    except Exception:
+                        if arguments.once:
+                            print('Runtime Worker dispatch unavailable',file=sys.stderr,flush=True)
+                            return 1
+                        # Stay silent on repeated failures; every future tick rechecks
+                        # actual credentials and authority without minting a Run.
+                    if arguments.once:break
+                    stop.wait(arguments.tick_seconds)
+                return None
+            if arguments.once:
+                outcome=dispatch_loop()
+                if outcome is not None:return outcome
+            else:
+                # --once stays one bounded tick; otherwise N loops, each settling its own current dispatch on SIGTERM.
+                loops=[threading.Thread(target=dispatch_loop,name=f'nexloop-runtime-dispatch-{n}',daemon=True) for n in range(arguments.dispatch_loops)]
+                for loop in loops:loop.start()
+                for loop in loops:loop.join()
             if pool is not None and pool.failed:
                 # Children kept exiting: stop claiming and leave restart to the service manager.
                 print('Runtime guard workers unavailable',file=sys.stderr,flush=True)
