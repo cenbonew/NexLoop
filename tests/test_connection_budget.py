@@ -139,17 +139,35 @@ def test_stage_examples_match_the_declared_budget():
     assert 'KillMode=mixed' in unit and 'TimeoutStopSec=40' in unit and worker['stop_grace_period']=='40s'
 
 
+DOCUMENTATION_RANGES=('192.0.2.0/24','198.51.100.0/24','203.0.113.0/24')  # RFC 5737
+
+
+def example_address_allowed(candidate):
+    """In stage examples only loopback, the unspecified address (0.0.0.0 in reject rules and container binds) and the RFC 5737
+    documentation ranges may appear; private (RFC 1918), shared (100.64/10) and public addresses never do."""
+    address=ipaddress.ip_address(candidate)
+    return address.is_loopback or address.is_unspecified or any(address in ipaddress.ip_network(n) for n in DOCUMENTATION_RANGES)
+
+
 def test_stage_examples_contain_no_real_addresses():
     for path in STAGE.rglob('*'):
         if not path.is_file():continue
         text=path.read_text()
         for candidate in re.findall(r'\b\d{1,3}(?:\.\d{1,3}){3}\b',text):
-            address=ipaddress.ip_address(candidate)
-            # NX-032 examples: the unspecified address (0.0.0.0 in reject rules and container binds) and the RFC 5737 documentation
-            # ranges stand in for real addresses; nothing else may appear.
-            documentation=any(address in ipaddress.ip_network(n) for n in ('192.0.2.0/24','198.51.100.0/24','203.0.113.0/24'))
-            assert address.is_loopback or address.is_unspecified or documentation,f'{path.name}: {candidate}'
+            assert example_address_allowed(candidate),f'{path.name}: {candidate}'
         assert not re.search(r'\b[a-z0-9-]+\.(?:lan|local|internal|home)\b',text),path.name
+
+
+def test_the_address_rule_still_refuses_private_shared_and_public_addresses():
+    # Built from integers so that no private or shared address literal is tracked (the publication scan refuses them).
+    def dotted(a,b,c,d):return str(ipaddress.ip_address((a<<24)|(b<<16)|(c<<8)|d))
+    refused_addresses=(dotted(10,0,0,1),dotted(10,255,255,254),dotted(172,16,0,1),dotted(172,31,250,7),dotted(192,168,1,1),
+                       dotted(100,64,0,1),dotted(100,127,255,254),dotted(8,8,8,8),dotted(1,1,1,1),
+                       dotted(192,0,3,1),dotted(198,51,101,1),dotted(203,0,114,1))
+    for refused in refused_addresses:
+        assert not example_address_allowed(refused),refused
+    for allowed in ('127.0.0.1','0.0.0.0','192.0.2.10','198.51.100.200','203.0.113.5'):
+        assert example_address_allowed(allowed),allowed
 
 
 def test_runtime_worker_pool_sizes(monkeypatch,tmp_path):

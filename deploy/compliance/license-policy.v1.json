@@ -1,0 +1,1150 @@
+{
+  "schema": "nexloop-license-policy/1",
+  "version": 1,
+  "decision": "NX-036 §2 (design merged at 3b5a684; owner decided D7 and D8 on 2026-10-11: all as recommended). NexLoop is MIT (ADR-026). Permissive licenses are allowed in every scope. Weak copyleft (LGPL, MPL-2.0) is allowed only for packages listed under 'conditional', used unmodified as separate libraries (never vendored or modified); strong copyleft, non-open-source and unknown licenses are denied. Licenses are never guessed: ambiguous metadata needs a clarification with the hash of the license file it was read from; a package installed only on another platform needs an off-platform record bound to the exact locked artifact (written by --record-off-platform and reviewed). THIRD_PARTY_NOTICES.md is generated from this inventory (D8).",
+  "project_license": {
+    "spdx": "MIT",
+    "file": "LICENSE",
+    "sha256": "9f5911fcd7dfd7be1bc3c4b14eab1580d7a1bb235a71337865e78e5071b66151",
+    "notice_copies": [
+      "packages/eios-core/NOTICE"
+    ]
+  },
+  "allowed": [
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    "0BSD",
+    "PSF-2.0",
+    "Python-2.0",
+    "Unlicense",
+    "Zlib",
+    "CC0-1.0",
+    "BlueOak-1.0.0"
+  ],
+  "conditional_licenses": [
+    "LGPL-2.1-only",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+    "MPL-2.0"
+  ],
+  "denied": [
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "SSPL-1.0",
+    "BUSL-1.1",
+    "CC-BY-NC-4.0",
+    "UNLICENSED",
+    "NOASSERTION",
+    "UNKNOWN"
+  ],
+  "normalize": {
+    "MIT License": "MIT",
+    "Apache Software License": "Apache-2.0",
+    "Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
+    "Python Software Foundation License": "PSF-2.0",
+    "ISC License (ISCL)": "ISC",
+    "BSD License": null
+  },
+  "conditional": [
+    {
+      "ecosystem": "python",
+      "name": "psycopg",
+      "version_pattern": "3\\..*",
+      "scopes": [
+        "runtime"
+      ],
+      "use": "PostgreSQL driver imported unmodified as a separate library; LGPL text ships in its wheel; NexLoop source releases do not redistribute it.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "python",
+      "name": "psycopg-binary",
+      "version_pattern": "3\\..*",
+      "scopes": [
+        "runtime"
+      ],
+      "use": "Binary build of psycopg (bundles libpq and its own dependencies with their license files); unmodified, not redistributed by NexLoop source releases.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "python",
+      "name": "psycopg-pool",
+      "version_pattern": "3\\..*",
+      "scopes": [
+        "runtime"
+      ],
+      "use": "Connection pool imported unmodified as a separate library; not redistributed by NexLoop source releases.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "python",
+      "name": "certifi",
+      "version_pattern": ".*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CA bundle used unmodified by the test HTTP client only.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "python",
+      "name": "hypothesis",
+      "version_pattern": "6\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "Property-based testing library, test only, unmodified.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-android-arm64",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-darwin-arm64",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-darwin-x64",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-freebsd-x64",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-linux-arm-gnueabihf",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-linux-arm64-gnu",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-linux-arm64-musl",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-linux-x64-gnu",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-linux-x64-musl",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-win32-arm64-msvc",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    },
+    {
+      "ecosystem": "node",
+      "name": "lightningcss-win32-x64-msvc",
+      "version_pattern": "1\\..*",
+      "scopes": [
+        "dev"
+      ],
+      "use": "CSS tool used unmodified at web build time; not part of any runtime artifact.",
+      "review_by": "2027-04-11"
+    }
+  ],
+  "clarifications": [
+    {
+      "ecosystem": "python",
+      "name": "httpx",
+      "version_pattern": "0\\.28\\.1",
+      "license": "BSD-3-Clause",
+      "license_file": "httpx-0.28.1.dist-info/licenses/LICENSE.md",
+      "license_file_sha256": "4ec59d544f12b5f539a3a716fd321ac58ccd8030b465221f2c880200cdf28d8d",
+      "note": "Metadata says only 'BSD License'; the shipped LICENSE.md is the three-clause BSD text (redistribution of source, of binaries, no endorsement).",
+      "confirmed": "2026-10-11"
+    }
+  ],
+  "off_platform": [
+      {
+          "artifact": "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6",
+          "ecosystem": "python",
+          "license": "BSD-3-Clause",
+          "license_basis": "classifier \"BSD License\" only; LICENSE.txt is the three-clause BSD text (reviewed by hand)",
+          "license_file": "colorama-0.4.6.dist-info/licenses/LICENSE.txt",
+          "license_file_sha256": "cac35c02686e5d04a5a7140bfb3b36e73aed496656e891102e428886d7930318",
+          "name": "colorama",
+          "recorded": "2026-10-11",
+          "version": "0.4.6"
+      },
+      {
+          "artifact": "sha256:b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac",
+          "ecosystem": "python",
+          "license": "Apache-2.0",
+          "license_basis": "core metadata field \"License: Apache-2.0\"; LICENSE states Apache License 2.0 (reviewed by hand)",
+          "license_file": "tzdata-2026.5.dist-info/licenses/LICENSE",
+          "license_file_sha256": "df58f69ea88683035d720b5375bcef0cf5aeaa98a1d098d572e0992c378deb46",
+          "name": "tzdata",
+          "recorded": "2026-10-11",
+          "version": "2026.5"
+      },
+      {
+          "artifact": "sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "2088f55c6731498410b20c95ebd345ed4a4a800bf74c0fba4d282fd2a021daaa",
+          "name": "@emnapi/core",
+          "recorded": "2026-10-11",
+          "version": "1.10.0"
+      },
+      {
+          "artifact": "sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "2088f55c6731498410b20c95ebd345ed4a4a800bf74c0fba4d282fd2a021daaa",
+          "name": "@emnapi/runtime",
+          "recorded": "2026-10-11",
+          "version": "1.10.0"
+      },
+      {
+          "artifact": "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "2088f55c6731498410b20c95ebd345ed4a4a800bf74c0fba4d282fd2a021daaa",
+          "name": "@emnapi/wasi-threads",
+          "recorded": "2026-10-11",
+          "version": "1.2.1"
+      },
+      {
+          "artifact": "sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/aix-ppc64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-5YfKeeI8qWfBZIX+u2xZC3Zlb3Os/gLS2sbEKM+I4ZOcsWmHS2WLysCcQZDAFRslDUU5Oiq44gf6PYN1vGwG5A==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/android-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-kXXoiPVVGQcnIYGOeaovwOURpniDBpSq4A03qkQ+BMQqtGG6HYap3xne9C1O1yo4TR3qxlCX5IqqmX6fFo2Lqg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/android-arm",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-O387ite7SzUyCcy3JQX4P4bLtEA7bLLkx+esve5JHnyYfNTxcVpXZo9jhdB0lTKN44gztELTdU7nS8Nr16Fs1Q==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/android-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-n4KqkOQrraxHJcgjM1RvwbigfQKIKJVpM7xp+KsxiyUSrRdIXnt73VhrPAx0fV44hgfmIVKjxMN9J1t5jySVkw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/darwin-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-uq6suIWYP37qzGddBKPw5QEQPi6HiLGsO7UmkpfyaYNQ3D+rN6w6WfwH+nuqcGXWvawGwxOEroO4YGnFh95azw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/darwin-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-n+I0BTSRIoy+d6RPKnEVwql5UwBJolytvY4mAOIEJorKlqgPII8ix6slVVrfZ5Tnj7glIZvloylbB/EJPMWEXw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/freebsd-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-78XJTJkvPs0kz2w61301PJjXl4g7q3JqiYMZ/M/yVI73EHBrCRTgkhu9oqG7vPqq+a/yadEW8aD+agKlk5xrmg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/freebsd-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-pW4AC0P3it8c7do9MVM4p51FzHzdM/TZrerurgRcHJ2WTa1VQ1CIq18xncfpBJw4ojkiZZrKW2yIBWBP92j6Ug==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-XlDnu2q5yoqems+xay6wSAcg9DDD7K9RLKZEBOMZm3ckNpJBvOX20tSfby8KfrrhINDyv9V2YVZKY/SpoGJI8w==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-arm",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-CYbnj78HsIeA+DhgUKgFCfvNsTHFhMMrinUrMZpDXJXKN8T3XViTZ/+wtHeVxEWY8ewSzTFN+nRmSwO2tZaLUQ==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-ia32",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-buwkd8nsph4R+ajRvw0qM5Hja/TXQow3ptzWO2EbG/cqcIkHloRrdlBtQlshyYGTNFvfkfJ5tpPLVkY4DtsPfQ==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-loong64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-ZVykbDyk7519VwiNb9Lcj9m8XM6v5V9uKPvrEMkkEedVewf+0itkhahp4HDpgERXhwLRpWFypsGbG/J8s0QjJA==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-mips64el",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-CAXl+Dtd9UUuJd8pKKdwh6MLm3MUMiqMPmhZ3tTSXPqfyQ3vDl6R5hZdZ/kYojK4ofXtdfSv1tFq8XzWx3heNQ==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-ppc64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-GeXCej4IQtU1B+QlDV8W/RRvbzI3O/Stss+/bCXv4lZls5WGRtu2a+3JkA3i4qIUlMXpcHebWpF8AkJhATowuA==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-riscv64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-3H1weTYZPxt/WOhByszQZybS9w5lKzUn1FDMsgEChbHWQwHYQQRfBxgCcZvPhjHfKyJjIievvMmEUawJrdY9Dg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-s390x",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/linux-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-sSATRjPeDBg3pdgHoQfoYBob11Kk1FGa9lui5RIHZCoCkJa9QKlvl3/vKz2usCmYYjs7ymJR/2Nnsqe+Hjt5nw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/netbsd-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-lqnzCV+mM0gIADaKihiCg6ifgfU2L3h5E33rNQBN1Y4MaVGnzryzmvvf7UHxprpQdE8hpqLolJ9Rl+SkIRDpyw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/netbsd-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-AL2qJILH7lNjrDmCQDvdxMfAUIv8KMNZOvrwAQ8i8//ntL9FflhOyMJ8OZSMBb8/AWXe3/5v5S20y3zCoZWKoQ==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/openbsd-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-QtiuPytchRyC4rwUKhexJdQKvDuZ6hWloi3igqPQNUJCS1/v9EiO3UTOXR6A3FoMo4fnAKbWJdqaIwhOzh8qEw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/openbsd-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-WkhYDmpTjLvGlScA1rwjRUmhl4k8oXR3cIbtqWmELgU/dFeHHlEllxDvdWcNJV9rbzCexB5vz8gtNewWLgCT7Q==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/openharmony-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-GPMSkTOtMnv2U2F8gxe4Io6qmVs+YKyp832Etqqxr0hFngmXQ3rzwytelm3GIn7T4VviRUlf3sOgBOiTdvaf7g==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/sunos-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-PIhhEkE9uPBleRBrQEJpUn7MBnibZzbGzYWPmY3x+YoVg/95zbjB4CxPPOQ8l5tYYM4mMaCthF8/1DIfBQQyWQ==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/win32-arm64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-YmJbfTlvU7Sdn9BB+4PRES4oB6pxgS37MAONj+hBr/cpXS1aBPKXxNnDbu+QCWPj0o9dgyxeq79g6c5P8KeuYA==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/win32-ia32",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-5ebpxr3nWMzrL/rnUI755Jkuee0bHL/Gq0WTF9lvcpv73wAp5eu8MfBUgWK9bhWvZjj7yX8etf/8tI8Ney695g==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "esbuild",
+              "version": "0.28.2",
+              "file": "LICENSE.md",
+              "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+              "ecosystem": "node"
+          },
+          "name": "@esbuild/win32-x64",
+          "recorded": "2026-10-11",
+          "version": "0.28.2"
+      },
+      {
+          "artifact": "sha512-HshSvXzmBxNzqejd3k/KemgQ3hdREUYFRRrgxOZ+gPljDIsO2SDZrVZMd4Z/HsxudQbE62OVyVFE8z9BCurfjA==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_absent": "the published artifact ships no license text; package.json declares MIT (napi-rs repository, wasm-runtime directory)",
+          "name": "@napi-rs/wasm-runtime",
+          "recorded": "2026-10-11",
+          "version": "1.2.5"
+      },
+      {
+          "artifact": "sha512-454rs7jHngixp/NMxd5srYD57OnzSlZ/eFTETjORQHLwJG1lRtmNOJcBerZlfu4GjKqeq8aCCIQrMdHyhI51Hw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-android-arm64",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-PcAhP+ynjURNyy8SKGl5DQP94aGuB/7JrXJb/t7P+hanXvQVMWzUvRRhBAcg/lNRadBhoUPqSoP4xw5tR/KBEA==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-darwin-arm64",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-9YpfeUvSE2RS7wysJ81uOZkXJz7f7Q55H2Gvp3VEw/EsahqDtrphrZ0EwDLK5vvKOzaCrBsjF8JmnMLcUt78Gg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-darwin-x64",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-yB1IlAsSNHncV6SCTL27/MVGR5htvQsoGxIv5KMGXALp+Ll1wYsn+x98M9MW7qa+NdSbvrrY7ANI4wLJ0n1e6g==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-freebsd-x64",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-Yi30IVAAfLUCy2MseFjbB1jAMDl1VMCAas5StnYp8da9+CKvMd2H2cbEjWcw5NPaPqzvYkVIaF1nNUG+b7u/sw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-linux-arm-gnueabihf",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-jsO7R8To+AdlYgUmN5sHSCZbfhtMBkO0WUx8iORQnPcMMdgr7qM2DQmMwgabs3GhNztdmoKkMKQFHD6DTMCIQw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-linux-arm64-gnu",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-VWkUHwWriDciit80wleYwKILoR/KMvxh/IdwS/paX+ZgpuRpCrKLUdadJbc0NpBEiyhpYawsJ73j9aCvOH+f7Q==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-linux-arm64-musl",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-5f1laC0SlIR0yDbFCd8acUhvJIag6N3zC5P7oUPN6wX0aOma+uKJ0wBDH5aq7I1PVI2ttTlhJwzwRIBnLiSGEg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-linux-ppc64-gnu",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-Iq4ko0r4XsgbrF/LunNgHtAGLRRVE2kXonAXQ/MV0mC6jQpMOhW1SvtZja2EhC/kd05++bP78dsqBeIQyYJ6Yg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-linux-s390x-gnu",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-B8m6tD5+/N5FeNQFbKlLA/2yVq9ycQP1SeedyEYYKWBNR3ZQbkvIUcNnDNM03lO1l5F2roiiFJGgvoLLyZXtSg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-linux-x64-gnu",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-pSdpdUJHkuCxun9LE7jvgUB9qsRgaiyNNCX7m/AvHTcq67AiT/Yhoxvw5zPfhrM8k/BfP8ce/hMOpthKDpEUow==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-linux-x64-musl",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-OXXS3RKJgX2uLwM+gYyuH5omcH8fL1LJs96pZGgtetVCahON57+d4SJHzTgZiOjxgGkSnpXpOsWuPDGAKAigEg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-openharmony-arm64",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-JTtb8BWFynicNSoPrehsCzBtOKjZ6jhMiPFEmOiuXg1Fl8dn2KHQob+GuPSGR0dryQa1PQJbzjF3dqO/whhjLg==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-wasm32-wasi",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-gEdFFEN70A/jxb2svrWsN3aDL7OUtmvlOy+6fa2jxG8K0wQ1ZbdeLGnidov6Yu5/733dI5ySfzFlQ/cb0bSz1g==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-win32-arm64-msvc",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-eXB7CHuaQdqmJcc3koCNtNPmT/bj2gc999kUFgBxG8Ac0NdgXc4rkCHhqrgrhN3zddvvvrgzj1e90SuSfmyIXA==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_text_from": {
+              "name": "rolldown",
+              "version": "1.0.3",
+              "file": "LICENSE",
+              "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+              "ecosystem": "node"
+          },
+          "name": "@rolldown/binding-win32-x64-msvc",
+          "recorded": "2026-10-11",
+          "version": "1.0.3"
+      },
+      {
+          "artifact": "sha512-W3c4gRigFS0T/Ma4qIYF3GDAc5AQdHb1yL5znJT1Zv1YaD9Kitx656wBjvr19qbiosmZT8lWDM5BEMynUqX65A==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "09e436100bf926e78df875ec80cf3d0c643dfec779b52cfe2aa96afa0de714cb",
+          "name": "@tybys/wasm-util",
+          "recorded": "2026-10-11",
+          "version": "0.10.4"
+      },
+      {
+          "artifact": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
+          "ecosystem": "node",
+          "license": "MIT",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1",
+          "name": "fsevents",
+          "recorded": "2026-10-11",
+          "version": "2.3.3"
+      },
+      {
+          "artifact": "sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-android-arm64",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-Sciaz8eenNTKn9b3t7+xr0ipTp9YxKQY4npwQ3mrRuL0BAVHBLyZxofhaKBAVtzmtRZ/zTyo0/to4B1uWG/Djg==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-darwin-arm64",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-Z5UPAxzrjlWNNyGy6i65cJzzvgJ5D3T6wMvs+gWpY9d7qRhANrxqAp6LhxIgZhWEw18RfJTGcRxjuLIBr+m8XQ==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-darwin-x64",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-QQM/Ti/hQajJwCY+RiWuCZ9sdtI/XQk7nDK5vC8kkdwixezOlDgvDx7+RT+QjK6FcFT4MpsuoBnHIo/O3StRRg==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-freebsd-x64",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-N7FVBe6iS24MlM6R/4RBTxGhQheZGs7tiQ9U32UtF75NzP5Q7xWPRqLBCKxlRQRk3rY1jCIPLzx7WzOhuUIRLQ==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-linux-arm-gnueabihf",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-j2v/itmy4HlNxlc6voKXYgBqNi0Ng2LShg4z7GufpEgs05P+2suBVyi9I6YHq5uoVFx9ETin3eCEhLVyXGQnKg==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-linux-arm64-gnu",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-yiO5ROMuYQgXbC60yjZU5CYSFZGKXL0HFATXt9mHJn1+zW55oCtMI9NfcVhYLMFDL7gV7oBPon/EmMMGg2OvtQ==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-linux-arm64-musl",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-ar+Ju7LmcN0Jo4FpL4hpFybwNG9/3A/Br5KW2n2jyODg3MEZXaDYADdemoNS+BDNfMgKvylJLj4S5tyRActuAg==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-linux-x64-gnu",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-RYiYbkokw0trfKqqzfF55lginwEPrD3OJDfTuJzFs1MK6iFnDenaz1fqLLtX4ITG3OktJQXOeTaw1awrBAlZPw==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-linux-x64-musl",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-1K+MPfLSFVpphzpdbfkhlWk6wBrTObBzS2T6db10PNOZgR9GoVsAWzwNyuhUYYbTp23j+4RrncfujZ4uAzXvwA==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-win32-arm64-msvc",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      },
+      {
+          "artifact": "sha512-OlEICDx/Xl0FqSp4bry8zFnCvGpig3Gl4gCquvYwHuqJKEC1+n9NgDniFvqHGmMv1ZkqDJrDqKKSykTDX+ehuA==",
+          "ecosystem": "node",
+          "license": "MPL-2.0",
+          "license_basis": "package.json license field",
+          "license_file": "LICENSE",
+          "license_file_sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+          "name": "lightningcss-win32-x64-msvc",
+          "recorded": "2026-10-11",
+          "version": "1.33.0"
+      }
+  ],
+  "vendored": {
+    "eios": {
+      "provenance": "packages/eios-core/PROVENANCE.json",
+      "license_file": "LICENSE",
+      "license_file_sha256": "9f5911fcd7dfd7be1bc3c4b14eab1580d7a1bb235a71337865e78e5071b66151",
+      "note": "Owner-authored NEX-EIOS core, distributed under NexLoop's MIT with the owner's authorization (NOTICE)."
+    },
+    "pi": {
+      "provenance": "vendor/pi/PROVENANCE.json",
+      "license_file": "licenses/Pi-MIT.txt",
+      "license_file_sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48"
+    },
+    "evoontology": {
+      "provenance": null,
+      "license_file": "licenses/EvoOntology-MIT.txt",
+      "license_file_sha256": "140ba67c27276d23ccb07533d1604629f000ae350e2ba75190618bb8f3c9e38e",
+      "note": "Selective reuse: no copied source at present (design reference only)."
+    }
+  },
+  "assets": [
+    {
+      "path": "docs/design/login-desktop.png",
+      "owner": "project",
+      "note": "Login page design concept made for NexLoop."
+    },
+    {
+      "path": "docs/design/login-mobile.png",
+      "owner": "project",
+      "note": "Login page design concept made for NexLoop."
+    },
+    {
+      "path": "docs/design/nexloop-login-concept.png",
+      "owner": "project",
+      "note": "Login page design concept made for NexLoop."
+    }
+  ],
+  "own_python": [
+    "nexloop",
+    "nexloop-eios-core"
+  ],
+  "own_node": [
+    "workspace importers (link:) are NexLoop or vendored Pi code"
+  ]
+}
