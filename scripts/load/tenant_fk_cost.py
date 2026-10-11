@@ -16,13 +16,31 @@ import uuid
 
 import psycopg
 
+HEX = lambda: uuid.uuid4().hex + uuid.uuid4().hex  # noqa: E731  64 hex characters
+SHORT = lambda: 'fk-cost-' + uuid.uuid4().hex[:20]  # noqa: E731
+WEIGHTS = '{"core_term_containment":0.25,"lexical_similarity":0.25,"rule_whitelist":0.25,"vector_cluster":0.25}'
+CONVERSATION = 'f' * 64
 TABLES = {
-    # table: (insert sql with %s for tenant and a unique key, cleanup sql). A test-mode connector row with throwaway key
-    # bytes generated in the database; no load script writes the login rate policy (test_load_matrix).
-    'control.nexloop_commercial_connectors': (
-        "insert into control.nexloop_commercial_connectors(connector_id,tenant_id,world,data_mode,accepted_types,currencies,key_id,key_material)"
-        " values(%s,%s,'test','test','{payment.succeeded}','{CNY}','fk-cost',extensions.gen_random_bytes(32))",
-        "delete from control.nexloop_commercial_connectors where connector_id like 'fk-cost-%%'"),
+    # insert: %s for the unique key, then the tenant. setup/teardown run once with the tenant. No load script writes the login
+    # rate policy (test_load_matrix), so the cold sample is a test-mode connector row with throwaway key bytes.
+    'control.nexloop_commercial_connectors': dict(key=SHORT,
+        insert="insert into control.nexloop_commercial_connectors(connector_id,tenant_id,world,data_mode,accepted_types,currencies,key_id,key_material)"
+               " values(%s,%s,'test','test','{payment.succeeded}','{CNY}','fk-cost',extensions.gen_random_bytes(32))",
+        cleanup="delete from control.nexloop_commercial_connectors where connector_id like 'fk-cost-%%'"),
+    # 3a: a cold definition table.
+    'ontology.nexloop_merge_configurations': dict(key=SHORT,
+        insert="insert into ontology.nexloop_merge_configurations(config_version,tenant_id,weights,merge_threshold,dedupe_threshold)"
+               " values(%s,%s,'" + WEIGHTS + "'::jsonb,0.8,0.9)",
+        cleanup="delete from ontology.nexloop_merge_configurations where config_version like 'fk-cost-%%'"),
+    # 3b: one extraction run per extracted input; it already references its conversation (tenant, world, conversation_id).
+    'ontology.nexloop_extraction_runs': dict(key=HEX,
+        setup=["insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key)"
+               " values(%s,'real','" + CONVERSATION + "','" + 'e' * 64 + "','fk-cost-principal','fk-cost') on conflict do nothing"],
+        insert="insert into ontology.nexloop_extraction_runs(input_digest,tenant_id,world,conversation_id,consumer_id,principal_id,extractor_version,"
+               "prompt_version,provider,model_id,timezone,message_refs,rejected) values(%s,%s,'real','" + CONVERSATION + "','" + 'e' * 64 + "',"
+               "'fk-cost-principal','fk-cost','fk-cost','fk-cost','fk-cost','UTC','[]','[]')",
+        cleanup="delete from ontology.nexloop_extraction_runs where principal_id='fk-cost-principal'",
+        teardown=["delete from runtime.nexloop_conversations where principal_id='fk-cost-principal' and tenant_id=%s"]),
 }
 MEDIAN_LIMIT, P95_LIMIT = 1.10, 1.05
 
@@ -40,13 +58,14 @@ def _set_fk(db, table, present):
 
 
 def _inserts(db, table, tenant, rows):
-    sql = TABLES[table][0]
+    spec = TABLES[table]
     times = []
     for _ in range(rows):
+        key = spec['key']()
         start = time.perf_counter_ns()
-        db.execute(sql, ('fk-cost-' + uuid.uuid4().hex[:20], tenant))
+        db.execute(spec['insert'], (key, tenant))
         times.append((time.perf_counter_ns() - start) / 1000)
-    db.execute(TABLES[table][1])
+    db.execute(spec['cleanup'])
     return times
 
 
@@ -58,17 +77,17 @@ def _quantiles(times):
 def _trigger_sample(db, table, tenant):
     # EXPLAIN ANALYZE executes the insert; the transaction is rolled back so the sample row never persists.
     with db.transaction(force_rollback=True):
-        plan = db.execute('explain (analyze, format json) ' + TABLES[table][0], ('fk-cost-explain', tenant)).fetchone()[0]
+        plan = db.execute('explain (analyze, format json) ' + TABLES[table]['insert'], (TABLES[table]['key'](), tenant)).fetchone()[0]
     return [{'calls': t['Calls'], 'time_ms': t['Time']} for t in plan[0].get('Triggers', []) if t['Trigger Name'].startswith('RI_ConstraintTrigger')]
 
 
-def _lock_probe(dsn, db, table, tenant, hold_seconds):
+def _lock_probe(dsn, db, table, tenant, hold_seconds, lock='update'):
     holder = psycopg.connect(dsn)
     ready = threading.Event()
 
     def hold():
         with holder.transaction():
-            holder.execute('select 1 from control.nexloop_tenants where tenant_id=%s for update', (tenant,))
+            holder.execute('select 1 from control.nexloop_tenants where tenant_id=%s for ' + {'update': 'update', 'no_key_update': 'no key update'}[lock], (tenant,))
             ready.set()
             time.sleep(hold_seconds)
 
@@ -76,18 +95,21 @@ def _lock_probe(dsn, db, table, tenant, hold_seconds):
     thread.start()
     ready.wait()
     start = time.perf_counter()
-    db.execute(TABLES[table][0], ('fk-cost-lock', tenant))
+    db.execute(TABLES[table]['insert'], (TABLES[table]['key'](), tenant))
     waited = time.perf_counter() - start
     thread.join()
     holder.close()
-    db.execute(TABLES[table][1])
+    db.execute(TABLES[table]['cleanup'])
     return waited
 
 
 def measure(dsn, table, tenant, rows=2000, rounds=3, hold_seconds=0.3):
     """The tenant row must exist; the constraint is left present and validated."""
     report = {'table': table, 'rows': rows, 'rounds': rounds, 'rounds_detail': []}
+    spec = TABLES[table]
     with psycopg.connect(dsn, autocommit=True) as db:
+        for statement in spec.get('setup', ()):
+            db.execute(statement, (tenant,))
         for _ in range(rounds):
             detail = {}
             for present in (False, True):
@@ -99,8 +121,14 @@ def measure(dsn, table, tenant, rows=2000, rounds=3, hold_seconds=0.3):
         no_fk_wait = _lock_probe(dsn, db, table, tenant, hold_seconds)
         _set_fk(db, table, True)
         fk_wait = _lock_probe(dsn, db, table, tenant, hold_seconds)
-        report['lock_probe'] = {'tenant_row_for_update_held_s': hold_seconds, 'insert_wait_without_fk_s': round(no_fk_wait, 4),
-                                'insert_wait_with_fk_s': round(fk_wait, 4), 'blocked_by_for_update': fk_wait >= hold_seconds * 0.8}
+        # The proposed 0050 change: FOR NO KEY UPDATE does not conflict with the foreign key check's FOR KEY SHARE.
+        no_key_wait = _lock_probe(dsn, db, table, tenant, hold_seconds, lock='no_key_update')
+        for statement in spec.get('teardown', ()):
+            db.execute(statement, (tenant,))
+        report['lock_probe'] = {'tenant_row_lock_held_s': hold_seconds, 'insert_wait_without_fk_s': round(no_fk_wait, 4),
+                                'insert_wait_with_fk_s': round(fk_wait, 4), 'blocked_by_for_update': fk_wait >= hold_seconds * 0.8,
+                                'insert_wait_with_fk_under_no_key_update_s': round(no_key_wait, 4),
+                                'blocked_by_for_no_key_update': no_key_wait >= hold_seconds * 0.8}
     for variant in ('without_fk', 'with_fk'):
         report[variant] = {k: statistics.median(r[variant][k] for r in report['rounds_detail']) for k in ('median_us', 'p95_us')}
     ratio = {k: report['with_fk'][k] / report['without_fk'][k] for k in ('median_us', 'p95_us')}

@@ -182,7 +182,7 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 - **锁探针**：无外键时插入等待 0.2 ms；有外键时等待 0.307 s，正好等于 `FOR UPDATE` 的持有时长。这在本地复现了 §0.3 第 4 点中的冲突。冷表的配置写入与配置发布本来就在同一个运维窗口里，影响可以接受；但第 5 批之前，“改为 `for no key update`”的评审是必需的。
 - **端到端 p95**：本批的表不在 dispatch 主路径上，端到端 p95 按定义不受影响。第 3 至 5 批要用 NX-031 的矩阵测量端到端 p95，而不是本节的语句级 p95。
 
-## 4. 批次 3 设计（只写设计，尚未实现）
+## 4. 批次 3 设计（3a、3b 已实现，见第 5 节；3c 待锁评审）
 
 ### 4.1 范围与分组
 
@@ -214,3 +214,43 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
    - 以 ADR 记录这一偏离，然后再加外键。
 2. **`ontology.events` 的归类**：它随对象变更写入，写入量接近 `ontology.objects`。建议把它归入第 5 批，与 `objects` 一起测量。
 3. **3c 与 0050 锁评审的先后**：建议先完成“改为 `for no key update`”的评审，再合入 3c。
+
+## 5. 批次 3a、3b 实现（0159、0160）
+
+### 5.1 裁定（调度员 2026-10-12）
+
+1. vendored EIOS 核心表（0001 的 `ontology.events`、`relations`、`object_type_versions`、`event_type_versions`、`relation_type_versions`）**不加** NexLoop 的租户外键，继续依赖身份快照。
+   - **理由**：AGENTS 要求 vendored 内核与上游的偏离尽量小，而且核心不应依赖 NexLoop 的控制面表。
+   - **边界**：只有 NexLoop 自己建的表（`nexloop_` 前缀）才引用 `control.nexloop_tenants`；recall 表 `nexloop_recall_entries`、`nexloop_recall_embeddings` 属于 NexLoop，归入 3b。
+   - 不另立 ADR。`tests/test_tenant_fk_pg.py` 断言这 5 张核心表没有指向租户的外键。
+2. `ontology.events` 归入第 5 批，与 `ontology.objects` 一起测量。
+3. 0050 两处锁的改动先评审，评审稿见 `NX-052-tenant-lock-review.md`；3c 等评审通过后再做。
+
+### 5.2 迁移
+
+- **0159（3a）**：ontology 中 10 张定义、评审与配置类表，包括合并配置、recall 设置、embedding 配置、定义别名、候选定义及其事件和拒绝记录、评审决定、实例批准、评估修订。
+- **0160（3b）**：抽取与 Claim 族 8 张表（claims、matches、rematch、主题、抽取运行及其 Claim 关联、变更提议、抽取队列），加上 recall 的两张表。
+  - 0160 涉及 `nexloop_claims`，已在 AT-064 白名单登记：本迁移只加约束，不读也不投影 Claim 值。
+- 两个迁移的做法相同：先 `not valid`，再逐表 `validate`；回滚时新开迁移 `drop constraint if exists <表>_tenant_fk`。
+
+3b 的多数表原本已经通过复合外键引用父表，链条最终指向 `runtime.nexloop_conversations`。但会话表本身属于 3c，现在还没有租户外键。所以在 3c 之前，3b 直接加的租户外键是这条链上唯一的租户存在性保证。3c 之后它与链上的检查有些重复，代价已经计入下面的测量。
+
+### 5.3 写入路径
+
+| 组 | 写入方 | 租户是否必然已存在 |
+|---|---|---|
+| 3a | 评审、候选和合并配置的治理函数（NX-045、NX-046、NX-050、NX-021 的配置） | 先经签名授权和身份快照校验，租户必然存在 |
+| 3b | 抽取记录器（NX-019）、匹配器（NX-020）、NX-044 回流、recall 索引器 | 同上；而且这些写入都晚于会话的创建，会话本身也已经过授权 |
+
+测试侧直接写入这些表的地方都在租户行存在之后。本批受影响的 53 个测试文件全部通过（见报告）。
+
+### 5.4 测量（2026-10-12，本机负载约 5–6，2000 行 × 3 轮）
+
+| 表 | 无外键 中位 / p95 | 有外键 中位 / p95 | 比值 中位 / p95 | 判据 |
+|---|---|---|---|---|
+| `ontology.nexloop_merge_configurations`（3a） | 71.8 / 84.2 µs | 75.1 / 87.1 µs | 1.046 / 1.035 | 通过 |
+| `ontology.nexloop_extraction_runs`（3b，另有一个指向会话的外键） | 50.3 / 61.0 µs | 52.6 / 63.2 µs | 1.046 / 1.035 | 通过 |
+
+锁探针：在 `FOR UPDATE` 下，两张表的插入都被阻塞约 0.3 秒；在 `FOR NO KEY UPDATE` 下不再阻塞（0.6–0.7 ms）。这与评审稿的预期一致。
+
+3b 每次抽取会写几行到几十行，按上表的单行增量（约 2–3 µs）估算，一次抽取增加 0.1 ms 以内。端到端 p95 要等 3c 时用 NX-031 矩阵一起实测。
