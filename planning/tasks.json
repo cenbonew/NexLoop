@@ -2392,6 +2392,18 @@
         "ref": "b0ab320",
         "summary": "Merged slice 0 (L4: fixed-seed synthetic generator, loading through governed entries, cluster template and clones, D7 connection budget measured per service and set to 52 <= 60 with doctor checks for every resident service) and the results side (L2: report generator against the section 6.1 gates for C4/C4-low, lane script holding the CI lock in the night window). Design document NX-031 merged. Message-run chain waits for the multi-consumer relay fix (owner approved 2026-10-11).",
         "recorded_at": "2026-10-11T08:58:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "284befc",
+        "summary": "Merged the product prerequisite found by NX-031 (owner approved 2026-10-11): one message relay serves enrolled consumers (governed enrollment by the control owner, claim_next per-consumer serial with round robin, issuance re-checks enrollment, erasing and takeover; fallback issuance re-checks enrollment in SQL; enrollment follows Consumer erasure) and Source READ of enrolled consumers derived in SQL instead of per-object grants (0141-0144, service-grants v16). Slice 1 (L4): matrix file, executor framework against the results contract, commitment loading, test-only load-rules extraction provider (refused outside test mode), and a fix for the deployed extraction worker failing on any non-empty window.",
+        "recorded_at": "2026-10-11T10:59:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/20261011T021219Z-284befce2098",
+        "summary": "Full CI for 284befc (integration-s4q, squash integration): round 1 had one new deterministic failure (AT-064 boundary whitelist missing the relay erasure step), fixed in the integration branch; round 2: 2859 passed / 10 failed, all within baseline; deadline phase 2/2 (v4 70.6 s).",
+        "recorded_at": "2026-10-11T10:59:00+08:00"
       }
     ]
   },
