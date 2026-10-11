@@ -150,7 +150,30 @@ class MessageRelay:
             intent_id=intent,type_name=type_name,properties=properties)
         return result['object_id']
 
+    def _handoff(self,message_id,fence,reason):
+        """End this message on the relay path (0190): the reply guarantee answers it, the consumer's later messages proceed."""
+        self.last_handoff=reason
+        self.port.call('handoff',message_id=message_id,fence=fence,reason=reason)
+        return 'handed_to_fallback'
+
     def run_once(self):
+        claimed={}
+        try:
+            return self._run_once(claimed)
+        except Exception:
+            # Root cause of the stuck messages: a failed attempt kept its claim until the lease ran out and was then retried with
+            # a changed command. A failed attempt now gives the message back with a bounded count; when the count is used up
+            # the message is handed to the reply guarantee instead of blocking the consumer (0190).
+            if claimed:
+                try:
+                    yielded=self.port.call('yield',message_id=claimed['message_id'],fence=claimed['fence'])
+                    if yielded and yielded.get('handoff_due'):
+                        return self._handoff(claimed['message_id'],claimed['fence'],'attempts_exhausted')
+                except MessageRelayUnavailable:
+                    pass
+            raise MessageRelayUnavailable() from None
+
+    def _run_once(self,claimed):
         try:
             if self.recipe is not None:
                 recipe=self.recipe
@@ -163,6 +186,7 @@ class MessageRelay:
                 if recipe['consumer_id']!=item['consumer_id']: raise MessageRelayUnavailable()
             self.last_consumer=recipe['consumer_id']
             message_id=item['message_id']; fence=item['fence']
+            claimed.update(message_id=message_id,fence=fence)
             from nexloop_eios.context_runtime_bridge import ContextConversationRuntimeBridge
             bridge=ContextConversationRuntimeBridge(self.route)
             if item.get('route_fence') is not None:
@@ -170,7 +194,10 @@ class MessageRelay:
                 if recovered is not None:
                     self.port.call('release',message_id=message_id,fence=fence)
                     return 'queued'
-            if datetime.fromisoformat(recipe['valid_until'])<=datetime.now(UTC): return 'requires_governed_replan'
+            if datetime.fromisoformat(recipe['valid_until'])<=datetime.now(UTC): return self._handoff(message_id,fence,'requires_governed_replan')
+            # A Run issued by an earlier attempt pins its command; once its credential expired it can never run (no reuse of it).
+            pinned=self.port.call('lookup',message_id=message_id,fence=fence)
+            if pinned is not None and pinned.get('state')=='requires_governed_replan': return self._handoff(message_id,fence,'credential_expired')
             principal=self.source._session.authentication.subject_principal_id
             executor=self.route._backend.authenticate(self.executor_token,world='real')._session.authentication.subject_principal_id
             goal=self._create('Goal',message_id,{'consumer_id':recipe['consumer_id'],'state':'active','valid_until':recipe['valid_until']},recipe)
@@ -185,14 +212,19 @@ class MessageRelay:
                 'allowed_actions':[EFFECT],'state':'active','valid_until':recipe['valid_until']}
             assignment_id=self._create('MessageAssignment',message_id,assignment,recipe)
             key=self.vault.message_key(item['tenant_id'],'real',message_id)
-            record=self.vault.prepare(message_key=key,assignment_digest=hashlib.sha256(canonical_payload(assignment).encode()).hexdigest())
-            if record.state=='requires_governed_replan': return 'requires_governed_replan'
+            digest=hashlib.sha256(canonical_payload(assignment).encode()).hexdigest()
+            # The current command differs from the one an earlier attempt issued (for example the consumer's control revision
+            # changed): dispatching under the old command would ignore the current controls, so the message is ended instead.
+            if pinned is not None and pinned.get('assignment_digest') not in (None,digest): return self._handoff(message_id,fence,'binding_conflict')
+            if self.vault.has(key) and self.vault.read(key).assignment_digest!=digest: return self._handoff(message_id,fence,'binding_conflict')
+            record=self.vault.prepare(message_key=key,assignment_digest=digest)
+            if record.state=='requires_governed_replan': return self._handoff(message_id,fence,'requires_governed_replan')
             source_digest,proofs,source_definition,source_capability=self.port.source_proofs(self.source)
             issued=self.port.call('issue',message_id=message_id,fence=fence,
                 assignment_id=assignment_id,assignment_revision=1,assignment_digest=record.assignment_digest,assignment_text=canonical_payload(assignment),
                 run_id=record.run_id,request_id=record.request_id,issuance_nonce=record.issuance_nonce,
                 token_digest=record.token_digest,source_digest=source_digest,source_proofs=proofs,source_definition=source_definition,source_capability=source_capability,ttl_seconds=300)
-            if issued['state']=='requires_governed_replan': return 'requires_governed_replan'
+            if issued['state']=='requires_governed_replan': return self._handoff(message_id,fence,'credential_expired')
             record=self.vault.mark_issued(message_key=key,run_id=issued['run_id'],token_digest=record.token_digest,expires_at=issued['expires_at'])
             self.planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,
                 consumer_revision=recipe['consumer_revision'],control_revision=recipe['control_revision'],

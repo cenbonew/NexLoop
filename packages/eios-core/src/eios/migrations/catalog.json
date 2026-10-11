@@ -745,6 +745,11 @@
       "version": "0149",
       "name": "0149_feed_due_counts.sql",
       "sha256": "52d918b27e18b1c98685568ae130e05699748075965249c5f08cd2607ad93ba1"
+    },
+    {
+      "version": "0150",
+      "name": "0150_relay_handoff.sql",
+      "sha256": "0d12b24f0191fa5136d7c6c10ba8d2bdcce58f660892d095c16aeecec361ac08"
     }
   ]
 }

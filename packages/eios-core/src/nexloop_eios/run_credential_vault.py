@@ -171,6 +171,11 @@ class RunCredentialVault:
             self._write(message_key, record)
             return record
 
+    def has(self, message_key):
+        """Whether an earlier attempt prepared a record for this message (relay binding-conflict check, 0190)."""
+        with self._locked(message_key):
+            return self._load(message_key) is not None
+
     def read(self, message_key):
         with self._locked(message_key):
             record = self._load(message_key)
