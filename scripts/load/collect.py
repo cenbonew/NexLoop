@@ -39,7 +39,7 @@ def alerts(db, start, end):
 # A message Run: its route (message → run → task), the task's first claim (job_events 'running'), its terminal summary.
 _RUNS = """with r as (
   select m.message_id,m.run_id,m.task_id,m.command->>'consumer_ref' consumer_ref,(cm.record->>'accepted_at')::timestamptz accepted_at,cv.consumer_id,
-         j.created_at task_created,j.status task_status,j.result,
+         j.created_at task_created,j.status task_status,j.result,j.updated_at task_updated,
          (select min(e.created_at) from runtime.job_events e where e.job_id=m.task_id and e.status='running') claimed_at
   from runtime.nexloop_message_routes m
   join runtime.nexloop_conversation_messages cm on cm.tenant_id=m.tenant_id and cm.world=m.world and cm.message_id=m.message_id
@@ -51,7 +51,7 @@ _RUNS = """with r as (
 def runs(db, start, end):
     """D6 per message Run whose trigger was accepted in the window (contract §2; no run_id): end to end (trigger accepted → its
     reply, fallback reply or escalation), model time (the Host's model_timing, else the sum of the Run's model requests), tool time and calls (the Dispatcher's
-    tool_timing), queue wait (task created → first claimed). admission_wait_ms stays null: the Host's admission wait has no
+    tool_timing), queue wait (task created → first claimed), Run duration (Host accepted → task ended). admission_wait_ms stays null: the Host's admission wait has no
     per-Run record (NX-030 M09 is not delivered)."""
     rows = db.execute(_RUNS + """
       select r.accepted_at,r.result,r.task_created,r.claimed_at,
@@ -61,11 +61,13 @@ def runs(db, start, end):
         (select e.escalated_at from control.nexloop_reply_escalations e where e.tenant_id=%s and e.world=%s and e.message_id=r.message_id) escalated_at,
         exists(select 1 from control.nexloop_takeover_settlements s where s.message_id=r.message_id) takeover,
         exists(select 1 from control.nexloop_contact_restrictions c where c.tenant_id=%s and c.world=%s and c.consumer_id=r.consumer_id and c.active) restricted,
-        (select sum(extract(epoch from q.completed_at-q.requested_at)*1000) from runtime.nexloop_model_requests q where q.run_id=r.run_id and q.completed_at is not null) model_ms
+        (select sum(extract(epoch from q.completed_at-q.requested_at)*1000) from runtime.nexloop_model_requests q where q.run_id=r.run_id and q.completed_at is not null) model_ms,
+        (select x.first_authorized_at from authz.nexloop_runtime_execution_markers x where x.run_id=r.run_id::uuid) host_accepted,
+        case when r.task_status in ('succeeded','failed') then r.task_updated end run_ended
       from r where r.accepted_at>=%s and r.accepted_at<%s order by r.accepted_at""",
       (TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, start, end)).fetchall()
     out = []
-    for accepted, result, created, claimed, replied, fallback, escalated, takeover, restricted, model_ms in rows:
+    for accepted, result, created, claimed, replied, fallback, escalated, takeover, restricted, model_ms, host_accepted, run_ended in rows:
         timing = (result or {}).get('tool_timing') if isinstance(result, dict) else None
         # AT-060 model time (dispatcher 2026-10-11, A2): the Host's model_timing in the task result (every Run kind); the v6 model
         # request records only when it is absent.
@@ -78,6 +80,9 @@ def runs(db, start, end):
                     'model_ms': round(float(model_ms), 1) if model_ms is not None else None,
                     'tool_ms': timing.get('total_ms') if timing else None, 'tool_calls': timing.get('calls') if timing else None,
                     'queue_wait_ms': round((claimed - created).total_seconds() * 1000, 1) if claimed and created else None,
+                    # Run duration (dispatcher 2026-10-11): the Host accepted the Run (first execution authorization) → its task ended.
+                    # The platform time is this minus model and tool time, over the same span.
+                    'run_ms': round((run_ended - host_accepted).total_seconds() * 1000, 1) if run_ended and host_accepted else None,
                     'admission_wait_ms': None, 'outcome': outcome})
     return out
 

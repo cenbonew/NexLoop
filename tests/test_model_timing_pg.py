@@ -36,3 +36,5 @@ def test_runtime_worker_writes_model_timing_and_the_collector_reads_it(assembled
         collect.TENANT = c['tenant']
         (row,) = collect.runs(admin, started, datetime.now(UTC) + timedelta(minutes=1))
         assert row['model_ms'] == round(float(timing['total_ms']), 1) and row['tool_ms'] == result['tool_timing']['total_ms']
+        # Run duration (Host accepted → task ended) covers the same span: platform = run - model - tool is not negative.
+        assert row['run_ms'] is not None and row['run_ms'] - row['model_ms'] - row['tool_ms'] >= 0, row
