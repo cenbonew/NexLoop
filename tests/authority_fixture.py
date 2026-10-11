@@ -15,9 +15,14 @@ from eios.identity.models import SubjectKind,MembershipKind
 from nexloop_eios.authorization import WITNESS
 
 
+# Validity of the synthetic service credentials seeded here. Tests keep one hour; the NX-031 load template build (which cells reuse
+# for days) sets it longer before its fixtures run (scripts/load/build_template_hold.py).
+CREDENTIAL_VALIDITY=timedelta(hours=1)
+
+
 def authority_records(tenant,resource_id,world='real',operation=Operation.READ,operations=None,resource_type=ResourceType.ARTIFACT,identity_suffix=""):
     operations=tuple(operations or (operation,))
-    now=datetime.now(UTC);past=now-timedelta(days=1);expiry=now+timedelta(hours=1)
+    now=datetime.now(UTC);past=now-timedelta(days=1);expiry=now+CREDENTIAL_VALIDITY
     kind=resource_type;identity=tenant+identity_suffix;principal=f'{identity}-principal';subject=f'{identity}-service'
     scopes=frozenset(f'{kind.value}.{op.value}' for op in operations)
     key=f'{identity}-key';application=f'eios:application:{identity}-core';scope=f'{kind.value}.{operation.value}'
