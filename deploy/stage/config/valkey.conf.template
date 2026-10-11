@@ -1,0 +1,18 @@
+# NX-032 §2.3 (D2, D6): Valkey on DATA_HOST, TLS only, client certificates required, ACL users only (default user disabled
+# in the ACL file, which holds hashed passwords and is distributed as a secret, never rendered from this repository).
+bind 0.0.0.0
+protected-mode yes
+port 0
+tls-port 6379
+tls-cert-file /run/tls/server.crt
+tls-key-file /run/tls/server.key
+tls-ca-cert-file /run/tls/ca.crt
+tls-auth-clients yes
+tls-protocols "TLSv1.3"
+aclfile /run/secrets/valkey.acl
+save ""
+appendonly no
+maxmemory __VALKEY_MAXMEMORY__
+maxmemory-policy allkeys-lru
+loglevel notice
+logfile ""

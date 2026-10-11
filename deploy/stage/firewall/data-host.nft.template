@@ -1,0 +1,18 @@
+# NX-032 §3.2: DATA_HOST rules in their own table, so the whole set is removed with one command (undo):
+#   nft delete table inet nexloop_stage
+# Docker publishes ports through DNAT, which bypasses UFW's INPUT chain; the forward hook matches the original destination
+# (ct original) so the rule holds for published ports. Applied by the owner only (B class, §8 step 3).
+table inet nexloop_stage {
+  chain forward {
+    type filter hook forward priority filter - 1; policy accept;
+    ct original ip daddr __DATA_HOST_ADDR__ ct original proto-dst __PG_PORT__ ip saddr __APP_HOST_ADDR__ accept
+    # Migration and operations window only (§8 step 7); commented by default.
+    #ct original ip daddr __DATA_HOST_ADDR__ ct original proto-dst __PG_PORT__ ip saddr __MGMT_SOURCE_CIDR__ accept
+    ct original ip daddr __DATA_HOST_ADDR__ ct original proto-dst __VALKEY_PORT__ ip saddr __APP_HOST_ADDR__ accept
+    ct original ip daddr __DATA_HOST_ADDR__ ct original proto-dst { __PG_PORT__, __VALKEY_PORT__ } drop
+  }
+  chain input {
+    type filter hook input priority filter - 1; policy accept;
+    tcp dport { __PG_PORT__, __VALKEY_PORT__ } ip saddr != __APP_HOST_ADDR__ drop
+  }
+}

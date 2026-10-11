@@ -1,0 +1,103 @@
+# NX-032 slice 0: APP_HOST stage Compose. Example only: every value comes from the private compose env file
+# (compose.app.env.example lists the variables); images are referenced by digest from the release manifest (NX-034).
+#
+# One network namespace (the `app-net` anchor) holds the Gateway, the API, the workers and the Agent Host, so the internal
+# HTTPS links stay on 127.0.0.1 as today (API → Host, Worker ↔ guard); only the Gateway ports are published, and only on
+# APP_HOST_ADDR. Each service mounts its own secret files one by one (never a directory); the Agent Host gets no DSN, service
+# credential, signing key, channel credential or Artifact directory (§4.2). REAL_DISPATCH_ENABLED starts false (D9).
+# Every background service of deploy/stage/connection-budget.v1.json follows the `alert-evaluator` pattern below.
+name: nexloop-app
+x-service: &service
+  image: ${BACKEND_IMAGE:?backend image by digest}
+  restart: unless-stopped
+  network_mode: service:app-net
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  environment:
+    REAL_DISPATCH_ENABLED: "false"
+services:
+  app-net:
+    image: ${NET_ANCHOR_IMAGE:?minimal pause image by digest}
+    restart: unless-stopped
+    ports:
+      - "${APP_HOST_ADDR:?APP_HOST address}:${GATEWAY_HTTPS_PORT:?Gateway HTTPS port}:8443"
+      - "${APP_HOST_ADDR:?APP_HOST address}:${GATEWAY_REDIRECT_PORT:?Gateway redirect port}:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  gateway:
+    <<: *service
+    image: ${GATEWAY_IMAGE:?gateway image by digest}
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/config/Caddyfile:/etc/caddy/Caddyfile:ro
+    secrets: [gateway_cert, gateway_key]
+  api:
+    <<: *service
+    entrypoint: [nexloop-api]
+    command: [--database-url-file, /run/secrets/api_dsn, --signing-key-file, /run/secrets/signing_key, --artifact-root, /var/lib/nexloop/artifacts,
+              --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
+              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}",
+              --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+    secrets: [api_dsn, signing_key, host_ca, host_control_key, api_loopback_cert, api_loopback_key, pg_ca, api_pg_client_cert, api_pg_client_key]
+  runtime-worker:
+    <<: *service
+    entrypoint: [nexloop-runtime-worker]
+    # ADR-024: 4 guard processes; dispatcher pool 2; NX-031 dispatch loops 4 (= Agent Host maximum_active_runs).
+    command: [--guard-workers, "4", --dispatcher-pool-max, "2", --dispatch-loops, "4", --guard-port, "${GUARD_PORT:?guard port}",
+              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --world, real, --queue, runtime]
+    environment:
+      REAL_DISPATCH_ENABLED: "false"
+      NEX_EIOS_DB_POOL_MAX: "4"
+    secrets: [runtime_dsn, signing_key, guard_transport_key, guard_cert, guard_key, host_control_key, host_ca, pg_ca, runtime_pg_client_cert, runtime_pg_client_key]
+  agent-host:
+    <<: *service
+    image: ${AGENT_HOST_IMAGE:?Agent Host image by digest}
+    user: "${AGENT_HOST_UID:?Agent Host UID}:${AGENT_HOST_UID:?Agent Host UID}"
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/runtime:/private/runtime
+    secrets: [host_cert, host_key, host_transport_key, guard_ca]
+  effect-worker:
+    <<: *service
+    entrypoint: [nexloop-effect-worker]
+    command: [--world, real]
+    secrets: [action_dsn, signing_key, action_service_credential, pg_ca, action_pg_client_cert, action_pg_client_key]
+  alert-evaluator:
+    <<: *service
+    entrypoint: [nexloop-alert-evaluator]
+    command: [--world, real]
+    secrets: [alert_evaluator_dsn, signing_key, alert_evaluator_credential, pg_ca, alert_evaluator_pg_client_cert, alert_evaluator_pg_client_key]
+secrets:
+  # One file per secret under NEXLOOP_ROOT/secrets/<service>/ (directory 0700, file 0600, owner = the service UID).
+  gateway_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/server.crt"}
+  gateway_key: {file: "${NEXLOOP_ROOT:?root}/secrets/gateway/server.key"}
+  api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/api/dsn"}
+  api_loopback_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.crt"}
+  api_loopback_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/loopback.key"}
+  api_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.crt"}
+  api_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.key"}
+  signing_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/signing.key"}
+  pg_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/db-ca.crt"}
+  host_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-ca.crt"}
+  host_control_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-control.key"}
+  runtime_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/dsn"}
+  runtime_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.crt"}
+  runtime_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.key"}
+  guard_transport_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard-transport.key"}
+  guard_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard.crt"}
+  guard_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/guard.key"}
+  host_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/server.crt"}
+  host_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/server.key"}
+  host_transport_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/transport.key"}
+  guard_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/guard-ca.crt"}
+  action_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/dsn"}
+  action_service_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/service-credential"}
+  action_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/pg-client.crt"}
+  action_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/effect-worker/pg-client.key"}
+  alert_evaluator_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/dsn"}
+  alert_evaluator_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/service-credential"}
+  alert_evaluator_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/pg-client.crt"}
+  alert_evaluator_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/alert-evaluator/pg-client.key"}

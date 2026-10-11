@@ -145,7 +145,10 @@ def test_stage_examples_contain_no_real_addresses():
         text=path.read_text()
         for candidate in re.findall(r'\b\d{1,3}(?:\.\d{1,3}){3}\b',text):
             address=ipaddress.ip_address(candidate)
-            assert address.is_loopback,f'{path.name}: {candidate}'
+            # NX-032 examples: the unspecified address (0.0.0.0 in reject rules and container binds) and the RFC 5737 documentation
+            # ranges stand in for real addresses; nothing else may appear.
+            documentation=any(address in ipaddress.ip_network(n) for n in ('192.0.2.0/24','198.51.100.0/24','203.0.113.0/24'))
+            assert address.is_loopback or address.is_unspecified or documentation,f'{path.name}: {candidate}'
         assert not re.search(r'\b[a-z0-9-]+\.(?:lan|local|internal|home)\b',text),path.name
 
 
