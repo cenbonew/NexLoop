@@ -1,0 +1,3 @@
+#!/bin/sh
+# Example hook for <GIT_ROOT>/nexloop.git (owner nexloop-git). The identity comes from the SSH forced command, never from the client.
+exec python3 <TRUSTED_CI_DIR>/nexloop_ci.py pre-receive --repo "$PWD" --identities <PRIVATE_IDENTITIES_FILE>

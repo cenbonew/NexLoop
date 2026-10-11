@@ -1,0 +1,11 @@
+{
+  "schema": "nexloop-ci-egress/1",
+  "version": 1,
+  "decision": "NX-033 §3.2: only the dependency stages reach the network, and only these sources through the dependency proxy <DEPENDENCY_PROXY>; the local cache is used first. A private mirror replaces a public source by a new version of this file in the private configuration, never here.",
+  "allow": [
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org"
+  ],
+  "base_images": "by digest from versions.lock.json, preloaded as OCI archives"
+}

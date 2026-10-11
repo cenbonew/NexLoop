@@ -1,0 +1,43 @@
+{
+  "_comment": "Example only. Values in <> come from the private env of APP_HOST; checked at controller start by `nexloop_ci.py check-runner` (rootless, no secret, no data host or port, no network for tests).",
+  "runtime": "podman",
+  "rootless": true,
+  "image": "<CI_IMAGE@sha256:...>",
+  "network": {
+    "test": "none",
+    "dependency": "proxy"
+  },
+  "proxy": "<DEPENDENCY_PROXY>",
+  "mounts": [
+    {
+      "source": "<CI_CACHE>",
+      "target": "/cache",
+      "read_only": false
+    },
+    {
+      "source": "<TRUSTED_CI_DIR>",
+      "target": "/trusted",
+      "read_only": true
+    }
+  ],
+  "writable_targets": [
+    "/work",
+    "/tmp",
+    "/cache"
+  ],
+  "env": {
+    "UV_CACHE_DIR": "/cache/uv",
+    "npm_config_store_dir": "/cache/pnpm",
+    "NEXLOOP_TEST_PG_BIN": "<PG_BIN_IN_IMAGE>"
+  },
+  "publish": [],
+  "add_hosts": [],
+  "privileged": false,
+  "cap_add": [],
+  "devices": [],
+  "cgroup": {
+    "cpu_weight": 20,
+    "memory_max": "<CI_MEMORY_MAX>",
+    "pids_max": 4096
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "_comment": "Example only; the private file maps target codes to the paths and endpoints that must be unreachable from the CI sandbox (§3.3). Results report codes only.",
+  "paths": {
+    "SECRET_ROOT": "<SECRET_ROOT>",
+    "BACKUP_KEY": "<BACKUP_CIPHER_PASS_FILE>",
+    "RUNTIME_ROOT": "<RUNTIME_ROOT>",
+    "ARTIFACT_ROOT": "<ARTIFACT_ROOT>"
+  },
+  "tcp": {
+    "DATA_PG": "<DATA_HOST>:<PG_PORT>",
+    "DATA_VALKEY": "<DATA_HOST>:<VALKEY_PORT>",
+    "APP_GATEWAY": "<APP_LOOPBACK>:<GATEWAY_PORT>",
+    "APP_API": "<APP_LOOPBACK>:<API_PORT>",
+    "APP_AGENT_HOST": "<APP_LOOPBACK>:<AGENT_HOST_PORT>",
+    "LAN_OTHER": "<LAN_PROBE_ADDRESS>:<LAN_PROBE_PORT>",
+    "PUBLIC_GITHUB": "github.com:443"
+  }
+}
