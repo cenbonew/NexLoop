@@ -136,10 +136,15 @@ def test_public_mode_passes_once_every_condition_holds(public_root):
         path.write_text(path.read_text().replace('<SECURITY_CONTACT>', 'synthetic channel'))
     (public_root / 'README.md').write_text('# NexLoop\n\n[中文](README.zh-CN.md)\n')
     (public_root / 'README.zh-CN.md').write_text('# NexLoop\n\n[English](README.md)\n')
-    for name in ('GOVERNANCE.md', 'docs/release/public-release-checklist.md'):
+    for name in ('GOVERNANCE.md', 'docs/release/public-release-checklist.md', 'docs/CONNECTORS.md', 'docs/EVALUATION.md', 'docs/OPERATIONS.md'):
         (public_root / name).parent.mkdir(parents=True, exist_ok=True)
         (public_root / name).write_text('synthetic\n')
     assert pf.check(public_root, public=True) == []
+    for name in ('docs/CONNECTORS.md', 'docs/EVALUATION.md', 'docs/OPERATIONS.md'):  # dispatcher ruling: each gates a public release
+        content = (public_root / name).read_text()
+        (public_root / name).unlink()
+        assert pf.check(public_root, public=True) == [f'{name}: missing'] and pf.check(public_root) == []
+        (public_root / name).write_text(content)
     (public_root / 'README.zh-CN.md').write_text('# NexLoop\n')
     assert pf.check(public_root, public=True) == ['README.zh-CN.md: does not link to README.md']
 

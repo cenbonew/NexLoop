@@ -1,65 +1,20 @@
 #!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")/../.."
-uv sync --frozen
-# Dependency phase (network allowed): warm the PEP 517 build backend once, so the offline
-# wheel/packaging tests below never depend on a pre-populated developer uv cache.
-# Also warm the registry metadata used by the offline hashed install in tests/test_wheel_install.py;
-# `uv sync` fetches locked file URLs only and does not cache the index pages.
-warm_dir=$(mktemp -d)
-uv build --package nexloop-eios-core --wheel --out-dir "$warm_dir/wheels" >/dev/null
-uv export --frozen --no-dev --no-emit-workspace --format requirements-txt --output-file "$warm_dir/requirements.txt" >/dev/null
-uv venv --python .venv/bin/python "$warm_dir/venv" >/dev/null
-uv pip install --python "$warm_dir/venv/bin/python" --no-deps --require-hashes -r "$warm_dir/requirements.txt" >/dev/null
-rm -rf "$warm_dir"
-uv run --frozen python scripts/check_publication.py
-uv run --frozen python scripts/check_pi_source.py
-uv run --frozen python scripts/check_definer_search_path.py
-uv run --frozen python scripts/generate_contracts.py --check
-uv run --frozen python docs/handoff/tools/validate_handoff.py --planning planning
-# NX-036: hosted workflows never run unreviewed code with secrets or write access (AT-054 static half); public files present.
-uv run --frozen python scripts/check_ci_isolation.py
-uv run --frozen python scripts/check_public_files.py
-[[ "$(node -p 'process.versions.node.split(".")[0]')" == 24 ]]
-pnpm install --frozen-lockfile
-# NX-036: license inventory of both lock files, vendored sources and assets; THIRD_PARTY_NOTICES.md drift (offline, after install).
-uv run --frozen python scripts/check_licenses.py --check
-pnpm --filter @nexloop/web build
-pnpm build:pi
-pnpm --filter @nexloop/agent-host build
-mkdir -p .ci-results
-node --test --test-reporter=junit --test-reporter-destination=.ci-results/deepseek-sdk.xml tests/offline-deepseek-request.test.mjs tests/offline-deepseek-alias.test.mjs
-uv run --frozen python scripts/check_test_report.py .ci-results/deepseek-sdk.xml
-pnpm exec vitest run apps/web/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/web.xml
-uv run --frozen python scripts/check_test_report.py .ci-results/web.xml
-node --test --test-reporter=junit --test-reporter-destination=.ci-results/scope-ui.xml apps/agent-host/test/synthetic-scope-profile.node-test.mjs apps/web/test/scope-denial.node-test.mjs
-uv run --frozen python scripts/check_test_report.py .ci-results/scope-ui.xml
-# Phase 1 (serial): tests that rebuild apps/web/dist, apps/agent-host/dist, vendor/pi dist or
-# install the core wheel. They rewrite shared workspace files, so nothing may run beside them.
-WORKSPACE_BUILD_TESTS=(tests/test_build_provider_environment.py tests/test_community_container_contract.py
-  tests/test_community_launcher.py tests/test_wheel_install.py)
-uv run --frozen pytest -q -p no:xdist "${WORKSPACE_BUILD_TESTS[@]}" --junitxml=.ci-results/python-build.xml
-uv run --frozen python scripts/check_test_report.py .ci-results/python-build.xml
-# Phase 1b (serial, NX-049 deadline gate, ADR-022 §4): the real-Pi cases that must finish under the
-# 2 s tool deadline run alone, with the deployment guard topology (4 guard worker processes).
-DEADLINE_GATE_TESTS=('tests/test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[complete]'
-  'tests/test_role_pi_effect_checkpoint.py::test_actual_two_pi_role_runs_one_shared_intent_one_real_loopback_effect')
-# A gate failure is recorded and reported at the end, so the remaining phases still run for diagnosis.
+# The authoritative local CI suite (NX-033): the stage scripts of scripts/ci/stages/ in their fixed order (.ci-policy/stages.v2.json
+# runs the same scripts one stage at a time). Behaviour and exit status are those of the former single script: the first failing
+# stage stops the run with its exit status, except the NX-049 deadline gate, which is recorded and reported at the end so the
+# remaining phases still run for diagnosis.
+source "$(dirname "$0")/stages/lib.sh"
+stages=scripts/ci/stages
+bash "$stages/dependency-python.sh"
+bash "$stages/static.sh"
+bash "$stages/dependency-node.sh"
+bash "$stages/licenses.sh"
+bash "$stages/build-artifacts.sh"
+bash "$stages/unit-contract.sh"
+bash "$stages/serial-build.sh"
 deadline_gate_rc=0
-NEXLOOP_TEST_GUARD_WORKERS=4 uv run --frozen pytest -q -p no:xdist "${DEADLINE_GATE_TESTS[@]}" --junitxml=.ci-results/python-deadline-gate.xml || deadline_gate_rc=$?
-uv run --frozen python scripts/check_test_report.py .ci-results/python-deadline-gate.xml || deadline_gate_rc=1
-# Phase 2 (parallel by test): everything else; each test owns its PGDATA, port and temp dirs.
-# NEXLOOP_CI_PYTEST_WORKERS=0 runs serially for diagnosis.
-ignore_args=(); for t in "${WORKSPACE_BUILD_TESTS[@]}"; do ignore_args+=(--ignore="$t"); done
-uv run --frozen pytest -q -n "${NEXLOOP_CI_PYTEST_WORKERS:-6}" --dist load "${ignore_args[@]}" --junitxml=.ci-results/python.xml
-uv run --frozen python scripts/check_test_report.py .ci-results/python.xml
-# Frozen Pi source and actual SQLite are required. Missing files/tools fail.
-[[ -f vendor/pi/packages/durable/test/nexloop-sqlite-conformance.test.ts ]]
-[[ -f pnpm-lock.yaml ]]
-pnpm exec vitest run vendor/pi/packages/durable/test/nexloop-sqlite-conformance.test.ts --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/pi.xml
-uv run --frozen python scripts/check_test_report.py .ci-results/pi.xml
-
-pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**' --reporter=default --reporter=junit --outputFile=.ci-results/runtime.xml
-uv run --frozen python scripts/check_test_report.py .ci-results/runtime.xml
+bash "$stages/deadline-gate.sh" || deadline_gate_rc=$?
+bash "$stages/integration.sh"
+bash "$stages/pi-runtime.sh"
 # NX-049 deadline gate result (ADR-022 §4).
 if [[ $deadline_gate_rc -ne 0 ]]; then echo "NX-049 deadline gate failed (rc=$deadline_gate_rc)" >&2; exit 1; fi
