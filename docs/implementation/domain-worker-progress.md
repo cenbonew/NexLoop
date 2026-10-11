@@ -65,7 +65,7 @@ closing the actual identity pool, the next readiness probe marks the browser
 unavailable again. This final assertion was added while the broad CI was running;
 its dedicated final run is the authoritative check of that assertion.
 
-Full local CI: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`
+Full local CI: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`
 exited0:897 Python tests in226.13s,24 actual Pi SQLite tests,four frozen Pi
 package builds and frontend/Host builds;zero critical skips. No first failure or
 retry. This does not claim actual Pi Run kill/reopen or new Compose Worker proof.

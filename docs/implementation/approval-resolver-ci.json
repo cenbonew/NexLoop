@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:50:42.958788+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "explicit generic Approval resolver with restored full frozen Governor unit contracts; actual PG Approval store unassembled",
   "python_tests_passed": 543,

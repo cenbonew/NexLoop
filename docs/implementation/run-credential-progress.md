@@ -28,7 +28,7 @@ separate. Runtime receives no database/admin/signing/channel/model credential.
 uv run pytest -q tests/test_run_credentials.py tests/test_bootstrap.py
 uv run pytest -q tests/test_run_credentials.py tests/test_agent_governed_write.py tests/test_backend.py tests/test_worker_test_profile.py
 uv run pytest -q tests/test_run_credentials.py
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 First10 passed in7.67s. Expanded53 passed in41.52s. After enforcing the exact
@@ -63,8 +63,8 @@ bytes and checksum records match the previous actual tested0033 wheel.
 
 Fresh disposable Compose executed (never reused existing volumes):
 ```sh
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py prepare --output .ci-results/community-run-foundation-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py run --output .ci-results/community-run-foundation-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py prepare --output .ci-results/community-run-foundation-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py run --output .ci-results/community-run-foundation-20261008
 uv run python .ci-results/collect_run_foundation_evidence.py
 uv run python .ci-results/stop_owned_run_foundation.py
 uv run python .ci-results/stop_owned_run_foundation.py --execute

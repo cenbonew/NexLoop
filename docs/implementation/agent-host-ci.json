@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T21:27:42.160359+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "python_tests_passed": 860,
   "python_duration_seconds": 183.37,
@@ -22,13 +22,13 @@
   "first_test_failures": [],
   "targeted_tests": [
     {
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_agent_host.py --tb=short",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_agent_host.py --tb=short",
       "passed": 8,
       "duration_seconds": 0.61,
       "variant": "initial"
     },
     {
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_agent_host.py --tb=short",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_agent_host.py --tb=short",
       "passed": 8,
       "duration_seconds": 0.64,
       "variant": "final old/new rotated key log assertion strengthened after full CI started; Host source unchanged"

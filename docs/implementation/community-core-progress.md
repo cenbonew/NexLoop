@@ -6,7 +6,7 @@ Actual commands:
 
 - `uv run --frozen pytest -xq tests/test_compose_bootstrap.py tests/test_community_container_contract.py tests/test_wheel_install.py --tb=short`: first run 7 passed/1 failed (test import could not resolve scripts namespace). Fixed with explicit importlib file loading; rerun 11 passed in 10.45s.
 - `uv run --frozen python scripts/prepare_community_build.py --output .ci-results/community-build-review`: exit 0, four-file ignored context, no container built.
-- `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`: authoritative current full result is community-core-ci.json.
+- `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`: authoritative current full result is community-core-ci.json.
 - `docker buildx imagetools inspect postgres:18.4-bookworm` and Python base: index digests resolved. PostgreSQL raw manifest inspection succeeded; Python raw retry failed with registry EOF after successful readable inspection.
 - Docker info/pull attempts failed because desktop daemon was unavailable; opening Desktop started backend processes but did not provide daemon connectivity. No build or Compose execution succeeded.
 

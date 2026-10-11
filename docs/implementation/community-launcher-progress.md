@@ -8,6 +8,6 @@ Actual commands:
 - `uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-launch-review`: private files and public-only wheel context generated.
 - `uv run --frozen python scripts/community_test.py verify --output .ci-results/community-launch-review`: succeeded, output matches preparation manifest.
 - `uv run --frozen python scripts/community_test.py run --output .ci-results/community-launch-review`: exit 1, sanitized failure; current docker info independently confirms unavailable daemon. No image build or project startup was reached.
-- `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`: actual final result in community-launcher-ci.json.
+- `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`: actual final result in community-launcher-ci.json.
 
 NX-009 remains in_progress. Docker daemon connectivity is required to collect real container evidence; full Host/API/community acceptance and S2/Pi Run/external-effect tasks remain incomplete. versions.lock.json is unchanged from the prior manifest-only digest checkpoint, bootstrap remains 0018. No credentials are printed, committed or copied into build contexts. No git staging/commit/push, server mutation, persistent migration or deployment.

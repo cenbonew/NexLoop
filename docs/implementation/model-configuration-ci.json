@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T15:47:52.527183+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "partial core/Host startup model configuration gate and Action result sanitization; no model call or complete Host claimed",
   "python_tests_passed": 494,

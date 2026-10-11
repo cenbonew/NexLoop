@@ -1,11 +1,11 @@
 # 授权调用耗时诊断（NX-018 第 3 步与 CI B 类时限失败的依据）
 
-只读诊断，分支 `perf-authz-diagnosis`，BASE `3ad40614e4b45db2db9a78e3881f35b65d8255f5`。产品代码与迁移未改动；所有计时钩子都在 `scripts/perf/` 的测量进程内以 monkeypatch 方式加载。测量机：Apple M4 Pro（12 核，24 GB），Homebrew PostgreSQL 18.4，Node 24，Python 3.12（uv frozen）。所有用例均为本机串行执行。
+只读诊断，分支 `perf-authz-diagnosis`，BASE `3ad40614e4b45db2db9a78e3881f35b65d8255f5`。产品代码与迁移未改动；所有计时钩子都在 `scripts/perf/` 的测量进程内以 monkeypatch 方式加载。测量机：开发机（macOS），Homebrew PostgreSQL 18.4，Node 24，Python 3.12（uv frozen）。所有用例均为本机串行执行。
 
 ## 1. 结论（先看这里）
 
 1. **主因是授权决策次数，不是某一条慢 SQL。**
-   - 单次授权决策（EIOS fact resolver + 12 次事实往返 + 决策）在 M4 Pro 上的 p50 是 **4.1 ms**。
+   - 单次授权决策（EIOS fact resolver + 12 次事实往返 + 决策）在开发机上的 p50 是 **4.1 ms**。
    - 但 Pi 每次工具 submit（`runtime_effect_tool`）平均要做约 **90–122 次决策、1088–1464 次事实往返**；Role Run 下每次 `authorize_runtime_activation` 约 **29–42 次决策、352–504 次事实往返**。
    - 约 80% 的决策是**按属性逐个做的 READ 检查**：catalog envelope（ServiceOffering / ConsumerServiceOffering 的每个属性）约 37%，role envelope（RoleDefinition / ConsumerRoleLink 的每个属性）约 31%，PlanStep 约 9%。每次 inspect/model/submit 都重新算一遍，请求内不复用。
 2. **尾延迟来自 Backend 进程内的全局请求锁。**
@@ -13,7 +13,7 @@
    - 两个 Pi Run 并发时，慢的 authorize 有约 **1.23–1.32 s** 花在等这把锁（另一 Run 的 effect_tool 请求持锁 1.7 s）。这正是 L1 看到的“两 Pi 闭环 503”的形态。
 3. **离 2 s 时限的余量只有约 10%。**
    - 本机（带钩子）`runtime_effect_tool` 最大 **1.82 s**，`authorize_runtime_activation` 最大 **1.77 s**，`prepare_message_context` 最大 **1.99 s**。
-   - 越过 2 s 的盈亏平衡慢化系数 k = 2000/max 只有 **1.01–1.14**。sice（Ryzen 7 5700U）的单线程性能按公开基准约为 M4 Pro 的 1/2.3–1/2.6（**估算，未在 sice 实测**），所以这些用例在 sice 上越限几乎是必然的。B 类的 7 个用例与此一致。
+   - 越过 2 s 的盈亏平衡慢化系数 k = 2000/max 只有 **1.01–1.14**。CI 主机的单线程性能按公开基准估算约为开发机的 1/2.3–1/2.6（**估算，未在 CI 主机实测**），所以这些用例在 CI 主机上越限几乎是必然的。B 类的 7 个用例与此一致。
 4. 服务端 SQL 是第三位：
    - `nexloop_runtime_activation_command` 每次 50–180 ms。
    - `nexloop_context_artifact_command` 最多 1.1 s（每次约 250 次 `assert_read_authority`）。
@@ -56,7 +56,7 @@ uv run --frozen python scripts/perf/slowdown.py scripts/perf/out/b-class
 
 ## 3. 数据
 
-### 3.1 单次受治理调用（微基准，M4 Pro，预热后）
+### 3.1 单次受治理调用（微基准，开发机，预热后）
 
 | 调用 | n | p50 ms | p95 ms | max ms |
 |---|---|---|---|---|
@@ -105,7 +105,7 @@ uv run --frozen python scripts/perf/slowdown.py scripts/perf/out/b-class
 | authorize_runtime_activation | 1769 | 1.13 | 6/216 | 8/216 | 59/216 | 67/216 |
 | assert_task_lease | 830 | 2.41 | 0 | 0 | 1 | 3 |
 
-sice 的 Ryzen 7 5700U（Zen2，15 W，4.3 GHz 加速）对比 M4 Pro：Geekbench 6 单核约 1550–1650 对约 3900，**比值约 2.3–2.6（公开基准估算，未实测）**；CPython、pydantic-core、PL/pgSQL 都是单线程 CPU 型负载，比值相近。sice 在 CI 中还有 PG 与其它进程同机竞争，k 只会更大。按 k≈2.5，三类请求都会越限，与 B 类“sice 串行失败、Mac 通过”的现象一致。本机只有约 10% 余量，Mac 通过本身也不稳。
+CI 主机与开发机的单核性能按公开基准估算相差约 2.3–2.6 倍（**公开基准估算，未实测**）；CPython、pydantic-core、PL/pgSQL 都是单线程 CPU 型负载，比值相近。CI 主机在 CI 中还有 PG 与其它进程同机竞争，k 只会更大。按 k≈2.5，三类请求都会越限，与 B 类“CI 主机串行失败、Mac 通过”的现象一致。本机只有约 10% 余量，Mac 通过本身也不稳。
 
 ### 3.3 决策目标分布（两 Pi Role 加 effect tools，共 4708 次决策）
 
@@ -169,7 +169,7 @@ three_process 用例（按语句归属的 20 ms 采样）：
 
 ## 6. 2 s 时限本身是否合理
 
-- 时限覆盖的是一次本地 loopback HTTPS 请求，同时包含 TLS 握手和服务端的完整授权工作。服务端工作量随租户 catalog 规模、Role 属性数、PlanStep 和并发 Run 数线性增长（逐属性决策 × 请求数），所以固定的 2 s 不是对 O(1) 操作的保护，而是对一个随数据增长的操作设硬上限。在 M4 Pro 上只剩约 10% 余量，在较慢主机上必然越限。**结论：在当前工作量下，2 s 不合理；但单纯调大会掩盖结构问题，不建议先这样做。**
+- 时限覆盖的是一次本地 loopback HTTPS 请求，同时包含 TLS 握手和服务端的完整授权工作。服务端工作量随租户 catalog 规模、Role 属性数、PlanStep 和并发 Run 数线性增长（逐属性决策 × 请求数），所以固定的 2 s 不是对 O(1) 操作的保护，而是对一个随数据增长的操作设硬上限。在开发机上只剩约 10% 余量，在较慢主机上必然越限。**结论：在当前工作量下，2 s 不合理；但单纯调大会掩盖结构问题，不建议先这样做。**
 - 时限仍有价值：它避免 Pi 工具调用无限挂起，并保证 Run 的主动预算可控。submit 超时后的 unknown 有 `find` 查询兜底（幂等 intent），语义上安全。
 - 建议：
   1. 先按 §5 把每请求工作量降到与数据规模基本无关（O1–O3，必要时 O2）；
@@ -180,7 +180,7 @@ three_process 用例（按语句归属的 20 ms 采样）：
 
 ## 7. 限制
 
-- sice 未实测（规则禁止连接）；慢化系数来自公开基准估算。
+- CI 主机未实测（规则禁止连接）；慢化系数来自公开基准估算。
 - 带钩子的数据包含约 1–7% 的开销；`Lock` 等待来自 20 ms 采样，是近似值。
 - 只覆盖 B 类 7 例、一个单进程 runtime 用例组（`test_runtime_activation.py` 30 例）和微基准；C 类并行抖动未在 6 进程并行负载下复现。
 - 决策重复率（请求内同 target 多次）未单独统计，O1 收益需在实施时实测。

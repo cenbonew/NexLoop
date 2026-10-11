@@ -22,7 +22,7 @@ Five tests in tests/test_backend.py cover: composed Artifact reserve/fsync/final
 
 The same targeted command then passed five tests in 2.46 seconds.
 
-Full local CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Its final result and exact tested input/JUnit hashes are recorded in backend-composition-ci.json.
+Full local CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Its final result and exact tested input/JUnit hashes are recorded in backend-composition-ci.json.
 
 Changed files: packages/eios-core/src/nexloop_eios/backend.py (new); postgres_artifacts.py (nonblocking signing-file open); tests/test_backend.py (new); this report and CI report; live planning evidence; public change inventory.
 

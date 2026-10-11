@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:21:19.892493+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "real service object/property read authorization; full business/runtime S2 matrix incomplete",
   "python_tests_passed": 518,

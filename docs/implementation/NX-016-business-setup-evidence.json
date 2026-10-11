@@ -4,33 +4,33 @@
   "head": "candidate0050",
   "history": [
     {
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_configuration.py -q --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_business_setup_configuration.py -q --tb=short",
       "result": "20 passed",
       "seconds": 0.26,
       "scope": "offline syntax/private file/log validation"
     },
     {
       "session": 59952,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
       "result": "1 collection error",
       "seconds": 0.24,
       "cause": "wrong ResourceRestriction import eios.identity.models"
     },
     {
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
       "result": "1 collection error",
       "seconds": 0.22,
       "cause": "incorrect guessed import eios.authz.models; corrected after actual existing source confirms eios.authz.applications"
     },
     {
       "session": 38174,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_business_setup_pg.py -q -x --tb=short",
       "result": "4 passed",
       "seconds": 7.23
     },
     {
       "session": 28177,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_configuration.py tests/test_business_setup_pg.py -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_business_setup_configuration.py tests/test_business_setup_pg.py -q -x --tb=short",
       "result": "25 passed,1 failed",
       "seconds": 9.63,
       "cause": "test attempted existing immutable service credential status change through0050 publisher; publisher correctly rejected",
@@ -38,7 +38,7 @@
     },
     {
       "session": 17636,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_business_setup_configuration.py tests/test_business_setup_pg.py -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_business_setup_configuration.py tests/test_business_setup_pg.py -q -x --tb=short",
       "result": "28 passed",
       "seconds": 12.23,
       "scope": "20 offline +8 real PG/standalone CLI"

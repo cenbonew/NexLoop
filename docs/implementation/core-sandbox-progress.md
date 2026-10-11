@@ -18,7 +18,7 @@ Private DSN/credential/key files are generated atomically with mode 0600 under t
 
 The non-editable wheel test now verifies three installed console --help commands and actually runs the new sandbox binary from its separate venv/non-workspace cwd, with PYTHONPATH/PYTHONHOME removed. That installed command creates another fresh private PG instance and completes/retire its actual test loop. The previous installed-wheel bootstrap and restricted Artifact tests remain active. Current wheel/runtime results are in core-sandbox-ci.json and ignored .ci-results/wheel-install.json.
 
-Full local CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final result/input/JUnit hashes and the tested/final rebuilt wheel hash are recorded in core-sandbox-ci.json.
+Full local CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final result/input/JUnit hashes and the tested/final rebuilt wheel hash are recorded in core-sandbox-ci.json.
 
 ## Usage on the verified local PG installation
 

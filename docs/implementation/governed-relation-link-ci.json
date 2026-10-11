@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T17:52:28.363720+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "governed Relation linking, immutable schema binding, exact endpoint EDIT and Relation CREATE authority, cardinality/pair serialization; real PG",
   "python_tests_passed": 578,

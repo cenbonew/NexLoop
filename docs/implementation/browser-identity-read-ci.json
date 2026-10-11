@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T19:22:38.232797+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "python_tests_passed": 771,
   "python_duration_seconds": 141.01,

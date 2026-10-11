@@ -23,12 +23,12 @@ has the initialization DSN. No real model, channel, original EIOS or TOS access.
 
 ```sh
 uv run pytest -q tests/test_worker_test_profile.py tests/test_domain_worker.py tests/test_community_container_contract.py tests/test_community_launcher.py
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_worker_test_profile.py tests/test_domain_worker.py tests/test_community_container_contract.py tests/test_community_launcher.py
+source $HOME/.nvm/nvm.sh && nvm use && uv run pytest -q tests/test_worker_test_profile.py tests/test_domain_worker.py tests/test_community_container_contract.py tests/test_community_launcher.py
 uv run pytest -q tests/test_worker_test_profile.py
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-worker-runtime-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-worker-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-worker-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-worker-runtime-20261008
 uv run --frozen python .ci-results/collect_worker_runtime_evidence.py
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 First focused run:14 passed/22 setup errors because Node20 was used. The locked

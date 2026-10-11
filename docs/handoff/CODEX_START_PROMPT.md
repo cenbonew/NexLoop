@@ -1,10 +1,12 @@
 # 给 Codex 的首次开发指令（v1.1）
 
-以下横线之间的文本可直接粘贴给 Codex。它假定 Codex 在开发机上、工作目录为 `/Users/chenbowen/253383134/NexLoop`，交接包已解压或复制到该仓库内 `docs/tmp/` 下。
+> 2026-10-11 为公开发布去除本机路径与主机别名（路径改为 `<repo>` 等占位符，主机改为 DATA_HOST / APP_HOST 角色名），其余内容未改。
+
+以下横线之间的文本可直接粘贴给 Codex。它假定 Codex 在开发机上、工作目录为 `<repo>`，交接包已解压或复制到该仓库内 `docs/tmp/` 下。
 
 ---
 
-请基于本交接包实施 NexLoop。工作目录是 `/Users/chenbowen/253383134/NexLoop`（git 仓库，远程 `origin` 指向 GitHub 上的 **PUBLIC** 仓库 `cenbonew/NexLoop`）。交接包位于 `docs/tmp/NexLoop_Codex_交接包_v1.0/NexLoop-handoff-v1.0/`；若只拿到 zip，先解压到同一位置。
+请基于本交接包实施 NexLoop。工作目录是 `<repo>`（git 仓库，远程 `origin` 指向 GitHub 上的 **PUBLIC** 仓库 `cenbonew/NexLoop`）。交接包位于 `docs/tmp/NexLoop_Codex_交接包_v1.0/NexLoop-handoff-v1.0/`；若只拿到 zip，先解压到同一位置。
 
 **第 0 步：防泄露，再做其它一切。** 在任何 `git add` 之前：用 `deploy/examples/PUBLICATION_EXCLUSIONS.example` 生成仓库根 `.gitignore`，并追加 `docs/tmp/`；把交接包中除 `local-only/` 和 `NexLoop_完整交接文档_*` 之外的内容复制到 `docs/handoff/`；用 `deploy/examples/env.example` 生成仓库根 `.env.example`（全部留空）；把 `planning/` 复制到仓库根作为实时副本；`contracts/` 复制到 `packages/contracts/`。首次提交前执行 `git status` 和 `grep -rn "192.168" --exclude-dir=.git --exclude-dir=docs/tmp .`，确认无私网地址进入暂存区。禁止 `git add -A`/`git add .` 直到 `.gitignore` 生效；禁止 `push --mirror`。
 
@@ -12,14 +14,14 @@
 
 **既定方向不再重新选型：** 企业级开源持续运营系统；真实运营与执行可靠性优先，数字孪生与模拟后置；Pi Durable 作为首版 Harness（经 RuntimeAdapter 封装）；NEX-EIOS 作为项目内可开源的本体与 Action 内核；EvoOntology 选择性复用；业务数据库 PostgreSQL；本地 CI 是发布依据，GitHub 只做代码同步。双机职责见 `local-only/LAN_PLAN.md`。用户已确认 NEX-EIOS 可以开源，不要再问；但必须清理真实数据与密钥、保留第三方许可、不修改原生产系统。
 
-**上游源码：** NEX-EIOS 冻结提交 `1e363db982daeca74058453ad12fc4a6cac333da` 已在本机只读工作树 `/Users/chenbowen/253383134/NEX-EIOS-release-rda-1e363db`，S0 一律以它为准；`/Users/chenbowen/253383134/NEX-EIOS` 主克隆落后且有未提交改动，不要使用；其它 `NEX-EIOS-*` 目录是原生产产物，不要读取。Pi 与 EvoOntology 按 `LOCAL_SOURCES.md` 克隆到 `/Users/chenbowen/253383134/upstream/` 并 checkout 冻结提交。
+**上游源码：** NEX-EIOS 冻结提交 `1e363db982daeca74058453ad12fc4a6cac333da` 已在本机只读工作树 `<eios-frozen-worktree>`，S0 一律以它为准；`<eios-clone>` 主克隆落后且有未提交改动，不要使用；其它 `NEX-EIOS-*` 目录是原生产产物，不要读取。Pi 与 EvoOntology 按 `LOCAL_SOURCES.md` 克隆到 `<upstream>/` 并 checkout 冻结提交。
 
 **S0（NX-001～NX-005）必须交付的文件：**
 - `docs/s0/source-reuse-inventory.md` + `.json`：按 `docs/07` §3 的字段逐项列出 EIOS 可复用能力（source_path、commit、public_interface、transitive_dependencies、keep/adapt/exclude、tests、licensing）。
 - `docs/s0/eios-write-path-audit.md`：实际读取 `0061`/`0313` 许可链代码，说明 API Key/服务主体当前能做什么、不能做什么，以及 NX-012 的扩展点。
 - `docs/s0/migration-catalog-audit.md`：从 `eios.adapters.postgres.migrations` 的实际逻辑读出 required revision（已知 SQL 文件到 `0332`，README 的 `0233` 已过期），列出最小 bootstrap 依赖图与必须排除的 tennis/sports8/TOS 迁移。
 - `versions.lock.json`：`upstream_sources`（三个 commit）、`packages`（Pi npm 包与冻结提交的对应关系必须验证，不能只写 1.0.4）、`images`（digest 未解析前留空并标注）。
-- `docs/s0/dev-machine-inventory.md`（本机）与 `docs/s0/server-inventory.md`：两台主机已可用 `ssh hengce`（DATA_HOST）/ `ssh sice`（APP_HOST）免密登录，只读盘点已在 `local-only/SERVER_INVENTORY.md`，NX-004 只需复核、补 sudo 项并转成公开版（去 IP、去指纹）。注意其 §8：Wi-Fi 链路、Docker Hub 需镜像站、Docker 为 rootful；IP 已由路由器保留，两台 sudo 均已 NOPASSWD。
+- `docs/s0/dev-machine-inventory.md`（本机）与 `docs/s0/server-inventory.md`：两台主机已可用 `ssh <DATA_HOST>` / `ssh <APP_HOST>`免密登录，只读盘点已在 `local-only/SERVER_INVENTORY.md`，NX-004 只需复核、补 sudo 项并转成公开版（去 IP、去指纹）。注意其 §8：Wi-Fi 链路、Docker Hub 需镜像站、Docker 为 rootful；IP 已由路由器保留，两台 sudo 均已 NOPASSWD。
 - `planning/tasks.json` 状态更新与证据；每次更新后运行 `uv run --with jsonschema --with pyyaml --with rfc3339-validator python docs/handoff/tools/validate_handoff.py --planning planning`。
 
 **S1/S2 的最薄纵向切片：** 按 `tasks.json` 依赖顺序推进 NX-006 → NX-008 → NX-007 → NX-010 → NX-009 → NX-011 → NX-012 → NX-013 → NX-014 → NX-015 → NX-016 → NX-017。“可运行闭环”的定义是：干净 PostgreSQL 上抽取后的 EIOS core 能 bootstrap；本地 Artifact 可用且无 Memory 回退；一个受治理 service/agent 主体能经 EIOS 授权链完成实例写与一种真实效应 Action；Pi Run 在本地 SQLite（FULL 同步）持久化并能 kill/reopen 恢复；AT-013/030/031/033/034/052 等 S2 用例有真实 PG 证据。不要一次生成 23 个空模块，不要只输出计划。

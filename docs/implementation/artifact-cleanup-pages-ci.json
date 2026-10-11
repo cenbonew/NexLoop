@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:45:39.643153+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "authenticated tenant/world/principal cleanup candidate pages and bounded per-item governed deletion; no scheduler/full orphan worker",
   "python_tests_passed": 538,

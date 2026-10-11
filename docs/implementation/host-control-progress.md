@@ -10,9 +10,9 @@ API 新增完整可选配置组 --host-origin、--host-control-key-file、--host
 
 实际执行命令：
 
-- `source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short`：首轮23 passed in5.19s；新增重定向/代理用例后24 passed in6.22s；新增真实双进程入口后25 passed in6.74s。它们是实施期间的 loopback HTTP 基线，不是最终 HTTPS 验收。
-- `source /Users/chenbowen/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short`：切换 HTTPS 后25 passed in7.16s；新增错误 CA/主机名验证后27 passed in7.44s；最后加强私有材料读取上限后最终27 passed in7.23s。没有首次失败；重跑由新增用例或代码变化触发。
-- `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`：完整 CI 结果见 host-control-ci.json。
+- `source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short`：首轮23 passed in5.19s；新增重定向/代理用例后24 passed in6.22s；新增真实双进程入口后25 passed in6.74s。它们是实施期间的 loopback HTTP 基线，不是最终 HTTPS 验收。
+- `source $HOME/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short`：切换 HTTPS 后25 passed in7.16s；新增错误 CA/主机名验证后27 passed in7.44s；最后加强私有材料读取上限后最终27 passed in7.23s。没有首次失败；重跑由新增用例或代码变化触发。
+- `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`：完整 CI 结果见 host-control-ci.json。
 - `docker info --format '{{.ServerVersion}}'`：exit1，daemon 仍不可连接；没有启动容器或构建镜像。
 
 真实证据包括：Python API/Node Host 两个独立进程间 HTTPS 探测；正确控制密钥；密钥轮换期间旧调用方失败、更新私有调用方文件后恢复；权限漂移拒绝；Host 退出后 API 保持存活、报告不可达；错误 CA 与证书 IP SAN 不匹配拒绝；重定向/环境代理目标未收到请求；既有第二进程拒绝与 SIGKILL/重新打开测试在 HTTPS 下通过。证书只在自有测试目录生成，客户端显式信任测试证书，无系统信任库修改或 TLS 验证关闭。

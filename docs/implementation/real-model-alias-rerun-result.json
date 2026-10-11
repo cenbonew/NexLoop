@@ -93,11 +93,11 @@
   ],
   "commands": [
     {
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && node /Users/chenbowen/253383134/NexLoop/node_modules/typescript/bin/tsc -p apps/agent-host/tsconfig.json",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use 24 >/dev/null && node <repo>/node_modules/typescript/bin/tsc -p apps/agent-host/tsconfig.json",
       "exit_code": 0
     },
     {
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest -q tests/test_real_deepseek_alias_delivery.py --tb=short",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest -q tests/test_real_deepseek_alias_delivery.py --tb=short",
       "session": 27919,
       "exit_code": 0,
       "passed": 1,

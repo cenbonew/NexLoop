@@ -10,6 +10,6 @@ Actual command: `uv run --frozen pytest -xq tests/test_browser_password_verifica
 
 This utility does not issue authentication evidence or create a Session. The repository still lacks save_local_account and complete Evidence/Session UoW; a successful current-password check is not reported as browser login. No fake authentication endpoint is enabled.
 
-Full command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`; result/hashes in browser-password-verification-ci.json. Source inventory/provenance and frozen test provenance are updated. versions.lock.json advances bootstrap_revision 0022 -> 0023 only; prior 22 SQL files unchanged, dependency/upstream/image locks unchanged. Installed-wheel verification uses the exact new catalog.
+Full command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`; result/hashes in browser-password-verification-ci.json. Source inventory/provenance and frozen test provenance are updated. versions.lock.json advances bootstrap_revision 0022 -> 0023 only; prior 22 SQL files unchanged, dependency/upstream/image locks unchanged. Installed-wheel verification uses the exact new catalog.
 
 NX-011 remains in_progress: save/rehash/reset composition, canonical evidence issuance/consumption, atomic Session UoW, same-origin login/CSRF, frontend and Host/internal auth remain required. Docker/AT-051 and S2/Pi recovery/real effects remain unverified. No persistent environment migration, server mutation, real model/channel call, git staging/commit/push or deployment.

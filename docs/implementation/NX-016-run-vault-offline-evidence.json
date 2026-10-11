@@ -1,6 +1,6 @@
 {
   "scope": "candidate-only private-file evidence, not PostgreSQL issuance or production relay",
-  "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_run_credential_vault.py -q --tb=short",
+  "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_run_credential_vault.py -q --tb=short",
   "history": [
     {
       "result": "9 passed",

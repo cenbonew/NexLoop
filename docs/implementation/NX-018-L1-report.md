@@ -168,14 +168,14 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 
 `tests/test_backend_lifecycle_capacity.py` 7 passed / 52.35s（插件开启）；同一"8 并发"用例在未修复 main 上失败（对照）。广回归（插件开启）**1349 passed / 0 failed / 2696.28s**，`.ci-results/l1-lockfix.xml`，Host vitest 141 passed（含 v4 `[complete]` 通过）：容量限制且重入不占名额、超时明确报错 <2s、关闭等待在途请求、容量随池大小（4 → 2）、**8 个并发请求（4× `runtime_effect_tool` 同意图 submit + 4× authorize）在 pool_max_size=4 下全部完成**、等待名额期间 Run 截止到达 → 获得名额后被拒且 0 意图、名额等待超时以 `BackendBusy` 返回、`run_request` 在请求深度 1 下执行。
 
-### 能否解释 sice 上 B 类（retry_wait / runtime_transport_unavailable）失败
+### 能否解释 CI 主机上 B 类（retry_wait / runtime_transport_unavailable）失败
 
 判断：**大概率不能**。
 
-1. `REGRESSIONS-main-f58f3ee.md` 的 7 例 sice-only 发生在 f58f3ee，那时还没有 LifecycleLock（全局 RLock 串行化，不存在并发取池），不可能是饥饿。
+1. `REGRESSIONS-main-f58f3ee.md` 的 7 例只在 CI 主机出现的失败发生在 f58f3ee，那时还没有 LifecycleLock（全局 RLock 串行化，不存在并发取池），不可能是饥饿。
 2. 之后基线中的 B 类：在本工作树把容量强制关掉（等同修复前 main），对 `test_context_host_export`、`test_outbound_messages_pg::…agent_reply…`、`test_message_relay::…cli_same_message…`、`test_runtime_effect_tools::…rebuilt…`、`test_role_pi_effect_checkpoint` 测量：**单个 backend 上并发请求峰值 1–2，最长 getconn 等待 ≤13ms**。饥饿需要 ≥`pool_max_size`（4）个请求同时持有外层连接并等待嵌套连接；峰值 2 时每个请求至多 2 个连接，刚好占满但不会死锁。
-3. 这些失败与 2 s 工具 deadline 的时延画像一致（每次 guard 授权 0.5–1s，sice 更慢）。
-4. 建议在 sice 上用同一探针（`concurrency_probe` 插件，报告并发峰值与 getconn 等待）跑一次 B 类用例确认；若出现峰值 ≥4 或 getconn 长等待，则饥饿是成因之一。
+3. 这些失败与 2 s 工具 deadline 的时延画像一致（每次 guard 授权 0.5–1s，CI 主机更慢）。
+4. 建议在 CI 主机上用同一探针（`concurrency_probe` 插件，报告并发峰值与 getconn 等待）跑一次 B 类用例确认；若出现峰值 ≥4 或 getconn 长等待，则饥饿是成因之一。
 
 ### 后续（本次不做）
 
@@ -265,16 +265,16 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 ### AT-004 / AT-009 最终结论
 
 - **AT-004（角色 N:M：两角色关联同消费者；职责可配置，无常驻 Agent；冲突触达受控）：passed。** 依据：RoleDefinition/ConsumerRoleLink/RoleExecutionCeiling/RoleAssignmentScope 均为受治理对象（`test_role_mapping`、`test_role_policy_governance`）；两个 Source 的两个 Role 关联同一 Consumer，两个短 Pi Run 共享一个业务意图、只产生一次真实效应（`test_role_pi_effect_checkpoint`，v5 Context 下通过）；Role 权限绑定期强制（`test_role_policy_binding`、`test_role_policy_enforcement`、metadata-only fail closed、两 Role 不叠加）与调度期强制（`test_role_policy_dispatch`：策略编辑/停用/READ 撤销/到期后 model/start/tool/submit/admit 均拒、0 POST；effect_units 并发上限，语义经负责人确认）；Context v5 把策略溯源交给模型且策略变更 fail closed（`test_role_context_v5`）；收口回归 1408/0。
-- **AT-009（关系证据：旧推测被明确更正后，当前关系依据更新，旧结论不作为事实）：passed（Mac 证据）。** 依据：`test_relationship_context_v4.py` 33 例全部通过，其中 `[complete]` 为真实 Human 更正 Message → 受治理 Assessment revision2 → 新 Run/新 v4 Artifact → 第二个 TLS Host/Pi Run 消费新结论、旧 hypothesis 仅为 evidence；该例在 O1 + 锁修复之后：单独 3/3、插件广回归两轮（1349 例、1408 例）均通过，此前只在 2 s 时限下失败。证据读取派生（0086）也覆盖了 v4 关系读取路径。保留：ADR-021 将其登记为基线 B 类并要求退出条件为"连续两轮全量通过"，sice 上的结果以调度员的 sice 全量为准。
+- **AT-009（关系证据：旧推测被明确更正后，当前关系依据更新，旧结论不作为事实）：passed（Mac 证据）。** 依据：`test_relationship_context_v4.py` 33 例全部通过，其中 `[complete]` 为真实 Human 更正 Message → 受治理 Assessment revision2 → 新 Run/新 v4 Artifact → 第二个 TLS Host/Pi Run 消费新结论、旧 hypothesis 仅为 evidence；该例在 O1 + 锁修复之后：单独 3/3、插件广回归两轮（1349 例、1408 例）均通过，此前只在 2 s 时限下失败。证据读取派生（0086）也覆盖了 v4 关系读取路径。保留：ADR-021 将其登记为基线 B 类并要求退出条件为"连续两轮全量通过"，CI 主机上的结果以调度员的 CI 主机全量为准。
 
 ### NX-018 是否可标 done
 
-建议可以标 done，依据：NX-018-handoff 列出的三项缺口均已在 fresh catalog 主线组合中实测通过——(1) formal Source READ 贯穿 model/start/submit/admit/finalize（0075，`test_role_formal_current`/`_sql`）；(2) 关系更正进入新的 explicit v4 Context（0076，33 例）；(3) Role 权限上限与 scope 从 metadata 变为强制（0081 绑定期 + 0085 调度期 + 0087 v5 Context）。另外完成 0062 回归的方案 B（0077）、证据读取派生（0086）、连接池饥饿修复（d0045a5）。AT-004 passed、AT-009 passed（Mac）；收口回归 1408/0、Host 164/0。前提：调度员的 sice 全量在合并后无新增失败（尤其 v4 `[complete]` 需满足 ADR-021 的退出条件）。
+建议可以标 done，依据：NX-018-handoff 列出的三项缺口均已在 fresh catalog 主线组合中实测通过——(1) formal Source READ 贯穿 model/start/submit/admit/finalize（0075，`test_role_formal_current`/`_sql`）；(2) 关系更正进入新的 explicit v4 Context（0076，33 例）；(3) Role 权限上限与 scope 从 metadata 变为强制（0081 绑定期 + 0085 调度期 + 0087 v5 Context）。另外完成 0062 回归的方案 B（0077）、证据读取派生（0086）、连接池饥饿修复（d0045a5）。AT-004 passed、AT-009 passed（Mac）；收口回归 1408/0、Host 164/0。前提：调度员的 CI 主机全量在合并后无新增失败（尤其 v4 `[complete]` 需满足 ADR-021 的退出条件）。
 
 ### 剩余后续（不阻塞 done）
 
 - 嵌套授权证明复用外层连接 / O2 批量判定（L4）；0039 同 Run 并发 guard 锁序（L4）。
-- `concurrency_probe` 在 sice 上确认 B 类时延画像（仅在 scratch，需要时可放入共享笔记）。
+- `concurrency_probe` 在 CI 主机上确认 B 类时延画像（仅在 scratch，需要时可放入共享笔记）。
 
 ## s3m 测试机两项新增失败（容量测试 / effect_units 并发）
 
@@ -332,7 +332,7 @@ Python：`role_policies.py`（候选原样）、`run_credentials.py` 拆出 `_pr
 - 回归（48 个相关文件，6 worker）：首轮 322 passed / 36 failed。失败全部是环境原因：shell 没有 `nvm use 24`，Node v20 报 `ERR_UNKNOWN_BUILTIN_MODULE`。切到 Node 24 后，失败的 18 个文件重跑 **96 passed**。定向（pool_depth 插件，串行）：容量 / dispatch / bridge / guard transport / host admission / offering runtime。其中 host admission 首次 3 项失败，原因是切分支后 agent-host 构建过期，重建后 4 passed；其余 65 passed。
 
 ### s3p：`test_lease_lapsing_mid_burst…` 确定性失败（分支 `nx018-lease-test-fix`，基于 `nx018-observe`）
-- 首次失败：sice run `20261009T124908Z-ce111f6d86b9`，串行复跑 2/2 失败。原因是测试的末尾残留了一条 `意图数 == 1` 的断言（上一行已是 `<= 1`）。它依赖时序：`lapse(1.5)` 之后，4 个提交中必须至少有 1 个在 1.5 s 内完成。慢机上一个都赶不上，意图数为 0。产品行为正确：租约过期后 fail-closed，没有产生意图。
+- 首次失败：CI run `20261009T124908Z-ce111f6d86b9`，串行复跑 2/2 失败。原因是测试的末尾残留了一条 `意图数 == 1` 的断言（上一行已是 `<= 1`）。它依赖时序：`lapse(1.5)` 之后，4 个提交中必须至少有 1 个在 1.5 s 内完成。慢机上一个都赶不上，意图数为 0。产品行为正确：租约过期后 fail-closed，没有产生意图。
 - 改写（不调大秒数，不依赖时序）：`test_lease_lapse_fails_closed_with_operator_diagnosis`
   1. 续租后单次提交成功，恰 1 个意图；
   2. 租约置为过期后，单次提交 → 诊断逐项等于 `{InsufficientPrivilege, 42501, 'activation denied', 'resolve', retryable=False}`，消息保持通用；

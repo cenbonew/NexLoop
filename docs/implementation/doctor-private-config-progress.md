@@ -26,7 +26,7 @@ A real subprocess test configures a private nexloop_api DSN file, an administrat
 
 `uv run --frozen pytest -xq tests/test_doctor.py tests/test_artifact_smoke.py --tb=short`: 14 passed in 5.19 seconds. After strengthening the spies, rerun of the same command: 14 passed in 5.14 seconds. No failure or skip occurred in this step.
 
-Full CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final input/JUnit hashes and results are recorded in doctor-private-config-ci.json.
+Full CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final input/JUnit hashes and results are recorded in doctor-private-config-ci.json.
 
 Changed: private_configuration.py (shared existing file reader), artifact_smoke.py (shared import), doctor.py (file precedence/test mode/report), tests/test_doctor.py, .env.example (blank path), README usage, this report/CI evidence, planning evidence and public change inventory. versions.lock.json, dependency locks, frozen upstreams and all SQL migrations remain unchanged at 0014. Image digests remain unresolved.
 

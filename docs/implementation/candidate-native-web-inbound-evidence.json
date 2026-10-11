@@ -45,8 +45,8 @@
       "seconds": 49.27
     }
   ],
-  "final_command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest -q tests/test_native_web_inbound.py tests/test_native_web_delivery.py --tb=short",
-  "cwd": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx017-native-inbound-candidate",
+  "final_command": "source $HOME/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest -q tests/test_native_web_inbound.py tests/test_native_web_delivery.py --tb=short",
+  "cwd": "<repo>/docs/tmp/nx017-native-inbound-candidate",
   "scope": [
     "raw provider UUID is durably bound to authenticated Human namespace/tenant/world/conversation/message; transport idempotency independent",
     "real HTTP 202/replay/409 and actor namespace payload rejection",

@@ -13,14 +13,14 @@ The actual Compose graph now runs PostgreSQL, API, Valkey and Agent Host plus th
 ## Commands actually executed
 
 ```sh
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -q tests/test_community_launcher.py tests/test_community_container_contract.py --tb=short
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -q tests/test_community_launcher.py tests/test_community_container_contract.py --tb=short
 uv run --frozen python .ci-results/fetch_node_host_oci.py
 docker image load --platform linux/arm64 --input .ci-results/node-host-verified-arm64.oci.tar
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-host-runtime-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-host-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-host-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-host-runtime-20261008
 uv run --frozen python .ci-results/verify_host_container_lifecycle.py
 uv run --frozen python .ci-results/collect_host_runtime.py
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 The official Hub tag metadata and raw registry index were independently read through HTTPS; their SHA256 matched the locked digest. An explicit ignored OCI preload verified the original index, selected arm64 manifest/config/layers and retained the canonical multiarch RepoDigest. Standard image load was used; no daemon/proxy/TLS trust change or new registry credential. This is arm64 runtime evidence, not an amd64 run or a repair of daemon token fetching. Upstream image/runtime files retain their existing licenses; no upstream code history is copied.

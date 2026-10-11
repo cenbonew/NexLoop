@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T21:39:23.823334+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "python_tests_passed": 873,
   "python_duration_seconds": 186.49,
@@ -19,7 +19,7 @@
   "dependency_locks_unchanged": true,
   "versions_lock_change": "Host status now includes verified HTTPS internal control foundation; versions/upstreams/images unchanged",
   "first_test_failures": [],
-  "final_targeted_command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short",
+  "final_targeted_command": "source $HOME/.nvm/nvm.sh && nvm use && pnpm --filter @nexloop/agent-host build && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short",
   "final_targeted_passed": 27,
   "final_targeted_duration_seconds": 7.23,
   "actual_api_process_to_actual_node_host_https_verified": true,

@@ -3,7 +3,7 @@
 依据：调度员在部署主机上运行 `scripts/perf/nx049_profile.sh deploy-idle 5`（main `a824777` + `cb36234`，合并提交 `27e5d18`，主机空闲，load 0.2–0.9）的汇总；Mac 对照为同一脚本的 `mac-baseline 3`（见 `NX-049-profile.md`）。原始日志不入库，下面只放精简表。
 
 主机：
-- 部署主机：x86_64 ThinkPad（16 线程），Ubuntu，Linux 7.0，PostgreSQL 18.6（Ubuntu 包），Node v24.13.0，Python 3.12.10。
+- 部署主机：x86_64（16 线程），Ubuntu，Linux 7.0，PostgreSQL 18.6（Ubuntu 包），Node v24.13.0，Python 3.12.10。
 - Mac：Apple M 系 12 核，PostgreSQL 18.4（Homebrew），版本相同的 Node 与 Python。
 
 > **第二轮更正**（`NX-049-analysis-round2.md`）：§1.3 中“个别层被放大 4–35 倍”不是这些层本身变慢，而是同一 guard 进程内 2–3 个请求重叠时等待 Python GIL 的时间，被记到了等待发生时所在的那一层。单独请求在部署主机上各层是均匀的约 2.5 倍。JIT（手段 1）、CPU 调频（手段 2）、O3 缓存（手段 3）均已排除。

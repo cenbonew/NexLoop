@@ -36,7 +36,7 @@ uv run pytest -q tests/test_agent_governed_write.py tests/test_bootstrap.py
 uv run pytest -q tests/test_agent_governed_write.py tests/test_bootstrap.py tests/test_backend.py tests/test_worker_test_profile.py tests/test_action_definitions.py
 uv run pytest -q tests/test_agent_governed_write.py
 uv run pytest -q tests/test_agent_governed_write.py tests/test_bootstrap.py tests/test_db_boundary.py
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 First bootstrap run:1 failed/16 passed because a source catalog count still
@@ -87,8 +87,8 @@ controlled real-PG governed instance-write scope; autonomous model/Pi execution
 and overall S2 are not implied. NX-012 remains in_progress for run-bound minting.
 
 ```sh
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-agent-foundation-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-agent-foundation-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-agent-foundation-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-agent-foundation-20261008
 uv run --frozen python .ci-results/collect_agent_foundation_evidence.py
 uv run --frozen python .ci-results/stop_owned_agent_foundation.py
 uv run --frozen python .ci-results/stop_owned_agent_foundation.py --execute

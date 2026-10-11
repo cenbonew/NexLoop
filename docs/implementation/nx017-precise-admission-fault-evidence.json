@@ -1,8 +1,8 @@
 {
   "task": "NX-017",
   "recorded_at": "2026-10-08T11:26:21.465554+00:00",
-  "candidate": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx017-fault-candidate",
-  "actual_command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_precise_pg_admission_outage.py tests/test_runtime_allocated_before_pi_kill.py -q --tb=short",
+  "candidate": "<repo>/docs/tmp/nx017-fault-candidate",
+  "actual_command": "source $HOME/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_precise_pg_admission_outage.py tests/test_runtime_allocated_before_pi_kill.py -q --tb=short",
   "final_result": "3 passed,2 httpx deprecation warnings,16.02s",
   "session": 50117,
   "source_sha256": {

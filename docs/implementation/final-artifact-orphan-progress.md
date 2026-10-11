@@ -22,7 +22,7 @@ Expanded `uv run --frozen pytest -xq tests/test_final_artifact_orphans.py tests/
 
 The runtime-reference SQL predicates and SHARE locks are implemented, but positive owner-bound invocation/job lifecycle acceptance is not claimed from these tests: runtime writer/lifecycle assembly is still future work. No administrative fake business invocation was inserted to manufacture that evidence. Current metadata-row protection and post-plan reservation cases are real PG evidence; they do not complete runtime-owner retention acceptance.
 
-Strict local CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Full results, source/JUnit hashes and installed/rebuilt wheel evidence are in final-artifact-orphan-ci.json.
+Strict local CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Full results, source/JUnit hashes and installed/rebuilt wheel evidence are in final-artifact-orphan-ci.json.
 
 Changed: artifact_orphans.py; low-level bounded final-file discovery/execution in local_artifacts.py; authenticated backend maintenance facade; 0018 SQL/catalog; nine new orphan cases and bootstrap/doctor/sandbox/wheel revision expectations; versions.lock.json bootstrap 0017 -> 0018; reports/planning evidence. All 17 earlier SQL migrations and dependency/upstream/Pi locks are unchanged; image digests remain unresolved. No original production mutation, persistent migration, Git staging/commit/push, deployment, real model or external channel call.
 

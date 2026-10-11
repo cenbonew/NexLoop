@@ -24,7 +24,7 @@ uv run --frozen python .ci-results/fetch_valkey_oci.py
 docker image load --platform linux/arm64 --input .ci-results/valkey-verified-arm64.oci.tar
 uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-cache-runtime-20261008-retry
 uv run --frozen python scripts/community_test.py run --output .ci-results/community-cache-runtime-20261008-retry
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 Additional read-only structured commands inspected exact project/purpose labels, image RepoDigests/architecture, private mount boundaries, binary version, network/ports and parsed the complete check report. Exact owned IDs were inspected before stopping the three running test services. All stopped exit0; volumes/images/private inputs were retained. No original production resource was read/changed.

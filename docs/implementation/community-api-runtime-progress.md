@@ -17,7 +17,7 @@ uv run --frozen pytest -q tests/test_community_container_contract.py tests/test_
 uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-api-runtime-20261008
 uv run --frozen python scripts/community_test.py run --output .ci-results/community-api-runtime-20261008
 uv run --frozen pytest -q tests/test_community_launcher.py tests/test_community_container_contract.py --tb=short
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 First focused checks: 13 passed; after adding missing/failed HTTP report negatives: 15 passed. Actual fresh-project launcher exited0 on the first run of this extension. Bootstrap/check jobs exited0; PG and API were healthy.

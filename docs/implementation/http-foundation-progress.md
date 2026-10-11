@@ -12,7 +12,7 @@ Actual commands/tests:
 - First HTTP test: 1 passed/1 failed because the fixture used artifact_signing_key instead of actual artifact_key. Corrected to actual profile files.
 - Expanded HTTP test: 4 passed/1 failed because the uv wrapper reports SIGTERM as 143. Replaced wrapper with direct owned Python subprocess and verify actual endpoint disappearance/PG connection closure, allowing normal SIGTERM termination.
 - `uv run --frozen pytest -xq tests/test_http_api.py tests/test_wheel_install.py --tb=short`: 7 passed in 10.13s. Final closed-backend negative and dependency error mapping were then added and are covered by the full CI run.
-- `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`: authoritative final result is http-foundation-ci.json.
+- `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`: authoritative final result is http-foundation-ci.json.
 
 Real isolated PG evidence: backend/key revocation reflected on successive readiness requests; unauthorized/revoked service requests denied; authorized Artifact HTTP read returns actual stored bytes; directory mode drift fails readiness. A real uvicorn process bound to a temporary loopback port is probed and its owned shutdown verified; TestClient-only checks are not substituted for TCP evidence.
 

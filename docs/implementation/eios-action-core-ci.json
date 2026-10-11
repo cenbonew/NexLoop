@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T15:37:49.127030+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "NX-006 partial frozen Action/Approval dependency extraction and unit contract evidence; no live PG Action claimed",
   "python_tests_passed": 471,

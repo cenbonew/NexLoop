@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "candidate_only": true,
   "task_id": "NX-016",
-  "cwd": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate",
+  "cwd": "<repo>/docs/tmp/nx016-candidate",
   "source_sha256": {
     "tests/multi_browser_conversation_fixture.py": "a7c03b6d96d7b8039405de719f36e7ad3cf3972ec5e7138359eff310f2808bd4",
     "tests/test_conversation_receipt_isolation.py": "5b6f930d3dc63ca5a0a05d885f56e53699a2d3a4fea91ecfb0ff265f7faa139d"
@@ -10,37 +10,37 @@
   "executions": [
     {
       "session_id": 78913,
-      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
+      "command": "PYTHONPATH=<repo>/docs/tmp/nx016-candidate/packages/eios-core/src:<repo>/docs/tmp/nx016-candidate/tests <repo>/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
       "result": "1 error in 2.19s",
       "cause": "fixture expected HTTP create 201; actual existing router returns 200; corrected to actual contract"
     },
     {
       "session_id": 99899,
-      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
+      "command": "PYTHONPATH=<repo>/docs/tmp/nx016-candidate/packages/eios-core/src:<repo>/docs/tmp/nx016-candidate/tests <repo>/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
       "result": "1 error in 2.20s",
       "cause": "genuine resolver rejected incomplete per-target scope catalog for Browser requested action.execute + function.execute"
     },
     {
       "session_id": 79871,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py::test_two_real_humans_read_own_messages_not_other_consumer_receipt -q --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py::test_two_real_humans_read_own_messages_not_other_consumer_receipt -q --tb=short",
       "result": "1 error in 2.28s",
       "cause": "safe actual exception stack diagnosis, subsequently removed"
     },
     {
       "session_id": 66703,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py::test_two_real_humans_read_own_messages_not_other_consumer_receipt -q --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py::test_two_real_humans_read_own_messages_not_other_consumer_receipt -q --tb=short",
       "result": "1 error in 2.24s",
       "cause": "actual canonical facts UOW diagnosis: requested scope unknown to catalog; no fake allowed decision; diagnostics subsequently removed"
     },
     {
       "session_id": 73188,
-      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
+      "command": "PYTHONPATH=<repo>/docs/tmp/nx016-candidate/packages/eios-core/src:<repo>/docs/tmp/nx016-candidate/tests <repo>/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q -x --tb=short",
       "result": "3 passed, 1 warning in 7.64s",
       "fix": "typed resealed ScopeAuthorityFacts configured supported catalog scopes action.execute/function.execute, same as actual 48 fixture"
     },
     {
       "session_id": 73008,
-      "command": "PYTHONPATH=/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src:/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q --tb=short",
+      "command": "PYTHONPATH=<repo>/docs/tmp/nx016-candidate/packages/eios-core/src:<repo>/docs/tmp/nx016-candidate/tests <repo>/.venv/bin/python -m pytest tests/test_conversation_receipt_isolation.py -q --tb=short",
       "result": "4 passed, 1 warning in 9.81s",
       "final": true
     }

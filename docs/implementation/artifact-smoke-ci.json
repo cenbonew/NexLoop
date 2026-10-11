@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:56:08.763642+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "installed explicit test-world Artifact smoke CLI with real restricted PG and sanitized output; complete clean install/Compose incomplete",
   "python_tests_passed": 551,

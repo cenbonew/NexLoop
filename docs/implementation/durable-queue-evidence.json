@@ -57,7 +57,7 @@
     ]
   },
   "full_ci": {
-    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
     "exit_code": 0,
     "python_passed": 986,
     "python_seconds": 332.03,

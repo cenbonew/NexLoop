@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T15:43:44.297533+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "NX-006/008 partial real PostgreSQL ActionClaimPort; no governed ontology instance or effect success claimed",
   "python_tests_passed": 480,

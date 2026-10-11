@@ -40,7 +40,7 @@ L1 的 4455521 已经把 Backend 全局 `RLock` 改为 `LifecycleLock`：请求�
 - context pack、role tail / mapping / post accept；
 - offering runtime、browser business、goal controls。
 
-## 前后对比（本机 M4 Pro，串行，带钩子，单轮）
+## 前后对比（本机开发机，串行，带钩子，单轮）
 
 命令：
 
@@ -93,9 +93,9 @@ v4 在 before 中失败的原因：同一进程中一次 `authorize_runtime_acti
 
 ## 结论与剩余
 - O1 + O3 + L1 的锁之后，effect_tool 与 authorize 的 max 降到 1.55–1.62 s，k≈1.23–1.29；prepare_message_context 已有约 2 倍余量。
-- 按公开基准估算 sice 的 k≈2.3–2.6，前两类请求在 sice 上仍可能越限，B 类时限失败预计减少但不会清零。
+- 按公开基准估算 CI 主机的 k≈2.3–2.6，前两类请求在 CI 主机上仍可能越限，B 类时限失败预计减少但不会清零。
 - 剩下的工作量主要是**跨请求重复**的逐属性 READ 决策（authorize 每次约 25 个不同决策，O1 按约定不跨请求）和服务端 `runtime_activation_command`（单次最高约 0.9 s）。下一步属于 O2（按对象批量决策 + 批量事实加载，需要迁移与语义等价论证）和服务端 SQL 侧优化（`perf-authz-diagnosis.md` §5 的 O5）。
-- 数据为单轮、带钩子（开销 1–7%）；sice 未实测。
+- 数据为单轮、带钩子（开销 1–7%）；CI 主机未实测。
 
 ## O1 推广到 L2/L3 后台工作单元（分支 `perf-o1-extend`，BASE `ef0f591ace8a0426d7f481cdfcd6629b030b43ee` = dispatch/integration-s3h）
 
@@ -242,7 +242,7 @@ touch scripts/perf/out/.trace_read_assert && scripts/perf/run_profile.sh trace-r
 |---|---|---|---|---|---|
 | 1 | **O2a** 请求内身份类事实去重 | 在 `PostgresAuthorityUnitOfWork._load` 下增加按 (token digest, directory hash, world, kind, key) 的请求级事实 memo，只对 7 类身份事实生效；grants/scope/controls/policies/resource_graph 仍每次读取 | 每请求事实往返约 −58%（338→约 140），authorize/tool 约 −50~100 ms | `authorization.py`、`browser_authorization.py`；无迁移 | 低：L1 不改授权适配层 |
 | 2 | **O5a** 事务内身份推导缓存 | `load_authority_fact` / `service_identity` 在同一事务内按 (digest, world) 只推导一次；凭据行已被 `lock_credential` 以 FOR SHARE 锁住，事务内身份不可变 | 服务端 CPU 约 −15~20%（v4：约 9.2 s / 54 s） | 新迁移（临时编号）重定义 `authz.nexloop_service_identity` / `nexloop_load_authority_fact` 的内部调用 | 低–中：L1 不改身份核心，但与 0077/0084 的 `assert_read_authority` 包装共处同一调用链，要先对齐最新包装 |
-| 3 | **O2b** catalog / role envelope 按对象批量决策 | 每个对象一次批量事实加载（一次往返取全部属性的 grants/scope/controls/policies），逐属性在内存中各自 resolve，签名证明仍逐属性列出 | catalog envelope 153 ms → 约 40~60 ms，每次 authorize/tool 约 −100 ms（sice 约 −250 ms） | `service_offerings.py`、`role_runs.py`、`object_reads.py`（批量 API）、`authorization.py`；新迁移 `authz.nexloop_load_authority_facts(digest,world,keys)` | 中：L1 下一步改 context 与读派生（`object_reads._derived`、0084 路径），须等其合入后再做 |
+| 3 | **O2b** catalog / role envelope 按对象批量决策 | 每个对象一次批量事实加载（一次往返取全部属性的 grants/scope/controls/policies），逐属性在内存中各自 resolve，签名证明仍逐属性列出 | catalog envelope 153 ms → 约 40~60 ms，每次 authorize/tool 约 −100 ms（CI 主机约 −250 ms） | `service_offerings.py`、`role_runs.py`、`object_reads.py`（批量 API）、`authorization.py`；新迁移 `authz.nexloop_load_authority_facts(digest,world,keys)` | 中：L1 下一步改 context 与读派生（`object_reads._derived`、0084 路径），须等其合入后再做 |
 | 4 | **O5b** 语句内读断言去重 | 同一条语句、同一检查阶段内对相同 claims 只断言一次 | `runtime_activation_command` 约 −40~60%（v4 慢调用 1392 ms → 约 600–800 ms） | 新迁移，修改断言包装链 | **高**：必须与 L1 共同设计，见下 |
 
 **建议顺序：** O2a → O5a（两项都不碰 L1 的文件，可以立即排期）→ 等 L1 的 v5 Context/读派生合入 → O2b → 与 L1 共同设计后做 O5b。
@@ -272,7 +272,7 @@ touch scripts/perf/out/.trace_read_assert && scripts/perf/run_profile.sh trace-r
 
 #### 6. 限制
 - 单轮、带钩子（开销 1–7%）。追踪运行中 v4 因 RAISE LOG 额外开销再次 `runtime_failed`，追踪数据只用于统计重复，不作耗时依据。
-- sice 未实测。
+- CI 主机未实测。
 - O5b 中“锁后尾验”所占比例尚未测出（需要在包装中记录阶段，留作 O5b 设计前的第一步）。
 
 ## O2a：请求内身份类事实只加载一次（分支 `perf-o2a`，BASE `aebbfa8ff8ea087ac6fe88fd0d0500b6cc7c4695` = dispatch/integration-s3m）
@@ -313,7 +313,7 @@ O1 的 `test_concurrent_requests_have_isolated_memos` 原来断言 memo 只有 1
 | `tests/test_backend_lifecycle_capacity.py`（7 例） | 全部通过；最长 `eight_concurrent_requests_complete_on_pool_of_four` 5.35 s | 全部通过；该项 4.70 s |
 | `test_role_policy_dispatch::test_effect_units_concurrent_distinct_submissions_stay_within_ceiling` | 通过，5.57 s | 通过，5.26 s |
 
-这两项在本机前后都通过，只在测试机全量中失败，与时延的关系需在 sice 上确认。
+这两项在本机前后都通过，只在测试机全量中失败，与时延的关系需在 CI 主机上确认。
 
 ### 前后对比（13 例集合，本机串行，带钩子；before/after 各两轮，共 26 次运行）
 

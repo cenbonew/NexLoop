@@ -20,7 +20,7 @@ First targeted command: `uv run --frozen pytest -xq tests/test_postgres_artifact
 
 The next run exposed a SyntaxError in the new helper SQL: the initial copy retained part of the old available-shortcut/update block. Removed that fragment so the helper only locks/validates pending state and never finalizes before filesystem fsync. The existing published migration was not modified. Targeted rerun then passed 31 cases in 26.65 seconds.
 
-After correcting the explicit authority-before-metadata lock order, `uv run --frozen pytest -xq tests/test_postgres_artifacts.py --tb=short` passed all 21 cases in 21.74 seconds. Complete CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`; final results/input/JUnit hashes are in pending-artifact-recovery-ci.json.
+After correcting the explicit authority-before-metadata lock order, `uv run --frozen pytest -xq tests/test_postgres_artifacts.py --tb=short` passed all 21 cases in 21.74 seconds. Complete CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`; final results/input/JUnit hashes are in pending-artifact-recovery-ci.json.
 
 ## Changed files and incomplete acceptance
 

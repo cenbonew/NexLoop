@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T17:08:23.220673+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "noneditable core wheel, license/provenance/checksum preservation, isolated Python origins, packaged PG bootstrap and restricted test Artifact smoke",
   "python_tests_passed": 555,

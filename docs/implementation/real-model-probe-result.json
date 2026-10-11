@@ -54,7 +54,7 @@
   ],
   "commands": [
     "Node24 tsc -p apps/agent-host/tsconfig.json (23889 exit0)",
-    "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_real_deepseek_delivery.py -q -x --tb=short"
+    "source $HOME/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_real_deepseek_delivery.py -q -x --tb=short"
   ],
   "budget": {
     "model_turns": 2,

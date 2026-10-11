@@ -18,7 +18,7 @@ Targeted command: `uv run --frozen pytest -xq tests/test_backend.py tests/test_b
 
 First run: 10 passed, then a source-catalog test still expected 11 migrations after the new head was added. Corrected its remaining exact count to 12; no checksum verification was weakened. Rerun: 19 passed in 10.44 seconds.
 
-A full CI run was inadvertently started before the targeted failure was inspected. It loaded the old exact-count test and failed that same assertion; its failure is retained in the CI evidence, and a complete rerun after correction is required. Full command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final results and input/JUnit hashes are in backend-startup-ci.json.
+A full CI run was inadvertently started before the targeted failure was inspected. It loaded the old exact-count test and failed that same assertion; its failure is retained in the CI evidence, and a complete rerun after correction is required. Full command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final results and input/JUnit hashes are in backend-startup-ci.json.
 
 Changed files: new 0012 SQL, migration catalog, backend.py, tests/test_backend.py, exact-head expectations in test_bootstrap.py/test_doctor.py/test_db_boundary.py, versions.lock.json, this report/CI report, planning evidence and public change inventory.
 

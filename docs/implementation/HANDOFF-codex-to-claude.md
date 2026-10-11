@@ -17,7 +17,7 @@
 |NX-001|.gitignore；docs/s0/publication-baseline.md|`uv run --frozen python scripts/check_publication.py`|
 |NX-002|docs/s0/source-reuse-inventory.json；eios-write-path-audit.md；migration-catalog-audit.md|`uv run --with jsonschema --with pyyaml --with rfc3339-validator python docs/handoff/tools/validate_handoff.py --planning planning`；源码复核不是运行测试替代品|
 |NX-003|versions.lock.json；docs/s0/pi-evo-audit.md；vendor/pi|`uv run --frozen python scripts/check_pi_source.py`|
-|NX-004|docs/s0/server-inventory.md；dev-machine-inventory.md|只读 `ssh hengce 'id; sudo -n true'` / `ssh sice 'id; sudo -n true'`；硬件盘点命令见公开报告，不在CI中连LAN|
+|NX-004|docs/s0/server-inventory.md；dev-machine-inventory.md|只读 `ssh <DATA_HOST> 'id; sudo -n true'` / `ssh <APP_HOST> 'id; sudo -n true'`；硬件盘点命令见公开报告，不在CI中连LAN|
 |NX-005|packages/contracts；scripts/generate_contracts.py；第三方许可|`uv run --frozen python scripts/generate_contracts.py --check`；`uv run --frozen pytest -q tests/test_contracts.py tests/test_review_contracts.py tests/test_contract_generation.py`|
 |NX-006|packages/eios-core/src/eios；PROVENANCE.json|`uv run --frozen pytest -q tests/test_bootstrap.py`|
 |NX-007|nexloop_eios/local_artifacts.py、postgres_artifacts.py|`uv run --frozen pytest -q tests/test_local_artifacts.py tests/test_postgres_artifacts.py`|
@@ -40,7 +40,7 @@
 - 无 Makefile。权威入口 `bash scripts/ci/check`；它做 publication/Pi源/类型漂移/planning检查、Node/Web/Pi/Host构建、SDK/Web/Scope/Python/Pi/Runtime测试并拦关键skip。输出 .ci-results，dist/output/sqlite/coverage等忽略；不要git add -A。
 
 ```sh
-cd /Users/chenbowen/253383134/NexLoop
+cd <repo>
 source ~/.nvm/nvm.sh
 nvm use 24
 export PYTHONPATH=packages/eios-core/src:tests
@@ -62,7 +62,7 @@ source ~/.nvm/nvm.sh && nvm use 24 >/dev/null && PYTHONPATH=packages/eios-core/s
 `tests/conftest.py::pg` 每例创建独立 mkdtemp PGDATA、Unix socket和随机空闲端口，启动 listen_addresses=''，测试结束由 fixture fast stop 并删除**该精确测试目录**；不能接入已有业务PG。测试 bootstrap身份仅用于DDL/可信控制fixture/故障注入/只读断言；实际业务操作使用受限服务角色和EIOS授权链。
 
 本次只读盘点保留一个既存测试PG：父PID **89849**，PPID1，端口 **49624**，PGDATA：
-`/var/folders/bf/9lg4j6ws32j8qhd0l_83dc9m0000gn/T/nexloop-pg-2yn6w4yk/data`
+`$TMPDIR/nexloop-pg-2yn6w4yk/data`
 
 socket为同级 `socket/`。读 control.schema_migrations 得 **0056 / 56条**；只有盘点psql自身客户端，没有活跃测试客户端。此实例不是0065回归实例；具体原测试归属未确认，Codex未停止它。
 

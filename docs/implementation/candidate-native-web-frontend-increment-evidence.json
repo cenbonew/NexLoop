@@ -7,7 +7,7 @@
     "apps/web/src/WebChat.tsx": "d2cb10e6425456882c2e79ab31d62758f06a8fb7fc809c54861adcd0f9397ecf",
     "apps/web/test/native-message.test.ts": "c5ef7da3332115ed0785625d3d7f27d1125d2bcd79af26c4c0339bd10afea0cb"
   },
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 >/dev/null && ./node_modules/.bin/vitest run apps/web/test/native-message.test.ts && ./node_modules/.bin/tsc -p apps/web/tsconfig.json --noEmit",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use 24 >/dev/null && ./node_modules/.bin/vitest run apps/web/test/native-message.test.ts && ./node_modules/.bin/tsc -p apps/web/tsconfig.json --noEmit",
   "session": 71101,
   "result": "7 tests passed (149ms); TypeScript noEmit exit0",
   "first_failure": null,

@@ -245,7 +245,7 @@ runtime_activation_command 降幅 ≈ a × f × (1 − c_hit/c_full)
 4. **验收线（调度员已同意）**：
    - 正确性 §6 全部通过；
    - `runtime_activation_command` 均值降幅不低于 §7.1 下界的一半（v4 约 20%）；
-   - `relationship_context_v4[complete]` 在 sice 上连续 2 轮全量通过（ADR-021 的退出条件）。
+   - `relationship_context_v4[complete]` 在 CI 主机上连续 2 轮全量通过（ADR-021 的退出条件）。
 5. **开销兜底**：开关关闭时，与 O2a 之后的基线相比无差异（±3%）。
 
 ## 8. 实施前置与分工建议

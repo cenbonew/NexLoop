@@ -118,7 +118,7 @@
 
 ## 5. 环境：还剩一项可以只读核对
 
-JIT 与调频已经排除。剩下的 2.5 倍是均匀的，大概率就是这台 ThinkPad 的单线程性能。是否已经被电源或散热策略压低，可以在部署主机上只读核对一次（不改任何设置）：
+JIT 与调频已经排除。剩下的 2.5 倍是均匀的，大概率就是这台主机的单线程性能。是否已经被电源或散热策略压低，可以在部署主机上只读核对一次（不改任何设置）：
 
 ```bash
 lscpu | grep -E 'Model name|MHz'; cat /sys/firmware/acpi/platform_profile 2>/dev/null; cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null

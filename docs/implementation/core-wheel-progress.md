@@ -20,7 +20,7 @@ Both generated console entry points are executed with --help in the isolated env
 
 `uv run --frozen pytest -xq tests/test_wheel_install.py --tb=short`: 2 passed in 3.07 seconds after the packaging repair. No pytest failure/skip occurred; the first wheel inspection, not a failed bootstrap, exposed the license/provenance omission. The complete current-input CI additionally tests installed console help and records the wheel hash.
 
-Full CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Results, input/JUnit and tested wheel hashes are recorded in core-wheel-ci.json. A final local wheel rebuild is compared with the tested wheel hash before reporting it as the same artifact.
+Full CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Results, input/JUnit and tested wheel hashes are recorded in core-wheel-ci.json. A final local wheel rebuild is compared with the tested wheel hash before reporting it as the same artifact.
 
 Changed files: packages/eios-core/LICENSE, NOTICE and pyproject.toml; tests/test_wheel_install.py; this report/CI evidence; planning evidence; public file inventory. Built wheels/virtual environments are ignored disposable test artifacts. versions.lock.json and dependency locks are unchanged, bootstrap stays 0014 and all prior migration SQL bytes are unchanged. Frozen upstreams and unresolved image digests are unchanged.
 

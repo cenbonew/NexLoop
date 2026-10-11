@@ -18,6 +18,6 @@ Target command: `uv run --frozen pytest -xq tests/test_object_edits.py --tb=shor
 
 Expanded negative cases initially expected ActionAuthorizationDenied for an unknown object, but missing graph facts correctly returned AuthorizationUnavailable; accepted both fail-closed outcomes. Regression first failed a strict metadata-read assertion because it omitted the newly returned revision; updated the actual public result contract expectation. The SQL-race test injects property-grant revocation after all signed proof resolution and immediately before SQL dispatch.
 
-Final targeted and full CI results/input hashes are recorded in governed-object-edit-ci.json. Strict CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. No AT status is promoted until its full scenario scope is exercised.
+Final targeted and full CI results/input hashes are recorded in governed-object-edit-ci.json. Strict CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. No AT status is promoted until its full scenario scope is exercised.
 
 Changed: object_edits.py, object_reads.py typed operation argument (READ remains default), backend.py edit facade; 0015 SQL/catalog; versions.lock.json head 0014 -> 0015; edit tests and existing bootstrap/doctor/sandbox/wheel/read contract expectations; this report and final CI/planning evidence. No dependency/upstream/Pi mapping change or resolved image digest. No original DB migration, staging, commit, push, real model or external channel call.

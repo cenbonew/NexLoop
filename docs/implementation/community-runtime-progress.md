@@ -20,7 +20,7 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/commun
 uv run --frozen pytest -q tests/test_community_launcher.py --tb=short
 uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-runtime-20261008-retry
 uv run --frozen python scripts/community_test.py run --output .ci-results/community-runtime-20261008-retry
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 First launcher run exited 1 even though bootstrap/check containers both exited 0. The container entrypoint prints indented JSON; the launcher incorrectly parsed only `}`. The first project's complete reports were read directly through its exact Compose ownership labels. After the parser fix, nine focused tests passed, and a second fresh project ran through the launcher with exit 0. Neither database was reused or migrated in place.

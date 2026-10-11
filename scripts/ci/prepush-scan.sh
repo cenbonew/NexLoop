@@ -11,8 +11,15 @@ scan_ref() {
   printf 'PASS tracked private/runtime paths\n'
   revisions=$(git rev-list "$base..$ref")
   if [[ -n "$revisions" ]]; then
-    # Equivalent patterns use character classes to avoid matching their own source.
-    local identifiers='192\.168\.31\.(140|73)|openclaw[-]001|openclaw[-]thinkpad|SHA256[:]kr1aSJ|SHA256[:]Ncgbuz'
+    # The restricted identifiers (private LAN addresses, host names and aliases, host key fingerprints, local user paths)
+    # are kept out of the public repository: one extended regular expression per line in a private list, by default
+    # local-only/restricted-identifiers.txt at the root of the main checkout (git-ignored), or NEXLOOP_RESTRICTED_IDENTIFIERS_FILE.
+    # A missing or empty list fails closed.
+    local common list identifiers
+    common=$(git rev-parse --path-format=absolute --git-common-dir)
+    list="${NEXLOOP_RESTRICTED_IDENTIFIERS_FILE:-$(dirname "$common")/local-only/restricted-identifiers.txt}"
+    identifiers=$( { grep -vE '^[[:space:]]*(#|$)' "$list" 2>/dev/null || true; } | paste -sd'|' -)
+    if [[ -z "$identifiers" ]]; then printf 'FAIL restricted identifier list missing or empty (content redacted)\n'; return 1; fi
     local status=0
     git grep -q -E "$identifiers" $revisions -- . || status=$?
     if [[ "$status" -eq 0 ]]; then printf 'FAIL restricted identifiers in outgoing commit trees (content redacted)\n'; return 1; fi

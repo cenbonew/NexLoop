@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T15:52:33.442292+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "partial real ActionGovernor/PG claim composition with synthetic definition references; formal business writes unproven",
   "python_tests_passed": 500,

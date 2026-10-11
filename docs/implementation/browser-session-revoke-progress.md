@@ -6,6 +6,6 @@ The actual frozen BrowserSessionService.revoke checks current Session-bound CSRF
 
 Actual focused command: `uv run --frozen pytest -xq tests/test_browser_session_revoke.py tests/test_browser_session_touch.py --tb=short`: 5 passed in 4.19s, no first failure. Real PG confirms wrong CSRF leaves Session unchanged, correct logout persists revoked_at/revision2 and rejects the old token, future/stale commands fail, and four concurrent revokes produce exactly one successful mutation/revision increment. Existing touch/CSRF/expiry cases also ran.
 
-Full local CI: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`; final result/hashes in browser-session-revoke-ci.json. versions.lock.json bootstrap revision 0028 -> 0029 only; prior28 SQL/dependency/upstream/image locks unchanged.
+Full local CI: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`; final result/hashes in browser-session-revoke-ci.json. versions.lock.json bootstrap revision 0028 -> 0029 only; prior28 SQL/dependency/upstream/image locks unchanged.
 
 Rotation/replacement, server realm/principal resolution, HTTP login/logout cookie/CSRF flow, frontend/Host and S2/Pi full-loop evidence remain incomplete. NX-011 remains in_progress. No product acceptance promoted, persistent migration, server/original-system mutation, real model/channel call, staging/commit/push or deployment.

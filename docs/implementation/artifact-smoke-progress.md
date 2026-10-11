@@ -32,7 +32,7 @@ Added actual real-world-only credential rejection. Targeted rerun of the same co
 
 Console commands actually run: `uv run --frozen nexloop-artifact-smoke --help` and `uv run --frozen nexloop-doctor --help`.
 
-Full CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`; final result/input/JUnit hashes are in artifact-smoke-ci.json.
+Full CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`; final result/input/JUnit hashes are in artifact-smoke-ci.json.
 
 ## Files, locks and incomplete gates
 

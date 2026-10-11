@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T21:48:14.393273+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "python_tests_passed": 874,
   "python_duration_seconds": 184.47,
@@ -20,13 +20,13 @@
   "dependency_locks_unchanged": true,
   "first_test_failures": [
     {
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py::test_host_probe_does_not_honor_ambient_tls_key_logging --tb=short",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py::test_host_probe_does_not_honor_ambient_tls_key_logging --tb=short",
       "failed": 1,
       "duration_seconds": 0.52,
       "reason": "Old create_default_context inherited SSLKEYLOGFILE and created a synthetic TLS session key log; no real credential/model used"
     }
   ],
-  "targeted_command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short",
+  "targeted_command": "source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short",
   "targeted_initial_after_fix_passed": 28,
   "targeted_initial_after_fix_duration_seconds": 7.39,
   "targeted_final_passed": 28,

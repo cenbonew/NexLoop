@@ -136,7 +136,7 @@
 
 ## 9. 冷却期时间戳缺陷修复（2026-10-09，分支 nx046-cooldown-fix）
 
-- 缺陷：0074 的 `ontology.nexloop_candidate_rejected()` 在同一条 INSERT 中两次调用 `clock_timestamp()`，`rejected_at` 与 `cooldown_until` 分别取自两个时刻，二者之差不是精确的冷却时长。在 sice（较慢）上串行运行稳定失败。
+- 缺陷：0074 的 `ontology.nexloop_candidate_rejected()` 在同一条 INSERT 中两次调用 `clock_timestamp()`，`rejected_at` 与 `cooldown_until` 分别取自两个时刻，二者之差不是精确的冷却时长。在 CI 主机（较慢）上串行运行稳定失败。
 - 修复：临时迁移 `0075_nx046_cooldown_single_instant.sql`（0074 未改）。
   - 函数开始处只取一次 `v_now:=clock_timestamp()`，两个字段都由它推导。
   - 新增列 `cooldown_seconds`，并加约束 `nexloop_candidate_rejections_single_instant`：`cooldown_until = rejected_at + cooldown_seconds`，存在偏差的数据无法写入。

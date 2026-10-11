@@ -1,6 +1,6 @@
 {
   "scope": "candidate-only actual governed local JSON export; deterministic model, not real model or external channel",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_local_message_delivery_assembly.py -q -x --tb=short",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_local_message_delivery_assembly.py -q -x --tb=short",
   "first_failure": {
     "session": 28099,
     "result": "1 error",

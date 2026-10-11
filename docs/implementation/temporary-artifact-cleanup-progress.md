@@ -18,7 +18,7 @@ The low-level filesystem primitive is trusted infrastructure, just like existing
 
 `uv run --frozen pytest -xq tests/test_temporary_artifact_cleanup.py tests/test_local_artifacts.py tests/test_bootstrap.py --tb=short`: 40 passed in 6.35s, then 41 passed in 7.01s after adding the partial-failure/fsync/retry case. Real PG cases cover worker-only maintenance, bounded pages, repeat sweeps, final/recent/symlink preservation, READ-only denial, signed-permit-to-SQL revocation race, namespace separation and invalid input with zero permit/file effects. The partial failure test explicitly exercises the physical primitive with a synthetic callback, not real PG permit expiry or runtime-owner lifecycle acceptance.
 
-Strict local CI: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final result/source/JUnit hashes and installed/rebuilt wheel evidence are in temporary-artifact-cleanup-ci.json.
+Strict local CI: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final result/source/JUnit hashes and installed/rebuilt wheel evidence are in temporary-artifact-cleanup-ci.json.
 
 Changed: local_artifacts.py bounded maintenance page/guard/finally fsync; postgres_artifacts.py PG guard coordinator; backend.py authenticated maintenance facade; new 0017 SQL/catalog; seven cleanup cases and bootstrap/doctor/sandbox/wheel revision expectations; versions.lock.json bootstrap 0016 -> 0017; reports and live planning evidence. Earlier SQL bytes, dependency locks and upstream/Pi mappings are unchanged; image digests remain unresolved.
 

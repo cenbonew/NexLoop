@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:39:49.472158+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "expired/lease-ended pending Artifact cleanup plus authority/metadata-locked filesystem upload and actual process-exit recovery",
   "python_tests_passed": 531,

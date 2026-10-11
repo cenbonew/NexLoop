@@ -18,7 +18,7 @@ Restored the original test_action_governance.py including both formerly excluded
 
 Added three boundary cases for missing/unusable verifiers. `uv run --frozen pytest -xq tests/test_approval_resolver_boundary.py tests/test_vendor_imports.py tests/upstream/test_eios_action_governance.py --tb=short`: 166 passed in 0.36 seconds. No test failures or skipped cases occurred in this step.
 
-`source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`: exit 0, 543 Python cases in 74.71 seconds, 24 actual Pi SQLite FULL cases and four frozen-source builds, zero skips/errors/failures. Current tested-input and JUnit hashes are recorded in approval-resolver-ci.json. The audit generator was additionally parsed with ast.parse; it was not claimed as executed end-to-end.
+`source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`: exit 0, 543 Python cases in 74.71 seconds, 24 actual Pi SQLite FULL cases and four frozen-source builds, zero skips/errors/failures. Current tested-input and JUnit hashes are recorded in approval-resolver-ci.json. The audit generator was additionally parsed with ast.parse; it was not claimed as executed end-to-end.
 
 ## Files, version lock and incomplete scope
 

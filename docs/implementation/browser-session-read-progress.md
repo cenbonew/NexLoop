@@ -4,6 +4,6 @@ Migration 0027 adds a protected dedicated-identity Session lookup by globally un
 
 Actual focused command: `uv run --frozen pytest -xq tests/test_browser_session_reads.py tests/test_browser_session_creation.py --tb=short`. First execution: 1 failed in 0.96s, because strict SubjectKind was still a JSON string. Added explicit enum decoding. Rerun: 10 passed in 8.20s. Real PG evidence covers frozen BrowserSessionService.inspect with a real issued token, ID lookup, unknown digest, fresh restricted pool reopen, no revision write, Subject disable, credential epoch/revision drift, membership revoke/revision drift, App revision drift and configured wrong-tenant rejection. Existing atomic creation/commit-rollback tests also ran.
 
-Full local CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`; final hashes/results in browser-session-read-ci.json. versions.lock.json bootstrap 0026 -> 0027 only; prior26 SQL unchanged.
+Full local CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`; final hashes/results in browser-session-read-ci.json. versions.lock.json bootstrap 0026 -> 0027 only; prior26 SQL unchanged.
 
 This is private canonical session inspection, not HTTP login authentication. Session touch/CSRF refresh/rotation/revoke/replacement, principal/realm server resolution, cookie/CSRF HTTP flow, frontend and Host remain required; NX-011 stays in_progress. No product acceptance promoted, persistent migration, server mutation, model/channel call, staging/commit/push or deployment.

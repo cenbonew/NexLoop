@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T17:25:26.386904+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "owned ephemeral PG core sandbox and noneditable installed command lifecycle",
   "python_tests_passed": 558,

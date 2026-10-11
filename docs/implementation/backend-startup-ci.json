@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:34:24.881167+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "read-only active PG signing-key challenge before Artifact startup; exception cleanup; complete Host/runtime/S2 incomplete",
   "python_tests_passed": 528,

@@ -41,7 +41,7 @@
     "new image digests unresolved; no stage deployment"
   ],
   "pi_tools_and_cross_recovery_final": {
-    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && uv run pytest tests/test_runtime_effect_recovery.py tests/test_runtime_effect_tools.py -q",
+    "command": "source $HOME/.nvm/nvm.sh && nvm use 24 && uv run pytest tests/test_runtime_effect_recovery.py tests/test_runtime_effect_tools.py -q",
     "passed": 2,
     "seconds": 12.96,
     "session": 16074,

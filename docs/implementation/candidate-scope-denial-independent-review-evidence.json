@@ -1,7 +1,7 @@
 {
   "scope": "Independent actual EIOS/PG/HTTP candidate0056 authority negatives; not formal migration catalog integration or whole Pi UI loop.",
-  "directory": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-scope-explanation-review",
-  "command": "PYTHONPATH=\"$PWD/packages/eios-core/src:$PWD/tests\" /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_scope_denial_authority.py -q --tb=short",
+  "directory": "<repo>/docs/tmp/nx016-scope-explanation-review",
+  "command": "PYTHONPATH=\"$PWD/packages/eios-core/src:$PWD/tests\" <repo>/.venv/bin/python -m pytest tests/test_scope_denial_authority.py -q --tb=short",
   "final": {
     "session": 64382,
     "exit_code": 0,

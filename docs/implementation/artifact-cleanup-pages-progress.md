@@ -18,7 +18,7 @@ A three-expired-record case proves stable two-page discovery and batch cleanup, 
 
 The first final-case run of `uv run --frozen pytest -xq tests/test_postgres_artifacts.py --tb=short` failed after 17 passes: replace_fact expects JSON-compatible fixture values, but the test supplied an EffectiveGrantFact object. Converted that synthetic value with model_dump(mode='json'); no runtime permission check was changed. Rerun and full CI results are recorded in artifact-cleanup-pages-ci.json.
 
-Full CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`.
+Full CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`.
 
 ## Files, versions and limits
 

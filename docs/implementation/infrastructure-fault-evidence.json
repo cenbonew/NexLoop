@@ -6,7 +6,7 @@
   "product_ready": false,
   "migration_head_during_tests": "0046",
   "command": "PYTHONPATH=\"$PWD/docs/tmp/nx016-candidate/packages/eios-core/src:$PWD/docs/tmp/nx016-candidate/tests\" .venv/bin/python -m pytest -q docs/tmp/nx016-candidate/tests/test_infrastructure_faults.py",
-  "cwd": "/Users/chenbowen/253383134/NexLoop",
+  "cwd": "<repo>",
   "result": {
     "passed": 3,
     "failed": 0,

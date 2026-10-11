@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:12:40.441498+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "first real governed restricted-role instance creation; full read/edit/Relation/effect/runtime slice incomplete",
   "python_tests_passed": 514,

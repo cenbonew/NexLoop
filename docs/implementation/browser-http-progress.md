@@ -8,6 +8,6 @@ The Session cookie is __Host-nexloop_session, Secure, HttpOnly, SameSite=Strict,
 
 Actual commands: `uv run --frozen pytest -xq tests/test_browser_http.py tests/test_browser_rate_limits.py --tb=short`:12 passed in9.87s. After threadpool/CLI integration, `uv run --frozen pytest -xq tests/test_browser_http.py tests/test_http_api.py tests/test_browser_rate_limits.py --tb=short`:18 passed in14.16s. No first failure; existing Starlette TestClient deprecation warning only. Actual PG with TestClient verifies secure cookie, session/logout, wrong CSRF, missing/wrong Origin/Host, posted tenant rejection, PG429 limit, real reauthentication cookie replacement and App-revoked Session denial. This is actual storage/HTTP contract evidence, not live browser/TLS or a network-process login claim.
 
-Full command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`; final hashes/results in browser-http-ci.json. versions.lock.json bootstrap0031->0032 only; prior31SQL/dependency/upstream/image locks unchanged.
+Full command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`; final hashes/results in browser-http-ci.json. versions.lock.json bootstrap0031->0032 only; prior31SQL/dependency/upstream/image locks unchanged.
 
 Overall readiness stays503: HTTP CSRF recovery/refresh and tenant-switch flow, live browser/TLS/process verification, frontend and Host/internal run auth remain required. NX-011 staysin_progress, S2/Pi loop unpromoted. No persistent/server/original-system mutation, model/channel call, staging/commit/push or deployment.

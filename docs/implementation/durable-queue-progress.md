@@ -83,9 +83,9 @@ deprecation/Node SQLite experimental warnings remain.
 
 Fresh independent11-service Compose tested current0035/35-migration wheel:
 ```sh
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py prepare --output .ci-results/community-queue-foundation-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py run --output .ci-results/community-queue-foundation-20261008
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py prepare --output .ci-results/community-queue-foundation-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run python scripts/community_test.py run --output .ci-results/community-queue-foundation-20261008
 uv run python .ci-results/collect_queue_foundation_evidence.py
 uv run python .ci-results/stop_owned_queue_foundation.py
 uv run python .ci-results/stop_owned_queue_foundation.py --execute

@@ -1703,7 +1703,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T112248Z-f9eff09065a7",
+        "ref": "ci:lane/20261009T112248Z-f9eff09065a7",
         "summary": "Full CI on clean CI host: 2235 passed / 17 failed; 16 within baseline, 1 new (test_backend_lifecycle_capacity eight_concurrent, EffectIntentUnavailable under parallel load) passed serially 2/2 on the same checkout and registered as parallel-load jitter; 7 baseline entries passed.",
         "recorded_at": "2026-10-09T20:15:00+08:00"
       },
@@ -1715,7 +1715,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T133655Z-57a224cee682",
+        "ref": "ci:lane/20261009T133655Z-57a224cee682",
         "summary": "Full CI on clean CI host: 2319 passed / 14 failed, all within baseline, no new failures. AT-009 check: test_relationship_context_v4[complete] run serially 5 times on the same checkout with the host idle (load ~1.0): 0/5 passed (runtime_transport_unavailable x3, runtime_failed x2, ~25 s each). NX-018 remains in progress.",
         "recorded_at": "2026-10-09T22:30:00+08:00"
       },
@@ -1826,7 +1826,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T153804Z-d823be14dc9d",
+        "ref": "ci:lane/20261009T153804Z-d823be14dc9d",
         "summary": "Full CI on clean CI host for d823be1 (integration-s3s): 2421 passed / 14 failed; 13 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
         "recorded_at": "2026-10-10T00:22:00+08:00"
       }
@@ -1895,7 +1895,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T153804Z-d823be14dc9d",
+        "ref": "ci:lane/20261009T153804Z-d823be14dc9d",
         "summary": "Full CI on clean CI host for d823be1 (integration-s3s): 2421 passed / 14 failed; 13 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
         "recorded_at": "2026-10-10T00:22:00+08:00"
       }
@@ -1935,7 +1935,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T153804Z-d823be14dc9d",
+        "ref": "ci:lane/20261009T153804Z-d823be14dc9d",
         "summary": "Full CI on clean CI host for d823be1 (integration-s3s): 2421 passed / 14 failed; 13 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
         "recorded_at": "2026-10-10T00:22:00+08:00"
       }
@@ -1976,7 +1976,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T120539Z-2f446b907804",
+        "ref": "ci:lane/20261009T120539Z-2f446b907804",
         "summary": "Full CI on clean CI host: 2270 passed / 19 failed; 17 within baseline; 2 new passed serially 2/2 on the same checkout (effect_units concurrency: lock_timeout root cause fixed on a pending branch; open_work test reusing the timing-sensitive outbound chain fixture), registered as parallel-load jitter.",
         "recorded_at": "2026-10-09T20:40:00+08:00"
       },
@@ -1994,7 +1994,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T144042Z-bc4dbcad5c0f",
+        "ref": "ci:lane/20261009T144042Z-bc4dbcad5c0f",
         "summary": "Full CI on clean CI host for bc4dbca: 2358 passed / 17 failed; 16 within baseline; 1 new deterministic failure (AT-064 boundary test allow-list predating NX-023) fixed by the test update and re-run locally (43 passed).",
         "recorded_at": "2026-10-09T23:15:00+08:00"
       },
@@ -2012,7 +2012,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T162446Z-bbcf6ff09e06",
+        "ref": "ci:lane/20261009T162446Z-bbcf6ff09e06",
         "summary": "Full CI on clean CI host for bbcf6ff: 2428 passed / 15 failed; 14 within baseline; 1 new real-Pi case fails serially 2/2 on the CI host and passes 2/2 on the dev machine, registered as deploy-host time limit (NX-049).",
         "recorded_at": "2026-10-10T01:05:00+08:00"
       },
@@ -2024,7 +2024,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T191236Z-4448c40e6458",
+        "ref": "ci:lane/20261009T191236Z-4448c40e6458",
         "summary": "Full CI on clean CI host for 4448c40 (integration-s3w): 2469 passed / 17 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T03:52:00+08:00"
       }
@@ -2059,7 +2059,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T224539Z-4f774fda073f",
+        "ref": "ci:lane/20261009T224539Z-4f774fda073f",
         "summary": "Full CI on clean CI host for 4f774fd (integration-s4a): 2516 passed / 6 failed, all within baseline, no new failures. Re-run on main: plan outcome and re-evaluation suites passed.",
         "recorded_at": "2026-10-10T07:21:00+08:00"
       }
@@ -2109,14 +2109,14 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T053750Z-bde57030e2dc",
+        "ref": "ci:lane/20261010T053750Z-bde57030e2dc",
         "summary": "Full CI on clean CI host for bde5703 (integration-s4f): 2613 passed / 10 failed; NX-049 serial deadline phase 2/2 passed; 5 failures within baseline; 5 new (test_closure_plan_run_pg x2, test_closure_refusal_versions_pg C1, test_agent_host_run_limit x2: real Host/Pi Runs under the 2 s guard deadline) failed only in the parallel phase and passed serially 2/2 each on the same checkout with four guard processes (deployment shape); registered as load-sensitive (baseline B).",
         "recorded_at": "2026-10-10T14:31:00+08:00"
       },
       {
         "type": "command",
         "ref": "scheduler: /tmp/s4f_serial.sh on CI lane",
-        "summary": "sice serial rerun on run 20261010T053750Z-bde57030e2dc checkout (bde5703): run_limit 2/2, closure_plan_run 2/2, closure_refusal_versions 2/2 (5 tests each round).",
+        "summary": "the CI host serial rerun on run 20261010T053750Z-bde57030e2dc checkout (bde5703): run_limit 2/2, closure_plan_run 2/2, closure_refusal_versions 2/2 (5 tests each round).",
         "recorded_at": "2026-10-10T14:31:00+08:00"
       }
     ]
@@ -2142,7 +2142,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T083937Z-32c914d48cfe",
+        "ref": "ci:lane/20261010T083937Z-32c914d48cfe",
         "summary": "Full CI on clean CI host for 32c914d (integration-s4h): 2656 passed / 11 failed, all within baseline (load-sensitive real Host/Pi cases), no new failures; NX-049 serial deadline phase 2/2 passed. Merged to main as 5f0023e. First round (integration-s4g, af68908) had one new deterministic failure (runtime.nexloop_commitment_settings without forced RLS), fixed in 080b6c9.",
         "recorded_at": "2026-10-10T17:24:00+08:00"
       }
@@ -2170,7 +2170,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T114655Z-164058bd6603",
+        "ref": "ci:lane/20261010T114655Z-164058bd6603",
         "summary": "Full CI on clean CI host for 164058b (integration-s4j): 2736 passed / 11 failed, all within baseline; NX-049 serial deadline phase 2/2. Merged to main as 8c6dcc9 (+230aca2, comment-only note on 0127).",
         "recorded_at": "2026-10-10T20:38:00+08:00"
       },
@@ -2218,7 +2218,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T101027Z-ab1cffb49742",
+        "ref": "ci:lane/20261010T101027Z-ab1cffb49742",
         "summary": "Full CI for ab1cffb (integration-s4i): 2672 passed / 10 failed; 9 within baseline, 1 new (test_message_runtime_effect_e2e same-message receipt state) passed serially 3/3 on the same checkout, registered as parallel-load jitter (C); deadline phase 2/2.",
         "recorded_at": "2026-10-10T18:55:00+08:00"
       },
@@ -2230,7 +2230,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T114655Z-164058bd6603",
+        "ref": "ci:lane/20261010T114655Z-164058bd6603",
         "summary": "Full CI on clean CI host for 164058b (integration-s4j): 2736 passed / 11 failed, all within baseline; NX-049 serial deadline phase 2/2. Merged to main as 8c6dcc9 (+230aca2, comment-only note on 0127).",
         "recorded_at": "2026-10-10T20:38:00+08:00"
       },
@@ -2242,7 +2242,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T124251Z-b2dbb9819e7a",
+        "ref": "ci:lane/20261010T124251Z-b2dbb9819e7a",
         "summary": "Full CI for b2dbb98 (integration-s4k): 2738 passed / 11 failed, all within baseline; deadline phase 2/2.",
         "recorded_at": "2026-10-10T21:34:00+08:00"
       },
@@ -2254,7 +2254,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
+        "ref": "ci:lane/20261010T155231Z-01e152a6e3f2",
         "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
       },
@@ -2266,7 +2266,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T214015Z-caaf3aeea5fe",
+        "ref": "ci:lane/20261010T214015Z-caaf3aeea5fe",
         "summary": "Full CI for caaf3ae (integration-s4n): 2781 passed / 14 failed, all within baseline; deadline phase 2/2.",
         "recorded_at": "2026-10-11T06:24:00+08:00"
       }
@@ -2296,7 +2296,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
+        "ref": "ci:lane/20261010T155231Z-01e152a6e3f2",
         "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
       },
@@ -2308,7 +2308,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T202717Z-567671294a30",
+        "ref": "ci:lane/20261010T202717Z-567671294a30",
         "summary": "Full CI for 5676712 (integration-s4m): 2782 passed / 12 failed, all within baseline; NX-049 serial deadline phase 2/2 (v4 72.1 s). Merged as 102d96a.",
         "recorded_at": "2026-10-11T05:13:00+08:00"
       },
@@ -2320,7 +2320,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T231158Z-883a04715721",
+        "ref": "ci:lane/20261010T231158Z-883a04715721",
         "summary": "Full CI for 883a047 (integration-s4o): round 1 (babf24e) had one new deterministic failure, the background tick expected 7 retention classes instead of 10 (test expectation not updated), fixed in the integration branch; round 2: 2789 passed / 14 failed, all within baseline, deadline phase 2/2. Merged as 393fe85.",
         "recorded_at": "2026-10-11T08:00:00+08:00"
       },
@@ -2359,7 +2359,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T155231Z-01e152a6e3f2",
+        "ref": "ci:lane/20261010T155231Z-01e152a6e3f2",
         "summary": "Full CI for 01e152a (integration-s4l): round 1 2771 passed / 14 failed, 13 within baseline, 1 new (reply fallback) passed serially 3/3; the NX-049 serial deadline phase failed once (v4[complete] runtime_transport_unavailable), then passed serially 5/5 on the same checkout (A/B against b2dbb98: +2%, attributed to the 0132 erasing wrapper). Round 2: 2775 passed / 10 failed, all within baseline, deadline phase 2/2. Merged as 9a74026.",
         "recorded_at": "2026-10-11T00:40:00+08:00"
       },
@@ -2631,7 +2631,7 @@
       },
       {
         "type": "test_report",
-        "ref": "sice run 20261009T064223Z-a8ff5959d249",
+        "ref": "the CI host run 20261009T064223Z-a8ff5959d249",
         "summary": "Full CI on integration-s3j: web 24/24, build phase 34/34, parallel 2173 with 16 failures, all within the CI baseline.",
         "recorded_at": "2026-10-09T15:15:00+08:00"
       },
@@ -2649,7 +2649,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T170615Z-8f2ce3d0f46d",
+        "ref": "ci:lane/20261009T170615Z-8f2ce3d0f46d",
         "summary": "Full CI on clean CI host for 8f2ce3d (integration-s3u): 2437 passed / 17 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T01:43:00+08:00"
       }
@@ -2703,7 +2703,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T170615Z-8f2ce3d0f46d",
+        "ref": "ci:lane/20261009T170615Z-8f2ce3d0f46d",
         "summary": "Full CI on clean CI host for 8f2ce3d (integration-s3u): 2437 passed / 17 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T01:43:00+08:00"
       }
@@ -2755,7 +2755,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T201109Z-d09aa38c027b",
+        "ref": "ci:lane/20261009T201109Z-d09aa38c027b",
         "summary": "Full CI on clean CI host for d09aa38 (integration-s3x): 2469 passed / 19 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T04:51:00+08:00"
       }
@@ -2815,7 +2815,7 @@
       },
       {
         "type": "test_report",
-        "ref": "sice run 20261009T012028Z-51a65ca24a5b",
+        "ref": "the CI host run 20261009T012028Z-51a65ca24a5b",
         "summary": "Full CI on integration-s3c: build phase 33/33, parallel 1994 with 31 failures all within CI-BASELINE (no new failures).",
         "recorded_at": "2026-10-09T10:30:00+08:00"
       },
@@ -2827,7 +2827,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T175535Z-569670ec5e79",
+        "ref": "ci:lane/20261009T175535Z-569670ec5e79",
         "summary": "Full CI on clean CI host for 569670e (integration-s3v): 2453 passed / 17 failed; 15 within baseline; 2 new passed serially 2/2 on the same checkout (memo stress positive control hits=0 under load with 0 violations; v6 real-Pi run), registered as parallel-load jitter.",
         "recorded_at": "2026-10-10T02:34:00+08:00"
       },
@@ -2839,7 +2839,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T191236Z-4448c40e6458",
+        "ref": "ci:lane/20261009T191236Z-4448c40e6458",
         "summary": "Full CI on clean CI host for 4448c40 (integration-s3w): 2469 passed / 17 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T03:52:00+08:00"
       }
@@ -2885,7 +2885,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T211616Z-f0ee8a313183",
+        "ref": "ci:lane/20261009T211616Z-f0ee8a313183",
         "summary": "Full CI on the deploy/CI host for f0ee8a3 (integration-s3y): 2497 passed / 8 failed (previous run 17), no new failures, 22 baseline entries passed; v4[complete] and two-Pi still fail under full parallel load. Gate not met yet.",
         "recorded_at": "2026-10-10T05:49:00+08:00"
       },
@@ -2897,25 +2897,25 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T235722Z-5a416ef30b6d",
+        "ref": "ci:lane/20261009T235722Z-5a416ef30b6d",
         "summary": "Deploy host, no hooks, serial on b3da5f6, v4[complete] and two Pi 3 runs each: single guard process 4/6, DB pool 8 5/6, four guard processes 6/6 (two Pi 64-65 s vs ~75 s). Multi-process guard prototype merged at 5a416ef with default 1 (behaviour unchanged); full CI on 5a416ef: 2521 passed / 8 failed, all within baseline.",
         "recorded_at": "2026-10-10T08:33:00+08:00"
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T015928Z-bbf0fa75d7dc",
+        "ref": "ci:lane/20261010T015928Z-bbf0fa75d7dc",
         "summary": "Full CI on bbf0fa7 (integration-s4c: submit-path SQL reduction 0107 with stress and mutation evidence, ADR-024 adopted): 2538 passed / 4 failed (previous run 8), no new failures; v4[complete] passed in the full parallel phase with a single guard process. Deploy host serial with four guard processes on 5a416ef: v4[complete] 5/5, two Pi 5/5. Owner approved ADR-022 §4 (gate measured in a serial CI phase with four guard processes).",
         "recorded_at": "2026-10-10T10:46:00+08:00"
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T024630Z-f4ed4c6516d6",
+        "ref": "ci:lane/20261010T024630Z-f4ed4c6516d6",
         "summary": "Gate round 1 on f4ed4c6 (integration-s4d): serial deadline phase with four guard processes 2/2 passed (134 s); full parallel phase 2562 passed / 4 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T12:05:00+08:00"
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T032734Z-f4ed4c6516d6",
+        "ref": "ci:lane/20261010T032734Z-f4ed4c6516d6",
         "summary": "Gate round 2 on the same commit: serial deadline phase 2/2 passed (133 s); full parallel phase 2558 passed / 8 failed, all within baseline, no new failures. Together with serial x5 each on the deploy host (v4[complete] 5/5, two Pi 5/5 with four guard processes), the ADR-022 §4 gate is met.",
         "recorded_at": "2026-10-10T12:05:00+08:00"
       },
@@ -2961,7 +2961,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T175535Z-569670ec5e79",
+        "ref": "ci:lane/20261009T175535Z-569670ec5e79",
         "summary": "Full CI on clean CI host for 569670e (integration-s3v): 2453 passed / 17 failed; 15 within baseline; 2 new passed serially 2/2 on the same checkout (memo stress positive control hits=0 under load with 0 violations; v6 real-Pi run), registered as parallel-load jitter.",
         "recorded_at": "2026-10-10T02:34:00+08:00"
       },
@@ -2973,7 +2973,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261009T191236Z-4448c40e6458",
+        "ref": "ci:lane/20261009T191236Z-4448c40e6458",
         "summary": "Full CI on clean CI host for 4448c40 (integration-s3w): 2469 passed / 17 failed, all within baseline, no new failures.",
         "recorded_at": "2026-10-10T03:52:00+08:00"
       }
@@ -3006,7 +3006,7 @@
       },
       {
         "type": "test_report",
-        "ref": "ci:sice/20261010T083937Z-32c914d48cfe",
+        "ref": "ci:lane/20261010T083937Z-32c914d48cfe",
         "summary": "Full CI on clean CI host for 32c914d (integration-s4h): 2656 passed / 11 failed, all within baseline (load-sensitive real Host/Pi cases), no new failures; NX-049 serial deadline phase 2/2 passed. Merged to main as 5f0023e. First round (integration-s4g, af68908) had one new deterministic failure (runtime.nexloop_commitment_settings without forced RLS), fixed in 080b6c9.",
         "recorded_at": "2026-10-10T17:24:00+08:00"
       }

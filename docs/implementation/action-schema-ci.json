@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T16:03:53.426079+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "partial exact EIOS object schema bundle verification; protected business instance/effect dispatcher incomplete",
   "python_tests_passed": 511,

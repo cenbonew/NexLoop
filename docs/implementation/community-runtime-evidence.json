@@ -136,7 +136,7 @@
   "owned_postgres_containers_stopped": 2,
   "volumes_and_private_inputs_retained": true,
   "full_ci": {
-    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
     "exit_code": 0,
     "reports": {
       "python": {

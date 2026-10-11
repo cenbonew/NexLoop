@@ -7,8 +7,8 @@
     "tests/test_trusted_configuration.py": "05c7be299d48679996fc9508174e1c7c837fdc0b9b8700572e4eae0a9b0f4c7c",
     "tests/test_trusted_configuration_pg.py": "7efceac14d80f6bf62043cd2e0387d5b3ac0e65f8cceb322d53e652adb0e0937"
   },
-  "import_origin": "/Users/chenbowen/253383134/NexLoop/docs/tmp/nx016-candidate/packages/eios-core/src/nexloop_eios/trusted_configuration.py",
-  "command": "PYTHONPATH=\"$PWD/packages/eios-core/src:$PWD/tests\" /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_trusted_configuration.py tests/test_trusted_configuration_pg.py -q --tb=short",
+  "import_origin": "<repo>/docs/tmp/nx016-candidate/packages/eios-core/src/nexloop_eios/trusted_configuration.py",
+  "command": "PYTHONPATH=\"$PWD/packages/eios-core/src:$PWD/tests\" <repo>/.venv/bin/python -m pytest tests/test_trusted_configuration.py tests/test_trusted_configuration_pg.py -q --tb=short",
   "runs": [
     {
       "session": 56413,

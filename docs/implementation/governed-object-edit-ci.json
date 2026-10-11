@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T17:38:37.516017+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "published Action plus exact object/property EDIT proofs, revision/fence/atomic claim outcome; real PG",
   "python_tests_passed": 565,

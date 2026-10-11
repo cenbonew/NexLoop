@@ -15,14 +15,14 @@ The foundation Compose now includes packaged React assets and an actual same-ori
 
 ```sh
 uv run --frozen pytest -q tests/test_browser_test_profile.py --tb=short
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -q tests/test_browser_test_profile.py tests/test_community_launcher.py tests/test_community_container_contract.py --tb=short
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-browser-runtime-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-browser-runtime-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-browser-runtime-20261008-retry
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-browser-runtime-20261008-retry
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-browser-public-runtime-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-browser-public-runtime-20261008
-source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -q tests/test_browser_test_profile.py tests/test_community_launcher.py tests/test_community_container_contract.py --tb=short
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-browser-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-browser-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-browser-runtime-20261008-retry
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-browser-runtime-20261008-retry
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py prepare --output .ci-results/community-browser-public-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen python scripts/community_test.py run --output .ci-results/community-browser-public-runtime-20261008
+source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check
 ```
 
 Additional structured Python commands used certificate-verified HTTPX on the actual host loopback origin, parsed Docker ownership/mount/port/network/job metadata and verified no generated password in logs. No password, cookie/CSRF token or model credential was printed.

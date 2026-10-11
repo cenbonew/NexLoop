@@ -2,9 +2,9 @@
 
 修改 packages/eios-core/src/nexloop_eios/host_control.py、tests/test_host_control.py 与 tests/test_agent_host.py。探针从 ssl.create_default_context 改为显式 PROTOCOL_TLS_CLIENT context，加载私有配置指定 CA，保留 CERT_REQUIRED 与主机名验证，并不继承 SSLKEYLOGFILE 的环境日志设置。Host 测试观察客户端也使用显式 TLS context；退出后检查端口时明确传入正确受信任证书，防止证书不受信任掩盖未关闭的 listener。
 
-首次真实回归命令：`source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py::test_host_probe_does_not_honor_ambient_tls_key_logging --tb=short`。结果1 failed in0.52s：仅在合成测试中设置 SSLKEYLOGFILE 后，旧探针创建了 TLS 会话密钥日志文件；不记录文件内容或任何实际凭据。没有读取、使用或测试真实模型密钥。
+首次真实回归命令：`source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py::test_host_probe_does_not_honor_ambient_tls_key_logging --tb=short`。结果1 failed in0.52s：仅在合成测试中设置 SSLKEYLOGFILE 后，旧探针创建了 TLS 会话密钥日志文件；不记录文件内容或任何实际凭据。没有读取、使用或测试真实模型密钥。
 
-修复后：`source /Users/chenbowen/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short`，28 passed in7.39s。加强 Host 退出端口检查后最终重跑28 passed in7.46s，然后执行完整 `scripts/ci/check`，最终结果见 host-tls-isolation-ci.json。
+修复后：`source $HOME/.nvm/nvm.sh && nvm use && uv run --frozen pytest -xq tests/test_host_control.py tests/test_agent_host.py tests/test_http_api.py --tb=short`，28 passed in7.39s。加强 Host 退出端口检查后最终重跑28 passed in7.46s，然后执行完整 `scripts/ci/check`，最终结果见 host-tls-isolation-ci.json。
 
 真实 Node/HTTPS 连接仍能通过正确 CA 与控制密钥验证，错误 CA/主机名继续拒绝；环境 TLS 日志文件不会创建。所有实验仅使用自有临时目录、合成凭据和临时证书。版本锁、依赖锁、上游源码与32份迁移保持原值。
 

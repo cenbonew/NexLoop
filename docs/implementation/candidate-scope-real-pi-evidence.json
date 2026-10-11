@@ -26,7 +26,7 @@
       "change": "only read-only503 recheck within same20s absolute deadline,200required eventually,no start/tool resubmission or identity fallback"
     }
   ],
-  "command": "PATH=/Users/chenbowen/.nvm/versions/node/v24.13.0/bin:$PATH PYTHONPATH=docs/tmp/nx016-scope-explanation-candidate/packages/eios-core/src:docs/tmp/nx016-scope-explanation-candidate/tests .venv/bin/python -m pytest docs/tmp/nx016-scope-explanation-candidate/tests/test_scope_denials.py -q --tb=short --junitxml=docs/tmp/nx016-scope-explanation-candidate/docs/scope-five-chain.xml",
+  "command": "PATH=$HOME/.nvm/versions/node/v24.13.0/bin:$PATH PYTHONPATH=docs/tmp/nx016-scope-explanation-candidate/packages/eios-core/src:docs/tmp/nx016-scope-explanation-candidate/tests .venv/bin/python -m pytest docs/tmp/nx016-scope-explanation-candidate/tests/test_scope_denials.py -q --tb=short --junitxml=docs/tmp/nx016-scope-explanation-candidate/docs/scope-five-chain.xml",
   "compiled_profile_negatives": {
     "command": "Node24 node --test candidate/apps/agent-host/test/synthetic-scope-profile.test.mjs",
     "result": "6 passed268.7ms",

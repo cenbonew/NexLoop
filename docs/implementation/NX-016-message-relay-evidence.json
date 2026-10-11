@@ -5,7 +5,7 @@
   "history": [
     {
       "session": 53338,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
       "result": "1 setup error",
       "seconds": 0.33,
       "cause": "message_plan fixture dependency not explicitly imported",
@@ -13,7 +13,7 @@
     },
     {
       "session": 71253,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py::test_independent_cli_governed_assignment_and_persist_before_ack -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_message_relay.py::test_independent_cli_governed_assignment_and_persist_before_ack -q -x --tb=short",
       "result": "1 failed",
       "seconds": 2.61,
       "cause": "same PG expiry instant compared as +08:00 vs UTC strings",
@@ -21,7 +21,7 @@
     },
     {
       "session": 93933,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
       "result": "4 passed,1 failed",
       "seconds": 13.34,
       "cause": "default Node20 correctly rejected by existing real Host source/version gate",
@@ -29,7 +29,7 @@
     },
     {
       "session": 58302,
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
       "result": "4 passed,1 failed",
       "seconds": 13.76,
       "cause": "candidate Host TS differs from main frozen actual compiled Host; strict parity gate refused",
@@ -37,26 +37,26 @@
     },
     {
       "session": 38134,
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short -k 'not actual_pi'",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short -k 'not actual_pi'",
       "result": "16 passed,1 deselected",
       "seconds": 34.53,
       "scope": "targeted non-Pi evidence while actual Host parity was being corrected; deselection not complete E2E acceptance"
     },
     {
       "session": 99412,
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
       "result": "19 passed",
       "seconds": 45.33
     },
     {
       "session": 40662,
-      "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
+      "command": "source $HOME/.nvm/nvm.sh && nvm use 24 && PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_message_relay.py -q -x --tb=short",
       "result": "20 passed",
       "seconds": 49.9,
       "scope": "final adds actual SourceGrant revocation technical ACK proof"
     },
     {
-      "command": "PYTHONPATH=packages/eios-core/src:tests /Users/chenbowen/253383134/NexLoop/.venv/bin/python -m pytest tests/test_run_credential_vault.py tests/test_message_relay_configuration.py -q --tb=short",
+      "command": "PYTHONPATH=packages/eios-core/src:tests <repo>/.venv/bin/python -m pytest tests/test_run_credential_vault.py tests/test_message_relay_configuration.py -q --tb=short",
       "result": "29 passed",
       "seconds": 0.43,
       "scope": "offline file durability/configuration proofs, separate from real PG/CLI suite"

@@ -302,7 +302,7 @@
   ],
   "private_inputs_volumes_images_retained": true,
   "full_ci": {
-    "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+    "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
     "exit_code": 0,
     "passed": {
       "python": 893,

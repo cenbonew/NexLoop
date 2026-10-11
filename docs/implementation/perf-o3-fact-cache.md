@@ -20,7 +20,7 @@
 ## 回归
 以下 12 个文件共 171 passed（203.8s，`.ci-results/o3-regression.xml`）：`test_authority_fact_cache`、`test_bootstrap`、`test_postgres_authority`、`test_browser_business_authorization`、`test_runtime_activation`、`test_runtime_authority`、`test_role_mapping`、`test_agent_governed_write`、`test_action_definitions`、`test_goal_controls`、`test_service_grants_pg`、`test_run_credentials`。
 
-## 前后对比（同一代码，测量钩子中关闭/开启缓存，本机 M4 Pro 串行）
+## 前后对比（同一代码，测量钩子中关闭/开启缓存，本机开发机串行）
 
 命令：
 
@@ -63,4 +63,4 @@ B 类 7 例用同样的方式运行（`o3-b-before` / `o3-b-after`），两轮�
 ## 结论与限制
 - O3 让单次决策快约 10%，2 s 敏感请求的尾部快约 12–18%，单靠它不能把这些请求拉出时限风险区（effect_tool 的 max 仍约 1.6 s，越限慢化系数 k 只有约 1.25）。
 - 主要收益仍在 O1（请求内决策复用）和 O4（Backend 锁），两者按调度员决定等 L1 方案 B 合入后再做。
-- 数据为单轮测量，带钩子开销 1–7%；sice 未实测。
+- 数据为单轮测量，带钩子开销 1–7%；CI 主机未实测。

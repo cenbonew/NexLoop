@@ -18,7 +18,7 @@ First command: `uv run --frozen pytest -xq tests/test_action_definitions.py --tb
 
 Rerun of the same command: 19 passed in 15.03 seconds, including actual SIGKILL and fresh-process replay.
 
-Full CI command: `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final results and input/JUnit hashes are recorded in create-crash-recovery-ci.json after completion.
+Full CI command: `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check`. Final results and input/JUnit hashes are recorded in create-crash-recovery-ci.json after completion.
 
 ## Changed files and remaining work
 

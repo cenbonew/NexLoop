@@ -4,7 +4,7 @@
 
 Python API 通过可选 --web-root 同 origin 提供构建产物，静态路由排在 API 路由之后。CI 先执行 Node 24 检查、冻结 pnpm 安装和前端构建，再运行 Python 测试，避免依赖未生成产物。
 
-真实命令：`source /Users/chenbowen/.nvm/nvm.sh && nvm use && pnpm install --lockfile-only && pnpm install --frozen-lockfile && pnpm --filter @nexloop/web build`，构建通过。增补真实 readiness 后第二次构建也通过。
+真实命令：`source $HOME/.nvm/nvm.sh && nvm use && pnpm install --lockfile-only && pnpm install --frozen-lockfile && pnpm --filter @nexloop/web build`，构建通过。增补真实 readiness 后第二次构建也通过。
 
 `NEXLOOP_UI_PREVIEW=1 uv run --frozen pytest -xq tests/test_web_frontend.py --tb=short`：1 passed in 247.80s，包含人工观察等待。独立临时 PG、实际 HTTPS API 子进程、显式校验测试证书，验证页面和脚本、真实登录、会话、CSRF 更新及退出，以及进程/连接关闭和日志凭据排除。所有临时凭据文件由测试清理。此测试不等于浏览器 DOM 操作验收。
 

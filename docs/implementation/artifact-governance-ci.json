@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-10-07T15:29:19.610301+00:00",
-  "command": "source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check",
+  "command": "source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check",
   "exit_code": 0,
   "scope": "partial S1 PostgreSQL Artifact and actual frozen EIOS service authorization; whole slice incomplete",
   "python_tests_passed": 246,

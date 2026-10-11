@@ -43,4 +43,4 @@ The first epoch regression run failed with `permission denied for schema control
 
 versions.lock.json advances the independent bootstrap revision from 0003 to 0005. All three upstream commits and Pi frozen-source selection remain unchanged; all six image digests remain unresolved and empty. The new migration catalog hashes match actual SQL; 0001 through 0003 remain unchanged.
 
-Final strict CI command `source /Users/chenbowen/.nvm/nvm.sh && nvm use && scripts/ci/check` exited 0: 246 Python cases in 26.39s, 24 actual SQLite FULL cases and all four Pi source packages built; zero skipped/failing/error cases. Input and JUnit SHA256 evidence is in artifact-governance-ci.json. Handoff and publication guards passed. Product ATs remain not_run.
+Final strict CI command `source $HOME/.nvm/nvm.sh && nvm use && scripts/ci/check` exited 0: 246 Python cases in 26.39s, 24 actual SQLite FULL cases and all four Pi source packages built; zero skipped/failing/error cases. Input and JUnit SHA256 evidence is in artifact-governance-ci.json. Handoff and publication guards passed. Product ATs remain not_run.
