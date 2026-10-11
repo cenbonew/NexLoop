@@ -398,7 +398,24 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
   replies:{pending:{count:number;oldest_age_seconds:number|null};escalations_last_hour:Record<string,number>;escalations_total:number};
   commitments:{exceptions:Record<string,number>;exceptions_last_hour:Record<string,number>};
   queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
-  guard:Process;host:Process;pool:Process;connections:{total:number};backup:{status:string};computed_at:string};
+  guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string};
+/** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
+ * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
+export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
+  'drill_age_seconds','drill_rpo_seconds','drill_rto_seconds'] as const;
+export type BackupField=typeof BACKUP_FIELDS[number];
+export type Backup={status:'unavailable'}|({status:'ok';verify_failed:number|null;wal_archive_failing:number|null;repo_backup_age_seconds:Record<string,number>}&Record<BackupField,number|null>);
+function backup(value:unknown):Backup{
+  const o=object(value);if(o.status==='unavailable')return {status:'unavailable'};if(o.status!=='ok')throw new WorkbenchError('invalid');
+  const num=(x:unknown)=>{if(x===undefined||x===null)return null;if(typeof x!=='number'||!Number.isFinite(x)||x<0)throw new WorkbenchError('invalid');return x;};
+  const repos=Object.fromEntries(Object.entries(object(o.repo_backup_age_seconds??{})).map(([k,v])=>{const n=num(v);if(n===null)throw new WorkbenchError('invalid');return [k,n];}));
+  return {status:'ok',verify_failed:num(o.verify_failed),wal_archive_failing:num(o.wal_archive_failing),repo_backup_age_seconds:repos,
+    ...Object.fromEntries(BACKUP_FIELDS.map(f=>[f,num(o[f])])) as Record<BackupField,number|null>};
+}
+export const BACKUP_UNAVAILABLE_TEXT='没有任何已记录的数据库备份：未加载，不代表没有备份。';
+export const BACKUP_LABELS:Record<BackupField,string>={age_seconds:'最近一次已校验的数据库备份',full_backup_age_seconds:'最近一次完整备份',
+  wal_last_archived_age_seconds:'最近一次 WAL 归档',journal_export_lag_seconds:'恢复日志导出延迟',file_backup_age_seconds:'最近一次文件快照',
+  drill_age_seconds:'距上次通过的恢复演练',drill_rpo_seconds:'最近一次演练的 RPO',drill_rto_seconds:'最近一次演练的 RTO'};
 function counts(value:unknown):Record<string,number>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,count(v)]));}
 function maybeCount(value:unknown):number|null{return value===null||value===undefined?null:count(value);}
 function nested(value:unknown):Record<string,Record<string,number|null>>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,Object.fromEntries(Object.entries(object(v)).map(([f,n])=>[f,maybeCount(n)]))]));}
@@ -412,13 +429,13 @@ function processSection(value:unknown):Process{
 }
 export function metrics(value:unknown):Metrics{
   const v=object(value);const r=object(v.refusals);const ef=object(v.effects);const u=object(ef.unknown);const rp=object(v.replies);const pend=object(rp.pending);
-  const cm=object(v.commitments);const ex=object(v.extraction);const cn=object(v.connections);const bk=object(v.backup);
+  const cm=object(v.commitments);const ex=object(v.extraction);const cn=object(v.connections);
   return {refusals:{last_5m:counts(r.last_5m),last_hour:counts(r.last_hour)},
     effects:{by_state:counts(ef.by_state),unknown:{count:count(u.count),oldest_age_seconds:maybeCount(u.oldest_age_seconds),over_24h:count(u.over_24h)}},
     replies:{pending:{count:count(pend.count),oldest_age_seconds:maybeCount(pend.oldest_age_seconds)},escalations_last_hour:counts(rp.escalations_last_hour),escalations_total:count(rp.escalations_total)},
     commitments:{exceptions:counts(cm.exceptions),exceptions_last_hour:counts(cm.exceptions_last_hour)},
     queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
-    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:{status:text(bk.status)},computed_at:text(v.computed_at)};
+    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at)};
 }
 export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
 export const PROCESS_UNAVAILABLE_TEXT='最近 5 分钟没有样本：未加载，不代表为零。';

@@ -2,7 +2,7 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,expect,test,vi} from 'vitest';
-import {EVALUATOR_STALE_TEXT,PROCESS_UNAVAILABLE_TEXT,WorkbenchError,alerts,humanActions,me,metrics,offers,type Me} from '../src/workbench/api';
+import {BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,PROCESS_UNAVAILABLE_TEXT,WorkbenchError,alerts,humanActions,me,metrics,offers,type Me} from '../src/workbench/api';
 import {DONE_TEXT,GOVERNED_SLOTS,SilenceForm,governedWrite,silenceUntil} from '../src/workbench/actions';
 import {Alerts,Audit,Operations} from '../src/workbench/pages/Observability';
 import {parseRoute} from '../src/workbench/route';
@@ -39,8 +39,22 @@ test('operations: unavailable process sections and backups are labelled, never z
   expect(m.host).toEqual({status:'unavailable'});expect(m.guard.status==='ok'&&m.guard.timeout_rate).toBe(0.03);
   const html=render(client([[['workbench','metrics'],m]]),h(Operations,{}));
   expect(html).toContain(PROCESS_UNAVAILABLE_TEXT);expect(html).toContain('超时率 3.00%');expect(html).toContain('已暂停（NXC01）：2');
-  expect(html).toContain('不代表没有备份');expect(html).not.toContain('运行中</th></tr></thead><tbody><tr><td>');
+  expect(html).toContain(BACKUP_UNAVAILABLE_TEXT);expect(html).not.toContain('运行中</th></tr></thead><tbody><tr><td>');
   expect(()=>metrics({...metricsBody,guard:{status:'ok',by_service:{x:{sum:{calls:'many'},max:{}}}}})).toThrow(WorkbenchError);
+});
+
+test('operations: the backup block shows numbers and states, “无” for a metric without an observation, and parses strictly',()=>{
+  const backup={status:'ok',age_seconds:1800,full_backup_age_seconds:86400,repo_backup_age_seconds:{repo1:1800},verify_failed:0,wal_last_archived_age_seconds:30,
+    wal_archive_failing:1,journal_export_lag_seconds:0,drill_age_seconds:3600};  // no file snapshot, no drill RPO/RTO observed
+  const m=metrics({...metricsBody,backup});
+  expect(m.backup.status==='ok'&&m.backup.file_backup_age_seconds).toBe(null);
+  const html=render(client([[['workbench','metrics'],m]]),h(Operations,{}));
+  expect(html).toContain('<th>最近一次已校验的数据库备份</th><td>30 分钟</td>');expect(html).toContain('<th>最近一次文件快照</th><td>无</td>');
+  expect(html).toContain('<th>最近一次演练的 RPO</th><td>无</td>');expect(html).toContain('<th>恢复日志导出延迟</th><td>0 秒</td>');
+  expect(html).toContain('<th>最近一次备份校验</th><td>通过</td>');expect(html).toContain('<th>WAL 归档</th><td>出现失败</td>');expect(html).toContain('repo1 30 分钟');
+  expect(html).not.toContain(BACKUP_UNAVAILABLE_TEXT);
+  for(const bad of [{...backup,age_seconds:'1800'},{...backup,age_seconds:-1},{...backup,status:'stale'},{...backup,repo_backup_age_seconds:{repo1:null}}])
+    expect(()=>metrics({...metricsBody,backup:bad})).toThrow(WorkbenchError);
 });
 
 test('audit: owner-only page shows IDs, kinds and times; a forbidden read is labelled',async()=>{
