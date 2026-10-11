@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：`main` 提交 `3b5a684`（2026-10-11），迁移目录最高 `0147`，S0–S3 全部完成，S4 大部分完成（NX-030 只差备份年龄，NX-031 进行中），S5 完成了 NX-033（本地 Git 队列与隔离 CI）、NX-034（发布工具）与 NX-035（备份与恢复）的本地部分，部署尚未开始。
+> - 事实基线：`main` 提交 `7ee5e31`（2026-10-11），迁移目录最高 `0147`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -256,8 +256,8 @@ flowchart LR
 
 #### 与目标设计的差异
 
-- 目标设计中的 Caddy Gateway、独立 Web 容器、Domain Worker / Action Worker / Scheduler 的划分（[02_ARCHITECTURE §3](handoff/docs/02_ARCHITECTURE.md)、[11_DEPLOYMENT §7](handoff/docs/11_DEPLOYMENT.md)）尚未落成部署形态。当前可运行的组合只有：一次性社区测试 Compose（[`deploy/community/compose.test.yaml`](../deploy/community/compose.test.yaml)，API 直接以 HTTPS 提供打包前端，只发布到 `127.0.0.1`）和开发机冒烟脚本。双机 TLS 部署属于 S5（NX-032），**尚未开始**。
-- 社区测试 Compose 中没有 Effect Worker 与 Message Relay 服务；它们的进程入口与测试已存在，部署编排【待确认】，将随 S5 落地。
+- 目标设计中的 Caddy Gateway、独立 Web 容器、Domain Worker / Action Worker / Scheduler 的划分（[02_ARCHITECTURE §3](handoff/docs/02_ARCHITECTURE.md)、[11_DEPLOYMENT §7](handoff/docs/11_DEPLOYMENT.md)）尚未落成部署形态。当前可运行的组合只有：一次性社区测试 Compose（[`deploy/community/compose.test.yaml`](../deploy/community/compose.test.yaml)，API 直接以 HTTPS 提供打包前端，只发布到 `127.0.0.1`）和开发机冒烟脚本。双机部署（NX-032）进行中：参数化模板、证书脚本与部署门槛检查（切片 0–2）已合入，**没有连接任何服务器**；APP_HOST Compose 示例 [`compose.app.example.yaml`](../deploy/stage/compose.app.example.yaml) 目前编排 Gateway、API、Runtime Worker、Agent Host、Effect Worker 与告警评估器。
+- 社区测试 Compose 中没有 Effect Worker 与 Message Relay 服务。APP_HOST Compose 示例已编排 Effect Worker；Message Relay、Outbound Recorder 与其余后台服务在连接预算中已声明，但 Compose 示例尚未编排【待确认：随 NX-032 后续切片补上】。
 - 【目标设计】中 API 进程数 2、Domain Worker / Action Worker / Scheduler 各 1 的放置只出现在 [`deploy/stage/connection-budget.v1.json`](../deploy/stage/connection-budget.v1.json) 的连接预算声明中，作为部署前提核算，不代表这些进程已按此编排运行。
 - 目标目录树中的 `packages/nexloop/`、`migrations/nexloop/` 未单独建立：NexLoop 业务模块与 vendored EIOS 内核同在 `packages/eios-core/`，迁移共用一个 catalog（见 [§4](#4-仓库结构与模块索引)）。
 
@@ -374,7 +374,7 @@ sequenceDiagram
 - **恢复与重放**：Agent Host kill/reopen 后同一 owner 重新打开 Run；Runtime Worker 同 Run reclaim；guard 子进程中途崩溃对 Host 等同于超时（authorize 按拒绝处理，effect 走 `find` 对账，ADR-024 §8）；数据库从备份恢复后，先在恢复围栏内重放删除、联系限制与吊销，再由负责人逐个 scope 开放派发（NX-029、NX-035，见 [§3.11](#311-备份与恢复nx-035-本地部分)）。
 - **故障测试**：PG 不可达时拒绝新的业务成功；Valkey 不可达时降级为 PG 轮询（`tests/test_infrastructure_faults.py`、`test_precise_pg_admission_outage.py`、`test_local_effect_worker_kill.py`）。
 
-### 3.6 可观测性（NX-030，只差备份年龄）
+### 3.6 可观测性（NX-030）
 
 - **统一指标快照** `runtime.nexloop_metrics_snapshot(tenant, world)`：只含代码、计数、年龄和比率，不含原文、客户名或属性值；评估器、工作台、导出共用。覆盖派发拒绝、effect 状态与 unknown 年龄、待回复与升级、承诺异常、队列与死信、work feed、提取积压、guard / Host / 连接池样本、连接数、费用；备份年龄在 NX-035 之前固定为 unavailable。
 - **派发拒绝记录**：Run 路径在 `finish` 同一事务记录；effect 路径由 Effect Worker 在拒绝回滚后另开事务记录（写入失败只会让指标偏少，不影响派发安全）。
@@ -383,7 +383,7 @@ sequenceDiagram
 - **导出**：独立 `nexloop_metrics` 角色只能执行 `authz.nexloop_metrics_export()`；loopback 导出服务默认关闭；`nexloop-doctor --observability` 检查告警评估与样本。
 - 工作台新增告警、运行状态和审计页（审计只给负责人）。详见 [NX-030 实现说明](implementation/NX-030-implementation.md)。
 - **备份块（M12）**：NX-035 本地部分已把指标快照的 `backup` 块接到备份清单：最近已验证备份年龄、完整备份年龄、各仓库备份年龄、校验失败、WAL 归档年龄与失败、恢复日志导出延迟、演练年龄及实测 RPO/RTO；没有 PG 备份时仍为 `unavailable`，缺数据的字段缺省而不填 0。
-- **剩余项**：NX-030 在 planning 中仍为 in_progress（只差备份年龄的部署环境证据，依赖 NX-035 部署部分）；连接数不按角色细分（不授予读取全部会话统计的权限）。
+- **完成口径**：NX-030 已完成：指标、告警与 M12 备份块接入即完成，部署环境的备份样本归 NX-035 部署部分（调度员裁定，见 [planning/ROADMAP.md](../planning/ROADMAP.md) §7）。连接数不按角色细分（不授予读取全部会话统计的权限）。
 
 ### 3.7 数据保留与删除（NX-029，已完成）
 
@@ -397,7 +397,7 @@ sequenceDiagram
 - **保留例外**：负责人可为 Consumer 或数据类登记例外（例如法律保全）。
 - **导出**：受治理人类 Action（只给 owner）；下载时用请求人自己的会话现场组装，不在服务端落盘，请求人无权读取的字段不会出现。
 - **删除记录与恢复后重放**：每次删除按全局序号记入不含内容的删除记录；删除记录与 tombstone 保留 365 天，必须长于备份最长保留期（35 天），从备份恢复后先重放，已删除的客户立即被阻断与清除。doctor 报告卡住的删除和逾期未清理的数据类。
-- 详见 [NX-029 实现说明](implementation/NX-029-implementation.md)；恢复流程本身属于 NX-035（未开始）。
+- 详见 [NX-029 实现说明](implementation/NX-029-implementation.md)；从备份恢复后的重放与开放流程见 [§3.11](#311-备份与恢复nx-035-本地部分)。
 
 ### 3.8 性能约束
 
@@ -681,31 +681,21 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 
 ## 6. 当前状态与已知限制
 
-### 6.1 阶段进度（截至 2026-10-11，以 `planning/tasks.json` 为准）
+### 6.1 阶段进度（摘要）
 
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| S0 | 源码、许可、环境审计（NX-001–005） | 完成 |
-| S1 | 可独立启动的 EIOS 内核、Artifact、DB 角色与迁移、单机 Compose 与 doctor、最小 CI、API/前端/Host 基础（NX-006–011） | 完成 |
-| S2 | Agent 受治理写入、持久队列、Pi RuntimeAdapter 与恢复、业务意图与对账、WebChat 与真实服务 Action、可靠性故障测试（NX-012–017） | 完成 |
-| S3 | 消费者/关系/角色、提取、匹配、召回、目标与控制面、上下文引擎、计划与复评、知识与目标闭环、审核与外发持久化等（NX-018–025、NX-044–048、NX-050） | 完成 |
-| S4 | 承诺（NX-026）、商业事件与费用（NX-027）、工作台与人工接管（NX-028）、渠道序号与引用回复（NX-051） | 完成 |
-| S4 | 保留/删除/导出（NX-029） | 完成 |
-| S4 | 审计指标与告警（NX-030） | **进行中**（只差备份年龄；备份块已在 NX-035 本地部分接入，部署证据待 NX-035 部署部分） |
-| S4 | 1,000 消费者与并发矩阵（NX-031） | **进行中**（切片 0–2 已合入：数据与模板、矩阵与执行器、完整消息 Run 链与逐 Run 结果；本机 C4 与 C4-low 均未通过，夜间整轮未跑） |
-| S5 | APP_HOST 工具时限达标（NX-049） | 完成 |
-| S5 | 发布归档与 GitHub 同步（NX-034） | **进行中**（本地发布工具已合入；归档、同步、tag 依赖 NX-033） |
-| S5 | 备份/PITR 与恢复演练（NX-035） | **进行中**（本地部分已合入：备份清单、恢复日志、恢复围栏、迁移门槛；部署部分依赖 NX-032） |
-| S5 | 本地 Git 队列与隔离 CI（NX-033） | **进行中**（本地部分已合入：控制器、受信策略、主机模板、命令契约；主机侧 B 类步骤未执行） |
-| S5 | 开源文档与供应链（NX-036） | **未开始**（设计稿已合入，D1–D12 待负责人决定） |
-| S5 | 双机 TLS 与隔离部署、v0.1 受控真实闭环验收（NX-032、037） | **未开始**（NX-031～036 的设计文档已合入） |
-| S6 / S7 | Evo 演进与评估、Schema 受控演进；模拟世界、消费者孪生、策略实验（NX-038–043） | 未开始 |
+任务与验收的权威状态在 [`planning/tasks.json`](../planning/tasks.json) 与 [`planning/acceptance-tests.json`](../planning/acceptance-tests.json)；阶段出口、关键路径、等负责人决定的事项见 [planning/ROADMAP.md](../planning/ROADMAP.md)。本节只给摘要，不逐任务维护。
 
-产品验收（`planning/acceptance-tests.json`）共 70 项：58 项 passed，12 项 not_run（2026-10-11 新增通过 AT-015、AT-043；AT-050、AT-053、AT-054、AT-055、AT-056、AT-057 只有本地证据，仍为 not_run）。
+- **当前阶段：S4**（最低一个还有未完成任务的阶段）。
+- **三组数字**（截至 main `7ee5e31`）：任务 38 done / 5 in_progress / 8 not_started（共 51）；验收 58 passed / 12 not_run（共 70）；阶段出口 S4 满足 4/5、S5 满足 0/5（口径见 ROADMAP §2–§3）。
+- **各阶段一句话**：
+  - S0–S3：完成（审计、可独立启动的内核、可靠性脊柱、知识与目标闭环）。
+  - S4：承诺、商业事件、工作台与人工接管、保留删除导出、审计指标与告警都已完成；只剩 1,000 客户负载报告（NX-031）。
+  - S5：本地部分先行——双机部署模板、本地 CI 控制器、发布工具、备份恢复已有仓库内实现与本地证据；开源文档与供应链的实现在下一轮集成；所有服务器操作（B 类）未开始，v0.1 受控真实闭环（NX-037）未开始。
+  - S6 / S7：未开始。
 
 ### 6.2 已知限制
 
-- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署尚未开始；发布只有本机运行的清单、签名、验签与回滚检查工具，本地 CI 控制器也只有仓库内的代码与模板，主机侧的用户、bare 仓库、防火墙与 remote 切换尚未执行（[§3.10](#310-发布与部署)）；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
+- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 当前只接受 `--mode test`，`/health/ready` 固定返回 503。双机部署只有模板与部署门槛检查（NX-032 切片 0–2），没有连接任何服务器；发布只有本机运行的清单、签名、验签与回滚检查工具，本地 CI 控制器也只有仓库内的代码与模板，主机侧的用户、bare 仓库、防火墙与 remote 切换尚未执行（[§3.10](#310-发布与部署)）；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
 - **真实外发关闭。** 真实外发渠道未开通，`REAL_DISPATCH_ENABLED` 保持关闭；服务授权清单拒绝授予真实外发 Action（ADR-020 §3）。当前外部效应只在本地 / 合成 provider 上验证过。
 - **模型。** 自动化测试使用确定性测试 provider；真实 DeepSeek 验证只在显式 opt-in 时运行，CI 不读取凭据。
 - **部署前提。** 2 s 工具时限门槛只在部署并发（Host ≤ 4、guard 4 进程）下证明；在远超部署并发的全量并行负载下相关场景仍可能超时（ADR-022 §4）。生产并发要提高时必须先重新测量。
@@ -718,7 +708,9 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 - **员工回复**只支持 WebChat 且必须绑定一条来信，不能主动发消息；外部渠道接入时改走“接管 Run”方式。
 - **其他**：消息读取投影中的 `accepted_at` 不是严格 RFC 3339；渠道签名顺序只用合成渠道验证；WebChat 界面暂无引用按钮（API 已支持）；Agent 外发首版不含“处理中”占位与撤回（ADR-021）。
 - **EvoOntology** 尚未安装（`versions.lock.json` 中 `installed: false`），语义只读 adapter 只复用其输出形状。
-- 【待确认】本文未逐项核实的事项：Effect Worker 与 Message Relay 在 stage 部署中的编排方式（连接预算已声明二者，Compose 编排随 S5 落地）、API 浏览器身份连接池是否计入 api 的连接预算——均**待确认**，随 S5 部署设计确定。
+- **stage 编排与连接预算的两处出入**（对照 `deploy/stage/compose.app.example.yaml` 与 `connection-budget.v1.json`）：
+  - Effect Worker 已在 APP_HOST Compose 示例中编排；Message Relay、Outbound Recorder 与其余后台服务已在预算中声明，Compose 示例尚未编排。
+  - API 的浏览器身份读取另开一个连接池（`browser_identity.py`，默认上限 4），只在启用浏览器登录配置时打开；Compose 示例中的 API 未启用该配置，预算中 api 的 `2 × 4` 也不含它。启用浏览器登录时，预算需相应增加【待确认：由 NX-032 后续切片处理】。
 
 ### 6.3 许可
 

@@ -12,11 +12,12 @@ NexLoop is an open-source **continuous-operations system** for enterprises. An o
 
 ## Current status
 
-- **S0–S3 done, most of S4 done**: the conversation-to-ontology pipeline with human review, goals and the control plane, context engine v6, plans and re-evaluation, commitments, commercial events and costs, and the owner workbench with human takeover are all on `main`. Retention, deletion and export (NX-029) are done; audit metrics and alerting (NX-030) only lack backup age; the 1,000-consumer concurrency matrix (NX-031) is in progress.
-- **Not deployed**: only the local parts of S5 exist — a local Git queue and isolated CI controller (NX-033; host-side steps not yet executed), a release tool (NX-034: release manifest, signing and verification, rollback check) and backup/restore (NX-035: backup manifest, restore journal, restore fence, migration gate), all run and rehearsed on a single machine only. Two-host deployment has not started (NX-032 parameterised deployment templates, a certificate script and deploy-gate checks are in the repository; no server has been touched). There is no release or deployable image yet; `/health/ready` stays 503.
+- **Current stage: S4** — only the 1,000-consumer load report (NX-031) remains. S0–S3 are done.
+- **Numbers** (at `main` `7ee5e31`): tasks 38 done / 5 in progress / 8 not started (51); acceptance tests 58 passed / 12 not run (70).
+- **S5 is local-first**: deployment templates, the local CI controller, the release tool and backup/restore exist in the repository with local evidence only. **Nothing is deployed**: no server has been touched, there is no release or deployable image, and `/health/ready` stays 503.
 - **Real outbound dispatch is off**: no real outbound channel is enabled and `REAL_DISPATCH_ENABLED` stays off.
 
-What is implemented and what is only planned is stated in section 6 of the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Live task and acceptance status is in [`planning/`](planning); every change merged to `main` is in the [CHANGELOG](CHANGELOG.md).
+The owner's living plan — stage exits, critical path, pending decisions — is [planning/ROADMAP.md](planning/ROADMAP.md) (Chinese); authoritative task and acceptance status is in [`planning/`](planning). What is implemented and what is only planned is described in the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Every change merged to `main` is in the [CHANGELOG](CHANGELOG.md).
 
 > Most project documents (architecture guide, ADRs, implementation notes, CHANGELOG) are written in Chinese; identifiers and public API names are in English.
 
@@ -63,6 +64,8 @@ More (community test Compose, test conventions, contribution notes) is in [archi
 | [CHANGELOG.md](CHANGELOG.md) | User-visible changes of every merge to `main` |
 | [AGENTS.md](AGENTS.md) | Engineering contract |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Operations handbook: entry points for deployment, doctor, alerts, backup/restore, release and rollback |
+| [docs/CONNECTORS.md](docs/CONNECTORS.md) | Connector development guide: inbound channels, effect provider interface, signed commercial events, loopback and synthetic providers |
+| [docs/EVALUATION.md](docs/EVALUATION.md) | Evaluation guide: deterministic regressions, opt-in real-model verification, merge calibration, load matrix |
 | [GOVERNANCE.md](GOVERNANCE.md) | Maintainers, decision making, the ADR process, how to propose changes |
 | [docs/release/public-release-checklist.md](docs/release/public-release-checklist.md) | Public release checklist |
 
