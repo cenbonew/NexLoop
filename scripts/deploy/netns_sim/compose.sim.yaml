@@ -1,0 +1,83 @@
+# NX-032 slice 4 (AT-058): two-host simulation with rootless Docker on the CI host (dispatcher ruling 2026-10-11). Started only by
+# run.py, which prepares every file under SIM_WORK (a private temporary directory) first. Addresses are RFC 5737 documentation
+# ranges inside the simulation's own bridges.
+#
+#   data_net (192.0.2.0/24)    data (PostgreSQL + Valkey in one network namespace, like one DATA_HOST), app, neighbour
+#   mgmt_net (198.51.100.0/24) app, outsider
+# outsider is not on data_net: "the management network cannot reach DATA_HOST" is expressed by topology (no nft rule is loaded).
+# neighbour stands for another LAN host that can reach DATA_HOST over TCP: what stops it is PostgreSQL's pg_hba (real).
+name: nexloop-sim
+x-probe: &probe
+  image: ${SIM_PYTHON_IMAGE:?python image}
+  pull_policy: never
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  volumes:
+    - ${SIM_WORK:?work directory}/probe:/sim:ro
+services:
+  data:
+    image: ${SIM_POSTGRES_IMAGE:?postgres image}
+    pull_policy: never
+    # The server key must belong to the server's user; a rootless bind mount shows it as root, so it is installed first.
+    entrypoint: [sh, -c, "install -d -o postgres -g postgres -m 0700 /run/tls && install -o postgres -g postgres -m 0600 /run/tls-src/server.key /run/tls/server.key && install -o postgres -g postgres -m 0644 /run/tls-src/server.crt /run/tls-src/ca.crt /run/tls/ && exec docker-entrypoint.sh postgres -c config_file=/etc/postgresql/postgresql.conf"]
+    environment:
+      POSTGRES_DB: ${SIM_DB:?database}
+      POSTGRES_USER: nexloop_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/sim/bootstrap_password
+    volumes:
+      - ${SIM_WORK}/data/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ${SIM_WORK}/data/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ${SIM_WORK}/data/tls-pg:/run/tls-src:ro
+      - ${SIM_WORK}/data/sim:/run/sim:ro
+      - ${SIM_WORK}/data/initdb:/docker-entrypoint-initdb.d:ro
+    tmpfs: [/run/tls]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U nexloop_bootstrap -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      data_net:
+        ipv4_address: 192.0.2.20
+        aliases: [data.sim.invalid]
+  data-valkey:
+    image: ${SIM_VALKEY_IMAGE:?valkey image}
+    pull_policy: never
+    network_mode: service:data
+    entrypoint: [sh, -c, "mkdir -p /run/tls && install -m 0600 -o valkey -g valkey /run/tls-src/server.key /run/tls/server.key && install -m 0644 /run/tls-src/server.crt /run/tls-src/ca.crt /run/tls/ && exec su-exec valkey valkey-server /etc/valkey/valkey.conf"]
+    volumes:
+      - ${SIM_WORK}/data/valkey.conf:/etc/valkey/valkey.conf:ro
+      - ${SIM_WORK}/data/tls-valkey:/run/tls-src:ro
+      - ${SIM_WORK}/data/valkey.acl:/run/secrets/valkey.acl:ro
+    tmpfs: [/run/tls]
+    depends_on: [data]
+  app:
+    <<: *probe
+    # Models APP_HOST: an internal API port bound to loopback only and a Gateway port on its addresses.
+    command: [sh, -c, "python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 & python3 -m http.server 8443 --bind 0.0.0.0 >/dev/null 2>&1 & wait"]
+    networks:
+      data_net:
+        ipv4_address: 192.0.2.10
+      mgmt_net:
+        ipv4_address: 198.51.100.10
+  neighbour:
+    <<: *probe
+    command: [sleep, infinity]
+    networks:
+      data_net:
+        ipv4_address: 192.0.2.40
+  outsider:
+    <<: *probe
+    command: [sleep, infinity]
+    networks:
+      mgmt_net:
+        ipv4_address: 198.51.100.30
+networks:
+  data_net:
+    ipam:
+      config: [{subnet: 192.0.2.0/24}]
+  mgmt_net:
+    ipam:
+      config: [{subnet: 198.51.100.0/24}]

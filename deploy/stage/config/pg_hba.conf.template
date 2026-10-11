@@ -1,6 +1,7 @@
 # NX-032 §2.2 (D2): rendered by scripts/deploy/render.py from the private env of DATA_HOST; no placeholder may remain.
-# The bootstrap identity only over the container-local socket (bootstrap, health); never over the network.
-local   all            nexloop_bootstrap                                   peer
+# The bootstrap identity only over the container-local socket (bootstrap, health), with its SCRAM password (the image's
+# initialisation connects as it with POSTGRES_PASSWORD_FILE); never over the network.
+local   all            nexloop_bootstrap                                   scram-sha-256
 # Every application role from APP_HOST only: TLS, SCRAM and a client certificate whose CN is the role (clientcert=verify-full).
 hostssl __NEXLOOP_DB__ __APP_PG_ROLES__ __APP_HOST_ADDR__/32 scram-sha-256 clientcert=verify-full
 # Migration window only (§8 step 7): uncomment for the window, reload, and comment again afterwards.

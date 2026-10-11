@@ -1,4 +1,4 @@
-# NX-032 切片 0–3 与切片 4 预检：实现说明
+# NX-032 切片 0–4：实现说明
 
 依据：`NX-032-design.md` §11 的切片 0–4（D1–D9 已定，§12）。
 
@@ -166,8 +166,45 @@ dry-run 只做判断并输出计划：不执行任何步骤，不连接主机，
 - 本机（macOS）结论为 `not_linux`，不可行。CI 主机上的结论需要由负责人或调度员以 rootless CI 用户运行这个脚本得到。
 - `tests/test_netns_feasibility.py`（4 个）：用注入的设置和探测结果覆盖判定逻辑（每种限制都会给出具体原因），并实际运行一次本机检查。
 
+## 切片 4：AT-058 隔离探测与 rootless Docker 双机模拟
+
+### 可行性结论（调度员 2026-10-11 在 CI 主机上运行）
+- 结论为 `not_feasible`：Ubuntu 26.04 上 `apparmor_restrict_unprivileged_userns=1`，四项探测都在写 uid_map 时被拒绝。
+- 改 AppArmor 设置是 B 类操作，而且会削弱主机防护，不采用。
+- 裁定：改用 CI 用户已有的 rootless Docker。
+
+### 探测脚本 `scripts/deploy/probe_isolation.py`
+- 只用标准库，兼容 Python 3.8 及以上，**模拟环境和切片 5 的真实部署共用同一个脚本**。
+- 三类探测：
+  - `tcp`：只建连接；
+  - `pg`：SSLRequest、TLS（CA、名称、客户端证书）、startup，以及按需的 SCRAM-SHA-256；
+  - `valkey`：TLS 或明文、AUTH、PING。
+- 结果分类：authenticated、reached_authentication、server_refused、auth_failed、client_refused、pong、acl_refused、reachable、unreachable。
+- 报告格式 `nexloop-isolation-report/1`：位置代号、探测代号、目标代号、预期类别、实际类别、原因代码，不含地址、路径或秘密。
+- 退出码：0 表示全部符合预期，1 表示有不符，2 表示 spec 错误。
+- **PostgreSQL 行为说明**：`clientcert=verify-full` 要在密码通过之后才核对证书 CN，失败时返回 28P01，与密码错误相同。所以“另一个角色的证书”这一项要带正确密码，并以 `pg_ok`（同一个密码配本角色证书）作对照。
+
+### 模拟环境 `scripts/deploy/netns_sim/`
+- 文件：`compose.sim.yaml`、`run.py`、`README.md`。
+- 拓扑：`data`（PostgreSQL 与 Valkey 共用一个网络命名空间）、`app`、`neighbour`、`outsider` 四个容器，`data_net` 和 `mgmt_net` 两个 bridge，再加上 CI 用户本身，共四个探测位置。
+- 服务端配置由 stage 模板渲染；证书由 `issue_certs.py` 生成。
+- 运行时只用本地已有镜像（`pull_policy: never`），不拉取镜像，不向宿主机发布端口；结束时执行 `down -v`，并删除临时工作目录。
+- README 写明哪些结论是真实的服务端判定，哪些只是拓扑等价（模拟中没有加载 nft 规则），以及 Valkey 来源限制只能靠防火墙这一缺口。
+- 部署模板改动：`pg_hba.conf.template` 中 bootstrap 走本地 socket 的那一行，从 `peer` 改为 `scram-sha-256`。原因是官方镜像初始化时会以 `nexloop_bootstrap` 身份通过 socket 连接，`peer` 会导致初始化失败。
+
+### 本机验证（不启动 Docker）
+- `tests/test_probe_isolation.py`（4 个）：
+  - 在本机一次性 TLS PostgreSQL 上真实跑 9 项 PG 探测；
+  - TCP 探测；
+  - 用进程内模拟的 TLS 服务端跑 Valkey 探测；
+  - CLI 退出码与报告文件权限。
+- `tests/test_netns_sim.py`（3 个）：
+  - 准备阶段：证书、渲染结果、ACL 只存哈希、服务端和客户端密钥分开放、各位置的规格；
+  - 拓扑结构与 `docker compose config`；
+  - `--prepare-only` 不启动任何容器。
+
 ## 未完成项
-- **切片 4 本体**：AT-058 隔离探测脚本、报告格式、双命名空间模拟；Valkey 服务端 TLS 负例也在那个环境中补上（可以用容器运行 Valkey）。要先由调度员根据可行性结论决定在哪里运行。
+- **切片 4 在 CI 主机上的实际运行**：由调度员以 CI 用户执行 `python3 -I scripts/deploy/netns_sim/run.py --out <目录>`（见该目录的 README）。Valkey 服务端 TLS 负例在那次运行中得到真实结果。
 - **切片 5**：真实双机部署，属于 B 类，按运行手册逐步由负责人确认。
 - **开放设计点：Agent Host 出站**。Agent Host 与 API、Worker 共用一个网络命名空间，模型 allowlist 出站对整个命名空间生效。首次部署（D9）不接真实模型，暂不处理；**接入真实模型（NX-037）之前必须解决**。可选方案：给 Agent Host 单独的命名空间，并给 loopback 证书补 SAN。调度员会在 NX-037 之前提交负责人。
 - **镜像引用**：dry-run 生成的镜像引用形如 `nexloop/<镜像名>@sha256:…`。`docker load` 之后要能按这个 digest 引用到镜像，这取决于 NX-034 打包时给镜像加的标签和仓库名，需在打包时确认。
