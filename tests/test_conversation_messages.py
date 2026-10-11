@@ -126,6 +126,20 @@ def test_last_event_id_replay_only_committed_messages_and_pg_sequence(conversati
     assert port.read_events(conversation_id=created['id'],after_sequence=3)['items']==[]
 
 
+
+def test_erased_messages_leave_the_history_and_the_event_stream(conversations,admin):
+    """NX-029 (AT-026): an erased Message is not shown again; paging stays dense, so a client cursor never stalls."""
+    port=conversations['port'];created=conversation(conversations)
+    receipts=[port.accept_message(conversation_id=created['id'],idempotency_key='synthetic-erase-key-'+str(index),body='statement '+str(index)) for index in range(3)]
+    with admin.transaction():
+        admin.execute('set local role nexloop_owner')
+        admin.execute("select runtime.nexloop_erase_message('synthetic-a','real',%s,'message-erasure:t','message_erasure','synthetic-owner')",(receipts[1]['message']['id'],))
+    assert [m['sequence'] for m in port.read_messages(conversation_id=created['id'])['items']]==[1,3]
+    page=port.read_messages(conversation_id=created['id'],after_sequence=1,limit=1)
+    assert [m['sequence'] for m in page['items']]==[3] and page['next_cursor']=='3'
+    assert [e['id'] for e in port.read_events(conversation_id=created['id'])['items']]==['1','3']
+    assert all(m['body'] for m in port.read_messages(conversation_id=created['id'])['items'])
+
 def test_outbox_insert_failure_rolls_back_message_claim_sequence(conversations,admin):
     port=conversations['port'];created=conversation(conversations)
     admin.execute("create function public.synthetic_message_outbox_fail() returns trigger language plpgsql as $$begin raise exception 'synthetic outbox unavailable';end$$")

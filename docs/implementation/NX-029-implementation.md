@@ -114,13 +114,26 @@
 | 类别 | 删除（Consumer 删除 / Message 删除） | 到期 | 更正传播 | 测试 |
 |---|---|---|---|---|
 | 原文：会话流、relay 副本、Message 对象 | 清空并标 erased；Message 对象连同对象事件、关系删除 | `message_text` 90 天 | 不适用（消息不更正，只删除） | `test_erasure_pg`、`test_retention_pg` |
-| 原文副本：Claim quote、提示原文、作业输入 | quote、主体文本、条件、时间表达清空，value 标 erased；该 Consumer 的 Run 提示原文与作业输入清空；引用过被删 Message 的 Run 提示原文清空 | `claim_quote` 跟随来源、`prompt_text` 30 天、`job_input` 30 天 | Claim 被取代时 NX-026 记 `source_superseded`（既有）；被取代 Claim 的结构化值 1 年后删除（D2）**未实现** | `test_erasure_pg`、`test_retention_pg`、`test_retention_prompts_pg` |
+| 原文副本：Claim quote、提示原文、作业输入 | quote、主体文本、条件、时间表达清空，value 标 erased；该 Consumer 的 Run 提示原文与作业输入清空；引用过被删 Message 的 Run 提示原文清空 | `claim_quote` 跟随来源、`prompt_text` 30 天、`job_input` 30 天 | Claim 被取代时 NX-026 记 `source_superseded`（既有）；被取代满 1 年，结构化值标 erased、其余原文清空，行与更正链保留（`claim_superseded`，D2，见 §10） | `test_erasure_pg`、`test_retention_pg`、`test_retention_prompts_pg`、`test_retention_expiry_pg` |
 | 摘要：NX-019 话题标签与会话摘要 | 随消息清除而清空（0142 触发器） | 随 `message_text` | 不适用 | `test_evidence_read_derivation::test_erased_message_clears_the_summaries_built_from_it` |
 | 向量 / 召回索引 | Message 与 Consumer 对象删除经 NX-021 feed 移除；端到端断言该 Consumer 的召回条目为 0 | 消息清空后对象更新触发重建（只含空正文） | 对象属性更正经 NX-021 feed 重建（既有，AT-025 已通过） | `test_erasure_pg`；NX-021 既有测试 |
 | Artifact（上下文、提示） | 该 Consumer 的 Run 的上下文与提示 Artifact 入队，经跨主体清理端口删除（删后才写 tombstone 与审计） | 已到 `retention_until` 的 Artifact 同一端口删除 | 不适用 | `test_erasure_pg::test_run_files_and_artifacts_leave_only_when_their_deletion_is_confirmed` |
-| Run（Pi SQLite 目录、提示与作业输入） | 该 Consumer 的 Run 目录经 Host `runs/purge` 删除（只删已 settle 的 Run）；Run 文本清空 | Run 目录的到期清理**未实现**（只有删除驱动） | 不适用 | `test_erasure_pg`、`test_host_run_purge`、`run-purge.test.ts` |
+| Run（Pi SQLite 目录、提示与作业输入） | 该 Consumer 的 Run 目录经 Host `runs/purge` 删除（只删已 settle 的 Run）；Run 文本清空 | `run_files`：任务终态满 30 天的 Run 入队，同一 Host `runs/purge` 删除，Host 确认后才写 tombstone（理由 `retention_expiry`，进删除列表） | 不适用 | `test_erasure_pg`、`test_host_run_purge`、`run-purge.test.ts`、`test_retention_expiry_pg` |
 | 商业与费用 | NX-027 假名化；费用条目 `consumer_ref` 置空；cohort 换假名 | `financial_retention_days` | 记录更正链既有（NX-027） | `test_erasure_pg`、`test_retention_pg` |
-| 承诺 | `made_to` 改为删除请求引用、条件原文清空，保留至期满（D4） | 关闭后 1 年**未实现** | `source_deleted` / `source_superseded`（既有） | `test_erasure_pg` |
+| 承诺 | `made_to` 改为删除请求引用、条件原文清空，保留至期满（D4） | `commitment_closed`：关闭（fulfilled/cancelled/breached，以最后一次状态事件为准）满 1 年，对象、登记行、事件、证据、异常、商业绑定、监控项一并删除，每个留 tombstone | `source_deleted` / `source_superseded`（既有） | `test_erasure_pg`、`test_retention_expiry_pg` |
+| 计划与策略 | 策略正文、步骤预期结果与前提、Run 结论、自由文本的事件理由清空；状态链（状态、理由代码、版本、摘要）保留 | 计划关闭后 1 年删除尚未执行（D3，不在本次范围） | 不适用 | `test_erasure_propagation_pg` |
+| 引用该 Consumer 的形式对象 | RelationshipAssessment（含修订历史）、ConsumerRoleLink、Goal、PlanStep、EffectControl、ConsumerServiceOffering 等带该 Consumer `consumer_id` 的对象，连同对象事件与关系删除，每个留 tombstone | 不随时间到期（持续事实） | 不适用 | `test_erasure_propagation_pg` |
+| effect 账本 | 该 Consumer 的意图（及 Message.erase 时发出该消息的意图）的 `frozen_request` 置为 `{"erased":true}`；状态、回执、摘要保留；dispatching/unknown 不动 | 正文跟随消息原文的到期尚未执行（不在本次范围） | 不适用 | `test_erasure_propagation_pg` |
+| 读取：WebChat 历史与事件流、上下文组装的 Claim 证据 | 已清除的消息不再返回（分页保持连续）；原文已清除的陈述不再进入 Claim 证据视图 | 同（到期清空后同样排除） | 不适用 | `test_conversation_messages`、`test_evidence_read_derivation` |
 | 恢复后不复活（AT-059） | 重放删除列表，立即阻断，执行者清除，幂等 | 重放的类立即到期 | — | `test_deletion_replay_pg` |
 
-尚未覆盖、应在 AT-026 判定时考虑的：计划与策略的自由文本、RelationshipAssessment 与 ConsumerRoleLink 等引用该 Consumer 的其他对象未清除；Run 目录的到期清理、承诺关闭后 1 年删除、被取代 Claim 1 年后删除未执行；erased 消息在 WebChat 历史与上下文组装中尚未排除或标注。
+端到端检查：`test_erasure_propagation_pg::test_consumer_erasure_reaches_plans_formal_objects_and_the_effect_ledger` 在删除完成后扫描 ontology、runtime、control、authz、public 五个 schema 的每张表，断言原文（手机号、回复、计划与关系判断中的文字）一处不剩，且没有任何形式对象、关系、对象事件或关系判断修订仍指向该 Consumer。
+
+仍不在 AT-026 本次范围内（设计表中的其他到期类）：计划关闭后 1 年删除（D3）、effect 账本正文 90 天到期、运行时作业终态 1 年删除、模型请求清单 1 年、读取与治理审计 1 年、删除列表与 tombstone 自身的到期。Consumer 删除后仍以 64 位内部 ID 作为键保留的行：会话行、删除请求、删除列表、tombstone、联系限制、承诺登记（D4，至期满）、Claim 行（值已 erased）、计划行（文本已清空），它们不含原文。
+
+## 10. NX-029 收尾：删除传播与三类到期（迁移 0140、0141）
+
+- 0140 `nx029_erasure_propagation`：Consumer 删除增加 `effects`、`plans`、`references` 三个阶段（见 §9 表）；NX-024 只追加触发器与 0058 关系判断守卫的函数体原地替换，只放行登记过的清除；清除值增加空数组；WebChat 读取（0046）与 Claim 证据视图（0073）排除已清除的消息与原文已清除的陈述。修复 0132 的一个缺陷：条件型 Claim 的 `condition_text` 被清空时违反 `nexloop_claims_check4`，删除流程会卡在 claims 阶段反复失败；约束改为值已 erased 时允许条件为空。
+- 0141 `nx029_expiry_classes`：保留设置 v3 增加 `run_files`（30 天）、`commitment_closed`（365 天）、`claim_superseded`（365 天）；0132 的保留例外包装原地替换为先查例外、再分派三类；`ontology.nexloop_claims.superseded_at` 由触发器在变为 superseded 时盖时间（迁移时已是 superseded 的行取迁移时间，从现在起算一年）；`authz.nexloop_erasure_command` 的 `run_purged` 按队列项自己的理由写 tombstone。
+- 与设计稿的差异：设计表写“被取代 Claim 删除行”；实现改为把结构化值标 erased、清空其余原文，行与 ID 保留。理由：变更提议、匹配、审核与抽取运行都引用该行，删除行要级联这些审计记录；而“值”才是 D2 要去掉的内容。
+
