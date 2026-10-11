@@ -41,6 +41,14 @@ TABLES = {
                "'fk-cost-principal','fk-cost','fk-cost','fk-cost','fk-cost','UTC','[]','[]')",
         cleanup="delete from ontology.nexloop_extraction_runs where principal_id='fk-cost-principal'",
         teardown=["delete from runtime.nexloop_conversations where principal_id='fk-cost-principal' and tenant_id=%s"]),
+    # 3c: the conversation root (one row per conversation) and the message inbox (one row per accepted message).
+    'runtime.nexloop_conversations': dict(key=HEX,
+        insert="insert into runtime.nexloop_conversations(conversation_id,tenant_id,world,consumer_id,principal_id,idempotency_key)"
+               " values(%s,%s,'real','" + 'e' * 64 + "','fk-cost-principal',gen_random_uuid()::text)",
+        cleanup="delete from runtime.nexloop_conversations where principal_id='fk-cost-principal'"),
+    'runtime.nexloop_message_inbox': dict(key=HEX,
+        insert="insert into runtime.nexloop_message_inbox(message_id,tenant_id,world,event_id) values(%s,%s,'real','fk-cost-'||gen_random_uuid())",
+        cleanup="delete from runtime.nexloop_message_inbox where event_id like 'fk-cost-%%'"),
 }
 MEDIAN_LIMIT, P95_LIMIT = 1.10, 1.05
 
