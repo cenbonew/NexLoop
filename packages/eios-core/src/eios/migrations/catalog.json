@@ -775,6 +775,11 @@
       "version": "0155",
       "name": "0155_nx052_nx019_claim_mode.sql",
       "sha256": "e4331dff1e6c2ae914330b7d5c80195c975539855763ed80f188389691607009"
+    },
+    {
+      "version": "0231",
+      "name": "0231_nx052_tenant_id_uuid.sql",
+      "sha256": "9d1b51bbe6ca9ccd81ada30d21bb471742477b775e742d8aa033f6208d89c86d"
     }
   ]
 }
