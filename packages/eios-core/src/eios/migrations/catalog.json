@@ -810,6 +810,11 @@
       "version": "0162",
       "name": "0162_nx052_tenant_row_no_key_lock.sql",
       "sha256": "052af25d58fdf1b34574b97a5812713eaf2588ab72164f4eb8e943b14803d9e0"
+    },
+    {
+      "version": "0163",
+      "name": "0163_nx037_open_switches.sql",
+      "sha256": "0b491640a17eeb7d5a4f793f658508894ba4acddc1c2bd6ec937dc1003c06494"
     }
   ]
 }

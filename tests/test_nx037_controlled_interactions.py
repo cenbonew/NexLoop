@@ -100,7 +100,9 @@ def test_error_rate_pauses_and_resume_continues_without_rerunning(tmp_path):
     assert state['status'] == 'completed'  # one error in ten is 10%, not above
     state, records, _ = execute(tmp_path, inject={5: 'error', 9: 'error'}, name='two')
     assert state['status'] == 'paused' and state['rules'] == ['error_rate'] and state['at_seq'] == 9
-    resumed, records, driver = execute(tmp_path, name='two')
+    with pytest.raises(X.TrialPaused):
+        execute(tmp_path, name='two')  # a pause needs the owner's explicit resume
+    resumed, records, driver = execute(tmp_path, name='two', resume='owner-confirmation:1')
     assert driver.provider.calls and len(driver.provider.calls) == 21 and resumed['status'] == 'completed'
     assert [r['seq'] for r in records] == list(range(1, 31))
 

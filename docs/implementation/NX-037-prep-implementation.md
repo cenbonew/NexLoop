@@ -111,10 +111,10 @@
 
 ### Driver
 
-- **本次只有合成 driver**：`tests/support/nx037_synthetic.py`，由确定性 provider 加回环渠道组成。
+- **合成 driver**：`nexloop_eios/interaction_drivers.py` 的 `SyntheticDriver`（原 `tests/support/nx037_synthetic.py`，测试仍经它绑定合成租户），由确定性 provider 加回环渠道组成。
   - 停止规则依据的事实，都从回环渠道和 provider 实际留下的记录推出：发送记录、收件人、授权、每个意图的执行次数、上下文中读取的租户。
   - 因此注入的违规与真实违规一样，都是通过检查记录发现的。
-- **真实 driver**：通过 WebChat 和企业服务端点发起交互的 driver，属于 NX-037 B 类工作。
+- **真实 driver**：只有接口与配置（`RealDriverConfig`：渠道引用、负责人会话文件，须为本人私有的普通文件），没有发送代码路径，`interact` 一律拒绝；实际发送属于 NX-037 B 类工作。见 §7。
 
 ## 4. 证据包 `scripts/nx037/evidence_pack.py`
 
@@ -180,3 +180,29 @@
   - 部署层开关打开、租户开关打开、预算值不符时，verify 都不通过；
   - 输出中不出现 DSN。
 - **run_evidence**：只返回数字；metrics 角色不能直接调用 runtime 下的函数。
+
+## 7. 运行入口 `scripts/nx037/run_interactions.py`（分支 `nx037-driver`，迁移 0163，合入 s5i 时由临时号 0310 重编号）
+
+- **输入**：
+  - trial 配置 `deploy/configuration/nx037-trial.v1.json`（D-g 上限、配比、规则）；
+  - 交互计划 `deploy/configuration/nx037-interaction-plan.v1.json`，负责人可编辑：
+    - `order`：30 次交互的类型与顺序，必须与配比 15/4/4/4/3 完全一致，否则拒绝；试运行开始后顺序不能再改（state 中记录顺序 digest）；
+    - `real_dispatch`：真实模式下负责人计划打开的三层开关状态（部署层、租户层及其 data_mode、打开的 Action 列表）。
+- **用法**：
+  - 合成：`python scripts/nx037/run_interactions.py --driver synthetic --trial-id <uuid> --out <目录> [--plan-file F] [--inject 序号=违规] [--calibration-pause]`
+  - 真实：`python scripts/nx037/run_interactions.py --driver real --trial-id <uuid> --out <私有证据目录> --plan-file F --tenant <uuid> --owner-principal <引用> --value-catalog F --channel-ref <引用> --period-start <ISO> --period-end <ISO> --metrics-dsn-file F --owner-session-file F`
+  - 恢复暂停：在原命令后加 `--resume <负责人确认引用>`。
+- **每次交互之后**：执行器采集证据并判定停止和暂停规则（§3）。
+- **真实模式的前置条件**（任何交互之前检查，不满足即拒绝，退出码 3，列出拒绝原因代码）：
+  1. `real_tenant_init.verify` 除三项开关以外的检查全部通过：租户 active，model 预算等于 D-g 累计上限并覆盖试运行期间，告警规则生效；
+  2. 三层开关与计划完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表，经 metrics 角色的 `authz.nexloop_nx037_open_switches`（0310）读取。多开或少开任何一层都会拒绝。
+  - 前置条件满足时，因为真实 driver 尚无发送路径，入口在第一次交互之前以 `real_driver_unavailable` 退出（退出码 4），不写任何交互记录。
+  - 真实模式在 3 次校准交互之后自动暂停（规则 `calibration`），由负责人确认单次费用后用 `--resume` 继续。
+- **停止与暂停**：
+  - 已停止的试运行不能恢复，需换新的 trial ID；
+  - 暂停后不带 `--resume` 再次运行会被拒绝（`paused_needs_resume`）；`--resume` 必须是不透明引用，先追加到 `resumes.jsonl`（fsync）再继续；没有暂停时带 `--resume` 也会被拒绝。
+- **退出码**：0 完成；1 暂停；2 停止；3 拒绝（输入错误、真实模式前置条件不满足、需要恢复确认、已停止）；4 真实 driver 不可用。
+- **迁移 0163**：`runtime.nexloop_nx037_open_switches` 与 authz 包装函数，只读，只授权给 metrics 角色，返回租户开关（enabled、data_mode）和打开的 Action 资源 ID，不含原因、主体或意图。
+- **测试**：
+  - `tests/test_nx037_run_interactions.py`（10 个，合成）：随附计划符合配比，正常完成且按计划顺序；四类立即停止（越权发送、发错对象、拒收后仍联系、外部效应重复执行），停止后不能恢复；错误率暂停需要负责人确认引用才能恢复，并记录恢复；费用暂停恢复后再次暂停；不明效应暂停后恢复；校准暂停；计划顺序不能在试运行中途更改；非法计划和非法注入被拒绝；真实模式缺少配置、带注入、会话文件非私有时，在连接数据库之前就拒绝。
+  - `tests/test_nx037_tenant_init_pg.py` 新增 1 个（干净 catalog）：预算未设、开关与计划不符时拒绝并列出原因；预算设好、开关一致时以 `real_driver_unavailable` 退出且没有交互记录；多开一个 Action 时拒绝。

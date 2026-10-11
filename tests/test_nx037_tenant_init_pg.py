@@ -139,3 +139,55 @@ def test_run_evidence_is_numbers_only_for_the_metrics_role(pg, admin, published_
     assert evidence['tool'] == {'calls': 2, 'ms': 75, 'max_ms': 50}
     assert evidence['costs'] == {'model': {'amount': '0.12000000', 'currencies': ['CNY']}}
     assert evidence['model']['calls'] == 0 and evidence['intents'] == {} and evidence['intent_ids'] == []
+
+
+def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, admin, catalog, tmp_path, published_action, identity, uow, capsys):  # noqa: F811
+    """scripts/nx037/run_interactions.py --driver real: refused before anything runs unless the tenant check passes (budget,
+    alert rules) and the three switch layers are exactly the plan's; with both, it stops at the missing real driver."""
+    import run_interactions as R
+    reader, base, capability = published_action
+    admin.execute('alter role nexloop_configurator login')
+    manifest = json.loads(I.GRANTS.read_text())
+    files = dict(configurator_dsn_file=private(tmp_path / 'configurator-dsn', make_conninfo(pg, user='nexloop_configurator')),
+                 signing_key_file=private(tmp_path / 'signing', secrets.token_bytes(32).hex()), signing_key_id='nx037-init',
+                 credential_expires_at=(NOW + timedelta(hours=2)).isoformat(),
+                 service_secrets_file=private(tmp_path / 'secrets', json.dumps({x['credential_reference']: secrets.token_urlsafe(48) for x in manifest['principals']})))
+    p = params(catalog)
+    I.execute(p, **files)
+    metrics_dsn = private(tmp_path / 'metrics-dsn', make_conninfo(pg, user='nexloop_metrics'))
+    session = private(tmp_path / 'owner-session', 'synthetic-session')
+    args = ['--driver', 'real', '--trial-id', '37b00000-0000-4000-8000-000000000002', '--out', str(tmp_path / 'real'), '--tenant', TENANT_A,
+            '--owner-principal', 'owner-principal-synthetic', '--value-catalog', str(catalog), '--channel-ref', 'channel:webchat:synthetic',
+            '--period-start', PERIOD[0].isoformat(), '--period-end', PERIOD[1].isoformat(), '--metrics-dsn-file', str(metrics_dsn),
+            '--owner-session-file', str(session)]
+
+    def attempt(environ):
+        code = R.main(args, environ=environ, connect=lambda f: psycopg.connect(Path(f).read_text().strip(), autocommit=True))
+        return code, json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    code, out = attempt({})
+    assert code == 3 and set(out['refused']) == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'switch_deployment_differs',
+                                                 'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
+    register_goal_actions(admin, base, capability)
+    owner = GoalGovernedActions(reader.pool, authenticate_human(reader.pool, seed_human_owner(admin, reader.pool, list(ACTIONS), identity, uow)), reader.signer)
+    I.execute(p, **files, owner_actions=owner)
+    code, out = attempt({'REAL_DISPATCH_ENABLED': 'true'})
+    assert code == 3 and set(out['refused']) == {'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')  # test harness: the switches as the owner would have opened them
+        for kind, ref, mode in (('tenant', '*', 'real'), ('action_type', 'eios:action:nexloop.service.request:1', None)):
+            admin.execute("""insert into control.nexloop_real_dispatch_switches(tenant_id,world,scope_kind,scope_ref,enabled,data_mode,revision,reason,changed_by,intent_id)
+                values(%s,'real',%s,%s,true,%s,1,'synthetic','synthetic-owner','synthetic-intent')""", (TENANT_A, kind, ref, mode))
+    code, out = attempt({})
+    assert code == 3 and out['refused'] == ['switch_deployment_differs']
+    code, out = attempt({'REAL_DISPATCH_ENABLED': 'true'})
+    assert code == 4 and out['detail'] == 'real_driver_unavailable' and out['recorded'] == 0
+    assert not (tmp_path / 'real' / 'interactions.jsonl').exists()
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into control.nexloop_real_dispatch_switches(tenant_id,world,scope_kind,scope_ref,enabled,revision,reason,changed_by,intent_id)
+            values(%s,'real','action_type','eios:action:nexloop.incentive.issue:1',true,1,'synthetic','synthetic-owner','synthetic-intent')""", (TENANT_A,))
+    code, out = attempt({'REAL_DISPATCH_ENABLED': 'true'})
+    assert code == 3 and out['refused'] == ['switch_actions_differs']  # an Action open beyond the plan
+    printed = json.dumps(out)
+    assert 'synthetic-session' not in printed and pg not in printed
