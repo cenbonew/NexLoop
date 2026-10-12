@@ -739,7 +739,7 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 - **优惠发放**：部署接线已完成：执行者 `nexloop-incentive-issuer`（Compose 可选 profile `background`，独立账本卷）、服务授权清单 v17 的 `incentive_issuer` 与 `runtime_worker` 授权、工作台角色清单 v8 只给 owner 授予 `nexloop.incentive.issue`，负责人经工作台写入口 `POST /api/v1/workbench/actions/issue_incentive` 发放；Agent Host 的 `incentive_tool` 开关默认关闭。仍有的限制：只有回环（测试）发放渠道；工作台前端没有发放页面（只有 HTTP 入口）；优惠许诺识别的金额换算假定两位小数币种（[AT-043 实现说明](implementation/AT-043-implementation.md) §5–6）。
 - **Relay 部署前提**：relay 的 Source 凭据必须使用固定主体 ID `nexloop-service-relay-source-principal`，`nexloop-doctor --relay-source` 核对规则与凭据（[stage README §6](../deploy/stage/README.md)）；单客户 recipe 模式仍保留，与多客户模式互斥。
 - **员工回复**只支持 WebChat 且必须绑定一条来信，不能主动发消息；外部渠道接入时改走“接管 Run”方式。
-- **租户 ID 规范化（NX-052）进行中**：Claim 契约与租户表已改为 uuid，配置类、ontology 定义与配置类、抽取与 Claim 族表已有租户外键（迁移 0158–0160）；会话与消息表（3c）等待租户行锁降级的实现。
+- **租户 ID 规范化（NX-052）进行中**：契约、租户表与配置、ontology、抽取与 Claim、会话与消息各批的租户外键已完成（迁移 0158–0160、0164）；第 5 批（`ontology.objects`、`ontology.events`、`runtime.jobs`）尚未实现。
 - **模拟世界隔离（AT-046）的未覆盖面**：simulation world 中仍能记录效应意图（安全依赖派发与执行时的拒绝和凭据不能跨 world）；只读查询 Action `nexloop.service.query` 不受 world 检查；配置者若在 simulation world 把某 Action 声明为非外部效应，开关不再判定它（只有 configurator 能写）；Agent Host 的模型凭据不区分 world；Twin 本身不存在，只覆盖了服务端入口的拒绝（[AT-046 说明](implementation/AT-046-simulation-credential-guard.md) §3）。
 - **其他**：消息读取投影中的 `accepted_at` 不是严格 RFC 3339；渠道签名顺序只用合成渠道验证；WebChat 界面暂无引用按钮（API 已支持）；Agent 外发首版不含“处理中”占位与撤回（ADR-021）。
 - **EvoOntology** 尚未安装（`versions.lock.json` 中 `installed: false`），语义只读 adapter 只复用其输出形状。
