@@ -829,7 +829,7 @@
     {
       "version": "0360",
       "name": "0360_inspect_authz_scope.sql",
-      "sha256": "8eb9e4ddc719e94962108c3cf2f3c4c850c4eda62eb7086ffcf31d8810265f96"
+      "sha256": "c759bb63e852c2c068e303369cac449ed6afa9e470fb9325d07549bca45e2ef9"
     }
   ]
 }

@@ -1,4 +1,4 @@
-"""Inspect authorization scope (0360, ADR-027 draft): an inspect is authorized by the activation core only. When the Run's
+"""Inspect authorization scope (0360, ADR-027): an inspect is authorized by the activation core only. When the Run's
 Context artifact can no longer be read (deleted, expired or altered), the Run's state can still be inspected, with no Context
 in the answer, while model, tool and resume are refused as before. The core's own rechecks still refuse an inspect: a changed
 source authority (any revocation through the manifest voids the Run credential, 0034) and a lost task lease. Actual PG

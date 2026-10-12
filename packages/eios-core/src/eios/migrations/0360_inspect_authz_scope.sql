@@ -1,4 +1,4 @@
--- Inspect authorization scope (temporary number 0360; draft, ADR-027 proposed, not accepted). An inspect only reads the
+-- Inspect authorization scope (temporary number 0360; ADR-027, accepted by the owner 2026-10-12). An inspect only reads the
 -- Run's own state on the Host and returns its outcome and receipt IDs; it causes no effect and carries no Context. Its
 -- guard resolve and authorization are answered by the activation core (0037-0039, nexloop_runtime_activation_command_v0051), which
 -- still rechecks at every call: the dispatcher's service credential and its queue action authority, the Run credential's

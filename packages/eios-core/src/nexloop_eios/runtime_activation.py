@@ -212,7 +212,7 @@ class RuntimeActivationPort:
             with self.pool.connection() as db,db.transaction():
                 verify_application_role(db);run=_identity(db,first['_run_digest'],self.session.world)
             if operation=='inspect':
-                # Inspect authorization scope (0360, ADR-027 draft): the activation core only, no Context envelopes are built or
+                # Inspect authorization scope (0360, ADR-027): the activation core only, no Context envelopes are built or
                 # sent; an inspect answer never carries Context. A model request or result is passed on as given, for SQL to refuse.
                 extra={} if request_snapshot is None else {'request_snapshot':request_snapshot}
                 if model_result is not None:extra['model_result']=model_result
