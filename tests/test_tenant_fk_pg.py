@@ -1,5 +1,6 @@
 """NX-052 batch 2: tenant foreign keys on the cold control-plane configuration tables, and the write-cost method check."""
 import sys
+import time
 from pathlib import Path
 
 import psycopg
@@ -170,6 +171,11 @@ BATCH5 = ('runtime.nexloop_inbox', 'runtime.nexloop_outbox')
 KNOWN_EXCEPTIONS = ('ontology.objects', 'ontology.events', 'ontology.relations', 'ontology.object_type_versions', 'ontology.event_type_versions',
                     'ontology.relation_type_versions', 'runtime.jobs', 'runtime.invocations', 'runtime.job_events', 'runtime.audit_events',
                     'runtime.idempotency_records', 'runtime.artifact_references')
+# Why each known exception has no tenant path. A new table with tenant_id must get a key, satisfy the chain rule, or be added here
+# with its reason (and the reason reviewed): test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception.
+EXCEPTION_REASONS = {**{t: 'vendored EIOS core (0001); tenant consistency by the 0002 tenant_boundary RLS policy (dispatcher ruling 2026-10-12)'
+                        for t in KNOWN_EXCEPTIONS},
+                     'control.nexloop_tenants': 'the tenant root itself'}
 
 
 def test_batch4b_and_5_keys_are_validated(db):
@@ -187,3 +193,42 @@ def test_known_exceptions_keep_the_tenant_boundary_policy(db):
     for table in KNOWN_EXCEPTIONS:
         assert forced.get(table) is True, table
         assert "current_setting('eios.tenant_id'" in rows.get(table, '') and rows[table].count('tenant_id') >= 2, table
+
+
+def test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception(db):
+    """NX-052 completeness: every base table in every schema with a tenant_id column has a validated tenant foreign key, satisfies
+    the chain rule, or is a recorded exception with a reason. A new table that does none of these fails here."""
+    tables = {t for (t,) in db.execute("""select c.oid::regclass::text from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        join pg_attribute a on a.attrelid=c.oid and a.attname='tenant_id' and not a.attisdropped
+        where c.relkind in ('r','p') and n.nspname not in ('pg_catalog','information_schema')""").fetchall()}
+    covered = {t for (t,) in db.execute(TENANT_PATH_SQL).fetchall()}
+    assert len(tables) > 150
+    assert sorted(tables - covered - set(EXCEPTION_REASONS)) == []
+    assert all(EXCEPTION_REASONS[t] for t in EXCEPTION_REASONS)
+    # An exception that later gains a tenant path is stale and must leave the list.
+    assert sorted(set(EXCEPTION_REASONS) & covered) == []
+    assert set(EXCEPTION_REASONS) <= tables
+
+
+def test_the_completeness_check_catches_a_new_table_without_a_tenant_path(db):
+    covered_sql = TENANT_PATH_SQL
+    with db.transaction(force_rollback=True):
+        db.execute("create table runtime.nx052_unkeyed(tenant_id text not null, item text primary key)")
+        tables = {t for (t,) in db.execute("""select c.oid::regclass::text from pg_class c join pg_attribute a on a.attrelid=c.oid
+            and a.attname='tenant_id' where c.relkind='r' and c.relnamespace='runtime'::regnamespace""").fetchall()}
+        covered = {t for (t,) in db.execute(covered_sql).fetchall()}
+        assert 'runtime.nx052_unkeyed' in tables - covered - set(EXCEPTION_REASONS)
+
+
+def test_full_window_state_helper_drops_exactly_one_batch_and_pulses_the_tenant_row(db, pg):
+    import tenant_fk_state
+    names = {n for _, n in tenant_fk_state.constraints('5')}
+    assert names == {'nexloop_inbox_tenant_fk', 'nexloop_outbox_tenant_fk'}
+    assert {n for _, n in tenant_fk_state.constraints('3c')} >= {'nexloop_conversations_tenant_fk', 'nexloop_message_inbox_tenant_fk'}
+    with db.transaction(force_rollback=True):
+        assert sorted(tenant_fk_state.drop(db, ['5'])) == sorted(names)
+        left = {n for (n,) in db.execute("select conname from pg_constraint where conname like '%%_tenant_fk'").fetchall()}
+        assert not names & left and 'nexloop_conversations_tenant_fk' in left
+    started = time.monotonic()
+    tenant_fk_state.pulse(pg, TENANT_A, interval=0.2, hold=0.1, once=True)
+    assert 0.1 <= time.monotonic() - started < 2

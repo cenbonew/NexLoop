@@ -840,6 +840,11 @@
       "version": "0352",
       "name": "0352_nx052_tenant_fk_durable_queue.sql",
       "sha256": "b8fa31a1dc5c06ead1cf686af6b7529b985808cf115ed403e31595a4390ec477"
+    },
+    {
+      "version": "0370",
+      "name": "0370_nx052_tenant_fk_token_realms.sql",
+      "sha256": "504e889452e6ccec93d73c860e45f188649633985ef2e821dfed26195d454fa3"
     }
   ]
 }
