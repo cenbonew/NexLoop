@@ -4,9 +4,7 @@ NexLoop 采用 [Contributor Covenant 2.1](https://www.contributor-covenant.org/v
 
 ## 报告
 
-不当行为请报告给：`<SECURITY_CONTACT>`
-
-上面的占位符由维护者填写；在它被填写之前，本项目尚无正式的行为准则报告渠道。维护者会审阅每一份报告并对报告人身份保密。
+不当行为请通过 GitHub 私密报告（[https://github.com/cenbonew/NexLoop/security/advisories/new](https://github.com/cenbonew/NexLoop/security/advisories/new)）告知维护者，标题注明“行为准则”。维护者会审阅每一份报告并对报告人身份保密。
 
 ## 执行
 

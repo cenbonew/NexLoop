@@ -4,9 +4,7 @@
 
 请勿在公开 issue、讨论区或 PR 中披露漏洞细节。
 
-报告渠道：`<SECURITY_CONTACT>`
-
-上面的占位符由维护者填写（GitHub 私密漏洞报告，另可加一个由维护者提供的联系方式）。**在它被填写之前，本项目尚无正式的安全响应渠道**，公开发布检查（`scripts/check_public_files.py --public`）会因此失败。
+报告渠道：GitHub 私密漏洞报告（[https://github.com/cenbonew/NexLoop/security/advisories/new](https://github.com/cenbonew/NexLoop/security/advisories/new)），只有维护者能看到报告内容。本项目不另设邮箱。
 
 报告时请尽量提供：受影响的版本或提交、复现步骤（只用合成数据）、影响范围的判断。不要附带真实客户数据或任何凭据。
 

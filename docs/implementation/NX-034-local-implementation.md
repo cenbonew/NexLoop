@@ -40,6 +40,7 @@
 
 - 测试只用临时生成的 ed25519 密钥，不读取任何真实密钥。
 - 验签使用 allowed_signers 文件，身份和命名空间都是 `nexloop-release`。
+- 发布签名公钥与 allowed_signers 已入库（O1，2026-10-12）：`deploy/release/nexloop-release.pub`、`deploy/release/allowed_signers`（ed25519，身份与命名空间 `nexloop-release`，由 `tests/test_release_signers.py` 核对一致）。私钥在开发机上离线生成，不入库；按 O1 定案由负责人存入密码管理器并另做加密离线备份，部署时只复制到 `nexloop-release` 用户（0600）。轮换方式：生成新密钥、替换这两个文件并经 PR 合入，旧签名的发布按旧 allowed_signers 核对。
 - 签名之后再修改清单、换其他签名者、或者没有签名，都会拒绝。
 - 发布签名私钥的保管和公钥是否入库，属于部署事项（NX-032），本部分不涉及。
 

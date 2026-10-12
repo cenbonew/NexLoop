@@ -119,9 +119,19 @@ def public_root(tmp_path):
     return tmp_path
 
 
-def test_ci_mode_passes_on_the_repository_and_public_mode_fails_until_the_owner_fills_the_contact():
+def test_both_modes_pass_on_the_repository_once_the_owner_filled_the_contact():
+    # O4 (2026-10-12): the owner enabled GitHub private vulnerability reporting and the contact is filled in.
     assert pf.check(ROOT) == []
-    problems = pf.check(ROOT, public=True)
+    assert pf.check(ROOT, public=True) == []
+
+
+def test_public_mode_fails_while_the_contact_is_unset_or_a_placeholder_remains(public_root):
+    config_path = public_root / 'deploy/compliance/public-release.v1.json'
+    config = json.loads(config_path.read_text())
+    config['security_contact'] = None
+    config_path.write_text(json.dumps(config))
+    (public_root / 'SECURITY.md').write_text('# Security\n\nReport to: <SECURITY_CONTACT>\n')
+    problems = pf.check(public_root, public=True)
     assert 'security_contact: not set (no formal response channel; D2)' in problems
     assert 'SECURITY.md: security contact placeholder not filled in' in problems
 
