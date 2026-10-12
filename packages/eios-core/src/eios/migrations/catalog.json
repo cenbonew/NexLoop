@@ -850,6 +850,11 @@
       "version": "0170",
       "name": "0170_nx052_tenant_fk_token_realms.sql",
       "sha256": "504e889452e6ccec93d73c860e45f188649633985ef2e821dfed26195d454fa3"
+    },
+    {
+      "version": "0171",
+      "name": "0171_inspect_authz_scope.sql",
+      "sha256": "44fdade95d168512deef0f8790d3b52a013410582113f576bfdcbdb8bb7890da"
     }
   ]
 }

@@ -161,6 +161,9 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     **({'request_snapshot':body['request_snapshot']} if 'request_snapshot' in body else {}),**({'model_result':body['model_result']} if 'model_result' in body else {}))
                 if result.get('authorized') is not True or result.get('run_id')!=body['command'].get('run_id') or type(result.get('ever_execution_authorized')) is not bool:
                     self.send(403,{'authorized':False});return
+                # Inspect authorization scope (0171, ADR-027): an inspect answer carries no Context.
+                if body['operation']=='inspect' and 'context_artifact' in result:
+                    self.send(503,{'authorized':False});return
                 # Never serialize the backend object or a raw EIOS identity row.
                 projected={'authorized':True,'run_id':result['run_id'],'ever_execution_authorized':result['ever_execution_authorized']}
                 if 'context_artifact' in result:

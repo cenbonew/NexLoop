@@ -211,6 +211,14 @@ class RuntimeActivationPort:
             first=self._call(queue,'resolve',**parameters)
             with self.pool.connection() as db,db.transaction():
                 verify_application_role(db);run=_identity(db,first['_run_digest'],self.session.world)
+            if operation=='inspect':
+                # Inspect authorization scope (0171, ADR-027): the activation core only, no Context envelopes are built or
+                # sent; an inspect answer never carries Context. A model request or result is passed on as given, for SQL to refuse.
+                extra={} if request_snapshot is None else {'request_snapshot':request_snapshot}
+                if model_result is not None:extra['model_result']=model_result
+                result=self._call(queue,'authorize',execution_run=run.run_context.run_id,**parameters,**extra,run_proofs=self._run_proofs(run))
+                if 'context_artifact' in result:raise ValueError('inspect returned Context')
+                return {key:value for key,value in result.items() if not key.startswith('_')}
             context_proof=self._context_read_proof(first)
             # A v6 model call is recorded in the same transaction as its authorization (0091).
             snapshot={} if request_snapshot is None else {'request_snapshot':request_snapshot}

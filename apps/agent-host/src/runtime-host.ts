@@ -116,7 +116,11 @@ export class RuntimeHost{
           response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>32768){request.destroy();reject(denied());}else chunks.push(chunk);});
           response.on('error',()=>reject(unavailable()));
           response.on('end',()=>{if(response.statusCode===503){reject(unavailable());return;}
-            try{const result=record(JSON.parse(Buffer.concat(chunks).toString('utf8')));if(response.statusCode!==200||result.authorized!==true||result.run_id!==command.run_id||typeof result.ever_execution_authorized!=='boolean'||(['model','tool'].includes(operation)&&result.ever_execution_authorized!==true))throw new Error();if(contextMode){
+            try{const result=record(JSON.parse(Buffer.concat(chunks).toString('utf8')));if(response.statusCode!==200||result.authorized!==true||result.run_id!==command.run_id||typeof result.ever_execution_authorized!=='boolean'||(['model','tool'].includes(operation)&&result.ever_execution_authorized!==true))throw new Error();
+            // Inspect authorization scope (0171, ADR-027): an inspect is authorized by the activation core only and its
+            // answer must carry no Context; every other operation still validates the Run's Context attestation.
+            if(operation==='inspect'&&result.context_artifact!==undefined)throw new Error();
+            if(contextMode&&operation!=='inspect'){
             const attestation=validateContextAttestation(command,result.context_artifact);
             const original=input??active?.input;
             if(original!==undefined){
