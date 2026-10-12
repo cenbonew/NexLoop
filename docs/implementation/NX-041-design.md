@@ -8,7 +8,7 @@
   - 03_DOMAIN_DATA_MODEL 第 23 行（`world_id` 与 `mode`；real 固定 `world_id='real'`）；
   - 16_ADR 第 31 行（“让模拟触达真实客户”不是普通实现细节）；
   - 14_TEST_ACCEPTANCE：AT-042（第 54 行）、AT-046（第 58 行）、第 94 行（模拟或影子回放没有真实外部效应权限）；
-  - AT-046 前置的检查点与已知限制：`docs/implementation/AT-046-simulation-credential-guard.md`（分支 `at046-sim-credential-guard`，提交 `78f3a55`，排在 s5j 合入）。
+  - AT-046 前置的检查点与已知限制：`docs/implementation/AT-046-simulation-credential-guard.md`（随 s5j 合入，迁移 0165）。
 - **下游**：
   - NX-042（消费者孪生与校准）在本设计的世界和替身之上运行；
   - NX-043（策略实验与受控线上验证）使用影子世界。
@@ -88,7 +88,7 @@
 
 - **执行器**：模拟世界的意图由替身执行器执行，而不是 effect worker 或 incentive issuer。这两个进程的 `--world` 只接受 `real`（`effect_worker.py:33`、`background_services.py:78`），SQL 侧也拒绝非 real（0042_effect_execution_ledger.sql:165、0051_local_json_delivery.sql:24）。
 - **替身执行器的约束**：
-  - 只持有模拟世界的服务凭据。AT-046 的迁移（临时号 0320，排在 s5j 合入）规定含 real 的凭据只能含 real，所以它不可能同时持有 real 凭据；
+  - 只持有模拟世界的服务凭据。AT-046 的迁移 0165规定含 real 的凭据只能含 real，所以它不可能同时持有 real 凭据；
   - 没有任何真实 provider 配置，没有网络出口（D4）；
   - 它调用的是新增的 `authz.nexloop_simulated_effect_command`：只接受 `sim:` 或 `shadow:` world；对 real 一律拒绝；只调用替身。
 - **三层开关**：真实派发开关对非 real world 恒为关闭，`closed_layer` 返回 `world`（0153:151）。模拟世界不需要也不能打开它。
