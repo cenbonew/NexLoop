@@ -114,7 +114,7 @@
 - **合成 driver**：`nexloop_eios/interaction_drivers.py` 的 `SyntheticDriver`（原 `tests/support/nx037_synthetic.py`，测试仍经它绑定合成租户），由确定性 provider 加回环渠道组成。
   - 停止规则依据的事实，都从回环渠道和 provider 实际留下的记录推出：发送记录、收件人、授权、每个意图的执行次数、上下文中读取的租户。
   - 因此注入的违规与真实违规一样，都是通过检查记录发现的。
-- **真实 driver**：只有接口与配置（`RealDriverConfig`：渠道引用、负责人会话文件，须为本人私有的普通文件），没有发送代码路径，`interact` 一律拒绝；实际发送属于 NX-037 B 类工作。见 §7。
+- **真实 driver**：`RealDriver` 不发送任何内容，也不持有渠道凭据。它提示负责人安排的操作者在 WebChat 完成交互，再通过 metrics 角色观测结果并推出事实，见 §8。
 
 ## 4. 证据包 `scripts/nx037/evidence_pack.py`
 
@@ -196,13 +196,85 @@
 - **真实模式的前置条件**（任何交互之前检查，不满足即拒绝，退出码 3，列出拒绝原因代码）：
   1. `real_tenant_init.verify` 除三项开关以外的检查全部通过：租户 active，model 预算等于 D-g 累计上限并覆盖试运行期间，告警规则生效；
   2. 三层开关与计划完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表，经 metrics 角色的 `authz.nexloop_nx037_open_switches`（0163）读取。多开或少开任何一层都会拒绝。
-  - 前置条件满足时，因为真实 driver 尚无发送路径，入口在第一次交互之前以 `real_driver_unavailable` 退出（退出码 4），不写任何交互记录。
+  - 前置条件满足时，真实模式开始运行（§8）。（早先版本在这里以退出码 4 `real_driver_unavailable` 退出，`nx037-real-driver` 已去掉。）
   - 真实模式在 3 次校准交互之后自动暂停（规则 `calibration`），由负责人确认单次费用后用 `--resume` 继续。
 - **停止与暂停**：
   - 已停止的试运行不能恢复，需换新的 trial ID；
   - 暂停后不带 `--resume` 再次运行会被拒绝（`paused_needs_resume`）；`--resume` 必须是不透明引用，先追加到 `resumes.jsonl`（fsync）再继续；没有暂停时带 `--resume` 也会被拒绝。
-- **退出码**：0 完成；1 暂停；2 停止；3 拒绝（输入错误、真实模式前置条件不满足、需要恢复确认、已停止）；4 真实 driver 不可用。
+- **退出码**：0 完成；1 暂停；2 停止；3 拒绝（输入错误、真实模式前置条件不满足、需要恢复确认、已停止）。
 - **迁移 0163**：`runtime.nexloop_nx037_open_switches` 与 authz 包装函数，只读，只授权给 metrics 角色，返回租户开关（enabled、data_mode）和打开的 Action 资源 ID，不含原因、主体或意图。
 - **测试**：
   - `tests/test_nx037_run_interactions.py`（10 个，合成）：随附计划符合配比，正常完成且按计划顺序；四类立即停止（越权发送、发错对象、拒收后仍联系、外部效应重复执行），停止后不能恢复；错误率暂停需要负责人确认引用才能恢复，并记录恢复；费用暂停恢复后再次暂停；不明效应暂停后恢复；校准暂停；计划顺序不能在试运行中途更改；非法计划和非法注入被拒绝；真实模式缺少配置、带注入、会话文件非私有时，在连接数据库之前就拒绝。
-  - `tests/test_nx037_tenant_init_pg.py` 新增 1 个（干净 catalog）：预算未设、开关与计划不符时拒绝并列出原因；预算设好、开关一致时以 `real_driver_unavailable` 退出且没有交互记录；多开一个 Action 时拒绝。
+  - `tests/test_nx037_tenant_init_pg.py` 新增 1 个（干净 catalog）：预算未设、开关与计划不符时拒绝并列出原因；前置条件不满足时不会提示操作者；预算设好、开关一致时真实模式开始运行，第 1 次交互提示操作者，操作者没有完成时因 `interaction_timeout` 暂停（退出码 1，记录 1 条）；多开一个 Action 时拒绝。
+
+## 8. 真实 driver（分支 `nx037-real-driver`，迁移临时号 0380）
+
+依据 NX-037 设计 D1：交互渠道是原生 WebChat，交付动作接企业自有的幂等端点，由知情的内部人员扮演消费者。
+
+### 8.1 职责
+
+- **driver 不扮演消费者，也不发送**：真实交互由负责人安排的内部人员在 WebChat 完成。每次交互，driver 做五件事：
+  1. 读取服务端当前时间；
+  2. 提示操作者执行第 N 次交互：类型和要点（`INSTRUCTIONS`），并给出时限；
+  3. 以 metrics 只读角色轮询 `authz.nexloop_nx037_interaction_observation`（0380）。等待的条件是：提示之后的第一条消费者消息、它的 Run 已经结束（succeeded 或 failed）、Run 的效应没有未结束的（accepted、dispatching、observed_fulfilled）；
+  4. 从记录推出停止规则所需的事实，交给执行器判定；
+  5. 证据仍由 `PgCollector` 采集（0161）。
+- **超时**：在 `--interaction-timeout`（默认 900 s）内没有完成，记为 `interaction_timeout`，按新增的暂停规则 `interaction_timeout` 暂停，不猜测结果。
+- **不持有的东西**：任何发送代码路径、渠道凭据、写权限。`RealDriverConfig` 只保存渠道引用和负责人会话文件路径。
+- **操作者**：
+  - 实际试运行中是人：`ConsoleOperator` 把提示打到终端（stderr），并以 ID 和代码追加到试运行目录的 `prompts.jsonl`；
+  - 合成栈测试中是自动操作者：Playwright 驱动 WebChat，`apps/web/test/browser/operator.browser.mjs`。
+
+### 8.2 0380 观测函数（只读，只授权给 metrics 角色）
+
+每条事实都来自这条触发消息和它的 Run 的记录：
+
+| 事实 | 依据 | 对应规则 |
+|---|---|---|
+| `unauthorized_sends` | 触发消息的 Agent 外发记录，没有承载它的受治理出站行（0079） | 越权发送 |
+| `wrong_recipient_sends` | 外发记录在别的对话中，或 Run 签发给了另一个消费者 | 发错对象 |
+| `contacts_after_refusal` | 消费者已有生效的联系限制（0109）之后仍有 Agent 外发 | 拒收后仍联系 |
+| `duplicate_deliveries` / `duplicate_fulfilled` | 同一触发的受治理出站行被投递或接受超过一次；同一消费者、同一业务摘要的已完成意图超过一个 | 外部效应重复执行 |
+| `cross_consumer_reads` | Run 的模型上下文引用了别的消费者的 Consumer、对话或消息（NX-031 §4.4 的检查） | 跨租户/跨客户读取 |
+| `critical_alerts` | 提示之后该租户 firing 的 critical 告警 | critical 告警 |
+| 效应状态 | Run 的意图按状态计数；`unknown` 计为未了结 | 暂停：不明效应 |
+
+- **意图与 Run 的关联**：意图在执行时才写入 `origin_run_id`，执行之前通过 Run 的派发控制快照（0097 `effect_dispatch_controls`）关联到 Run。
+- **observed_fulfilled 视为未结束**：外部已经执行、受治理的最终确认还没完成。
+
+### 8.3 运行入口的变化
+
+- 真实模式在前置条件满足后正常运行。新增参数：`--interaction-timeout`、`--poll-seconds`。
+- 去掉了退出码 4。前置条件不满足时仍是退出码 3，而且不会提示操作者。
+- 暂停后仍需要 `--resume <负责人确认引用>` 才能继续。
+
+### 8.4 测试
+
+- **`tests/test_nx037_real_driver.py`**（单元测试，不需要数据库）：
+  - 等到 Run 结束且效应结束才返回；
+  - 7 种观测到的违规各自命中对应的停止规则；
+  - 不明效应、Run 失败、超时（暂停）；
+  - `ConsoleOperator` 只写 ID 和代码。
+- **`tests/test_nx037_real_driver_pg.py`**（端到端，合成栈）：
+  - 组件：真实 API（TLS、127.0.0.1、构建好的 WebChat），消息 relay，确定性 Agent Host 及其 runtime worker 和 guard，本地 JSON 投递，effect worker；
+  - 自动操作者是 Chromium，在 WebChat 中发消息；
+  - 5 次小计划（5 次都是 ordinary_reply）：
+    1. 第 1 次完成；
+    2. 第 2 次操作者不动作，因 `interaction_timeout` 暂停；没有恢复确认时拒绝继续；带负责人确认引用恢复；
+    3. 第 3 次完成；
+    4. 第 4 次交互中注入一条 firing 的 critical 告警（测试夹具直接写入告警事件），停止；
+    5. 第 5 次不执行。
+  - 断言：
+    - 第 1、3、4 次各有自己的 Run，各有一个已完成的意图，对账结果为 settled，所有违规计数为 0；
+    - 恢复记录正确；
+    - 只产生 3 份 JSON 投递，库中只有 3 个意图；
+    - 后台服务的输出中不含秘密值。
+  - 标记为 `real_browser`，用 `-m real_browser` 运行（与 AT-015 同一条单独的浏览器测试线）。本机耗时约 70 s。
+- **`tests/test_nx037_tenant_init_pg.py`**：真实模式在前置条件满足时运行并因超时暂停，见 §7。
+
+### 8.5 限制
+
+- **端到端测试绕过了运行入口**：测试直接以 `RealDriver` 调用执行器，没有经过 `run_interactions.py`。原因是合成栈的组装租户没有负责人预算与告警规则（D-g 前置条件）。运行入口在真实模式下的路径另由 `test_nx037_tenant_init_pg.py` 覆盖：前置条件检查、提示、超时暂停。
+- **端到端计划只覆盖 ordinary_reply**：其余四类场景（真实交付、拒收后受限回复、人工接管、结果不明对账）的观测函数字段已经有了，但在合成栈上没有端到端覆盖，由真实试运行中的操作者完成。
+- **人工接管等场景**：员工回复（sender_kind 为 human_takeover）不计为 Agent 外发。人工接管交互中 Run 的结束条件，需要在实际试运行中核对。
+- **OPERATIONS §9.4**：由 L5 之后同步。

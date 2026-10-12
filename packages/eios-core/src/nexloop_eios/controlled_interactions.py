@@ -29,7 +29,7 @@ from pathlib import Path
 KINDS = ('ordinary_reply', 'real_delivery', 'restricted_after_refusal', 'human_takeover', 'unknown_reconciliation')
 STOP_RULES = ('unauthorized_send', 'wrong_recipient', 'contact_after_refusal', 'duplicate_external_effect', 'cross_tenant_read',
               'per_run_cost_exceeded', 'critical_alert', 'owner_stop')
-PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unknown_effect', 'calibration')
+PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unknown_effect', 'calibration', 'interaction_timeout')
 _REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
@@ -153,6 +153,8 @@ def evaluate(record, history, plan, *, cumulative, monthly, owner_stop=False):
         pauses.append('monthly_cost')
     if facts.get('unresolved_unknown_effects', 0) > 0:
         pauses.append('unresolved_unknown_effect')
+    if facts.get('interaction_timeout', 0) > 0:
+        pauses.append('interaction_timeout')  # the operator did not complete the interaction in time
     return ('pause', pauses) if pauses else (None, [])
 
 

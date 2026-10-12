@@ -6,9 +6,13 @@ A driver is the only part that touches the system: `interact(interaction)` retur
   real channel or model. The facts the executor judges are derived from what the
 loopback channel and the provider actually recorded (sends, recipients, authorizations, executions per intent, context
 tenants), so an injected violation is detected the same way a real one would be: by inspecting the record, not by a flag.
-- real: only the interface and its configuration (a channel reference and the owner's session file). It holds no
-  credential, has no sending code path and refuses every interaction until NX-037 B-class work provides one; the run entry
-  (scripts/nx037/run_interactions.py) checks the real mode preconditions before it is ever constructed."""
+- real (NX-037 D1): the driver never acts as the customer and never sends anything. The owner's informed internal staff
+  hold the conversations in the native WebChat; for each planned interaction the driver prompts the operator (kind and
+  points), then watches through the read-only metrics role (authz.nexloop_nx037_interaction_observation, 0380) for the
+  first customer message after the prompt, its Run reaching a terminal state and its effects settling. The stop-rule facts
+  come from those records. No answer within the timeout is a pause (interaction_timeout). It holds no channel credential
+  and no sending code path; the run entry (scripts/nx037/run_interactions.py) checks the real mode preconditions first.
+  On the synthetic stack the operator is automated (a browser driving the WebChat, tests/test_nx037_real_driver_pg.py)."""
 import uuid
 from collections import Counter
 from decimal import Decimal
@@ -134,10 +138,6 @@ class SyntheticCollector:
         return self.driver.evidence[run_id]
 
 
-class RealDriverUnavailable(RuntimeError):
-    """No real sending code path exists yet (NX-037 B-class work)."""
-
-
 _REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 
 
@@ -157,12 +157,85 @@ class RealDriverConfig:
         return '<real driver configuration>'
 
 
-class RealDriver:
-    """Interface of the real driver: interact(interaction) -> {run_id, outcome, error_code, receipts, reconciliation, facts},
-    the same facts as the synthetic driver, derived from the channel's and the system's own records. Not implemented."""
+# What the operator is asked to do per scenario kind (D-i; OPERATIONS §9). Points only, never customer data.
+INSTRUCTIONS = {
+    'ordinary_reply': '以消费者身份在 WebChat 发一条普通咨询，等待 Agent 回复。',
+    'real_delivery': '以消费者身份提出需要真实交付的请求（企业自有幂等端点），等待交付回执。',
+    'restricted_after_refusal': '先明确拒绝联系，再发一条消息；核对 Agent 只做受限回复、不再主动联系。',
+    'human_takeover': '发一条需要人工处理的消息；由员工在工作台接管并回复，再交还。',
+    'unknown_reconciliation': '发一条会触发交付的消息；由负责人按对账演练让结果暂时不明，核对只查询不重发。',
+}
 
-    def __init__(self, config):
-        self.config = config
+
+class ConsoleOperator:
+    """The person who plays the customer in the real trial: each prompt goes to the terminal (stderr) and, as ids and codes
+    only, to prompts.jsonl beside the trial evidence."""
+
+    def __init__(self, directory, stream=None):
+        import sys
+        self.path, self.stream = Path(directory) / 'prompts.jsonl', stream or sys.stderr
+
+    def prompt(self, interaction, instruction, deadline_seconds):
+        import json
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with open(self.path, 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps({'seq': interaction['seq'], 'interaction_id': interaction['interaction_id'], 'kind': interaction['kind']}) + '\n')
+        print(f"第 {interaction['seq']} 次交互（{interaction['kind']}，{deadline_seconds} 秒内完成）：{instruction}", file=self.stream, flush=True)
+
+
+class PgObserver:
+    """The read-only metrics role's view of one interaction (0380); a connection per call."""
+
+    def __init__(self, connect, dsn_file, tenant, world='real'):
+        self.connect, self.dsn_file, self.tenant, self.world = connect, dsn_file, tenant, world
+
+    def now(self):
+        with self.connect(self.dsn_file) as db:
+            return db.execute('select clock_timestamp()').fetchone()[0]
+
+    def observe(self, since):
+        with self.connect(self.dsn_file) as db:
+            return db.execute('select authz.nexloop_nx037_interaction_observation(%s,%s,%s)', (self.tenant, self.world, since)).fetchone()[0]
+
+
+class RealDriver:
+    """interact(interaction) -> {run_id, outcome, error_code, receipts, reconciliation, facts}: prompt the operator, wait
+    (polling the observer) until the first customer message after the prompt has a terminal Run with no open effect, and
+    derive the facts from its records. Sends nothing itself."""
+
+    def __init__(self, config, *, observer, operator, timeout_seconds=900, poll_seconds=2.0, sleep=None, monotonic=None):
+        import time
+        if not 1 <= timeout_seconds <= 86400 or not 0 < poll_seconds <= 60:
+            raise ValueError('interaction timing')
+        self.config, self.observer, self.operator = config, observer, operator
+        self.timeout, self.poll = timeout_seconds, poll_seconds
+        self.sleep, self.monotonic = sleep or time.sleep, monotonic or time.monotonic
 
     def interact(self, interaction):
-        raise RealDriverUnavailable('real driver not implemented')
+        since = self.observer.now()
+        self.operator.prompt(interaction, INSTRUCTIONS[interaction['kind']], self.timeout)
+        deadline = self.monotonic() + self.timeout
+        seen = {}
+        while True:
+            seen = self.observer.observe(since)
+            if seen.get('message_id') and seen.get('run_terminal') and seen.get('intents_open') == 0:
+                break
+            if self.monotonic() >= deadline:
+                # No answer in time: a pause, never a guess. The run id is kept when a Run was seen.
+                return {'run_id': seen.get('run_id'), 'outcome': 'error', 'error_code': 'interaction_timeout', 'receipts': [],
+                        'reconciliation': 'not_applicable', 'facts': {'interaction_timeout': 1, 'critical_alerts': seen.get('critical_alerts', 0)}}
+            self.sleep(self.poll)
+        intents = seen.get('intents') or {}
+        facts = {
+            'unauthorized_sends': seen['unauthorized_sends'],
+            'wrong_recipient_sends': seen['wrong_recipient_sends'],
+            'contacts_after_refusal': seen['contacts_after_refusal'],
+            'max_executions_per_intent': max(seen['duplicate_deliveries'], 2 if seen['duplicate_fulfilled'] else (1 if intents else 0)),
+            'cross_tenant_reads': seen['cross_consumer_reads'],
+            'critical_alerts': seen['critical_alerts'],
+            'unresolved_unknown_effects': intents.get('unknown', 0),
+        }
+        ok = seen['task_status'] == 'succeeded'
+        return {'run_id': seen['run_id'], 'outcome': 'ok' if ok else 'error', 'error_code': None if ok else 'run_failed',
+                'receipts': list(seen.get('outbound_ids') or []) + list(seen.get('intent_ids') or []),
+                'reconciliation': 'unresolved' if intents.get('unknown') else ('settled' if intents else 'not_applicable'), 'facts': facts}

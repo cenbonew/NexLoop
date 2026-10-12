@@ -159,10 +159,16 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
     args = ['--driver', 'real', '--trial-id', '37b00000-0000-4000-8000-000000000002', '--out', str(tmp_path / 'real'), '--tenant', TENANT_A,
             '--owner-principal', 'owner-principal-synthetic', '--value-catalog', str(catalog), '--channel-ref', 'channel:webchat:synthetic',
             '--period-start', PERIOD[0].isoformat(), '--period-end', PERIOD[1].isoformat(), '--metrics-dsn-file', str(metrics_dsn),
-            '--owner-session-file', str(session)]
+            '--owner-session-file', str(session), '--interaction-timeout', '1', '--poll-seconds', '0.2']
+    prompted = []
+
+    class AbsentOperator:  # the person playing the customer does not act: the interaction times out
+        def prompt(self, interaction, instruction, deadline_seconds):
+            prompted.append((interaction['seq'], interaction['kind'], deadline_seconds))
 
     def attempt(environ):
-        code = R.main(args, environ=environ, connect=lambda f: psycopg.connect(Path(f).read_text().strip(), autocommit=True))
+        code = R.main(args, environ=environ, connect=lambda f: psycopg.connect(Path(f).read_text().strip(), autocommit=True),
+                      operator=AbsentOperator())
         return code, json.loads(capsys.readouterr().out.strip().splitlines()[-1])
 
     code, out = attempt({})
@@ -180,9 +186,14 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
                 values(%s,'real',%s,%s,true,%s,1,'synthetic','synthetic-owner','synthetic-intent')""", (TENANT_A, kind, ref, mode))
     code, out = attempt({})
     assert code == 3 and out['refused'] == ['switch_deployment_differs']
+    assert prompted == []  # nothing was ever prompted while a precondition failed
     code, out = attempt({'REAL_DISPATCH_ENABLED': 'true'})
-    assert code == 4 and out['detail'] == 'real_driver_unavailable' and out['recorded'] == 0
-    assert not (tmp_path / 'real' / 'interactions.jsonl').exists()
+    # Preconditions met: the real trial runs; the first interaction is prompted and, not completed in time, pauses the trial.
+    assert code == 1 and out['status'] == 'paused' and out['rules'] == ['interaction_timeout'] and out['recorded'] == 1, out
+    plan_kind = json.loads(R.PLAN.read_text())['order'][0]
+    assert prompted == [(1, plan_kind, 1)]
+    [record] = [json.loads(line) for line in (tmp_path / 'real' / 'interactions.jsonl').read_text().splitlines()]
+    assert record['error_code'] == 'interaction_timeout' and record['run_id'] is None
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')
         admin.execute("""insert into control.nexloop_real_dispatch_switches(tenant_id,world,scope_kind,scope_ref,enabled,revision,reason,changed_by,intent_id)
