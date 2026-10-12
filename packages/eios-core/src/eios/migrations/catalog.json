@@ -870,6 +870,11 @@
       "version": "0174",
       "name": "0174_effect_origin_expired.sql",
       "sha256": "fda826e11244606bd6ebefce5fa7df0f6efc73816750a5af40c7c9be23b4de5c"
+    },
+    {
+      "version": "0175",
+      "name": "0175_nx031_delivery_definition_share_lock.sql",
+      "sha256": "902485da05f024b3d65baa281a5b114820350c85c21bd9f19dda4dc916f8541a"
     }
   ]
 }
