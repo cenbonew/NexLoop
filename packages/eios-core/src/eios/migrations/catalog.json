@@ -820,6 +820,11 @@
       "version": "0164",
       "name": "0164_nx052_tenant_fk_conversations.sql",
       "sha256": "6ad6be9afb4fc6facaea90d8f934186410ffea9d948b6c82a01b00252d4f3901"
+    },
+    {
+      "version": "0165",
+      "name": "0165_at046_real_credential_alone.sql",
+      "sha256": "6140e93301a3607db1a6c56520c004379e817ae3ea8e259d8b36ccead5852c05"
     }
   ]
 }
