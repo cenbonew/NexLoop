@@ -68,11 +68,15 @@ def reply_history(out, pg, tenant, lane, *, dispatch_loops=4):
     collect.TENANT = tenant
     chain = load_stack.Stack(SimpleNamespace(dsn=pg), out, lane, {})
     started, last, changed = time.monotonic(), None, time.monotonic()
+    # AT-060 ladder: read-only progress samples every 30 s into <template>/history-monitor.jsonl (numbers and codes only).
+    from history_monitor import HistoryMonitor
+    monitor = HistoryMonitor(Path(out) / 'history-monitor.jsonl', tenant)
     try:
         chain.start_message_chain(dispatch_loops)
         while True:
             with psycopg.connect(pg, autocommit=True) as db:
                 left = history_open(db, tenant)
+                monitor.tick(db, force=not any(left.values()))
             if not any(left.values()):
                 break
             if left != last:
@@ -86,10 +90,17 @@ def reply_history(out, pg, tenant, lane, *, dispatch_loops=4):
                 raise RuntimeError(f'history replies did not settle: {left}')
             time.sleep(5)
     finally:
+        try:  # the closing line, also when the history did not settle (best effort, read-only)
+            with psycopg.connect(pg, autocommit=True) as db:
+                monitor.tick(db, force=True)
+        except Exception:
+            pass
         chain.stop()
     with psycopg.connect(pg, autocommit=True) as db:
         outcome = {'seconds': round(time.monotonic() - started, 1), 'jobs': collect.jobs_summary(db), 'run_durations': collect.run_durations(db),
                    'unreplied': history_open(db, tenant)['replies_due'],
+                   # AT-060 ladder: by design (restricted, refused) vs outcome unknown vs missing; counts only.
+                   'unreplied_breakdown': __import__('history_monitor').unreplied(db, tenant),
                    'replies': db.execute("""select count(*) from runtime.nexloop_conversation_messages where tenant_id=%s
                        and record->>'direction'='outbound' and record->>'trigger_message_id' is not null""", (tenant,)).fetchone()[0]}
     return outcome
@@ -157,7 +168,7 @@ def test_build_load_template(assembled_message, admin, tmp_path):
     (out / 'template.json').write_text(json.dumps({'schema': 'nexloop.load-template.v2', 'seed': seed, 'manifest_digest': synthetic.digest(lines),
         'manifest_totals': trailer['totals'], 'tenant': tenant, 'world': 'real',
         'loaded': {'consumers': loaded['consumers'], 'enrolled': loaded['enrolled'], 'messages': loaded['messages'], 'commercial_events': commercial['statuses'],
-                   'history_replies': history['replies'], 'history_unreplied': history['unreplied'], 'history_jobs': history['jobs'], 'history_run_durations': history['run_durations'],
+                   'history_replies': history['replies'], 'history_unreplied': history['unreplied'], 'history_unreplied_breakdown': history['unreplied_breakdown'], 'history_jobs': history['jobs'], 'history_run_durations': history['run_durations'],
                    'active_plans': plans['established'], 'commitments_registered': promised['registered'], 'staff_promises': promised['staff_replies'], 'extraction_tasks': promised['extraction_tasks']},
         'seconds': {**loaded['seconds'], **{'commercial_' + k: v for k, v in commercial['seconds'].items()},
                     **{'commitments_' + k: v for k, v in promised['seconds'].items()}, 'history_replies': history['seconds'], **{'plans_' + k: v for k, v in plans['seconds'].items()}, 'total_load': load_seconds, 'pg_basebackup': backup_seconds},
