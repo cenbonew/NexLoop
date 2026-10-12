@@ -7,7 +7,7 @@ RELEASE := $(PYTHON) scripts/release/release.py
 ARCHIVE := $(PYTHON) scripts/release/archive.py
 PYTEST := uv run --frozen pytest -q -p no:cacheprovider -n $(N)
 
-.PHONY: ci status test test-integration test-recovery test-e2e lint build-release verify-release prune-releases sync-github
+.PHONY: ci status test test-integration test-recovery test-e2e test-real-browser lint build-release verify-release prune-releases sync-github
 
 # Enqueue SHA (from REF, as IDENTITY) in the local queue and wait for its result.json (printed on stdout).
 ci:
@@ -32,6 +32,11 @@ test-recovery:
 
 test-e2e:
 	uv run --frozen pytest -q -p no:cacheprovider tests/test_sse_tcp_reconnect.py tests/test_sse_dom_tcp_resume.py
+
+# AT-015 in headless Chromium (opt-in lane, serial; Node 24 and the Playwright Chromium headless shell, see
+# docs/implementation/AT-015-real-browser.md).
+test-real-browser:
+	LC_ALL=C.UTF-8 uv run --frozen pytest -q -p no:cacheprovider -m real_browser tests/test_sse_real_browser.py
 
 lint:
 	uv run --frozen pytest -q -p no:cacheprovider tests/test_publication.py tests/test_ci_queue.py

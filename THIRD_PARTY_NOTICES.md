@@ -270,6 +270,8 @@ source releases.
 | pathe | 2.0.3 | MIT |
 | picocolors | 1.1.1 | ISC |
 | picomatch | 4.0.7 | MIT |
+| playwright-core | 1.63.0 | Apache-2.0 |
+| playwright | 1.63.0 | Apache-2.0 |
 | postcss | 8.5.29 | MIT |
 | punycode | 2.3.1 | MIT |
 | require-from-string | 2.0.2 | MIT |
