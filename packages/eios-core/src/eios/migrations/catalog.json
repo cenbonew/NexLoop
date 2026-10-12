@@ -835,6 +835,11 @@
       "version": "0351",
       "name": "0351_nx052_tenant_fk_commercial_erasure.sql",
       "sha256": "5e7c8b2ba9646403de66fa8c660fe891d541b7c8384dcbdc760de7fc55e79f42"
+    },
+    {
+      "version": "0352",
+      "name": "0352_nx052_tenant_fk_durable_queue.sql",
+      "sha256": "b8fa31a1dc5c06ead1cf686af6b7529b985808cf115ed403e31595a4390ec477"
     }
   ]
 }

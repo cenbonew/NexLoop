@@ -20,6 +20,15 @@ HEX = lambda: uuid.uuid4().hex + uuid.uuid4().hex  # noqa: E731  64 hex characte
 SHORT = lambda: 'fk-cost-' + uuid.uuid4().hex[:20]  # noqa: E731
 WEIGHTS = '{"core_term_containment":0.25,"lexical_similarity":0.25,"rule_whitelist":0.25,"vector_cluster":0.25}'
 CONVERSATION = 'f' * 64
+JOB_SETUP = [
+            "insert into runtime.invocations(invocation_id,tenant_id,capability_name,capability_version,actor_id,trace_id,request_id,correlation_id,"
+            "input_digest,status,created_at,updated_at) values('fk-cost-invocation',%s,'fk-cost','1','fk-cost','fk-cost','fk-cost','fk-cost','fk-cost',"
+            "'succeeded',now(),now()) on conflict do nothing",
+            "insert into runtime.jobs(job_id,invocation_id,capability_name,capability_version,capability_type,execution_mode,tenant_id,actor_id,trace_id,"
+            "request_id,normalized_input,plan_snapshot,status,created_at,updated_at) select 'fk-cost-job','fk-cost-invocation','fk-cost','1','fk-cost',"
+            "'fk-cost',%s,'fk-cost','fk-cost','fk-cost','{}','{}','succeeded',now(),now() on conflict do nothing"]
+JOB_TEARDOWN = ["delete from runtime.jobs where job_id='fk-cost-job' and tenant_id=%s",
+                "delete from runtime.invocations where invocation_id='fk-cost-invocation' and tenant_id=%s"]
 TABLES = {
     # insert: %s for the unique key, then the tenant. setup/teardown run once with the tenant. No load script writes the login
     # rate policy (test_load_matrix), so the cold sample is a test-mode connector row with throwaway key bytes.
@@ -49,6 +58,19 @@ TABLES = {
     'runtime.nexloop_message_inbox': dict(key=HEX,
         insert="insert into runtime.nexloop_message_inbox(message_id,tenant_id,world,event_id) values(%s,%s,'real','fk-cost-'||gen_random_uuid())",
         cleanup="delete from runtime.nexloop_message_inbox where event_id like 'fk-cost-%%'"),
+    # 5: the NexLoop durable queue (one row per job event, as frequent as runtime.jobs); one synthetic job carries every sample row.
+    'runtime.nexloop_inbox': dict(key=SHORT,
+        setup=JOB_SETUP,
+        insert="insert into runtime.nexloop_inbox(event_id,tenant_id,world,source_id,payload_digest,job_id,accepted_at)"
+               " values(%s,%s,'real','fk-cost','fk-cost','fk-cost-job',now())",
+        cleanup="delete from runtime.nexloop_inbox where source_id='fk-cost'",
+        teardown=JOB_TEARDOWN),
+    'runtime.nexloop_outbox': dict(key=SHORT,
+        setup=JOB_SETUP,
+        insert="insert into runtime.nexloop_outbox(outbox_id,tenant_id,world,queue,job_id,kind,status,created_at)"
+               " values(%s,%s,'real','fk-cost','fk-cost-job',gen_random_uuid()::text,'delivered',now())",
+        cleanup="delete from runtime.nexloop_outbox where queue='fk-cost'",
+        teardown=JOB_TEARDOWN),
 }
 MEDIAN_LIMIT, P95_LIMIT = 1.10, 1.05
 

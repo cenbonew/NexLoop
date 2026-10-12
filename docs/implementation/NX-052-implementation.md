@@ -402,3 +402,37 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 生产写入方都在签名授权或身份快照校验之后写入，租户必然存在。
 
 唯一受影响的测试捷径是 `tests/test_journal_retention_pg.py`：它在没有租户行的情况下直接写入 `deletion_ledger`，现已在 fixture 中先插入两个租户。
+
+## 10. 批次 5：只测量与文档，以及 durable 队列表（0352，临时号）
+
+### 10.1 裁定（调度员 2026-10-12）
+
+1. **vendored 核心表不加 NexLoop 外键**：涉及 0001 中的 `ontology.objects`、`events`、`relations`、三张类型版本表，以及 `runtime.jobs`、`invocations`、`job_events`、`audit_events`、`idempotency_records`、`artifact_references`。第 5 批对它们只做测量和文档，不写 ADR。
+2. **`runtime.nexloop_inbox`、`nexloop_outbox` 是 NexLoop 自有表**：直接加租户外键，并入本批实现和测量。
+
+### 10.2 核心表的租户一致性由谁保证
+
+- **RLS 策略**：0002 给每张核心表打开并强制 RLS（`enable` 加 `force row level security`），策略 `tenant_boundary` 要求 `tenant_id = current_setting('eios.tenant_id')`，`using` 和 `with check` 两处都有。所以属主角色也只能读写当前 GUC 指定的租户。
+- **GUC 的来源**：这个 GUC 只由 SECURITY DEFINER 写入函数设置，例如 0010 的受治理对象创建、0035 和 0036 的队列，以及 Run 和动作入口。这些函数设置 GUC 之前，都先经过签名授权或服务身份快照校验，而这两种校验都要求租户行存在且为 active。
+- **测试**：`tests/test_tenant_fk_pg.py` 把上述 12 张表登记为 `KNOWN_EXCEPTIONS`，理由引用本裁定，并断言三点：
+  - 它们没有指向租户的外键；
+  - 它们开启并强制了 RLS；
+  - `tenant_boundary` 策略的 `using` 和 `with check` 都按 `eios.tenant_id` 比较 `tenant_id`。
+
+### 10.3 durable 队列表
+
+- **为什么要直接加**：`nexloop_inbox` 和 `nexloop_outbox` 带租户的复合外键 `(tenant_id, job_id)` 指向 `runtime.jobs`，而 `jobs` 属于核心表，没有租户路径，所以这两张表必须直接加。
+- **在 ACK 前路径上**：durable inbox 按“先持久化、再 ACK”的方式在受理时写入，所以外键检查在 ACK 前路径上。
+- **测量结果**（2000 至 3000 行，负载约 5–6）：
+
+| 表 | 测量 | 中位比值 | p95 比值 | 判据 |
+|---|---|---|---|---|
+| `inbox` | 5 轮 | 1.064 | 1.039 | 通过 |
+| `outbox` | 第 1 次，5 轮 | 1.059 | 1.121 | 未通过 |
+| `outbox` | 第 2 次，7 轮，3000 行 | 1.017 | 0.977 | 通过 |
+| 对照表 `commercial_connectors`（第 2 批已通过） | 与 `outbox` 第 1 次同时 | 1.038 | 1.054 | 未通过 |
+| 对照表 `commercial_connectors` | 与 `outbox` 第 2 次同时 | 1.089 | 1.115 | 未通过 |
+
+- **结论**：在本机共享负载下，单轮 p95 比值在 0.49 到 1.33 之间跳动，语句级测量分辨不出 5% 的 p95 差异；中位比值稳定在 1.02 到 1.09，说明单行外键检查的代价约为几微秒。是否放行以 1000 客户整轮窗口的端到端 p95 为准（判据：增加不超过 5%）。
+- **整轮窗口的建议**：在“0162 之后、3c 之后、并发配置发布”这三个状态之外，加一个“0352 之后”的状态，单独比较入站受理时延。
+- **锁探针**：持 `FOR NO KEY UPDATE` 时，两张表的插入等待都只有约 0.3 ms。
