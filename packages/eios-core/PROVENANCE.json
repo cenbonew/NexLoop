@@ -196,8 +196,10 @@
       "source_path": "src/eios/authz/facts.py",
       "destination": "packages/eios-core/src/eios/authz/facts.py",
       "upstream_sha256": "fbe62a4e92e71be7fc4c14efad73e0cdb4465bbbf6fb0183bac6150ea198dfd8",
-      "adaptations": [],
-      "nexloop_sha256": "fbe62a4e92e71be7fc4c14efad73e0cdb4465bbbf6fb0183bac6150ea198dfd8"
+      "adaptations": [
+        "NX-031: _canonical_value takes exact-type fast paths (str/int/float/bool/None, dict, list, tuple) before the upstream chain, renamed _canonical_value_upstream; canonical values and digests unchanged (tests/test_facts_canonical_fast_path.py compares with the upstream function)"
+      ],
+      "nexloop_sha256": "8164374a5195c09eea92fe11b7ae4dd318773133d87aa3522bd228ed8fe96b78"
     },
     {
       "source_path": "src/eios/authz/grants.py",
