@@ -1,7 +1,8 @@
 """NX-052 full-window measurement helpers (disposable load clusters only; implementation note §11).
 
-    drop   remove the tenant foreign keys of whole batches from a template before its snapshot, so one commit can run the
-           "before" states: NEXLOOP_LOAD_TENANT_FK_DROP=3c,5 in build_template_hold.py;
+    drop   remove the tenant foreign keys of whole batches ('all' = every NX-052 batch) from a disposable cluster: a cell's clone
+           (NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all in stack.py, the v2 measurement, note §11) or a template before its snapshot
+           (NEXLOOP_LOAD_TENANT_FK_DROP in build_template_hold.py);
     pulse  hold the tenant row FOR NO KEY UPDATE (the lock configure_manifest and initial_identity_create take since 0162) for
            --hold seconds every --interval seconds, emulating a configuration publication during a cell:
            NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2 in stack.py.
@@ -16,7 +17,20 @@ from pathlib import Path
 import psycopg
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / 'packages/eios-core/src/eios/migrations'
-BATCHES = {'3c': '_nx052_tenant_fk_conversations.sql', '5': '_nx052_tenant_fk_durable_queue.sql'}
+BATCHES = {'2': '_nx052_tenant_fk_control_config.sql', '3a': '_nx052_tenant_fk_ontology_definitions.sql',
+           '3b': '_nx052_tenant_fk_claims_extraction.sql', '3c': '_nx052_tenant_fk_conversations.sql', '4': '_nx052_tenant_fk_run_effect.sql',
+           '4b1': '_nx052_tenant_fk_control_events.sql', '4b2': '_nx052_tenant_fk_commercial_erasure.sql', '5': '_nx052_tenant_fk_durable_queue.sql',
+           'realms': '_nx052_tenant_fk_token_realms.sql'}
+ALL = tuple(BATCHES)
+
+
+def expand(batches):
+    """'all' stands for every NX-052 tenant foreign key batch; unknown names are refused."""
+    names = [b for item in batches for b in (ALL if item == 'all' else (item,))]
+    unknown = [b for b in names if b not in BATCHES]
+    if unknown:
+        raise ValueError(f'unknown NX-052 batch: {unknown}')
+    return list(dict.fromkeys(names))
 
 
 def constraints(batch):
@@ -26,7 +40,7 @@ def constraints(batch):
 
 def drop(db, batches):
     dropped = []
-    for batch in batches:
+    for batch in expand(batches):
         for table, name in constraints(batch):
             db.execute(f'alter table {table} drop constraint {name}')
             dropped.append(name)
