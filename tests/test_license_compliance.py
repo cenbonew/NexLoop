@@ -244,3 +244,25 @@ def test_off_platform_records_in_the_policy_are_complete_and_bound_to_the_lock()
         artifacts = uv if record['ecosystem'] == 'python' else pnpm
         assert artifacts[(record['name'], record['version'])] == record['artifact'], record['name']
         assert record['license'] and record['license_basis'] and sum(k in record for k in ('license_file_sha256', 'license_text_from', 'license_text_absent')) == 1
+
+
+def test_assets_are_checked_in_a_git_archive_extraction_without_git(tmp_path):
+    """The release preflight runs the license check in a `git archive` extraction of the commit (no .git; release.py
+    _clean_checkout). The asset check reads that tree's files instead of `git ls-files`, ignoring what the dependency phase
+    installed, and still finds an unlisted asset."""
+    import tarfile
+    archive = tmp_path / 'source.tar'
+    subprocess.run(['git', 'archive', '--format=tar', '-o', str(archive), 'HEAD'], cwd=ROOT, check=True)
+    checkout = tmp_path / 'checkout'
+    checkout.mkdir()
+    with tarfile.open(archive) as source:
+        source.extractall(checkout, filter='data')
+    assert not (checkout / '.git').exists()
+    policy = cl.load_policy(checkout / 'deploy/compliance/license-policy.v1.json')
+    for installed in ('.venv/lib/site-packages/pkg/icon.png', 'node_modules/pkg/logo.svg', 'apps/web/node_modules/x/y.woff2'):
+        path = checkout / installed
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'x')
+    assert cl.asset_problems(checkout, policy) == []
+    (checkout / 'apps/web/unlisted-banner.png').write_bytes(b'x')
+    assert cl.asset_problems(checkout, policy) == ['asset apps/web/unlisted-banner.png: not listed (record its owner or third-party license)']
