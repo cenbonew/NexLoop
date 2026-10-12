@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：main `b1b3418`（2026-10-12），迁移目录最高 `0173`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
+> - 事实基线：main `299f38f`（2026-10-13），迁移目录最高 `0177`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -180,6 +180,8 @@ flowchart TD
 | **真实派发开关（三层、fail-closed）** | 外部效应（由 NexLoop 之外的系统执行，如第三方渠道、企业外部服务端点、真实优惠渠道）只有在部署总闸 `REAL_DISPATCH_ENABLED=true`、租户开关（且 `data_mode=real`）、（租户，Action）开关三层都打开时才派发，否则派发前以 `NXC07 real_dispatch_closed` 拒绝，provider 零请求；Action 未声明 `external_effect`、定义已变化或声明非法时一律按外部处理；原生 WebChat 回复与回环账本声明为非外部。开关默认全部关闭，只有 owner 能经受治理入口 `set_real_dispatch` 修改，每次修改推进控制版本 | 迁移 0153、[真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)、NX-037 |
 | **删除后的联系键拦截再次联系** | 客户删除后只保留按租户加盐的联系方式哈希；之后以同一联系方式出现（新成员主体、新身份关联、写入外部身份引用的导入），在建立联系之前以 `NXK01 contact unavailable` 拒绝，审计只记路径与代码、不泄露是哪个键；只有 owner 能写明理由后撤销（`revoke_contact_key`）；拦截与撤销都进入恢复日志 | NX-053（迁移 0154）、[NX-053 实现说明](implementation/NX-053-implementation.md) |
 | **inspect 授权的复查范围（ADR-027）** | 派发方轮询 Run 状态的 `inspect` 只读 Host 上的状态，只经激活核心授权，每次仍复查派发方与 Run 凭据的身份、有效期、撤销与权威修订、任务租约与 fencing、Run 绑定与 `not_after`；不再执行上下文、角色、关系等叠加层。inspect 的授权载荷或回答带任何上下文工件都被 SQL、guard 与 Host 拒绝；start、resume、cancel、model、tool 与每一次效应调用照旧完整复查 | 迁移 0171、[ADR-027](../adr/ADR-027-inspect-authorization-scope.md) |
+| **guard 复用 Source 签名的上下文信封（ADR-029）** | guard 进程对同一 Run 的 Source 签名上下文信封（服务目录、角色、关系、正式读取）做进程内复用，只在信封中读证明的有效期内（留安全余量）复用；SQL 每次使用照旧按当前权威、对象与目录重新校验，被拒即丢弃该 Run 的缓存、本次授权失败、不重试；缓存只在内存、按 Run、有上限，从不跨 Run、租户或 world，不缓存拒绝 | `runtime_activation.py`、[ADR-029](../adr/ADR-029-guard-envelope-reuse.md)（无迁移） |
+| **一条来信最多一条对客户可见的回复** | 原 Run 回复与兜底回复在派发前都按来信加锁判定：同一来信已有回复处于派发中、已接受、已送达或结果不明时，拒绝第二条；数据库另有部分唯一索引兜底，防止两条回复都到达对客户可见的状态（修复负载中出现的重复回复） | 迁移 0177、[重复回复说明](implementation/NX-031-duplicate-replies.md) |
 | **效应工具收尾复查与歧义结果（ADR-028）** | 一次效应工具调用中，意图写入前的授权仍完整复查（含全部上下文读证明）；同一事务内意图写入后的收尾复查只做激活核心复查，另外核对该 Run 绑定的上下文工件仍可用、未被改动、仍在保留期内，否则回滚整个事务。Host 的 `submit` 得到歧义结果（超时、连接错误、503）时，在 Run 时限与预算内以**完全相同的载荷**再提交一次：意图按（客户、目标、步骤、槽位、动作）唯一，只会返回同一意图或冲突，不会新建意图或重复预留 | 迁移 0173、[ADR-028](../adr/ADR-028-effect-tool-path.md) |
 | **模拟世界不能借用真实效应凭据（AT-046）** | 服务凭据只要含 `real` 就只能含 `real`（写入时约束拒绝同时含 real 与 simulation、shadow、test）；runtime worker 与 guard 的 `--world` 只接受 `real` 或 `test`，effect worker、出站记录、优惠执行者只接受 `real`，都在读取凭据之前拒绝；本地 JSON 投递、消息 Run 签发、出站消息、效应执行、效应意图、优惠发放各入口对非 real world 一律以 42501 拒绝；真实派发开关对非 real world 判为关闭 | 迁移 0165、[AT-046 说明](implementation/AT-046-simulation-credential-guard.md) |
 | **联系限制只挡触达客户的动作** | Action 在可信配置中声明 effect 类别；未声明一律按触达客户处理 | ADR-023 §3、[`action-effect-categories.v1.json`](../deploy/configuration/action-effect-categories.v1.json) |
@@ -268,7 +270,7 @@ flowchart LR
 
 ### 3.2 数据与授权模型
 
-**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0173`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
+**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0177`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
 
 **数据库角色。** 迁移创建 `nexloop_owner`（表属主）、`nexloop_api`、`nexloop_runtime`、`nexloop_action_worker`、`nexloop_domain_worker`、`nexloop_scheduler`、`nexloop_identity`、`nexloop_configurator`、`nexloop_metrics`，以及 NX-035 的 `nexloop_backup`（REPLICATION，非超级用户，读不到任何业务表）和 `nexloop_backup_recorder`（只能执行记录函数）等受限角色。常驻进程不使用 owner、superuser 或 BYPASSRLS；应用角色对业务表通常没有直接表权限，只能调用 `SECURITY DEFINER` 签名端口。
 
@@ -424,7 +426,7 @@ sequenceDiagram
 | 单 Run 预算（复评） | 8 轮模型 / 12 次工具 / 300 s（配置） | [05_CONTEXT_AND_PLANNING §6](handoff/docs/05_CONTEXT_AND_PLANNING.md)、`plan-reevaluation.v1.json` |
 | 上下文预算 | 初始输入 16k tokens、输出预留 4k；token 估算取保守上界 | NX-023 设计稿 §6 |
 
-授权链做过多轮时延优化（请求内决策去重、事实解析缓存、批量判定、同语句读断言去重等），见 [perf-o1-o4](implementation/perf-o1-o4.md)、[perf-o5b-design](implementation/perf-o5b-design.md) 与 NX-049 系列文档。1,000 消费者与并发矩阵（NX-031）进行中，按负责人决定分级推进 100 → 200 → 500 → 1000：100、200 两级在模板历史回复阶段全部完成、无失败，500 级因积压与凭据过期中止（[阶梯记录](implementation/NX-031-ladder.md)）；切片 2 已完成（每格完整消息 Run 链、历史回复、计划数据、逐 Run 结果与 7 项核对）。本机 25 客户实测：注入模型时延后约 0.36 Run/s（每 worker、4 并发），C4（1 条/秒）过载、C4-low（0.2 条/秒）也因死信与承诺监控挂起未通过，两格的 7 项核对违规都为 0。此前：合成数据生成与装载、连接预算实测、结果报告生成器、矩阵文件 [`deploy/load/matrix.v1.json`](../deploy/load/matrix.v1.json)（8 格，门槛格为 C4 与 C4-low）与执行器 `scripts/load/` 已合入，压测本身尚未在 CI 主机上跑完（[NX-031 设计](implementation/NX-031-design.md)、[实现说明](implementation/NX-031-implementation.md)）。
+授权链做过多轮时延优化（请求内决策去重、事实解析缓存、批量判定、同语句读断言去重等），见 [perf-o1-o4](implementation/perf-o1-o4.md)、[perf-o5b-design](implementation/perf-o5b-design.md) 与 NX-049 系列文档。1,000 消费者与并发矩阵（NX-031）进行中，按负责人决定分级推进 100 → 200 → 500 → 1000：100、200 两级在模板历史回复阶段全部完成、无失败；500 级两次都未通过（guard 授权跟不上）；负责人定案 **v0.1 按 200 客户运行**（D-a）；200 客户整轮的门槛格按来信速率判定未通过，来信速率口径待负责人定（[阶梯记录](implementation/NX-031-ladder.md)）；切片 2 已完成（每格完整消息 Run 链、历史回复、计划数据、逐 Run 结果与 7 项核对）。本机 25 客户实测：注入模型时延后约 0.36 Run/s（每 worker、4 并发），C4（1 条/秒）过载、C4-low（0.2 条/秒）也因死信与承诺监控挂起未通过，两格的 7 项核对违规都为 0。此前：合成数据生成与装载、连接预算实测、结果报告生成器、矩阵文件 [`deploy/load/matrix.v1.json`](../deploy/load/matrix.v1.json)（8 格，门槛格为 C4 与 C4-low）与执行器 `scripts/load/` 已合入，压测本身尚未在 CI 主机上跑完（[NX-031 设计](implementation/NX-031-design.md)、[实现说明](implementation/NX-031-implementation.md)）。
 
 
 ### 3.9 WebChat 实时消息链路
@@ -584,7 +586,7 @@ NexLoop/
 | 目录 | 做什么 | 详细说明 |
 |---|---|---|
 | [`packages/eios-core/src/eios`](../packages/eios-core/src/eios) | 从 NEX-EIOS 冻结提交 vendored 的通用内核：actions、authz（resolver / facts / decisions）、identity、ontology、persistence、runtime、PostgreSQL adapter 与迁移执行器 | [07_EIOS_INTEGRATION](handoff/docs/07_EIOS_INTEGRATION.md)、[S0 抽取边界](s0/extraction-boundary.md)、[源码复用清单](s0/source-reuse-inventory.md) |
-| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0173` | [迁移目录审计](s0/migration-catalog-audit.md) |
+| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0177` | [迁移目录审计](s0/migration-catalog-audit.md) |
 | [`packages/eios-core/src/nexloop_eios`](../packages/eios-core/src/nexloop_eios) | NexLoop 业务模块（见 4.2） | — |
 | [`packages/contracts`](../packages/contracts) | 14 个 JSON Schema（action-intent、candidate-definition、claim、commitment-view、contact-restriction-view、context-manifest、context-pack-v6、conversation-message、event-envelope、evolution-candidate、ontology-mutation、review-decision、run-command、run-outcome），各带合法示例；Claim 契约的 `tenant_id` 为 uuid 并要求 `mode`（real、test、simulation，NX-052）；与冻结交接副本的差异必须登记在 `handoff-divergence.json`，未登记的差异测试失败；`scripts/generate_contracts.py` 生成 `generated/contracts.ts`、`generated/openapi-components.json` 与 `nexloop_eios/contracts.py`（Pydantic），`--check` 检测漂移 | [09_API_AND_EVENT_CONTRACTS](handoff/docs/09_API_AND_EVENT_CONTRACTS.md)、[契约与许可](s0/contracts-and-licensing.md) |
 | [`apps/agent-host`](../apps/agent-host) | Agent Host：`main.ts`（loopback HTTPS）、`runtime-host.ts`（配置、guard 调用、模型档案）、`pi-runtime-adapter.ts`（Pi Harness 包装、每 Run SQLite、预算与授权）、`run-admission-gate.ts`（全局并发）、`runtime-effect-tools.ts`（业务工具）、`context-input.ts`（上下文包 v1–v6 校验）、`run-purge.ts` | [Host README](../apps/agent-host/README.md)、[agent-host-progress](implementation/agent-host-progress.md)、[pi-runtime-progress](implementation/pi-runtime-progress.md) |
