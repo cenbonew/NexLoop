@@ -399,7 +399,26 @@ def _repository_witness(value: str) -> str:
 RepositoryWitness = Annotated[str, AfterValidator(_repository_witness)]
 
 
+_PRIMITIVES = (str, int, float, bool, type(None))
+
+
 def _canonical_value(value: object) -> object:
+    # NexLoop NX-031: exact-type fast paths for the common leaves and containers; every other value takes the upstream
+    # chain below, so the result (and every digest) is identical. Subclasses (Enum, BaseModel, ...) never match these.
+    kind = type(value)
+    if kind in _PRIMITIVES:
+        return value
+    if kind is dict:
+        return {
+            str(key): _canonical_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if kind is list or kind is tuple:
+        return [_canonical_value(item) for item in value]
+    return _canonical_value_upstream(value)
+
+
+def _canonical_value_upstream(value: object) -> object:
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, datetime):
