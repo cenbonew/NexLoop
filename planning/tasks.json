@@ -2536,6 +2536,24 @@
         "ref": "ci:lane/runs/20261012T050714Z-08b20999d570",
         "summary": "s5n 全量（08b2099）：integration-parallel 失败 3 项均为基线 B 类（runtime_effect_recovery、role_context_v6、scope_denials）；门槛 4/4 246 s；heavy 22/22；pi 24、runtime 通过。",
         "recorded_at": "2026-10-12T06:06:50.371775+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "ci:lane/load/ladder-100,ladder-200,ladder-500",
+        "summary": "AT-060 阶梯（CI 主机，08b2099 含 ADR-027/028，模板历史回复，确定性 Host 无模型延迟注入）：100 客户 162 回复/0 未回复/162 任务全成功，705.6 s（约 0.23/s）；200 客户 299/0/全成功，1487.3 s（约 0.20/s）；500 客户约 4000 s 中止：待回复 770→629、积压 120，失败以 dispatch_unavailable 567 为主（Run 排队超 300 s 凭据过期），PG 日志 Run authentication denied 约 6300（效应 worker 用过期起源身份重查）、deadlock 5。修复在途：dispatch-backlog（分阶段失败码、过期 Run 终止、起源过期处理、未知重查退避、relay 积压上限）、ADR-029（负责人附条件批准）、死锁定位。",
+        "recorded_at": "2026-10-12T09:56:59.767877+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "35ed893",
+        "summary": "history-monitor 合入 main（s5o）：模板历史回复阶段每 30 s 只读采样（open、replied、按 status:code 的任务分布、guard 调用/错误/超时与 p50/p95、Host 准入、relay 移交与死信），未回复拆为 by_design / outcome_unknown / missing（只计数）。",
+        "recorded_at": "2026-10-12T09:56:59.767877+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T081812Z-957894c41126",
+        "summary": "s5o 全量（957894c）：integration-parallel 失败 2 项：role_context_v6（基线 B）与 nx049_memo_stress[derived None]（迭代 449<600，并行阶段 2992 s 偏慢；同一检出串行复跑 3/3 通过 ⇒ 负载敏感 C 类）；门槛 4/4 245 s；heavy 22/22；pi 24、runtime 通过。",
+        "recorded_at": "2026-10-12T09:56:59.767877+00:00"
       }
     ]
   },
@@ -2759,6 +2777,18 @@
         "ref": "66cf0c4",
         "summary": "O1：发布签名密钥（ed25519，身份与命名空间 nexloop-release）在开发机生成，公钥与 allowed_signers 入库 deploy/release/，本地试签并用 allowed_signers 验签通过；test_release_signers 核对两者一致。私钥不入库，由负责人存入密码管理器并做加密离线备份。",
         "recorded_at": "2026-10-12T01:16:58.641246+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "957894c",
+        "summary": "本机发布流水线演练与已知问题修复合入 main（s5o）：stage 预检在 git archive 检出中 check_licenses 崩溃（阻断所有 stage 发布）已修；部署 dry-run 要求各主机 Compose 的全部必需镜像变量；发布 commit 锁中所有构建基础镜像与上游镜像须按 digest 固定（release.py pin-upstream 回填 gateway）；只构建单一 linux/amd64、无 attestation 的镜像，否则拒绝。签名封存、promote、rollback-check 成功路径待 CI 主机首次真实构建核对（SBOM 工具仅在 CI 主机）。",
+        "recorded_at": "2026-10-12T09:56:59.767877+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T081812Z-957894c41126",
+        "summary": "s5o 全量（957894c）：integration-parallel 失败 2 项：role_context_v6（基线 B）与 nx049_memo_stress[derived None]（迭代 449<600，并行阶段 2992 s 偏慢；同一检出串行复跑 3/3 通过 ⇒ 负载敏感 C 类）；门槛 4/4 245 s；heavy 22/22；pi 24、runtime 通过。",
+        "recorded_at": "2026-10-12T09:56:59.767877+00:00"
       }
     ]
   },
