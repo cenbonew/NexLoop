@@ -2584,6 +2584,18 @@
         "ref": "ci:lane/runs/20261012T194426Z-493a8cbd8271",
         "summary": "s5r 全量（493a8cb）：integration-parallel 失败 1 项为基线 B 类（runtime_effect_recovery）；门槛 4/4 170 s；heavy 22/22；pi 24、runtime 通过。前一版 s5q（abd7318）的 role_tail 截止时间回归已修正。",
         "recorded_at": "2026-10-12T20:41:05.616070+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "20a6976",
+        "summary": "一信一回修复合入 main（s5s）：根因为一信一回规则原只作用于兜底回复与受限客户，积压下兜底先投递、原 Run 排队回复其后被派发；0177 让最外层 control.nexloop_contact_assert_intent 对所有绑定的 Agent 回复按来信加锁并拒绝第二条（NXC05，被拒意图判失败、不外发），另加部分唯一索引 (tenant, world, trigger_message_id) where delivery_state in (dispatching, provider_accepted, delivered, unknown) 作数据库兜底；测试覆盖兜底先到、并发、正式先到；collect.py 把 duplicate_effects 拆为窗口内与历史。",
+        "recorded_at": "2026-10-12T21:36:01.051921+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T204314Z-20a6976eb221",
+        "summary": "s5s 全量（20a6976）RESULT=PASS：parallel 3319/0 失败；门槛 4/4 170 s；heavy 22/22；pi 24、runtime 266。",
+        "recorded_at": "2026-10-12T21:36:01.051921+00:00"
       }
     ]
   },
