@@ -2494,6 +2494,18 @@
         "ref": "ci:lane/load/20261011T185416Z-2923e56",
         "summary": "1000 客户整轮首跑（2923e56，seed 31）中止于模板构建的历史回复阶段：装载 1000/1000 用 1489 s 正常；历史回复 20 分钟内 0 条成功，NexLoop.event 死信 177、failed 10，结果码均为 runtime_transport_unavailable，按 HISTORY_TIMEOUT 必然失败，调度员停止以释放车道。同检出 25 客户诊断模板：27 回复、7 未回复（transport_unavailable 与 authorization_unavailable）。与 CI 基线中 CI 主机上的 B 类失败同形态；已派 L4 定位根因（runtime_dispatch 把多类原因归为同一码，需拆分诊断码）。AT-060 未运行。",
         "recorded_at": "2026-10-11T21:21:46.954806+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2d3a1ab",
+        "summary": "lane-history-fix 合入 main（s5k）：runtime worker 把 Host 失败原因分为 request_too_large / host_status_NNN / response_invalid / transport_timeout 等独立码；Host 的 inspect 授权移出串行队列；inspect 退避；含糊 inspect 保留任务租约；guard 对一切授权失败统一 503，日志只含异常类与 SQLSTATE。本机 1000 客户模板仍约 0.15 回复/s：根因为每次 guard 授权约 7100 条语句（~46 读证明 + ~8 动作证明，~60 ms CPU），授权 memo 实测几乎无收益未合入；负责人 2026-10-12 定 inspect 授权复查范围方案 A，实现中。",
+        "recorded_at": "2026-10-12T02:15:06.041554+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T011728Z-2d3a1ab41827",
+        "summary": "s5k 全量（2d3a1ab）：integration-parallel 失败 3 项均为基线 B 类（v6_relationships、runtime_effect_recovery、role_context_v6）；message_relay、scope_denials、context_host_recovery 本轮通过；门槛 4/4 257 s；heavy 22/22；pi 24、runtime 257 通过；test_public_repository_checks 与 test_release_signers 通过。",
+        "recorded_at": "2026-10-12T02:15:06.041554+00:00"
       }
     ]
   },
@@ -2851,6 +2863,12 @@
         "ref": "66cf0c4",
         "summary": "O4：负责人 2026-10-12 开启 GitHub 私密漏洞报告（API enabled=true），安全联系人填入 public-release.v1.json、SECURITY.md、CODE_OF_CONDUCT.md，check_public_files --public 通过。公开发布前置剩 public-preflight。",
         "recorded_at": "2026-10-12T01:16:58.641246+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e37a9f8",
+        "summary": "v0.1.0-rc 发布说明草稿（中英，docs/release/v0.1.0-rc-notes*.md）：能力归纳、已知限制、部署前提（只用角色名）、全新部署与迁移 0001–0165、安全报告渠道、发布前检查 10 项（标明负责人本人执行项）；验收摘要占位待发布前填写。",
+        "recorded_at": "2026-10-12T02:15:06.041554+00:00"
       }
     ]
   },
