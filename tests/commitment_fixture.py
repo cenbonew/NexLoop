@@ -186,6 +186,7 @@ class Commitments(dict):
         a=self['admin'];consumer=consumer or self['consumer'];self['n']+=1;n=self['n']
         accepted_at=accepted_at or datetime.now(UTC)
         intent=uuid.uuid4();message=hashlib.sha256(f'outbound-{n}-{secrets.token_hex(4)}'.encode()).hexdigest()
+        trigger=hashlib.sha256(f'trigger-{n}-{secrets.token_hex(4)}'.encode()).hexdigest()  # each seeded reply answers its own message (0440)
         conversation=self.conversation(consumer)
         with a.transaction():
             a.execute("select set_config('eios.tenant_id',%s,true)",(TENANT,))
@@ -194,13 +195,13 @@ class Commitments(dict):
                 values(%s,%s,%s,%s,'real',%s,'synthetic-goal','synthetic-step',%s,'nexloop.service.request',1,%s,%s,%s,'{}','{}','synthetic-executor',1,clock_timestamp(),'fulfilled',true)''',
                 (intent,uuid.uuid4(),self['context_id'],TENANT,consumer,f'outbound-{n}','a'*64,'b'*64,Jsonb({'parameters':{'message':body}})))
             seq=a.execute('update runtime.nexloop_conversations set last_sequence=last_sequence+1 where tenant_id=%s and conversation_id=%s returning last_sequence',(TENANT,conversation)).fetchone()[0]
-            record={'direction':'outbound','sender_kind':'agent','intent_id':str(intent),'trigger_message_id':'c'*64,'body':body,'accepted_at':ts(accepted_at),
+            record={'direction':'outbound','sender_kind':'agent','intent_id':str(intent),'trigger_message_id':trigger,'body':body,'accepted_at':ts(accepted_at),
                 'conversation_id':conversation,'sequence':seq,'actor':'synthetic-agent-principal','status':'accepted'}
             a.execute('''insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
                 values(%s,'real',%s,%s,%s,%s,%s,%s)''',(TENANT,conversation,seq,message,'agent-'+str(intent),'d'*64,Jsonb(record)))
             a.execute('''insert into runtime.nexloop_outbound_messages(tenant_id,world,intent_id,receipt_id,conversation_id,trigger_message_id,run_id,sender_kind,sender_principal,
                 role_ref,body_digest,delivery_state,message_id,sequence,materialized_at) values(%s,'real',%s,%s,%s,%s,%s,'agent','synthetic-agent-principal','role:synthetic',%s,'delivered',%s,%s,clock_timestamp())''',
-                (TENANT,intent,uuid.uuid4(),conversation,'c'*64,uuid.uuid4(),hashlib.sha256(body.encode()).hexdigest(),message,seq))
+                (TENANT,intent,uuid.uuid4(),conversation,trigger,uuid.uuid4(),hashlib.sha256(body.encode()).hexdigest(),message,seq))
             a.execute('''insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
                 values(%s,'real','Message',%s,1,%s,'nexloop-action',%s,clock_timestamp(),clock_timestamp())''',
                 (TENANT,message,Jsonb({'conversation_id':conversation,'sequence':seq,'actor':'synthetic-agent-principal','body':body,'accepted_at':ts(accepted_at)}),'agent-message-'+str(intent)))
