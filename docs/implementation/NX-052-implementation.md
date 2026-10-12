@@ -501,56 +501,90 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 - **整轮窗口的建议**：在“0162 之后、3c 之后、并发配置发布”这三个状态之外，加一个“0169 之后”的状态，单独比较入站受理时延。
 - **锁探针**：持 `FOR NO KEY UPDATE` 时，两张表的插入等待都只有约 0.3 ms。
 
-## 11. 整轮窗口的端到端测量方案（在 CI 主机执行）
+## 11. 端到端测量方案 v2：200 客户模板、C4-low 类格（在 CI 主机执行）
 
-### 11.1 状态
+背景：D-a（2026-10-13）把 v0.1 定为 200 客户、持续来信每秒不超过 0.1 条；AT-060 的门槛按矩阵 v2 判定，即 C4 用 0.1/s、C4-low 用 0.05/s。1000 客户整轮不再作为门槛。原来按 1000 客户整轮窗口设计的四状态方案作废，改为下面的方案。
 
-所有状态用同一个提交，即合入 s5m 之后、包含全部批次的 main。各状态之间的差别，只在模板构建时删掉了哪几批约束（`tenant_fk_state.py drop`），以及运行时有没有锁脉冲（`tenant_fk_state.py pulse`）。第 2、3a、3b、4、4b 批和 0170 的约束在所有状态下都保留，它们已经通过语句级判据。
+### 11.1 “有外键”与“无外键”的对照：同一模板，在单元的一次性克隆上删约束
 
-| 状态 | 含义 | 模板变量 | 运行变量 |
-|---|---|---|---|
-| A | 0162 之后、3c 之前（基线） | `NEXLOOP_LOAD_TENANT_FK_DROP=3c,5` | — |
-| B | 3c 之后 | `NEXLOOP_LOAD_TENANT_FK_DROP=5` | — |
-| C | 3c 之后，并发配置发布 | `NEXLOOP_LOAD_TENANT_FK_DROP=5` | `NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2` |
-| D | 0169 之后（全部约束） | 不设 | — |
+- **做法**：每个状态都用合入后的同一个提交、同一个 200 客户模板，只跑一格。“无外键”状态设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`。`stack.py` 在这一格的模板克隆上、任何服务启动之前，删掉 NX-052 全部批次的租户外键：第 2、3a、3b、3c、4、4b-1、4b-2、5 批，以及 token realms 那一条。删掉的约束数记在单元目录的 `tenant-fk-state.json` 里。
+  - 模板本身和其他格都保留外键。
+  - NX-052 之前就有的租户外键（0004、0008、0040、0048、0050）不动。
+  - 克隆是一次性集群，格结束后即删除，所以不会碰任何持久库。
+- **为什么不对比“0158 之前的检出”和当前 main**：这两个检出之间还隔着大量与外键无关的提交，例如回复保证、派发、协议等改动，比出来的差别不只是外键的代价。同一模板、同一提交下，唯一的变量就是这些约束；1b 的 CHECK 和 0162 的锁改动在两个状态下都相同。
+- **为什么不在模板构建时删**：那样每个状态都要重建一次模板。模板构建本身会让数据和缓存的物理布局产生差异，会混进对照里。
 
-状态 C 每 5 秒对租户行持有 0.2 秒的 `FOR NO KEY UPDATE`，这正是 0162 之后配置发布和初始身份创建所取的锁。0.2 秒取的是本机配置发布事务的上限。这里是用锁本身来模拟发布，并不真正发布 manifest，因为单元里拿不到配置员密钥。
+### 11.2 并发配置发布的注入方式：按 0162 的锁做租户行锁脉冲
 
-### 11.2 指标与判据
+- **注入**：设 `NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2`。`stack.py` 在这一格里另起一个进程，每 5 秒对本租户行持有 0.2 秒 `FOR NO KEY UPDATE`，这正是 0162 之后 `configure_manifest` 和 `initial_identity_create` 所取的锁。0.2 秒是本机配置发布事务时长的上限。
+- **为什么不真的每 5 秒发布一次 manifest**：
+  1. 单元里拿不到配置员密钥和模板的完整 manifest；
+  2. 真发布会递增 `authority_revision`，使授权缓存失效，带来与外键无关的时延变化。
 
-指标取自 `report.py` 的单元指标，单元为 C4（门禁单元）和 C4-peak：
+  NX-052 要验证的是“租户行锁不阻塞外键检查”，锁脉冲正好隔离出这一点。授权缓存失效的代价属于配置发布本身，不在 NX-052 的范围内。
 
-| 比较 | 指标 | 判据 |
+### 11.3 状态、指标与判据
+
+只跑矩阵中的 C4-low 格。并发 4，速率取 v2 中 C4 的 0.1/s，这是 D-a 的上限，对外键代价最敏感。时序沿用矩阵：预热 120 秒、稳态 600 秒、排空最长 600 秒，每格约 15 到 22 分钟。
+
+| 状态 | 单元环境 | 用途 |
 |---|---|---|
-| B 对 A（3c 的代价） | `ack_p95_ms`（入站受理到 ACK）、`idle_dispatch_p95_ms` | p95 增加不超过 5% |
-| C 对 B（0162 的效果） | 同上，另看锁等待：`pg_locks` 中等待 `control.nexloop_tenants` 行锁的样本数 | p95 增加不超过 5%；行锁等待样本为 0，或不超过 1% |
-| D 对 B（0169 入站受理） | `ack_p95_ms` | p95 增加不超过 5% |
+| N | `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all` | 无外键基线 |
+| K | 不设 | 全部外键 |
+| P | `NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2` | 全部外键，加并发配置发布 |
 
-`report.py` 原有的各项阈值（如 `ack_p95_ms` ≤ 500 ms）在每个状态下都必须继续满足。
+| 比较 | 指标（`report.json` 中 C4-low 格） | 判据 |
+|---|---|---|
+| K 对 N | `metrics.ack_p95_ms`（入站受理到 ACK）、`decomposition.e2e_ms.p95`（触发到回复）、`metrics.idle_dispatch_p95_ms`（受理到 Run 任务被认领） | 三项 p95 增加均不超过 5% |
+| P 对 N | 同上 | 同上 |
 
-每个状态跑 1 次整轮。如果某项比较超出判据 1 个百分点以内，就再加跑一轮，取两轮的中位数。
+另外两条要求：
 
-### 11.3 采集命令
+- K 和 P 两次运行都必须通过 `report.py` 自己的门槛判定（格的 `gate.result` 为 `passed`）。
+- 如果某项比值落在 1.05 到 1.06 之间，就把该状态和 N 各再跑一次，取两次比值的中位数。
 
-在 CI 主机上用车道账户执行，四个状态各占一个夜间窗口，或者在一个窗口内按顺序执行：
+如果 v2 矩阵已经合入（`deploy/load/matrix.v2.json`），`nx052_e2e.py matrix` 会自动以它为基础；否则以 v1 为基础，并只改 C4-low 这一格的速率和并发。
+
+### 11.4 在 CI 主机上的执行命令
+
+在 CI 主机上用车道账户、在 main 的检出中执行。三个状态各调用一次 `run_on_lane.sh`，每次都会重建一次 200 客户模板（种子固定，内容相同）。
 
 ```bash
-export LOAD_RUNNER_CMD=scripts/load/matrix_cells.py NEXLOOP_LOAD_CELLS=C4,C4-peak
-NEXLOOP_LOAD_TENANT_FK_DROP=3c,5 scripts/load/run_on_lane.sh                                     # A
-NEXLOOP_LOAD_TENANT_FK_DROP=5 scripts/load/run_on_lane.sh                                        # B
-NEXLOOP_LOAD_TENANT_FK_DROP=5 NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2 scripts/load/run_on_lane.sh   # C
-scripts/load/run_on_lane.sh                                                                      # D
+uv run --frozen python scripts/load/nx052_e2e.py matrix --rate 0.1 --out .ci-results/load/matrix.nx052.json
+export LOAD_CONSUMERS=200 LOAD_MATRIX=.ci-results/load/matrix.nx052.json LOAD_RUNNER_CMD=scripts/load/matrix_cells.py NEXLOOP_LOAD_CELLS=C4-low
+NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all scripts/load/run_on_lane.sh                 # N
+scripts/load/run_on_lane.sh                                                      # K
+NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2 scripts/load/run_on_lane.sh                 # P
+uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/load/<N>/report.json --candidate .ci-results/load/<K>/report.json
+uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/load/<N>/report.json --candidate .ci-results/load/<P>/report.json
 ```
 
-每次运行都会在 `.ci-results/load/<RUN_ID>/` 下留下以下文件：
+- `compare` 输出 JSON，内容包括每项指标的基线值、候选值、比值，以及两次运行的门槛判定。全部满足时退出码为 0，否则为 1。
+- **核对状态是否生效**：
+  - N 的单元目录 `lane/.../tenant-fk-state.json` 中，`dropped_constraints` 应大于 0；
+  - K 和 P 的单元目录里不应有这个文件；
+  - P 的单元目录里应有 `work/tenant-lock-pulse/process.log`。
+- **写入 evidence**：把两次 `compare` 的输出、三个 `report.json`，以及运行 ID 和提交号，作为 NX-052 的 evidence 写入，类型为 `test_report`。
+- 如果 `LOAD_WINDOW` 的夜间窗口不适合，可按车道运行手册设置窗口变量。三格合计约 1 小时，再加上三次模板构建的时间。
 
-- `report.json`、`report.md`：各单元的指标；
-- `template/template.json`：其中 `tenant_fk_dropped` 字段记录了实际删掉的约束；状态 D 没有这个字段；
-- 状态 C 另有 `lane/.../work/tenant-lock-pulse/process.log`。
+### 11.5 改动的脚本
 
-比较时，对每个状态取 `report.json` 中 C4 和 C4-peak 的 `ack_p95_ms` 和 `idle_dispatch_p95_ms`，按 11.2 的比较对计算比值。结果写入 NX-052 的 evidence，类型为 `test_report`。
+| 脚本 | 改动 |
+|---|---|
+| `scripts/load/tenant_fk_state.py` | 登记 NX-052 的全部外键批次，并加上 `all` |
+| `scripts/load/stack.py` | 单元级的 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL` 钩子，默认关闭 |
+| `scripts/load/nx052_e2e.py`（新增） | 生成状态矩阵；比较两次运行的报告 |
 
-`tenant_fk_state.py` 和 `matrix_cells.py` 是本任务新增的脚本。`build_template_hold.py` 和 `stack.py` 各加了一个钩子，都用环境变量控制、默认关闭：不设这些变量时，模板和单元的行为不变，模板 digest 也不变。
+原有的模板级 `NEXLOOP_LOAD_TENANT_FK_DROP` 钩子和锁脉冲钩子保留，默认关闭。
+
+测试在 `tests/test_nx052_e2e.py`，覆盖以下几点：
+
+- 生成的状态矩阵能通过 `matrix.py` 的校验，并且只改了 C4-low 这一格；
+- 比较逻辑：比值、门槛判定，以及缺少某项指标时判为不通过；
+- 命令行的退出码；
+- 每个 NX-052 外键迁移都登记成了批次；
+- `all` 在一次性 PG 上删掉的正好是 NX-052 的全部租户外键，更早的外键保留；
+- 只有设置了环境变量时，`stack.py` 才删约束。
 
 ## 12. NX-052 的完成定义与剩余项
 
@@ -567,11 +601,11 @@ scripts/load/run_on_lane.sh                                                     
    由 `tests/test_tenant_fk_pg.py::test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception` 断言。这项断言要求 s5l（第 4 批）、s5m（第 4b 批、第 5 批和收尾提交）都合入后才成立。只看 `nx052-closure` 这条分支时，它缺第 4 批，会失败。
 5. **租户行锁**：配置发布和初始身份创建取 `FOR NO KEY UPDATE`（0162）。已合入。
 6. **语句级测量**：每批在本机按 §0.3 的方法测量，结果记在各节中。
-7. **整轮窗口的端到端测量**：按 §11 执行，4 个状态的 3 组比较都在判据内。
+7. **端到端测量（v2）**：按 §11 在 200 客户模板的 C4-low 格（0.1/s）执行，K 对 N、P 对 N 两组比较都在判据内，且门槛判定通过。
 
 ### 12.2 剩余项
 
-- **只剩第 7 项**，即整轮窗口的端到端测量，由调度员在 CI 主机执行。执行完并把 evidence 写入 NX-052 后，NX-052 即可标为 done。
+- **只剩第 7 项**，即 §11 的 v2 端到端测量（三格，约 1 小时加三次模板构建），由调度员在 CI 主机执行。执行完并把 evidence 写入 NX-052 后，NX-052 即可标为 done。
 - 如果某项比较超出判据，处理方式是把该批中最频繁写入的表改成靠外键链或例外覆盖，或者拆出这张表单独处理，再重新测量。这要另行决定，不在本任务内预设。
 
 ### 12.3 以后新增表的规则

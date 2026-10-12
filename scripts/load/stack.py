@@ -51,6 +51,15 @@ class Stack:
         self.ca_file = None
         self.chain = json.loads((self.template / 'private/chain.json').read_text())
         self.tenant = self.chain['tenant']
+        # NX-052 v2 measurement (implementation note §11): the "without tenant keys" state drops them on this cell's disposable
+        # clone only, before any service starts. Unset by default; the template and every other cell keep their keys.
+        fk_drop = [b for b in os.environ.get('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', '').split(',') if b]
+        if fk_drop:
+            import tenant_fk_state
+            import psycopg
+            with psycopg.connect(self.admin_dsn, autocommit=True) as db:
+                dropped = tenant_fk_state.drop(db, fk_drop)
+            (self.lane / 'tenant-fk-state.json').write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': len(dropped)}))
 
     # -- private files ----------------------------------------------------------------------------------------------
     def file(self, name, content):
