@@ -43,7 +43,7 @@
   - 加入 `.venv` 与 `node_modules` 下的资产文件后，资产检查仍为空；
   - 再加入一个未登记的资产，能被准确报出。
 
-## 3. 已知问题（未修改，需决定或在 CI 主机上完成）
+## 3. 已知问题（处置见 §6，分支 `release-known-issues`）
 
 ### 3.1 SBOM 与漏洞工具只在 CI 主机上
 
@@ -89,3 +89,69 @@
 - 按 digest 预取的 `python@sha256:fd95fa22…`（锁定的构建基础镜像）保留，供之后的构建使用。
 - 其他镜像和容器没有动。Docker Desktop 保持运行。
 - `<SCRATCH>` 中的临时密钥、发布目录和计划目录在演练结束后删除。
+
+## 6. 已知问题的处置（分支 `release-known-issues`，从 `dff0d91` 切出）
+
+### 6.1 显式镜像变量漏掉 compose 必需的镜像（§3.3）：已修复
+
+- **做法**：`scripts/deploy/deploy.py` 从各主机角色的 Compose 文件读出全部必填镜像变量：
+  - app 主机：`BACKEND_IMAGE`、`AGENT_HOST_IMAGE`、`GATEWAY_IMAGE`；
+  - data 主机：`POSTGRES_IMAGE`、`VALKEY_IMAGE`。
+  - 读取规则：所有 `${*_IMAGE:?…}`，函数为 `required_image_variables`。
+- **新检查**：dry-run 新增 `compose_image_variables_complete`。渲染结果缺少任何一个必填变量时 dry-run 不就绪，`missing_image_variables` 列出缺少的变量。即使显式传了 `--image-var` 也不例外。
+- **测试**（`tests/test_deploy_dryrun.py`）：
+  - 合成发布加入 gateway 镜像；
+  - 三个必填变量逐一省略，都被拒绝；
+  - data 主机两项齐全。
+
+### 6.2 gateway 未固定 digest（§3.2）：预检拒绝，回填命令已提供
+
+- **预检拒绝**：stage 预检新增步骤 `images_pinned`（`pinned_image_problems`）。在被发布提交的 lock 中，`images.v1.json` 的每个构建基础镜像和上游镜像（gateway）都必须有 reference 与 digest，否则预检失败，不会拖到构建或部署时才失败。当前 lock 下这一步报告 `gateway: not pinned by digest (unresolved_not_deployable)`。
+- **固定的对象**：固定 linux/amd64 镜像 manifest 的 digest，不固定多平台 index 的 digest。这样上游镜像与自建镜像一样，是单平台、不带 attestation 的镜像（见 6.3）。
+- **回填（在 CI 主机上，由调度员执行；本机没有拉取外部镜像）**：
+  1. 选定 Caddy 版本标签，例如 `docker.io/library/caddy:<版本>`，读出其中 linux/amd64 manifest 的 digest：
+     ```bash
+     docker buildx imagetools inspect docker.io/library/caddy:<版本> --format '{{json .Manifest}}'
+     ```
+     在输出的 `manifests` 中取 `platform` 为 `{"architecture":"amd64","os":"linux"}` 那一项的 `digest`。
+  2. 按 digest 拉取（不按标签）：
+     ```bash
+     docker pull docker.io/library/caddy@<digest>
+     ```
+  3. 写入 lock：
+     ```bash
+     python scripts/release/release.py pin-upstream --lock-name gateway --reference docker.io/library/caddy:<版本> --digest <digest>
+     ```
+     - 写入前会核对四件事：daemon 为 linux/amd64；该镜像已按 digest 存在于本地；`{{.Id}}` 等于该 digest；平台为 linux/amd64。
+     - 任何一项不符都拒绝，lock 不变。
+     - 写入的条目为 `{reference, digest, platform: linux/amd64, status: pinned, pinned_at}`。
+  4. 校验：
+     - `git diff versions.lock.json` 只改动了 `images.gateway`；
+     - `python -c` 调用 `release.pinned_image_problems()` 返回空；
+     - lock 的改动经评审提交。
+     - 之后构建三镜像发布，执行 `release.py build`（不加 `--only`），在 `load-check` 中核对 `nexloop/gateway@<digest>`。
+- **测试**（`tests/test_release_build_archive.py`）：
+  - 预检在真实 lock 下报告 gateway 未固定；
+  - 全部固定的 lock 通过，基础镜像缺 digest 时被报出；
+  - `pin-upstream` 在以下情况都拒绝且不写 lock：非上游镜像、非法 digest、arm64 daemon、本地不存在、平台不符；
+  - 成功时只改动 gateway 一项。
+
+### 6.3 开发机 arm64 构建与 attestation index（§3.4）：选择拒绝，不是告警
+
+- **理由**：stage 主机是 linux/amd64。如果只告警，arm64 的发布仍会被签名、封存，成为一个不可部署却看似完整的发布。拒绝发生在构建开始之前，代价只是开发机无法再做本地构建演练，而发布构建本来就只在 CI 主机进行。
+- **规则**：
+  - `release.py build` 在 daemon 平台不是 linux/amd64 时拒绝：`release images are built only on the CI host (linux/amd64)`，函数为 `require_release_platform`；
+  - 构建一律带 `--platform linux/amd64 --provenance=false --sbom=false`，发布 digest 指向的就是那个单平台镜像本身，不含构建主机的 provenance 信息；SBOM 另由锁定版本的 syft 生成；
+  - 每个归档保存后核对：digest 指向的内容必须恰好是一个 linux/amd64 镜像，且没有 attestation manifest（`require_release_image`），否则拒绝。
+- **测试**：
+  - arm64 daemon 在任何构建之前被拒绝；
+  - 带 attestation 的归档被拒绝；
+  - arm64 镜像被拒绝；
+  - 正常构建的参数中包含上述三个选项。
+- **本地复核受影响**：本机（arm64）不能再运行 `release.py build`，本文 §1 的构建一步今后只能在 CI 主机上复现。
+
+### 6.4 SBOM 与漏洞工具只在 CI 主机（§3.1）：保持现状
+
+- `syft` 与 `grype` 只按 lock 安装在 CI 主机上，开发机不安装。
+- 开发机上的 SBOM、来源 SBOM 与漏洞三步报告“未安装”，不算通过。所以开发机上的发布不能通过预检，也不能封存或 promote，这符合预期。
+- 发布与部署的成功路径以 CI 主机为准。

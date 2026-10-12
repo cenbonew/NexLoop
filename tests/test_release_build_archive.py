@@ -33,15 +33,16 @@ class Docker:
     """Stand-in for the docker CLI with the containerd image store: `save` writes an OCI layout whose index.json names the
     tag with the annotations docker save records; `image inspect` answers the manifest digest; `load` remembers it."""
 
-    def __init__(self, info=CONTAINERD, digests=None, inspect=None, fail=()):
+    def __init__(self, info=CONTAINERD, digests=None, inspect=None, fail=(), daemon='linux/x86_64', image_platform=('linux', 'amd64'), attest=False):
         self.info, self.digests, self.inspect, self.fail, self.calls, self.store = info, digests or {}, inspect or {}, set(fail), [], {}
+        self.daemon, self.image_platform, self.attest = daemon, image_platform, attest
 
     def __call__(self, args, timeout=60):
         self.calls.append(list(args))
         if args[0] in self.fail:
             return 1, ''
         if args[0] == 'info':
-            return 0, self.info
+            return 0, (self.daemon if '{{.OSType}}/{{.Architecture}}' in args else self.info)
         if args[0] in ('build', 'tag'):
             tag = args[args.index('--tag') + 1] if args[0] == 'build' else args[2]
             self.store[tag] = self.digests.get(tag.split(':')[0], digest_of(tag.split(':')[0]))
@@ -51,8 +52,15 @@ class Docker:
             index = {'schemaVersion': 2, 'manifests': [{'mediaType': 'application/vnd.oci.image.index.v1+json', 'digest': self.store[tag],
                                                          'annotations': {'io.containerd.image.name': 'docker.io/' + tag,
                                                                          'org.opencontainers.image.ref.name': tag.rsplit(':', 1)[1]}}]}
+            # The saved digest names an OCI index of the platform image (and, with attestations on, a buildx attestation manifest).
+            nested = {'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.index.v1+json', 'manifests': [
+                {'mediaType': 'application/vnd.oci.image.manifest.v1+json', 'digest': 'sha256:' + '1' * 64,
+                 'platform': {'os': self.image_platform[0], 'architecture': self.image_platform[1]}}]
+                + ([{'mediaType': 'application/vnd.oci.image.manifest.v1+json', 'digest': 'sha256:' + '2' * 64, 'platform': {'os': 'unknown', 'architecture': 'unknown'},
+                     'annotations': {'vnd.docker.reference.type': 'attestation-manifest'}}] if self.attest else [])}
             with tarfile.open(path, 'w') as tar:
-                for name, body in (('oci-layout', b'{"imageLayoutVersion":"1.0.0"}'), ('index.json', json.dumps(index).encode())):
+                for name, body in (('oci-layout', b'{"imageLayoutVersion":"1.0.0"}'), ('index.json', json.dumps(index).encode()),
+                                   ('blobs/sha256/' + self.store[tag].split(':')[1], json.dumps(nested).encode())):
                     info = tarfile.TarInfo(name)
                     info.size = len(body)
                     tar.addfile(info, io.BytesIO(body))
@@ -66,8 +74,11 @@ class Docker:
             return 0, ''
         if args[:2] == ['image', 'inspect']:
             reference = args[-1]
+            platform = (' ' + '/'.join(self.image_platform)) if '{{.Os}}' in args[3] else ''
             if reference in self.inspect:
-                return 0, self.inspect[reference] + '\n'
+                return 0, self.inspect[reference] + platform + '\n'
+            if reference.startswith('docker.io/') and '@sha256:' in reference and platform:
+                return 0, reference.split('@')[1] + platform + '\n'
             if reference.startswith('docker.io/') and '@sha256:' in reference:  # pinned upstream present by digest
                 return 0, reference.split('@')[1] + '\n'
             return (0, self.store[reference] + '\n') if reference in self.store else (1, '')
@@ -199,15 +210,20 @@ def test_load_check_resolves_every_image_by_its_manifest_digest(tmp_path, ci_res
         release.load_check(directory, docker=Docker())
 
 
+def PINNED():  # noqa: N802 - a stand-in for a lock whose release images are all pinned by digest
+    return []
+
+
 def sbom_ok():
     return spdx('pkg:pypi/liba@1.0'), [finding(severity='Critical')], None
 
 
 def test_stage_preflight_blocks_on_licenses_and_tools_but_only_lists_sbom_differences(tmp_path):
-    ok = release.stage_preflight('HEAD', tmp_path / 'a', runner=Runner(), sbom_maker=sbom_ok)
+    ok = release.stage_preflight('HEAD', tmp_path / 'a', runner=Runner(), sbom_maker=sbom_ok, pinned_checker=PINNED)
     assert ok['ok'] is True and list(ok['steps']) == list(release.STAGE_PREFLIGHT_STEPS) and ok['category'] == 'stage'
     assert ok['steps']['vulnerabilities']['detail']['listed'] == ['CVE-2026-0001']  # stage: listed, not blocking (D5)
-    listed = release.stage_preflight('HEAD', tmp_path / 'b', runner=Runner(), sbom_maker=lambda: (spdx('pkg:pypi/liba@1.0', 'pkg:npm/x@1.0.0'), [], None))
+    listed = release.stage_preflight('HEAD', tmp_path / 'b', runner=Runner(), sbom_maker=lambda: (spdx('pkg:pypi/liba@1.0', 'pkg:npm/x@1.0.0'), [], None),
+                                     pinned_checker=PINNED)
     assert listed['ok'] is True and listed['steps']['source_sbom']['detail']['listed_count'] == 1
     assert release.stage_preflight('HEAD', tmp_path / 'c', runner=Runner(['check_licenses.py']), sbom_maker=sbom_ok)['steps']['licenses']['ok'] is False
 
@@ -239,13 +255,13 @@ def deploy_images(built):
 
 
 def test_the_preflight_is_signed_with_the_manifest_and_verify_checks_it(built):
-    report = release.run_preflight(built['dir'], 'stage', root=ROOT, runner=Runner(), sbom_maker=sbom_ok)
+    report = release.run_preflight(built['dir'], 'stage', root=ROOT, runner=Runner(), sbom_maker=sbom_ok, pinned_checker=PINNED)
     assert report['ok'] is True and not (ROOT / '.ci-results/release-preflight' / f"{built['id']}-stage").exists()
     manifest = json.loads((built['dir'] / 'manifest.json').read_text())
     assert manifest['preflight']['category'] == 'stage' and manifest['preflight']['ok'] is True and manifest['preflight']['steps']['licenses'] is True
     assert sorted(p.name for p in (built['dir'] / 'preflight').iterdir()) == ['licenses.json', 'preflight.json']
     with pytest.raises(release.InputError, match='once'):
-        release.run_preflight(built['dir'], 'stage', root=ROOT, runner=Runner(), sbom_maker=sbom_ok)
+        release.run_preflight(built['dir'], 'stage', root=ROOT, runner=Runner(), sbom_maker=sbom_ok, pinned_checker=PINNED)
     release.sign(built['dir'], built['key'])
     with pytest.raises(release.InputError, match='signed'):
         release.attach_preflight(built['dir'], passed_preflight(head_sha()))
@@ -356,3 +372,68 @@ def test_cli_contracts(tmp_path):
     out = subprocess.run([sys.executable, str(ROOT / 'scripts/release/release.py'), 'load-check', '--release-dir', str(tmp_path / 'none')],
                          capture_output=True, text=True)
     assert out.returncode == 2
+
+
+def test_stage_preflight_refuses_an_image_not_pinned_by_digest(tmp_path):
+    """The released commit's lock must pin every release image (the gateway is not yet: back-filled on the CI host with
+    `release.py pin-upstream`); the preflight fails on it instead of the build or the deploy."""
+    unpinned = release.pinned_image_problems(ROOT)
+    lock = json.loads((ROOT / 'versions.lock.json').read_text())['images']
+    if not lock['gateway'].get('digest'):
+        assert unpinned == ['gateway: not pinned by digest (unresolved_not_deployable)']
+    report = release.stage_preflight('HEAD', tmp_path / 'a', runner=Runner(), sbom_maker=sbom_ok)
+    assert report['ok'] is (not unpinned) and report['steps']['images_pinned'] == {'ok': not unpinned, 'detail': {'unpinned': unpinned}}
+    repo = tmp_path / 'repo'
+    (repo / 'deploy/release').mkdir(parents=True)
+    (repo / 'deploy/release/images.v1.json').write_text((ROOT / 'deploy/release/images.v1.json').read_text())
+    pinned = {**lock, 'gateway': {'reference': 'docker.io/library/caddy:2', 'digest': 'sha256:' + 'c' * 64, 'platform': 'linux/amd64', 'status': 'pinned'}}
+    (repo / 'versions.lock.json').write_text(json.dumps({'images': pinned}))
+    assert release.pinned_image_problems(repo) == []
+    (repo / 'versions.lock.json').write_text(json.dumps({'images': {**pinned, 'node-host-base': {'reference': 'x', 'digest': ''}}}))
+    assert release.pinned_image_problems(repo) == ['node-host-base: not pinned by digest (missing)']
+
+
+def test_release_builds_only_on_linux_amd64_and_never_with_attestations(tmp_path, ci_result):
+    """A development machine (arm64) builds images no stage host runs: refused before any build. A saved image of another
+    platform, or with a buildx attestation manifest, is refused too; builds pass --platform linux/amd64 --provenance=false
+    --sbom=false (NX-034 local dry run)."""
+    arm = Docker(daemon='linux/aarch64')
+    with pytest.raises(release.Refused, match='only on the CI host'):
+        build(tmp_path, ci_result, arm, 201)
+    assert not any(call[0] == 'build' for call in arm.calls)
+    with pytest.raises(release.Refused, match='exactly one linux/amd64 image without attestations'):
+        build(tmp_path, ci_result, Docker(attest=True), 202)
+    with pytest.raises(release.Refused, match='exactly one linux/amd64 image'):
+        build(tmp_path, ci_result, Docker(image_platform=('linux', 'arm64')), 203)
+    docker = Docker()
+    build(tmp_path, ci_result, docker, 204)
+    for call in (c for c in docker.calls if c[0] == 'build'):
+        assert call[1:6] == ['--pull=false', '--platform', 'linux/amd64', '--provenance=false', '--sbom=false']
+
+
+def test_pin_upstream_backfills_the_gateway_digest_only_for_a_local_linux_amd64_image(tmp_path):
+    repo = tmp_path / 'repo'
+    (repo / 'deploy/release').mkdir(parents=True)
+    (repo / 'deploy/release/images.v1.json').write_text((ROOT / 'deploy/release/images.v1.json').read_text())
+    original = json.loads((ROOT / 'versions.lock.json').read_text())
+    (repo / 'versions.lock.json').write_text(json.dumps(original, indent=2, ensure_ascii=False) + '\n')
+    digest = 'sha256:' + 'c' * 64
+    with pytest.raises(release.InputError, match='upstream image'):
+        release.pin_upstream('backend', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker())
+    with pytest.raises(release.InputError, match='digest'):
+        release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', 'latest', root=repo, docker=Docker())
+    with pytest.raises(release.Refused, match='only on the CI host'):
+        release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(daemon='linux/aarch64'))
+    with pytest.raises(release.Refused, match='not present locally'):
+        release.pin_upstream('gateway', 'mirror.invalid/caddy:2.10', digest, root=repo, docker=Docker())
+    with pytest.raises(release.Refused, match='platform'):
+        release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(image_platform=('linux', 'arm64')))
+    assert json.loads((repo / 'versions.lock.json').read_text()) == original  # nothing written on refusal
+    out = release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(),
+                               now=datetime(2026, 10, 12, tzinfo=UTC))
+    assert out == {'lock': 'gateway', 'reference': 'docker.io/library/caddy@' + digest, 'platform': 'linux/amd64'}
+    written = json.loads((repo / 'versions.lock.json').read_text())
+    assert written['images']['gateway'] == {'reference': 'docker.io/library/caddy:2.10', 'digest': digest, 'platform': 'linux/amd64',
+                                            'status': 'pinned', 'pinned_at': '2026-10-12'}
+    assert {k: v for k, v in written['images'].items() if k != 'gateway'} == {k: v for k, v in original['images'].items() if k != 'gateway'}
+    assert release.pinned_image_problems(repo) == [] and release.pinned_reference(written, 'gateway') == 'docker.io/library/caddy@' + digest

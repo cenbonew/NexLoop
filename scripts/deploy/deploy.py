@@ -42,6 +42,14 @@ STAGE = ROOT / 'deploy/stage'
 TEMPLATES = {'data': ('postgresql.conf', 'pg_hba.conf', 'valkey.conf', 'data-host.nft'), 'app': ('Caddyfile', 'app-host.nft')}
 DEFAULT_APP_IMAGES = {'BACKEND_IMAGE': 'backend', 'AGENT_HOST_IMAGE': 'agent-host', 'GATEWAY_IMAGE': 'gateway'}
 DATA_IMAGES = {'POSTGRES_IMAGE': 'postgres', 'VALKEY_IMAGE': 'valkey'}
+# The Compose file of each host role; every `${*_IMAGE:?...}` it requires must be rendered from the manifest (or the lock).
+COMPOSE = {'app': STAGE / 'compose.app.example.yaml', 'data': STAGE / 'compose.data.example.yaml'}
+_REQUIRED_IMAGE = re.compile(r'\$\{([A-Z][A-Z0-9_]*_IMAGE):\?')
+
+
+def required_image_variables(host_role):
+    """The image variables the host role's Compose file cannot start without."""
+    return sorted(set(_REQUIRED_IMAGE.findall(COMPOSE[host_role].read_text())))
 _IMAGE = re.compile(r'[a-z0-9][a-z0-9._/:-]{0,200}@(sha256:[0-9a-f]{64})')
 STEPS = {
     'data': [
@@ -128,6 +136,11 @@ def dry_run(*, host_role, stage_env, out, release_dir=None, allowed_signers=None
         lock = lock or json.loads((ROOT / 'versions.lock.json').read_text())['images']
         for var, name in DATA_IMAGES.items():
             images[var] = f'{lock[name]["reference"].split(":")[0]}@{lock[name]["digest"]}'
+    # Every image the Compose file requires is rendered: an explicit --image-var mapping may not leave one out (it would only
+    # fail at `docker compose up`).
+    missing = sorted(set(required_image_variables(host_role)) - set(images))
+    checks['compose_image_variables_complete'] = not missing
+    details['missing_image_variables'] = missing
     # A private Compose env may carry image references only if they are exactly these (a registry mirror prefix is allowed).
     differing = sorted(var for var, value in provided.items() if var.endswith('_IMAGE') and
                        (var not in images or not _IMAGE.fullmatch(value) or _IMAGE.fullmatch(value).group(1) != images[var].rsplit('@', 1)[1]))

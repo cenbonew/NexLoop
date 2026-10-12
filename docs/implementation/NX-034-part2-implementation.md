@@ -30,7 +30,7 @@ make build-release SHA=<sha>    # build → sbom → preflight stage → sign �
   - 发布目录 `<RELEASE_ROOT>/releases/<release_id>/`，清单 `manifest_version` 为 2；
   - `images[]` 新增 `reference = nexloop/<name>@<digest>`，与 NX-032 dry-run 渲染的引用一致；
   - 构建暂存目录在 `.ci-results/release-build/` 下（已被 git 忽略），结束后删除。
-- **当前状态**：`versions.lock.json` 中 `gateway` 尚无 digest，构建 gateway 会拒绝（`gateway: not pinned`）。在固定 digest 之前，可用 `--only backend --only agent-host` 构建另外两个镜像；但 NX-032 dry-run 默认需要 gateway 镜像。
+- **当前状态**：`versions.lock.json` 中 `gateway` 尚无 digest，构建 gateway 会拒绝（`gateway: not pinned`）。在固定 digest 之前，可用 `--only backend --only agent-host` 构建另外两个镜像；但 NX-032 dry-run 默认需要 gateway 镜像。之后的处置：stage 预检 `images_pinned` 在 gateway 未固定时失败；在 CI 主机上用 `release.py pin-upstream` 回填 linux/amd64 镜像 digest；发布构建只在 linux/amd64 daemon 上进行，并且不带 attestation（见 `NX-034-local-dry-run.md` §6）。
 
 ## 2. `docker load` 之后的引用与标签规则
 
