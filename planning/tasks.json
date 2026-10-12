@@ -2711,6 +2711,12 @@
         "ref": "ci:lane/runs/20261011T175512Z-2923e565a121",
         "summary": "s5f 全量（2923e56）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 257 s；integration-heavy 与 pi-runtime 通过；test_deploy_release_wiring 5 个通过。",
         "recorded_at": "2026-10-11T18:52:46.455617+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "66cf0c4",
+        "summary": "O1：发布签名密钥（ed25519，身份与命名空间 nexloop-release）在开发机生成，公钥与 allowed_signers 入库 deploy/release/，本地试签并用 allowed_signers 验签通过；test_release_signers 核对两者一致。私钥不入库，由负责人存入密码管理器并做加密离线备份。",
+        "recorded_at": "2026-10-12T01:16:58.641246+00:00"
       }
     ]
   },
@@ -2839,6 +2845,12 @@
         "ref": "ci:lane/runs/20261011T212359Z-0ef0953f9648",
         "summary": "s5h 全量（0ef0953）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 255 s；heavy 22/22；pi 24、runtime 255 通过。其后 28707a5（审计测试改用非十六进制标记，本地 10/10）与 4aab055（planning）未进该轮 CI。",
         "recorded_at": "2026-10-11T22:24:01.588963+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "66cf0c4",
+        "summary": "O4：负责人 2026-10-12 开启 GitHub 私密漏洞报告（API enabled=true），安全联系人填入 public-release.v1.json、SECURITY.md、CODE_OF_CONDUCT.md，check_public_files --public 通过。公开发布前置剩 public-preflight。",
+        "recorded_at": "2026-10-12T01:16:58.641246+00:00"
       }
     ]
   },
@@ -2916,6 +2928,18 @@
         "ref": "ci:lane/runs/20261011T222536Z-83bcdc2510e9",
         "summary": "s5i 全量（83bcdc2）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 255 s；heavy 22/22；pi 24、runtime 255 通过；test_nx037_run_interactions 等 NX-037 测试通过。",
         "recorded_at": "2026-10-11T23:25:27.307452+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "19c0ecc",
+        "summary": "AT-046（模拟世界不能借用真实效应凭据）合入 main（s5j）：0165 要求凭据只要含 real 就只能是 real；runtime worker 与 guard 的 --world 只接受 real/test，各效应进程只接受 real，均在读取凭据前拒绝；tests/test_at046_simulation_isolation_pg 覆盖 6 个效应入口在三层开关全开时对伪造 world 一律 42501 且无外部调用。已知限制见 docs/implementation/AT-046-simulation-credential-guard.md §3。",
+        "recorded_at": "2026-10-12T01:16:58.641246+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T002148Z-19c0ecc58ee5",
+        "summary": "s5j 全量（19c0ecc）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 256 s；heavy 22/22；pi 24、runtime 255 通过。其后提交均为文档、规划、O1/O4 配置与两处测试（test_public_repository_checks 随联系人已填写更新、新增 test_release_signers），本地 24 passed，下一轮 CI 覆盖。",
+        "recorded_at": "2026-10-12T01:16:58.641246+00:00"
       }
     ]
   },
@@ -3519,6 +3543,18 @@
         "ref": "ci:lane/runs/20261011T212359Z-0ef0953f9648",
         "summary": "s5h 全量（0ef0953）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 255 s；heavy 22/22；pi 24、runtime 255 通过。其后 28707a5（审计测试改用非十六进制标记，本地 10/10）与 4aab055（planning）未进该轮 CI。",
         "recorded_at": "2026-10-11T22:24:01.588963+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "19c0ecc",
+        "summary": "第 3c 批合入 main（s5j）：0164 给会话与消息路径的 11 张 runtime 根表加租户外键（NOT VALID 后 VALIDATE）；3 张子表经含 tenant_id 的复合外键链传递，tests/test_tenant_fk_pg 以递归判据断言整条链（含以后新增的引用表）；语句级比值中位 ≤1.014、p95 ≤0.955；端到端测量放入整轮窗口。剩余：第 4 批（Run 与效应族，在做）、第 5 批。",
+        "recorded_at": "2026-10-12T01:16:58.641246+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T002148Z-19c0ecc58ee5",
+        "summary": "s5j 全量（19c0ecc）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 256 s；heavy 22/22；pi 24、runtime 255 通过。其后提交均为文档、规划、O1/O4 配置与两处测试（test_public_repository_checks 随联系人已填写更新、新增 test_release_signers），本地 24 passed，下一轮 CI 覆盖。",
+        "recorded_at": "2026-10-12T01:16:58.641246+00:00"
       }
     ]
   },
