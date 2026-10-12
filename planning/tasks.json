@@ -2554,6 +2554,18 @@
         "ref": "ci:lane/runs/20261012T081812Z-957894c41126",
         "summary": "s5o 全量（957894c）：integration-parallel 失败 2 项：role_context_v6（基线 B）与 nx049_memo_stress[derived None]（迭代 449<600，并行阶段 2992 s 偏慢；同一检出串行复跑 3/3 通过 ⇒ 负载敏感 C 类）；门槛 4/4 245 s；heavy 22/22；pi 24、runtime 通过。",
         "recorded_at": "2026-10-12T09:56:59.767877+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d819d7d",
+        "summary": "500 客户级失控的修复合入 main（s5p）：runtime worker 按阶段命名派发失败、过期 Run 以 runtime_command_expired 终止；效应起源 Run 真正过期（非可恢复的撤销，且不在派发控制拒绝期间）时未派发意图失败、已派发未知意图停止自动重查交回复保障对账；未知结果 min(60,2^n) s 退避；relay 按租户积压上限不签发新 Run（0174）；本地投递对已发布定义改取 FOR SHARE，消除与意图提交的锁顺序相反（0175，本机 500 客户死锁 7→0、历史回复 380/393→761/12）；事实规范化快速路径（vendored facts.py，PROVENANCE 已记）。",
+        "recorded_at": "2026-10-12T12:06:44.367892+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T111106Z-d819d7dd4238",
+        "summary": "s5p 全量（d819d7d）RESULT=PASS：首次所有阶段 0 失败（integration-parallel rc=0，过去的 B 类基线失败本轮全部通过）；门槛 4/4 226 s；heavy 22/22；pi 24、runtime 通过。此前 s5p 初版（40abea1）的 2 个回归（restore fence、PG 准入中断）已在 538ae6a 修正。",
+        "recorded_at": "2026-10-12T12:06:44.367892+00:00"
       }
     ]
   },
