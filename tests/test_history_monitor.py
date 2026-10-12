@@ -17,6 +17,7 @@ TENANT = '00000000-0000-4000-8000-0000000000a1'
 def test_sample_on_an_empty_catalog_is_all_zero(published_action, admin):
     value = sample(admin, TENANT, datetime.now(UTC) - timedelta(minutes=1))
     assert value['open'] == {'unrouted': 0, 'run_tasks': 0, 'replies_due': 0}
+    assert value['unreplied'] == {'by_design': 0, 'outcome_unknown': 0, 'missing': 0}
     assert value['replied'] == 0 and value['jobs'] == {} and value['relay_handoffs'] == 0 and value['dead_letters'] == 0
     assert value['guard'] == {'calls': 0, 'errors': 0, 'timeouts': 0, 'p50_ms_max': None, 'p95_ms_max': None, 'processes': 0}
 
@@ -43,5 +44,5 @@ def test_monitor_writes_once_per_interval_with_numbers_and_codes_only(published_
     assert [w is not None for w in written] == [True, False, True, True]
     lines = [json.loads(line) for line in (tmp_path / 'history-monitor.jsonl').read_text().splitlines()]
     assert len(lines) == 3 and [line['elapsed_s'] for line in lines] == [0.0, 31.0, 40.0]
-    assert set(lines[0]) == {'at', 'elapsed_s', 'open', 'replied', 'jobs', 'guard', 'host', 'relay_handoffs', 'dead_letters'}
+    assert set(lines[0]) == {'at', 'elapsed_s', 'open', 'replied', 'unreplied', 'jobs', 'guard', 'host', 'relay_handoffs', 'dead_letters'}
     assert TENANT not in (tmp_path / 'history-monitor.jsonl').read_text()

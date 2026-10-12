@@ -1,7 +1,8 @@
 """NX-031 AT-060 ladder (100 / 200 / 500 / 1000 customers): read-only progress samples while a load template replies to its
 history. Every `interval` seconds one JSON line goes to <template>/history-monitor.jsonl:
 
-  {"at", "elapsed_s", "open": {unrouted, run_tasks, replies_due}, "replied", "jobs": {"<status>:<code>": n},
+  {"at", "elapsed_s", "open": {unrouted, run_tasks, replies_due}, "replied", "unreplied": {by_design, outcome_unknown, missing},
+   "jobs": {"<status>:<code>": n},
    "guard": {calls, errors, timeouts, p50_ms_max, p95_ms_max, processes}, "host": {active_runs, waiting, admission_timeouts},
    "relay_handoffs", "dead_letters"}
 
@@ -19,6 +20,22 @@ def _rows(db, sql, args=()):
         return db.execute(sql, args).fetchall()
     except Exception:  # an absent table in an older catalog is a missing figure, never a failed build
         return []
+
+
+def unreplied(db, tenant):
+    """Replies still due, split (counts only): by_design = the consumer is under an active contact restriction and has no reply
+    effect (the restriction refused it); outcome_unknown = a reply effect exists for the consumer but its delivery result is not
+    known yet (accepted, dispatching or unknown: queried and reconciled, never resent); missing = everything else."""
+    rows = _rows(db, """select case
+          when exists(select 1 from runtime.nexloop_effect_intents i where i.tenant_id=f.tenant_id and i.consumer_id=f.payload->>'consumer_id'
+                      and i.state in ('accepted','dispatching','unknown')) then 'outcome_unknown'
+          when exists(select 1 from control.nexloop_contact_restrictions r where r.tenant_id=f.tenant_id and r.consumer_id=f.payload->>'consumer_id' and r.active)
+           and not exists(select 1 from runtime.nexloop_effect_intents i where i.tenant_id=f.tenant_id and i.consumer_id=f.payload->>'consumer_id') then 'by_design'
+          else 'missing' end,count(*)
+        from runtime.nexloop_work_feed f where f.tenant_id=%s and f.feed='reply-due' and f.status='pending' group by 1""", (tenant,))
+    out = {'by_design': 0, 'outcome_unknown': 0, 'missing': 0}
+    out.update(dict(rows))
+    return out
 
 
 def sample(db, tenant, since):
@@ -45,7 +62,7 @@ def sample(db, tenant, since):
         host['admission_timeouts'] += int(value.get('admission_timeouts') or 0)
     handoffs = (_rows(db, 'select count(*) from runtime.nexloop_relay_handoffs where tenant_id=%s', (tenant,)) or [(None,)])[0][0]
     dead = (_rows(db, "select count(*) from runtime.jobs where status='dead_lettered'") or [(None,)])[0][0]
-    return {'open': {k: open_.get(k) for k in ('unrouted', 'run_tasks', 'replies_due')}, 'replied': replied, 'jobs': jobs,
+    return {'open': {k: open_.get(k) for k in ('unrouted', 'run_tasks', 'replies_due')}, 'replied': replied, 'unreplied': unreplied(db, tenant), 'jobs': jobs,
             'guard': guard, 'host': host, 'relay_handoffs': handoffs, 'dead_letters': dead}
 
 
