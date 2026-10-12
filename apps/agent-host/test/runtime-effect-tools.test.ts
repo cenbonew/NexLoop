@@ -64,8 +64,10 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
     expect(first.bodies).toHaveLength(1);
     const silent=await bridge({silent:true}),start=Date.now();
     await expect(silent.client.call(silent.cmd,'submit',{message:'service'})).rejects.toMatchObject({code:'runtime_effect_unavailable'});
-    expect(Date.now()-start).toBeLessThan(2600);
-  });
+    // ADR-028: a silent guard is ambiguous; exactly one more request with the same body, each bounded by 2 s.
+    expect(silent.bodies).toHaveLength(2);expect(silent.bodies[1]).toEqual(silent.bodies[0]);
+    expect(Date.now()-start).toBeLessThan(2*2000+600);
+  },10000);
   it('AT-043: offers the incentive tool only when asked, sends the exact parameters and accepts only a fixed receipt',async()=>{
     const offer={incentive_offering_id:'d'.repeat(64),offering_revision:1,binding_id:'e'.repeat(64),amount_minor:'200',currency:'CNY',notification_text:''};
     const accepted=(body:Record<string,unknown>)=>({run_id:body.run_id,intent_id:'incentive-run:'+String(body.run_id)+':'+'d'.repeat(64),state:'accepted',replayed:false,origin:'plan',business_action_success:false});

@@ -860,6 +860,11 @@
       "version": "0172",
       "name": "0172_nx037_interaction_observation.sql",
       "sha256": "fde894af9eb27284d824aacc07a7381deff00b296200a255d49bed30de55406b"
+    },
+    {
+      "version": "0390",
+      "name": "0390_effect_final_recheck.sql",
+      "sha256": "7d2471d687de0a1ba7ac774e971c5bbfc5c689dcd1961b6c3012838ad71d90db"
     }
   ]
 }
