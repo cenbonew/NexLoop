@@ -1,7 +1,7 @@
 """ADR-029 (owner 2026-10-12, conditional approval): a guard authorization reuses the Run's still-valid Source-signed Context
 envelopes; SQL re-verifies each one against current state at every use exactly as a new one. Conditions under test: a
 revoked Source authority, a revised object and a revoked Run credential refuse the next authorization (no stale pass); a
-reused envelope SQL refuses is dropped and the authorization is rebuilt once, fresh; an envelope with less than 5 s left is
+reused envelope SQL refuses makes that authorization fail and drops the Run's entries (the next one builds fresh); an envelope with less than 5 s left is
 rebuilt; entries are per Run, bounded, and a failure is never cached. A contact restriction is not checked at activation
 for new or reused envelopes alike (it is enforced at effect dispatch), so reuse changes nothing there. Actual PG authority
 (catalog envelope, test_context_artifacts fixture) plus unit checks of the cache."""
@@ -66,7 +66,7 @@ def test_revised_offering_refuses_the_next_authorization(context_message, admin,
         admin.execute("update ontology.objects set nexloop_revision=nexloop_revision+1 where type_name='ServiceOffering'")
         with pytest.raises(AuthorizationUnavailable):
             authorize(worker, activation, command)
-        assert builds['catalog'] == 2  # the reused one was refused, rebuilt once, and refused again
+        assert builds['catalog'] == 1 and not role_runs._run_envelopes  # refused with the reused one; the Run's entries dropped
 
 
 def test_revoked_run_credential_refuses_the_next_authorization(context_message, admin, tmp_path, builds):
@@ -79,15 +79,18 @@ def test_revoked_run_credential_refuses_the_next_authorization(context_message, 
             authorize(worker, activation, command)
 
 
-def test_a_refused_reused_envelope_is_rebuilt_once(context_message, admin, tmp_path, builds):
+def test_a_refused_reused_envelope_is_dropped_and_the_next_authorization_builds_fresh(context_message, admin, tmp_path, builds):
     f = context_message
     assert f['relay'].run_once() == 'queued'
     with active_worker(f, tmp_path) as (worker, activation, command, text):
         authorize(worker, activation, command)
         (key, (value, until)), = role_runs._run_envelopes.items()
         role_runs._run_envelopes[key] = (dict(value, signature='0' * len(value['signature'])), until)  # SQL refuses it
+        with pytest.raises(AuthorizationUnavailable):
+            authorize(worker, activation, command)  # one authorization, one answer: no retry inside the guard
+        assert not role_runs._run_envelopes  # the Run's entries were dropped
         assert authorize(worker, activation, command)['authorized'] is True
-        assert builds['catalog'] == 2 and role_runs._run_envelopes[key][0]['signature'] != '0' * len(value['signature'])
+        assert builds['catalog'] == 2
 
 
 def test_less_than_the_margin_left_is_rebuilt(context_message, admin, tmp_path, builds, monkeypatch):
