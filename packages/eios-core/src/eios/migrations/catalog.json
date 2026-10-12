@@ -825,6 +825,11 @@
       "version": "0165",
       "name": "0165_at046_real_credential_alone.sql",
       "sha256": "6140e93301a3607db1a6c56520c004379e817ae3ea8e259d8b36ccead5852c05"
+    },
+    {
+      "version": "0166",
+      "name": "0166_nx052_tenant_fk_run_effect.sql",
+      "sha256": "99288b3b4d17151cc0ea87c38fba0c222c7cd0be489212667821ca1f665d781f"
     }
   ]
 }

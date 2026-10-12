@@ -364,3 +364,68 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 测量期间本机负载约 6.7，L4 正在跑 1000 客户模板，所以 p95 低于 1 是噪声。中位比值与前几批的 1.04–1.05 处在同一量级。
 
 端到端 p95 等整轮窗口按三个状态测量，判据是增加不超过 5%。
+
+## 8. 批次 4：Run、Context、效应与计划族（0166）
+
+### 8.1 设计
+
+- **范围的确定方法**：在 s5j 上用 3c 的递归判据 `TENANT_PATH_SQL`，列出所有带 `tenant_id`、但还没有租户路径的表，共 106 张。本批只处理其中 NexLoop 自己的 Run、Context、效应和计划族，共 48 张：
+  - 32 张直接加外键，其中 authz 9 张、runtime 23 张；
+  - 16 张靠外键链覆盖。
+- **哪些表要直接加**：这些表引用父表时用的是 `run_id`、`intent_id`、`context_id` 等单列外键，列中不含 `tenant_id`，所以不满足链式判据，必须直接加。例如 `effect_intents` 引用 `control.nexloop_effect_contexts(context_id)`，虽然父表有租户外键，但这条外键不传递租户。
+- **哪些表靠链覆盖**：外键的列包含 `tenant_id`，并且父表有租户路径。
+
+  | 链上的表 | 父表 |
+  |---|---|
+  | `context_sources` | `context_packs` |
+  | `model_requests` | `context_packs` |
+  | `model_request_prompts` | `model_requests` |
+  | `context_artifact_bindings`、`fallback_context_bindings` | `local_artifacts` |
+  | `effect_attempts`、`catalog_bindings`、`provider_bindings`、`events`、`local_delivery_recoveries` | `effect_intents` |
+  | `effect_observations`、`query_admissions` | `effect_attempts` |
+  | `plan_events`、`plan_outcomes`、`plan_runs`、`plan_steps` | `plans` |
+
+- **不在本批**：
+  1. **vendored EIOS 核心**：0001 中的 `runtime.jobs`、`invocations`、`job_events`、`audit_events`、`idempotency_records`、`artifact_references`。按 3d 的裁定不加外键。
+  2. **`runtime.nexloop_inbox` 和 `runtime.nexloop_outbox`**：它们带租户的外键指向 `runtime.jobs`。`jobs` 是核心表，没有租户路径，所以这两张表要么直接加，要么等第 5 批的定性结果，见 8.5。
+  3. **控制面事件、会话、台账**，以及商务、承诺、擦除和审计族（约 50 张）：列为第 4b 批，只做计划，见 8.5。
+- **与 ACK 的关系**：这些表都在消息受理之后写入，由 Run 签发、上下文组装、效应派发和计划执行产生，不在 ACK 之前的路径上。
+- **与 0162 锁的关系**：外键检查对租户行取 `FOR KEY SHARE`，它与授权路径的 `FOR SHARE`、0162 之后配置发布的 `FOR NO KEY UPDATE` 都不冲突。锁探针结果：持 `FOR UPDATE` 时插入等 0.30 秒，持 `FOR NO KEY UPDATE` 时只等 0.2 ms。
+- **写入路径**：这些表都由带签名的 Run 凭据、或服务身份快照校验之后的函数写入。Run 凭据本身要求租户存在，所以写入时租户行必然存在。
+
+### 8.2 迁移与回滚
+
+- 0166 给 32 张表加外键，先 NOT VALID，再逐表 VALIDATE。
+- **回滚**：新开迁移，`drop constraint if exists <表>_tenant_fk`。
+- **大表**：`cost_entries`、`model_requests` 一类表在部署中可能较大。在部署副本上先预检 VALIDATE 的时长，超过 60 秒就把该表的 VALIDATE 拆到下一次发布。`model_requests` 本身靠外键链覆盖，没有自己的约束。
+
+### 8.3 测试
+
+`tests/test_tenant_fk_pg.py` 断言三点：
+
+- 32 张直接加外键的表都已 VALIDATE；
+- 16 张链上的表没有自己的租户外键，vendored 的 runtime 核心表也没有，而且 48 张都在租户路径集合里；
+- 3c 的“所有子表都满足链式判据”断言照常生效。
+
+本批唯一受影响的测试捷径是 `test_context_engine_pg::test_storage_invariants…`：它在没有租户行的情况下直接插入 `context_packs`，现已在插入前先插入租户行。
+
+### 8.4 语句级测量（2026-10-12，2000 行）
+
+| 表 | 轮数与负载 | 中位比值 | p95 比值 | 判据 |
+|---|---|---|---|---|
+| `runtime.nexloop_run_tool_timings`（每个 Run 一行） | 5 轮，负载约 6 | 1.071 | 0.913 | 通过 |
+| `runtime.nexloop_work_feed`（每个工作项一行） | 5 轮，负载约 6 | 1.054 | 1.040 | 通过 |
+
+- 每轮比值波动很大：
+  - `run_tool_timings` 的中位比值在 1.03 到 1.11 之间，p95 比值在 0.85 到 1.30 之间；
+  - `work_feed` 的中位比值在 0.99 到 1.11 之间，p95 比值在 0.85 到 1.29 之间。
+- 负载约 9 时先跑过一次 3 轮，`work_feed` 得到 1.147 / 1.174，超出判据，判为噪声后重测。
+- 在本机共享负载下，单轮结果不能作为判据，只有多轮中位数的结论才有意义。精确数字以整轮窗口的端到端测量为准。
+
+### 8.5 待决定
+
+1. **第 5 批要重新定性**：`ontology.objects`、`runtime.jobs` 和 `ontology.events` 都来自 vendored EIOS 核心（0001）。按 3d 的裁定，“核心表不加 NexLoop 外键，继续依赖身份快照”，第 5 批就不应该加外键。有两种做法：
+   - 维持裁定：第 5 批改为“只做测量和文档化，不加约束”；
+   - 写一份 ADR，作为例外给这三张核心表加外键。
+2. **`runtime.nexloop_inbox` 和 `nexloop_outbox`**：它们是 NexLoop 自己的 durable 队列表，带租户的外键指向 `runtime.jobs`。如果第 5 批不给 `jobs` 加外键，这两张表需要直接加，写入频率与 `jobs` 相当，建议归到第 5 批一起测量。
+3. **第 4b 批**：剩余约 50 张 control 和 runtime 表，包括控制面事件、浏览器会话与登录事件、限流计数、台账、商务、承诺、擦除和审计。按写入频率再分两组实现，是否继续由你安排。

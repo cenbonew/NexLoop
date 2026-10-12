@@ -49,6 +49,13 @@ TABLES = {
     'runtime.nexloop_message_inbox': dict(key=HEX,
         insert="insert into runtime.nexloop_message_inbox(message_id,tenant_id,world,event_id) values(%s,%s,'real','fk-cost-'||gen_random_uuid())",
         cleanup="delete from runtime.nexloop_message_inbox where event_id like 'fk-cost-%%'"),
+    # 4: one row per Run (tool timings) and per work item (shared feed).
+    'runtime.nexloop_run_tool_timings': dict(key=lambda: str(uuid.uuid4()),
+        insert="insert into runtime.nexloop_run_tool_timings(run_id,tenant_id,world,calls) values(%s::uuid,%s,'real',4242)",
+        cleanup="delete from runtime.nexloop_run_tool_timings where calls=4242"),
+    'runtime.nexloop_work_feed': dict(key=SHORT,
+        insert="insert into runtime.nexloop_work_feed(item_key,tenant_id,world,feed,payload) values(%s,%s,'real','claim-match','{}')",
+        cleanup="delete from runtime.nexloop_work_feed where item_key like 'fk-cost-%%'"),
 }
 MEDIAN_LIMIT, P95_LIMIT = 1.10, 1.05
 
