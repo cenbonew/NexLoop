@@ -875,6 +875,11 @@
       "version": "0175",
       "name": "0175_nx031_delivery_definition_share_lock.sql",
       "sha256": "902485da05f024b3d65baa281a5b114820350c85c21bd9f19dda4dc916f8541a"
+    },
+    {
+      "version": "0420",
+      "name": "0420_context_claims_refusal.sql",
+      "sha256": "12a0ebf7076d79ffd2614d932f0cbb40365584ef42f0fe8aae4acd00769a1003"
     }
   ]
 }

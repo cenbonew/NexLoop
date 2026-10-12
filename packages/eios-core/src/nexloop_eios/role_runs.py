@@ -4,6 +4,10 @@ Bind genuine Source-issued Runs before admission. All lifecycle operations must
 repeat this signed current READ verifier; this primitive alone is not dispatch.
 """
 import contextlib
+from datetime import UTC,datetime
+import threading
+import collections
+import json
 import contextvars
 import hashlib
 import hmac
@@ -55,12 +59,79 @@ def request_envelope_scope():
     finally:_request_envelopes.reset(token)
 
 
+# ADR-029 (owner 2026-10-12): within one Run, a guard authorization may reuse the Source-signed Context envelopes it built
+# for an earlier authorization of the same Run while every READ proof inside them is still valid for at least
+# RUN_ENVELOPE_MARGIN seconds. SQL re-verifies every reused envelope against current state at each use exactly as a new
+# one; a refusal drops that Run's entries and the authorization is rebuilt once from fresh envelopes. In memory only,
+# keyed by the Run's digest (never shared across Runs, tenants or worlds), bounded, never caching a failure.
+RUN_ENVELOPE_MARGIN=5.0
+RUN_ENVELOPE_LIMIT=512
+_run_envelopes=collections.OrderedDict()
+_run_envelopes_lock=threading.Lock()
+_run_scope=contextvars.ContextVar('nexloop_run_envelope_scope',default=None)
+
+
+def _expiries(value,found):
+    if isinstance(value,dict):
+        for key,item in value.items():
+            if key=='expires_at' and isinstance(item,str):
+                try:found.append(datetime.fromisoformat(item.replace('Z','+00:00')))
+                except ValueError:found.append(None)
+            else:_expiries(item,found)
+    elif isinstance(value,(list,tuple)):
+        for item in value:_expiries(item,found)
+    elif isinstance(value,str) and value[:1] in '{[':
+        try:_expiries(json.loads(value),found)
+        except ValueError:pass
+    return found
+
+
+def envelope_valid_until(value):
+    """The earliest expires_at of any proof inside an envelope; None when it carries none or one is unreadable."""
+    found=_expiries(value,[])
+    if not found or any(item is None or item.tzinfo is None for item in found):return None
+    return min(found)
+
+
+@contextlib.contextmanager
+def run_envelope_scope(run_digest,*,reuse=True):
+    """Authorizations of this Run may reuse its still-valid envelopes; yields a list that records whether one was reused."""
+    used=[]
+    token=_run_scope.set((run_digest,reuse,used))
+    try:yield used
+    finally:_run_scope.reset(token)
+
+
+def forget_run_envelopes(run_digest):
+    with _run_envelopes_lock:
+        for key in [key for key in _run_envelopes if key[0]==run_digest]:del _run_envelopes[key]
+
+
 def scoped_envelope(key,compute):
-    """Reuse within the current guarded tool request only; otherwise compute fresh."""
+    """Reuse within the current guarded tool request; within a Run scope (ADR-029) across that Run's authorizations while
+    still valid; otherwise compute fresh."""
     cache=_request_envelopes.get()
-    if cache is None:return compute()
-    if key not in cache:cache[key]=compute()
-    return cache[key]
+    if cache is not None:
+        if key not in cache:cache[key]=compute()
+        return cache[key]
+    scope=_run_scope.get()
+    if scope is None:return compute()
+    run_digest,reuse,used=scope
+    full=(run_digest,)+tuple(key)
+    now=datetime.now(UTC)
+    if reuse:
+        with _run_envelopes_lock:
+            entry=_run_envelopes.get(full)
+            if entry is not None and (entry[1]-now).total_seconds()>=RUN_ENVELOPE_MARGIN:
+                _run_envelopes.move_to_end(full);used.append(key[0])
+                return entry[0]
+    value=compute()
+    until=envelope_valid_until(value)
+    if until is not None and (until-now).total_seconds()>=RUN_ENVELOPE_MARGIN:
+        with _run_envelopes_lock:
+            _run_envelopes[full]=(value,until);_run_envelopes.move_to_end(full)
+            while len(_run_envelopes)>RUN_ENVELOPE_LIMIT:_run_envelopes.popitem(last=False)
+    return value
 
 
 def role_envelope_for_run(pool,signer,world,run_digest):
