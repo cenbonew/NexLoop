@@ -87,30 +87,6 @@ def _execution_lock(db,run_id):
     db.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))',('nexloop-runtime-execution:'+run_id,))
 
 
-class RuntimeAuthorizationRefused(AuthorizationUnavailable):
-    """NX-031 (c4low-leftovers): a deterministic refusal of a runtime authorization (a database refusal such as 42501, a
-    validation error, a denied proof). Retrying it gives the same answer, so the guard answers 403, not 503. Subclasses
-    AuthorizationUnavailable so callers that only know "not authorized" keep working."""
-    code = 'authorization_denied'
-
-
-def _authorization_failure(error):
-    """Retryable only when a transient condition (connection, serialization, deadlock, lock or statement timeout, pool wait,
-    timeout or socket error) is the error or anywhere in its chain; inner code often re-raises those as
-    AuthorizationUnavailable `from None`, which still keeps them as __context__. Everything else, including an inner
-    AuthorizationUnavailable that stands for a denied decision or binding, is a refusal."""
-    import psycopg
-    from psycopg_pool import PoolTimeout
-    seen,current=set(),error
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        if isinstance(current,RuntimeAuthorizationRefused) or isinstance(current,PermissionError):break
-        if isinstance(current,(psycopg.OperationalError,psycopg.InterfaceError,PoolTimeout,TimeoutError,OSError)):
-            return AuthorizationUnavailable('runtime activation unavailable')
-        current=current.__cause__ or current.__context__
-    return error if isinstance(error,RuntimeAuthorizationRefused) else RuntimeAuthorizationRefused('runtime activation refused')
-
-
 class RuntimeActivationPort:
     def __init__(self,pool,session,signer):
         if session.run_context is not None:raise AuthorizationUnavailable('runtime activation unavailable')
@@ -241,7 +217,7 @@ class RuntimeActivationPort:
             if model_result is not None:snapshot['model_result']=model_result
             result=self._call(queue,'authorize',execution_run=run.run_context.run_id,**parameters,**snapshot,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(first),context_formal_reads=self._context_formal_envelopes(first))
             return {key:value for key,value in result.items() if not key.startswith('_')}
-        except Exception as error:raise _authorization_failure(error) from None
+        except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
     def _context_read_proof(self,resolved):
         if '_context_source_digest' not in resolved:return None

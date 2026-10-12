@@ -70,6 +70,7 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 GUARD.observe((time.monotonic()-started)*1000,error=self._status is None or self._status>=500)
         def _post(self):
             if not slots.acquire(blocking=False):self.send(503,{'authorized':False});return
+            failed=None
             try:
                 expected=f'127.0.0.1:{self.server.server_port}'
                 header=self.headers.get('Authorization','')
@@ -172,14 +173,14 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     projected['context_artifact']=artifact
                 self.send(200,projected)
             except Exception as error:
-                # NX-031: a deterministic refusal is 403 (the Host does not retry it); only a transient failure is 503.
-                from nexloop_eios.runtime_activation import RuntimeAuthorizationRefused
-                import logging
+                # NX-031: only the code-only cause is kept; it is logged after this block (no exception context reaches a handler).
                 from nexloop_eios.structured_log import failure_detail
-                status=403 if isinstance(error,RuntimeAuthorizationRefused) else 503
-                logging.getLogger('nexloop.runtime_guard').warning('guard authorize failed %s',{'status':status,**failure_detail(error)})
-                self.send(status,{'authorized':False})
+                failed=failure_detail(error)
+                self.send(503,{'authorized':False})
             finally:slots.release()
+            if failed is not None:
+                import logging
+                logging.getLogger('nexloop.runtime_guard').warning('guard authorize failed %s',{'status':503,**failed})
         def do_GET(self):self.send(404,{'authorized':False})
     class GuardServer(ThreadingHTTPServer):
         daemon_threads=True
