@@ -2506,6 +2506,18 @@
         "ref": "ci:lane/runs/20261012T011728Z-2d3a1ab41827",
         "summary": "s5k 全量（2d3a1ab）：integration-parallel 失败 3 项均为基线 B 类（v6_relationships、runtime_effect_recovery、role_context_v6）；message_relay、scope_denials、context_host_recovery 本轮通过；门槛 4/4 257 s；heavy 22/22；pi 24、runtime 257 通过；test_public_repository_checks 与 test_release_signers 通过。",
         "recorded_at": "2026-10-12T02:15:06.041554+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "8c3b28e",
+        "summary": "ADR-027（负责人 2026-10-12 批准方案 A）合入 main（s5m）：inspect 只经激活核心授权（服务凭据、Run 凭据与证明、租户状态、租约与 fencing、Run 绑定、not_after），不再复核上下文与关系读证明，inspect 回答不得携带上下文（SQL、guard、Host、Python 四处断言）；start、resume、取消、模型、工具与效应调用的完整复查不变。200 客户历史回复阶段每次授权约 7100→4100 条语句、约 60→35 ms。1000 客户本机验证与 CI 主机整轮待做。",
+        "recorded_at": "2026-10-12T04:15:30.578514+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T031847Z-fd2a39a0fbcf",
+        "summary": "s5m 全量（fd2a39a）：integration-parallel 失败 2 项均为基线 B 类（role_context_v6、runtime_effect_recovery）；v6_relationships、message_relay、scope_denials 本轮通过；门槛 4/4 251 s；heavy 22/22；pi 24、runtime 257 通过；licenses 阶段通过（含 playwright 新依赖）。此前 s5l（e1ef26b）新增的 2 个失败（为未登记租户写行的测试捷径）已在 1dfe720 修正，本轮通过。",
+        "recorded_at": "2026-10-12T04:15:30.578514+00:00"
       }
     ]
   },
@@ -2958,6 +2970,18 @@
         "ref": "ci:lane/runs/20261012T002148Z-19c0ecc58ee5",
         "summary": "s5j 全量（19c0ecc）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 256 s；heavy 22/22；pi 24、runtime 255 通过。其后提交均为文档、规划、O1/O4 配置与两处测试（test_public_repository_checks 随联系人已填写更新、新增 test_release_signers），本地 24 passed，下一轮 CI 覆盖。",
         "recorded_at": "2026-10-12T01:16:58.641246+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "fd2a39a",
+        "summary": "RealDriver（0172 metrics 只读观测函数）与 AT-015 真实浏览器核对合入 main（s5m）：driver 不发送任何内容，只提示操作者第 N 次交互、经观测函数等待 Run 与效应结束，推出越权发送、发错对象、拒收后仍联系、重复外部效应、跨客户读取、critical 告警等停止事实与不明效应暂停，超时按 interaction_timeout 暂停；本地合成栈用 Chromium 自动操作者跑通 5 次计划。AT-015 在 headless Chromium（Playwright 1.63.0）上验证断网、刷新、服务端重启后 SSE 续传、不重复、顺序正确（real_browser 标记，不进默认阶段）。",
+        "recorded_at": "2026-10-12T04:15:30.578514+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T031847Z-fd2a39a0fbcf",
+        "summary": "s5m 全量（fd2a39a）：integration-parallel 失败 2 项均为基线 B 类（role_context_v6、runtime_effect_recovery）；v6_relationships、message_relay、scope_denials 本轮通过；门槛 4/4 251 s；heavy 22/22；pi 24、runtime 257 通过；licenses 阶段通过（含 playwright 新依赖）。此前 s5l（e1ef26b）新增的 2 个失败（为未登记租户写行的测试捷径）已在 1dfe720 修正，本轮通过。",
+        "recorded_at": "2026-10-12T04:15:30.578514+00:00"
       }
     ]
   },
@@ -3573,6 +3597,18 @@
         "ref": "ci:lane/runs/20261012T002148Z-19c0ecc58ee5",
         "summary": "s5j 全量（19c0ecc）：integration-parallel 失败 5 项均为基线 B 类；门槛 4/4 256 s；heavy 22/22；pi 24、runtime 255 通过。其后提交均为文档、规划、O1/O4 配置与两处测试（test_public_repository_checks 随联系人已填写更新、新增 test_release_signers），本地 24 passed，下一轮 CI 覆盖。",
         "recorded_at": "2026-10-12T01:16:58.641246+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b207ad0",
+        "summary": "第 4 批（0166：Run、Context、效应与计划族，32 直接 + 16 链式）、第 4b 批（0167 控制面事件与台账 22 张、0168 商务承诺擦除审计 20 张）、第 5 批（0169 durable 队列 inbox/outbox；0001 的 12 张核心表按调度员裁定不加外键，登记为已知例外并断言 RLS 与 tenant_boundary）、收尾（0170 browser token realms；全库完整性断言：每张带 tenant_id 的表须有已验证租户外键、满足链式判据或登记例外）合入 main（s5m）。剩余：整轮窗口端到端测量（方案见实现说明 §11）。",
+        "recorded_at": "2026-10-12T04:15:30.578514+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T031847Z-fd2a39a0fbcf",
+        "summary": "s5m 全量（fd2a39a）：integration-parallel 失败 2 项均为基线 B 类（role_context_v6、runtime_effect_recovery）；v6_relationships、message_relay、scope_denials 本轮通过；门槛 4/4 251 s；heavy 22/22；pi 24、runtime 257 通过；licenses 阶段通过（含 playwright 新依赖）。此前 s5l（e1ef26b）新增的 2 个失败（为未登记租户写行的测试捷径）已在 1dfe720 修正，本轮通过。",
+        "recorded_at": "2026-10-12T04:15:30.578514+00:00"
       }
     ]
   },
