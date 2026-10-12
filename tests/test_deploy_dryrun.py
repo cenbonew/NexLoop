@@ -13,9 +13,10 @@ sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 sys.path.insert(0, str(ROOT / 'scripts/release'))
 import deploy  # noqa: E402
 import release  # noqa: E402
-from test_release_local import DIGEST_API, DIGEST_HOST, inputs, keypair, make, manifest_file  # noqa: E402,F401
+from test_release_local import DIGEST_API, DIGEST_HOST, inputs, keypair, make, manifest_file, oci_archive  # noqa: E402,F401
 
-APP_IMAGES = {'BACKEND_IMAGE': 'nexloop-api', 'AGENT_HOST_IMAGE': 'nexloop-host'}
+APP_IMAGES = {'BACKEND_IMAGE': 'nexloop-api', 'AGENT_HOST_IMAGE': 'nexloop-host', 'GATEWAY_IMAGE': 'nexloop-gateway'}
+DIGEST_GATEWAY = 'sha256:' + 'd' * 64
 
 
 @pytest.fixture
@@ -28,6 +29,10 @@ def stage(tmp_path):
 
 @pytest.fixture
 def signed(inputs):
+    # The synthetic release carries all three images the app host's Compose file requires.
+    images = json.loads(inputs['images'].read_text())
+    images['nexloop-gateway'] = {'archive': str(oci_archive(inputs['tmp'] / 'gateway.tar', DIGEST_GATEWAY)), 'digest': DIGEST_GATEWAY}
+    inputs['images'].write_text(json.dumps(images))
     make(inputs)
     rel = inputs['tmp'] / 'release'
     key, allowed = keypair(inputs['tmp'], 'release-key')
@@ -44,11 +49,12 @@ def run(signed, stage, out, **kw):
 def test_app_dry_run_verifies_the_release_renders_the_host_and_executes_nothing(signed, stage):
     out = run(signed, stage, 'plan')
     assert out['ready'] is True and out['executed'] is False, out
-    assert out['checks'] == {'release_verified': True, 'image_variables_mapped': True, 'compose_images_from_manifest': True}
+    assert out['checks'] == {'release_verified': True, 'image_variables_mapped': True, 'compose_image_variables_complete': True, 'compose_images_from_manifest': True}
     assert out['details']['release']['commit'] == signed['sha']
     plan = signed['tmp'] / 'plan'
     assert sorted(p.name for p in plan.iterdir()) == ['Caddyfile', 'app-host.nft', 'compose.images.env']
-    assert (plan / 'compose.images.env').read_text() == f'AGENT_HOST_IMAGE=nexloop/nexloop-host@{DIGEST_HOST}\nBACKEND_IMAGE=nexloop/nexloop-api@{DIGEST_API}\n'
+    assert (plan / 'compose.images.env').read_text() == (f'AGENT_HOST_IMAGE=nexloop/nexloop-host@{DIGEST_HOST}\nBACKEND_IMAGE=nexloop/nexloop-api@{DIGEST_API}\n'
+                                                         f'GATEWAY_IMAGE=nexloop/nexloop-gateway@{DIGEST_GATEWAY}\n')
     caddy = (plan / 'Caddyfile').read_text()
     assert 'https://app.stage.invalid:8443' in caddy and 'reverse_proxy https://127.0.0.1:8000' in caddy and 'respond "Not found" 404' in caddy
     assert '__' not in caddy and 'tls1.3' in caddy
@@ -98,10 +104,28 @@ def test_data_dry_run_uses_the_locked_images_and_renders_the_data_host(stage, tm
 def test_cli_exit_codes_and_an_existing_output_is_refused(signed, stage, tmp_path):
     script = ROOT / 'scripts/deploy/deploy.py'
     base = ['dry-run', '--host-role', 'app', '--stage-env', str(stage), '--release-dir', str(signed['release']), '--allowed-signers', str(signed['allowed']),
-            '--trusted-sha', signed['sha'], '--image-var', 'BACKEND_IMAGE=nexloop-api', '--image-var', 'AGENT_HOST_IMAGE=nexloop-host']
+            '--trusted-sha', signed['sha'], '--image-var', 'BACKEND_IMAGE=nexloop-api', '--image-var', 'AGENT_HOST_IMAGE=nexloop-host', '--image-var', 'GATEWAY_IMAGE=nexloop-gateway']
     ok = subprocess.run([sys.executable, str(script), *base, '--out', str(tmp_path / 'c1')], capture_output=True, text=True)
     assert ok.returncode == 0 and json.loads(ok.stdout)['ready'] is True
     again = subprocess.run([sys.executable, str(script), *base, '--out', str(tmp_path / 'c1')], capture_output=True, text=True)
     assert again.returncode == 2 and json.loads(again.stdout)['detail'] == 'output directory exists'
     bad = subprocess.run([sys.executable, str(script), *base[:-2], '--trusted-sha', '1' * 40, '--out', str(tmp_path / 'c2')], capture_output=True, text=True)
     assert bad.returncode == 1
+
+
+@pytest.mark.parametrize('omitted', ['BACKEND_IMAGE', 'AGENT_HOST_IMAGE', 'GATEWAY_IMAGE'])
+def test_an_explicit_mapping_that_leaves_out_a_required_image_is_refused(signed, stage, omitted):
+    """Every image variable the app host's Compose file requires is rendered; leaving one out of --image-var is refused here,
+    not at `docker compose up` (found by the NX-034 local dry run)."""
+    assert deploy.required_image_variables('app') == ['AGENT_HOST_IMAGE', 'BACKEND_IMAGE', 'GATEWAY_IMAGE']
+    out = run(signed, stage, 'omit-' + omitted, image_vars={k: v for k, v in APP_IMAGES.items() if k != omitted})
+    assert out['ready'] is False and out['checks']['compose_image_variables_complete'] is False
+    assert out['details']['missing_image_variables'] == [omitted]
+    assert out['checks']['image_variables_mapped'] is True  # every name given exists in the manifest; the gap is the omission
+    assert omitted + '=' not in (signed['tmp'] / ('omit-' + omitted) / 'compose.images.env').read_text()
+
+
+def test_the_data_host_renders_every_image_its_compose_file_requires(stage, tmp_path):
+    assert deploy.required_image_variables('data') == sorted(deploy.DATA_IMAGES)
+    out = deploy.dry_run(host_role='data', stage_env=stage, out=tmp_path / 'data')
+    assert out['checks']['compose_image_variables_complete'] is True and out['details']['missing_image_variables'] == []

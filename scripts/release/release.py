@@ -543,7 +543,7 @@ def _own_names(root):
 
 
 # ---- NX-034 part 2: preflight block in the signed manifest -------------------------------------------------------------------
-STAGE_PREFLIGHT_STEPS = ('clean_checkout', 'licenses', 'source_sbom', 'vulnerabilities')
+STAGE_PREFLIGHT_STEPS = ('clean_checkout', 'licenses', 'source_sbom', 'vulnerabilities', 'images_pinned')
 PREFLIGHT_KEEP = ('preflight.json', 'licenses.json', 'source.spdx.json')
 
 
@@ -564,7 +564,23 @@ def _clean_checkout(sha, out, run, root, record):
     return archive, checkout
 
 
-def stage_preflight(ref, out, *, root=ROOT, runner=None, sbom_maker=None, today=None):
+def pinned_image_problems(root=ROOT):
+    """Every image of deploy/release/images.v1.json comes from versions.lock.json by digest: the build arguments of 'build'
+    images and the 'upstream' images themselves (the gateway). One problem per lock entry that has no reference and digest."""
+    config = json.loads((Path(root) / 'deploy/release/images.v1.json').read_text())
+    lock = json.loads((Path(root) / 'versions.lock.json').read_text())['images']
+    names = set()
+    for entry in config['images'].values():
+        names.update(entry.get('build_args', {}).values() if entry['kind'] == 'build' else [entry['lock']])
+    problems = []
+    for name in sorted(names):
+        entry = lock.get(name) or {}
+        if not _DIGEST.fullmatch(entry.get('digest') or '') or not entry.get('reference'):
+            problems.append(f'{name}: not pinned by digest ({entry.get("status") or "missing"})')
+    return problems
+
+
+def stage_preflight(ref, out, *, root=ROOT, runner=None, sbom_maker=None, today=None, pinned_checker=None):
     """NX-036 §6 for stage releases: the license check (blocking) and the source SBOM cross-checked with the license inventory
     (differences listed, not blocking, D5); stage vulnerability policy on the source findings (only invalid or expired waivers
     fail). A missing tool fails the step: it is never a pass."""
@@ -599,6 +615,13 @@ def stage_preflight(ref, out, *, root=ROOT, runner=None, sbom_maker=None, today=
         record('vulnerabilities', not verdict['problems'], {'problems': verdict['problems'], **verdict['summary']})
     else:
         record('vulnerabilities', False, {'refused': 'no source scan'})
+    # The release's images must all be pinned by digest in the released commit's lock (the gateway was not, NX-034 local dry
+    # run): a missing digest fails the preflight instead of the build or the deploy.
+    try:
+        unpinned = (pinned_checker or (lambda: pinned_image_problems(checkout if (checkout / 'versions.lock.json').is_file() else root)))()
+        record('images_pinned', not unpinned, {'unpinned': unpinned})
+    except (OSError, ValueError, KeyError) as error:
+        record('images_pinned', False, {'refused': type(error).__name__})
     ok = all(step['ok'] for step in steps.values())
     report = {'ref': ref, 'commit': sha, 'category': 'stage', 'ok': ok, 'steps': {name: steps[name] for name in STAGE_PREFLIGHT_STEPS}}
     text = json.dumps(report, indent=2, sort_keys=True) + '\n'
@@ -650,7 +673,7 @@ def preflight_failures(release_dir, manifest):
     return failures
 
 
-def run_preflight(release_dir, category, *, previous_public=None, root=ROOT, runner=None, sbom_maker=None, today=None):
+def run_preflight(release_dir, category, *, previous_public=None, root=ROOT, runner=None, sbom_maker=None, today=None, pinned_checker=None):
     release_dir = Path(release_dir)
     manifest = json.loads((release_dir / 'manifest.json').read_text())
     if (release_dir / 'manifest.json.sig').exists() or manifest.get('preflight') is not None:
@@ -660,7 +683,7 @@ def run_preflight(release_dir, category, *, previous_public=None, root=ROOT, run
         raise InputError('preflight staging directory exists')
     try:
         if category == 'stage':
-            report = stage_preflight(manifest['commit'], staging, root=root, runner=runner, sbom_maker=sbom_maker, today=today)
+            report = stage_preflight(manifest['commit'], staging, root=root, runner=runner, sbom_maker=sbom_maker, today=today, pinned_checker=pinned_checker)
         else:
             report = public_preflight(manifest['commit'], staging, previous_public=previous_public, release_dir=release_dir, root=root,
                                       runner=runner, sbom_maker=sbom_maker, today=today)
@@ -691,6 +714,54 @@ def require_containerd_store(docker):
         raise NotInstalled('docker daemon not available')
     if 'io.containerd.snapshotter' not in out:
         raise InputError('docker must use the containerd image store (driver-type io.containerd.snapshotter.v1)')
+
+
+# Release images run on the stage hosts (linux/amd64). They are built only on the CI host: a development machine (arm64)
+# builds images no stage host can run, and a build there would still produce a signed release. Refused, not warned: a warning
+# would let an undeployable release be signed and sealed (NX-034 local dry run).
+RELEASE_PLATFORM = 'linux/amd64'
+_DAEMON_PLATFORMS = {'linux/x86_64': 'linux/amd64', 'linux/amd64': 'linux/amd64'}
+_ATTESTATION = 'attestation-manifest'
+
+
+def require_release_platform(docker):
+    code, out = docker(['info', '--format', '{{.OSType}}/{{.Architecture}}'])
+    if code != 0:
+        raise NotInstalled('docker daemon not available')
+    if _DAEMON_PLATFORMS.get(out.strip()) != RELEASE_PLATFORM:
+        raise Refused(f'release images are built only on the CI host ({RELEASE_PLATFORM}); this docker daemon is {out.strip() or "unknown"}')
+
+
+def saved_image_platforms(archive, digest):
+    """(platforms, attestations) of the image `digest` names in a saved archive: an OCI index lists its manifests (platform
+    images and buildx attestation manifests); a single image manifest names its platform in its config."""
+    try:
+        with tarfile.open(archive) as tar:
+            def blob(d):
+                return json.load(tar.extractfile('blobs/sha256/' + d.split(':', 1)[1]))
+            top = blob(digest)
+            if 'manifests' in top:
+                platforms, attestations = [], 0
+                for m in top['manifests']:
+                    if (m.get('annotations') or {}).get('vnd.docker.reference.type') == _ATTESTATION:
+                        attestations += 1
+                    else:
+                        p = m.get('platform') or {}
+                        platforms.append(f"{p.get('os')}/{p.get('architecture')}")
+                return platforms, attestations
+            config = blob(top['config']['digest'])
+            return [f"{config.get('os')}/{config.get('architecture')}"], 0
+    except (KeyError, tarfile.TarError, OSError, ValueError, TypeError, AttributeError) as error:
+        raise Refused('saved archive does not hold the image of its digest') from error
+
+
+def require_release_image(name, archive, digest):
+    """Exactly one linux/amd64 image and no attestation manifest: the release digest is the image itself, the same everywhere,
+    with no build-host provenance in it (the SBOM is produced separately by the pinned syft)."""
+    platforms, attestations = saved_image_platforms(archive, digest)
+    if platforms != [RELEASE_PLATFORM] or attestations:
+        raise Refused(f'{name}: saved image must be exactly one {RELEASE_PLATFORM} image without attestations '
+                      f'(platforms {platforms}, attestations {attestations})')
 
 
 def saved_image_digest(archive, tag_reference):
@@ -759,6 +830,7 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
         raise InputError('release directory exists (releases are immutable)')
     docker = docker or _docker
     require_containerd_store(docker)
+    require_release_platform(docker)
     lock = json.loads((root / 'versions.lock.json').read_text())
     staging = root / '.ci-results' / 'release-build' / rid
     if staging.exists():
@@ -773,7 +845,8 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
                 for argument, base in sorted(entry['build_args'].items()):
                     arguments += ['--build-arg', f'{argument}={pinned_reference(lock, base)}']
                 context = (preparer or _prepare)(entry['context'], staging / name)
-                code, _ = docker(['build', '--pull=false', *arguments, '--label', f'org.opencontainers.image.revision={sha}', '--tag', tag, str(context)], 3600)
+                # No provenance or SBOM attestations: the release digest names the linux/amd64 image alone.
+                code, _ = docker(['build', '--pull=false', '--platform', RELEASE_PLATFORM, '--provenance=false', '--sbom=false', *arguments, '--label', f'org.opencontainers.image.revision={sha}', '--tag', tag, str(context)], 3600)
                 base = entry['base']
                 if base not in entry['build_args'].values():
                     raise InputError(f'{name}: base must be one of its build arguments')
@@ -791,6 +864,7 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
             if docker(['save', '-o', str(archive), tag], 1800)[0] != 0 or not archive.is_file():
                 raise Refused(f'{name}: docker save failed')
             digest = saved_image_digest(archive, tag)
+            require_release_image(name, archive, digest)
             code, image_id = docker(['image', 'inspect', '--format', '{{.Id}}', tag])
             if code != 0 or image_id.strip() != digest:
                 raise Refused(f'{name}: the local image id differs from the saved manifest digest')
@@ -800,6 +874,37 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return {'release_id': manifest['release_id'], 'release_dir': str(out), 'images': {i['name']: i['reference'] for i in manifest['images']}}
+
+
+def pin_upstream(lock_name, reference, digest, *, root=ROOT, docker=None, now=None):
+    """Back-fill an upstream image's digest in versions.lock.json (the gateway; on the CI host, after `docker pull
+    <repository>@<digest>` by digest). The digest is that of the linux/amd64 image manifest, not of a multi-platform index:
+    the release then holds one platform image without attestations, like the built ones (require_release_image). Written only
+    when the image is present locally by that digest and is linux/amd64; the lock change is committed by review."""
+    if not _DIGEST.fullmatch(digest or ''):
+        raise InputError('digest must be sha256:<64 hex>')
+    repository = (reference or '').split('@')[0]
+    base = repository.rsplit(':', 1)[0] if ':' in repository.rsplit('/', 1)[-1] else repository  # without the tag
+    if '@' in (reference or '') or not _NAME.fullmatch(base):
+        raise InputError('reference must be <repository>[:<tag>]')
+    config = json.loads((Path(root) / 'deploy/release/images.v1.json').read_text())
+    if lock_name not in {e['lock'] for e in config['images'].values() if e['kind'] == 'upstream'}:
+        raise InputError('not an upstream image of the release')
+    docker = docker or _docker
+    require_release_platform(docker)
+    pinned = base + '@' + digest
+    code, out = docker(['image', 'inspect', '--format', '{{.Id}} {{.Os}}/{{.Architecture}}', pinned])
+    if code != 0:
+        raise Refused(f'{pinned} not present locally (pull it by digest first)')
+    image_id, _, platform = out.strip().partition(' ')
+    if image_id != digest or platform != RELEASE_PLATFORM:
+        raise Refused(f'{pinned}: local image id {image_id or "unknown"} / platform {platform or "unknown"} is not {digest} / {RELEASE_PLATFORM}')
+    path = Path(root) / 'versions.lock.json'
+    lock = json.loads(path.read_text())
+    lock['images'][lock_name] = {'reference': reference, 'digest': digest, 'platform': RELEASE_PLATFORM, 'status': 'pinned',
+                                 'pinned_at': (now or datetime.now(UTC)).date().isoformat()}
+    path.write_text(json.dumps(lock, indent=2, ensure_ascii=False) + '\n')
+    return {'lock': lock_name, 'reference': pinned, 'platform': RELEASE_PLATFORM}
 
 
 def load_check(release_dir, *, docker=None):
@@ -895,6 +1000,10 @@ def main(argv=None):
     p.add_argument('--out', required=True, type=Path)
     p.add_argument('--previous-public')
     p.add_argument('--release-dir', type=Path)
+    p = sub.add_parser('pin-upstream')
+    p.add_argument('--lock-name', required=True)
+    p.add_argument('--reference', required=True, help='<repository>:<tag> the digest was resolved from')
+    p.add_argument('--digest', required=True, help='sha256 of the linux/amd64 image manifest')
     p = sub.add_parser('rollback-check')
     p.add_argument('--current', required=True, type=Path)
     p.add_argument('--target', required=True, type=Path)
@@ -928,6 +1037,8 @@ def main(argv=None):
             result = verify(args.release_dir, allowed_signers=args.allowed_signers, deploy_sha=args.deploy_sha, deploy_images=images)
         elif args.command == 'sbom':
             result = sbom(args.release_dir)
+        elif args.command == 'pin-upstream':
+            result = pin_upstream(args.lock_name, args.reference, args.digest)
         elif args.command == 'public-preflight':
             report = public_preflight(args.ref, args.out, previous_public=args.previous_public, release_dir=args.release_dir)
             if not report['ok']:

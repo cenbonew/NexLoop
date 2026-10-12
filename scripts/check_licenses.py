@@ -358,9 +358,23 @@ def vendored_problems(root, policy):
     return problems
 
 
+# Directories the locked dependency phase creates in a clean checkout; never part of the source.
+INSTALLED_DIRECTORIES = frozenset({'.git', '.venv', 'node_modules', '__pycache__'})
+
+
+def tracked_files(root):
+    """The source files of `root`: `git ls-files` in a work tree; in a `git archive` extraction (the release preflight's clean
+    checkout, which has no .git) every file there is a tracked one, apart from what the dependency phase installed."""
+    root = Path(root)
+    if (root / '.git').exists():
+        return subprocess.run(['git', 'ls-files', '-z'], cwd=root, capture_output=True, check=True).stdout.decode().split('\0')
+    return sorted(str(path.relative_to(root)) for path in root.rglob('*')
+                  if path.is_file() and not INSTALLED_DIRECTORIES.intersection(path.relative_to(root).parts))
+
+
 def asset_problems(root, policy, tracked=None):
     if tracked is None:
-        tracked = subprocess.run(['git', 'ls-files', '-z'], cwd=root, capture_output=True, check=True).stdout.decode().split('\0')
+        tracked = tracked_files(root)
     listed = {item['path']: item for item in policy['assets']}
     problems = []
     for name in sorted(n for n in tracked if n):
