@@ -880,6 +880,11 @@
       "version": "0176",
       "name": "0176_context_claims_refusal.sql",
       "sha256": "3fdd40dc582200ac774642e1113fb439d2ef41fdbc2f1ae0d86122347cef285d"
+    },
+    {
+      "version": "0177",
+      "name": "0177_nx031_one_reply_per_inbound_message.sql",
+      "sha256": "6300060b9f9231ba6166ccaf6f4f982c463bfd38dfdc433e28dc547fd2961a20"
     }
   ]
 }

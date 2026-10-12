@@ -131,8 +131,12 @@ def checks(db, start, end, cross_access):
           or exists(select 1 from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world
                     and cv.conversation_id=m.conversation_id where m.tenant_id=%s and m.world=%s and m.message_id=c.id and cv.consumer_id<>r.consumer_id))
         from cited c join r on r.run_id=c.run_id""", TENANT, WORLD, TENANT, WORLD, start, end, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD)
-    duplicate = one('''select count(*),count(*) filter (where n>1) from (select trigger_message_id,count(*) n from runtime.nexloop_outbound_messages
-        where tenant_id=%s and world=%s and delivery_state in ('provider_accepted','delivered') group by 1) x''', TENANT, WORLD)
+    # 6. One reply the customer can see per inbound message, over the whole tenant (a duplicate is never acceptable), split by
+    #    where the trigger message comes from: the template's history (accepted before the window) or the cell's window.
+    duplicate = one('''select count(*),count(*) filter (where n>1),count(*) filter (where n>1 and in_window),count(*) filter (where n>1 and not in_window)
+        from (select o.trigger_message_id,count(*) n,bool_or((t.record->>'accepted_at')::timestamptz>=%s) in_window from runtime.nexloop_outbound_messages o
+          left join runtime.nexloop_conversation_messages t on t.tenant_id=o.tenant_id and t.world=o.world and t.message_id=o.trigger_message_id
+          where o.tenant_id=%s and o.world=%s and o.delivery_state in ('provider_accepted','delivered') group by 1) x''', start, TENANT, WORLD)
     # 7. Every inbound message accepted in the window has an outcome: answered, settled by a takeover, or escalated.
     unresolved = one('''select count(*),count(*) filter (where not (
             runtime.nexloop_inbound_answered(m.tenant_id,m.world,m.message_id)
@@ -142,7 +146,8 @@ def checks(db, start, end, cross_access):
         and (m.record->>'accepted_at')::timestamptz>=%s and (m.record->>'accepted_at')::timestamptz<%s''', TENANT, WORLD, start, end)
     return {'run_binding': {'checked': run_binding[0], 'violations': run_binding[1]}, 'outbound_ownership': {'checked': outbound[0], 'violations': outbound[1]},
             'claim_ownership': {'checked': claims[0], 'violations': claims[1]}, 'model_context': {'checked': model[0], 'violations': model[1]},
-            'cross_access_probe': cross_access, 'duplicate_effects': {'checked': duplicate[0], 'violations': duplicate[1]},
+            'cross_access_probe': cross_access, 'duplicate_effects': {'checked': duplicate[0], 'violations': duplicate[1],
+                                                                   'window_violations': duplicate[2], 'history_violations': duplicate[3]},
             'unresolved_work': {'checked': unresolved[0], 'unresolved': unresolved[1]}}
 
 
