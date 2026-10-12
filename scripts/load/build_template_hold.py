@@ -68,11 +68,15 @@ def reply_history(out, pg, tenant, lane, *, dispatch_loops=4):
     collect.TENANT = tenant
     chain = load_stack.Stack(SimpleNamespace(dsn=pg), out, lane, {})
     started, last, changed = time.monotonic(), None, time.monotonic()
+    # AT-060 ladder: read-only progress samples every 30 s into <template>/history-monitor.jsonl (numbers and codes only).
+    from history_monitor import HistoryMonitor
+    monitor = HistoryMonitor(Path(out) / 'history-monitor.jsonl', tenant)
     try:
         chain.start_message_chain(dispatch_loops)
         while True:
             with psycopg.connect(pg, autocommit=True) as db:
                 left = history_open(db, tenant)
+                monitor.tick(db, force=not any(left.values()))
             if not any(left.values()):
                 break
             if left != last:
@@ -86,6 +90,11 @@ def reply_history(out, pg, tenant, lane, *, dispatch_loops=4):
                 raise RuntimeError(f'history replies did not settle: {left}')
             time.sleep(5)
     finally:
+        try:  # the closing line, also when the history did not settle (best effort, read-only)
+            with psycopg.connect(pg, autocommit=True) as db:
+                monitor.tick(db, force=True)
+        except Exception:
+            pass
         chain.stop()
     with psycopg.connect(pg, autocommit=True) as db:
         outcome = {'seconds': round(time.monotonic() - started, 1), 'jobs': collect.jobs_summary(db), 'run_durations': collect.run_durations(db),
