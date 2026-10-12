@@ -257,7 +257,9 @@ class Stack:
         api_dsn = self.file('chain-api-dsn', self.dsn('nexloop_api'))
         self._spawn('relay', [sys.executable, '-m', 'nexloop_eios.message_relay_cli', '--database-url-file', str(api_dsn), *common,
             '--artifact-root', str(self.lane / 'relay-artifacts'), '--vault-root', str(self.lane / 'relay-vault'), '--run-profile-file', str(self.run_profile_file()),
-            *sum(([f'--{name}-credential-file', str(token[name])] for name in ('route', 'source', 'planner', 'executor')), [])])
+            *sum(([f'--{name}-credential-file', str(token[name])] for name in ('route', 'source', 'planner', 'executor')), []),
+            # NX-031 ladder: issue no new Run while 4 x the Host concurrency message Run tasks are open (credentials live 300 s).
+            '--max-backlog', str(4 * host_concurrency)])
         self._spawn('outbound-recorder', [sys.executable, '-m', 'nexloop_eios.outbound_messages', '--database-url-file', str(api_dsn), *common,
             '--service-credential-file', str(recorder), '--artifact-root', str(self.lane / 'recorder-artifacts'), '--world', 'real'])
         # NX-052 full-window state D (implementation note §11): emulate a configuration publication every few seconds. Unset by default.

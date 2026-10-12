@@ -123,7 +123,7 @@ class MessageRelayPort:
 
 
 class MessageRelay:
-    def __init__(self,*,route,source,planner,executor_token,vault,recipe=None,run_profile=None,relationship_recipe=None,context_strategy=None):
+    def __init__(self,*,route,source,planner,executor_token,vault,recipe=None,run_profile=None,relationship_recipe=None,context_strategy=None,max_backlog=None):
         from nexloop_eios.relationship_context import RelationshipContextRecipe
         if relationship_recipe is not None and type(relationship_recipe) is not RelationshipContextRecipe:raise MessageRelayUnavailable()
         # NX-023: an explicit strategy selects Context v6 (v2 core, or the v4 core when a
@@ -142,6 +142,14 @@ class MessageRelay:
         self.recipe=None if recipe is None else validate_recipe(recipe)
         self.run_profile=None if run_profile is None else validate_run_profile(run_profile)
         if any(service._backend is not route._backend for service in (source,planner)): raise MessageRelayUnavailable()
+        # NX-031 ladder: admission bound on the tenant's open message Run tasks; None keeps claiming as before.
+        if max_backlog is not None and (type(max_backlog) is not int or not 1<=max_backlog<=10000): raise MessageRelayUnavailable()
+        self.max_backlog=max_backlog
+
+    def _backlog(self):
+        session=self.route._session
+        with self.route._backend._pool.connection() as db:
+            return db.execute('select authz.nexloop_relay_backlog(%s,%s)',(session.token_digest,session.world)).fetchone()[0]
 
     def _create(self,type_name,message_id,properties,recipe=None):
         recipe=self.recipe if recipe is None else recipe
@@ -174,6 +182,9 @@ class MessageRelay:
             raise MessageRelayUnavailable() from None
 
     def _run_once(self,claimed):
+        # A Run credential lives 300 s from issuance: while the queue already holds max_backlog open Run tasks, issue no new
+        # Run (the message stays unrouted and is claimed later), so a credential is never issued only to expire queued.
+        if self.max_backlog is not None and self._backlog()>=self.max_backlog: return 'idle'
         try:
             if self.recipe is not None:
                 recipe=self.recipe

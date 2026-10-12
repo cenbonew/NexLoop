@@ -317,6 +317,21 @@ class EffectExecutionPort:
                     db.execute('select authz.nexloop_fail_refused_effect(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),code,reason))
         except Exception:pass  # best effort: never turns a refusal into anything else
 
+    def settle_expired_origin(self,*,intent_id):
+        """0400: when the intent's origin Run credential has expired, fail a never-dispatched intent or stop re-querying a
+        dispatched one ('failed' / 'stopped'); 'none' when the origin is still current. Best effort, never raises."""
+        try:
+            with self.pool.connection() as db,db.transaction():
+                return db.execute('select authz.nexloop_effect_origin_expired(%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)))).fetchone()[0]
+        except Exception:return None
+
+    def back_off_unknown(self,*,intent_id):
+        """0400: offer an unknown intent again only after min(60, 2^n) s. Best effort, never raises."""
+        try:
+            with self.pool.connection() as db,db.transaction():
+                return db.execute('select authz.nexloop_effect_query_backoff(%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)))).fetchone()[0]
+        except Exception:return None
+
     def record_effect_unknown(self,*,intent_id,fence):
         try:
             identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity)

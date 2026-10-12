@@ -230,6 +230,14 @@ class AuthenticatedServices:
     def record_effect_unknown(self, *, intent_id, fence):
         return self._backend._invoke(self._session, 'record_effect_unknown', intent_id=intent_id, fence=fence)
 
+    def settle_expired_origin(self, *, intent_id):
+        # 0400: fail a never-dispatched intent or stop re-querying a dispatched one once its origin Run credential expired.
+        return self._backend._invoke(self._session, 'settle_expired_origin', intent_id=intent_id)
+
+    def back_off_unknown(self, *, intent_id):
+        # 0400: offer an unknown intent again only after min(60, 2^n) s.
+        return self._backend._invoke(self._session, 'back_off_unknown', intent_id=intent_id)
+
     def record_effect_observation(self, *, intent_id, fence, provider_profile_digest, provider_payload_digest, provider_state, provider_reference):
         return self._backend._invoke(self._session, 'record_effect_observation', intent_id=intent_id, fence=fence, provider_profile_digest=provider_profile_digest, provider_payload_digest=provider_payload_digest, provider_state=provider_state, provider_reference=provider_reference)
 
@@ -588,7 +596,7 @@ class Backend:
                     queue=arguments.pop('queue'))
                 return getattr(queue, queue_operations[operation])(**arguments)
             if operation in ('claim_effect','prepare_effect_dispatch','authorize_effect_query',
-                              'record_effect_unknown','record_effect_observation','record_effect_query_observation','reconcile_effect_receipt','read_effect_receipt'):
+                              'record_effect_unknown','settle_expired_origin','back_off_unknown','record_effect_observation','record_effect_query_observation','reconcile_effect_receipt','read_effect_receipt'):
                 from nexloop_eios.effect_execution import EffectExecutionPort
                 return getattr(EffectExecutionPort(self._pool,session,self._signer),operation)(**arguments)
             if operation in ('configure_effect_control','bind_effect_context'):

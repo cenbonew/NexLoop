@@ -20,6 +20,16 @@ class EffectDispatcher:
         self.ledger, self.provider, self.lease_seconds = ledger, provider, lease_seconds
         self.provider_profile_digest = provider.profile_digest
 
+    def _origin_expired(self, identity):
+        # 0400: an expired origin Run can never authorize a dispatch or a query again; stop instead of retrying with it.
+        settle = getattr(self.ledger, 'settle_expired_origin', None)
+        return settle(intent_id=identity['intent_id']) if settle else None
+
+    def _back_off(self, identity):
+        back_off = getattr(self.ledger, 'back_off_unknown', None)
+        if back_off:
+            back_off(intent_id=identity['intent_id'])
+
     def run_once(self):
         """Claim once. An orphan dispatch is always query-first, never new send.
 
@@ -51,10 +61,13 @@ class EffectDispatcher:
                 # dies, committed dispatching itself drives query-first reclaim.
                 try: self.ledger.record_effect_unknown(**identity)
                 except Exception: pass
+                self._back_off(identity)
                 return {'claimed': True, 'status': 'unknown', 'business_action_success': False}
             except Exception:
                 # Fail closed. Do not convert an uncertain PG commit into a send
                 # or independently retry the original provider request.
+                if self._origin_expired(identity) == 'failed':
+                    return {'claimed': True, 'status': 'origin_expired', 'business_action_success': False}
                 return {'claimed': True, 'status': 'admission_unavailable', 'business_action_success': False}
         else:
             try:
@@ -66,8 +79,11 @@ class EffectDispatcher:
             except EffectProviderQueryUnavailable:
                 try: self.ledger.record_effect_unknown(**identity)
                 except Exception: pass
+                self._back_off(identity)
                 return {'claimed': True, 'status': 'unknown', 'business_action_success': False}
             except Exception:
+                if self._origin_expired(identity) == 'stopped':
+                    return {'claimed': True, 'status': 'origin_expired', 'business_action_success': False}
                 return {'claimed': True, 'status': 'query_unavailable', 'business_action_success': False}
         if receipt.state == 'not_found':
             # This minimal policy deliberately has no automatic resend. A future
@@ -75,6 +91,7 @@ class EffectDispatcher:
             # current origin/executor/controls/budget again under the same key.
             try: self.ledger.record_effect_unknown(**identity)
             except Exception: pass
+            self._back_off(identity)
             return {'claimed': True, 'status': 'unknown', 'business_action_success': False}
         try:
             record = self.ledger.record_effect_query_observation if job['stage'] == 'reconcile' else self.ledger.record_effect_observation
