@@ -161,11 +161,12 @@ def test_dispatch_rechecks_current_source_and_control_zero_send(governed_effect_
             else:fixture.revoke_control()
             pipe.send('release')
             assert pipe.poll(15);result=pipe.recv();worker.join(10)
+            # 0174: a revocation alone may be undone (a restore re-issues Run credentials): the intent keeps waiting.
             assert worker.exitcode==0 and result['status']=='admission_unavailable'
             assert result['business_action_success'] is False
         snapshot=provider.control('snapshot');assert snapshot['effects']==0 and snapshot['requests']==[]
         state=admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(receipt['intent_id'],)).fetchone()[0]
-        assert state not in {'fulfilled','confirmed'}
+        assert state not in {'fulfilled','confirmed','failed'}
 
 
 def test_query_only_after_revoke_observes_fulfillment_without_claim_success(governed_effect_executor,admin,tmp_path):

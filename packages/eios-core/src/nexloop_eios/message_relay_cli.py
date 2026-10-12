@@ -41,9 +41,11 @@ def arguments(argv):
     parser.add_argument('--pool-max',type=int,default=POOL_MAX)
     # NX-023: explicit published strategy selects Context v6; omitted keeps the v2 Context.
     parser.add_argument('--context-strategy')
+    parser.add_argument('--max-backlog',type=int,help='stop claiming while the tenant has this many open message Run tasks (default: no bound)')
     result=parser.parse_args(argv)
     if not math.isfinite(result.tick_seconds) or not .01<=result.tick_seconds<=30 or not re.fullmatch('[A-Za-z0-9_-]{1,64}',result.signing_key_id) or not 1<=result.pool_max<=8: parser.error('configuration')
     if result.context_strategy is not None and not re.fullmatch('[a-z][a-z0-9_]{0,63}',result.context_strategy): parser.error('configuration')
+    if result.max_backlog is not None and not 1<=result.max_backlog<=10000: parser.error('configuration')
     return result
 
 
@@ -98,7 +100,7 @@ def run(config,stop):
                         vault._check()
                         if stop.is_set(): break
                         status=MessageRelay(route=route,source=source,planner=planner,
-                            executor_token=executor,vault=vault,**{current[0]:current[1]},context_strategy=config.context_strategy).run_once()
+                            executor_token=executor,vault=vault,**{current[0]:current[1]},context_strategy=config.context_strategy,max_backlog=config.max_backlog).run_once()
                         if config.once:
                             if status not in {'idle','queued','requires_governed_replan','handed_to_fallback'}: raise ValueError()
                             print(json.dumps({'status':status},separators=(',',':')),flush=True)

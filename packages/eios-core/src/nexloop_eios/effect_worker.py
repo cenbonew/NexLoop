@@ -90,7 +90,7 @@ def run(arguments,stop):
                 result=EffectDispatcher(executor,provider,lease_seconds=arguments.lease_seconds).run_once()
                 if arguments.once:
                     status=result.get('status','idle')
-                    if status not in {'idle','unknown','dispatching','observed_fulfilled','fulfilled','confirmed','query_unavailable','record_unavailable','admission_unavailable'}:
+                    if status not in {'idle','unknown','dispatching','observed_fulfilled','fulfilled','confirmed','query_unavailable','record_unavailable','admission_unavailable','origin_expired'}:
                         status='unavailable'
                     print(json.dumps({'claimed':result.get('claimed') is True,'status':status},separators=(',',':')),flush=True)
                     return 0
