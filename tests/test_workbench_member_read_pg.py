@@ -47,6 +47,8 @@ def audit_rows(admin):
 
 
 def copy_object(admin, object_id, new_id, *, tenant=TENANT, world='real'):
+    # NX-052 batch 4: rows written for another tenant (work feed) reference an existing tenant row.
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (tenant,))
     cols = admin.execute("select array_agg(column_name::text order by ordinal_position) from information_schema.columns where table_schema='ontology' and table_name='objects'").fetchone()[0]
     picked = ','.join('%s' if c in ('object_id', 'tenant_id', 'world') else c for c in cols)
     params = [{'object_id': new_id, 'tenant_id': tenant, 'world': world}[c] for c in cols if c in ('object_id', 'tenant_id', 'world')]
