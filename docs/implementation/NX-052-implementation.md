@@ -364,3 +364,41 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 测量期间本机负载约 6.7，L4 正在跑 1000 客户模板，所以 p95 低于 1 是噪声。中位比值与前几批的 1.04–1.05 处在同一量级。
 
 端到端 p95 等整轮窗口按三个状态测量，判据是增加不超过 5%。
+
+## 9. 批次 4b：控制面事件与台账；商务、承诺、擦除与审计（0350、0351，临时号）
+
+裁定（调度员 2026-10-12）：先做写入频率低、风险小的控制面表，再做商务、承诺、擦除和审计。擦除表与审计表要注意删除传播和只追加约束，外键不得阻碍擦除的顺序。
+
+### 9.1 范围
+
+- **0350（4b-1，22 张）**：
+  - 控制面事件：`action_effect_externality`、`alert_events`、`alert_state`、`control_events`；
+  - 浏览器会话与登录：`browser_evidence`、`browser_login_events`、`browser_sessions`；
+  - 限流计数：`browser_rate_counters`；
+  - 身份关联回执：`consumer_identity_link_receipts`；
+  - 联系限制：`contact_refusal_hits`、`contact_restrictions`；
+  - 效应控制台账与计划绑定：`effect_control_ledger`、`effect_plan_bindings`；
+  - 真实派发开关：`real_dispatch_switches`；
+  - 关系上下文配方：`relationship_context_recipes`；
+  - 回复升级与对账：`reply_escalations`、`reply_reconciles`；
+  - 接管：`takeovers`、`takeover_escalations`、`takeover_settlements`；
+  - 清扫记录：`runtime.nexloop_orphan_sweeps`、`retention_sweeps`。
+- **0351（4b-2，20 张）**：
+  - 商务：`commercial_customer_links`，以及 runtime 中的 6 张 `commercial_*` 表；
+  - 承诺：4 张 `commitment*` 表；
+  - 激励：`incentive_issues`；
+  - 擦除：`consumer_erasures`、`data_exports`、`deletion_ledger`、`erased_contact_keys`、`erasure_artifacts`、`erasure_tombstones`；
+  - 审计：`read_audit_daily`、`workbench_read_audit`。
+- **全部直接加**：这些表现有的外键（如 `takeover_id`、`connector_id`、`context_id`、`control_id`）都不带 `tenant_id`，不满足链式判据。
+
+### 9.2 删除传播与只追加约束
+
+- **没有 ON DELETE 冲突**：仓库里对这些表的删除全部是删除子行，来自擦除步骤、保留到期清扫和恢复日志回放；子表指向租户的外键不约束子行的删除。仓库中没有删除租户行或修改 `tenant_id` 的代码，所以不需要任何 `ON DELETE` 动作，擦除顺序不受影响。
+- **只追加触发器不受影响**：`*_append_only`、`nx029_no_delete`、`nx029_ledger` 等触发器保护的是这些行自身的 update 和 delete；外键只在插入时检查租户是否存在，两者互不影响。
+- **恢复不受影响**：恢复演练用 `pg_restore`，它先装载数据、后建约束。
+
+### 9.3 写入路径与测试捷径
+
+生产写入方都在签名授权或身份快照校验之后写入，租户必然存在。
+
+唯一受影响的测试捷径是 `tests/test_journal_retention_pg.py`：它在没有租户行的情况下直接写入 `deletion_ledger`，现已在 fixture 中先插入两个租户。
