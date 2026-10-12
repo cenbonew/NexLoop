@@ -70,7 +70,8 @@ def test_batch3_foreign_keys_are_validated_and_the_vendored_core_is_untouched(db
     assert not set(CORE) & set(rows)
 
 
-@pytest.mark.parametrize('table', ['ontology.nexloop_merge_configurations', 'ontology.nexloop_extraction_runs', 'runtime.nexloop_conversations', 'runtime.nexloop_message_inbox'])
+@pytest.mark.parametrize('table', ['ontology.nexloop_merge_configurations', 'ontology.nexloop_extraction_runs', 'runtime.nexloop_conversations', 'runtime.nexloop_message_inbox',
+                                   'runtime.nexloop_run_tool_timings', 'runtime.nexloop_work_feed'])
 def test_cost_method_covers_the_batch3_samples(db, pg, table):
     report = tenant_fk_cost.measure(pg, table, TENANT_A, rows=20, rounds=1, hold_seconds=0.3)
     assert report['fk_trigger_sample'] and report['lock_probe']['blocked_by_for_update'] and not report['lock_probe']['blocked_by_for_no_key_update']
@@ -116,3 +117,26 @@ def test_chain_rule_rejects_a_child_that_does_not_carry_the_tenant(db):
             foreign key(tenant_id, world, conversation_id) references runtime.nexloop_conversations)""")
         covered = {t for (t,) in db.execute(TENANT_PATH_SQL).fetchall()}
         assert 'runtime.nx052_good_child' in covered and 'runtime.nx052_bad_child' not in covered
+
+
+BATCH4_DIRECT = ('authz.nexloop_action_decisions', 'authz.nexloop_artifact_permits', 'authz.nexloop_message_fallback_issuances',
+                 'authz.nexloop_message_run_issuances', 'authz.nexloop_role_policy_bindings', 'authz.nexloop_role_run_bindings',
+                 'authz.nexloop_runtime_activations', 'authz.nexloop_runtime_execution_markers', 'authz.nexloop_runtime_run_bindings') + tuple(
+    'runtime.nexloop_' + t for t in ('local_artifacts', 'context_packs', 'effect_intents', 'effect_control_reservations', 'effect_dispatch_controls',
+                                     'effect_outbox', 'effect_recovery_audits', 'plans', 'role_trigger_events', 'role_context_artifacts', 'run_tool_timings',
+                                     'run_purge_items', 'task_dispatch_controls', 'scope_denials', 'cost_entries', 'budget_settlements', 'dispatch_refusals',
+                                     'strategies', 'human_requests', 'relay_attempts', 'relay_handoffs', 'work_feed', 'action_claims'))
+BATCH4_CHAIN = tuple('runtime.nexloop_' + t for t in ('context_sources', 'model_requests', 'model_request_prompts', 'context_artifact_bindings',
+                                                      'fallback_context_bindings', 'effect_attempts', 'effect_catalog_bindings', 'effect_provider_bindings',
+                                                      'effect_events', 'effect_observations', 'effect_query_admissions', 'local_delivery_recoveries',
+                                                      'plan_events', 'plan_outcomes', 'plan_runs', 'plan_steps'))
+VENDORED_RUNTIME = ('runtime.jobs', 'runtime.invocations', 'runtime.job_events', 'runtime.audit_events', 'runtime.idempotency_records', 'runtime.artifact_references')
+
+
+def test_batch4_direct_keys_are_validated_chain_tables_are_covered_and_the_vendored_core_is_untouched(db):
+    rows = dict(db.execute("""select conrelid::regclass::text, convalidated from pg_constraint
+        where contype='f' and confrelid='control.nexloop_tenants'::regclass""").fetchall())
+    assert [t for t in BATCH4_DIRECT if rows.get(t) is not True] == []
+    assert not (set(BATCH4_CHAIN) | set(VENDORED_RUNTIME)) & set(rows)
+    covered = {t for (t,) in db.execute(TENANT_PATH_SQL).fetchall()}
+    assert set(BATCH4_DIRECT) | set(BATCH4_CHAIN) <= covered, (set(BATCH4_DIRECT) | set(BATCH4_CHAIN)) - covered

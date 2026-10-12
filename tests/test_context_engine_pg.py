@@ -120,6 +120,8 @@ def test_strategy_read_requires_assemble_authority_and_tables_are_private(strate
 def test_storage_invariants_dense_call_sequence_single_result_and_formal_zone(admin,pg):
     from nexloop_eios.bootstrap import bootstrap
     bootstrap(admin)
+    # NX-052 batch 4: Context packs reference an existing tenant.
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000a','active') on conflict do nothing")
     run=str(uuid.uuid4());context=str(uuid.uuid4());h='a'*64
     with admin.transaction():
         admin.execute('set local role nexloop_owner');admin.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-00000000000a',true)")
