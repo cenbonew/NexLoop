@@ -2,7 +2,7 @@
 
 > 面向外部开发者与贡献者。本文按 **当前已经实现并合入 `main` 的代码** 描述业务架构与技术架构，并指出与冻结目标规格（`docs/handoff/`）的差异。
 >
-> - 事实基线：集成分支 s5j `19c0ecc`（main `146985f` + NX-052 第 3c 批 + AT-046 模拟世界凭据隔离，2026-10-12），迁移目录最高 `0165`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
+> - 事实基线：main `25312f7`（2026-10-12），迁移目录最高 `0172`。当前阶段 S4（只剩 NX-031 负载报告），S5 本地部分推进中、服务器部分未开始；逐任务状态见 [planning/ROADMAP.md](../planning/ROADMAP.md)。
 > - 主机一律用角色名：APP_HOST（应用主机）、DATA_HOST（数据主机）、CI 主机（规划中的 APP_HOST 兼作本地 CI 主机）。
 > - 判断标准：代码、`adr/`、`planning/tasks.json` 与 `CHANGELOG.md` 优先；`docs/handoff/` 是目标设计，不等于已实现。
 > - 文中标记：未加标注的内容都描述已在 `main` 中实现的代码；**【目标设计】** 指交接规格中的设计、尚未实现或只部分实现；**【待确认】** 指本文作者没能从代码或文档中核实的事项。
@@ -179,6 +179,7 @@ flowchart TD
 | **客户来信必有回复** | 时间窗到期未回复启动兜底 Run；兜底失败升级负责人 | ADR-023 §2.7 |
 | **真实派发开关（三层、fail-closed）** | 外部效应（由 NexLoop 之外的系统执行，如第三方渠道、企业外部服务端点、真实优惠渠道）只有在部署总闸 `REAL_DISPATCH_ENABLED=true`、租户开关（且 `data_mode=real`）、（租户，Action）开关三层都打开时才派发，否则派发前以 `NXC07 real_dispatch_closed` 拒绝，provider 零请求；Action 未声明 `external_effect`、定义已变化或声明非法时一律按外部处理；原生 WebChat 回复与回环账本声明为非外部。开关默认全部关闭，只有 owner 能经受治理入口 `set_real_dispatch` 修改，每次修改推进控制版本 | 迁移 0153、[真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)、NX-037 |
 | **删除后的联系键拦截再次联系** | 客户删除后只保留按租户加盐的联系方式哈希；之后以同一联系方式出现（新成员主体、新身份关联、写入外部身份引用的导入），在建立联系之前以 `NXK01 contact unavailable` 拒绝，审计只记路径与代码、不泄露是哪个键；只有 owner 能写明理由后撤销（`revoke_contact_key`）；拦截与撤销都进入恢复日志 | NX-053（迁移 0154）、[NX-053 实现说明](implementation/NX-053-implementation.md) |
+| **inspect 授权的复查范围（ADR-027）** | 派发方轮询 Run 状态的 `inspect` 只读 Host 上的状态，只经激活核心授权，每次仍复查派发方与 Run 凭据的身份、有效期、撤销与权威修订、任务租约与 fencing、Run 绑定与 `not_after`；不再执行上下文、角色、关系等叠加层。inspect 的授权载荷或回答带任何上下文工件都被 SQL、guard 与 Host 拒绝；start、resume、cancel、model、tool 与每一次效应调用照旧完整复查 | 迁移 0171、[ADR-027](../adr/ADR-027-inspect-authorization-scope.md) |
 | **模拟世界不能借用真实效应凭据（AT-046）** | 服务凭据只要含 `real` 就只能含 `real`（写入时约束拒绝同时含 real 与 simulation、shadow、test）；runtime worker 与 guard 的 `--world` 只接受 `real` 或 `test`，effect worker、出站记录、优惠执行者只接受 `real`，都在读取凭据之前拒绝；本地 JSON 投递、消息 Run 签发、出站消息、效应执行、效应意图、优惠发放各入口对非 real world 一律以 42501 拒绝；真实派发开关对非 real world 判为关闭 | 迁移 0165、[AT-046 说明](implementation/AT-046-simulation-credential-guard.md) |
 | **联系限制只挡触达客户的动作** | Action 在可信配置中声明 effect 类别；未声明一律按触达客户处理 | ADR-023 §3、[`action-effect-categories.v1.json`](../deploy/configuration/action-effect-categories.v1.json) |
 | **工作台成员读取** | owner / operator 读本租户本 world 的消息与客户资料（受限属性组除外）；reviewer 只读待审核证据；每次读取留审计，审计写失败则读取失败 | [ADR-025](../adr/ADR-025-workbench-member-read.md) |
@@ -266,21 +267,17 @@ flowchart LR
 
 ### 3.2 数据与授权模型
 
-**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0165`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
+**数据库布局。** 一个 PostgreSQL 数据库内分 `control`（配置、目标、控制面、可信配置发布记录）、`ontology`（本体类型与对象）、`runtime`（队列、Run、上下文、effect 账本、计划、商业与保留）、`authz`（授权断言与签名端口）和 `extensions` 五个 schema。迁移目录是单一 lineage（`nexloop-eios-v1`），由 [`catalog.json`](../packages/eios-core/src/eios/migrations/catalog.json) 定义，当前最高 `0172`；已发布迁移与 checksum 不可修改，`versions.lock.json` 记录 bootstrap revision。
 
 **数据库角色。** 迁移创建 `nexloop_owner`（表属主）、`nexloop_api`、`nexloop_runtime`、`nexloop_action_worker`、`nexloop_domain_worker`、`nexloop_scheduler`、`nexloop_identity`、`nexloop_configurator`、`nexloop_metrics`，以及 NX-035 的 `nexloop_backup`（REPLICATION，非超级用户，读不到任何业务表）和 `nexloop_backup_recorder`（只能执行记录函数）等受限角色。常驻进程不使用 owner、superuser 或 BYPASSRLS；应用角色对业务表通常没有直接表权限，只能调用 `SECURITY DEFINER` 签名端口。
 
 **行级安全（RLS）。** 业务表按 `tenant_id` 启用 RLS，多数同时 `FORCE ROW LEVEL SECURITY`（迁移中约一百处）。tenant / actor / world / scope 只从服务端认证上下文得出，请求体或模型给出的值不被信任（PRD M01、AT-001/002）。
 
-**租户外键（NX-052，分批进行）。** 只有 NexLoop 自己建的表（`nexloop_` 前缀）引用 `control.nexloop_tenants`，外键一律先 `NOT VALID` 再 `VALIDATE`：
-- 第 1 批：租户表只接受规范 uuid；Claim 契约 `tenant_id` 为 uuid 并带 `mode`。
-- 第 2 批（迁移 0158）：26 张 control 配置类表。
-- 第 3 批 3a（迁移 0159）：ontology 中 10 张定义、评审与配置类表（合并配置、recall 设置、embedding 配置、定义别名、候选定义及其事件、评审决定、实例批准等）。
-- 第 3 批 3b（迁移 0160）：抽取与 Claim 族 8 张表（claims、matches、rematch、话题、抽取运行与 Claim 关联、变更提议、抽取队列）加 recall 的两张表。
-- 第 3 批 3c（迁移 0164）：会话与消息族。11 张根表直接加租户外键（`nexloop_conversations`、`nexloop_native_web_events`，以及收件箱、发件箱、路由、provider 事实、回复关联、relay 租约、relay 认领与游标、员工回复等表）；3 张子表（`nexloop_conversation_messages`、`nexloop_outbound_messages`、`nexloop_native_web_transports`）不单独加，经包含 `tenant_id` 的复合外键链传递。链式判据：表有已 VALIDATE 的租户外键，或有已 VALIDATE 的外键把子表 `tenant_id` 映射到父表 `tenant_id` 且父表本身有租户路径（递归）；只看列名不够；测试用递归 SQL 断言引用 3c 表的所有表（包括以后新增的）都在租户路径上（[NX-052 实现说明](implementation/NX-052-implementation.md) §7.3）。
-- 第 5 批（`ontology.objects`、`ontology.events`、`runtime.jobs`）尚未实现。
-- vendored EIOS 核心表（`ontology.events`、`relations` 与各 type_versions 表）**不加** NexLoop 的租户外键，继续依赖身份快照（调度员 2026-10-12 裁定，测试断言）。
-- **迁移 0162（租户行锁）**：把配置发布与初始身份创建两个函数在租户行上的显式 `FOR UPDATE` 降为 `FOR NO KEY UPDATE`，避免它们与外键检查的 `FOR KEY SHARE` 冲突（本地探针：`FOR UPDATE` 下插入被阻塞约 0.3 s，降级后不再阻塞）；串行语义不变，是 3c 的前置（[租户锁评审稿](implementation/NX-052-tenant-lock-review.md)）。详见 [NX-052 实现说明](implementation/NX-052-implementation.md)。
+**租户外键（NX-052，全部完成）。** 每张带 `tenant_id` 的表都满足三者之一：有已 VALIDATE 的租户外键（引用 `control.nexloop_tenants`，先 `NOT VALID` 再 `VALIDATE`）；满足链式判据（有已 VALIDATE 的外键把子表 `tenant_id` 映射到父表 `tenant_id`，且父表本身有租户路径，递归判断）；或者登记为例外并写明理由。全库完整性由 `tests/test_tenant_fk_pg.py::test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception` 断言，以后新增的表同样受它约束。
+- 分批：契约与租户表（1a、1b，0157）；control 配置类（0158）；ontology 定义与配置（0159）；抽取与 Claim（0160）；会话与消息（0164）；Run、Context、效应与计划族（0166）；控制面事件、台账、商务、承诺、擦除与审计（0167、0168）；durable 队列表 `nexloop_inbox`、`nexloop_outbox`（0169）；收尾（0170）。
+- **vendored EIOS 核心表例外**：`ontology.objects`、`events`、`relations` 与三张类型版本表，以及 `runtime.jobs`、`invocations`、`job_events`、`audit_events`、`idempotency_records`、`artifact_references` 不加 NexLoop 的租户外键；它们的租户一致性由强制 RLS 与 `tenant_boundary` 策略（`using` 与 `with check` 都按 `eios.tenant_id` 比较）保证，而该 GUC 只由先经签名授权或服务身份快照校验的 SECURITY DEFINER 函数设置；测试断言这些表没有租户外键、开启并强制 RLS、策略形状正确。
+- **租户行锁（0162）**：配置发布与初始身份创建在租户行上取 `FOR NO KEY UPDATE`，不再阻塞外键检查的 `FOR KEY SHARE`。
+- 详见 [NX-052 实现说明](implementation/NX-052-implementation.md) §5–§12。
 
 **`search_path` 规则。** 所有 `SECURITY DEFINER` 函数必须固定 `search_path`，且 `pg_temp` 放在最后（新函数统一为 `pg_catalog, pg_temp`）；只有数据库属主能创建临时对象。CI 用 [`scripts/check_definer_search_path.py`](../scripts/check_definer_search_path.py) 在一次性库上静态检查（见 [sec-function-search-path](implementation/sec-function-search-path.md)）。
 
@@ -439,7 +436,7 @@ sequenceDiagram
 4. **服务端关闭后续订**：收到 `unavailable` 或浏览器把流判为关闭时，客户端在 5 秒后以屏幕上已有的最高序号重新订阅；数据格式无效的事件只关闭、不自动重连，避免对同一个坏事件无限循环。
 5. **列表与实时合并**：列表重新读取（手动核对、发送后刷新、窗口聚焦）可能与实时推送竞态。`mergeCommitted` 在写入缓存时原子合并：新快照覆盖它涵盖的序号范围（范围内被删除的行随之消失，与 NX-029 删除一致），序号更高的实时消息保留，按 id 去重、按序号排序。
 
-效果：断线重连后每条已提交消息恰好显示一次（AT-015 通过）。依据：[AT-015 浏览器端说明](implementation/AT-015-browser-dom.md)，测试 `apps/web/test/sse-resume-dom.test.ts` 与 `tests/test_sse_dom_tcp_resume.py`（真实 API、TLS、PG，经本地中继切断 TCP）。
+效果：断线重连后每条已提交消息恰好显示一次（AT-015 通过）。另有真实 Chromium 的核对：断网并重启 API 后，页面上 1–5 各显示一次（`tests/test_sse_real_browser.py`，[AT-015 真实浏览器核对](implementation/AT-015-real-browser.md)）。依据：[AT-015 浏览器端说明](implementation/AT-015-browser-dom.md)，测试 `apps/web/test/sse-resume-dom.test.ts` 与 `tests/test_sse_dom_tcp_resume.py`（真实 API、TLS、PG，经本地中继切断 TCP）。
 
 ### 3.10 发布与部署
 
@@ -586,7 +583,7 @@ NexLoop/
 | 目录 | 做什么 | 详细说明 |
 |---|---|---|
 | [`packages/eios-core/src/eios`](../packages/eios-core/src/eios) | 从 NEX-EIOS 冻结提交 vendored 的通用内核：actions、authz（resolver / facts / decisions）、identity、ontology、persistence、runtime、PostgreSQL adapter 与迁移执行器 | [07_EIOS_INTEGRATION](handoff/docs/07_EIOS_INTEGRATION.md)、[S0 抽取边界](s0/extraction-boundary.md)、[源码复用清单](s0/source-reuse-inventory.md) |
-| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0165` | [迁移目录审计](s0/migration-catalog-audit.md) |
+| [`packages/eios-core/src/eios/migrations`](../packages/eios-core/src/eios/migrations) | 单一迁移 lineage，`catalog.json` 记录每个文件的 sha256；`0001`–`0172` | [迁移目录审计](s0/migration-catalog-audit.md) |
 | [`packages/eios-core/src/nexloop_eios`](../packages/eios-core/src/nexloop_eios) | NexLoop 业务模块（见 4.2） | — |
 | [`packages/contracts`](../packages/contracts) | 14 个 JSON Schema（action-intent、candidate-definition、claim、commitment-view、contact-restriction-view、context-manifest、context-pack-v6、conversation-message、event-envelope、evolution-candidate、ontology-mutation、review-decision、run-command、run-outcome），各带合法示例；Claim 契约的 `tenant_id` 为 uuid 并要求 `mode`（real、test、simulation，NX-052）；与冻结交接副本的差异必须登记在 `handoff-divergence.json`，未登记的差异测试失败；`scripts/generate_contracts.py` 生成 `generated/contracts.ts`、`generated/openapi-components.json` 与 `nexloop_eios/contracts.py`（Pydantic），`--check` 检测漂移 | [09_API_AND_EVENT_CONTRACTS](handoff/docs/09_API_AND_EVENT_CONTRACTS.md)、[契约与许可](s0/contracts-and-licensing.md) |
 | [`apps/agent-host`](../apps/agent-host) | Agent Host：`main.ts`（loopback HTTPS）、`runtime-host.ts`（配置、guard 调用、模型档案）、`pi-runtime-adapter.ts`（Pi Harness 包装、每 Run SQLite、预算与授权）、`run-admission-gate.ts`（全局并发）、`runtime-effect-tools.ts`（业务工具）、`context-input.ts`（上下文包 v1–v6 校验）、`run-purge.ts` | [Host README](../apps/agent-host/README.md)、[agent-host-progress](implementation/agent-host-progress.md)、[pi-runtime-progress](implementation/pi-runtime-progress.md) |
@@ -662,6 +659,7 @@ LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 PYTHONPATH=packages/eios-core/src:tests uv r
 - 新增迁移后必须通过 `tests/test_bootstrap.py`（fresh catalog）。
 - 涉及真实 Pi 进程的端到端测试较慢，建议串行运行；多进程 guard 用 `NEXLOOP_TEST_GUARD_WORKERS=4`。
 - 前端与 Host：`pnpm exec vitest run apps/web/test`、`pnpm exec vitest run apps/agent-host/test`。
+- 真实浏览器测试（AT-015 断线重连、NX-037 real driver 端到端）：标记为 `real_browser`，默认阶段在收集时排除（deselect，不是 skip），用 `make test-real-browser`（等价于 `LC_ALL=C.UTF-8 uv run --frozen pytest -q -p no:cacheprovider -m real_browser tests/test_sse_real_browser.py`）串行运行；需要 Node 24 与仓库锁定的 Playwright 及其 Chromium headless shell（[AT-015 真实浏览器核对](implementation/AT-015-real-browser.md)）。
 - 关键的 PostgreSQL、授权、Action、恢复测试缺依赖时会失败而不是跳过；JUnit 报告由 `scripts/check_test_report.py` 拒绝空报告、失败与跳过。
 
 ### 5.3 本地 CI
@@ -719,11 +717,11 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 任务与验收的权威状态在 [`planning/tasks.json`](../planning/tasks.json) 与 [`planning/acceptance-tests.json`](../planning/acceptance-tests.json)；阶段出口、关键路径、等负责人决定的事项见 [planning/ROADMAP.md](../planning/ROADMAP.md)。本节只给摘要，不逐任务维护。
 
 - **当前阶段：S4**（最低一个还有未完成任务的阶段）。
-- **三组数字**（截至 main `9d01169`）：任务 39 done / 7 in_progress / 7 not_started（共 53）；验收 58 passed / 14 not_run（共 72，新增 AT-071、AT-072）；阶段出口 S4 满足 4/5、S5 满足 0/5（口径见 ROADMAP §2–§3）。
+- **三组数字**（截至 main `25312f7`）：任务 39 done / 8 in_progress / 6 not_started（共 53）；验收 58 passed / 14 not_run（共 72，新增 AT-071、AT-072）；阶段出口 S4 满足 4/5、S5 满足 0/5（口径见 ROADMAP §2–§3）。
 - **各阶段一句话**：
   - S0–S3：完成（审计、可独立启动的内核、可靠性脊柱、知识与目标闭环）。
   - S4：承诺、商业事件、工作台与人工接管、保留删除导出、审计指标与告警都已完成；只剩 1,000 客户负载报告（NX-031）。
-  - S5：本地部分先行——双机部署（模板、dry-run、隔离探测）、本地 CI 控制器、发布工具（构建、归档、同步门槛）、备份恢复、开源合规检查已有仓库内实现与本地证据；所有服务器操作（B 类）未开始。v0.1 受控真实闭环（NX-037）未开始：D1–D8 已定案；前置 NX-053（删除后联系键执行点）已完成，NX-052（租户 ID 规范化）进行中。
+  - S5：本地部分先行——双机部署（模板、dry-run、隔离探测）、本地 CI 控制器、发布工具（构建、归档、同步门槛）、备份恢复、开源合规检查已有仓库内实现与本地证据；所有服务器操作（B 类）未开始。v0.1 受控真实闭环（NX-037）进行中：D1–D8 已定案，A 类准备（真实租户初始化、交互执行器与 real driver、证据包）已合入，真实试运行未执行；前置 NX-053 已完成，NX-052 只剩整轮端到端测量。
   - S6 / S7：未开始。
 
 ### 6.2 已知限制
@@ -739,7 +737,7 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 - **优惠发放**：部署接线已完成：执行者 `nexloop-incentive-issuer`（Compose 可选 profile `background`，独立账本卷）、服务授权清单 v17 的 `incentive_issuer` 与 `runtime_worker` 授权、工作台角色清单 v8 只给 owner 授予 `nexloop.incentive.issue`，负责人经工作台写入口 `POST /api/v1/workbench/actions/issue_incentive` 发放；Agent Host 的 `incentive_tool` 开关默认关闭。仍有的限制：只有回环（测试）发放渠道；工作台前端没有发放页面（只有 HTTP 入口）；优惠许诺识别的金额换算假定两位小数币种（[AT-043 实现说明](implementation/AT-043-implementation.md) §5–6）。
 - **Relay 部署前提**：relay 的 Source 凭据必须使用固定主体 ID `nexloop-service-relay-source-principal`，`nexloop-doctor --relay-source` 核对规则与凭据（[stage README §6](../deploy/stage/README.md)）；单客户 recipe 模式仍保留，与多客户模式互斥。
 - **员工回复**只支持 WebChat 且必须绑定一条来信，不能主动发消息；外部渠道接入时改走“接管 Run”方式。
-- **租户 ID 规范化（NX-052）进行中**：契约、租户表与配置、ontology、抽取与 Claim、会话与消息各批的租户外键已完成（迁移 0158–0160、0164）；第 5 批（`ontology.objects`、`ontology.events`、`runtime.jobs`）尚未实现。
+- **租户外键的端到端测量待做（NX-052）**：各批租户外键已全部合入，语句级测量通过；1000 客户整轮窗口下按 4 个状态的端到端测量（判据：增加不超过 5%）尚未执行，由调度员在 CI 主机执行（[NX-052 实现说明](implementation/NX-052-implementation.md) §11–§12）。
 - **模拟世界隔离（AT-046）的未覆盖面**：simulation world 中仍能记录效应意图（安全依赖派发与执行时的拒绝和凭据不能跨 world）；只读查询 Action `nexloop.service.query` 不受 world 检查；配置者若在 simulation world 把某 Action 声明为非外部效应，开关不再判定它（只有 configurator 能写）；Agent Host 的模型凭据不区分 world；Twin 本身不存在，只覆盖了服务端入口的拒绝（[AT-046 说明](implementation/AT-046-simulation-credential-guard.md) §3）。
 - **其他**：消息读取投影中的 `accepted_at` 不是严格 RFC 3339；渠道签名顺序只用合成渠道验证；WebChat 界面暂无引用按钮（API 已支持）；Agent 外发首版不含“处理中”占位与撤回（ADR-021）。
 - **EvoOntology** 尚未安装（`versions.lock.json` 中 `installed: false`），语义只读 adapter 只复用其输出形状。
