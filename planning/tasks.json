@@ -2566,6 +2566,24 @@
         "ref": "ci:lane/runs/20261012T111106Z-d819d7dd4238",
         "summary": "s5p 全量（d819d7d）RESULT=PASS：首次所有阶段 0 失败（integration-parallel rc=0，过去的 B 类基线失败本轮全部通过）；门槛 4/4 226 s；heavy 22/22；pi 24、runtime 通过。此前 s5p 初版（40abea1）的 2 个回归（restore fence、PG 准入中断）已在 538ae6a 修正。",
         "recorded_at": "2026-10-12T12:06:44.367892+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "ci:lane/load/20261012T150722Z-d819d7d",
+        "summary": "AT-060 200 客户整轮（负责人 D-a 定 v0.1 容量 200 客户；d819d7d）：result failed。身份检查 run_binding、outbound_ownership、claim_ownership、model_context、cross_access_probe 全部 0 违例；duplicate_effects（同一来信多条已投递回复）C4-low 21、C8 1 ⇒ 双投递缺陷，修复中。门槛格按来信速率：C4（1 条/s）积压 1310、未结 631、guard p95 1655 ms、ACK p95 547 ms；C4-low（0.2 条/s）派发 p95 81 s。Run 时长约 25–30 s（模型约 13 s〔D5 注入〕、平台约 10 s、工具约 4 s）。同机 CI 影响：guard 超时率 0.0072→0.024。",
+        "recorded_at": "2026-10-12T20:41:05.616070+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "493a8cb",
+        "summary": "ADR-029（负责人附条件批准）合入 main（s5r）：guard 在同一 Run 的多次授权间复用仍有效（每个读证明余量 ≥5 s）的 Source 签名上下文信封，进程内存 LRU 512、不缓存失败、不跨 Run/租户/world，被拒即丢弃该 Run 条目（不在 guard 内重试，修正截止时间回归）；SQL 每次使用照常校验；0176 让 inspect 与收尾复查也拒绝签名 claims 中携带的上下文信封。本机 200 客户历史回复 0.47→0.54 条/s。",
+        "recorded_at": "2026-10-12T20:41:05.616070+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T194426Z-493a8cbd8271",
+        "summary": "s5r 全量（493a8cb）：integration-parallel 失败 1 项为基线 B 类（runtime_effect_recovery）；门槛 4/4 170 s；heavy 22/22；pi 24、runtime 通过。前一版 s5q（abd7318）的 role_tail 截止时间回归已修正。",
+        "recorded_at": "2026-10-12T20:41:05.616070+00:00"
       }
     ]
   },
