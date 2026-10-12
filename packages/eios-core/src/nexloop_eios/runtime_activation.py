@@ -223,7 +223,17 @@ class RuntimeActivationPort:
             # A v6 model call is recorded in the same transaction as its authorization (0091).
             snapshot={} if request_snapshot is None else {'request_snapshot':request_snapshot}
             if model_result is not None:snapshot['model_result']=model_result
-            result=self._call(queue,'authorize',execution_run=run.run_context.run_id,**parameters,**snapshot,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=__import__('nexloop_eios.role_runs',fromlist=['role_envelope_for_run']).role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(first),context_formal_reads=self._context_formal_envelopes(first))
+            from nexloop_eios.role_runs import forget_run_envelopes,role_envelope_for_run,run_envelope_scope
+            def attempt():
+                return self._call(queue,'authorize',execution_run=run.run_context.run_id,**parameters,**snapshot,run_proofs=self._run_proofs(run),context_artifact_proof=context_proof,context_catalog_envelope=self._context_catalog_envelope(first),context_role_envelope=role_envelope_for_run(self.pool,self.signer,self.session.world,first['_run_digest']),context_relationship_envelopes=self._context_relationship_envelopes(first),context_formal_reads=self._context_formal_envelopes(first))
+            # ADR-029: the Run's still-valid Source-signed envelopes may be reused; SQL re-verifies them now. A refused
+            # authorization stays refused (one authorization, one answer: a deadline crossed while it waited is not retried
+            # here); when it had reused an envelope, that Run's entries are dropped so the next authorization builds fresh.
+            with run_envelope_scope(first['_run_digest']) as reused:
+                try:result=attempt()
+                except Exception:
+                    if reused:forget_run_envelopes(first['_run_digest'])
+                    raise
             return {key:value for key,value in result.items() if not key.startswith('_')}
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 

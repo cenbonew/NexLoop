@@ -445,8 +445,14 @@ def test_concurrent_revocation_never_serves_a_stale_allow(memo):
         hits += sum(1 for row in out['results'] if row['ok']) - out['misses']
     print(f'O5B_STRESS revocations={len(revocations)} statements={statements} stale_statements={stale_statements} '
           f'assertions={statements*6} allowed={allowed} hits={hits} violations={len(violations)}')
-    assert len(revocations) >= 200 and statements >= 200 and stale_statements >= 50 and hits > 0 and allowed > 0
+    # The safety property is judged on its own first: no stale or expired allow, whatever the memo did.
     assert violations == [], violations[:5]
+    # Then the preconditions that make the run meaningful. hits depends on timing: a memo hit needs a statement whose snapshot
+    # no revocation commit changed; on a slow host every assertion may see a new snapshot (hits=0), which is safe but
+    # exercises only the full path. The message names the counts.
+    assert len(revocations) >= 200 and statements >= 200 and stale_statements >= 50 and allowed > 0, (
+        f'preconditions: revocations={len(revocations)} statements={statements} stale_statements={stale_statements} allowed={allowed}')
+    assert hits > 0, f'memo never hit (safe, but the hit path was not exercised): statements={statements} allowed={allowed} revocations={len(revocations)}'
 
 
 def test_erasing_consumer_refuses_the_public_entry_and_the_inner_v0072(memo):
