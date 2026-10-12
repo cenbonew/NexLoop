@@ -815,6 +815,11 @@
       "version": "0163",
       "name": "0163_nx037_open_switches.sql",
       "sha256": "0b491640a17eeb7d5a4f793f658508894ba4acddc1c2bd6ec937dc1003c06494"
+    },
+    {
+      "version": "0164",
+      "name": "0164_nx052_tenant_fk_conversations.sql",
+      "sha256": "6ad6be9afb4fc6facaea90d8f934186410ffea9d948b6c82a01b00252d4f3901"
     }
   ]
 }

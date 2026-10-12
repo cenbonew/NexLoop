@@ -255,7 +255,7 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 
 3b 每次抽取会写几行到几十行，按上表的单行增量（约 2–3 µs）估算，一次抽取增加 0.1 ms 以内。端到端 p95 要等 3c 时用 NX-031 矩阵一起实测。
 
-## 6. 批次 3c 设计：会话与消息表（尚未实现）
+## 6. 批次 3c 设计：会话与消息表（已实现，见第 7 节）
 
 前置条件：0162（租户行锁改为 `FOR NO KEY UPDATE`）已经实现，等待合入。3c 要在 0162 合入 main 之后再合入。
 
@@ -286,7 +286,7 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 
 ### 6.3 迁移与回滚
 
-- 一个迁移，临时号 0300 起，先 `not valid` 再逐表 `validate`。
+- 一个迁移（0164，合入时由临时号 0300 重编号），先 `not valid` 再逐表 `validate`。
 - `nexloop_conversation_messages` 是本批最大的表：先在部署副本上实测 VALIDATE 的时长，超过 60 秒就把它的 VALIDATE 拆到下一次发布。如果采用方案 A，这张表不加约束，问题就不存在。
 - **回滚**：新开迁移，`drop constraint if exists`。
 
@@ -310,3 +310,57 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 
 1. 采用方案 A 还是方案 B。
 2. 端到端测量排在哪个车道窗口。
+
+## 7. 批次 3c 实现（0164）
+
+### 7.1 裁定（调度员 2026-10-12）
+
+- 采用方案 A：根表直接加租户外键；已经通过包含 `tenant_id` 的复合外键引用根表的子表，不再单独加。
+- 端到端测量放到 1000 客户的整轮窗口，分三个状态：0162 之后、3c 之后、3c 之后并发配置发布（每 5 秒一次）。本机只做语句级测量。
+
+### 7.2 迁移
+
+0164 给 runtime 下 11 张表加 `nexloop_<t>_tenant_fk`，做法仍是先 NOT VALID 再 VALIDATE；回滚时新开迁移 `drop constraint if exists`。这 11 张表是：
+
+- 根表：`nexloop_conversations`、`nexloop_native_web_events`；
+- 没有复合外键的表：`message_inbox`、`message_outbox`、`message_routes`、`message_provider_facts`、`message_reply_links`、`message_relay_leases`、`relay_claims`、`relay_consumer_cursors`、`staff_replies`。
+
+下面 3 张子表靠外键链传递，不单独加：
+
+| 子表 | 复合外键 | 父表 |
+|---|---|---|
+| `nexloop_conversation_messages` | `(tenant_id,world,conversation_id)` | `nexloop_conversations` |
+| `nexloop_outbound_messages` | `(tenant_id,world,conversation_id)` | `nexloop_conversations` |
+| `nexloop_native_web_transports` | `(tenant_id,world,provider_namespace,principal_id,provider_event_id)` | `nexloop_native_web_events` |
+
+### 7.3 链式传递的判据（以后新增的子表也必须满足）
+
+一张表算作“有租户路径”，需要满足下面两条之一：
+
+1. 它有一个已 VALIDATE 的外键，引用 `control.nexloop_tenants(tenant_id)`；
+2. 它有一个已 VALIDATE 的外键，其列映射中包含“子表的 `tenant_id` → 父表的 `tenant_id`”，并且父表本身有租户路径（递归判断）。
+
+只看列名不够，必须是 `tenant_id` 映射到 `tenant_id`。
+
+`tests/test_tenant_fk_pg.py` 用一条递归 SQL（`TENANT_PATH_SQL`）计算所有有租户路径的表，并断言三点：
+
+- 3c 的 11 张根表都已直接加外键并 VALIDATE，3 张子表没有自己的租户外键，而且这 14 张表都在租户路径集合里；
+- 引用 3c 根表或子表的**所有**表（包括以后新增的表）都在租户路径集合里；
+- 反例：在同一事务里临时建两张表，一张的复合外键用另一列去对应父表的 `tenant_id`，另一张用 `tenant_id` 对应 `tenant_id`。前者不算有租户路径，后者算。
+
+### 7.4 写入路径
+
+- 入站：先经过签名授权或原生入站的身份校验，再写会话、收件箱、路由等表，租户行必然已存在。
+- 出站、转发、人工回复：都晚于会话创建。
+- 0162 之后，配置发布和初始身份创建取的是 `FOR NO KEY UPDATE`，不再阻塞这些外键检查。锁探针在 `FOR UPDATE` 下等待约 0.31 秒，在 `FOR NO KEY UPDATE` 下只等 0.2–0.4 ms。
+
+### 7.5 语句级测量（2026-10-12，2000 行 × 3 轮）
+
+| 表 | 无外键 中位 / p95 | 有外键 中位 / p95 | 比值 中位 / p95 | 判据 |
+|---|---|---|---|---|
+| `runtime.nexloop_conversations` | 59.2 / 108.4 µs | 60.0 / 99.9 µs | 1.014 / 0.921 | 通过 |
+| `runtime.nexloop_message_inbox` | 51.0 / 94.0 µs | 50.9 / 89.8 µs | 0.999 / 0.955 | 通过 |
+
+测量期间本机负载约 6.7，L4 正在跑 1000 客户模板，所以 p95 低于 1 是噪声。中位比值与前几批的 1.04–1.05 处在同一量级。
+
+端到端 p95 等整轮窗口按三个状态测量，判据是增加不超过 5%。

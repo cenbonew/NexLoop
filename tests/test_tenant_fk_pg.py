@@ -70,8 +70,49 @@ def test_batch3_foreign_keys_are_validated_and_the_vendored_core_is_untouched(db
     assert not set(CORE) & set(rows)
 
 
-@pytest.mark.parametrize('table', ['ontology.nexloop_merge_configurations', 'ontology.nexloop_extraction_runs'])
+@pytest.mark.parametrize('table', ['ontology.nexloop_merge_configurations', 'ontology.nexloop_extraction_runs', 'runtime.nexloop_conversations', 'runtime.nexloop_message_inbox'])
 def test_cost_method_covers_the_batch3_samples(db, pg, table):
     report = tenant_fk_cost.measure(pg, table, TENANT_A, rows=20, rounds=1, hold_seconds=0.3)
     assert report['fk_trigger_sample'] and report['lock_probe']['blocked_by_for_update'] and not report['lock_probe']['blocked_by_for_no_key_update']
     assert db.execute("select count(*) from runtime.nexloop_conversations where principal_id='fk-cost-principal'").fetchone() == (0,)
+
+
+BATCH3C_ROOTS = tuple('runtime.nexloop_' + t for t in ('conversations', 'native_web_events', 'message_inbox', 'message_outbox', 'message_routes',
+                      'message_provider_facts', 'message_reply_links', 'message_relay_leases', 'relay_claims', 'relay_consumer_cursors', 'staff_replies'))
+BATCH3C_CHAIN = ('runtime.nexloop_conversation_messages', 'runtime.nexloop_outbound_messages', 'runtime.nexloop_native_web_transports')
+TENANT_PATH_SQL = """with recursive fk as (
+  select c.conrelid::regclass::text child, c.confrelid::regclass::text parent, c.convalidated validated,
+   exists(select 1 from unnest(c.conkey,c.confkey) k(ck,pk) join pg_attribute a on a.attrelid=c.conrelid and a.attnum=k.ck
+          join pg_attribute b on b.attrelid=c.confrelid and b.attnum=k.pk where a.attname='tenant_id' and b.attname='tenant_id') carries_tenant
+  from pg_constraint c where c.contype='f'),
+ path(tbl) as (select child from fk where parent='control.nexloop_tenants' and validated
+  union select fk.child from fk join path on fk.parent=path.tbl where fk.carries_tenant and fk.validated)
+ select tbl from path"""
+
+
+def test_batch3c_roots_are_validated_and_children_are_covered_by_the_tenant_chain(db):
+    rows = dict(db.execute("""select conrelid::regclass::text, convalidated from pg_constraint
+        where contype='f' and confrelid='control.nexloop_tenants'::regclass""").fetchall())
+    assert [t for t in BATCH3C_ROOTS if rows.get(t) is not True] == []
+    # Option A: chain children carry no foreign key of their own, the composite one (tenant_id -> tenant_id) covers them.
+    assert not set(BATCH3C_CHAIN) & set(rows)
+    covered = {t for (t,) in db.execute(TENANT_PATH_SQL).fetchall()}
+    assert set(BATCH3C_ROOTS) | set(BATCH3C_CHAIN) <= covered, (set(BATCH3C_ROOTS) | set(BATCH3C_CHAIN)) - covered
+
+
+def test_every_child_of_a_3c_root_satisfies_the_chain_rule(db):
+    """A future table referencing a 3c root must map tenant_id onto the root's tenant_id (or carry its own tenant foreign key)."""
+    children = {t for (t,) in db.execute("""select distinct conrelid::regclass::text from pg_constraint where contype='f'
+        and confrelid::regclass::text = any(%s)""", (list(BATCH3C_ROOTS) + list(BATCH3C_CHAIN),)).fetchall()}
+    covered = {t for (t,) in db.execute(TENANT_PATH_SQL).fetchall()}
+    assert children and children <= covered, children - covered
+
+
+def test_chain_rule_rejects_a_child_that_does_not_carry_the_tenant(db):
+    with db.transaction(force_rollback=True):
+        db.execute("""create table runtime.nx052_bad_child(tenant_id text not null, world text not null, conversation_id text not null, other_tenant text not null,
+            foreign key(other_tenant, world, conversation_id) references runtime.nexloop_conversations)""")
+        db.execute("""create table runtime.nx052_good_child(tenant_id text not null, world text not null, conversation_id text not null,
+            foreign key(tenant_id, world, conversation_id) references runtime.nexloop_conversations)""")
+        covered = {t for (t,) in db.execute(TENANT_PATH_SQL).fetchall()}
+        assert 'runtime.nx052_good_child' in covered and 'runtime.nx052_bad_child' not in covered
