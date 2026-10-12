@@ -32,6 +32,10 @@ def fresh_runtime_worker(plan,tmp_path):
         yield backend.authenticate(plan['worker_token'],world='real')
 
 
+# Upper bound of the event waits below (they end as soon as the event happens).
+BARRIER_SECONDS=30
+
+
 def test_same_pi_run_survives_host_and_effect_worker_kill_query_first(runtime_effect_plan,admin,tmp_path):
     plan=runtime_effect_plan;command=plan['commands'][0];job=plan['jobs'][0];old_ref=plan['activations'][0]
     runtime,key=files(tmp_path)
@@ -48,7 +52,10 @@ def test_same_pi_run_survives_host_and_effect_worker_kill_query_first(runtime_ef
                 # budget reservation. Third check begins next Generation,
                 # after the first ToolResult has actually been persisted.
                 if self.generations==3:
-                    generation_paused.set();release_generation.wait(1.8)
+                    # Held until the test has killed the Host and the effect worker (event-based, not a fixed window;
+                    # the bound only keeps a broken test from hanging). On a slow host the first Generation, its tool
+                    # call through the guard and the persisted ToolResult can take several seconds before this point.
+                    generation_paused.set();release_generation.wait(BARRIER_SECONDS)
             return actual
     executor=ExecutorConfiguration(plan,tmp_path)
     with effect_provider(tmp_path/'durable-provider.sqlite') as provider:
@@ -57,11 +64,12 @@ def test_same_pi_run_survives_host_and_effect_worker_kill_query_first(runtime_ef
             with guard_server(ActualGuardBarrier(),tmp_path,guard_key) as port:
                 config=effect_configuration(tmp_path,port,guard_key)
                 with host(runtime,key,config) as (old_host,client,headers):
-                    plan['worker'].renew_task(queue='operations',task_id=job['task_id'],fence=job['fence'],lease_seconds=3)
+                    # Long enough for the paused Run on a slow host; shortened to 3 s once both processes are killed.
+                    plan['worker'].renew_task(queue='operations',task_id=job['task_id'],fence=job['fence'],lease_seconds=BARRIER_SECONDS)
                     body={'activation_ref':old_ref,'command':command,'input':'persist one service intent'}
                     started=client.post('/internal/v1/runs/start',headers=headers,json=body)
                     assert started.status_code==202;mapping=started.json()
-                    assert generation_paused.wait(1),'second actual Generation did not reach guard'
+                    assert generation_paused.wait(BARRIER_SECONDS),'second actual Generation did not reach guard'
                     calls,receipts=tool_evidence(runtime/command['run_id']/'runtime.sqlite')
                     assert receipts and receipts[0]['state']=='accepted' and receipts[0]['business_action_success'] is False
                     intent=receipts[0]['intent_id'];receipt_id=receipts[0]['receipt_id']
@@ -71,6 +79,7 @@ def test_same_pi_run_survives_host_and_effect_worker_kill_query_first(runtime_ef
                     assert original and admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()==('dispatching',)
                     old_host.kill();assert old_host.wait(10)==-signal.SIGKILL
                     old_effect.kill();old_effect.join(10);assert old_effect.exitcode==-signal.SIGKILL
+                    plan['worker'].renew_task(queue='operations',task_id=job['task_id'],fence=job['fence'],lease_seconds=3)
                     release_generation.set()
         assert provider.control('snapshot')['requests']==[('POST',intent,202)]
         provider.control('release');provider.control('fulfill',intent_id=intent)
