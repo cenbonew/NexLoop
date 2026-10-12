@@ -329,7 +329,13 @@ class RuntimeActivationPort:
                     db,tool_operation,action_version=1,runtime_refs={'consumer_ref':command['consumer_ref'],
                         'goal_version_ref':command['goal_version_ref']},**arguments)
                 stage='guard_after'
-                guard()
+                # ADR-028 (0173): the final recheck after the intent is the activation core only (credential, Run proofs and
+                # source authority, lease and fencing, binding, not_after); the Context was fully verified by guard_before
+                # in this transaction. No Context envelope is built or sent.
+                final=self._signed(queue,'authorize',**binding,final_recheck=True,run_proofs=self._run_proofs(run))
+                _execution_lock(db,run.run_context.run_id)
+                checked=self._execute(db,final)
+                if checked.get('authorized') is not True or checked.get('ever_execution_authorized') is not True or 'context_artifact' in checked:raise ValueError()
                 stage='receipt'
                 keys={'intent_id','receipt_id','state','payload_digest','provider_payload_digest','scope','business_action_success'}
                 if type(receipt) is not dict or set(receipt)!=keys or receipt['scope']!='effect_intent' or receipt['business_action_success'] is not False:raise ValueError()

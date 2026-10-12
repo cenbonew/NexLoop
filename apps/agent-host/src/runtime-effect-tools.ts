@@ -61,6 +61,8 @@ function exact(value:unknown,keys:readonly string[]):Record<string,unknown>{
   if(Object.keys(row).sort().join(',')!==[...keys].sort().join(','))throw new RuntimeError('runtime_effect_unavailable');
   return row;
 }
+/** ADR-022 §4: each effect request keeps the 2 s limit. */
+export const EFFECT_TIMEOUT_MS=2000;
 export class RuntimeEffectClient{
   private readonly origin:URL;
   private readonly configuration:Configuration;
@@ -92,14 +94,32 @@ export class RuntimeEffectClient{
       const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,...argumentsBody}));
       if(body.length>65536)throw new Error();
       const url=new URL('/internal/v1/runtime/effects/'+operation,this.origin);
-      return await new Promise<EffectReceipt>((resolve,reject)=>{
+      // ADR-028: an ambiguous answer (timeout, connection error, 503) is followed by exactly one more request with the same
+      // body, within the Run's time limit. The guard keys the intent on the Run's consumer, goal, step and slot (0040): the same
+      // payload returns the same intent and reserves nothing again, a different one is a conflict; find is a read. Each request
+      // keeps the 2 s limit (ADR-022 §4). Still ambiguous: runtime_effect_unavailable.
+      try{return await this.once(url,ca,key,body,valid,operation,arguments_);}
+      catch(error){
+        if(!(error instanceof RuntimeError)||error.code!=='runtime_effect_ambiguous'||Date.parse(valid.not_after)<=Date.now()+EFFECT_TIMEOUT_MS)throw error;
+        return await this.once(url,ca,key,body,valid,operation,arguments_);
+      }
+    }catch(error){
+      if(error instanceof RuntimeError&&['intent_payload_conflict','outside_catalog_terms'].includes(error.code))throw error;
+      throw new RuntimeError('runtime_effect_unavailable');
+    }
+  }
+  private once(url:URL,ca:Buffer,key:string,body:Buffer,valid:RunCommand,operation:'submit'|'find',arguments_:unknown):Promise<EffectReceipt>{
+    {
+      return new Promise<EffectReceipt>((resolve,reject)=>{
         const fail=()=>reject(new RuntimeError('runtime_effect_unavailable'));
-        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(2000),
+        const ambiguous=()=>reject(new RuntimeError('runtime_effect_ambiguous'));
+        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(EFFECT_TIMEOUT_MS),
           headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':body.length}},response=>{
           let size=0;const chunks:Buffer[]=[];
+          if(response.statusCode===503){response.resume();ambiguous();return;}
           if(response.headers['content-type']!=='application/json'||response.headers['content-encoding']!==undefined){response.destroy();fail();return;}
           response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>32768){response.destroy();request.destroy();fail();}else chunks.push(chunk);});
-          response.on('error',fail);
+          response.on('error',ambiguous);
           response.on('end',()=>{try{
             const result=JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
             if(response.statusCode===409){
@@ -121,11 +141,8 @@ export class RuntimeEffectClient{
             resolve(receipt as EffectReceipt);
           }catch{fail();}});
         });
-        request.setTimeout(2000,()=>request.destroy());request.on('error',fail);request.end(body);
+        request.setTimeout(EFFECT_TIMEOUT_MS,()=>request.destroy());request.on('error',ambiguous);request.end(body);
       });
-    }catch(error){
-      if(error instanceof RuntimeError&&['intent_payload_conflict','outside_catalog_terms'].includes(error.code))throw error;
-      throw new RuntimeError('runtime_effect_unavailable');
     }
   }
   /** AT-043: issue a catalog incentive inside this Run; accepted is not issued (the executor admits it at dispatch under the budget). */
