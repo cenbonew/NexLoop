@@ -141,6 +141,11 @@ def test_build_load_template(assembled_message, admin, tmp_path):
     # The login rate policy the cells run under: the trusted configuration's, never relaxed for the load (each cell asserts it).
     login_policy = admin.execute("select maximum_attempts,window_seconds,active from control.nexloop_browser_rate_policies "
                                  "where tenant_id=%s and action='local_login' and operator_principal_id='nexloop_identity'", (tenant,)).fetchone()
+    # NX-052 full-window states (implementation note §11): drop whole batches' tenant keys before the snapshot. Unset by default.
+    fk_drop = [b for b in os.environ.get('NEXLOOP_LOAD_TENANT_FK_DROP', '').split(',') if b]
+    if fk_drop:
+        import tenant_fk_state
+        fk_dropped = tenant_fk_state.drop(admin, fk_drop)
     backup_seconds = snapshot(pg, out)
     people = loaded['people']
     private(out / 'private/credentials.json', json.dumps({
@@ -158,4 +163,5 @@ def test_build_load_template(assembled_message, admin, tmp_path):
                     **{'commitments_' + k: v for k, v in promised['seconds'].items()}, 'history_replies': history['seconds'], **{'plans_' + k: v for k, v in plans['seconds'].items()}, 'total_load': load_seconds, 'pg_basebackup': backup_seconds},
         'login_rate_policy': {'maximum_attempts': login_policy[0], 'window_seconds': login_policy[1], 'active': login_policy[2]} if login_policy else None,
         'workbench_members': {'owner': 1, 'operator': 2}, 'service_grants': granted, 'commit': commit, 'catalog_revision': catalog,
+        **({'tenant_fk_dropped': {'batches': fk_drop, 'constraints': fk_dropped}} if fk_drop else {}),
         'not_loaded': [], 'plans': 'data only: reassess_at null, the cells run no plan reevaluator (no plan Run)'}, ensure_ascii=False, indent=2) + '\n')

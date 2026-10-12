@@ -260,6 +260,12 @@ class Stack:
             *sum(([f'--{name}-credential-file', str(token[name])] for name in ('route', 'source', 'planner', 'executor')), [])])
         self._spawn('outbound-recorder', [sys.executable, '-m', 'nexloop_eios.outbound_messages', '--database-url-file', str(api_dsn), *common,
             '--service-credential-file', str(recorder), '--artifact-root', str(self.lane / 'recorder-artifacts'), '--world', 'real'])
+        # NX-052 full-window state D (implementation note §11): emulate a configuration publication every few seconds. Unset by default.
+        pulse = os.environ.get('NEXLOOP_LOAD_TENANT_LOCK_PULSE')
+        if pulse:
+            interval, hold = pulse.split(',')
+            self._spawn('tenant-lock-pulse', [sys.executable, str(ROOT / 'scripts/load/tenant_fk_state.py'), 'pulse', '--dsn-file',
+                        str(self.file('tenant-lock-pulse-dsn', self.admin_dsn)), '--tenant', self.tenant, '--interval', interval, '--hold', hold])
         time.sleep(3)
         dead = [name for name in ('runtime-worker', 'delivery', 'effect-worker', 'relay', 'outbound-recorder') if self.children[name][0].poll() is not None]
         if dead:

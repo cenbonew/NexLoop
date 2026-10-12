@@ -16,6 +16,9 @@ OLD, YOUNG = 400, 10  # days; deletion_ledger_days is 365
 @pytest.fixture
 def db(admin):
     bootstrap(admin)
+    # NX-052 batch 4b: ledger rows reference an existing tenant.
+    for tenant in (TENANT_A, TENANT_B):
+        admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (tenant,))
     return admin
 
 

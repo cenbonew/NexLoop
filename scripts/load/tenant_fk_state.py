@@ -1,0 +1,60 @@
+"""NX-052 full-window measurement helpers (disposable load clusters only; implementation note §11).
+
+    drop   remove the tenant foreign keys of whole batches from a template before its snapshot, so one commit can run the
+           "before" states: NEXLOOP_LOAD_TENANT_FK_DROP=3c,5 in build_template_hold.py;
+    pulse  hold the tenant row FOR NO KEY UPDATE (the lock configure_manifest and initial_identity_create take since 0162) for
+           --hold seconds every --interval seconds, emulating a configuration publication during a cell:
+           NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2 in stack.py.
+
+Batches are named by the suffix of their migration file, which survives renumbering at integration.
+"""
+import argparse
+import re
+import time
+from pathlib import Path
+
+import psycopg
+
+MIGRATIONS = Path(__file__).resolve().parents[2] / 'packages/eios-core/src/eios/migrations'
+BATCHES = {'3c': '_nx052_tenant_fk_conversations.sql', '5': '_nx052_tenant_fk_durable_queue.sql'}
+
+
+def constraints(batch):
+    path = next(MIGRATIONS.glob('*' + BATCHES[batch]))
+    return re.findall(r'^alter table (\S+) add constraint (\S+) foreign key', path.read_text(), re.M)
+
+
+def drop(db, batches):
+    dropped = []
+    for batch in batches:
+        for table, name in constraints(batch):
+            db.execute(f'alter table {table} drop constraint {name}')
+            dropped.append(name)
+    return dropped
+
+
+def pulse(dsn, tenant, interval, hold, once=False):
+    with psycopg.connect(dsn) as db:
+        while True:
+            with db.transaction():
+                db.execute('select 1 from control.nexloop_tenants where tenant_id=%s for no key update', (tenant,))
+                time.sleep(hold)
+            if once:
+                return
+            time.sleep(max(0.0, interval - hold))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest='command', required=True)
+    p = sub.add_parser('pulse')
+    p.add_argument('--dsn-file', required=True, type=Path)
+    p.add_argument('--tenant', required=True)
+    p.add_argument('--interval', type=float, default=5.0)
+    p.add_argument('--hold', type=float, default=0.2)
+    args = parser.parse_args()
+    pulse(args.dsn_file.read_text().strip(), args.tenant, args.interval, args.hold)
+
+
+if __name__ == '__main__':
+    main()

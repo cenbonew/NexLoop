@@ -830,6 +830,26 @@
       "version": "0166",
       "name": "0166_nx052_tenant_fk_run_effect.sql",
       "sha256": "99288b3b4d17151cc0ea87c38fba0c222c7cd0be489212667821ca1f665d781f"
+    },
+    {
+      "version": "0167",
+      "name": "0167_nx052_tenant_fk_control_events.sql",
+      "sha256": "e30038085bd772eb3cc7f11a6159dd1703e45282e53169e427748ef693ccee4a"
+    },
+    {
+      "version": "0168",
+      "name": "0168_nx052_tenant_fk_commercial_erasure.sql",
+      "sha256": "5e7c8b2ba9646403de66fa8c660fe891d541b7c8384dcbdc760de7fc55e79f42"
+    },
+    {
+      "version": "0169",
+      "name": "0169_nx052_tenant_fk_durable_queue.sql",
+      "sha256": "b8fa31a1dc5c06ead1cf686af6b7529b985808cf115ed403e31595a4390ec477"
+    },
+    {
+      "version": "0170",
+      "name": "0170_nx052_tenant_fk_token_realms.sql",
+      "sha256": "504e889452e6ccec93d73c860e45f188649633985ef2e821dfed26195d454fa3"
     }
   ]
 }

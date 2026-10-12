@@ -429,3 +429,153 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
    - 写一份 ADR，作为例外给这三张核心表加外键。
 2. **`runtime.nexloop_inbox` 和 `nexloop_outbox`**：它们是 NexLoop 自己的 durable 队列表，带租户的外键指向 `runtime.jobs`。如果第 5 批不给 `jobs` 加外键，这两张表需要直接加，写入频率与 `jobs` 相当，建议归到第 5 批一起测量。
 3. **第 4b 批**：剩余约 50 张 control 和 runtime 表，包括控制面事件、浏览器会话与登录事件、限流计数、台账、商务、承诺、擦除和审计。按写入频率再分两组实现，是否继续由你安排。
+## 9. 批次 4b：控制面事件与台账；商务、承诺、擦除与审计（0167、0168）
+
+裁定（调度员 2026-10-12）：先做写入频率低、风险小的控制面表，再做商务、承诺、擦除和审计。擦除表与审计表要注意删除传播和只追加约束，外键不得阻碍擦除的顺序。
+
+### 9.1 范围
+
+- **0167（4b-1，22 张）**：
+  - 控制面事件：`action_effect_externality`、`alert_events`、`alert_state`、`control_events`；
+  - 浏览器会话与登录：`browser_evidence`、`browser_login_events`、`browser_sessions`；
+  - 限流计数：`browser_rate_counters`；
+  - 身份关联回执：`consumer_identity_link_receipts`；
+  - 联系限制：`contact_refusal_hits`、`contact_restrictions`；
+  - 效应控制台账与计划绑定：`effect_control_ledger`、`effect_plan_bindings`；
+  - 真实派发开关：`real_dispatch_switches`；
+  - 关系上下文配方：`relationship_context_recipes`；
+  - 回复升级与对账：`reply_escalations`、`reply_reconciles`；
+  - 接管：`takeovers`、`takeover_escalations`、`takeover_settlements`；
+  - 清扫记录：`runtime.nexloop_orphan_sweeps`、`retention_sweeps`。
+- **0168（4b-2，20 张）**：
+  - 商务：`commercial_customer_links`，以及 runtime 中的 6 张 `commercial_*` 表；
+  - 承诺：4 张 `commitment*` 表；
+  - 激励：`incentive_issues`；
+  - 擦除：`consumer_erasures`、`data_exports`、`deletion_ledger`、`erased_contact_keys`、`erasure_artifacts`、`erasure_tombstones`；
+  - 审计：`read_audit_daily`、`workbench_read_audit`。
+- **全部直接加**：这些表现有的外键（如 `takeover_id`、`connector_id`、`context_id`、`control_id`）都不带 `tenant_id`，不满足链式判据。
+
+### 9.2 删除传播与只追加约束
+
+- **没有 ON DELETE 冲突**：仓库里对这些表的删除全部是删除子行，来自擦除步骤、保留到期清扫和恢复日志回放；子表指向租户的外键不约束子行的删除。仓库中没有删除租户行或修改 `tenant_id` 的代码，所以不需要任何 `ON DELETE` 动作，擦除顺序不受影响。
+- **只追加触发器不受影响**：`*_append_only`、`nx029_no_delete`、`nx029_ledger` 等触发器保护的是这些行自身的 update 和 delete；外键只在插入时检查租户是否存在，两者互不影响。
+- **恢复不受影响**：恢复演练用 `pg_restore`，它先装载数据、后建约束。
+
+### 9.3 写入路径与测试捷径
+
+生产写入方都在签名授权或身份快照校验之后写入，租户必然存在。
+
+唯一受影响的测试捷径是 `tests/test_journal_retention_pg.py`：它在没有租户行的情况下直接写入 `deletion_ledger`，现已在 fixture 中先插入两个租户。
+
+## 10. 批次 5：只测量与文档，以及 durable 队列表（0169）
+
+### 10.1 裁定（调度员 2026-10-12）
+
+1. **vendored 核心表不加 NexLoop 外键**：涉及 0001 中的 `ontology.objects`、`events`、`relations`、三张类型版本表，以及 `runtime.jobs`、`invocations`、`job_events`、`audit_events`、`idempotency_records`、`artifact_references`。第 5 批对它们只做测量和文档，不写 ADR。
+2. **`runtime.nexloop_inbox`、`nexloop_outbox` 是 NexLoop 自有表**：直接加租户外键，并入本批实现和测量。
+
+### 10.2 核心表的租户一致性由谁保证
+
+- **RLS 策略**：0002 给每张核心表打开并强制 RLS（`enable` 加 `force row level security`），策略 `tenant_boundary` 要求 `tenant_id = current_setting('eios.tenant_id')`，`using` 和 `with check` 两处都有。所以属主角色也只能读写当前 GUC 指定的租户。
+- **GUC 的来源**：这个 GUC 只由 SECURITY DEFINER 写入函数设置，例如 0010 的受治理对象创建、0035 和 0036 的队列，以及 Run 和动作入口。这些函数设置 GUC 之前，都先经过签名授权或服务身份快照校验，而这两种校验都要求租户行存在且为 active。
+- **测试**：`tests/test_tenant_fk_pg.py` 把上述 12 张表登记为 `KNOWN_EXCEPTIONS`，理由引用本裁定，并断言三点：
+  - 它们没有指向租户的外键；
+  - 它们开启并强制了 RLS；
+  - `tenant_boundary` 策略的 `using` 和 `with check` 都按 `eios.tenant_id` 比较 `tenant_id`。
+
+### 10.3 durable 队列表
+
+- **为什么要直接加**：`nexloop_inbox` 和 `nexloop_outbox` 带租户的复合外键 `(tenant_id, job_id)` 指向 `runtime.jobs`，而 `jobs` 属于核心表，没有租户路径，所以这两张表必须直接加。
+- **在 ACK 前路径上**：durable inbox 按“先持久化、再 ACK”的方式在受理时写入，所以外键检查在 ACK 前路径上。
+- **测量结果**（2000 至 3000 行，负载约 5–6）：
+
+| 表 | 测量 | 中位比值 | p95 比值 | 判据 |
+|---|---|---|---|---|
+| `inbox` | 5 轮 | 1.064 | 1.039 | 通过 |
+| `outbox` | 第 1 次，5 轮 | 1.059 | 1.121 | 未通过 |
+| `outbox` | 第 2 次，7 轮，3000 行 | 1.017 | 0.977 | 通过 |
+| 对照表 `commercial_connectors`（第 2 批已通过） | 与 `outbox` 第 1 次同时 | 1.038 | 1.054 | 未通过 |
+| 对照表 `commercial_connectors` | 与 `outbox` 第 2 次同时 | 1.089 | 1.115 | 未通过 |
+
+- **结论**：在本机共享负载下，单轮 p95 比值在 0.49 到 1.33 之间跳动，语句级测量分辨不出 5% 的 p95 差异；中位比值稳定在 1.02 到 1.09，说明单行外键检查的代价约为几微秒。是否放行以 1000 客户整轮窗口的端到端 p95 为准（判据：增加不超过 5%）。
+- **整轮窗口的建议**：在“0162 之后、3c 之后、并发配置发布”这三个状态之外，加一个“0169 之后”的状态，单独比较入站受理时延。
+- **锁探针**：持 `FOR NO KEY UPDATE` 时，两张表的插入等待都只有约 0.3 ms。
+
+## 11. 整轮窗口的端到端测量方案（在 CI 主机执行）
+
+### 11.1 状态
+
+所有状态用同一个提交，即合入 s5m 之后、包含全部批次的 main。各状态之间的差别，只在模板构建时删掉了哪几批约束（`tenant_fk_state.py drop`），以及运行时有没有锁脉冲（`tenant_fk_state.py pulse`）。第 2、3a、3b、4、4b 批和 0170 的约束在所有状态下都保留，它们已经通过语句级判据。
+
+| 状态 | 含义 | 模板变量 | 运行变量 |
+|---|---|---|---|
+| A | 0162 之后、3c 之前（基线） | `NEXLOOP_LOAD_TENANT_FK_DROP=3c,5` | — |
+| B | 3c 之后 | `NEXLOOP_LOAD_TENANT_FK_DROP=5` | — |
+| C | 3c 之后，并发配置发布 | `NEXLOOP_LOAD_TENANT_FK_DROP=5` | `NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2` |
+| D | 0169 之后（全部约束） | 不设 | — |
+
+状态 C 每 5 秒对租户行持有 0.2 秒的 `FOR NO KEY UPDATE`，这正是 0162 之后配置发布和初始身份创建所取的锁。0.2 秒取的是本机配置发布事务的上限。这里是用锁本身来模拟发布，并不真正发布 manifest，因为单元里拿不到配置员密钥。
+
+### 11.2 指标与判据
+
+指标取自 `report.py` 的单元指标，单元为 C4（门禁单元）和 C4-peak：
+
+| 比较 | 指标 | 判据 |
+|---|---|---|
+| B 对 A（3c 的代价） | `ack_p95_ms`（入站受理到 ACK）、`idle_dispatch_p95_ms` | p95 增加不超过 5% |
+| C 对 B（0162 的效果） | 同上，另看锁等待：`pg_locks` 中等待 `control.nexloop_tenants` 行锁的样本数 | p95 增加不超过 5%；行锁等待样本为 0，或不超过 1% |
+| D 对 B（0169 入站受理） | `ack_p95_ms` | p95 增加不超过 5% |
+
+`report.py` 原有的各项阈值（如 `ack_p95_ms` ≤ 500 ms）在每个状态下都必须继续满足。
+
+每个状态跑 1 次整轮。如果某项比较超出判据 1 个百分点以内，就再加跑一轮，取两轮的中位数。
+
+### 11.3 采集命令
+
+在 CI 主机上用车道账户执行，四个状态各占一个夜间窗口，或者在一个窗口内按顺序执行：
+
+```bash
+export LOAD_RUNNER_CMD=scripts/load/matrix_cells.py NEXLOOP_LOAD_CELLS=C4,C4-peak
+NEXLOOP_LOAD_TENANT_FK_DROP=3c,5 scripts/load/run_on_lane.sh                                     # A
+NEXLOOP_LOAD_TENANT_FK_DROP=5 scripts/load/run_on_lane.sh                                        # B
+NEXLOOP_LOAD_TENANT_FK_DROP=5 NEXLOOP_LOAD_TENANT_LOCK_PULSE=5,0.2 scripts/load/run_on_lane.sh   # C
+scripts/load/run_on_lane.sh                                                                      # D
+```
+
+每次运行都会在 `.ci-results/load/<RUN_ID>/` 下留下以下文件：
+
+- `report.json`、`report.md`：各单元的指标；
+- `template/template.json`：其中 `tenant_fk_dropped` 字段记录了实际删掉的约束；状态 D 没有这个字段；
+- 状态 C 另有 `lane/.../work/tenant-lock-pulse/process.log`。
+
+比较时，对每个状态取 `report.json` 中 C4 和 C4-peak 的 `ack_p95_ms` 和 `idle_dispatch_p95_ms`，按 11.2 的比较对计算比值。结果写入 NX-052 的 evidence，类型为 `test_report`。
+
+`tenant_fk_state.py` 和 `matrix_cells.py` 是本任务新增的脚本。`build_template_hold.py` 和 `stack.py` 各加了一个钩子，都用环境变量控制、默认关闭：不设这些变量时，模板和单元的行为不变，模板 digest 也不变。
+
+## 12. NX-052 的完成定义与剩余项
+
+### 12.1 完成定义
+
+1. **契约**：Claim 的 `tenant_id` 是 uuid，并且有 `mode` 以及 mode↔world 条件（1a）。已合入。
+2. **租户根**：`control.nexloop_tenants` 有 uuid 格式的 CHECK（1b，0157）。已合入。
+3. **测试租户**：统一使用 `tests/support/tenants.py` 中的常量，守护测试 `test_tenant_constants` 防止旧字面量回来。已合入。
+4. **租户外键**：每张带 `tenant_id` 的表，必须满足以下三者之一：
+   - 有已 VALIDATE 的租户外键；
+   - 满足链式判据（§7.3）；
+   - 登记在 `EXCEPTION_REASONS` 中，并写明理由。
+   
+   由 `tests/test_tenant_fk_pg.py::test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception` 断言。这项断言要求 s5l（第 4 批）、s5m（第 4b 批、第 5 批和收尾提交）都合入后才成立。只看 `nx052-closure` 这条分支时，它缺第 4 批，会失败。
+5. **租户行锁**：配置发布和初始身份创建取 `FOR NO KEY UPDATE`（0162）。已合入。
+6. **语句级测量**：每批在本机按 §0.3 的方法测量，结果记在各节中。
+7. **整轮窗口的端到端测量**：按 §11 执行，4 个状态的 3 组比较都在判据内。
+
+### 12.2 剩余项
+
+- **只剩第 7 项**，即整轮窗口的端到端测量，由调度员在 CI 主机执行。执行完并把 evidence 写入 NX-052 后，NX-052 即可标为 done。
+- 如果某项比较超出判据，处理方式是把该批中最频繁写入的表改成靠外键链或例外覆盖，或者拆出这张表单独处理，再重新测量。这要另行决定，不在本任务内预设。
+
+### 12.3 以后新增表的规则
+
+- 新增一张带 `tenant_id` 的表时，要么加租户外键，要么用 `tenant_id → tenant_id` 的复合外键引用一张已有租户路径的表。
+- 如果它属于 vendored 核心，就把它加入 `EXCEPTION_REASONS` 并写明理由。
+- 三者都不满足的，完整性断言会失败。
