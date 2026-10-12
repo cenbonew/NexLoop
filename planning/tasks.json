@@ -2518,6 +2518,24 @@
         "ref": "ci:lane/runs/20261012T031847Z-fd2a39a0fbcf",
         "summary": "s5m 全量（fd2a39a）：integration-parallel 失败 2 项均为基线 B 类（role_context_v6、runtime_effect_recovery）；v6_relationships、message_relay、scope_denials 本轮通过；门槛 4/4 251 s；heavy 22/22；pi 24、runtime 257 通过；licenses 阶段通过（含 playwright 新依赖）。此前 s5l（e1ef26b）新增的 2 个失败（为未登记租户写行的测试捷径）已在 1dfe720 修正，本轮通过。",
         "recorded_at": "2026-10-12T04:15:30.578514+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "ci:lane/load/20261012T041655Z-fd2a39a",
+        "summary": "1000 客户整轮第二次（fd2a39a，含 ADR-027，--outside-window，CI 主机 8C16T Ryzen 7 5700U）中止于模板历史回复：装载 1000/1000 用 1499 s；历史回复 284 s 时 replies_due 1547→1523（约 0.09/s），jobs：failed runtime_authorization_unavailable 17、dispatch_unavailable 2、runtime_failed 2，retry_wait transport_timeout 3、dispatch_timeout 2；按 HISTORY_TIMEOUT 必然超时，调度员中止。负责人定阶梯 100→200→500→1000。",
+        "recorded_at": "2026-10-12T06:06:50.371775+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "08b2099",
+        "summary": "ADR-028（负责人 2026-10-12 批准）合入 main（s5n）：效应工具写入意图后的收尾复查只做激活核心复查，另直接核对 Run 绑定的上下文工件仍可用（sha256、保留期）；Host 效应客户端在提交结果有歧义时以完全相同载荷再提交一次（find 再查一次），仍歧义才报不可用；不放宽 2 s 时限、不改效应语义；0173；tests/test_effect_final_recheck_pg 与 Host effect-ambiguous-retry 覆盖。",
+        "recorded_at": "2026-10-12T06:06:50.371775+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T050714Z-08b20999d570",
+        "summary": "s5n 全量（08b2099）：integration-parallel 失败 3 项均为基线 B 类（runtime_effect_recovery、role_context_v6、scope_denials）；门槛 4/4 246 s；heavy 22/22；pi 24、runtime 通过。",
+        "recorded_at": "2026-10-12T06:06:50.371775+00:00"
       }
     ]
   },
