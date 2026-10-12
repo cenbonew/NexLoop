@@ -2750,6 +2750,12 @@
         "ref": "ci:lane/runs/20261011T165344Z-7b4ce4b6a83e",
         "summary": "s5e 全量（7b4ce4b）：check 首次自动执行全部测试阶段（NEXLOOP-STAGE 结果行齐全）：门槛 4/4 256 s；integration-parallel 失败 6 项均为基线 B 类；integration-heavy 22 passed；pi-runtime（pi 与 Host 255）通过。合入 main 7b4ce4b。",
         "recorded_at": "2026-10-11T17:47:26.043231+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/runs/20261012T215500Z-18f7ca118887",
+        "summary": "s5t 全量（18f7ca1）RESULT=PASS，CI 合并基线清零：最后一项 runtime_effect_recovery::test_same_pi_run_survives_host_and_effect_worker_kill_query_first 的失败源于测试固定 1 s 窗口（CI 主机上首个 Generation 的授权、模型、工具与持久化超过 1 s），改为事件等待、30 s 上限，无产品代码改动；按 D-j 其余 B 类已在 s5q–s5s 连续通过后移出。门槛 4/4 169 s；parallel、heavy 22、pi 24、runtime 266 全过。",
+        "recorded_at": "2026-10-12T22:48:38.743259+00:00"
       }
     ]
   },
