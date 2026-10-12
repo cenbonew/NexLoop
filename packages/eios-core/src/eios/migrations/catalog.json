@@ -865,6 +865,11 @@
       "version": "0173",
       "name": "0173_effect_final_recheck.sql",
       "sha256": "fdedccf94d19dd412f3933d40f4205c6ec79b13113cbf8893dceb00502bbf76b"
+    },
+    {
+      "version": "0410",
+      "name": "0410_nx031_delivery_definition_share_lock.sql",
+      "sha256": "d319f201ffc4dba9cc5a964b649e709cf0cbbbf93514fecd377faf3f5a6780a4"
     }
   ]
 }
