@@ -22,13 +22,20 @@ class EffectDispatcher:
 
     def _origin_expired(self, identity):
         # 0400: an expired origin Run can never authorize a dispatch or a query again; stop instead of retrying with it.
+        # Best effort: any failure here (database outage included) leaves the existing unavailable path unchanged.
         settle = getattr(self.ledger, 'settle_expired_origin', None)
-        return settle(intent_id=identity['intent_id']) if settle else None
+        try:
+            return settle(intent_id=identity['intent_id']) if settle else None
+        except Exception:
+            return None
 
     def _back_off(self, identity):
         back_off = getattr(self.ledger, 'back_off_unknown', None)
         if back_off:
-            back_off(intent_id=identity['intent_id'])
+            try:
+                back_off(intent_id=identity['intent_id'])
+            except Exception:
+                pass
 
     def run_once(self):
         """Claim once. An orphan dispatch is always query-first, never new send.

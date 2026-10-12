@@ -1,4 +1,5 @@
-"""0400 (500-customer ladder): after its origin Run credential expired, an intent is never re-tried with it. Never dispatched,
+"""0400 (500-customer ladder): after its origin Run credential expired (a revocation alone is not enough: it may be undone, as
+a restore does), and while no dispatch control refuses it (a restore fence or paused channel keeps it waiting), an intent is never re-tried with it. Never dispatched,
 it fails with its outbox item (nothing was sent); dispatched and still unknown, automatic re-query stops (the reply
 guarantee's reconciliation may still ask once). Unknown results are offered again only after min(60, 2^n) s. The executor
 may settle only its own intents, and only when the origin is really expired (checked in SQL). Actual PG authority."""
@@ -8,6 +9,11 @@ import psycopg
 from support.effect_provider import effect_provider  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_effect_dispatch import accepted
+
+
+def expire(admin, fixture):
+    for run in fixture.runs:
+        admin.execute("update authz.nexloop_run_credentials set issued_at=clock_timestamp()-interval '2 minutes',expires_at=clock_timestamp()-interval '1 second' where run_id=%s", (run.run_id,))
 
 
 def outbox(admin, intent):
@@ -23,6 +29,10 @@ def test_settle_needs_an_expired_origin_and_fails_only_a_never_dispatched_intent
         assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone() == ('accepted',)
         for run in fixture.runs:
             admin.execute("update authz.nexloop_run_credentials set status='revoked' where run_id=%s", (run.run_id,))
+        assert executor.settle_expired_origin(intent_id=intent) == 'none'  # revoked, not expired: may be re-issued, keeps waiting
+        for run in fixture.runs:
+            admin.execute("update authz.nexloop_run_credentials set status='active' where run_id=%s", (run.run_id,))
+        expire(admin, fixture)
         # Never claimed: the origin is the earliest submission's Run (as the claim would choose it).
         assert executor.settle_expired_origin(intent_id=intent) == 'failed'
     assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone() == ('failed',)
@@ -42,8 +52,7 @@ def test_a_dispatched_unknown_intent_stops_requery_and_unknown_backs_off(governe
         assert executor.back_off_unknown(intent_id=intent) == 4  # 3 unknown events: 2^(3-1) s
         state, infinite, seconds = outbox(admin, intent)
         assert state == 'unknown' and not infinite and 3 <= seconds <= 4.5
-        for run in fixture.runs:
-            admin.execute("update authz.nexloop_run_credentials set status='revoked' where run_id=%s", (run.run_id,))
+        expire(admin, fixture)
         assert executor.settle_expired_origin(intent_id=intent) == 'stopped'
         assert outbox(admin, intent)[:2] == ('unknown', True)
         assert executor.back_off_unknown(intent_id=intent) == 4 and outbox(admin, intent)[1] is True  # never brought back from infinity
@@ -60,3 +69,15 @@ def test_only_the_executor_role_may_settle(governed_effect_executor, admin, pg):
                     raise AssertionError(fn + ' allowed for ' + role)
                 except psycopg.errors.InsufficientPrivilege:
                     pass
+
+
+def test_a_dispatch_control_keeps_an_expired_origin_intent_waiting(governed_effect_executor, admin):
+    fixture = governed_effect_executor
+    intent = accepted(fixture)['intent_id']
+    expire(admin, fixture)
+    from test_nx022_dispatch_e2e import pause
+    tenant, action = admin.execute('select tenant_id,action_name from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone()
+    pause(admin, tenant, 'action_type', action, paused=True)  # the owner paused this channel: the intent waits
+    with fixture.current_executor() as executor:
+        assert executor.settle_expired_origin(intent_id=intent) == 'none'
+    assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone() == ('accepted',)

@@ -3,8 +3,8 @@
 -- claim re-derived the Run identity and was refused ('Run authentication denied', about every 0.4 s), the intent stayed
 -- unknown, and unknown intents were offered again at once (0042 'unknown': available_at = now). AGENTS: an unknown external
 -- result is queried and reconciled first, never blindly retried; nothing here sends anything.
--- 1. authz.nexloop_effect_origin_expired: for the executor's own intent whose origin Run credential is no longer active or has
---    expired (checked here, never taken from the caller): an intent never dispatched (state accepted, no attempt) fails
+-- 1. authz.nexloop_effect_origin_expired: for the executor's own intent whose origin Run credential has expired (checked here,
+--    never taken from the caller; a revocation alone is not enough, it may be undone) and that no dispatch control refuses: an intent never dispatched (state accepted, no attempt) fails
 --    with its outbox item (no effect happened; the reply guarantee answers the message as for any failed Run); a dispatched
 --    one (dispatching/unknown) stops automatic re-query (available_at = infinity, lease cleared): the reply guarantee's
 --    reconciliation (0152) may still ask once and escalates when it stays unknown.
@@ -22,8 +22,14 @@ begin
  if not found then raise exception 'effect origin unavailable' using errcode='42501';end if;
  -- The origin is the one the claim uses (0042): the recorded origin_run_id, else the earliest submission's Run.
  v_origin:=coalesce(i.origin_run_id,(select s.run_id from runtime.nexloop_effect_submissions s where s.intent_id=p_intent order by s.created_at,s.run_id limit 1));
- if v_origin is null or not exists(select 1 from authz.nexloop_run_credentials r where r.run_id=v_origin
-   and (r.status<>'active' or r.expires_at<=clock_timestamp())) then return 'none';end if;
+ -- Only an expired credential is permanent: a revocation may be undone (a restore revokes every Run credential and the
+ -- owner's opening re-issues them), so a revoked origin is left to wait like any other refused admission.
+ if v_origin is null or not exists(select 1 from authz.nexloop_run_credentials r where r.run_id=v_origin and r.expires_at<=clock_timestamp()) then
+  return 'none';end if;
+ -- Dispatch controls come first: while a restore fence, a paused channel, a closed real-dispatch switch or any other
+ -- control refuses this intent, it stays blocked exactly as before (the owner's decision), never failed or stopped here.
+ begin perform authz.nexloop_assert_intent_dispatch_controls(p_digest,p_world,p_intent);
+ exception when others then return 'none';end;
  if i.state='accepted' and not exists(select 1 from runtime.nexloop_effect_attempts a where a.intent_id=p_intent) then
   update runtime.nexloop_effect_outbox set state='failed',lease_until=null,lease_credential=null,lease_principal=null
    where intent_id=p_intent and state in ('pending','leased');
