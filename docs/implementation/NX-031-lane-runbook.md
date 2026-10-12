@@ -9,6 +9,7 @@
 | `NEXLOOP_CI_LOCK` | 是 | 和常规 CI 共用的锁文件 |
 | `NEXLOOP_TEST_PG_BIN` | 是 | PostgreSQL 18 的 bin 目录 |
 | `LOAD_SEED` / `LOAD_CONSUMERS` | 否 | 默认 31 / 1000 |
+| `LOAD_MATRIX` | 否 | 矩阵文件，默认 `deploy/load/matrix.v1.json`；`deploy/load/matrix.v2.json` 是草稿（门槛格 C4 0.1/s、C4-low 0.05/s），待负责人 D-a 补充决定 |
 | `LOAD_WINDOW` | 否 | 夜间窗口，默认 `22:00-06:00`（本地时间） |
 | `LOAD_LOCK_WAIT` | 否 | 等锁的秒数，默认 1800 |
 | `LOAD_MIN_FREE_GIB` / `LOAD_MIN_FREE_MEM_GIB` | 否 | 磁盘、内存余量下限，默认 20 / 8 |

@@ -8,6 +8,7 @@ nothing, starts nothing and needs no database. Prints one JSON object {checks: {
 exit 0 when every check passes, 2 otherwise. Parameters come from the environment (values live on the lane, never in git):
   NEXLOOP_CI_LOCK          lock file shared with the regular CI (required)
   LOAD_SEED / LOAD_CONSUMERS          default 31 / 1000
+  LOAD_MATRIX              matrix file (default deploy/load/matrix.v1.json)
   LOAD_MIN_FREE_GIB        free disk under .ci-results/load (default 20)
   LOAD_MIN_FREE_MEM_GIB    available memory (default 8)
 On a host without distinct loopback sources (macOS without aliases) distinct_loopback_sources fails: the run still works, but
@@ -62,7 +63,8 @@ def deployment_premises():
     budget = json.loads((ROOT / 'deploy/stage/connection-budget.v1.json').read_text())
     runtime = next(s for s in budget['services'] if s['name'] == 'runtime-worker')
     evaluated = connection_budget.evaluate(budget)
-    matrix = json.loads((ROOT / 'deploy/load/matrix.v1.json').read_text())
+    # The lane's matrix (run_on_lane.sh: LOAD_MATRIX, default v1).
+    matrix = json.loads((ROOT / os.environ.get('LOAD_MATRIX', 'deploy/load/matrix.v1.json')).read_text())
     gates = {c['cell']: c['host_concurrency'] for c in matrix['cells'] if c['role'] == 'gate'}
     stack = (ROOT / 'scripts/load/stack.py').read_text()
     chain = {'guard_workers_4': "'--guard-workers', '4'" in stack,

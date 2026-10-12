@@ -1,6 +1,6 @@
 """NX-031 slice 1: the matrix runner (design §3–§5, results contract docs/implementation/NX-031-results-contract.md).
 
-    uv run --frozen python scripts/load/matrix.py --template <run_dir>/template --matrix deploy/load/matrix.v1.json \\
+    uv run --frozen python scripts/load/matrix.py --template <run_dir>/template --matrix deploy/load/matrix.v1.json \\  (or matrix.v2.json)
         --out <run_dir> --lane-root <run_dir>/lane [--cells C4,C4-low] [--timing-scale 0.05]
 
 For each cell: clone the template under --lane-root, start the stack (stack.py), log the customers in (warm-up), drive the
@@ -42,7 +42,7 @@ def now():
 
 def validate_matrix(matrix):
     cells = [c['cell'] for c in matrix['cells']]
-    if matrix.get('schema') != 'nexloop.load-matrix.v1' or sorted(cells) != sorted(CELLS):
+    if matrix.get('schema') not in ('nexloop.load-matrix.v1', 'nexloop.load-matrix.v2') or sorted(cells) != sorted(CELLS):
         raise SystemExit('matrix: the eight design cells are required')
     for c in matrix['cells']:
         if (c['role'] == 'gate') != (c['cell'] in GATES):
