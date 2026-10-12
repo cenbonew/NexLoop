@@ -243,6 +243,9 @@ def cell_metrics(directory, expected_refusals):
     if samples is not None:
         rate, p95, calls = guard_windows(samples, start, end)
         metrics.update(guard_timeout_rate_5m_max=rate, guard_p95_ms_max=p95, guard_calls=calls)
+        # NX-031: guard calls answered 503 or dropped at the connection bound (unanswered, not timed out); reported, not gated.
+        metrics['guard_errors'] = sum(_number((r.get('sample') or {}).get('errors', 0), 'guard.errors') for r in samples
+                                      if r.get('kind') == 'guard' and start <= _time(r.get('window_start')) < end)
         out['host'] = host_summary(samples, start, end)
         out['pool'] = pool_summary(samples, start, end)
     acks = _lines(directory / 'acks.jsonl')

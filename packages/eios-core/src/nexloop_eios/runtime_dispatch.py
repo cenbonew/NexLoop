@@ -37,6 +37,16 @@ class RuntimeDispatchError(RuntimeError):
         super().__init__(code)
 
 
+# Transport ambiguity may recover only the same persisted Run later; a request the Host refuses for its size never will.
+POLL_MAX_SECONDS=.5
+ADMISSION_TIMEOUT_FACTOR=4
+
+
+def next_poll_interval(interval,base):
+    """Inspect polling backs off: double the last interval, at most POLL_MAX_SECONDS (never below the configured base)."""
+    return min(interval*2,max(base,POLL_MAX_SECONDS))
+
+_RETRYABLE=frozenset({'runtime_transport_unavailable','runtime_transport_timeout','runtime_dispatch_timeout','runtime_response_invalid'})
 _FAILURE_CODES=frozenset({'runtime_authorization_unavailable','runtime_authorization_denied'})
 
 
@@ -62,7 +72,7 @@ class RuntimeHostClient:
 
     def request(self,operation,body,*,deadline):
         if operation not in {'start','resume','inspect','cancel'}:raise ValueError('Host operation required')
-        connection=None;timer=None
+        connection=None;timer=None;response=None
         try:
             remaining=deadline-time.monotonic()
             if remaining<=0:raise RuntimeDispatchError('runtime_transport_timeout')
@@ -71,7 +81,8 @@ class RuntimeHostClient:
             context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);context.minimum_version=ssl.TLSVersion.TLSv1_2
             context.load_verify_locations(cadata=read_private_text(self.configuration.ca_file,maximum=32768))
             payload=json.dumps(body,separators=(',',':')).encode()
-            if len(payload)>262144:raise ValueError()
+            # The Host refuses a body above 262144 bytes (413); refused here before sending, as its own code (deterministic).
+            if len(payload)>262144:raise RuntimeDispatchError('runtime_request_too_large')
             origin=urlsplit(self.configuration.origin)
             remaining=deadline-time.monotonic()
             if remaining<=0:raise RuntimeDispatchError('runtime_transport_timeout')
@@ -106,7 +117,9 @@ class RuntimeHostClient:
             if response.status not in ({202} if operation in {'start','resume'} else {200}):
                 if response.status==503 and value.get('code')=='runtime_state_missing':raise RuntimeDispatchError('runtime_state_missing')
                 if response.status==409 and value.get('code')=='runtime_request_conflict':raise RuntimeDispatchError('runtime_request_conflict')
-                raise RuntimeDispatchError('runtime_transport_unavailable')
+                if response.status==413:raise RuntimeDispatchError('runtime_request_too_large')
+                # NX-031: any other Host status keeps its number in the code (retried like before; no longer called transport).
+                raise RuntimeDispatchError('runtime_host_status_%d'%response.status if 100<=response.status<=599 else 'runtime_response_invalid')
             command=body['command']
             if value.get('run_id')!=command['run_id']:raise ValueError()
             if operation!='cancel' and (value.get('request_id')!=command['request_id']
@@ -118,7 +131,12 @@ class RuntimeHostClient:
                     or persistence['journal_mode']!='wal' or type(persistence['synchronous']) is not int or persistence['synchronous']!=2):raise ValueError()
             return value
         except RuntimeDispatchError:raise
-        except Exception:raise RuntimeDispatchError('runtime_transport_unavailable') from None
+        except (TimeoutError,socket.timeout):raise RuntimeDispatchError('runtime_transport_timeout') from None
+        # NX-031: a Host answer that fails validation (type, size, framing, JSON, receipt) is not a transport failure.
+        except Exception:
+            # The deadline timer shuts the socket down; whatever that breaks is the timeout, not a bad answer.
+            if time.monotonic()>=deadline:raise RuntimeDispatchError('runtime_transport_timeout') from None
+            raise RuntimeDispatchError('runtime_response_invalid' if response is not None else 'runtime_transport_unavailable') from None
         finally:
             if timer is not None:timer.cancel()
             if connection is not None:connection.close()
@@ -163,7 +181,33 @@ class RuntimeDispatcher:
             authority()
             body={'activation_ref':activation['activation_ref'],'command':command}
             if operation in {'start','resume'}:body['input']=input
-            return self.client.request(operation,body,deadline=min(deadline,time.monotonic()+self.request_timeout))
+            # NX-031 (lane-history-fix): a start/resume does two guard authorizations (each up to the 2 s limit of ADR-022 §4) and
+            # creates the Run's durable storage, so it gets ADMISSION_TIMEOUT_FACTOR request timeouts (at most a third of the
+            # lease); giving up earlier left the Run running on the Host while its task went back to the queue.
+            timeout=self.request_timeout if operation not in {'start','resume'} else min(self.lease_seconds/3,self.request_timeout*ADMISSION_TIMEOUT_FACTOR)
+            return self.client.request(operation,body,deadline=min(deadline,time.monotonic()+timeout))
+        def ambiguous(error):
+            return error.code in _RETRYABLE and error.code!='runtime_dispatch_timeout' or error.code.startswith('runtime_host_status_5')
+        def observe():
+            # NX-031 (lane-history-fix): while this loop holds the lease, an ambiguous inspect (timeout, transport, invalid answer,
+            # Host 5xx) is asked again until the deadline. Giving the task back on the first one released the lease while the Run
+            # kept running on the Host, and that Run's next guard authorization was then denied (activation lease denied).
+            while True:
+                try:return request('inspect')
+                except RuntimeDispatchError as error:
+                    if not ambiguous(error) or time.monotonic()>=deadline:raise
+                    time.sleep(min(POLL_MAX_SECONDS,max(0,deadline-time.monotonic())))
+        def submit(operation):
+            # The Host may have admitted the Run although its answer did not arrive; the next inspect tells.
+            try:request(operation)
+            except RuntimeDispatchError as error:
+                if not ambiguous(error):raise
+                try:return observe()
+                except RuntimeDispatchError as missing:
+                    # Not admitted after all: the original ambiguity stands (the task is retried as before).
+                    if missing.code=='runtime_state_missing':raise error from None
+                    raise
+            return observe()
         outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None
         try:
             payload=job['payload']
@@ -178,7 +222,7 @@ class RuntimeDispatcher:
             except ControlDenied as denied:raise RuntimeDispatchError(denied.reason) from None
             activation=self.worker.create_runtime_activation(queue=self.queue,task_id=task_id,fence=fence,
                 run_id=command['run_id'],command=command,input=input,owner_epoch=command['runtime_owner_epoch'])
-            try:inspection=request('inspect')
+            try:inspection=observe()
             except RuntimeDispatchError as error:
                 if error.code!='runtime_state_missing':raise
                 if activation.get('ever_execution_authorized') is not False:raise RuntimeDispatchError('runtime_reclaimed_state_missing')
@@ -187,13 +231,18 @@ class RuntimeDispatcher:
                 if fresh.get('authorized') is not True or fresh.get('ever_execution_authorized') is not False:raise RuntimeDispatchError('runtime_reclaimed_state_missing')
                 # Host performs another fresh guard check at its actual missing
                 # SQLite create boundary. Neither cached snapshot permits reset.
-                request('start');inspection=request('inspect')
+                inspection=submit('start')
             else:
                 if inspection['runtime_outcome'] in {'running','unknown'}:
-                    request('resume');inspection=request('inspect')
+                    inspection=submit('resume')
+            # NX-031 (lane-history-fix): every inspect is a Host request that passes the Host's single serial queue and a full guard
+            # authorization, so a fixed 50 ms poll from every dispatch loop kept that queue full and, as guard latency grows with the
+            # tenant's data, pushed each Host request past request_timeout. The interval now doubles up to POLL_MAX_SECONDS.
+            interval=self.poll_seconds
             while inspection['runtime_outcome']=='running':
-                time.sleep(min(self.poll_seconds,max(0,deadline-time.monotonic())))
-                inspection=request('inspect')
+                time.sleep(min(interval,max(0,deadline-time.monotonic())))
+                interval=next_poll_interval(interval,self.poll_seconds)
+                inspection=observe()
             outcome=inspection['runtime_outcome']
             if outcome in {'succeeded','failed','cancelled'}:
                 # Only an actual validated Host inspection supplies these fields.
@@ -215,7 +264,7 @@ class RuntimeDispatcher:
             code=error.code if isinstance(error,RuntimeDispatchError) else 'runtime_dispatch_unavailable'
             # Transport ambiguity may recover only the same persisted Run later.
             # Missing reclaimed state/conflict is terminal, never a new start.
-            status='retry_wait' if code in {'runtime_transport_unavailable','runtime_transport_timeout','runtime_dispatch_timeout'} else 'failed'
+            status='retry_wait' if code in _RETRYABLE or code.startswith('runtime_host_status_') else 'failed'
         result={'scope':'runtime_only','business_action_success':False,'runtime_outcome':outcome}
         if command is not None:result['run_id']=command.get('run_id')
         if receipt is not None:result['runtime_receipt']=receipt
