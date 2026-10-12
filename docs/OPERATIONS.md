@@ -147,7 +147,18 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 依据：[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md) §7。执行器（`nexloop_eios.controlled_interactions`）按计划顺序逐次发起交互，每次交互的证据在下一次开始前写入 `interactions.jsonl` 并 fsync；证据只有 ID、计数、毫秒数、金额、币种与状态码（端到端、模型、工具、平台四段耗时，模型调用与失败次数，按类别费用，意图状态，拒绝码，交付回执，对账结果，规则判定）。采集器以 metrics 角色读取单个 Run 的证据（`authz.nexloop_nx037_run_evidence`）。
 
-> **真实发送路径尚未实现**：real driver 目前只有接口。real 模式的前置条件全部满足时，入口在第一次交互之前以 `real_driver_unavailable` 退出（退出码 4），不写任何交互记录。真实发送路径属于 NX-037 B 类后续工作。
+> **real driver（[实现说明](implementation/NX-037-prep-implementation.md) §8）**：driver 不扮演消费者、也不发送，不持有任何发送代码路径、渠道凭据或写权限。真实交互由负责人安排的知情内部人员在 WebChat 完成。每次交互 driver 做五件事：读服务端当前时间；在终端（stderr）提示操作者执行第 N 次交互的类型与要点并给出时限（提示以 ID 和代码追加到试运行目录的 `prompts.jsonl`）；以 metrics 只读角色轮询 `authz.nexloop_nx037_interaction_observation`，等到提示之后的第一条消费者消息、它的 Run 已结束、Run 的效应没有未结束的（`observed_fulfilled` 也算未结束）；从记录推出停止规则所需的事实（越权发送、发错对象、拒收后仍联系、重复投递或重复完成、跨客户读取、critical 告警、未了结的不明效应）；证据仍由 `PgCollector` 采集。在 `--interaction-timeout`（默认 900 s）内没完成的交互记为 `interaction_timeout` 并**暂停**，不猜测结果。
+
+#### 试运行目录中的证据文件
+
+| 文件 | 内容 |
+|---|---|
+| `interactions.jsonl` | 每次交互一行证据，在下一次交互开始前写入并 fsync |
+| `state.json` | 试运行状态（完成、暂停或停止、计划顺序 digest），原子写入 |
+| `prompts.jsonl` | real 模式给操作者的每次提示（只有 ID 与代码） |
+| `resumes.jsonl` | 每次恢复的负责人确认引用，先 fsync 再继续 |
+
+这些文件只含 ID、计数、时间、金额与代码，保存在负责人的私有证据目录；证据包见 9.6。
 
 #### 交互计划文件（负责人可编辑）
 
@@ -174,6 +185,7 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 - **前置检查**（任何交互之前，不满足即退出码 3 并列出原因代码）：
   1. 9.2 节 verify 中除三项开关以外的检查全部通过：租户 active，model 预算等于 D-g 累计上限并覆盖试运行期间，告警规则生效；
   2. 三层开关与计划的 `real_dispatch` 完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表（经 metrics 角色的 `authz.nexloop_nx037_open_switches` 读取）。
+- 可选参数：`--interaction-timeout <SECONDS>`（每次交互的时限，默认 900）、`--poll-seconds <SECONDS>`（观测间隔，默认 2）。
 - **校准暂停**：第 3 次交互（校准）之后自动暂停（规则 `calibration`），由负责人核对单次费用后再继续。
 
 #### 恢复暂停
@@ -189,10 +201,9 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 | 码 | 含义 |
 |---|---|
 | 0 | 完成 |
-| 1 | 暂停（错误率、费用、未了结的不明效应或校准），等负责人确认后 `--resume` |
+| 1 | 暂停（错误率、费用、未了结的不明效应、交互超时 `interaction_timeout` 或校准），等负责人确认后 `--resume` |
 | 2 | 停止（立即停止规则命中），按 9.5 处置 |
-| 3 | 拒绝：输入错误、real 模式前置条件不满足、需要恢复确认、试运行已停止 |
-| 4 | real driver 不可用（`real_driver_unavailable`，真实发送路径尚未实现） |
+| 3 | 拒绝：输入错误、real 模式前置条件不满足（此时不会提示操作者）、需要恢复确认、试运行已停止 |
 
 ### 9.5 停止或暂停之后
 
