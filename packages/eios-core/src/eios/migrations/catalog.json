@@ -825,6 +825,11 @@
       "version": "0165",
       "name": "0165_at046_real_credential_alone.sql",
       "sha256": "6140e93301a3607db1a6c56520c004379e817ae3ea8e259d8b36ccead5852c05"
+    },
+    {
+      "version": "0360",
+      "name": "0360_inspect_authz_scope.sql",
+      "sha256": "8eb9e4ddc719e94962108c3cf2f3c4c850c4eda62eb7086ffcf31d8810265f96"
     }
   ]
 }
