@@ -39,6 +39,7 @@ class RuntimeDispatchError(RuntimeError):
 
 # Transport ambiguity may recover only the same persisted Run later; a request the Host refuses for its size never will.
 POLL_MAX_SECONDS=.5
+_STAGE_CODES={'control':'runtime_control_unavailable','activation':'runtime_activation_unavailable','host':'runtime_dispatch_unavailable'}
 ADMISSION_TIMEOUT_FACTOR=4
 
 
@@ -170,9 +171,12 @@ class RuntimeDispatcher:
         if cache_queue is not None:self.cache_wakeup.publish(cache_queue,job['task_id'])
         task_id,fence=job['task_id'],job['fence'];renew_at=time.monotonic()+self.lease_seconds/3
         command=None
+        def expired():
+            return command is not None and datetime.fromisoformat(command['not_after'].replace('Z','+00:00'))<=datetime.now(UTC)
         def authority():
             nonlocal renew_at
-            if time.monotonic()>=deadline:raise RuntimeDispatchError('runtime_dispatch_timeout')
+            # NX-031 ladder: a Run past its not_after (= its credential's expiry) can never run; that is terminal, not a timeout.
+            if time.monotonic()>=deadline:raise RuntimeDispatchError('runtime_command_expired' if expired() else 'runtime_dispatch_timeout')
             self.worker.assert_task_lease(queue=self.queue,task_id=task_id,fence=fence)
             if time.monotonic()>=renew_at:
                 self.worker.renew_task(queue=self.queue,task_id=task_id,fence=fence,lease_seconds=self.lease_seconds)
@@ -208,20 +212,25 @@ class RuntimeDispatcher:
                     if missing.code=='runtime_state_missing':raise error from None
                     raise
             return observe()
-        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None
+        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None;stage='payload'
         try:
             payload=job['payload']
             if type(payload) is not dict or set(payload)!={'run_command','input'}:raise RuntimeDispatchError('runtime_task_payload_invalid')
             command=payload['run_command'];input=payload['input'];_command(command);_input_digest(input)
             ttl=(datetime.fromisoformat(command['not_after'].replace('Z','+00:00'))-datetime.now(UTC)).total_seconds()
+            # A Run queued past its credential's lifetime is refused before any activation or Host request.
+            if ttl<=0:raise RuntimeDispatchError('runtime_command_expired')
             deadline=min(deadline,time.monotonic()+ttl)
             authority()
+            stage='control'
             # NX-022: owner controls are re-read before this queued Run is activated.
             from nexloop_eios.goal_controls import ControlDenied,ControlPlane
             try:ControlPlane(self.worker._backend._pool,self.worker._session).prepare_run_dispatch(task_id=task_id,command=command)
             except ControlDenied as denied:raise RuntimeDispatchError(denied.reason) from None
+            stage='activation'
             activation=self.worker.create_runtime_activation(queue=self.queue,task_id=task_id,fence=fence,
                 run_id=command['run_id'],command=command,input=input,owner_epoch=command['runtime_owner_epoch'])
+            stage='host'
             try:inspection=observe()
             except RuntimeDispatchError as error:
                 if error.code!='runtime_state_missing':raise
@@ -261,7 +270,9 @@ class RuntimeDispatcher:
         except StaleQueueLease:
             return {'claimed':True,'task_id':task_id,'fence':fence,'status':'lease_lost'}
         except Exception as error:
-            code=error.code if isinstance(error,RuntimeDispatchError) else 'runtime_dispatch_unavailable'
+            # NX-031 ladder: an unexpected failure is named by where it happened (control recheck, activation, Host exchange),
+            # and a Run that has meanwhile passed its not_after is expired (terminal) rather than unavailable.
+            code=error.code if isinstance(error,RuntimeDispatchError) else 'runtime_command_expired' if expired() else _STAGE_CODES.get(stage,'runtime_dispatch_unavailable')
             # Transport ambiguity may recover only the same persisted Run later.
             # Missing reclaimed state/conflict is terminal, never a new start.
             status='retry_wait' if code in _RETRYABLE or code.startswith('runtime_host_status_') else 'failed'
