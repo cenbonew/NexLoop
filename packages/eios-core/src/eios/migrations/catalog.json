@@ -855,6 +855,11 @@
       "version": "0171",
       "name": "0171_inspect_authz_scope.sql",
       "sha256": "44fdade95d168512deef0f8790d3b52a013410582113f576bfdcbdb8bb7890da"
+    },
+    {
+      "version": "0172",
+      "name": "0172_nx037_interaction_observation.sql",
+      "sha256": "fde894af9eb27284d824aacc07a7381deff00b296200a255d49bed30de55406b"
     }
   ]
 }

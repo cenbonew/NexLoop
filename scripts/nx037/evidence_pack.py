@@ -39,8 +39,8 @@ def _vocabulary():
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
     from nexloop_eios.controlled_interactions import KINDS, PAUSE_RULES, STOP_RULES
     return frozenset((*KINDS, *STOP_RULES, *PAUSE_RULES, *ITEMS, 'present', 'missing', 'completed', 'paused', 'stopped', 'continue',
-                      'stop', 'pause', 'ok', 'error', 'settled', 'unresolved', 'not_applicable', 'accepted', 'dispatching', 'unknown',
-                      'fulfilled', 'failed', 'confirmed', 'synthetic_error', 'nexloop.nx037-evidence.v1', 'CNY', 'USD'))
+                      'stop', 'pause', 'ok', 'error', 'settled', 'unresolved', 'not_applicable', 'accepted', 'dispatching', 'observed_fulfilled', 'unknown',
+                      'fulfilled', 'failed', 'confirmed', 'synthetic_error', 'interaction_timeout', 'run_failed', 'nexloop.nx037-evidence.v1', 'CNY', 'USD'))
 
 
 VOCABULARY = _vocabulary()

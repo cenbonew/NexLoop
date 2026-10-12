@@ -33,3 +33,12 @@ def pg():
 def admin(pg):
     with psycopg.connect(pg,autocommit=True) as connection:
         yield connection
+
+
+def pytest_collection_modifyitems(config,items):
+    """AT-015 real browser lane: tests marked real_browser run only when selected with -m real_browser (a separate, opt-in
+    lane; deselected rather than skipped, so no green skip appears in the default stages)."""
+    if 'real_browser' in (config.getoption('-m') or ''):return
+    keep=[i for i in items if i.get_closest_marker('real_browser') is None]
+    if len(keep)!=len(items):
+        config.hook.pytest_deselected(items=[i for i in items if i.get_closest_marker('real_browser') is not None]);items[:]=keep

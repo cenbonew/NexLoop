@@ -125,9 +125,11 @@ def assembled_message(business_plan,admin,tmp_path,request):
     original['paths']['secrets'].write_text(json.dumps(secrets_map))
     apply_manifest(updated,database_url_file=original['paths']['dsn'],signing_key_file=original['paths']['signing'],signing_key_id='explicit-configuration',service_secrets_file=original['paths']['secrets'])
     f['paths']['executor-credential-file'].write_text(tokens['assembly-executor'])
-    # Dedicated two-Run correction scenario gets two units through normal setup.
-    if getattr(request.node,'originalname',None) in ('test_real_human_message_v4_bound_artifact','test_fallback_reply_is_refused_once_the_original_reply_was_accepted'):
-        f['recipe']['control']['budget_units']=2
+    # Dedicated multi-Run scenarios get their effect units through normal setup (two-Run correction: 2; NX-037 real driver: 4).
+    units={'test_real_human_message_v4_bound_artifact':2,'test_fallback_reply_is_refused_once_the_original_reply_was_accepted':2,
+        'test_real_driver_with_an_automated_operator_on_the_synthetic_stack':4}.get(getattr(request.node,'originalname',None))
+    if units:
+        f['recipe']['control']['budget_units']=units
         f['paths']['recipe-file'].write_text(json.dumps(f['recipe']))
     setup=invoke(f);assert setup.returncode==0,'real governed setup failed';public=json.loads(setup.stdout)
     expiry=(datetime.now(UTC)+timedelta(seconds=150)).isoformat()
