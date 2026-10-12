@@ -89,3 +89,24 @@ def test_lane_preflight_is_read_only_and_checks_the_template(tmp_path, monkeypat
     monkeypatch.setenv('NEXLOOP_CI_LOCK',str(lock));monkeypatch.setenv('LOAD_CONSUMERS','20')
     P.main(['--template',str(template)])
     assert sorted(p.name for p in tmp_path.rglob('*'))==before  # wrote nothing
+
+
+def test_draft_v2_changes_only_the_gate_cells_rates():
+    """matrix.v2.json (draft, pending the owner's D-a addendum): C4 0.1/s and C4-low 0.05/s; everything else as v1."""
+    v2=json.loads((ROOT/'deploy/load/matrix.v2.json').read_text())
+    M.validate_matrix(v2)
+    assert v2['schema']=='nexloop.load-matrix.v2' and v2['version']==2
+    old={c['cell']:c for c in MATRIX['cells']};new={c['cell']:c for c in v2['cells']}
+    assert {c:s['rate_per_s'] for c,s in new.items() if s['role']=='gate'}=={'C4':0.1,'C4-low':0.05}
+    for name,cell in new.items():
+        expected=dict(old[name],rate_per_s=cell['rate_per_s']) if cell['role']=='gate' else old[name]
+        assert cell==expected,name
+    assert all(new[c]['role']=='observe' for c,s in old.items() if s['rate_per_s'] in (1.0,3.0) and s['role']=='observe')
+    assert {k:v for k,v in v2.items() if k not in ('schema','version','decision','cells')}=={k:v for k,v in MATRIX.items() if k not in ('schema','version','decision','cells')}
+
+
+def test_lane_preflight_reads_the_lane_matrix(monkeypatch):
+    spec2=importlib.util.spec_from_file_location('lane_preflight_v2',ROOT/'scripts/load/lane_preflight.py');P=importlib.util.module_from_spec(spec2);spec2.loader.exec_module(P)
+    monkeypatch.setenv('LOAD_MATRIX','deploy/load/matrix.v2.json')
+    ok,details=P.deployment_premises()
+    assert ok and details['gate_host_concurrency']=={'C4':4,'C4-low':4}
