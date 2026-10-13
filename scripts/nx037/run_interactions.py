@@ -26,6 +26,7 @@ reference. Output: one JSON line of ids, codes, numbers and times. Exit: 0 compl
 real mode preconditions).
 """
 import argparse
+from decimal import Decimal
 import json
 import os
 import sys
@@ -79,6 +80,47 @@ def real_preconditions(params, connection, expected, environ):
     return not failed, failed
 
 
+TARIFF_SCHEMA = 'nexloop.model-tariff.v1'
+REPLY_POLICY = ROOT / 'deploy/configuration/reply-guarantee.v2.json'
+
+
+def currency_preconditions(currency, host_config_file, reply_policy=None):
+    """D-g option 2 (owner 2026-10-13): refusal codes when the Host, its tariff or the reply guarantee's fallback Run budget is
+    not in the trial currency. Costs are never converted, so any of these would make the trial's Runs refused or uncounted."""
+    failed = []
+    try:
+        host = json.loads(Path(host_config_file).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return ['host_config_unreadable']
+    if host.get('runtime_profile') != 'deepseek-flash':
+        failed.append('host_not_real_model')
+    if host.get('cost_currency', 'USD') != currency:
+        failed.append('host_currency_differs')
+    if currency != 'USD':
+        try:
+            tariff = json.loads(Path(host.get('model_tariff_file', '')).read_text(encoding='utf-8'))
+            if (tariff.get('schema') != TARIFF_SCHEMA or tariff.get('currency') != currency or tariff.get('provider') != 'deepseek'
+                    or tariff.get('model') != 'deepseek-flash' or not tariff.get('source') or not tariff.get('verified_on')):
+                failed.append('model_tariff_invalid')
+        except (OSError, ValueError, TypeError):
+            failed.append('model_tariff_missing')
+    try:
+        fallback = json.loads(Path(reply_policy or REPLY_POLICY).read_text(encoding='utf-8'))['fallback']['run_budget']['currency']
+    except (OSError, ValueError, KeyError, TypeError):
+        fallback = None
+    if fallback != currency:
+        failed.append('reply_fallback_currency_differs')
+    return failed
+
+
+def month_cost_before(connection, tenant, currency, records):
+    """The tenant's model cost this month in the trial currency (0420), less what this trial already recorded (counted by the
+    executor itself), never below 0."""
+    total = Decimal(str(connection.execute("select authz.nexloop_nx037_month_model_cost(%s,'real',%s)", (tenant, currency)).fetchone()[0]))
+    own = sum((Decimal(r['cost']['total']) for r in records), Decimal(0))
+    return max(total - own, Decimal(0))
+
+
 def _connect(dsn_file):
     import psycopg
     return psycopg.connect(Path(dsn_file).read_text(encoding='utf-8').strip(), autocommit=True)
@@ -100,7 +142,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
     parser.add_argument('--interaction-timeout', type=int, default=900, help='real: seconds the operator has per interaction')
     parser.add_argument('--poll-seconds', type=float, default=2.0, help='real: observation interval')
     for name in ('--tenant', '--owner-principal', '--value-catalog', '--channel-ref', '--period-start', '--period-end',
-                 '--metrics-dsn-file', '--owner-session-file'):
+                 '--metrics-dsn-file', '--owner-session-file', '--host-config'):
         parser.add_argument(name)
     try:
         args = parser.parse_args(argv)
@@ -127,16 +169,19 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
             import real_tenant_init as init
             if args.inject:
                 raise Refused('no injection in real mode')
-            needed = ('tenant', 'owner_principal', 'value_catalog', 'channel_ref', 'period_start', 'period_end', 'metrics_dsn_file', 'owner_session_file')
+            needed = ('tenant', 'owner_principal', 'value_catalog', 'channel_ref', 'period_start', 'period_end', 'metrics_dsn_file', 'owner_session_file',
+                      'host_config')
             if any(getattr(args, n) is None for n in needed):
-                raise Refused('real mode needs the tenant, trial period, metrics connection, channel reference and owner session')
+                raise Refused('real mode needs the tenant, trial period, metrics connection, channel reference, owner session and Host configuration')
             params = init.parameters(tenant=args.tenant, owner_principal=args.owner_principal, value_catalog=args.value_catalog,
                                      channel_ref=args.channel_ref, period_start=args.period_start, period_end=args.period_end,
                                      trial=Path(args.trial_config))
             config = D.RealDriverConfig(channel_ref=args.channel_ref, owner_session_file=args.owner_session_file)
             with connect(args.metrics_dsn_file) as connection:
                 ok, failed = real_preconditions(params, connection, plan['real_dispatch'], environ)
-            if not ok:
+                failed = failed + currency_preconditions(trial['currency'], args.host_config)
+                before = month_cost_before(connection, args.tenant, trial['currency'], X.read_records(args.out))
+            if failed:
                 return emit({'ok': False, 'refused': failed, 'trial_id': args.trial_id}, 3)
             observer = D.PgObserver(connect, args.metrics_dsn_file, args.tenant)
             driver = D.RealDriver(config, observer=observer, operator=operator or D.ConsoleOperator(args.out),
@@ -150,7 +195,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
         if args.driver == 'real':
             collector = _RealCollector(connect, args.metrics_dsn_file, args.tenant)
         state = X.run(trial, driver, collector, args.out, trial_id=args.trial_id, order=plan['order'], resume=args.resume,
-                      calibration_pause=calibration)
+                      calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0))
     except X.TrialPaused as paused:
         return emit({'ok': False, 'detail': 'paused_needs_resume', 'rules': str(paused).split(','), 'trial_id': args.trial_id}, 3)
     except RuntimeError as error:

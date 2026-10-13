@@ -885,6 +885,11 @@
       "version": "0177",
       "name": "0177_nx031_one_reply_per_inbound_message.sql",
       "sha256": "6300060b9f9231ba6166ccaf6f4f982c463bfd38dfdc433e28dc547fd2961a20"
+    },
+    {
+      "version": "0420",
+      "name": "0420_nx037_month_cost.sql",
+      "sha256": "e9ea505753c77f438442ad0aeb321d78af070ad73ccdf547e4c3e3e48981d1e3"
     }
   ]
 }

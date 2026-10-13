@@ -8,7 +8,7 @@ import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context
 import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-runtime-adapter.js';
 import {RuntimeEffectClient,requestScope} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
-import {selectTrustedModel,validateEstimatedReservation} from './trusted-model-profile.js';
+import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validateModelTariff} from './trusted-model-profile.js';
 import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
 
 type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation};
@@ -37,9 +37,15 @@ export class RuntimeHost{
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
+    // D-g option 2 (owner 2026-10-13): the cost currency is USD (Pi catalogue prices) or CNY (a versioned tariff file at the
+    // supplier's official RMB prices); a model profile in a currency other than USD needs its tariff, or the Host does not start.
+    const costCurrency=config.cost_currency===undefined?'USD':config.cost_currency;
+    if(!(COST_CURRENCIES as readonly unknown[]).includes(costCurrency))throw new Error('runtime configuration refused');
+    if(config.model_tariff_file!==undefined&&(typeof config.model_tariff_file!=='string'||config.runtime_profile!=='deepseek-flash'||costCurrency==='USD'))throw new Error('runtime configuration refused');
+    if(config.runtime_profile==='deepseek-flash'&&costCurrency!=='USD'&&config.model_tariff_file===undefined)throw new Error('runtime model tariff required');
     if(config.effect_tools!==undefined&&typeof config.effect_tools!=='boolean')throw new Error('runtime configuration refused');
     // NX-031 D5: injected model latency, deterministic-test only (refused for any other profile) and only with a per-context
     // scripted protocol (message from input, plan outcome, fallback reply); it sleeps, it never changes a response.
@@ -136,16 +142,17 @@ export class RuntimeHost{
     };
     this.authorizeAdmission=guard;
     const models=createModels({authContext:{env:async()=>undefined,fileExists:async()=>false}}),faux=fauxProvider();models.setProvider(faux.provider);
-    let selection:{models:typeof models|import('@earendil-works/pi-ai').Models;model:{provider:string;modelId:string};runtimeProfile:string;costPolicy:import('./pi-runtime-adapter.js').PiRuntimeOptions['costPolicy']}={models,model:{provider:'faux',modelId:'faux-1'},runtimeProfile:'deterministic-test',costPolicy:{kind:'deterministic_zero',currency:'USD'}};
+    let selection:{models:typeof models|import('@earendil-works/pi-ai').Models;model:{provider:string;modelId:string};runtimeProfile:string;costPolicy:import('./pi-runtime-adapter.js').PiRuntimeOptions['costPolicy']}={models,model:{provider:'faux',modelId:'faux-1'},runtimeProfile:'deterministic-test',costPolicy:{kind:'deterministic_zero',currency:costCurrency as string}};
     if(config.runtime_profile==='deepseek-flash'){
       const modelConfig=record(JSON.parse(privateMaterial(config.model_configuration_file as string,32768).toString('utf8')));
       if(Object.keys(modelConfig).some(key=>!['MODEL_PROVIDER','MODEL_ID','MODEL_BASE_URL','MODEL_CREDENTIALS_FILE','stage'].includes(key))||typeof modelConfig.stage!=='boolean'||Object.entries(modelConfig).some(([key,value])=>key!=='stage'&&typeof value!=='string'))throw new Error('runtime configuration refused');
       const environment:Record<string,string|undefined>={};
       for(const key of ['MODEL_PROVIDER','MODEL_ID','MODEL_BASE_URL','MODEL_CREDENTIALS_FILE'])environment[key]=modelConfig[key] as string|undefined;
       if(!modelConfig.stage)environment.MODEL_API_KEY=process.env.MODEL_API_KEY;
-      const selected=selectTrustedModel(environment,privateMaterial,modelConfig.stage);
+      const tariff=costCurrency==='USD'?undefined:validateModelTariff(JSON.parse(privateMaterial(config.model_tariff_file as string,32768).toString('utf8')),'deepseek','deepseek-flash',costCurrency as string);
+      const selected=selectTrustedModel(environment,privateMaterial,modelConfig.stage,tariff);
       if(selected.runtimeProfile==='deepseek-flash'){if(!selected.estimatedReservationFloor)throw new Error('runtime estimated cost reservation unavailable');validateEstimatedReservation(config.maximum_request_cost,selected.estimatedReservationFloor);}
-      selection={...selected,costPolicy:selected.runtimeProfile==='deterministic-test'?{kind:'deterministic_zero',currency:'USD'}:{kind:'bounded_request',currency:'USD',maximum_request_cost:config.maximum_request_cost as string}};
+      selection={...selected,costPolicy:selected.runtimeProfile==='deterministic-test'?{kind:'deterministic_zero',currency:costCurrency as string}:{kind:'bounded_request',currency:costCurrency as string,maximum_request_cost:config.maximum_request_cost as string}};
     }
     this.runtimeProfile=selection.runtimeProfile;
     // Explicit test profile only; no model secret or real-provider success claim.

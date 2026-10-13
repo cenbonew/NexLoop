@@ -18,12 +18,37 @@ export function validateEstimatedReservation(value:unknown,floor:string):void{
   if(units(value)<units(floor))throw new RuntimeError('runtime_model_configuration_refused');
 }
 
-/** Frozen tariff estimate, not a guarantee of live supplier billing. */
-export function capTrustedDeepSeekModels(models:Models,model:unknown):{models:Models;estimatedReservationFloor:string}{
+/** A versioned model tariff in a currency other than the Pi catalogue's USD (owner decision D-g option 2, 2026-10-13: CNY at
+ * the supplier's official prices, never an exchange-rate conversion). Rates are per million tokens. */
+export type ModelTariff={currency:'CNY';rates:{input:number;cacheRead:number;cacheWrite:number;output:number}};
+export const COST_CURRENCIES=['USD','CNY'] as const;
+
+export function validateModelTariff(value:unknown,provider:string,modelId:string,currency:string):ModelTariff{
+  const fail=():never=>{throw new RuntimeError('runtime_model_tariff_refused');};
+  if(!value||typeof value!=='object'||Array.isArray(value))return fail();
+  const t=value as Record<string,unknown>;
+  const keys=['schema','version','provider','model','currency','unit','source','verified_on','applied_period','rates','periods','note'];
+  if(Object.keys(t).some(key=>!keys.includes(key))||t.schema!=='nexloop.model-tariff.v1'||!Number.isSafeInteger(t.version)||Number(t.version)<1)return fail();
+  if(t.provider!==provider||t.model!==modelId||t.currency!==currency||currency!=='CNY'||t.unit!=='per_million_tokens')return fail();
+  if(typeof t.source!=='string'||!/^https:\/\/[^\s]{1,500}$/.test(t.source)||typeof t.verified_on!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(t.verified_on))return fail();
+  const rates=t.rates as Record<string,unknown>|undefined;
+  if(!rates||typeof rates!=='object'||Object.keys(rates).sort().join(',')!=='cache_read,cache_write,input,output')return fail();
+  const rate=(name:string)=>{const v=rates[name];if(typeof v!=='number'||!Number.isFinite(v)||v<0||v>100000)return fail();return v as number;};
+  const result={input:rate('input'),cacheRead:rate('cache_read'),cacheWrite:rate('cache_write'),output:rate('output')};
+  if(result.input<=0||result.output<=0)return fail();
+  return {currency:'CNY',rates:result};
+}
+
+/** Frozen tariff estimate, not a guarantee of live supplier billing. With a tariff, the model's rates (and so Pi's per-request
+ * usage cost and this reservation floor) are in the tariff's currency; without one they are the Pi catalogue's USD. */
+export function capTrustedDeepSeekModels(models:Models,model:unknown,tariff?:ModelTariff):{models:Models;estimatedReservationFloor:string}{
   const fail=()=>{throw new RuntimeError('runtime_model_configuration_refused');};
   if(!model||typeof model!=='object')return fail();
   let snapshot:unknown;try{snapshot=structuredClone(model);}catch{return fail();}
-  const m=snapshot as Record<string,unknown>,cost=m.cost as Record<string,unknown>|undefined;
+  const m=snapshot as Record<string,unknown>;
+  // Pi computes usage.cost from model.cost (tiers included); a tariff replaces the rates and drops any USD tiers.
+  if(tariff)m.cost={input:tariff.rates.input,output:tariff.rates.output,cacheRead:tariff.rates.cacheRead,cacheWrite:tariff.rates.cacheWrite};
+  const cost=m.cost as Record<string,unknown>|undefined;
   if(m.provider!=='deepseek'||m.id!=='deepseek-flash'||m.api!=='openai-completions'||m.baseUrl!=='https://api.deepseek.com'||!Number.isSafeInteger(m.contextWindow)||Number(m.contextWindow)<1||!Number.isSafeInteger(m.maxTokens)||Number(m.maxTokens)<4096||!cost)return fail();
   const rates=['input','cacheRead','cacheWrite','output'].map(name=>cost[name]);
   if(rates.some(rate=>typeof rate!=='number'||!Number.isFinite(rate)||rate<0))return fail();
@@ -49,7 +74,7 @@ export function capTrustedDeepSeekModels(models:Models,model:unknown):{models:Mo
  * Stage accepts only a nonempty private secret file; local file wins over env.
  * The supplied material reader must enforce owned private regular files.
  */
-export function selectTrustedModel(environment:Readonly<Record<string,string|undefined>>,privateMaterial:Material,stage=false):TrustedModelSelection{
+export function selectTrustedModel(environment:Readonly<Record<string,string|undefined>>,privateMaterial:Material,stage=false,tariff?:ModelTariff):TrustedModelSelection{
   const fail=()=>{throw new RuntimeError('runtime_model_configuration_refused');};
   const readKey=()=>{
     const path=environment.MODEL_CREDENTIALS_FILE?.trim();
@@ -83,6 +108,6 @@ export function selectTrustedModel(environment:Readonly<Record<string,string|und
   models.setProvider(deepseekProvider());
   const model=models.getModel('deepseek','deepseek-flash');
   if(!model||model.api!=='openai-completions'||model.baseUrl!=='https://api.deepseek.com')return fail();
-  const capped=capTrustedDeepSeekModels(models,model);
+  const capped=capTrustedDeepSeekModels(models,model,tariff);
   return {...capped,model:{provider:'deepseek',modelId:'deepseek-flash'},runtimeProfile:'deepseek-flash',validation:'real_validation_pending',credentialSource:initial.source};
 }

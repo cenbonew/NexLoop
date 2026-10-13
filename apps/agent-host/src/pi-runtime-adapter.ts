@@ -161,7 +161,8 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
           const key=kind==='model'?'model_calls':'tool_calls';
           if(kind==='model'){
             const policy=this.options.costPolicy;
-            if(!policy||policy.currency!=='USD'||policy.currency!==command.budget.currency)throw new RuntimeError('runtime_cost_policy_missing');
+            // D-g option 2: USD or CNY, and always the Run budget's own currency (no conversion; a mismatch is refused).
+            if(!policy||!['USD','CNY'].includes(policy.currency)||policy.currency!==command.budget.currency)throw new RuntimeError('runtime_cost_policy_missing');
             const reserved=policy.kind==='deterministic_zero'?0n:moneyUnits(policy.maximum_request_cost);
             if(policy.kind==='bounded_request'&&reserved===0n)throw new RuntimeError('runtime_cost_policy_missing');
             const next=BigInt(state.model_cost_reserved)+reserved;
