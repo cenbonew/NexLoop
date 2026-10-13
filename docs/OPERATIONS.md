@@ -94,7 +94,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 ## 9. NX-037 受控真实闭环操作说明（负责人本人执行）
 
-> 依据：[NX-037 设计稿](implementation/NX-037-design.md)、[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md)、[ROADMAP](../planning/ROADMAP.md) §6–§7（D-g、D-i 定案）。参数在 [`deploy/configuration/nx037-trial.v1.json`](../deploy/configuration/nx037-trial.v1.json)。
+> 依据：[NX-037 设计稿](implementation/NX-037-design.md)、[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md)、[ROADMAP](../planning/ROADMAP.md) §6–§7（D-g、D-i 定案）。参数在 [`deploy/configuration/nx037-trial.v2.json`](../deploy/configuration/nx037-trial.v2.json)（运行入口默认读 v2；v1 保留不变）。
 >
 > **现状**：初始化脚本、交互执行器、证据包与只读核对函数（迁移 0161）已就绪，只在合成或测试环境跑过；real driver 已实现（见 9.4，只观测、不发送），但尚未在真实租户上运行；人民币计价（D-g 方案 2）见 9.1 末尾。进入条件见 [ROADMAP §8](../planning/ROADMAP.md)。下文只用占位符（`<TENANT_ID>`、`<DSN_FILE>` 等），不写任何主机、地址或真实值。
 >
@@ -150,13 +150,17 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 ### 9.3 开放真实派发（【B】）
 
-按 [NX-037 设计稿](implementation/NX-037-design.md) §3 第 2–3 步：渠道配置与凭据只交给 Effect Worker；只对该租户、只对选定的 Action 打开三层真实派发开关（部署总闸、租户、租户与 Action，见 [真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)），由负责人在工作台执行 `set_real_dispatch`。
+按 [NX-037 设计稿](implementation/NX-037-design.md) §3 第 2–3 步：渠道配置与凭据只交给 Effect Worker；只对该租户、只对选定的 Action 打开三层真实派发开关（部署总闸、租户、租户与 Action，见 [真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)），由负责人在工作台执行 `set_real_dispatch`。第三层只开 `eios:action:nexloop.enterprise.deliver:1`（与交互计划 v2 一致）；企业交付只能经 relay 的 enrollment 模式开通，见 [租户装配手册 §6](implementation/NX-037-tenant-assembly.md)。
 
 ### 9.4 受控交互：运行入口 `scripts/nx037/run_interactions.py`
 
 依据：[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md) §7。执行器（`nexloop_eios.controlled_interactions`）按计划顺序逐次发起交互，每次交互的证据在下一次开始前写入 `interactions.jsonl` 并 fsync；证据只有 ID、计数、毫秒数、金额、币种与状态码（端到端、模型、工具、平台四段耗时，模型调用与失败次数，按类别费用，意图状态，拒绝码，交付回执，对账结果，规则判定）。采集器以 metrics 角色读取单个 Run 的证据（`authz.nexloop_nx037_run_evidence`）。
 
 > **real driver（[实现说明](implementation/NX-037-prep-implementation.md) §8）**：driver 不扮演消费者、也不发送，不持有任何发送代码路径、渠道凭据或写权限。真实交互由负责人安排的知情内部人员在 WebChat 完成。每次交互 driver 做五件事：读服务端当前时间；在终端（stderr）提示操作者执行第 N 次交互的类型与要点并给出时限（提示以 ID 和代码追加到试运行目录的 `prompts.jsonl`）；以 metrics 只读角色轮询 `authz.nexloop_nx037_interaction_observation`，等到提示之后的第一条消费者消息、它的 Run 已结束、Run 的效应没有未结束的（`observed_fulfilled` 也算未结束）；从记录推出停止规则所需的事实（越权发送、发错对象、拒收后仍联系、重复投递或重复完成、跨客户读取、critical 告警、未了结的不明效应）；证据仍由 `PgCollector` 采集。在 `--interaction-timeout`（默认 900 s）内没完成的交互记为 `interaction_timeout` 并**暂停**，不猜测结果。
+>
+> **观测口径**（迁移 0189、0190，详见 [五类场景合成测试](implementation/NX-037-synthetic-five.md) §4.3–§4.4）：
+> - 结果不明（`unknown`）的意图计入 `intents_open`：有结果不明的效应时，交互不算完成，要等对账了结或交互超时。
+> - `contact_after_refusal`（拒收后仍联系）只计真正的违规（ADR-023 第 6 条）：受限期间发给该客户、没有绑定到其会话内某条来信的外发（主动联系），或同一条来信有一条以上的可见回复。对客户来信的一条绑定回复（包括拒收消息本身的回复）不计入。
 
 #### 试运行目录中的证据文件
 
@@ -171,7 +175,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 #### 交互计划文件（负责人可编辑）
 
-[`deploy/configuration/nx037-interaction-plan.v1.json`](../deploy/configuration/nx037-interaction-plan.v1.json)；建议复制到私有目录后修改，用 `--plan-file` 指定。
+[`deploy/configuration/nx037-interaction-plan.v2.json`](../deploy/configuration/nx037-interaction-plan.v2.json)（默认；v2 的 `real_dispatch.actions` 是 `eios:action:nexloop.enterprise.deliver:1`，v1 保留不变）；建议复制到私有目录后修改，用 `--plan-file` 指定。
 
 - `order`：30 次交互的类型与顺序，类型计数必须正好是 普通回复 15、真实交付 4、拒收后受限回复 4、人工接管 4、结果不明对账 3，否则拒绝。**试运行开始后顺序不能再改**（state 中记录了顺序 digest）。
 - `real_dispatch`：负责人**计划打开**的三层真实派发开关状态——`deployment`（部署总闸）、`tenant` 与 `data_mode`（租户开关）、`actions`（打开的 Action 资源 ID 列表）。随附文件里的值只是样例，必须按实际计划修改。real 模式的前置检查要求实际开关与计划**完全一致**：多开或少开任何一层、任何一个 Action 都拒绝。
@@ -183,6 +187,7 @@ python scripts/nx037/run_interactions.py --driver synthetic --trial-id <TRIAL_UU
 ```
 
 - 使用确定性 provider 与回环渠道，只在合成租户上运行；可选 `--inject <SEQ>=<FAULT>` 注入违规以演练停止规则，`--calibration-pause` 演练校准暂停。
+- 测试栈（`test_stack`）只有测试代码里的关键字入口，没有命令行选项；它的每条记录都标记 `test_stack: true`，**不能作为真实证据**。
 
 #### real 模式（【B】负责人本人）
 
