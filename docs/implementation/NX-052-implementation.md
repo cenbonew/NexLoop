@@ -633,3 +633,29 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
   - `tests/test_load_matrix.py::test_an_aborted_cell_records_the_error_types_and_frames_without_text`；
   - `tests/test_nx052_e2e.py::test_a_mismatched_batch_drops_nothing_and_the_cell_records_what_is_missing`。
 - **下一步**：在 CI 主机上用本修复重跑 N。新的 `cell.json` 的 `error` 与 `tenant_fk_state` 会直接给出失败的类型和位置。
+
+### §11.4（续）"全部缺失"的原因与修复（2026-10-14）
+
+- **CI 现象**：run 20261013T161753Z-fa9a71c（main ec5ffc4，200 客户，C4-low，relay 2）。
+  - `cell.json` 的 `error` 是 `tenant_fk_state.TenantFkMismatch`，调用栈 `matrix.py:137 → stack.py:63 → tenant_fk_state.py:60`。
+  - `tenant_fk_state.missing` 列出了全部 134 个约束。
+- **原因（b，已在本机复现）**：
+  - 核对查询按 `conrelid::regclass::text` 取表名，而 regclass 转成文本时，只要表所在的 schema 在当前会话的 `search_path` 上，就会省略 schema。
+  - 批次清单里是带 schema 的名字（`control.…`、`ontology.…`），于是在 `search_path` 含这些 schema 的会话里，一个也对不上。约束本身都在。
+  - 仓库里没有任何地方设置角色级或库级的 search_path，CI 主机的会话很可能从环境里拿到了它，例如 `PGOPTIONS`、角色或服务器设置。
+  - 删除语句本身用带 schema 的名字，不受影响。
+- **复现**（与 CI 主机相同的路径）：`build_template.sh --consumers 3`，然后 `matrix.py --cells C4-low --timing-scale 0.05 --relay-processes 2`，设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`。
+  - 正常环境下格完成，删除 134 个约束。
+  - 加上 `PGOPTIONS='-c search_path=control,ontology,runtime,authz,public'` 后，得到与 CI 完全相同的错误、调用栈和缺失清单。
+- **排除的另外两种可能**：
+  - (a) 连到别的库：克隆的连接串固定为 `dbname=postgres user=nexloop_bootstrap`（`tests/load_template.py` 的 `Clone`），本机的同路径运行与 CI 用的是同一个连接串。
+  - (c) 模板没有外键：同一模板在不设 search_path 时 134 个都在。
+- **修复**：
+  - `scripts/load/tenant_fk_state.py` 改从 `pg_constraint` 关联 `pg_class`、`pg_namespace` 取带 schema 的名字，不再依赖 search_path。
+  - 核对失败时，在 `tenant-fk-state.json` 和 `cell.json` 的 `tenant_fk_state.cluster` 里额外记录：当前库名、会话 search_path、服务器版本号，以及指向租户表的外键数量。只有标识和数字。
+  - 修复后用上面会失败的条件重跑：格完成，删除 134 个。
+- **测试**：`tests/test_nx052_e2e.py::test_the_key_check_does_not_depend_on_the_session_search_path`。在把这些 schema 放进 search_path 的会话里：
+  - 先断言 regclass 文本确实省略了 schema（陷阱本身）；
+  - 再断言核对能找到全部约束、删除成功；
+  - 真实缺失时，仍报出缺失项和 cluster 信息。
+- **未解释的部分**：第一次 CI 失败（e5e7ebd，修复前的代码直接执行删除，没有核对步骤）不会受 search_path 影响，原因仍未知。下次在 CI 主机上重跑 N 时，如果再次失败，`cell.json` 的 `error` 与 `tenant_fk_state.cluster` 会给出位置和环境。

@@ -63,7 +63,7 @@ class Stack:
                     dropped = tenant_fk_state.drop(db, fk_drop)
             except tenant_fk_state.TenantFkMismatch as error:
                 # Schema identifiers only (never data): which of the batches' keys the clone does not have.
-                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'missing': error.missing}))
+                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'missing': error.missing, 'cluster': error.cluster}))
                 raise
             except ValueError:
                 state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'refused': 'unknown_batch'}))

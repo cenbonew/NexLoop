@@ -110,7 +110,9 @@ def test_a_mismatched_batch_drops_nothing_and_the_cell_records_what_is_missing(a
     lane = tmp_path / 'lane'
     with pytest.raises(tenant_fk_state.TenantFkMismatch) as raised:
         stack.Stack(SimpleNamespace(dsn=pg), template, lane, {'cell': 'C4-low'})
-    assert json.loads((lane / 'tenant-fk-state.json').read_text()) == {'dropped_batches': ['all'], 'dropped_constraints': 0, 'missing': [f'{table}.{name}']}
+    state = json.loads((lane / 'tenant-fk-state.json').read_text())
+    assert {k: v for k, v in state.items() if k != 'cluster'} == {'dropped_batches': ['all'], 'dropped_constraints': 0, 'missing': [f'{table}.{name}']}
+    assert state['cluster']['database'] == 'postgres' and state['cluster']['tenant_foreign_keys'] > 0
     cell = runner.Cell(next(c for c in json.loads((ROOT / 'deploy/load/matrix.v2.json').read_text())['cells'] if c['cell'] == 'C4-low'),
                        json.loads((ROOT / 'deploy/load/matrix.v2.json').read_text()), SimpleNamespace(out=str(tmp_path / 'out'), lane_root=str(tmp_path), timing_scale=1.0), {'seed': 1})
     cell.lane = lane
@@ -120,3 +122,24 @@ def test_a_mismatched_batch_drops_nothing_and_the_cell_records_what_is_missing(a
     with pytest.raises(ValueError):
         stack.Stack(SimpleNamespace(dsn=pg), template, tmp_path / 'lane-2', {'cell': 'C4-low'})
     assert json.loads((tmp_path / 'lane-2' / 'tenant-fk-state.json').read_text())['refused'] == 'unknown_batch'
+
+
+def test_the_key_check_does_not_depend_on_the_session_search_path(admin):
+    """CI host 2026-10-13 (run 20261013T161753Z): with the schemas on the session's search_path (an environment setting such as
+    PGOPTIONS), conrelid::regclass::text dropped the schema and every key looked missing. The check now compares schema-qualified
+    names from the catalogs: the same session finds every key and drops them; a real mismatch still reports cluster facts."""
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    admin.execute("set search_path=control,ontology,runtime,authz,public")
+    assert admin.execute("select 'nexloop_tenants'::regclass::text").fetchone()[0] == 'nexloop_tenants'  # the trap itself
+    assert tenant_fk_state.missing(admin, ['all']) == []
+    table, name = tenant_fk_state.constraints('5')[0]
+    admin.execute(f'alter table {table} drop constraint {name}')
+    with pytest.raises(tenant_fk_state.TenantFkMismatch) as raised:
+        tenant_fk_state.drop(admin, ['all'])
+    assert raised.value.missing == [f'{table}.{name}']
+    facts = raised.value.cluster
+    assert facts['database'] == 'postgres' and facts['search_path'].startswith('control') and facts['tenant_foreign_keys'] > 0
+    assert set(facts) == {'database', 'search_path', 'server_version_num', 'tenant_foreign_keys'}
+    dropped = tenant_fk_state.drop(admin, [b for b in tenant_fk_state.ALL if b != '5'])
+    assert len(dropped) == sum(len(tenant_fk_state.constraints(b)) for b in tenant_fk_state.ALL if b != '5')

@@ -41,15 +41,31 @@ def constraints(batch):
 class TenantFkMismatch(Exception):
     """A constraint an NX-052 batch file adds is not in the cluster (renamed, rebuilt or already dropped): nothing is dropped."""
 
-    def __init__(self, missing):
+    def __init__(self, missing, cluster=None):
         super().__init__(f'{len(missing)} NX-052 tenant foreign keys not found')
         self.missing = missing
+        self.cluster = cluster or {}
+
+
+# Schema-qualified from the catalogs, never conrelid::regclass::text: that text drops the schema of any table whose schema is on the
+# session's search_path, so a search_path set by the environment (PGOPTIONS, a role or server setting) made every key look
+# missing on the CI host (2026-10-13, run 20261013T161753Z).
+FOREIGN_KEYS = ("select n.nspname||'.'||c.relname,k.conname from pg_constraint k join pg_class c on c.oid=k.conrelid "
+                "join pg_namespace n on n.oid=c.relnamespace where k.contype='f'")
 
 
 def missing(db, batches):
-    """The batches' constraints (schema identifiers only) that the cluster does not have, as 'table.constraint'."""
-    present = {(t, n) for t, n in db.execute("select conrelid::regclass::text,conname from pg_constraint where contype='f'").fetchall()}
+    """The batches' constraints (schema identifiers only) that the cluster does not have, as 'schema.table.constraint'."""
+    present = {(t, n) for t, n in db.execute(FOREIGN_KEYS).fetchall()}
     return [f'{t}.{n}' for b in expand(batches) for t, n in constraints(b) if (t, n) not in present]
+
+
+def cluster_facts(db):
+    """What the check ran against (no data): the database, the session's search_path, the server version and the number of
+    foreign keys referencing the tenant table."""
+    database, search_path, version = db.execute("select current_database(),current_setting('search_path'),current_setting('server_version_num')").fetchone()
+    tenant_keys = db.execute("select count(*) from pg_constraint where contype='f' and confrelid=to_regclass('control.nexloop_tenants')").fetchone()[0]
+    return {'database': database, 'search_path': search_path, 'server_version_num': int(version), 'tenant_foreign_keys': tenant_keys}
 
 
 def drop(db, batches):
@@ -57,7 +73,7 @@ def drop(db, batches):
     transaction."""
     absent = missing(db, batches)
     if absent:
-        raise TenantFkMismatch(absent)
+        raise TenantFkMismatch(absent, cluster_facts(db))
     dropped = []
     with db.transaction():
         for batch in expand(batches):
