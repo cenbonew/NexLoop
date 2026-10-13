@@ -105,3 +105,18 @@
   - 真实 PG（`test_effect_routing_reconcile_pg.py`）：派发器返回 `unrouted` 后，库中恰好一行 `('effect','NXE01')`；第二次记录因去重返回 false；对非本执行主体的意图，记录被拒且不写任何行；快照 `refusals.last_5m` 中 NXE01 为 1；意图仍为 accepted，从未准入。
   - 告警（`tests/test_effect_route_alert_pg.py`）：应用 v4 规则后，真实的 NX-030 evaluator 对 NXE01 产生 `('warning','firing')` 事件。
 - **与 L2 的合并**：`effect_execution.claim_effect` 中新增 `action` 的那一处只读取 `action_claim.key.action_stable_name`。本次追加只在同文件另加了 `record_unrouted` 方法，没有改动 `_send` 等 L2 涉及的部分。
+
+## 7. 与 L2 切片 1 合并后的真实 PG 集成测试（分支 `l3/nx037-routing-integration`）
+
+- **分支来源**：从 `l3/nx037-provider-routing` 切出，合并 L2 的 `df80eb7`（`nexloop.enterprise.deliver:1`，0400，临时号保持不变），不包含 `a9c48ff` 之后的提交。
+- **合并冲突**：只有 `catalog.json`，处理后同时保留 0400 与 0470，按编号排序。
+- **语义上的合并调整**：L2 把脚本改为读取 `nx037-trial.v2.json`，该文件仍引用告警规则 v3。已改为 v4，否则 `effect_route_unconfigured` 告警不会被应用。
+- **测试**：`tests/test_effect_routing_integration_pg.py`（5 个）。效应 worker 在独立进程中运行，与部署相同；两条路由连两台本地合成 provider。
+  - 一个计划夹具只绑定一个效应 Action，所以回复意图与企业交付意图分别在两个数据库中运行（参数化）。两种情况下 worker 都持有同样的两条路由，应当保持沉默的那台 provider 始终可达。
+
+| 要求 | 测试 | 结果 |
+|---|---|---|
+| 1. 企业交付只到企业 provider，回复只到投递服务 | `test_each_intent_reaches_only_its_own_provider_and_the_claim_names_its_action`（reply、enterprise-deliver 两种情况） | 每种情况下，自己的 provider 恰好收到一次 POST，另一台没有收到任何请求 |
+| 2. 企业 provider 提交后杀掉 worker，新 worker 只发 GET | `test_after_a_kill_the_new_worker_only_queries_the_enterprise_provider` | 企业 provider 的请求恰好是 POST、GET 各一次；效应只有 1 个；投递服务没有收到任何请求 |
+| 3. 三层开关关闭时企业 provider 收不到请求，回复照常 | `test_with_the_real_dispatch_switches_closed_...`（两种情况） | 企业交付：`admission_unavailable`，有 NXC07 拒绝记录，两台 provider 都没有收到请求。回复：照常 POST 到投递服务（它不是外部效应） |
+| 4. 认领的 action 取自 `action_claim.key.action_stable_name`，与意图的 Action 一致 | 第 1 项测试的开头 | 真实执行端口的 `claim_effect` 返回 `action`，等于意图的 `action_name` |
