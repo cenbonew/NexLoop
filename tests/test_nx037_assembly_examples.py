@@ -71,3 +71,32 @@ def test_enterprise_provider_example_matches_the_effect_worker_shape():
                   ENTERPRISE_ENDPOINT_IP_OR_DRILL_RELAY_LOOPBACK='127.0.0.1')
     assert set(body) == {'origin', 'credential_file', 'ca_file', 'timeout', 'connect_address'}
     assert EffectProviderConfiguration(**body).timeout == 2.0
+
+
+def test_enterprise_slot_examples():
+    """Enterprise delivery for one consumer: offering, control and the enrollment with the enterprise slot (ADR-030)."""
+    from nexloop_eios import relay_enrollment, service_offerings
+    end = (datetime.now(UTC) + timedelta(days=3)).isoformat()
+    offering = filled('enterprise-offering.example.json', SERVICE_CODE_SUFFIX='repair-visit', OFFERING_TITLE='上门维修预约',
+                      CNY_PRICE_AMOUNT='0', TRIAL_PERIOD_END_UTC_ISO=end)
+    assert re.fullmatch(r'enterprise\.[a-z0-9][a-z0-9.-]{0,62}', offering['service_code'])
+    assert re.fullmatch(r'(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?', offering['price_amount'])
+    example = getattr(service_offerings, 'enterprise_delivery_example', None)
+    if example is not None:  # present once the enterprise Action (L2) is merged: the example is exactly its arguments
+        assert service_offerings.delivery_scope(example(**offering))['delivery_action'] == 'nexloop.enterprise.deliver:1'
+    control = filled('enterprise-control.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, EFFECT_EXECUTOR_PRINCIPAL_ID='executor',
+                     TRIAL_PERIOD_END_UTC_ISO=end)
+    assert set(control) == {'consumer_id', 'executor_principal', 'budget_units', 'allow_effect', 'valid_until'}
+    assert type(control['budget_units']) is int and control['budget_units'] > 0 and control['allow_effect'] is True
+    other = 'b' * 64
+    enrollment = filled('relay-enrollment-enterprise.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, CONTROL_ID_FROM_BUSINESS_SETUP=HEX,
+                        OFFERING_ID_FROM_CATALOG_SETUP=HEX, BINDING_ID_FROM_CATALOG_SETUP=HEX, RELAY_SERVICE_PRINCIPAL_ID='relay-principal',
+                        NEW_UUID=str(uuid.uuid4()), ENTERPRISE_CONTROL_ID=other, ENTERPRISE_OFFERING_ID=other, ENTERPRISE_BINDING_ID=other)
+    enterprise = enrollment.pop('enterprise')
+    assert set(enterprise) == {'control_id', 'offering_id', 'binding_id'}
+    relay_enrollment._ids(**{'enterprise_' + key: value for key, value in enterprise.items()})
+    relay_enrollment._ids(**{key: enrollment[key] for key in ('consumer_id', 'control_id', 'offering_id', 'binding_id')})
+    assert set(enrollment) == set(filled('relay-enrollment.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, CONTROL_ID_FROM_BUSINESS_SETUP=HEX,
+                                         OFFERING_ID_FROM_CATALOG_SETUP=HEX, BINDING_ID_FROM_CATALOG_SETUP=HEX,
+                                         RELAY_SERVICE_PRINCIPAL_ID='relay-principal', NEW_UUID=str(uuid.uuid4())))
+    assert enterprise['control_id'] != enrollment['control_id']  # never the reply control
