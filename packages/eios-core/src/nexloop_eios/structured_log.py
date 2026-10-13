@@ -16,7 +16,7 @@ import sys
 from datetime import UTC, datetime
 
 FIELDS = frozenset({'status', 'code', 'sqlstate', 'reason', 'stage', 'elapsed_ms', 'attempt', 'attempts', 'deadline_exceeded', 'retryable', 'count',
-                    'run_id', 'intent_id', 'task_id', 'message_id', 'request_id', 'conversation_id', 'tenant', 'world', 'queue', 'feed'})
+                    'run_id', 'intent_id', 'action', 'task_id', 'message_id', 'request_id', 'conversation_id', 'tenant', 'world', 'queue', 'feed'})
 _CODE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,127}')
 _TEMPLATE = re.compile(r'[A-Za-z][A-Za-z0-9_.: -]{0,79}')
 REDACTED = '[redacted]'

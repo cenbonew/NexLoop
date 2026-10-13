@@ -18,8 +18,9 @@ def test_declared_stage_budget_is_within_policy():
     result=budget.evaluate(DOCUMENT,max_connections=80)
     # NX-031 D7 (measured smallest workable pools): api 2x4 + domain-worker 2 + action-worker 2 + runtime 2+4x4
     # + message-relay 2 + outbound-recorder 2 + 11 background services x 1 + 2 launcher API pools x 2 = 53,
-    # = 49 without the removed scheduler reserve (dispatcher 2026-10-11), + the API browser identity pools 2 x 4 (NX-032) = 57.
-    assert result['passed'] and result['details']['application_pool_total']==57 and result['details']['missing_services']==[]
+    # = 49 without the removed scheduler reserve (dispatcher 2026-10-11), + the API browser identity pools 2 x 4 (NX-032) = 57,
+    # + the NX-037 webchat-delivery service 1 x 2 = 59.
+    assert result['passed'] and result['details']['application_pool_total']==59 and result['details']['missing_services']==[]
     assert result['details']['services']['runtime-worker']==2+4*4
 
 
@@ -47,10 +48,10 @@ def test_max_connections_floor(max_connections,passed):
 
 
 def test_total_over_sixty_fails():
-    # 57 at the default four guard workers (NX-032 added the API browser identity pools): one more guard process breaks the limit.
-    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 61 total
+    # 59 at the default four guard workers (NX-032 identity pools, NX-037 webchat-delivery): one more guard process breaks the limit.
+    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 63 total
     result=budget.evaluate(document)
-    assert not result['passed'] and result['details']['application_pool_total']==61
+    assert not result['passed'] and result['details']['application_pool_total']==63
 
 
 @pytest.mark.parametrize('mutate',[
