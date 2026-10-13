@@ -2409,7 +2409,7 @@
       "M22"
     ],
     "deliverable": "固定seed数据、1/2/4/8并发、CI同机影响报告",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -2620,6 +2620,12 @@
         "ref": "load run 20261013T114458Z-fa9a71c",
         "summary": "AT-060 full matrix v2 passed at 200 customers with relay processes 2 (see AT-060 evidence). Task status stays in_progress until the owner confirms the S4 exit.",
         "recorded_at": "2026-10-13T16:20:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "ROADMAP §7 2026-10-14",
+        "summary": "Owner confirmed the S4 exit on 2026-10-14 after AT-060 passed (load run 20261013T114458Z-fa9a71c, 200 customers, matrix v2, relay 2). Follow-up measurement on main 5aacd00 tree (b84feb2): C4-low idle dispatch p95 3194 ms with the context preparation optimizations; C4-peak with identity pool 3: ACK p95 885 ms, no regression. origin/main 5aacd00.",
+        "recorded_at": "2026-10-13T22:45:00Z"
       }
     ]
   },
