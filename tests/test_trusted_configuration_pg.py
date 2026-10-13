@@ -44,7 +44,7 @@ def configured(pg,admin,tmp_path,request):
     admin.execute('alter role nexloop_configurator login')
     # NX-037 test stack (marker nx037_test_stack): the synthetic tenant constant, which the run entry's test stack requires.
     from support.tenants import TENANT_A
-    tenant=TENANT_A if request.node.get_closest_marker('nx037_test_stack') else str(uuid.uuid4());target='eios:artifact:explicit-configuration-source'
+    tenant=TENANT_A if request is not None and request.node.get_closest_marker('nx037_test_stack') else str(uuid.uuid4());target='eios:artifact:explicit-configuration-source'
     binding,_,rows=authority_records(tenant,target,operation=Operation.READ,resource_type=ResourceType.ARTIFACT)
     token=secrets.token_urlsafe(48);key=secrets.token_hex(32);seal=secrets.token_hex(32)
     identityapp='explicit-local-login';expiry=(datetime.now(UTC)+timedelta(hours=1)).isoformat()
