@@ -95,6 +95,10 @@ class AuthorizedObjectReader:
         claims.update(protocol='nexloop-object-read-v1',key_id=self.signer.key_id,type_name=type_name,object_id=object_id,
             fields=fields,property_authorities=properties)
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-object-read-v1:'+text).encode(),'sha256').hexdigest()
+        return self.read_signed(text,signature)
+
+    def read_signed(self,text,signature):
+        """authz.nexloop_read_object with an already signed READ envelope (verified by SQL against current state)."""
         with self.pool.connection() as c,c.transaction():
             verify_application_role(c)
             return c.execute('select authz.nexloop_read_object(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature)).fetchone()[0]
