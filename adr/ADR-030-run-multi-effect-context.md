@@ -1,6 +1,6 @@
 # ADR-030｜Run 按 slot 绑定多个效应上下文
 
-状态：**提议**（Proposed），待负责人批准。实现先按本稿进行，批准时如有修改再调整。分支 `l2/nx037-enterprise-deliver`（NX-037 缺口 B，切片 2）。
+状态：**已批准**（Accepted，负责人 2026-10-13，无修改意见；记入 ROADMAP §7）。分支 `l2/nx037-enterprise-deliver`（NX-037 缺口 B，切片 2）。
 
 关联：
 - AGENTS.md：只有受治理的 EIOS Action 改变正式业务对象或产生外部效应；派发时按当前权限复查。
