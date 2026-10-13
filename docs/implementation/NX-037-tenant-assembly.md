@@ -86,6 +86,7 @@ python -m nexloop_eios.workbench_roles --roles deploy/authorization/workbench-ro
    ```
 
    检查项：`credential_format`（私有文件、16–4096 个 `[A-Za-z0-9._~-]`）、`post_new`（POST 200/202、字段恰好四个、回显 intent 与 `payload_digest`、引用格式、2 s 内）、`post_replay`（同一 Idempotency-Key 幂等）、`post_conflict`（同一 intent 换载荷返回 409 且保留原效应）、`get_found`、`get_not_found`（404、`not_found`、两个空值）、`client_end_to_end`（NexLoop 自己的客户端按 TLS/CA/SNI 与绝对截止时间完成一次派发与查询）。退出码 0 全部通过、1 有失败、2 输入错误。检查会在端点上产生三条带标记的测试效应，应对端点的测试模式运行，或用 `--parameters-file` 给一个企业认可的无副作用载荷。
+   没有企业自有端点时，使用仓库提供的参考端点（外部系统替身，员工在其页面上处理交付请求）：[参考企业交付端点部署手册](../../deploy/stage/reference-endpoint/README.md)。
 3. **效应 worker 的 provider 配置**：见 [`enterprise-provider.example.json`](../../deploy/examples/nx037/enterprise-provider.example.json)（`origin`、绝对路径的凭据与 CA、`timeout` 2 s、数字 `connect_address`）。
 
 ## 6. “结果暂时未知”演练（3 次 `unknown_reconciliation`，【B】）
@@ -106,6 +107,7 @@ python scripts/nx037/unknown_drill_relay.py serve --listen 127.0.0.1:<ORIGIN_POR
   下一个连接的请求照常到达企业端点（端点提交了效应），但端点的应答被扣留 `--hold-seconds`（长于 2 s 截止）后断开：效应 worker 记为结果不明。武装次数用完后，下一步的查询（GET）原样通过，系统应当**先查询对账、不重新提交**。
 - `status` 子命令显示剩余武装次数与已扣留次数；控制文件必须是私有文件。
 - 核对：企业端点侧该 intent 只有一次 POST；交互记录中对账结果为已了结；运行器的“同一意图执行超过 1 次”停止规则未命中。
+- 使用参考端点时，也可以直接用它自带的演练开关（`reference_endpoint.py drill`，只能在本机打开），见其部署手册 §7。
 - 测试：`tests/test_nx037_endpoint_conformance.py` 用合成端点覆盖明文与 TLS 两种情况：武装后派发为 unknown、端点已提交、随后的查询只有一次 GET；武装期间的查询为“不可用”，从不判为已完成。
 
 ## 7. 装配完成的核对（【A】）
