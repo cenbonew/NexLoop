@@ -564,7 +564,8 @@ def markdown(report):
               f"- 预期内派发拒绝：{', '.join(report['expected_refusals'])}",
               f"- **AT-060：{report['at060']['result']}**" + (f"（{'; '.join(report['at060']['reasons'])}）" if report['at060']['reasons'] else ''), '',
               '只含指标、门槛结论、seed、digest 和提交，不含原文与 ID（D8）。门槛只判 C4、C4-low（§6.1）；C8 超出部署前提，只观察。', '',
-              '口径（负责人 2026-10-13，ROADMAP §7 的 4A、5A）：**空闲派发**是来信受理到对应 Run 任务被 claim（设计稿 §4.6），2 s 门槛只适用于它，分为 relay 段与排队段；'
+              '口径（负责人 2026-10-13，ROADMAP §7 的 4A、5A 与 v0.1 门槛方案 A）：**空闲派发**是来信受理到对应 Run 任务被 claim（设计稿 §4.6），'
+              f"v0.1 门槛 {THRESHOLDS['idle_dispatch_p95_ms'] // 1000} s 只适用于它（C4-low），{V02_TARGETS['idle_dispatch_p95_ms'] // 1000} s 是 v0.2 目标（观察项 idle_dispatch_v02_target，不判定），分为 relay 段与排队段；"
               '启动段（claim → Host 首次执行授权）和 run_start（任务创建 → 首次执行授权）只观察。**guard p95** 是窗口内全部调用的 p95（各进程直方图合并，误差 ≤ ±5%），'
               '最差一分钟 p95 只观察。旧口径的结果标为 incomparable（caliber_changed），不判通过。**端到端**是来信受理到回复（或兜底、升级）落库，'
               '含模型时间（压测中为 D5 注入的确定性时延），见下方分解表。', '',
