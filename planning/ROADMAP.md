@@ -181,6 +181,7 @@ CI 主机就是规划中的 APP_HOST。下列占用互斥，同一时间只做�
 | 2026-10-13 | 首个签名发布 D-R1～D-R5 按推荐：D-R1 方案 A（CI 构建，`nexloop-release` 只签名封存；独立构建另立主机配置任务）；D-R2 新建只含 `nexloop-release` 的只读组，移交目录 2750，CI 结果对其只读；D-R3 `nexloop-ci` 的 rootless docker 未启用 containerd snapshotter 则启用，只改其自身 daemon 配置；D-R4 基础镜像与 gateway 按 digest 预取时临时、限时只放行镜像仓库出站，执行后恢复；D-R5 gateway 用 Caddy 当前最新 2.x 稳定版，执行前由调度员在官方发布页核对，只固定 amd64 manifest digest。主机配置变更执行时逐条命令交负责人确认（负责人 2026-10-13） | NX-034-first-release-runbook §5 |
 | 2026-10-13 | AT-060 空闲派发目标（负责人按推荐 A）：v0.1 门槛项 idle_dispatch_p95_ms（受理→claim，C4-low）定为 ≤5000 ms；PRD“空闲交互队列调度 p95 ≤2 s”属初始待验证指标，列为 v0.2 目标，届时以 ADR 改 relay 结构（合并串行受治理步骤或缩小复查范围）。依据：v6 门槛格重跑 relay 段 p50 3466/p95 6630 ms，为十几个串行受治理步骤的处理耗时，非轮询；排队段 p95 295 ms | AT-060 门槛格 v6 重跑；L4 relay 分析 |
 | 2026-10-13 | relay 上下文构建（context_prepare）优化两项均批准（负责人直接拍板）：① 扩大 ADR-029：同一条来信的一次上下文准备内复用 Source 签名信封与已读服务目录（快照、第一次绑定、写后复查绑定共用；SQL 每次仍按当前事实、记录与目录摘要完整校验，第二次绑定仍是写后复查；不跨来信、Run、租户、world，信封剩余有效期不足即重建）；② 新 ADR：SQL 中一次 read_object 调用内对同一对象只推导一次 relay Source 权限，其余属性仍逐项核对属性清单与属性组限制，结果须与现行实现逐字节等价。目标 context_prepare 在 CI 主机 p50 <500 ms，空闲派发向 v0.2 的 2 s 目标推进 | L4 context-prepare-profile；ADR-029 |
+| 2026-10-13 | relay 上下文构建优化第 4 项批准（负责人直接拍板）：新 ADR（ADR-032），在一次授权检查内缓存权限事实（authority facts）与身份快照，范围仅限该次检查的调用，不跨检查、语句外事务、租户、world 或会话；须写明在 READ COMMITTED 下由“逐语句快照”变为“检查内一致视图”的语义差异与时间窗，结果须与现行实现逐字节等价并有并发撤销反例测试 | L2 ADR-031 测量（推导减半但耗时不变，剩余为约 6400 次 facts/identity 调用） |
 
 待决：见 §6“下一道关卡的决定”。
 
@@ -271,3 +272,4 @@ S6、S7 的实现都依赖 NX-037 的真实轨迹，但以下工作不必等：
 | 2026-10-13 | 本次规划提交 | 首个签名发布 D-R1～D-R5 按推荐；AT-060 门槛格 v6 重跑 C4 passed、C4-low 空闲派发未过（relay 段） |
 | 2026-10-13 | 本次规划提交 | 空闲派发 v0.1 门槛 ≤5 s，2 s 列 v0.2（负责人 A） |
 | 2026-10-13 | 本次规划提交 | context_prepare 两项优化批准（扩 ADR-029 + 新 ADR） |
+| 2026-10-13 | 本次规划提交 | 第 4 项（授权检查内缓存 facts/identity，ADR-032）批准 |
