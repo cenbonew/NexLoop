@@ -38,6 +38,18 @@ def message_assignment_schema():
         properties=tuple(PropertyDefinition(property_name=name,value_type=PropertyValueType(kind),required=True) for name,kind in fields.items()))
 
 
+class RecipeEnterpriseUnsupported(MessageRelayUnavailable):
+    """A static recipe cannot carry an enterprise slot: the slot is issued only from a governed relay enrollment (0180, via
+    the relay claims and profile), never from a file."""
+    reason='recipe_enterprise_unsupported'
+
+
+def validate_static_recipe(recipe):
+    """Recipe mode (file or constructor): refuses an enterprise block explicitly instead of accepting an unusable slot."""
+    if type(recipe) is dict and 'enterprise' in recipe: raise RecipeEnterpriseUnsupported()
+    return validate_recipe(recipe)
+
+
 def validate_recipe(recipe):
     expected={'consumer_id','control_id','control_revision','consumer_revision',
         'valid_until','role_ref','context_manifest_ref','runtime_profile','budget',
@@ -156,7 +168,7 @@ class MessageRelay:
         # Exactly one mode (D4): a single consumer's recipe (claim by consumer) or the deployment Run profile (claim_next over
         # the consumers enrolled for this relay, 0160).
         if (recipe is None)==(run_profile is None): raise MessageRelayUnavailable()
-        self.recipe=None if recipe is None else validate_recipe(recipe)
+        self.recipe=None if recipe is None else validate_static_recipe(recipe)
         self.run_profile=None if run_profile is None else validate_run_profile(run_profile)
         if any(service._backend is not route._backend for service in (source,planner)): raise MessageRelayUnavailable()
         # NX-031 ladder: admission bound on the tenant's open message Run tasks; None keeps claiming as before.
@@ -235,8 +247,8 @@ class MessageRelay:
                 'control_id':recipe['control_id'],'submitter_principals':[principal],
                 'action_name':'nexloop.service.request','state':'ready'},recipe)
             enterprise=recipe.get('enterprise')
-            if enterprise is not None and (self.context_strategy is not None or self.relationship_recipe is not None):
-                # ADR-030: only the v2 Message Run pack carries effect_supplies; with another pack the slot would be unusable.
+            if enterprise is not None and self.relationship_recipe is not None:
+                # ADR-030: the v2 and v6 Message Run packs carry effect_supplies; the v4 relationship core does not.
                 _log.info('enterprise_slot_skipped',extra={'event':'enterprise_slot_skipped','consumer_id':recipe['consumer_id'],'reason':'context_unsupported'})
                 enterprise=None
             enterprise_step=None if enterprise is None else self._create('PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,

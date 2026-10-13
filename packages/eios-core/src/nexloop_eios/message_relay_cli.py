@@ -13,7 +13,7 @@ import sys
 import threading
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.backend import open_backend
-from nexloop_eios.message_relay import MessageRelay, validate_recipe, validate_run_profile
+from nexloop_eios.message_relay import MessageRelay, validate_static_recipe, validate_run_profile
 from nexloop_eios.private_configuration import read_private_text
 from nexloop_eios.run_credential_vault import RunCredentialVault
 
@@ -60,7 +60,7 @@ def _strict_json(path):
     return json.loads(read_private_text(path,maximum=32768),object_pairs_hook=pairs,parse_constant=constant)
 
 
-def _recipe(path):return validate_recipe(_strict_json(path))
+def _recipe(path):return validate_static_recipe(_strict_json(path))
 def _run_profile(path):return validate_run_profile(_strict_json(path))
 
 

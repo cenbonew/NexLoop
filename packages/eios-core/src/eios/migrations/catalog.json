@@ -930,6 +930,11 @@
       "version": "0186",
       "name": "0186_guard_op_samples.sql",
       "sha256": "2d20fa53ee68c4e0b09e8357a1d725a8eed3c0ccd13aba5ae0ed9eefcc6fd8b2"
+    },
+    {
+      "version": "0410",
+      "name": "0410_nx037_context_v6_effect_supplies.sql",
+      "sha256": "6b1d480b924d38723c6a0ddd63e9edae914c3aa8cf5bb9c1db9da05f83e611cc"
     }
   ]
 }

@@ -1,7 +1,7 @@
 /** Compiled parser/transport input declarations only; never grants EIOS authority. */
 import {createHash,randomUUID} from 'node:crypto';
 import {describe,it,expect} from 'vitest';
-import {canonicalContextJSON,contextCommandDigest,validateContextInput,validateContextProviderInput,CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2} from '../dist/context-input.js';
+import {canonicalContextJSON,contextCommandDigest,validateContextInput,validateContextProviderInput,CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V6} from '../dist/context-input.js';
 import {command} from './pi-runtime-support.ts';
 const sha=(value:string)=>createHash('sha256').update(value).digest('hex');
 function declaration(v2=true){
@@ -64,5 +64,32 @@ describe('ADR-030: optional effect_supplies on a v2 Message Run pack',()=>{
    p.effect_supplies=kind==='reply_action'?[{...one,action:'nexloop.service.request:1'}]:kind==='duplicate'?[one,item()]:kind==='empty'?[]:kind==='extra_key'?[{...one,tenant_id:'x'}]
     :kind==='export_shape'?[{...one,properties:p.supply.properties}]:kind==='bad_price'?[{...one,properties:{...one.properties,price_amount:'free'}}]:[one];});
   expect(()=>validateContextInput(input,f.cmd,proof)).toThrow('runtime_context_invalid');
+ });
+});
+describe('ADR-030: optional effect_supplies on a v6 Message Run pack (the v2 core plus labelled sections)',()=>{
+ const item=()=>({action:'nexloop.enterprise.deliver:1',offering_id:'3'.repeat(64),offering_revision:1,binding_id:'4'.repeat(64),binding_revision:1,provenance:'eios:object:'+'3'.repeat(64),
+  properties:{service_code:'enterprise.synthetic-delivery',title:'合成企业交付',delivery_action:'nexloop.enterprise.deliver:1',content_kind:'enterprise-delivery',price_amount:'12.50',currency:'CNY',
+   eligibility:'current_consumer_plan',allowed_guarantees:[],allowed_discounts:[],evidence_kind:'enterprise_receipt',active:true,valid_until:'2999-01-01T00:00:00Z'}});
+ const v6=(f:ReturnType<typeof declaration>,change?:(p:any)=>void)=>f.check(p=>{
+  const goal=p.formal_facts.find((row:any)=>row.type==='Goal'),statement=p.user_statement;
+  Object.assign(p,{schema_version:CONTEXT_PROTOCOL_V6,strategy_ref:'context-strategy:recent_plus_required@1',role:null,
+   current_event:{kind:'consumer_message',message_id:statement.message_id,provenance:statement.provenance},
+   goal:{goal_version_refs:['goal:'+goal.id+'@'+goal.revision],control_snapshot:{control_revision:0,scopes:[],goals:[],objects:[],budgets:[]}},
+   constraints:[],consumer_state:[],open_work:[],evidence:[],semantics:[],experience:[],
+   budget_report:{estimator:'synthetic',input_token_budget:2048,output_reserve:128,framing_reserve:0,available:1920,used:0,sections:{},omitted:[]},insufficient:[]});
+  change?.(p);});
+ it('returns the enterprise offering; without it the v6 result is exactly as before',()=>{
+  const f=declaration();const plain=v6(f);
+  expect(validateContextInput(plain.input,f.cmd,plain.proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[]});
+  const {input,proof}=v6(f,p=>{p.effect_supplies=[item()];});
+  expect(validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[],
+   effect_supplies:[{action:'nexloop.enterprise.deliver:1',offering_id:'3'.repeat(64),offering_revision:1,service_code:'enterprise.synthetic-delivery',title:'合成企业交付',price_amount:'12.50'}]});
+ });
+ it.each(['with_relationships','reply_action','empty','extra_key'])('rejects %s',kind=>{
+  const f=declaration();
+  const {input,proof}=v6(f,p=>{const one=item();
+   p.effect_supplies=kind==='reply_action'?[{...one,action:'nexloop.service.request:1'}]:kind==='empty'?[]:kind==='extra_key'?[{...one,tenant_id:'x'}]:[one];
+   if(kind==='with_relationships')p.relationship_context={current_statements:[],evidence:[]};});
+  expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
  });
 });
