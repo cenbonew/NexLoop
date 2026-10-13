@@ -1,5 +1,7 @@
 # 迁移 0400（企业交付 Action）对抗式审查
 
+> 注：审查时该迁移的临时编号为 0400，合入 main 时重编号为 0178（处理见 `docs/implementation/NX-037-enterprise-deliver.md` §8）。
+
 对象：分支 `l2/nx037-enterprise-deliver`，提交 `df80eb7`，`packages/eios-core/src/eios/migrations/0400_nx037_enterprise_deliver.sql`（570 行）。只读审查，不修改 L2 代码。审查人：L4，2026-10-13。
 
 ## 方法
