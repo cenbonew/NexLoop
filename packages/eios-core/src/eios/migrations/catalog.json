@@ -935,6 +935,11 @@
       "version": "0187",
       "name": "0187_nx037_context_v6_effect_supplies.sql",
       "sha256": "6b1d480b924d38723c6a0ddd63e9edae914c3aa8cf5bb9c1db9da05f83e611cc"
+    },
+    {
+      "version": "0188",
+      "name": "0188_relay_step_samples.sql",
+      "sha256": "0aa631fcf1592360b1de7c7cb0965b51dc8db8a5b56ba1b8f275759dde9fcdf4"
     }
   ]
 }

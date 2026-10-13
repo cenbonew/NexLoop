@@ -70,6 +70,7 @@
 `sample` 是 NX-030 写入的原样内容：
 - guard：`calls`、`timeouts`、`errors`、`p50_ms`、`p95_ms`、`max_ms`，以及延迟直方图 `h_<i>`（5A，2026-10-13：i 为 0–116，第 0 桶 ≤1 ms，第 i 桶为 (1.1^(i−1), 1.1^i] ms，最后一桶为开区间上沿，只写非空桶）；
 - guard_op（AT-060，迁移 0186）：按操作的同样字段与直方图，`service` 为操作名；
+- relay_step（临时迁移 0440，调度员 2026-10-13）：relay 每个步骤的同样字段与直方图，`service` 为步骤名（见 `docs/implementation/relay-step-timing.md`）；
 - pool：`requests_waiting`、`requests_errors`、`pool_size` 等；
 - host：`active_runs`、`waiting`、`admission_timeouts` 等。
 
@@ -120,7 +121,7 @@
 | guard p95 | 5A（负责人 2026-10-13，ROADMAP §7）：稳态窗口内全部 guard 调用的 p95，由各进程各窗口的直方图合并，取所在桶的几何中点（误差 ≤ ±4.9%），要求 ≤1500 ms（`guard_p95_ms`）。原"每分钟各服务 `p95_ms` 的最大值"保留为观察项 `guard_p95_ms_worst_minute`。没有直方图的旧结果标为 incomparable，不判通过 |
 | 死信 | 快照中 `queues.*.dead_lettered` 加 `feeds.*.dead_lettered` 在格子结束时减去格子开始时的增量，要求为 0（另外报告开始时的绝对值） |
 | ACK p95 | `acks.jsonl` 中 202 的行，要求 ≤500 ms |
-| 空闲队列派发 p95 | 只判 C4-low，`dispatch.jsonl` 的 `dispatch_ms`（受理 → claim，4A），要求 ≤2000 ms；启动段与 `run_start_p95_ms` 只观察 |
+| 空闲队列派发 p95 | 只判 C4-low，`dispatch.jsonl` 的 `dispatch_ms`（受理 → claim，4A），v0.1 要求 ≤5000 ms（负责人 2026-10-13 选 A，ROADMAP §7）；2000 ms 为 v0.2 目标，由观察项 `idle_dispatch_v02_target`（是否 ≤2000）跟踪，不判定；启动段与 `run_start_p95_ms` 只观察 |
 | 排空时间 | `drain.drained` 为 true，并且 `seconds` ≤600 |
 | 连接总数 | 快照中 `connections.total` 的峰值，要求 ≤60 |
 | critical 告警 | `alerts.jsonl` 中 severity 为 critical 且 kind 为 firing 的条数，要求为 0 |

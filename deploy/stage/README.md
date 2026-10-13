@@ -102,3 +102,7 @@ N=4 时，DSN、服务凭据、签名密钥、guard 密钥和 guard TLS 私钥�
 - **告警**：使用 `deploy/configuration/alert-rules.v2.json`，比 v1 多两条：
   - `relay_unenrolled_pending`（critical）：有待处理消息、却没有任何 relay 登记的客户；
   - `relay_backlog_age`（warning）。
+
+## relay 副本（可选）
+
+`compose.app.relay-replicas.example.yaml` 在 `compose.app.example.yaml` 之后叠加，增加 `message-relay-2`（各自的 vault 目录）。默认不启用；启用前必须按 `docs/implementation/relay-step-timing.md` §3 选定连接预算方案并更新 `connection-budget.v1.json`（合计 ≤60），否则部署门禁拒绝。

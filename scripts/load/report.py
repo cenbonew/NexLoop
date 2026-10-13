@@ -24,7 +24,7 @@ DEFAULT_EXPECTED_REFUSALS = ('NXC05', 'NXC06')
 GUARD_DEADLINE_MS = 2000
 THRESHOLDS = {  # §6.1 (D4); never relaxed by this tool (§7)
     'guard_timeout_rate_5m_max': 0.01, 'guard_p95_ms': 1500, 'dead_letters_delta': 0, 'ack_p95_ms': 500,
-    'idle_dispatch_p95_ms': 2000, 'drain_seconds': 600, 'connections_peak': 60, 'critical_alerts': 0,
+    'idle_dispatch_p95_ms': 5000, 'drain_seconds': 600, 'connections_peak': 60, 'critical_alerts': 0,
     'unexpected_refusals': 0, 'identity_violations': 0, 'unresolved_work': 0,
 }
 # AT-060 calibers (owner 2026-10-13, 4A and 5A, ROADMAP §7). guard_p95_ms: the p95 over all guard calls of the steady window,
@@ -37,6 +37,10 @@ THRESHOLDS = {  # §6.1 (D4); never relaxed by this tool (§7)
 HISTOGRAM_RATIO = 1.1
 HISTOGRAM_LAST = 116
 _HISTOGRAM_KEY = re.compile(r'^h_(\d{1,3})$')
+# v0.1 gate (owner 2026-10-13, option A, ROADMAP §7): idle dispatch (accepted -> claimed) p95 <= 5000 ms in C4-low; the PRD's
+# 2000 ms stays the v0.2 target, tracked by the observation idle_dispatch_v02_target (never gated) until an ADR restructures the
+# relay path (docs/implementation/relay-step-timing.md §4).
+V02_TARGETS = {'idle_dispatch_p95_ms': 2000}
 _CODE = re.compile(r'^[A-Za-z0-9_.:+,-]{1,200}$')
 
 
@@ -187,6 +191,24 @@ def histogram_quantile(counts, q):
     return None
 
 
+RELAY_STEP_ORDER = ('authenticate', 'backlog', 'claim', 'recover', 'lookup', 'goal_create', 'step_create', 'enterprise_step_create', 'assignment_create',
+                    'vault_prepare', 'source_proofs', 'issue', 'effect_bind', 'context_prepare', 'message_bind', 'own_route', 'route_authorize',
+                    'runtime_accept', 'ack', 'release', 'handoff', 'total')
+
+
+def relay_steps(samples, start, end):
+    """Relay step timings (kind relay_step, dispatcher 2026-10-13) in [start, end): per step the number of observations and
+    p50/p95 merged from the relay processes' histograms (the guard_p95_ms caliber). Informational. Absent in older results: {}."""
+    names = sorted({_code(r.get('service'), 'relay_step.service') for r in samples if r.get('kind') == 'relay_step' and start <= _time(r.get('window_start')) < end},
+                   key=lambda n: RELAY_STEP_ORDER.index(n) if n in RELAY_STEP_ORDER else len(RELAY_STEP_ORDER))
+    out = {}
+    for name in names:
+        counts, comparable = merged_histogram(samples, 'relay_step', start, end, service=name)
+        out[name] = {'count': sum(counts.values()), 'p50_ms': histogram_quantile(counts, 0.5) if comparable else None,
+                     'p95_ms': histogram_quantile(counts, 0.95) if comparable else None}
+    return out
+
+
 def merged_histogram(rows, kind, start, end, service=None):
     """(counts, comparable): the h_<i> counts of every sample of `kind` in [start, end) summed across processes; comparable is
     False when a sample with latency figures carries no histogram (a result from before 5A)."""
@@ -326,6 +348,7 @@ def cell_metrics(directory, expected_refusals):
         out['host'] = host_summary(samples, start, end)
         out['pool'] = pool_summary(samples, start, end)
         out['guard_operations'] = guard_operations(samples, start, end)
+        out['relay_steps'] = relay_steps(samples, start, end)
     acks = _lines(directory / 'acks.jsonl')
     if acks is not None:
         ok = [_number(a.get('ack_ms'), 'ack_ms') for a in acks if a.get('status') == 202]
@@ -345,7 +368,9 @@ def cell_metrics(directory, expected_refusals):
             def segment(key):
                 return [_number(d[key], f'dispatch.{key}') for d in dispatch if d.get(key) is not None]
             values = segment('dispatch_ms')
-            metrics.update(idle_dispatch_count=len(values), idle_dispatch_p95_ms=percentile(values, 0.95),
+            p95 = percentile(values, 0.95)
+            metrics['idle_dispatch_v02_target'] = None if p95 is None else p95 <= V02_TARGETS['idle_dispatch_p95_ms']
+            metrics.update(idle_dispatch_count=len(values), idle_dispatch_p95_ms=p95,
                            run_start_p95_ms=percentile(segment('run_start_ms'), 0.95))
             out['dispatch_segments'] = {name: {'count': len(v), 'p50_ms': percentile(v, 0.5), 'p95_ms': percentile(v, 0.95)}
                                         for name, v in (('relay', segment('relay_ms')), ('queue', segment('queue_ms')), ('start', segment('start_ms')))}
@@ -566,6 +591,8 @@ def markdown(report):
         m, segments = c['metrics'], c.get('dispatch_segments') or {}
         lines += ['', '**观察项**（只记录，不判定）', '', '| 项 | 实测 |', '|---|---|',
                   f"| guard_p95_ms_worst_minute | {_fmt(m.get('guard_p95_ms_worst_minute'))} |",
+                  f"| idle_dispatch_v02_target（v0.2 目标：空闲派发 p95 ≤ {V02_TARGETS['idle_dispatch_p95_ms']}） | "
+                  f"{'—' if m.get('idle_dispatch_v02_target') is None else '达到' if m['idle_dispatch_v02_target'] else '未达到'} |",
                   f"| run_start_p95_ms（任务创建 → Host 首次执行授权） | {_fmt(m.get('run_start_p95_ms'))} |"]
         for name, label in (('relay', 'relay 段（来信受理 → 任务创建）'), ('queue', '排队段（任务创建 → claim）'), ('start', '启动段（claim → Host 首次执行授权）')):
             seg = segments.get(name) or {}
@@ -586,6 +613,14 @@ def markdown(report):
         lines.append(f"| {c['cell']} | {d['runs']} | {pair('e2e_ms')} | {pair('run_ms')} | {pair('model_ms')} | {pair('tool_ms')} | {pair('platform_ms')} | "
                      f"{d['runs_without_tool_timing']} | {d['runs_without_model_timing']} | {d['anomalies']} | "
                      f"{', '.join(f'{k} {v}' for k, v in d.get('failures', {}).items()) or '0'} | {c['host_metrics']} |")
+    lines += ['', '## relay 各步骤（稳态窗口，ms；各 relay 进程直方图合并的 p50 / p95；total 为已入队来信的 claim → release，authenticate 为每个 tick 的凭据重认证）', '',
+              '| 格 | 步骤 | 次数 | p50 | p95 |', '|---|---|---|---|---|']
+    for c in report['cells']:
+        steps = c.get('relay_steps') or {}
+        if not steps:
+            lines.append(f"| {c['cell']} | missing | | | |")
+        for name, v in steps.items():
+            lines.append(f"| {c['cell']} | {name} | {v['count']} | {_fmt(v['p50_ms'])} | {_fmt(v['p95_ms'])} |")
     lines += ['', '## 守卫按操作分项（稳态窗口，ms；p95 为该操作全部调用合并后的 p95，最差一分钟为单进程单窗口）', '',
               '| 格 | 操作 | 调用 | 超时 | 错误 | p95 | 最差一分钟 p95 | max |', '|---|---|---|---|---|---|---|---|']
     for c in report['cells']:

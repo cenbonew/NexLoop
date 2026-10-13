@@ -208,20 +208,26 @@ class Stack:
             self.file('run-profile.json', json.dumps(self.chain['run_profile']))
         return path
 
-    def start_message_chain(self, host_concurrency, latency=None, context_strategy=None):
+    def start_message_chain(self, host_concurrency, latency=None, context_strategy=None, relay_processes=1):
         """One multi-consumer relay (pool 2), the runtime worker with four guard processes (pool 4 each), one Agent Host with
         maximum_active_runs = the cell's host concurrency (load-lane configuration, never through the doctor; C8 is 8), the
         local JSON delivery provider, the effect worker and the outbound recorder. Returns None once all are up. `latency`
         ({median_ms, p95_ms, seed}) is the Host's D5 injected model latency (deterministic-test only); None injects none.
         `context_strategy` (a published strategy ID) makes the relay issue message Runs with Context v6, as deployed
         (context-strategies.v1.json); v6 Runs record every model request (AT-060 §4.4 item 4). None keeps the v2 Context: the
-        template's history step, which runs before the template publishes the strategy (load_chain.load_plans)."""
+        template's history step, which runs before the template publishes the strategy (load_chain.load_plans).
+        `relay_processes` (1..3, dispatcher 2026-10-13) starts that many relay processes, each with its own vault and artifact
+        directory (a vault has one owner process); claim_next (0141) gives each consumer to one relay at a time."""
+        if type(relay_processes) is not int or not 1 <= relay_processes <= 3:
+            raise StackFailed('relay_processes')
         key, key_id = self.signing
         tokens = self.chain['tokens']
         token = {name: self.file(f'chain-{name}-credential', value) for name, value in tokens.items()}
         recorder = token['recorder']  # published with the recorder's Action (the service-grants apply keeps that credential)
         common = ['--signing-key-file', str(key), '--signing-key-id', key_id]
-        for name in ('host-runtime', 'runtime-artifacts', 'relay-artifacts', 'relay-vault', 'delivery-artifacts', 'delivery-root', 'effect-artifacts', 'recorder-artifacts'):
+        relays = ['relay'] + [f'relay-{n}' for n in range(2, relay_processes + 1)]
+        for name in ('host-runtime', 'runtime-artifacts', *(f'{r}-artifacts' for r in relays), *(f'{r}-vault' for r in relays),
+                     'delivery-artifacts', 'delivery-root', 'effect-artifacts', 'recorder-artifacts'):
             (self.lane / name).mkdir(mode=0o700)
         # Agent Host (deterministic profile with the D5 injected model latency of the matrix).
         host_cert, host_tls_key = self.tls('host-tls')
@@ -265,13 +271,14 @@ class Stack:
         self._spawn('effect-worker', [sys.executable, '-m', 'nexloop_eios.effect_worker', '--database-url-file', str(action_dsn), *common,
             '--service-credential-file', str(token['executor']), '--artifact-root', str(self.lane / 'effect-artifacts'), '--world', 'real',
             '--provider-config-file', str(provider)])
-        # One multi-consumer relay (run profile) and the outbound recorder.
+        # Multi-consumer relay process(es) (run profile) and the outbound recorder.
         api_dsn = self.file('chain-api-dsn', self.dsn('nexloop_api'))
-        self._spawn('relay', [sys.executable, '-m', 'nexloop_eios.message_relay_cli', '--database-url-file', str(api_dsn), *common,
-            '--artifact-root', str(self.lane / 'relay-artifacts'), '--vault-root', str(self.lane / 'relay-vault'), '--run-profile-file', str(self.run_profile_file()),
-            *sum(([f'--{name}-credential-file', str(token[name])] for name in ('route', 'source', 'planner', 'executor')), []),
-            # NX-031 ladder: issue no new Run while 4 x the Host concurrency message Run tasks are open (credentials live 300 s).
-            '--max-backlog', str(4 * host_concurrency), *(['--context-strategy', context_strategy] if context_strategy else [])])
+        for relay in relays:
+            self._spawn(relay, [sys.executable, '-m', 'nexloop_eios.message_relay_cli', '--database-url-file', str(api_dsn), *common,
+                '--artifact-root', str(self.lane / f'{relay}-artifacts'), '--vault-root', str(self.lane / f'{relay}-vault'), '--run-profile-file', str(self.run_profile_file()),
+                *sum(([f'--{name}-credential-file', str(token[name])] for name in ('route', 'source', 'planner', 'executor')), []),
+                # NX-031 ladder: issue no new Run while 4 x the Host concurrency message Run tasks are open (credentials live 300 s).
+                '--max-backlog', str(4 * host_concurrency), *(['--context-strategy', context_strategy] if context_strategy else [])])
         self._spawn('outbound-recorder', [sys.executable, '-m', 'nexloop_eios.outbound_messages', '--database-url-file', str(api_dsn), *common,
             '--service-credential-file', str(recorder), '--artifact-root', str(self.lane / 'recorder-artifacts'), '--world', 'real'])
         # NX-052 full-window state D (implementation note §11): emulate a configuration publication every few seconds. Unset by default.
@@ -281,7 +288,7 @@ class Stack:
             self._spawn('tenant-lock-pulse', [sys.executable, str(ROOT / 'scripts/load/tenant_fk_state.py'), 'pulse', '--dsn-file',
                         str(self.file('tenant-lock-pulse-dsn', self.admin_dsn)), '--tenant', self.tenant, '--interval', interval, '--hold', hold])
         time.sleep(3)
-        dead = [name for name in ('runtime-worker', 'delivery', 'effect-worker', 'relay', 'outbound-recorder') if self.children[name][0].poll() is not None]
+        dead = [name for name in ('runtime-worker', 'delivery', 'effect-worker', *relays, 'outbound-recorder') if self.children[name][0].poll() is not None]
         if dead:
             raise StackFailed(','.join(dead))
         return None

@@ -211,6 +211,71 @@ def _latency_sample(values, errors, *, buckets=False):
 GUARD = GuardTimings()
 
 
+# Relay step timings (dispatcher 2026-10-13): per inbound message, the time of each step of MessageRelay._run_once
+# (message_relay.py), numbers only. `total` is claim -> release of a message the relay queued; `authenticate` is the CLI's
+# per-tick credential re-authentication (message_relay_cli.py), measured on every tick.
+RELAY_STEPS = ('backlog', 'claim', 'recover', 'lookup', 'goal_create', 'step_create', 'enterprise_step_create', 'assignment_create',
+               'vault_prepare', 'source_proofs', 'issue', 'effect_bind', 'context_prepare', 'message_bind', 'own_route', 'route_authorize',
+               'runtime_accept', 'ack', 'release', 'handoff', 'total', 'authenticate')
+
+
+class StepTimings:
+    """Per-process latency per named step (labels from a fixed list), drained as one histogram sample per step."""
+
+    def __init__(self, steps):
+        self.steps = tuple(steps)
+        self._lock = threading.Lock()
+        self._values = {}
+        self._started = time.time()
+
+    def observe(self, step, elapsed_ms):
+        if step not in self.steps:
+            return
+        with self._lock:
+            self._values.setdefault(step, []).append(float(elapsed_ms))
+
+    def drain(self):
+        with self._lock:
+            values, started = self._values, self._started
+            self._values, self._started = {}, time.time()
+        return {step: _latency_sample(sorted(v), 0) for step, v in sorted(values.items()) if v}, started
+
+
+RELAY = StepTimings(RELAY_STEPS)
+
+
+class StepClock:
+    """Marks the steps of one relay attempt; nothing is recorded until commit() (an idle tick records nothing)."""
+
+    def __init__(self, timings=None, clock=time.monotonic):
+        self.timings, self.clock = RELAY if timings is None else timings, clock
+        self.started = self.last = clock()
+        self.marks = []
+
+    def mark(self, step):
+        now = self.clock()
+        self.marks.append((step, (now - self.last) * 1000))
+        self.last = now
+
+    def commit(self, *, total=False):
+        for step, ms in self.marks:
+            self.timings.observe(step, ms)
+        if total:
+            self.timings.observe('total', (self.last - self.started) * 1000)
+        self.marks = []
+
+
+def flush_relay(pool, timings=None):
+    samples, started = (RELAY if timings is None else timings).drain()
+    window = dict(window_start=datetime.fromtimestamp(started, UTC), window_seconds=max(1, min(3600, round(time.time() - started))))
+    for step, value in samples.items():
+        try:
+            record_sample(pool, 'relay_step', step, value, **window)
+        except Exception:
+            pass
+    record_pool_sample(pool, 'message-relay')
+
+
 def start_sampler(stop, interval, flush):
     """A daemon thread calling flush() every interval seconds until stop is set; failures are swallowed (best effort)."""
     def loop():
