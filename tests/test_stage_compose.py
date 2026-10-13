@@ -8,6 +8,7 @@ import re
 import pytest
 import yaml
 
+from nexloop_eios.local_json_delivery import arguments as local_json_delivery_arguments
 from nexloop_eios import background_services, connection_budget, deploy_checks, effect_worker, message_relay_cli, outbound_messages, runtime_worker
 from nexloop_eios.browser_identity import open_browser_identity
 from test_deploy_render import ROOT, STAGE, interpolate
@@ -24,7 +25,7 @@ def compose():
 
 def test_budget_registers_the_identity_pool_and_stays_within_60():
     result = connection_budget.evaluate(BUDGET)
-    assert result['passed'] and result['details']['application_pool_total'] == 57
+    assert result['passed'] and result['details']['application_pool_total'] == 59  # NX-037: + webchat-delivery 2
     assert result['details']['services']['api-browser-identity'] == 8 and 'scheduler' not in result['details']['services']
     missing = copy.deepcopy(BUDGET)
     missing['services'] = [s for s in missing['services'] if s['name'] != 'api-browser-identity']
@@ -53,7 +54,7 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     services = compose['services']
     owners = {}
     for name, spec in services.items():
-        if name not in ('app-net', 'agent-host', 'agent-link-relay'):
+        if name not in ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery'):
             assert spec['network_mode'] == 'service:app-net', name
         if name != 'app-net':
             assert spec['read_only'] is True and spec['cap_drop'] == ['ALL'], name
@@ -67,7 +68,12 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca'}
     # Model credentials only where a model is called; channel provider configuration only in the action worker.
     assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker'} and owners['claim_matcher_model'] == {'claim-matcher'}
-    assert owners['action_worker_provider'] == {'action-worker'}
+    # NX-037: every provider route's configuration, credential and CA only in the action worker (the enterprise credential
+    # exists nowhere else); the delivery service holds its own files.
+    assert {s for s, o in owners.items() if s.startswith('action_worker_') and 'provider' in s and o == {'action-worker'}} == {
+        'action_worker_provider_routes', 'action_worker_webchat_provider', 'action_worker_webchat_provider_credential', 'action_worker_webchat_provider_ca',
+        'action_worker_enterprise_provider', 'action_worker_enterprise_provider_credential', 'action_worker_enterprise_provider_ca'}
+    assert not any('enterprise' in s for s in services['webchat-delivery']['secrets'])
     # Each secret file lives in its own service's directory (shared/ for the four shared ones).
     for secret, spec in compose['secrets'].items():
         directory = spec['file'].split('/secrets/')[1].split('/')[0]
@@ -78,6 +84,7 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
 
 PARSERS = {name: (lambda svc: lambda argv: background_services._parser(svc).parse_args(argv))(name) for name in background_services.SERVICES}
 PARSERS.update({'message-relay': message_relay_cli.arguments, 'outbound-recorder': outbound_messages._arguments, 'action-worker': effect_worker._arguments,
+                'webchat-delivery': local_json_delivery_arguments,
                 'runtime-worker': runtime_worker._arguments})
 
 

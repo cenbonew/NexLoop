@@ -275,8 +275,11 @@ class EffectExecutionPort:
                             row,_=self._reserve_in_transaction(db,candidate,'claim',lease_seconds=lease_seconds,
                                 intent_id=candidate['intent_id'])
                     else:raise ValueError()
+                    # The Action of the claimed intent (from the PG claim, never from a request) selects its provider.
+                    key=(row.get('action_claim') or {}).get('key') if isinstance(row.get('action_claim'),dict) else None
+                    action=key.get('action_stable_name') if isinstance(key,dict) else None
                     return {'intent_id':row['intent_id'],'fence':row['effect_fence'],'lease_until':row['lease_until'],
-                        'stage':'reconcile' if row['has_attempt'] is True else 'fresh'}
+                        'stage':'reconcile' if row['has_attempt'] is True else 'fresh','action':action if isinstance(action,str) else None}
                 except psycopg.errors.SerializationFailure:
                     if retry == 2:raise
         except Exception:raise EffectExecutionUnavailable() from None

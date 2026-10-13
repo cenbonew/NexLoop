@@ -12,7 +12,7 @@ import threading
 
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.backend import open_backend
-from nexloop_eios.effect_dispatch import EffectDispatcher
+from nexloop_eios.effect_dispatch import EffectDispatcher,ProviderRoutes
 from nexloop_eios.effect_provider import EffectProviderConfiguration,HttpEffectProvider
 from nexloop_eios.private_configuration import read_private_text
 
@@ -27,8 +27,13 @@ class _Parser(argparse.ArgumentParser):
 
 def _arguments(argv):
     parser=_Parser(description=__doc__)
-    for name in ('database-url-file','signing-key-file','service-credential-file','artifact-root','provider-config-file'):
+    for name in ('database-url-file','signing-key-file','service-credential-file','artifact-root'):
         parser.add_argument('--'+name,type=Path,required=True)
+    # Exactly one: one provider for every Action (single channel), or a routes file (NX-037: one provider per Action, no
+    # default; an Action without a route is never dispatched).
+    channel=parser.add_mutually_exclusive_group(required=True)
+    channel.add_argument('--provider-config-file',type=Path)
+    channel.add_argument('--provider-routes-file',type=Path)
     parser.add_argument('--signing-key-id',default='active')
     parser.add_argument('--world',required=True,choices=['real'])
     parser.add_argument('--lease-seconds',type=int,default=30)
@@ -57,6 +62,27 @@ def _provider(path):
     return HttpEffectProvider(EffectProviderConfiguration(**body))
 
 
+ROUTES_SCHEMA='nexloop-effect-provider-routes/1'
+_ACTION=re.compile(r'[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+')
+
+
+def _routes(path):
+    """{"schema": "nexloop-effect-provider-routes/1", "routes": {"<action stable name>": "<absolute provider config file>"}}; each
+    provider file has the --provider-config-file format and is read privately like it."""
+    body=json.loads(read_private_text(path,maximum=8192))
+    if type(body) is not dict or set(body)!={'schema','routes'} or body['schema']!=ROUTES_SCHEMA or type(body['routes']) is not dict:raise ValueError()
+    if not 1<=len(body['routes'])<=16:raise ValueError()
+    routes={}
+    for action,config in body['routes'].items():
+        if _ACTION.fullmatch(action) is None or type(config) is not str or not Path(config).is_absolute():raise ValueError()
+        routes[action]=_provider(Path(config))
+    return ProviderRoutes(routes)
+
+
+def _channel(arguments):
+    return _routes(arguments.provider_routes_file) if arguments.provider_routes_file else _provider(arguments.provider_config_file)
+
+
 class _FreshExecutor:
     def __init__(self,backend,path,world):self.backend,self.path,self.world=backend,path,world
     def service(self):return self.backend.authenticate(read_private_text(self.path,maximum=16384),world=self.world)
@@ -70,9 +96,9 @@ class _FreshExecutor:
 def run(arguments,stop):
     dsn=read_private_text(arguments.database_url_file,maximum=16384)
     read_private_text(arguments.service_credential_file,maximum=16384)
-    provider=_provider(arguments.provider_config_file)
+    provider=_channel(arguments)
     # Reject transport bounds and missing private material before claiming.
-    if provider.configuration.timeout>arguments.lease_seconds/3:raise ValueError()
+    EffectDispatcher(None,provider,lease_seconds=arguments.lease_seconds)
     with open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
         signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.pool_max) as backend:
         with backend._pool.connection() as connection:
@@ -84,13 +110,13 @@ def run(arguments,stop):
             try:
                 # Re-read trusted transport files and service credentials every
                 # tick and re-authenticate again at each protected ledger call.
-                provider=_provider(arguments.provider_config_file)
+                provider=_channel(arguments)
                 executor.service()
                 if stop.is_set():break
                 result=EffectDispatcher(executor,provider,lease_seconds=arguments.lease_seconds).run_once()
                 if arguments.once:
                     status=result.get('status','idle')
-                    if status not in {'idle','unknown','dispatching','observed_fulfilled','fulfilled','confirmed','query_unavailable','record_unavailable','admission_unavailable','origin_expired'}:
+                    if status not in {'idle','unknown','dispatching','observed_fulfilled','fulfilled','confirmed','query_unavailable','record_unavailable','admission_unavailable','origin_expired','unrouted'}:
                         status='unavailable'
                     print(json.dumps({'claimed':result.get('claimed') is True,'status':status},separators=(',',':')),flush=True)
                     return 0

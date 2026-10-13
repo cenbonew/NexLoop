@@ -48,6 +48,13 @@ def _port(v):
     return v
 
 
+def _remote_port(v):
+    """A port on another host (the enterprise endpoint, NX-037): any registered port, 443 included."""
+    if not re.fullmatch(r'[1-9][0-9]{0,4}', v) or not 1 <= int(v) <= 65535:
+        raise ValueError()
+    return v
+
+
 def _path(v):
     if not re.fullmatch(r'/[A-Za-z0-9._/-]{1,240}', v) or '/../' in v + '/' or '//' in v or v.endswith('/'):
         raise ValueError()
@@ -96,6 +103,8 @@ PARAMETERS = {
     'API_INTERNAL_PORT': _port, 'API_INTERNAL_PORT_2': _port, 'HOST_INTERNAL_PORT': _port, 'GUARD_PORT': _port,
     'NEXLOOP_ROOT': _path, 'NEXLOOP_DB': _match(_NAME), 'APP_PG_ROLES': _roles, 'MIGRATION_PG_ROLE': _match(_ROLE),
     'VALKEY_MAXMEMORY': _match(_SIZE), 'AGENT_HOST_UID': _uid, 'CI_UID': _uid, 'MODEL_PROVIDER_ALLOWLIST': _addresses,
+    # NX-037 provider routing: the effect worker's own egress network and the one enterprise endpoint it may reach.
+    'EFFECT_EGRESS_CIDR': _cidr, 'ENTERPRISE_ENDPOINT_ADDR': _addr, 'ENTERPRISE_ENDPOINT_PORT': _remote_port,
 }
 
 
