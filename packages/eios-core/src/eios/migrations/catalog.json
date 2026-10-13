@@ -925,6 +925,11 @@
       "version": "0185",
       "name": "0185_nx037_month_cost.sql",
       "sha256": "82b732cc373916fe9467c5568258216ba629d0e5835c68281abe810993cb6147"
+    },
+    {
+      "version": "0186",
+      "name": "0186_guard_op_samples.sql",
+      "sha256": "2d20fa53ee68c4e0b09e8357a1d725a8eed3c0ccd13aba5ae0ed9eefcc6fd8b2"
     }
   ]
 }

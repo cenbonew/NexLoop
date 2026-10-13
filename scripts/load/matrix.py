@@ -37,6 +37,11 @@ GATES = ('C4', 'C4-low')
 # AT-060 §4.4 item 4 (dispatcher 2026-10-13, A + B1): message Runs in the cells use Context v6 with the deployed built-in
 # strategy (context-strategies.v1.json; the template publishes it), so every message Run records its model requests.
 MESSAGE_CONTEXT_STRATEGY = 'recent_plus_required'
+# Dispatcher 2026-10-13: before the steady window, the template's residual due feed items (created before the cell started)
+# are waited out while the warm-up traffic continues, up to this cap (scaled with the timing); then the cell goes on regardless
+# and records warm_up_not_drained. The residue at the warm-up's end, the wait and the per-poll counts go into cell.json.
+RESIDUE_WAIT_SECONDS = 300
+RESIDUE_POLL_SECONDS = 5
 
 
 def now():
@@ -104,6 +109,7 @@ class Cell:
                        'message_runs': None, 'message_context_strategy': MESSAGE_CONTEXT_STRATEGY, 'timing_scale': scale}
 
     def execute(self):
+        self.started_at = now()
         self.dir.mkdir(parents=True)
         self.lane.mkdir(parents=True)
         clone = stack = None
@@ -163,6 +169,11 @@ class Cell:
         try:
             self.result['login_failures'] = await driver.login_all()
             await driver.run_phase(self.warmup, self.spec['rate_per_s'], lambda r: None)  # warm-up: not measured
+            def query():
+                with psycopg.connect(stack.admin_dsn, autocommit=True) as db:
+                    return collect.residue(db, self.started_at)
+            self.result['warm_up_residue'] = await self.settle_residue(lambda: asyncio.to_thread(query),
+                                                                       lambda seconds: driver.run_phase(seconds, self.spec['rate_per_s'], lambda r: None))
             ci = self.start_ci() if self.spec['ci_background'] else None
             start = now()
             self.result['window']['steady_start'] = start.isoformat()
@@ -190,6 +201,24 @@ class Cell:
                 self.result['ci'] = self.finish_ci(ci)
         finally:
             await driver.close()
+
+    async def settle_residue(self, query, warm, clock=time.monotonic):
+        """Wait (warm-up traffic going on, unmeasured) until no residual due feed item of the template remains, or the cap.
+        `query` returns {feed: due count}; `warm(seconds)` drives the warm-up for that long. Never aborts the cell."""
+        cap = RESIDUE_WAIT_SECONDS * self.args.timing_scale
+        started = clock()
+        first = await query()
+        polls, current = [], first
+        while True:
+            elapsed = clock() - started
+            polls.append({'seconds': round(elapsed, 1), 'due': sum(current.values())})
+            if not current or not sum(current.values()):
+                return {'at_start': sum(first.values()), 'by_feed': first, 'drained': True, 'seconds': round(elapsed, 1), 'code': None, 'polls': polls}
+            if elapsed >= cap:
+                return {'at_start': sum(first.values()), 'by_feed': first, 'drained': False, 'seconds': round(elapsed, 1), 'code': 'warm_up_not_drained',
+                        'remaining': current, 'polls': polls}
+            await warm(min(RESIDUE_POLL_SECONDS, max(0.1, cap - elapsed)))
+            current = await query()
 
     async def sample(self, stack, phase):
         while True:

@@ -23,10 +23,20 @@ IDENTITY = ('run_binding', 'outbound_ownership', 'claim_ownership', 'model_conte
 DEFAULT_EXPECTED_REFUSALS = ('NXC05', 'NXC06')
 GUARD_DEADLINE_MS = 2000
 THRESHOLDS = {  # §6.1 (D4); never relaxed by this tool (§7)
-    'guard_timeout_rate_5m_max': 0.01, 'guard_p95_ms_max': 1500, 'dead_letters_delta': 0, 'ack_p95_ms': 500,
+    'guard_timeout_rate_5m_max': 0.01, 'guard_p95_ms': 1500, 'dead_letters_delta': 0, 'ack_p95_ms': 500,
     'idle_dispatch_p95_ms': 2000, 'drain_seconds': 600, 'connections_peak': 60, 'critical_alerts': 0,
     'unexpected_refusals': 0, 'identity_violations': 0, 'unresolved_work': 0,
 }
+# AT-060 calibers (owner 2026-10-13, 4A and 5A, ROADMAP §7). guard_p95_ms: the p95 over all guard calls of the steady window,
+# merged from the per-process log-spaced histograms (ratio 1.1, <= +-4.9%; nexloop_eios.observability.HISTOGRAM_*); the worst
+# per-process one-minute p95 stays as the observation guard_p95_ms_worst_minute. idle_dispatch_p95_ms: the inbound message
+# accepted -> its Run task claimed (NX-031 design §4.6 row 187), split into relay (accepted -> task created) and queue (task
+# created -> claimed); run_start_p95_ms (task created -> the Host's first execution authorization, the former caliber) and the
+# start segment (claimed -> first authorization) are observations. Results recorded under an earlier caliber are marked
+# 'incomparable' (caliber_changed) and never pass a gate.
+HISTOGRAM_RATIO = 1.1
+HISTOGRAM_LAST = 116
+_HISTOGRAM_KEY = re.compile(r'^h_(\d{1,3})$')
 _CODE = re.compile(r'^[A-Za-z0-9_.:+,-]{1,200}$')
 
 
@@ -135,6 +145,69 @@ def guard_windows(samples, start, end):
     return round(worst, 4), p95_max, sum(c for c, _ in minutes.values())
 
 
+def guard_operations(samples, start, end):
+    """AT-060: guard calls per operation (kind guard_op, one sample per process, operation and window) inside [start, end):
+    calls, timeouts and errors summed; p95_ms merged from the histograms over all the operation's calls (the guard_p95_ms
+    caliber); p95_ms_worst_minute and max as observed per sample. Informational, never gated. Absent in older results: {}."""
+    out, names = {}, set()
+    for row in samples:
+        if row.get('kind') != 'guard_op' or not start <= _time(row.get('window_start')) < end:
+            continue
+        operation = _code(row.get('service'), 'guard_op.service')
+        names.add(operation)
+        sample = row.get('sample') or {}
+        o = out.setdefault(operation, {'calls': 0, 'timeouts': 0, 'errors': 0, 'p95_ms': None, 'p95_ms_worst_minute': None, 'max_ms': None})
+        for key in ('calls', 'timeouts', 'errors'):
+            o[key] += _number(sample.get(key, 0), f'guard_op.{key}')
+        for key, target in (('p95_ms', 'p95_ms_worst_minute'), ('max_ms', 'max_ms')):
+            if sample.get(key) is not None:
+                value = _number(sample[key], f'guard_op.{key}')
+                o[target] = value if o[target] is None else max(o[target], value)
+    for operation in names:
+        counts, comparable = merged_histogram(samples, 'guard_op', start, end, service=operation)
+        out[operation]['p95_ms'] = histogram_quantile(counts, 0.95) if comparable else None
+    return dict(sorted(out.items()))
+
+
+def histogram_quantile(counts, q):
+    """counts {bucket index: n}; the quantile at rank ceil(q*n) as its bucket's geometric midpoint (bucket 0: 1 ms; the last,
+    open bucket: its lower bound). None when empty."""
+    total = sum(counts.values())
+    if not total:
+        return None
+    target, running = max(1, math.ceil(q * total)), 0
+    for index in sorted(counts):
+        running += counts[index]
+        if running >= target:
+            if index == 0:
+                return 1.0
+            if index >= HISTOGRAM_LAST:
+                return round(HISTOGRAM_RATIO ** (HISTOGRAM_LAST - 1), 1)
+            return round(HISTOGRAM_RATIO ** (index - 0.5), 1)
+    return None
+
+
+def merged_histogram(rows, kind, start, end, service=None):
+    """(counts, comparable): the h_<i> counts of every sample of `kind` in [start, end) summed across processes; comparable is
+    False when a sample with latency figures carries no histogram (a result from before 5A)."""
+    counts, comparable = {}, True
+    for row in rows:
+        if row.get('kind') != kind or not start <= _time(row.get('window_start')) < end or (service is not None and row.get('service') != service):
+            continue
+        sample, found = row.get('sample') or {}, False
+        for key, value in sample.items():
+            match = _HISTOGRAM_KEY.fullmatch(key)
+            if match:
+                index = int(match.group(1))
+                if index > HISTOGRAM_LAST:
+                    raise ContractError(f'{kind}.{key}: bucket out of range')
+                counts[index] = counts.get(index, 0) + _number(value, f'{kind}.{key}')
+                found = True
+        if not found and sample.get('p95_ms') is not None:
+            comparable = False
+    return counts, comparable
+
+
 def host_summary(samples, start, end):
     waiting, active, timeouts, seen = None, None, 0, False
     for row in samples:
@@ -241,13 +314,18 @@ def cell_metrics(directory, expected_refusals):
         metrics['connections_peak'] = max(totals) if totals else None
     samples = _lines(directory / 'process_samples.jsonl')
     if samples is not None:
-        rate, p95, calls = guard_windows(samples, start, end)
-        metrics.update(guard_timeout_rate_5m_max=rate, guard_p95_ms_max=p95, guard_calls=calls)
+        rate, worst, calls = guard_windows(samples, start, end)
+        counts, comparable = merged_histogram(samples, 'guard', start, end)
+        metrics.update(guard_timeout_rate_5m_max=rate, guard_p95_ms_worst_minute=worst, guard_calls=calls,
+                       guard_p95_ms=histogram_quantile(counts, 0.95) if comparable else None)
+        if not comparable:
+            metrics['caliber_incomparable'] = sorted(set(metrics.get('caliber_incomparable', [])) | {'guard_p95_ms'})
         # NX-031: guard calls answered 503 or dropped at the connection bound (unanswered, not timed out); reported, not gated.
         metrics['guard_errors'] = sum(_number((r.get('sample') or {}).get('errors', 0), 'guard.errors') for r in samples
                                       if r.get('kind') == 'guard' and start <= _time(r.get('window_start')) < end)
         out['host'] = host_summary(samples, start, end)
         out['pool'] = pool_summary(samples, start, end)
+        out['guard_operations'] = guard_operations(samples, start, end)
     acks = _lines(directory / 'acks.jsonl')
     if acks is not None:
         ok = [_number(a.get('ack_ms'), 'ack_ms') for a in acks if a.get('status') == 202]
@@ -259,8 +337,18 @@ def cell_metrics(directory, expected_refusals):
         out['ack_statuses'] = dict(sorted(statuses.items()))
     dispatch = _lines(directory / 'dispatch.jsonl')
     if dispatch is not None:
-        values = [_number(d.get('dispatch_ms'), 'dispatch_ms') for d in dispatch]
-        metrics.update(idle_dispatch_count=len(values), idle_dispatch_p95_ms=percentile(values, 0.95))
+        if any('queue_ms' not in d for d in dispatch):
+            # dispatch.jsonl from before 4A: dispatch_ms was task created -> first execution authorization.
+            metrics.update(idle_dispatch_count=len(dispatch), idle_dispatch_p95_ms=None)
+            metrics['caliber_incomparable'] = sorted(set(metrics.get('caliber_incomparable', [])) | {'idle_dispatch_p95_ms'})
+        else:
+            def segment(key):
+                return [_number(d[key], f'dispatch.{key}') for d in dispatch if d.get(key) is not None]
+            values = segment('dispatch_ms')
+            metrics.update(idle_dispatch_count=len(values), idle_dispatch_p95_ms=percentile(values, 0.95),
+                           run_start_p95_ms=percentile(segment('run_start_ms'), 0.95))
+            out['dispatch_segments'] = {name: {'count': len(v), 'p50_ms': percentile(v, 0.5), 'p95_ms': percentile(v, 0.95)}
+                                        for name, v in (('relay', segment('relay_ms')), ('queue', segment('queue_ms')), ('start', segment('start_ms')))}
     refusals = _lines(directory / 'refusals.jsonl')
     if refusals is not None:
         codes = {}
@@ -316,7 +404,7 @@ def gate_verdict(cell):
     check('identity_violations', m.get('identity_violations'), 0, op='==')
     check('unresolved_work', m.get('unresolved_work'), 0, op='==')
     check('guard_timeout_rate_5m_max', m.get('guard_timeout_rate_5m_max'), THRESHOLDS['guard_timeout_rate_5m_max'])
-    check('guard_p95_ms_max', m.get('guard_p95_ms_max'), THRESHOLDS['guard_p95_ms_max'])
+    check('guard_p95_ms', m.get('guard_p95_ms'), THRESHOLDS['guard_p95_ms'])
     check('dead_letters_delta', m.get('dead_letters_delta'), 0, op='==')
     check('ack_p95_ms', m.get('ack_p95_ms'), THRESHOLDS['ack_p95_ms'])
     if cell['cell'] == 'C4-low':
@@ -328,6 +416,9 @@ def gate_verdict(cell):
     check('connections_peak', m.get('connections_peak'), THRESHOLDS['connections_peak'])
     check('critical_alerts', m.get('critical_alerts'), 0, op='==')
     check('unexpected_refusals', m.get('unexpected_refusals'), 0, op='==')
+    for name in m.get('caliber_incomparable') or ():
+        if name in items:  # recorded under an earlier caliber: not comparable, never a pass (owner 2026-10-13)
+            items[name] = {'value': None, 'limit': items[name]['limit'], 'result': 'incomparable', 'reason': 'caliber_changed'}
     # An identity check that compared nothing is no evidence (dispatcher 2026-10-13): a gate cell whose model request context
     # check compared 0 IDs fails as an empty sample. Observe cells only record the number.
     compared = m.get('model_context_ids_compared')
@@ -372,7 +463,7 @@ def ci_interference(cells, baseline):
     by = {c['cell']: c for c in cells}
     if 'C4' not in by or 'C4-ci' not in by:
         return None
-    keys = ('guard_timeout_rate_5m_max', 'guard_p95_ms_max', 'ack_p95_ms', 'backlog_pending_max', 'backlog_oldest_seconds_max', 'connections_peak')
+    keys = ('guard_timeout_rate_5m_max', 'guard_p95_ms', 'guard_p95_ms_worst_minute', 'ack_p95_ms', 'backlog_pending_max', 'backlog_oldest_seconds_max', 'connections_peak')
     base, loaded = by['C4']['metrics'], by['C4-ci']['metrics']
     out = {'load_side': {k: {'C4': base.get(k), 'C4-ci': loaded.get(k)} for k in keys},
            'drain_seconds': {'C4': by['C4']['drain']['seconds'], 'C4-ci': by['C4-ci']['drain']['seconds']},
@@ -448,17 +539,19 @@ def markdown(report):
               f"- 预期内派发拒绝：{', '.join(report['expected_refusals'])}",
               f"- **AT-060：{report['at060']['result']}**" + (f"（{'; '.join(report['at060']['reasons'])}）" if report['at060']['reasons'] else ''), '',
               '只含指标、门槛结论、seed、digest 和提交，不含原文与 ID（D8）。门槛只判 C4、C4-low（§6.1）；C8 超出部署前提，只观察。', '',
-              '两个时延口径分开给出：**派发**是 Run 任务入队到首次执行授权，不含模型时间，2 s 限值只适用于它；**端到端**是来信受理到回复（或兜底、升级）落库，'
+              '口径（负责人 2026-10-13，ROADMAP §7 的 4A、5A）：**空闲派发**是来信受理到对应 Run 任务被 claim（设计稿 §4.6），2 s 门槛只适用于它，分为 relay 段与排队段；'
+              '启动段（claim → Host 首次执行授权）和 run_start（任务创建 → 首次执行授权）只观察。**guard p95** 是窗口内全部调用的 p95（各进程直方图合并，误差 ≤ ±5%），'
+              '最差一分钟 p95 只观察。旧口径的结果标为 incomparable（caliber_changed），不判通过。**端到端**是来信受理到回复（或兜底、升级）落库，'
               '含模型时间（压测中为 D5 注入的确定性时延），见下方分解表。', '',
               '## 各格指标', '',
-              '| 格 | 角色 | 并发 | 速率/s | 后台 | 同机 CI | 完成 | 超时率(5m 最差) | guard p95 max | ACK p95 | 派发 p95（入队→首次执行授权） | 端到端 p95 | 积压峰值 | 排空 s | 连接峰值 | critical | 非预期拒绝 | 身份违例 | 未结局 |',
+              '| 格 | 角色 | 并发 | 速率/s | 后台 | 同机 CI | 完成 | 超时率(5m 最差) | guard p95（全部调用） | ACK p95 | 空闲派发 p95（受理→claim） | 端到端 p95 | 积压峰值 | 排空 s | 连接峰值 | critical | 非预期拒绝 | 身份违例 | 未结局 |',
               '|' + '---|' * 19]
     for c in report['cells']:
         m = c['metrics']
         role = c['role'] + ('（超出部署前提）' if c['beyond_deployment_premise'] else '')
         lines.append('| ' + ' | '.join(_fmt(x) for x in (c['cell'], role, c['host_concurrency'], c['rate_per_s'], '开' if c['background'] else '关',
             '是' if c['ci_background'] else '否', '是' if c['completed'] else f"否 {c['aborted'] or ''}", m.get('guard_timeout_rate_5m_max'),
-            m.get('guard_p95_ms_max'), m.get('ack_p95_ms'), m.get('idle_dispatch_p95_ms'),
+            m.get('guard_p95_ms'), m.get('ack_p95_ms'), m.get('idle_dispatch_p95_ms'),
             (c.get('decomposition') or {}).get('e2e_ms', {}).get('p95'), m.get('backlog_pending_max'),
             c['drain']['seconds'] if c['drain']['drained'] else '未排空', m.get('connections_peak'), m.get('critical_alerts'),
             m.get('unexpected_refusals'), m.get('identity_violations'), m.get('unresolved_work'))) + ' |')
@@ -466,14 +559,22 @@ def markdown(report):
     for c in report['cells']:
         if c['role'] != 'gate':
             continue
-        lines += [f"### {c['cell']}：{c['gate']['result']}", '', '| 项 | 实测 | 门槛 | 结论 |', '|---|---|---|---|']
+        lines += [f"### {c['cell']}：{c['gate']['result']}", '', '**门槛项**', '', '| 项 | 实测 | 门槛 | 结论 |', '|---|---|---|---|']
         for name, item in c['gate']['items'].items():
-            lines.append(f"| {name} | {_fmt(item['value'])} | {_fmt(item['limit'])} | {item['result']} |")
+            result = item['result'] + (f"（{item['reason']}）" if item.get('reason') else '')
+            lines.append(f"| {name} | {_fmt(item['value'])} | {_fmt(item['limit'])} | {result} |")
+        m, segments = c['metrics'], c.get('dispatch_segments') or {}
+        lines += ['', '**观察项**（只记录，不判定）', '', '| 项 | 实测 |', '|---|---|',
+                  f"| guard_p95_ms_worst_minute | {_fmt(m.get('guard_p95_ms_worst_minute'))} |",
+                  f"| run_start_p95_ms（任务创建 → Host 首次执行授权） | {_fmt(m.get('run_start_p95_ms'))} |"]
+        for name, label in (('relay', 'relay 段（来信受理 → 任务创建）'), ('queue', '排队段（任务创建 → claim）'), ('start', '启动段（claim → Host 首次执行授权）')):
+            seg = segments.get(name) or {}
+            lines.append(f"| {label} p50 / p95 | {_fmt(seg.get('p50_ms'))} / {_fmt(seg.get('p95_ms'))} |")
         lines.append('')
     lines += ['## 平台 / 模型 / 工具 分解（逐 Run，ms，p50 / p95）', '',
               '- Run 时长：Host 接受 Run（runtime worker 首次为它登记激活，随即提交 Host）→ 该 Run 的任务结束。模型和工具都落在这段时间内，平台 = Run 时长 − 模型 − 工具，包含授权等待；为负即数据异常（计数，不截成 0，不进统计）。',
               '- 模型：Host 报告的 model_timing（生成段时长减去其中的工具调用）；工具：guard 汇总的 tool_timing。',
-              '- 端到端：来信受理 → 回复（或兜底、升级）落库，单独报告，不参与相减；派发：入队 → 首次执行授权，见上表。',
+              '- 端到端：来信受理 → 回复（或兜底、升级）落库，单独报告，不参与相减；空闲派发：受理 → claim，见上表与门槛判定中的分段。',
               '- 失败的 Run 按原因计数：授权不可用（guard 未应答，Host 有界重试后仍不可用）和授权拒绝（guard 明确拒绝）分开，其余记任务结果码。', '',
               '| 格 | Run 数 | 端到端 | Run 时长 | 模型 | 工具 | 平台 | 无工具计时 | 无模型计时 | 数据异常 | 失败（按原因） | Host 样本 |', '|---|---|---|---|---|---|---|---|---|---|---|---|']
     for c in report['cells']:
@@ -485,6 +586,15 @@ def markdown(report):
         lines.append(f"| {c['cell']} | {d['runs']} | {pair('e2e_ms')} | {pair('run_ms')} | {pair('model_ms')} | {pair('tool_ms')} | {pair('platform_ms')} | "
                      f"{d['runs_without_tool_timing']} | {d['runs_without_model_timing']} | {d['anomalies']} | "
                      f"{', '.join(f'{k} {v}' for k, v in d.get('failures', {}).items()) or '0'} | {c['host_metrics']} |")
+    lines += ['', '## 守卫按操作分项（稳态窗口，ms；p95 为该操作全部调用合并后的 p95，最差一分钟为单进程单窗口）', '',
+              '| 格 | 操作 | 调用 | 超时 | 错误 | p95 | 最差一分钟 p95 | max |', '|---|---|---|---|---|---|---|---|']
+    for c in report['cells']:
+        operations = c.get('guard_operations') or {}
+        if not operations:
+            lines.append(f"| {c['cell']} | missing | | | | | | |")
+        for name, o in operations.items():
+            lines.append(f"| {c['cell']} | {name} | {o['calls']} | {o['timeouts']} | {o['errors']} | {_fmt(o['p95_ms'])} | "
+                         f"{_fmt(o['p95_ms_worst_minute'])} | {_fmt(o['max_ms'])} |")
     ci = report['ci_interference']
     lines += ['', '## CI 同机影响（§5.3）', '']
     if not ci:
