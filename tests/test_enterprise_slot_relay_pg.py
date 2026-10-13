@@ -123,10 +123,14 @@ def slots(multi, request):  # noqa: F811
                                        offering_id=p['offerings']['reply'][0], binding_id=p['offerings']['reply'][1], relay_principal=m['route_principal'],
                                        intent_id=intent or f'slot-enroll-{label}-0001', **extra)
 
-    def relay(vault):
+    def relay(vault, context_strategy=None):
+        if context_strategy is not None:
+            from test_context_v6_pg import STRATEGY, seed_strategy
+            if not admin.execute('select 1 from control.nexloop_context_strategies where tenant_id=%s and strategy_id=%s', (tenant, context_strategy)).fetchone():
+                seed_strategy(admin, tenant, STRATEGY)
         return MessageRelay(route=api.authenticate(f['owner_token'], world='real'), source=api.authenticate(source_token, world='real'),
                             planner=api.authenticate(m['relay_plan']['planner_token'], world='real'), executor_token=executor_token, vault=vault,
-                            run_profile=m['run_profile'])
+                            run_profile=m['run_profile'], context_strategy=context_strategy)
     return dict(m, people=people, enroll=enroll, slot_relay=relay, executor_token=executor_token)
 
 
@@ -243,3 +247,61 @@ def test_runtime_roles_cannot_write_the_enterprise_slot(slots, role):
         s['admin'].execute(f'set local role {role}')
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             s['admin'].execute('update control.nexloop_relay_enrollments set enterprise_control_id=null,enterprise_offering_id=null,enterprise_binding_id=null')
+
+
+
+def bound_pack(s, label):
+    row = s['admin'].execute('select b.pack_text from runtime.nexloop_context_artifact_bindings b join authz.nexloop_message_run_issuances i '
+                             'on i.run_id=b.run_id where i.message_id=%s', (s['people'][label]['message'],)).fetchone()
+    return None if row is None else json.loads(row[0])
+
+
+V6_KEYS = {'schema_version', 'strategy_ref', 'bindings', 'role', 'current_event', 'user_statement', 'goal', 'formal_facts', 'current_constraints', 'supply',
+           'constraints', 'consumer_state', 'open_work', 'evidence', 'semantics', 'experience', 'budget_report', 'insufficient'}
+
+
+def test_v6_one_run_both_replies_and_delivers_with_the_enterprise_offering_in_its_pack(slots):
+    """L3 finding 2026-10-13: under the stage relay's v6 Context the enterprise slot is issued, bound and usable, as under v2."""
+    s = slots
+    s['enroll']('D')
+    d = s['people']['D']
+    with RunCredentialVault(s['vault_dir']) as vault:
+        assert s['slot_relay'](vault, 'recent_plus_required').run_once() == 'queued'
+        record = vault.read(vault.message_key(s['tenant'], 'real', d['message']))
+    run_id, resources, run_slots, _ = issued_run(s, 'D')
+    assert resources == [REPLY, DELIVER] and run_slots == ['enterprise.deliver:primary', 'service.request:primary']
+    pack = bound_pack(s, 'D')
+    assert pack['schema_version'] == 'nexloop.context-pack.v6' and set(pack) == V6_KEYS | {'effect_supplies'}
+    assert [(x['action'], x['offering_id'], x['binding_id']) for x in pack['effect_supplies']] == [('nexloop.enterprise.deliver:1', *d['offerings']['enterprise'])]
+    assert pack['supply']['offering_id'] == d['offerings']['reply'][0]
+    run = s['api'].authenticate_run(record.token, world='real', run_id=str(run_id))
+    reply = run.submit_effect_intent(parameters={'message': 'v6 回复'})
+    deliver = run.submit_effect_intent(parameters={'summary': 'v6 企业交付', 'consumer_ref': str(run_id)}, action='nexloop.enterprise.deliver')
+    assert reply['state'] == deliver['state'] == 'accepted' and reply['intent_id'] != deliver['intent_id']
+
+
+def test_v6_without_an_enterprise_slot_the_pack_is_unchanged(slots):
+    """Zero impact under v6: the reply-only pack has exactly the pre-ADR-030 v6 keys and bytes (no effect_supplies at all)."""
+    s = slots
+    s['enroll']('E', enterprise=False)
+    with RunCredentialVault(s['vault_dir']) as vault:
+        assert s['slot_relay'](vault, 'recent_plus_required').run_once() == 'queued'
+    _, resources, run_slots, _ = issued_run(s, 'E')
+    assert resources == [REPLY] and run_slots == ['service.request:primary']
+    pack_text = s['admin'].execute('select b.pack_text from runtime.nexloop_context_artifact_bindings b join authz.nexloop_message_run_issuances i '
+                                   'on i.run_id=b.run_id where i.message_id=%s', (s['people']['E']['message'],)).fetchone()[0]
+    pack = json.loads(pack_text)
+    assert set(pack) == V6_KEYS and pack_text == canonical_payload({k: pack[k] for k in sorted(V6_KEYS)})
+
+
+def test_a_static_recipe_refuses_an_enterprise_block_with_its_reason(slots):
+    """Recipe mode cannot issue an enterprise slot (only a governed enrollment can, 0180): refused explicitly, not ignored."""
+    from nexloop_eios.message_relay import RecipeEnterpriseUnsupported, validate_static_recipe
+    recipe = {'enterprise': {'control_id': 'a' * 64, 'control_revision': 1, 'offering_id': 'b' * 64, 'binding_id': 'c' * 64}}
+    with pytest.raises(RecipeEnterpriseUnsupported) as refused:
+        validate_static_recipe(recipe)
+    assert refused.value.reason == 'recipe_enterprise_unsupported'
+    s = slots
+    with RunCredentialVault(s['vault_dir']) as vault, pytest.raises(RecipeEnterpriseUnsupported):
+        MessageRelay(route=s['api'].authenticate(s['f']['owner_token'], world='real'), source=s['api'].authenticate(s['f']['owner_token'], world='real'),
+                     planner=s['api'].authenticate(s['f']['owner_token'], world='real'), executor_token=s['executor_token'], vault=vault, recipe=recipe)

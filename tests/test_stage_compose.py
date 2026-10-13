@@ -152,3 +152,20 @@ def test_the_relay_carries_end_to_end_tls_with_the_loopback_certificate(tmp_path
     for bad in ('127.0.0.1:1', 'host:1=127.0.0.1:2', '127.0.0.1:0=127.0.0.1:2'):
         with pytest.raises(ValueError):
             loopback_relay.parse_rule(bad)
+
+
+def test_every_context_produced_for_the_host_has_the_host_protocol(compose):
+    """A message Run Context is built by the relay (v6 with --context-strategy, else v2) and by the reply guarantor's fallback
+    (v6, its policy's strategy); the Host refuses any other protocol than its configured context_input_protocol."""
+    host = json.loads((STAGE / 'agent-host.runtime-config.example.json').read_text())['context_input_protocol']
+    strategies = {s['strategy_id']: s['protocol'] for s in json.loads((ROOT / 'deploy/configuration/context-strategies.v1.json').read_text())['strategies']}
+
+    def option(command, name):
+        return command[command.index(name) + 1] if name in command else None
+    relay = compose['services']['message-relay']['command']
+    strategy = option(relay, '--context-strategy')
+    assert (strategies[strategy] if strategy else 'nexloop.context-pack.v2') == host
+    policies = sorted((ROOT / 'deploy/configuration').glob('reply-guarantee.v*.json'), key=lambda p: int(p.stem.rsplit('.v', 1)[1]))
+    fallback = json.loads(policies[-1].read_text())['fallback']['context_strategy']
+    assert option(compose['services']['reply-guarantor']['command'], '--policy-file') and strategies[fallback] == host
+

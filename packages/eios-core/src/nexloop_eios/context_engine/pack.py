@@ -30,7 +30,7 @@ def _assert_no_float(value):
         for child in value:_assert_no_float(child)
 
 
-def assemble_v6(*,strategy,bindings,role,current_event,goal,formal_facts,current_constraints,supply,items,user_statement=None,relationship_context=None,extra_insufficient=(),estimator=None):
+def assemble_v6(*,strategy,bindings,role,current_event,goal,formal_facts,current_constraints,supply,items,user_statement=None,relationship_context=None,extra_insufficient=(),estimator=None,effect_supplies=None):
     """Returns (body, outcome). Pinned/mandatory items are never trimmed (see budget)."""
     items=assert_partition(list(items))
     if any(i.section in MANDATORY_SECTIONS and i.section!='constraints' for i in items):
@@ -42,6 +42,8 @@ def assemble_v6(*,strategy,bindings,role,current_event,goal,formal_facts,current
         'budget_report':outcome.report,'insufficient':list(outcome.insufficient)+list(extra_insufficient)}
     # v4 relationship section, verbatim from the SQL-derived v4 core (optional in v6).
     if relationship_context is not None:body['relationship_context']=relationship_context
+    # ADR-030: the enterprise slot's offering, verbatim from the v2 core (present only when the Run is bound to that slot).
+    if effect_supplies is not None:body['effect_supplies']=effect_supplies
     _assert_no_float(body)
     ContextPackV6.model_validate(body)
     if len(canonical_payload(body).encode())>MAX_PACK_BYTES:raise ValueError('context_pack_too_large')
