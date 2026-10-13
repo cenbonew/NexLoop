@@ -592,7 +592,10 @@
       "type": "object",
       "properties": {
         "action": {
-          "const": "nexloop.service.request:1"
+          "enum": [
+            "nexloop.service.request:1",
+            "nexloop.enterprise.deliver:1"
+          ]
         },
         "allow_effect": {
           "const": true
@@ -664,7 +667,10 @@
               "maxLength": 256
             },
             "delivery_action": {
-              "const": "nexloop.service.request:1"
+              "enum": [
+                "nexloop.service.request:1",
+                "nexloop.enterprise.deliver:1"
+              ]
             },
             "content_kind": {
               "const": "json-message-export"
@@ -723,6 +729,126 @@
         "provenance"
       ],
       "additionalProperties": false
+    },
+    "effect_supplies": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "nexloop.enterprise.deliver:1"
+          },
+          "offering_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "offering_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "binding_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "binding_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "provenance": {
+            "type": "string",
+            "pattern": "^eios:object:[a-f0-9]{64}$"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "service_code": {
+                "type": "string",
+                "pattern": "^enterprise\\.[a-z0-9][a-z0-9.-]{0,62}$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "delivery_action": {
+                "const": "nexloop.enterprise.deliver:1"
+              },
+              "content_kind": {
+                "const": "enterprise-delivery"
+              },
+              "price_amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,2})?$"
+              },
+              "currency": {
+                "const": "CNY"
+              },
+              "eligibility": {
+                "const": "current_consumer_plan"
+              },
+              "allowed_guarantees": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "allowed_discounts": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "evidence_kind": {
+                "const": "enterprise_receipt"
+              },
+              "active": {
+                "const": true
+              },
+              "valid_until": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "active",
+              "allowed_discounts",
+              "allowed_guarantees",
+              "content_kind",
+              "currency",
+              "delivery_action",
+              "eligibility",
+              "evidence_kind",
+              "price_amount",
+              "service_code",
+              "title",
+              "valid_until"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "binding_id",
+          "binding_revision",
+          "offering_id",
+          "offering_revision",
+          "properties",
+          "provenance"
+        ],
+        "additionalProperties": false
+      },
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "action": {
+                "const": "nexloop.enterprise.deliver:1"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        }
+      ]
     },
     "relationship_context": {
       "type": "object",

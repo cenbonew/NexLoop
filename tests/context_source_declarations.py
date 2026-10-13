@@ -7,9 +7,10 @@ from eios.authz.applications import ResourceRestriction,OperationRestriction
 from authority_fixture import authority_records
 from nexloop_eios.context_artifacts import ACTION
 
-def source_declarations(tenant, catalog_targets=(), *, identity_suffix='-assembly-source'):
+def source_declarations(tenant, catalog_targets=(), *, identity_suffix='-assembly-source', extra_actions=()):
     specs=[('eios:action:nexloop.service.request:1',ResourceType.ACTION,Operation.EXECUTE),('eios:action:'+ACTION+':1',ResourceType.ACTION,Operation.EXECUTE),
      ('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.CREATE),('eios:artifact:local_real',ResourceType.ARTIFACT,Operation.READ)]
+    specs.extend((action,ResourceType.ACTION,Operation.EXECUTE) for action in extra_actions)  # ADR-030: e.g. the enterprise Action
     specs.extend((target,kind,Operation.READ) for target,kind in catalog_targets)
     records={};scopes={kind.value+'.'+op.value for _,kind,op in specs}
     for target,kind,op in specs:

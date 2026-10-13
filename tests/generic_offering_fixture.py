@@ -14,7 +14,7 @@ from test_postgres_action_claims import governance_inputs
 from support.tenants import TENANT_A
 
 
-def install_generic_catalog(admin,backend,*,consumer_id,valid_until,submitter,second_submitter):
+def install_generic_catalog(admin,backend,*,consumer_id,valid_until,submitter,second_submitter,effect='nexloop.service.request',offering=None):
     tenant=TENANT_A;base=governance_inputs();original=base['action_definition'];cap=base['capability_snapshot']
     schemas=offering_schemas()
     for schema in schemas:
@@ -27,14 +27,14 @@ def install_generic_catalog(admin,backend,*,consumer_id,valid_until,submitter,se
     create_targets=[('eios:action:'+s.type_name+'.create:1',ResourceType.ACTION,Operation.EXECUTE) for s in schemas]
     _,keeper_token=seed_multi_authority(admin,backend._pool,create_targets,identity_suffix='-catalog-maintainer')
     keeper=backend.authenticate(keeper_token,world='real')
-    offered=keeper.create_object(action_name='ServiceOffering.create',action_version=1,intent_id='generic-catalog-offering',type_name='ServiceOffering',properties=json_export_example(valid_until=valid_until))
+    offered=keeper.create_object(action_name='ServiceOffering.create',action_version=1,intent_id='generic-catalog-offering',type_name='ServiceOffering',properties=offering if offering is not None else json_export_example(valid_until=valid_until))
     new_credentials=[];links=[]
     for suffix,source in (('-submitter',submitter),('-submitter-B',second_submitter)):
         # The fixture principals are declared by real authority configuration,
         # not accepted from a RunCommand or a forged server session.
         keeper=backend.authenticate(keeper_token,world='real')
         linked=keeper.create_object(action_name='ConsumerServiceOffering.create',action_version=1,intent_id='generic-catalog-binding'+suffix,type_name='ConsumerServiceOffering',properties={'consumer_id':consumer_id,'offering_id':offered['object_id'],'offering_revision':1,'source_principal':source._session.authentication.subject_principal_id,'active':True})
-        targets=[('eios:action:nexloop.service.request:1',ResourceType.ACTION,Operation.EXECUTE)]
+        targets=[('eios:action:'+effect+':1',ResourceType.ACTION,Operation.EXECUTE)]
         for receipt,fields in ((offered,OFFERING_FIELDS),(linked,BINDING_FIELDS)):
             resource=receipt['type_name']+'/'+receipt['object_id'];targets.append(('eios:object:'+resource,ResourceType.OBJECT,Operation.READ))
             targets.extend(('eios:property:'+resource+'/'+field,ResourceType.PROPERTY,Operation.READ) for field in fields)

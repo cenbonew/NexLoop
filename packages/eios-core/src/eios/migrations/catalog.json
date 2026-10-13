@@ -885,6 +885,36 @@
       "version": "0177",
       "name": "0177_nx031_one_reply_per_inbound_message.sql",
       "sha256": "6300060b9f9231ba6166ccaf6f4f982c463bfd38dfdc433e28dc547fd2961a20"
+    },
+    {
+      "version": "0178",
+      "name": "0178_nx037_enterprise_deliver.sql",
+      "sha256": "1c142cfa1f7c00be8435c181f54d9d8e2399b64c2b726e65531c94046965ba75"
+    },
+    {
+      "version": "0179",
+      "name": "0179_nx037_run_effect_slots.sql",
+      "sha256": "c33208930fc81f6c070729638f99087ee624724b7035375cc6b12fca111f7252"
+    },
+    {
+      "version": "0180",
+      "name": "0180_nx037_enterprise_slot_issuance.sql",
+      "sha256": "60c04a372caaf9481358ed7c9ab2e887bfac947db4d70ae96f19ac9b835fe65e"
+    },
+    {
+      "version": "0181",
+      "name": "0181_nx037_context_effect_supplies.sql",
+      "sha256": "4333e18b2999f338252d242b73a05533ccecb8a09c9831b43b4c2cd0581012c6"
+    },
+    {
+      "version": "0182",
+      "name": "0182_nx037_enterprise_slot_source_read.sql",
+      "sha256": "2f04f46cdbaa4e351db3318c6af4df6bc87f3cad08a52cddcaf3a97cbdee1f37"
+    },
+    {
+      "version": "0183",
+      "name": "0183_nx037_effect_action_version_exact.sql",
+      "sha256": "23cc48f45971e27d9da7a605cf66493303f51ab059afe9759daeae7366321a73"
     }
   ]
 }

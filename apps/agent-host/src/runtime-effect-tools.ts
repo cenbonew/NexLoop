@@ -3,6 +3,8 @@ import {request as httpsRequest} from 'node:https';
 import {Type} from '@earendil-works/pi-ai';
 import {defineTool,type ToolRegistration} from '@earendil-works/pi-durable';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
+import {ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
+const ENTERPRISE=ENTERPRISE_ACTION;
 
 export type IncentiveReceipt={run_id:string;intent_id:string;state:'accepted'|'dispatching'|'unknown'|'fulfilled'|'failed'|'refused';replayed:boolean;origin:'reply'|'plan'|'agent';business_action_success:false};
 export type EffectRequestScope={offering_id:string;offering_revision:number;requested_guarantees:readonly string[];requested_discounts:readonly string[]};
@@ -72,13 +74,23 @@ export class RuntimeEffectClient{
     if(typeof configuration.activationForRun!=='function'||typeof configuration.privateMaterial!=='function')throw new RuntimeError('runtime_effect_configuration_invalid');
     this.origin=origin;this.configuration={...configuration};
   }
-  async call(command:RunCommand,operation:'submit'|'find',arguments_:unknown):Promise<EffectReceipt>{
+  async call(command:RunCommand,operation:'submit'|'find',arguments_:unknown,action?:typeof ENTERPRISE):Promise<EffectReceipt>{
     try{
       const valid=validateRunCommand(command);
       const ref=this.configuration.activationForRun(valid.run_id);
       if(!ref||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(ref)||Date.parse(valid.not_after)<=Date.now())throw new Error();
       let argumentsBody:Record<string,unknown>;
-      if(operation==='submit'){
+      if(action!==undefined&&action!==ENTERPRISE)throw new Error();
+      if(operation==='submit'&&action===ENTERPRISE){
+        // ADR-030: the enterprise delivery parameters (the Action's input_schema): summary, optional details, consumer_ref
+        // (this Run's own consumer; filled when absent). No tenant_id; unknown keys refused. SQL re-checks everything.
+        const row=arguments_ as Record<string,unknown>;
+        if(!row||typeof row!=='object'||Array.isArray(row)||Object.keys(row).some(key=>!['summary','details','consumer_ref'].includes(key)))throw new Error();
+        if(typeof row.summary!=='string'||[...row.summary].length<1||[...row.summary].length>200)throw new Error();
+        if(row.details!==undefined&&(typeof row.details!=='string'||[...row.details].length>2000))throw new Error();
+        if(row.consumer_ref!==undefined&&row.consumer_ref!==valid.consumer_ref)throw new Error();
+        argumentsBody={parameters:{summary:row.summary,...(row.details!==undefined?{details:row.details}:{}),consumer_ref:valid.consumer_ref}};
+      }else if(operation==='submit'){
         const hasScope=arguments_!==null&&typeof arguments_==='object'&&Object.hasOwn(arguments_,'request_scope');
         const row=exact(arguments_,hasScope?['message','request_scope']:['message']);
         if(typeof row.message!=='string'||[...row.message].length<1||[...row.message].length>8192)throw new Error();
@@ -91,7 +103,7 @@ export class RuntimeEffectClient{
       const key=this.configuration.privateMaterial(this.configuration.keyPath,64).toString('utf8');
       if(!/^[0-9a-f]{64}$/.test(key))throw new Error();
       const ca=this.configuration.privateMaterial(this.configuration.caPath,32768);
-      const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,...argumentsBody}));
+      const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,...argumentsBody,...(action!==undefined?{action:'nexloop.enterprise.deliver'}:{})}));
       if(body.length>65536)throw new Error();
       const url=new URL('/internal/v1/runtime/effects/'+operation,this.origin);
       // ADR-028: an ambiguous answer (timeout, connection error, 503) is followed by exactly one more request with the same
@@ -227,8 +239,12 @@ export class RuntimeEffectClient{
       throw new RuntimeError('run_outcome_unavailable');
     }
   }
-  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean}={}):readonly ToolRegistration[]{
+  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;enterprise?:EffectSupply}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
+    const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
+      try{return {content:[{type:'text' as const,text:JSON.stringify(await this.call(bound,operation,args,action))}]};}
+      catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','intent_payload_conflict'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('runtime_effect_unavailable');}
+    };
     const invoke=async(operation:'submit'|'find',args:unknown)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(await this.call(bound,operation,args))}]};}
       catch(error){if(error instanceof RuntimeError&&error.code==='outside_catalog_terms')return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'outside_catalog_terms',scope:catalogScope})}]};if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
@@ -253,9 +269,21 @@ export class RuntimeEffectClient{
         try{return {content:[{type:'text' as const,text:JSON.stringify(await this.issueIncentive(bound,args))}]};}
         catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','incentive_payload_conflict','invalid_incentive_request'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('incentive_unavailable');}
       }})]:[];
+    // ADR-030: offered only when this Run has the enterprise slot (its context names the enterprise offering, which it has
+    // only when the Run credential grants nexloop.enterprise.deliver:1). Availability, not authority: the guard rechecks.
+    const enterprise=options.enterprise;
+    const enterpriseTools=enterprise?.action===ENTERPRISE?[defineTool({name:'nexloop.enterprise.deliver',
+      description:`Ask the enterprise to deliver its catalog service "${enterprise.title}" (${enterprise.service_code}, ${enterprise.price_amount} CNY) to this customer through its own system. accepted is not delivery: the result comes back as a receipt. Only when the customer asked for this service; never for another service, price or customer.`,
+      parameters:Type.Object({summary:Type.String({minLength:1,maxLength:200}),details:Type.Optional(Type.String({maxLength:2000})),
+        consumer_ref:Type.Optional(Type.String({minLength:1,maxLength:80}))},{additionalProperties:false}),
+      replay:'safe',execute:async args=>invokeAction('submit',args,ENTERPRISE)}),
+      defineTool({name:'nexloop.enterprise.find',description:'Read the current receipt of an enterprise delivery this Run requested. Does not send anything.',
+        parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),
+        replay:'safe',execute:async args=>invokeAction('find',args,ENTERPRISE)})]:[];
     return [
       ...outcomeTool,
       ...incentiveTool,
+      ...enterpriseTools,
       defineTool({name:'nexloop.service.request',description:'Persist a governed service intent in the current plan slot. accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
         parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt for an existing service intent. Does not send or create a new effect.',

@@ -1,5 +1,5 @@
 /** Optional internal Run admission. Backend retains all EIOS/PG credentials. */
-import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation} from './context-input.js';
+import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation,ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
 import {type IncomingMessage} from 'node:http';
 import {refillingResponses} from './deterministic-queue.js';
@@ -24,6 +24,21 @@ export async function readRuntimeBody(request:IncomingMessage){
   const chunks:Buffer[]=[];let size=0;
   for await(const chunk of request){size+=chunk.length;if(size>262144)throw new RuntimeError('runtime_request_too_large');chunks.push(chunk);}
   try{return record(JSON.parse(Buffer.concat(chunks).toString('utf8')));}catch{throw new RuntimeError('invalid_runtime_request');}
+}
+/** ADR-030: the enterprise offering of a Message Run's context (effect_supplies), if any. Availability of the tool only;
+ * the context was validated at admission and the guard rechecks the Run credential and the catalog on every call. */
+function enterpriseSupply(input:unknown):EffectSupply|undefined{
+  if(typeof input!=='string')return undefined;
+  try{
+    const supplies=(JSON.parse(input) as {effect_supplies?:unknown}).effect_supplies;
+    if(!Array.isArray(supplies))return undefined;
+    const item=supplies.find(row=>row&&typeof row==='object'&&(row as {action?:unknown}).action===ENTERPRISE_ACTION) as Record<string,unknown>|undefined;
+    const properties=item?.properties as Record<string,unknown>|undefined;
+    if(!item||!properties||typeof item.offering_id!=='string'||typeof item.offering_revision!=='number'||typeof properties.service_code!=='string'
+      ||typeof properties.title!=='string'||typeof properties.price_amount!=='string')return undefined;
+    return {action:ENTERPRISE_ACTION,offering_id:item.offering_id,offering_revision:item.offering_revision,service_code:properties.service_code,
+      title:properties.title,price_amount:properties.price_amount};
+  }catch{return undefined;}
 }
 export class RuntimeHost{
   private readonly adapter:PiRuntimeAdapter;
@@ -282,7 +297,7 @@ export class RuntimeHost{
     }
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
       activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
-    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true}):undefined,costPolicy:selection.costPolicy,assertOwner,
+    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // v6 Runs record each actual model request (AT-027); in multi-protocol mode that is decided per Run.
       recordModelRequests:multi?(command:RunCommand)=>runProtocol(command.run_id)===CONTEXT_PROTOCOL_V6:contextProtocol===CONTEXT_PROTOCOL_V6,
       authorize:async(command,operation,request,result)=>guard(command,operation,undefined,undefined,request,result)});

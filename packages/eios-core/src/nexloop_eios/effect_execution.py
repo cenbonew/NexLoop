@@ -28,6 +28,15 @@ from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 SEND='eios:action:nexloop.service.request:1'
+
+
+def _send(metadata):
+    """NX-037 gap B: the Action an intent was accepted for (its frozen definition), never a process-wide constant.
+    Only the effect Actions of control.nexloop_effect_actions (0178) are dispatched; SQL rechecks against the intent."""
+    from nexloop_eios.effect_contexts import EFFECT_ACTIONS
+    definition=metadata['action_definition']
+    if definition['stable_name'] not in EFFECT_ACTIONS or type(definition['version']) is not int:raise ValueError()
+    return f"eios:action:{definition['stable_name']}:{definition['version']}"
 QUERY='eios:action:nexloop.service.query:1'
 RECONCILE='eios:action:nexloop.service.receipt_reconcile:1'
 
@@ -141,7 +150,9 @@ class EffectExecutionPort:
             return self._execute(db,verb,target=target,**parameters)
 
     def _bundle(self,metadata):
-        definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get('nexloop.service.request',1)
+        _send(metadata)  # an allowed effect Action only
+        definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(
+            metadata['action_definition']['stable_name'],metadata['action_definition']['version'])
         # Published version may not be silently substituted for accepted intent.
         if (definition.model_dump(mode='json')!=metadata['action_definition']
             or capability.model_dump(mode='json')!=metadata['capability']):raise ValueError()
@@ -191,7 +202,7 @@ class EffectExecutionPort:
             # Action claim definer, persists ownership, then returns actual result.
             extra={'lease_seconds':lease_seconds} if verb=='claim' else {}
             try:
-                row=self._execute(db,verb,target=SEND,**arguments,**extra,
+                row=self._execute(db,verb,target=_send(metadata),**arguments,**extra,
                     action_request_text=canonical_payload(metadata['frozen_request']),
                     action_claim=self._action_envelope(actual_command,'reserve'))
             except psycopg.errors.SerializationFailure as error:
@@ -232,8 +243,8 @@ class EffectExecutionPort:
         with self.pool.connection() as db,db.transaction():
             verify_application_role(db);run=_identity(db,metadata['_run_digest'],self.session.world)
         if run.run_context is None or run.run_context.run_id!=metadata['origin_run_id']:raise ValueError()
-        if SEND not in run.run_context.allowed_resources:raise ValueError()
-        proof,_=self._proof(run,SEND)
+        if _send(metadata) not in run.run_context.allowed_resources:raise ValueError()
+        proof,_=self._proof(run,_send(metadata))
         return proof
 
     def _role_envelope(self,metadata):
@@ -247,7 +258,7 @@ class EffectExecutionPort:
             verify_application_role(db)
             run=_identity(db,metadata['_run_digest'],self.session.world)
         if run.run_context is None or run.run_context.run_id!=metadata['origin_run_id']:raise ValueError()
-        proof,_=self._proof(run,SEND)
+        proof,_=self._proof(run,_send(metadata))
         payload=canonical_payload({'verb':'find','intent_id':metadata['intent_id'],'action_version':1})
         claims={'protocol':'nexloop-effect-intent-v1','key_id':self.signer.key_id,**proof,
             'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
@@ -294,7 +305,7 @@ class EffectExecutionPort:
                 from nexloop_eios import real_dispatch
                 real_dispatch.apply(db)  # 0153: the deployment layer of the real dispatch switch, checked in SQL with the others
                 ControlPlane(self.pool,self.session).assert_intent_dispatch(identity['intent_id'],connection=db)
-                result=self._execute(db,'admit',target=SEND,**identity,origin_proof=proof,catalog_envelope=catalog,role_envelope=role,provider_profile_digest=_profile(provider_profile_digest),
+                result=self._execute(db,'admit',target=_send(metadata),**identity,origin_proof=proof,catalog_envelope=catalog,role_envelope=role,provider_profile_digest=_profile(provider_profile_digest),
                     action_claim_revision=claim.claim_revision,action_fencing_token=claim.fencing_token)
             # Commit has completed before these trusted frozen parameters escape.
             return {key:result[key] for key in ('parameters','provider_payload_digest')}
@@ -360,7 +371,7 @@ class EffectExecutionPort:
             metadata=self._resolve(identity)
             try:
                 origin=self._origin_proof(metadata)
-                self._proof(self.session,SEND)
+                self._proof(self.session,_send(metadata))
                 catalog=self._catalog_envelope(metadata)
             except (AuthorizationUnavailable,psycopg.errors.InsufficientPrivilege):
                 return self._public_observation(observed)
@@ -368,7 +379,7 @@ class EffectExecutionPort:
                 # Both phases are same connection + transaction. SQL pins xid,
                 # observation_id and exact new Action/effect fence between them.
                 _,_,request=self._claim_command(db,metadata,30)
-                renewed=self._execute(db,'finalize',target=SEND,**identity,phase='reserve',provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,role_envelope=self._role_envelope(metadata),
+                renewed=self._execute(db,'finalize',target=_send(metadata),**identity,phase='reserve',provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,role_envelope=self._role_envelope(metadata),
                     origin_proof=origin,observation_id=observed['observation_id'],attempt_revision=metadata['attempt_revision'],
                     action_request_text=canonical_payload(metadata['frozen_request']),
                     action_claim=self._action_envelope(request,'reserve'))
@@ -385,7 +396,7 @@ class EffectExecutionPort:
                     expected_claim_revision=claim.claim_revision,fencing_token=claim.fencing_token,
                     outcome=M.TerminalOutcomeReference(outcome_id=metadata['receipt_id'],outcome_revision=1,
                         status=M.TerminalOutcomeStatus.SUCCEEDED,outcome_digest=M.canonical_request_digest(outcome),finalized_at=now))
-                result=self._execute(db,'finalize',target=SEND,**identity,phase='commit',origin_proof=origin,provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,role_envelope=self._role_envelope(metadata),
+                result=self._execute(db,'finalize',target=_send(metadata),**identity,phase='commit',origin_proof=origin,provider_profile_digest=provider_profile_digest,catalog_envelope=catalog,role_envelope=self._role_envelope(metadata),
                     observation_id=observed['observation_id'],attempt_revision=metadata['attempt_revision'],
                     action_request_text=canonical_payload(metadata['frozen_request']),outcome_text=canonical_payload(outcome),
                     action_claim=self._action_envelope(command,'finalize'))

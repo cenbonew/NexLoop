@@ -4,11 +4,15 @@ Publication and CREATE use existing EIOS governed object Actions. Catalog READ
 requires genuine source identity and object plus every projected property READ.
 The companion append-only migration is the dispatch authority, not this parser.
 """
+import re
 from datetime import UTC,datetime
 from jsonschema import Draft202012Validator
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 SERVICE_CODE='local.json-export'
+ENTERPRISE_ACTION='nexloop.enterprise.deliver:1'
+ENTERPRISE_SERVICE_CODE=re.compile(r'enterprise\.[a-z0-9][a-z0-9.-]{0,62}')
+PRICE=re.compile(r'(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?')
 OFFERING_FIELDS=('service_code','title','delivery_action','content_kind','price_amount','currency',
  'eligibility','allowed_guarantees','allowed_discounts','evidence_kind','active','valid_until')
 BINDING_FIELDS=('consumer_id','offering_id','offering_revision','source_principal','active')
@@ -29,6 +33,14 @@ def json_export_example(*,valid_until):
      'allowed_guarantees':[],'allowed_discounts':[],'evidence_kind':'fsynced_json_export','active':True,'valid_until':valid_until}
 
 
+def enterprise_delivery_example(*,service_code,title,price_amount,valid_until):
+    """NX-037 gap B: an enterprise delivery offering, executed by the enterprise's own system through the governed
+    nexloop.enterprise.deliver:1 Action (external effect, real dispatch switches apply). Same 12 fields as the export."""
+    return {'service_code':service_code,'title':title,'delivery_action':ENTERPRISE_ACTION,'content_kind':'enterprise-delivery',
+     'price_amount':price_amount,'currency':'CNY','eligibility':'current_consumer_plan','allowed_guarantees':[],'allowed_discounts':[],
+     'evidence_kind':'enterprise_receipt','active':True,'valid_until':valid_until}
+
+
 REQUEST_SCOPE_SCHEMA={'type':'object','properties':{'offering_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},
  'offering_revision':{'type':'integer','minimum':1,'maximum':9007199254740991},
  'requested_guarantees':{'type':'array','items':{'type':'string','minLength':1,'maxLength':128},'maxItems':16,'uniqueItems':True},
@@ -39,11 +51,20 @@ REQUEST_SCOPE_SCHEMA={'type':'object','properties':{'offering_id':{'type':'strin
 def delivery_scope(offering):
     """Public structured scope; never reinterpret ordinary message text."""
     if type(offering) is not dict or set(offering)!=set(OFFERING_FIELDS):raise ValueError('offering_unavailable')
-    if offering['service_code']!=SERVICE_CODE or offering['delivery_action']!='nexloop.service.request:1' or offering['content_kind']!='json-message-export' or offering['evidence_kind']!='fsynced_json_export':raise ValueError('offering_unavailable')
+    export=(offering['service_code']==SERVICE_CODE and offering['delivery_action']=='nexloop.service.request:1' and offering['content_kind']=='json-message-export'
+            and offering['evidence_kind']=='fsynced_json_export' and offering['price_amount']=='0')
+    enterprise=(offering['delivery_action']==ENTERPRISE_ACTION and type(offering['service_code']) is str and ENTERPRISE_SERVICE_CODE.fullmatch(offering['service_code'])
+                and offering['content_kind']=='enterprise-delivery' and offering['evidence_kind']=='enterprise_receipt'
+                and type(offering['price_amount']) is str and PRICE.fullmatch(offering['price_amount']))
+    if not (export or enterprise):raise ValueError('offering_unavailable')
     if type(offering['active']) is not bool or not offering['active']:raise ValueError('offering_unavailable')
-    if offering['eligibility']!='current_consumer_plan' or offering['price_amount']!='0' or offering['currency']!='CNY' or offering['allowed_guarantees']!=[] or offering['allowed_discounts']!=[]:raise ValueError('offering_unavailable')
+    if offering['eligibility']!='current_consumer_plan' or offering['currency']!='CNY' or offering['allowed_guarantees']!=[] or offering['allowed_discounts']!=[]:raise ValueError('offering_unavailable')
     expiry=datetime.fromisoformat(offering['valid_until'].replace('Z','+00:00'))
     if expiry.tzinfo is None or expiry<=datetime.now(UTC):raise ValueError('offering_unavailable')
+    if enterprise:
+        return {'service_code':offering['service_code'],'deliverable':offering['title'],'delivery_action':ENTERPRISE_ACTION,
+         'price_amount':offering['price_amount'],'currency':offering['currency'],'guarantees':[],'discounts':[],
+         'limitations':['不提供目录外保证或折扣','由企业系统执行，结果以企业回执为准'],'evidence_kind':offering['evidence_kind']}
     return {'service_code':SERVICE_CODE,'deliverable':'固定私有目录内可核验的 JSON 文本导出文件',
      'price_amount':offering['price_amount'],'currency':offering['currency'],'guarantees':[],'discounts':[],
      'limitations':['不提供目录外保证或折扣','不代表第三方渠道送达、付款或问题解决'],'evidence_kind':offering['evidence_kind']}

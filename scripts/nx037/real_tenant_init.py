@@ -39,7 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 CONFIG = ROOT / 'deploy/configuration'
-TRIAL = CONFIG / 'nx037-trial.v1.json'
+TRIAL = CONFIG / 'nx037-trial.v2.json'  # v2: effect categories v3 (NX-037 gap B)
 GRANTS = ROOT / 'deploy/authorization/service-grants.v1.json'
 OWNER_RESTRICTIONS = ROOT / 'deploy/authorization/owner-property-restrictions.json'
 _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')

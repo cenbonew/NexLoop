@@ -2616,7 +2616,10 @@
             "type": "object",
             "properties": {
               "action": {
-                "const": "nexloop.service.request:1"
+                "enum": [
+                  "nexloop.service.request:1",
+                  "nexloop.enterprise.deliver:1"
+                ]
               },
               "allow_effect": {
                 "const": true
@@ -2688,7 +2691,10 @@
                     "maxLength": 256
                   },
                   "delivery_action": {
-                    "const": "nexloop.service.request:1"
+                    "enum": [
+                      "nexloop.service.request:1",
+                      "nexloop.enterprise.deliver:1"
+                    ]
                   },
                   "content_kind": {
                     "const": "json-message-export"
@@ -2747,6 +2753,126 @@
               "provenance"
             ],
             "additionalProperties": false
+          },
+          "effect_supplies": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "nexloop.enterprise.deliver:1"
+                },
+                "offering_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "offering_revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "binding_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "binding_revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "provenance": {
+                  "type": "string",
+                  "pattern": "^eios:object:[a-f0-9]{64}$"
+                },
+                "properties": {
+                  "type": "object",
+                  "properties": {
+                    "service_code": {
+                      "type": "string",
+                      "pattern": "^enterprise\\.[a-z0-9][a-z0-9.-]{0,62}$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "delivery_action": {
+                      "const": "nexloop.enterprise.deliver:1"
+                    },
+                    "content_kind": {
+                      "const": "enterprise-delivery"
+                    },
+                    "price_amount": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,2})?$"
+                    },
+                    "currency": {
+                      "const": "CNY"
+                    },
+                    "eligibility": {
+                      "const": "current_consumer_plan"
+                    },
+                    "allowed_guarantees": {
+                      "type": "array",
+                      "maxItems": 0
+                    },
+                    "allowed_discounts": {
+                      "type": "array",
+                      "maxItems": 0
+                    },
+                    "evidence_kind": {
+                      "const": "enterprise_receipt"
+                    },
+                    "active": {
+                      "const": true
+                    },
+                    "valid_until": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "active",
+                    "allowed_discounts",
+                    "allowed_guarantees",
+                    "content_kind",
+                    "currency",
+                    "delivery_action",
+                    "eligibility",
+                    "evidence_kind",
+                    "price_amount",
+                    "service_code",
+                    "title",
+                    "valid_until"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "binding_id",
+                "binding_revision",
+                "offering_id",
+                "offering_revision",
+                "properties",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "allOf": [
+              {
+                "contains": {
+                  "properties": {
+                    "action": {
+                      "const": "nexloop.enterprise.deliver:1"
+                    }
+                  }
+                },
+                "minContains": 0,
+                "maxContains": 1
+              }
+            ]
           },
           "relationship_context": {
             "type": "object",
@@ -5019,7 +5145,7 @@
     "commitment-view.schema.json": "f7c8290bacf1bbc70d23ba8da3a8cf4125ac8ac3d1d2b37f85c967c392909502",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-v6.schema.json": "86a84f3bafca2a00b5327256f351f14023cfee17234236b216d6cc19122c2b3d",
+    "context-pack-v6.schema.json": "cd9b3bdf2902ce20a9bf7180a3d32c5eb683f549af08e48c45a868bf12c25269",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",

@@ -86,3 +86,30 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
     await expect(outside.client.issueIncentive(outside.cmd,offer)).rejects.toMatchObject({code:'outside_catalog_terms'});
   });
 });
+
+describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
+  const supply={action:'nexloop.enterprise.deliver:1' as const,offering_id:'d'.repeat(64),offering_revision:1,service_code:'enterprise.synthetic-delivery',title:'合成企业交付',price_amount:'12.50'};
+  it('is offered only for a Run whose context names the enterprise offering',async()=>{
+    const {client,cmd}=await bridge();
+    expect(client.toolsForRun(cmd).map(tool=>tool.name)).toEqual(['nexloop.service.request','nexloop.service.find']);
+    expect(client.toolsForRun(cmd,{enterprise:supply}).map(tool=>tool.name)).toEqual(['nexloop.enterprise.deliver','nexloop.enterprise.find','nexloop.service.request','nexloop.service.find']);
+  });
+  it('sends the Action and exactly its parameters, with this Run\'s own consumer',async()=>{
+    const {client,cmd,bodies}=await bridge();
+    expect(await client.call(cmd,'submit',{summary:'交付一次服务',details:'周三上午'},'nexloop.enterprise.deliver:1')).toEqual(receipt);
+    expect(Object.keys(bodies[0]!).sort()).toEqual(['action','activation_ref','command','parameters']);
+    expect(bodies[0]!.action).toBe('nexloop.enterprise.deliver');
+    expect(bodies[0]!.parameters).toEqual({summary:'交付一次服务',details:'周三上午',consumer_ref:cmd.consumer_ref});
+    expect(await client.call(cmd,'find',{intent_id:intent},'nexloop.enterprise.deliver:1')).toEqual(receipt);
+    expect(bodies[1]!.action).toBe('nexloop.enterprise.deliver');
+    // The reply tool's request is unchanged (no action key).
+    await client.call(cmd,'submit',{message:'one service'});
+    expect(Object.keys(bodies[2]!).sort()).toEqual(['activation_ref','command','parameters']);
+  });
+  it('refuses another consumer, unknown keys and oversized text before the network',async()=>{
+    const {client,cmd,bodies}=await bridge();
+    for(const args of [{summary:'x',consumer_ref:'consumer:'+'f'.repeat(64)},{summary:'x',tenant_id:cmd.tenant_id},{summary:''},{summary:'x'.repeat(201)},{summary:'x',details:'y'.repeat(2001)},{details:'only'}])
+      await expect(client.call(cmd,'submit',args,'nexloop.enterprise.deliver:1')).rejects.toThrow('runtime_effect_unavailable');
+    expect(bodies).toEqual([]);
+  });
+});

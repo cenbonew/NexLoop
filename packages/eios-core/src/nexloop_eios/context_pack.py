@@ -24,6 +24,9 @@ def _object_schema(properties):
     return {'type':'object','properties':properties,'required':sorted(properties),'additionalProperties':False}
 
 ID={'type':'string','pattern':'^[a-f0-9]{64}$'}
+# NX-037 gap B (ADR-030): effect Actions a context may name; the reply Action stays the message Run's own constraint.
+EFFECT_RESOURCES=('nexloop.service.request:1','nexloop.enterprise.deliver:1')
+ENTERPRISE_RESOURCE='nexloop.enterprise.deliver:1'
 REV={'type':'integer','minimum':1,'maximum':9007199254740991}
 FACT=_object_schema({'type':{'enum':['Consumer','Goal','PlanStep','EffectControl']},
  'id':ID,'revision':REV,'provenance':{'type':'string','pattern':'^eios:object:[a-f0-9]{64}$'}})
@@ -35,12 +38,22 @@ PACK_SCHEMA=_object_schema({
  'user_statement':_object_schema({'message_id':ID,'conversation_id':ID,'sequence':REV,
   'body':{'type':'string','maxLength':32768},'provenance':{'type':'string','pattern':'^eios:object:[a-f0-9]{64}$'}}),
  'formal_facts':{'type':'array','items':FACT,'minItems':4,'maxItems':4},
- 'current_constraints':_object_schema({'action':{'const':'nexloop.service.request:1'},
+ 'current_constraints':_object_schema({'action':{'enum':list(EFFECT_RESOURCES)},
   'allow_effect':{'const':True},'budget_units':{'type':'integer','minimum':0,'maximum':9007199254740991},
   'reserved_units':{'type':'integer','minimum':0,'maximum':9007199254740991},'valid_until':{'type':'string','format':'date-time'},
   'executor_principal':{'type':'string','minLength':1,'maxLength':512}}),
- 'supply':_object_schema({'offering_id':ID,'offering_revision':REV,'binding_id':ID,'binding_revision':REV,'provenance':{'type':'string','pattern':'^eios:object:[a-f0-9]{64}$'},'properties':_object_schema({'service_code':{'const':'local.json-export'},'title':{'type':'string','minLength':1,'maxLength':256},'delivery_action':{'const':'nexloop.service.request:1'},'content_kind':{'const':'json-message-export'},'price_amount':{'const':'0'},'currency':{'const':'CNY'},'eligibility':{'const':'current_consumer_plan'},'allowed_guarantees':{'type':'array','maxItems':0},'allowed_discounts':{'type':'array','maxItems':0},'evidence_kind':{'const':'fsynced_json_export'},'active':{'const':True},'valid_until':{'type':'string','format':'date-time'}})}),
+ 'supply':_object_schema({'offering_id':ID,'offering_revision':REV,'binding_id':ID,'binding_revision':REV,'provenance':{'type':'string','pattern':'^eios:object:[a-f0-9]{64}$'},'properties':_object_schema({'service_code':{'const':'local.json-export'},'title':{'type':'string','minLength':1,'maxLength':256},'delivery_action':{'enum':list(EFFECT_RESOURCES)},'content_kind':{'const':'json-message-export'},'price_amount':{'const':'0'},'currency':{'const':'CNY'},'eligibility':{'const':'current_consumer_plan'},'allowed_guarantees':{'type':'array','maxItems':0},'allowed_discounts':{'type':'array','maxItems':0},'evidence_kind':{'const':'fsynced_json_export'},'active':{'const':True},'valid_until':{'type':'string','format':'date-time'}})}),
 })
+# Optional (absent unless the consumer has an active enterprise offering): one additional offering per non-reply Action.
+_ENTERPRISE_SUPPLY=__import__('copy').deepcopy(PACK_SCHEMA['properties']['supply'])
+_ENTERPRISE_SUPPLY['properties']['properties']['properties'].update({
+ 'service_code':{'type':'string','pattern':'^enterprise\\.[a-z0-9][a-z0-9.-]{0,62}$'},'delivery_action':{'const':ENTERPRISE_RESOURCE},
+ 'content_kind':{'const':'enterprise-delivery'},'price_amount':{'type':'string','pattern':'^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,2})?$'},
+ 'evidence_kind':{'const':'enterprise_receipt'}})
+_ENTERPRISE_SUPPLY['properties']={'action':{'const':ENTERPRISE_RESOURCE},**_ENTERPRISE_SUPPLY['properties']}
+_ENTERPRISE_SUPPLY['required']=sorted(_ENTERPRISE_SUPPLY['required']+['action'])
+PACK_SCHEMA['properties']['effect_supplies']={'type':'array','maxItems':4,'items':_ENTERPRISE_SUPPLY,
+ 'allOf':[{'contains':{'properties':{'action':{'const':ENTERPRISE_RESOURCE}}},'minContains':0,'maxContains':1}]}
 
 
 def encode_pack(snapshot,command):

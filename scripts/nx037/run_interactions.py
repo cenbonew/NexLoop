@@ -34,9 +34,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-TRIAL = ROOT / 'deploy/configuration/nx037-trial.v1.json'
-PLAN = ROOT / 'deploy/configuration/nx037-interaction-plan.v1.json'
-PLAN_SCHEMA = 'nexloop.nx037-interaction-plan.v1'
+# v2 (NX-037 gap B): the plan opens nexloop.enterprise.deliver:1, the trial applies effect categories v3. v1 files stay valid.
+TRIAL = ROOT / 'deploy/configuration/nx037-trial.v2.json'
+PLAN = ROOT / 'deploy/configuration/nx037-interaction-plan.v2.json'
+PLAN_SCHEMAS = ('nexloop.nx037-interaction-plan.v1', 'nexloop.nx037-interaction-plan.v2')
 SWITCH_CHECKS = ('deployment_switch_closed', 'tenant_switch_closed', 'action_switches_closed')
 # Synthetic tenants (tests/support/tenants.TENANT_A and TENANT_OTHER): the synthetic driver never runs against a real tenant.
 SYNTHETIC_TENANT, SYNTHETIC_OTHER = '00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000c'
@@ -49,7 +50,7 @@ class Refused(ValueError):
 def load_interaction_plan(path, trial_plan):
     from nexloop_eios.controlled_interactions import validate_order
     value = json.loads(Path(path).read_text(encoding='utf-8'))
-    if type(value) is not dict or value.get('schema') != PLAN_SCHEMA:
+    if type(value) is not dict or value.get('schema') not in PLAN_SCHEMAS:
         raise Refused('interaction plan schema')
     real = value.get('real_dispatch')
     if real is not None and (type(real) is not dict or set(real) != {'deployment', 'tenant', 'data_mode', 'actions'}
