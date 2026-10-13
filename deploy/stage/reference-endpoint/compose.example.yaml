@@ -1,4 +1,4 @@
-# Reference enterprise delivery endpoint (NX-037): an external stand-in, NOT part of NexLoop. Own Compose project, own volume,
+# Reference enterprise delivery endpoint (NX-037): an external stand-in, NOT part of NexLoop. Runs on APP_HOST as its own Compose project, own volume,
 # no NexLoop network, database or credential. Every value comes from the private env file (compose.env.example).
 name: ${ENDPOINT_PROJECT:?project name}
 services:

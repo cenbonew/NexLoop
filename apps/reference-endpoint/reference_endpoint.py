@@ -19,8 +19,12 @@ Protocol (service token, `Authorization: Bearer`):
 - Receipt: {intent_id, payload_digest, state, provider_reference}; state accepted (waiting for staff), fulfilled (staff marked
   it handled) or failed (staff marked it failed).
 
-Staff page (staff token, separate from the service token): GET /staff lists the delivery requests; staff mark each one
-"handled" (fulfilled) or "failed"; the mark is what GET returns afterwards. Login sets an HttpOnly, Secure, SameSite=Strict
+Delivery semantics (owner decision 2026-10-13): a service ticket. Each customer request becomes a ticket that staff handle in
+working hours. Staff page (staff token, separate from the service token): GET /staff lists the tickets with the request
+summary, the source tenant and intent id, the received time, the handler, the result and a note; staff mark each one
+"handled" (fulfilled) or "failed" with their name and an optional note; the mark is what GET returns afterwards. The summary
+and the source tenant come from the request parameters `summary` and `tenant_id` when NexLoop sends them; otherwise the page
+shows a shortened payload and "unknown". Login sets an HttpOnly, Secure, SameSite=Strict
 session cookie; marks need the session's CSRF token.
 
 Drill ("result temporarily unknown", for the 3 unknown_reconciliation interactions): only the local `drill` command can switch
@@ -101,6 +105,10 @@ class Store:
             db.execute('create table if not exists effects(intent_id text primary key, payload_digest text not null, '
                        'parameters text not null, state text not null, provider_reference text not null unique, '
                        'created_at text not null, updated_at text not null)')
+            columns = {row[1] for row in db.execute('pragma table_info(effects)')}
+            for column in ('handled_by', 'note', 'handled_at'):
+                if column not in columns:
+                    db.execute(f'alter table effects add column {column} text')
             db.execute('create table if not exists events(sequence integer primary key, intent_id text not null, '
                        'kind text not null, at text not null)')
         os.chmod(self.path, 0o600)
@@ -124,7 +132,8 @@ class Store:
             row = db.execute('select intent_id,payload_digest,state,provider_reference from effects where intent_id=?', (intent,)).fetchone()
             if row is None:
                 stamp = now()
-                db.execute('insert into effects values(?,?,?,?,?,?,?)', (intent, payload_digest, canonical(parameters), 'accepted',
+                db.execute('insert into effects(intent_id,payload_digest,parameters,state,provider_reference,created_at,updated_at) '
+                           'values(?,?,?,?,?,?,?)', (intent, payload_digest, canonical(parameters), 'accepted',
                                                                          'ref-' + uuid.uuid4().hex, stamp, stamp))
                 db.execute('insert into events(intent_id,kind,at) values(?,?,?)', (intent, 'accepted', stamp))
                 db.execute('commit')
@@ -140,11 +149,12 @@ class Store:
 
     def listing(self):
         with self.connect() as db:
-            return db.execute('select intent_id,state,parameters,created_at,updated_at from effects order by created_at desc limit 500').fetchall()
+            return db.execute('select intent_id,state,parameters,created_at,handled_by,note,handled_at from effects '
+                              'order by created_at desc limit 500').fetchall()
 
-    def mark(self, intent, state):
-        if state not in ('fulfilled', 'failed'):
-            raise ValueError('state')
+    def mark(self, intent, state, handled_by, note=''):
+        if state not in ('fulfilled', 'failed') or not 1 <= len(handled_by) <= 64 or len(note) > 500:
+            raise ValueError('mark')
         with self.lock, self.connect() as db:
             db.execute('begin immediate')
             row = db.execute('select state from effects where intent_id=?', (intent,)).fetchone()
@@ -152,10 +162,24 @@ class Store:
                 db.execute('rollback')
                 return False
             stamp = now()
-            db.execute('update effects set state=?, updated_at=? where intent_id=?', (state, stamp, intent))
+            db.execute('update effects set state=?, updated_at=?, handled_by=?, note=?, handled_at=? where intent_id=?',
+                       (state, stamp, handled_by, note, stamp, intent))
             db.execute('insert into events(intent_id,kind,at) values(?,?,?)', (intent, state, stamp))
             db.execute('commit')
             return True
+
+
+def ticket_fields(parameters_text):
+    """(request summary, source tenant) for the staff page; never raises."""
+    try:
+        value = json.loads(parameters_text)
+    except ValueError:
+        value = None
+    summary = value.get('summary') if isinstance(value, dict) else None
+    tenant = value.get('tenant_id') if isinstance(value, dict) else None
+    if type(summary) is not str or not summary.strip():
+        summary = parameters_text[:200] + ('…' if len(parameters_text) > 200 else '')
+    return summary[:500], tenant if type(tenant) is str and tenant else '未知'
 
 
 # ---- drill control (local CLI only) ------------------------------------------------------------------------------------
@@ -247,7 +271,7 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
             self.wfile.write(content)
 
         def send_html(self, status, body, extra=()):
-            content = ('<!doctype html><meta charset="utf-8"><title>交付请求</title>'
+            content = ('<!doctype html><meta charset="utf-8"><title>服务工单</title>'
                        '<style>body{font-family:sans-serif;margin:2em}td,th{padding:4px 8px;border-bottom:1px solid #ddd;text-align:left}'
                        'code{font-size:12px}</style>' + body).encode()
             self.send_response(status)
@@ -362,25 +386,28 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
         def staff_page(self):
             current = self.session()
             if current is None:
-                return self.send_html(200, '<h1>交付请求（员工）</h1><form method="post" action="/staff/login">'
+                return self.send_html(200, '<h1>服务工单（员工）</h1><form method="post" action="/staff/login">'
                                            '<label>员工凭据 <input type="password" name="token" autocomplete="off"></label> '
                                            '<button>登录</button></form>')
             rows = []
-            for intent, state, parameters, created, updated in store.listing():
+            for intent, state, parameters, created, handled_by, note, handled_at in store.listing():
                 label = {'accepted': '待处理', 'fulfilled': '已处理', 'failed': '处理失败'}[state]
-                actions = ''
+                summary, tenant = ticket_fields(parameters)
                 if state == 'accepted':
-                    actions = ''.join(
-                        f'<form method="post" action="/staff/mark" style="display:inline">'
-                        f'<input type="hidden" name="csrf" value="{html.escape(current["csrf"])}">'
-                        f'<input type="hidden" name="intent_id" value="{html.escape(intent)}">'
-                        f'<input type="hidden" name="state" value="{value}"><button>{text}</button></form> '
-                        for value, text in (('fulfilled', '标记已处理'), ('failed', '标记处理失败')))
-                rows.append(f'<tr><td><code>{html.escape(intent)}</code></td><td>{html.escape(created)}</td><td>{label}</td>'
-                            f'<td><code>{html.escape(parameters[:500])}</code></td><td>{actions}</td></tr>')
-            self.send_html(200, '<h1>交付请求（员工）</h1><p>这是企业侧系统的替身，不属于 NexLoop。</p>'
-                                '<table><tr><th>请求</th><th>收到时间</th><th>状态</th><th>内容</th><th>操作</th></tr>'
-                           + ''.join(rows) + '</table>')
+                    result = (f'<form method="post" action="/staff/mark">'
+                              f'<input type="hidden" name="csrf" value="{html.escape(current["csrf"])}">'
+                              f'<input type="hidden" name="intent_id" value="{html.escape(intent)}">'
+                              f'<input name="handled_by" placeholder="处理人" maxlength="64" required> '
+                              f'<input name="note" placeholder="备注（可选）" maxlength="500"> '
+                              f'<button name="state" value="fulfilled">已处理</button> '
+                              f'<button name="state" value="failed">处理失败</button></form>')
+                else:
+                    result = f'{label}（{html.escape(handled_at or "")}）' + (f'<br>{html.escape(note)}' if note else '')
+                rows.append(f'<tr><td>{html.escape(summary)}</td><td>{html.escape(tenant)}<br><code>{html.escape(intent)}</code></td>'
+                            f'<td>{html.escape(created)}</td><td>{html.escape(handled_by or "")}</td><td>{label}</td><td>{result}</td></tr>')
+            self.send_html(200, '<h1>服务工单（员工）</h1><p>这是企业侧系统的替身，不属于 NexLoop。请在工作时间内处理，并标记处理结果。</p>'
+                                '<table><tr><th>请求摘要</th><th>来源租户 / 意图 id</th><th>收到时间</th><th>处理人</th><th>状态</th>'
+                                '<th>处理结果与备注</th></tr>' + ''.join(rows) + '</table>')
 
         def staff_mark(self):
             current = self.session()
@@ -389,11 +416,15 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
             try:
                 form = parse_qs(self.body().decode(), strict_parsing=True)
                 csrf, intent, state = form['csrf'][0], form['intent_id'][0], form['state'][0]
+                handled_by, note = form.get('handled_by', [''])[0].strip(), form.get('note', [''])[0].strip()
             except (ValueError, KeyError, UnicodeDecodeError):
                 return self.send_html(400, '<p>请求无效。</p>')
             if not hmac.compare_digest(csrf.encode(), current['csrf'].encode()) or state not in ('fulfilled', 'failed'):
                 return self.send_html(403, '<p>请求无效。</p>')
-            store.mark(intent, state)
+            try:
+                store.mark(intent, state, handled_by, note)
+            except ValueError:
+                return self.send_html(400, '<p>请填写处理人（最多 64 字），备注最多 500 字。</p>')
             self.send_response(303)
             self.send_header('Location', '/staff')
             self.send_header('Content-Length', '0')

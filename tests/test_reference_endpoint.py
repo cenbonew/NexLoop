@@ -134,7 +134,8 @@ def staff_session(e, h):
 
 def test_staff_marks_are_what_get_returns(tmp_path):
     with running(tmp_path) as e, http(e) as h:
-        handled, failed = request(), request({'delivery': 'second'})
+        handled = request({'summary': '为客户安排一次上门服务', 'tenant_id': '00000000-0000-4000-8000-00000000000a'})
+        failed = request({'delivery': 'second'})
         provider = client(e)
         for body in (handled, failed):
             assert provider.dispatch(**body).state == 'accepted'
@@ -142,16 +143,22 @@ def test_staff_marks_are_what_get_returns(tmp_path):
         assert h.post('/staff/mark', data={'csrf': 'x', 'intent_id': handled['intent_id'], 'state': 'fulfilled'}).status_code == 401
         page, csrf = staff_session(e, h)
         assert handled['intent_id'] in page.text and '待处理' in page.text
+        assert '为客户安排一次上门服务' in page.text and '00000000-0000-4000-8000-00000000000a' in page.text and '未知' in page.text
         assert h.post('/staff/mark', data={'csrf': 'wrong', 'intent_id': handled['intent_id'], 'state': 'fulfilled'}).status_code == 403
-        assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': handled['intent_id'], 'state': 'fulfilled'}).status_code == 303
-        assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': failed['intent_id'], 'state': 'failed'}).status_code == 303
+        assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': handled['intent_id'], 'state': 'fulfilled'}).status_code == 400
+        assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': handled['intent_id'], 'state': 'fulfilled', 'handled_by': '员工甲',
+                                           'note': '已电话确认'}).status_code == 303
+        assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': failed['intent_id'], 'state': 'failed', 'handled_by': '员工乙'}).status_code == 303
+        page = h.get('/staff').text
+        for text in ('请求摘要', '来源租户', '收到时间', '处理人', '员工甲', '已电话确认', '处理失败'):
+            assert text in page
         assert provider.query(intent_id=handled['intent_id'], payload_digest=handled['payload_digest']).state == 'fulfilled'
         assert h.get('/v1/effects/' + failed['intent_id'], headers=bearer(e)).json()['state'] == 'failed'
         # The current NexLoop client does not know `failed`: it reports the query as unavailable, never as fulfilled.
         with pytest.raises(EffectProviderQueryUnavailable):
             provider.query(intent_id=failed['intent_id'], payload_digest=failed['payload_digest'])
         # A mark is final.
-        h.post('/staff/mark', data={'csrf': csrf, 'intent_id': failed['intent_id'], 'state': 'fulfilled'})
+        h.post('/staff/mark', data={'csrf': csrf, 'intent_id': failed['intent_id'], 'state': 'fulfilled', 'handled_by': '员工甲'})
         assert h.get('/v1/effects/' + failed['intent_id'], headers=bearer(e)).json()['state'] == 'failed'
 
 
@@ -225,3 +232,16 @@ def test_deployment_template_is_parameterised_and_non_root():
         if line and not line.startswith('#'):
             assert re.fullmatch(r'[A-Z_]+=<[A-Z_]+>', line), line
     assert not re.search(r'\b\d{1,3}(\.\d{1,3}){3}\b', compose + env)
+
+
+def test_ticket_fields_survive_existing_data(tmp_path):
+    store = endpoint_module.Store(tmp_path / 'd')
+    body = request({'summary': '<script>x</script>'})
+    store.submit(body['intent_id'], body['payload_digest'], body['parameters'])
+    again = endpoint_module.Store(tmp_path / 'd')  # reopening keeps the added ticket columns
+    assert again.mark(body['intent_id'], 'fulfilled', '员工甲', '完成') is True
+    row = again.listing()[0]
+    assert row[4:6] == ('员工甲', '完成') and row[6]
+    assert endpoint_module.ticket_fields('not json') == ('not json', '未知')
+    with pytest.raises(ValueError):
+        again.mark(body['intent_id'], 'fulfilled', '')
