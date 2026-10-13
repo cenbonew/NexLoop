@@ -51,7 +51,10 @@ export function validateContextAttestation(command:RunCommand,value:unknown):Con
   if(attestation.artifact_ref!==command.context_manifest_ref||attestation.command_binding_digest!==contextCommandDigest(command))return fail();
   return attestation as ContextAttestation;
 }
-export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone;plans?:Array<{ref:string;plan_ref:string}>}{
+export const ENTERPRISE_ACTION='nexloop.enterprise.deliver:1';
+/** ADR-030: an additional effect offering of a Message Run (today only the enterprise delivery). Not an authorization. */
+export type EffectSupply={action:typeof ENTERPRISE_ACTION;offering_id:string;offering_revision:number;service_code:string;title:string;price_amount:string};
+export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone;plans?:Array<{ref:string;plan_ref:string}>;effect_supplies?:EffectSupply[]}{
   const command=validateRunCommand(untrustedCommand);
   if(typeof input!=='string'||Buffer.byteLength(input,'utf8')>65536)return fail();
   let parsed:unknown;try{parsed=JSON.parse(input);}catch{return fail();}
@@ -176,7 +179,9 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   }
 
   if(protocol!==CONTEXT_PROTOCOL&&protocol!==CONTEXT_PROTOCOL_V2&&protocol!==CONTEXT_PROTOCOL_V3||expectedProtocol!==undefined&&protocol!==expectedProtocol)return fail();
-  const pack=exact(parsed,protocol===CONTEXT_PROTOCOL_V3?['schema_version','bindings','formal_facts','current_constraints','supply','role_binding','trigger_statement']:protocol===CONTEXT_PROTOCOL_V2?['schema_version','bindings','user_statement','formal_facts','current_constraints','supply']:['schema_version','bindings','user_statement','formal_facts','current_constraints']);
+  // ADR-030: a v2 (Message Run) pack may carry effect_supplies (the enterprise slot's offering); absent otherwise.
+  const withSupplies=protocol===CONTEXT_PROTOCOL_V2&&parsed!==null&&typeof parsed==='object'&&Object.hasOwn(parsed as object,'effect_supplies');
+  const pack=exact(parsed,protocol===CONTEXT_PROTOCOL_V3?['schema_version','bindings','formal_facts','current_constraints','supply','role_binding','trigger_statement']:protocol===CONTEXT_PROTOCOL_V2?['schema_version','bindings','user_statement','formal_facts','current_constraints','supply',...(withSupplies?['effect_supplies']:[])]:['schema_version','bindings','user_statement','formal_facts','current_constraints']);
   const binding=exact(pack.bindings,['tenant_id','world_id','run_id','source_principal','context_id','namespace','artifact_id','command_digest']);
   const tenant=text(binding.tenant_id,36,uuid),run=text(binding.run_id,36,uuid),source=text(binding.source_principal,512);
   text(binding.context_id,36,uuid);text(binding.namespace,64,hex64);text(binding.artifact_id,32,hex32);text(binding.command_digest,64,hex64);
@@ -226,6 +231,23 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     const calendarDate=new Date(offeringUntil),parts=[calendarDate.getUTCFullYear(),calendarDate.getUTCMonth()+1,calendarDate.getUTCDate(),calendarDate.getUTCHours(),calendarDate.getUTCMinutes(),calendarDate.getUTCSeconds()];
     if(parts.some((value,index)=>value!==Number(offerDate[index+1])))return fail();
   }
+  let effectSupplies:EffectSupply[]|undefined;
+  if(withSupplies){
+    if(!Array.isArray(pack.effect_supplies)||pack.effect_supplies.length<1||pack.effect_supplies.length>4)return fail();
+    effectSupplies=pack.effect_supplies.map(item=>{
+      const row=exact(item,['action','offering_id','offering_revision','binding_id','binding_revision','provenance','properties']);
+      if(row.action!==ENTERPRISE_ACTION)return fail();
+      const offering=text(row.offering_id,64,hex64),revision=integer(row.offering_revision);text(row.binding_id,64,hex64);integer(row.binding_revision);
+      if(row.provenance!=='eios:object:'+offering)return fail();
+      const properties=exact(row.properties,['service_code','title','delivery_action','content_kind','price_amount','currency','eligibility','allowed_guarantees','allowed_discounts','evidence_kind','active','valid_until']);
+      const title=text(properties.title,256),code=text(properties.service_code,80,/^enterprise\.[a-z0-9][a-z0-9.-]{0,62}$/),price=text(properties.price_amount,16,/^(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?$/);
+      if(properties.delivery_action!==ENTERPRISE_ACTION||properties.content_kind!=='enterprise-delivery'||properties.currency!=='CNY'||properties.eligibility!=='current_consumer_plan'
+        ||properties.evidence_kind!=='enterprise_receipt'||properties.active!==true||!Array.isArray(properties.allowed_guarantees)||properties.allowed_guarantees.length!==0
+        ||!Array.isArray(properties.allowed_discounts)||properties.allowed_discounts.length!==0||!Number.isFinite(Date.parse(text(properties.valid_until,64))))return fail();
+      return {action:ENTERPRISE_ACTION,offering_id:offering,offering_revision:revision,service_code:code,title,price_amount:price};
+    });
+    if(new Set(effectSupplies.map(item=>item.action)).size!==effectSupplies.length)return fail();
+  }
   if(protocol===CONTEXT_PROTOCOL_V3){
     const role=exact(pack.role_binding,['binding','definition','definition_provenance','mapping_provenance','grants_authority']);
     const selected=exact(role.binding,['run_id','tenant_id','world','consumer_id','link_id','role_id','step_id','link_revision','role_revision','step_revision','role_ref','scope','expires_at']);
@@ -250,7 +272,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   const attestation=exact(untrustedAttestation,['artifact_ref','sha256','command_binding_digest']);
   text(attestation.sha256,64,hex64);text(attestation.command_binding_digest,64,hex64);
   if(attestation.artifact_ref!==artifact||attestation.command_binding_digest!==digest||attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex'))return fail();
-  return {body,run_id:run};
+  return effectSupplies===undefined?{body,run_id:run}:{body,run_id:run,effect_supplies:effectSupplies};
 }
 
 /** Provider input stays the complete original pack, including supply authority

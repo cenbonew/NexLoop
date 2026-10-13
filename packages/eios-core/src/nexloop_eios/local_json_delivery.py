@@ -586,21 +586,30 @@ def make_server(configuration, authority, store):
     return server
 
 
-def main(argv=None):
+def arguments(argv=None):
     parser = argparse.ArgumentParser(description='Local real governed JSON export service; no bootstrap/migration')
     for name in ('database-url-file', 'signing-key-file', 'service-credential-file', 'artifact-root', 'delivery-root',
                  'certificate-file', 'tls-key-file', 'provider-ca-file', 'provider-credential-file'):
         parser.add_argument('--' + name, required=True, type=Path)
     parser.add_argument('--origin', required=True)
     parser.add_argument('--signing-key-id', default='active')
+    # NX-037 stage service (deploy/stage/connection-budget.v1.json, webchat-delivery): one process, a small pool.
+    parser.add_argument('--pool-max', type=int, default=2)
     args = parser.parse_args(argv)
+    if not 1 <= args.pool_max <= 8:
+        parser.error('pool size')
+    return args
+
+
+def main(argv=None):
+    args = arguments(argv)
     server = store = recovery = None
     try:
         config = DeliveryServerConfiguration(args.origin, args.certificate_file, args.tls_key_file, args.provider_credential_file)
         profile = HttpEffectProvider(EffectProviderConfiguration(args.origin, credential_file=str(args.provider_credential_file),
             ca_file=str(args.provider_ca_file))).profile_digest
         with open_backend(database_url=read_private_text(args.database_url_file, maximum=8192), artifact_root=args.artifact_root,
-            signing_key_file=args.signing_key_file, signing_key_id=args.signing_key_id) as backend:
+            signing_key_file=args.signing_key_file, signing_key_id=args.signing_key_id, pool_max_size=args.pool_max) as backend:
             authority = DeliveryAuthorityPort(backend, args.service_credential_file, profile)
             authority._port()  # Current actual executor + role before listening.
             store = JsonExportStore(args.delivery_root)

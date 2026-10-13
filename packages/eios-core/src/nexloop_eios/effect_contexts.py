@@ -23,6 +23,8 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 CONFIGURE='nexloop.effect.configure_control'
 BIND='nexloop.plan.bind_effect_context'
 EFFECT='nexloop.service.request'
+# NX-037 gap B: the effect Actions an effect context may be bound to (control.nexloop_effect_actions, 0178; SQL is authoritative).
+EFFECT_ACTIONS=('nexloop.service.request','nexloop.enterprise.deliver')
 
 def registrar_schema(verb):
     fields={'control_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'control_revision':{'type':'integer','minimum':1,'maximum':9223372036854775807}} if verb=='configure' else {
@@ -62,9 +64,9 @@ class EffectContextRegistrar:
     real authenticate/authenticate_run in memory and passing their sessions here.
     Runtime/Host never receives either credential or this port.
     """
-    def __init__(self,pool,session,signer):
-        if session.run_context is not None:raise EffectContextUnavailable('effect context unavailable')
-        self.pool,self.session,self.signer=pool,session,signer
+    def __init__(self,pool,session,signer,*,action=EFFECT):
+        if session.run_context is not None or action not in EFFECT_ACTIONS:raise EffectContextUnavailable('effect context unavailable')
+        self.pool,self.session,self.signer,self.action=pool,session,signer,action
 
     def _proof(self,session,target):
         entries=[]
@@ -91,7 +93,7 @@ class EffectContextRegistrar:
         return db.execute('select authz.nexloop_action_claim_command(%s,%s,%s,%s,%s)',
             (self.session.token_digest,self.session.world,text,signature,payload)).fetchone()[0]
 
-    def _execute(self,*,verb,payload,executor_session,run_session=None):
+    def _execute(self,*,verb,payload,executor_session,run_session=None,db=None):
         try:
             action=CONFIGURE if verb=='configure' else BIND
             definition,capability,schemas=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get_with_schemas(action,1)
@@ -103,10 +105,10 @@ class EffectContextRegistrar:
             for session in (executor_session,run_session):
                 if session is not None and (session.world!=self.session.world or session.authentication.tenant_id!=self.session.authentication.tenant_id):raise ValueError()
             # Validate current actual published effect contract, not a label.
-            PostgresActionDefinitionReader(self.pool,executor_session,self.signer).get(EFFECT,1)
+            PostgresActionDefinitionReader(self.pool,executor_session,self.signer).get(self.action,1)
             if run_session is not None:
                 if run_session.run_context is None:raise ValueError()
-                PostgresActionDefinitionReader(self.pool,run_session,self.signer).get(EFFECT,1)
+                PostgresActionDefinitionReader(self.pool,run_session,self.signer).get(self.action,1)
             payload={'verb':verb,**payload}
             schema=definition.model_dump(mode='json')['input_schema']
             if schema!=registrar_schema(verb):raise ValueError()
@@ -122,21 +124,22 @@ class EffectContextRegistrar:
                 binding=M.ClaimBindingPayload(invocation_id=claim_id,action_reference=definition.reference(),request_digest=request_hash,
                     capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),
                 requested_at=now,lease_expires_at=now+timedelta(seconds=20))
-            with self.pool.connection() as db,db.transaction():
+            from contextlib import nullcontext
+            with (nullcontext(db) if db is not None else self.pool.connection()) as db,db.transaction():  # a savepoint inside bind_slots
                 verify_application_role(db)
                 reservation=M.ActionClaimResult.model_validate_json(canonical_payload(self._claim(db,command,'reserve')))
                 if reservation.disposition not in (M.ActionClaimDisposition.CLAIMED,M.ActionClaimDisposition.REPLAY):raise ValueError()
                 if reservation.terminal_outcome is not None and reservation.terminal_outcome.status is not M.TerminalOutcomeStatus.SUCCEEDED:raise ValueError()
                 def register():
                     proof=self._proof(self.session,'eios:action:'+action+':1');proof.pop('_decision_id')
-                    executor_proof=self._proof(executor_session,'eios:action:'+EFFECT+':1');executor_proof.pop('_decision_id')
+                    executor_proof=self._proof(executor_session,'eios:action:'+self.action+':1');executor_proof.pop('_decision_id')
                     claims={**proof,'parameters_digest':hashlib.sha256(text_payload.encode()).hexdigest(),
                         'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json'),
                         'definition_reference':definition.reference().model_dump(mode='json'),'schemas':[schema.model_dump(mode='json') for schema in schemas],
                         'capability_binding':capability.binding().model_dump(mode='json'),'claim_id':claim_id,
                         'executor_digest':executor_session.token_digest,'executor_proof':executor_proof}
                     if run_session is not None:
-                        run_proof=self._proof(run_session,'eios:action:'+EFFECT+':1');run_proof.pop('_decision_id')
+                        run_proof=self._proof(run_session,'eios:action:'+self.action+':1');run_proof.pop('_decision_id')
                         claims.update(run_digest=run_session.token_digest,run_proof=run_proof)
                     text,signature=self._sign('nexloop-effect-context-v1',claims)
                     return db.execute('select authz.nexloop_effect_context_command(%s,%s,%s,%s,%s)',
@@ -172,7 +175,21 @@ class EffectContextRegistrar:
     def configure_control(self,*,control_id,control_revision,executor_session):
         return self._execute(verb='configure',payload={'control_id':self._id(control_id),'control_revision':self._revision(control_revision)},executor_session=executor_session)
 
-    def bind(self,*,step_id,step_revision,goal_revision,consumer_revision,control_revision,run_session,executor_session):
-        return self._execute(verb='bind',payload={'step_id':self._id(step_id),
+    def bind(self,*,step_id,step_revision,goal_revision,consumer_revision,control_revision,run_session,executor_session,db=None):
+        return self._execute(db=db,verb='bind',payload={'step_id':self._id(step_id),
             **{name:self._revision(value) for name,value in [('step_revision',step_revision),('goal_revision',goal_revision),
                 ('consumer_revision',consumer_revision),('control_revision',control_revision)]}},executor_session=executor_session,run_session=run_session)
+
+
+def bind_slots(pool,session,signer,binds,*,run_session,executor_session):
+    """ADR-030: bind one Run to its effect contexts in one transaction, in the fixed slot order (reply first, then the
+    enterprise slot), so a second context never introduces a new lock order. ``binds`` maps an effect Action to the bind
+    arguments of its plan step; each slot is a full governed registrar bind."""
+    if not binds or set(binds)-set(EFFECT_ACTIONS):raise EffectContextUnavailable('effect context unavailable')
+    results={}
+    with pool.connection() as db,db.transaction():
+        verify_application_role(db)
+        for action in [a for a in EFFECT_ACTIONS if a in binds]:
+            results[action]=EffectContextRegistrar(pool,session,signer,action=action).bind(
+                run_session=run_session,executor_session=executor_session,db=db,**binds[action])
+    return results

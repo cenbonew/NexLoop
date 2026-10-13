@@ -33,6 +33,8 @@ PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unkn
 _REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
+# v2 (NX-037 gap B): only effect_categories changes (action-effect-categories.v3.json, nexloop.enterprise.deliver:1).
+SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2')
 
 
 class PlanInvalid(ValueError):
@@ -55,7 +57,7 @@ def _money(value, name):
 
 def validate_plan(value, *, cost_caps=None):
     """The versioned trial configuration (deploy/configuration/nx037-trial.v1.json); `cost_caps` overrides the three D-g values."""
-    if type(value) is not dict or value.get('schema') != SCHEMA:
+    if type(value) is not dict or value.get('schema') not in SCHEMAS:
         raise PlanInvalid('schema')
     caps = {**value.get('cost_caps', {}), **(cost_caps or {})}
     if set(caps) != {'cumulative', 'per_run', 'tenant_monthly'}:
@@ -134,6 +136,8 @@ def evaluate(record, history, plan, *, cumulative, monthly, owner_stop=False):
         stops.append('cross_tenant_read')
     if _decimal(record['cost']['total']) > plan['cost_caps']['per_run']:
         stops.append('per_run_cost_exceeded')
+    if record['cost'].get('other_currencies'):
+        stops.append('currency_mismatch')  # D-g option 2: no conversion; a cost outside the trial currency is not counted
     if facts.get('critical_alerts', 0) > 0:
         stops.append('critical_alert')
     if owner_stop:
@@ -224,7 +228,15 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
         model_ms = int(evidence['model']['ms']) if evidence else 0
         tool_ms = int(evidence['tool']['ms']) if evidence else 0
         costs = (evidence or {}).get('costs', {})
-        total = sum((_decimal(v['amount']) for v in costs.values()), Decimal(0))
+        # D-g option 2: costs are kept per currency, never converted. Only amounts in the trial currency count toward the caps;
+        # an amount recorded in another currency (or mixed) is kept apart and stops the trial (currency_mismatch).
+        total, foreign = Decimal(0), {}
+        for kind, value in costs.items():
+            currencies = sorted(value.get('currencies') or [])
+            if currencies in ([], [plan['currency']]):
+                total += _decimal(value['amount'])
+            elif _decimal(value['amount']) != 0:
+                foreign[kind] = {'amount': str(value['amount']), 'currencies': currencies}
         record = {
             'seq': interaction['seq'], 'interaction_id': interaction['interaction_id'], 'kind': interaction['kind'],
             'run_id': observed.get('run_id'), 'started_at': _iso(started), 'ended_at': _iso(ended),
@@ -232,7 +244,8 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             'time_ms': {'end_to_end': end_to_end, 'model': model_ms, 'tool': tool_ms, 'platform': max(end_to_end - model_ms - tool_ms, 0)},
             'model': {k: (evidence or {}).get('model', {}).get(k, 0) for k in ('calls', 'failed', 'unknown')},
             'tool_calls': (evidence or {}).get('tool', {}).get('calls', 0),
-            'cost': {'total': str(total), 'by_kind': {k: v['amount'] for k, v in sorted(costs.items())}, 'currency': plan['currency']},
+            'cost': {'total': str(total), 'by_kind': {k: v['amount'] for k, v in sorted(costs.items()) if k not in foreign}, 'currency': plan['currency'],
+                     **({'other_currencies': dict(sorted(foreign.items()))} if foreign else {})},
             'intents': (evidence or {}).get('intents', {}), 'intent_ids': (evidence or {}).get('intent_ids', []),
             'refusals': (evidence or {}).get('refusals', {}),
             'receipts': sorted(observed.get('receipts', [])), 'reconciliation': observed.get('reconciliation', 'not_applicable'),

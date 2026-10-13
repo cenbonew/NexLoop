@@ -35,6 +35,8 @@ Effect Worker（`nexloop-effect-worker`）通过 `HttpEffectProvider`（`effect_
 - 同一份声明还有 `external_effect`：由 NexLoop 之外的系统执行的效应（第三方渠道、企业外部服务端点）属于外部效应，只有三层真实派发开关都打开才派发，否则以 `real_dispatch_closed` 拒绝；未声明、定义已变化或取值非法时一律按外部处理。新连接器的 Action 默认就是外部效应（[真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)）。
 - 外发消息在渠道确认接收后才由 `nexloop-outbound-recorder` 写入会话（NX-047）。
 
+- **参考企业交付端点**：NX-037 试运行中没有企业自有端点时，可用仓库提供的替身（外部系统，不属于 NexLoop）：[部署手册](../deploy/stage/reference-endpoint/README.md)。企业可以用 `scripts/nx037/endpoint_conformance.py` 检查自己的端点是否符合本节协议。
+
 ## 4. 商业事件入口（签名 webhook）
 
 - `POST /api/v1/webhooks/commercial/{connector_id}`，`Content-Type: application/json`；头 `X-NexLoop-Timestamp` 与 `X-NexLoop-Signature`，HMAC 覆盖 `<timestamp>.<原始 body>`，支持当前与上一把密钥（`commercial_http.py`、`authz.nexloop_commercial_ingest`）。

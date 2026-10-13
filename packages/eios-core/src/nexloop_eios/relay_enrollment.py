@@ -55,7 +55,8 @@ def _ids(**values):
             raise RelayEnrollmentUnavailable(f'{name} invalid')
 
 
-def enroll(service, *, consumer_id, control_id, offering_id, binding_id, relay_principal, intent_id, role_id=None, link_id=None, step_id=None):
+def enroll(service, *, consumer_id, control_id, offering_id, binding_id, relay_principal, intent_id, role_id=None, link_id=None, step_id=None,
+           enterprise=None):
     """Enroll (or replay the enrollment of) one consumer for ``relay_principal``; returns state and enrollment_revision."""
     _ids(consumer_id=consumer_id, control_id=control_id, offering_id=offering_id, binding_id=binding_id, role_id=role_id, link_id=link_id, step_id=step_id)
     if type(intent_id) is not str or not _INTENT.fullmatch(intent_id) or type(relay_principal) is not str or not 1 <= len(relay_principal) <= 512:
@@ -66,6 +67,13 @@ def enroll(service, *, consumer_id, control_id, offering_id, binding_id, relay_p
                'relay_principal': relay_principal, 'intent_id': intent_id}
     if role_id is not None:
         payload.update(role_id=role_id, link_id=link_id, step_id=step_id)
+    if enterprise is not None:
+        # ADR-030: the consumer's enterprise slot for Message Runs: its own EffectControl (budget), the enterprise offering
+        # and the consumer's binding to it. All three or none; enrolling again without it clears the slot.
+        if type(enterprise) is not dict or set(enterprise) != {'control_id', 'offering_id', 'binding_id'}:
+            raise RelayEnrollmentUnavailable('enterprise slot invalid')
+        _ids(**{'enterprise_' + key: value for key, value in enterprise.items()})
+        payload['enterprise'] = dict(enterprise)
     return _call(service, ENROLL, payload)
 
 

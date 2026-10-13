@@ -94,7 +94,9 @@ DATABASE_ROLES={'nexloop_api','nexloop_domain_worker','nexloop_action_worker','n
 ALLOWED={'action':('execute',re.compile(r'eios:action:[A-Za-z0-9][A-Za-z0-9._-]{0,159}:[1-9][0-9]{0,8}')),
     'object_type':('read',re.compile(r'eios:object_type:[A-Z][A-Za-z0-9_]{0,63}'))}
 # ADR-020 §3 boundary: never granted by this path, whatever the manifest says.
-FORBIDDEN_MARKERS=('schema.review','real_dispatch','nexloop.service.request','nexloop.service.query',
+# NX-037 gap B: nexloop.enterprise.deliver is an effect Action like service.request: granted only by the tenant's trusted
+# configuration (authority facts of the executor and Run holders), never through this service grants manifest.
+FORBIDDEN_MARKERS=('schema.review','real_dispatch','nexloop.service.request','nexloop.enterprise.deliver','nexloop.service.query',
     'nexloop.service.receipt_reconcile','nexloop.receipt.reconcile','channel.enable','external_effect')
 ORDER=('subject','membership','actor','authentication','application','subject_authority','resource_graph','grants','scope','controls','policies','revision',
     'property_group_restriction','property_access_rule','message_purpose_rule','relay_source_read_rule')

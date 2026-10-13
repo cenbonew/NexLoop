@@ -1,0 +1,13 @@
+{
+  "consumer_id": "<CONSUMER_ID_FROM_BUSINESS_SETUP>",
+  "control_id": "<CONTROL_ID_FROM_BUSINESS_SETUP>",
+  "offering_id": "<OFFERING_ID_FROM_CATALOG_SETUP>",
+  "binding_id": "<BINDING_ID_FROM_CATALOG_SETUP>",
+  "relay_principal": "<RELAY_SERVICE_PRINCIPAL_ID>",
+  "intent_id": "relay-enroll-<NEW_UUID>",
+  "enterprise": {
+    "control_id": "<ENTERPRISE_CONTROL_ID>",
+    "offering_id": "<ENTERPRISE_OFFERING_ID>",
+    "binding_id": "<ENTERPRISE_BINDING_ID>"
+  }
+}

@@ -21,6 +21,10 @@ def request_depth():
     return getattr(_request_state, 'depth', 0)
 
 
+
+# NX-037 gap B: effect ports default to the Agent reply Action; nexloop.enterprise.deliver is passed explicitly.
+EFFECT_REPLY = 'nexloop.service.request'
+
 class BackendBusy(RuntimeError):
     """Explicit, retryable: no request capacity freed within the wait budget."""
 
@@ -169,9 +173,10 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'create_runtime_activation', queue=queue,
             task_id=task_id, fence=fence, run_id=run_id, command=command, input=input, owner_epoch=owner_epoch)
 
-    def runtime_effect_tool(self, *, activation_ref, command, tool_operation, parameters=None, intent_id=None, request_scope=None):
+    def runtime_effect_tool(self, *, activation_ref, command, tool_operation, parameters=None, intent_id=None, request_scope=None, action=None):
+        extra = {} if action is None else {'action': action}  # ADR-030: absent means the reply Action
         return self._backend._invoke(self._session, 'runtime_effect_tool', activation_ref=activation_ref,
-            command=command, tool_operation=tool_operation, parameters=parameters, intent_id=intent_id, request_scope=request_scope)
+            command=command, tool_operation=tool_operation, parameters=parameters, intent_id=intent_id, request_scope=request_scope, **extra)
 
     def authorize_runtime_activation(self, *, activation_ref, command, operation, input=None, request_snapshot=None, model_result=None):
         snapshot = {} if request_snapshot is None else {'request_snapshot': request_snapshot}
@@ -238,6 +243,10 @@ class AuthenticatedServices:
         # 0174: offer an unknown intent again only after min(60, 2^n) s.
         return self._backend._invoke(self._session, 'back_off_unknown', intent_id=intent_id)
 
+    def record_unrouted(self, *, intent_id):
+        # NX-037 (0184): the intent's Action has no provider route in this effect worker; recorded as the effect refusal NXE01.
+        return self._backend._invoke(self._session, 'record_unrouted', intent_id=intent_id)
+
     def record_effect_observation(self, *, intent_id, fence, provider_profile_digest, provider_payload_digest, provider_state, provider_reference):
         return self._backend._invoke(self._session, 'record_effect_observation', intent_id=intent_id, fence=fence, provider_profile_digest=provider_profile_digest, provider_payload_digest=provider_payload_digest, provider_state=provider_state, provider_reference=provider_reference)
 
@@ -250,23 +259,28 @@ class AuthenticatedServices:
     def read_effect_receipt(self, *, intent_id):
         return self._backend._invoke(self._session, 'read_effect_receipt', intent_id=intent_id)
 
-    def configure_effect_control(self, *, control_id, control_revision, executor_token):
+    def configure_effect_control(self, *, control_id, control_revision, executor_token, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'configure_effect_control',
-            control_id=control_id, control_revision=control_revision, executor_token=executor_token)
+            control_id=control_id, control_revision=control_revision, executor_token=executor_token, action=action)
 
     def bind_effect_context(self, *, step_id, step_revision, goal_revision, consumer_revision,
-                            control_revision, run_id, run_token, executor_token):
+                            control_revision, run_id, run_token, executor_token, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'bind_effect_context', step_id=step_id,
             step_revision=step_revision, goal_revision=goal_revision, consumer_revision=consumer_revision,
-            control_revision=control_revision, run_id=run_id, run_token=run_token, executor_token=executor_token)
+            control_revision=control_revision, run_id=run_id, run_token=run_token, executor_token=executor_token, action=action)
 
-    def submit_effect_intent(self, *, parameters, action_version=1,request_scope=None):
+    def bind_effect_contexts(self, *, binds, run_id, run_token, executor_token):
+        """ADR-030: one Run's effect contexts (reply first, then the enterprise slot) in one transaction."""
+        return self._backend._invoke(self._session, 'bind_effect_contexts', binds=binds, run_id=run_id, run_token=run_token,
+            executor_token=executor_token)
+
+    def submit_effect_intent(self, *, parameters, action_version=1,request_scope=None, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'submit_effect_intent',
-            parameters=parameters, action_version=action_version,request_scope=request_scope)
+            parameters=parameters, action_version=action_version,request_scope=request_scope, action=action)
 
-    def find_effect_receipt(self, *, intent_id, action_version=1):
+    def find_effect_receipt(self, *, intent_id, action_version=1, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'find_effect_receipt',
-            intent_id=intent_id, action_version=action_version)
+            intent_id=intent_id, action_version=action_version, action=action)
 
     def create_object(self, *, action_name, action_version, intent_id, type_name, properties):
         return self._backend._invoke(self._session, 'create',
@@ -596,15 +610,27 @@ class Backend:
                     queue=arguments.pop('queue'))
                 return getattr(queue, queue_operations[operation])(**arguments)
             if operation in ('claim_effect','prepare_effect_dispatch','authorize_effect_query',
-                              'record_effect_unknown','settle_expired_origin','back_off_unknown','record_effect_observation','record_effect_query_observation','reconcile_effect_receipt','read_effect_receipt'):
+                              'record_effect_unknown','settle_expired_origin','back_off_unknown','record_unrouted','record_effect_observation','record_effect_query_observation','reconcile_effect_receipt','read_effect_receipt'):
                 from nexloop_eios.effect_execution import EffectExecutionPort
                 return getattr(EffectExecutionPort(self._pool,session,self._signer),operation)(**arguments)
+            if operation=='bind_effect_contexts':
+                from nexloop_eios.effect_contexts import EffectContextUnavailable,EffectContextConflict,bind_slots
+                from nexloop_eios.run_credentials import AUDIENCE
+                try:
+                    executor=authenticate_service(self._pool,arguments.pop('executor_token'),world=session.world)
+                    run=authenticate_service(self._pool,arguments.pop('run_token'),world=session.world,run_id=arguments.pop('run_id'),audience=AUDIENCE)
+                    return bind_slots(self._pool,session,self._signer,arguments.pop('binds'),run_session=run,executor_session=executor)
+                except EffectContextConflict:
+                    raise
+                except Exception:
+                    raise EffectContextUnavailable('effect context unavailable') from None
             if operation in ('configure_effect_control','bind_effect_context'):
                 from nexloop_eios.effect_contexts import EffectContextRegistrar,EffectContextUnavailable,EffectContextConflict
                 from nexloop_eios.run_credentials import AUDIENCE
                 try:
                     executor=authenticate_service(self._pool,arguments.pop('executor_token'),world=session.world)
-                    registrar=EffectContextRegistrar(self._pool,session,self._signer)
+                    # NX-037 gap B: the effect Action the context is for (an allowed one, 0178); the reply Action by default.
+                    registrar=EffectContextRegistrar(self._pool,session,self._signer,action=arguments.pop('action','nexloop.service.request'))
                     if operation=='configure_effect_control':
                         return registrar.configure_control(executor_session=executor,**arguments)
                     run=authenticate_service(self._pool,arguments.pop('run_token'),world=session.world,
@@ -616,7 +642,7 @@ class Backend:
                     raise EffectContextUnavailable('effect context unavailable') from None
             if operation in ('submit_effect_intent','find_effect_receipt'):
                 from nexloop_eios.effect_intents import EffectIntentPort
-                intents=EffectIntentPort(self._pool,session,self._signer)
+                intents=EffectIntentPort(self._pool,session,self._signer,action=arguments.pop('action','nexloop.service.request'))
                 return intents.submit(**arguments) if operation=='submit_effect_intent' else intents.find(**arguments)
             if operation == 'issue_run':
                 from nexloop_eios.run_credentials import issue_run_credential

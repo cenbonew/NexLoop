@@ -1,0 +1,17 @@
+{
+  "schema": "nexloop.model-tariff.v1",
+  "version": 1,
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "currency": "CNY",
+  "unit": "per_million_tokens",
+  "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+  "verified_on": "2026-10-13",
+  "applied_period": "peak",
+  "rates": {"input": 2, "cache_read": 0.04, "cache_write": 2, "output": 8},
+  "periods": {
+    "peak": {"input": 2, "cache_read": 0.04, "output": 8},
+    "off_peak": {"input": 1, "cache_read": 0.02, "output": 4}
+  },
+  "note": "Owner decision D-g option 2 (2026-10-13): CNY pricing at DeepSeek's official RMB prices, no exchange-rate conversion. The official page prices DeepSeek-V4.1-Flash per million tokens: input cache hit / cache miss / output, peak 0.04 / 2 / 8, off-peak half (peak: Beijing time Mon-Fri except statutory holidays 09:00-12:00 and 14:00-18:00). The NX-037 trial window (10:00-18:00) is mostly peak, so the applied rates are the peak ones (an upper bound). DeepSeek bills no separate cache write; cache_write is the cache-miss input rate. Re-check the source before a trial and publish a new version when it changes."
+}

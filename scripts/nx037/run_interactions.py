@@ -26,6 +26,7 @@ reference. Output: one JSON line of ids, codes, numbers and times. Exit: 0 compl
 real mode preconditions).
 """
 import argparse
+from decimal import Decimal
 import json
 import os
 import sys
@@ -34,9 +35,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-TRIAL = ROOT / 'deploy/configuration/nx037-trial.v1.json'
-PLAN = ROOT / 'deploy/configuration/nx037-interaction-plan.v1.json'
-PLAN_SCHEMA = 'nexloop.nx037-interaction-plan.v1'
+# v2 (NX-037 gap B): the plan opens nexloop.enterprise.deliver:1, the trial applies effect categories v3. v1 files stay valid.
+TRIAL = ROOT / 'deploy/configuration/nx037-trial.v2.json'
+PLAN = ROOT / 'deploy/configuration/nx037-interaction-plan.v2.json'
+PLAN_SCHEMAS = ('nexloop.nx037-interaction-plan.v1', 'nexloop.nx037-interaction-plan.v2')
 SWITCH_CHECKS = ('deployment_switch_closed', 'tenant_switch_closed', 'action_switches_closed')
 # Synthetic tenants (tests/support/tenants.TENANT_A and TENANT_OTHER): the synthetic driver never runs against a real tenant.
 SYNTHETIC_TENANT, SYNTHETIC_OTHER = '00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000c'
@@ -49,7 +51,7 @@ class Refused(ValueError):
 def load_interaction_plan(path, trial_plan):
     from nexloop_eios.controlled_interactions import validate_order
     value = json.loads(Path(path).read_text(encoding='utf-8'))
-    if type(value) is not dict or value.get('schema') != PLAN_SCHEMA:
+    if type(value) is not dict or value.get('schema') not in PLAN_SCHEMAS:
         raise Refused('interaction plan schema')
     real = value.get('real_dispatch')
     if real is not None and (type(real) is not dict or set(real) != {'deployment', 'tenant', 'data_mode', 'actions'}
@@ -79,6 +81,47 @@ def real_preconditions(params, connection, expected, environ):
     return not failed, failed
 
 
+TARIFF_SCHEMA = 'nexloop.model-tariff.v1'
+REPLY_POLICY = ROOT / 'deploy/configuration/reply-guarantee.v3.json'
+
+
+def currency_preconditions(currency, host_config_file, reply_policy=None):
+    """D-g option 2 (owner 2026-10-13): refusal codes when the Host, its tariff or the reply guarantee's fallback Run budget is
+    not in the trial currency. Costs are never converted, so any of these would make the trial's Runs refused or uncounted."""
+    failed = []
+    try:
+        host = json.loads(Path(host_config_file).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return ['host_config_unreadable']
+    if host.get('runtime_profile') != 'deepseek-flash':
+        failed.append('host_not_real_model')
+    if host.get('cost_currency', 'USD') != currency:
+        failed.append('host_currency_differs')
+    if currency != 'USD':
+        try:
+            tariff = json.loads(Path(host.get('model_tariff_file', '')).read_text(encoding='utf-8'))
+            if (tariff.get('schema') != TARIFF_SCHEMA or tariff.get('currency') != currency or tariff.get('provider') != 'deepseek'
+                    or tariff.get('model') != 'deepseek-flash' or not tariff.get('source') or not tariff.get('verified_on')):
+                failed.append('model_tariff_invalid')
+        except (OSError, ValueError, TypeError):
+            failed.append('model_tariff_missing')
+    try:
+        fallback = json.loads(Path(reply_policy or REPLY_POLICY).read_text(encoding='utf-8'))['fallback']['run_budget']['currency']
+    except (OSError, ValueError, KeyError, TypeError):
+        fallback = None
+    if fallback != currency:
+        failed.append('reply_fallback_currency_differs')
+    return failed
+
+
+def month_cost_before(connection, tenant, currency, records):
+    """The tenant's model cost this month in the trial currency (0185), less what this trial already recorded (counted by the
+    executor itself), never below 0."""
+    total = Decimal(str(connection.execute("select authz.nexloop_nx037_month_model_cost(%s,'real',%s)", (tenant, currency)).fetchone()[0]))
+    own = sum((Decimal(r['cost']['total']) for r in records), Decimal(0))
+    return max(total - own, Decimal(0))
+
+
 def _connect(dsn_file):
     import psycopg
     return psycopg.connect(Path(dsn_file).read_text(encoding='utf-8').strip(), autocommit=True)
@@ -100,7 +143,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
     parser.add_argument('--interaction-timeout', type=int, default=900, help='real: seconds the operator has per interaction')
     parser.add_argument('--poll-seconds', type=float, default=2.0, help='real: observation interval')
     for name in ('--tenant', '--owner-principal', '--value-catalog', '--channel-ref', '--period-start', '--period-end',
-                 '--metrics-dsn-file', '--owner-session-file'):
+                 '--metrics-dsn-file', '--owner-session-file', '--host-config'):
         parser.add_argument(name)
     try:
         args = parser.parse_args(argv)
@@ -127,16 +170,19 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
             import real_tenant_init as init
             if args.inject:
                 raise Refused('no injection in real mode')
-            needed = ('tenant', 'owner_principal', 'value_catalog', 'channel_ref', 'period_start', 'period_end', 'metrics_dsn_file', 'owner_session_file')
+            needed = ('tenant', 'owner_principal', 'value_catalog', 'channel_ref', 'period_start', 'period_end', 'metrics_dsn_file', 'owner_session_file',
+                      'host_config')
             if any(getattr(args, n) is None for n in needed):
-                raise Refused('real mode needs the tenant, trial period, metrics connection, channel reference and owner session')
+                raise Refused('real mode needs the tenant, trial period, metrics connection, channel reference, owner session and Host configuration')
             params = init.parameters(tenant=args.tenant, owner_principal=args.owner_principal, value_catalog=args.value_catalog,
                                      channel_ref=args.channel_ref, period_start=args.period_start, period_end=args.period_end,
                                      trial=Path(args.trial_config))
             config = D.RealDriverConfig(channel_ref=args.channel_ref, owner_session_file=args.owner_session_file)
             with connect(args.metrics_dsn_file) as connection:
                 ok, failed = real_preconditions(params, connection, plan['real_dispatch'], environ)
-            if not ok:
+                failed = failed + currency_preconditions(trial['currency'], args.host_config)
+                before = month_cost_before(connection, args.tenant, trial['currency'], X.read_records(args.out))
+            if failed:
                 return emit({'ok': False, 'refused': failed, 'trial_id': args.trial_id}, 3)
             observer = D.PgObserver(connect, args.metrics_dsn_file, args.tenant)
             driver = D.RealDriver(config, observer=observer, operator=operator or D.ConsoleOperator(args.out),
@@ -150,7 +196,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
         if args.driver == 'real':
             collector = _RealCollector(connect, args.metrics_dsn_file, args.tenant)
         state = X.run(trial, driver, collector, args.out, trial_id=args.trial_id, order=plan['order'], resume=args.resume,
-                      calibration_pause=calibration)
+                      calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0))
     except X.TrialPaused as paused:
         return emit({'ok': False, 'detail': 'paused_needs_resume', 'rules': str(paused).split(','), 'trial_id': args.trial_id}, 3)
     except RuntimeError as error:

@@ -1,0 +1,10 @@
+{
+  "schema_version": "nexloop-workbench-members/1",
+  "tenant_id": "<TENANT_ID>",
+  "application_id": "<WORKBENCH_APPLICATION_ID>",
+  "caller_application_id": "eios:application:<WORKBENCH_APPLICATION_ID>",
+  "members": [
+    {"principal_id": "<OWNER_PRINCIPAL_ID>", "subject_id": "<OWNER_SUBJECT_ID>", "role": "owner"},
+    {"principal_id": "<OPERATOR_PRINCIPAL_ID>", "subject_id": "<OPERATOR_SUBJECT_ID>", "role": "operator"}
+  ]
+}

@@ -118,7 +118,7 @@ class Commitments(dict):
         a=self['admin'];a.execute('alter role nexloop_configurator login')
         dsn=self['tmp_path']/'configurator-dsn';dsn.write_text(make_conninfo(self['pg'],user='nexloop_configurator'));dsn.chmod(0o600)
         manifest={'schema_version':'nexloop-action-effect-categories/1','manifest_version':1,'decision':'synthetic declaration',
-            'actions':[{'stable_name':EFFECT,'version':1,'category':category,'notification_parameters':sorted(notification) if category=='non_contact_service' else [],
+            'actions':[{'stable_name':self['plan'].get('effect',EFFECT),'version':1,'category':category,'notification_parameters':sorted(notification) if category=='non_contact_service' else [],
                 'purpose':'synthetic service delivery'}]}
         return apply(manifest,TENANT,database_url_file=dsn)
 
@@ -131,14 +131,15 @@ class Commitments(dict):
         base=self['admin'].execute("select properties from ontology.objects where type_name='PlanStep' and object_id=%s",(plan['step'],)).fetchone()[0]
         step=planner.create_object(action_name='PlanStep.create',action_version=1,intent_id='commitment-plan-step-'+str(self['steps']),type_name='PlanStep',
             properties=base)['object_id']
-        run=submitter.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])
+        effect=plan.get('effect',EFFECT)
+        run=submitter.issue_run_credential(action_resources=['eios:action:'+effect+':1'])
         planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,consumer_revision=1,control_revision=1,
-            run_id=run.run_id,run_token=run.token,executor_token=plan['executor_token'])
-        return backend.authenticate_run(run.token,world='real',run_id=run.run_id).submit_effect_intent(parameters=parameters)
+            run_id=run.run_id,run_token=run.token,executor_token=plan['executor_token'],action=effect)
+        return backend.authenticate_run(run.token,world='real',run_id=run.run_id).submit_effect_intent(parameters=parameters,action=effect)
 
     def issue_run(self):
         plan=self['plan'];submitter=plan['backend'].authenticate(plan['submitter_token'],world='real')
-        return submitter.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])
+        return submitter.issue_run_credential(action_resources=['eios:action:'+plan.get('effect',EFFECT)+':1'])
 
     def dispatch(self,provider):
         from test_nx022_dispatch_e2e import dispatch_once

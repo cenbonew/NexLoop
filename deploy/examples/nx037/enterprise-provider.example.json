@@ -1,0 +1,7 @@
+{
+  "origin": "https://<ENTERPRISE_ENDPOINT_HOST>:<PORT>",
+  "credential_file": "<ABSOLUTE_PRIVATE_CREDENTIAL_FILE>",
+  "ca_file": "<ABSOLUTE_PRIVATE_CA_FILE>",
+  "timeout": 2.0,
+  "connect_address": "<ENTERPRISE_ENDPOINT_IP_OR_DRILL_RELAY_LOOPBACK>"
+}

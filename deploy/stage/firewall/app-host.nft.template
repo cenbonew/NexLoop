@@ -1,6 +1,7 @@
 # NX-032 §3.1–3.2: APP_HOST rules in their own table (undo: nft delete table inet nexloop_stage). Applied by the owner only.
 # Gateway only for the trusted LAN; internal ports are never published; the application namespace reaches only DATA_HOST's
-# PostgreSQL and Valkey, the Agent Host namespace only the model allowlist (NX-037 D4); the CI user (NX-033) never reaches DATA_HOST
+# PostgreSQL and Valkey, the Agent Host namespace only the model allowlist (NX-037 D4), the effect worker namespace only PostgreSQL
+# and the enterprise endpoint (NX-037 provider routing); the CI user (NX-033) never reaches DATA_HOST
 # or the internal ports.
 table inet nexloop_stage {
   chain forward {
@@ -14,6 +15,13 @@ table inet nexloop_stage {
     ip saddr __APP_CONTAINER_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } drop
     ip saddr __APP_CONTAINER_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport { __PG_PORT__, __VALKEY_PORT__ } accept
     ip saddr __APP_CONTAINER_CIDR__ ct state new drop
+    # NX-037 provider routing: the effect worker's own namespace (__EFFECT_EGRESS_CIDR__; the action worker and the NexLoop delivery
+    # service on its loopback) reaches DATA_HOST's PostgreSQL and the one enterprise endpoint only; never a model address, never
+    # Valkey, nothing else.
+    ip saddr __EFFECT_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } drop
+    ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport __PG_PORT__ accept
+    ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __ENTERPRISE_ENDPOINT_ADDR__ tcp dport __ENTERPRISE_ENDPOINT_PORT__ accept
+    ip saddr __EFFECT_EGRESS_CIDR__ ct state new drop
     ip saddr __AGENT_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ drop
     ip saddr __AGENT_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } tcp dport 443 accept
     ip saddr __AGENT_EGRESS_CIDR__ ct state new drop

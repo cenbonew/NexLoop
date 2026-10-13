@@ -133,17 +133,56 @@ services:
     labels:
       nexloop.budget-service: domain-worker
   action-worker:
-    # The only holder of external channel credentials (provider configuration, once real channels are enabled).
-    <<: *service
+    # The only holder of external channel credentials. NX-037: its own namespace on `effect_egress` (the application namespace
+    # never reaches the enterprise endpoint), one provider per Action from the routes file (nexloop.service.request -> the
+    # NexLoop delivery service below on loopback, nexloop.enterprise.deliver -> the enterprise HTTPS endpoint); an Action without
+    # a route is never dispatched. Firewall: this namespace reaches DATA_HOST's PostgreSQL and the enterprise endpoint only.
+    image: ${BACKEND_IMAGE:?backend image by digest}
+    restart: unless-stopped
+    networks: [effect_egress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: *environment
     entrypoint: [nexloop-effect-worker]
     command: [--database-url-file, /run/secrets/action_worker_dsn, --service-credential-file, /run/secrets/action_worker_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
-              /var/lib/nexloop/artifacts, --world, real, --provider-config-file, /run/secrets/action_worker_provider]
+              /var/lib/nexloop/artifacts, --world, real, --provider-routes-file, /run/secrets/action_worker_provider_routes]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [action_worker_dsn, action_worker_pg_client_cert, action_worker_pg_client_key, action_worker_credential, signing_key, pg_ca, action_worker_provider]
+    secrets: [action_worker_dsn, action_worker_pg_client_cert, action_worker_pg_client_key, action_worker_credential, signing_key, pg_ca,
+              action_worker_provider_routes, action_worker_webchat_provider, action_worker_webchat_provider_credential, action_worker_webchat_provider_ca,
+              action_worker_enterprise_provider, action_worker_enterprise_provider_credential, action_worker_enterprise_provider_ca]
     labels:
       nexloop.budget-service: action-worker
+  webchat-delivery:
+    # NX-037: the NexLoop delivery service of nexloop.service.request (nexloop_eios.local_json_delivery, HttpEffectProvider
+    # protocol: POST /v1/effects, GET /v1/effects/<intent>). Shares the action worker's namespace and listens on its loopback only
+    # (WEBCHAT_DELIVERY_PORT); it authenticates as the same executor principal (0051) from its own copy of the credential.
+    image: ${BACKEND_IMAGE:?backend image by digest}
+    restart: unless-stopped
+    network_mode: service:action-worker
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: *environment
+    entrypoint: [python, -m, nexloop_eios.local_json_delivery]
+    command: [--database-url-file, /run/secrets/webchat_delivery_dsn, --service-credential-file, /run/secrets/webchat_delivery_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --delivery-root, /var/lib/nexloop/webchat-delivery,
+              --origin, "https://127.0.0.1:${WEBCHAT_DELIVERY_PORT:?delivery service loopback port}",
+              --certificate-file, /run/secrets/webchat_delivery_cert, --tls-key-file, /run/secrets/webchat_delivery_key,
+              --provider-ca-file, /run/secrets/webchat_delivery_cert, --provider-credential-file, /run/secrets/webchat_delivery_provider_credential,
+              --pool-max, "2"]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/data/webchat-delivery:/var/lib/nexloop/webchat-delivery
+    secrets: [webchat_delivery_dsn, webchat_delivery_pg_client_cert, webchat_delivery_pg_client_key, webchat_delivery_credential, signing_key, pg_ca,
+              webchat_delivery_cert, webchat_delivery_key, webchat_delivery_provider_credential]
+    labels:
+      nexloop.budget-service: webchat-delivery
   runtime-worker:
     # ADR-024: 4 guard processes, dispatcher pool 2; NX-031 dispatch loops 4 (= Agent Host maximum_active_runs).
     <<: *service
@@ -332,6 +371,9 @@ services:
       nexloop.budget-service: incentive-issuer
 networks:
   app: {}
+  effect_egress:
+    ipam:
+      config: [{subnet: "${EFFECT_EGRESS_CIDR:?effect worker egress network}"}]
   agent_egress:
     ipam:
       config: [{subnet: "${AGENT_EGRESS_CIDR:?Agent Host egress network}"}]
@@ -368,7 +410,22 @@ secrets:
   action_worker_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/pg-client.crt"}
   action_worker_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/pg-client.key"}
   action_worker_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/service-credential"}
-  action_worker_provider: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/provider-config"}
+  # NX-037: the routes file and one provider configuration, bearer credential and CA per route (provider configs name the
+  # credential and CA by their /run/secrets/ paths). The enterprise credential exists only here.
+  action_worker_provider_routes: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/provider-routes"}
+  action_worker_webchat_provider: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/webchat-provider-config"}
+  action_worker_webchat_provider_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/webchat-provider-credential"}
+  action_worker_webchat_provider_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/webchat-provider-ca.crt"}
+  action_worker_enterprise_provider: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/enterprise-provider-config"}
+  action_worker_enterprise_provider_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/enterprise-provider-credential"}
+  action_worker_enterprise_provider_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/action-worker/enterprise-provider-ca.crt"}
+  webchat_delivery_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/dsn"}
+  webchat_delivery_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/pg-client.crt"}
+  webchat_delivery_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/pg-client.key"}
+  webchat_delivery_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/service-credential"}
+  webchat_delivery_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/server.crt"}
+  webchat_delivery_key: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/server.key"}
+  webchat_delivery_provider_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/provider-credential"}
   runtime_worker_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/dsn"}
   runtime_worker_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.crt"}
   runtime_worker_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.key"}

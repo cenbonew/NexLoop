@@ -30,13 +30,20 @@ from support.tenants import TENANT_A
 # Optional indirect parameter: 'commitment-service' publishes the effect Action as a non-message service delivery that
 # may name the commitment it fulfils (NX-026) and carries an optional customer notification parameter.
 SERVICE_SCHEMAS={'commitment-service':{'type':'object','properties':{'service':{'type':'string','minLength':1},'notice':{'type':'string'},
-    'message':{'type':'string'},'commitment_ref':{'type':'string','minLength':1}},'required':['service'],'additionalProperties':False}}
+    'message':{'type':'string'},'commitment_ref':{'type':'string','minLength':1}},'required':['service'],'additionalProperties':False},
+    # NX-037 gap B: the enterprise delivery Action (0178) as the plan's effect Action, with an enterprise offering.
+    'enterprise-deliver':{'type':'object','properties':{'service':{'type':'string','minLength':1},'order_ref':{'type':'string','minLength':1},
+    'commitment_ref':{'type':'string','minLength':1}},'required':['service'],'additionalProperties':False}}
+ENTERPRISE='nexloop.enterprise.deliver'
+SERVICE_SCHEMAS['enterprise-mismatch']=SERVICE_SCHEMAS['enterprise-deliver']
 
 
 @pytest.fixture
 def execution_plan(admin,pg,tmp_path,request):
     bootstrap(admin)
     assert admin.execute("select to_regclass('control.nexloop_effect_control_ledger')").fetchone()[0]
+    # 'enterprise-mismatch': the enterprise Action with the reply export offering (the catalog must refuse the pairing).
+    effect=ENTERPRISE if getattr(request,'param',None) in ('enterprise-deliver','enterprise-mismatch') else EFFECT
     tenant=TENANT_A;material=secrets.token_bytes(32);key=tmp_path/'key';key.write_bytes(material);key.chmod(0o600)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('synthetic-plan',material))
     seed_authority(admin,tenant,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-seed')
@@ -46,7 +53,7 @@ def execution_plan(admin,pg,tmp_path,request):
     refs={name:base_definition.object_types[0].model_copy(update={'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
     for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
     actions={name+'.create':(name,) for name in schemas}
-    actions.update({'Goal.edit':('Goal',),'EffectControl.edit':('EffectControl',),'nexloop.service.query':('Consumer',),CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',),
+    actions.update({'Goal.edit':('Goal',),'EffectControl.edit':('EffectControl',),'nexloop.service.query':('Consumer',),CONFIGURE:('EffectControl',),BIND:tuple(schemas),effect:('Consumer',),
         # 0065: fulfilled receipts reconcile only through this independent governed Action.
         'nexloop.service.receipt_reconcile':('Consumer',)})
     for name,types in actions.items():
@@ -56,9 +63,9 @@ def execution_plan(admin,pg,tmp_path,request):
         capname='ontology.object.create' if name.endswith('.create') else ('ontology.object.edit' if name.endswith('.edit') else name)
         body['capability_binding']['capability_name']=capname
         if name in (CONFIGURE,BIND):body['input_schema']=registrar_schema('configure' if name==CONFIGURE else 'bind')
-        if name==EFFECT:body['governance']['change_scope']['target_systems']=['service']
-        if name==EFFECT:body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
-        if name==EFFECT and getattr(request,'param',None) in SERVICE_SCHEMAS:body['input_schema']=copy.deepcopy(SERVICE_SCHEMAS[request.param])
+        if name==effect:body['governance']['change_scope']['target_systems']=['service']
+        if name==effect:body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
+        if name==effect and getattr(request,'param',None) in SERVICE_SCHEMAS:body['input_schema']=copy.deepcopy(SERVICE_SCHEMAS[request.param])
         if name=='nexloop.service.receipt_reconcile':
             body['governance']['change_scope']['target_systems']=['service']
             body['governance']['idempotency']['key_fields']=['intent_id']
@@ -72,9 +79,9 @@ def execution_plan(admin,pg,tmp_path,request):
         backend=stack.enter_context(open_backend(database_url=make_conninfo(pg,user='nexloop_api'),artifact_root=tmp_path/'artifacts',signing_key_file=key,signing_key_id='synthetic-plan'))
         owner_session,owner_token=seed_multi_authority(admin,backend._pool,targets(['Consumer.create','EffectControl.create',CONFIGURE]),identity_suffix='-owner')
         planner_session,planner_token=seed_multi_authority(admin,backend._pool,targets(['Goal.create','PlanStep.create',BIND]),identity_suffix='-planner')
-        executor_session,executor_token=seed_multi_authority(admin,backend._pool,targets([EFFECT,'nexloop.service.query','nexloop.service.receipt_reconcile']),identity_suffix='-executor')
-        submitter_session,submitter_token=seed_multi_authority(admin,backend._pool,targets([EFFECT]),identity_suffix='-submitter')
-        second_session,second_token=seed_multi_authority(admin,backend._pool,targets([EFFECT]),identity_suffix='-submitter-B')
+        executor_session,executor_token=seed_multi_authority(admin,backend._pool,targets([effect,'nexloop.service.query','nexloop.service.receipt_reconcile']),identity_suffix='-executor')
+        submitter_session,submitter_token=seed_multi_authority(admin,backend._pool,targets([effect]),identity_suffix='-submitter')
+        second_session,second_token=seed_multi_authority(admin,backend._pool,targets([effect]),identity_suffix='-submitter-B')
         owner=backend.authenticate(owner_token,world='real');planner=backend.authenticate(planner_token,world='real');submitter=backend.authenticate(submitter_token,world='real')
         def create(service,name,request,properties):return service.create_object(action_name=name+'.create',action_version=1,intent_id=request,type_name=name,properties=properties)['object_id']
         expiry=(datetime.now(UTC)+timedelta(minutes=3)).isoformat()
@@ -90,7 +97,7 @@ def execution_plan(admin,pg,tmp_path,request):
         submitter=backend.authenticate(submitter_token,world='real')
         goal_editor=backend.authenticate(goal_editor_token,world='real')
         def new_step(number):return create(planner,'PlanStep','real-plan-step-'+str(number),{'consumer_id':consumer,'goal_id':goal,'control_id':control,
-            'submitter_principals':sorted([submitter_session.authentication.subject_principal_id,second_session.authentication.subject_principal_id]),'action_name':EFFECT,'state':'ready'})
+            'submitter_principals':sorted([submitter_session.authentication.subject_principal_id,second_session.authentication.subject_principal_id]),'action_name':effect,'state':'ready'})
         _,control_editor_token=seed_multi_authority(admin,backend._pool,[
             ('eios:action:EffectControl.edit:1',ResourceType.ACTION,Operation.EXECUTE),
             ('eios:object:EffectControl/'+control,ResourceType.OBJECT,Operation.EDIT),
@@ -99,16 +106,21 @@ def execution_plan(admin,pg,tmp_path,request):
         submitter=backend.authenticate(submitter_token,world='real');goal_editor=backend.authenticate(goal_editor_token,world='real')
         control_editor=backend.authenticate(control_editor_token,world='real')
         step=new_step(1)
-        catalog=install_generic_catalog(admin,backend,consumer_id=consumer,valid_until=expiry,submitter=submitter,second_submitter=backend.authenticate(second_token,world='real'))
+        offering=None
+        if effect==ENTERPRISE and request.param=='enterprise-deliver':
+            from nexloop_eios.service_offerings import enterprise_delivery_example
+            offering=enterprise_delivery_example(service_code='enterprise.synthetic-delivery',title='合成企业交付',price_amount='12.50',valid_until=expiry)
+        catalog=install_generic_catalog(admin,backend,consumer_id=consumer,valid_until=expiry,submitter=submitter,second_submitter=backend.authenticate(second_token,world='real'),
+            effect=effect,offering=offering)
         submitter=catalog['submitter'];submitter_token=catalog['submitter_token'];second_token=catalog['second_token']
         owner=backend.authenticate(owner_token,world='real');planner=backend.authenticate(planner_token,world='real')
         goal_editor=backend.authenticate(goal_editor_token,world='real')
         control_editor=backend.authenticate(control_editor_token,world='real')
-        issued=submitter.issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])
+        issued=submitter.issue_run_credential(action_resources=['eios:action:'+effect+':1'])
         run=backend.authenticate_run(issued.token,world='real',run_id=issued.run_id)
         yield PrivateConfiguration(backend=backend,owner=owner,planner=planner,executor=executor_session,executor_token=executor_token,run=run,control=control,goal=goal,
             step=step,consumer=consumer,new_step=new_step,submitter=submitter,issued=issued,second_submitter=backend.authenticate(second_token,world='real'),goal_editor=goal_editor,control_editor=control_editor,
-            key=key,owner_token=owner_token,planner_token=planner_token,submitter_token=submitter_token,second_token=second_token)
+            key=key,effect=effect,owner_token=owner_token,planner_token=planner_token,submitter_token=submitter_token,second_token=second_token)
 
 
 from contextlib import contextmanager
@@ -122,13 +134,14 @@ class GovernedEffectExecutor:
     def __init__(self,plan,pg,tmp_path,admin):
         self.plan,self.pg,self.tmp_path,self.admin=plan,pg,tmp_path,admin
         self.tenant=TENANT_A;self.executor_principal=plan['executor'].authentication.subject_principal_id
-        configure_args=dict(control_id=plan['control'],control_revision=1,executor_token=plan['executor_token'])
+        self.effect=plan.get('effect',EFFECT)
+        configure_args=dict(control_id=plan['control'],control_revision=1,executor_token=plan['executor_token'],action=self.effect)
         plan['owner'].configure_effect_control(**configure_args)
-        self.runs=[plan['issued'],plan['second_submitter'].issue_run_credential(action_resources=['eios:action:'+EFFECT+':1'])]
+        self.runs=[plan['issued'],plan['second_submitter'].issue_run_credential(action_resources=['eios:action:'+self.effect+':1'])]
         self.ports=[]
         for run in self.runs:
             bound=plan['planner'].bind_effect_context(step_id=plan['step'],step_revision=1,goal_revision=1,
-                consumer_revision=1,control_revision=1,run_id=run.run_id,run_token=run.token,executor_token=plan['executor_token'])
+                consumer_revision=1,control_revision=1,run_id=run.run_id,run_token=run.token,executor_token=plan['executor_token'],action=self.effect)
             self.context_id=bound['context_ref']
             self.ports.append(plan['backend'].authenticate_run(run.token,world='real',run_id=run.run_id))
     def __repr__(self):return '<actual synthetic governed effect executor>'
@@ -149,7 +162,7 @@ class GovernedEffectExecutor:
             yield backend.authenticate_run(run.token,world='real',run_id=run.run_id)
     def revoke_all_source_grants(self):
         for port in self.ports:
-            replace_fact(self.admin,self.tenant,'grants',[port._session.authentication.subject_principal_id,'eios:action:'+EFFECT+':1'],F.GrantFacts,grants=[])
+            replace_fact(self.admin,self.tenant,'grants',[port._session.authentication.subject_principal_id,'eios:action:'+self.effect+':1'],F.GrantFacts,grants=[])
     def revoke_executor_recovery_grant(self):
         replace_fact(self.admin,self.tenant,'grants',[self.executor_principal,'eios:action:nexloop.service.receipt_reconcile:1'],F.GrantFacts,grants=[])
     def revoke_executor_query_grant(self):

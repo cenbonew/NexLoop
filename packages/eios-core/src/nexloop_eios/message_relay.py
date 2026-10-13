@@ -16,6 +16,11 @@ from nexloop_eios.run_credential_vault import RunCredentialVault
 from nexloop_eios.runtime_activation import RuntimeActivationPort
 
 EFFECT = 'eios:action:nexloop.service.request:1'
+# ADR-030: the enterprise slot of a Message Run (only for consumers enrolled with a currently valid enterprise slot).
+DELIVER = 'eios:action:nexloop.enterprise.deliver:1'
+ENTERPRISE_KEYS = frozenset({'control_id', 'control_revision', 'offering_id', 'binding_id'})
+import logging
+_log = logging.getLogger('nexloop.message_relay')
 PROTOCOL = 'nexloop-message-run-issuance-v1'
 
 
@@ -37,7 +42,12 @@ def validate_recipe(recipe):
     expected={'consumer_id','control_id','control_revision','consumer_revision',
         'valid_until','role_ref','context_manifest_ref','runtime_profile','budget',
         'runtime_owner_epoch','queue','offering_id','offering_binding_id'}
-    if type(recipe) is not dict or set(recipe)!=expected: raise MessageRelayUnavailable()
+    if type(recipe) is not dict or set(recipe)-{'enterprise'}!=expected: raise MessageRelayUnavailable()
+    if 'enterprise' in recipe:
+        ent=recipe['enterprise']
+        if (type(ent) is not dict or set(ent)!=ENTERPRISE_KEYS or ent['control_id']==recipe['control_id']
+                or any(type(ent[f]) is not str or not re.fullmatch('[a-f0-9]{64}',ent[f]) for f in ('control_id','offering_id','binding_id'))
+                or type(ent['control_revision']) is not int or not 1<=ent['control_revision']<=9007199254740991): raise MessageRelayUnavailable()
     for field in ('consumer_id','control_id','offering_id','offering_binding_id'):
         if type(recipe[field]) is not str or not re.fullmatch('[a-f0-9]{64}',recipe[field]): raise MessageRelayUnavailable()
     for field in ('control_revision','consumer_revision','runtime_owner_epoch'):
@@ -79,7 +89,13 @@ def validate_run_profile(profile):
 def recipe_from_profile(run_profile,profile):
     """The per-message recipe: the consumer's enrolled profile (current revisions, read in SQL at claim) + the Run settings."""
     if type(profile) is not dict: raise MessageRelayUnavailable()
-    return validate_recipe({**run_profile,'consumer_id':profile.get('consumer_id'),'control_id':profile.get('control_id'),
+    extra={}
+    if 'enterprise' in profile: extra['enterprise']=profile['enterprise']
+    elif 'enterprise_skipped' in profile:
+        # The enrolled enterprise slot is no longer valid (owner data changed): this Run gets the reply slot only.
+        _log.info('enterprise_slot_skipped',extra={'event':'enterprise_slot_skipped','consumer_id':profile.get('consumer_id'),
+            'reason':profile['enterprise_skipped']})
+    return validate_recipe({**run_profile,**extra,'consumer_id':profile.get('consumer_id'),'control_id':profile.get('control_id'),
         'offering_id':profile.get('offering_id'),'offering_binding_id':profile.get('binding_id'),'control_revision':profile.get('control_revision'),
         'consumer_revision':profile.get('consumer_revision'),'valid_until':profile.get('valid_until')})
 
@@ -114,12 +130,13 @@ class MessageRelayPort:
             self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__)
             raise MessageRelayUnavailable() from None
 
-    def source_proofs(self,source):
+    def source_proofs(self,source,actions=(EFFECT,)):
         if source._backend is not self.backend or source._session.run_context is not None: raise MessageRelayUnavailable()
         reader=PostgresActionDefinitionReader(self.backend._pool,source._session,self.backend._signer)
         definition,capability=reader.get('nexloop.service.request',1)
-        proof=RuntimeActivationPort(self.backend._pool,source._session,self.backend._signer)._proof(source._session,EFFECT)
-        return source._session.token_digest,[proof],definition.model_dump(mode='json'),capability.model_dump(mode='json')
+        port=RuntimeActivationPort(self.backend._pool,source._session,self.backend._signer)
+        proofs=[port._proof(source._session,action) for action in actions]
+        return source._session.token_digest,proofs,definition.model_dump(mode='json'),capability.model_dump(mode='json')
 
 
 class MessageRelay:
@@ -151,9 +168,11 @@ class MessageRelay:
         with self.route._backend._pool.connection() as db:
             return db.execute('select authz.nexloop_relay_backlog(%s,%s)',(session.token_digest,session.world)).fetchone()[0]
 
-    def _create(self,type_name,message_id,properties,recipe=None):
+    def _create(self,type_name,message_id,properties,recipe=None,slot=None):
         recipe=self.recipe if recipe is None else recipe
-        intent='message-relay-'+hashlib.sha256(canonical_payload([message_id,type_name,recipe]).encode()).hexdigest()
+        # The reply slot's objects keep their original intent ids; another slot's objects are distinct (ADR-030).
+        key=[message_id,type_name,recipe] if slot is None else [message_id,type_name,recipe,slot]
+        intent='message-relay-'+hashlib.sha256(canonical_payload(key).encode()).hexdigest()
         result=self.planner.create_object(action_name=type_name+'.create',action_version=1,
             intent_id=intent,type_name=type_name,properties=properties)
         return result['object_id']
@@ -215,12 +234,20 @@ class MessageRelay:
             step=self._create('PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,
                 'control_id':recipe['control_id'],'submitter_principals':[principal],
                 'action_name':'nexloop.service.request','state':'ready'},recipe)
+            enterprise=recipe.get('enterprise')
+            if enterprise is not None and (self.context_strategy is not None or self.relationship_recipe is not None):
+                # ADR-030: only the v2 Message Run pack carries effect_supplies; with another pack the slot would be unusable.
+                _log.info('enterprise_slot_skipped',extra={'event':'enterprise_slot_skipped','consumer_id':recipe['consumer_id'],'reason':'context_unsupported'})
+                enterprise=None
+            enterprise_step=None if enterprise is None else self._create('PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,
+                'control_id':enterprise['control_id'],'submitter_principals':[principal],
+                'action_name':'nexloop.enterprise.deliver','state':'ready'},recipe,slot='enterprise.deliver:primary')
             assignment={'message_id':message_id,'consumer_id':recipe['consumer_id'],
                 'goal_id':goal,'goal_revision':1,'step_id':step,'step_revision':1,
                 'control_id':recipe['control_id'],'control_revision':recipe['control_revision'],
                 'consumer_revision':recipe['consumer_revision'],'source_principal':principal,
                 'executor_principal':executor,'recipe_digest':hashlib.sha256(canonical_payload(recipe).encode()).hexdigest(),
-                'allowed_actions':[EFFECT],'state':'active','valid_until':recipe['valid_until']}
+                'allowed_actions':[EFFECT] if enterprise is None else [EFFECT,DELIVER],'state':'active','valid_until':recipe['valid_until']}
             assignment_id=self._create('MessageAssignment',message_id,assignment,recipe)
             key=self.vault.message_key(item['tenant_id'],'real',message_id)
             digest=hashlib.sha256(canonical_payload(assignment).encode()).hexdigest()
@@ -230,16 +257,25 @@ class MessageRelay:
             if self.vault.has(key) and self.vault.read(key).assignment_digest!=digest: return self._handoff(message_id,fence,'binding_conflict')
             record=self.vault.prepare(message_key=key,assignment_digest=digest)
             if record.state=='requires_governed_replan': return self._handoff(message_id,fence,'requires_governed_replan')
-            source_digest,proofs,source_definition,source_capability=self.port.source_proofs(self.source)
+            source_digest,proofs,source_definition,source_capability=self.port.source_proofs(self.source,tuple(assignment['allowed_actions']))
             issued=self.port.call('issue',message_id=message_id,fence=fence,
                 assignment_id=assignment_id,assignment_revision=1,assignment_digest=record.assignment_digest,assignment_text=canonical_payload(assignment),
                 run_id=record.run_id,request_id=record.request_id,issuance_nonce=record.issuance_nonce,
                 token_digest=record.token_digest,source_digest=source_digest,source_proofs=proofs,source_definition=source_definition,source_capability=source_capability,ttl_seconds=300)
             if issued['state']=='requires_governed_replan': return self._handoff(message_id,fence,'credential_expired')
             record=self.vault.mark_issued(message_key=key,run_id=issued['run_id'],token_digest=record.token_digest,expires_at=issued['expires_at'])
-            self.planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,
-                consumer_revision=recipe['consumer_revision'],control_revision=recipe['control_revision'],
-                run_id=record.run_id,run_token=record.token,executor_token=self.executor_token)
+            if enterprise is None:
+                self.planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,
+                    consumer_revision=recipe['consumer_revision'],control_revision=recipe['control_revision'],
+                    run_id=record.run_id,run_token=record.token,executor_token=self.executor_token)
+            else:
+                # ADR-030: both slots in one transaction, reply first, then the enterprise slot.
+                self.planner.bind_effect_contexts(binds={
+                    'nexloop.service.request':{'step_id':step,'step_revision':1,'goal_revision':1,'consumer_revision':recipe['consumer_revision'],
+                        'control_revision':recipe['control_revision']},
+                    'nexloop.enterprise.deliver':{'step_id':enterprise_step,'step_revision':1,'goal_revision':1,'consumer_revision':recipe['consumer_revision'],
+                        'control_revision':enterprise['control_revision']}},
+                    run_id=record.run_id,run_token=record.token,executor_token=self.executor_token)
             command={'schema_version':'1.0','run_id':record.run_id,'tenant_id':item['tenant_id'],
                 'world_id':'real','mode':'real','request_id':record.request_id,
                 'trigger_event_id':canonical_event_id(item['tenant_id'],'real',item['source_event_id']),

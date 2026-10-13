@@ -92,8 +92,10 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
     published = {name: s.get('ports') for name, s in app['services'].items() if s.get('ports')}
     assert list(published) == ['app-net'] and all(p.startswith('${APP_HOST_ADDR') for p in published['app-net'])
     for name, s in app['services'].items():
-        if name not in ('app-net', 'agent-host', 'agent-link-relay'):  # NX-037 D4: the Agent Host has its own namespace
+        if name not in ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery'):  # NX-037: own namespaces
             assert s['network_mode'] == 'service:app-net' and s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == 'false', name
+        if name in ('action-worker', 'webchat-delivery'):
+            assert s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == 'false', name
         image = s['image']
         assert image.startswith('${') and 'by digest' in image, name
     # The Agent Host holds only its own TLS, transport key and guard CA: no DSN, credential, signing key or Artifact directory.
@@ -141,3 +143,31 @@ def test_compose_examples_render_with_their_env_files_and_docker_compose_config(
         env.write_text('\n'.join(without('DATA_HOST_ADDR')) + '\n')
         with pytest.raises(AssertionError, match='DATA_HOST_ADDR'):
             interpolate((STAGE / 'compose.data.example.yaml').read_text(), env)
+
+
+def test_the_effect_worker_reaches_only_postgresql_and_the_enterprise_endpoint(env, tmp_path):
+    """NX-037 provider routing: the three new parameters are whitelisted and checked (a remote port such as 443 is allowed, the
+    local service ports keep their 1024+ rule), and the rendered APP_HOST rules give the effect worker namespace exactly
+    PostgreSQL on DATA_HOST and the one enterprise endpoint, after dropping model addresses and before its own default drop."""
+    good = env.read_text()
+    values = render.load_env(env)
+    assert values['ENTERPRISE_ENDPOINT_PORT'] == '443' and {'EFFECT_EGRESS_CIDR', 'ENTERPRISE_ENDPOINT_ADDR'} <= set(values)
+    for key, value in {'EFFECT_EGRESS_CIDR': '203.0.113.65/27', 'ENTERPRISE_ENDPOINT_ADDR': 'enterprise.invalid',
+                       'ENTERPRISE_ENDPOINT_PORT': '0', 'PG_PORT': '443'}.items():
+        env.write_text(re.sub(rf'^{key}=.*$', f'{key}={value}', good, flags=re.M))
+        with pytest.raises(render.Refused, match=key):
+            render.load_env(env)
+    env.write_text(good)
+    rules, _ = render.render((STAGE / 'firewall' / 'app-host.nft.template').read_text(), render.load_env(env))
+    effect = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['EFFECT_EGRESS_CIDR'])]
+    assert effect == [
+        f"ip saddr {values['EFFECT_EGRESS_CIDR']} ip daddr {{ {values['MODEL_PROVIDER_ALLOWLIST']} }} drop",
+        f"ip saddr {values['EFFECT_EGRESS_CIDR']} ip daddr {values['DATA_HOST_ADDR']} tcp dport {values['PG_PORT']} accept",
+        f"ip saddr {values['EFFECT_EGRESS_CIDR']} ip daddr {values['ENTERPRISE_ENDPOINT_ADDR']} tcp dport {values['ENTERPRISE_ENDPOINT_PORT']} accept",
+        f"ip saddr {values['EFFECT_EGRESS_CIDR']} ct state new drop"]
+    # The application namespace still never reaches the enterprise endpoint: its default drop is unchanged.
+    app = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['APP_CONTAINER_CIDR'])]
+    assert not any(values['ENTERPRISE_ENDPOINT_ADDR'] in l for l in app) and app[-1].endswith('ct state new drop')
+    # The Compose example's effect network is the same parameter (one value in both private files).
+    compose_env = (STAGE / 'compose.app.env.example').read_text()
+    assert f"EFFECT_EGRESS_CIDR={values['EFFECT_EGRESS_CIDR']}" in compose_env

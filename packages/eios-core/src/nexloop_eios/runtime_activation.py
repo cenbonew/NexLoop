@@ -290,7 +290,7 @@ class RuntimeActivationPort:
         from nexloop_eios.role_runs import request_envelope_scope
         with request_envelope_scope():return self._effect_tool(**arguments)
 
-    def _effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None,request_scope=None):
+    def _effect_tool(self,*,activation_ref,command,tool_operation,parameters=None,intent_id=None,request_scope=None,action='nexloop.service.request'):
         """Trusted Host bridge; actual owned activation selects the Run.
 
         Admission and the final lease/source recheck share one transaction.
@@ -303,6 +303,8 @@ class RuntimeActivationPort:
         started=time.monotonic();stage='validate';run=None
         try:
             if tool_operation not in ('submit','find'):raise ValueError()
+            from nexloop_eios.effect_contexts import EFFECT_ACTIONS
+            if action not in EFFECT_ACTIONS:raise ValueError()
             if tool_operation=='submit':
                 if type(parameters) is not dict or intent_id is not None:raise ValueError()
                 arguments={'parameters':parameters,'request_scope':request_scope}
@@ -321,6 +323,8 @@ class RuntimeActivationPort:
                 resolved=self._execute(db,self._signed(queue,'resolve',**binding))
                 run=_identity(db,resolved['_run_digest'],self.session.world)
                 if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
+                # ADR-030: a Run may use only the effect Actions its credential grants (the enterprise slot is optional).
+                if f'eios:action:{action}:1' not in run.run_context.allowed_resources:raise ValueError()
                 # Same-Run tool requests serialize here, before the first guard, in one lock
                 # order (same key as the 0085 submit lock, reentrant in this transaction); this
                 # removes the 0039 execution-marker / row-lock cycle between concurrent guards.
@@ -335,7 +339,7 @@ class RuntimeActivationPort:
                 stage='guard_before'
                 guard()
                 stage='intent'
-                receipt=EffectIntentPort(self.pool,run,self.signer)._execute_in_transaction(
+                receipt=EffectIntentPort(self.pool,run,self.signer,action=action)._execute_in_transaction(
                     db,tool_operation,action_version=1,runtime_refs={'consumer_ref':command['consumer_ref'],
                         'goal_version_ref':command['goal_version_ref']},**arguments)
                 stage='guard_after'
