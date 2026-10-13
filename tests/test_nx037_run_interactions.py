@@ -202,16 +202,24 @@ def test_the_test_stack_is_refused_outside_a_synthetic_tenant_the_real_driver_an
     synthetic driver and a trial currency other than CNY are refused before any connection."""
     def no_connection(_):
         raise AssertionError('must refuse before connecting')
+    routes = loopback_routes_file(tmp_path)
     real_tenant = '7d3c0a5e-1b2f-4c6d-8e9f-0a1b2c3d4e5f'
-    assert R.main(real_args(tmp_path, **{'--tenant': real_tenant}), connect=no_connection, test_stack=True) == 3
+    assert R.main(real_args(tmp_path, **{'--tenant': real_tenant}), connect=no_connection, test_stack=True, provider_routes_file=routes) == 3
     assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_needs_synthetic_tenant']
-    assert R.main(['--driver', 'synthetic', '--trial-id', TRIAL_ID, '--out', str(tmp_path / 'syn')], connect=no_connection, test_stack=True) == 3
+    assert R.main(['--driver', 'synthetic', '--trial-id', TRIAL_ID, '--out', str(tmp_path / 'syn')], connect=no_connection, test_stack=True,
+                  provider_routes_file=routes) == 3
     assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_needs_real_driver', 'test_stack_needs_synthetic_tenant']
+    # A non-loopback enterprise route (a documentation address standing in for a real endpoint), or no routes file: refused.
+    remote = loopback_routes_file(tmp_path / 'remote', enterprise='https://' + '.'.join(['203', '0', '113', '7']) + ':443')
+    assert R.main(real_args(tmp_path), connect=no_connection, test_stack=True, provider_routes_file=remote) == 3
+    assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_routes_not_loopback']
+    assert R.main(real_args(tmp_path), connect=no_connection, test_stack=True) == 3
+    assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_routes_not_loopback']
     usd = json.loads(R.TRIAL.read_text())
     usd['currency'] = 'USD'
     usd_file = tmp_path / 'usd-trial.json'
     usd_file.write_text(json.dumps(usd))
-    assert R.main(real_args(tmp_path) + ['--trial-config', str(usd_file)], connect=no_connection, test_stack=True) == 3
+    assert R.main(real_args(tmp_path) + ['--trial-config', str(usd_file)], connect=no_connection, test_stack=True, provider_routes_file=routes) == 3
     assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_currency_not_cny']
     assert '--test-stack' not in json.dumps(R.__doc__) and R.main(real_args(tmp_path) + ['--test-stack'], connect=no_connection) == 3
     assert not (tmp_path / 'real').exists() and not (tmp_path / 'syn').exists()
@@ -232,6 +240,34 @@ def test_the_test_stack_host_is_deterministic_and_still_in_the_trial_currency(tm
     tariff = ROOT / 'deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json'
     model = host(runtime_profile='deepseek-flash', cost_currency='CNY', model_tariff_file=str(tariff))
     assert R.currency_preconditions('CNY', model, reply, test_stack=True) == ['test_stack_host_not_deterministic']
+    for key, value in (('model_tariff_file', str(tariff)), ('model_configuration_file', 'model.json'), ('maximum_request_cost', '0.45')):
+        mixed = host(runtime_profile='deterministic-test', cost_currency='CNY', **{key: value})
+        assert R.currency_preconditions('CNY', mixed, reply, test_stack=True) == ['test_stack_host_not_deterministic'], key
+
+
+def loopback_routes_file(directory, enterprise='https://127.0.0.1:9443'):
+    directory.mkdir(exist_ok=True)
+    configs = {}
+    for action, origin in (('nexloop.service.request', 'https://127.0.0.1:9444'), ('nexloop.enterprise.deliver', enterprise)):
+        path = directory / (action + '.json')
+        path.write_text(json.dumps({'origin': origin}))
+        configs[action] = str(path)
+    routes = directory / 'routes.json'
+    routes.write_text(json.dumps({'schema': 'nexloop-effect-provider-routes/1', 'routes': configs}))
+    return routes
+
+
+def test_loopback_routes_accept_only_loopback_origins(tmp_path):
+    assert R.loopback_routes(loopback_routes_file(tmp_path / 'a'))
+    assert R.loopback_routes(loopback_routes_file(tmp_path / 'b', enterprise='https://localhost:9443'))
+    assert R.loopback_routes(loopback_routes_file(tmp_path / 'c', enterprise='https://[::1]:9443'))
+    assert not R.loopback_routes(loopback_routes_file(tmp_path / 'd', enterprise='https://enterprise.example.invalid'))
+    assert not R.loopback_routes(tmp_path / 'absent.json')
+
+
+def test_test_stack_tenants_are_the_synthetic_tenant_constants():
+    from support.tenants import TENANT_A, TENANT_B, TENANT_OTHER
+    assert R.TEST_STACK_TENANTS == {TENANT_A, TENANT_B, TENANT_OTHER} and R.SYNTHETIC_TENANT == TENANT_A
 
 
 def test_test_stack_records_state_and_evidence_pack_are_never_real_evidence(tmp_path):

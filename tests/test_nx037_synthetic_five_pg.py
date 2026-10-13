@@ -11,8 +11,8 @@ Action switch of the enterprise delivery). The tenant is the synthetic TENANT_A.
 The person playing the customer is an automated operator over the same HTTPS API as the WebChat; for the takeover it also
 plays the staff (the 0126/0127 handlers as the governed entry calls them), and for the unknown result it switches the
 endpoint's local drill ("the next answer comes after NexLoop's deadline"). The run entry's RealDriver only observes (0172,
-0480 here): one interaction of each kind, in the order ordinary reply, enterprise delivery, takeover, unknown result,
-refusal; the trial pauses after the three calibration interactions and resumes with the owner's confirmation.
+0480 and 0481 here): one interaction of each kind, in the order ordinary reply, enterprise delivery, unknown result,
+refusal, takeover (the restricted customer writes again); the trial pauses after the three calibration interactions and resumes with the owner's confirmation.
 
 Run serially (Node 24, the built Host)."""
 import contextlib
@@ -52,7 +52,9 @@ import run_interactions as R  # noqa: E402
 pytestmark = pytest.mark.nx037_test_stack
 TRIAL_ID = '37d00000-0000-4000-8000-000000000005'
 DELIVER = 'eios:action:nexloop.enterprise.deliver:1'
-ORDER = ['ordinary_reply', 'real_delivery', 'human_takeover', 'unknown_reconciliation', 'restricted_after_refusal']
+# The refusal comes before the takeover: the restricted customer writes again and gets its bound reply (ADR-023 rule 6, 0481).
+# The enterprise deliveries come first: a contact restriction stops them at dispatch (customer_contact, effect categories v3).
+ORDER = ['ordinary_reply', 'real_delivery', 'unknown_reconciliation', 'restricted_after_refusal', 'human_takeover']
 MARKER = '企业交付：'  # the deterministic Host's synthetic enterprise delivery protocol (deterministic_enterprise_deliver)
 TEXT = {'ordinary_reply': '你好，想咨询一下合成服务的营业时间', 'real_delivery': MARKER + '合成工单：上门检查一次',
         'human_takeover': '我想找人工客服聊聊合成订单', 'unknown_reconciliation': MARKER + '合成工单：结果暂时未知的一次',
@@ -377,12 +379,12 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
             return psycopg.connect(Path(path).read_text().strip(), autocommit=True)
         # Without the test stack the deterministic Host is refused (host_not_real_model): the escape is a keyword, never the CLI.
         assert R.main(argv, environ=opened, connect=connect, operator=operator) == 3 and not out.exists()
-        first = R.main(argv, environ=opened, connect=connect, operator=operator, test_stack=True)
+        first = R.main(argv, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes)
         assert operator.errors == [], operator.errors[-1]
         state = json.loads((out / 'state.json').read_text())
         assert operator.errors == [], operator.errors
         assert first == 1 and state['status'] == 'paused' and state['rules'] == ['calibration'] and state['at_seq'] == 3, (state, pump.failures)
-        second = R.main([*argv, '--resume', 'owner-confirmation:nx037-five'], environ=opened, connect=connect, operator=operator, test_stack=True)
+        second = R.main([*argv, '--resume', 'owner-confirmation:nx037-five'], environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes)
         state = json.loads((out / 'state.json').read_text())
         assert second == 0 and state['status'] == 'completed' and state['recorded'] == 5, (state, pump.failures)
         assert pump.failures == [], pump.failures

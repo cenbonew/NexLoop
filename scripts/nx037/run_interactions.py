@@ -23,7 +23,9 @@ after each, the executor collects its evidence and applies the stop and pause ru
 
 Test stack (no CLI option; tests call main(..., test_stack=True)): the real driver against the local synthetic stack, a
 deterministic-test Host instead of the model, only for a synthetic test tenant (tests/support/tenants; a real tenant uuid is
-refused) and still in the trial currency CNY. Every record and the state are marked test_stack: true, and an evidence pack
+refused), a Host configuration without any real model item (no model_tariff_file, model_configuration_file or
+maximum_request_cost), every effect provider route of the run on a loopback origin (127.0.0.1, ::1, localhost; the caller passes
+the effect worker's routes file), and still in the trial currency CNY. Every record and the state are marked test_stack: true, and an evidence pack
 of such a trial says real_evidence: false. It is never evidence of the real trial.
 
 A stopped trial never resumes (start a new trial id). A paused trial continues only with --resume and the owner's confirmation
@@ -102,7 +104,7 @@ def currency_preconditions(currency, host_config_file, reply_policy=None, *, tes
     except (OSError, ValueError):
         return ['host_config_unreadable']
     if test_stack:
-        if host.get('runtime_profile') != 'deterministic-test':
+        if host.get('runtime_profile') != 'deterministic-test' or any(k in host for k in REAL_MODEL_KEYS):
             failed.append('test_stack_host_not_deterministic')
     elif host.get('runtime_profile') != 'deepseek-flash':
         failed.append('host_not_real_model')
@@ -138,9 +140,27 @@ def _connect(dsn_file):
     return psycopg.connect(Path(dsn_file).read_text(encoding='utf-8').strip(), autocommit=True)
 
 
-def test_stack_refusals(args, trial):
-    """Refusal codes of a test stack trial: the real driver only, a synthetic test tenant only, the trial currency CNY."""
+REAL_MODEL_KEYS = ('model_tariff_file', 'model_configuration_file', 'maximum_request_cost')
+LOOPBACK = ('127.0.0.1', '::1', 'localhost')
+
+
+def loopback_routes(routes_file):
+    """True when every provider route of the effect worker's routes file has a loopback origin."""
+    from urllib.parse import urlsplit
+    try:
+        body = json.loads(Path(routes_file).read_text(encoding='utf-8'))
+        configs = [json.loads(Path(c).read_text(encoding='utf-8')) for c in body['routes'].values()]
+        return bool(configs) and all(urlsplit(c['origin']).hostname in LOOPBACK for c in configs)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
+def test_stack_refusals(args, trial, provider_routes_file=None):
+    """Refusal codes of a test stack trial: the real driver only, a synthetic test tenant only, loopback provider routes
+    only, the trial currency CNY."""
     failed = []
+    if provider_routes_file is None or not loopback_routes(provider_routes_file):
+        failed.append('test_stack_routes_not_loopback')
     if args.driver != 'real':
         failed.append('test_stack_needs_real_driver')
     if args.tenant not in TEST_STACK_TENANTS:
@@ -150,7 +170,7 @@ def test_stack_refusals(args, trial):
     return failed
 
 
-def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack=False):
+def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack=False, provider_routes_file=None):
     from nexloop_eios import controlled_interactions as X
     from nexloop_eios import interaction_drivers as D
     environ = os.environ if environ is None else environ
@@ -181,7 +201,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
         trial = X.load_plan(args.trial_config)
         plan = load_interaction_plan(args.plan_file, trial)
         if test_stack:
-            refused = test_stack_refusals(args, trial)
+            refused = test_stack_refusals(args, trial, provider_routes_file)
             if refused:
                 return emit({'ok': False, 'refused': refused, 'trial_id': args.trial_id}, 3)
         if args.driver == 'synthetic':

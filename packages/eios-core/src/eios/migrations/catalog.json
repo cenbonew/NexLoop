@@ -935,6 +935,11 @@
       "version": "0480",
       "name": "0480_nx037_observation_unknown_open.sql",
       "sha256": "a4a0d507dbfadc44498f2e18dfb9b5c217bb67bb3e95a5d9936e3a40af98b467"
+    },
+    {
+      "version": "0481",
+      "name": "0481_nx037_contact_after_refusal_bound_replies.sql",
+      "sha256": "dde3c20c2ff874705812238d56ff8392f4589536532bb801c475b5596b64dd10"
     }
   ]
 }

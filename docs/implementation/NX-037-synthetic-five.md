@@ -29,7 +29,10 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 | 租户就绪 | 用 configurator 角色应用效应类别 v3 和告警规则 v4（只声明已发布的 Action）。100 CNY 的模型预算作为测试种子直接写入（见 §5）。 |
 | 运行入口 | `run_interactions.main([... '--driver', 'real' ...], test_stack=True, operator=Operator)`。驱动用 RealDriver，只观察，不代发任何消息。 |
 
-交互计划：试运行配置取 v2（CNY；上限 100/2/300；告警规则 v4；效应类别 v3），总数改为 5，五类各 1 次。顺序是：普通回复、企业交付、人工接管、结果未知、拒绝。
+交互计划：试运行配置取 v2（CNY；上限 100/2/300；告警规则 v4；效应类别 v3），总数改为 5，五类各 1 次。顺序是：普通回复、企业交付、结果未知、拒绝、人工接管。
+
+- 企业交付排在拒绝之前：拒绝后客户被限制，企业交付属于 customer_contact，派发时会被拒（效应类别 v3）。
+- 人工接管排在拒绝之后：受限客户再次来信，Agent 回复这条来信，属于 ADR-023 第 6 条允许的联系，试运行不应停止（见 §4.4）。
 
 真实模式的流程照样保留：前 3 次是校准交互，跑完后暂停（`calibration`）；拿到 owner 的确认引用（`--resume`）后，再跑完剩下 2 次。
 
@@ -55,7 +58,7 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 | 企业交付 | 意图为 `{fulfilled: 2}`，即回复和交付各一个。交付工单落在参考端点的 SQLite 里，`consumer_ref` 是该客户；同一个 intent 只 POST 过一次。 |
 | 结果未知 | 端点对这个 intent 的请求序列恰好是 `POST, GET`：先记为 unknown，再查询对账，没有重发。账本事件里有 `unknown`，最终状态 `fulfilled`。 |
 | 人工接管 | 接管期间那条来信没有 Agent 回复，只有 staff 回复（`sender_kind: human_takeover`）。 |
-| 拒绝 | 客户被拒绝消息本身限制住（`contact_restrictions.message_id` 等于这条消息）；绑定到这条消息的那一条回复照常发出（ADR-023 §2.6）。 |
+| 拒绝 | 客户被拒绝消息本身限制住（`contact_restrictions.message_id` 等于这条消息）；绑定到这条消息的那一条回复照常发出（ADR-023 第 6 条）。之后的人工接管交互里，受限客户再来信，Agent 回复照常发出，试运行没有停止。 |
 | 预算和币种 | 模型预算为 CNY 100；试运行 state 和每条记录都按 CNY 计；证据包 summary 的币种也是 CNY。 |
 | 证据包 | `evidence_pack.py --trial` 生成的证据包：`index.json` 里 `test_stack: true`、`real_evidence: false`；`summary.by_kind` 五类各 1；`check()` 结果干净。 |
 
@@ -85,11 +88,12 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 改动在 `scripts/nx037/run_interactions.py`，测试在 `tests/test_nx037_run_interactions.py`。
 
 - 只能通过关键字参数开启，不提供 CLI 选项。
-- 要求：
+- 要求（每条都有反例测试）：
   - 使用 real 驱动；
-  - 租户必须是合成测试租户（`tests/support/tenants` 的三个常量），真实租户 uuid 一律拒绝；
-  - 试运行币种必须是 CNY；
-  - Host 必须是 `deterministic-test` 档，币种仍与试运行一致；这时不要求 tariff。
+  - 租户必须是合成测试租户（与 `tests/support/tenants` 的三个常量同源，有测试核对二者相等），真实租户 uuid 一律拒绝；`world` 和 `data_mode` 可以是 real，因为企业交付只在 real 下派发（0153）；
+  - Host 必须是 `deterministic-test` 档，且不能出现任何真实模型配置项（`model_tariff_file`、`model_configuration_file`、`maximum_request_cost`），币种仍与试运行一致；
+  - 调用方必须传入 effect worker 的路由文件（关键字参数 `provider_routes_file`），其中每条 provider 路由的 origin 都必须是回环地址（127.0.0.1、::1、localhost）；没有路由文件，或者有一条非回环的企业端点，都拒绝。这样即使测试开关被误带进部署环境，也到不了真实端点；
+  - 试运行币种必须是 CNY。
 - real 模式原有的其他前置检查不变：租户就绪核查、三层开关与计划完全一致、回复兜底预算的币种。
 - 记录和 state 都标 `test_stack: true`。暂停后恢复时不能切换栈，否则报 `PlanInvalid`。
 - 证据包遇到 `test_stack` 时写 `test_stack: true` 和 `real_evidence: false`，永远不能算作真实试运行的证据。
@@ -111,7 +115,35 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 
 **语义一致性**：0172 里没有其他读取 `intents_open` 的地方，它只被 RealDriver 的完成条件使用。0480 与 0172 的函数体只有这一行不同。
 
-### 4.4 测试夹具
+### 4.4 产品缺陷修复：0481，`contact_after_refusal` 按 ADR-023 第 6 条计数
+
+改动在 `packages/eios-core/src/eios/migrations/0481_nx037_contact_after_refusal_bound_replies.sql`，是临时编号。
+
+**缺陷**：0172 把限制生效后 Agent 的所有外发都计为"拒绝后联系"。而 ADR-023 第 6 条（负责人 2026-10-10 补充）规定，联系限制只挡主动外发：受限期间，对客户发来的某一条消息，允许发出一条绑定它的回复（同一会话、每条来信至多一条、在时间窗内）。因此：
+
+- 拒绝消息自己的那条回复：录入器写入会话流的时间若早于观测，就被计为 1，结果取决于时序；
+- 拒绝之后同一客户再来信：回复一定被计为 1，试运行停止。
+
+**新口径**（运行手册以此为准）：受限期间，下面两种情况才算违规：
+
+1. 发给受限客户、没有绑定到其会话内某条来信的 Agent 外发，从本次交互的提示时间算起（主动联系：跟进、营销、复评计划发起的触达；绑定到不存在或别处消息的也算）；
+2. 同一条来信有一条以上的可见回复（Agent 回复和 staff 回复都算）。
+
+调度员提出的第三种情况（来信在限制前受理、回复在限制后发出）不计入。依据是 ADR-023 第 6 条原文："对客户主动发来的某一条消息，允许回复"。这条规定只约束绑定关系、每条来信一条和时间窗，不区分来信是在限制前还是限制后受理；拒绝消息本身也是和限制在同一事务里写入的。超出时间窗的回复，派发时就会被拒绝。
+
+**测试**：`tests/test_nx037_contact_after_refusal_pg.py`，4 个用例：
+
+- 拒绝消息自己的回复，在写入前和写入后观测都计 0；
+- 拒绝后同一客户再来信，绑定回复计 0；
+- 主动外发计 1，绑定到不存在消息的外发再计 1；
+- 同一条来信的第二条可见回复计 1。
+
+**阳性对照**：
+
+- 去掉 0481 后，上面 4 个用例全部失败；
+- 去掉 0481 后，五类场景测试在第 5 次交互（拒绝后的人工接管）以 `contact_after_refusal` 停止；恢复 0481 后通过。
+
+### 4.5 测试夹具
 
 - `local_message_assembly_fixture`：带 marker `nx037_test_stack` 时，发布 `nexloop.enterprise.deliver:1`，执行者也持有这个 Action。不带 marker 时完全不变。
 - `test_trusted_configuration_pg.configured`：带同一个 marker 时，租户使用 `TENANT_A`。
@@ -133,7 +165,7 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 
 ## 6. real 模式还缺的外部材料与阻塞
 
-1. **企业交付和 v6 上下文包不兼容**（跨线问题，已回报调度员，未改动）：
+1. **企业交付和 v6 上下文包不兼容**（跨线问题，已转 L2，分支 `l2/v6-enterprise-slot`；L3 未改动）：
    - stage Host 配置为 v6，Host 在 `runtime-host.ts:167` 按 v6 校验；
    - stage 的 message-relay 没有 `--context-strategy`，产出的是 v2 包；
    - 企业槽位只存在于 v2 包（`message_relay.py:238`：使用 v6 时跳过企业槽位，原因 `context_unsupported`）。
@@ -145,18 +177,15 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 5. WebChat 渠道：渠道引用、扮演客户的员工账号；工作台 staff 账号（人工接管用）；owner 会话文件（0600）。
 6. 价值目录文件、试运行时间段。
 7. 证据包的其余条目：`inventory_before/after`、`release_manifest`、`ci_result`、`restore_drill`、`effect_reconciliation`、`public_preflight` 等。
-8. 停止规则 `contact_after_refusal` 与 ADR-023 §2.6 有冲突，待调度员决定（见 §7 第 2 条）。决定之前，真实试运行里拒绝场景应该用单独的客户来扮演。
 
 ## 7. 发现的产品缺陷
 
 1. **0172 的 `intents_open` 不统计 unknown**：已用 0480 修复，见 §4.3。
-2. **`contact_after_refusal` 会计入 ADR-023 §2.6 允许发出的绑定回复**（0172，L3；待调度员定修法）：
-   - (a) 拒绝消息自己的那条回复：如果录入器把它写进会话流的时间早于观测，就会被计为 1，结果取决于时序。本测试把拒绝排在最后，目前通过。
-   - (b) 拒绝之后同一客户的来信，得到的回复一定被计入。对照实验：把拒绝排在第 3 次，第 4 次（同一客户发来的接管消息）就以 `contact_after_refusal` 停止。计划 v2 里拒绝排在第 4 次，后面还有 26 次；如果全程只用一个客户，试运行会在拒绝后的第一次交互就停止。
-3. **relay 的 recipe 模式接受 `enterprise` 块，但 SQL 不认**（L2；已回报，未改动）：
+2. **`contact_after_refusal` 会计入 ADR-023 第 6 条允许发出的绑定回复**（0172，L3）：已用 0481 修复（调度员选 B 方案），见 §4.4。
+3. **relay 的 recipe 模式接受 `enterprise` 块，但 SQL 不认**（L2；已转 L2，分支 `l2/v6-enterprise-slot`；L3 未改动）：
    - `validate_recipe` 和 `MessageRelay` 都接受这个块；
    - 但 0180 的 issue 检查要求消息必须通过 relay claims 和 enrollment，recipe 模式下一律报 `enterprise slot unavailable`，CLI 只输出 "Message relay unavailable"。
 
    stage 用的是 run profile 模式，不受影响；本测试也已改走 enrollment。
-4. **真实模型下企业交付走不通**（跨线问题，L2/L4）：见 §6 第 1 条。
+4. **真实模型下企业交付走不通，stage relay 产出 v2 而 Host 校验 v6**（跨线问题，调度员已核实，已转 L2）：见 §6 第 1 条。
 5. 测试缺口（不是产品缺陷）：`tests/test_nx037_real_driver_pg.py` 没有启动出站消息录入器，因此从未断言过"回复出现在会话里"；本测试补上了这一点。
