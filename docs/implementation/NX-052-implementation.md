@@ -613,3 +613,23 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
 - 新增一张带 `tenant_id` 的表时，要么加租户外键，要么用 `tenant_id → tenant_id` 的复合外键引用一张已有租户路径的表。
 - 如果它属于 vendored 核心，就把它加入 `EXCEPTION_REASONS` 并写明理由。
 - 三者都不满足的，完整性断言会失败。
+
+### §11.4 N 状态失败的排查与修复（2026-10-13）
+
+- **现象**：CI 主机上的 N 状态（`NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`，检出 e5e7ebd，catalog 0186，C4-low，200 客户）在格开始后约 0.8 s 结束，`aborted=runner_error`，没有任何异常信息。
+  - `cell.json` 里没有 `login_rate_policy`，说明失败发生在 `Stack(...)` 构造期间，即 `stack.py` 的外键删除这一步或它之前。
+  - 原因是 `scripts/load/matrix.py` 的 `Cell.execute` 用 `except Exception` 吞掉了异常，只留下 `runner_error`。
+- **核对批次清单**：在当前 catalog（main 22ff9c3）bootstrap 出的库上：
+  - 9 个 NX-052 批次文件列出的 134 个约束全部存在，没有重名；
+  - `tenant_fk_state.drop(['all'])` 删除 134 个，无报错；
+  - 指向租户表的外键共 142 个，其余 8 个是 NX-052 之前就有的（批次本来就不含）。
+  
+  0178–0186 没有改动这些约束。用 5 个客户的模板、单格、`--timing-scale 0.05` 在本机复现 N 状态：格正常完成，删除 134 个。相关文件（stack.py、tenant_fk_state.py、matrix.py、load_template.py、迁移目录）在 e5e7ebd 与 22ff9c3 之间没有差异。**CI 上的失败在本机无法复现，原因还没有定位。**
+- **修复（让下一次失败自带证据）**：
+  - `matrix.py`：格中止时在 `cell.json` 写 `error`，内容为异常类型链（含 PostgreSQL 的 SQLSTATE）和 `文件:行:函数` 形式的调用栈，不写异常消息、原文和 ID（D8）；`matrix.log` 同时打印一行。另写 `tenant_fk_state`，记录删除了哪些批次、多少个约束，以及缺失的约束。
+  - `tenant_fk_state.drop`：先核对所有约束都存在，缺任何一个就抛 `TenantFkMismatch`，一个都不删；然后在一个事务里全部删除，不会删到一半。
+  - `stack.py` 把缺失约束的标识（`表.约束名`，只有模式名，没有数据），或"未知批次名"，写入 `tenant-fk-state.json`。
+- **测试**：
+  - `tests/test_load_matrix.py::test_an_aborted_cell_records_the_error_types_and_frames_without_text`；
+  - `tests/test_nx052_e2e.py::test_a_mismatched_batch_drops_nothing_and_the_cell_records_what_is_missing`。
+- **下一步**：在 CI 主机上用本修复重跑 N。新的 `cell.json` 的 `error` 与 `tenant_fk_state` 会直接给出失败的类型和位置。

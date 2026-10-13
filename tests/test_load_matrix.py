@@ -164,3 +164,25 @@ def test_relay_processes_is_a_bounded_runner_option_recorded_per_cell(tmp_path):
     assert cell.result['relay_processes'] == 2
     lane = (ROOT / 'scripts/load/run_on_lane.sh').read_text()
     assert '--relay-processes "${LOAD_RELAY_PROCESSES:-1}"' in lane and 'LOAD_RELAY_PROCESSES must be 1, 2 or 3' in lane
+
+
+def test_an_aborted_cell_records_the_error_types_and_frames_without_text(tmp_path):
+    """NX-052 N state (2026-10-13): a cell that aborted with runner_error left no trace. The cell now records the exception
+    types along the cause chain, a SQLSTATE and file:line:function frames, never the message (D8)."""
+    import psycopg
+    secret = 'tenant 00000000-0000-4000-8000-00000000000a constraint secret-text'
+    def inner():
+        raise psycopg.errors.UndefinedObject(secret)
+    try:
+        try:
+            inner()
+        except psycopg.Error as error:
+            raise RuntimeError(secret) from error
+    except RuntimeError as error:
+        described = M.describe_error(error)
+    assert described['chain'] == [{'type': 'builtins.RuntimeError'}, {'type': 'psycopg.errors.UndefinedObject', 'sqlstate': '42704'}]
+    assert any(f.startswith('test_load_matrix.py:') and f.endswith(':inner') for f in described['frames'])
+    assert secret not in json.dumps(described) and '00000000' not in json.dumps(described)
+    cell = _cell(tmp_path)
+    result = cell.abort('runner_error', RuntimeError(secret))
+    assert result['aborted'] == 'runner_error' and result['error']['chain'] == [{'type': 'builtins.RuntimeError'}] and secret not in json.dumps(result)

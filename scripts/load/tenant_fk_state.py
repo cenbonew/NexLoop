@@ -38,12 +38,32 @@ def constraints(batch):
     return re.findall(r'^alter table (\S+) add constraint (\S+) foreign key', path.read_text(), re.M)
 
 
+class TenantFkMismatch(Exception):
+    """A constraint an NX-052 batch file adds is not in the cluster (renamed, rebuilt or already dropped): nothing is dropped."""
+
+    def __init__(self, missing):
+        super().__init__(f'{len(missing)} NX-052 tenant foreign keys not found')
+        self.missing = missing
+
+
+def missing(db, batches):
+    """The batches' constraints (schema identifiers only) that the cluster does not have, as 'table.constraint'."""
+    present = {(t, n) for t, n in db.execute("select conrelid::regclass::text,conname from pg_constraint where contype='f'").fetchall()}
+    return [f'{t}.{n}' for b in expand(batches) for t, n in constraints(b) if (t, n) not in present]
+
+
 def drop(db, batches):
+    """Drop the batches' tenant foreign keys, all or none: every constraint is checked first, then all are dropped in one
+    transaction."""
+    absent = missing(db, batches)
+    if absent:
+        raise TenantFkMismatch(absent)
     dropped = []
-    for batch in expand(batches):
-        for table, name in constraints(batch):
-            db.execute(f'alter table {table} drop constraint {name}')
-            dropped.append(name)
+    with db.transaction():
+        for batch in expand(batches):
+            for table, name in constraints(batch):
+                db.execute(f'alter table {table} drop constraint {name}')
+                dropped.append(name)
     return dropped
 
 
