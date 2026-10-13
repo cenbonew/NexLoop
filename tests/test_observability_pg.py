@@ -163,7 +163,8 @@ def test_samples_accept_numbers_only(observed):
     for ms in [10] * 98 + [1999, 2500]:
         timings.observe(ms)
     sample, _ = timings.drain()
-    assert sample == {'calls': 100, 'timeouts': 1, 'errors': 0, 'p50_ms': 10.0, 'p95_ms': 10.0, 'max_ms': 2500.0}
+    assert {k: v for k, v in sample.items() if not k.startswith('h_')} == {'calls': 100, 'timeouts': 1, 'errors': 0, 'p50_ms': 10.0, 'p95_ms': 10.0, 'max_ms': 2500.0}
+    assert sum(v for k, v in sample.items() if k.startswith('h_')) == 100  # AT-060 5A histogram
     assert timings.drain()[0] is None and GUARD is not None
 
 

@@ -18,10 +18,10 @@
   cells/<cell_id>/
     cell.json                   # 格子配置与完成情况（必需）
     snapshots.jsonl             # NX-030 指标快照，稳态与排空期每 30 s 一行
-    process_samples.jsonl       # runtime.nexloop_process_samples 中窗口内的行（guard / pool / host）
+    process_samples.jsonl       # runtime.nexloop_process_samples 中窗口内的行（guard / guard_op / pool / host）
     runs.jsonl                  # 每个消息 Run 的分解时延（D6）
     acks.jsonl                  # 驱动端每次入站 POST 的 ACK 时延
-    dispatch.jsonl              # 派发时延（Run 任务入队 → 首次执行授权，不含模型时间）
+    dispatch.jsonl              # 派发分段：relay、排队、启动（4A，2026-10-13）
     refusals.jsonl              # 窗口内的派发拒绝（runtime.nexloop_dispatch_refusals）
     alerts.jsonl                # 窗口内的告警事件（control.nexloop_alert_events）
     checks.json                 # §4.4 的 7 项身份与结局核对
@@ -68,7 +68,8 @@
 每行格式：`{"kind": "guard"|"pool"|"host", "service": "...", "instance": "...", "window_start": "<ISO8601>", "window_seconds": 60, "sample": {...}}`
 
 `sample` 是 NX-030 写入的原样内容：
-- guard：`calls`、`timeouts`、`errors`、`p50_ms`、`p95_ms`、`max_ms`；
+- guard：`calls`、`timeouts`、`errors`、`p50_ms`、`p95_ms`、`max_ms`，以及延迟直方图 `h_<i>`（5A，2026-10-13：i 为 0–116，第 0 桶 ≤1 ms，第 i 桶为 (1.1^(i−1), 1.1^i] ms，最后一桶为开区间上沿，只写非空桶）；
+- guard_op（AT-060，临时迁移 0430）：按操作的同样字段与直方图，`service` 为操作名；
 - pool：`requests_waiting`、`requests_errors`、`pool_size` 等；
 - host：`active_runs`、`waiting`、`admission_timeouts` 等。
 
@@ -92,7 +93,7 @@
 ### `acks.jsonl` / `dispatch.jsonl`
 
 - `acks.jsonl`：`{"ack_ms": 38.2, "status": 202}`。只有状态为 202 的行计入 ACK 时延；其余状态按代码计数。
-- `dispatch.jsonl`：`{"dispatch_ms": 640}`。口径（调度员 2026-10-11）：消息 Run 任务入队（`runtime.jobs.created_at`）到这个 Run 的首次执行授权（`authz.nexloop_runtime_execution_markers.first_authorized_at`）。不含模型时间；D5 注入的模型时延只计入 `runs.jsonl` 的 e2e。Host 没有接受的 Run 不写。2 s 的限值只适用于这个口径。
+- `dispatch.jsonl`：`{"relay_ms": 120, "queue_ms": 180, "dispatch_ms": 300, "start_ms": 2400, "run_start_ms": 2580}`。口径（负责人 2026-10-13，4A，ROADMAP §7；恢复设计稿 §4.6）：`dispatch_ms` 为来信受理（`accepted_at`）到对应 Run 任务首次被 claim（`runtime.job_events` 的 running），等于 relay 段（受理 → 任务创建 `runtime.jobs.created_at`）加排队段（任务创建 → claim），2 s 门槛只适用于它。`start_ms`（claim → Host 首次执行授权）和 `run_start_ms`（任务创建 → 首次执行授权，即 2026-10-11 的旧口径）只观察。未发生的段为 null。只有 `dispatch_ms` 的旧格式行（2026-10-11 口径）在报告里标为 incomparable，不判通过。
 
 ### `refusals.jsonl` / `alerts.jsonl`
 
@@ -116,10 +117,10 @@
 | 项 | 计算方式 |
 |---|---|
 | 2 s 工具时限超时率 | guard 样本按分钟合并各服务的 `calls` 和 `timeouts`，在稳态窗口内取每个连续 5 分钟窗口的 `timeouts/calls`，取最大值，要求 ≤1% |
-| guard p95 | 稳态窗口内每分钟各服务 `p95_ms` 的最大值（保守口径：分钟样本无法精确合并成整体 p95），要求 ≤1500 ms |
+| guard p95 | 5A（负责人 2026-10-13，ROADMAP §7）：稳态窗口内全部 guard 调用的 p95，由各进程各窗口的直方图合并，取所在桶的几何中点（误差 ≤ ±4.9%），要求 ≤1500 ms（`guard_p95_ms`）。原"每分钟各服务 `p95_ms` 的最大值"保留为观察项 `guard_p95_ms_worst_minute`。没有直方图的旧结果标为 incomparable，不判通过 |
 | 死信 | 快照中 `queues.*.dead_lettered` 加 `feeds.*.dead_lettered` 在格子结束时减去格子开始时的增量，要求为 0（另外报告开始时的绝对值） |
 | ACK p95 | `acks.jsonl` 中 202 的行，要求 ≤500 ms |
-| 空闲队列派发 p95 | 只判 C4-low，`dispatch.jsonl`，要求 ≤2000 ms |
+| 空闲队列派发 p95 | 只判 C4-low，`dispatch.jsonl` 的 `dispatch_ms`（受理 → claim，4A），要求 ≤2000 ms；启动段与 `run_start_p95_ms` 只观察 |
 | 排空时间 | `drain.drained` 为 true，并且 `seconds` ≤600 |
 | 连接总数 | 快照中 `connections.total` 的峰值，要求 ≤60 |
 | critical 告警 | `alerts.jsonl` 中 severity 为 critical 且 kind 为 firing 的条数，要求为 0 |

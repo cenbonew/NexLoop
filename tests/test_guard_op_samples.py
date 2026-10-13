@@ -10,7 +10,7 @@ from psycopg.types.json import Jsonb
 
 from eios.authz.errors import AuthorizationUnavailable
 from nexloop_eios.bootstrap import bootstrap
-from nexloop_eios.observability import GUARD_OPERATIONS, GuardTimings
+from nexloop_eios.observability import GUARD_OPERATIONS, GuardTimings, histogram_bucket
 from test_agent_host import files
 from test_runtime_guard_transport import PATH, BODY, client
 
@@ -23,10 +23,12 @@ def test_overall_sample_is_unchanged_and_each_operation_gets_its_own():
     timings.observe(30, operation='not-an-operation')
     timings.drop()
     sample, _, by_operation = timings.drain_with_operations()
-    assert sample == {'calls': 103, 'timeouts': 1, 'errors': 2, 'p50_ms': 10.0, 'p95_ms': 10.0, 'max_ms': 2500.0}
+    h = lambda ms: f'h_{histogram_bucket(ms)}'
+    # The overall figures are as before; the histogram (5A) is added, every call in exactly one bucket.
+    assert {k: v for k, v in sample.items() if not k.startswith('h_')} == {'calls': 103, 'timeouts': 1, 'errors': 2, 'p50_ms': 10.0, 'p95_ms': 10.0, 'max_ms': 2500.0}
+    assert {k: v for k, v in sample.items() if k.startswith('h_')} == {h(10): 98, h(30): 1, h(40): 1, h(1999): 1, h(2500): 1}
     assert set(by_operation) == {'model', 'inspect', 'other'}
-    assert by_operation['model'] == {'calls': 100, 'timeouts': 1, 'errors': 0, 'p50_ms': 10.0, 'p95_ms': 10.0, 'max_ms': 2500.0,
-                                     'le_50': 98, 'le_100': 0, 'le_250': 0, 'le_500': 0, 'le_1000': 0, 'le_1500': 0, 'le_2000': 1, 'gt_2000': 1}
+    assert by_operation['model'] == {'calls': 100, 'timeouts': 1, 'errors': 0, 'p50_ms': 10.0, 'p95_ms': 10.0, 'max_ms': 2500.0, h(10): 98, h(1999): 1, h(2500): 1}
     assert by_operation['inspect']['errors'] == 1 and by_operation['other']['calls'] == 1
     empty, _, none = timings.drain_with_operations()
     assert empty is None and none == {}
@@ -76,14 +78,27 @@ def test_the_guard_labels_each_call_with_its_operation_and_answers_as_before(tmp
 
 def test_sql_accepts_guard_op_numbers_for_known_operations_only(admin, pg):
     bootstrap(admin)
-    sample = {'calls': 3, 'timeouts': 0, 'errors': 0, 'p50_ms': 1.0, 'p95_ms': 2.0, 'max_ms': 2.0, 'le_50': 3, 'le_100': 0, 'le_250': 0,
-              'le_500': 0, 'le_1000': 0, 'le_1500': 0, 'le_2000': 0, 'gt_2000': 0}
+    sample = {'calls': 3, 'timeouts': 0, 'errors': 0, 'p50_ms': 1.0, 'p95_ms': 2.0, 'max_ms': 2.0, 'h_0': 1, 'h_8': 1, 'h_116': 1}
     with psycopg.connect(make_conninfo(pg, user='nexloop_domain_worker'), autocommit=True) as db:
         record = lambda kind, service, value: db.execute('select authz.nexloop_record_process_sample(%s,%s,%s,now(),60,%s)', (kind, service, 'synthetic:1', Jsonb(value)))
         for operation in GUARD_OPERATIONS:
             record('guard_op', operation, sample)
+        record('guard', 'runtime-guard', sample)  # 5A: the overall sample carries the histogram too
         for kind, service, value in (('guard_op', 'drop_table', sample), ('guard_op', 'model', {**sample, 'operation': 1}),
-                                     ('guard_op', 'model', {'calls': 'many'}), ('guard', 'runtime-guard', {'le_50': 1})):
+                                     ('guard_op', 'model', {'calls': 'many'}), ('guard', 'runtime-guard', {'h_117': 1}),
+                                     ('guard', 'runtime-guard', {'h_01': 1}), ('guard', 'runtime-guard', {'h_3': 'x'}), ('host', 'agent-host', {'h_3': 1})):
             with pytest.raises(psycopg.errors.InvalidParameterValue):
                 record(kind, service, value)
     assert admin.execute("select count(*) from runtime.nexloop_process_samples where kind='guard_op'").fetchone() == (len(GUARD_OPERATIONS),)
+
+
+def test_histogram_buckets_bound_the_relative_error_by_5_percent():
+    """5A: bucket i holds (1.1^(i-1), 1.1^i] ms; the geometric midpoint is within sqrt(1.1)-1 < 5% of any value in it."""
+    import math
+    from nexloop_eios.observability import HISTOGRAM_LAST, HISTOGRAM_RATIO
+    assert histogram_bucket(0.2) == 0 and histogram_bucket(1.0) == 0 and histogram_bucket(1.05) == 1 and histogram_bucket(10 ** 9) == HISTOGRAM_LAST
+    for ms in [1.01 * 1.0137 ** k for k in range(800)]:
+        i = histogram_bucket(ms)
+        if 1 <= i < HISTOGRAM_LAST:
+            assert HISTOGRAM_RATIO ** (i - 1) < ms <= HISTOGRAM_RATIO ** i * (1 + 1e-12)
+            assert abs(HISTOGRAM_RATIO ** (i - 0.5) - ms) / ms <= math.sqrt(HISTOGRAM_RATIO) - 1 < 0.05

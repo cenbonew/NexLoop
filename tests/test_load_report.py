@@ -21,6 +21,25 @@ CONFIG = {'C1': (1, 1.0, True, False), 'C2': (2, 1.0, True, False), 'C4': (4, 1.
 SENTINEL = '哨兵原文-请勿外传'
 
 
+def bucket(ms):
+    import math
+    return 0 if ms <= 1 else min(report.HISTOGRAM_LAST, math.ceil(math.log(ms) / math.log(report.HISTOGRAM_RATIO) - 1e-9))
+
+
+def estimate(ms):
+    """What the merged histogram reports for a p95 landing in ms's bucket."""
+    return round(report.HISTOGRAM_RATIO ** (bucket(ms) - 0.5), 1)
+
+
+def histogram(calls, p95):
+    """94% of the calls at 300 ms, the rest at p95: the merged p95 falls in p95's bucket."""
+    tail = max(1, round(calls * 0.06))
+    out = {f'h_{bucket(300)}': calls - tail}
+    key = f'h_{bucket(p95)}'
+    out[key] = out.get(key, 0) + tail
+    return out
+
+
 def iso(t):
     return t.isoformat().replace('+00:00', 'Z')
 
@@ -37,7 +56,8 @@ def snapshot(dead=0, pending=0, connections=40):
 
 
 def make_cell(cells, name, *, guard=(100, 0, 900.0), ack=120.0, dispatch=600.0, dead_end=0, connections=40, critical=0,
-              refusals=('NXC05',), identity_violation=0, unresolved=0, drained=True, drain_seconds=120, completed=True, skip=(), ids_compared=120):
+              refusals=('NXC05',), identity_violation=0, unresolved=0, drained=True, drain_seconds=120, completed=True, skip=(), ids_compared=120,
+              legacy=False):
     concurrency, rate, background, ci = CONFIG[name]
     d = cells / name
     d.mkdir(parents=True)
@@ -56,7 +76,8 @@ def make_cell(cells, name, *, guard=(100, 0, 900.0), ack=120.0, dispatch=600.0, 
         for minute in range(10):
             for service in ('runtime-guard-1', 'runtime-guard-2'):
                 rows.append({'kind': 'guard', 'service': service, 'instance': 'i', 'window_start': iso(START + timedelta(minutes=minute)), 'window_seconds': 60,
-                             'sample': {'calls': calls, 'timeouts': timeouts if minute in (3, 4) else 0, 'errors': 0, 'p50_ms': 300.0, 'p95_ms': p95, 'max_ms': p95 + 100}})
+                             'sample': {'calls': calls, 'timeouts': timeouts if minute in (3, 4) else 0, 'errors': 0, 'p50_ms': 300.0, 'p95_ms': p95, 'max_ms': p95 + 100,
+                                        **({} if legacy else histogram(calls, p95))}})
             rows.append({'kind': 'host', 'service': 'agent-host', 'instance': 'h', 'window_start': iso(START + timedelta(minutes=minute)), 'window_seconds': 60,
                          'sample': {'active_runs': concurrency, 'waiting': 1, 'max_active_runs': concurrency, 'admission_timeouts': 0, 'available': True}})
             rows.append({'kind': 'pool', 'service': 'api', 'instance': 'p', 'window_start': iso(START + timedelta(minutes=minute)), 'window_seconds': 60,
@@ -67,7 +88,15 @@ def make_cell(cells, name, *, guard=(100, 0, 900.0), ack=120.0, dispatch=600.0, 
     if 'acks' not in skip:
         write_lines(d / 'acks.jsonl', [{'ack_ms': ack if i % 10 == 0 else 40.0, 'status': 202} for i in range(200)] + [{'ack_ms': 5.0, 'status': 409}])
     if 'dispatch' not in skip:
-        write_lines(d / 'dispatch.jsonl', [{'dispatch_ms': dispatch if i % 10 == 0 else 300} for i in range(100)])
+        if legacy:  # before 4A: task created -> first execution authorization
+            write_lines(d / 'dispatch.jsonl', [{'dispatch_ms': dispatch if i % 10 == 0 else 300} for i in range(100)])
+        else:
+            rows = []
+            for i in range(100):
+                total = dispatch if i % 10 == 0 else 300.0
+                rows.append({'relay_ms': 100.0, 'queue_ms': total - 100.0, 'dispatch_ms': total, 'start_ms': 2400.0, 'run_start_ms': total - 100.0 + 2400.0})
+            rows.append({'relay_ms': 50.0, 'queue_ms': None, 'dispatch_ms': None, 'start_ms': None, 'run_start_ms': None})  # not claimed yet
+            write_lines(d / 'dispatch.jsonl', rows)
     write_lines(d / 'refusals.jsonl', [{'code': c, 'at': iso(START)} for c in refusals])
     write_lines(d / 'alerts.jsonl', [{'rule_id': 'guard_timeout_rate', 'severity': 'critical', 'kind': 'firing', 'at': iso(START)}] * critical
                 + [{'rule_id': 'reply_pending_age', 'severity': 'warning', 'kind': 'firing', 'at': iso(START)}])
@@ -108,7 +137,8 @@ def test_all_cells_pass_and_report_carries_no_text_or_ids(run_dir, tmp_path):
     assert json.loads(result.stdout) == {'written': True, 'at060': 'passed', 'gates': {'C4': 'passed', 'C4-low': 'passed'}}
     data = json.loads((tmp_path / 'out/report.json').read_text())
     c4 = next(c for c in data['cells'] if c['cell'] == 'C4')
-    assert c4['metrics']['guard_timeout_rate_5m_max'] == 0.0 and c4['metrics']['guard_p95_ms_max'] == 900.0  # the out-of-window sample is ignored
+    assert c4['metrics']['guard_timeout_rate_5m_max'] == 0.0 and c4['metrics']['guard_p95_ms_worst_minute'] == 900.0  # the out-of-window sample is ignored
+    assert c4['metrics']['guard_p95_ms'] == estimate(900.0)
     assert c4['metrics']['ack_p95_ms'] == 120.0 and c4['metrics']['connections_peak'] == 40 and c4['metrics']['backlog_pending_max'] == 7
     assert c4['refusals'] == {'expected': {'NXC05': 1}, 'unexpected': {}} and c4['alerts_firing'] == {'warning:reply_pending_age': 1}
     assert c4['decomposition']['runs'] == 50 and c4['decomposition']['runs_without_tool_timing'] == 5
@@ -130,7 +160,7 @@ def test_gate_failure_is_recorded_not_relaxed(run_dir):
     c4 = gates['C4']['items']
     assert gates['C4']['result'] == 'failed' and c4['ack_p95_ms']['value'] == 900.0 and c4['ack_p95_ms']['result'] == 'fail'
     assert c4['guard_timeout_rate_5m_max']['value'] == 0.012 and c4['guard_timeout_rate_5m_max']['result'] == 'fail'  # 2 bad minutes / 5-minute window
-    assert c4['guard_p95_ms_max']['result'] == 'fail' and c4['connections_peak']['result'] == 'fail' and c4['critical_alerts']['result'] == 'fail'
+    assert c4['guard_p95_ms']['result'] == 'fail' and c4['connections_peak']['result'] == 'fail' and c4['critical_alerts']['result'] == 'fail'
     assert c4['unexpected_refusals']['value'] == 1 and c4['dead_letters_delta']['value'] == 2
     low = gates['C4-low']['items']
     assert low['idle_dispatch_p95_ms']['result'] == 'fail' and low['drain_seconds']['result'] == 'fail' and low['unresolved_work']['result'] == 'fail'
@@ -144,7 +174,7 @@ def test_missing_measurement_on_a_gate_fails_and_missing_cell_blocks(run_dir):
     all_cells(run_dir, **{'C4': {'skip': ('acks', 'samples')}})
     data = report.build(run_dir)
     c4 = next(c for c in data['cells'] if c['cell'] == 'C4')['gate']
-    assert c4['result'] == 'failed' and c4['items']['ack_p95_ms']['result'] == 'missing' and c4['items']['guard_p95_ms_max']['result'] == 'missing'
+    assert c4['result'] == 'failed' and c4['items']['ack_p95_ms']['result'] == 'missing' and c4['items']['guard_p95_ms']['result'] == 'missing'
     import shutil
     shutil.rmtree(run_dir / 'cells' / 'C4-peak')
     assert report.build(run_dir)['at060'] == {'result': 'blocked', 'reasons': ['cells_not_run:C4-peak']}
@@ -181,32 +211,31 @@ def test_an_empty_model_context_sample_fails_a_gate_cell_and_only_records_in_an_
     assert c4['items']['model_context_sample'] == {'value': None, 'limit': 1, 'result': 'missing'} and c4['result'] == 'failed'
 
 
-def test_guard_operations_table_per_cell_leaves_guard_p95_unchanged(run_dir):
-    """AT-060: guard_op samples become a per-operation table (informational); guard_p95_ms_max still reads only kind guard."""
+def test_guard_operations_table_per_cell(run_dir):
+    """AT-060: guard_op samples become a per-operation table (informational, merged p95 per operation); the gated guard_p95_ms
+    reads only kind guard."""
     all_cells(run_dir)
-    before = next(c for c in report.build(run_dir)['cells'] if c['cell'] == 'C4')['metrics']['guard_p95_ms_max']
+    before = next(c for c in report.build(run_dir)['cells'] if c['cell'] == 'C4')['metrics']['guard_p95_ms']
     path = run_dir / 'cells' / 'C4' / 'process_samples.jsonl'
     rows = [json.loads(x) for x in path.read_text().splitlines()]
-    buckets = lambda **k: {'le_50': 0, 'le_100': 0, 'le_250': 0, 'le_500': 0, 'le_1000': 0, 'le_1500': 0, 'le_2000': 0, 'gt_2000': 0, **k}
-    for minute, (p95, slow) in enumerate(((1200.0, 1), (5000.0, 2))):
+    for minute, worst in enumerate((1200.0, 5000.0)):
         at = iso(START + timedelta(minutes=minute))
         rows.append({'kind': 'guard_op', 'service': 'model', 'instance': 'i', 'window_start': at, 'window_seconds': 60,
-                     'sample': {'calls': 20, 'timeouts': slow - 1, 'errors': 0, 'p50_ms': 300.0, 'p95_ms': p95, 'max_ms': p95 + 1,
-                                **buckets(le_500=18, le_1500=2 - (slow - 1), gt_2000=slow - 1)}})
+                     'sample': {'calls': 20, 'timeouts': minute, 'errors': 0, 'p50_ms': 300.0, 'p95_ms': worst, 'max_ms': worst + 1, f'h_{bucket(300)}': 17, f'h_{bucket(1000)}': 3}})
         rows.append({'kind': 'guard_op', 'service': 'inspect', 'instance': 'i', 'window_start': at, 'window_seconds': 60,
-                     'sample': {'calls': 10, 'timeouts': 0, 'errors': 0, 'p50_ms': 20.0, 'p95_ms': 40.0, 'max_ms': 45.0, **buckets(le_50=10)}})
+                     'sample': {'calls': 10, 'timeouts': 0, 'errors': 0, 'p50_ms': 20.0, 'p95_ms': 40.0, 'max_ms': 45.0, f'h_{bucket(40)}': 10}})
     rows.append({'kind': 'guard_op', 'service': 'model', 'instance': 'i', 'window_start': iso(START + timedelta(minutes=30)), 'window_seconds': 60,
-                 'sample': {'calls': 99, 'p95_ms': 9999.0}})  # outside the steady window: ignored
+                 'sample': {'calls': 99, 'p95_ms': 9999.0, f'h_{bucket(9999)}': 99}})  # outside the steady window: ignored
     path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
     data = report.build(run_dir)
     c4 = next(c for c in data['cells'] if c['cell'] == 'C4')
-    assert c4['metrics']['guard_p95_ms_max'] == before
+    assert c4['metrics']['guard_p95_ms'] == before
     assert c4['guard_operations'] == {
-        'inspect': {'calls': 20, 'timeouts': 0, 'errors': 0, 'p50_ms_max': 20.0, 'p95_ms_max': 40.0, 'max_ms': 45.0, 'p95_le_ms': 50},
-        'model': {'calls': 40, 'timeouts': 1, 'errors': 0, 'p50_ms_max': 300.0, 'p95_ms_max': 5000.0, 'max_ms': 5001.0, 'p95_le_ms': 1500}}
+        'inspect': {'calls': 20, 'timeouts': 0, 'errors': 0, 'p95_ms': estimate(40), 'p95_ms_worst_minute': 40.0, 'max_ms': 45.0},
+        'model': {'calls': 40, 'timeouts': 1, 'errors': 0, 'p95_ms': estimate(1000.0), 'p95_ms_worst_minute': 5000.0, 'max_ms': 5001.0}}
     assert next(c for c in data['cells'] if c['cell'] == 'C2')['guard_operations'] == {}
     text = report.markdown(data)
-    assert '| C4 | model | 40 | 1 | 0 | 300 | 5000 | 1500 | 5001 |' in text and '| C2 | missing |' in text
+    assert f"| C4 | model | 40 | 1 | 0 | {estimate(1000.0):g} | 5000 | 5001 |" in text and '| C2 | missing |' in text
 
 
 def test_ci_interference_with_baseline(run_dir, tmp_path):
@@ -214,7 +243,7 @@ def test_ci_interference_with_baseline(run_dir, tmp_path):
     baseline = tmp_path / 'baseline.json'
     baseline.write_text(json.dumps({'run_id': 'ci-20261011-76', 'wall_seconds': 4300, 'deadline_gate_failures': 0, 'failed': 0}))
     ci = report.build(run_dir, ci_baseline=baseline)['ci_interference']
-    assert ci['load_side']['guard_p95_ms_max'] == {'C4': 900.0, 'C4-ci': 1200.0} and ci['load_side']['ack_p95_ms'] == {'C4': 120.0, 'C4-ci': 300.0}
+    assert ci['load_side']['guard_p95_ms_worst_minute'] == {'C4': 900.0, 'C4-ci': 1200.0} and ci['load_side']['ack_p95_ms'] == {'C4': 120.0, 'C4-ci': 300.0}
     assert ci['ci_side'] == {'under_load': {'run_id': 'ci-20261011-77', 'wall_seconds': 5100, 'deadline_gate_failures': 1, 'failed': 1},
                              'baseline': {'run_id': 'ci-20261011-76', 'wall_seconds': 4300, 'deadline_gate_failures': 0, 'failed': 0}}
 
@@ -271,3 +300,62 @@ def test_failed_runs_are_counted_by_cause():
     d=R.decomposition(runs)
     assert d['failures']=={'runtime_authorization_denied':1,'runtime_authorization_unavailable':2,'runtime_failed':1}
     with pytest.raises(R.ContractError):R.decomposition([{**base,'failure':'not a code!'}])
+
+
+def test_merged_guard_p95_is_within_5_percent_of_the_exact_p95_over_all_processes():
+    """5A (owner 2026-10-13): the guard processes' histograms (nexloop_eios.observability, the same buckets as the report) merge
+    into the p95 over all calls of the window within +-5%, for skewed and shifted distributions across processes."""
+    import math
+    import random
+    from nexloop_eios.observability import HISTOGRAM_LAST, HISTOGRAM_RATIO, _latency_sample
+    assert (HISTOGRAM_RATIO, HISTOGRAM_LAST) == (report.HISTOGRAM_RATIO, report.HISTOGRAM_LAST)
+    rng = random.Random(7)
+    for trial in range(40):
+        everything, rows = [], []
+        for process in range(4):
+            for minute in range(10):
+                median = rng.choice((40, 150, 300, 600))
+                values = sorted(min(70000.0, rng.lognormvariate(math.log(median), rng.uniform(0.3, 1.4))) for _ in range(rng.randint(5, 200)))
+                everything += values
+                rows.append({'kind': 'guard', 'service': 'runtime-guard', 'instance': f'p{process}', 'window_start': iso(START + timedelta(minutes=minute)),
+                             'window_seconds': 60, 'sample': _latency_sample(values, 0)})
+        counts, comparable = report.merged_histogram(rows, 'guard', START, START + timedelta(minutes=10))
+        everything.sort()
+        exact = everything[math.ceil(0.95 * len(everything)) - 1]
+        merged = report.histogram_quantile(counts, 0.95)
+        assert comparable and sum(counts.values()) == len(everything)
+        if exact <= HISTOGRAM_RATIO ** (HISTOGRAM_LAST - 1):
+            assert abs(merged - exact) <= 0.05 * exact + 0.05, (trial, merged, exact)  # +0.05: the one-decimal rounding
+
+
+def test_results_under_the_former_calibers_are_incomparable_and_never_pass(run_dir):
+    all_cells(run_dir, **{'C4': {'legacy': True}, 'C4-low': {'legacy': True}})
+    data = report.build(run_dir)
+    cells = {c['cell']: c for c in data['cells']}
+    for name in ('C4', 'C4-low'):
+        gate = cells[name]['gate']
+        assert gate['result'] == 'failed'
+        assert gate['items']['guard_p95_ms'] == {'value': None, 'limit': 1500, 'result': 'incomparable', 'reason': 'caliber_changed'}
+        assert cells[name]['metrics']['guard_p95_ms_worst_minute'] == 900.0  # still shown, as an observation
+    assert cells['C4-low']['gate']['items']['idle_dispatch_p95_ms'] == {'value': None, 'limit': 2000, 'result': 'incomparable', 'reason': 'caliber_changed'}
+    assert 'C4-low:gate_guard_p95_ms:caliber_changed,idle_dispatch_p95_ms:caliber_changed' in data['at060']['reasons']
+    assert data['at060']['result'] == 'failed'
+    assert 'incomparable（caliber_changed）' in report.markdown(data)
+
+
+def test_idle_dispatch_is_accepted_to_claimed_and_the_segments_are_observations(run_dir):
+    """4A (owner 2026-10-13): the gate is accepted -> claimed (relay + queue); start and run_start are recorded, never gated."""
+    all_cells(run_dir, **{'C4-low': {'dispatch': 1900.0}})
+    data = report.build(run_dir)
+    low = next(c for c in data['cells'] if c['cell'] == 'C4-low')
+    assert low['metrics']['idle_dispatch_p95_ms'] == 1900.0 and low['metrics']['idle_dispatch_count'] == 100  # the unclaimed Run is left out
+    assert low['gate']['items']['idle_dispatch_p95_ms']['result'] == 'pass'
+    assert low['metrics']['run_start_p95_ms'] == 4200.0  # 2.4 s start: above 2 s, but only observed
+    assert low['dispatch_segments'] == {'relay': {'count': 101, 'p50_ms': 100.0, 'p95_ms': 100.0}, 'queue': {'count': 100, 'p50_ms': 200.0, 'p95_ms': 1800.0},
+                                        'start': {'count': 100, 'p50_ms': 2400.0, 'p95_ms': 2400.0}}
+    assert not {'run_start_p95_ms', 'guard_p95_ms_worst_minute'} & set(low['gate']['items'])
+    md = report.markdown(data)
+    section = md[md.index('### C4-low'):]
+    gate_part, observed = section.split('**观察项**', 1)
+    assert '**门槛项**' in gate_part and '| idle_dispatch_p95_ms | 1900 | 2000 | pass |' in gate_part and 'run_start_p95_ms' not in gate_part
+    assert 'run_start_p95_ms' in observed and 'relay 段' in observed and '启动段' in observed and 'guard_p95_ms_worst_minute' in observed

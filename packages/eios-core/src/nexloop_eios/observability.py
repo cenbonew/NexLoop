@@ -168,7 +168,7 @@ class GuardTimings:
             values, errors, dropped, started = sorted(self._elapsed), self._errors, self._dropped, self._started
             operations = self._operations
             self._elapsed, self._errors, self._dropped, self._started, self._operations = [], 0, 0, time.time(), {}
-        by_operation = {label: _latency_sample(sorted(v), e, buckets=True) for label, (v, e) in sorted(operations.items()) if v}
+        by_operation = {label: _latency_sample(sorted(v), e) for label, (v, e) in sorted(operations.items()) if v}
         if not values:
             if dropped:
                 return {'calls': dropped, 'timeouts': 0, 'errors': dropped}, started, by_operation
@@ -180,21 +180,31 @@ class GuardTimings:
 
 # AT-060: the guard's operations as the Host names them (runtime_activation._OPERATIONS, model results and the tool endpoints).
 GUARD_OPERATIONS = ('start', 'resume', 'inspect', 'cancel', 'model', 'model_result', 'tool', 'effect_submit', 'effect_find', 'outcome', 'incentive', 'other')
-GUARD_BUCKETS_MS = (50, 100, 250, 500, 1000, 1500, 2000)
+# AT-060 5A (owner 2026-10-13, ROADMAP §7): a log-spaced latency histogram so that the guard p95 over all calls of a window can be
+# merged across processes. Bucket 0 holds calls <= 1 ms; bucket i (1..HISTOGRAM_LAST-1) holds (1.1^(i-1), 1.1^i] ms; the last
+# bucket holds everything above 1.1^(HISTOGRAM_LAST-1) ms (about 60 s). Estimating a quantile by its bucket's geometric
+# midpoint is off by at most sqrt(1.1)-1 = 4.9% (relative). Only non-empty buckets are written, as h_<i>.
+HISTOGRAM_RATIO = 1.1
+HISTOGRAM_LAST = 116
+
+
+def histogram_bucket(ms):
+    if ms <= 1:
+        return 0
+    return min(HISTOGRAM_LAST, max(1, math.ceil(math.log(ms) / math.log(HISTOGRAM_RATIO) - 1e-9)))
 
 
 def _latency_sample(values, errors, *, buckets=False):
-    """values sorted ascending, non-empty. Buckets (per operation only) count the calls in (previous bound, bound]."""
+    """values sorted ascending, non-empty; the histogram (h_<i> counts) is part of every sample."""
     def rank(q):
         return round(values[min(len(values) - 1, max(0, math.ceil(q * len(values)) - 1))], 1)
     sample = {'calls': len(values), 'timeouts': sum(1 for v in values if v >= GUARD_DEADLINE_MS), 'errors': errors,
               'p50_ms': rank(0.50), 'p95_ms': rank(0.95), 'max_ms': round(values[-1], 1)}
-    if buckets:
-        lower = float('-inf')
-        for bound in GUARD_BUCKETS_MS:
-            sample[f'le_{bound}'] = sum(1 for v in values if lower < v <= bound)
-            lower = bound
-        sample['gt_2000'] = sum(1 for v in values if v > GUARD_BUCKETS_MS[-1])
+    histogram = {}
+    for v in values:
+        key = f'h_{histogram_bucket(v)}'
+        histogram[key] = histogram.get(key, 0) + 1
+    sample.update(sorted(histogram.items(), key=lambda kv: int(kv[0][2:])))
     return sample
 
 

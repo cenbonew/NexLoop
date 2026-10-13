@@ -92,12 +92,18 @@ def runs(db, start, end):
 
 
 def dispatch(db, start, end):
-    """Dispatch latency (contract §2, dispatcher 2026-10-11): a message Run task enqueued (runtime.jobs.created_at) → the Agent Host
-    accepted the Run (its first execution authorization, authz.nexloop_runtime_execution_markers.first_authorized_at). Model time
-    is not part of it (the D5 model latency counts in e2e only); Runs the Host never accepted are left out."""
-    rows = db.execute(_RUNS + """ select r.task_created,(select x.first_authorized_at from authz.nexloop_runtime_execution_markers x where x.run_id=r.run_id::uuid)
+    """Idle dispatch (owner 2026-10-13, 4A, ROADMAP §7; NX-031 design §4.6): per message Run whose trigger was accepted in the
+    window, in ms: relay (message accepted -> its Run task created), queue (task created -> first claimed, runtime.job_events
+    running), dispatch_ms = relay + queue (the gated caliber), start (claimed -> the Agent Host's first execution authorization,
+    authz.nexloop_runtime_execution_markers.first_authorized_at) and run_start_ms (task created -> first authorization: the
+    former caliber, an observation). A segment whose end has not happened is null; model time is never part of any."""
+    rows = db.execute(_RUNS + """ select r.accepted_at,r.task_created,r.claimed_at,
+          (select x.first_authorized_at from authz.nexloop_runtime_execution_markers x where x.run_id=r.run_id::uuid)
         from r where r.accepted_at>=%s and r.accepted_at<%s""", (TENANT, WORLD, start, end)).fetchall()
-    return [{'dispatch_ms': round((accepted - enqueued).total_seconds() * 1000, 1)} for enqueued, accepted in rows if enqueued and accepted]
+    ms = lambda a, b: round((b - a).total_seconds() * 1000, 1) if a and b else None
+    return [{'relay_ms': ms(accepted, created), 'queue_ms': ms(created, claimed), 'dispatch_ms': ms(accepted, claimed),
+             'start_ms': ms(claimed, authorized), 'run_start_ms': ms(created, authorized)}
+            for accepted, created, claimed, authorized in rows if created]
 
 
 def checks(db, start, end, cross_access):
