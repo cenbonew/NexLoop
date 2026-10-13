@@ -114,8 +114,9 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 **人民币计价（D-g 方案 2，负责人 2026-10-13）**：预算与费用按币种分别记录，任何地方都不做汇率换算，币种不一致一律拒绝。
 
 - Agent Host 运行配置的 `cost_currency`（默认 `USD`，只接受 `USD` 或 `CNY`）决定 Host 成本策略的币种；Run 预算的币种必须与它相同，否则拒绝（`runtime_cost_policy_missing`）。
-- `deepseek-flash` 使用非 USD 币种时必须配置 `model_tariff_file`，指向版本化价目 [`deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json`](../deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json)（DeepSeek 官方人民币价，记录来源与核对日期，每百万 token 的输入、缓存命中、输出价），否则 Host 拒绝启动。Host 用价目替换模型的费率，Pi 报出的用量费用与预留下限因此直接是人民币。价目按**高峰时段**价格计费（试运行时段 10:00–18:00 基本在高峰内），会高估低谷时段的费用。
-- 已知缺口（待负责人决定）：按完整 1M 上下文估算的单次预留下限为 ¥2.03，高于单个 Run 上限 ¥2；回复保障（`reply-guarantee.v2.json`）与计划复评的兜底 Run 预算仍是 USD，人民币租户预算下兜底 Run 会被拒绝，需要新的人民币版本策略。
+- `deepseek-flash` 使用非 USD 币种时必须配置 `model_tariff_file`，指向版本化价目 [`deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json`](../deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json)（DeepSeek 官方人民币价，记录来源与核对日期，每百万 token 的输入、缓存命中、输出价），否则 Host 拒绝启动。Host 用价目替换模型的费率，Pi 报出的用量费用与预留下限因此直接是人民币。价目一律按**高峰时段**价格计费（试运行时段 10:00–18:00 基本在高峰内）：**低谷时段会高估**（约为实际的 2 倍），只会多挡、不会超支。
+- 每次模型请求的预留下限按请求大小上限（196608 字节规范化请求 JSON，超过即在 Host 侧拒绝 `runtime_model_request_too_large`）限定输入 token，而不是按 1M 上下文：(196608 × 2 + 4096 × 8) / 1e6 = ¥0.425984。Host 示例配置的 `maximum_request_cost` 为 ¥0.45。
+- 人民币版策略：回复保障 [`reply-guarantee.v3.json`](../deploy/configuration/reply-guarantee.v3.json)（兜底 Run ¥1.00，2 轮）与计划复评 [`plan-reevaluation.v2.json`](../deploy/configuration/plan-reevaluation.v2.json)（¥2.00，4 轮）。使用人民币的部署须让 Reply/Plan Worker 的 `--policy-file` / `--settings-file` 指向这两个文件；已发布的 USD 版本不变。依据见 [人民币计价实现说明](implementation/NX-037-cny-pricing.md)。
 
 ### 9.2 真实租户初始化：`scripts/nx037/real_tenant_init.py`
 
@@ -191,7 +192,7 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 - **前置检查**（任何交互之前，不满足即退出码 3 并列出原因代码）：
   1. 9.2 节 verify 中除三项开关以外的检查全部通过：租户 active，model 预算等于 D-g 累计上限并覆盖试运行期间，告警规则生效；
   2. 三层开关与计划的 `real_dispatch` 完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表（经 metrics 角色的 `authz.nexloop_nx037_open_switches` 读取）。
-  3. 币种一致（D-g 方案 2，不换算）：`--host-config` 指向的 Agent Host 运行配置使用 `deepseek-flash`（否则 `host_not_real_model`），其 `cost_currency` 等于试运行币种（否则 `host_currency_differs`）；非 USD 时价目文件存在（`model_tariff_missing`）且模式、提供方、模型与币种正确（`model_tariff_invalid`）；回复保障兜底 Run 预算的币种等于试运行币种（否则 `reply_fallback_currency_differs`；仓库内 v2 仍是 USD，因此目前会拒绝）。
+  3. 币种一致（D-g 方案 2，不换算）：`--host-config` 指向的 Agent Host 运行配置使用 `deepseek-flash`（否则 `host_not_real_model`），其 `cost_currency` 等于试运行币种（否则 `host_currency_differs`）；非 USD 时价目文件存在（`model_tariff_missing`）且模式、提供方、模型与币种正确（`model_tariff_invalid`）；回复保障兜底 Run 预算的币种等于试运行币种（否则 `reply_fallback_currency_differs`；检查的是 `reply-guarantee.v3.json`）。
 - **月度费用起点**：执行器的月度上限从租户本月（UTC）已发生的 model 费用开始计算，经 metrics 角色的 `authz.nexloop_nx037_month_model_cost`（迁移 0420，只统计试运行币种）读取，并扣除本试运行已记录的部分，避免恢复时重复计算。
 - **按币种汇总**：每次交互只把试运行币种的费用计入合计；其他币种的非零费用单独记在 `other_currencies`，并立即停止（`currency_mismatch`）。
 - 可选参数：`--interaction-timeout <SECONDS>`（每次交互的时限，默认 900）、`--poll-seconds <SECONDS>`（观测间隔，默认 2）。

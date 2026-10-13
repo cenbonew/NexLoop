@@ -11,6 +11,7 @@ import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
 import {safeProviderMessage,safeProviderStream} from './runtime-provider-boundary.js';
 import {purgeRunDirectory,validRunId} from './run-purge.js';
 import {modelTiming} from './model-timing.js';
+import {MAXIMUM_REQUEST_BYTES} from './trusted-model-profile.js';
 import {RuntimeError,validateRunCommand,type RunCommand,type RuntimeAdapter,type RuntimeReceipt,type RuntimeInspection} from './runtime-adapter.js';
 export type RuntimeOperation='start'|'resume'|'inspect'|'cancel'|'model'|'tool';
 /** Actual provider request of one model call (Context v6, AT-027). The guard recomputes
@@ -139,13 +140,18 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       if((await db.get<{synchronous:number}>('PRAGMA synchronous'))?.synchronous!==2||(await db.get<{journal_mode:string}>('PRAGMA journal_mode'))?.journal_mode!=='wal')throw new RuntimeError('runtime_durability_refused');
       storage=await SqliteStorage.open(db);
       const registry=createRegistry();
-      const snapshot=(call:number,request:{model:Model<Api>;context:unknown;options:unknown}):ModelRequestSnapshot=>{
+      const requestParts=(request:{model:Model<Api>;context:unknown;options:unknown})=>{
         // Exact provider request: model ref, transcript context and settings (credentials, headers
         // and callbacks excluded). Digests are over these bytes; the guard recomputes them.
         const settings=JSON.parse(JSON.stringify(request.options??{},(key,value)=>SECRET_SETTINGS.has(key)?undefined:value)??{}) as unknown;
         const context=JSON.parse(JSON.stringify(request.context)) as Record<string,unknown>;
         const request_text=canonical({model:{api:request.model.api,id:request.model.id,provider:request.model.provider},context,settings});
-        if(Buffer.byteLength(request_text,'utf8')>196608)throw new RuntimeError('runtime_model_request_too_large');
+        // Every model request, recorded or not: the reservation floor bounds input tokens by this size (MAXIMUM_REQUEST_BYTES).
+        if(Buffer.byteLength(request_text,'utf8')>MAXIMUM_REQUEST_BYTES)throw new RuntimeError('runtime_model_request_too_large');
+        return {settings,context,request_text};
+      };
+      const snapshot=(call:number,request:{model:Model<Api>;context:unknown;options:unknown}):ModelRequestSnapshot=>{
+        const {settings,context,request_text}=requestParts(request);
         const hash=(value:string)=>createHash('sha256').update(value,'utf8').digest('hex');
         return {call_sequence:call,model_provider:request.model.provider,model_id:request.model.id,request_text,request_digest:hash(request_text),
           tool_manifest_digest:hash(canonical(toolManifest(context))),settings_digest:hash(canonical(settings))};
@@ -154,6 +160,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       const recordRequests=typeof this.options.recordModelRequests==='function'?this.options.recordModelRequests(command):this.options.recordModelRequests===true;
       const consume=async(kind:'model'|'tool',request?:{model:Model<Api>;context:unknown;options:unknown})=>{
         if(kind==='model'&&recordRequests&&!request)throw new RuntimeError('runtime_model_request_unrecorded');
+        if(kind==='model'&&request)requestParts(request);  // too large: refused before any reservation or authorization
         await this.authorize(command,kind);
         await harness!.commit(async tx=>{
           const state=await tx.doc(BindingDoc);

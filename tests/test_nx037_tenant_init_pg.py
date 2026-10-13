@@ -141,7 +141,7 @@ def test_run_evidence_is_numbers_only_for_the_metrics_role(pg, admin, published_
     assert evidence['model']['calls'] == 0 and evidence['intents'] == {} and evidence['intent_ids'] == []
 
 
-def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, admin, catalog, tmp_path, published_action, identity, uow, capsys, monkeypatch):  # noqa: F811
+def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, admin, catalog, tmp_path, published_action, identity, uow, capsys):  # noqa: F811
     """scripts/nx037/run_interactions.py --driver real: refused before anything runs unless the tenant check passes (budget,
     alert rules) and the three switch layers are exactly the plan's; with both, it stops at the missing real driver."""
     import run_interactions as R
@@ -159,9 +159,6 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
     host_config = tmp_path / 'host.json'  # D-g option 2: the Host bills in CNY with the shipped tariff
     host_config.write_text(json.dumps({'runtime_profile': 'deepseek-flash', 'cost_currency': 'CNY',
                                        'model_tariff_file': str(ROOT / 'deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json')}))
-    reply = json.loads(R.REPLY_POLICY.read_text())
-    reply['fallback']['run_budget']['currency'] = 'CNY'  # the shipped v2 fallback budget is USD (refused, see below)
-    (tmp_path / 'reply.json').write_text(json.dumps(reply))
     args = ['--driver', 'real', '--trial-id', '37b00000-0000-4000-8000-000000000002', '--out', str(tmp_path / 'real'), '--tenant', TENANT_A,
             '--owner-principal', 'owner-principal-synthetic', '--value-catalog', str(catalog), '--channel-ref', 'channel:webchat:synthetic',
             '--period-start', PERIOD[0].isoformat(), '--period-end', PERIOD[1].isoformat(), '--metrics-dsn-file', str(metrics_dsn),
@@ -178,9 +175,7 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
         return code, json.loads(capsys.readouterr().out.strip().splitlines()[-1])
 
     code, out = attempt({})
-    assert code == 3 and 'reply_fallback_currency_differs' in out['refused']
-    monkeypatch.setattr(R, 'REPLY_POLICY', tmp_path / 'reply.json')
-    code, out = attempt({})
+    assert code == 3 and 'reply_fallback_currency_differs' not in out['refused']  # reply-guarantee.v3.json is CNY
     assert code == 3 and set(out['refused']) == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'switch_deployment_differs',
                                                  'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
     register_goal_actions(admin, base, capability)

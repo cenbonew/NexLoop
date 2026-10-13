@@ -7,13 +7,14 @@ import {mkdtempSync,writeFileSync,chmodSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
 import {calculateCost,type Models} from '@earendil-works/pi-ai';
 import {fauxAssistantMessage} from '../../../vendor/pi/packages/ai/dist/index.js';
-import {capTrustedDeepSeekModels,validateModelTariff} from '../src/trusted-model-profile.js';
+import {MAXIMUM_REQUEST_BYTES,capTrustedDeepSeekModels,validateModelTariff} from '../src/trusted-model-profile.js';
 import {PiRuntimeAdapter} from '../src/pi-runtime-adapter.ts';
 import {RuntimeHost} from '../src/runtime-host.js';
 import {readPrivateMaterial} from '../src/private-material.js';
 import {command,deterministic,until} from './pi-runtime-support.ts';
 
 const TARIFF=JSON.parse(readFileSync(new URL('../../../deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json',import.meta.url),'utf8'));
+const TRIAL=JSON.parse(readFileSync(new URL('../../../deploy/configuration/nx037-trial.v1.json',import.meta.url),'utf8'));
 const MODEL={provider:'deepseek',id:'deepseek-flash',api:'openai-completions',baseUrl:'https://api.deepseek.com',contextWindow:1000000,maxTokens:384000,cost:{input:0.3,cacheRead:0.006,cacheWrite:0,output:1.2}};
 
 describe('CNY tariff',()=>{
@@ -23,8 +24,12 @@ describe('CNY tariff',()=>{
     let dispatched:Record<string,unknown>|undefined;
     const models={streamSimple:(m:Record<string,unknown>)=>{dispatched=m;return 'stream';}} as unknown as Models;
     const capped=capTrustedDeepSeekModels(models,MODEL,tariff);
-    // (1,000,000 x 2 + 4096 x 8) / 1,000,000 = 2.032768 CNY
-    expect(capped.estimatedReservationFloor).toBe('2.03276800');
+    // Input bounded by the request size, not the 1M context: (min(1,000,000, 196,608) x 2 + 4096 x 8) / 1,000,000 = 0.425984 CNY,
+    // below the D-g per-Run cap (nx037-trial.v1.json, CNY).
+    expect(capped.estimatedReservationFloor).toBe('0.42598400');
+    expect(MAXIMUM_REQUEST_BYTES).toBe(196608);
+    expect(TRIAL.currency).toBe('CNY');
+    expect(Number(capped.estimatedReservationFloor)).toBeLessThan(Number(TRIAL.cost_caps.per_run));
     capped.models.streamSimple(MODEL as never,{messages:[]});
     expect(dispatched?.cost).toEqual({input:2,output:8,cacheRead:0.04,cacheWrite:2});
     // Pi's own usage cost uses the dispatched model's rates: 1M miss input + 1M hit + 1M output = 2 + 0.04 + 8 CNY.
@@ -85,5 +90,18 @@ describe('adapter: CNY policy and Run budget',()=>{
     expect(await run('CNY','USD')).toBe('failed');
     expect(await run('EUR','EUR')).toBe('failed');
     expect(await run('USD','USD')).toBe('succeeded');
+  });
+  it('a request above the size bound is refused on the Host before any reservation, not reserved at the 1M context',async()=>{
+    const path=await mkdtemp(join(tmpdir(),'nexloop-cny-adapter-'));directories.push(path);
+    const provider=deterministic();provider.faux.setResponses([fauxAssistantMessage('done')]);
+    const operations:string[]=[];
+    const adapter=new PiRuntimeAdapter({root:path,models:provider.models,model:{provider:'faux',modelId:'faux-1'},
+      costPolicy:{kind:'bounded_request',currency:'CNY',maximum_request_cost:'0.42598400'},
+      assertOwner:()=>{},authorize:async(_c,operation)=>{operations.push(operation);return {ever_execution_authorized:operation==='model'};}});adapters.push(adapter);
+    const cmd=command();cmd.budget.currency='CNY';
+    // An admitted input (≤ 131072 bytes) whose JSON escaping, like accumulated turns and tool results, exceeds the request bound.
+    await adapter.start(cmd,'"'.repeat(131072));await until(async()=>(await adapter.inspect(cmd)).runtime_outcome!=='running');
+    expect((await adapter.inspect(cmd)).runtime_outcome).toBe('failed');
+    expect(operations).not.toContain('model');  // never authorized, never reserved, never sent
   });
 });

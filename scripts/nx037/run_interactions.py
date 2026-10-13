@@ -81,7 +81,7 @@ def real_preconditions(params, connection, expected, environ):
 
 
 TARIFF_SCHEMA = 'nexloop.model-tariff.v1'
-REPLY_POLICY = ROOT / 'deploy/configuration/reply-guarantee.v2.json'
+REPLY_POLICY = ROOT / 'deploy/configuration/reply-guarantee.v3.json'
 
 
 def currency_preconditions(currency, host_config_file, reply_policy=None):

@@ -21,6 +21,8 @@ export function validateEstimatedReservation(value:unknown,floor:string):void{
 /** A versioned model tariff in a currency other than the Pi catalogue's USD (owner decision D-g option 2, 2026-10-13: CNY at
  * the supplier's official prices, never an exchange-rate conversion). Rates are per million tokens. */
 export type ModelTariff={currency:'CNY';rates:{input:number;cacheRead:number;cacheWrite:number;output:number}};
+/** The largest canonical model request (bytes) the adapter sends; larger requests are refused (runtime_model_request_too_large). */
+export const MAXIMUM_REQUEST_BYTES=196608;
 export const COST_CURRENCIES=['USD','CNY'] as const;
 
 export function validateModelTariff(value:unknown,provider:string,modelId:string,currency:string):ModelTariff{
@@ -53,7 +55,10 @@ export function capTrustedDeepSeekModels(models:Models,model:unknown,tariff?:Mod
   const rates=['input','cacheRead','cacheWrite','output'].map(name=>cost[name]);
   if(rates.some(rate=>typeof rate!=='number'||!Number.isFinite(rate)||rate<0))return fail();
   const input=Math.max(...rates.slice(0,3) as number[]),output=rates[3] as number;
-  const estimate=(Number(m.contextWindow)*input+4096*output)/1000000;
+  // Input tokens are bounded by the request size the adapter admits (MAXIMUM_REQUEST_BYTES of canonical request JSON, refused
+  // above it): a byte-level BPE token covers at least one byte, and the JSON's own keys and quotes outweigh the chat template's
+  // few special tokens. floor = (min(contextWindow, MAXIMUM_REQUEST_BYTES) × max(input, cacheRead, cacheWrite) + 4096 × output) / 1e6.
+  const estimate=(Math.min(Number(m.contextWindow),MAXIMUM_REQUEST_BYTES)*input+4096*output)/1000000;
   if(!Number.isFinite(estimate)||estimate<=0||estimate*100000000>Number.MAX_SAFE_INTEGER)return fail();
   const floor=(Math.ceil(estimate*100000000)/100000000).toFixed(8);
   const freeze=(value:unknown):void=>{if(value&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};freeze(m);
