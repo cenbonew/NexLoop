@@ -37,7 +37,7 @@ def snapshot(dead=0, pending=0, connections=40):
 
 
 def make_cell(cells, name, *, guard=(100, 0, 900.0), ack=120.0, dispatch=600.0, dead_end=0, connections=40, critical=0,
-              refusals=('NXC05',), identity_violation=0, unresolved=0, drained=True, drain_seconds=120, completed=True, skip=()):
+              refusals=('NXC05',), identity_violation=0, unresolved=0, drained=True, drain_seconds=120, completed=True, skip=(), ids_compared=120):
     concurrency, rate, background, ci = CONFIG[name]
     d = cells / name
     d.mkdir(parents=True)
@@ -74,6 +74,8 @@ def make_cell(cells, name, *, guard=(100, 0, 900.0), ack=120.0, dispatch=600.0, 
     if 'checks' not in skip:
         checks = {k: {'checked': 50, 'violations': 0} for k in report.IDENTITY}
         checks['run_binding']['violations'] = identity_violation
+        if ids_compared is not None:
+            checks['model_context']['ids_compared'] = ids_compared
         checks['unresolved_work'] = {'checked': 600, 'unresolved': unresolved}
         (d / 'checks.json').write_text(json.dumps(checks))
     if 'runs' not in skip:
@@ -154,6 +156,29 @@ def test_identity_violation_in_any_cell_fails_at060_and_aborted_cell_fails(run_d
     assert data['at060']['result'] == 'failed'
     assert 'C8:identity_violations' in data['at060']['reasons'] and 'C4-quiet:not_completed:timeout' in data['at060']['reasons']
     assert 'C4-quiet:no_decomposition' in data['at060']['reasons']
+
+
+def test_an_empty_model_context_sample_fails_a_gate_cell_and_only_records_in_an_observe_cell(run_dir):
+    """AT-060 §4.4 item 4 (dispatcher 2026-10-13): a gate cell whose model request context check compared 0 IDs fails as an
+    empty sample; an observe cell only records the number; older results without the count are missing evidence on a gate."""
+    all_cells(run_dir, **{'C4-low': {'ids_compared': 0}, 'C2': {'ids_compared': 0}})
+    data = report.build(run_dir)
+    cells = {c['cell']: c for c in data['cells']}
+    item = cells['C4-low']['gate']['items']['model_context_sample']
+    assert item == {'value': 0, 'limit': 1, 'result': 'fail', 'reason': 'empty_sample'} and cells['C4-low']['gate']['result'] == 'failed'
+    assert cells['C4']['gate']['items']['model_context_sample']['result'] == 'pass' and cells['C4']['gate']['result'] == 'passed'
+    assert cells['C2']['metrics']['model_context_ids_compared'] == 0  # recorded only
+    assert data['at060'] == {'result': 'failed', 'reasons': ['C4-low:gate_model_context_sample:empty_sample']}  # nothing about C2
+    import shutil
+    for name in report.CELLS:
+        shutil.rmtree(run_dir / 'cells' / name)
+    all_cells(run_dir, **{'C2': {'ids_compared': 0}})
+    assert report.build(run_dir)['at060'] == {'result': 'passed', 'reasons': []}  # an empty observe cell does not change the verdict
+    for name in report.CELLS:
+        shutil.rmtree(run_dir / 'cells' / name)
+    all_cells(run_dir, **{'C4': {'ids_compared': None}})
+    c4 = next(c for c in report.build(run_dir)['cells'] if c['cell'] == 'C4')['gate']
+    assert c4['items']['model_context_sample'] == {'value': None, 'limit': 1, 'result': 'missing'} and c4['result'] == 'failed'
 
 
 def test_ci_interference_with_baseline(run_dir, tmp_path):

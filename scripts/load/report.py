@@ -292,6 +292,10 @@ def cell_metrics(directory, expected_refusals):
         out['identity'] = identity
         out['unresolved_work'] = {'checked': _number(work.get('checked'), 'unresolved_work.checked'), 'unresolved': _number(work.get('unresolved'), 'unresolved_work.unresolved')}
         metrics['identity_violations'] = sum(v['violations'] for v in identity.values())
+        # AT-060 §4.4 item 4: how many cited IDs were actually compared (collect.py since the v6 message Runs); absent in older
+        # results, which then count as missing evidence in a gate cell.
+        compared = c['model_context'].get('ids_compared')
+        metrics['model_context_ids_compared'] = None if compared is None else _number(compared, 'model_context.ids_compared')
         metrics['unresolved_work'] = out['unresolved_work']['unresolved']
     runs = _lines(directory / 'runs.jsonl')
     out['decomposition'] = decomposition(runs) if runs is not None else None
@@ -324,6 +328,12 @@ def gate_verdict(cell):
     check('connections_peak', m.get('connections_peak'), THRESHOLDS['connections_peak'])
     check('critical_alerts', m.get('critical_alerts'), 0, op='==')
     check('unexpected_refusals', m.get('unexpected_refusals'), 0, op='==')
+    # An identity check that compared nothing is no evidence (dispatcher 2026-10-13): a gate cell whose model request context
+    # check compared 0 IDs fails as an empty sample. Observe cells only record the number.
+    compared = m.get('model_context_ids_compared')
+    items['model_context_sample'] = {'value': compared, 'limit': 1,  # at least one ID compared
+                                     'result': 'missing' if compared is None else 'pass' if compared > 0 else 'fail',
+                                     **({'reason': 'empty_sample'} if compared == 0 else {})}
     if not cell['completed']:
         result = 'failed'
     elif any(i['result'] != 'pass' for i in items.values()):
@@ -352,7 +362,8 @@ def at060(cells):
         elif identity > 0:
             reasons.append(f"{c['cell']}:identity_violations")
         if c['role'] == 'gate' and c['gate']['result'] != 'passed':
-            reasons.append(f"{c['cell']}:gate_" + ','.join(k for k, v in c['gate']['items'].items() if v['result'] != 'pass'))
+            reasons.append(f"{c['cell']}:gate_" + ','.join(k + (f":{v['reason']}" if v.get('reason') else '') for k, v in c['gate']['items'].items()
+                                                         if v['result'] != 'pass'))
     return {'result': 'passed' if not reasons else 'failed', 'reasons': reasons}
 
 
