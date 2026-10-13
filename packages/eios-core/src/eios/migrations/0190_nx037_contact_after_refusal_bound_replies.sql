@@ -1,4 +1,4 @@
--- NX-037 (L3): contacts_after_refusal of the interaction observation (0172, 0480) follows ADR-023 rule 6 (owner 2026-10-10,
+-- NX-037 (L3): contacts_after_refusal of the interaction observation (0172, 0189) follows ADR-023 rule 6 (owner 2026-10-10,
 -- "受限期间可以回复客户本次来信"): while a consumer is restricted, a reply bound to one of its inbound messages (same
 -- conversation, at most one per inbound message, within the reply window) is allowed contact, not a violation. The stop rule
 -- counts only:
@@ -10,7 +10,7 @@
 -- message itself is accepted in the transaction that writes the restriction). Replies outside the window are refused at dispatch.
 -- Before, every Agent reply while restricted counted: the reply to the refusing message counted whenever the recorder wrote it
 -- before the observation, and any later message of the same customer stopped the trial.
--- Everything else is 0480 unchanged; same signature, owner and grants.
+-- Everything else is 0189 unchanged; same signature, owner and grants.
 create or replace function runtime.nexloop_nx037_interaction_observation(p_tenant text,p_world text,p_since timestamptz) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);v jsonb;m record;

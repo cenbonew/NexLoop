@@ -2,7 +2,7 @@
 
 依据：调度员 2026-10-13（AT-060 C4-low 重跑 `20261013T061107Z-e5e7ebd` 的分析：relay 段 p50 3.47 s，分布集中，时间花在处理上而不是轮询），第 1 项与第 6 项。第 2–5 项（凭据重认证、合并事务、复查范围、复用 Goal/PlanStep）等负责人对 2 s 目标的决定，本分支不做。
 
-## 1. relay 按步骤计时（临时迁移 0440）
+## 1. relay 按步骤计时（迁移 0188）
 
 - **步骤**：与 `message_relay.py` `MessageRelay._run_once` 的实际步骤一一对应：
   - `backlog` 积压检查，`claim`（claim / claim_next），`recover`（已有路由的恢复），`lookup`；
@@ -14,7 +14,7 @@
   
   另有 `total`（已入队来信从 claim 到 release）。`authenticate` 是 CLI 每个 tick 的凭据重认证（`message_relay_cli.py`），每个 tick 都记。
 - **记录方式**：每条被认领的来信，每一步记一次耗时，只有数字，不含原文和 ID。空闲 tick 什么都不记（只计 `authenticate`）。失败的尝试记已经走过的步骤，不记 `total`。计时只是插入时间点，不改变任何调用和顺序。
-- **采样**：每个 relay 进程每 60 s 为每个步骤写一条样本，kind 为 `relay_step`，service 为步骤名。字段与 `guard_op` 相同（`calls`、`p50_ms`、`p95_ms`、`max_ms`，以及对数直方图 `h_<i>`）。迁移 0440 把 kind `relay_step` 加入样本表，并只接受上面列出的步骤名和数字键，函数体与 0186 相同。
+- **采样**：每个 relay 进程每 60 s 为每个步骤写一条样本，kind 为 `relay_step`，service 为步骤名。字段与 `guard_op` 相同（`calls`、`p50_ms`、`p95_ms`、`max_ms`，以及对数直方图 `h_<i>`）。迁移 0188 把 kind `relay_step` 加入样本表，并只接受上面列出的步骤名和数字键，函数体与 0186 相同。
 - **报告**：每格新增"relay 各步骤"表：每一步的次数，以及各 relay 进程直方图合并后的 p50/p95（与 `guard_p95_ms` 同一种合并，误差 ≤ ±5%）。只作信息，不参与判定。
 - **测试**：
   - `tests/test_relay_step_timing.py`：提交语义、空闲不记、SQL 只收数字和已知步骤；

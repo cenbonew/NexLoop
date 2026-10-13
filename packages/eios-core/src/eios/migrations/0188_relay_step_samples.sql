@@ -1,4 +1,4 @@
--- Relay step timings (temporary number 0440; dispatcher 2026-10-13, AT-060 follow-up): the message relay records, per window and
+-- Relay step timings (dispatcher 2026-10-13, AT-060 follow-up): the message relay records, per window and
 -- step of MessageRelay._run_once, one sample of kind 'relay_step' (service = step name: claim, goal_create, ..., release,
 -- total, authenticate) with the same numbers-only fields and log-spaced histogram (h_<i>) as guard_op (0186). The function body
 -- is 0186's with the relay_step kind added; nothing else changes.

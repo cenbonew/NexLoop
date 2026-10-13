@@ -98,9 +98,9 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 - 记录和 state 都标 `test_stack: true`。暂停后恢复时不能切换栈，否则报 `PlanInvalid`。
 - 证据包遇到 `test_stack` 时写 `test_stack: true` 和 `real_evidence: false`，永远不能算作真实试运行的证据。
 
-### 4.3 产品缺陷修复：0480，`intents_open` 计入 unknown
+### 4.3 产品缺陷修复：0189，`intents_open` 计入 unknown
 
-改动在 `packages/eios-core/src/eios/migrations/0480_nx037_observation_unknown_open.sql`，是临时编号。
+改动在 `packages/eios-core/src/eios/migrations/0189_nx037_observation_unknown_open.sql`（开发时临时编号 0480，合入时重编号）。
 
 **缺陷**：0172 的 `intents_open` 只统计 accepted、dispatching、observed_fulfilled 三种状态，不统计 unknown。
 
@@ -111,13 +111,13 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 
 **修复后**：未结清的 unknown 也算"未完成"；如果它一直结不清，就以 `interaction_timeout` 暂停，仍然停下来交给 owner。
 
-**阳性对照**：把 0480 从 catalog 和目录里临时移走后，`tests/test_nx037_synthetic_five_pg.py` 在第 4 次交互暂停，规则为 `unresolved_unknown_effect`；恢复 0480 后通过。
+**阳性对照**：把 0189 从 catalog 和目录里临时移走后，`tests/test_nx037_synthetic_five_pg.py` 在第 4 次交互暂停，规则为 `unresolved_unknown_effect`；恢复 0189 后通过。
 
-**语义一致性**：0172 里没有其他读取 `intents_open` 的地方，它只被 RealDriver 的完成条件使用。0480 与 0172 的函数体只有这一行不同。
+**语义一致性**：0172 里没有其他读取 `intents_open` 的地方，它只被 RealDriver 的完成条件使用。0189 与 0172 的函数体只有这一行不同。
 
-### 4.4 产品缺陷修复：0481，`contact_after_refusal` 按 ADR-023 第 6 条计数
+### 4.4 产品缺陷修复：0190，`contact_after_refusal` 按 ADR-023 第 6 条计数
 
-改动在 `packages/eios-core/src/eios/migrations/0481_nx037_contact_after_refusal_bound_replies.sql`，是临时编号。
+改动在 `packages/eios-core/src/eios/migrations/0190_nx037_contact_after_refusal_bound_replies.sql`（开发时临时编号 0481，合入时重编号）。
 
 **缺陷**：0172 把限制生效后 Agent 的所有外发都计为"拒绝后联系"。而 ADR-023 第 6 条（负责人 2026-10-10 补充）规定，联系限制只挡主动外发：受限期间，对客户发来的某一条消息，允许发出一条绑定它的回复（同一会话、每条来信至多一条、在时间窗内）。因此：
 
@@ -140,8 +140,8 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 
 **阳性对照**：
 
-- 去掉 0481 后，上面 4 个用例全部失败；
-- 去掉 0481 后，五类场景测试在第 5 次交互（拒绝后的人工接管）以 `contact_after_refusal` 停止；恢复 0481 后通过。
+- 去掉 0190 后，上面 4 个用例全部失败；
+- 去掉 0190 后，五类场景测试在第 5 次交互（拒绝后的人工接管）以 `contact_after_refusal` 停止；恢复 0190 后通过。
 
 ### 4.5 测试夹具
 
@@ -180,8 +180,8 @@ LC_ALL=C.UTF-8 .venv/bin/python -m pytest -q tests/test_nx037_synthetic_five_pg.
 
 ## 7. 发现的产品缺陷
 
-1. **0172 的 `intents_open` 不统计 unknown**：已用 0480 修复，见 §4.3。
-2. **`contact_after_refusal` 会计入 ADR-023 第 6 条允许发出的绑定回复**（0172，L3）：已用 0481 修复（调度员选 B 方案），见 §4.4。
+1. **0172 的 `intents_open` 不统计 unknown**：已用 0189 修复，见 §4.3。
+2. **`contact_after_refusal` 会计入 ADR-023 第 6 条允许发出的绑定回复**（0172，L3）：已用 0190 修复（调度员选 B 方案），见 §4.4。
 3. **relay 的 recipe 模式接受 `enterprise` 块，但 SQL 不认**（L2；已转 L2，分支 `l2/v6-enterprise-slot`；L3 未改动）：
    - `validate_recipe` 和 `MessageRelay` 都接受这个块；
    - 但 0180 的 issue 检查要求消息必须通过 relay claims 和 enrollment，recipe 模式下一律报 `enterprise slot unavailable`，CLI 只输出 "Message relay unavailable"。

@@ -70,7 +70,7 @@
 `sample` 是 NX-030 写入的原样内容：
 - guard：`calls`、`timeouts`、`errors`、`p50_ms`、`p95_ms`、`max_ms`，以及延迟直方图 `h_<i>`（5A，2026-10-13：i 为 0–116，第 0 桶 ≤1 ms，第 i 桶为 (1.1^(i−1), 1.1^i] ms，最后一桶为开区间上沿，只写非空桶）；
 - guard_op（AT-060，迁移 0186）：按操作的同样字段与直方图，`service` 为操作名；
-- relay_step（临时迁移 0440，调度员 2026-10-13）：relay 每个步骤的同样字段与直方图，`service` 为步骤名（见 `docs/implementation/relay-step-timing.md`）；
+- relay_step（迁移 0188，调度员 2026-10-13）：relay 每个步骤的同样字段与直方图，`service` 为步骤名（见 `docs/implementation/relay-step-timing.md`）；
 - pool：`requests_waiting`、`requests_errors`、`pool_size` 等；
 - host：`active_runs`、`waiting`、`admission_timeouts` 等。
 

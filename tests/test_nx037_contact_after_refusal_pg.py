@@ -1,4 +1,4 @@
-"""NX-037 stop rule contact_after_refusal (interaction observation, 0481) against ADR-023 rule 6 on clean catalog PostgreSQL.
+"""NX-037 stop rule contact_after_refusal (interaction observation, 0190) against ADR-023 rule 6 on clean catalog PostgreSQL.
 
 While a consumer is restricted, one reply bound to each of its inbound messages is allowed contact; only proactive Agent outbound
 (not bound to an inbound message of its conversation) and a second visible reply to the same inbound message count. The refusing

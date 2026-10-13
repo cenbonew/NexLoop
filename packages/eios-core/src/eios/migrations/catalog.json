@@ -939,7 +939,7 @@
     {
       "version": "0188",
       "name": "0188_relay_step_samples.sql",
-      "sha256": "0aa631fcf1592360b1de7c7cb0965b51dc8db8a5b56ba1b8f275759dde9fcdf4"
+      "sha256": "488b3e8d2aa25f39b2ffaee0469d325661829e0074e9e7914fc78ac9c2cef1d4"
     },
     {
       "version": "0189",
@@ -949,7 +949,7 @@
     {
       "version": "0190",
       "name": "0190_nx037_contact_after_refusal_bound_replies.sql",
-      "sha256": "dde3c20c2ff874705812238d56ff8392f4589536532bb801c475b5596b64dd10"
+      "sha256": "8743b5b78e2fda12efa93c443780efe74e060a82d8deae32045742bf6c6ecb08"
     }
   ]
 }

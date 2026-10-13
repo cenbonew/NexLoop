@@ -11,7 +11,7 @@ Action switch of the enterprise delivery). The tenant is the synthetic TENANT_A.
 The person playing the customer is an automated operator over the same HTTPS API as the WebChat; for the takeover it also
 plays the staff (the 0126/0127 handlers as the governed entry calls them), and for the unknown result it switches the
 endpoint's local drill ("the next answer comes after NexLoop's deadline"). The run entry's RealDriver only observes (0172,
-0480 and 0481 here): one interaction of each kind, in the order ordinary reply, enterprise delivery, unknown result,
+0189 and 0190 here): one interaction of each kind, in the order ordinary reply, enterprise delivery, unknown result,
 refusal, takeover (the restricted customer writes again); the trial pauses after the three calibration interactions and resumes with the owner's confirmation.
 
 Run serially (Node 24, the built Host)."""
@@ -52,7 +52,7 @@ import run_interactions as R  # noqa: E402
 pytestmark = pytest.mark.nx037_test_stack
 TRIAL_ID = '37d00000-0000-4000-8000-000000000005'
 DELIVER = 'eios:action:nexloop.enterprise.deliver:1'
-# The refusal comes before the takeover: the restricted customer writes again and gets its bound reply (ADR-023 rule 6, 0481).
+# The refusal comes before the takeover: the restricted customer writes again and gets its bound reply (ADR-023 rule 6, 0190).
 # The enterprise deliveries come first: a contact restriction stops them at dispatch (customer_contact, effect categories v3).
 ORDER = ['ordinary_reply', 'real_delivery', 'unknown_reconciliation', 'restricted_after_refusal', 'human_takeover']
 MARKER = '企业交付：'  # the deterministic Host's synthetic enterprise delivery protocol (deterministic_enterprise_deliver)
