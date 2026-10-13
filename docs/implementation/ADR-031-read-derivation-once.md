@@ -47,3 +47,31 @@
   - 约 71 次来自 Python 构建证明时逐属性调用的 `property_access_basis`；
   - 约 64 次来自每次读取开头和结尾对对象声明的核对；
   - 其余是本 ADR 的对象派生（每次读取开头一次、结尾复核一次）。
+
+## 5. ADR-032：一次读取检查内，身份只解析一次（迁移 0421）
+
+- **改动**：批量取事实 `authz.nexloop_load_authority_facts` 和读取检查 `authz.nexloop_assert_read_authority_inner_before_erasure_v0142`，都在第一条事实时解析一次身份，再传给每条事实的读取（新增 `authz.nexloop_load_authority_fact_with_identity`、`authz.nexloop_load_authority_fact_snapshot_with_identity`）。保护写入的检查不改。旧函数体保存为 `_before_identity_once_v0421`。
+- **等价性**：对比包装扩展到上述两个函数，与 `read_object` 一起对比。
+  - 语料与 ADR-031 相同，另加 `test_identity_once_per_check_pg.py`、`test_run_credentials.py`。
+  - 239 项测试全部通过（236 项分两段以 `-n 3` 并发运行，3 项真实 Pi 串行），其中 211 项有对比，三个函数共对比 55 868 次，**0 次不一致**。
+- **反例**（`tests/test_identity_once_per_check_pg.py`，3 项）：
+  - 撤销在检查前提交：读取被拒，批量取事实全部为 `error`；
+  - 检查进行中：撤销被凭据锁挡住，`lock_timeout` 超时，检查结束后撤销提交，下一次读取被拒；
+  - 同一事务中两次批量取事实之间修改事实、撤销凭据：第二次看到新的记录哈希，第三次全部为 `error`。
+- **测量**：方法同 §4，每种变体各跑两次。测量时机器负载约 10，耗时数字的绝对值偏高。
+
+| 每条消息 | 优化前（基线） | 只有 ADR-031 | ADR-031 + ADR-032 |
+|---|---|---|---|
+| `context_prepare` 中位数（ms） | 442 / 446 | 443 / 439 | 425 / 425 |
+| SQL 函数调用总数 | 27 800–28 100 | 27 500–27 800 | 24 400–24 600 |
+| `root_identity` | 5 800–5 860 | 5 820–5 890 | 4 220–4 250 |
+| `service_identity` | 4 570–4 620 | 4 590–4 640 | 2 975–2 990 |
+| `load_authority_fact`（自行解析身份） | 3 210–3 260 | 3 230–3 270 | 1 460 |
+| `load_authority_fact_with_identity` | 0 | 0 | 1 850–1 900 |
+| relay Source 派生 | 332–336 | 181–184 | 184–187 |
+
+**结论**：
+- 身份解析减少约 30–35%，函数调用总数减少约 12%，`context_prepare` 中位数约下降 4%（约 18 ms）。在当时的负载下，这个差别不能视为可靠。
+- 剩余的约 1 460 次自行解析身份的事实读取，来自保护写入的检查（动作、工件等），按 ADR-032 有意不改。
+- 剩余的约 4 200 次 `root_identity` 来自各检查开头与结尾的身份快照，以及凭据加锁。
+- 本机上 `context_prepare` 的大头仍是数据库往返（剖析 §2）。要降到 CI 上 500 ms 以下，主要应依靠优化①（L3，复用信封、减少往返）。

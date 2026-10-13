@@ -955,6 +955,11 @@
       "version": "0420",
       "name": "0420_adr031_read_derivation_once.sql",
       "sha256": "a7264f44d7f870ceaab9ee0441120c5b9057d0bc21ac1cd37705058710deae12"
+    },
+    {
+      "version": "0421",
+      "name": "0421_adr032_identity_once_per_check.sql",
+      "sha256": "1494b2e5b99d9877457ec74f2efaadf21c8c1f2dacecfdf0d563530cf464d84c"
     }
   ]
 }

@@ -12,8 +12,7 @@ if _compare.enabled():
     _apply = _bootstrap.apply_migrations
     def _apply_and_wrap(connection, *args, **kwargs):
         result = _apply(connection, *args, **kwargs)
-        if connection.execute("select to_regprocedure('authz.nexloop_read_object_before_derivation_once_v0420(text,text,text,text)')").fetchone()[0] \
-                and not connection.execute("select to_regprocedure('authz.zz_read_object_new(text,text,text,text)')").fetchone()[0]:
+        if not connection.execute("select to_regclass('public.zz_read_compare_total')").fetchone()[0]:
             _compare.install(connection)
         return result
     _bootstrap.apply_migrations = _apply_and_wrap
