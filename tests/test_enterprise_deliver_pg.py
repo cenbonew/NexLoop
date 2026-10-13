@@ -20,6 +20,7 @@ from support.effect_provider import effect_provider
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from support.tenants import TENANT_A
 from test_effect_dispatch import independent_worker
+from test_message_runtime_effect_e2e import await_available
 from test_real_dispatch_switch_pg import layer, refusals, set_switch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,6 +116,13 @@ def test_all_three_switches_gate_the_enterprise_delivery_independently_of_the_re
         assert first['claimed'] is True and first['status'] != 'admission_unavailable', first
         snapshot = provider.control('snapshot')
         assert snapshot['effects'] == 1 and snapshot['requests'] == [('POST', intent, 202)]
+        # Settle it here (fulfilled, then the Worker's query): an accepted intent left open is reconciled first once its next
+        # query is due, which under load can be before the next Worker run below and would query a provider that never saw it.
+        provider.control('fulfill', intent_id=intent)
+        await_available(admin, intent)
+        assert run_worker(fixture, provider)['status'] == 'fulfilled'
+        assert provider.control('snapshot')['requests'] == [('POST', intent, 202), ('GET', intent, 200)]
+    assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone() == ('fulfilled',)
     # Each layer alone closes it; the reply Action's own switch does not open this one (layers as admission reads them).
     assert layer(admin, TENANT_A, DELIVER) is None
     assert layer(admin, TENANT_A, DELIVER, deployment=False) == 'deployment'
