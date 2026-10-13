@@ -359,3 +359,28 @@ def test_idle_dispatch_is_accepted_to_claimed_and_the_segments_are_observations(
     gate_part, observed = section.split('**观察项**', 1)
     assert '**门槛项**' in gate_part and '| idle_dispatch_p95_ms | 1900 | 2000 | pass |' in gate_part and 'run_start_p95_ms' not in gate_part
     assert 'run_start_p95_ms' in observed and 'relay 段' in observed and '启动段' in observed and 'guard_p95_ms_worst_minute' in observed
+
+
+def test_relay_steps_table_per_cell(run_dir):
+    """Relay step timings (dispatcher 2026-10-13): relay_step samples of all relay processes merge into p50/p95 per step."""
+    all_cells(run_dir)
+    path = run_dir / 'cells' / 'C4-low' / 'process_samples.jsonl'
+    rows = [json.loads(x) for x in path.read_text().splitlines()]
+    for process in ('r1', 'r2'):
+        at = iso(START + timedelta(minutes=2))
+        rows.append({'kind': 'relay_step', 'service': 'context_prepare', 'instance': process, 'window_start': at, 'window_seconds': 60,
+                     'sample': {'calls': 10, 'timeouts': 0, 'errors': 0, 'p50_ms': 900.0, 'p95_ms': 1400.0, 'max_ms': 1500.0,
+                                f'h_{bucket(900)}': 9, f'h_{bucket(1500)}': 1}})
+        rows.append({'kind': 'relay_step', 'service': 'total', 'instance': process, 'window_start': at, 'window_seconds': 60,
+                     'sample': {'calls': 10, 'timeouts': 0, 'errors': 0, 'p50_ms': 3400.0, 'p95_ms': 3600.0, 'max_ms': 3700.0, f'h_{bucket(3400)}': 10}})
+    rows.append({'kind': 'relay_step', 'service': 'claim', 'instance': 'r1', 'window_start': iso(START + timedelta(minutes=40)), 'window_seconds': 60,
+                 'sample': {'calls': 1, f'h_{bucket(5)}': 1}})  # outside the steady window
+    path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+    data = report.build(run_dir)
+    low = next(c for c in data['cells'] if c['cell'] == 'C4-low')
+    assert low['relay_steps'] == {'context_prepare': {'count': 20, 'p50_ms': estimate(900), 'p95_ms': estimate(1500)},
+                                  'total': {'count': 20, 'p50_ms': estimate(3400), 'p95_ms': estimate(3400)}}
+    assert list(low['relay_steps']) == ['context_prepare', 'total']  # the relay's step order
+    assert next(c for c in data['cells'] if c['cell'] == 'C4')['relay_steps'] == {}
+    md = report.markdown(data)
+    assert f"| C4-low | context_prepare | 20 | {estimate(900):g} | {estimate(1500):g} |" in md and '| C4 | missing | | | |' in md

@@ -106,7 +106,8 @@ class Cell:
                        'window': {'steady_start': None, 'steady_end': None}, 'drain': {'drained': False, 'seconds': None},
                        'host_metrics': 'approx', 'ci': None,
                        # Beyond the contract, informational: what this stack did not start (stack.py).
-                       'message_runs': None, 'message_context_strategy': MESSAGE_CONTEXT_STRATEGY, 'timing_scale': scale}
+                       'message_runs': None, 'message_context_strategy': MESSAGE_CONTEXT_STRATEGY, 'timing_scale': scale,
+                       'relay_processes': getattr(args, 'relay_processes', 1)}
 
     def execute(self):
         self.started_at = now()
@@ -133,7 +134,7 @@ class Cell:
                 latency = self.matrix['model_latency']
                 pending = stack.start_message_chain(self.spec['host_concurrency'], latency={'median_ms': latency['median_ms'], 'p95_ms': latency['p95_ms'],
                                                                                             'seed': self.run['seed']},
-                                                     context_strategy=MESSAGE_CONTEXT_STRATEGY)
+                                                     context_strategy=MESSAGE_CONTEXT_STRATEGY, relay_processes=getattr(self.args, 'relay_processes', 1))
                 self.result['message_runs'] = 'started' if pending is None else pending
             except (StackFailed, OSError, subprocess.SubprocessError):
                 return self.abort('service_start_failed')
@@ -345,6 +346,8 @@ def main(argv=None):
     parser.add_argument('--lane-root', required=True)
     parser.add_argument('--cells', default=','.join(CELLS))
     parser.add_argument('--timing-scale', type=float, default=1.0)
+    parser.add_argument('--relay-processes', type=int, default=1, choices=(1, 2, 3),
+                        help='relay processes of the message chain (dispatcher 2026-10-13; the deployment budget declares 1)')
     parser.add_argument('--resume', action='store_true',
                         help='continue an interrupted run in --out: completed cells are kept, an incomplete cell directory is moved to '
                              'attempts/<cell>.<n> (kept, never overwritten) and the cell runs again')
