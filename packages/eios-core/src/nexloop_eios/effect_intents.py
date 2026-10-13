@@ -77,14 +77,15 @@ class EffectIntentConflict(RuntimeError):
 
 
 class EffectIntentPort:
-    def __init__(self,pool,session,signer):
-        if session.run_context is None:raise EffectIntentUnavailable('effect intent unavailable')
-        self.pool,self.session,self.signer=pool,session,signer
+    def __init__(self,pool,session,signer,*,action=ACTION):
+        from nexloop_eios.effect_contexts import EFFECT_ACTIONS
+        if session.run_context is None or action not in EFFECT_ACTIONS:raise EffectIntentUnavailable('effect intent unavailable')
+        self.pool,self.session,self.signer,self.action=pool,session,signer,action
 
     def _execute_in_transaction(self,db,verb,*,action_version,runtime_refs=None,request_scope=None,**arguments):
         try:
             if type(action_version) is not int or not 1<=action_version<=2147483647:raise ValueError()
-            definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(ACTION,action_version)
+            definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(self.action,action_version)
             # This thin admission supports only explicit low-risk/no-approval
             # published contracts. Unsupported policy/precondition machinery is
             # blocked, never treated as successful governance or a claim permit.
@@ -107,7 +108,7 @@ class EffectIntentPort:
                 arguments={**arguments,'runtime_refs':runtime_refs}
             payload=canonical_payload({'verb':verb,'action_version':action_version,**arguments})
             if len(payload.encode())>131072:raise ValueError()
-            entries=[];target=f'eios:action:{ACTION}:{action_version}'
+            entries=[];target=f'eios:action:{self.action}:{action_version}'
             query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
             decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))
             if not decision.allowed or not decision.authoritative or decision.obligations:raise ValueError()

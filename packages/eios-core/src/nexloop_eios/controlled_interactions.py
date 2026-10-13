@@ -33,6 +33,8 @@ PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unkn
 _REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
+# v2 (NX-037 gap B): only effect_categories changes (action-effect-categories.v3.json, nexloop.enterprise.deliver:1).
+SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2')
 
 
 class PlanInvalid(ValueError):
@@ -55,7 +57,7 @@ def _money(value, name):
 
 def validate_plan(value, *, cost_caps=None):
     """The versioned trial configuration (deploy/configuration/nx037-trial.v1.json); `cost_caps` overrides the three D-g values."""
-    if type(value) is not dict or value.get('schema') != SCHEMA:
+    if type(value) is not dict or value.get('schema') not in SCHEMAS:
         raise PlanInvalid('schema')
     caps = {**value.get('cost_caps', {}), **(cost_caps or {})}
     if set(caps) != {'cumulative', 'per_run', 'tenant_monthly'}:

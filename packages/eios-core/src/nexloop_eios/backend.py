@@ -21,6 +21,10 @@ def request_depth():
     return getattr(_request_state, 'depth', 0)
 
 
+
+# NX-037 gap B: effect ports default to the Agent reply Action; nexloop.enterprise.deliver is passed explicitly.
+EFFECT_REPLY = 'nexloop.service.request'
+
 class BackendBusy(RuntimeError):
     """Explicit, retryable: no request capacity freed within the wait budget."""
 
@@ -250,23 +254,23 @@ class AuthenticatedServices:
     def read_effect_receipt(self, *, intent_id):
         return self._backend._invoke(self._session, 'read_effect_receipt', intent_id=intent_id)
 
-    def configure_effect_control(self, *, control_id, control_revision, executor_token):
+    def configure_effect_control(self, *, control_id, control_revision, executor_token, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'configure_effect_control',
-            control_id=control_id, control_revision=control_revision, executor_token=executor_token)
+            control_id=control_id, control_revision=control_revision, executor_token=executor_token, action=action)
 
     def bind_effect_context(self, *, step_id, step_revision, goal_revision, consumer_revision,
-                            control_revision, run_id, run_token, executor_token):
+                            control_revision, run_id, run_token, executor_token, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'bind_effect_context', step_id=step_id,
             step_revision=step_revision, goal_revision=goal_revision, consumer_revision=consumer_revision,
-            control_revision=control_revision, run_id=run_id, run_token=run_token, executor_token=executor_token)
+            control_revision=control_revision, run_id=run_id, run_token=run_token, executor_token=executor_token, action=action)
 
-    def submit_effect_intent(self, *, parameters, action_version=1,request_scope=None):
+    def submit_effect_intent(self, *, parameters, action_version=1,request_scope=None, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'submit_effect_intent',
-            parameters=parameters, action_version=action_version,request_scope=request_scope)
+            parameters=parameters, action_version=action_version,request_scope=request_scope, action=action)
 
-    def find_effect_receipt(self, *, intent_id, action_version=1):
+    def find_effect_receipt(self, *, intent_id, action_version=1, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'find_effect_receipt',
-            intent_id=intent_id, action_version=action_version)
+            intent_id=intent_id, action_version=action_version, action=action)
 
     def create_object(self, *, action_name, action_version, intent_id, type_name, properties):
         return self._backend._invoke(self._session, 'create',
@@ -604,7 +608,8 @@ class Backend:
                 from nexloop_eios.run_credentials import AUDIENCE
                 try:
                     executor=authenticate_service(self._pool,arguments.pop('executor_token'),world=session.world)
-                    registrar=EffectContextRegistrar(self._pool,session,self._signer)
+                    # NX-037 gap B: the effect Action the context is for (an allowed one, 0400); the reply Action by default.
+                    registrar=EffectContextRegistrar(self._pool,session,self._signer,action=arguments.pop('action','nexloop.service.request'))
                     if operation=='configure_effect_control':
                         return registrar.configure_control(executor_session=executor,**arguments)
                     run=authenticate_service(self._pool,arguments.pop('run_token'),world=session.world,
@@ -616,7 +621,7 @@ class Backend:
                     raise EffectContextUnavailable('effect context unavailable') from None
             if operation in ('submit_effect_intent','find_effect_receipt'):
                 from nexloop_eios.effect_intents import EffectIntentPort
-                intents=EffectIntentPort(self._pool,session,self._signer)
+                intents=EffectIntentPort(self._pool,session,self._signer,action=arguments.pop('action','nexloop.service.request'))
                 return intents.submit(**arguments) if operation=='submit_effect_intent' else intents.find(**arguments)
             if operation == 'issue_run':
                 from nexloop_eios.run_credentials import issue_run_credential

@@ -84,7 +84,7 @@ def test_execute_through_trusted_configuration_and_the_owner_action_then_verify(
         out = I.execute(p, **files)
         assert out['steps']['model_budget']['status'] == 'owner_pending' and out['steps']['service_grants']['grants_added'] > 0
         categories = out['steps']['effect_categories']  # only the published Action is declared; the others stay external (closed)
-        assert categories['declared'] == 1 and categories['deferred'] == len(json.loads((I.CONFIG / 'action-effect-categories.v2.json').read_text())['actions']) - 1
+        assert categories['declared'] == 1 and categories['deferred'] == len(json.loads((I.CONFIG / json.loads(I.TRIAL.read_text())['effect_categories']).read_text())['actions']) - 1
         assert categories['externality_written'] == 1
         pending = I.verify(p, metrics, environ={})
         assert pending['ready'] is False
@@ -181,7 +181,7 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
     assert code == 3 and set(out['refused']) == {'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')  # test harness: the switches as the owner would have opened them
-        for kind, ref, mode in (('tenant', '*', 'real'), ('action_type', 'eios:action:nexloop.service.request:1', None)):
+        for kind, ref, mode in (('tenant', '*', 'real'), *(('action_type', action, None) for action in json.loads(R.PLAN.read_text())['real_dispatch']['actions'])):
             admin.execute("""insert into control.nexloop_real_dispatch_switches(tenant_id,world,scope_kind,scope_ref,enabled,data_mode,revision,reason,changed_by,intent_id)
                 values(%s,'real',%s,%s,true,%s,1,'synthetic','synthetic-owner','synthetic-intent')""", (TENANT_A, kind, ref, mode))
     code, out = attempt({})
