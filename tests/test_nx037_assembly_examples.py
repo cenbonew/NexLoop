@@ -74,29 +74,25 @@ def test_enterprise_provider_example_matches_the_effect_worker_shape():
 
 
 def test_enterprise_slot_examples():
-    """Enterprise delivery for one consumer: offering, control and the enrollment with the enterprise slot (ADR-030)."""
-    from nexloop_eios import relay_enrollment, service_offerings
+    """Enterprise delivery for one consumer (ADR-030): the nexloop-enterprise-setup recipe and the enrollment file with the
+    enterprise keys, parsed by the commands' own parsers."""
+    from nexloop_eios import enterprise_setup, relay_enrollment
     end = (datetime.now(UTC) + timedelta(days=3)).isoformat()
-    offering = filled('enterprise-offering.example.json', SERVICE_CODE_SUFFIX='repair-visit', OFFERING_TITLE='上门维修预约',
-                      CNY_PRICE_AMOUNT='0', TRIAL_PERIOD_END_UTC_ISO=end)
-    assert re.fullmatch(r'enterprise\.[a-z0-9][a-z0-9.-]{0,62}', offering['service_code'])
-    assert re.fullmatch(r'(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?', offering['price_amount'])
-    example = getattr(service_offerings, 'enterprise_delivery_example', None)
-    if example is not None:  # present once the enterprise Action (L2) is merged: the example is exactly its arguments
-        assert service_offerings.delivery_scope(example(**offering))['delivery_action'] == 'nexloop.enterprise.deliver:1'
-    control = filled('enterprise-control.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, EFFECT_EXECUTOR_PRINCIPAL_ID='executor',
-                     TRIAL_PERIOD_END_UTC_ISO=end)
-    assert set(control) == {'consumer_id', 'executor_principal', 'budget_units', 'allow_effect', 'valid_until'}
-    assert type(control['budget_units']) is int and control['budget_units'] > 0 and control['allow_effect'] is True
+    recipe = filled('enterprise-setup-recipe.example.json', NEW_UUID=str(uuid.uuid4()), CONSUMER_ID_FROM_BUSINESS_SETUP=HEX,
+                    SERVICE_CODE_SUFFIX='repair-visit', OFFERING_TITLE='上门维修预约', CNY_PRICE_AMOUNT='0', TRIAL_PERIOD_END_UTC_ISO=end)
+    parsed = enterprise_setup.strict_recipe(json.dumps(recipe))
+    assert parsed['offering']['service_code'] == 'enterprise.repair-visit' and parsed['control']['budget_units'] == 30
     other = 'b' * 64
     enrollment = filled('relay-enrollment-enterprise.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, CONTROL_ID_FROM_BUSINESS_SETUP=HEX,
                         OFFERING_ID_FROM_CATALOG_SETUP=HEX, BINDING_ID_FROM_CATALOG_SETUP=HEX, RELAY_SERVICE_PRINCIPAL_ID='relay-principal',
-                        NEW_UUID=str(uuid.uuid4()), ENTERPRISE_CONTROL_ID=other, ENTERPRISE_OFFERING_ID=other, ENTERPRISE_BINDING_ID=other)
-    enterprise = enrollment.pop('enterprise')
-    assert set(enterprise) == {'control_id', 'offering_id', 'binding_id'}
-    relay_enrollment._ids(**{'enterprise_' + key: value for key, value in enterprise.items()})
+                        NEW_UUID=str(uuid.uuid4()), ENTERPRISE_CONTROL_ID_FROM_ENTERPRISE_SETUP=other,
+                        ENTERPRISE_OFFERING_ID_FROM_ENTERPRISE_SETUP=other, ENTERPRISE_BINDING_ID_FROM_ENTERPRISE_SETUP=other)
+    slot = {relay_enrollment.ENTERPRISE_FILE_KEYS[key]: enrollment.pop(key) for key in relay_enrollment.ENTERPRISE_FILE_KEYS}
+    relay_enrollment._ids(**{'enterprise_' + key: value for key, value in slot.items()})
     relay_enrollment._ids(**{key: enrollment[key] for key in ('consumer_id', 'control_id', 'offering_id', 'binding_id')})
+    assert relay_enrollment._INTENT.fullmatch(enrollment['intent_id'])
+    assert slot['control_id'] != enrollment['control_id']  # never the reply control
+    # Without the enterprise keys it is exactly the plain enrollment file: the clearing file.
     assert set(enrollment) == set(filled('relay-enrollment.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, CONTROL_ID_FROM_BUSINESS_SETUP=HEX,
                                          OFFERING_ID_FROM_CATALOG_SETUP=HEX, BINDING_ID_FROM_CATALOG_SETUP=HEX,
                                          RELAY_SERVICE_PRINCIPAL_ID='relay-principal', NEW_UUID=str(uuid.uuid4())))
-    assert enterprise['control_id'] != enrollment['control_id']  # never the reply control
