@@ -85,8 +85,8 @@ python -m nexloop_eios.workbench_roles --roles deploy/authorization/workbench-ro
    python scripts/nx037/endpoint_conformance.py --origin https://<ENDPOINT_HOST>:<PORT> --credential-file <PRIVATE_CREDENTIAL_FILE> --ca-file <CA_FILE> --connect-address <ENDPOINT_IP> --out <PRIVATE_REPORT_FILE>
    ```
 
-   检查项：`credential_format`（私有文件、16–4096 个 `[A-Za-z0-9._~-]`）、`post_new`（POST 200/202、字段恰好四个、回显 intent 与 `payload_digest`、引用格式、2 s 内）、`post_replay`（同一 Idempotency-Key 幂等）、`post_conflict`（同一 intent 换载荷返回 409 且保留原效应）、`get_found`、`get_not_found`（404、`not_found`、两个空值）、`client_end_to_end`（NexLoop 自己的客户端按 TLS/CA/SNI 与绝对截止时间完成一次派发与查询）。退出码 0 全部通过、1 有失败、2 输入错误。检查会在端点上产生三条带标记的测试效应，应对端点的测试模式运行，或用 `--parameters-file` 给一个企业认可的无副作用载荷。
-   没有企业自有端点时，使用仓库提供的参考端点（外部系统替身，员工在其页面上处理交付请求）：[参考企业交付端点部署手册](../../deploy/stage/reference-endpoint/README.md)。
+   检查项：`credential_format`（私有文件、16–4096 个 `[A-Za-z0-9._~-]`）、`post_new`（POST 200/202、字段恰好四个、回显 intent 与 `payload_digest`、状态为 `fulfilled`（企业交付的效应是“工单已持久创建”；通用协议端点可加 `--allow-accepted`）、引用格式、2 s 内）、`post_replay`（同一 Idempotency-Key 幂等）、`post_conflict`（同一 intent 换载荷返回 409 且保留原效应）、`get_found`、`get_not_found`（404、`not_found`、两个空值）、`client_end_to_end`（NexLoop 自己的客户端按 TLS/CA/SNI 与绝对截止时间完成一次派发与查询）。退出码 0 全部通过、1 有失败、2 输入错误。检查默认发送 `{"summary": "NexLoop conformance check <run id>"}`，会在端点上产生两条测试效应，应对端点的测试模式运行，或用 `--parameters-file` 给一个企业认可的无副作用载荷。
+   没有企业自有端点时，使用仓库提供的参考端点（外部系统替身，员工在其页面上处理交付请求）：[参考企业交付端点部署手册](../../deploy/stage/reference-endpoint/README.md)。员工标记的处理结果只留在端点内，不回传 NexLoop（局限见该手册 §8，回传是 v0.1 之后的后续项）。
 3. **效应 worker 的 provider 配置**：见 [`enterprise-provider.example.json`](../../deploy/examples/nx037/enterprise-provider.example.json)（`origin`、绝对路径的凭据与 CA、`timeout` 2 s、数字 `connect_address`）。
 
 ## 6. “结果暂时未知”演练（3 次 `unknown_reconciliation`，【B】）

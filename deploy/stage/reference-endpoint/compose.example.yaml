@@ -14,6 +14,8 @@ services:
       - "${ENDPOINT_BIND_ADDR:?bind address}:${ENDPOINT_PORT:?published port}:8443"
     volumes:
       - endpoint_data:/var/lib/reference-endpoint
+    environment:
+      ENDPOINT_TENANT_LABEL: ${ENDPOINT_TENANT_LABEL:?tenant label}
     secrets: [endpoint_cert, endpoint_key, service_token, staff_token]
 volumes:
   endpoint_data: {}

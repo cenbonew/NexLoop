@@ -13,18 +13,22 @@ own volume); the rule "PostgreSQL holds the business state" is NexLoop's and doe
 
 Protocol (service token, `Authorization: Bearer`):
 - POST /v1/effects  {intent_id, payload_digest, parameters}; `Idempotency-Key` must equal intent_id; payload_digest must be
-  the sha256 of the canonical parameters. A new intent is persisted (fsync) before the answer 202; a replay answers 200 with
+  the sha256 of the canonical parameters. A new intent is persisted (fsync) before the answer 200; a replay answers 200 with
   the same receipt; the same key with a different payload answers 409 with the original receipt (nothing is overwritten).
+- parameters are those of nexloop.enterprise.deliver:1: summary (required, 1-200 characters), details (optional, at most 2000),
+  consumer_ref (optional, NexLoop's opaque consumer reference, at most 200). Any other key, or a wrong type or length, is
+  rejected with 400 parameters_invalid.
 - GET /v1/effects/<intent_id>  200 with the receipt, or 404 {state: not_found, payload_digest: null, provider_reference: null}.
-- Receipt: {intent_id, payload_digest, state, provider_reference}; state accepted (waiting for staff), fulfilled (staff marked
-  it handled) or failed (staff marked it failed).
+- Receipt: {intent_id, payload_digest, state, provider_reference}. The effect is "the ticket is durably created in the
+  enterprise system", so state is always fulfilled once persisted (POST and GET alike, except under the drill).
 
-Delivery semantics (owner decision 2026-10-13): a service ticket. Each customer request becomes a ticket that staff handle in
+Delivery semantics (owner decisions 2026-10-13): a service ticket. Each customer request becomes a ticket that staff handle in
 working hours. Staff page (staff token, separate from the service token): GET /staff lists the tickets with the request
-summary, the source tenant and intent id, the received time, the handler, the result and a note; staff mark each one
-"handled" (fulfilled) or "failed" with their name and an optional note; the mark is what GET returns afterwards. The summary
-and the source tenant come from the request parameters `summary` and `tenant_id` when NexLoop sends them; otherwise the page
-shows a shortened payload and "unknown". Login sets an HttpOnly, Secure, SameSite=Strict
+summary and details, the consumer reference, the source tenant (this endpoint's configured tenant label: one endpoint serves
+one enterprise) and the intent id, the received time, the handler, the result and a note; staff mark each one "handled" or
+"failed" with their name and an optional note. That result is the enterprise's internal business outcome, not an effect
+state: it is kept only on the staff page and in this endpoint's own store, and GET does not return it (passing it back to
+NexLoop, e.g. as an inbound event, is a follow-up after v0.1). Login sets an HttpOnly, Secure, SameSite=Strict
 session cookie; marks need the session's CSRF token.
 
 Drill ("result temporarily unknown", for the 3 unknown_reconciliation interactions): only the local `drill` command can switch
@@ -123,7 +127,8 @@ class Store:
 
     @staticmethod
     def receipt(row):
-        return dict(zip(('intent_id', 'payload_digest', 'state', 'provider_reference'), row[:4]))
+        # The stored ticket status (open / handled / failed) is internal; the effect state is fulfilled once persisted.
+        return {'intent_id': row[0], 'payload_digest': row[1], 'state': 'fulfilled', 'provider_reference': row[3]}
 
     def submit(self, intent, payload_digest, parameters):
         """Returns (status, receipt, created)."""
@@ -138,7 +143,7 @@ class Store:
                 db.execute('insert into events(intent_id,kind,at) values(?,?,?)', (intent, 'accepted', stamp))
                 db.execute('commit')
                 row = db.execute('select intent_id,payload_digest,state,provider_reference from effects where intent_id=?', (intent,)).fetchone()
-                return 202, self.receipt(row), True
+                return 200, self.receipt(row), True
             db.execute('commit')
             return (200 if row[1] == payload_digest else 409), self.receipt(row), False
 
@@ -169,17 +174,27 @@ class Store:
             return True
 
 
+PARAMETER_LIMITS = {'summary': 200, 'details': 2000, 'consumer_ref': 200}
+
+
+def parameters_valid(parameters):
+    """nexloop.enterprise.deliver:1 parameters: summary required, details and consumer_ref optional, nothing else."""
+    if type(parameters) is not dict or 'summary' not in parameters or not set(parameters) <= set(PARAMETER_LIMITS):
+        return False
+    return all(type(value) is str and value.strip() and len(value) <= PARAMETER_LIMITS[key] for key, value in parameters.items())
+
+
 def ticket_fields(parameters_text):
-    """(request summary, source tenant) for the staff page; never raises."""
+    """(summary, details, consumer_ref) for the staff page; never raises."""
     try:
         value = json.loads(parameters_text)
     except ValueError:
         value = None
-    summary = value.get('summary') if isinstance(value, dict) else None
-    tenant = value.get('tenant_id') if isinstance(value, dict) else None
-    if type(summary) is not str or not summary.strip():
-        summary = parameters_text[:200] + ('…' if len(parameters_text) > 200 else '')
-    return summary[:500], tenant if type(tenant) is str and tenant else '未知'
+    value = value if isinstance(value, dict) else {}
+    text = {key: value.get(key) if type(value.get(key)) is str else '' for key in PARAMETER_LIMITS}
+    if not text['summary']:
+        text['summary'] = parameters_text[:200] + ('…' if len(parameters_text) > 200 else '')
+    return text['summary'], text['details'], text['consumer_ref']
 
 
 # ---- drill control (local CLI only) ------------------------------------------------------------------------------------
@@ -248,7 +263,11 @@ def drill(directory, *, delay_next_posts=None, delay_seconds=5.0, get_unavailabl
 
 # ---- HTTP --------------------------------------------------------------------------------------------------------------
 
-def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=None, tls_key_file=None, secure_cookie=True):
+def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=None, tls_key_file=None, secure_cookie=True,
+                tenant_label=''):
+    if len(tenant_label) > 100:
+        raise ValueError('tenant label')
+    tenant_label = tenant_label.strip() or '未配置'
     store = Store(data_dir)
     sessions = {}
     sessions_lock = threading.Lock()
@@ -338,6 +357,8 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                     raise ValueError()
             except (ValueError, TypeError, UnicodeDecodeError):
                 return self.send_json(400, {'error': 'request_invalid'})
+            if not parameters_valid(parameters):
+                return self.send_json(400, {'error': 'parameters_invalid'})
             status, receipt, created = store.submit(intent, payload, parameters)
             if created:
                 delay = take_post_delay(data_dir)
@@ -392,7 +413,7 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
             rows = []
             for intent, state, parameters, created, handled_by, note, handled_at in store.listing():
                 label = {'accepted': '待处理', 'fulfilled': '已处理', 'failed': '处理失败'}[state]
-                summary, tenant = ticket_fields(parameters)
+                summary, details, consumer_ref = ticket_fields(parameters)
                 if state == 'accepted':
                     result = (f'<form method="post" action="/staff/mark">'
                               f'<input type="hidden" name="csrf" value="{html.escape(current["csrf"])}">'
@@ -403,9 +424,13 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                               f'<button name="state" value="failed">处理失败</button></form>')
                 else:
                     result = f'{label}（{html.escape(handled_at or "")}）' + (f'<br>{html.escape(note)}' if note else '')
-                rows.append(f'<tr><td>{html.escape(summary)}</td><td>{html.escape(tenant)}<br><code>{html.escape(intent)}</code></td>'
+                request_text = html.escape(summary) + (f'<br><small>{html.escape(details)}</small>' if details else '')
+                if consumer_ref:
+                    request_text += f'<br>客户引用：<code>{html.escape(consumer_ref)}</code>'
+                rows.append(f'<tr><td>{request_text}</td><td>{html.escape(tenant_label)}<br><code>{html.escape(intent)}</code></td>'
                             f'<td>{html.escape(created)}</td><td>{html.escape(handled_by or "")}</td><td>{label}</td><td>{result}</td></tr>')
-            self.send_html(200, '<h1>服务工单（员工）</h1><p>这是企业侧系统的替身，不属于 NexLoop。请在工作时间内处理，并标记处理结果。</p>'
+            self.send_html(200, '<h1>服务工单（员工）</h1><p>这是企业侧系统的替身，不属于 NexLoop。请在工作时间内处理，并标记处理结果。'
+                                '处理结果只保存在本系统，不回传 NexLoop。</p>'
                                 '<table><tr><th>请求摘要</th><th>来源租户 / 意图 id</th><th>收到时间</th><th>处理人</th><th>状态</th>'
                                 '<th>处理结果与备注</th></tr>' + ''.join(rows) + '</table>')
 
@@ -453,6 +478,8 @@ def main(argv=None):
     s.add_argument('--tls-key-file', required=True)
     s.add_argument('--service-token-file', required=True)
     s.add_argument('--staff-token-file', required=True)
+    s.add_argument('--tenant-label', default=os.environ.get('ENDPOINT_TENANT_LABEL', ''),
+                   help='source tenant shown on the staff page (one endpoint serves one enterprise)')
     d = sub.add_parser('drill')
     d.add_argument('--data-dir', required=True)
     group = d.add_mutually_exclusive_group(required=True)
@@ -476,7 +503,7 @@ def main(argv=None):
         if hmac.compare_digest(service.encode(), staff.encode()):
             raise ValueError('service and staff tokens must differ')
         server = make_server(data_dir=args.data_dir, listen=args.listen, service_token=service, staff_token=staff,
-                             tls_cert_file=args.tls_cert_file, tls_key_file=args.tls_key_file)
+                             tls_cert_file=args.tls_cert_file, tls_key_file=args.tls_key_file, tenant_label=args.tenant_label)
         print(json.dumps({'ready': True}), flush=True)
         server.serve_forever()
         return 0

@@ -54,7 +54,7 @@ docker compose -f deploy/stage/reference-endpoint/compose.example.yaml --env-fil
 python scripts/nx037/endpoint_conformance.py --origin https://<ENDPOINT_HOST_NAME>:<ENDPOINT_PORT> --credential-file <SERVICE_TOKEN_FILE> --ca-file <CA_FILE> --connect-address <APP_HOST_ADDR> --out <PRIVATE_REPORT_FILE>
 ```
 
-全部检查项通过（`ok: true`）才接入。检查会在端点上留下 3 条带 `nexloop_conformance_check` 标记的交付请求，员工可以把它们标记为“已处理”。
+全部检查项通过（`ok: true`）才接入。检查会在端点上留下 2 张摘要为“NexLoop conformance check …”的工单（其中一张的冲突变体被 409 拒绝，不会落库），员工可以把它们标记为“已处理”。端点对 POST 与 GET 都只返回 `fulfilled`，所以检查默认要求 `fulfilled`。
 
 ## 5. NexLoop 侧接入
 
@@ -62,9 +62,11 @@ python scripts/nx037/endpoint_conformance.py --origin https://<ENDPOINT_HOST_NAM
 
 ## 6. 员工页面
 
-浏览器打开 `https://<ENDPOINT_HOST_NAME>:<ENDPOINT_PORT>/staff`，用员工凭据登录（会话 8 小时，Cookie 为 HttpOnly、Secure、SameSite=Strict）。页面按工单列出最近 500 条请求，字段为：请求摘要、来源租户与意图 id、收到时间、处理人、状态（待处理 / 已处理 / 处理失败）、处理结果与备注。员工处理“待处理”工单时必须填写处理人（最多 64 字），可填备注（最多 500 字），再选“已处理”（GET 状态变为 `fulfilled`）或“处理失败”（GET 状态变为 `failed`）；处理时间自动记录。标记一经写入不可更改。请求摘要与来源租户取自请求参数中的 `summary` 与 `tenant_id`；缺少时显示截断的参数原文与“未知”。【待确认】`nexloop.enterprise.deliver:1` 的参数键名以 L2 的定义为准，届时对齐。
+浏览器打开 `https://<ENDPOINT_HOST_NAME>:<ENDPOINT_PORT>/staff`，用员工凭据登录（会话 8 小时，Cookie 为 HttpOnly、Secure、SameSite=Strict）。页面按工单列出最近 500 条请求，字段为：请求摘要（含详情与客户引用）、来源租户与意图 id、收到时间、处理人、状态（待处理 / 已处理 / 处理失败）、处理结果与备注。员工处理“待处理”工单时必须填写处理人（最多 64 字），可填备注（最多 500 字），再选“已处理”或“处理失败”；处理时间自动记录。标记一经写入不可更改。
 
-> **已知协议缺口**：当前 NexLoop 的客户端只认 `accepted`、`fulfilled`、`not_found` 三种状态。GET 返回 `failed` 时，NexLoop 把这次查询当作“不可用”，意图保持结果不明并按回复保障与对账流程升级给负责人，绝不会当作已完成或重发。是否在协议中加入 `failed`，由调度员另行决定。
+- 请求参数就是 `nexloop.enterprise.deliver:1` 的参数：`summary`（必填，最多 200 字）、`details`（可选，最多 2000 字）、`consumer_ref`（可选，NexLoop 的不透明客户引用，员工可凭它在工作台找到对应会话）。带其他键、类型或长度不对的请求一律返回 400 `parameters_invalid`，不落库。
+- “来源租户”不来自请求：一个端点只服务一个企业，取部署配置里的租户标签 `ENDPOINT_TENANT_LABEL`。
+- **效应边界**：效应是“工单已在企业系统中持久创建”。新请求落盘后 POST 即返回 `fulfilled`，GET 也始终返回 `fulfilled`（演练开关打开时除外）。员工标记的“已处理 / 处理失败”是企业内部的业务结果，不是效应状态：只保存在员工页面和端点自己的存储里，不经 GET 回传 NexLoop。
 
 ## 7. “结果暂时未知”演练（只能在本机用管理命令打开）
 
@@ -78,3 +80,9 @@ docker compose -f deploy/stage/reference-endpoint/compose.example.yaml --env-fil
 - `--get-unavailable-seconds S`：接下来 S 秒内 GET 一律返回 503，用来检查 NexLoop 在查询不可用时保持结果不明、不判为完成、不重发。
 - `--status` 查看当前状态，`--clear` 关闭演练。
 - 每次 `unknown_reconciliation` 交互前打开一次；对第三方端点无法这样做时，改用 [`scripts/nx037/unknown_drill_relay.py`](../../../scripts/nx037/unknown_drill_relay.py) 中继。
+
+## 8. 局限
+
+- 员工的处理结果（已处理 / 处理失败及备注）不回传 NexLoop。NexLoop 只知道工单已创建；把处理结果回传（例如作为入站事件）是 v0.1 之后的后续项。
+- 工作时间外到达的请求保持“待处理”，端点不提醒、不升级；这由员工的值班安排负责。
+- 端点只服务一个企业（一个租户标签），也没有面向消费者的界面。

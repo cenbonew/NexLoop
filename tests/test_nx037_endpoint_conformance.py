@@ -43,9 +43,12 @@ def failed(report):
 
 # ---- conformance: the synthetic endpoint passes every check ---------------------------------------------------------------
 
+GENERIC = frozenset({'accepted', 'fulfilled'})  # the shared protocol fake answers accepted
+
+
 def test_conforming_endpoint_passes_every_check(tmp_path):
     with effect_provider(tmp_path / 'endpoint.sqlite') as endpoint:
-        report = conformance.run(loopback(endpoint.origin))
+        report = conformance.run(loopback(endpoint.origin), states=GENERIC)
         snapshot = endpoint.control('snapshot')
     assert report['ok'] is True, failed(report)
     assert [c['name'] for c in report['checks']] == ['post_new', 'post_replay', 'post_conflict', 'get_found', 'get_not_found',
@@ -107,7 +110,7 @@ def deviant(mode, delay=0.0):
             self.send(200, receipt(intent, found))
 
     def receipt(intent, effect):
-        return {'intent_id': intent, 'payload_digest': effect['payload_digest'], 'state': 'accepted', 'provider_reference': effect['reference']}
+        return {'intent_id': intent, 'payload_digest': effect['payload_digest'], 'state': 'fulfilled', 'provider_reference': effect['reference']}
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     server.daemon_threads = True
@@ -228,7 +231,7 @@ def test_tls_with_the_given_ca_passes_and_a_wrong_ca_fails(tmp_path, capsys):
     credential = secrets.token_urlsafe(32)
     with tls_endpoint(tmp_path, credential) as (origin, cert, _):
         secret = private(tmp_path, 'credential', credential)
-        good = conformance.run(EffectProviderConfiguration(origin, credential_file=str(secret), ca_file=str(cert)))
+        good = conformance.run(EffectProviderConfiguration(origin, credential_file=str(secret), ca_file=str(cert)), states=GENERIC)
         other, _ = certificate(tmp_path, 'other')
         bad = conformance.run(EffectProviderConfiguration(origin, credential_file=str(secret), ca_file=str(other)))
     assert good['ok'] is True, failed(good)
@@ -258,7 +261,9 @@ def test_credential_charset_and_private_file(tmp_path):
 def test_cli_writes_a_private_report_and_refuses_an_existing_one(tmp_path, capsys):
     with effect_provider(tmp_path / 'endpoint.sqlite') as endpoint:
         out = tmp_path / 'report.json'
-        assert conformance.main(['--origin', endpoint.origin, '--test-loopback-http', '--out', str(out)]) == 0
+        assert conformance.main(['--origin', endpoint.origin, '--test-loopback-http', '--out', str(tmp_path / 'strict.json')]) == 1
+        assert 'post_new:state_invalid' in capsys.readouterr().out  # the delivery endpoint must answer fulfilled
+        assert conformance.main(['--origin', endpoint.origin, '--test-loopback-http', '--allow-accepted', '--out', str(out)]) == 0
         assert out.stat().st_mode & 0o777 == 0o600
         assert json.loads(out.read_text())['ok'] is True
         assert conformance.main(['--origin', endpoint.origin, '--test-loopback-http', '--out', str(out)]) == 2

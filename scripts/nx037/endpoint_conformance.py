@@ -8,7 +8,8 @@ protocol, `nexloop-service-effect-http-v1`, spoken by nexloop_eios.effect_provid
 Checks (each one line in the report: name, ok, code, elapsed_ms; never a body, header value or credential):
 - credential_format: the credential file is private (0600, owned, regular) and is 16–4096 characters of [A-Za-z0-9._~-];
 - post_new:        POST /v1/effects answers 200 or 202 with application/json, exactly the fields intent_id, payload_digest, state,
-                   provider_reference; echoes the intent id and the payload digest; state accepted or fulfilled; a well-formed
+                   provider_reference; echoes the intent id and the payload digest; state fulfilled (the ticket is durably created;
+                   --allow-accepted also accepts `accepted` for generic protocol endpoints); a well-formed
                    provider reference; within the deadline;
 - post_replay:     the same POST with the same Idempotency-Key answers 200/202 with the same provider reference (idempotent);
 - post_conflict:   the same intent with a different payload answers 409 and the original effect is kept (GET still returns the
@@ -158,7 +159,7 @@ def _receipt_problem(status, content_type, value, size, *, intent, payload_diges
     return None
 
 
-def run(configuration, *, parameters=None):
+def run(configuration, *, parameters=None, states=frozenset({'fulfilled'})):
     """Run every check in order; a check that cannot run because an earlier one failed is reported as `skipped`."""
     checks = []
 
@@ -176,7 +177,8 @@ def run(configuration, *, parameters=None):
             return report(configuration, checks)
         record('credential_format', True)
     run_id = str(uuid.uuid4())
-    parameters = parameters if parameters is not None else {'nexloop_conformance_check': run_id}
+    # Default: a nexloop.enterprise.deliver:1 payload the staff can recognise and close.
+    parameters = parameters if parameters is not None else {'summary': 'NexLoop conformance check ' + run_id}
     if type(parameters) is not dict:
         raise InputError('parameters must be a JSON object')
     payload = digest(parameters)
@@ -198,17 +200,17 @@ def run(configuration, *, parameters=None):
         return value if problem is None else None
 
     first = attempt('post_new', 'POST', '/v1/effects', body, lambda s, c, v, n: _receipt_problem(
-        s, c, v, n, intent=intent, payload_digest=payload, allowed_status={200, 202}, states={'accepted', 'fulfilled'}))
+        s, c, v, n, intent=intent, payload_digest=payload, allowed_status={200, 202}, states=states))
     if first is not None:
         reference = first['provider_reference']
         attempt('post_replay', 'POST', '/v1/effects', body, lambda s, c, v, n: _receipt_problem(
-            s, c, v, n, intent=intent, payload_digest=payload, allowed_status={200, 202}, states={'accepted', 'fulfilled'})
+            s, c, v, n, intent=intent, payload_digest=payload, allowed_status={200, 202}, states=states)
             or (None if v['provider_reference'] == reference else 'replay_not_idempotent'))
-        other = dict(parameters, nexloop_conformance_conflict=True)
+        other = dict(parameters, details=(str(parameters.get('details', '')) + ' NexLoop conformance conflict variant').strip())
         conflict = {'intent_id': intent, 'payload_digest': digest(other), 'parameters': other}
         attempt('post_conflict', 'POST', '/v1/effects', conflict, lambda s, c, v, n: None if s == 409 else 'conflict_not_409')
         attempt('get_found', 'GET', '/v1/effects/' + intent, None, lambda s, c, v, n: _receipt_problem(
-            s, c, v, n, intent=intent, payload_digest=payload, allowed_status={200}, states={'accepted', 'fulfilled'})
+            s, c, v, n, intent=intent, payload_digest=payload, allowed_status={200}, states=states)
             or (None if v['provider_reference'] == reference else 'original_not_kept'))
     else:
         for name in ('post_replay', 'post_conflict', 'get_found'):
@@ -244,6 +246,8 @@ def main(argv=None):
     parser.add_argument('--connect-address')
     parser.add_argument('--timeout', type=float, default=2.0)
     parser.add_argument('--parameters-file')
+    parser.add_argument('--allow-accepted', action='store_true',
+                        help='also accept state accepted (generic protocol endpoints; the enterprise delivery endpoint answers fulfilled)')
     parser.add_argument('--test-loopback-http', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--out', required=True)
     args = parser.parse_args(argv)
@@ -256,7 +260,8 @@ def main(argv=None):
                                                     timeout=args.timeout, test_loopback_http=args.test_loopback_http,
                                                     connect_address=args.connect_address)
         parameters = json.loads(Path(args.parameters_file).read_text(encoding='utf-8')) if args.parameters_file else None
-        result = run(configuration, parameters=parameters)
+        result = run(configuration, parameters=parameters,
+                     states=frozenset({'accepted', 'fulfilled'}) if args.allow_accepted else frozenset({'fulfilled'}))
     except (InputError, ValueError, OSError) as error:
         print(json.dumps({'ok': False, 'error': 'input', 'reason': type(error).__name__}))
         return 2

@@ -48,7 +48,7 @@ def running(tmp_path):
     service, staff = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     data = tmp_path / 'endpoint-data'
     server = endpoint_module.make_server(data_dir=data, listen='127.0.0.1:0', service_token=service, staff_token=staff,
-                                        tls_cert_file=str(cert), tls_key_file=str(key))
+                                        tls_cert_file=str(cert), tls_key_file=str(key), tenant_label='示例企业')
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     origin = 'https://127.0.0.1:' + str(server.server_address[1])
@@ -71,7 +71,7 @@ def http(e):
 
 
 def request(parameters=None):
-    parameters = {'delivery': 'synthetic'} if parameters is None else parameters
+    parameters = {'summary': '合成交付请求'} if parameters is None else parameters
     return {'intent_id': str(uuid.uuid4()), 'payload_digest': endpoint_module.digest(parameters), 'parameters': parameters}
 
 
@@ -92,10 +92,10 @@ def test_idempotent_replay_conflict_and_not_found(tmp_path):
     with running(tmp_path) as e, http(e) as h:
         body = request()
         first = h.post('/v1/effects', json=body, headers={**bearer(e), 'Idempotency-Key': body['intent_id']})
-        assert first.status_code == 202 and first.json()['state'] == 'accepted' and first.json()['payload_digest'] == body['payload_digest']
+        assert first.status_code == 200 and first.json()['state'] == 'fulfilled' and first.json()['payload_digest'] == body['payload_digest']
         replay = h.post('/v1/effects', json=body, headers={**bearer(e), 'Idempotency-Key': body['intent_id']})
         assert replay.status_code == 200 and replay.json() == first.json()
-        other = request({'delivery': 'different'})
+        other = request({'summary': '另一个请求'})
         conflict = {**other, 'intent_id': body['intent_id']}
         refused = h.post('/v1/effects', json=conflict, headers={**bearer(e), 'Idempotency-Key': body['intent_id']})
         assert refused.status_code == 409 and refused.json() == first.json()
@@ -110,8 +110,16 @@ def test_idempotent_replay_conflict_and_not_found(tmp_path):
         bad['payload_digest'] = '0' * 64
         wrong_digest = h.post('/v1/effects', json=bad, headers={**bearer(e), 'Idempotency-Key': bad['intent_id']})
         assert wrong_key.status_code == 400 and wrong_digest.status_code == 400
+        # Only the nexloop.enterprise.deliver:1 parameters are accepted.
+        for parameters in ({}, {'details': 'x'}, {'summary': ''}, {'summary': 'x' * 201}, {'summary': 'x', 'details': 'y' * 2001},
+                           {'summary': 'x', 'tenant_id': 'y'}, {'summary': 1}, {'summary': 'x', 'consumer_ref': 'r' * 201}):
+            invalid = request(parameters)
+            answer = h.post('/v1/effects', json=invalid, headers={**bearer(e), 'Idempotency-Key': invalid['intent_id']})
+            assert answer.status_code == 400 and answer.json() == {'error': 'parameters_invalid'}, parameters
+        full = request({'summary': 's', 'details': 'd' * 2000, 'consumer_ref': 'c' * 200})
+        assert h.post('/v1/effects', json=full, headers={**bearer(e), 'Idempotency-Key': full['intent_id']}).status_code == 200
     with endpoint_module.Store(e['data']).connect() as db:
-        assert db.execute('select count(*) from effects').fetchone()[0] == 1
+        assert db.execute('select count(*) from effects').fetchone()[0] == 2
         assert db.execute('pragma journal_mode').fetchone()[0] == 'wal'
 
 
@@ -132,18 +140,19 @@ def staff_session(e, h):
     return page, csrf.group(1) if csrf else None
 
 
-def test_staff_marks_are_what_get_returns(tmp_path):
+def test_staff_marks_stay_in_the_endpoint_and_get_stays_fulfilled(tmp_path):
     with running(tmp_path) as e, http(e) as h:
-        handled = request({'summary': '为客户安排一次上门服务', 'tenant_id': '00000000-0000-4000-8000-00000000000a'})
-        failed = request({'delivery': 'second'})
+        handled = request({'summary': '为客户安排一次上门服务', 'details': '周三下午', 'consumer_ref': 'consumer-ref-opaque-1'})
+        failed = request({'summary': '第二个请求'})
         provider = client(e)
         for body in (handled, failed):
-            assert provider.dispatch(**body).state == 'accepted'
+            assert provider.dispatch(**body).state == 'fulfilled'
         assert h.post('/staff/login', data={'token': e['service']}).status_code == 401
         assert h.post('/staff/mark', data={'csrf': 'x', 'intent_id': handled['intent_id'], 'state': 'fulfilled'}).status_code == 401
         page, csrf = staff_session(e, h)
         assert handled['intent_id'] in page.text and '待处理' in page.text
-        assert '为客户安排一次上门服务' in page.text and '00000000-0000-4000-8000-00000000000a' in page.text and '未知' in page.text
+        assert '为客户安排一次上门服务' in page.text and '周三下午' in page.text and 'consumer-ref-opaque-1' in page.text
+        assert '示例企业' in page.text  # source tenant = the endpoint's configured label
         assert h.post('/staff/mark', data={'csrf': 'wrong', 'intent_id': handled['intent_id'], 'state': 'fulfilled'}).status_code == 403
         assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': handled['intent_id'], 'state': 'fulfilled'}).status_code == 400
         assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': handled['intent_id'], 'state': 'fulfilled', 'handled_by': '员工甲',
@@ -152,14 +161,15 @@ def test_staff_marks_are_what_get_returns(tmp_path):
         page = h.get('/staff').text
         for text in ('请求摘要', '来源租户', '收到时间', '处理人', '员工甲', '已电话确认', '处理失败'):
             assert text in page
-        assert provider.query(intent_id=handled['intent_id'], payload_digest=handled['payload_digest']).state == 'fulfilled'
-        assert h.get('/v1/effects/' + failed['intent_id'], headers=bearer(e)).json()['state'] == 'failed'
-        # The current NexLoop client does not know `failed`: it reports the query as unavailable, never as fulfilled.
-        with pytest.raises(EffectProviderQueryUnavailable):
-            provider.query(intent_id=failed['intent_id'], payload_digest=failed['payload_digest'])
-        # A mark is final.
+        # The staff result is the enterprise's business outcome, not an effect state: GET stays fulfilled for both.
+        for body in (handled, failed):
+            assert provider.query(intent_id=body['intent_id'], payload_digest=body['payload_digest']).state == 'fulfilled'
+            assert 'failed' not in h.get('/v1/effects/' + body['intent_id'], headers=bearer(e)).text
+        # A mark is final and kept in the endpoint's own store.
         h.post('/staff/mark', data={'csrf': csrf, 'intent_id': failed['intent_id'], 'state': 'fulfilled', 'handled_by': '员工甲'})
-        assert h.get('/v1/effects/' + failed['intent_id'], headers=bearer(e)).json()['state'] == 'failed'
+        tickets = {row[0]: row for row in e['server'].store.listing()}
+        assert tickets[failed['intent_id']][1] == 'failed' and tickets[failed['intent_id']][4] == '员工乙'
+        assert tickets[handled['intent_id']][1:2] == ('fulfilled',) and tickets[handled['intent_id']][5] == '已电话确认'
 
 
 def test_drill_delayed_post_is_persisted_and_unknown_then_the_query_finds_it(tmp_path):
@@ -173,10 +183,10 @@ def test_drill_delayed_post_is_persisted_and_unknown_then_the_query_finds_it(tmp
             provider.dispatch(**body)
         assert time.monotonic() - started < 2.6
         stored = endpoint_module.Store(e['data']).get(body['intent_id'])
-        assert stored is not None and stored['state'] == 'accepted'
+        assert stored is not None and stored['state'] == 'fulfilled'
         assert provider.query(intent_id=body['intent_id'], payload_digest=body['payload_digest']).provider_reference == stored['provider_reference']
         # The drill was used once; the next new request is answered at once.
-        assert provider.dispatch(**request({'delivery': 'after'})).state == 'accepted'
+        assert provider.dispatch(**request({'summary': '之后的请求'})).state == 'fulfilled'
 
 
 def test_drill_get_unavailable_window(tmp_path):
@@ -188,7 +198,7 @@ def test_drill_get_unavailable_window(tmp_path):
         with pytest.raises(EffectProviderQueryUnavailable):
             provider.query(intent_id=body['intent_id'], payload_digest=body['payload_digest'])
         time.sleep(1.2)
-        assert provider.query(intent_id=body['intent_id'], payload_digest=body['payload_digest']).state == 'accepted'
+        assert provider.query(intent_id=body['intent_id'], payload_digest=body['payload_digest']).state == 'fulfilled'
 
 
 def test_drill_only_from_the_local_cli(tmp_path, capsys):
@@ -242,6 +252,6 @@ def test_ticket_fields_survive_existing_data(tmp_path):
     assert again.mark(body['intent_id'], 'fulfilled', '员工甲', '完成') is True
     row = again.listing()[0]
     assert row[4:6] == ('员工甲', '完成') and row[6]
-    assert endpoint_module.ticket_fields('not json') == ('not json', '未知')
+    assert endpoint_module.ticket_fields('not json') == ('not json', '', '')
     with pytest.raises(ValueError):
         again.mark(body['intent_id'], 'fulfilled', '')
