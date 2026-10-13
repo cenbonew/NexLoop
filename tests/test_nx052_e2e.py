@@ -143,3 +143,48 @@ def test_the_key_check_does_not_depend_on_the_session_search_path(admin):
     assert set(facts) == {'database', 'search_path', 'server_version_num', 'tenant_foreign_keys'}
     dropped = tenant_fk_state.drop(admin, [b for b in tenant_fk_state.ALL if b != '5'])
     assert len(dropped) == sum(len(tenant_fk_state.constraints(b)) for b in tenant_fk_state.ALL if b != '5')
+
+
+def test_a_template_built_without_the_keys_is_refused_with_that_cause(admin, pg, tmp_path, monkeypatch):
+    """CI host N runs 2026-10-13/14 (run 20261013T191340Z): TenantFkMismatch with all 134 missing in database 'postgres' with only
+    8 tenant keys, the ones predating NX-052. Reproduced: a template built with NEXLOOP_LOAD_TENANT_FK_DROP has no NX-052 keys, so
+    its clones have none to drop. The cell now refuses with that cause before touching the clone; nothing is dropped."""
+    from types import SimpleNamespace
+    from nexloop_eios.bootstrap import bootstrap
+    import stack
+    bootstrap(admin)
+    count = lambda: admin.execute("select count(*) from pg_constraint where contype='f' and confrelid='control.nexloop_tenants'::regclass").fetchone()[0]  # noqa: E731
+    before = count()
+    template = tmp_path / 'template'
+    (template / 'private').mkdir(parents=True)
+    (template / 'private/chain.json').write_text(json.dumps({'tenant': '00000000-0000-4000-8000-00000000000a'}))
+    (template / 'template.json').write_text(json.dumps({'tenant_fk_dropped': {'batches': ['all'], 'constraints': ['x']}}))
+    monkeypatch.setenv('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', 'all')
+    lane = tmp_path / 'lane'
+    with pytest.raises(tenant_fk_state.TemplateKeysDropped):
+        stack.Stack(SimpleNamespace(dsn=pg), template, lane, {'cell': 'C4-low'})
+    assert json.loads((lane / 'tenant-fk-state.json').read_text()) == {'dropped_batches': ['all'], 'dropped_constraints': 0,
+                                                                       'refused': 'template_keys_already_dropped', 'template_dropped_batches': ['all']}
+    assert count() == before
+    lane_script = (ROOT / 'scripts/load/run_on_lane.sh').read_text()
+    assert 'NEXLOOP_LOAD_TENANT_FK_DROP and NEXLOOP_LOAD_TENANT_FK_DROP_CELL are alternatives' in lane_script
+
+
+def test_a_database_without_the_keys_reports_its_name_and_the_right_one_drops_all(admin, pg):
+    """Dispatcher 2026-10-14: checked against a database that does not hold the NX-052 keys, the mismatch names that database
+    (cluster facts, no data); against the clone's database every one of the 134 keys is dropped."""
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    import psycopg
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    admin.execute('create database nx052_elsewhere')
+    try:
+        with psycopg.connect(make_conninfo(**{**conninfo_to_dict(pg), 'dbname': 'nx052_elsewhere'}), autocommit=True) as other:
+            with pytest.raises(tenant_fk_state.TenantFkMismatch) as raised:
+                tenant_fk_state.drop(other, ['all'])
+        assert len(raised.value.missing) == sum(len(tenant_fk_state.constraints(b)) for b in tenant_fk_state.ALL)
+        assert raised.value.cluster['database'] == 'nx052_elsewhere' and raised.value.cluster['tenant_foreign_keys'] == 0
+    finally:
+        admin.execute('drop database nx052_elsewhere')
+    assert admin.execute('select current_database()').fetchone()[0] == 'postgres'
+    assert len(tenant_fk_state.drop(admin, ['all'])) == sum(len(tenant_fk_state.constraints(b)) for b in tenant_fk_state.ALL) == 134

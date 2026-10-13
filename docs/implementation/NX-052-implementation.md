@@ -659,3 +659,25 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
   - 再断言核对能找到全部约束、删除成功；
   - 真实缺失时，仍报出缺失项和 cluster 信息。
 - **未解释的部分**：第一次 CI 失败（e5e7ebd，修复前的代码直接执行删除，没有核对步骤）不会受 search_path 影响，原因仍未知。下次在 CI 主机上重跑 N 时，如果再次失败，`cell.json` 的 `error` 与 `tenant_fk_state.cluster` 会给出位置和环境。
+
+### §11.4（再续）根因：模板已经没有 NX-052 外键（2026-10-14）
+
+- **CI 现象**：run 20261013T191340Z-2199b39（fa9a71c + 3495aed）。`TenantFkMismatch`，出错位置 `tenant_fk_state.py:76`，缺 134 个；cluster 为 `database='postgres'`、`search_path="$user", public`、`tenant_foreign_keys=8`。
+- **"连错了库"的可能可以排除**：每一格的克隆是**独立的 PostgreSQL 集群**（`tests/load_template.py` 的 `Clone`：复制模板 PGDATA，用自己的 socket 目录和端口启动），里面唯一使用的库就是 `postgres`。模板本身也是在测试夹具的 `postgres` 库里建的（`tests/conftest.py:25`），整条路径上没有别的库名。所以 `database='postgres'` 就是这一格的克隆库。
+- **根因（已在本机按 CI 签名完整复现）**：`tenant_foreign_keys=8` 恰好是 NX-052 之前就有的租户外键数（142 − 134）。也就是说，这次的模板在构建时已经执行过模板级删除 `NEXLOOP_LOAD_TENANT_FK_DROP`（`build_template_hold.py:156`），或者复用了这样构建的模板，克隆里自然一个 NX-052 外键都没有。
+  - 本机用 `NEXLOOP_LOAD_TENANT_FK_DROP=all build_template.sh` 建模板，再设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all` 跑格，得到与 CI 逐项相同的结果：错误类型、调用栈、134 个缺失、库名、search_path、8 个外键。
+  - 这也解释了第一次失败（e5e7ebd）：那时的代码直接执行 `alter table … drop constraint`，约束不存在时立即报错。
+  - search_path 那一条（3495aed）是真实存在的隐患，但不是 CI 上这次的原因。
+- **修复**：
+  - `stack.py`：格级删除之前读取模板的 `template.json`。如果 `tenant_fk_dropped` 存在，就以 `TemplateKeysDropped` 拒绝，不碰克隆；`tenant-fk-state.json` 和 `cell.json` 记 `refused: template_keys_already_dropped` 以及模板删过的批次。
+  - `run_on_lane.sh`：预检时如果 `NEXLOOP_LOAD_TENANT_FK_DROP` 与 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL` 同时设置就拒绝。两者是不同的测量方式，不能叠加。
+  - `TenantFkMismatch` 的 cluster 信息中带有库名（3495aed 已有），连到没有这些外键的库时会直接显示出来。
+- **验证（本机，CI 同路径）**：
+  - 用模板级删除过的模板跑 N：格以 `TemplateKeysDropped` 拒绝，记录 `template_keys_already_dropped`。
+  - 用正常模板跑 N：格完成，删除 134 个。
+- **测试**：
+  - `test_a_template_built_without_the_keys_is_refused_with_that_cause`；
+  - `test_a_database_without_the_keys_reports_its_name_and_the_right_one_drops_all`：连到另一个库时报出该库名与 0 个租户外键；连到克隆库时删除 134 个。
+- **CI 主机上的处理**：
+  - 重跑 N 时只设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`，并确认环境里没有 `NEXLOOP_LOAD_TENANT_FK_DROP`；
+  - 不要用 `--resume` 复用模板级删过外键的模板，检查方法是看模板目录的 `template.json` 有没有 `tenant_fk_dropped`。

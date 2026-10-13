@@ -58,6 +58,14 @@ class Stack:
             import tenant_fk_state
             import psycopg
             state = self.lane / 'tenant-fk-state.json'
+            # A template built with NEXLOOP_LOAD_TENANT_FK_DROP has no NX-052 keys left: the cell would find none of them (the
+            # CI host's N runs, 2026-10-13/14: tenant_foreign_keys 8 = only the keys predating NX-052). Refused with that cause.
+            template_drop = (json.loads((self.template / 'template.json').read_text()).get('tenant_fk_dropped')
+                             if (self.template / 'template.json').exists() else None)
+            if template_drop:
+                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'refused': 'template_keys_already_dropped',
+                                             'template_dropped_batches': template_drop.get('batches')}))
+                raise tenant_fk_state.TemplateKeysDropped(template_drop.get('batches'))
             try:
                 with psycopg.connect(self.admin_dsn, autocommit=True) as db:
                     dropped = tenant_fk_state.drop(db, fk_drop)

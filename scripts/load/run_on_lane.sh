@@ -80,6 +80,9 @@ matrix="${LOAD_MATRIX:-deploy/load/matrix.v1.json}"
 [[ -z "${LOAD_CI_BASELINE:-}" || -f "$LOAD_CI_BASELINE" ]] || refuse "LOAD_CI_BASELINE is not a file"
 mkdir -p .ci-results/load
 free_gib=$(df -Pk .ci-results/load | awk 'NR==2{print int($4/1048576)}')
+# NX-052: the template-level key drop removes every NX-052 tenant key from the template, so a cell-level drop finds none (the CI
+# host's N runs 2026-10-13/14). The two are alternative measurements, never combined.
+[[ -z "${NEXLOOP_LOAD_TENANT_FK_DROP:-}" || -z "${NEXLOOP_LOAD_TENANT_FK_DROP_CELL:-}" ]] || refuse "NEXLOOP_LOAD_TENANT_FK_DROP and NEXLOOP_LOAD_TENANT_FK_DROP_CELL are alternatives; unset one"
 [[ "${LOAD_RELAY_PROCESSES:-1}" =~ ^[123]$ ]] || refuse "LOAD_RELAY_PROCESSES must be 1, 2 or 3"
 (( free_gib >= ${LOAD_MIN_FREE_GIB:-20} )) || refuse "only ${free_gib} GiB free under .ci-results/load"
 

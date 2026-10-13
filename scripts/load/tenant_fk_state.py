@@ -47,6 +47,14 @@ class TenantFkMismatch(Exception):
         self.cluster = cluster or {}
 
 
+class TemplateKeysDropped(Exception):
+    """The template was built with NEXLOOP_LOAD_TENANT_FK_DROP: its clones have no NX-052 tenant keys to drop."""
+
+    def __init__(self, batches):
+        super().__init__('the template was built without the NX-052 tenant foreign keys')
+        self.batches = batches
+
+
 # Schema-qualified from the catalogs, never conrelid::regclass::text: that text drops the schema of any table whose schema is on the
 # session's search_path, so a search_path set by the environment (PGOPTIONS, a role or server setting) made every key look
 # missing on the CI host (2026-10-13, run 20261013T161753Z).
