@@ -96,7 +96,7 @@ services:
               /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}", --tls-certificate-file,
               /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file, /run/secrets/api_identity_dsn,
-              --identity-pool-max, "4", --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
+              --identity-pool-max, "3", --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
               --browser-application-id, "${BROWSER_APPLICATION_ID:?application}", --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}",
               --browser-origin, "${BROWSER_ORIGIN:?https origin}", --web-root, /opt/nexloop/web]
     volumes:
@@ -113,7 +113,7 @@ services:
               /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT_2:?second API port}",
               --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file,
-              /run/secrets/api_identity_dsn, --identity-pool-max, "4", --browser-rate-key-file, /run/secrets/api_browser_rate_key,
+              /run/secrets/api_identity_dsn, --identity-pool-max, "3", --browser-rate-key-file, /run/secrets/api_browser_rate_key,
               --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}", --browser-application-id, "${BROWSER_APPLICATION_ID:?application}",
               --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}", --browser-origin, "${BROWSER_ORIGIN:?https origin}",
               --web-root, /opt/nexloop/web]
@@ -202,7 +202,8 @@ services:
     labels:
       nexloop.budget-service: runtime-worker
   message-relay:
-    # Relay multi-consumer (run profile mode): one process, pool 2. Its Context is v6 (the Host's context_input_protocol).
+    # Relay multi-consumer (run profile mode), pool 2; two relays (dispatcher 2026-10-13, connection budget option B), each with its
+    # own vault: a vault has one owner process. claim_next (0141) gives each consumer to one relay at a time. Its Context is v6 (the Host's context_input_protocol).
     <<: *service
     entrypoint: [python, -m, nexloop_eios.message_relay_cli]
     command: [--database-url-file, /run/secrets/message_relay_dsn, --signing-key-file, /run/secrets/signing_key, --signing-key-id,
@@ -213,6 +214,22 @@ services:
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/data/relay-vault:/var/lib/nexloop/relay-vault
+      - ${NEXLOOP_ROOT:?root}/config/relay-run-profile.json:/etc/nexloop/relay-run-profile.json:ro
+    secrets: [message_relay_dsn, message_relay_pg_client_cert, message_relay_pg_client_key, message_relay_route_credential, message_relay_source_credential, message_relay_planner_credential, message_relay_executor_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: message-relay
+  message-relay-2:
+    # The second relay: same configuration and credentials, its own vault directory (data/relay-vault-2). Its Context is v6 (the Host's context_input_protocol).
+    <<: *service
+    entrypoint: [python, -m, nexloop_eios.message_relay_cli]
+    command: [--database-url-file, /run/secrets/message_relay_dsn, --signing-key-file, /run/secrets/signing_key, --signing-key-id,
+              "${SIGNING_KEY_ID:?signing key id}", --artifact-root, /var/lib/nexloop/artifacts, --route-credential-file, /run/secrets/message_relay_route_credential,
+              --source-credential-file, /run/secrets/message_relay_source_credential, --planner-credential-file, /run/secrets/message_relay_planner_credential,
+              --executor-credential-file, /run/secrets/message_relay_executor_credential, --vault-root, /var/lib/nexloop/relay-vault,
+              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/data/relay-vault-2:/var/lib/nexloop/relay-vault
       - ${NEXLOOP_ROOT:?root}/config/relay-run-profile.json:/etc/nexloop/relay-run-profile.json:ro
     secrets: [message_relay_dsn, message_relay_pg_client_cert, message_relay_pg_client_key, message_relay_route_credential, message_relay_source_credential, message_relay_planner_credential, message_relay_executor_credential, signing_key, pg_ca]
     labels:

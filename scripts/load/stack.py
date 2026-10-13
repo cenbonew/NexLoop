@@ -41,6 +41,14 @@ def free_port():
         return s.getsockname()[1]
 
 
+BUDGET = ROOT / 'deploy/stage/connection-budget.v1.json'
+
+
+def budget_identity_pool(path=BUDGET):
+    """The deployment's API browser identity pool per process (connection budget entry api-browser-identity)."""
+    return next(s['pool_max'] for s in json.loads(Path(path).read_text())['services'] if s['name'] == 'api-browser-identity')
+
+
 class Stack:
     def __init__(self, clone, template, lane, cell):
         self.clone, self.template, self.lane, self.cell = clone, Path(template), Path(lane), cell
@@ -111,7 +119,14 @@ class Stack:
             self.file('chain-signing-key', (self.template / 'private/backend-signing-key').read_bytes())
         return self.private / 'chain-signing-key', self.chain['signing_key_id']
 
-    def start_api(self, processes=2):
+    def start_api(self, processes=2, identity_pool_max=None):
+        """`identity_pool_max` (1..8): the API's browser identity pool per process; None follows the deployment budget
+        (deploy/stage/connection-budget.v1.json api-browser-identity pool_max), so the load lane and the deployment share it."""
+        if identity_pool_max is None:
+            identity_pool_max = budget_identity_pool()
+        if type(identity_pool_max) is not int or not 1 <= identity_pool_max <= 8:
+            raise StackFailed('identity_pool_max')
+        self.identity_pool_max = identity_pool_max
         key, key_id = self.signing
         cert, tls_key = self.tls('api-tls')
         self.ca_file = cert
@@ -126,7 +141,8 @@ class Stack:
                 '--signing-key-id', key_id, '--artifact-root', str(self.lane / 'api-artifacts'), '--mode', 'test', '--port', str(port),
                 '--execution-profile', 'deterministic-test', '--tls-certificate-file', str(cert), '--tls-key-file', str(tls_key),
                 '--identity-database-url-file', str(identity_dsn), '--browser-rate-key-file', str(rate), '--browser-tenant-id', self.tenant,
-                '--browser-application-id', self.chain['browser_application'], '--browser-origin', origin, '--workbench-application-id', 'synthetic-workbench-app'])
+                '--browser-application-id', self.chain['browser_application'], '--browser-origin', origin, '--workbench-application-id', 'synthetic-workbench-app',
+                '--identity-pool-max', str(identity_pool_max)])
             self.api_origins.append(origin)
         self._wait_live()
 

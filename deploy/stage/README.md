@@ -56,7 +56,7 @@ nexloop-doctor --budget-only --connection-budget deploy/stage/connection-budget.
   - 服务器的 `max_connections` 必须 **≥ 80**，差额留给运维和故障核对。
 - 任一项不满足，或预算文件格式错误、连不上数据库，退出码都是 1，服务不启动。
 - 当前声明的合计是 52（NX-031 D7，实测的最小可用池，调度员 2026-10-11 批准）：
-  - `api 2×4 + api-browser-identity 2×4 + domain-worker 2 + action-worker 2 + runtime-worker 18 + message-relay 2 + outbound-recorder 2`；
+  - `api 2×4 + api-browser-identity 2×3 + domain-worker 2 + action-worker 2 + runtime-worker 18 + message-relay 2×2 + outbound-recorder 2`（2026-10-13 方案 B：两个 relay，identity 池每进程 3）；
   - 10 个后台服务各 1；
   - 两个 launcher 的 API 池各 2。
 - doctor 另外核对 Runtime Worker 的 `processes × dispatch_loops ≤ 4`（ADR-022 §4 的 Host 上限，检查项 `runtime_dispatch_loops`）；派发循环不计入连接数。
@@ -103,6 +103,6 @@ N=4 时，DSN、服务凭据、签名密钥、guard 密钥和 guard TLS 私钥�
   - `relay_unenrolled_pending`（critical）：有待处理消息、却没有任何 relay 登记的客户；
   - `relay_backlog_age`（warning）。
 
-## relay 副本（可选）
+## 两个 relay（2026-10-13，连接预算方案 B）
 
-`compose.app.relay-replicas.example.yaml` 在 `compose.app.example.yaml` 之后叠加，增加 `message-relay-2`（各自的 vault 目录）。默认不启用；启用前必须按 `docs/implementation/relay-step-timing.md` §3 选定连接预算方案并更新 `connection-budget.v1.json`（合计 ≤60），否则部署门禁拒绝。
+`compose.app.example.yaml` 默认运行 `message-relay` 与 `message-relay-2`。两者配置与凭据相同，各用自己的 vault 目录（`data/relay-vault`、`data/relay-vault-2`，各自 0700，属主为服务用户），不能共用：一个 vault 只能有一个属主进程。连接预算为 relay 2×2，API 浏览器 identity 池每进程 3（`--identity-pool-max 3`），合计 59/60。详见 `docs/implementation/relay2-budget.md`。

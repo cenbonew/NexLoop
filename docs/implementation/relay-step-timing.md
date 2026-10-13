@@ -37,7 +37,7 @@
   - 全部来信各只有一条路由、一个 Run、一个任务；
   - 两个 relay 都处理了来信。
 - **崩溃后的行为（多副本时会变）**：单个 relay 重启时，从自己的 vault 恢复在途来信。多副本时，如果一个副本崩溃、其他副本在租约（30 s）过后接手同一条来信，接手的副本 vault 里没有这条来信的凭据，会按现有规则把它交给回复保障（handoff），而不是重新签发凭据或重复发送。这是现有语义下的降级，不会重复。
-- **部署**：`deploy/stage/compose.app.relay-replicas.example.yaml` 是可选覆盖文件：`message-relay-2` 继承 `message-relay`，只把 vault 换成 `data/relay-vault-2`；第 3 个副本照此添加。默认不启用。部署门禁按 `nexloop.budget-service` 标签核对容器数与连接预算，所以只有在预算声明了相同的 relay 进程数时才能通过（有测试）。
+- **部署**：（2026-10-13 起）`compose.app.example.yaml` 默认运行 `message-relay` 与 `message-relay-2`（各自的 vault），原可选覆盖文件已并入主文件并删除，见 [relay 双进程与连接预算](relay2-budget.md)。部署门禁按 `nexloop.budget-service` 标签核对容器数与连接预算（有测试）。
 
 ## 3. 连接预算（上限 60）
 

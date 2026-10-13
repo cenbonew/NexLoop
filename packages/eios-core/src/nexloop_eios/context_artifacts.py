@@ -42,24 +42,59 @@ class ContextArtifactProducer:
         self.pool,self.session,self.signer=self.backend._pool,services._session,self.backend._signer
         if self.session.run_context is not None or self.session.world!='real':raise ContextArtifactUnavailable()
         self.authority=RuntimeActivationPort(self.pool,self.session,self.signer)
+        self.scope=None  # ADR-029a: the proofs of the current preparation only
+
+    def _reuse(self,key,build):
+        return build() if self.scope is None else self.scope.get(key,build)
 
     def _artifact_proof(self,operation):
-        return artifact_authority_proof(self.pool,self.session,operation)
+        return self._reuse(('artifact',operation.value),lambda:artifact_authority_proof(self.pool,self.session,operation))
+
+    def _object_envelope(self,type_name,object_id,fields):
+        from nexloop_eios.service_offerings import _read_envelope
+        return self._reuse(('object',type_name,object_id,tuple(sorted(fields))),lambda:_read_envelope(self.services,type_name,object_id,fields))
+
+    def _read_catalog(self,*,offering_id,binding_id,consumer_id):
+        """The snapshot's catalog read through the same signed object READ envelopes as this preparation's catalog envelope."""
+        from nexloop_eios.object_reads import AuthorizedObjectReader
+        from nexloop_eios.service_offerings import read_catalog
+        reader=AuthorizedObjectReader(self.pool,self.session,self.signer)
+        def read(type_name,object_id,fields):
+            envelope=self._object_envelope(type_name,object_id,fields)
+            return reader.read_signed(envelope['text'],envelope['signature'])
+        return read_catalog(self.services,offering_id=offering_id,binding_id=binding_id,consumer_id=consumer_id,read=read)
+
+    def _catalog(self,*,offering_id,binding_id,consumer_id,request_scope):
+        from nexloop_eios.service_offerings import _catalog_envelope
+        key=('catalog',offering_id,binding_id,consumer_id,canonical_payload(request_scope))
+        return self._reuse(key,lambda:dict(zip(('text','signature','payload'),_catalog_envelope(self.services,offering_id=offering_id,binding_id=binding_id,
+            consumer_id=consumer_id,request_scope=request_scope,read_envelope=self._object_envelope))))
+
+    def _scoped(self):
+        """A fresh PrepareScope for one preparation; dropped when it ends, whatever the outcome."""
+        from contextlib import contextmanager
+        from nexloop_eios.prepare_scope import PrepareScope
+        @contextmanager
+        def scope():
+            self.scope=PrepareScope()
+            try:yield self.scope
+            finally:self.scope=None
+        return scope()
 
     def _call(self,db,parameters,run,definition,capability,claim_binding=None):
         text,signature,body=self._envelope(parameters,run,definition,capability,claim_binding)
         return db.execute('select authz.nexloop_context_artifact_command(%s,%s,%s,%s,%s)',(self.session.token_digest,'real',text,signature,body)).fetchone()[0]
 
     def _envelope(self,parameters,run,definition,capability,claim_binding=None):
-        proof=self.authority._proof(self.session,'eios:action:'+ACTION+':1')
+        proof=self._reuse(('action',ACTION),lambda:self.authority._proof(self.session,'eios:action:'+ACTION+':1'))
         body=canonical_payload(parameters)
         claims={'protocol':'nexloop-context-artifact-v1','key_id':self.signer.key_id,**proof,
          'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'definition':definition.model_dump(mode='json'),
-         'capability':capability.model_dump(mode='json'),'artifact_proofs':[self._artifact_proof(Operation.CREATE),self._artifact_proof(Operation.READ)],'run_proofs':self.authority._run_proofs(run)}
+         'capability':capability.model_dump(mode='json'),'artifact_proofs':[self._artifact_proof(Operation.CREATE),self._artifact_proof(Operation.READ)],
+         'run_proofs':self._reuse(('run',run.token_digest),lambda:self.authority._run_proofs(run))}
         from nexloop_eios.postgres_artifacts import context_message_read_envelope
-        claims['message_read_envelope']=context_message_read_envelope(self.pool,self.session,self.signer,parameters['message_id'])
-        from nexloop_eios.service_offerings import _catalog_envelope
-        claims['catalog_envelope']=dict(zip(('text','signature','payload'),_catalog_envelope(self.services,offering_id=parameters['offering_id'],binding_id=parameters['binding_id'],consumer_id=parameters['command']['consumer_ref'].removeprefix('consumer:'),request_scope={'offering_id':parameters['offering_id'],'offering_revision':parameters['offering_revision'],'requested_guarantees':[],'requested_discounts':[]})))
+        claims['message_read_envelope']=self._reuse(('message',parameters['message_id']),lambda:context_message_read_envelope(self.pool,self.session,self.signer,parameters['message_id']))
+        claims['catalog_envelope']=self._catalog(offering_id=parameters['offering_id'],binding_id=parameters['binding_id'],consumer_id=parameters['command']['consumer_ref'].removeprefix('consumer:'),request_scope={'offering_id':parameters['offering_id'],'offering_revision':parameters['offering_revision'],'requested_guarantees':[],'requested_discounts':[]})
         if parameters['verb']=='bind':
             claims.update(artifact_proofs=[self._artifact_proof(Operation.CREATE),self._artifact_proof(Operation.READ)],claim_binding=claim_binding)
         elif claim_binding is not None:claims['claim_binding']=claim_binding  # v6 core snapshot inside its bind
@@ -75,8 +110,7 @@ class ContextArtifactProducer:
         from jsonschema import Draft202012Validator
         Draft202012Validator(context_binding_schema(),format_checker=Draft202012Validator.FORMAT_CHECKER).validate({'message_id':message_id,'run_id':command['run_id']})
         if definition.preconditions or definition.governance.policy_refs or definition.governance.approval_mode.value!='none' or definition.governance.risk_level.value!='low':raise ValueError()
-        from nexloop_eios.service_offerings import read_catalog
-        catalog=read_catalog(self.services,offering_id=offering_id,binding_id=binding_id,consumer_id=command['consumer_ref'].removeprefix('consumer:'))
+        catalog=self._read_catalog(offering_id=offering_id,binding_id=binding_id,consumer_id=command['consumer_ref'].removeprefix('consumer:'))
         binding_text=canonical_payload(command_binding(command));binding_digest=hashlib.sha256(binding_text.encode()).hexdigest()
         parameters={'offering_id':offering_id,'binding_id':binding_id,'offering_revision':catalog['revision'],'verb':'snapshot','message_id':message_id,'command':command,'run_digest':run.token_digest,
          'artifact_identity_text':canonical_payload([self.session.authentication.tenant_id,'real',self.session.authentication.subject_principal_id,'context:'+command['run_id']]),'command_binding_text':binding_text,'command_binding_digest':binding_digest}
@@ -102,7 +136,7 @@ class ContextArtifactProducer:
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):
         """Actual snapshot→Artifact CREATE/READ→governed bind; no queue ACK here."""
         try:
-            with self.backend._lock:
+            with self.backend._lock,self._scoped():
                 self.backend._assert_open()
                 run,definition,capability,parameters,binding_digest,snapshot=self._snapshot(message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
                 text=encode_pack(snapshot,command)
@@ -202,7 +236,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):
         from nexloop_eios.context_engine.pack import wire_item
         try:
-            with self.backend._lock:
+            with self.backend._lock,self._scoped():
                 self.backend._assert_open()
                 run,definition,capability,parameters,binding_digest,snapshot=self._snapshot(message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
                 self.run=run  # assemble authority issued with this Run

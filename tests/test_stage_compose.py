@@ -26,7 +26,7 @@ def compose():
 def test_budget_registers_the_identity_pool_and_stays_within_60():
     result = connection_budget.evaluate(BUDGET)
     assert result['passed'] and result['details']['application_pool_total'] == 59  # NX-037: + webchat-delivery 2
-    assert result['details']['services']['api-browser-identity'] == 8 and 'scheduler' not in result['details']['services']
+    assert result['details']['services']['api-browser-identity'] == 6 and 'scheduler' not in result['details']['services']
     missing = copy.deepcopy(BUDGET)
     missing['services'] = [s for s in missing['services'] if s['name'] != 'api-browser-identity']
     assert connection_budget.evaluate(missing)['details']['missing_services'] == ['api-browser-identity']
@@ -64,7 +64,9 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
         for secret in spec.get('secrets', []):
             owners.setdefault(secret, set()).add(name)
     shared = {s for s, o in owners.items() if len(o) > 1}
-    assert shared <= SHARED | {'pg_ca'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}}, shared
+    # The two API processes share their files, and so do the two relays (dispatcher 2026-10-13: same configuration, own vaults).
+    assert shared <= SHARED | {'pg_ca'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}} \
+        | {s for s in owners if s.startswith('message_relay_') and owners[s] == {'message-relay', 'message-relay-2'}}, shared
     assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca'}
     # Model credentials only where a model is called; channel provider configuration only in the action worker.
     assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker'} and owners['claim_matcher_model'] == {'claim-matcher'}
@@ -83,7 +85,7 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
 
 
 PARSERS = {name: (lambda svc: lambda argv: background_services._parser(svc).parse_args(argv))(name) for name in background_services.SERVICES}
-PARSERS.update({'message-relay': message_relay_cli.arguments, 'outbound-recorder': outbound_messages._arguments, 'action-worker': effect_worker._arguments,
+PARSERS.update({'message-relay': message_relay_cli.arguments, 'message-relay-2': message_relay_cli.arguments, 'outbound-recorder': outbound_messages._arguments, 'action-worker': effect_worker._arguments,
                 'webchat-delivery': local_json_delivery_arguments,
                 'runtime-worker': runtime_worker._arguments})
 
@@ -98,7 +100,7 @@ def test_every_command_is_accepted_by_its_real_parser_and_names_only_its_own_sec
             if value.startswith('/run/secrets/'):
                 assert value.split('/run/secrets/')[1] in services[name]['secrets'], (name, value)
     api = services['api-1']['command']
-    assert api[api.index('--identity-pool-max') + 1] == '4' and api[api.index('--mode') + 1] == 'stage'
+    assert api[api.index('--identity-pool-max') + 1] == '3' and api[api.index('--mode') + 1] == 'stage'
     assert 'python -m nexloop_eios.domain_worker' in services['domain-worker']['command'][0]
 
 

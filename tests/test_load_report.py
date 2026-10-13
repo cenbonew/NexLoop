@@ -399,3 +399,10 @@ def test_idle_dispatch_gate_is_5000_and_the_v02_target_is_only_observed(run_dir,
     md = report.markdown(data)
     observed = md[md.index('### C4-low'):].split('**观察项**', 1)[1]
     assert ('| idle_dispatch_v02_target（v0.2 目标：空闲派发 p95 ≤ 2000） | ' + ('达到' if v02 else '未达到') + ' |') in observed
+
+
+def test_the_caliber_paragraph_states_the_5_s_gate_and_the_2_s_v02_target(run_dir):
+    all_cells(run_dir)
+    md = report.markdown(report.build(run_dir))
+    assert 'v0.1 门槛 5 s 只适用于它（C4-low），2 s 是 v0.2 目标（观察项 idle_dispatch_v02_target，不判定）' in md
+    assert '2 s 门槛只适用于它' not in md

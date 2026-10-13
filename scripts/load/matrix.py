@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import math
 import os
 import shlex
 import subprocess
@@ -92,6 +93,18 @@ def login_policy(dsn, tenant):
     return {'maximum_attempts': row[0], 'window_seconds': row[1], 'active': row[2]} if row else None
 
 
+def login_summary(attempts):
+    """The warm-up login peak (all customers, 8 at a time): request count, latency p50/p95/max of the answered requests and the
+    status counts (429 rate limited, 503 busy, 0 no answer). Numbers only."""
+    answered = sorted(ms for ms, status in attempts if status)
+    pick = lambda q: answered[min(len(answered) - 1, max(0, math.ceil(q * len(answered)) - 1))] if answered else None
+    statuses = {}
+    for _, status in attempts:
+        statuses[str(status)] = statuses.get(str(status), 0) + 1
+    return {'requests': len(attempts), 'p50_ms': pick(0.5), 'p95_ms': pick(0.95), 'max_ms': answered[-1] if answered else None,
+            'statuses': dict(sorted(statuses.items()))}
+
+
 def describe_error(error):
     """Why a cell aborted, without any message text, value or ID (D8): the exception types along the cause chain, a SQLSTATE
     where PostgreSQL gave one, and the traceback as file name, line and function only."""
@@ -143,7 +156,8 @@ class Cell:
                     or not self.result['login_rate_policy']:
                 return self.abort('login_policy_mismatch')
             try:
-                stack.start_api()
+                stack.start_api(identity_pool_max=getattr(self.args, 'identity_pool_max', None))
+                self.result['identity_pool_max'] = stack.identity_pool_max
                 if self.spec['background']:
                     stack.start_background()
                 latency = self.matrix['model_latency']
@@ -195,6 +209,7 @@ class Cell:
         acks, events = [], []
         try:
             self.result['login_failures'] = await driver.login_all()
+            self.result['logins'] = login_summary(getattr(driver, 'login_attempts', []))
             await driver.run_phase(self.warmup, self.spec['rate_per_s'], lambda r: None)  # warm-up: not measured
             def query():
                 with psycopg.connect(stack.admin_dsn, autocommit=True) as db:
@@ -372,6 +387,8 @@ def main(argv=None):
     parser.add_argument('--lane-root', required=True)
     parser.add_argument('--cells', default=','.join(CELLS))
     parser.add_argument('--timing-scale', type=float, default=1.0)
+    parser.add_argument('--identity-pool-max', type=int, default=None, choices=range(1, 9), metavar='1..8',
+                        help="the API's browser identity pool per process (default: the deployment budget's api-browser-identity)")
     parser.add_argument('--relay-processes', type=int, default=1, choices=(1, 2, 3),
                         help='relay processes of the message chain (dispatcher 2026-10-13; the deployment budget declares 1)')
     parser.add_argument('--resume', action='store_true',

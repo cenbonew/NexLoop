@@ -102,13 +102,15 @@ def governed_create_catalog(maintainer,*,delivery_source,intent_id,consumer_id,v
     return {'offering_id':offered['object_id'],'binding_id':link['object_id'],'consumer_id':consumer_id}
 
 
-def read_catalog(source,*,offering_id,binding_id,consumer_id):
-    """Actual object/property READ; results are not sufficient to dispatch."""
-    link=source.read_object(type_name='ConsumerServiceOffering',object_id=binding_id,fields=BINDING_FIELDS)
+def read_catalog(source,*,offering_id,binding_id,consumer_id,read=None):
+    """Actual object/property READ; results are not sufficient to dispatch. `read(type_name,object_id,fields)` replaces the
+    Source's own read_object (ADR-029a: the same signed READ envelopes as the catalog envelope of this preparation)."""
+    read=read or (lambda type_name,object_id,fields:source.read_object(type_name=type_name,object_id=object_id,fields=fields))
+    link=read('ConsumerServiceOffering',binding_id,BINDING_FIELDS)
     props=link['properties']
     if props!={'consumer_id':consumer_id,'offering_id':offering_id,'offering_revision':props.get('offering_revision'),
       'source_principal':source._session.authentication.subject_principal_id,'active':True}:raise ValueError('offering_unavailable')
-    offering=source.read_object(type_name='ServiceOffering',object_id=offering_id,fields=OFFERING_FIELDS)
+    offering=read('ServiceOffering',offering_id,OFFERING_FIELDS)
     if type(props['offering_revision']) is not int or offering['revision']!=props['offering_revision']:raise ValueError('offering_revision_conflict')
     return {'offering_id':offering_id,'revision':offering['revision'],'scope':delivery_scope(offering['properties']),
       'properties':offering['properties'],'provenance':'eios:object:'+offering_id}
@@ -130,7 +132,7 @@ def _read_envelope(source,type_name,object_id,fields):
     return {'text':text,'signature':signature}
 
 
-def _catalog_envelope(source,*,offering_id,binding_id,consumer_id,request_scope):
+def _catalog_envelope(source,*,offering_id,binding_id,consumer_id,request_scope,read_envelope=None):
     """Protected PG READ-only scope evaluation; never dispatches an effect.
 
     Consumer binding, offering revision and all READ proofs are rechecked in
@@ -143,8 +145,9 @@ def _catalog_envelope(source,*,offering_id,binding_id,consumer_id,request_scope)
     if source._session.run_context is not None or source._session.world!='real':raise ValueError('offering_unavailable')
     Draft202012Validator(REQUEST_SCOPE_SCHEMA).validate(request_scope)
     if request_scope['offering_id']!=offering_id:raise ValueError('offering_unavailable')
-    reads={'offering':_read_envelope(source,'ServiceOffering',offering_id,OFFERING_FIELDS),
-      'binding':_read_envelope(source,'ConsumerServiceOffering',binding_id,BINDING_FIELDS)}
+    read_envelope=read_envelope or (lambda type_name,object_id,fields:_read_envelope(source,type_name,object_id,fields))
+    reads={'offering':read_envelope('ServiceOffering',offering_id,OFFERING_FIELDS),
+      'binding':read_envelope('ConsumerServiceOffering',binding_id,BINDING_FIELDS)}
     body=canonical_payload({'offering_id':offering_id,'binding_id':binding_id,'consumer_id':consumer_id,'request_scope':request_scope,'reads':reads})
     signer=source._backend._signer
     claims=canonical_payload({'protocol':'nexloop-service-catalog-v1','key_id':signer.key_id,'parameters_digest':hashlib.sha256(body.encode()).hexdigest()})

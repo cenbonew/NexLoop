@@ -93,6 +93,8 @@ python -m nexloop_eios.workbench_roles --roles deploy/authorization/workbench-ro
 
 依据：L2 的实现说明 `docs/implementation/NX-037-enterprise-deliver.md` §7（提交 b8b8cd9，分支 `l2/nx037-enterprise-deliver`，合入 main 后以 main 为准）。命令名与字段以该说明为准，下面的取值全部是占位值，私有文件放在负责人的私有目录。
 
+依据（续）：L2 提交 70217d7 的两条命令 `nexloop-enterprise-setup` 与 `nexloop-relay-enroll`（企业键）。
+
 **只有 enrollment 模式支持企业交付。** 企业 slot 只能来自受治理的 relay 登记；单客户 recipe 模式（`--recipe-file`）里写 `enterprise` 块会被明确拒绝（`recipe_enterprise_unsupported`），不要用 recipe 开通企业交付。企业 slot 在 Context v6 下可用（迁移 0187），stage 的 relay 就是 v6。
 
 开通后，这个消费者的消息 Run 同时带两个 slot：回复（`nexloop.service.request:1`）和企业交付（`nexloop.enterprise.deliver:1`）。不开通的消费者不受任何影响：登记表的三列为空时，relay profile 逐字节不变。
@@ -104,50 +106,47 @@ python -m nexloop_eios.workbench_roles --roles deploy/authorization/workbench-ro
 
 每个要开通的消费者按顺序做一次：
 
-### 6.1 建企业 offering
+### 6.1 准备（每个租户一次）
 
-目录维护者（`maintainer` 服务凭据）用受治理的 CREATE 建一个 ServiceOffering。形状由 `service_offerings.enterprise_delivery_example(service_code=…, title=…, price_amount=…, valid_until=…)` 给出，参数见 [`enterprise-offering.example.json`](../../deploy/examples/nx037/enterprise-offering.example.json)：
+- **授权**：受信配置要给 relay 的 Source 主体和效应执行者都加上 `nexloop.enterprise.deliver:1` 的执行权，通过 authority facts 下发。服务授权清单不能授予这个 Action（它在 `service_grants.FORBIDDEN_MARKERS` 中）。
+- **私有文件**：下面两条命令只从私有文件读凭据和配置。每个文件都必须是 0600、属于执行命令的用户、普通文件，否则命令拒绝运行；命令不会打印任何凭据。需要的文件：
+  - API 的 DSN 文件（`nexloop_api` 角色，命令会核对）、签名密钥文件；
+  - 四份服务凭据：负责人（owner，回复控制的属主）、效应执行者（executor）、目录维护者（maintainer）、relay 的 Source（`nexloop-service-relay-source-principal`）。维护者与 Source 必须是不同主体，四者属于同一租户。
 
-- `service_code` 以 `enterprise.` 开头；
-- `price_amount` 是 CNY 十进制字符串（可以是 `0`）；
-- 其余字段（`delivery_action` 为 `nexloop.enterprise.deliver:1`、`content_kind`、`evidence_kind` 等）由该函数固定，不要手改。
+### 6.2 建企业 offering、绑定与企业控制：`nexloop-enterprise-setup`
 
-【待确认】仓库现有的 `catalog_setup` 只建本地 JSON 导出 offering，L2 也还没有提供建企业 offering 与绑定的打包命令。在命令提供之前，这一步与下一步没有可直接执行的入口，由调度员与 L2 协调。
+一条命令以受治理的 CREATE 依次建三样东西，每一步各自提交，意图 id 由 `request_id` 派生；用同一份 recipe 重跑，返回同样的对象，不会重复建：
 
-### 6.2 消费者绑定
+1. 企业 ServiceOffering（维护者）：`delivery_action` 为 `nexloop.enterprise.deliver:1`，币种 CNY，其余字段由 `service_offerings.enterprise_delivery_example` 固定；
+2. 该消费者的 ConsumerServiceOffering（维护者）：绑定到上面的 offering，`source_principal` 是 relay 的 Source；
+3. 该消费者的企业 EffectControl（负责人）：执行者是 executor，`allow_effect` 为 `true`，预算与回复控制分开；随后为 `nexloop.enterprise.deliver` 配置执行者。
 
-为这个消费者建 ConsumerServiceOffering，把 6.1 的 offering 绑定给它：`consumer_id` 是该消费者，`offering_id`、`offering_revision` 取 6.1 的结果，`source_principal` 是 relay 的 Source 主体（`nexloop-service-relay-source-principal`），`active` 为 `true`。记下 `offering_id` 与 `binding_id`。
+它不写登记，登记是下一步。私有 recipe 见 [`enterprise-setup-recipe.example.json`](../../deploy/examples/nx037/enterprise-setup-recipe.example.json)：
 
-### 6.3 企业 EffectControl
+- `request_id` 为新的 uuid；`consumer_id` 为 §3 business setup 输出的消费者；
+- `offering.service_code` 以 `enterprise.` 开头；`offering.price_amount` 是 CNY 十进制字符串（可以是 `0`）；`offering.title` 1–256 字；
+- `control.budget_units` 为 1–1000000 的整数；两个 `valid_until` 都必须是未来的 UTC 时间；
+- 多余或重复的键一律拒绝。
 
-负责人为这个消费者另建一个 EffectControl，参数见 [`enterprise-control.example.json`](../../deploy/examples/nx037/enterprise-control.example.json)：
-
-- `consumer_id` 是该消费者；
-- `executor_principal` 是效应执行者，它必须同时持有 `nexloop.service.request:1` 与 `nexloop.enterprise.deliver:1` 的执行权；
-- `budget_units` 是企业交付自己的预算，与回复控制的预算分开；
-- `allow_effect` 为 `true`，`valid_until` 按试运行期设置。
-
-建好后配置执行者：
-
-```
-owner.configure_effect_control(control_id=<ENTERPRISE_CONTROL_ID>, control_revision=1, executor_token=<EXECUTOR_TOKEN>, action='nexloop.enterprise.deliver')
+```bash
+nexloop-enterprise-setup --database-url-file <API_DSN_FILE> --signing-key-file <SIGNING_KEY_FILE> --signing-key-id <SIGNING_KEY_ID> --artifact-root <ARTIFACT_ROOT> --owner-credential-file <OWNER_SERVICE_CREDENTIAL_FILE> --executor-credential-file <EXECUTOR_CREDENTIAL_FILE> --maintainer-credential-file <MAINTAINER_CREDENTIAL_FILE> --source-credential-file <RELAY_SOURCE_CREDENTIAL_FILE> --recipe-file <ENTERPRISE_SETUP_RECIPE_FILE>
 ```
 
-**授权**：受信配置要给 relay 的 Source 主体和效应执行者都加上 `nexloop.enterprise.deliver:1` 的执行权，通过 authority facts 下发。服务授权清单不能授予这个 Action（它在 `service_grants.FORBIDDEN_MARKERS` 中）。
+- 成功时退出码 0，标准输出一行 JSON：`configured: true`、`consumer_id`、`enterprise_control_id`、`enterprise_offering_id`、`enterprise_binding_id`、`delivery_action`（`nexloop.enterprise.deliver:1`）、`source_ref`、`executor_ref`、`enrolled: false`。三个 id 的键名就是登记文件里用的键名。
+- 任何一项不满足（recipe 不合法、文件不私有、主体不符等），退出码 1，标准错误只有 `Enterprise setup unavailable`。recipe 不合法时什么都不会建。
 
-### 6.4 登记企业 slot
+### 6.3 登记企业 slot：`nexloop-relay-enroll`
 
-调用者是负责人主体，必须同时是回复控制和企业控制的属主。私有登记文件见 [`relay-enrollment-enterprise.example.json`](../../deploy/examples/nx037/relay-enrollment-enterprise.example.json)：在原登记文件的字段之外加一个 `enterprise` 块（`control_id`、`offering_id`、`binding_id` 三项必须齐全），`intent_id` 用新的值。对应的调用：
+负责人主体执行，必须同时是回复控制和企业控制的属主。私有登记文件见 [`relay-enrollment-enterprise.example.json`](../../deploy/examples/nx037/relay-enrollment-enterprise.example.json)：
 
+- 在原登记文件（§3 第 3 步）的字段之外，加上 6.2 输出的 `enterprise_control_id`、`enterprise_offering_id`、`enterprise_binding_id`。**三个键要么全写，要么都不写**；只写一部分，命令拒绝，登记不变；
+- `intent_id` 用新的值（8–160 位 `[A-Za-z0-9._:-]`）。
+
+```bash
+nexloop-relay-enroll --database-url-file <API_DSN_FILE> --signing-key-file <SIGNING_KEY_FILE> --signing-key-id <SIGNING_KEY_ID> --owner-credential-file <OWNER_SERVICE_CREDENTIAL_FILE> --artifact-root <ARTIFACT_ROOT> --enrollment-file <ENTERPRISE_ENROLLMENT_FILE>
 ```
-relay_enrollment.enroll(owner_service, consumer_id=<CONSUMER_ID>, control_id=<REPLY_CONTROL_ID>, offering_id=<EXPORT_OFFERING_ID>, binding_id=<EXPORT_BINDING_ID>,
-                        relay_principal=<RELAY_SERVICE_PRINCIPAL_ID>, intent_id=<NEW_INTENT_ID>,
-                        enterprise={'control_id': <ENTERPRISE_CONTROL_ID>, 'offering_id': <ENTERPRISE_OFFERING_ID>, 'binding_id': <ENTERPRISE_BINDING_ID>})
-```
 
-【待确认】b8b8cd9 中的 `nexloop-relay-enroll` 命令只接受原有键，登记文件带 `enterprise` 时会输出 `Relay enrollment unavailable`。命令放开这个键之前，只能用上面的 Python 调用登记，由调度员与 L2 协调。
-
-登记时会校验以下各项，任何一项不满足，登记都被拒，不会写入：
+成功时输出一行 JSON，`enrolled: true`，并带新的 `enrollment_revision`；失败只输出 `Relay enrollment unavailable`，退出码 1。登记时会校验以下各项，任何一项不满足都被拒，不会写入：
 
 - 同一租户、同一 world；
 - 调用者是企业控制的属主，企业控制的 `consumer_id` 是登记的消费者，且 `allow_effect` 为 `true`；
@@ -155,20 +154,31 @@ relay_enrollment.enroll(owner_service, consumer_id=<CONSUMER_ID>, control_id=<RE
 - offering 的 `delivery_action` 是 `nexloop.enterprise.deliver:1`，并且有效；
 - 企业控制不是回复控制。
 
-登记行只追加，本身就是审计记录。运行时角色无权写这张表。
+登记表只追加，每次登记是一个新修订，本身就是审计记录。运行时角色无权写这张表。
 
-### 6.5 核对
+### 6.4 核对：relay profile 带 `enterprise` 块
 
-1. 用 `relay_enrollment.read(owner_service, consumer_id=<CONSUMER_ID>)` 读当前登记：结果带 `enterprise` 块，三个 id 与登记文件一致。
-2. 确认 relay profile 带了 `enterprise` 块：消费者下一条消息触发的 Run，其分配的 `allowed_actions` 同时包含回复与企业交付两个 Action，同一目标下多一个 `action_name` 为 `nexloop.enterprise.deliver` 的计划步骤。
+1. 以负责人服务凭据读这个消费者的 relay profile（与 L2 测试 `tests/test_enterprise_setup_cli_pg.py` 的读法相同），应当带 `enterprise` 块：
+
+   ```
+   MessageRelayPort(<负责人服务会话>).call('profile', consumer_id=<CONSUMER_ID>)['enterprise']
+   == {'control_id': <ENTERPRISE_CONTROL_ID>, 'control_revision': 1, 'offering_id': <ENTERPRISE_OFFERING_ID>, 'binding_id': <ENTERPRISE_BINDING_ID>}
+   ```
+
+   如果出现的是 `enterprise_skipped`，说明登记的 slot 已失效，按其中的原因处理（见 6.5）。`relay_enrollment.read(<负责人服务会话>, consumer_id=<CONSUMER_ID>)` 读的是登记本身，也应带这三个 id。
+2. 消费者下一条消息触发的 Run，其 `allowed_actions` 同时包含回复与企业交付两个 Action，同一目标下多一个 `action_name` 为 `nexloop.enterprise.deliver` 的计划步骤。
 3. relay 日志（logger `nexloop.message_relay`）里没有该消费者的 `enterprise_slot_skipped`。
 
-### 6.6 失效与撤销
+### 6.5 失效与撤销
 
 - **签发时会再核对一次**：已登记的企业 slot 失效时（企业控制被关闭或过期、offering 或绑定失效、控制归属改变），relay 跳过企业 slot，只签发回复 slot，Run 照常进行。relay 会记一条结构化日志：事件 `enterprise_slot_skipped`，带 `consumer_id` 和 `reason`（`control_mismatch`、`control_invalid`、`offering_invalid` 或 `binding_invalid`）。看到这条日志，就按 reason 修复对应对象，或者撤销登记。
-- **撤销企业交付**（三列清空，回复不受影响）：用新的 `intent_id`、不带 `enterprise` 块再登记一次，即用原来的 [`relay-enrollment.example.json`](../../deploy/examples/nx037/relay-enrollment.example.json)。这会生成一个新修订，三列为空，之后 relay profile 回到只有回复的形状。核对方法：`read` 的结果中不再有 `enterprise`。
+- **撤销企业交付**（清空三列，回复不受影响）：用原来的 [`relay-enrollment.example.json`](../../deploy/examples/nx037/relay-enrollment.example.json) 形状，即不带三个 `enterprise_*` 键，换一个新的 `intent_id`，用 6.3 的同一条命令再登记一次。
+  - 撤销后，profile 回到只有回复的形状：与开通前相比，除 `enrollment_revision` 外逐字节一致。
+  - `enrollment_revision` 比开通前多 2（开通一次、清除一次），这是预期的：登记表只追加，不会回退修订号。
+  - 核对：profile 和 `read` 的结果中都不再有 `enterprise`。
 - **撤回整个登记**：用 `relay_enrollment.withdraw`。这会连回复一起停掉，只在要停掉这个消费者时使用。
 - 撤销企业交付不等于关闭第三层开关；要立即停止所有企业交付，关闭 (租户, `nexloop.enterprise.deliver:1`) 这一层（运维手册 §9）。
+- 6.2 建的 offering、绑定和企业控制是受治理对象，撤销登记不会删除它们；要彻底停用，由负责人和目录维护者按受治理 Action 把它们设为失效。
 
 ## 7. “结果暂时未知”演练（3 次 `unknown_reconciliation`，【B】）
 
@@ -197,5 +207,5 @@ python scripts/nx037/unknown_drill_relay.py serve --listen 127.0.0.1:<ORIGIN_POR
 - 每个消费者 `nexloop-relay-enroll` 已输出 `enrolled: true`，`nexloop-doctor --relay-source` 通过；
 - 消费者能经网关登录 WebChat 并发出一条消息，工作台 owner 与 operator 能登录；
 - 企业端点一致性报告 `ok: true`；
-- 开通了企业交付的消费者，`relay_enrollment.read` 带 `enterprise` 块，且 relay 日志中没有该消费者的 `enterprise_slot_skipped`（§6.6）；
+- 开通了企业交付的消费者，`relay_enrollment.read` 带 `enterprise` 块，且 relay 日志中没有该消费者的 `enterprise_slot_skipped`（§6.4–§6.5）；
 - 然后按 [运维手册 §9.3–§9.4](../OPERATIONS.md#93-开放真实派发b) 开放真实派发并运行受控交互。

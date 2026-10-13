@@ -186,3 +186,32 @@ def test_an_aborted_cell_records_the_error_types_and_frames_without_text(tmp_pat
     cell = _cell(tmp_path)
     result = cell.abort('runner_error', RuntimeError(secret))
     assert result['aborted'] == 'runner_error' and result['error']['chain'] == [{'type': 'builtins.RuntimeError'}] and secret not in json.dumps(result)
+
+
+def test_the_load_api_identity_pool_follows_the_deployment_budget_unless_given(tmp_path):
+    """Dispatcher 2026-10-13: the load lane's API browser identity pool is the deployment budget's (api-browser-identity) by
+    default, can be set for a retest (--identity-pool-max / LOAD_IDENTITY_POOL_MAX) and is recorded per cell."""
+    import sys
+    sys.path.insert(0, str(ROOT / 'scripts/load'))
+    import stack as St
+    budget = json.loads((ROOT / 'deploy/stage/connection-budget.v1.json').read_text())
+    assert St.budget_identity_pool() == next(s['pool_max'] for s in budget['services'] if s['name'] == 'api-browser-identity') == 3
+    for bad in (0, 9, '3'):
+        with pytest.raises(St.StackFailed):
+            St.Stack.start_api(object(), identity_pool_max=bad)  # refused before anything starts
+    stack_text = (ROOT / 'scripts/load/stack.py').read_text()
+    assert "'--identity-pool-max', str(identity_pool_max)" in stack_text
+    matrix_text = (ROOT / 'scripts/load/matrix.py').read_text()
+    assert "self.result['identity_pool_max'] = stack.identity_pool_max" in matrix_text and "'--identity-pool-max'" in matrix_text
+    lane = (ROOT / 'scripts/load/run_on_lane.sh').read_text()
+    assert '${LOAD_IDENTITY_POOL_MAX:+--identity-pool-max "$LOAD_IDENTITY_POOL_MAX"}' in lane and 'LOAD_IDENTITY_POOL_MAX must be 1..8' in lane
+
+
+def test_the_warm_up_login_peak_is_summarised_numbers_only():
+    """Login peak retest (dispatcher 2026-10-13): each warm-up login request's latency and status, summarised per cell."""
+    attempts = [(100.0, 200)] * 18 + [(900.0, 200), (40.0, 429), (2500.0, 503), (30000.0, 0)]
+    assert M.login_summary(attempts) == {'requests': 22, 'p50_ms': 100.0, 'p95_ms': 900.0, 'max_ms': 2500.0,
+                                          'statuses': {'0': 1, '200': 19, '429': 1, '503': 1}}
+    assert M.login_summary([]) == {'requests': 0, 'p50_ms': None, 'p95_ms': None, 'max_ms': None, 'statuses': {}}
+    driver = (ROOT / 'scripts/load/driver.py').read_text()
+    assert 'await customer.login(attempts=self.login_attempts)' in driver

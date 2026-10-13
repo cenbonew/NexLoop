@@ -1,7 +1,0 @@
-{
-  "consumer_id": "<CONSUMER_ID_FROM_BUSINESS_SETUP>",
-  "executor_principal": "<EFFECT_EXECUTOR_PRINCIPAL_ID>",
-  "budget_units": 30,
-  "allow_effect": true,
-  "valid_until": "<TRIAL_PERIOD_END_UTC_ISO>"
-}
