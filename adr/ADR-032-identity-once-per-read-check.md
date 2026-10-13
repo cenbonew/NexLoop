@@ -1,6 +1,6 @@
 # ADR-032｜一次读取授权检查内，调用者身份只解析一次
 
-状态：**已批准**（负责人 2026-10-13，ROADMAP §7 上下文准备优化第 4 项）。分支 `l2/read-derivation-once`（基于 ec0101a / ADR-031），迁移 0421（临时号）。
+状态：**已批准**（负责人 2026-10-13，ROADMAP §7 上下文准备优化第 4 项）。分支 `l2/read-derivation-once`（基于 ec0101a / ADR-031），迁移 0192。
 
 关联：ADR-031（一次对象读取内，派生只做一次）；L4 剖析 `docs/implementation/context-prepare-profile.md` §4 第 4 项。
 

@@ -1,7 +1,7 @@
 """ADR-031 counterexamples: one relay Source derivation per object per read_object call keeps every per-property refusal.
 
 On the relay fixture (test_enterprise_slot_relay_pg; consumer D enrolled with its reply and enterprise offerings), the relay
-Source reads the enrolled catalog objects through authz.nexloop_read_object (0420):
+Source reads the enrolled catalog objects through authz.nexloop_read_object (0191):
 - a property whose group the owner restricted is still refused, in the same call where the object and its other properties
   are allowed; without that property the same read succeeds;
 - an object that is allowed does not allow another object: a property of another offering is refused with the first

@@ -1,6 +1,6 @@
 # ADR-031 实现说明：一次对象读取内，relay Source 派生每个对象只做一次
 
-依据：ADR-031（负责人 2026-10-13 批准，ROADMAP §7 优化②）。迁移 0420（临时号）。
+依据：ADR-031（负责人 2026-10-13 批准，ROADMAP §7 优化②）。迁移 0191。
 
 ## 1. 改动
 
@@ -48,7 +48,7 @@
   - 约 64 次来自每次读取开头和结尾对对象声明的核对；
   - 其余是本 ADR 的对象派生（每次读取开头一次、结尾复核一次）。
 
-## 5. ADR-032：一次读取检查内，身份只解析一次（迁移 0421）
+## 5. ADR-032：一次读取检查内，身份只解析一次（迁移 0192）
 
 - **改动**：批量取事实 `authz.nexloop_load_authority_facts` 和读取检查 `authz.nexloop_assert_read_authority_inner_before_erasure_v0142`，都在第一条事实时解析一次身份，再传给每条事实的读取（新增 `authz.nexloop_load_authority_fact_with_identity`、`authz.nexloop_load_authority_fact_snapshot_with_identity`）。保护写入的检查不改。旧函数体保存为 `_before_identity_once_v0421`。
 - **等价性**：对比包装扩展到上述两个函数，与 `read_object` 一起对比。
