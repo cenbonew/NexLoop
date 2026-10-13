@@ -173,9 +173,10 @@ class AuthenticatedServices:
         return self._backend._invoke(self._session, 'create_runtime_activation', queue=queue,
             task_id=task_id, fence=fence, run_id=run_id, command=command, input=input, owner_epoch=owner_epoch)
 
-    def runtime_effect_tool(self, *, activation_ref, command, tool_operation, parameters=None, intent_id=None, request_scope=None):
+    def runtime_effect_tool(self, *, activation_ref, command, tool_operation, parameters=None, intent_id=None, request_scope=None, action=None):
+        extra = {} if action is None else {'action': action}  # ADR-030: absent means the reply Action
         return self._backend._invoke(self._session, 'runtime_effect_tool', activation_ref=activation_ref,
-            command=command, tool_operation=tool_operation, parameters=parameters, intent_id=intent_id, request_scope=request_scope)
+            command=command, tool_operation=tool_operation, parameters=parameters, intent_id=intent_id, request_scope=request_scope, **extra)
 
     def authorize_runtime_activation(self, *, activation_ref, command, operation, input=None, request_snapshot=None, model_result=None):
         snapshot = {} if request_snapshot is None else {'request_snapshot': request_snapshot}

@@ -900,6 +900,11 @@
       "version": "0402",
       "name": "0402_nx037_enterprise_slot_issuance.sql",
       "sha256": "60c04a372caaf9481358ed7c9ab2e887bfac947db4d70ae96f19ac9b835fe65e"
+    },
+    {
+      "version": "0403",
+      "name": "0403_nx037_context_effect_supplies.sql",
+      "sha256": "21827f3924ec7c7ad351ebac73b0f517cffa3703ea26083061665b27f4051b7a"
     }
   ]
 }

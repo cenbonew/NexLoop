@@ -47,3 +47,22 @@ describe('strict offering context pack v2 and unchanged v1 compatibility',()=>{
   const f=declaration();const raw=f.check().input+' '.repeat(65536);expect(()=>validateContextInput(raw,f.cmd,f.check(undefined,raw).proof)).toThrow('runtime_context_invalid');
  });
 });
+describe('ADR-030: optional effect_supplies on a v2 Message Run pack',()=>{
+ const item=()=>({action:'nexloop.enterprise.deliver:1',offering_id:'3'.repeat(64),offering_revision:1,binding_id:'4'.repeat(64),binding_revision:1,provenance:'eios:object:'+'3'.repeat(64),
+  properties:{service_code:'enterprise.synthetic-delivery',title:'合成企业交付',delivery_action:'nexloop.enterprise.deliver:1',content_kind:'enterprise-delivery',price_amount:'12.50',currency:'CNY',
+   eligibility:'current_consumer_plan',allowed_guarantees:[],allowed_discounts:[],evidence_kind:'enterprise_receipt',active:true,valid_until:'2999-01-01T00:00:00Z'}});
+ it('returns the enterprise offering; a pack without it is validated exactly as before',()=>{
+  const f=declaration();const plain=f.check();
+  expect(validateContextInput(plain.input,f.cmd,plain.proof,CONTEXT_PROTOCOL_V2)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id});
+  const {input,proof}=f.check(p=>{p.effect_supplies=[item()];});
+  expect(validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V2).effect_supplies).toEqual([{action:'nexloop.enterprise.deliver:1',offering_id:'3'.repeat(64),
+   offering_revision:1,service_code:'enterprise.synthetic-delivery',title:'合成企业交付',price_amount:'12.50'}]);
+ });
+ it.each(['reply_action','duplicate','empty','extra_key','export_shape','bad_price','v1_pack'])('rejects %s',kind=>{
+  const f=declaration(kind!=='v1_pack');
+  const {input,proof}=f.check(p=>{const one=item();
+   p.effect_supplies=kind==='reply_action'?[{...one,action:'nexloop.service.request:1'}]:kind==='duplicate'?[one,item()]:kind==='empty'?[]:kind==='extra_key'?[{...one,tenant_id:'x'}]
+    :kind==='export_shape'?[{...one,properties:p.supply.properties}]:kind==='bad_price'?[{...one,properties:{...one.properties,price_amount:'free'}}]:[one];});
+  expect(()=>validateContextInput(input,f.cmd,proof)).toThrow('runtime_context_invalid');
+ });
+});

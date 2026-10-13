@@ -126,7 +126,9 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 if self.path.startswith('/internal/v1/runtime/effects/'):
                     operation=self.path.rsplit('/',1)[1]
                     field='parameters' if operation=='submit' else 'intent_id'
-                    if (type(body) is not dict or set(body) not in ({'activation_ref','command',field}, {'activation_ref','command',field,'request_scope'} if operation=='submit' else {'activation_ref','command',field})
+                    # ADR-030: an optional effect Action (absent: the reply Action, the request is unchanged).
+                    action=body.pop('action',None) if type(body) is dict else None
+                    if (action is not None and action not in ('nexloop.service.request','nexloop.enterprise.deliver')) or (type(body) is not dict or set(body) not in ({'activation_ref','command',field}, {'activation_ref','command',field,'request_scope'} if operation=='submit' else {'activation_ref','command',field})
                         or type(body['command']) is not dict or type(body['activation_ref']) is not str
                         or (operation=='submit' and type(body[field]) is not dict)
                         or (operation=='find' and type(body[field]) is not str)):
@@ -134,7 +136,8 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     from nexloop_eios.effect_intents import EffectIntentConflict,EffectIntentUnavailable
                     try:
                         result=worker.runtime_effect_tool(activation_ref=body['activation_ref'],command=body['command'],
-                            tool_operation=operation,**{field:body[field]},**({'request_scope':body['request_scope']} if 'request_scope' in body else {}))
+                            tool_operation=operation,**{field:body[field]},**({'request_scope':body['request_scope']} if 'request_scope' in body else {}),
+                            **({'action':action} if action is not None else {}))
                     except CatalogScopeDenied as denial:
                         self.send(403,{'code':'outside_catalog_terms','scope':denial.scope});return
                     except EffectIntentConflict:

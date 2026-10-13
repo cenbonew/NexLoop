@@ -235,6 +235,10 @@ class MessageRelay:
                 'control_id':recipe['control_id'],'submitter_principals':[principal],
                 'action_name':'nexloop.service.request','state':'ready'},recipe)
             enterprise=recipe.get('enterprise')
+            if enterprise is not None and (self.context_strategy is not None or self.relationship_recipe is not None):
+                # ADR-030: only the v2 Message Run pack carries effect_supplies; with another pack the slot would be unusable.
+                _log.info('enterprise_slot_skipped',extra={'event':'enterprise_slot_skipped','consumer_id':recipe['consumer_id'],'reason':'context_unsupported'})
+                enterprise=None
             enterprise_step=None if enterprise is None else self._create('PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,
                 'control_id':enterprise['control_id'],'submitter_principals':[principal],
                 'action_name':'nexloop.enterprise.deliver','state':'ready'},recipe,slot='enterprise.deliver:primary')

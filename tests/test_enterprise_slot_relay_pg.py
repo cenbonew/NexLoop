@@ -174,6 +174,10 @@ def test_an_enrolled_enterprise_slot_gives_one_run_both_actions_and_one_context_
     _, resources, run_slots, assignment = issued_run(s, 'D')
     assert resources == [REPLY, DELIVER] and assignment['allowed_actions'] == [REPLY, DELIVER]
     assert run_slots == ['enterprise.deliver:primary', 'service.request:primary']
+    pack = json.loads(s['admin'].execute('select b.pack_text from runtime.nexloop_context_artifact_bindings b join authz.nexloop_message_run_issuances i '
+                                          'on i.run_id=b.run_id where i.message_id=%s', (d['message'],)).fetchone()[0])
+    assert [(x['action'], x['offering_id'], x['binding_id']) for x in pack['effect_supplies']] == [('nexloop.enterprise.deliver:1', *d['offerings']['enterprise'])]
+    assert pack['supply']['offering_id'] == d['offerings']['reply'][0]  # supply stays the reply export offering
     steps = s['admin'].execute("select properties->>'action_name',properties->>'control_id' from ontology.objects where type_name='PlanStep' "
                                "and properties->>'goal_id'=%s order by 1", (assignment['goal_id'],)).fetchall()
     assert steps == [('nexloop.enterprise.deliver', d['controls']['enterprise']), ('nexloop.service.request', d['controls']['reply'])]
