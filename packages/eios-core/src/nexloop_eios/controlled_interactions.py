@@ -179,14 +179,15 @@ def read_records(directory):
 
 
 def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0), order=None,
-        resume=None, calibration_pause=False):
+        resume=None, calibration_pause=False, test_stack=False):
     """Runs (or resumes after a pause) the trial into `directory`: interactions.jsonl (one record per interaction, written
     before the next starts) and state.json (the outcome). An interaction already recorded is never run again: resuming
     continues after the last record (the error window restarts after a pause). A stopped trial does not resume (the owner
     reviews and starts a new trial id, a uuid). A paused trial raises TrialPaused unless `resume` is the owner's confirmation
     reference, which is appended to resumes.jsonl (fsync) before anything runs; the interaction order may not change across
     resumes. With `calibration_pause` the trial pauses after the plan's calibration interactions (rule 'calibration') so the
-    owner confirms the cost per interaction before the rest."""
+    owner confirms the cost per interaction before the rest. `test_stack` (the local synthetic stack, never a real trial) marks
+    every record and the state test_stack: true; a trial keeps that mark across resumes."""
     if str(uuid.UUID(trial_id)) != trial_id:
         raise ValueError('trial id must be a lowercase uuid')
     clock = clock or (lambda: datetime.now(UTC))
@@ -201,6 +202,8 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     digest = order_digest([i['kind'] for i in interactions])
     if previous and previous.get('order_digest', digest) != digest:
         raise PlanInvalid('the interaction order changed')
+    if previous and previous.get('test_stack', False) is not bool(test_stack):
+        raise PlanInvalid('the trial stack changed')
     if previous and previous['status'] == 'paused':
         if resume is None:
             raise TrialPaused(','.join(previous['rules']))
@@ -250,6 +253,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             'refusals': (evidence or {}).get('refusals', {}),
             'receipts': sorted(observed.get('receipts', [])), 'reconciliation': observed.get('reconciliation', 'not_applicable'),
             'facts': observed.get('facts', {}),
+            **({'test_stack': True} if test_stack else {}),
         }
         cumulative += total
         decision, fired = evaluate(record, history, plan, cumulative=cumulative, monthly=month_cost_before + cumulative,
@@ -264,7 +268,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             break
     state = {'trial_id': trial_id, 'status': status, 'rules': rules, 'at_seq': at_seq, 'recorded': len(history),
              'planned': plan['total'], 'cumulative_cost': str(cumulative), 'currency': plan['currency'], 'order_digest': digest,
-             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock())}
+             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {})}
     tmp = state_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(state, sort_keys=True))
     os.replace(tmp, state_path)

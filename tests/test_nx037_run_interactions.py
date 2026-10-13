@@ -195,3 +195,66 @@ def test_cny_budgets_fit_the_tariff_floor_and_the_per_run_cap():
         assert budget['currency'] == 'CNY'
         assert budget['maximum_model_turns'] * per_request <= Decimal(budget['maximum_cost']) <= cap
     assert load_reply_policy(config / 'reply-guarantee.v2.json')['fallback']['run_budget']['currency'] == 'USD'  # published, unchanged
+
+
+def test_the_test_stack_is_refused_outside_a_synthetic_tenant_the_real_driver_and_cny(tmp_path, capsys):
+    """main(..., test_stack=True) (no CLI option) runs the real driver on the local synthetic stack: a real tenant uuid, the
+    synthetic driver and a trial currency other than CNY are refused before any connection."""
+    def no_connection(_):
+        raise AssertionError('must refuse before connecting')
+    real_tenant = '7d3c0a5e-1b2f-4c6d-8e9f-0a1b2c3d4e5f'
+    assert R.main(real_args(tmp_path, **{'--tenant': real_tenant}), connect=no_connection, test_stack=True) == 3
+    assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_needs_synthetic_tenant']
+    assert R.main(['--driver', 'synthetic', '--trial-id', TRIAL_ID, '--out', str(tmp_path / 'syn')], connect=no_connection, test_stack=True) == 3
+    assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_needs_real_driver', 'test_stack_needs_synthetic_tenant']
+    usd = json.loads(R.TRIAL.read_text())
+    usd['currency'] = 'USD'
+    usd_file = tmp_path / 'usd-trial.json'
+    usd_file.write_text(json.dumps(usd))
+    assert R.main(real_args(tmp_path) + ['--trial-config', str(usd_file)], connect=no_connection, test_stack=True) == 3
+    assert json.loads(capsys.readouterr().out)['refused'] == ['test_stack_currency_not_cny']
+    assert '--test-stack' not in json.dumps(R.__doc__) and R.main(real_args(tmp_path) + ['--test-stack'], connect=no_connection) == 3
+    assert not (tmp_path / 'real').exists() and not (tmp_path / 'syn').exists()
+
+
+def test_the_test_stack_host_is_deterministic_and_still_in_the_trial_currency(tmp_path):
+    reply = ROOT / 'deploy/configuration/reply-guarantee.v3.json'
+
+    def host(**config):
+        path = tmp_path / 'host.json'
+        path.write_text(json.dumps(config))
+        return path
+
+    deterministic = host(runtime_profile='deterministic-test', cost_currency='CNY')
+    assert R.currency_preconditions('CNY', deterministic, reply, test_stack=True) == []
+    assert R.currency_preconditions('CNY', deterministic, reply) == ['host_not_real_model', 'model_tariff_missing']  # never outside the test stack
+    assert R.currency_preconditions('CNY', host(runtime_profile='deterministic-test'), reply, test_stack=True) == ['host_currency_differs']
+    tariff = ROOT / 'deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json'
+    model = host(runtime_profile='deepseek-flash', cost_currency='CNY', model_tariff_file=str(tariff))
+    assert R.currency_preconditions('CNY', model, reply, test_stack=True) == ['test_stack_host_not_deterministic']
+
+
+def test_test_stack_records_state_and_evidence_pack_are_never_real_evidence(tmp_path):
+    import evidence_pack as E
+    trial = X.load_plan(R.TRIAL)
+    from nexloop_eios.interaction_drivers import SyntheticCollector, SyntheticDriver
+
+    def fresh():  # one synthetic stack per trial
+        driver = SyntheticDriver(tenant=R.SYNTHETIC_TENANT, other_tenant=R.SYNTHETIC_OTHER)
+        return driver, SyntheticCollector(driver)
+    marked = X.run(trial, *fresh(), tmp_path / 'marked', trial_id=TRIAL_ID, order=ORDER, test_stack=True)
+    assert marked['test_stack'] is True and all(r['test_stack'] is True for r in X.read_records(tmp_path / 'marked'))
+    plain = X.run(trial, *fresh(), tmp_path / 'plain', trial_id=TRIAL_ID, order=ORDER)
+    assert 'test_stack' not in plain and not any('test_stack' in r for r in X.read_records(tmp_path / 'plain'))
+    E.build(tmp_path / 'pack-marked', {}, tmp_path / 'marked')
+    index = json.loads((tmp_path / 'pack-marked' / 'index.json').read_text())
+    assert index['test_stack'] is True and index['real_evidence'] is False
+    assert json.loads((tmp_path / 'pack-marked' / 'interactions' / 'summary.json').read_text())['test_stack'] is True
+    E.build(tmp_path / 'pack-plain', {}, tmp_path / 'plain')
+    assert 'real_evidence' not in json.loads((tmp_path / 'pack-plain' / 'index.json').read_text())
+    assert E.check(tmp_path / 'pack-marked') == []
+    # A paused test stack trial cannot be resumed as another stack (and the reverse).
+    paused = X.run(trial, *fresh(), tmp_path / 'paused', trial_id=TRIAL_ID, order=ORDER, calibration_pause=True, test_stack=True)
+    assert paused['status'] == 'paused'
+    with pytest.raises(X.PlanInvalid):
+        X.run(trial, *fresh(), tmp_path / 'paused', trial_id=TRIAL_ID, order=ORDER, resume='owner-confirmation:x')

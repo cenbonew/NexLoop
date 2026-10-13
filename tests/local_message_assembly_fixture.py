@@ -85,6 +85,16 @@ def assembled_message(business_plan,admin,tmp_path,request):
         definition=ActionDefinition.model_validate_json(json.dumps(body))
         actions[name]={'definition':definition.model_dump(mode='json'),
             'capability':{**base['capability'],'capability_name':capability_name,'has_side_effects':True}}
+    # NX-037 synthetic five kinds (marker nx037_test_stack): the enterprise delivery Action (ADR-030, nexloop.enterprise.deliver:1)
+    # is published with the tenant, and the executor holds it next to the reply. Without the marker nothing changes.
+    enterprise='nx037_test_stack' in request.keywords
+    if enterprise:
+        from test_enterprise_slot_relay_pg import DELIVER_SCHEMA
+        body=json.loads(json.dumps(actions['nexloop.service.request']['definition']));body.pop('contract_digest',None)
+        body.update(stable_name='nexloop.enterprise.deliver',input_schema=DELIVER_SCHEMA)
+        body['capability_binding']['capability_name']='nexloop.enterprise.deliver'
+        actions['nexloop.enterprise.deliver']={'definition':ActionDefinition.model_validate_json(json.dumps(body)).model_dump(mode='json'),
+            'capability':{**actions['nexloop.service.request']['capability'],'capability_name':'nexloop.enterprise.deliver'}}
     definition,capability=message_assignment_action(tenant=tenant,created_by='explicit-assembly-owner',created_at=datetime.now(UTC),
         capability=CapabilityContractSnapshot.model_validate_json(json.dumps(base['capability'])))
     actions[definition.stable_name]={'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json')}
@@ -97,7 +107,7 @@ def assembled_message(business_plan,admin,tmp_path,request):
         'kind':'atomic','has_side_effects':False,'idempotent':True,'required_scopes':['function.execute']}))
     route=[ROUTE,QUEUE]+(['nexloop.reply.fallback'] if 'reply_fallback' in request.keywords else [])  # NX-025: fallback issuance (0110)
     specs={'assembly-route':route,'assembly-planner':['Goal.create','PlanStep.create','MessageAssignment.create',BIND],
-        'assembly-source':['nexloop.service.request'],'assembly-executor':['nexloop.service.request','nexloop.service.query'],'assembly-runtime-worker':[QUEUE]}
+        'assembly-source':['nexloop.service.request'],'assembly-executor':['nexloop.service.request','nexloop.service.query']+(['nexloop.enterprise.deliver'] if enterprise else []),'assembly-runtime-worker':[QUEUE]}
     secrets_map=json.loads(original['paths']['secrets'].read_text());credentials=list(manifest['service_credentials'])
     facts={(r['kind'],tuple(r['key'])):r for r in manifest['authority_facts']};tokens={}
     for label,permissions in specs.items():

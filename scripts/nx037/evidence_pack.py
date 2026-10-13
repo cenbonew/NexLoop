@@ -7,7 +7,8 @@ sha256 and size only: their content may name hosts, paths or people, so nothing 
 release manifest, from which fixed fields are extracted (commit, tree, release id, CI result digest, catalog, contracts digest,
 lock hashes, image digests and archive hashes). The controlled interaction records (`--trial`, the executor's directory) are
 summarized: counts by kind and outcome, time decomposition percentiles, cost, the stop/pause outcome and the intent ids with
-their reconciliation states.
+their reconciliation states. A trial run on the local synthetic stack (state or any record test_stack: true) is test evidence:
+the pack says test_stack: true and real_evidence: false, and it never counts as evidence of the real trial.
 
 Allowed values: uuids, hex hashes and commits, times and dates, decimal numbers, booleans, null, and codes from the fixed
 vocabulary below (scenario kinds, rule ids, statuses). Any other string is refused when the pack is written and by `check`.
@@ -143,6 +144,7 @@ def summarize_trial(directory):
         'model_calls': sum(r['model']['calls'] for r in records), 'tool_calls': sum(r['tool_calls'] for r in records),
         'receipts': sum(len(r['receipts']) for r in records), 'first_at': records[0]['started_at'] if records else None,
         'last_at': records[-1]['ended_at'] if records else None,
+        'test_stack': state.get('test_stack') is True or any(r.get('test_stack') is True for r in records),
     }, intents, records
 
 
@@ -171,6 +173,8 @@ def build(out, items, trial=None):
         _write(root / 'interactions' / 'records.json', project(records, dropped))
         index['items']['interactions'] = {'status': 'present', 'records': len(records), 'dropped_values': dropped[0],
                                           'sha256': _sha256(Path(trial) / 'interactions.jsonl')}
+        if summary['test_stack']:
+            index['test_stack'], index['real_evidence'] = True, False
     else:
         index['items']['interactions'] = {'status': 'missing'}
     _write(root / 'index.json', index)

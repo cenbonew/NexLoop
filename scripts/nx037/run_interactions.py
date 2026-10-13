@@ -21,6 +21,11 @@ after each, the executor collects its evidence and applies the stop and pause ru
   its effects (0172); it sends nothing itself. An interaction not completed within --interaction-timeout (default 900 s) is
   a pause. A real trial pauses after the calibration interactions (3) for the owner to confirm the cost per interaction.
 
+Test stack (no CLI option; tests call main(..., test_stack=True)): the real driver against the local synthetic stack, a
+deterministic-test Host instead of the model, only for a synthetic test tenant (tests/support/tenants; a real tenant uuid is
+refused) and still in the trial currency CNY. Every record and the state are marked test_stack: true, and an evidence pack
+of such a trial says real_evidence: false. It is never evidence of the real trial.
+
 A stopped trial never resumes (start a new trial id). A paused trial continues only with --resume and the owner's confirmation
 reference. Output: one JSON line of ids, codes, numbers and times. Exit: 0 completed; 1 paused; 2 stopped; 3 refused (input or
 real mode preconditions).
@@ -42,6 +47,8 @@ PLAN_SCHEMAS = ('nexloop.nx037-interaction-plan.v1', 'nexloop.nx037-interaction-
 SWITCH_CHECKS = ('deployment_switch_closed', 'tenant_switch_closed', 'action_switches_closed')
 # Synthetic tenants (tests/support/tenants.TENANT_A and TENANT_OTHER): the synthetic driver never runs against a real tenant.
 SYNTHETIC_TENANT, SYNTHETIC_OTHER = '00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000c'
+# The synthetic test tenants (tests/support/tenants: TENANT_A, TENANT_B, TENANT_OTHER): the only tenants of a test stack trial.
+TEST_STACK_TENANTS = frozenset({SYNTHETIC_TENANT, '00000000-0000-4000-8000-00000000000b', SYNTHETIC_OTHER})
 
 
 class Refused(ValueError):
@@ -85,19 +92,23 @@ TARIFF_SCHEMA = 'nexloop.model-tariff.v1'
 REPLY_POLICY = ROOT / 'deploy/configuration/reply-guarantee.v3.json'
 
 
-def currency_preconditions(currency, host_config_file, reply_policy=None):
+def currency_preconditions(currency, host_config_file, reply_policy=None, *, test_stack=False):
     """D-g option 2 (owner 2026-10-13): refusal codes when the Host, its tariff or the reply guarantee's fallback Run budget is
-    not in the trial currency. Costs are never converted, so any of these would make the trial's Runs refused or uncounted."""
+    not in the trial currency. Costs are never converted, so any of these would make the trial's Runs refused or uncounted.
+    With test_stack the Host must instead be the deterministic-test profile (no model, no tariff), still in the trial currency."""
     failed = []
     try:
         host = json.loads(Path(host_config_file).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return ['host_config_unreadable']
-    if host.get('runtime_profile') != 'deepseek-flash':
+    if test_stack:
+        if host.get('runtime_profile') != 'deterministic-test':
+            failed.append('test_stack_host_not_deterministic')
+    elif host.get('runtime_profile') != 'deepseek-flash':
         failed.append('host_not_real_model')
     if host.get('cost_currency', 'USD') != currency:
         failed.append('host_currency_differs')
-    if currency != 'USD':
+    if currency != 'USD' and not test_stack:
         try:
             tariff = json.loads(Path(host.get('model_tariff_file', '')).read_text(encoding='utf-8'))
             if (tariff.get('schema') != TARIFF_SCHEMA or tariff.get('currency') != currency or tariff.get('provider') != 'deepseek'
@@ -127,7 +138,19 @@ def _connect(dsn_file):
     return psycopg.connect(Path(dsn_file).read_text(encoding='utf-8').strip(), autocommit=True)
 
 
-def main(argv=None, *, environ=None, connect=_connect, operator=None):
+def test_stack_refusals(args, trial):
+    """Refusal codes of a test stack trial: the real driver only, a synthetic test tenant only, the trial currency CNY."""
+    failed = []
+    if args.driver != 'real':
+        failed.append('test_stack_needs_real_driver')
+    if args.tenant not in TEST_STACK_TENANTS:
+        failed.append('test_stack_needs_synthetic_tenant')
+    if trial['currency'] != 'CNY':
+        failed.append('test_stack_currency_not_cny')
+    return failed
+
+
+def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack=False):
     from nexloop_eios import controlled_interactions as X
     from nexloop_eios import interaction_drivers as D
     environ = os.environ if environ is None else environ
@@ -157,6 +180,10 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
     try:
         trial = X.load_plan(args.trial_config)
         plan = load_interaction_plan(args.plan_file, trial)
+        if test_stack:
+            refused = test_stack_refusals(args, trial)
+            if refused:
+                return emit({'ok': False, 'refused': refused, 'trial_id': args.trial_id}, 3)
         if args.driver == 'synthetic':
             if any(getattr(args, n) for n in ('owner_session_file', 'metrics_dsn_file', 'channel_ref')):
                 raise Refused('synthetic mode takes no real configuration')
@@ -180,7 +207,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
             config = D.RealDriverConfig(channel_ref=args.channel_ref, owner_session_file=args.owner_session_file)
             with connect(args.metrics_dsn_file) as connection:
                 ok, failed = real_preconditions(params, connection, plan['real_dispatch'], environ)
-                failed = failed + currency_preconditions(trial['currency'], args.host_config)
+                failed = failed + currency_preconditions(trial['currency'], args.host_config, test_stack=test_stack)
                 before = month_cost_before(connection, args.tenant, trial['currency'], X.read_records(args.out))
             if failed:
                 return emit({'ok': False, 'refused': failed, 'trial_id': args.trial_id}, 3)
@@ -196,7 +223,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None):
         if args.driver == 'real':
             collector = _RealCollector(connect, args.metrics_dsn_file, args.tenant)
         state = X.run(trial, driver, collector, args.out, trial_id=args.trial_id, order=plan['order'], resume=args.resume,
-                      calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0))
+                      calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0), test_stack=test_stack)
     except X.TrialPaused as paused:
         return emit({'ok': False, 'detail': 'paused_needs_resume', 'rules': str(paused).split(','), 'trial_id': args.trial_id}, 3)
     except RuntimeError as error:
