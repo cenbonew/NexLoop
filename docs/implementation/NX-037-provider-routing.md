@@ -108,8 +108,8 @@
 
 ## 7. 与 L2 切片 1 合并后的真实 PG 集成测试（分支 `l3/nx037-routing-integration`）
 
-- **分支来源**：从 `l3/nx037-provider-routing` 切出，合并 L2 的 `df80eb7`（`nexloop.enterprise.deliver:1`，0400，临时号保持不变），不包含 `a9c48ff` 之后的提交。
-- **合并冲突**：只有 `catalog.json`，处理后同时保留 0400 与 0470，按编号排序。
+- **分支来源**：从 `l3/nx037-provider-routing` 切出，合并 L2 的 `df80eb7`（`nexloop.enterprise.deliver:1`，合入 main 时为 0178），不包含 `a9c48ff` 之后的提交。
+- **合并冲突**：只有 `catalog.json`，处理后同时保留两者；合入 main 时分别重编号为 0178 与 0184。
 - **语义上的合并调整**：L2 把脚本改为读取 `nx037-trial.v2.json`，该文件仍引用告警规则 v3。已改为 v4，否则 `effect_route_unconfigured` 告警不会被应用。
 - **测试**：`tests/test_effect_routing_integration_pg.py`（5 个）。效应 worker 在独立进程中运行，与部署相同；两条路由连两台本地合成 provider。
   - 一个计划夹具只绑定一个效应 Action，所以回复意图与企业交付意图分别在两个数据库中运行（参数化）。两种情况下 worker 都持有同样的两条路由，应当保持沉默的那台 provider 始终可达。

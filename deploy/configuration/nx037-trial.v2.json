@@ -13,6 +13,6 @@
   "stop": ["unauthorized_send", "wrong_recipient", "contact_after_refusal", "duplicate_external_effect", "cross_tenant_read",
            "per_run_cost_exceeded", "critical_alert", "owner_stop"],
   "pause": {"error_window": 10, "error_rate_above": "0.10", "cost_ratio_at_least": "0.80", "unresolved_unknown_effect": true},
-  "alert_rules": "alert-rules.v3.json",
+  "alert_rules": "alert-rules.v4.json",
   "effect_categories": "action-effect-categories.v3.json"
 }

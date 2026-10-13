@@ -1,4 +1,4 @@
-"""NX-037 provider routing with the governed enterprise delivery Action (L2 gap B slice 1, 0400) on actual PostgreSQL: the actual
+"""NX-037 provider routing with the governed enterprise delivery Action (L2 gap B slice 1, 0178) on actual PostgreSQL: the actual
 effect Worker (an independent process, as deployed) with ProviderRoutes over two local synthetic providers, the NexLoop delivery
 for nexloop.service.request and the enterprise endpoint for nexloop.enterprise.deliver.
 
