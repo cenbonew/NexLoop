@@ -131,7 +131,7 @@ def slots(multi, request):  # noqa: F811
         return MessageRelay(route=api.authenticate(f['owner_token'], world='real'), source=api.authenticate(source_token, world='real'),
                             planner=api.authenticate(m['relay_plan']['planner_token'], world='real'), executor_token=executor_token, vault=vault,
                             run_profile=m['run_profile'], context_strategy=context_strategy)
-    return dict(m, people=people, enroll=enroll, slot_relay=relay, executor_token=executor_token)
+    return dict(m, people=people, enroll=enroll, slot_relay=relay, executor_token=executor_token, slot_source_token=source_token)
 
 
 def profile(s, label):
