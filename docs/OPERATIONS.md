@@ -146,6 +146,8 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
    全部满足才算 ready：租户 active；三层真实派发开关都关闭；model 预算等于累计上限、币种一致并覆盖试运行期间；告警规则生效版本等于配置版本。效应类别声明数只报告。
 
+> 真实租户的消费者 WebChat 账号、工作台用户、业务装配（business setup、catalog setup、relay 登记、`relay-run-profile.json`）、企业端点一致性检查与“结果暂时未知”演练中继，见 [NX-037 真实租户业务装配手册](implementation/NX-037-tenant-assembly.md)。
+
 ### 9.3 开放真实派发（【B】）
 
 按 [NX-037 设计稿](implementation/NX-037-design.md) §3 第 2–3 步：渠道配置与凭据只交给 Effect Worker；只对该租户、只对选定的 Action 打开三层真实派发开关（部署总闸、租户、租户与 Action，见 [真实派发开关实现说明](implementation/real-dispatch-switch-implementation.md)），由负责人在工作台执行 `set_real_dispatch`。

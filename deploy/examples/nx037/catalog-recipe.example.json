@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "request_id": "<NEW_UUID>",
+  "consumer_id": "<CONSUMER_ID_FROM_BUSINESS_SETUP>",
+  "valid_until": "<TRIAL_PERIOD_END_UTC_ISO>"
+}

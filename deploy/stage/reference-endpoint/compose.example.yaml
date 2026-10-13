@@ -1,0 +1,26 @@
+# Reference enterprise delivery endpoint (NX-037): an external stand-in, NOT part of NexLoop. Runs on APP_HOST as its own Compose project, own volume,
+# no NexLoop network, database or credential. Every value comes from the private env file (compose.env.example).
+name: ${ENDPOINT_PROJECT:?project name}
+services:
+  endpoint:
+    image: ${ENDPOINT_IMAGE:?endpoint image by digest}
+    restart: unless-stopped
+    user: "10002:10002"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "${ENDPOINT_BIND_ADDR:?bind address}:${ENDPOINT_PORT:?published port}:8443"
+    volumes:
+      - endpoint_data:/var/lib/reference-endpoint
+    environment:
+      ENDPOINT_TENANT_LABEL: ${ENDPOINT_TENANT_LABEL:?tenant label}
+    secrets: [endpoint_cert, endpoint_key, service_token, staff_token]
+volumes:
+  endpoint_data: {}
+secrets:
+  endpoint_cert: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/server.chain.crt"}
+  endpoint_key: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/server.key"}
+  service_token: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/service_token"}
+  staff_token: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/staff_token"}

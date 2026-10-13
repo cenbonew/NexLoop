@@ -1,0 +1,8 @@
+{
+  "role_ref": "<ROLE_REF>",
+  "context_manifest_ref": "<CONTEXT_MANIFEST_REF>",
+  "runtime_profile": "deepseek-flash",
+  "budget": {"maximum_model_turns": 8, "maximum_tool_calls": 8, "active_timeout_seconds": 120, "maximum_cost": "<PER_RUN_COST_CAP>", "currency": "<TRIAL_CURRENCY>"},
+  "runtime_owner_epoch": 1,
+  "queue": "operations"
+}
