@@ -147,3 +147,25 @@ def test_a_residue_left_at_the_cap_is_recorded_and_the_cell_goes_on(tmp_path):
     assert result['remaining'] == {'recall-instance': 811} and sum(state['warmed']) == 300
     result, _ = _settle(_cell(tmp_path, scale=0.1), [{'claim-match': 3}] * 100)
     assert result['code'] == 'warm_up_not_drained' and result['seconds'] == 30.0  # the cap scales with the timing
+
+
+def test_an_aborted_cell_records_the_error_types_and_frames_without_text(tmp_path):
+    """NX-052 N state (2026-10-13): a cell that aborted with runner_error left no trace. The cell now records the exception
+    types along the cause chain, a SQLSTATE and file:line:function frames, never the message (D8)."""
+    import psycopg
+    secret = 'tenant 00000000-0000-4000-8000-00000000000a constraint secret-text'
+    def inner():
+        raise psycopg.errors.UndefinedObject(secret)
+    try:
+        try:
+            inner()
+        except psycopg.Error as error:
+            raise RuntimeError(secret) from error
+    except RuntimeError as error:
+        described = M.describe_error(error)
+    assert described['chain'] == [{'type': 'builtins.RuntimeError'}, {'type': 'psycopg.errors.UndefinedObject', 'sqlstate': '42704'}]
+    assert any(f.startswith('test_load_matrix.py:') and f.endswith(':inner') for f in described['frames'])
+    assert secret not in json.dumps(described) and '00000000' not in json.dumps(described)
+    cell = _cell(tmp_path)
+    result = cell.abort('runner_error', RuntimeError(secret))
+    assert result['aborted'] == 'runner_error' and result['error']['chain'] == [{'type': 'builtins.RuntimeError'}] and secret not in json.dumps(result)

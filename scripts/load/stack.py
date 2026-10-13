@@ -57,9 +57,18 @@ class Stack:
         if fk_drop:
             import tenant_fk_state
             import psycopg
-            with psycopg.connect(self.admin_dsn, autocommit=True) as db:
-                dropped = tenant_fk_state.drop(db, fk_drop)
-            (self.lane / 'tenant-fk-state.json').write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': len(dropped)}))
+            state = self.lane / 'tenant-fk-state.json'
+            try:
+                with psycopg.connect(self.admin_dsn, autocommit=True) as db:
+                    dropped = tenant_fk_state.drop(db, fk_drop)
+            except tenant_fk_state.TenantFkMismatch as error:
+                # Schema identifiers only (never data): which of the batches' keys the clone does not have.
+                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'missing': error.missing}))
+                raise
+            except ValueError:
+                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'refused': 'unknown_batch'}))
+                raise
+            state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': len(dropped)}))
 
     # -- private files ----------------------------------------------------------------------------------------------
     def file(self, name, content):
