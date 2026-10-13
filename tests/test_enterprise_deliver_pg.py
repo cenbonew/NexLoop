@@ -200,3 +200,19 @@ def test_an_offering_that_delivers_through_another_action_is_outside_the_catalog
 def test_service_grants_cannot_grant_the_enterprise_delivery():
     from nexloop_eios import service_grants
     assert 'nexloop.enterprise.deliver' in service_grants.FORBIDDEN_MARKERS
+
+
+@ENTERPRISE
+def test_run_effect_contexts_are_keyed_by_run_and_slot(governed_effect_executor, admin):  # noqa: F811
+    """ADR-030 (0401): a link's slot is its context's slot; one link per (run, slot); a mismatched slot is refused."""
+    fixture = governed_effect_executor
+    run_id = fixture.runs[0].run_id
+    assert admin.execute('select pg_get_constraintdef(oid) from pg_constraint where conrelid=%s::regclass and contype=%s',
+                         ('control.nexloop_effect_run_contexts', 'p')).fetchone() == ('PRIMARY KEY (run_id, slot_identity)',)
+    rows = admin.execute('select slot_identity from control.nexloop_effect_run_contexts where run_id=%s', (run_id,)).fetchall()
+    assert rows == [('enterprise.deliver:primary',)]  # filled from the context by trigger
+    context = admin.execute('select context_id,valid_until from control.nexloop_effect_run_contexts where run_id=%s', (run_id,)).fetchone()
+    with admin.transaction(force_rollback=True), pytest.raises(psycopg.errors.InsufficientPrivilege):
+        admin.execute("update control.nexloop_effect_run_contexts set slot_identity='service.request:primary' where run_id=%s", (run_id,))
+    with admin.transaction(force_rollback=True), pytest.raises(psycopg.errors.UniqueViolation):
+        admin.execute('insert into control.nexloop_effect_run_contexts(run_id,context_id,valid_until) values(%s,%s,%s)', (run_id, *context))
