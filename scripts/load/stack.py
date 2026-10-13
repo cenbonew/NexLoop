@@ -208,11 +208,14 @@ class Stack:
             self.file('run-profile.json', json.dumps(self.chain['run_profile']))
         return path
 
-    def start_message_chain(self, host_concurrency, latency=None):
+    def start_message_chain(self, host_concurrency, latency=None, context_strategy=None):
         """One multi-consumer relay (pool 2), the runtime worker with four guard processes (pool 4 each), one Agent Host with
         maximum_active_runs = the cell's host concurrency (load-lane configuration, never through the doctor; C8 is 8), the
         local JSON delivery provider, the effect worker and the outbound recorder. Returns None once all are up. `latency`
-        ({median_ms, p95_ms, seed}) is the Host's D5 injected model latency (deterministic-test only); None injects none."""
+        ({median_ms, p95_ms, seed}) is the Host's D5 injected model latency (deterministic-test only); None injects none.
+        `context_strategy` (a published strategy ID) makes the relay issue message Runs with Context v6, as deployed
+        (context-strategies.v1.json); v6 Runs record every model request (AT-060 §4.4 item 4). None keeps the v2 Context: the
+        template's history step, which runs before the template publishes the strategy (load_chain.load_plans)."""
         key, key_id = self.signing
         tokens = self.chain['tokens']
         token = {name: self.file(f'chain-{name}-credential', value) for name, value in tokens.items()}
@@ -228,8 +231,8 @@ class Stack:
         guard_port, host_port = free_port(), free_port()
         config = self.file('host-runtime-config.json', json.dumps({'guard_url': f'https://127.0.0.1:{guard_port}/internal/v1/runtime/authorize',
             'guard_key_file': str(guard_key), 'guard_ca_file': str(guard_cert), 'runtime_profile': 'deterministic-test', 'effect_tools': True,
-            # One Host for every Run kind (NX-031 slice 3): message Runs (v2), fallback replies and plan reevaluations (v6), each by the
-            # protocol its own start input declares.
+            # One Host for every Run kind (NX-031 slice 3): message Runs (v6 in the cells, v2 in the template's history step), fallback
+            # replies and plan reevaluations (v6), each by the protocol its own start input declares.
             'deterministic_protocols': True, 'plan_outcome_tool': True, 'maximum_active_runs': host_concurrency,
             **({'deterministic_latency': latency} if latency else {})}))
         node = shutil.which('node')
@@ -268,7 +271,7 @@ class Stack:
             '--artifact-root', str(self.lane / 'relay-artifacts'), '--vault-root', str(self.lane / 'relay-vault'), '--run-profile-file', str(self.run_profile_file()),
             *sum(([f'--{name}-credential-file', str(token[name])] for name in ('route', 'source', 'planner', 'executor')), []),
             # NX-031 ladder: issue no new Run while 4 x the Host concurrency message Run tasks are open (credentials live 300 s).
-            '--max-backlog', str(4 * host_concurrency)])
+            '--max-backlog', str(4 * host_concurrency), *(['--context-strategy', context_strategy] if context_strategy else [])])
         self._spawn('outbound-recorder', [sys.executable, '-m', 'nexloop_eios.outbound_messages', '--database-url-file', str(api_dsn), *common,
             '--service-credential-file', str(recorder), '--artifact-root', str(self.lane / 'recorder-artifacts'), '--world', 'real'])
         # NX-052 full-window state D (implementation note §11): emulate a configuration publication every few seconds. Unset by default.

@@ -119,18 +119,23 @@ def checks(db, start, end, cross_access):
         join runtime.nexloop_conversations cv on cv.tenant_id=c.tenant_id and cv.world=c.world and cv.conversation_id=c.conversation_id
         where c.tenant_id=%s and c.world=%s''', TENANT, WORLD)
     # 5 comes from the driver; 4 and 6 need the message Run chain's records (model requests, effects) in the window.
-    # 4. Model request context: every ID a model request's context sources cite is the Run's own consumer, one of its
-    #    conversations or messages, or not a Consumer / Conversation / Message at all (IDs compared, never text).
-    model = one(_RUNS + """, q as (select q.run_id,q.context_id from runtime.nexloop_model_requests q where q.tenant_id=%s and q.world=%s
-          and q.requested_at>=%s and q.requested_at<%s),
-        cited as (select q.run_id,(regexp_matches(s.ref,'[0-9a-f]{64}','g'))[1] id from q join runtime.nexloop_context_sources s
+    # 4. Model request context (AT-060, design §4.4 item 4): every ID a model request's context sources cite is the consumer of
+    #    that request's own context (control.nexloop_effect_contexts via the request's context_id, for message, fallback and
+    #    role Runs alike), one of that consumer's conversations or messages, or not a Consumer / Conversation / Message at all
+    #    (IDs compared, never text). A request whose context has no consumer counts as a violation (fail closed). `checked` is the
+    #    number of model requests; `ids_compared` the cited IDs actually compared (0 means nothing was compared).
+    model = one("""with q as (select q.run_id,q.call_sequence,q.context_id,e.consumer_id from runtime.nexloop_model_requests q
+          left join control.nexloop_effect_contexts e on e.context_id=q.context_id and e.tenant_id=q.tenant_id and e.world=q.world
+          where q.tenant_id=%s and q.world=%s and q.requested_at>=%s and q.requested_at<%s),
+        cited as (select q.run_id,q.call_sequence,q.consumer_id,(regexp_matches(s.ref,'[0-9a-f]{64}','g'))[1] id from q join runtime.nexloop_context_sources s
           on s.tenant_id=%s and s.world=%s and s.context_id=q.context_id)
-        select (select count(*) from q),count(*) filter (where
-          exists(select 1 from ontology.objects o where o.tenant_id=%s and o.world=%s and o.type_name='Consumer' and o.object_id=c.id and o.object_id<>r.consumer_id)
-          or exists(select 1 from runtime.nexloop_conversations cv where cv.tenant_id=%s and cv.world=%s and cv.conversation_id=c.id and cv.consumer_id<>r.consumer_id)
+        select (select count(*) from q),(select count(*) from cited),
+          (select count(*) from q where q.consumer_id is null)+(select count(*) from cited c where c.consumer_id is not null and (
+          exists(select 1 from ontology.objects o where o.tenant_id=%s and o.world=%s and o.type_name='Consumer' and o.object_id=c.id and o.object_id<>c.consumer_id)
+          or exists(select 1 from runtime.nexloop_conversations cv where cv.tenant_id=%s and cv.world=%s and cv.conversation_id=c.id and cv.consumer_id<>c.consumer_id)
           or exists(select 1 from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world
-                    and cv.conversation_id=m.conversation_id where m.tenant_id=%s and m.world=%s and m.message_id=c.id and cv.consumer_id<>r.consumer_id))
-        from cited c join r on r.run_id=c.run_id""", TENANT, WORLD, TENANT, WORLD, start, end, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD)
+                    and cv.conversation_id=m.conversation_id where m.tenant_id=%s and m.world=%s and m.message_id=c.id and cv.consumer_id<>c.consumer_id)))""",
+        TENANT, WORLD, start, end, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD, TENANT, WORLD)
     # 6. One reply the customer can see per inbound message, over the whole tenant (a duplicate is never acceptable), split by
     #    where the trigger message comes from: the template's history (accepted before the window) or the cell's window.
     duplicate = one('''select count(*),count(*) filter (where n>1),count(*) filter (where n>1 and in_window),count(*) filter (where n>1 and not in_window)
@@ -145,7 +150,7 @@ def checks(db, start, end, cross_access):
         from runtime.nexloop_conversation_messages m where m.tenant_id=%s and m.world=%s and not (m.record ? 'direction')
         and (m.record->>'accepted_at')::timestamptz>=%s and (m.record->>'accepted_at')::timestamptz<%s''', TENANT, WORLD, start, end)
     return {'run_binding': {'checked': run_binding[0], 'violations': run_binding[1]}, 'outbound_ownership': {'checked': outbound[0], 'violations': outbound[1]},
-            'claim_ownership': {'checked': claims[0], 'violations': claims[1]}, 'model_context': {'checked': model[0], 'violations': model[1]},
+            'claim_ownership': {'checked': claims[0], 'violations': claims[1]}, 'model_context': {'checked': model[0], 'ids_compared': model[1], 'violations': model[2]},
             'cross_access_probe': cross_access, 'duplicate_effects': {'checked': duplicate[0], 'violations': duplicate[1],
                                                                    'window_violations': duplicate[2], 'history_violations': duplicate[3]},
             'unresolved_work': {'checked': unresolved[0], 'unresolved': unresolved[1]}}

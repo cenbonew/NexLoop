@@ -34,6 +34,9 @@ from load_template import Clone  # noqa: E402
 
 CELLS = ('C1', 'C2', 'C4', 'C8', 'C4-low', 'C4-peak', 'C4-quiet', 'C4-ci')
 GATES = ('C4', 'C4-low')
+# AT-060 §4.4 item 4 (dispatcher 2026-10-13, A + B1): message Runs in the cells use Context v6 with the deployed built-in
+# strategy (context-strategies.v1.json; the template publishes it), so every message Run records its model requests.
+MESSAGE_CONTEXT_STRATEGY = 'recent_plus_required'
 
 
 def now():
@@ -98,7 +101,7 @@ class Cell:
                        'window': {'steady_start': None, 'steady_end': None}, 'drain': {'drained': False, 'seconds': None},
                        'host_metrics': 'approx', 'ci': None,
                        # Beyond the contract, informational: what this stack did not start (stack.py).
-                       'message_runs': None, 'timing_scale': scale}
+                       'message_runs': None, 'message_context_strategy': MESSAGE_CONTEXT_STRATEGY, 'timing_scale': scale}
 
     def execute(self):
         self.dir.mkdir(parents=True)
@@ -123,7 +126,8 @@ class Cell:
                     stack.start_background()
                 latency = self.matrix['model_latency']
                 pending = stack.start_message_chain(self.spec['host_concurrency'], latency={'median_ms': latency['median_ms'], 'p95_ms': latency['p95_ms'],
-                                                                                            'seed': self.run['seed']})
+                                                                                            'seed': self.run['seed']},
+                                                     context_strategy=MESSAGE_CONTEXT_STRATEGY)
                 self.result['message_runs'] = 'started' if pending is None else pending
             except (StackFailed, OSError, subprocess.SubprocessError):
                 return self.abort('service_start_failed')
