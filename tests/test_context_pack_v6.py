@@ -22,7 +22,8 @@ VALID=Draft202012Validator(V6,format_checker=FormatChecker())
 
 def test_v6_is_derived_from_frozen_v2_v3_v5_sections():
     p=V6['properties']
-    for name in ('bindings','formal_facts','current_constraints','supply'):assert p[name]==PACK_SCHEMA['properties'][name],name
+    for name in ('bindings','formal_facts','current_constraints','supply','effect_supplies'):assert p[name]==PACK_SCHEMA['properties'][name],name
+    assert 'effect_supplies' not in V6['required'] and 'effect_supplies' not in PACK_SCHEMA['required']  # ADR-030: optional
     from nexloop_eios.relationship_context_pack import PACK_SCHEMA_V4
     assert p['relationship_context']==PACK_SCHEMA_V4['properties']['relationship_context'] and 'relationship_context' not in V6['required']
     role=p['role']['anyOf'][1]['properties']
@@ -106,3 +107,42 @@ def test_assembly_refuses_floats_anywhere_in_the_pack():
     with pytest.raises(ValueError,match='context_pack_float'):assemble_v6(**bad)
     body,_=assemble_v6(**inputs())
     assert all(type(i['relevance_permille']) is int for name in ('constraints','consumer_state','open_work','evidence','semantics') for i in body[name])
+
+
+# NX-037 gap B (ADR-030): action/delivery_action are enums; effect_supplies carries the additional effect offerings.
+REPLY,ENTERPRISE='nexloop.service.request:1','nexloop.enterprise.deliver:1'
+
+
+def enterprise_item(**changes):
+    item=copy.deepcopy(EXAMPLE['supply'])
+    item['properties'].update(service_code='enterprise.synthetic-delivery',title='合成企业交付',delivery_action=ENTERPRISE,
+        content_kind='enterprise-delivery',price_amount='12.50',evidence_kind='enterprise_receipt')
+    item={'action':ENTERPRISE,**item}
+    item.update(changes)
+    return item
+
+
+def test_effect_supplies_is_optional_and_accepts_one_enterprise_offering():
+    assert VALID.is_valid(EXAMPLE) and 'effect_supplies' not in EXAMPLE
+    assert VALID.is_valid({**EXAMPLE,'effect_supplies':[enterprise_item()]})
+    assert VALID.is_valid({**EXAMPLE,'effect_supplies':[]})
+
+
+@pytest.mark.parametrize('case',['reply_action','duplicate_action','too_many','export_shape','unknown_key','price_text'])
+def test_effect_supplies_negatives(case):
+    item=enterprise_item()
+    pack={**EXAMPLE,'effect_supplies':{
+        'reply_action':[{**item,'action':REPLY}],
+        'duplicate_action':[item,copy.deepcopy(item)],
+        'too_many':[item]*5,
+        'export_shape':[{**item,'properties':EXAMPLE['supply']['properties']}],
+        'unknown_key':[{**item,'tenant_id':'x'}],
+        'price_text':[{**item,'properties':{**item['properties'],'price_amount':'free'}}],
+    }[case]}
+    assert not VALID.is_valid(pack),case
+
+
+def test_supply_stays_the_reply_export_offering_and_constraints_name_an_effect_action():
+    assert not VALID.is_valid({**EXAMPLE,'supply':{k:v for k,v in enterprise_item().items() if k!='action'}})
+    assert VALID.is_valid({**EXAMPLE,'current_constraints':{**EXAMPLE['current_constraints'],'action':ENTERPRISE}})
+    assert not VALID.is_valid({**EXAMPLE,'current_constraints':{**EXAMPLE['current_constraints'],'action':'nexloop.other:1'}})
