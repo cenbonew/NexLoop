@@ -179,6 +179,7 @@ CI 主机就是规划中的 APP_HOST。下列占用互斥，同一时间只做�
 | 2026-10-13 | ADR-030 批准：Run 按 slot 绑定多个效应上下文（键 (run_id, slot)；意图按所声明 Action 的 slot 选上下文；各 slot 预算、租约、联系限制与 offering 相互独立；只有消费者有生效企业 offering 时才绑定第二个 slot，否则签发、路由、context pack 与授权路径逐字节不变；锁顺序固定先回复后企业；兜底回复 Run 不变；契约 context-pack-v6 新增可选 effect_supplies，action/delivery_action 改为 enum）（负责人 2026-10-13） | ADR-030 |
 | 2026-10-13 | AT-060 测量口径（负责人按推荐 4A、5A）：① 空闲派发时延恢复设计稿与 PRD 定义——来信 accepted 到对应 Run 任务被 claim，门槛 p95 ≤2 s 不变；claim 到 Host 首次授权的 Run 启动段单列为观察项（2026-10-11 压测合同改为“任务创建→Host 首次授权”的口径作废）。② 守卫 p95 改为窗口内全部调用的真实 p95（直方图或分桶），门槛 ≤1500 ms 不变；“最差一分钟 p95”保留为观察项。200v2 正式整轮（b8831ff）在旧口径下 failed，且第 4 项无效，门槛格须以 v6 消息 Run 重跑 | AT-060 200v2 报告；L4 分析 |
 | 2026-10-13 | 首个签名发布 D-R1～D-R5 按推荐：D-R1 方案 A（CI 构建，`nexloop-release` 只签名封存；独立构建另立主机配置任务）；D-R2 新建只含 `nexloop-release` 的只读组，移交目录 2750，CI 结果对其只读；D-R3 `nexloop-ci` 的 rootless docker 未启用 containerd snapshotter 则启用，只改其自身 daemon 配置；D-R4 基础镜像与 gateway 按 digest 预取时临时、限时只放行镜像仓库出站，执行后恢复；D-R5 gateway 用 Caddy 当前最新 2.x 稳定版，执行前由调度员在官方发布页核对，只固定 amd64 manifest digest。主机配置变更执行时逐条命令交负责人确认（负责人 2026-10-13） | NX-034-first-release-runbook §5 |
+| 2026-10-13 | AT-060 空闲派发目标（负责人按推荐 A）：v0.1 门槛项 idle_dispatch_p95_ms（受理→claim，C4-low）定为 ≤5000 ms；PRD“空闲交互队列调度 p95 ≤2 s”属初始待验证指标，列为 v0.2 目标，届时以 ADR 改 relay 结构（合并串行受治理步骤或缩小复查范围）。依据：v6 门槛格重跑 relay 段 p50 3466/p95 6630 ms，为十几个串行受治理步骤的处理耗时，非轮询；排队段 p95 295 ms | AT-060 门槛格 v6 重跑；L4 relay 分析 |
 
 待决：见 §6“下一道关卡的决定”。
 
@@ -267,3 +268,4 @@ S6、S7 的实现都依赖 NX-037 的真实轨迹，但以下工作不必等：
 | 2026-10-13 | 本次规划提交 | ADR-030 批准（消息 Run 可同时回复与企业交付） |
 | 2026-10-13 | 本次规划提交 | AT-060 口径定案 4A、5A；200v2 整轮 failed，门槛格待 v6 重跑 |
 | 2026-10-13 | 本次规划提交 | 首个签名发布 D-R1～D-R5 按推荐；AT-060 门槛格 v6 重跑 C4 passed、C4-low 空闲派发未过（relay 段） |
+| 2026-10-13 | 本次规划提交 | 空闲派发 v0.1 门槛 ≤5 s，2 s 列 v0.2（负责人 A） |
