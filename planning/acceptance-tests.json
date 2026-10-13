@@ -1163,7 +1163,7 @@
     "name": "负载与隔离",
     "given": "1000消费者、并发1/2/4/8",
     "expected": "测平台/模型/工具分解延迟，无身份串用",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "note",
@@ -1176,6 +1176,12 @@
         "ref": "planning/ROADMAP.md",
         "summary": "判定前置（ROADMAP §3/§4）：NX-031 切片 3 合入、本机 C4-low 重跑、CI 车道 1000 客户整轮（含 C4-ci）。v2 消息 Run 目前不记录模型耗时分解，expected 中的“模型分解延迟”口径须在整轮前裁定。整轮之前状态保持 not_run。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "load run 20261013T114458Z-fa9a71c (CI host lane, commit fa9a71c = main ec5ffc4 tree, catalog 0190, matrix v2, 200 customers, seed 31, relay processes 2)",
+        "summary": "AT-060 passed. Gate C4 (0.1/s): guard p95 (all calls) 911 ms, ACK p95 389 ms, idle dispatch not gated in C4, drain 15 s, connections 53, identity violations 0, unresolved 0, model context sample compared. Gate C4-low (0.05/s): idle dispatch p95 4176 ms (v0.1 gate 5000 ms, owner A 2026-10-13), guard p95 753 ms, ACK 323 ms, drain 25 s. All eight cells completed with identity violations 0; observe cells at 1/s and 3/s do not drain (capacity per D-a is 200 customers at <=0.1 msg/s). Scope per owner decisions: 200 customers (D-a), matrix v2, calibers 4A/5A, idle dispatch 5 s for v0.1.",
+        "recorded_at": "2026-10-13T16:20:00Z"
       }
     ]
   },

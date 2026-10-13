@@ -2614,6 +2614,12 @@
         "ref": "load run 20261012T234421Z-b8831ff (200 customers, matrix v2)",
         "summary": "AT-060 failed: C4 worst-minute guard p95 1599>1500, C4-low idle dispatch 4397>2000 under the 2026-10-11 caliber; other gate items pass (identity 0, unresolved 0). Gate item 4 (model context) had no sample (v2 message Runs). Owner 2026-10-13 decided 4A/5A; model context fix merged in 01e3e58; gate cells to be rerun with Context v6.",
         "recorded_at": "2026-10-13T05:20:00Z"
+      },
+      {
+        "type": "test_report",
+        "ref": "load run 20261013T114458Z-fa9a71c",
+        "summary": "AT-060 full matrix v2 passed at 200 customers with relay processes 2 (see AT-060 evidence). Task status stays in_progress until the owner confirms the S4 exit.",
+        "recorded_at": "2026-10-13T16:20:00Z"
       }
     ]
   },
