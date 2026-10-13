@@ -950,6 +950,11 @@
       "version": "0190",
       "name": "0190_nx037_contact_after_refusal_bound_replies.sql",
       "sha256": "8743b5b78e2fda12efa93c443780efe74e060a82d8deae32045742bf6c6ecb08"
+    },
+    {
+      "version": "0420",
+      "name": "0420_adr031_read_derivation_once.sql",
+      "sha256": "a7264f44d7f870ceaab9ee0441120c5b9057d0bc21ac1cd37705058710deae12"
     }
   ]
 }

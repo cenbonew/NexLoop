@@ -5,8 +5,21 @@ import pytest
 
 DEFAULT_PG_BIN='/opt/homebrew/opt/postgresql@18/bin'
 
+from support import read_object_compare as _compare
+if _compare.enabled():
+    # ADR-031 equivalence run only: wrap read_object after every catalog application (see support/read_object_compare.py).
+    import nexloop_eios.bootstrap as _bootstrap
+    _apply = _bootstrap.apply_migrations
+    def _apply_and_wrap(connection, *args, **kwargs):
+        result = _apply(connection, *args, **kwargs)
+        if connection.execute("select to_regprocedure('authz.nexloop_read_object_before_derivation_once_v0420(text,text,text,text)')").fetchone()[0] \
+                and not connection.execute("select to_regprocedure('authz.zz_read_object_new(text,text,text,text)')").fetchone()[0]:
+            _compare.install(connection)
+        return result
+    _bootstrap.apply_migrations = _apply_and_wrap
+
 @pytest.fixture
-def pg():
+def pg(request):
     bindir=pathlib.Path(os.environ.get('NEXLOOP_TEST_PG_BIN',DEFAULT_PG_BIN))
     if not (bindir/'initdb').exists():
         raise RuntimeError('PostgreSQL required: set NEXLOOP_TEST_PG_BIN (critical test may not skip)')
@@ -24,6 +37,7 @@ def pg():
         declare_loopback_effects(f'host={sock} port={port} dbname=postgres user=nexloop_bootstrap')
         yield f'host={sock} port={port} dbname=postgres user=nexloop_bootstrap'
     finally:
+        if started and _compare.enabled():_compare.record(f'host={sock} port={port} dbname=postgres user=nexloop_bootstrap',request.node.nodeid)
         if started:subprocess.run([str(bindir/'pg_ctl'),'-D',str(data),'-m','fast','-w','stop'],check=True,stdout=subprocess.DEVNULL)
         # Only the exact test-owned mkdtemp directory; no persistent cleanup.
         assert root.name.startswith('nexloop-pg-') and root.parent==pathlib.Path(tempfile.gettempdir())
