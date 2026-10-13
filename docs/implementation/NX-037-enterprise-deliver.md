@@ -88,3 +88,54 @@
 - context-pack-v6 中的 `action` 和 `delivery_action` 由 const 改为 enum；同步修改 `contracts.py`、`context_pack.py` 和 Host 的 `context-input.ts`。
 - `runtime-effect-tools.ts` 按服务目录提供企业交付工具；后端 effects 路由传入 action。
 - 消息 Run 签发时，`allowed_actions` 按目录授予企业交付。
+
+## 7. 切片 2：消息 Run 的企业 slot（ADR-030，已批准）
+
+### 7.1 迁移
+
+- **0401**：`control.nexloop_effect_run_contexts` 的键改为 `(run_id, slot_identity)`。slot 取自上下文，由触发器填写。
+  - 意图受理按所声明 Action 的 slot 取上下文；
+  - 只服务于回复的读取优先取回复 slot，因此单 slot 的 Run 行为不变；
+  - 目录元数据按 Action 选择 slot 和 offering：消息 Run 的回复用 `supply`，企业交付用 `effect_supplies` 中对应的那一项。
+- **0402**：
+  - **登记表**：转发登记表新增三个可空列 `enterprise_control_id`、`enterprise_offering_id`、`enterprise_binding_id`，三列必须同时有值或同时为空（check 约束）。
+  - **登记命令**：只能通过受治理的登记命令写入这三列；该命令是 0141 命令的包装，要求负责人主体、带意图 id，登记行只追加，本身就是审计记录。运行时角色无权写这张表。
+  - **profile**：`runtime.nexloop_relay_profile` 只在三列有值且当前仍然有效时才带上 `enterprise` 块；已登记但失效时，带 `enterprise_skipped` 和原因。三列为空时，profile 逐字节不变。
+  - **签发**：`allowed_actions` 只接受两种值：只有回复，或回复加企业交付。后者要求第二份来源证明，并且登记的企业 slot 当前有效；Run 凭据同时授予两个 Action。
+
+### 7.2 中继
+
+- 只有 profile 带 `enterprise` 块时，中继才会：
+  1. 在同一个目标下多建一个企业计划步骤（`action_name` 为 `nexloop.enterprise.deliver`，`control_id` 为企业控制）；
+  2. 让路由的 `allowed_actions` 包含两个 Action；
+  3. 用两份来源证明完成签发；
+  4. 通过 `bind_effect_contexts` 在同一事务中绑定两个 slot，顺序固定为先回复、后企业。
+- 已登记的企业 slot 失效时，中继只签发回复 slot，并记一条结构化日志：logger `nexloop.message_relay`，事件 `enterprise_slot_skipped`，带 `consumer_id` 和 `reason`（`control_mismatch`、`control_invalid`、`offering_invalid` 或 `binding_invalid`）。这不会让 Run 失败。
+
+### 7.3 负责人登记企业 slot（给 L5 的租户装配手册）
+
+前置条件，每个消费者各做一次：
+
+1. **企业效应控制**：负责人创建一个 EffectControl。`consumer_id` 是该消费者；`executor_principal` 是效应执行者，它必须同时持有 `nexloop.service.request:1` 和 `nexloop.enterprise.deliver:1` 的执行权；`budget_units` 是企业交付的预算单位，与回复控制的预算各自独立；`allow_effect` 为 `true`；`valid_until` 按需设置。创建后执行配置：
+   ```
+   owner.configure_effect_control(control_id=<企业控制>, control_revision=1, executor_token=<执行者令牌>, action='nexloop.enterprise.deliver')
+   ```
+2. **企业 offering**：目录维护者创建 ServiceOffering，形状由 `service_offerings.enterprise_delivery_example(service_code='enterprise.<代码>', title=…, price_amount='<CNY 金额>', valid_until=…)` 给出；再创建 ConsumerServiceOffering，把该 offering 绑定到这个消费者，`source_principal` 是中继的 Source 主体。
+3. **授权**：受信配置要给 Source 主体和效应执行者加上 `nexloop.enterprise.deliver:1` 的执行权。通过 authority facts 下发，服务授权清单不能授予这个 Action。
+
+登记命令：负责人主体，必须是回复控制和企业控制的属主。
+
+```
+relay_enrollment.enroll(owner_service, consumer_id=<消费者>, control_id=<回复控制>, offering_id=<导出 offering>, binding_id=<导出绑定>,
+                        relay_principal=<中继主体>, intent_id=<8–160 位意图 id>,
+                        enterprise={'control_id': <企业控制>, 'offering_id': <企业 offering>, 'binding_id': <企业绑定>})
+```
+
+- **登记时的校验**：
+  - 同一租户、同一 world；
+  - 调用者是企业控制的属主，企业控制的 `consumer_id` 等于登记的消费者，并且 `allow_effect` 为 `true`；
+  - 绑定属于这个 offering 和这个消费者，并且有效；
+  - offering 的 `delivery_action` 是 `nexloop.enterprise.deliver:1`，并且有效；
+  - 企业控制不能与回复控制是同一个。
+- **清除**：不带 `enterprise` 参数再登记一次，会生成新的一个修订，三列为空。
+- **撤回整个登记**：用 `relay_enrollment.withdraw`。

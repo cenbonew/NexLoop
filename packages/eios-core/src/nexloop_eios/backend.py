@@ -264,6 +264,11 @@ class AuthenticatedServices:
             step_revision=step_revision, goal_revision=goal_revision, consumer_revision=consumer_revision,
             control_revision=control_revision, run_id=run_id, run_token=run_token, executor_token=executor_token, action=action)
 
+    def bind_effect_contexts(self, *, binds, run_id, run_token, executor_token):
+        """ADR-030: one Run's effect contexts (reply first, then the enterprise slot) in one transaction."""
+        return self._backend._invoke(self._session, 'bind_effect_contexts', binds=binds, run_id=run_id, run_token=run_token,
+            executor_token=executor_token)
+
     def submit_effect_intent(self, *, parameters, action_version=1,request_scope=None, action=EFFECT_REPLY):
         return self._backend._invoke(self._session, 'submit_effect_intent',
             parameters=parameters, action_version=action_version,request_scope=request_scope, action=action)
@@ -603,6 +608,17 @@ class Backend:
                               'record_effect_unknown','settle_expired_origin','back_off_unknown','record_effect_observation','record_effect_query_observation','reconcile_effect_receipt','read_effect_receipt'):
                 from nexloop_eios.effect_execution import EffectExecutionPort
                 return getattr(EffectExecutionPort(self._pool,session,self._signer),operation)(**arguments)
+            if operation=='bind_effect_contexts':
+                from nexloop_eios.effect_contexts import EffectContextUnavailable,EffectContextConflict,bind_slots
+                from nexloop_eios.run_credentials import AUDIENCE
+                try:
+                    executor=authenticate_service(self._pool,arguments.pop('executor_token'),world=session.world)
+                    run=authenticate_service(self._pool,arguments.pop('run_token'),world=session.world,run_id=arguments.pop('run_id'),audience=AUDIENCE)
+                    return bind_slots(self._pool,session,self._signer,arguments.pop('binds'),run_session=run,executor_session=executor)
+                except EffectContextConflict:
+                    raise
+                except Exception:
+                    raise EffectContextUnavailable('effect context unavailable') from None
             if operation in ('configure_effect_control','bind_effect_context'):
                 from nexloop_eios.effect_contexts import EffectContextRegistrar,EffectContextUnavailable,EffectContextConflict
                 from nexloop_eios.run_credentials import AUDIENCE

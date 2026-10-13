@@ -93,7 +93,7 @@ class EffectContextRegistrar:
         return db.execute('select authz.nexloop_action_claim_command(%s,%s,%s,%s,%s)',
             (self.session.token_digest,self.session.world,text,signature,payload)).fetchone()[0]
 
-    def _execute(self,*,verb,payload,executor_session,run_session=None):
+    def _execute(self,*,verb,payload,executor_session,run_session=None,db=None):
         try:
             action=CONFIGURE if verb=='configure' else BIND
             definition,capability,schemas=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get_with_schemas(action,1)
@@ -124,7 +124,8 @@ class EffectContextRegistrar:
                 binding=M.ClaimBindingPayload(invocation_id=claim_id,action_reference=definition.reference(),request_digest=request_hash,
                     capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),
                 requested_at=now,lease_expires_at=now+timedelta(seconds=20))
-            with self.pool.connection() as db,db.transaction():
+            from contextlib import nullcontext
+            with (nullcontext(db) if db is not None else self.pool.connection()) as db,db.transaction():  # a savepoint inside bind_slots
                 verify_application_role(db)
                 reservation=M.ActionClaimResult.model_validate_json(canonical_payload(self._claim(db,command,'reserve')))
                 if reservation.disposition not in (M.ActionClaimDisposition.CLAIMED,M.ActionClaimDisposition.REPLAY):raise ValueError()
@@ -174,7 +175,21 @@ class EffectContextRegistrar:
     def configure_control(self,*,control_id,control_revision,executor_session):
         return self._execute(verb='configure',payload={'control_id':self._id(control_id),'control_revision':self._revision(control_revision)},executor_session=executor_session)
 
-    def bind(self,*,step_id,step_revision,goal_revision,consumer_revision,control_revision,run_session,executor_session):
-        return self._execute(verb='bind',payload={'step_id':self._id(step_id),
+    def bind(self,*,step_id,step_revision,goal_revision,consumer_revision,control_revision,run_session,executor_session,db=None):
+        return self._execute(db=db,verb='bind',payload={'step_id':self._id(step_id),
             **{name:self._revision(value) for name,value in [('step_revision',step_revision),('goal_revision',goal_revision),
                 ('consumer_revision',consumer_revision),('control_revision',control_revision)]}},executor_session=executor_session,run_session=run_session)
+
+
+def bind_slots(pool,session,signer,binds,*,run_session,executor_session):
+    """ADR-030: bind one Run to its effect contexts in one transaction, in the fixed slot order (reply first, then the
+    enterprise slot), so a second context never introduces a new lock order. ``binds`` maps an effect Action to the bind
+    arguments of its plan step; each slot is a full governed registrar bind."""
+    if not binds or set(binds)-set(EFFECT_ACTIONS):raise EffectContextUnavailable('effect context unavailable')
+    results={}
+    with pool.connection() as db,db.transaction():
+        verify_application_role(db)
+        for action in [a for a in EFFECT_ACTIONS if a in binds]:
+            results[action]=EffectContextRegistrar(pool,session,signer,action=action).bind(
+                run_session=run_session,executor_session=executor_session,db=db,**binds[action])
+    return results
