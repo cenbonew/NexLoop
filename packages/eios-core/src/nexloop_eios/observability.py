@@ -141,29 +141,61 @@ class GuardTimings:
         self._errors = 0
         self._dropped = 0
         self._started = time.time()
+        self._operations = {}  # AT-060: operation -> ([elapsed_ms], errors); numbers only, labels from GUARD_OPERATIONS
 
     def drop(self):
         """NX-031: a connection dropped at the connection bound: a call and an error, with no latency sample."""
         with self._lock:
             self._dropped += 1
 
-    def observe(self, elapsed_ms, *, error=False):
+    def observe(self, elapsed_ms, *, error=False, operation=None):
+        """`operation` (AT-060) only labels the call for the per-operation sample; the overall sample is unchanged."""
         with self._lock:
             self._elapsed.append(float(elapsed_ms))
             self._errors += 1 if error else 0
+            label = operation if operation in GUARD_OPERATIONS else 'other'
+            values, errors = self._operations.get(label, ([], 0))
+            values.append(float(elapsed_ms))
+            self._operations[label] = (values, errors + (1 if error else 0))
 
     def drain(self):
+        sample, started, _ = self.drain_with_operations()
+        return sample, started
+
+    def drain_with_operations(self):
+        """The overall sample (as before), its window start, and {operation: sample} for the same window."""
         with self._lock:
             values, errors, dropped, started = sorted(self._elapsed), self._errors, self._dropped, self._started
-            self._elapsed, self._errors, self._dropped, self._started = [], 0, 0, time.time()
+            operations = self._operations
+            self._elapsed, self._errors, self._dropped, self._started, self._operations = [], 0, 0, time.time(), {}
+        by_operation = {label: _latency_sample(sorted(v), e, buckets=True) for label, (v, e) in sorted(operations.items()) if v}
         if not values:
             if dropped:
-                return {'calls': dropped, 'timeouts': 0, 'errors': dropped}, started
-            return None, started
-        def rank(q):
-            return round(values[min(len(values) - 1, max(0, math.ceil(q * len(values)) - 1))], 1)
-        return {'calls': len(values) + dropped, 'timeouts': sum(1 for v in values if v >= GUARD_DEADLINE_MS), 'errors': errors + dropped,
-                'p50_ms': rank(0.50), 'p95_ms': rank(0.95), 'max_ms': round(values[-1], 1)}, started
+                return {'calls': dropped, 'timeouts': 0, 'errors': dropped}, started, by_operation
+            return None, started, by_operation
+        sample = _latency_sample(values, errors)
+        sample.update(calls=len(values) + dropped, errors=errors + dropped)
+        return sample, started, by_operation
+
+
+# AT-060: the guard's operations as the Host names them (runtime_activation._OPERATIONS, model results and the tool endpoints).
+GUARD_OPERATIONS = ('start', 'resume', 'inspect', 'cancel', 'model', 'model_result', 'tool', 'effect_submit', 'effect_find', 'outcome', 'incentive', 'other')
+GUARD_BUCKETS_MS = (50, 100, 250, 500, 1000, 1500, 2000)
+
+
+def _latency_sample(values, errors, *, buckets=False):
+    """values sorted ascending, non-empty. Buckets (per operation only) count the calls in (previous bound, bound]."""
+    def rank(q):
+        return round(values[min(len(values) - 1, max(0, math.ceil(q * len(values)) - 1))], 1)
+    sample = {'calls': len(values), 'timeouts': sum(1 for v in values if v >= GUARD_DEADLINE_MS), 'errors': errors,
+              'p50_ms': rank(0.50), 'p95_ms': rank(0.95), 'max_ms': round(values[-1], 1)}
+    if buckets:
+        lower = float('-inf')
+        for bound in GUARD_BUCKETS_MS:
+            sample[f'le_{bound}'] = sum(1 for v in values if lower < v <= bound)
+            lower = bound
+        sample['gt_2000'] = sum(1 for v in values if v > GUARD_BUCKETS_MS[-1])
+    return sample
 
 
 GUARD = GuardTimings()
@@ -183,9 +215,16 @@ def start_sampler(stop, interval, flush):
 
 
 def flush_guard(pool, service='runtime-guard'):
-    sample, started = GUARD.drain()
+    sample, started, by_operation = GUARD.drain_with_operations()
+    window = dict(window_start=datetime.fromtimestamp(started, UTC), window_seconds=max(1, min(3600, round(time.time() - started))))
     if sample is not None:
-        record_sample(pool, 'guard', service, sample, window_start=datetime.fromtimestamp(started, UTC), window_seconds=max(1, min(3600, round(time.time() - started))))
+        record_sample(pool, 'guard', service, sample, **window)
+    # AT-060: one sample per operation of the same window (kind guard_op, service = operation; 0430). Best effort per item.
+    for operation, value in by_operation.items():
+        try:
+            record_sample(pool, 'guard_op', operation, value, **window)
+        except Exception:
+            pass
     record_pool_sample(pool, service)
 
 

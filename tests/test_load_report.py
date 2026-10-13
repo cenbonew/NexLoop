@@ -181,6 +181,34 @@ def test_an_empty_model_context_sample_fails_a_gate_cell_and_only_records_in_an_
     assert c4['items']['model_context_sample'] == {'value': None, 'limit': 1, 'result': 'missing'} and c4['result'] == 'failed'
 
 
+def test_guard_operations_table_per_cell_leaves_guard_p95_unchanged(run_dir):
+    """AT-060: guard_op samples become a per-operation table (informational); guard_p95_ms_max still reads only kind guard."""
+    all_cells(run_dir)
+    before = next(c for c in report.build(run_dir)['cells'] if c['cell'] == 'C4')['metrics']['guard_p95_ms_max']
+    path = run_dir / 'cells' / 'C4' / 'process_samples.jsonl'
+    rows = [json.loads(x) for x in path.read_text().splitlines()]
+    buckets = lambda **k: {'le_50': 0, 'le_100': 0, 'le_250': 0, 'le_500': 0, 'le_1000': 0, 'le_1500': 0, 'le_2000': 0, 'gt_2000': 0, **k}
+    for minute, (p95, slow) in enumerate(((1200.0, 1), (5000.0, 2))):
+        at = iso(START + timedelta(minutes=minute))
+        rows.append({'kind': 'guard_op', 'service': 'model', 'instance': 'i', 'window_start': at, 'window_seconds': 60,
+                     'sample': {'calls': 20, 'timeouts': slow - 1, 'errors': 0, 'p50_ms': 300.0, 'p95_ms': p95, 'max_ms': p95 + 1,
+                                **buckets(le_500=18, le_1500=2 - (slow - 1), gt_2000=slow - 1)}})
+        rows.append({'kind': 'guard_op', 'service': 'inspect', 'instance': 'i', 'window_start': at, 'window_seconds': 60,
+                     'sample': {'calls': 10, 'timeouts': 0, 'errors': 0, 'p50_ms': 20.0, 'p95_ms': 40.0, 'max_ms': 45.0, **buckets(le_50=10)}})
+    rows.append({'kind': 'guard_op', 'service': 'model', 'instance': 'i', 'window_start': iso(START + timedelta(minutes=30)), 'window_seconds': 60,
+                 'sample': {'calls': 99, 'p95_ms': 9999.0}})  # outside the steady window: ignored
+    path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+    data = report.build(run_dir)
+    c4 = next(c for c in data['cells'] if c['cell'] == 'C4')
+    assert c4['metrics']['guard_p95_ms_max'] == before
+    assert c4['guard_operations'] == {
+        'inspect': {'calls': 20, 'timeouts': 0, 'errors': 0, 'p50_ms_max': 20.0, 'p95_ms_max': 40.0, 'max_ms': 45.0, 'p95_le_ms': 50},
+        'model': {'calls': 40, 'timeouts': 1, 'errors': 0, 'p50_ms_max': 300.0, 'p95_ms_max': 5000.0, 'max_ms': 5001.0, 'p95_le_ms': 1500}}
+    assert next(c for c in data['cells'] if c['cell'] == 'C2')['guard_operations'] == {}
+    text = report.markdown(data)
+    assert '| C4 | model | 40 | 1 | 0 | 300 | 5000 | 1500 | 5001 |' in text and '| C2 | missing |' in text
+
+
 def test_ci_interference_with_baseline(run_dir, tmp_path):
     all_cells(run_dir, **{'C4-ci': {'guard': (100, 0, 1200.0), 'ack': 300.0}})
     baseline = tmp_path / 'baseline.json'

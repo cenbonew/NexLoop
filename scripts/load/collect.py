@@ -162,6 +162,14 @@ def _has(db, table, column):
                       (schema, name, column)).fetchone() is not None
 
 
+def residue(db, before):
+    """Due work feed items of the load tenant created before `before` (the cell's start: what the template clone brought), by
+    feed; plan-reevaluate excluded as in drained(). Counts only."""
+    return dict(db.execute("select feed,count(*) from runtime.nexloop_work_feed where tenant_id=%s and world=%s and status='pending' "
+                           "and feed<>'plan-reevaluate' and available_at<=clock_timestamp() and created_at<%s group by 1 order by 1",
+                           (TENANT, WORLD, before)).fetchall())
+
+
 def drained(db):
     """Pending work of the load tenant: queues (pending/retry_wait/running), due work feeds and inbound messages the relay has not
     routed. Only the load tenant counts: the template also holds the base fixture's tenant, whose items no cell service serves

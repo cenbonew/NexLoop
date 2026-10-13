@@ -135,6 +135,42 @@ def guard_windows(samples, start, end):
     return round(worst, 4), p95_max, sum(c for c, _ in minutes.values())
 
 
+GUARD_BUCKETS = (('le_50', 50), ('le_100', 100), ('le_250', 250), ('le_500', 500), ('le_1000', 1000), ('le_1500', 1500), ('le_2000', 2000))
+
+
+def guard_operations(samples, start, end):
+    """AT-060: guard calls per operation (kind guard_op, one sample per process, operation and window) inside [start, end):
+    calls, timeouts and errors summed; p50/p95 as the worst window (the same caliber as guard_p95_ms_max); max; and
+    p95_le_ms, the upper bound of the bucket holding the 95th percentile over all the window's calls of that operation
+    (None above 2000 ms: beyond the deadline). Informational, never gated. Absent in older results: {}."""
+    out = {}
+    for row in samples:
+        if row.get('kind') != 'guard_op' or not start <= _time(row.get('window_start')) < end:
+            continue
+        operation = _code(row.get('service'), 'guard_op.service')
+        sample = row.get('sample') or {}
+        o = out.setdefault(operation, {'calls': 0, 'timeouts': 0, 'errors': 0, 'p50_ms_max': None, 'p95_ms_max': None, 'max_ms': None,
+                                       'buckets': [0] * (len(GUARD_BUCKETS) + 1)})
+        for key in ('calls', 'timeouts', 'errors'):
+            o[key] += _number(sample.get(key, 0), f'guard_op.{key}')
+        for key, target in (('p50_ms', 'p50_ms_max'), ('p95_ms', 'p95_ms_max'), ('max_ms', 'max_ms')):
+            if sample.get(key) is not None:
+                value = _number(sample[key], f'guard_op.{key}')
+                o[target] = value if o[target] is None else max(o[target], value)
+        for i, (key, _) in enumerate(GUARD_BUCKETS):
+            o['buckets'][i] += _number(sample.get(key, 0), f'guard_op.{key}')
+        o['buckets'][-1] += _number(sample.get('gt_2000', 0), 'guard_op.gt_2000')
+    for o in out.values():
+        counts, total, running, o['p95_le_ms'] = o.pop('buckets'), None, 0, None
+        total = sum(counts)
+        for (_, bound), count in zip(GUARD_BUCKETS, counts):
+            running += count
+            if total and running >= 0.95 * total:
+                o['p95_le_ms'] = bound
+                break
+    return dict(sorted(out.items()))
+
+
 def host_summary(samples, start, end):
     waiting, active, timeouts, seen = None, None, 0, False
     for row in samples:
@@ -248,6 +284,7 @@ def cell_metrics(directory, expected_refusals):
                                       if r.get('kind') == 'guard' and start <= _time(r.get('window_start')) < end)
         out['host'] = host_summary(samples, start, end)
         out['pool'] = pool_summary(samples, start, end)
+        out['guard_operations'] = guard_operations(samples, start, end)
     acks = _lines(directory / 'acks.jsonl')
     if acks is not None:
         ok = [_number(a.get('ack_ms'), 'ack_ms') for a in acks if a.get('status') == 202]
@@ -485,6 +522,15 @@ def markdown(report):
         lines.append(f"| {c['cell']} | {d['runs']} | {pair('e2e_ms')} | {pair('run_ms')} | {pair('model_ms')} | {pair('tool_ms')} | {pair('platform_ms')} | "
                      f"{d['runs_without_tool_timing']} | {d['runs_without_model_timing']} | {d['anomalies']} | "
                      f"{', '.join(f'{k} {v}' for k, v in d.get('failures', {}).items()) or '0'} | {c['host_metrics']} |")
+    lines += ['', '## 守卫按操作分项（稳态窗口，ms；p50 / p95 为最差的单进程单窗口，p95≤ 为全部调用落入的桶上界）', '',
+              '| 格 | 操作 | 调用 | 超时 | 错误 | p50 | p95 | p95≤ | max |', '|---|---|---|---|---|---|---|---|---|']
+    for c in report['cells']:
+        operations = c.get('guard_operations') or {}
+        if not operations:
+            lines.append(f"| {c['cell']} | missing | | | | | | | |")
+        for name, o in operations.items():
+            lines.append(f"| {c['cell']} | {name} | {o['calls']} | {o['timeouts']} | {o['errors']} | {_fmt(o['p50_ms_max'])} | {_fmt(o['p95_ms_max'])} | "
+                         f"{_fmt(o['p95_le_ms'])} | {_fmt(o['max_ms'])} |")
     ci = report['ci_interference']
     lines += ['', '## CI 同机影响（§5.3）', '']
     if not ci:

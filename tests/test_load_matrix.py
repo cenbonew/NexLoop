@@ -110,3 +110,40 @@ def test_lane_preflight_reads_the_lane_matrix(monkeypatch):
     monkeypatch.setenv('LOAD_MATRIX','deploy/load/matrix.v2.json')
     ok,details=P.deployment_premises()
     assert ok and details['gate_host_concurrency']=={'C4':4,'C4-low':4}
+
+
+def _cell(tmp_path, scale=1.0):
+    from types import SimpleNamespace
+    spec = next(c for c in MATRIX['cells'] if c['cell'] == 'C4')
+    return M.Cell(spec, MATRIX, SimpleNamespace(out=str(tmp_path), lane_root=str(tmp_path / 'lane'), timing_scale=scale), {'seed': 1})
+
+
+def _settle(cell, counts):
+    """Fake clock: each warm(seconds) advances it; the query returns the next residue count."""
+    import asyncio
+    state = {'now': 0.0, 'i': 0, 'warmed': []}
+    async def query():
+        value = counts[min(state['i'], len(counts) - 1)]
+        state['i'] += 1
+        return value
+    async def warm(seconds):
+        state['warmed'].append(seconds)
+        state['now'] += seconds
+    return asyncio.run(cell.settle_residue(query, warm, clock=lambda: state['now'])), state
+
+
+def test_the_template_residue_is_waited_out_before_the_steady_window(tmp_path):
+    result, state = _settle(_cell(tmp_path), [{'recall-instance': 811, 'reply-due': 1}, {'recall-instance': 400}, {}])
+    assert result == {'at_start': 812, 'by_feed': {'recall-instance': 811, 'reply-due': 1}, 'drained': True, 'seconds': 10.0, 'code': None,
+                      'polls': [{'seconds': 0.0, 'due': 812}, {'seconds': 5.0, 'due': 400}, {'seconds': 10.0, 'due': 0}]}
+    assert state['warmed'] == [5, 5]  # warm-up traffic keeps going while waiting
+    result, state = _settle(_cell(tmp_path), [{}])
+    assert result['drained'] is True and result['at_start'] == 0 and state['warmed'] == []
+
+
+def test_a_residue_left_at_the_cap_is_recorded_and_the_cell_goes_on(tmp_path):
+    result, state = _settle(_cell(tmp_path), [{'recall-instance': 811}] * 100)
+    assert result['drained'] is False and result['code'] == 'warm_up_not_drained' and result['seconds'] == 300.0
+    assert result['remaining'] == {'recall-instance': 811} and sum(state['warmed']) == 300
+    result, _ = _settle(_cell(tmp_path, scale=0.1), [{'claim-match': 3}] * 100)
+    assert result['code'] == 'warm_up_not_drained' and result['seconds'] == 30.0  # the cap scales with the timing

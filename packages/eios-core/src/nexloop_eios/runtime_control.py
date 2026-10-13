@@ -42,6 +42,13 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
     read_private_text(Path(certificate_file),maximum=32768)
     read_private_text(Path(tls_key_file),maximum=32768)
     slots=threading.BoundedSemaphore(8)
+    def _operation_label(path,body):
+        if path=='/internal/v1/runtime/outcomes/record':return 'outcome'
+        if path=='/internal/v1/runtime/incentives/issue':return 'incentive'
+        if path in ('/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find'):return 'effect_'+path.rsplit('/',1)[1]
+        operation=body.get('operation') if type(body) is dict else None
+        if operation=='model' and 'model_result' in body:return 'model_result'
+        return operation if operation in ('start','resume','inspect','cancel','model','tool') else 'other'
     class Handler(BaseHTTPRequestHandler):
         protocol_version='HTTP/1.1'
         def log_message(self,*args):pass
@@ -62,12 +69,12 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
             self.send_header('Connection','close');self.end_headers();self.wfile.write(body);self.close_connection=True
         def do_POST(self):
             # NX-030 M08: per-process guard latency (a call reaching the 2 s deadline counts as a timeout); numbers only.
-            self._started=started=time.monotonic();self._tool_run=None;self._status=None
+            self._started=started=time.monotonic();self._tool_run=None;self._status=None;self._operation='other'
             try:self._post()
             finally:
                 from nexloop_eios.observability import GUARD
                 # NX-031: a 503 (busy slot or transient failure) counts in `errors`, so an unanswered guard is visible here.
-                GUARD.observe((time.monotonic()-started)*1000,error=self._status is None or self._status>=500)
+                GUARD.observe((time.monotonic()-started)*1000,error=self._status is None or self._status>=500,operation=self._operation)
         def _post(self):
             if not slots.acquire(blocking=False):self.send(503,{'authorized':False});return
             failed=None
@@ -91,6 +98,8 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                 if not 1<=size<=262144:self.send(413,{'authorized':False});return
                 try:body=json.loads(self.rfile.read(size))
                 except (json.JSONDecodeError,UnicodeDecodeError):self.send(400,{'authorized':False});return
+                # AT-060: a label for the per-operation latency sample only (numbers; never used for any decision).
+                self._operation=_operation_label(self.path,body)
                 if self.path!='/internal/v1/runtime/authorize' and type(body) is dict and type(body.get('command')) is dict:
                     tool_run_id=body['command'].get('run_id')
                     if type(tool_run_id) is str and re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',tool_run_id):self._tool_run=tool_run_id
