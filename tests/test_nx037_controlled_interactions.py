@@ -158,3 +158,32 @@ def test_evidence_pack_holds_only_ids_hashes_numbers_and_times(tmp_path):
     assert E.main(['--out', str(out)]) == 2  # never into an existing directory
     with pytest.raises(ValueError):
         E._write(tmp_path / 'x.json', {'host': 'app-host-name'})
+
+
+def test_costs_are_kept_per_currency_and_a_foreign_currency_stops(tmp_path):
+    """D-g option 2: no conversion. A cost in the trial currency counts; a non-zero cost in another currency is recorded apart
+    and stops the trial (currency_mismatch); a zero foreign amount is harmless."""
+    from nexloop_eios.interaction_drivers import SyntheticCollector
+
+    class Foreign(SyntheticCollector):
+        def __init__(self, driver, amount):
+            super().__init__(driver)
+            self.amount = amount
+
+        def collect(self, run_id):
+            evidence = dict(super().collect(run_id))
+            evidence['costs'] = {**evidence.get('costs', {}), 'model_usd': {'amount': self.amount, 'currencies': ['USD']}}
+            return evidence
+
+    plan = X.load_plan(PLAN)
+    assert plan['currency'] == 'CNY'
+    driver = SyntheticDriver()
+    state = X.run(plan, driver, Foreign(driver, '0'), tmp_path / 'zero', trial_id=TRIAL, clock=Clock())
+    assert state['status'] == 'completed'
+    assert all('other_currencies' not in r['cost'] for r in X.read_records(tmp_path / 'zero'))
+    driver = SyntheticDriver()
+    state = X.run(plan, driver, Foreign(driver, '0.01'), tmp_path / 'usd', trial_id=TRIAL, clock=Clock())
+    record = X.read_records(tmp_path / 'usd')[-1]
+    assert state['status'] == 'stopped' and 'currency_mismatch' in state['rules'] and state['at_seq'] == 1
+    assert record['cost']['other_currencies'] == {'model_usd': {'amount': '0.01', 'currencies': ['USD']}}
+    assert 'model_usd' not in record['cost']['by_kind']

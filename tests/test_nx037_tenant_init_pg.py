@@ -156,10 +156,13 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
     I.execute(p, **files)
     metrics_dsn = private(tmp_path / 'metrics-dsn', make_conninfo(pg, user='nexloop_metrics'))
     session = private(tmp_path / 'owner-session', 'synthetic-session')
+    host_config = tmp_path / 'host.json'  # D-g option 2: the Host bills in CNY with the shipped tariff
+    host_config.write_text(json.dumps({'runtime_profile': 'deepseek-flash', 'cost_currency': 'CNY',
+                                       'model_tariff_file': str(ROOT / 'deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json')}))
     args = ['--driver', 'real', '--trial-id', '37b00000-0000-4000-8000-000000000002', '--out', str(tmp_path / 'real'), '--tenant', TENANT_A,
             '--owner-principal', 'owner-principal-synthetic', '--value-catalog', str(catalog), '--channel-ref', 'channel:webchat:synthetic',
             '--period-start', PERIOD[0].isoformat(), '--period-end', PERIOD[1].isoformat(), '--metrics-dsn-file', str(metrics_dsn),
-            '--owner-session-file', str(session), '--interaction-timeout', '1', '--poll-seconds', '0.2']
+            '--owner-session-file', str(session), '--host-config', str(host_config), '--interaction-timeout', '1', '--poll-seconds', '0.2']
     prompted = []
 
     class AbsentOperator:  # the person playing the customer does not act: the interaction times out
@@ -172,6 +175,7 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
         return code, json.loads(capsys.readouterr().out.strip().splitlines()[-1])
 
     code, out = attempt({})
+    assert code == 3 and 'reply_fallback_currency_differs' not in out['refused']  # reply-guarantee.v3.json is CNY
     assert code == 3 and set(out['refused']) == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'switch_deployment_differs',
                                                  'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
     register_goal_actions(admin, base, capability)
@@ -202,3 +206,21 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
     assert code == 3 and out['refused'] == ['switch_actions_differs']  # an Action open beyond the plan
     printed = json.dumps(out)
     assert 'synthetic-session' not in printed and pg not in printed
+
+
+def test_month_model_cost_is_per_currency_and_this_month_for_the_metrics_role(pg, admin, published_action):  # noqa: F811
+    """0185: the tenant's model cost this UTC month in one currency, read by the metrics role; no conversion, other months,
+    other currencies, other cost kinds and other tenants are not counted."""
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        for n, (kind, amount, currency, when) in enumerate((('model', '1.25', 'CNY', "date_trunc('month',now() at time zone 'UTC') at time zone 'UTC'"),
+                                                            ('model', '0.75', 'CNY', 'now()'), ('model', '9', 'USD', 'now()'),
+                                                            ('model', '5', 'CNY', "date_trunc('month',now() at time zone 'UTC') at time zone 'UTC' - interval '1 second'"),
+                                                            ('channel', '3', 'CNY', 'now()'))):
+            admin.execute(f"""insert into runtime.nexloop_cost_entries(tenant_id,world,entry_id,data_mode,cost_kind,amount,currency,amount_unit,basis,source_ref,occurred_at,recorded_by)
+                values(%s,'real',%s,'real',%s,%s,%s,'major','provider_reported','synthetic',{when},'synthetic')""", (TENANT_A, f'month:{n}', kind, amount, currency))
+    with psycopg.connect(make_conninfo(pg, user='nexloop_metrics'), autocommit=True) as metrics:
+        cost = lambda currency: metrics.execute("select authz.nexloop_nx037_month_model_cost(%s,'real',%s)", (TENANT_A, currency)).fetchone()[0]
+        assert cost('CNY') == 2 and cost('USD') == 9 and cost('EUR') == 0
+        with pytest.raises(psycopg.Error):
+            cost('cny')

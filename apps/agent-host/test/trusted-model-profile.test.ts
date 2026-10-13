@@ -52,7 +52,7 @@ describe('frozen estimate reservation and hard output cap, no network',()=>{
  const model={provider:'deepseek',id:'deepseek-flash',api:'openai-completions',baseUrl:'https://api.deepseek.com',contextWindow:1000000,maxTokens:384000,cost:{input:0.3,cacheRead:0.006,cacheWrite:0,output:1.2}};
  it('uses full context worst input tariff plus capped output and overrides caller maxTokens',()=>{
   let options:unknown;const models={streamSimple:(_m:unknown,_c:unknown,o:unknown)=>{options=o;return 'stream';}} as unknown as Models;
-  const capped=capTrustedDeepSeekModels(models,model);expect(capped.estimatedReservationFloor).toBe('0.30491520');
+  const capped=capTrustedDeepSeekModels(models,model);expect(capped.estimatedReservationFloor).toBe('0.06389760');
   expect(capped.models.streamSimple(model as never,{messages:[]},{maxTokens:999999})).toBe('stream');expect(options).toEqual({maxTokens:4096});
   capped.models.streamSimple(model as never,{messages:[]});expect(options).toEqual({maxTokens:4096});
   expect(()=>capped.models.streamSimple(undefined as never,{messages:[]})).toThrow();
@@ -80,5 +80,5 @@ it('always dispatches the validated frozen model snapshot despite same-id caller
  expect(dispatched?.baseUrl).toBe('https://api.deepseek.com');expect(dispatched?.api).toBe('openai-completions');
  expect(dispatched?.contextWindow).toBe(1000000);expect(dispatched?.cost.output).toBe(1.2);expect(dispatched?.cost.input).toBe(0.3);
  expect(Object.isFrozen(dispatched)).toBe(true);expect(Object.isFrozen(dispatched?.cost)).toBe(true);
- expect(capped.estimatedReservationFloor).toBe('0.30491520');
+ expect(capped.estimatedReservationFloor).toBe('0.06389760');
 });

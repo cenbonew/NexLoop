@@ -920,6 +920,11 @@
       "version": "0184",
       "name": "0184_nx037_effect_route_unconfigured.sql",
       "sha256": "aa1d08216171b94f2bb7233b9fdf40c03d4fdb121a745074889b765d79737075"
+    },
+    {
+      "version": "0185",
+      "name": "0185_nx037_month_cost.sql",
+      "sha256": "82b732cc373916fe9467c5568258216ba629d0e5835c68281abe810993cb6147"
     }
   ]
 }

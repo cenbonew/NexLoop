@@ -1,0 +1,23 @@
+{
+  "schema": "nexloop-reply-guarantee/1",
+  "version": 3,
+  "decision": "ADR-023 §2.6/§2.7 (dispatcher defaults 2026-10-10): every accepted inbound consumer message gets a reply. A reply is an Agent outbound bound (server-derived trigger_message_id) to that message, same conversation and consumer. Under a contact restriction only such a bound reply may dispatch, at most one per inbound message, within reply_window_seconds of its acceptance. A message still unsettled start_after_seconds after its acceptance starts at most one fallback reply Run (LLM-generated, single bound-reply tool, fixed small budget); if that fails too, the owner is escalated with evidence. Loading refuses a policy where start_after_seconds + the fallback Run's longest duration is not below reply_window_seconds. Initial values; owner-adjustable by a new version. v2 (dispatcher 2026-10-11, AGENTS: an unknown external result is queried and reconciled first, never blindly retried): when the message's original reply effect is unknown at its due time, one reconciliation query is triggered on the existing effect query path and the reply stays due for at most reconcile_window_seconds (default 600, at most 3600): delivered settles it, an explicit failure starts the fallback as before, still unknown at the end escalates to the owner (reason reply_unknown) without a fallback. start_after_seconds + reconcile_window_seconds + the fallback Run's longest duration must stay below the reply window. v3 (D-g option 2, owner 2026-10-13; dispatcher 2026-10-13): the same policy with the fallback Run budget in CNY for a Host billing in CNY (no conversion; the fallback budget currency must equal the Host cost_currency). maximum_cost 1.00 CNY: two model turns at a per-request reservation of 0.45 CNY (above the 0.425984 CNY floor from the CNY tariff) need 0.90, and 1.00 stays below the NX-037 per-Run cap of 2 CNY. v1 and v2 (USD) are unchanged; the windows are the same as v2.",
+  "reply_window_seconds": 1800,
+  "fallback": {
+    "start_after_seconds": 300,
+    "context_strategy": "recent_plus_required",
+    "runtime_profile": "deepseek-flash",
+    "run_budget": {
+      "maximum_model_turns": 2,
+      "maximum_tool_calls": 2,
+      "active_timeout_seconds": 60,
+      "maximum_cost": "1.00",
+      "currency": "CNY"
+    },
+    "run_ttl_seconds": 120,
+    "batch": 10,
+    "lease_seconds": 120,
+    "max_attempts": 1,
+    "reconcile_window_seconds": 600
+  }
+}

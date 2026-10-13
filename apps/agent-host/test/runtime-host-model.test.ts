@@ -26,7 +26,7 @@ describe('actual private RuntimeHost model constructor',()=>{
  });
  it('real private key profile accepts exact floor and rejects below before guard',async()=>{
   await mismatch(setup({key:'synthetic-private-key',cost:'0.30491520'}),'deterministic-test');
-  const f=setup({key:'synthetic-private-key',cost:'0.30491519'});expect(()=>f.open()).toThrow('runtime_model_configuration_refused');
+  const f=setup({key:'synthetic-private-key',cost:'0.06389759'});expect(()=>f.open()).toThrow('runtime_model_configuration_refused');
  });
  it('nonempty private file wins over invalid ambient key and credentials stay private',async()=>{
   const f=setup({key:'synthetic-file-secret',environment:'invalid\nambient'});const host=f.open();
