@@ -905,6 +905,11 @@
       "version": "0403",
       "name": "0403_nx037_context_effect_supplies.sql",
       "sha256": "21827f3924ec7c7ad351ebac73b0f517cffa3703ea26083061665b27f4051b7a"
+    },
+    {
+      "version": "0404",
+      "name": "0404_nx037_enterprise_slot_source_read.sql",
+      "sha256": "e541520742cd78912069a24549c511e54061e9e7055f7d5ff52367ee33ae9f11"
     }
   ]
 }

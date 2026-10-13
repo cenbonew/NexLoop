@@ -58,8 +58,10 @@ def publish_enterprise_action(admin, tenant):
 
 
 @pytest.fixture
-def slots(multi):  # noqa: F811
+def slots(multi, request):  # noqa: F811
+    """Parametrized indirectly with {label: body} to give a consumer's message another body (default: a service request)."""
     m = multi
+    bodies = getattr(request, 'param', {})
     f, api, admin, tenant = m['f'], m['api'], m['admin'], m['tenant']
     publish_enterprise_action(admin, tenant)
     # One executor and one Source holding both effect Actions (a Message Run binds both slots with the same executor).
@@ -110,7 +112,7 @@ def slots(multi):  # noqa: F811
         human = authenticate_browser_business(api._pool, issued.session, world='real')
         port = ConversationMessagePort(api._pool, human, api._signer)
         conversation = port.create_conversation(idempotency_key=f'slot-conversation-key-{label}')
-        message = port.accept_message(conversation_id=conversation['id'], idempotency_key=f'slot-message-key-{label}-0001', body=f'{label} 请交付一次服务')['message']['id']
+        message = port.accept_message(conversation_id=conversation['id'], idempotency_key=f'slot-message-key-{label}-0001', body=bodies.get(label, f'{label} 请交付一次服务'))['message']['id']
         people[label] = dict(consumer=consumer, controls=controls, offerings=offerings, message=message)
 
     def enroll(label, *, enterprise=True, intent=None):

@@ -103,6 +103,9 @@
   - **profile**：`runtime.nexloop_relay_profile` 只在三列有值且当前仍然有效时才带上 `enterprise` 块；已登记但失效时，带 `enterprise_skipped` 和原因。三列为空时，profile 逐字节不变。
   - **签发**：`allowed_actions` 只接受两种值：只有回复，或回复加企业交付。后者要求第二份来源证明，并且登记的企业 slot 当前有效；Run 凭据同时授予两个 Action。
 
+- **0403**：消息 Run 的 context pack（v2 路径）在 Run 绑定了企业 slot、且登记的企业 slot 当前有效并通过 `assert_service_offering` 时，带上 `effect_supplies`（一项，`action` 为 `nexloop.enterprise.deliver:1`）。快照和绑定两阶段算法相同；没有企业 slot 的 Run，pack 不变。
+- **0404**：中继 Source 读取企业 offering 和企业绑定。企业意图的目录信封来自 Source 对这两个对象的签名 READ，而 0142 的 `relay-source-v1` 派生只覆盖回复那两列，企业意图因此在受理前就被拒。做法是包装：0142 函数体不变（改名），它不派生时，再对当前有效登记的企业列应用同一规则（同一中继规则、同一固定字段表、同样排除删除中的消费者和负责人限制的属性组，绑定须指向本 Source、本消费者和本 offering），返回形状相同。offering 本身是否有效，仍由提交和派发时的 `assert_service_offering` 判断。
+
 ### 7.2 中继
 
 - 只有 profile 带 `enterprise` 块时，中继才会：
@@ -139,3 +142,23 @@ relay_enrollment.enroll(owner_service, consumer_id=<消费者>, control_id=<回�
   - 企业控制不能与回复控制是同一个。
 - **清除**：不带 `enterprise` 参数再登记一次，会生成新的一个修订，三列为空。
 - **撤回整个登记**：用 `relay_enrollment.withdraw`。
+
+### 7.4 Host 工具
+
+- 后端 effects 请求体可带 `action`；`runtime_activation` 校验它在 `EFFECT_ACTIONS` 中，并且 Run 凭据授予了它。
+- Host 只在本 Run 的 context pack 带有企业 `effect_supplies` 时提供 `nexloop.enterprise.deliver` 和 `nexloop.enterprise.find`。参数为 `summary`（必填，≤200）、`details`（可选，≤2000）、`consumer_ref`（缺省为本 Run，只能等于本 Run）；不带 tenant_id，未知键拒绝。
+- 配置了 `context_strategy` 或 `relationship_recipe`（v6/v4 pack）的中继不签发企业 slot，日志原因为 `context_unsupported`；这两种 pack 目前不携带 `effect_supplies`。
+
+### 7.5 派发时复查（`tests/test_enterprise_slot_dispatch_pg.py`）
+
+同一个中继签发的消息 Run，回复和企业交付各提交一个意图（提交时都是 accepted），由真实独立 worker 和本地 provider 派发：
+
+| 场景 | 企业交付 | 回复 |
+|---|---|---|
+| 全部检查通过（基线） | POST | POST |
+| 来信即拒收联系（真实 0109 规则） | 派发时拒绝，NXC05，provider 零请求 | POST（ADR-023 §2.6） |
+| 企业 offering 在提交后失效 | 受理时目录断言拒绝，无拒绝码，provider 零请求 | POST |
+| 只打开回复 Action 的真实派发开关 | NXC07，provider 零请求 | POST |
+
+开关须在提交前打开：提交后的开关变化会使快照被取代（NXC02）。
+
