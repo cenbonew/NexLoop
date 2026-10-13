@@ -196,7 +196,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             current_event={'kind':'consumer_message','message_id':statement['message_id'],'provenance':statement['provenance']},user_statement=statement,
             goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
             formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=found.items,extra_insufficient=found.insufficient,
-            relationship_context=core.get('relationship_context'))
+            relationship_context=core.get('relationship_context'),effect_supplies=core.get('effect_supplies'))
         return body,outcome,found.items,found.proofs
 
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):

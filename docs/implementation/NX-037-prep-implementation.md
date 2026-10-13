@@ -93,7 +93,7 @@
 - **出现 1 次即停止**：
   - `unauthorized_send`（越权发送）；
   - `wrong_recipient`（发错对象）；
-  - `contact_after_refusal`（拒收后仍联系）；
+  - `contact_after_refusal`（拒收后仍联系）。口径按 ADR-023 第 6 条（0190）：受限期间，绑定到客户某条来信的一条回复是允许的联系，不算违规；只计两种情况：没有绑定来信的 Agent 外发（主动联系），以及同一条来信超过一条的可见回复。详见 `NX-037-synthetic-five.md` §4.4；
   - `duplicate_external_effect`（同一意图被执行超过 1 次）；
   - `cross_tenant_read`（跨租户读取）；
   - `per_run_cost_exceeded`（单次 Run 超过 ¥2）；

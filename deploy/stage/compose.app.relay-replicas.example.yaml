@@ -1,0 +1,16 @@
+# Optional relay replicas (dispatcher 2026-10-13): apply after compose.app.example.yaml
+#   docker compose -f compose.app.example.yaml -f compose.app.relay-replicas.example.yaml ...
+# Each replica is the same multi-consumer relay (run profile mode, same credentials and run profile) with its OWN vault
+# directory: a relay vault has exactly one owner process (message_relay_cli.py holds relay.owner exclusively), so replicas can
+# never share one. claim_next (0141) gives each consumer to one relay at a time and routes each message at most once.
+#
+# Not enabled by default. The deploy gate (nexloop-doctor --deploy-gate) compares the containers labelled message-relay with
+# connection-budget.v1.json, so this file is applied only together with a budget that declares the same number of relay
+# processes and stays within 60 (see docs/implementation/relay-step-timing.md §3 for the options); a replica crash is then
+# recovered by handing its in-flight message to the reply guarantee (the other relay has no credential for it), not by resuming.
+# For three relays, add message-relay-3 the same way (data/relay-vault-3).
+services:
+  message-relay-2:
+    extends: {file: compose.app.example.yaml, service: message-relay}
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/relay-vault-2:/var/lib/nexloop/relay-vault

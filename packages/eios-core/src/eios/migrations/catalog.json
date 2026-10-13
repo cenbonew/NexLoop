@@ -930,6 +930,26 @@
       "version": "0186",
       "name": "0186_guard_op_samples.sql",
       "sha256": "2d20fa53ee68c4e0b09e8357a1d725a8eed3c0ccd13aba5ae0ed9eefcc6fd8b2"
+    },
+    {
+      "version": "0187",
+      "name": "0187_nx037_context_v6_effect_supplies.sql",
+      "sha256": "6b1d480b924d38723c6a0ddd63e9edae914c3aa8cf5bb9c1db9da05f83e611cc"
+    },
+    {
+      "version": "0188",
+      "name": "0188_relay_step_samples.sql",
+      "sha256": "488b3e8d2aa25f39b2ffaee0469d325661829e0074e9e7914fc78ac9c2cef1d4"
+    },
+    {
+      "version": "0189",
+      "name": "0189_nx037_observation_unknown_open.sql",
+      "sha256": "a4a0d507dbfadc44498f2e18dfb9b5c217bb67bb3e95a5d9936e3a40af98b467"
+    },
+    {
+      "version": "0190",
+      "name": "0190_nx037_contact_after_refusal_bound_replies.sql",
+      "sha256": "8743b5b78e2fda12efa93c443780efe74e060a82d8deae32045742bf6c6ecb08"
     }
   ]
 }

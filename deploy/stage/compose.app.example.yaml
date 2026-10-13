@@ -202,14 +202,14 @@ services:
     labels:
       nexloop.budget-service: runtime-worker
   message-relay:
-    # Relay multi-consumer (run profile mode): one process, pool 2.
+    # Relay multi-consumer (run profile mode): one process, pool 2. Its Context is v6 (the Host's context_input_protocol).
     <<: *service
     entrypoint: [python, -m, nexloop_eios.message_relay_cli]
     command: [--database-url-file, /run/secrets/message_relay_dsn, --signing-key-file, /run/secrets/signing_key, --signing-key-id,
               "${SIGNING_KEY_ID:?signing key id}", --artifact-root, /var/lib/nexloop/artifacts, --route-credential-file, /run/secrets/message_relay_route_credential,
               --source-credential-file, /run/secrets/message_relay_source_credential, --planner-credential-file, /run/secrets/message_relay_planner_credential,
               --executor-credential-file, /run/secrets/message_relay_executor_credential, --vault-root, /var/lib/nexloop/relay-vault,
-              --run-profile-file, /etc/nexloop/relay-run-profile.json]
+              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/data/relay-vault:/var/lib/nexloop/relay-vault

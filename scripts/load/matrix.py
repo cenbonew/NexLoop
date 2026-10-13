@@ -92,6 +92,21 @@ def login_policy(dsn, tenant):
     return {'maximum_attempts': row[0], 'window_seconds': row[1], 'active': row[2]} if row else None
 
 
+def describe_error(error):
+    """Why a cell aborted, without any message text, value or ID (D8): the exception types along the cause chain, a SQLSTATE
+    where PostgreSQL gave one, and the traceback as file name, line and function only."""
+    import traceback
+    chain, frames, seen, current = [], [], set(), error
+    while current is not None and id(current) not in seen and len(chain) < 5:
+        seen.add(id(current))
+        chain.append({'type': type(current).__module__ + '.' + type(current).__qualname__,
+                      **({'sqlstate': current.sqlstate} if isinstance(getattr(current, 'sqlstate', None), str) else {})})
+        # Each link's own frames (outermost first): the root cause's frames show where it actually failed.
+        frames += [f'{Path(f.filename).name}:{f.lineno}:{f.name}' for f in traceback.extract_tb(current.__traceback__)][-8:]
+        current = current.__cause__ or current.__context__
+    return {'chain': chain, 'frames': frames[-24:]}
+
+
 class Cell:
     def __init__(self, spec, matrix, args, run):
         self.spec, self.matrix, self.args, self.run = spec, matrix, args, run
@@ -106,7 +121,8 @@ class Cell:
                        'window': {'steady_start': None, 'steady_end': None}, 'drain': {'drained': False, 'seconds': None},
                        'host_metrics': 'approx', 'ci': None,
                        # Beyond the contract, informational: what this stack did not start (stack.py).
-                       'message_runs': None, 'message_context_strategy': MESSAGE_CONTEXT_STRATEGY, 'timing_scale': scale}
+                       'message_runs': None, 'message_context_strategy': MESSAGE_CONTEXT_STRATEGY, 'timing_scale': scale,
+                       'relay_processes': getattr(args, 'relay_processes', 1)}
 
     def execute(self):
         self.started_at = now()
@@ -116,8 +132,8 @@ class Cell:
         try:
             try:
                 clone = Clone(self.args.template, self.lane / 'pg')
-            except Exception:
-                return self.abort('template_clone_failed')
+            except Exception as error:
+                return self.abort('template_clone_failed', error)
             stack = Stack(clone, self.args.template, self.lane, self.spec)
             collect.TENANT = stack.tenant
             # The login rate limit is a security control: the cell runs under the policy the template recorded from its trusted
@@ -133,17 +149,18 @@ class Cell:
                 latency = self.matrix['model_latency']
                 pending = stack.start_message_chain(self.spec['host_concurrency'], latency={'median_ms': latency['median_ms'], 'p95_ms': latency['p95_ms'],
                                                                                             'seed': self.run['seed']},
-                                                     context_strategy=MESSAGE_CONTEXT_STRATEGY)
+                                                     context_strategy=MESSAGE_CONTEXT_STRATEGY, relay_processes=getattr(self.args, 'relay_processes', 1))
                 self.result['message_runs'] = 'started' if pending is None else pending
-            except (StackFailed, OSError, subprocess.SubprocessError):
-                return self.abort('service_start_failed')
+            except (StackFailed, OSError, subprocess.SubprocessError) as error:
+                return self.abort('service_start_failed', error)
             asyncio.run(self.drive(stack))
             if not all(stack.alive().values()):
                 return self.abort('service_exited')
             self.result['completed'] = True
+            self._record_fk_state()
             return self.result
-        except Exception:
-            return self.abort(self.result['aborted'] or 'runner_error')
+        except Exception as error:
+            return self.abort(self.result['aborted'] or 'runner_error', error)
         finally:
             if stack is not None:
                 stack.stop()
@@ -157,9 +174,19 @@ class Cell:
             shutil.rmtree(self.lane / 'private', ignore_errors=True)
             (self.dir / 'cell.json').write_text(json.dumps(self.result, ensure_ascii=False, indent=2, default=str) + '\n')
 
-    def abort(self, code):
+    def abort(self, code, error=None):
         self.result.update(completed=False, aborted=code)
+        if error is not None:
+            self.result['error'] = describe_error(error)
+        self._record_fk_state()
         return self.result
+
+    def _record_fk_state(self):
+        """NX-052 N state: what the cell's foreign key drop did (batches, count, missing constraint identifiers), if it ran."""
+        try:
+            self.result['tenant_fk_state'] = json.loads((self.lane / 'tenant-fk-state.json').read_text())
+        except (OSError, ValueError):
+            pass
 
     async def drive(self, stack):
         customers, restricted, workbench = accounts(self.args.template)
@@ -345,6 +372,8 @@ def main(argv=None):
     parser.add_argument('--lane-root', required=True)
     parser.add_argument('--cells', default=','.join(CELLS))
     parser.add_argument('--timing-scale', type=float, default=1.0)
+    parser.add_argument('--relay-processes', type=int, default=1, choices=(1, 2, 3),
+                        help='relay processes of the message chain (dispatcher 2026-10-13; the deployment budget declares 1)')
     parser.add_argument('--resume', action='store_true',
                         help='continue an interrupted run in --out: completed cells are kept, an incomplete cell directory is moved to '
                              'attempts/<cell>.<n> (kept, never overwritten) and the cell runs again')
@@ -376,6 +405,8 @@ def main(argv=None):
         result = Cell(spec, matrix, args, run).execute()
         aborted += not result['completed']
         print(f'cell {spec["cell"]}: completed={result["completed"]} aborted={result["aborted"]}', flush=True)
+        if result.get('error'):
+            print(f'cell {spec["cell"]}: error {json.dumps(result["error"], separators=(",", ":"))}', flush=True)
     run['finished_at'] = now().isoformat()
     (out / 'run.json').write_text(json.dumps(run, indent=2) + '\n')
     return 1 if aborted else 0

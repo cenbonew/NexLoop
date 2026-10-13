@@ -49,7 +49,7 @@ def same_signer_configured(pg,admin,tmp_path,shared_key):
 
 def setup(stack,pg,admin,root,request,shared_key=None):
     root.mkdir(mode=0o700)
-    conf=stack.enter_context(same_signer_configured(pg,admin,root,shared_key) if shared_key else contextmanager(configured.__wrapped__)(pg,admin,root))
+    conf=stack.enter_context(same_signer_configured(pg,admin,root,shared_key) if shared_key else contextmanager(configured.__wrapped__)(pg,admin,root,None))
     plan=stack.enter_context(contextmanager(business_plan.__wrapped__)(conf,admin,root))
     return stack.enter_context(contextmanager(assembled_message.__wrapped__)(plan,admin,root,request))
 

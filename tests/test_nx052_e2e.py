@@ -85,3 +85,38 @@ def test_stack_drops_the_keys_on_its_clone_only_when_asked(admin, pg, tmp_path, 
     stack.Stack(SimpleNamespace(dsn=pg), template, tmp_path / 'lane-b', 'C4-low')
     state = json.loads((tmp_path / 'lane-b/tenant-fk-state.json').read_text())
     assert state['dropped_batches'] == ['all'] and count() == before - state['dropped_constraints']
+
+
+def test_a_mismatched_batch_drops_nothing_and_the_cell_records_what_is_missing(admin, pg, tmp_path, monkeypatch):
+    """N state on a clone whose keys do not match the batch files (a key renamed, rebuilt or already dropped): nothing is
+    dropped, the lane file and the cell record the missing constraint identifiers (schema names only), and the cell's error
+    names the exception type instead of a bare runner_error."""
+    from types import SimpleNamespace
+    from nexloop_eios.bootstrap import bootstrap
+    import stack
+    bootstrap(admin)
+    table, name = tenant_fk_state.constraints('5')[0]
+    admin.execute(f'alter table {table} drop constraint {name}')
+    count = lambda: admin.execute("select count(*) from pg_constraint where contype='f' and confrelid='control.nexloop_tenants'::regclass").fetchone()[0]  # noqa: E731
+    before = count()
+    assert tenant_fk_state.missing(admin, ['all']) == [f'{table}.{name}']
+    with pytest.raises(tenant_fk_state.TenantFkMismatch):
+        tenant_fk_state.drop(admin, ['all'])
+    assert count() == before  # all or nothing
+    template = tmp_path / 'template'
+    (template / 'private').mkdir(parents=True)
+    (template / 'private/chain.json').write_text(json.dumps({'tenant': '00000000-0000-4000-8000-00000000000a'}))
+    monkeypatch.setenv('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', 'all')
+    lane = tmp_path / 'lane'
+    with pytest.raises(tenant_fk_state.TenantFkMismatch) as raised:
+        stack.Stack(SimpleNamespace(dsn=pg), template, lane, {'cell': 'C4-low'})
+    assert json.loads((lane / 'tenant-fk-state.json').read_text()) == {'dropped_batches': ['all'], 'dropped_constraints': 0, 'missing': [f'{table}.{name}']}
+    cell = runner.Cell(next(c for c in json.loads((ROOT / 'deploy/load/matrix.v2.json').read_text())['cells'] if c['cell'] == 'C4-low'),
+                       json.loads((ROOT / 'deploy/load/matrix.v2.json').read_text()), SimpleNamespace(out=str(tmp_path / 'out'), lane_root=str(tmp_path), timing_scale=1.0), {'seed': 1})
+    cell.lane = lane
+    result = cell.abort('runner_error', raised.value)
+    assert result['error']['chain'] == [{'type': 'tenant_fk_state.TenantFkMismatch'}] and result['tenant_fk_state']['missing'] == [f'{table}.{name}']
+    monkeypatch.setenv('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', 'N')  # an unknown batch name is refused and recorded too
+    with pytest.raises(ValueError):
+        stack.Stack(SimpleNamespace(dsn=pg), template, tmp_path / 'lane-2', {'cell': 'C4-low'})
+    assert json.loads((tmp_path / 'lane-2' / 'tenant-fk-state.json').read_text())['refused'] == 'unknown_batch'

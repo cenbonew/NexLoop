@@ -32,7 +32,7 @@ def private(root,name,value):
 
 
 @pytest.fixture
-def configured(pg,admin,tmp_path):
+def configured(pg,admin,tmp_path,request):
     bootstrap(admin)
     admin.execute('set log_parameter_max_length=0')
     admin.execute('alter system set log_parameter_max_length=0')
@@ -42,7 +42,9 @@ def configured(pg,admin,tmp_path):
         assert clean.execute('show log_parameter_max_length').fetchone()[0]=='0'
         assert clean.execute('show log_parameter_max_length_on_error').fetchone()[0]=='0'
     admin.execute('alter role nexloop_configurator login')
-    tenant=str(uuid.uuid4());target='eios:artifact:explicit-configuration-source'
+    # NX-037 test stack (marker nx037_test_stack): the synthetic tenant constant, which the run entry's test stack requires.
+    from support.tenants import TENANT_A
+    tenant=TENANT_A if request is not None and request.node.get_closest_marker('nx037_test_stack') else str(uuid.uuid4());target='eios:artifact:explicit-configuration-source'
     binding,_,rows=authority_records(tenant,target,operation=Operation.READ,resource_type=ResourceType.ARTIFACT)
     token=secrets.token_urlsafe(48);key=secrets.token_hex(32);seal=secrets.token_hex(32)
     identityapp='explicit-local-login';expiry=(datetime.now(UTC)+timedelta(hours=1)).isoformat()

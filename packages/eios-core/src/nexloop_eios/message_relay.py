@@ -38,6 +38,18 @@ def message_assignment_schema():
         properties=tuple(PropertyDefinition(property_name=name,value_type=PropertyValueType(kind),required=True) for name,kind in fields.items()))
 
 
+class RecipeEnterpriseUnsupported(MessageRelayUnavailable):
+    """A static recipe cannot carry an enterprise slot: the slot is issued only from a governed relay enrollment (0180, via
+    the relay claims and profile), never from a file."""
+    reason='recipe_enterprise_unsupported'
+
+
+def validate_static_recipe(recipe):
+    """Recipe mode (file or constructor): refuses an enterprise block explicitly instead of accepting an unusable slot."""
+    if type(recipe) is dict and 'enterprise' in recipe: raise RecipeEnterpriseUnsupported()
+    return validate_recipe(recipe)
+
+
 def validate_recipe(recipe):
     expected={'consumer_id','control_id','control_revision','consumer_revision',
         'valid_until','role_ref','context_manifest_ref','runtime_profile','budget',
@@ -156,7 +168,7 @@ class MessageRelay:
         # Exactly one mode (D4): a single consumer's recipe (claim by consumer) or the deployment Run profile (claim_next over
         # the consumers enrolled for this relay, 0160).
         if (recipe is None)==(run_profile is None): raise MessageRelayUnavailable()
-        self.recipe=None if recipe is None else validate_recipe(recipe)
+        self.recipe=None if recipe is None else validate_static_recipe(recipe)
         self.run_profile=None if run_profile is None else validate_run_profile(run_profile)
         if any(service._backend is not route._backend for service in (source,planner)): raise MessageRelayUnavailable()
         # NX-031 ladder: admission bound on the tenant's open message Run tasks; None keeps claiming as before.
@@ -181,13 +193,24 @@ class MessageRelay:
         """End this message on the relay path (0150): the reply guarantee answers it, the consumer's later messages proceed."""
         self.last_handoff=reason
         self.port.call('handoff',message_id=message_id,fence=fence,reason=reason)
+        self._mark('handoff')
         return 'handed_to_fallback'
 
+    def _mark(self,step):
+        clock=getattr(self,'_clock',None)
+        if clock is not None:clock.mark(step)
+
     def run_once(self):
+        from nexloop_eios.observability import StepClock
         claimed={}
+        # Relay step timings (dispatcher 2026-10-13): numbers per step of a claimed message only; an idle tick records nothing.
+        self._clock=StepClock()
         try:
-            return self._run_once(claimed)
+            status=self._run_once(claimed)
+            if claimed:self._clock.commit(total=status=='queued')
+            return status
         except Exception:
+            if claimed:self._clock.commit()
             # Root cause of the stuck messages: a failed attempt kept its claim until the lease ran out and was then retried with
             # a changed command. A failed attempt now gives the message back with a bounded count; when the count is used up
             # the message is handed to the reply guarantee instead of blocking the consumer (0150).
@@ -204,6 +227,7 @@ class MessageRelay:
         # A Run credential lives 300 s from issuance: while the queue already holds max_backlog open Run tasks, issue no new
         # Run (the message stays unrouted and is claimed later), so a credential is never issued only to expire queued.
         if self.max_backlog is not None and self._backlog()>=self.max_backlog: return 'idle'
+        self._mark('backlog')
         try:
             if self.recipe is not None:
                 recipe=self.recipe
@@ -214,6 +238,7 @@ class MessageRelay:
                 if item is None: return 'idle'
                 recipe=recipe_from_profile(self.run_profile,item.get('profile'))
                 if recipe['consumer_id']!=item['consumer_id']: raise MessageRelayUnavailable()
+            self._mark('claim')
             self.last_consumer=recipe['consumer_id']
             message_id=item['message_id']; fence=item['fence']
             claimed.update(message_id=message_id,fence=fence)
@@ -223,25 +248,31 @@ class MessageRelay:
                 recovered=bridge._call('ack',message_id=message_id,fence=item['route_fence'],allow_missing=True)
                 if recovered is not None:
                     self.port.call('release',message_id=message_id,fence=fence)
+                    self._mark('recover')
                     return 'queued'
+                self._mark('recover')
             if datetime.fromisoformat(recipe['valid_until'])<=datetime.now(UTC): return self._handoff(message_id,fence,'requires_governed_replan')
             # A Run issued by an earlier attempt pins its command; once its credential expired it can never run (no reuse of it).
             pinned=self.port.call('lookup',message_id=message_id,fence=fence)
+            self._mark('lookup')
             if pinned is not None and pinned.get('state')=='requires_governed_replan': return self._handoff(message_id,fence,'credential_expired')
             principal=self.source._session.authentication.subject_principal_id
             executor=self.route._backend.authenticate(self.executor_token,world='real')._session.authentication.subject_principal_id
             goal=self._create('Goal',message_id,{'consumer_id':recipe['consumer_id'],'state':'active','valid_until':recipe['valid_until']},recipe)
+            self._mark('goal_create')
             step=self._create('PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,
                 'control_id':recipe['control_id'],'submitter_principals':[principal],
                 'action_name':'nexloop.service.request','state':'ready'},recipe)
+            self._mark('step_create')
             enterprise=recipe.get('enterprise')
-            if enterprise is not None and (self.context_strategy is not None or self.relationship_recipe is not None):
-                # ADR-030: only the v2 Message Run pack carries effect_supplies; with another pack the slot would be unusable.
+            if enterprise is not None and self.relationship_recipe is not None:
+                # ADR-030: the v2 and v6 Message Run packs carry effect_supplies; the v4 relationship core does not.
                 _log.info('enterprise_slot_skipped',extra={'event':'enterprise_slot_skipped','consumer_id':recipe['consumer_id'],'reason':'context_unsupported'})
                 enterprise=None
             enterprise_step=None if enterprise is None else self._create('PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,
                 'control_id':enterprise['control_id'],'submitter_principals':[principal],
                 'action_name':'nexloop.enterprise.deliver','state':'ready'},recipe,slot='enterprise.deliver:primary')
+            if enterprise_step is not None:self._mark('enterprise_step_create')
             assignment={'message_id':message_id,'consumer_id':recipe['consumer_id'],
                 'goal_id':goal,'goal_revision':1,'step_id':step,'step_revision':1,
                 'control_id':recipe['control_id'],'control_revision':recipe['control_revision'],
@@ -249,6 +280,7 @@ class MessageRelay:
                 'executor_principal':executor,'recipe_digest':hashlib.sha256(canonical_payload(recipe).encode()).hexdigest(),
                 'allowed_actions':[EFFECT] if enterprise is None else [EFFECT,DELIVER],'state':'active','valid_until':recipe['valid_until']}
             assignment_id=self._create('MessageAssignment',message_id,assignment,recipe)
+            self._mark('assignment_create')
             key=self.vault.message_key(item['tenant_id'],'real',message_id)
             digest=hashlib.sha256(canonical_payload(assignment).encode()).hexdigest()
             # The current command differs from the one an earlier attempt issued (for example the consumer's control revision
@@ -256,14 +288,17 @@ class MessageRelay:
             if pinned is not None and pinned.get('assignment_digest') not in (None,digest): return self._handoff(message_id,fence,'binding_conflict')
             if self.vault.has(key) and self.vault.read(key).assignment_digest!=digest: return self._handoff(message_id,fence,'binding_conflict')
             record=self.vault.prepare(message_key=key,assignment_digest=digest)
+            self._mark('vault_prepare')
             if record.state=='requires_governed_replan': return self._handoff(message_id,fence,'requires_governed_replan')
             source_digest,proofs,source_definition,source_capability=self.port.source_proofs(self.source,tuple(assignment['allowed_actions']))
+            self._mark('source_proofs')
             issued=self.port.call('issue',message_id=message_id,fence=fence,
                 assignment_id=assignment_id,assignment_revision=1,assignment_digest=record.assignment_digest,assignment_text=canonical_payload(assignment),
                 run_id=record.run_id,request_id=record.request_id,issuance_nonce=record.issuance_nonce,
                 token_digest=record.token_digest,source_digest=source_digest,source_proofs=proofs,source_definition=source_definition,source_capability=source_capability,ttl_seconds=300)
             if issued['state']=='requires_governed_replan': return self._handoff(message_id,fence,'credential_expired')
             record=self.vault.mark_issued(message_key=key,run_id=issued['run_id'],token_digest=record.token_digest,expires_at=issued['expires_at'])
+            self._mark('issue')
             if enterprise is None:
                 self.planner.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,
                     consumer_revision=recipe['consumer_revision'],control_revision=recipe['control_revision'],
@@ -276,6 +311,7 @@ class MessageRelay:
                     'nexloop.enterprise.deliver':{'step_id':enterprise_step,'step_revision':1,'goal_revision':1,'consumer_revision':recipe['consumer_revision'],
                         'control_revision':enterprise['control_revision']}},
                     run_id=record.run_id,run_token=record.token,executor_token=self.executor_token)
+            self._mark('effect_bind')
             command={'schema_version':'1.0','run_id':record.run_id,'tenant_id':item['tenant_id'],
                 'world_id':'real','mode':'real','request_id':record.request_id,
                 'trigger_event_id':canonical_event_id(item['tenant_id'],'real',item['source_event_id']),
@@ -296,16 +332,23 @@ class MessageRelay:
             else:
                 from nexloop_eios.relationship_context_artifacts import RelationshipContextArtifactProducer
                 context=RelationshipContextArtifactProducer(self.source,self.relationship_recipe,{'Consumer':recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':recipe['control_id']}).prepare(message_id=message_id,run_token=record.token,command=command,offering_id=recipe['offering_id'],binding_id=recipe['offering_binding_id'])
+            self._mark('context_prepare')
             command['context_manifest_ref']=context['artifact_ref']
             bridge.bind_message(message_id=message_id,run_token=record.token,command=command,input=context['input'],queue=recipe['queue'])
+            self._mark('message_bind')
             owned=self.port.call('own_route',message_id=message_id,fence=fence)
+            self._mark('own_route')
             run=self.route._backend.authenticate_run(record.token,world='real',run_id=record.run_id)._session
             bridge._call('authorize',message_id=message_id,fence=owned['route_fence'],run_proofs=bridge._authority._run_proofs(run))
+            self._mark('route_authorize')
             self._diagnostic_stage='runtime_accept'
             self.route.accept_runtime_event(queue=recipe['queue'],source_id='webchat',event_id=command['trigger_event_id'],
                 run_token=record.token,command=command,input=context['input'])
+            self._mark('runtime_accept')
             bridge._call('ack',message_id=message_id,fence=owned['route_fence'],allow_missing=False)
+            self._mark('ack')
             self.port.call('release',message_id=message_id,fence=fence)
+            self._mark('release')
             return 'queued'
         except Exception as error:
             self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__)

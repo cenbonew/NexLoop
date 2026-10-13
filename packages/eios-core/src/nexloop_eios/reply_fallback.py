@@ -49,10 +49,10 @@ class FallbackReplyLauncher:
     """
 
     def __init__(self,*,route,source,planner,executor_token,policy,recipe=None,run_profile=None):
-        from nexloop_eios.message_relay import validate_recipe,validate_run_profile
+        from nexloop_eios.message_relay import validate_static_recipe,validate_run_profile
         if (recipe is None)==(run_profile is None):raise FallbackUnavailable('exactly one of recipe and run profile')
         self._route,self._source,self._planner,self._executor=route,source,planner,executor_token
-        self.recipe=None if recipe is None else validate_recipe(recipe)
+        self.recipe=None if recipe is None else validate_static_recipe(recipe)
         self.run_profile=None if run_profile is None else validate_run_profile(run_profile)
         self.policy=policy
 

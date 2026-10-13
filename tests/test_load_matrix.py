@@ -147,3 +147,42 @@ def test_a_residue_left_at_the_cap_is_recorded_and_the_cell_goes_on(tmp_path):
     assert result['remaining'] == {'recall-instance': 811} and sum(state['warmed']) == 300
     result, _ = _settle(_cell(tmp_path, scale=0.1), [{'claim-match': 3}] * 100)
     assert result['code'] == 'warm_up_not_drained' and result['seconds'] == 30.0  # the cap scales with the timing
+
+
+def test_relay_processes_is_a_bounded_runner_option_recorded_per_cell(tmp_path):
+    """Dispatcher 2026-10-13: the load stack starts 1 (default) to 3 relay processes; the cell records the number."""
+    import sys
+    sys.path.insert(0, str(ROOT / 'scripts/load'))
+    import stack as St
+    for bad in (0, 4, '2'):
+        with pytest.raises(St.StackFailed):
+            St.Stack.start_message_chain(object(), 4, relay_processes=bad)  # refused before anything starts
+    assert _cell(tmp_path).result['relay_processes'] == 1
+    from types import SimpleNamespace
+    spec = next(c for c in MATRIX['cells'] if c['cell'] == 'C4-low')
+    cell = M.Cell(spec, MATRIX, SimpleNamespace(out=str(tmp_path), lane_root=str(tmp_path / 'lane'), timing_scale=1.0, relay_processes=2), {'seed': 1})
+    assert cell.result['relay_processes'] == 2
+    lane = (ROOT / 'scripts/load/run_on_lane.sh').read_text()
+    assert '--relay-processes "${LOAD_RELAY_PROCESSES:-1}"' in lane and 'LOAD_RELAY_PROCESSES must be 1, 2 or 3' in lane
+
+
+def test_an_aborted_cell_records_the_error_types_and_frames_without_text(tmp_path):
+    """NX-052 N state (2026-10-13): a cell that aborted with runner_error left no trace. The cell now records the exception
+    types along the cause chain, a SQLSTATE and file:line:function frames, never the message (D8)."""
+    import psycopg
+    secret = 'tenant 00000000-0000-4000-8000-00000000000a constraint secret-text'
+    def inner():
+        raise psycopg.errors.UndefinedObject(secret)
+    try:
+        try:
+            inner()
+        except psycopg.Error as error:
+            raise RuntimeError(secret) from error
+    except RuntimeError as error:
+        described = M.describe_error(error)
+    assert described['chain'] == [{'type': 'builtins.RuntimeError'}, {'type': 'psycopg.errors.UndefinedObject', 'sqlstate': '42704'}]
+    assert any(f.startswith('test_load_matrix.py:') and f.endswith(':inner') for f in described['frames'])
+    assert secret not in json.dumps(described) and '00000000' not in json.dumps(described)
+    cell = _cell(tmp_path)
+    result = cell.abort('runner_error', RuntimeError(secret))
+    assert result['aborted'] == 'runner_error' and result['error']['chain'] == [{'type': 'builtins.RuntimeError'}] and secret not in json.dumps(result)
