@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "request_id": "<NEW_UUID>",
+  "consumer_id": "<CONSUMER_ID_FROM_BUSINESS_SETUP>",
+  "offering": {
+    "service_code": "enterprise.<SERVICE_CODE_SUFFIX>",
+    "title": "<OFFERING_TITLE>",
+    "price_amount": "<CNY_PRICE_AMOUNT>",
+    "valid_until": "<TRIAL_PERIOD_END_UTC_ISO>"
+  },
+  "control": {"budget_units": 30, "valid_until": "<TRIAL_PERIOD_END_UTC_ISO>"}
+}

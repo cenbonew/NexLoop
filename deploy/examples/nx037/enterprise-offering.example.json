@@ -1,6 +1,0 @@
-{
-  "service_code": "enterprise.<SERVICE_CODE_SUFFIX>",
-  "title": "<OFFERING_TITLE>",
-  "price_amount": "<CNY_PRICE_AMOUNT>",
-  "valid_until": "<TRIAL_PERIOD_END_UTC_ISO>"
-}

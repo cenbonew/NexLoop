@@ -7,6 +7,9 @@ same profile again (same or new intent) is a replay; the in-process functions ar
 its template; the CLI is the deployment step after business and catalog setup.
 
     nexloop-relay-enroll --database-url-file F --signing-key-file F --owner-credential-file F --artifact-root D --enrollment-file F
+
+The enrollment file may carry the consumer's enterprise slot (ADR-030) as enterprise_control_id, enterprise_offering_id and
+enterprise_binding_id: all three or none. Enrolling again with a new intent_id and without them clears the slot.
 """
 import argparse
 import json
@@ -21,6 +24,8 @@ ENROLL = 'eios:action:nexloop.relay.enroll:1'
 WITHDRAW = 'eios:action:nexloop.relay.withdraw:1'
 _ID = re.compile('[a-f0-9]{64}')
 _INTENT = re.compile('[A-Za-z0-9._:-]{8,160}')
+# Enrollment-file keys of the enterprise slot -> enroll(enterprise=...) keys.
+ENTERPRISE_FILE_KEYS = {'enterprise_control_id': 'control_id', 'enterprise_offering_id': 'offering_id', 'enterprise_binding_id': 'binding_id'}
 
 
 class RelayEnrollmentUnavailable(RuntimeError):
@@ -113,8 +118,13 @@ def main(argv=None):
             raise ValueError()
         spec = json.loads(read_private_text(args.enrollment_file, maximum=16384))
         allowed = {'consumer_id', 'control_id', 'offering_id', 'binding_id', 'relay_principal', 'intent_id', 'role_id', 'link_id', 'step_id'}
-        if type(spec) is not dict or not set(spec) <= allowed:
+        if type(spec) is not dict or not set(spec) <= allowed | set(ENTERPRISE_FILE_KEYS):
             raise ValueError()
+        present = [key for key in ENTERPRISE_FILE_KEYS if key in spec]
+        if present and len(present) != len(ENTERPRISE_FILE_KEYS):
+            raise ValueError()  # the enterprise slot is all three keys or none
+        if present:
+            spec['enterprise'] = {ENTERPRISE_FILE_KEYS[key]: spec.pop(key) for key in ENTERPRISE_FILE_KEYS}
         with open_backend(database_url=read_private_text(args.database_url_file, maximum=16384), artifact_root=args.artifact_root,
                           signing_key_file=args.signing_key_file, signing_key_id=args.signing_key_id) as backend:
             with backend._pool.connection() as db:
