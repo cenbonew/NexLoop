@@ -540,7 +540,14 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 
 另外两条要求：
 
-- K 和 P 两次运行都必须通过 `report.py` 自己的门槛判定（格的 `gate.result` 为 `passed`）。
+- K 和 P 两次运行中，`report.py` 门槛判定的下列项必须是 `pass`（缺项按不通过处理）：
+  - `identity_violations` 与 `model_context_sample`（身份，含比对样本）；
+  - `unresolved_work`（未结局）；
+  - `guard_timeout_rate_5m_max`（超时率）；
+  - `connections_peak`（连接）；
+  - `critical_alerts`（critical 告警）；
+  - `unexpected_refusals`（非预期拒绝）。
+- 这一格不再要求 AT-060 门槛总体判定为 `passed`（负责人 2026-10-14，ROADMAP §7）。原因是空闲派发 5 s 门槛是按 0.05/s 设计的，0.1/s 下结构上达不到。时延类门槛项（ACK、空闲派发、guard p95）以及排空、死信，在这一格只看上表三项 p95 的增幅。`nx052_e2e.py compare` 输出 `required_gate_items`，同时照常给出两次运行的总体判定，供参考。
 - 如果某项比值落在 1.05 到 1.06 之间，就把该状态和 N 各再跑一次，取两次比值的中位数。
 
 如果 v2 矩阵已经合入（`deploy/load/matrix.v2.json`），`nx052_e2e.py matrix` 会自动以它为基础；否则以 v1 为基础，并只改 C4-low 这一格的速率和并发。
@@ -681,3 +688,29 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
 - **CI 主机上的处理**：
   - 重跑 N 时只设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`，并确认环境里没有 `NEXLOOP_LOAD_TENANT_FK_DROP`；
   - 不要用 `--resume` 复用模板级删过外键的模板，检查方法是看模板目录的 `template.json` 有没有 `tenant_fk_dropped`。
+
+### §11.4（三）模板外键普查（2026-10-14）
+
+调度员在 CI 主机上核对过：`~/.ci-env`、`.bashrc`、`.profile` 里没有任何 `NEXLOOP_LOAD_*`，N2 的 `template.json` 里也没有 `tenant_fk_dropped`。因此"模板级删除"一说没有直接证据，需要直接看模板里有什么。
+
+- **工具**：`scripts/load/template_fk_census.py --template <run>/template`。在 CI 主机上用车道账户执行：
+
+  ```
+  uv run --frozen python scripts/load/template_fk_census.py --template .ci-results/load/<run>/template
+  ```
+
+  只读，具体做法：
+  1. 把 `<template>/pgdata` 复制到新的临时目录，在自己的 socket 上启动这份副本（不开 TCP）；
+  2. 以模板集群的引导超级用户 `nexloop_bootstrap` 登录。这个账号由构建时的 `initdb -U nexloop_bootstrap --auth=trust` 建立，所以 `nexloop-ci` 和 `postgres` 都登录不了；也可以用 `--user` 指定；
+  3. 按库输出：外键总数、`*_tenant_fk` 外键数、指向租户表的外键数、NX-052 批次清单（134 个，带 schema）的命中数，以及迁移台账（`control.schema_migrations`）的条数、最新版本、NX-052 各批次版本是否已记录；
+  4. 无论结果如何，都停掉副本并删除临时目录。模板本身从不启动、不写入。输出只有标识与数字。
+- **本机验证**：
+  - 用 `build_template.sh --consumers 3` 建的模板：`postgres` 库 134/134 命中，指向租户表的外键 142 个，台账最新版本 0190，NX-052 批次全部已记录。
+  - 测试 `test_the_template_census_reads_a_copy_and_counts_the_nx052_keys` 还覆盖了删掉一个批次后的计数，并确认临时目录已清理、模板未被启动。
+- **怎么解读 CI 模板的结果**：
+
+  | 普查结果 | 含义 | 下一步 |
+  |---|---|---|
+  | `postgres` 库 134/134 | 模板没问题 | 问题出在格的克隆或连接上，查 `Clone` 与车道 |
+  | 8 个外键，台账已记录 NX-052 各批次 | 迁移执行过，之后外键被删掉了 | 查构建与快照之间谁删的 |
+  | 8 个外键，台账缺 NX-052 批次，或最新版本不是 0190 | 模板是用别的迁移目录或旧版本建的 | 查 CI 上 `build_template` 实际导入的 eios 包和迁移目录 |

@@ -26,19 +26,34 @@ def test_state_matrix_keeps_every_cell_and_sets_only_the_measured_one(tmp_path):
         nx052_e2e.matrix(base, 1.5)
 
 
-def report(ack, e2e, dispatch, gate='passed'):
+def report(ack, e2e, dispatch, gate='passed', failing=(), absent=()):
+    items = {name: {'result': 'fail' if name in failing else 'pass'} for name in nx052_e2e.REQUIRED_GATE_ITEMS + ('idle_dispatch_p95_ms', 'ack_p95_ms', 'guard_p95_ms')
+             if name not in absent}
+    items.update({name: {'result': 'fail'} for name in failing})
     return {'cells': [{'cell': 'C4-low', 'metrics': {'ack_p95_ms': ack, 'idle_dispatch_p95_ms': dispatch},
-                       'decomposition': {'e2e_ms': {'p95': e2e}}, 'gate': {'result': gate}}]}
+                       'decomposition': {'e2e_ms': {'p95': e2e}}, 'gate': {'result': gate, 'items': items}}]}
 
 
-def test_compare_judges_each_p95_against_five_percent_and_the_candidate_gate():
+def test_compare_judges_each_p95_against_five_percent_and_the_required_gate_items():
     ok = nx052_e2e.compare(report(100, 2000, 800), report(104, 2090, 820))
     assert ok['passed'] and all(m['within'] for m in ok['metrics'].values())
     slow = nx052_e2e.compare(report(100, 2000, 800), report(106, 2000, 800))
     assert not slow['passed'] and not slow['metrics']['ack_p95_ms']['within'] and slow['metrics']['ack_p95_ms']['ratio'] == 1.06
-    assert not nx052_e2e.compare(report(100, 2000, 800), report(100, 2000, 800, gate='failed'))['passed']
     missing = nx052_e2e.compare(report(100, 2000, 800), report(100, None, 800))
     assert not missing['passed'] and missing['metrics']['e2e_p95_ms']['ratio'] is None
+
+
+def test_at_0_1_per_second_the_cell_gate_verdict_is_not_required_but_correctness_items_are():
+    """Owner 2026-10-14 (ROADMAP §7): the idle dispatch 5 s gate is set for 0.05/s; at 0.1/s the cell's AT-060 verdict may fail on the
+    latency gates, while identity, unresolved work, timeout rate, connections, critical alerts and unexpected refusals must pass."""
+    latency_only = nx052_e2e.compare(report(100, 2000, 6500), report(100, 2000, 6600, gate='failed', failing=('idle_dispatch_p95_ms', 'ack_p95_ms')))
+    assert latency_only['passed'] and latency_only['gate']['candidate'] == 'failed'
+    assert set(latency_only['required_gate_items']) == set(nx052_e2e.REQUIRED_GATE_ITEMS)
+    for name in nx052_e2e.REQUIRED_GATE_ITEMS:
+        failed = nx052_e2e.compare(report(100, 2000, 800), report(100, 2000, 800, gate='failed', failing=(name,)))
+        assert not failed['passed'] and failed['required_gate_items'][name] == 'fail', name
+        absent = nx052_e2e.compare(report(100, 2000, 800), report(100, 2000, 800, absent=(name,)))
+        assert not absent['passed'] and absent['required_gate_items'][name] == 'missing', name
 
 
 def test_cli_exit_code_follows_the_verdict(tmp_path):
@@ -188,3 +203,32 @@ def test_a_database_without_the_keys_reports_its_name_and_the_right_one_drops_al
         admin.execute('drop database nx052_elsewhere')
     assert admin.execute('select current_database()').fetchone()[0] == 'postgres'
     assert len(tenant_fk_state.drop(admin, ['all'])) == sum(len(tenant_fk_state.constraints(b)) for b in tenant_fk_state.ALL) == 134
+
+
+def test_the_template_census_reads_a_copy_and_counts_the_nx052_keys(admin, pg, tmp_path):
+    """scripts/load/template_fk_census.py (CI host N runs 2026-10-14): on a copy of a template's pgdata, started on its own socket
+    with the bootstrap superuser, it counts per database the *_tenant_fk keys, the keys referencing the tenant table, the NX-052
+    batch keys present and the ledger's NX-052 batch versions; the copy is removed and the template never touched."""
+    import glob
+    import tempfile
+    import load_template
+    import template_fk_census
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    full = tmp_path / 'full'
+    full.mkdir()
+    load_template.snapshot(pg, full)
+    before = sorted(glob.glob(tempfile.gettempdir() + '/nl-census-*'))
+    result = template_fk_census.census(full)
+    assert sorted(glob.glob(tempfile.gettempdir() + '/nl-census-*')) == before and not (full / 'pgdata/postmaster.pid').exists()
+    assert result['superuser'] == result['bootstrap_role'] == 'nexloop_bootstrap'
+    db = result['databases']['postgres']
+    assert db['nx052_listed'] == db['nx052_present'] == 134 and db['referencing_tenants'] == 142 and db['named_tenant_fk'] >= 134
+    assert db['ledger']['nx052_batches_absent'] == [] and len(db['ledger']['nx052_batches_recorded']) == len(tenant_fk_state.BATCHES)
+    tenant_fk_state.drop(admin, ['5'])
+    dropped = tmp_path / 'dropped'
+    dropped.mkdir()
+    load_template.snapshot(pg, dropped)
+    db = template_fk_census.census(dropped)['databases']['postgres']
+    assert db['nx052_present'] == 134 - len(tenant_fk_state.constraints('5')) and db['ledger']['nx052_batches_absent'] == []
+    assert template_fk_census.main(['--template', str(dropped)]) == 0
