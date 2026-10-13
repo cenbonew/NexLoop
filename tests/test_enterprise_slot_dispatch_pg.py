@@ -13,6 +13,8 @@ In every case the loopback provider never receives the enterprise intent. Synthe
 import pytest
 from psycopg.conninfo import make_conninfo
 
+from nexloop_eios import effect_intents
+from nexloop_eios.effect_intents import EffectIntentUnavailable
 from nexloop_eios.run_credential_vault import RunCredentialVault
 from runtime_effect_fixture import PrivatePlan
 from support.effect_provider import effect_provider
@@ -129,3 +131,30 @@ def test_the_real_dispatch_switch_of_the_reply_action_does_not_open_the_enterpri
     assert sent(i, tmp_path, 'slot-switch-provider.sqlite') == {i['reply']}
     refused(i)
     assert refusal_codes(i, i['deliver']) == {'NXC07'}
+
+
+def test_a_run_holding_both_actions_with_only_the_enterprise_context_cannot_submit_a_reply(slots, monkeypatch):  # noqa: F811
+    """L4 review (not covered before slice 2): the Run credential grants both Actions but the Run's only context is on the
+    enterprise slot (the reply slot's row removed by the test after issuance; a relay never issues that shape). A reply intent
+    finds no context on its own slot and is refused in SQL; it never borrows the enterprise context."""
+    s = slots
+    s['enroll']('D')
+    with RunCredentialVault(s['vault_dir']) as vault:
+        assert s['slot_relay'](vault).run_once() == 'queued'
+        record = vault.read(vault.message_key(s['tenant'], 'real', s['people']['D']['message']))
+    run_id, resources, _, _ = issued_run(s, 'D')
+    assert resources == [REPLY, DELIVER]
+    s['admin'].execute("delete from control.nexloop_effect_run_contexts where run_id=%s and slot_identity='service.request:primary'", (run_id,))
+    assert s['admin'].execute('select slot_identity from control.nexloop_effect_run_contexts where run_id=%s', (run_id,)).fetchall() == [('enterprise.deliver:primary',)]
+    run = s['api'].authenticate_run(record.token, world='real', run_id=str(run_id))
+    seen, original = [], effect_intents.unavailable
+
+    def spy(error, **arguments):
+        if hasattr(error, 'diag'):
+            seen.append(error.diag.message_primary)
+        return original(error, **arguments)
+    monkeypatch.setattr(effect_intents, 'unavailable', spy)
+    with pytest.raises(EffectIntentUnavailable):
+        run.submit_effect_intent(parameters={'message': '借企业上下文的回复'})
+    assert seen == ['effect catalog Plan unavailable']  # no context on the reply slot: the enterprise context is never borrowed
+    assert s['admin'].execute('select count(*) from runtime.nexloop_effect_intents').fetchone() == (0,)

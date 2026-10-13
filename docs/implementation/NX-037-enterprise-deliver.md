@@ -162,3 +162,15 @@ relay_enrollment.enroll(owner_service, consumer_id=<消费者>, control_id=<回�
 
 开关须在提交前打开：提交后的开关变化会使快照被取代（NXC02）。
 
+
+## 8. L4 审查 0400 的处理（`docs/reviews/0400-enterprise-deliver-review.md`，分支 l4/review-0400）
+
+| 项 | 处理 | 测试 |
+|---|---|---|
+| F1 `action_version` 用 LIKE 比较 | 0405 以当前定义（0401 之后）复制三条意图命令（v0040、v0041、v0052），只把该比较换成与允许表行版本的精确等值；NULL 也会被拒 | `test_the_signed_action_version_must_equal_the_allow_list_version`：签名后的 find 载荷缺少版本、或为 `%`、`_` 时，SQL 都返回 `runtime effect context unavailable`（与 0400 之前相同）；正常 find 作为对照通过 |
+| F2 允许表可改、revoke 不全 | 0405 加行级 update/delete 和语句级 truncate 触发器（`control.nexloop_nx022_append_only`），连属主也不能改，只能由迁移先删触发器；revoke 补全到所有应用角色 | `test_effect_action_allow_list_is_append_only_even_for_its_owner` |
+| F3 同一消费者不能同时用两个 offering | 消息 Run 由切片 2 解决：回复用 `supply`，企业用 `effect_supplies`，按 slot 取目录 | `test_enterprise_slot_dispatch_pg.py` 的基线用例：同一消费者同时有回复和企业 offering，两个意图都发到 provider。非消息 Run 仍要求恰好一个匹配所声明 Action 的 offering（ADR-030 §4 不改） |
+| F4 测试只断言 `Exception` | 改为断言 SQL 拒绝原因。0401 之后，计划 Run 的目录元数据只选交付 Action 与意图一致的 offering，因此原因是 `effect catalog registration unavailable`（审查时在 0400 上测到的是 `outside catalog terms`） | `test_an_offering_that_delivers_through_another_action_is_outside_the_catalog` |
+| 未覆盖：Run 有两个 Action 授权，只有企业 slot 上下文，却提交回复 | 已能拒绝，无需改代码 | `test_a_run_holding_both_actions_with_only_the_enterprise_context_cannot_submit_a_reply`：中继签发双 Action 的 Run 后，测试删掉回复 slot 的上下文行，回复意图在 SQL 被拒（`effect catalog Plan unavailable`），没有生成意图 |
+
+以上反例测试在去掉 0405 后都会失败，加上 0405 后都通过。

@@ -910,6 +910,11 @@
       "version": "0404",
       "name": "0404_nx037_enterprise_slot_source_read.sql",
       "sha256": "e541520742cd78912069a24549c511e54061e9e7055f7d5ff52367ee33ae9f11"
+    },
+    {
+      "version": "0405",
+      "name": "0405_nx037_effect_action_version_exact.sql",
+      "sha256": "f67cfa017721ca3f8a74b3e433d6be69d6be2d248110869621237ad9ed4d25a1"
     }
   ]
 }

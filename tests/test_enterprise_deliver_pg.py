@@ -14,6 +14,8 @@ from pathlib import Path
 import psycopg
 import pytest
 
+from nexloop_eios import effect_intents
+from nexloop_eios.effect_intents import EffectIntentUnavailable
 from support.effect_provider import effect_provider
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from support.tenants import TENANT_A
@@ -47,6 +49,18 @@ def submit_new_step(fixture, admin, number, service):
                                 run_id=run.run_id, run_token=run.token, executor_token=plan['executor_token'], action='nexloop.enterprise.deliver')
     port = backend.authenticate_run(run.token, world='real', run_id=run.run_id)
     return port.submit_effect_intent(parameters={'service': service}, action='nexloop.enterprise.deliver')['intent_id']
+
+
+def sql_reasons(monkeypatch):
+    """The SQL deny reasons behind EffectIntentUnavailable (the port keeps them out of the error; constants, no data)."""
+    seen, original = [], effect_intents.unavailable
+
+    def spy(error, **arguments):
+        if isinstance(error, psycopg.Error):
+            seen.append(error.diag.message_primary)
+        return original(error, **arguments)
+    monkeypatch.setattr(effect_intents, 'unavailable', spy)
+    return seen
 
 
 def open_all(admin, monkeypatch, action=DELIVER):
@@ -190,10 +204,14 @@ def test_categories_v3_declare_the_enterprise_delivery_external_and_customer_con
 
 
 @pytest.mark.parametrize('execution_plan', ['enterprise-mismatch'], indirect=True)
-def test_an_offering_that_delivers_through_another_action_is_outside_the_catalog(governed_effect_executor, admin):  # noqa: F811
+def test_an_offering_that_delivers_through_another_action_is_outside_the_catalog(governed_effect_executor, admin, monkeypatch):  # noqa: F811
     fixture = governed_effect_executor
-    with pytest.raises(Exception):
+    reasons = sql_reasons(monkeypatch)
+    with pytest.raises(EffectIntentUnavailable):
         fixture.ports[0].submit_effect_intent(parameters={'service': '目录外交付'}, action='nexloop.enterprise.deliver')
+    # L4 review F4: the catalog binding check (since 0401 the plan Run's metadata selects only offerings that deliver through the
+    # intent's Action, so none is found), not any other refusal.
+    assert reasons == ['effect catalog registration unavailable']
     assert admin.execute("select count(*) from runtime.nexloop_effect_intents where action_name='nexloop.enterprise.deliver'").fetchone() == (0,)
 
 
@@ -216,3 +234,39 @@ def test_run_effect_contexts_are_keyed_by_run_and_slot(governed_effect_executor,
         admin.execute("update control.nexloop_effect_run_contexts set slot_identity='service.request:primary' where run_id=%s", (run_id,))
     with admin.transaction(force_rollback=True), pytest.raises(psycopg.errors.UniqueViolation):
         admin.execute('insert into control.nexloop_effect_run_contexts(run_id,context_id,valid_until) values(%s,%s,%s)', (run_id, *context))
+
+
+@ENTERPRISE
+@pytest.mark.parametrize('version', ['missing', '%', '_'])
+def test_the_signed_action_version_must_equal_the_allow_list_version(governed_effect_executor, admin, monkeypatch, version):  # noqa: F811
+    """L4 review F1: past the Python int check, a signed find without action_version or with a LIKE wildcard is refused in SQL."""
+    fixture = governed_effect_executor
+    intent = submit(fixture)
+    port = fixture.ports[0]
+    assert port.find_effect_receipt(intent_id=intent, action='nexloop.enterprise.deliver')['intent_id'] == intent  # the control case
+    original = effect_intents.canonical_payload
+
+    def forged(value):
+        if isinstance(value, dict) and value.get('verb') == 'find':
+            value = {k: v for k, v in value.items() if k != 'action_version'}
+            if version != 'missing':
+                value['action_version'] = version
+        return original(value)
+    monkeypatch.setattr(effect_intents, 'canonical_payload', forged)
+    reasons = sql_reasons(monkeypatch)
+    with pytest.raises(EffectIntentUnavailable):
+        port.find_effect_receipt(intent_id=intent, action='nexloop.enterprise.deliver')
+    assert reasons == ['runtime effect context unavailable']  # the pre-0400 refusal of the same payloads (L4 review)
+
+
+def test_effect_action_allow_list_is_append_only_even_for_its_owner(admin):
+    """L4 review F2: no update, delete or truncate after the migration, whoever asks (runtime roles have no privilege at all)."""
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    for statement in ("update control.nexloop_effect_actions set version=2 where stable_name='nexloop.enterprise.deliver'",
+                      "delete from control.nexloop_effect_actions where stable_name='nexloop.enterprise.deliver'",
+                      'truncate control.nexloop_effect_actions cascade'):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='append-only'), admin.transaction():
+            admin.execute('set local role nexloop_owner')
+            admin.execute(statement)
+    assert admin.execute('select count(*) from control.nexloop_effect_actions').fetchone() == (2,)
