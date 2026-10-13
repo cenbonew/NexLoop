@@ -940,6 +940,16 @@
       "version": "0188",
       "name": "0188_relay_step_samples.sql",
       "sha256": "0aa631fcf1592360b1de7c7cb0965b51dc8db8a5b56ba1b8f275759dde9fcdf4"
+    },
+    {
+      "version": "0189",
+      "name": "0189_nx037_observation_unknown_open.sql",
+      "sha256": "a4a0d507dbfadc44498f2e18dfb9b5c217bb67bb3e95a5d9936e3a40af98b467"
+    },
+    {
+      "version": "0190",
+      "name": "0190_nx037_contact_after_refusal_bound_replies.sql",
+      "sha256": "dde3c20c2ff874705812238d56ff8392f4589536532bb801c475b5596b64dd10"
     }
   ]
 }
