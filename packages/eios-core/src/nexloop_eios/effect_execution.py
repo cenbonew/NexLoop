@@ -328,6 +328,14 @@ class EffectExecutionPort:
                 return db.execute('select authz.nexloop_effect_origin_expired(%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)))).fetchone()[0]
         except Exception:return None
 
+    def record_unrouted(self,*,intent_id):
+        """NX-037: the claimed intent's Action has no provider route in this worker; recorded as the effect refusal NXE01 (0470,
+        deduplicated per intent for ten minutes by 0131) for the metrics and alerts. Best effort, never raises."""
+        try:
+            with self.pool.connection() as db,db.transaction():
+                return db.execute('select authz.nexloop_record_effect_refusal(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),'NXE01')).fetchone()[0]
+        except Exception:return None
+
     def back_off_unknown(self,*,intent_id):
         """0174: offer an unknown intent again only after min(60, 2^n) s. Best effort, never raises."""
         try:

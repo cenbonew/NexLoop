@@ -3,7 +3,11 @@
 Ledger methods are protected PG ports, never optional callbacks granting
 authority. Runtime completion does not assert external business success.
 """
+import logging
+
 from nexloop_eios.effect_provider import HttpEffectProvider, EffectProviderUnknown, EffectProviderQueryUnavailable
+
+LOG = logging.getLogger('nexloop.effect_dispatch')
 
 
 class EffectDispatchUnavailable(RuntimeError):
@@ -103,6 +107,15 @@ class EffectDispatcher:
             # The Action comes from the PG claim; no route means no dispatch (the lease lapses, nothing is admitted or sent).
             provider = self.routes.for_action(job.get('action'))
             if provider is None:
+                # Observable without any parameter: the Action name and the intent id only (structured log), and the effect
+                # refusal NXE01 for the metrics and the warning alert (0470, alert-rules v4). Both best effort.
+                LOG.warning('effect route unconfigured', {'action': job.get('action'), 'intent_id': identity['intent_id'], 'code': 'NXE01'})
+                record = getattr(self.ledger, 'record_unrouted', None)
+                if record:
+                    try:
+                        record(intent_id=identity['intent_id'])
+                    except Exception:
+                        pass
                 return {'claimed': True, 'status': 'unrouted', 'business_action_success': False}
         if job['stage'] == 'fresh':
             try:

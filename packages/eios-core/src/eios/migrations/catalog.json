@@ -885,6 +885,11 @@
       "version": "0177",
       "name": "0177_nx031_one_reply_per_inbound_message.sql",
       "sha256": "6300060b9f9231ba6166ccaf6f4f982c463bfd38dfdc433e28dc547fd2961a20"
+    },
+    {
+      "version": "0470",
+      "name": "0470_nx037_effect_route_unconfigured.sql",
+      "sha256": "f6f7f4d0f0b8984e589d435da9311892a6ba4186da863c1e12c44bba3faa10f7"
     }
   ]
 }

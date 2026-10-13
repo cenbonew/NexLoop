@@ -72,4 +72,36 @@
 
 - 企业端点的地址、端口、CA、凭据和 Caddy 侧 SNI 由负责人提供（readiness §8），配置只放私有文件。
 - `nexloop.enterprise.deliver` 的定义、分类与授权由 L2 完成后，才会有意图走企业路由。
-- worker 遇到 `unrouted` 时只返回状态，没有告警规则。是否加告警由调度员决定。
+- （已在 §6 处理：`unrouted` 的日志、指标与告警。）
+
+## 6. 追加（调度员审查 bf045a3 后）
+
+### 6.1 对账时逐个尝试 provider 摘要：无副作用
+
+- **检查对象**：`authorize_effect_query` 位于 0065 `admit_query`。
+- **代码阅读的结论**：
+  - 摘要与意图的绑定不符时，`authz.nexloop_effect_execution_command` 在写入 `runtime.nexloop_effect_query_admissions` 之前就抛异常；
+  - 整个授权在一个事务里（`with db.transaction()`），抛异常即回滚；
+  - 之前的 `resolve` 只读。
+- **真实 PG 证明**：`tests/test_effect_routing_reconcile_pg.py::test_a_refused_provider_digest_leaves_no_trace`。
+  - 一个意图处于结果未知、已被对账认领的状态，用错误摘要连续授权 3 次，都被拒绝；
+  - 前后对 runtime、control、authz、ontology 四个 schema 的**每一张表**比较行数与内容摘要，完全相同；
+  - outbox 的 state、fence、lease_until、lease_credential、lease_principal 不变；
+  - 没有生成 query admission（即没有 query_id），错误的 provider 没有收到任何请求；
+  - 之后同一租约仍能为正确的摘要授权，说明拒绝没有消耗任何东西。
+- **路由下的对账**：`test_a_routed_reconcile_tries_the_wrong_provider_first_and_queries_only_the_one_that_sent`。路由表中错误的 provider 排在前面，结果仍然是 fulfilled；只有发送它的服务器收到 GET，另一台没有收到任何请求；只产生 1 条 query admission。
+- **结论**：保留逐个尝试的实现，不需要改为先读取绑定。
+
+### 6.2 `unrouted` 的可观测性
+
+- **结构化日志**：worker 记一条 warning 日志，事件为 `effect route unconfigured`，detail 只有 `action`（Action 稳定名）、`intent_id` 和 `code`（NXE01），不含参数。为此把 `action` 加入 `structured_log.FIELDS` 白名单，值仍按代码或 ID 的格式清洗。
+- **指标**：
+  - 迁移 0470（临时号）新增拒绝码 `NXE01 effect_route_unconfigured`；
+  - worker 经执行端口 `record_unrouted`，即已有的 `authz.nexloop_record_effect_refusal`（0131）记录：只限本执行主体自己的意图，同一意图同一码 10 分钟内只记一行；
+  - 记录后出现在 M12 快照的 `refusals.last_5m` 中，也出现在只读指标导出里。
+- **告警**：`deploy/configuration/alert-rules.v4.json` 在 v3 的基础上增加 `effect_route_unconfigured`（`refusals.last_5m`，selector `NXE01`，`gt 0`，severity **warning**）。`nx037-trial.v1.json` 的告警规则引用改为 v4，所以真实租户初始化会应用 v4，verify 也核对 v4。
+- **测试**：
+  - 单元（`test_effect_provider_routing.py`）：每个 unrouted 意图都调用一次 `record_unrouted`，并恰好产生一条 warning 日志，只含三个字段，不含参数文本。
+  - 真实 PG（`test_effect_routing_reconcile_pg.py`）：派发器返回 `unrouted` 后，库中恰好一行 `('effect','NXE01')`；第二次记录因去重返回 false；对非本执行主体的意图，记录被拒且不写任何行；快照 `refusals.last_5m` 中 NXE01 为 1；意图仍为 accepted，从未准入。
+  - 告警（`tests/test_effect_route_alert_pg.py`）：应用 v4 规则后，真实的 NX-030 evaluator 对 NXE01 产生 `('warning','firing')` 事件。
+- **与 L2 的合并**：`effect_execution.claim_effect` 中新增 `action` 的那一处只读取 `action_claim.key.action_stable_name`。本次追加只在同文件另加了 `record_unrouted` 方法，没有改动 `_send` 等 L2 涉及的部分。

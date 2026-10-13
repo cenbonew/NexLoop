@@ -51,6 +51,10 @@ class Ledger:
     def record_effect_unknown(self, **kw):
         self.calls.append(('unknown',))
 
+    def record_unrouted(self, *, intent_id):
+        self.calls.append(('unrouted', intent_id))
+        return True
+
 
 def job(action, stage='fresh', intent=None):
     return {'intent_id': intent or str(uuid.uuid4()), 'fence': 1, 'lease_until': None, 'stage': stage, 'action': action}
@@ -81,11 +85,22 @@ def test_each_action_goes_to_its_own_provider_and_never_the_other(servers):
 def test_an_action_without_a_route_is_never_admitted_or_sent(servers):
     webchat, enterprise = servers
     routes = ProviderRoutes({WEBCHAT: provider(webchat.origin), ENTERPRISE: provider(enterprise.origin)})
+    import io
+    import json as _json
+    from nexloop_eios.structured_log import configure
+    stream = io.StringIO()
+    configure('effect-worker', stream=stream)
     for action in ('nexloop.incentive.issue', None):
         ledger = Ledger(job(action))
+        ledger.parameters = {'message': 'secret customer text'}
         assert EffectDispatcher(ledger, routes, lease_seconds=30).run_once() == {'claimed': True, 'status': 'unrouted', 'business_action_success': False}
-        assert ledger.calls == []  # no admission, no query
+        assert ledger.calls == [('unrouted', ledger.job['intent_id'])]  # no admission, no query; recorded as NXE01
     assert requests(webchat) == [] and requests(enterprise) == []
+    # One warning line per unrouted intent: the Action name and the intent id (and the code), never a parameter.
+    lines = [_json.loads(l) for l in stream.getvalue().splitlines()]
+    assert [(l['level'], l['event'], sorted(l['detail'])) for l in lines] == [('warning', 'effect route unconfigured', ['action', 'code', 'intent_id'])] * 2
+    assert lines[0]['detail']['action'] == 'nexloop.incentive.issue' and lines[0]['detail']['code'] == 'NXE01'
+    assert 'secret customer text' not in stream.getvalue()
 
 
 def test_an_unknown_result_is_queried_with_the_provider_that_sent_it(servers):
