@@ -24,7 +24,7 @@ DEFAULT_EXPECTED_REFUSALS = ('NXC05', 'NXC06')
 GUARD_DEADLINE_MS = 2000
 THRESHOLDS = {  # §6.1 (D4); never relaxed by this tool (§7)
     'guard_timeout_rate_5m_max': 0.01, 'guard_p95_ms': 1500, 'dead_letters_delta': 0, 'ack_p95_ms': 500,
-    'idle_dispatch_p95_ms': 2000, 'drain_seconds': 600, 'connections_peak': 60, 'critical_alerts': 0,
+    'idle_dispatch_p95_ms': 5000, 'drain_seconds': 600, 'connections_peak': 60, 'critical_alerts': 0,
     'unexpected_refusals': 0, 'identity_violations': 0, 'unresolved_work': 0,
 }
 # AT-060 calibers (owner 2026-10-13, 4A and 5A, ROADMAP §7). guard_p95_ms: the p95 over all guard calls of the steady window,
@@ -37,6 +37,10 @@ THRESHOLDS = {  # §6.1 (D4); never relaxed by this tool (§7)
 HISTOGRAM_RATIO = 1.1
 HISTOGRAM_LAST = 116
 _HISTOGRAM_KEY = re.compile(r'^h_(\d{1,3})$')
+# v0.1 gate (owner 2026-10-13, option A, ROADMAP §7): idle dispatch (accepted -> claimed) p95 <= 5000 ms in C4-low; the PRD's
+# 2000 ms stays the v0.2 target, tracked by the observation idle_dispatch_v02_target (never gated) until an ADR restructures the
+# relay path (docs/implementation/relay-step-timing.md §4).
+V02_TARGETS = {'idle_dispatch_p95_ms': 2000}
 _CODE = re.compile(r'^[A-Za-z0-9_.:+,-]{1,200}$')
 
 
@@ -364,7 +368,9 @@ def cell_metrics(directory, expected_refusals):
             def segment(key):
                 return [_number(d[key], f'dispatch.{key}') for d in dispatch if d.get(key) is not None]
             values = segment('dispatch_ms')
-            metrics.update(idle_dispatch_count=len(values), idle_dispatch_p95_ms=percentile(values, 0.95),
+            p95 = percentile(values, 0.95)
+            metrics['idle_dispatch_v02_target'] = None if p95 is None else p95 <= V02_TARGETS['idle_dispatch_p95_ms']
+            metrics.update(idle_dispatch_count=len(values), idle_dispatch_p95_ms=p95,
                            run_start_p95_ms=percentile(segment('run_start_ms'), 0.95))
             out['dispatch_segments'] = {name: {'count': len(v), 'p50_ms': percentile(v, 0.5), 'p95_ms': percentile(v, 0.95)}
                                         for name, v in (('relay', segment('relay_ms')), ('queue', segment('queue_ms')), ('start', segment('start_ms')))}
@@ -585,6 +591,8 @@ def markdown(report):
         m, segments = c['metrics'], c.get('dispatch_segments') or {}
         lines += ['', '**观察项**（只记录，不判定）', '', '| 项 | 实测 |', '|---|---|',
                   f"| guard_p95_ms_worst_minute | {_fmt(m.get('guard_p95_ms_worst_minute'))} |",
+                  f"| idle_dispatch_v02_target（v0.2 目标：空闲派发 p95 ≤ {V02_TARGETS['idle_dispatch_p95_ms']}） | "
+                  f"{'—' if m.get('idle_dispatch_v02_target') is None else '达到' if m['idle_dispatch_v02_target'] else '未达到'} |",
                   f"| run_start_p95_ms（任务创建 → Host 首次执行授权） | {_fmt(m.get('run_start_p95_ms'))} |"]
         for name, label in (('relay', 'relay 段（来信受理 → 任务创建）'), ('queue', '排队段（任务创建 → claim）'), ('start', '启动段（claim → Host 首次执行授权）')):
             seg = segments.get(name) or {}

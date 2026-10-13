@@ -154,7 +154,7 @@ def test_all_cells_pass_and_report_carries_no_text_or_ids(run_dir, tmp_path):
 
 def test_gate_failure_is_recorded_not_relaxed(run_dir):
     all_cells(run_dir, **{'C4': {'ack': 900.0, 'guard': (100, 3, 1700.0), 'connections': 61, 'critical': 1, 'refusals': ('NXC05', 'NXB01'), 'dead_end': 2},
-                          'C4-low': {'dispatch': 2500.0, 'drained': False, 'drain_seconds': None, 'unresolved': 1}})
+                          'C4-low': {'dispatch': 5001.0, 'drained': False, 'drain_seconds': None, 'unresolved': 1}})
     data = report.build(run_dir)
     gates = {c['cell']: c['gate'] for c in data['cells'] if c['role'] == 'gate'}
     c4 = gates['C4']['items']
@@ -337,7 +337,7 @@ def test_results_under_the_former_calibers_are_incomparable_and_never_pass(run_d
         assert gate['result'] == 'failed'
         assert gate['items']['guard_p95_ms'] == {'value': None, 'limit': 1500, 'result': 'incomparable', 'reason': 'caliber_changed'}
         assert cells[name]['metrics']['guard_p95_ms_worst_minute'] == 900.0  # still shown, as an observation
-    assert cells['C4-low']['gate']['items']['idle_dispatch_p95_ms'] == {'value': None, 'limit': 2000, 'result': 'incomparable', 'reason': 'caliber_changed'}
+    assert cells['C4-low']['gate']['items']['idle_dispatch_p95_ms'] == {'value': None, 'limit': 5000, 'result': 'incomparable', 'reason': 'caliber_changed'}
     assert 'C4-low:gate_guard_p95_ms:caliber_changed,idle_dispatch_p95_ms:caliber_changed' in data['at060']['reasons']
     assert data['at060']['result'] == 'failed'
     assert 'incomparable（caliber_changed）' in report.markdown(data)
@@ -357,7 +357,7 @@ def test_idle_dispatch_is_accepted_to_claimed_and_the_segments_are_observations(
     md = report.markdown(data)
     section = md[md.index('### C4-low'):]
     gate_part, observed = section.split('**观察项**', 1)
-    assert '**门槛项**' in gate_part and '| idle_dispatch_p95_ms | 1900 | 2000 | pass |' in gate_part and 'run_start_p95_ms' not in gate_part
+    assert '**门槛项**' in gate_part and '| idle_dispatch_p95_ms | 1900 | 5000 | pass |' in gate_part and 'run_start_p95_ms' not in gate_part
     assert 'run_start_p95_ms' in observed and 'relay 段' in observed and '启动段' in observed and 'guard_p95_ms_worst_minute' in observed
 
 
@@ -384,3 +384,18 @@ def test_relay_steps_table_per_cell(run_dir):
     assert next(c for c in data['cells'] if c['cell'] == 'C4')['relay_steps'] == {}
     md = report.markdown(data)
     assert f"| C4-low | context_prepare | 20 | {estimate(900):g} | {estimate(1500):g} |" in md and '| C4 | missing | | | |' in md
+
+
+@pytest.mark.parametrize('p95,gate,v02', [(4999.0, 'pass', False), (5001.0, 'fail', False), (2001.0, 'pass', False), (2000.0, 'pass', True)])
+def test_idle_dispatch_gate_is_5000_and_the_v02_target_is_only_observed(run_dir, p95, gate, v02):
+    """Owner 2026-10-13, option A (ROADMAP §7): the v0.1 gate is 5000 ms; 2000 ms is the v0.2 target, recorded and never gated."""
+    all_cells(run_dir, **{'C4-low': {'dispatch': p95}})
+    data = report.build(run_dir)
+    low = next(c for c in data['cells'] if c['cell'] == 'C4-low')
+    item = low['gate']['items']['idle_dispatch_p95_ms']
+    assert item['limit'] == 5000 == report.THRESHOLDS['idle_dispatch_p95_ms'] and item['value'] == p95 and item['result'] == gate
+    assert low['metrics']['idle_dispatch_v02_target'] is v02 and 'idle_dispatch_v02_target' not in low['gate']['items']
+    assert low['gate']['result'] == ('passed' if gate == 'pass' else 'failed')  # 2001: the gate still passes
+    md = report.markdown(data)
+    observed = md[md.index('### C4-low'):].split('**观察项**', 1)[1]
+    assert ('| idle_dispatch_v02_target（v0.2 目标：空闲派发 p95 ≤ 2000） | ' + ('达到' if v02 else '未达到') + ' |') in observed
