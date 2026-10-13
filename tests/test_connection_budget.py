@@ -19,7 +19,8 @@ def test_declared_stage_budget_is_within_policy():
     # NX-031 D7 (measured smallest workable pools): api 2x4 + domain-worker 2 + action-worker 2 + runtime 2+4x4
     # + message-relay 2 + outbound-recorder 2 + 11 background services x 1 + 2 launcher API pools x 2 = 53,
     # = 49 without the removed scheduler reserve (dispatcher 2026-10-11), + the API browser identity pools 2 x 4 (NX-032) = 57,
-    # + the NX-037 webchat-delivery service 1 x 2 = 59.
+    # + the NX-037 webchat-delivery service 1 x 2 = 59; option B (dispatcher 2026-10-13): message-relay 2 x 2 (+2) and the identity
+    # pools 2 x 3 (-2) = 59.
     assert result['passed'] and result['details']['application_pool_total']==59 and result['details']['missing_services']==[]
     assert result['details']['services']['runtime-worker']==2+4*4
 
@@ -210,7 +211,8 @@ def test_every_background_service_is_budgeted_with_the_pool_it_opens():
     assert (B.POOL_MAX,B.API_POOL_MAX)==(1,2)
     from nexloop_eios import effect_worker,message_relay_cli,outbound_messages
     for name,module in (('action-worker',effect_worker),('message-relay',message_relay_cli),('outbound-recorder',outbound_messages)):
-        assert declared[name]=={'name':name,'processes':1,'pool_max':2} and module.POOL_MAX==2,name
+        # Two relays (dispatcher 2026-10-13, budget option B: each with its own vault in the stage Compose).
+        assert declared[name]=={'name':name,'processes':2 if name=='message-relay' else 1,'pool_max':2} and module.POOL_MAX==2,name
     from nexloop_eios import domain_worker
     assert declared['domain-worker']['pool_max']==domain_worker.POOL_MAX==2
 

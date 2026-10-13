@@ -43,11 +43,21 @@ class Customer:
         self.client = httpx.AsyncClient(base_url=origin, verify=ca, timeout=30, trust_env=False, transport=transport)
         self.csrf, self.conversation = None, None
 
-    async def login(self, waited=0.0):
-        """Warm-up, not measured: under the tenant's login rate policy (never relaxed for the load), a 429 waits its Retry-After."""
+    async def login(self, waited=0.0, attempts=None):
+        """Warm-up, not measured as load: under the tenant's login rate policy (never relaxed for the load), a 429 waits its
+        Retry-After. Each login request's latency and status are appended to `attempts` (numbers only; the login peak retest,
+        dispatcher 2026-10-13)."""
         while True:
-            response = await self.client.post('/api/v1/auth/login', headers={'Origin': self.origin},
-                                              json={'username': self.account['username'], 'password': self.account['password']})
+            started = time.perf_counter()
+            try:
+                response = await self.client.post('/api/v1/auth/login', headers={'Origin': self.origin},
+                                                  json={'username': self.account['username'], 'password': self.account['password']})
+            except httpx.HTTPError:
+                if attempts is not None:
+                    attempts.append((round((time.perf_counter() - started) * 1000, 1), 0))
+                raise
+            if attempts is not None:
+                attempts.append((round((time.perf_counter() - started) * 1000, 1), response.status_code))
             if response.status_code != 429 or waited > 3600:
                 break
             pause = float(response.headers.get('Retry-After', '5'))
@@ -87,14 +97,16 @@ class Driver:
         self.sent, self.keys = 0, []
 
     async def login_all(self, parallel=8):
+        """Every customer logs in, `parallel` at a time (the login peak). Per request latency/status go to self.login_attempts."""
         gate = asyncio.Semaphore(parallel)
         failed = 0
+        self.login_attempts = []
 
         async def one(customer):
             nonlocal failed
             async with gate:
                 try:
-                    await customer.login()
+                    await customer.login(attempts=self.login_attempts)
                 except (httpx.HTTPError, KeyError, ValueError):
                     failed += 1
         await asyncio.gather(*(one(c) for c in self.customers))

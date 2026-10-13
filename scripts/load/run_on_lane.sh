@@ -29,6 +29,7 @@
 #   LOAD_CI_BASELINE     optional  JSON of the day's last regular full CI (run_id, wall_seconds, deadline_gate_failures, failed)
 #   LOAD_MIN_FREE_GIB    optional  free disk required under .ci-results (default 20)
 #   LOAD_RELAY_PROCESSES optional  relay processes of the message chain, 1..3 (default 1; dispatcher 2026-10-13)
+#   LOAD_IDENTITY_POOL_MAX optional the API's browser identity pool per process, 1..8 (default: the deployment budget)
 # Exit codes: 0 report written (read AT-060 from it), 1 a step failed, 2 preflight refused, 75 lock busy.
 set -uo pipefail
 
@@ -81,6 +82,7 @@ matrix="${LOAD_MATRIX:-deploy/load/matrix.v1.json}"
 mkdir -p .ci-results/load
 free_gib=$(df -Pk .ci-results/load | awk 'NR==2{print int($4/1048576)}')
 [[ "${LOAD_RELAY_PROCESSES:-1}" =~ ^[123]$ ]] || refuse "LOAD_RELAY_PROCESSES must be 1, 2 or 3"
+[[ -z "${LOAD_IDENTITY_POOL_MAX:-}" || "$LOAD_IDENTITY_POOL_MAX" =~ ^[1-8]$ ]] || refuse "LOAD_IDENTITY_POOL_MAX must be 1..8"
 (( free_gib >= ${LOAD_MIN_FREE_GIB:-20} )) || refuse "only ${free_gib} GiB free under .ci-results/load"
 
 # ---- lock (held until this process exits) ------------------------------------------------------------------------------
@@ -162,7 +164,7 @@ step_run() {
 # ---- 2–4. template, matrix, report -------------------------------------------------------------------------------------
 [[ "${template_done:-0}" -eq 1 ]] || step_run template "$template_cmd" --seed "${LOAD_SEED:-31}" --consumers "${LOAD_CONSUMERS:-1000}" --out "$run_dir/template"
 export LOAD_CI_COMMAND="scripts/ci/check"   # the C4-ci cell runs the full CI inside this lock (design §5.2)
-step_run matrix uv run --frozen python "$runner_cmd" --template "$run_dir/template" --matrix "$matrix" --out "$run_dir" --lane-root "$run_dir/lane" --relay-processes "${LOAD_RELAY_PROCESSES:-1}" ${resume:+--resume}
+step_run matrix uv run --frozen python "$runner_cmd" --template "$run_dir/template" --matrix "$matrix" --out "$run_dir" --lane-root "$run_dir/lane" --relay-processes "${LOAD_RELAY_PROCESSES:-1}" ${LOAD_IDENTITY_POOL_MAX:+--identity-pool-max "$LOAD_IDENTITY_POOL_MAX"} ${resume:+--resume}
 report_args=("$run_dir" --out "$run_dir")
 [[ -z "${LOAD_CI_BASELINE:-}" ]] || report_args+=(--ci-baseline "$LOAD_CI_BASELINE")
 step_run report uv run --frozen python scripts/load/report.py "${report_args[@]}"
