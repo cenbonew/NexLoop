@@ -71,14 +71,14 @@ python -m nexloop_eios.workbench_roles --roles deploy/authorization/workbench-ro
 
 ## 4. relay 的 Run 设置 `relay-run-profile.json`（【B】）
 
-部署级、对所有消费者相同的 6 个键，见 [`relay-run-profile.example.json`](../../deploy/examples/nx037/relay-run-profile.example.json)：`role_ref`、`context_manifest_ref`、`runtime_profile`（真实试运行为 `deepseek-flash`）、`budget`（单 Run 上限按 D-g；币种与试运行预算一致）、`runtime_owner_epoch`、`queue`。放进 relay 的私有目录，容器入口看到它时以 `--run-profile-file` 启动 relay（与单客户 recipe 互斥）。
+部署级、对所有消费者相同的 6 个键，见 [`relay-run-profile.example.json`](../../deploy/examples/nx037/relay-run-profile.example.json)：`role_ref`、`context_manifest_ref`、`runtime_profile`（真实试运行为 `deepseek-flash`）、`budget`（单 Run 上限按 D-g；币种与试运行预算一致）、`runtime_owner_epoch`、`queue`。放进 relay 的私有目录，容器入口看到它时以 `--run-profile-file` 启动 relay（与单客户 recipe 互斥）。stage 的 relay 同时带 `--context-strategy recent_plus_required`，产出 Context v6，与 Agent Host 运行配置的 `context_input_protocol`（`nexloop.context-pack.v6`）一致；不要去掉这个参数。relay 默认 1 个进程；副本（1–3 个，各自独占 vault 目录）的前提与连接预算见 [NX-032 部署运行手册](NX-032-deploy-runbook.md) §6。
 
 - 【待确认】`role_ref` 与 `context_manifest_ref` 在真实租户中的取值（Role 定义与上下文清单 Artifact 的引用）：仓库中只有测试夹具的取值（例如 `role:explicit-source`、`artifact:owned-local-demo`），真实租户由调度员按 Role 与上下文策略的部署方式确定。
 - `budget.currency` 必须与租户模型预算和 Agent Host 成本策略的币种一致（就绪缺口 §0 第 1 项，D-g 已定案计价方式）。
 
 ## 5. 企业交付 Action 与企业端点（【B】，缺口 D）
 
-1. **Action**：企业交付使用 `nexloop.enterprise.deliver:1`（L2 新增中）。它在效应类别声明中必须是 `external_effect: true`，只有三层真实派发开关都打开才派发；负责人把它授予 relay 的 Source，并在交互计划的 `real_dispatch.actions` 中列出它（而不是非外部的 `nexloop.service.request:1`）。【待确认：随 L2 的实现合入后核对 Action 名、类别版本与服务授权】
+1. **Action**：企业交付使用 `nexloop.enterprise.deliver:1`（已合入，见 [实现说明](NX-037-enterprise-deliver.md)）。它在效应类别声明中必须是 `external_effect: true`，只有三层真实派发开关都打开才派发；负责人把它授予 relay 的 Source，并在交互计划的 `real_dispatch.actions` 中列出它（而不是非外部的 `nexloop.service.request:1`）。效应类别声明为 `action-effect-categories.v3.json`（`customer_contact`、外部效应）；这个 Action 只能经受信配置的 authority facts 授予，服务授权清单不能授予。开通步骤见 §6。
 2. **一致性检查（先于任何真实派发）**：企业对自己的端点运行 [`scripts/nx037/endpoint_conformance.py`](../../scripts/nx037/endpoint_conformance.py)，报告留在私有目录：
 
    ```bash
@@ -93,11 +93,13 @@ python -m nexloop_eios.workbench_roles --roles deploy/authorization/workbench-ro
 
 依据：L2 的实现说明 `docs/implementation/NX-037-enterprise-deliver.md` §7（提交 b8b8cd9，分支 `l2/nx037-enterprise-deliver`，合入 main 后以 main 为准）。命令名与字段以该说明为准，下面的取值全部是占位值，私有文件放在负责人的私有目录。
 
+**只有 enrollment 模式支持企业交付。** 企业 slot 只能来自受治理的 relay 登记；单客户 recipe 模式（`--recipe-file`）里写 `enterprise` 块会被明确拒绝（`recipe_enterprise_unsupported`），不要用 recipe 开通企业交付。企业 slot 在 Context v6 下可用（迁移 0187），stage 的 relay 就是 v6。
+
 开通后，这个消费者的消息 Run 同时带两个 slot：回复（`nexloop.service.request:1`）和企业交付（`nexloop.enterprise.deliver:1`）。不开通的消费者不受任何影响：登记表的三列为空时，relay profile 逐字节不变。
 
 **两条前提：**
 
-- **第三层真实派发开关只对企业交付生效。** 企业交付是 `external_effect: true` 的 Action，三层开关（总闸 → 租户 → (租户, Action)）都打开才派发；第三层要打开的是 `eios:action:nexloop.enterprise.deliver:1`，交互计划 v2 的 `real_dispatch.actions` 也只列它。只打开回复 Action 那一层，企业交付仍被拒（`closed_layer` 为 `action`）。开关的开放步骤见 [运维手册 §9.3–§9.4](../OPERATIONS.md#93-开放真实派发b)。
+- **第三层真实派发开关只对企业交付生效。** 企业交付是 `external_effect: true` 的 Action，三层开关（总闸 → 租户 → (租户, Action)）都打开才派发；第三层要打开的是 `eios:action:nexloop.enterprise.deliver:1`，交互计划 v2（运行入口的默认）的 `real_dispatch.actions` 也只列它。只打开回复 Action 那一层，企业交付仍被拒（`closed_layer` 为 `action`）。开关的开放步骤见 [运维手册 §9.3–§9.4](../OPERATIONS.md#93-开放真实派发b)。
 - **企业端点必须先通过一致性检查**（§5 第 2 步，报告 `ok: true`）。使用参考端点时也一样：先按其 [部署手册](../../deploy/stage/reference-endpoint/README.md) §4 检查通过，再做下面的登记。
 
 每个要开通的消费者按顺序做一次：

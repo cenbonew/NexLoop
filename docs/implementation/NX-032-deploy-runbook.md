@@ -118,6 +118,8 @@
   ssh "$SSH_ALIAS_APP" docker compose -p nexloop-app -f "$NEXLOOP_ROOT/compose.app.yaml" --env-file "$NEXLOOP_ROOT/compose.app.env" up -d
   ```
   - 先停旧的 Agent Host 再启动新的；首次部署时没有旧实例。
+  - **中继与 Host 的上下文版本必须一致**：stage 的 `message-relay` 以 `--run-profile-file` 与 `--context-strategy recent_plus_required` 启动，产出 Context v6；Agent Host 运行配置的 `context_input_protocol` 为 `nexloop.context-pack.v6`（[`agent-host.runtime-config.example.json`](../../deploy/stage/agent-host.runtime-config.example.json)）。去掉 `--context-strategy` 会退回 v2，与 Host 不一致；stage compose 的测试核对这一点。
+  - **relay 进程数**：默认 1 个进程（连接池 2）。可选副本覆盖文件 [`compose.app.relay-replicas.example.yaml`](../../deploy/stage/compose.app.relay-replicas.example.yaml) 可开到 1–3 个进程，每个进程独占自己的 vault 目录（`data/relay-vault-2` 等），不能共用。当前连接预算是 59/60，加一个副本就超过 60，所以**默认不加**；要开副本，先按 [relay 步骤计时与多进程](relay-step-timing.md) §3 选方案，并在登录高峰下复测后再改预算文件，部署门禁按 `nexloop.budget-service` 标签核对容器数与预算。
 - **预期**：各服务先显示 Started；API 的 `/health/ready` 只报告已核实的能力。
 - **撤销**：`ssh "$SSH_ALIAS_APP" docker compose -p nexloop-app down`，数据目录保留。
 - **核对**：`--deploy-gate`（host_role 为 app）的全部检查都为 true，包括：
@@ -125,6 +127,7 @@
   - `port_bindings`：内部端口只绑 127.0.0.1；
   - `real_dispatch_closed`；
   - `agent_host_concurrency`；
+  - 连接预算：relay 容器数与 `connection-budget.v1.json` 声明的进程数一致；
   - TLS 各项；
   - `existing_services_unchanged`。
 - **登记为当前发布**（门槛全部通过之后，只在本地发布根目录内操作，不连接服务器）：
