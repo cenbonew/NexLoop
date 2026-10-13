@@ -110,6 +110,9 @@ def reply_history(out, pg, tenant, lane, *, dispatch_loops=4):
 # reply guarantor's fallback replies are issued with it (without it every fallback failed with fallback_failed escalations).
 @pytest.mark.reply_fallback
 def test_build_load_template(assembled_message, admin, tmp_path):
+    # NX-052: the cell-level key drop is a matrix cell's measurement, never the template's (the template keeps every key; the
+    # template-level drop is NEXLOOP_LOAD_TENANT_FK_DROP). Refused here so a template is never built from it.
+    assert not os.environ.get('NEXLOOP_LOAD_TENANT_FK_DROP_CELL'), 'NEXLOOP_LOAD_TENANT_FK_DROP_CELL applies to matrix cells only; unset it for the template build'
     f = assembled_message
     o = f['original']
     tenant, pg = o['tenant'], o['pg']

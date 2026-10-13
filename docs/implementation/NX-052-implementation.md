@@ -676,7 +676,7 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
   - 这也解释了第一次失败（e5e7ebd）：那时的代码直接执行 `alter table … drop constraint`，约束不存在时立即报错。
   - search_path 那一条（3495aed）是真实存在的隐患，但不是 CI 上这次的原因。
 - **修复**：
-  - `stack.py`：格级删除之前读取模板的 `template.json`。如果 `tenant_fk_dropped` 存在，就以 `TemplateKeysDropped` 拒绝，不碰克隆；`tenant-fk-state.json` 和 `cell.json` 记 `refused: template_keys_already_dropped` 以及模板删过的批次。
+  - `stack.py`：格级删除之前读取模板的 `template.json`。如果 `tenant_fk_dropped` 存在，就以 `TemplateKeysDropped`（模板缺外键）拒绝，不碰克隆；`tenant-fk-state.json` 和 `cell.json` 记 `refused: template_keys_already_dropped` 以及模板删过的批次。
   - `run_on_lane.sh`：预检时如果 `NEXLOOP_LOAD_TENANT_FK_DROP` 与 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL` 同时设置就拒绝。两者是不同的测量方式，不能叠加。
   - `TenantFkMismatch` 的 cluster 信息中带有库名（3495aed 已有），连到没有这些外键的库时会直接显示出来。
 - **验证（本机，CI 同路径）**：
@@ -714,3 +714,26 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
   | `postgres` 库 134/134 | 模板没问题 | 问题出在格的克隆或连接上，查 `Clone` 与车道 |
   | 8 个外键，台账已记录 NX-052 各批次 | 迁移执行过，之后外键被删掉了 | 查构建与快照之间谁删的 |
   | 8 个外键，台账缺 NX-052 批次，或最新版本不是 0190 | 模板是用别的迁移目录或旧版本建的 | 查 CI 上 `build_template` 实际导入的 eios 包和迁移目录 |
+
+### §11.4（四）确认的根因：格级变量在模板构建时生效（2026-10-14）
+
+- **调度员普查结果**（CI 主机，`template_fk_census.py`）：
+  - N 的模板 `nx052_present` 为 0/134，台账里 9 个批次的迁移都已执行；
+  - K 的模板 134/134。
+  - 对应上表第二行：迁移执行过，外键在构建到快照之间被删掉了，不是连错了库。
+- **根因**：
+  - N 在整个 `run_on_lane.sh` 上设置了 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`，模板构建这一步也继承了它。
+  - 模板构建的历史回复步骤 `build_template_hold.reply_history`（`build_template_hold.py:69`）用 `stack.Stack(SimpleNamespace(dsn=pg), out, lane, {})` 在**模板集群本身**上启动消息链。
+  - 修复前 `Stack.__init__`（`stack.py:56-63`）无条件读取 `_CELL` 并执行删除，于是 134 个外键在快照之前就从模板里删掉了。
+  - 这时 `template.json` 还没写，也没有 `tenant_fk_dropped`，所以上一版的模板记录检查拦不住。之后 N 的格在克隆上再删，就报 134 个全部缺失。
+  - 上一节"模板级删除"的推断方向是对的，但删除的来源是 `_CELL`，不是 `NEXLOOP_LOAD_TENANT_FK_DROP`。
+- **修复**（分支 `l3/nx052-template-keys`）：
+  - `stack.py`：只有矩阵格的 Stack 才读 `_CELL`，即 spec 带格名的那种；模板构建的 Stack（spec 为空）一律不删。
+  - `stack.py`：格级删除前先核对，克隆里一个批次外键都没有时，以 `TemplateKeysDropped` 拒绝，原因是"模板缺外键"，无论是谁删的。`tenant-fk-state.json` 记 `refused: template_keys_missing`、缺失数和 cluster 信息。`template.json` 里记了模板级删除时，仍按 `template_keys_already_dropped` 拒绝。部分缺失仍报 `TenantFkMismatch`。
+  - `build_template.sh` 和 `build_template_hold.py`：设置了 `_CELL` 就拒绝构建。
+  - `run_on_lane.sh`：模板步骤用 `env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL` 执行，只有矩阵步骤能看到这个变量。
+- **测试**（`tests/test_nx052_e2e.py`）：
+  - `test_the_cell_variable_drops_the_keys_in_a_matrix_cell_only_never_in_the_template_build`：设了 `_CELL`，模板构建的 Stack 保留全部 134 个外键；格的 Stack 删除全部 134 个。
+  - `test_a_clone_without_any_of_the_keys_is_refused_as_a_template_lacking_them`；
+  - `test_the_template_build_refuses_the_cell_variable_and_the_lane_withholds_it`。
+- **CI 主机重跑 N**：照原命令设 `_CELL=all` 跑 `run_on_lane.sh` 即可，模板步骤会自动去掉这个变量。不要 `--resume` 复用 N 之前建的模板（缺外键），要新建一次运行。

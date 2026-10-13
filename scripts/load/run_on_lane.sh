@@ -163,7 +163,9 @@ step_run() {
 }
 
 # ---- 2–4. template, matrix, report -------------------------------------------------------------------------------------
-[[ "${template_done:-0}" -eq 1 ]] || step_run template "$template_cmd" --seed "${LOAD_SEED:-31}" --consumers "${LOAD_CONSUMERS:-1000}" --out "$run_dir/template"
+# NX-052: NEXLOOP_LOAD_TENANT_FK_DROP_CELL is the matrix cells' measurement only; the template build never sees it (it would
+# drop the keys from the template itself; the build refuses it).
+[[ "${template_done:-0}" -eq 1 ]] || step_run template env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL "$template_cmd" --seed "${LOAD_SEED:-31}" --consumers "${LOAD_CONSUMERS:-1000}" --out "$run_dir/template"
 export LOAD_CI_COMMAND="scripts/ci/check"   # the C4-ci cell runs the full CI inside this lock (design §5.2)
 step_run matrix uv run --frozen python "$runner_cmd" --template "$run_dir/template" --matrix "$matrix" --out "$run_dir" --lane-root "$run_dir/lane" --relay-processes "${LOAD_RELAY_PROCESSES:-1}" ${resume:+--resume}
 report_args=("$run_dir" --out "$run_dir")

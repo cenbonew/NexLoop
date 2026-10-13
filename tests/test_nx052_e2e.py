@@ -232,3 +232,53 @@ def test_the_template_census_reads_a_copy_and_counts_the_nx052_keys(admin, pg, t
     db = template_fk_census.census(dropped)['databases']['postgres']
     assert db['nx052_present'] == 134 - len(tenant_fk_state.constraints('5')) and db['ledger']['nx052_batches_absent'] == []
     assert template_fk_census.main(['--template', str(dropped)]) == 0
+
+
+def test_the_cell_variable_drops_the_keys_in_a_matrix_cell_only_never_in_the_template_build(admin, pg, tmp_path, monkeypatch):
+    """CI host N runs 2026-10-13/14: with NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all set for the whole lane run, the template build's
+    history chain (a Stack on the template cluster, spec {}) dropped the keys from the template itself. With the variable set, the
+    template's Stack keeps all 134 keys; a matrix cell's Stack (a spec naming its cell) drops all 134 on its clone."""
+    from types import SimpleNamespace
+    from nexloop_eios.bootstrap import bootstrap
+    import stack
+    bootstrap(admin)
+    template = tmp_path / 'template'
+    (template / 'private').mkdir(parents=True)
+    (template / 'private/chain.json').write_text(json.dumps({'tenant': '00000000-0000-4000-8000-00000000000a'}))
+    monkeypatch.setenv('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', 'all')
+    stack.Stack(SimpleNamespace(dsn=pg), template, tmp_path / 'history-lane', {})  # the template build's history chain
+    assert tenant_fk_state.missing(admin, ['all']) == [] and not (tmp_path / 'history-lane/tenant-fk-state.json').exists()
+    stack.Stack(SimpleNamespace(dsn=pg), template, tmp_path / 'cell-lane', {'cell': 'C4-low'})
+    assert len(tenant_fk_state.missing(admin, ['all'])) == 134
+    assert json.loads((tmp_path / 'cell-lane/tenant-fk-state.json').read_text()) == {'dropped_batches': ['all'], 'dropped_constraints': 134}
+
+
+def test_a_clone_without_any_of_the_keys_is_refused_as_a_template_lacking_them(admin, pg, tmp_path, monkeypatch):
+    """Whatever removed them (the template.json record is absent here): a cell whose clone has none of the batches' keys is
+    refused with TemplateKeysDropped, the template lacks the keys; nothing else is touched."""
+    from types import SimpleNamespace
+    from nexloop_eios.bootstrap import bootstrap
+    import stack
+    bootstrap(admin)
+    tenant_fk_state.drop(admin, ['all'])
+    template = tmp_path / 'template'
+    (template / 'private').mkdir(parents=True)
+    (template / 'private/chain.json').write_text(json.dumps({'tenant': '00000000-0000-4000-8000-00000000000a'}))
+    monkeypatch.setenv('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', 'all')
+    with pytest.raises(tenant_fk_state.TemplateKeysDropped, match='lacks the NX-052 tenant foreign keys'):
+        stack.Stack(SimpleNamespace(dsn=pg), template, tmp_path / 'lane', {'cell': 'C4-low'})
+    state = json.loads((tmp_path / 'lane/tenant-fk-state.json').read_text())
+    assert state['refused'] == 'template_keys_missing' and state['missing'] == 134 and state['dropped_constraints'] == 0
+
+
+def test_the_template_build_refuses_the_cell_variable_and_the_lane_withholds_it(tmp_path):
+    import os
+    import subprocess
+    run = subprocess.run(['bash', str(ROOT / 'scripts/load/build_template.sh'), '--out', str(tmp_path / 'template')], capture_output=True, text=True,
+                         env={**os.environ, 'NEXLOOP_LOAD_TENANT_FK_DROP_CELL': 'all'}, timeout=60)
+    assert run.returncode == 2 and 'applies to matrix cells only' in run.stderr and not (tmp_path / 'template').exists()
+    lane = (ROOT / 'scripts/load/run_on_lane.sh').read_text()
+    template_step = next(line for line in lane.splitlines() if 'step_run template' in line)
+    assert 'env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL' in template_step
+    assert 'env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL' not in next(line for line in lane.splitlines() if 'step_run matrix' in line)
+    assert "NEXLOOP_LOAD_TENANT_FK_DROP_CELL'), 'NEXLOOP_LOAD_TENANT_FK_DROP_CELL applies to matrix cells only" in (ROOT / 'scripts/load/build_template_hold.py').read_text()

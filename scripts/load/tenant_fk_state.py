@@ -48,10 +48,11 @@ class TenantFkMismatch(Exception):
 
 
 class TemplateKeysDropped(Exception):
-    """The template was built with NEXLOOP_LOAD_TENANT_FK_DROP: its clones have no NX-052 tenant keys to drop."""
+    """The template lacks its NX-052 tenant foreign keys (built with NEXLOOP_LOAD_TENANT_FK_DROP, or removed by anything else
+    before its snapshot): its clones have none to drop. `batches` names the recorded template-level drop, if any."""
 
     def __init__(self, batches):
-        super().__init__('the template was built without the NX-052 tenant foreign keys')
+        super().__init__('the template lacks the NX-052 tenant foreign keys')
         self.batches = batches
 
 
