@@ -158,31 +158,27 @@ def test_two_relays_route_every_message_exactly_once(assembled_message,admin,tmp
     assert admin.execute("select count(*) from runtime.jobs j join runtime.nexloop_message_routes m on m.task_id=j.job_id where m.tenant_id=%s",(tenant,)).fetchone()==(total,)
 
 
-def test_relay_replicas_compose_overlay_needs_a_matching_budget():
-    """The replica overlay is the base relay with its own vault; the deploy gate passes it only with a budget that declares
-    the same number of relay processes (and the doctor's 60 limit is checked separately)."""
-    import copy,yaml
+def test_stage_compose_runs_two_relays_with_their_own_vaults_within_the_budget():
+    """Connection budget option B (dispatcher 2026-10-13): the stage Compose runs message-relay and message-relay-2, each with its
+    own vault and otherwise the same configuration; the budget declares 2 relay processes x 2 and api-browser-identity 3 per
+    process (the API's --identity-pool-max), total within 60, and the deploy gate's container/budget comparison passes."""
+    import yaml
     from nexloop_eios.deploy_checks import compose_budget
     from nexloop_eios import connection_budget
     stage=ROOT/'deploy/stage'
-    base=yaml.safe_load((stage/'compose.app.example.yaml').read_text())
-    overlay=yaml.safe_load((stage/'compose.app.relay-replicas.example.yaml').read_text())
+    compose=yaml.safe_load((stage/'compose.app.example.yaml').read_text())
     budget=json.loads((stage/'connection-budget.v1.json').read_text())
-    merged=copy.deepcopy(base)
-    for name,spec in overlay['services'].items():
-        assert spec['extends']=={'file':'compose.app.example.yaml','service':'message-relay'}
-        service=copy.deepcopy(base['services']['message-relay'])
-        target=lambda v:v.split(':')[-2] if v.split(':')[-1] in ('ro','rw') else v.split(':')[-1]  # the container path (a source may hold ':')
-        mounts={target(v):v for v in service['volumes']}
-        mounts.update({target(v):v for v in spec['volumes']})
-        service['volumes']=list(mounts.values())
-        merged['services'][name]=service
-        own=[v for v in service['volumes'] if v.endswith(':/var/lib/nexloop/relay-vault')]
-        assert own==['${NEXLOOP_ROOT:?root}/data/relay-vault-2:/var/lib/nexloop/relay-vault']  # never the first relay's vault
-    assert compose_budget(budget,base)['checks']['compose_matches_budget']
-    assert compose_budget(budget,merged)['details']['compose_budget']==['process_count_differs:message-relay']
-    two=copy.deepcopy(budget)
-    for s in two['services']:
-        if s['name']=='message-relay':s['processes']=2
-    assert compose_budget(two,merged)['checks']['compose_matches_budget']
-    assert connection_budget.evaluate(two)['checks']['application_pool_total'] is False  # 61: needs one of the budget options first
+    first,second=compose['services']['message-relay'],compose['services']['message-relay-2']
+    vault=lambda spec:[v for v in spec['volumes'] if v.endswith(':/var/lib/nexloop/relay-vault')]
+    assert vault(first)==['${NEXLOOP_ROOT:?root}/data/relay-vault:/var/lib/nexloop/relay-vault']
+    assert vault(second)==['${NEXLOOP_ROOT:?root}/data/relay-vault-2:/var/lib/nexloop/relay-vault']  # never shared
+    assert {k:v for k,v in first.items() if k!='volumes'}=={k:v for k,v in second.items() if k!='volumes'}
+    assert [v for v in first['volumes'] if v not in vault(first)]==[v for v in second['volumes'] if v not in vault(second)]
+    declared={s['name']:s for s in budget['services']}
+    assert declared['message-relay']['processes']==2 and declared['message-relay']['pool_max']==2
+    assert declared['api-browser-identity']['pool_max']==3
+    apis=[spec for name,spec in compose['services'].items() if spec.get('labels',{}).get('nexloop.budget-service','').startswith('api')]
+    assert apis and all(spec['command'][spec['command'].index('--identity-pool-max')+1]=='3' for spec in apis)
+    assert compose_budget(budget,compose)['checks']['compose_matches_budget']
+    evaluated=connection_budget.evaluate(budget)
+    assert evaluated['passed'] and evaluated['details']['application_pool_total']==59
