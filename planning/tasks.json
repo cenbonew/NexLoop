@@ -2608,6 +2608,12 @@
         "ref": "ci:lane/runs/20261012T224917Z-b8831ff5b255",
         "summary": "s5u 全量（b8831ff）：integration-parallel 失败 1 项 role_context_v6::test_actual_pi_role_run_on_v6_records_every_model_call，同一检出串行复跑 3/3 通过 ⇒ C 类负载敏感；门槛 4/4；heavy 22；pi 24、runtime 266。",
         "recorded_at": "2026-10-12T23:43:56.471143+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "load run 20261012T234421Z-b8831ff (200 customers, matrix v2)",
+        "summary": "AT-060 failed: C4 worst-minute guard p95 1599>1500, C4-low idle dispatch 4397>2000 under the 2026-10-11 caliber; other gate items pass (identity 0, unresolved 0). Gate item 4 (model context) had no sample (v2 message Runs). Owner 2026-10-13 decided 4A/5A; model context fix merged in 01e3e58; gate cells to be rerun with Context v6.",
+        "recorded_at": "2026-10-13T05:20:00Z"
       }
     ]
   },
@@ -3090,6 +3096,18 @@
         "ref": "ci:lane/runs/20261012T031847Z-fd2a39a0fbcf",
         "summary": "s5m 全量（fd2a39a）：integration-parallel 失败 2 项均为基线 B 类（role_context_v6、runtime_effect_recovery）；v6_relationships、message_relay、scope_denials 本轮通过；门槛 4/4 251 s；heavy 22/22；pi 24、runtime 257 通过；licenses 阶段通过（含 playwright 新依赖）。此前 s5l（e1ef26b）新增的 2 个失败（为未登记租户写行的测试捷径）已在 1dfe720 修正，本轮通过。",
         "recorded_at": "2026-10-12T04:15:30.578514+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "01e3e58",
+        "summary": "NX-037 readiness gaps A-F merged: CNY pricing (D-g option 2, migration 0185), enterprise delivery Action nexloop.enterprise.deliver:1 and ADR-030 multi-slot Runs (0178-0183), provider routing per Action with NexLoop delivery service and effect-worker firewall rule (0184), endpoint conformance check, reference enterprise delivery endpoint (service ticket), tenant assembly manual. origin/main 01e3e58.",
+        "recorded_at": "2026-10-13T05:20:00Z"
+      },
+      {
+        "type": "test_report",
+        "ref": "CI run 20261013T035807Z-b05d77d23fe7 (b05d77d)",
+        "summary": "CI host full run: all stages pass except integration-parallel 3424/2 (enterprise three-switch test and nx049_memo_stress), both passed 2/2 in serial rerun on the same checkout (load-sensitive, recorded in the merge baseline). Real trial not run; task stays in_progress.",
+        "recorded_at": "2026-10-13T05:20:00Z"
       }
     ]
   },
