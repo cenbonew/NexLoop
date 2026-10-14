@@ -109,6 +109,23 @@ def test_trial_consent_examples_fit_the_start_guard(tmp_path):
     authorization.write_text('synthetic owner authorization')
     authorization.chmod(0o600)
     digest = hashlib.sha256(authorization.read_bytes()).hexdigest()
-    trial = filled('trial-participants.example.json', CONSUMER_ID=HEX, AUTHORIZATION_SHA256=digest, AGENT_TOOL='Claude Code via browser')
-    plan = filled('interaction-plan-consumers.example.json', CONSUMER_ID=HEX)
-    assert trial_guards.consent(trial, plan, authorization) == ([], [{'consumer_id': HEX, 'kind': 'agent', 'persona': 'simulated_agent'}])
+    ids = {f'{n}_ID': hashlib.sha256(n.encode()).hexdigest() for n in ('CUSTOMER_1', 'CUSTOMER_2', 'CUSTOMER_3', 'CUSTOMER_4', 'REFUSAL_1', 'REFUSAL_2')}
+    trial = filled('trial-participants.example.json', AUTHORIZATION_SHA256=digest, AGENT_TOOL='Claude Code via browser', **ids)
+    assert sum(p['kind'] == 'human' and p == {'kind': 'human', 'role': 'staff'} for p in trial['participants']) == 1
+    # The v3 plan with its placeholders replaced by the same ids passes the guard: every planned account is an agent participant.
+    plan_text = (ROOT / 'deploy/configuration/nx037-interaction-plan.v3.json').read_text()
+    for name, value in ids.items():
+        plan_text = plan_text.replace('<' + name.removesuffix('_ID') + '>', value)
+    plan = json.loads(plan_text)
+    failed, recorded = trial_guards.consent(trial, {'consumers': sorted({i['consumer'] for i in plan['order']})}, authorization)
+    assert failed == [] and len(recorded) == 6 and {r['persona'] for r in recorded} == {'simulated_agent'}
+    assert filled('interaction-plan-consumers.example.json', CONSUMER_ID=HEX) == {'note': filled('interaction-plan-consumers.example.json', CONSUMER_ID=HEX)['note'],
+                                                                                'consumers': ['consumer:' + HEX]}
+
+
+def test_the_operator_authorization_template_names_the_scope_and_holds_only_placeholders():
+    text = (EXAMPLES / 'operator-authorization.example.txt').read_text()
+    for point in ('nexloop.nx037-interaction-plan.v3', 'nexloop.nx037-trial.v3', '累计 100 CNY', '单 Run 2 CNY', '扮演客户', '客户为模拟、系统为真实'):
+        assert point in text, point
+    assert not re.search(r'\b\d{1,3}(\.\d{1,3}){3}\b', text) and '@' not in text
+    assert set(re.findall(r'<([A-Z0-9_]+)>', text)) == {'OWNER_REFERENCE', 'TENANT_ID', 'TRIAL_UUID', 'PERIOD_START', 'PERIOD_END', 'AGENT_TOOLS', 'PLAN_SHA256', 'DATE'}

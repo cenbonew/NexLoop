@@ -210,10 +210,14 @@ class ConsoleOperator:
     def prompt(self, interaction, instruction, deadline_seconds):
         import json
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        done = self.done / str(interaction['seq'])
+        # One machine-readable line per prompt for the agent playing the customer: what to play, with which account, and (when
+        # waiting) the file to create once every message of the interaction is sent.
         with open(self.path, 'a', encoding='utf-8') as handle:
             handle.write(json.dumps({'seq': interaction['seq'], 'interaction_id': interaction['interaction_id'], 'kind': interaction['kind'],
-                                     **({'variant': interaction['variant']} if interaction.get('variant') else {})}) + '\n')
-        done = self.done / str(interaction['seq'])
+                                     **({'variant': interaction['variant']} if interaction.get('variant') else {}),
+                                     **({'consumer': interaction['consumer']} if interaction.get('consumer') else {}),
+                                     **({'done_file': str(done), 'deadline_seconds': deadline_seconds} if self.wait else {})}) + '\n')
         tail = f'全部发完后创建 {done} 表示完成。' if self.wait else ''
         print(f"第 {interaction['seq']} 次交互（{interaction['kind']}，{deadline_seconds} 秒内完成）：{instruction}{tail}", file=self.stream, flush=True)
         if self.wait:

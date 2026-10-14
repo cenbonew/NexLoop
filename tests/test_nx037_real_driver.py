@@ -170,3 +170,17 @@ def test_the_console_operator_waits_for_the_done_mark(tmp_path):
     clock.t = 0
     operator.prompt(INTERACTION, 'x', 5)
     assert clock.t == 0
+
+
+def test_the_prompt_line_tells_the_agent_what_to_play_and_where_to_mark_done(tmp_path):
+    import io
+    import json
+    clock = Clock()
+    operator = D.ConsoleOperator(tmp_path, io.StringIO(), wait=True, sleep=clock.sleep, monotonic=clock.monotonic)
+    (tmp_path / 'operator-done').mkdir()
+    (tmp_path / 'operator-done' / '7').write_text('')
+    item = {**INTERACTION, 'seq': 7, 'kind': 'restricted_after_refusal', 'variant': 'repeated_refusal', 'consumer': 'consumer:' + 'r' * 64}
+    operator.prompt(item, D.instruction(item), 900)
+    line = json.loads((tmp_path / 'prompts.jsonl').read_text().strip())
+    assert line == {'seq': 7, 'interaction_id': INTERACTION['interaction_id'], 'kind': 'restricted_after_refusal', 'variant': 'repeated_refusal',
+                    'consumer': 'consumer:' + 'r' * 64, 'done_file': str(tmp_path / 'operator-done' / '7'), 'deadline_seconds': 900}

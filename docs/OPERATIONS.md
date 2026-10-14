@@ -246,6 +246,8 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 
 > **客户为模拟、系统为真实**：消费者由负责人操作的 AI 代理（Claude Code / Codex 通过浏览器）扮演。负责人是唯一的员工：员工侧的工作台接管回复和参考端点工单标记，由负责人本人做，或由负责人操作代理使用负责人唯一的工作台账号来做。部署、网关、DeepSeek 真实模型、企业端点与 WebChat 都是真实的。排期：10/17 校准，10/18–19 跑 30 次以上交互，10/20 验收（ROADMAP §7，负责人 2026-10-14）。
 
+代理扮演客户的操作说明（指令模板、账号分组、完成标记、暂停处理、禁止事项）：[NX-037-agent-players.md](implementation/NX-037-agent-players.md)。
+
 开跑前：
 
 1. 三层开关按计划打开（9.3 节），`real_tenant_init.py verify` 中除开关以外的检查全部通过。
