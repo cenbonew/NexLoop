@@ -103,7 +103,7 @@ def test_console_operator_writes_codes_only(tmp_path):
 
 
 class MultiObserver:
-    """The 0481 message list plus each message's 0172 observation (by its acceptance time)."""
+    """The 0196 message list plus each message's 0172 observation (by its acceptance time)."""
 
     def __init__(self, views):
         self.views = views  # [(message_id, accepted_at, observation)]

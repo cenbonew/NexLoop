@@ -238,14 +238,14 @@ class PgObserver:
             return db.execute('select authz.nexloop_nx037_interaction_observation(%s,%s,%s)', (self.tenant, self.world, since)).fetchone()[0]
 
     def messages(self, since):
-        """The customer messages accepted since the prompt, in order (0481): [{message_id, accepted_at}]."""
+        """The customer messages accepted since the prompt, in order (0196): [{message_id, accepted_at}]."""
         with self.connect(self.dsn_file) as db:
             return db.execute('select authz.nexloop_nx037_interaction_messages(%s,%s,%s)', (self.tenant, self.world, since)).fetchone()[0]
 
 
 class RealDriver:
     """interact(interaction) -> {run_id, run_ids, messages, outcome, error_code, receipts, reconciliation, facts}: prompt the
-    operator, wait (polling the observer) until every customer message accepted since the prompt (0481; a long conversation
+    operator, wait (polling the observer) until every customer message accepted since the prompt (0196; a long conversation
     has several) is settled, and derive the facts from all their records: a failed Run in any turn makes the interaction an
     error, contacts after refusal and every other stop fact are summed over the turns, and each turn's Run is collected for
     cost. An observer without `messages` (tests) gives the first message only. Sends nothing itself."""

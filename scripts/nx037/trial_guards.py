@@ -16,7 +16,7 @@ none prints a name, a path, a credential or a body.
   enterprise accepts as a no-op.
 - WebChat delivery: GET /v1/health of the reply delivery (local_json_delivery) through the effect worker's reply provider file;
   it must answer 200 {state: ok} within the deadline (webchat_delivery_unavailable).
-- outbound recorder: no delivered reply waiting more than 60 s to be written into its conversation (0480 for the metrics role);
+- outbound recorder: no delivered reply waiting more than 60 s to be written into its conversation (0195 for the metrics role);
   otherwise outbound_recorder_stalled. A recorder that is down with nothing to record passes: the first interaction's reply then
   times out (interaction_timeout), which pauses the trial.
 """

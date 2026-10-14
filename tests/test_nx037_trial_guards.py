@@ -1,6 +1,6 @@
 """NX-037 real-mode start guards (scripts/nx037/trial_guards.py): each guard passes on a good setup and refuses each
 counter-example. D3 consent, the trial window, the enterprise endpoint conformance, the WebChat reply delivery and the outbound
-recorder backlog (0480, clean catalog PostgreSQL); and the counted cost (the tenant's actual increase over an interaction).
+recorder backlog (0195, clean catalog PostgreSQL); and the counted cost (the tenant's actual increase over an interaction).
 Synthetic data; the reference endpoint stands for both HTTP services (it speaks the same protocol)."""
 import hashlib
 import json

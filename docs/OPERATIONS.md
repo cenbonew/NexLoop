@@ -210,7 +210,7 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
      - **试运行窗口**（`outside_trial_window`）：试运行配置的 `plan.window`（本地时间，时区默认 Asia/Shanghai），窗口外不开始，也不恢复。
      - **企业端点**（`enterprise_endpoint_nonconformant`）：计划打开 `nexloop.enterprise.deliver:1` 时，用 effect worker 的企业 provider 文件运行 `endpoint_conformance.py`，报告留在 `<试运行目录>/preflight/`。这项检查会在端点上创建三条带标记的效应，因此应给 `--endpoint-parameters-file`，用企业确认为空操作的参数。
      - **WebChat 投递**（`webchat_delivery_unavailable`）：经 effect worker 的回复 provider 文件请求投递服务的 `GET /v1/health`，必须返回 200 `{state: ok}`，表示凭据通过、执行者权限有效、存储可用。
-     - **出站录入器**（`outbound_recorder_stalled`）：已投递但超过 60 s 仍未写入会话的回复为 0（迁移 0480）。录入器停了但当时没有积压，这项会通过；之后第一次交互收不到回复，会以 `interaction_timeout` 暂停。
+     - **出站录入器**（`outbound_recorder_stalled`）：已投递但超过 60 s 仍未写入会话的回复为 0（迁移 0195）。录入器停了但当时没有积压，这项会通过；之后第一次交互收不到回复，会以 `interaction_timeout` 暂停。
 - **期间实际费用**：每次交互前后各读一次租户本月 model 费用（0185）。记录里保留三项：`cost.total`（触发 Run 自身，用于单 Run 上限）、`cost.period_increase`（期间实际增量，含兜底、复评、角色 Run 和抽取等）、`cost.counted`（两者取大）。累计上限和月度上限按 `counted` 计算，所以不会因为触发 Run 之外的花费而被低估。按交互精确归属尚未实现：同期其他活动的花费也会计入这一次交互，计数只会偏高、不会偏低。
 - **月度费用起点**：执行器的月度上限从租户本月（UTC）已发生的 model 费用开始计算，经 metrics 角色的 `authz.nexloop_nx037_month_model_cost`（迁移 0185，只统计试运行币种）读取，并扣除本试运行已记录的部分，避免恢复时重复计算。
 - **按币种汇总**：每次交互只把试运行币种的费用计入合计；其他币种的非零费用单独记在 `other_currencies`，并立即停止（`currency_mismatch`）。
@@ -239,7 +239,7 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 - 文件：`deploy/configuration/nx037-interaction-plan.v3.json`，配套 `nx037-trial.v3.json`。共 36 次交互，配比 16/6/5/5/4；上限与停止、暂停规则和 v2 相同。
 - 每项写成 `{kind, variant, consumer}`。把 `consumer:<…>` 替换成代理使用的消费者账号，同一个占位符替换成同一个账号。
 - `REFUSAL_1`、`REFUSAL_2` 两个账号只用于拒收类，绝不用于交付类和结果未知类，否则运行入口拒绝（`account groups`）。
-- **多轮交互**：一次交互内的全部来信及其 Run 都纳入这次交互的判定（迁移 0481），包括每一轮 Run 的错误、拒收后联系、费用；单 Run 上限按其中最大的一个 Run 判定。
+- **多轮交互**：一次交互内的全部来信及其 Run 都纳入这次交互的判定（迁移 0196），包括每一轮 Run 的错误、拒收后联系、费用；单 Run 上限按其中最大的一个 Run 判定。
 - **完成标记**：运行入口提示后，扮演客户的代理把这次交互的全部消息发完，再创建提示里给出的 `<试运行目录>/operator-done/<序号>` 文件，表示完成。运行入口随后等每一条来信都了结再判定；到时限仍未标记，按 `interaction_timeout` 暂停。
 
 ### 9.4a 开跑清单（负责人本人，每个试运行日）

@@ -12,7 +12,7 @@ real 模式在开始时和每次 `--resume` 时检查以下各项。任何一项
 | 试运行窗口 | `outside_trial_window` | 当前时间落在 `plan.window` 的 start ≤ 本地时间 < end 内，时区默认 Asia/Shanghai，可在配置里写 `timezone`。没有配置窗口时一律拒绝。 |
 | 企业端点 | `enterprise_endpoint_nonconformant` | 计划打开 `nexloop.enterprise.deliver:1` 时，用 effect worker 的企业 provider 文件运行 `endpoint_conformance.py`，报告写到 `<试运行目录>/preflight/endpoint-conformance.json`。 |
 | WebChat 投递 | `webchat_delivery_unavailable` | `local_json_delivery` 新增 `GET /v1/health`（需要 Bearer）：执行者凭据能在当前权威下认证、导出存储可用时返回 200 `{state: ok}`，否则返回 503。守卫通过回复 provider 文件请求这个接口。 |
-| 出站录入器 | `outbound_recorder_stalled` | 新增迁移 0480 `authz.nexloop_nx037_outbound_backlog`（metrics 角色，只返回数字）：已被渠道接受或已投递、但还没写入会话、且等待超过 60 s 的回复数必须为 0。 |
+| 出站录入器 | `outbound_recorder_stalled` | 新增迁移 0195 `authz.nexloop_nx037_outbound_backlog`（metrics 角色，只返回数字）：已被渠道接受或已投递、但还没写入会话、且等待超过 60 s 的回复数必须为 0。 |
 
 其余前置检查不变：租户就绪、三层开关、币种与 Host。测试栈（`test_stack`）同样经过全部守卫。
 
@@ -75,7 +75,7 @@ real 模式在开始时和每次 `--resume` 时检查以下各项。任何一项
   - 拒收类账号不得出现在交付类和结果未知类里，否则拒绝（`account groups`）；
   - order 摘要对 v3 包含变体和账号，对 v2 不变。
 - **多轮判定**：
-  - 新增迁移 0481 `authz.nexloop_nx037_interaction_messages`（metrics 角色，只返回 id 和时间），列出本次交互提示之后受理的全部来信；
+  - 新增迁移 0196 `authz.nexloop_nx037_interaction_messages`（metrics 角色，只返回 id 和时间），列出本次交互提示之后受理的全部来信；
   - RealDriver 对每条来信按其受理时间走 0172 观测。全部了结才算完成：Run 已终结且没有未结效应；或者没有 Run（会话被接管），但已经有员工回复；
   - 任何一轮的 Run 失败，本次交互都判为 error；拒收后联系等停止事实按各轮累加；
   - 执行器收集每一轮 Run 的证据并合并（`merge_evidence`）；单 Run 上限按最大的那个 Run（`cost.max_run`）判定；
