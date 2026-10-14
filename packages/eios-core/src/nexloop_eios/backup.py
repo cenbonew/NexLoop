@@ -194,42 +194,93 @@ class RestoredInstance:
         subprocess.run([str(self.pg_bin / 'pg_ctl'), '-D', str(self.data), '-m', 'fast', '-w', 'stop'], check=True, capture_output=True)
 
 
-def restore(*, pg_bin, base_backup, wal_archive, target, socket_dir, port, owner_user, restore_ref, window_start, window_end,
+def _refuse_target(target, port, running_ports):
+    target = Path(target)
+    if target.exists() and any(target.iterdir()):
+        raise RestoreRefused('restore target is not empty')
+    if port in running_ports or not _port_free(port):
+        raise RestoreRefused('restore port is in use')
+
+
+def _recovery_settings(target, *, port, socket_dir, owner_user, hba_method, extra):
+    """Socket-only listener on the new port, archiving off, only the owner over the local socket (§6.1 step 2)."""
+    settings = {**extra, 'recovery_target_action': 'promote', 'listen_addresses': '', 'port': str(port), 'unix_socket_directories': str(socket_dir),
+                'archive_mode': 'off'}
+    with open(Path(target) / 'postgresql.auto.conf', 'a') as conf:
+        for key, value in settings.items():
+            conf.write(f"{key} = '{value}'\n")
+    (Path(target) / 'pg_hba.conf').write_text(f'local all {owner_user} {hba_method}\n')
+
+
+def materialize_basebackup(*, base_backup, wal_archive, target, recovery_target_name=None, recovery_target_time=None, **settings):
+    """Local path (NX-035 local part): copy a pg_basebackup directory and replay archived WAL with cp to the target."""
+    base_backup, target = Path(base_backup), Path(target)
+    if not (base_backup / 'backup_manifest').is_file():
+        raise RestoreRefused('base backup manifest missing')
+    shutil.copytree(base_backup, target, dirs_exist_ok=True)
+    target.chmod(0o700)
+    (target / 'recovery.signal').write_text('')
+    extra = {'restore_command': f'cp "{Path(wal_archive)}/%f" "%p"'}
+    if recovery_target_name:extra['recovery_target_name'] = recovery_target_name
+    else:extra['recovery_target_time'] = recovery_target_time
+    _recovery_settings(target, extra=extra, **settings)
+
+
+def materialize_pgbackrest(*, pgbackrest, stanza, repo, config_file, target, recovery_target_name=None, recovery_target_time=None, set_label=None,
+                           **settings):
+    """Deployment path (D1): `pgbackrest restore` of the stanza's backup set into the new, empty target with a name or time
+    target (PITR, promote). pgBackRest writes recovery.signal and its own restore_command (archive-get); the repository
+    credentials stay in its private configuration file, which is never read or printed here."""
+    target = Path(target)
+    command = [str(pgbackrest), f'--config={config_file}', f'--stanza={stanza}', f'--repo={repo}', f'--pg1-path={target}',
+               '--type=name' if recovery_target_name else '--type=time', f'--target={recovery_target_name or recovery_target_time}',
+               '--target-action=promote', '--archive-mode=off', *([f'--set={set_label}'] if set_label else []), 'restore']
+    done = subprocess.run(command, capture_output=True, text=True, timeout=7200)
+    if done.returncode != 0:
+        raise RestoreRefused(f'pgbackrest restore failed (exit {done.returncode})')
+    if not (target / 'PG_VERSION').is_file():
+        raise RestoreRefused('pgbackrest restore produced no data directory')
+    target.chmod(0o700)
+    _recovery_settings(target, extra={}, **settings)
+
+
+def _backup_timeline(pg_bin, target):
+    """The timeline the restored data directory was taken on (pg_controldata, before the first start)."""
+    out = subprocess.run([str(Path(pg_bin) / 'pg_controldata'), str(target)], capture_output=True, text=True, check=True,
+                         env={'LC_ALL': 'C'}).stdout  # absolute path; English labels
+    for line in out.splitlines():
+        if line.startswith("Latest checkpoint's TimeLineID:"):
+            return int(line.split(':', 1)[1])
+    raise RestoreRefused('restored data directory has no timeline')
+
+
+def restore(*, pg_bin, base_backup=None, wal_archive=None, target, socket_dir, port, owner_user, restore_ref, window_start, window_end,
             journal_dir, evidence, recovery_target_name=None, recovery_target_time=None, backup_id=None, running_ports=(),
-            old_primary_fenced=False, hba_method='peer', restore_started_at=None):
-    """Restore a base backup plus archived WAL into a new directory on a new, socket-only port; set every application role
-    NOLOGIN; write the fence; replay the journal; reconcile the effect window; verify the migration lineage; end in
-    verified_readonly (design §6.1–§6.5). Returns the running instance and a numbers-only report."""
+            old_primary_fenced=False, hba_method='peer', restore_started_at=None, pgbackrest=None):
+    """Restore into a new directory on a new, socket-only port, either from a pg_basebackup directory plus archived WAL (local)
+    or with pgBackRest (`pgbackrest`: {pgbackrest, stanza, repo, config_file[, set_label]}; deployment, D1), to a named restore
+    point or a time; set every application role NOLOGIN; write the fence; replay the journal; reconcile the effect window;
+    verify the migration lineage; end in verified_readonly (design §6.1–§6.5). Returns the running instance and a numbers-only
+    report."""
     started = time.monotonic()
     restore_started_at = restore_started_at or datetime.now(UTC)
-    pg_bin, base_backup, target, socket_dir = Path(pg_bin), Path(base_backup), Path(target), Path(socket_dir)
+    pg_bin, target, socket_dir = Path(pg_bin), Path(target), Path(socket_dir)
     if not _REF.fullmatch(restore_ref or ''):
         raise RestoreRefused('restore reference invalid')
     if not old_primary_fenced:
         raise RestoreRefused('old primary must be fenced first (--old-primary-fenced)')
     if (recovery_target_name is None) == (recovery_target_time is None):
         raise RestoreRefused('exactly one recovery target required')
-    if target.exists() and any(target.iterdir()):
-        raise RestoreRefused('restore target is not empty')
-    if port in running_ports or not _port_free(port):
-        raise RestoreRefused('restore port is in use')
-    if not (base_backup / 'backup_manifest').is_file():
-        raise RestoreRefused('base backup manifest missing')
-    shutil.copytree(base_backup, target, dirs_exist_ok=True)
-    target.chmod(0o700)
-    (target / 'recovery.signal').write_text('')
-    archive = str(Path(wal_archive))
-    settings = {'restore_command': f'cp "{archive}/%f" "%p"', 'recovery_target_action': 'promote', 'listen_addresses': '',
-                'port': str(port), 'unix_socket_directories': str(socket_dir), 'archive_mode': 'off'}
-    if recovery_target_name:settings['recovery_target_name'] = recovery_target_name
-    else:settings['recovery_target_time'] = recovery_target_time
-    with open(target / 'postgresql.auto.conf', 'a') as conf:
-        for key, value in settings.items():
-            conf.write(f"{key} = '{value}'\n")
-    # Only the owner, only over the local socket, until the instance is opened (§6.1 step 2).
-    (target / 'pg_hba.conf').write_text(f'local all {owner_user} {hba_method}\n')
-    manifest = json.loads((base_backup / 'backup_manifest').read_text())
-    old_timeline = int(manifest['WAL-Ranges'][-1]['Timeline'])
+    if (pgbackrest is None) == (base_backup is None):
+        raise RestoreRefused('exactly one backup source required')
+    _refuse_target(target, port, running_ports)
+    settings = dict(target=target, recovery_target_name=recovery_target_name, recovery_target_time=recovery_target_time, port=port,
+                    socket_dir=socket_dir, owner_user=owner_user, hba_method=hba_method)
+    if pgbackrest is None:
+        materialize_basebackup(base_backup=base_backup, wal_archive=wal_archive, **settings)
+    else:
+        materialize_pgbackrest(**pgbackrest, **settings)
+    old_timeline = _backup_timeline(pg_bin, target)
     subprocess.run([str(pg_bin / 'pg_ctl'), '-D', str(target), '-l', str(target / 'restore.log'), '-w', '-t', '300', 'start'], check=True, capture_output=True)
     instance = RestoredInstance(pg_bin, target, socket_dir, port, owner_user)
     try:
