@@ -2703,6 +2703,12 @@
         "ref": "ci:lane/runs/20261011T135349Z-9058f0220d13",
         "summary": "s5a（ci:lane/runs/20261011T125849Z-51c198dd9402）与 s5b 全量：s5b 失败 14 项均在基线（参数化后的 closure_plan[False]、C 类 role_tail 与 reclaim 同检出串行各 2/2），s5a 的两项确定性新失败（优惠后台测试未发布 Action 定义、Run 完成测试期望未含 model_timing）已在 s5b 修正并通过；串行门槛 2/2。合入 main 1a3ea6b。",
         "recorded_at": "2026-10-11T14:50:34.404128+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015",
+        "summary": "10/14 晚提前执行部署执行单 1.1–1.6、2.1–2.6（负责人逐条确认）：两主机 5 个 LUKS 卷、服务用户与目录、秘密文件（APP 119+3、DATA 13，sha256 与清单一致，secret_distribution=true）、防火墙（独立表，原规则 hash 不变）、DATA_HOST 数据层运行、空库 bootstrap 到 0196（lineage 一致）。首次真实运行发现并修复 9 个部署缺陷（789d35e、2dd989c、b5ad6e6、879c213、5e7f5c8、48c0d63、5cc3eb6 等）。",
+        "recorded_at": "2026-10-14T18:15:51.278155+00:00"
       }
     ]
   },
@@ -2873,6 +2879,12 @@
         "ref": "release 20261014-241993b9cc12-1 (commit 241993b, CI host)",
         "summary": "First signed stage release (plan A, owner D-R1..D-R5 and A/B/C confirmations 2026-10-14). Release CI through the NX-033 queue on the lane: 241993b passed 4056/4056, deadline gate passed, policy 2. release.py build of 4 images (agent-host, backend, gateway caddy 2.11.7, nexloop/postgres with pgBackRest 2.59.3), sbom (syft 1.18.1, grype 0.86.1; stage lists findings: critical with fix in backend 4, agent-host 1, postgres base), preflight stage ok. nexloop-release copied, independently checked CI digest/commit/on-main and all 4 archive and SBOM sha256, signed (signature sha256 abc58df6...), sealed (0444/0555), archive check ok. Staging cleaned. Public tag/GitHub release not done (NX-036 vulnerability triage first).",
         "recorded_at": "2026-10-14T09:35:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "ci-host:/srv/nexloop/releases/releases/20261014-76df1926d6c0-1",
+        "summary": "第二个签名阶段发布 20261014-76df1926d6c0-1（commit 76df192：迁移 0197、NX-036 漏洞修复、10/14 部署缺陷修复）。发布 CI 队列 seq5 passed 4087/0 失败/0 跳过（seq4 90ade01 因 1 个跳过判 failed，测试修正后重跑）；critical_with_fix 四镜像均为 0；preflight stage ok；签名前核对 CI 记录 digest、commit、4 个镜像包与 4 份 SBOM sha256 一致；sign、seal（index 2）、archive check ok。on-main 由 nexloop-ci 与开发机 origin/main 核对（发布账户无仓库读权限）。",
+        "recorded_at": "2026-10-14T18:15:51.278155+00:00"
       }
     ]
   },
@@ -2931,6 +2943,12 @@
         "ref": "ci:lane/runs/20261011T155442Z-4db0a9d9b47d",
         "summary": "s5d 全量（4db0a9d）：integration-parallel 失败 3 项均为基线 B 类；串行门槛 4/4 用 254 s；integration-heavy 22 passed、pi 24、runtime 243（调度员在同一检出上单独补跑）。合入 main 4db0a9d。",
         "recorded_at": "2026-10-11T16:50:55.782677+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/backup-2.6.txt",
+        "summary": "APP_HOST pgBackRest TLS 服务（repo1，58432）运行；第一次全量备份 20261014-145352F（空集群，仅私有证据）、第二次 20261014-151149F 经 nexloop-backup 写入清单 verified，迁移门槛放行（0196）。D1 实测缺 pg_read_all_settings（负责人方案 A：暂用 nexloop_bootstrap，0197 随第二个发布上线）；repo2 暂缓（无 S3，风险已记）。",
+        "recorded_at": "2026-10-14T18:15:51.278155+00:00"
       }
     ]
   },
