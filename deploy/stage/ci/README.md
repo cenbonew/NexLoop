@@ -14,5 +14,6 @@
 | `probe-targets.example.json` | 隔离探测（§3.3）的目标代号，以及每个代号对应的路径或端点 |
 | `nexloop-ci-controller.service/.timer.example` | 控制器，用户为 `nexloop-ci`，同一时间只跑 1 个构建，CPU 权重低于运行服务（D5） |
 | `nexloop-ci-sync.service.example` | GitHub 同步，用户为 `nexloop-git`：只快进、不 force、不 mirror；GitHub 不可达时记为 `sync_pending` |
+| `release-lane.env.example`、`release-lane-identities.example.json` | NX-034 在现有 CI 车道上产出发布用 CI 结果（不切换合并控制器）：车道阶段需要的非秘密环境、入队身份。用法见 `docs/implementation/NX-034-release-ci-queue.md` |
 
 程序和 `.ci-policy/` 都来自受信安装，即 main 上已发布的版本，从不使用候选代码中的副本（设计稿 §4.3）。

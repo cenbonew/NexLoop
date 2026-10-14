@@ -1,0 +1,6 @@
+{
+  "_comment": "Example only (NX-034 release CI on the existing CI lane). The real file is private (0600). One identity is enough: the release CI requests are enqueued by the lane under this identity. The role is not used for a check request (only for merge requests), so the release role keeps it out of every other ref rule.",
+  "identities": {
+    "<RELEASE_CI_IDENTITY>": "release"
+  }
+}
