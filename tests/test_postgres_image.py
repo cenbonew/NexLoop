@@ -41,6 +41,12 @@ def test_the_dockerfile_builds_from_the_locked_base_installs_only_the_locked_pgb
     assert 'sha256sum --check --strict SHA256SUMS' in DOCKERFILE and 'curl' not in DOCKERFILE and 'wget' not in DOCKERFILE
 
 
+def test_the_lock_pins_pgbackrest_by_version_package_version_and_release_tag_together():
+    tool = LOCK['deployment_tools']['pgbackrest']
+    assert tool['debian_version'].startswith(tool['version'] + '-') and '.pgdg' in tool['debian_version']
+    assert tool['source'] == 'https://github.com/pgbackrest/pgbackrest/releases/tag/release/' + tool['version']
+
+
 def test_the_release_config_passes_the_locked_base_and_the_locked_pgbackrest_versions():
     entry = CONFIG['images']['postgres']
     assert entry == {'kind': 'build', 'context': 'postgres', 'base': 'postgres', 'build_args': {'POSTGRES_IMAGE': 'postgres'},
@@ -53,7 +59,7 @@ def test_the_release_config_passes_the_locked_base_and_the_locked_pgbackrest_ver
     assert 'valkey' not in CONFIG['images']  # valkey stays the pinned upstream image of the lock
 
 
-def pinned_lock(debian='2.56.0-1.pgdg120+1'):
+def pinned_lock(debian=LOCK['deployment_tools']['pgbackrest']['debian_version']):
     lock = copy.deepcopy(LOCK)
     lock['deployment_tools']['pgbackrest']['debian_version'] = debian
     return lock
@@ -74,7 +80,8 @@ def test_the_release_build_makes_nexloop_postgres_for_amd64_with_the_exact_versi
     assert built[built.index('--platform') + 1] == 'linux/amd64' and '--pull=false' in built
     args = [built[i + 1] for i, a in enumerate(built) if a == '--build-arg']
     assert args == ['POSTGRES_IMAGE=docker.io/pgvector/pgvector@' + LOCK['images']['postgres']['digest'],
-                    'PGBACKREST_DEB_VERSION=2.56.0-1.pgdg120+1', 'PGBACKREST_VERSION=' + LOCK['deployment_tools']['pgbackrest']['version']]
+                    'PGBACKREST_DEB_VERSION=' + LOCK['deployment_tools']['pgbackrest']['debian_version'],
+                    'PGBACKREST_VERSION=' + LOCK['deployment_tools']['pgbackrest']['version']]
     manifest = json.loads((Path(out['release_dir']) / 'manifest.json').read_text())
     (image,) = manifest['images']
     assert image['name'] == 'postgres' and image['reference'] == 'nexloop/postgres@' + image['digest'] and out['images'] == {'postgres': image['reference']}
@@ -100,9 +107,10 @@ def debs(directory, files, sums=None):
 def test_the_context_is_the_dockerfile_and_either_no_package_or_exactly_the_checked_offline_packages(tmp_path):
     online = P.prepare_postgres(tmp_path / 'online', deb_dir='')
     assert sorted(p.relative_to(online).as_posix() for p in online.rglob('*')) == ['.dockerignore', 'Dockerfile', 'debs', 'debs/.keep']
-    good = debs(tmp_path / 'debs', {'pgbackrest_2.56.0-1.pgdg120+1_amd64.deb': b'pkg', 'libssh2-1_1.10.0-3+b1_amd64.deb': b'dep'})
+    package = f"pgbackrest_{LOCK['deployment_tools']['pgbackrest']['debian_version']}_amd64.deb"
+    good = debs(tmp_path / 'debs', {package: b'pkg', 'libssh2-1_1.10.0-3+b1_amd64.deb': b'dep'})
     offline = P.prepare_postgres(tmp_path / 'offline', deb_dir=good)
-    assert sorted(p.name for p in (offline / 'debs').iterdir()) == ['SHA256SUMS', 'libssh2-1_1.10.0-3+b1_amd64.deb', 'pgbackrest_2.56.0-1.pgdg120+1_amd64.deb']
+    assert sorted(p.name for p in (offline / 'debs').iterdir()) == sorted(['SHA256SUMS', 'libssh2-1_1.10.0-3+b1_amd64.deb', package])
     tampered = debs(tmp_path / 'tampered', {'pgbackrest_x_amd64.deb': b'pkg'}, sums={'pgbackrest_x_amd64.deb': b'other'})
     unlisted = debs(tmp_path / 'unlisted', {'a.deb': b'a', 'b.deb': b'b'}, sums={'a.deb': b'a'})
     for bad, message in ((tampered, 'sha256 differs'), (unlisted, 'differ from SHA256SUMS')):

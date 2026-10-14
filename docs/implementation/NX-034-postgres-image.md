@@ -31,6 +31,16 @@ DATA_HOST 的 PG 容器里必须有 pgBackRest，因为 `archive_command` 和 st
      - 或改走 §4 的离线路径，从 archive 取包。
 3. 锁文件合入 main 后，按正常流程用新的 main 跑发布 CI，再执行 `release.py build`。
 
+**已完成（2026-10-14）**：
+- 调度员在锁定的基础镜像（`images.postgres`）中实测，PGDG `bookworm-pgdg main` 的候选版本只有 `2.59.3-1.pgdg12+1` 和 `2.59.2-1.pgdg12+1`，没有 2.56.0；
+- 负责人确认改锁为 pgBackRest **2.59.3**，Debian 包版本 **`2.59.3-1.pgdg12+1`**，`source` 改为对应的 release tag。
+
+**构建走默认的 PGDG 签名源，预计约 20 分钟**：
+- 实测 `apt-get update` 约 15.5 分钟，速度约 11 kB/s，下载 Debian 与 PGDG 的签名元数据占了大部分时间；
+- 下载并安装 pgbackrest 及其依赖约需几分钟。
+
+§3 的国内镜像保留，作为备选。CI 车道的构建超时（`release.py` 中 `docker build` 为 3600 秒）足够。
+
 **构建需要的出站**：
 - **Docker Hub**：经现有加速器 `docker.m.daocloud.io`，只在第 1 步拉取基础镜像时需要；
 - **apt.postgresql.org**（HTTP 80 或 HTTPS 443；源地址取基础镜像中 `/etc/apt/sources.list.d/pgdg.list` 的设置）：在线路径需要；
@@ -101,4 +111,4 @@ cd debs && sha256sum *.deb > SHA256SUMS
 ## 8. 未覆盖
 
 - 真实的 `docker build` 本机没有执行：本机是 arm64，发布镜像只在 CI 主机上构建。
-- 锁文件中的 `debian_version` 目前为空，必须在 CI 主机读出后回填。在此之前，`release.py build` 会拒绝构建 postgres 镜像，其他镜像不受影响（可用 `--only`）。
+- 锁文件中的 `debian_version` 已回填为 `2.59.3-1.pgdg12+1`（2026-10-14）。以后它为空或缺失时，`release.py build` 会拒绝构建 postgres 镜像，其他镜像不受影响（可用 `--only`）。
