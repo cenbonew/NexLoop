@@ -81,6 +81,9 @@ matrix="${LOAD_MATRIX:-deploy/load/matrix.v1.json}"
 [[ -z "${LOAD_CI_BASELINE:-}" || -f "$LOAD_CI_BASELINE" ]] || refuse "LOAD_CI_BASELINE is not a file"
 mkdir -p .ci-results/load
 free_gib=$(df -Pk .ci-results/load | awk 'NR==2{print int($4/1048576)}')
+# NX-052: the template-level key drop removes every NX-052 tenant key from the template, so a cell-level drop finds none (the CI
+# host's N runs 2026-10-13/14). The two are alternative measurements, never combined.
+[[ -z "${NEXLOOP_LOAD_TENANT_FK_DROP:-}" || -z "${NEXLOOP_LOAD_TENANT_FK_DROP_CELL:-}" ]] || refuse "NEXLOOP_LOAD_TENANT_FK_DROP and NEXLOOP_LOAD_TENANT_FK_DROP_CELL are alternatives; unset one"
 [[ "${LOAD_RELAY_PROCESSES:-1}" =~ ^[123]$ ]] || refuse "LOAD_RELAY_PROCESSES must be 1, 2 or 3"
 [[ -z "${LOAD_IDENTITY_POOL_MAX:-}" || "$LOAD_IDENTITY_POOL_MAX" =~ ^[1-8]$ ]] || refuse "LOAD_IDENTITY_POOL_MAX must be 1..8"
 (( free_gib >= ${LOAD_MIN_FREE_GIB:-20} )) || refuse "only ${free_gib} GiB free under .ci-results/load"
@@ -162,7 +165,9 @@ step_run() {
 }
 
 # ---- 2–4. template, matrix, report -------------------------------------------------------------------------------------
-[[ "${template_done:-0}" -eq 1 ]] || step_run template "$template_cmd" --seed "${LOAD_SEED:-31}" --consumers "${LOAD_CONSUMERS:-1000}" --out "$run_dir/template"
+# NX-052: NEXLOOP_LOAD_TENANT_FK_DROP_CELL is the matrix cells' measurement only; the template build never sees it (it would
+# drop the keys from the template itself; the build refuses it).
+[[ "${template_done:-0}" -eq 1 ]] || step_run template env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL "$template_cmd" --seed "${LOAD_SEED:-31}" --consumers "${LOAD_CONSUMERS:-1000}" --out "$run_dir/template"
 export LOAD_CI_COMMAND="scripts/ci/check"   # the C4-ci cell runs the full CI inside this lock (design §5.2)
 step_run matrix uv run --frozen python "$runner_cmd" --template "$run_dir/template" --matrix "$matrix" --out "$run_dir" --lane-root "$run_dir/lane" --relay-processes "${LOAD_RELAY_PROCESSES:-1}" ${LOAD_IDENTITY_POOL_MAX:+--identity-pool-max "$LOAD_IDENTITY_POOL_MAX"} ${resume:+--resume}
 report_args=("$run_dir" --out "$run_dir")

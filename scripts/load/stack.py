@@ -61,17 +61,34 @@ class Stack:
         self.tenant = self.chain['tenant']
         # NX-052 v2 measurement (implementation note §11): the "without tenant keys" state drops them on this cell's disposable
         # clone only, before any service starts. Unset by default; the template and every other cell keep their keys.
-        fk_drop = [b for b in os.environ.get('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', '').split(',') if b]
+        # Only a matrix cell (a spec naming its cell) reads the variable: the template build's history chain is a Stack on the
+        # template cluster itself (build_template_hold.reply_history, spec {}), and reading it there dropped the keys from the
+        # template before its snapshot (the CI host's N runs 2026-10-13/14: 0/134 keys in the template, all 134 missing in N).
+        fk_drop = [b for b in os.environ.get('NEXLOOP_LOAD_TENANT_FK_DROP_CELL', '').split(',') if b] if (cell.get('cell') if isinstance(cell, dict) else cell) else []
         if fk_drop:
             import tenant_fk_state
             import psycopg
             state = self.lane / 'tenant-fk-state.json'
+            # A template without its NX-052 keys (recorded as dropped in template.json, or none of the batches' keys present in
+            # the clone, whatever removed them) leaves the cell nothing to drop. Refused with that cause: the template lacks the keys.
+            template_drop = (json.loads((self.template / 'template.json').read_text()).get('tenant_fk_dropped')
+                             if (self.template / 'template.json').exists() else None)
+            if template_drop:
+                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'refused': 'template_keys_already_dropped',
+                                             'template_dropped_batches': template_drop.get('batches')}))
+                raise tenant_fk_state.TemplateKeysDropped(template_drop.get('batches'))
             try:
                 with psycopg.connect(self.admin_dsn, autocommit=True) as db:
+                    expected = sum(len(tenant_fk_state.constraints(b)) for b in tenant_fk_state.expand(fk_drop))
+                    absent = tenant_fk_state.missing(db, fk_drop)
+                    if expected and len(absent) == expected:
+                        state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'refused': 'template_keys_missing',
+                                                     'missing': len(absent), 'cluster': tenant_fk_state.cluster_facts(db)}))
+                        raise tenant_fk_state.TemplateKeysDropped(None)
                     dropped = tenant_fk_state.drop(db, fk_drop)
             except tenant_fk_state.TenantFkMismatch as error:
                 # Schema identifiers only (never data): which of the batches' keys the clone does not have.
-                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'missing': error.missing}))
+                state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'missing': error.missing, 'cluster': error.cluster}))
                 raise
             except ValueError:
                 state.write_text(json.dumps({'dropped_batches': fk_drop, 'dropped_constraints': 0, 'refused': 'unknown_batch'}))

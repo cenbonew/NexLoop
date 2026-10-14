@@ -540,7 +540,14 @@ authz 中缺外键的 10 张表都是 Run 或消息的绑定表，也归入第 4
 
 另外两条要求：
 
-- K 和 P 两次运行都必须通过 `report.py` 自己的门槛判定（格的 `gate.result` 为 `passed`）。
+- K 和 P 两次运行中，`report.py` 门槛判定的下列项必须是 `pass`（缺项按不通过处理）：
+  - `identity_violations` 与 `model_context_sample`（身份，含比对样本）；
+  - `unresolved_work`（未结局）；
+  - `guard_timeout_rate_5m_max`（超时率）；
+  - `connections_peak`（连接）；
+  - `critical_alerts`（critical 告警）；
+  - `unexpected_refusals`（非预期拒绝）。
+- 这一格不再要求 AT-060 门槛总体判定为 `passed`（负责人 2026-10-14，ROADMAP §7）。原因是空闲派发 5 s 门槛是按 0.05/s 设计的，0.1/s 下结构上达不到。时延类门槛项（ACK、空闲派发、guard p95）以及排空、死信，在这一格只看上表三项 p95 的增幅。`nx052_e2e.py compare` 输出 `required_gate_items`，同时照常给出两次运行的总体判定，供参考。
 - 如果某项比值落在 1.05 到 1.06 之间，就把该状态和 N 各再跑一次，取两次比值的中位数。
 
 如果 v2 矩阵已经合入（`deploy/load/matrix.v2.json`），`nx052_e2e.py matrix` 会自动以它为基础；否则以 v1 为基础，并只改 C4-low 这一格的速率和并发。
@@ -633,3 +640,100 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
   - `tests/test_load_matrix.py::test_an_aborted_cell_records_the_error_types_and_frames_without_text`；
   - `tests/test_nx052_e2e.py::test_a_mismatched_batch_drops_nothing_and_the_cell_records_what_is_missing`。
 - **下一步**：在 CI 主机上用本修复重跑 N。新的 `cell.json` 的 `error` 与 `tenant_fk_state` 会直接给出失败的类型和位置。
+
+### §11.4（续）"全部缺失"的原因与修复（2026-10-14）
+
+- **CI 现象**：run 20261013T161753Z-fa9a71c（main ec5ffc4，200 客户，C4-low，relay 2）。
+  - `cell.json` 的 `error` 是 `tenant_fk_state.TenantFkMismatch`，调用栈 `matrix.py:137 → stack.py:63 → tenant_fk_state.py:60`。
+  - `tenant_fk_state.missing` 列出了全部 134 个约束。
+- **原因（b，已在本机复现）**：
+  - 核对查询按 `conrelid::regclass::text` 取表名，而 regclass 转成文本时，只要表所在的 schema 在当前会话的 `search_path` 上，就会省略 schema。
+  - 批次清单里是带 schema 的名字（`control.…`、`ontology.…`），于是在 `search_path` 含这些 schema 的会话里，一个也对不上。约束本身都在。
+  - 仓库里没有任何地方设置角色级或库级的 search_path，CI 主机的会话很可能从环境里拿到了它，例如 `PGOPTIONS`、角色或服务器设置。
+  - 删除语句本身用带 schema 的名字，不受影响。
+- **复现**（与 CI 主机相同的路径）：`build_template.sh --consumers 3`，然后 `matrix.py --cells C4-low --timing-scale 0.05 --relay-processes 2`，设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`。
+  - 正常环境下格完成，删除 134 个约束。
+  - 加上 `PGOPTIONS='-c search_path=control,ontology,runtime,authz,public'` 后，得到与 CI 完全相同的错误、调用栈和缺失清单。
+- **排除的另外两种可能**：
+  - (a) 连到别的库：克隆的连接串固定为 `dbname=postgres user=nexloop_bootstrap`（`tests/load_template.py` 的 `Clone`），本机的同路径运行与 CI 用的是同一个连接串。
+  - (c) 模板没有外键：同一模板在不设 search_path 时 134 个都在。
+- **修复**：
+  - `scripts/load/tenant_fk_state.py` 改从 `pg_constraint` 关联 `pg_class`、`pg_namespace` 取带 schema 的名字，不再依赖 search_path。
+  - 核对失败时，在 `tenant-fk-state.json` 和 `cell.json` 的 `tenant_fk_state.cluster` 里额外记录：当前库名、会话 search_path、服务器版本号，以及指向租户表的外键数量。只有标识和数字。
+  - 修复后用上面会失败的条件重跑：格完成，删除 134 个。
+- **测试**：`tests/test_nx052_e2e.py::test_the_key_check_does_not_depend_on_the_session_search_path`。在把这些 schema 放进 search_path 的会话里：
+  - 先断言 regclass 文本确实省略了 schema（陷阱本身）；
+  - 再断言核对能找到全部约束、删除成功；
+  - 真实缺失时，仍报出缺失项和 cluster 信息。
+- **未解释的部分**：第一次 CI 失败（e5e7ebd，修复前的代码直接执行删除，没有核对步骤）不会受 search_path 影响，原因仍未知。下次在 CI 主机上重跑 N 时，如果再次失败，`cell.json` 的 `error` 与 `tenant_fk_state.cluster` 会给出位置和环境。
+
+### §11.4（再续）根因：模板已经没有 NX-052 外键（2026-10-14）
+
+- **CI 现象**：run 20261013T191340Z-2199b39（fa9a71c + 3495aed）。`TenantFkMismatch`，出错位置 `tenant_fk_state.py:76`，缺 134 个；cluster 为 `database='postgres'`、`search_path="$user", public`、`tenant_foreign_keys=8`。
+- **"连错了库"的可能可以排除**：每一格的克隆是**独立的 PostgreSQL 集群**（`tests/load_template.py` 的 `Clone`：复制模板 PGDATA，用自己的 socket 目录和端口启动），里面唯一使用的库就是 `postgres`。模板本身也是在测试夹具的 `postgres` 库里建的（`tests/conftest.py:25`），整条路径上没有别的库名。所以 `database='postgres'` 就是这一格的克隆库。
+- **根因（已在本机按 CI 签名完整复现）**：`tenant_foreign_keys=8` 恰好是 NX-052 之前就有的租户外键数（142 − 134）。也就是说，这次的模板在构建时已经执行过模板级删除 `NEXLOOP_LOAD_TENANT_FK_DROP`（`build_template_hold.py:156`），或者复用了这样构建的模板，克隆里自然一个 NX-052 外键都没有。
+  - 本机用 `NEXLOOP_LOAD_TENANT_FK_DROP=all build_template.sh` 建模板，再设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all` 跑格，得到与 CI 逐项相同的结果：错误类型、调用栈、134 个缺失、库名、search_path、8 个外键。
+  - 这也解释了第一次失败（e5e7ebd）：那时的代码直接执行 `alter table … drop constraint`，约束不存在时立即报错。
+  - search_path 那一条（3495aed）是真实存在的隐患，但不是 CI 上这次的原因。
+- **修复**：
+  - `stack.py`：格级删除之前读取模板的 `template.json`。如果 `tenant_fk_dropped` 存在，就以 `TemplateKeysDropped`（模板缺外键）拒绝，不碰克隆；`tenant-fk-state.json` 和 `cell.json` 记 `refused: template_keys_already_dropped` 以及模板删过的批次。
+  - `run_on_lane.sh`：预检时如果 `NEXLOOP_LOAD_TENANT_FK_DROP` 与 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL` 同时设置就拒绝。两者是不同的测量方式，不能叠加。
+  - `TenantFkMismatch` 的 cluster 信息中带有库名（3495aed 已有），连到没有这些外键的库时会直接显示出来。
+- **验证（本机，CI 同路径）**：
+  - 用模板级删除过的模板跑 N：格以 `TemplateKeysDropped` 拒绝，记录 `template_keys_already_dropped`。
+  - 用正常模板跑 N：格完成，删除 134 个。
+- **测试**：
+  - `test_a_template_built_without_the_keys_is_refused_with_that_cause`；
+  - `test_a_database_without_the_keys_reports_its_name_and_the_right_one_drops_all`：连到另一个库时报出该库名与 0 个租户外键；连到克隆库时删除 134 个。
+- **CI 主机上的处理**：
+  - 重跑 N 时只设 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`，并确认环境里没有 `NEXLOOP_LOAD_TENANT_FK_DROP`；
+  - 不要用 `--resume` 复用模板级删过外键的模板，检查方法是看模板目录的 `template.json` 有没有 `tenant_fk_dropped`。
+
+### §11.4（三）模板外键普查（2026-10-14）
+
+调度员在 CI 主机上核对过：`~/.ci-env`、`.bashrc`、`.profile` 里没有任何 `NEXLOOP_LOAD_*`，N2 的 `template.json` 里也没有 `tenant_fk_dropped`。因此"模板级删除"一说没有直接证据，需要直接看模板里有什么。
+
+- **工具**：`scripts/load/template_fk_census.py --template <run>/template`。在 CI 主机上用车道账户执行：
+
+  ```
+  uv run --frozen python scripts/load/template_fk_census.py --template .ci-results/load/<run>/template
+  ```
+
+  只读，具体做法：
+  1. 把 `<template>/pgdata` 复制到新的临时目录，在自己的 socket 上启动这份副本（不开 TCP）；
+  2. 以模板集群的引导超级用户 `nexloop_bootstrap` 登录。这个账号由构建时的 `initdb -U nexloop_bootstrap --auth=trust` 建立，所以 `nexloop-ci` 和 `postgres` 都登录不了；也可以用 `--user` 指定；
+  3. 按库输出：外键总数、`*_tenant_fk` 外键数、指向租户表的外键数、NX-052 批次清单（134 个，带 schema）的命中数，以及迁移台账（`control.schema_migrations`）的条数、最新版本、NX-052 各批次版本是否已记录；
+  4. 无论结果如何，都停掉副本并删除临时目录。模板本身从不启动、不写入。输出只有标识与数字。
+- **本机验证**：
+  - 用 `build_template.sh --consumers 3` 建的模板：`postgres` 库 134/134 命中，指向租户表的外键 142 个，台账最新版本 0190，NX-052 批次全部已记录。
+  - 测试 `test_the_template_census_reads_a_copy_and_counts_the_nx052_keys` 还覆盖了删掉一个批次后的计数，并确认临时目录已清理、模板未被启动。
+- **怎么解读 CI 模板的结果**：
+
+  | 普查结果 | 含义 | 下一步 |
+  |---|---|---|
+  | `postgres` 库 134/134 | 模板没问题 | 问题出在格的克隆或连接上，查 `Clone` 与车道 |
+  | 8 个外键，台账已记录 NX-052 各批次 | 迁移执行过，之后外键被删掉了 | 查构建与快照之间谁删的 |
+  | 8 个外键，台账缺 NX-052 批次，或最新版本不是 0190 | 模板是用别的迁移目录或旧版本建的 | 查 CI 上 `build_template` 实际导入的 eios 包和迁移目录 |
+
+### §11.4（四）确认的根因：格级变量在模板构建时生效（2026-10-14）
+
+- **调度员普查结果**（CI 主机，`template_fk_census.py`）：
+  - N 的模板 `nx052_present` 为 0/134，台账里 9 个批次的迁移都已执行；
+  - K 的模板 134/134。
+  - 对应上表第二行：迁移执行过，外键在构建到快照之间被删掉了，不是连错了库。
+- **根因**：
+  - N 在整个 `run_on_lane.sh` 上设置了 `NEXLOOP_LOAD_TENANT_FK_DROP_CELL=all`，模板构建这一步也继承了它。
+  - 模板构建的历史回复步骤 `build_template_hold.reply_history`（`build_template_hold.py:69`）用 `stack.Stack(SimpleNamespace(dsn=pg), out, lane, {})` 在**模板集群本身**上启动消息链。
+  - 修复前 `Stack.__init__`（`stack.py:56-63`）无条件读取 `_CELL` 并执行删除，于是 134 个外键在快照之前就从模板里删掉了。
+  - 这时 `template.json` 还没写，也没有 `tenant_fk_dropped`，所以上一版的模板记录检查拦不住。之后 N 的格在克隆上再删，就报 134 个全部缺失。
+  - 上一节"模板级删除"的推断方向是对的，但删除的来源是 `_CELL`，不是 `NEXLOOP_LOAD_TENANT_FK_DROP`。
+- **修复**（分支 `l3/nx052-template-keys`）：
+  - `stack.py`：只有矩阵格的 Stack 才读 `_CELL`，即 spec 带格名的那种；模板构建的 Stack（spec 为空）一律不删。
+  - `stack.py`：格级删除前先核对，克隆里一个批次外键都没有时，以 `TemplateKeysDropped` 拒绝，原因是"模板缺外键"，无论是谁删的。`tenant-fk-state.json` 记 `refused: template_keys_missing`、缺失数和 cluster 信息。`template.json` 里记了模板级删除时，仍按 `template_keys_already_dropped` 拒绝。部分缺失仍报 `TenantFkMismatch`。
+  - `build_template.sh` 和 `build_template_hold.py`：设置了 `_CELL` 就拒绝构建。
+  - `run_on_lane.sh`：模板步骤用 `env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL` 执行，只有矩阵步骤能看到这个变量。
+- **测试**（`tests/test_nx052_e2e.py`）：
+  - `test_the_cell_variable_drops_the_keys_in_a_matrix_cell_only_never_in_the_template_build`：设了 `_CELL`，模板构建的 Stack 保留全部 134 个外键；格的 Stack 删除全部 134 个。
+  - `test_a_clone_without_any_of_the_keys_is_refused_as_a_template_lacking_them`；
+  - `test_the_template_build_refuses_the_cell_variable_and_the_lane_withholds_it`。
+- **CI 主机重跑 N**：照原命令设 `_CELL=all` 跑 `run_on_lane.sh` 即可，模板步骤会自动去掉这个变量。不要 `--resume` 复用 N 之前建的模板（缺外键），要新建一次运行。
