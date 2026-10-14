@@ -48,6 +48,7 @@ from test_trusted_configuration_pg import private
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/nx037'))
 import evidence_pack as E  # noqa: E402
+import trial_guards  # noqa: E402
 import run_interactions as R  # noqa: E402
 
 pytestmark = pytest.mark.nx037_test_stack
@@ -242,6 +243,17 @@ def tenant_readiness(o, admin, tenant, trial, period):
                   "values(%s,'real','model','CNY',100,%s,%s,1)", (tenant, *period))
 
 
+def wait_ready(check, seconds):
+    """Poll `check()` (refusal codes) until it holds or `seconds` pass; the last refusal fails the test."""
+    end = time.monotonic() + seconds
+    while True:
+        failed = check()
+        if not failed:
+            return
+        assert time.monotonic() < end, failed
+        time.sleep(0.5)
+
+
 def refused_codes(capsys):
     return json.loads(capsys.readouterr().out.strip().splitlines()[-1]).get('refused', [])
 
@@ -352,6 +364,10 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
                     '--certificate-file', str(delivery_tls / 'host-cert.pem'), '--tls-key-file', str(delivery_tls / 'host-key.pem'),
                     '--provider-ca-file', str(delivery_tls / 'host-cert.pem'), '--provider-credential-file', str(provider_key)]
         stack.enter_context(process('nexloop_eios.local_json_delivery', delivery, hidden + [provider_key.read_text()]))
+        # The delivery service just started is the one the start guard checks: wait (bounded) until it answers its health
+        # route. Its start can take longer than the steps before the first trial start on a loaded host (CI 2026-10-14:
+        # webchat_delivery_unavailable at the first start); the guard itself stays a single strict check.
+        wait_ready(lambda: trial_guards.webchat_delivery(webchat_route), 120)
         executor = ['--database-url-file', str(effect_dsn), *common, '--service-credential-file', str(credentials['assembly-executor']),
                     '--artifact-root', str(tmp_path / 'effect-worker-artifacts'), '--world', 'real', '--provider-routes-file', str(routes)]
 
