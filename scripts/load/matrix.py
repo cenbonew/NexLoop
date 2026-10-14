@@ -107,6 +107,18 @@ def describe_error(error):
     return {'chain': chain, 'frames': frames[-24:]}
 
 
+def pulse_offsets(path, start, end):
+    """The tenant lock pulses inside the steady window as offsets from its start (start_s, hold_ms); None without a pulse log."""
+    if not path.exists():
+        return None
+    rows, t0, t1 = [], start.timestamp(), end.timestamp()
+    for line in path.read_text().splitlines():
+        value = json.loads(line)
+        if t0 <= value['locked_at'] <= t1:
+            rows.append({'start_s': round(value['locked_at'] - t0, 3), 'hold_ms': round((value['released_at'] - value['locked_at']) * 1000, 1)})
+    return rows
+
+
 class Cell:
     def __init__(self, spec, matrix, args, run):
         self.spec, self.matrix, self.args, self.run = spec, matrix, args, run
@@ -205,13 +217,18 @@ class Cell:
             start = now()
             self.result['window']['steady_start'] = start.isoformat()
             sampler = asyncio.create_task(self.sample(stack, 'steady'))
-            await asyncio.gather(driver.run_phase(self.steady, self.spec['rate_per_s'], lambda r: acks.append({'ack_ms': r[0], 'status': r[1]})),
+            # t_s: seconds from the steady start to the ACK (numbers only), so ACK tails can be aligned with the lock pulses.
+            await asyncio.gather(driver.run_phase(self.steady, self.spec['rate_per_s'],
+                                                  lambda r: acks.append({'ack_ms': r[0], 'status': r[1], 't_s': round((now() - start).total_seconds(), 3)})),
                                  driver.workbench_activity(self.steady, events))
             end = now()
             sampler.cancel()
             self.result['window']['steady_end'] = end.isoformat()
             self.result['sent'] = driver.sent
             collect.jsonl(self.dir / 'acks.jsonl', acks)
+            pulses = pulse_offsets(self.lane / 'work/tenant-lock-pulse/pulses.jsonl', start, end)
+            if pulses is not None:
+                collect.jsonl(self.dir / 'tenant-lock-pulses.jsonl', pulses)
             self.result['workbench_events'] = _count(events)
             await self.drain(stack)
             cross = await driver.cross_access_probe(self.matrix['cross_access_probe_pairs'])
