@@ -38,13 +38,31 @@ DATA_HOST 的 PG 容器里必须有 pgBackRest，因为 `archive_command` 和 st
 
 以上三项都在 `docker build` 的 RUN 步骤中经 docker 的构建网络访问，不经过宿主机的 apt 代理设置。如果 CI 主机上的 docker 也需要通过 apt 镜像源，可以在 `apt-get update` 之前替换源地址，但那样做会改变签名链，需要负责人另行决定。离线路径不需要任何 apt 出站。
 
-## 3. 在线路径的完整性
+## 3. 国内镜像（可选，在线路径）
+
+实测（调度员，2026-10-14，CI 主机）：deb.debian.org 可达但只有约 12 KB/s；apt.postgresql.org、mirrors.aliyun.com、mirrors.tuna.tsinghua.edu.cn 都能连上。因此在线路径可以把 apt 源换成镜像：
+
+| 构建主机环境变量 | 传入的 build-arg | 替换对象（基础镜像中的源） | 例 |
+|---|---|---|---|
+| `NEXLOOP_APT_DEBIAN_MIRROR` | `APT_DEBIAN_MIRROR` | `http://deb.debian.org/debian` | `https://mirrors.tuna.tsinghua.edu.cn/debian` |
+| `NEXLOOP_APT_DEBIAN_SECURITY_MIRROR` | `APT_DEBIAN_SECURITY_MIRROR` | `http://deb.debian.org/debian-security` | `https://mirrors.tuna.tsinghua.edu.cn/debian-security` |
+| `NEXLOOP_APT_PGDG_MIRROR` | `APT_PGDG_MIRROR` | `http://apt.postgresql.org/pub/repos/apt/` | `https://mirrors.tuna.tsinghua.edu.cn/postgresql/repos/apt` 或 `https://mirrors.aliyun.com/postgresql/repos/apt` |
+
+用法：`NEXLOOP_APT_PGDG_MIRROR=… NEXLOOP_APT_DEBIAN_MIRROR=… NEXLOOP_APT_DEBIAN_SECURITY_MIRROR=… release.py build …`。三个变量都可选，不设置就使用原始源。
+
+**安全性不变的理由**：
+- 只替换源地址的主机和路径。`signed-by` 密钥（PGDG 用基础镜像中的 `postgres.gpg.asc`，Debian 用 `debian-archive-keyring`）和套件名都不变；
+- apt 仍然用这些密钥校验 Release 元数据的签名，并通过它校验每个包的 sha256。所以，镜像站提供的内容与原站不一致时，`apt-get update` 或安装会失败，而不会装上不同的包；
+- 这些变量是构建主机的环境变量，不写进锁文件。最终镜像由发布清单中的 digest 固定，由 SBOM 记录；
+- `release.py` 只接受 http(s) 的主机加路径，含凭据、查询串或空格的值会被拒绝。Dockerfile 内会再检查一次；找不到要替换的源行时构建失败，不会悄悄沿用原始源。
+
+## 4. 在线路径的完整性
 
 - apt 用基础镜像自带的 PGDG 与 Debian 签名密钥，验证 Release 和 Packages 元数据，包的 sha256 由签名元数据保证；
 - `pgbackrest=<debian_version>` 精确固定，构建末尾再核对 `dpkg-query` 的版本和 `pgbackrest version` 的输出；
 - 依赖包的版本由 bookworm 当时的状态决定，不在锁文件中逐个固定。最终结果由发布镜像的 digest 固定，并由 SBOM 记录。
 
-## 4. 离线路径（apt 不通时）
+## 5. 离线路径（apt 不通时）
 
 在一台能访问上述源的机器（管理机）上，**用同一个基础镜像**取包。这样 apt 同样会核对签名，并且只下载基础镜像缺少的依赖：
 
@@ -61,14 +79,14 @@ cd debs && sha256sum *.deb > SHA256SUMS
   - Dockerfile 内会再核对一次 sha256、包的数量、pgbackrest 包的 Version 字段，然后用 dpkg 安装，不访问任何仓库；
   - 依赖不全时，dpkg 会报错，构建失败。
 
-## 5. 对部署的影响（`USER postgres`）
+## 6. 对部署的影响（`USER postgres`）
 
 - 官方镜像默认以 root 启动：入口脚本会先 chown 数据目录，再用 gosu 降权。本镜像最后一层是 `USER postgres`（uid 999），入口脚本直接以 postgres 用户运行，不能 chown。
 - **因此 DATA_HOST 上，`$NEXLOOP_ROOT/data/postgres` 必须事先属于 uid 999，引导口令的 secret 文件也必须让 uid 999 可读**，否则 PG 无法启动。这一条要写进 NX-032 第 4 步（启动 infra）之前的准备工作。
 - 如果负责人不希望改变主机上的属主，可以改回默认的 root 启动方式（去掉最后一行 `USER postgres`）。pgBackRest 照样以 postgres 身份运行（`docker exec -u postgres`，以及 `archive_command` 由 postgres 进程执行）。
 - pgBackRest 的配置（`/etc/pgbackrest/pgbackrest.conf`，0600，属主 postgres）在部署时以私有文件挂载，不进镜像。
 
-## 6. 测试
+## 7. 测试
 
 - `tests/test_postgres_image.py`：
   - Dockerfile 的结构：唯一的 FROM、两个版本参数、只安装 pgbackrest、版本核对、最后一层 `USER postgres`、没有 curl 或 wget；
@@ -76,10 +94,11 @@ cd debs && sha256sum *.deb > SHA256SUMS
   - 构建参数精确（amd64，`--pull=false`，基础镜像 digest，两个版本）；
   - 清单中有 `nexloop/postgres@<digest>`，其 `base_digest` 是锁文件中的 postgres；
   - `debian_version` 为空时拒绝构建；
-  - 离线包的校验。
+  - 离线包的校验；
+  - 镜像替换：把 Dockerfile 中的同一段脚本跑在两种格式的临时源文件上，只换主机和路径、密钥不变；不设置时不改动；非 http(s)、含凭据、找不到源行时失败；`release.py` 只从构建主机环境传入，并校验格式。
 - `tests/test_deploy_dryrun.py`：data 角色的 `POSTGRES_IMAGE` 映射到发布中的镜像；valkey 仍取锁文件；没有发布、发布中没有 postgres、私有 env 中写了其他 PostgreSQL digest，都会被拒绝；步骤中有 `load_images`。
 
-## 7. 未覆盖
+## 8. 未覆盖
 
 - 真实的 `docker build` 本机没有执行：本机是 arm64，发布镜像只在 CI 主机上构建。
 - 锁文件中的 `debian_version` 目前为空，必须在 CI 主机读出后回填。在此之前，`release.py build` 会拒绝构建 postgres 镜像，其他镜像不受影响（可用 `--only`）。

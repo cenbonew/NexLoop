@@ -45,7 +45,9 @@ def test_the_release_config_passes_the_locked_base_and_the_locked_pgbackrest_ver
     entry = CONFIG['images']['postgres']
     assert entry == {'kind': 'build', 'context': 'postgres', 'base': 'postgres', 'build_args': {'POSTGRES_IMAGE': 'postgres'},
                      'tool_args': {'PGBACKREST_VERSION': ['deployment_tools', 'pgbackrest', 'version'],
-                                   'PGBACKREST_DEB_VERSION': ['deployment_tools', 'pgbackrest', 'debian_version']}}
+                                   'PGBACKREST_DEB_VERSION': ['deployment_tools', 'pgbackrest', 'debian_version']},
+                     'mirror_args': {'APT_DEBIAN_MIRROR': 'NEXLOOP_APT_DEBIAN_MIRROR', 'APT_DEBIAN_SECURITY_MIRROR': 'NEXLOOP_APT_DEBIAN_SECURITY_MIRROR',
+                                     'APT_PGDG_MIRROR': 'NEXLOOP_APT_PGDG_MIRROR'}}
     assert release.pinned_tool_value(LOCK, entry['tool_args']['PGBACKREST_VERSION']) == LOCK['deployment_tools']['pgbackrest']['version']
     assert release.pinned_reference(LOCK, 'postgres') == 'docker.io/pgvector/pgvector@' + LOCK['images']['postgres']['digest']
     assert 'valkey' not in CONFIG['images']  # valkey stays the pinned upstream image of the lock
@@ -62,7 +64,7 @@ def build(tmp_path, docker, lock):
     ci.write_text(json.dumps({'sha': head_sha(), 'status': 'passed', 'policy_version': 2, 'deadline_gate': 'passed', 'counts': {'passed': 1}}))
     import zlib
     return release.build(head_sha(), ci, tmp_path / 'release-root', sequence=7000 + zlib.crc32(str(tmp_path).encode()) % 1000, only=['postgres'],
-                         root=ROOT, docker=docker, checkout_check=lambda r, s: None, lock=lock)
+                         root=ROOT, docker=docker, checkout_check=lambda r, s: None, lock=lock, environ={})
 
 
 def test_the_release_build_makes_nexloop_postgres_for_amd64_with_the_exact_versions_and_records_it_by_digest(tmp_path):
@@ -106,3 +108,78 @@ def test_the_context_is_the_dockerfile_and_either_no_package_or_exactly_the_chec
     for bad, message in ((tampered, 'sha256 differs'), (unlisted, 'differ from SHA256SUMS')):
         with pytest.raises(ValueError, match=message):
             P.prepare_postgres(tmp_path / ('out-' + bad.name), deb_dir=bad)
+
+
+# ---- package mirrors (online path) ------------------------------------------------------------------------------------------
+DEB822 = """Types: deb
+URIs: http://deb.debian.org/debian
+Suites: bookworm bookworm-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://deb.debian.org/debian-security
+Suites: bookworm-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+"""
+PGDG = 'deb [ signed-by=/usr/local/share/keyrings/postgres.gpg.asc ] http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main 18\n'
+
+
+def mirror_script(etc, **mirrors):
+    """The Dockerfile's mirror step, run by sh against a temporary /etc/apt (the Dockerfile text itself, paths redirected)."""
+    import subprocess
+    run = DOCKERFILE[DOCKERFILE.index('        mirror() {'):DOCKERFILE.index('        apt-get update;')]
+    body = '\n'.join(line.rstrip().removesuffix('\\').rstrip() for line in run.splitlines()).replace('/etc/apt', str(etc))
+    env = {'PATH': '/usr/bin:/bin', **{k: v for k, v in mirrors.items()}}
+    for name in ('APT_DEBIAN_MIRROR', 'APT_DEBIAN_SECURITY_MIRROR', 'APT_PGDG_MIRROR'):
+        env.setdefault(name, '')
+    return subprocess.run(['sh', '-c', 'set -eu\n' + body], env=env, capture_output=True, text=True)
+
+
+@pytest.fixture
+def apt(tmp_path):
+    etc = tmp_path / 'apt'
+    (etc / 'sources.list.d').mkdir(parents=True)
+    (etc / 'sources.list.d' / 'debian.sources').write_text(DEB822)
+    (etc / 'sources.list.d' / 'pgdg.list').write_text(PGDG)
+    return etc
+
+
+def test_mirrors_replace_only_the_host_and_path_and_keep_the_signing_keys_and_suites(apt):
+    done = mirror_script(apt, APT_DEBIAN_MIRROR='https://mirrors.tuna.tsinghua.edu.cn/debian/',
+                         APT_DEBIAN_SECURITY_MIRROR='https://mirrors.tuna.tsinghua.edu.cn/debian-security',
+                         APT_PGDG_MIRROR='https://mirrors.tuna.tsinghua.edu.cn/postgresql/repos/apt')
+    assert done.returncode == 0, done.stderr
+    debian = (apt / 'sources.list.d' / 'debian.sources').read_text()
+    assert debian == DEB822.replace('http://deb.debian.org/debian-security', 'https://mirrors.tuna.tsinghua.edu.cn/debian-security') \
+                           .replace('http://deb.debian.org/debian\n', 'https://mirrors.tuna.tsinghua.edu.cn/debian\n')
+    # The base URL is replaced as a whole (its trailing slash included; apt treats both forms the same).
+    assert (apt / 'sources.list.d' / 'pgdg.list').read_text() == PGDG.replace('http://apt.postgresql.org/pub/repos/apt/', 'https://mirrors.tuna.tsinghua.edu.cn/postgresql/repos/apt')
+    assert 'signed-by=/usr/local/share/keyrings/postgres.gpg.asc' in (apt / 'sources.list.d' / 'pgdg.list').read_text()
+
+
+def test_without_mirrors_the_sources_are_untouched_and_a_bad_or_unmatched_mirror_fails(apt, tmp_path):
+    assert mirror_script(apt).returncode == 0
+    assert (apt / 'sources.list.d' / 'debian.sources').read_text() == DEB822 and (apt / 'sources.list.d' / 'pgdg.list').read_text() == PGDG
+    assert mirror_script(apt, APT_PGDG_MIRROR='ftp://mirror.invalid/apt').returncode != 0
+    assert mirror_script(apt, APT_PGDG_MIRROR='https://user:pass@mirror.invalid/apt').returncode != 0
+    (apt / 'sources.list.d' / 'pgdg.list').unlink()
+    unmatched = mirror_script(apt, APT_PGDG_MIRROR='https://mirror.invalid/apt')
+    assert unmatched.returncode != 0 and 'no apt source matches' in unmatched.stderr
+
+
+def test_the_release_build_passes_mirrors_only_from_the_build_host_environment_and_validates_them(tmp_path):
+    docker = Docker()
+    environ = {'NEXLOOP_APT_PGDG_MIRROR': 'https://mirrors.aliyun.com/postgresql/repos/apt/'}
+    ci = tmp_path / 'ci.json'
+    ci.write_text(json.dumps({'sha': head_sha(), 'status': 'passed', 'policy_version': 2, 'deadline_gate': 'passed', 'counts': {'passed': 1}}))
+    release.build(head_sha(), ci, tmp_path / 'r', sequence=8123, only=['postgres'], root=ROOT, docker=docker, checkout_check=lambda r, s: None,
+                  lock=pinned_lock(), environ=environ)
+    built = next(c for c in docker.calls if c[0] == 'build')
+    args = [built[i + 1] for i, a in enumerate(built) if a == '--build-arg']
+    assert 'APT_PGDG_MIRROR=https://mirrors.aliyun.com/postgresql/repos/apt' in args and not any(a.startswith('APT_DEBIAN') for a in args)
+    for bad in ('https://u:p@mirror.invalid/x', 'https://mirror.invalid/x?y=1', 'file:///srv/apt'):
+        with pytest.raises(release.InputError, match='NEXLOOP_APT_PGDG_MIRROR'):
+            release.build(head_sha(), ci, tmp_path / ('b' + str(len(bad))), sequence=8124 + len(bad), only=['postgres'], root=ROOT, docker=Docker(),
+                          checkout_check=lambda r, s: None, lock=pinned_lock(), environ={'NEXLOOP_APT_PGDG_MIRROR': bad})
