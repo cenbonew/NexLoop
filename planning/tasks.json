@@ -3662,7 +3662,7 @@
       "M01"
     ],
     "deliverable": "Claim 契约 tenant_id 为 uuid 格式并携带 mode 及 mode↔world 条件；control.nexloop_tenants 校验约束；按 schema 分批补齐租户外键并测量热点表写入成本；测试租户常量统一（依据 docs/implementation/tenant-id-audit.md）",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -3765,6 +3765,18 @@
         "ref": "ci:lane/runs/20261012T224917Z-b8831ff5b255",
         "summary": "s5u 全量（b8831ff）：integration-parallel 失败 1 项 role_context_v6::test_actual_pi_role_run_on_v6_records_every_model_call，同一检出串行复跑 3/3 通过 ⇒ C 类负载敏感；门槛 4/4；heavy 22；pi 24、runtime 266。",
         "recorded_at": "2026-10-12T23:43:56.471143+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:lane/load/20261014T094749Z..20261014T131429Z-4f4b7b8",
+        "summary": "1A 正式判定（提交 4f4b7b8，C4-low@0.1/s，N/K 交替各 3 轮，p95 中位比）：ACK 357.1→375.8 ms 比值 1.0524（超 1.05 界 0.24 个百分点）、端到端 1.0066、空闲派发 0.9816；K 各轮必需门槛项全部通过。负责人 2026-10-14 选 B：按现有数据接受，ACK 超界记为测量噪声（N 自身三轮极差 10.4%，K 三轮落在 N 范围内），见 NX-052 实现说明 §11.6。",
+        "recorded_at": "2026-10-14T14:01:59.076500+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c242fe7",
+        "summary": "NX-052 收口：§11.6 正式判定结果、P 状态 ACK 限制（2A）、compare --markdown（L3 dd061b1 合入）",
+        "recorded_at": "2026-10-14T14:01:59.076500+00:00"
       }
     ]
   },
