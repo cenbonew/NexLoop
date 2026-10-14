@@ -328,7 +328,8 @@ class Stack:
         if pulse:
             interval, hold = pulse.split(',')
             self._spawn('tenant-lock-pulse', [sys.executable, str(ROOT / 'scripts/load/tenant_fk_state.py'), 'pulse', '--dsn-file',
-                        str(self.file('tenant-lock-pulse-dsn', self.admin_dsn)), '--tenant', self.tenant, '--interval', interval, '--hold', hold])
+                        str(self.file('tenant-lock-pulse-dsn', self.admin_dsn)), '--tenant', self.tenant, '--interval', interval, '--hold', hold,
+                        '--log', str(self.lane / 'work/tenant-lock-pulse/pulses.jsonl')])
         time.sleep(3)
         dead = [name for name in ('runtime-worker', 'delivery', 'effect-worker', *relays, 'outbound-recorder') if self.children[name][0].poll() is not None]
         if dead:

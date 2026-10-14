@@ -306,6 +306,13 @@ source releases.
 
 - @napi-rs/wasm-runtime 1.2.5 (MIT): the published artifact ships no license text; package.json declares MIT (napi-rs repository, wasm-runtime directory)
 
+## Deployment tools (installed on hosts from their official releases; not redistributed)
+
+| Tool | Version | License | Source |
+|---|---|---|---|
+| pgbackrest | 2.56.0 | MIT | https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.56.0 |
+| restic | 0.18.0 | BSD-2-Clause | https://github.com/restic/restic/releases/tag/v0.18.0 |
+
 ## Weak-copyleft dependencies
 
 Used unmodified as separate libraries (license policy):

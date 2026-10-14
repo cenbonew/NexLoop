@@ -737,3 +737,61 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
   - `test_a_clone_without_any_of_the_keys_is_refused_as_a_template_lacking_them`；
   - `test_the_template_build_refuses_the_cell_variable_and_the_lane_withholds_it`。
 - **CI 主机重跑 N**：照原命令设 `_CELL=all` 跑 `run_on_lane.sh` 即可，模板步骤会自动去掉这个变量。不要 `--resume` 复用 N 之前建的模板（缺外键），要新建一次运行。
+
+### §11.5 判定口径 1A / 2A 与 N3 归因（负责人 2026-10-14，ROADMAP §7）
+
+**N3 结果**（CI 主机，69ab88d：fa9a71c 的产品代码，加上只改负载脚本的修复 781fb15）：格跑完，删除了 134 个外键。按 §11.3 的单轮比较：
+
+- K 对 N：ACK 1.003、e2e 0.998 在 5% 以内；空闲派发 11436.7 → 12959.7（1.133），超出。
+- P 对 N：e2e 0.992 在 5% 以内；ACK 361.0 → 425.4（1.178）、空闲派发 1.074，超出。
+
+数据：`.ci-results/load/` 下的 `20261013T235423Z-69ab88d`（N）、`20261013T164558Z-fa9a71c`（K）、`20261013T172832Z-fa9a71c`（P），用到其中的 `cells/C4-low/` 和 `report.md`。
+
+**归因一：空闲派发 +13% 是排队噪声，不是外键开销。**
+
+- **写库步骤一致**：relay 各步骤（0188 的 relay_step 直方图）在三次运行中 p50 基本相同：
+  - goal、step、assignment 创建都是 69.5 ms（P 的 goal_create 为 76.4，属于同一个直方图桶附近），p95 都在 92.5–101.8 ms；
+  - effect_bind 是 239.9 ms；
+  - message_bind 分别是 163.9、163.9、198.3 ms。
+
+  没有出现和外键检查对应的增量；外键检查每插入一行只有微秒级。
+- **relay 总时长 p95**：N 4605、K 5066、P 4605。P 也带外键，却与 N 相同；K 多出的部分在 context_prepare 和 runtime_accept 的尾部，不在写库步骤。
+- **p95 由 4 个积压样本决定**：每次运行都有 4 个样本落在 11–15 s，几乎全是 relay 段，即来信在 relay 里排在别的消息后面等待。
+  - N：13.1、13.0、12.3、11.1 s；
+  - K：14.9、12.6、12.5、12.6 s；
+  - P：12.9、12.3、11.8 s，另有一个 39 s。
+
+  72 个样本时，p95 正好落在这 4 个积压样本之间，结果由一个样本决定。自助法估计的 p95 95% 区间：N 为 7.1–13.1 s，K 为 7.0–13.3 s，完全重叠。
+- **历史数据**：之前带外键的 K@e5e7ebd 12914、P@e5e7ebd 13105，也都在同一区间（11.4–13.1 s）。
+
+**归因二：P 的 ACK +18% 来自租户行锁脉冲。**
+
+- 入站受理要做 Action 授权：`authz.nexloop_assert_action_authority`（0107:70）调用 0106 之前的函数体，在 0045:178 对租户行加 `for share`。
+- 脉冲持有的是 FOR NO KEY UPDATE（0162:37、:236）。0162 文件头写明，它与 FOR SHARE 授权读互斥。所以每次脉冲最多把入站授权挡 0.2 s。
+- 脉冲每 5 s 持锁 0.2 s，占空比 4%，72 次 ACK 中预计约 3 次受影响。P 的尾部（p95 424、p99 496、最大 505）比 N（350、394、423）高 75–100 ms，与此一致。
+- 当时的 `acks.jsonl` 没有时间戳，无法逐条对齐脉冲，这一点是推断。
+
+**判定口径**：
+
+- **1A**：N 和 K 在同一个提交上各跑 3 轮 C4-low@0.1/s。每个指标先取各自 3 轮 p95 的中位数，再求比值，三项都不超过 5% 才算通过，以此作为正式判定。必需门槛项要在每一轮候选运行里都通过。
+- **2A**：P 状态的 ACK 升高是 0162 有意保留的串行（配置发布与授权读互斥），作为已接受的限制。P 只判 e2e 和空闲派发两项；ACK 照常记录，标 `judged: false`，`reason: accepted_limitation`。
+
+**实现**：
+
+- `scripts/load/nx052_e2e.py compare` 支持 `--baseline A B C --candidate D E F` 和 `--state K|P`，单轮输入照常可用。用法：
+
+  ```
+  uv run --frozen python scripts/load/nx052_e2e.py compare --baseline <N1>/report.json <N2>/report.json <N3>/report.json --candidate <K1>/report.json <K2>/report.json <K3>/report.json
+  uv run --frozen python scripts/load/nx052_e2e.py compare --state P --baseline <N…> --candidate <P…>
+  ```
+
+- **对齐数据**（只改负载脚本）：
+  - `acks.jsonl` 每行增加 `t_s`，即从稳态窗口开始到收到 ACK 的秒数；
+  - 锁脉冲进程用 `--log` 记录每次持锁的起止时间，格把稳态窗口内的脉冲写成 `tenant-lock-pulses.jsonl`（`start_s`、`hold_ms`）。
+
+  两者都只用于对齐，不参与判定。results contract 已同步更新。
+- **测试**（`tests/test_nx052_e2e.py`）：
+  - `test_several_rounds_compare_the_median_of_each_sides_p95`
+  - `test_in_state_p_the_ack_increase_is_recorded_not_judged`
+  - `test_a_single_round_on_each_side_still_works_and_the_cli_takes_several`
+  - `test_the_lock_pulse_log_and_its_offsets_in_the_steady_window`

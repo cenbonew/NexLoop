@@ -92,12 +92,19 @@ def drop(db, batches):
     return dropped
 
 
-def pulse(dsn, tenant, interval, hold, once=False):
+def pulse(dsn, tenant, interval, hold, once=False, log=None):
+    """With `log`, one line per pulse: locked_at and released_at (unix seconds, numbers only) of the held lock."""
+    import json
     with psycopg.connect(dsn) as db:
         while True:
             with db.transaction():
                 db.execute('select 1 from control.nexloop_tenants where tenant_id=%s for no key update', (tenant,))
+                locked = time.time()
                 time.sleep(hold)
+            released = time.time()
+            if log is not None:
+                with open(log, 'a') as handle:
+                    handle.write(json.dumps({'locked_at': round(locked, 3), 'released_at': round(released, 3)}) + '\n')
             if once:
                 return
             time.sleep(max(0.0, interval - hold))
@@ -111,8 +118,9 @@ def main():
     p.add_argument('--tenant', required=True)
     p.add_argument('--interval', type=float, default=5.0)
     p.add_argument('--hold', type=float, default=0.2)
+    p.add_argument('--log', type=Path)
     args = parser.parse_args()
-    pulse(args.dsn_file.read_text().strip(), args.tenant, args.interval, args.hold)
+    pulse(args.dsn_file.read_text().strip(), args.tenant, args.interval, args.hold, log=args.log)
 
 
 if __name__ == '__main__':

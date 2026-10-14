@@ -2,7 +2,9 @@
 
 面向负责人本人。把 S5（部署、本地 CI、发布、备份恢复、公开发布）与 NX-037（v0.1 受控真实闭环）中需要负责人本人执行或确认的步骤，按先后顺序合成一张清单。
 
-- **依据**：[NX-032 部署运行手册](../implementation/NX-032-deploy-runbook.md)（步骤 0–8、AT-058）、[NX-033 设计](../implementation/NX-033-design.md) §8、[NX-034 设计](../implementation/NX-034-design.md) §4 与 [第二部分实现说明](../implementation/NX-034-part2-implementation.md)、[NX-035 设计](../implementation/NX-035-design.md) §7、[NX-036 实现说明](../implementation/NX-036-implementation.md) 与 [公开发布检查清单](public-release-checklist.md)、[NX-037 设计](../implementation/NX-037-design.md) 与 [运维手册 §9](../OPERATIONS.md#9-nx-037-受控真实闭环操作说明负责人本人执行)、[ROADMAP](../../planning/ROADMAP.md) §6 的 O1–O6 与 D-a、D-g、D-i 定案。
+- **依据**：[NX-032 部署运行手册](../implementation/NX-032-deploy-runbook.md)（步骤 0–8、AT-058）、[NX-033 设计](../implementation/NX-033-design.md) §8、[NX-034 设计](../implementation/NX-034-design.md) §4 与 [第二部分实现说明](../implementation/NX-034-part2-implementation.md)、[NX-035 设计](../implementation/NX-035-design.md) §7、[NX-036 实现说明](../implementation/NX-036-implementation.md) 与 [公开发布检查清单](public-release-checklist.md)、[NX-037 设计](../implementation/NX-037-design.md) 与 [运维手册 §9](../OPERATIONS.md#9-nx-037-受控真实闭环操作说明负责人本人执行)、[ROADMAP](../../planning/ROADMAP.md) §6 的 O1–O6 与 §7 的定案（到 2026-10-14）。
+- **剩余工作核对**（逐任务分为已完成、缺代码、B 类步骤、负责人材料四类）：[S5 剩余工作核对（2026-10-14）](s5-status-20261014.md)。
+- **现状**（main 2d10f20）：S4 已收口（AT-060 通过，NX-031 done）；v0.1 只剩 S5 的 NX-032～037 与 NX-052。
 - **命令与核对细节**以上述文档为准，本清单只给顺序、材料、执行者、判据与对应编号。
 - 只用角色名（管理机、APP_HOST、DATA_HOST、CI 主机）与参数（`$NEXLOOP_ROOT`、`<TENANT_ID>` 等）；不写主机名、地址、口令或任何真实值。
 - **执行者**：“负责人”= 负责人本人；“调度员（逐步授权）”= 调度员提交命令，负责人逐步确认后执行。服务器、防火墙、凭据、真实外发、tag 与 Release 都属于 B 类。
@@ -20,7 +22,7 @@
 | 异地备份仓库账号（国内 S3 兼容对象存储，与两台主机不同的物理地点） | 异地备份 | 私有凭据文件 | 待准备 |
 | GitHub deploy key（只限本仓库） | NX-033 同步 | 主机生成密钥对，负责人只在 GitHub 粘贴公钥（O5） | 待准备 |
 | 模型 API 密钥（DeepSeek `deepseek-flash`） | NX-037 受控交互 | 私有凭据文件（`MODEL_CREDENTIALS_FILE`），只给 Agent Host | 待准备 |
-| 企业自有交付端点的地址与凭据（幂等、可按 intent 查询） | NX-037 真实交付动作（D1） | 私有文件，只给 Effect Worker | 待准备 |
+| 企业交付端点：默认用项目提供的参考端点（APP_HOST 独立 Compose 项目，服务工单），需要员工凭据与服务凭据；接真实企业系统时另需其地址与凭据 | NX-037 真实交付动作（D1，2026-10-13 定案改用参考端点） | 私有文件；服务凭据只给 Effect Worker | 待准备 |
 | 价值目录文件、渠道引用 | NX-037 真实租户初始化 | 私有目录 | 待准备 |
 | 知情的内部人员（扮演客户） | NX-037 受控交互（D3） | — | 待安排 |
 | 连续两个工作日（10:00–18:00） | NX-037 受控交互（D-i） | — | 待安排 |
@@ -30,15 +32,33 @@
 
 | # | 做什么 | 前置条件 | 所需材料 | 执行者 | 预计耗时 | 完成判据 | 对应 |
 |---|---|---|---|---|---|---|---|
-| 1.1 | 决定部署后 CI 车道与压测车道是否继续与运行环境同机（D-b） | 调度员提交方案 | — | 负责人 | 30 分钟 | ROADMAP 记录定案 | ROADMAP D-b、R6 |
-| 1.2 | 确认来信速率口径（D-a 已定：200 客户、持续来信 ≤ 0.1 条/秒）并据此判定 AT-060 的门槛格 | 200 客户整轮按新口径完成 | — | 负责人 | 30 分钟 | AT-060 有结论 | NX-031、AT-060 |
+| 1.1 | 决定部署后 CI 车道与压测车道是否继续与运行环境同机（D-b），须在第 3 阶段步骤 1 之前 | 调度员提交方案 | — | 负责人 | 30 分钟 | ROADMAP 记录定案 | ROADMAP D-b、R6 |
 
 ## 2. 构建并签名首个 stage 发布（NX-034）
 
+逐条命令见 [首个签名发布运行手册](../implementation/NX-034-first-release-runbook.md)。
+
+**前置条件现状（2026-10-14，上午按调度员通报更正）**：
+
+| 前置条件 | 状态 |
+|---|---|
+| D-R1–R5 定案（方案 A 由 CI 构建、`nexloop-release` 签名封存；只读移交组；containerd snapshotter；临时限时出站；Caddy 2.x 最新稳定版） | 已满足（2026-10-13） |
+| 发布签名密钥与 allowed_signers（O1）；CI 主机发布用户与签名材料 | 已满足 |
+| syft、grype 固定版本（O3） | 已满足 |
+| 基础镜像 `python-build-base`、`node-host-base` 按 digest 固定 | 已满足（`versions.lock.json`） |
+| main 上有 CI 通过的提交 | 已满足：CI 合并基线已清零（s5t RESULT=PASS），此后各轮集成按合并规则通过；发布时取 gateway 固定提交之后、CI 通过的 SHA |
+| gateway 按 digest 固定（运行手册 §3） | **已完成，待合入**：Caddy 2.11.7，只固定 amd64 manifest digest，`pinned_image_problems()` 为 `[]`；在分支 `nx034-pin-gateway`，随集成轮 int/s5d 跑 CI。D-R4 不再需要：CI 账户的 docker 经镜像加速即可按 digest 拉取，不必临时开放出站 |
+| 移交目录与只读组（D-R2） | **已满足**：只读组 `nexloop-release-read` 已建，`$HANDOFF_ROOT` 与 `$RELEASE_ROOT` 的发布目录已建好，权限 2750（负责人已确认） |
+| `nexloop-ci` 使用 containerd snapshotter（D-R3） | **已满足**：其 rootless docker 本来就是 containerd snapshotter，无需改配置 |
+| 运行手册使用的 `$CI_QUEUE`（CI 结果）与 `$TRUSTED_REPO`（受信 bare 仓库） | **有方案，待合入**：L2 分支 `l2/release-ci-queue` 在现有车道上用 NX-033 队列产出发布用的 CI 结果，手册为 `docs/implementation/NX-034-release-ci-queue.md`（随该分支合入）；不需要先完成第 5 阶段的完整切换 |
+| 发布用的应用镜像（backend、agent-host、web） | 由 2.2 的构建产生，不是前置条件 |
+
+
 | # | 做什么 | 前置条件 | 所需材料 | 执行者 | 预计耗时 | 完成判据 | 对应 |
 |---|---|---|---|---|---|---|---|
-| 2.1 | 在 CI 主机上对发布提交跑本地 CI，得到通过的结果文件 | main 稳定 | — | 调度员 | 约 40–50 分钟 | 结果文件写明该 SHA、`status=passed` | NX-033、NX-034 |
-| 2.2 | 首次真实构建：`make build-release SHA=<sha>`（build → sbom → stage 预检 → sign → 封存），核对 containerd 存储下的 digest 行为 | 2.1；gateway 镜像 digest 已固定；syft/grype 已安装（O3 已完成） | 发布签名私钥 | 调度员（逐步授权），签名一步由负责人提供密钥 | 约 1 小时 | `release.py verify` 通过；归档已封存 | NX-034、AT-055 |
+| 2.0 | gateway 固定 digest 的提交合入 main（已固定，随 int/s5d 跑 CI） | 该轮 CI 通过 | — | 调度员 | — | main 上 gateway 为 pinned，`pinned_image_problems()` 为空 | 运行手册 §3 |
+| 2.1 | 在 CI 主机上对发布提交跑本地 CI，按发布用 CI 队列的手册产出结果文件 | 2.0 与 `l2/release-ci-queue` 已合入 | — | 调度员 | 约 40–50 分钟 | 结果文件写明该 SHA、`status=passed` | NX-033、NX-034 |
+| 2.2 | 首次真实构建（运行手册 §2 第 1–17 步：build → sbom → stage 预检 → 移交 → 独立核对 → sign → seal → check） | 2.1（D-R2、D-R3 已满足） | 发布签名私钥 | 调度员（逐步授权），签名一步由负责人提供密钥 | 约 1 小时 | `archive.py check` 通过；归档已封存 | NX-034、AT-055 |
 
 ## 3. 双机部署（NX-032，按运行手册逐步执行）
 
@@ -53,19 +73,21 @@
 | 3.4 | 步骤 3：加载防火墙规则（独立 nft 表，保持现有 SSH 会话不断开） | 3.3 | sudo 口令 | 负责人本人 | 30 分钟 | 去掉 NexLoop 表后规则集 hash 不变；SSH 仍可登录 | NX-032 |
 | 3.5 | 步骤 4：启动 DATA_HOST 上的 PostgreSQL 与 Valkey | 3.4 | — | 逐步授权 | 20 分钟 | `--deploy-gate`（data）全部 true；明文连接被拒 | NX-032 |
 | 3.6 | 步骤 5 前置：可验证的备份（空库也照做：`pg_dump` 并在隔离实例上恢复核对；NX-035 部署后改由迁移门槛强制） | 3.5 | — | 逐步授权 | 30 分钟 | 恢复核对通过 | NX-032 D5、AT-056 |
-| 3.7 | 步骤 5：开放 PG 运维窗口 → bootstrap 或 `nexloop-migrate` → 关闭窗口 → bootstrap 身份 NOLOGIN | 3.6 | 迁移身份 DSN | 负责人本人或逐步授权 | 30 分钟 | lineage 一致；`application_roles_unprivileged`、`bootstrap_identities_disabled` 为 true；窗口已关 | NX-032、AT-056 |
-| 3.8 | 步骤 6：`load-check` 载入镜像 → 启动 APP_HOST → `promote` 登记为当前发布 | 3.7 | 发布目录、allowed_signers | 逐步授权 | 1 小时 | `--deploy-gate`（app）全部 true，`real_dispatch_closed` 为 true | NX-032、AT-055 |
+| 3.7 | 步骤 5（**须先完成 4.1**：迁移门槛要求清单里有 pgBackRest 的已验证备份）：开放 PG 运维窗口 → bootstrap 或 `nexloop-migrate` → 关闭窗口 → bootstrap 身份 NOLOGIN | 3.6 | 迁移身份 DSN | 负责人本人或逐步授权 | 30 分钟 | lineage 一致；`application_roles_unprivileged`、`bootstrap_identities_disabled` 为 true；窗口已关 | NX-032、AT-056 |
+| 3.8 | 步骤 6：`load-check` 载入镜像 → 启动 APP_HOST（含 2 个 relay，Context v6）→ `promote` 登记为当前发布 | 3.7 | 发布目录、allowed_signers | 逐步授权 | 1 小时 | `--deploy-gate`（app）全部 true，`real_dispatch_closed` 为 true，relay 容器数与连接预算一致 | NX-032、AT-055 |
 | 3.9 | AT-058 外部探测：从管理机、DATA_HOST、APP_HOST 三处运行 `probe_isolation.py` | 3.8 | 三份私有 probe spec | 逐步授权 | 1 小时 | 三份报告 `"passed": true` | AT-058 |
 | 3.10 | 首次部署内容：只放合成租户，跑完 doctor 全套与 smoke | 3.9 | — | 调度员（逐步授权） | 1 小时 | doctor 全部通过，总闸关闭 | NX-032 D9 |
 | 3.11 | 回滚演练（可选但建议）：`rollback-check` 与拒绝盲目回滚 | 3.8 | — | 逐步授权 | 30 分钟 | 拒绝跨越未声明迁移的回滚 | AT-057 |
 
 ## 4. 备份与恢复的部署部分（NX-035）
 
-> NX-035 部署手册正在编写，本节先按设计稿 §7 列出；具体命令以部署手册为准：<NX-035 部署手册>。
+> 命令以 [NX-035 备份部署运行手册](../implementation/NX-035-deploy-runbook.md) 为准；与 NX-032 的先后关系见该手册：LUKS 卷最先建，迁移（3.7）之前必须有已验证的 pgBackRest 备份。
+>
+> **代码前置（尚未合入，见 [剩余工作核对](s5-status-20261014.md) §2）**：`nexloop-backup pg` 改用 pgBackRest 并写入清单（4.1 与 3.7 依赖）、`nexloop-restore`（4.3 依赖）、`nexloop-file-backup`（4.2 中 Artifact 与 Run 目录部分依赖）、两者的版本锁与许可登记。恢复日志的 restic 备份现在就能做。
 
 | # | 做什么 | 前置条件 | 所需材料 | 执行者 | 预计耗时 | 完成判据 | 对应 |
 |---|---|---|---|---|---|---|---|
-| 4.1 | 安装并配置 pgBackRest（实测非超级用户下能否完成备份，做不了先报调度员）与 WAL 归档 | 3.5、3.2 | 备份加密口令 | 逐步授权 | 2 小时 | 完整备份 `verified`；WAL 归档健康 | NX-035、ROADMAP R3 |
+| 4.1 | 运行手册第 2 步：安装并配置 pgBackRest（实测非超级用户下能否完成备份，做不了先报调度员）与 WAL 归档 | 3.5、3.2 | 备份加密口令 | 逐步授权 | 2 小时 | 完整备份 `verified`；WAL 归档健康 | NX-035、ROADMAP R3 |
 | 4.2 | 配置 restic 文件备份（恢复日志分段、Artifact、已终态 Run 目录）与异地仓库 | 4.1 | 备份加密口令、异地仓库账号 | 逐步授权 | 2 小时 | 本地与异地快照可列出；恢复日志已静态加密（受控试运行前门槛） | NX-035 D5、O6 |
 | 4.3 | 首次真实恢复演练：在一次性隔离环境恢复到命名恢复点，停在 `verified_readonly`，核对一致性与删除重放，记录 RTO/RPO，销毁环境 | 4.1、4.2 | — | 逐步授权 | 半天 | 演练记录写入，报告只有数字 | AT-050、AT-059 |
 | 4.4 | 迁移门槛在部署环境生效：之后每次迁移前先做差异备份并校验 | 4.1 | — | 逐步授权 | — | `nexloop-migrate` 在无备份时拒绝 | AT-056 |
@@ -85,15 +107,13 @@
 
 | # | 做什么 | 前置条件 | 所需材料 | 执行者 | 预计耗时 | 完成判据 | 对应 |
 |---|---|---|---|---|---|---|---|
-| 6.1 | 运行全历史审计 `history_audit.py --all-refs`，确认结论：凭据、私钥、受限网络标识一律轮换或作废并记录（D9） | — | 私有受限标识清单 | 调度员运行；负责人确认结论 | 1 小时 | 审计结论经负责人确认 | NX-036 D9 |
-| 6.2 | 填写 `security_contact`（GitHub 私密漏洞报告入口，O4 已开通），替换 SECURITY.md 与 CODE_OF_CONDUCT.md 中的占位符 | — | — | 负责人确认 | 15 分钟 | `check_public_files.py --public` 通过 | NX-036 D2 |
-| 6.3 | 运行 `release.py public-preflight`（九步），阅读第 9 步摘要并确认 | 6.1、6.2、2.2 | — | 调度员运行；负责人确认摘要 | 1 小时 | 报告 `ok: true` | NX-036 |
+| 6.3 | 运行 `release.py public-preflight`（九步），阅读第 9 步摘要并确认；首次公开前补上 stage 源码 SBOM 交叉核对（代码项） | 2.2（全历史审计与安全联系人已完成，见 §9） | — | 调度员运行；负责人确认摘要 | 1 小时 | 报告 `ok: true` | NX-036 |
 | 6.4 | 整理 CHANGELOG 版本节，定稿 [rc 发布说明](v0.1.0-rc-notes.md)（填入验收摘要与来信速率） | 6.3 | — | 调度员起草；负责人确认 | 1 小时 | 发布说明无占位符 | NX-036 |
 | 6.5 | 负责人本人在自己的机器上用 tag 签名密钥执行 `git tag -s v0.1.0-rc.<n> <sha>`，经同步推到 GitHub；发布 GitHub Release（附源码归档与 SHA256、公开版清单、SBOM；不附镜像与测试日志） | 6.4、5.3 | 负责人 tag 签名密钥 | 负责人本人 | 1 小时 | GitHub 上的 tag 通过 `git verify-tag` | NX-034 §4、AT-055 |
 
 ## 7. v0.1 受控真实闭环（NX-037）
 
-前置：ROADMAP §8 的进入条件，以及第 3、4 阶段完成。D-g 费用上限：累计 ¥100、单个 Run ¥2、租户月度 ¥300；D-i 计划：30 次交互（15/4/4/4/3），连续两个工作日 10:00–18:00。
+前置：ROADMAP §8 的进入条件，以及第 3、4 阶段完成。企业交付默认用参考端点：先按其 [部署手册](../../deploy/stage/reference-endpoint/README.md) 在 APP_HOST 起独立 Compose 项目并通过一致性检查，再按 [租户装配手册](../implementation/NX-037-tenant-assembly.md) §1–§6 装配（企业 slot 只能经 enrollment 模式开通）。D-g 费用上限：累计 ¥100、单个 Run ¥2、租户月度 ¥300；D-i 计划：30 次交互（15/4/4/4/3），连续两个工作日 10:00–18:00。
 
 | # | 做什么 | 前置条件 | 所需材料 | 执行者 | 预计耗时 | 完成判据 | 对应 |
 |---|---|---|---|---|---|---|---|
@@ -126,3 +146,15 @@
 | 运行手册步骤 0 的 CA 与证书 | 离线根 CA、中间 CA、服务与客户端证书已签发 | NX-032 运行手册步骤 0 |
 | D-a、D-g、D-h、D-i | 容量（200 客户、持续来信 ≤ 0.1 条/秒）、费用上限、第二维护者（负责人本人）、交互计划已定案 | ROADMAP §6–§7 |
 | AT-015 | 真实浏览器断线重连核对已通过 | planning |
+| 原 1.2、S4 出口 | AT-060 正式整轮通过（200 客户、矩阵 v2、relay 2 个进程），NX-031 done，S4 收口（2026-10-14） | ROADMAP §7 |
+| 原 6.1 | 全历史审计结论经负责人确认（D9，2026-10-12） | ROADMAP §7 |
+| 原 6.2 | 安全联系人填入 public-release.v1.json、SECURITY.md、CODE_OF_CONDUCT.md（O4） | ROADMAP §7 |
+| D-R1～D-R5 | 首个签名发布的构建方式（方案 A）、移交只读组、containerd snapshotter、临时限时出站、Caddy 2.x 最新稳定版（2026-10-13） | ROADMAP §7、NX-034 首个签名发布运行手册 §5 |
+| 空闲派发门槛 | v0.1 的 `idle_dispatch_p95_ms`（受理→claim，C4-low）门槛为 ≤5 s；2 s 为 v0.2 目标（2026-10-13） | ROADMAP §7 |
+| NX-052 判据修订 | C4-low 格按 0.1/s 只比较 K 对 N、P 对 N 三项 p95 增幅（各 ≤5%），不再要求该格门槛判定为 passed；其余门槛项仍须通过（2026-10-14） | ROADMAP §7、NX-052 实现说明 §11 |
+| ADR-029a、ADR-031、ADR-032 | relay 上下文准备优化：同一条来信内复用 Source 签名信封；一次对象读取内只派生一次 Source 权限（0191）；一次读取授权检查内只解析一次调用者身份（0192）。已批准并合入 main（int/s5c） | adr/ |
+| 参考企业交付端点 | 负责人暂无企业端点，由项目提供参考端点（APP_HOST 独立 Compose 项目、服务工单语义），已合入（2026-10-13） | ROADMAP §7 |
+| relay 双进程 | stage 默认 2 个 relay，连接预算方案 B 合计 59/60；登录高峰复测已完成（identity 池 3 时 ACK p95 885 ms，没有变差），方案 B 可行 | relay2-budget |
+| D-R2、D-R3 | 只读组 `nexloop-release-read` 与移交、发布目录（2750）已建并经负责人确认；`nexloop-ci` 本来就是 containerd snapshotter（2026-10-14） | 调度员通报 |
+| NX-052 测量方式（1A/2A） | N、K 各跑 3 轮，取 p95 中位数；P 的 ACK 写进限制说明（负责人 2026-10-14）。N 状态已跑通（删除 134 个外键） | 调度员通报 |
+| C4-low 优化后 | 空闲派发 p95 3194 ms（门槛 5 s），context_prepare p50 1213 ms | 调度员通报 |
