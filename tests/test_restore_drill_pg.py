@@ -71,7 +71,7 @@ def test_at050_pitr_drill_restores_before_an_erasure_and_the_journal_erases_agai
         backup.restore(**common, target=cluster['root'] / 'r0', port=free_port())
     with pytest.raises(backup.RestoreRefused, match='not empty'):
         backup.restore(**common, target=cluster['data'], port=free_port(), old_primary_fenced=True)
-    instance, report = backup.restore(**common, target=cluster['root'] / 'restored', port=free_port(), old_primary_fenced=True)
+    instance, report = backup.restore(**common, target=cluster['root'] / 'restored', port=free_port(), old_primary_fenced=True, drill_mark=mark)
     try:
         with psycopg.connect(instance.conninfo, autocommit=True) as restored:
             # Before anything is served: the Consumer erased again by the replay (AT-059), the restriction back, no session.
@@ -107,6 +107,20 @@ def test_at050_pitr_drill_restores_before_an_erasure_and_the_journal_erases_agai
             assert compare['count_mismatches'] == 0 and compare['sample_mismatches'] == 0 and compare['catalog_equal'] is True
             assert compare['tables_compared'] == len(mark['tables']) and compare['samples_compared'] >= 1
             rto, rpo = float(state[1]), (failure_time - datetime.fromisoformat(mark['marked_at'])).total_seconds()
+            # The restore tool's own checks before any open_scope: lineage, counts against the mark, the five compensating controls.
+            checks = report['checks']
+            assert checks['passed'] is True and all(checks['controls'].values()) and checks['lineage']['revision'] == CATALOG_HEAD
+            assert checks['drill_compare'] == compare and checks['counts']['scopes'] == checks['counts']['active_tenants'] >= 1
+            assert checks['counts']['scopes_open'] == 0 and checks['counts']['unverified_channels_not_paused'] == 0
+            assert len(checks['row_counts']) == len(mark['tables']) and all(type(v) is int for v in checks['row_counts'].values())
+            # A paused unverifiable channel resumed before opening breaks a control (the check reads the current state).
+            channel = report['window']['channels'][0] if report['window']['channels'] else None
+            if channel is not None:
+                with restored.transaction(force_rollback=True):
+                    restored.execute('set local session_replication_role=replica')
+                    restored.execute("update control.nexloop_control_scopes set paused=false where scope_kind='action_type' and scope_ref=%s", (channel['action_type'],))
+                    broken = backup.post_restore_checks(restored, drill_mark=mark)
+                assert broken['controls']['unverified_paused'] is False and broken['passed'] is False
     finally:
         instance.stop()
     # The source cluster is untouched by the restore (still the erased state of the old timeline, archiving on).
