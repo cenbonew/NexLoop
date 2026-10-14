@@ -1,0 +1,325 @@
+{
+  "schema_version": "nexloop-stage-principals/1",
+  "manifest_version": 1,
+  "decision": "NX-032 run sheet 1.6 / phase B (dispatcher 2026-10-14): the service principals the stage Compose file needs beyond service-grants.v1.json, each with only the authority its code calls (evidence per grant in purpose: file and line), registered with service-grants.v1.json through the trusted configuration (scripts/deploy/stage_secrets.py register). Effect Actions (ADR-020 §3: never in the service grants manifest) only for effect_roles. One credential per principal: the credential files of one principal hold the same token. Not here: per-object READ of plan reevaluation Role Runs (RoleDefinition, ConsumerRoleLink, PlanStep, RoleExecutionCeiling, RoleAssignmentScope, catalog) is granted with the Role assembly of a tenant (phase C); those credentials are authenticated only when a plan launches.",
+  "effect_roles": [
+    "effect_executor",
+    "relay_source",
+    "role_source"
+  ],
+  "principals": [
+    {
+      "role": "effect_executor",
+      "subject_id": "nexloop-service-effect-executor",
+      "principal_id": "nexloop-service-effect-executor-principal",
+      "credential_id": "nexloop-service-effect-executor-key",
+      "credential_reference": "effect_executor",
+      "application_id": "eios:application:nexloop-effect-executor",
+      "database_role": "nexloop_action_worker",
+      "purpose": "The effect executor: the action worker and webchat delivery run as it, and the relay, reply guarantor and plan reevaluator bind effect contexts to it (EffectControl.executor_principal, 0041/0042/0051).",
+      "source_task": "NX-015/NX-037"
+    },
+    {
+      "role": "relay_source",
+      "subject_id": "nexloop-service-relay-source",
+      "principal_id": "nexloop-service-relay-source-principal",
+      "credential_id": "nexloop-service-relay-source-key",
+      "credential_reference": "relay_source",
+      "application_id": "eios:application:nexloop-relay-source",
+      "database_role": "nexloop_api",
+      "purpose": "The relay Context Source: issues message Runs with source proofs and binds their Context (catalog READ derived by relay_source_read_rule 0142, Message READ by its message_read_rule 0077).",
+      "source_task": "NX-047/relay-multi-consumer"
+    },
+    {
+      "role": "relay_planner",
+      "subject_id": "nexloop-service-relay-planner",
+      "principal_id": "nexloop-service-relay-planner-principal",
+      "credential_id": "nexloop-service-relay-planner-key",
+      "credential_reference": "relay_planner",
+      "application_id": "eios:application:nexloop-relay-planner",
+      "database_role": "nexloop_api",
+      "purpose": "Creates the Goal, PlanStep and MessageAssignment of a routed message and binds its effect context (message relay and reply fallback).",
+      "source_task": "NX-031"
+    },
+    {
+      "role": "role_source",
+      "subject_id": "nexloop-service-role-source",
+      "principal_id": "nexloop-service-role-source-principal",
+      "credential_id": "nexloop-service-role-source-key",
+      "credential_reference": "role_source",
+      "application_id": "eios:application:nexloop-role-source",
+      "database_role": "nexloop_api",
+      "purpose": "The Source of plan reevaluation Role Runs: issues the Run and binds the Role Context.",
+      "source_task": "NX-025"
+    },
+    {
+      "role": "role_planner",
+      "subject_id": "nexloop-service-role-planner",
+      "principal_id": "nexloop-service-role-planner-principal",
+      "credential_id": "nexloop-service-role-planner-key",
+      "credential_reference": "role_planner",
+      "application_id": "eios:application:nexloop-role-planner",
+      "database_role": "nexloop_api",
+      "purpose": "Binds the effect context of a plan reevaluation Role Run (planner differs from the Source and the control owner, 0179).",
+      "source_task": "NX-025"
+    },
+    {
+      "role": "role_queue",
+      "subject_id": "nexloop-service-role-queue",
+      "principal_id": "nexloop-service-role-queue-principal",
+      "credential_id": "nexloop-service-role-queue-key",
+      "credential_reference": "role_queue",
+      "application_id": "eios:application:nexloop-role-queue",
+      "database_role": "nexloop_api",
+      "purpose": "Accepts the Run activation event of a plan reevaluation Role Run into the operations queue.",
+      "source_task": "NX-025"
+    },
+    {
+      "role": "artifact_maintenance",
+      "subject_id": "nexloop-service-artifact-maintenance",
+      "principal_id": "nexloop-service-artifact-maintenance-principal",
+      "credential_id": "nexloop-service-artifact-maintenance-key",
+      "credential_reference": "artifact_maintenance",
+      "application_id": "eios:application:nexloop-artifact-maintenance",
+      "database_role": "nexloop_domain_worker",
+      "purpose": "The domain worker: one bounded page of final Artifact orphan maintenance per run (0018).",
+      "source_task": "NX-008"
+    }
+  ],
+  "grants": [
+    {
+      "principal": "effect_executor",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.service.request:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "admit/finalize the reply effect (effect_execution.py 205/311/393/410; local_json_delivery deliver).",
+      "source_task": "NX-015"
+    },
+    {
+      "principal": "effect_executor",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.service.query:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "claim/observe/query provider state (effect_execution.py 236-499; local_json_delivery query/resolve).",
+      "source_task": "NX-015"
+    },
+    {
+      "principal": "effect_executor",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.service.receipt_reconcile:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "recover an unknown outcome (effect_execution.py 478; 0065).",
+      "source_task": "NX-018"
+    },
+    {
+      "principal": "effect_executor",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.enterprise.deliver:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "admit/finalize the enterprise delivery effect (EFFECT_ACTIONS, 0178).",
+      "source_task": "NX-037"
+    },
+    {
+      "principal": "message_relay",
+      "resource_type": "action",
+      "resource_id": "eios:action:NexLoop.queue.operations:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "accept the Run activation event (message_relay.py 345, reply_fallback.py 114 -> runtime_activation.accept).",
+      "source_task": "NX-031"
+    },
+    {
+      "principal": "relay_source",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.service.request:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "source proof of the message Run (message_relay.py 145-151; reply_fallback.py 96).",
+      "source_task": "NX-047"
+    },
+    {
+      "principal": "relay_source",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.enterprise.deliver:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "source proof of the enterprise slot of a message Run (message_relay.py 145-151, ADR-030).",
+      "source_task": "NX-037"
+    },
+    {
+      "principal": "relay_source",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.context.bind:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "bind the message Run Context (context_artifacts.py 89/108/124).",
+      "source_task": "NX-023"
+    },
+    {
+      "principal": "relay_source",
+      "resource_type": "artifact",
+      "resource_id": "eios:artifact:local_real",
+      "operations": [
+        "create",
+        "read"
+      ],
+      "purpose": "store and read the Context artifact (context_artifacts.py 29-36, put_artifact).",
+      "source_task": "NX-023"
+    },
+    {
+      "principal": "relay_planner",
+      "resource_type": "action",
+      "resource_id": "eios:action:Goal.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the Goal of a routed message (message_relay.py 261; reply_fallback.py 62).",
+      "source_task": "NX-031"
+    },
+    {
+      "principal": "relay_planner",
+      "resource_type": "action",
+      "resource_id": "eios:action:PlanStep.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the PlanStep(s) of a routed message (message_relay.py 261-282).",
+      "source_task": "NX-031"
+    },
+    {
+      "principal": "relay_planner",
+      "resource_type": "action",
+      "resource_id": "eios:action:MessageAssignment.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the MessageAssignment of a routed message (message_relay.py 282).",
+      "source_task": "NX-031"
+    },
+    {
+      "principal": "relay_planner",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.plan.bind_effect_context:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "bind the effect context(s) (message_relay.py 303-313; reply_fallback.py 103).",
+      "source_task": "NX-031"
+    },
+    {
+      "principal": "role_source",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.service.request:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "issue the Role Run (plan_reevaluation.py 214 -> run_credentials 33-40).",
+      "source_task": "NX-025"
+    },
+    {
+      "principal": "role_source",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.context.bind_role:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "bind the Role Context (role_context_artifacts.py 21/40/63).",
+      "source_task": "NX-025"
+    },
+    {
+      "principal": "role_source",
+      "resource_type": "artifact",
+      "resource_id": "eios:artifact:local_real",
+      "operations": [
+        "create",
+        "read"
+      ],
+      "purpose": "store and read the Role Context artifact (role_context_artifacts.py 52-53/77/130).",
+      "source_task": "NX-025"
+    },
+    {
+      "principal": "role_planner",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.plan.bind_effect_context:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "bind the Role Run effect context (plan_reevaluation.py 222).",
+      "source_task": "NX-025"
+    },
+    {
+      "principal": "role_queue",
+      "resource_type": "action",
+      "resource_id": "eios:action:NexLoop.queue.operations:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "accept the Role Run activation (plan_reevaluation.py 234 -> runtime_activation 147-166).",
+      "source_task": "NX-025"
+    },
+    {
+      "principal": "artifact_maintenance",
+      "resource_type": "artifact",
+      "resource_id": "eios:artifact:orphans_real",
+      "operations": [
+        "delete"
+      ],
+      "purpose": "final Artifact orphan sweep (artifact_orphans.py 24-25; 0018).",
+      "source_task": "NX-008"
+    }
+  ],
+  "source_message_read_rules": [
+    {
+      "principal": "relay_source",
+      "fields": [
+        "actor",
+        "body"
+      ],
+      "valid_until": "2027-10-09T00:00:00+00:00",
+      "purpose": "Message READ of the relay Source for the message Run Context (0077 derivation).",
+      "source_task": "NX-047"
+    }
+  ],
+  "credential_files": {
+    "action-worker/service-credential": "effect_executor",
+    "alert-evaluator/service-credential": "alert_evaluator",
+    "claim-extraction-scheduler/service-credential": "claim_extraction_scheduler",
+    "claim-extraction-worker/service-credential": "claim_extraction_worker",
+    "claim-matcher/service-credential": "claim_matcher",
+    "commercial-recorder/service-credential": "commercial_recorder",
+    "commitment-keeper/service-credential": "commitment_keeper",
+    "domain-worker/service-credential": "artifact_maintenance",
+    "incentive-issuer/service-credential": "incentive_issuer",
+    "message-relay/executor-credential": "effect_executor",
+    "message-relay/planner-credential": "relay_planner",
+    "message-relay/route-credential": "message_relay",
+    "message-relay/source-credential": "relay_source",
+    "outbound-recorder/service-credential": "outbound_message_recorder",
+    "plan-reevaluator/executor-credential": "effect_executor",
+    "plan-reevaluator/planner-credential": "role_planner",
+    "plan-reevaluator/queue-credential": "role_queue",
+    "plan-reevaluator/service-credential": "plan_reevaluator",
+    "plan-reevaluator/source-credential": "role_source",
+    "recall-indexer/service-credential": "recall_indexer",
+    "reply-guarantor/executor-credential": "effect_executor",
+    "reply-guarantor/planner-credential": "relay_planner",
+    "reply-guarantor/route-credential": "message_relay",
+    "reply-guarantor/service-credential": "reply_guarantor",
+    "reply-guarantor/source-credential": "relay_source",
+    "retention-keeper/service-credential": "retention_keeper",
+    "runtime-worker/service-credential": "runtime_worker",
+    "webchat-delivery/service-credential": "effect_executor"
+  }
+}

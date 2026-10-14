@@ -41,6 +41,8 @@ sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 import issue_certs  # noqa: E402
 
 COMPOSE_APP = ROOT / 'deploy/stage/compose.app.example.yaml'
+GRANTS = ROOT / 'deploy/authorization/service-grants.v1.json'
+PRINCIPALS = ROOT / 'deploy/authorization/stage-principals.v1.json'
 COMPOSE_DATA = ROOT / 'deploy/stage/compose.data.example.yaml'
 # Owners (dispatcher 2026-10-14): backend services 10001, Agent Host 10020, gateway root (caddy runs as root with cap_drop ALL),
 # DATA_HOST postgres/valkey/pgbackrest 999 (the image users), backup the nexloop-backup user (its uid is the host's).
@@ -202,7 +204,7 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
     passwords = {role: secrets.token_hex(24) for role in roles}
     signing = secrets.token_bytes(32)
     bundle = (ca_dir / 'bundle.crt').read_bytes()
-    issued, tokens = {}, {}
+    issued, tokens, role_tokens = {}, {}, {}
     for e in entries:
         target = out / e['host'] / 'secrets' / e['path']
         service, name = e['path'].split('/', 1)
@@ -246,7 +248,11 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
             if name in ('provider-credential', 'webchat-provider-credential'):
                 data = shared['webchat-provider']
             else:
-                data = secrets.token_urlsafe(48)
+                # One token per principal (stage-principals.v1.json credential_files): several files of one principal are copies.
+                role = credential_role(e['path'])
+                if role is None:
+                    raise Refused(f"credential file without a principal in {PRINCIPALS.name}: {e['path']}")
+                data = role_tokens.setdefault(role, secrets.token_urlsafe(48))
                 tokens[f"{e['host']}:{e['path']}"] = data
         elif kind == 'signing_key':
             data = signing
@@ -294,6 +300,151 @@ def summary(manifest):
             'roles': len(manifest['roles']), 'by_host': {h: count(host=h) for h in ('app', 'data')}}
 
 
+# ---- phase B: registration (trusted configuration, configurator role only) ---------------------------------------------------
+STAGE_SCHEMA = 'nexloop-stage-principals/1'
+# Resource type -> operations a stage principal may hold (the service grants manifest allows action execute and object_type read
+# only; the Run holders and the effect executor also need what ADR-020 §3 keeps out of that manifest).
+STAGE_ALLOWED = {'action': {'execute'}, 'object_type': {'read'}, 'artifact': {'create', 'read', 'delete'}}
+
+
+def _stage_principals(path=PRINCIPALS):
+    value = json.loads(Path(path).read_text())
+    if type(value) is not dict or value.get('schema_version') != STAGE_SCHEMA:
+        raise Refused('stage principals: schema_version ' + STAGE_SCHEMA)
+    return value
+
+
+def credential_role(path, principals=None):
+    """The principal role of one credential file (`<service>/<file>` below secrets/), or None."""
+    return (principals or _stage_principals())['credential_files'].get(path)
+
+
+def merged_manifest(grants_path=GRANTS, principals_path=PRINCIPALS):
+    """service-grants.v1.json (validated as published) plus the stage principals and their grants (validated here)."""
+    from nexloop_eios import service_grants as G
+    base = G.load(grants_path)
+    stage = _stage_principals(principals_path)
+    effect_roles = set(stage['effect_roles'])
+    roles = {p['role'] for p in base['principals']}
+    identifiers = {p[k] for p in base['principals'] for k in ('subject_id', 'principal_id', 'credential_id', 'credential_reference')}
+    for item in stage['principals']:
+        if set(item) != G.PRINCIPAL or item['role'] in roles or item['database_role'] not in G.DATABASE_ROLES:
+            raise Refused('stage principal shape, duplicate role or database role: ' + str(item.get('role')))
+        for k in ('subject_id', 'principal_id', 'credential_id', 'credential_reference'):
+            if not G._ID.fullmatch(item[k]) or item[k] in identifiers:
+                raise Refused(f"stage principal identifier {k} duplicate or invalid: {item['role']}")
+            identifiers.add(item[k])
+        roles.add(item['role'])
+    seen = {(g['principal'], g['resource_id']) for g in base['grants']}
+    for g in stage['grants']:
+        if set(g) != G.GRANT or g['principal'] not in roles:
+            raise Refused('stage grant shape or principal: ' + str(g.get('principal')))
+        if g['resource_type'] not in STAGE_ALLOWED or not set(g['operations']) <= STAGE_ALLOWED[g['resource_type']] or not g['operations']:
+            raise Refused(f"stage grant resource type or operation: {g['principal']} {g['resource_id']}")
+        effect = any(m in g['resource_id'] for m in G.FORBIDDEN_MARKERS)
+        if effect and g['principal'] not in effect_roles:
+            raise Refused(f"effect Action granted outside effect_roles: {g['principal']} {g['resource_id']}")
+        if (g['principal'], g['resource_id']) in seen:
+            raise Refused(f"duplicate grant: {g['principal']} {g['resource_id']}")
+        seen.add((g['principal'], g['resource_id']))
+    for role in {p['role'] for p in stage['principals']}:
+        if not any(g['principal'] == role for g in stage['grants']):
+            raise Refused('stage principal without grant: ' + role)
+    files = stage['credential_files']
+    if not set(files.values()) <= roles or roles - set(files.values()):
+        raise Refused('credential_files must name every principal and only known ones')
+    for rule in stage.get('source_message_read_rules', []):
+        if set(rule) != {'principal', 'fields', 'valid_until', 'purpose', 'source_task'} or rule['principal'] not in {p['role'] for p in stage['principals']}:
+            raise Refused('source_message_read_rules shape')
+    merged = {**base, 'principals': base['principals'] + stage['principals'], 'grants': base['grants'] + stage['grants']}
+    return merged, stage
+
+
+def _message_read_facts(manifest, stage, tenant):
+    from nexloop_eios.message_read import MessageReadRule
+    ids = {p['role']: p['principal_id'] for p in manifest['principals']}
+    return [('message_read_rule', [ids[r['principal']]], MessageReadRule(tenant_id=tenant, principal_id=ids[r['principal']], type_name='Message',
+             fields=tuple(sorted(r['fields'])), active=True, valid_until=r['valid_until'])) for r in stage.get('source_message_read_rules', [])]
+
+
+def _apply_extra_facts(facts, tenant, *, database_url_file, signing_key_file, signing_key_id):
+    """Write trusted configuration facts the service grants compiler does not produce (message_read_rule), only when they
+    differ from the current ones (idempotent); configurator role through apply_manifest_with_secrets."""
+    import uuid
+    from nexloop_eios import service_grants as G
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    from nexloop_eios.trusted_configuration import apply_manifest_with_secrets
+    current = G.inventory(database_url_file, tenant)
+    stored = {(r['kind'], tuple(r['key'])): r['payload'] for r in current['facts']}
+    writes = [(k, key, f) for k, key, f in facts if stored.get((k, tuple(key))) != json.loads(f.model_dump_json())]
+    if not writes:
+        return 0
+    body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'] or 'active',
+            'object_types': [], 'actions': [], 'functions': [], 'service_credentials': [], 'browser_applications': [], 'browser_business_applications': [],
+            'browser_rate_policies': [], 'identity_allowances': [],
+            'authority_facts': [{'kind': k, 'key': list(key), 'payload': json.loads(f.model_dump_json())} for k, key, f in writes]}
+    body['manifest_id'] = str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-extra:' + str(current['authority_revision']) + ':' + canonical_payload(body)))
+    apply_manifest_with_secrets(body, database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id, service_secrets={})
+    return len(writes)
+
+
+def _reference_secrets(out, manifest, stage):
+    """credential_reference -> token from management/service-secrets.json (file -> token); a principal's files share one token."""
+    tokens = json.loads((Path(out) / 'management' / 'service-secrets.json').read_text())
+    by_role = {}
+    for key, token in tokens.items():
+        path = key.split(':', 1)[1]
+        role = stage['credential_files'].get(path)
+        if role is None:
+            raise Refused('a generated credential file has no principal: ' + path)
+        if by_role.setdefault(role, token) != token:
+            raise Refused('the credential files of one principal must hold the same token: ' + role)
+    reference = {p['role']: p['credential_reference'] for p in manifest['principals']}
+    missing = sorted(set(reference) - set(by_role))
+    if missing:
+        raise Refused('no token generated for principals: ' + ','.join(missing))
+    return {reference[role]: token for role, token in by_role.items()}
+
+
+def register(out, *, tenant, database_url_file, signing_key_id, credential_expires_at, dry_run=False,
+             grants_path=GRANTS, principals_path=PRINCIPALS):
+    """Phase B: the service principals of the stage, their grants and their credentials through the trusted configuration
+    (service_grants.plan/apply: 0050 configurator definer, deterministic facts, idempotent). Tokens are read from
+    management/service-secrets.json and never printed; the signing key is the management hex copy."""
+    from datetime import datetime
+    from nexloop_eios import service_grants as G
+    manifest, stage = merged_manifest(grants_path, principals_path)
+    expires = datetime.fromisoformat(credential_expires_at) if isinstance(credential_expires_at, str) else credential_expires_at
+    if dry_run:
+        return {'dry_run': True, 'principals': sorted(p['role'] for p in manifest['principals']),
+                'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in manifest['grants']),
+                'message_read_rules': [r['principal'] for r in stage.get('source_message_read_rules', [])],
+                'credential_files': len(stage['credential_files'])}
+    secrets_map = _reference_secrets(out, manifest, stage)
+    # service_grants.apply re-validates a manifest whose grants follow the latest Action version, and that validation refuses the
+    # effect Actions of the stage roles; resolve those grants first (same lineage, configurator role) and apply the resolved list.
+    if any(g.get(G.FOLLOW) for g in manifest['grants']):
+        lineage = G.action_lineage(database_url_file, tenant)
+        derived, refused = G.resolve_follow(manifest, lineage)
+        if refused:
+            raise G.ServiceGrantsRejected('follow_latest_refused')
+        manifest = {**manifest, 'grants': [{k: v for k, v in g.items() if k != G.FOLLOW} for g in manifest['grants'] + derived]}
+    management = Path(out) / 'management'
+    staged = management / '.register-secrets.json'
+    _write(staged, json.dumps(secrets_map))
+    try:
+        report = G.apply(manifest, tenant, database_url_file=database_url_file, signing_key_file=management / 'signing.key.hex',
+                         signing_key_id=signing_key_id, service_secrets_file=staged, credential_expires_at=expires,
+                         owner_restrictions=G.load_owner_restrictions(ROOT / 'deploy/authorization/owner-property-restrictions.json'))
+    finally:
+        staged.unlink(missing_ok=True)
+    extra = _apply_extra_facts(_message_read_facts(manifest, stage, tenant), tenant, database_url_file=database_url_file,
+                               signing_key_file=management / 'signing.key.hex', signing_key_id=signing_key_id)
+    return {'changed': report['changed'] or bool(extra), 'message_read_rules_written': extra, 'credentials_created': sorted(report['credentials_created']),
+            'grants_added': len(report['grants_added']), 'grants_revoked': len(report['grants_revoked']),
+            'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
+
+
 def check(out, *, uids=False, compose_app=COMPOSE_APP):
     """deploy_checks.secret_distribution for each host tree, and every generated file unchanged against the manifest."""
     from nexloop_eios import deploy_checks
@@ -331,6 +482,13 @@ def main(argv=None):
     g.add_argument('--out', type=Path, required=True)
     g.add_argument('--ca-dir', type=Path, required=True)
     g.add_argument('--params', type=Path, required=True)
+    r = sub.add_parser('register')
+    r.add_argument('--out', type=Path, required=True)
+    r.add_argument('--tenant', required=True)
+    r.add_argument('--configurator-dsn-file', type=Path)
+    r.add_argument('--signing-key-id')
+    r.add_argument('--credential-expires-at')
+    r.add_argument('--dry-run', action='store_true')
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -339,12 +497,23 @@ def main(argv=None):
         if args.command == 'catalog':
             out = {'files': [{k: v for k, v in e.items() if k != 'secret'} for e in catalog(args.compose_app, args.compose_data)]}
             code = 0
+        elif args.command == 'register':
+            if not args.dry_run and not (args.configurator_dsn_file and args.signing_key_id and args.credential_expires_at):
+                raise Refused('register needs --configurator-dsn-file, --signing-key-id and --credential-expires-at (or --dry-run)')
+            out, code = register(args.out, tenant=args.tenant, database_url_file=args.configurator_dsn_file, signing_key_id=args.signing_key_id,
+                                 credential_expires_at=args.credential_expires_at, dry_run=args.dry_run), 0
         elif args.command == 'generate':
             out, code = generate(args.out, args.ca_dir, args.params), 0
         else:
             out = check(args.out, uids=args.uids)
             code = 0 if out['ok'] else 1
-    except (Refused, issue_certs.Refused, OSError, ValueError, KeyError) as error:
+    except Exception as error:
+        from nexloop_eios.service_grants import ServiceGrantsRejected
+        if not isinstance(error, (Refused, issue_certs.Refused, ServiceGrantsRejected, OSError, ValueError, KeyError)):
+            raise
+        if isinstance(error, ServiceGrantsRejected):
+            print(json.dumps({'ok': False, 'error': 'ServiceGrantsRejected', 'detail': error.reason}))
+            return 2
         print(json.dumps({'ok': False, 'error': type(error).__name__, 'detail': str(error) if isinstance(error, (Refused, issue_certs.Refused)) else None}))
         return 2
     print(json.dumps(out, sort_keys=True))
