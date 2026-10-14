@@ -15,6 +15,9 @@ RequiresMountsFor=/srv/nexloop/secrets <PG_BACKUP_REPO>
 Type=simple
 User=nexloop-pgbackrest
 Group=nexloop-pgbackrest
+# The remote processes the server starts read the default configuration unless told otherwise (2026-10-14: they opened the
+# package's /etc/pgbackrest.conf, owned by postgres, and failed with Permission denied).
+Environment=PGBACKREST_CONFIG=/etc/pgbackrest/pgbackrest-server.conf
 ExecStart=/usr/bin/pgbackrest --config=/etc/pgbackrest/pgbackrest-server.conf server
 Restart=on-failure
 RestartSec=5

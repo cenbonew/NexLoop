@@ -8,6 +8,9 @@ services:
     # the data directory, the socket directory and the files mounted below must be owned by or readable to uid 999.
     image: ${POSTGRES_IMAGE:?nexloop/postgres of the signed release, by digest}
     restart: unless-stopped
+    # pgBackRest archive-async forks a background process; without an init process it is reparented to the postmaster (PID 1),
+    # whose exit the postmaster treats as a crash and restarts every backend (found at the 2026-10-14 first start).
+    init: true
     environment:
       POSTGRES_DB: ${NEXLOOP_DB:?database name}
       POSTGRES_USER: nexloop_bootstrap
@@ -50,6 +53,9 @@ services:
   valkey:
     image: ${VALKEY_IMAGE:?audited TLS-capable Valkey image by digest}
     restart: unless-stopped
+    # Run as the image's valkey user directly: with cap_drop ALL the entrypoint cannot drop root by setpriv (2026-10-14 first
+    # start: "setresuid failed"). The mounted ACL, certificate and key are owned by uid 999.
+    user: "999:999"
     command: [valkey-server, /etc/valkey/valkey.conf]
     ports:
       - "${DATA_HOST_ADDR:?DATA_HOST address}:${VALKEY_PORT:?Valkey TLS port}:6379"
