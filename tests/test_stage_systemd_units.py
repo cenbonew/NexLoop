@@ -93,8 +93,13 @@ def test_the_file_backup_unit_is_marked_not_enabled_for_the_deploy_days():
 def test_the_pgbackrest_tls_server_serves_repo1_to_the_data_host_client_only():
     s = unit('nexloop-pgbackrest-server.service.example')
     assert s['Service']['User'] == ['nexloop-pgbackrest'] and s['Service']['ExecStart'] == ['/usr/bin/pgbackrest --config=/etc/pgbackrest/pgbackrest-server.conf server']
-    assert all(m.startswith(ENCRYPTED) for m in s['Unit']['RequiresMountsFor'][0].split())
+    # repo1 is the owner's mount point of the encrypted volume (<PG_BACKUP_REPO>, the same value in the unit and the conf).
+    assert s['Unit']['RequiresMountsFor'][0].split() == ['/srv/nexloop/secrets', '<PG_BACKUP_REPO>'] and s['Service']['ReadWritePaths'] == ['<PG_BACKUP_REPO>']
     conf = (UNITS / 'pgbackrest-server.conf.example').read_text()
+    assert 'repo1-path=<PG_BACKUP_REPO>' in conf
+    # The certificate files are the APP_HOST host files stage_secrets generates (pgbackrest-server/).
+    files = dict(re.findall(r'^tls-server-(cert|key|ca)-file=(.*)$', conf, re.M))
+    assert files == {k: f'/srv/nexloop/secrets/pgbackrest-server/{n}' for k, n in (('cert', 'server.crt'), ('key', 'server.key'), ('ca', 'ca.crt'))}
     assert 'tls-server-port=<PGBACKREST_TLS_PORT>' in conf and 'tls-server-address=<APP_HOST_ADDR>' in conf
     assert re.findall(r'^tls-server-auth=(.*)$', conf, re.M) == ['pgbackrest-data-client=nexloop']
     assert 'cipher-pass' not in conf

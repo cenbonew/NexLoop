@@ -1,0 +1,44 @@
+# NX-035 runbook 2.3 (M8, TLS server mode): pgBackRest configuration of DATA_HOST, read inside the postgres container as
+# /etc/pgbackrest/pgbackrest.conf (host file $NEXLOOP_ROOT/secrets/pgbackrest/pgbackrest.conf, 0600, uid 999).
+# Example only: __X__ are filled in by the owner on the host (passphrases from the password manager); afterwards
+# `grep -c '__' pgbackrest.conf` must print 0. Never copy the rendered file into a backup repository or evidence.
+[nexloop]
+# Must equal PGDATA of compose.data.example.yaml.
+pg1-path=/var/lib/postgresql/18/docker
+pg1-socket-path=/var/run/postgresql
+# First backup (no nexloop_backup role yet, run sheet 2.4): nexloop_bootstrap with the bootstrap line of pgpass;
+# after 2.5b change back to nexloop_backup and remove the bootstrap line.
+pg1-user=nexloop_backup
+
+[global]
+# repo1: the pgBackRest TLS server on APP_HOST (deploy/stage/systemd/pgbackrest-server.conf.example).
+repo1-host-type=tls
+repo1-host=__APP_HOST_NAME__
+repo1-host-port=__PGBACKREST_TLS_PORT__
+repo1-host-cert-file=/etc/pgbackrest/tls/client.crt
+repo1-host-key-file=/etc/pgbackrest/tls/client.key
+repo1-host-ca-file=/etc/pgbackrest/tls/ca.crt
+repo1-path=__PG_BACKUP_REPO__
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass=__REPO1_CIPHER_PASS__
+repo1-retention-full-type=time
+repo1-retention-full=35
+repo1-retention-diff=14
+# repo2 (off-site S3) is optional: leave this block out until the object store is ready.
+# repo2-type=s3
+# repo2-s3-endpoint=__S3_ENDPOINT__
+# repo2-s3-region=__S3_REGION__
+# repo2-s3-bucket=__S3_BUCKET__
+# repo2-path=/nexloop-pg
+# repo2-s3-key=__S3_KEY__
+# repo2-s3-key-secret=__S3_KEY_SECRET__
+# repo2-cipher-type=aes-256-cbc
+# repo2-cipher-pass=__REPO2_CIPHER_PASS__
+# repo2-retention-full-type=time
+# repo2-retention-full=35
+start-fast=y
+archive-async=y
+spool-path=/var/lib/postgresql/pgbackrest-spool
+process-max=2
+log-level-console=info
+log-level-file=off

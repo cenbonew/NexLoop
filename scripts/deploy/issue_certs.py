@@ -26,7 +26,8 @@ from pathlib import Path
 
 MAX_DAYS = {'root': 3650, 'intermediate': 365, 'server': 90, 'client': 90}
 _NAME = re.compile(r'[a-z][a-z0-9_.-]{0,62}')
-_CN = re.compile(r'[a-z][a-z0-9_]{0,62}')
+# PG roles and Valkey ACL users; '-' for the pgBackRest TLS client (tls-server-auth CN pgbackrest-data-client, M8).
+_CN = re.compile(r'[a-z][a-z0-9_-]{0,62}')
 _DNS = re.compile(r'(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*')
 
 

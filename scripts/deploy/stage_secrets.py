@@ -46,7 +46,8 @@ PRINCIPALS = ROOT / 'deploy/authorization/stage-principals.v1.json'
 COMPOSE_DATA = ROOT / 'deploy/stage/compose.data.example.yaml'
 # Owners (dispatcher 2026-10-14): backend services 10001, Agent Host 10020, gateway root (caddy runs as root with cap_drop ALL),
 # DATA_HOST postgres/valkey/pgbackrest 999 (the image users), backup the nexloop-backup user (its uid is the host's).
-OWNERS = {'agent-host': '10020', 'agent-host-model': '10020', 'gateway': '0', 'postgres': '999', 'valkey': '999', 'pgbackrest': '999', 'backup': 'nexloop-backup'}
+OWNERS = {'agent-host': '10020', 'agent-host-model': '10020', 'gateway': '0', 'postgres': '999', 'valkey': '999', 'pgbackrest': '999', 'backup': 'nexloop-backup',
+          'pgbackrest-server': 'nexloop-pgbackrest'}
 BACKEND_OWNER = '10001'
 # The PG role of each service DSN (the client certificate's CN must be the role: pg_hba clientcert=verify-full).
 PRIMARY_ROLE = {'api': 'nexloop_api', 'domain-worker': 'nexloop_domain_worker', 'action-worker': 'nexloop_action_worker',
@@ -55,7 +56,11 @@ PRIMARY_ROLE = {'api': 'nexloop_api', 'domain-worker': 'nexloop_domain_worker', 
 DSN_ROLE = {'identity-dsn': 'nexloop_identity', 'api-dsn': 'nexloop_api'}
 CA_FILES = {'api-loopback-ca.crt', 'guard-ca.crt', 'db-ca.crt', 'host-ca.crt', 'ca.crt', 'webchat-provider-ca.crt', 'enterprise-provider-ca.crt'}
 SERVER_CERTS = {('gateway', 'server'): 'gateway', ('agent-host', 'server'): 'agent-host', ('webchat-delivery', 'server'): 'loopback',
-                ('api', 'loopback'): 'loopback', ('runtime-worker', 'guard'): 'guard', ('postgres', 'server'): 'data', ('valkey', 'server'): 'data'}
+                ('api', 'loopback'): 'loopback', ('runtime-worker', 'guard'): 'guard', ('postgres', 'server'): 'data', ('valkey', 'server'): 'data',
+                # M8: the pgBackRest TLS server on APP_HOST answers on APP_HOST's name and address (the gateway SANs).
+                ('pgbackrest-server', 'server'): 'gateway'}
+# M8: client certificates that are not a DSN's (CN = what pgbackrest-server.conf tls-server-auth admits).
+CLIENT_CERTS = {('pgbackrest', 'client'): 'pgbackrest-data-client'}
 # Values that must be identical in several files (one secret, several readers).
 SHARED_VALUES = {'host-control': ['app:shared/host-control.key', 'app:agent-host/transport.key', 'app:retention-keeper/host-control.key'],
                  # F2: the guard bearer key the runtime worker's guard checks and the Agent Host presents.
@@ -72,7 +77,10 @@ MANUAL = {'provider-routes': ('manual', 'NX-037 provider routing (effect_dispatc
           'pgbackrest.conf': ('manual', 'NX-035 runbook 2.3: rendered by the owner with the repository passphrases and object-store keys')}
 DATA_FILES = ['postgres/bootstrap_password', 'postgres/server.crt', 'postgres/server.key', 'postgres/ca.crt',
               'valkey/valkey.acl', 'valkey/server.crt', 'valkey/server.key', 'valkey/ca.crt',
-              'pgbackrest/pgbackrest.conf', 'pgbackrest/pgpass', 'backup/recorder.dsn']
+              'pgbackrest/pgbackrest.conf', 'pgbackrest/pgpass', 'pgbackrest/client.crt', 'pgbackrest/client.key', 'pgbackrest/ca.crt',
+              'backup/recorder.dsn']
+# M8: APP_HOST host files outside Compose, read by the systemd unit nexloop-pgbackrest-server (owner nexloop-pgbackrest).
+APP_HOST_FILES = ['pgbackrest-server/server.crt', 'pgbackrest-server/server.key', 'pgbackrest-server/ca.crt']
 
 
 class Refused(ValueError):
@@ -109,6 +117,8 @@ def classify(host, service, name):
         return 'config', phase, note
     if name in CA_FILES:
         return 'ca_bundle', 'A', 'the intermediate CA bundle (intermediate + root)'
+    if name.endswith(('.crt', '.key')) and (service, stem) in CLIENT_CERTS:
+        return ('client_cert' if name.endswith('.crt') else 'client_key'), 'A', f'CN={CLIENT_CERTS[(service, stem)]}'
     if name.endswith(('pg-client.crt', 'pg-client.key')):
         # F1: a DSN's client certificate carries its role as CN (pg_hba clientcert=verify-full): pg-client.* for `dsn`,
         # identity-pg-client.* for `identity-dsn`, api-pg-client.* for `api-dsn`.
@@ -145,6 +155,9 @@ def catalog(compose_app=COMPOSE_APP, compose_data=COMPOSE_DATA):
         path = re.sub(r'^\$\{NEXLOOP_ROOT:\?[^}]*\}/secrets/', '', spec['file'])
         service, name = path.split('/', 1)
         entries.append({'host': 'app', 'path': path, 'secret': secret, 'service': service, 'owner': _owner(service)})
+    for path in APP_HOST_FILES:
+        service = path.split('/', 1)[0]
+        entries.append({'host': 'app', 'path': path, 'secret': None, 'service': service, 'owner': _owner(service)})
     data_text = Path(compose_data).read_text()
     for path in DATA_FILES:
         service, name = path.split('/', 1)
@@ -220,7 +233,7 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
                 if server:
                     issue_certs.leaf('server', ca_dir, work, cert_name, sans=p['sans'][SERVER_CERTS[(service, stem)]])
                 else:
-                    issue_certs.leaf('client', ca_dir, work, cert_name, cn=_role(service, _client_dsn(name)))
+                    issue_certs.leaf('client', ca_dir, work, cert_name, cn=CLIENT_CERTS.get((service, stem)) or _role(service, _client_dsn(name)))
                 issued[cert_name] = True
             source = work / (f'{cert_name}.chain.crt' if name.endswith('.crt') else f'{cert_name}.key')
             data = source.read_bytes()

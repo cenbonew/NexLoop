@@ -320,3 +320,30 @@ def free_port():
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
         return s.getsockname()[1]
+
+
+def test_pgbackrest_tls_files_match_the_compose_mounts_the_server_conf_and_the_data_conf_example(tree):
+    """M8: DATA_HOST client certificate (CN pgbackrest-data-client, tls-server-auth) mounted read-only for the PG container;
+    APP_HOST host files pgbackrest-server/ (server chain with the gateway SANs) where pgbackrest-server.conf reads them."""
+    files = {(e['host'], e['path']): e for e in S.catalog()}
+    for path in ('pgbackrest/client.crt', 'pgbackrest/client.key', 'pgbackrest/ca.crt'):
+        assert files[('data', path)]['owner'] == '999'
+    for path in S.APP_HOST_FILES:
+        assert files[('app', path)]['owner'] == 'nexloop-pgbackrest' and files[('app', path)]['secret'] is None
+    data = yaml.safe_load((ROOT / 'deploy/stage/compose.data.example.yaml').read_text())
+    mounts = [v for v in data['services']['postgres']['volumes'] if '/secrets/pgbackrest/' in v]
+    tls = {v.split(':')[-2]: v for v in mounts if '/etc/pgbackrest/tls/' in v}
+    assert set(tls) == {f'/etc/pgbackrest/tls/{n}' for n in ('client.crt', 'client.key', 'ca.crt')} and all(v.endswith(':ro') for v in tls.values())
+    conf = (ROOT / 'deploy/stage/config/pgbackrest.conf.example').read_text()
+    settings = dict(re.findall(r'^([a-z0-9-]+)=(.*)$', conf, re.M))
+    assert settings['pg1-path'] == data['services']['postgres']['environment']['PGDATA'] and settings['repo1-host-type'] == 'tls'
+    assert {settings[f'repo1-host-{k}-file'] for k in ('cert', 'key', 'ca')} == set(tls)
+    assert not [k for k in settings if k.startswith('repo2')] and all(v.startswith('__') for k, v in settings.items() if 'cipher-pass' in k)
+    secrets_root = tree['out']
+    client = subprocess.run(['openssl', 'x509', '-noout', '-subject', '-in', str(secrets_root / 'data/secrets/pgbackrest/client.crt')],
+                            capture_output=True, text=True).stdout
+    assert 'CN=pgbackrest-data-client' in client.replace(' ', '')
+    server = subprocess.run(['openssl', 'x509', '-noout', '-ext', 'subjectAltName,extendedKeyUsage', '-in', str(secrets_root / 'app/secrets/pgbackrest-server/server.crt')],
+                            capture_output=True, text=True).stdout
+    assert 'app.stage.invalid' in server and 'TLS Web Server Authentication' in server
+    assert (secrets_root / 'app/secrets/pgbackrest-server/ca.crt').read_bytes() == (tree['ca'] / 'bundle.crt').read_bytes()

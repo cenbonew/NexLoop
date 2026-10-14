@@ -8,7 +8,8 @@
 Description=NexLoop pgBackRest TLS server (repo1)
 After=network-online.target
 Wants=network-online.target
-RequiresMountsFor=/srv/nexloop/secrets /srv/nexloop-backup/pg
+# <PG_BACKUP_REPO>: the mount point of the encrypted repo1 volume, as repo1-path in pgbackrest-server.conf (fill in on the host).
+RequiresMountsFor=/srv/nexloop/secrets <PG_BACKUP_REPO>
 
 [Service]
 Type=simple
@@ -21,7 +22,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/nexloop-backup/pg
+ReadWritePaths=<PG_BACKUP_REPO>
 UMask=0077
 
 [Install]

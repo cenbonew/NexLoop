@@ -29,6 +29,11 @@ services:
       # NX-035: pgBackRest configuration (repository passphrases, object-store keys) and its pgpass, private, uid 999, 0600.
       - ${NEXLOOP_ROOT:?root}/secrets/pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
       - ${NEXLOOP_ROOT:?root}/secrets/pgbackrest/pgpass:/etc/pgbackrest/pgpass:ro
+      # NX-035 M8: pgBackRest is a TLS client of the repo1 server on APP_HOST (pgbackrest.conf repo1-host-*-file); the client
+      # certificate's CN is pgbackrest-data-client (tls-server-auth of pgbackrest-server.conf), private, uid 999.
+      - ${NEXLOOP_ROOT:?root}/secrets/pgbackrest/client.crt:/etc/pgbackrest/tls/client.crt:ro
+      - ${NEXLOOP_ROOT:?root}/secrets/pgbackrest/client.key:/etc/pgbackrest/tls/client.key:ro
+      - ${NEXLOOP_ROOT:?root}/secrets/pgbackrest/ca.crt:/etc/pgbackrest/tls/ca.crt:ro
       # NX-035 design §4.1: the backup roles connect only over this host-local socket directory (0700, uid 999; the
       # nexloop-backup executor on DATA_HOST uses host=$NEXLOOP_ROOT/run/postgresql in its private DSN files).
       - ${NEXLOOP_ROOT:?root}/run/postgresql:/var/run/postgresql
