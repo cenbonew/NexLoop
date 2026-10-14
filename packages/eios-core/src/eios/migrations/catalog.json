@@ -980,6 +980,11 @@
       "version": "0196",
       "name": "0196_nx037_interaction_messages.sql",
       "sha256": "064bbebc6ef3318672cab661d22d64efc7e262844b1b9aab91991c6dead0d093"
+    },
+    {
+      "version": "0197",
+      "name": "0197_nx035_backup_read_settings.sql",
+      "sha256": "813b263d1e4dfc1ebcaa05672cbce84b038564a342a8ad437267e78cd425f4d2"
     }
   ]
 }
