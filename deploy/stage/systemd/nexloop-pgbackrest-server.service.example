@@ -1,0 +1,28 @@
+# NX-035 M8 (owner decision: TLS server mode): the pgBackRest TLS server on APP_HOST that serves repo1 to DATA_HOST.
+# pgBackRest 2.59.3 from the verified PGDG deb (versions.lock.json deployment_tools.pgbackrest). Runs as nexloop-pgbackrest,
+# the owner of repo1 on the encrypted nexloop-pg-repo volume. The server configuration is pgbackrest-server.conf.example:
+# it listens on APP_HOST's address and PGBACKREST_TLS_PORT, and tls-server-auth admits only the client certificate whose CN
+# is DATA_HOST's pgBackRest client (issued by the NexLoop CA, NX-032 step 0). app-host.nft accepts that port from DATA_HOST only.
+# Example only; B class, owner confirms. Undo: systemctl disable --now nexloop-pgbackrest-server; remove the unit and the conf.
+[Unit]
+Description=NexLoop pgBackRest TLS server (repo1)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/nexloop/secrets /srv/nexloop-backup/pg
+
+[Service]
+Type=simple
+User=nexloop-pgbackrest
+Group=nexloop-pgbackrest
+ExecStart=/usr/bin/pgbackrest --config=/etc/pgbackrest/pgbackrest-server.conf server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/nexloop-backup/pg
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

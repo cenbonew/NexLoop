@@ -40,7 +40,7 @@
 |---|---|---|---|
 | P1 | 已封存的签名发布 `$RID`：按发布用 CI 结果手册产出该 SHA 的 CI 结果，再按首个签名发布手册 §2 第 1–17 步构建、签名、封存 | 调度员；签名一步由负责人提供密钥 | `archive.py check` 输出 `ok: true`；gateway 已按 digest 固定 |
 | P2 | DATA_HOST 的 PG 镜像是发布中的 **`nexloop/postgres`**（PostgreSQL 18 + pgvector + pgBackRest 2.59.3，以 uid 999 的 postgres 用户运行），已随首个签名发布 `20261014-241993b9cc12-1` 提供；data dry-run 写出 `POSTGRES_IMAGE=nexloop/postgres@<发布 digest>` | 调度员 | 发布清单中有 `postgres`；data 主机的 dry-run 与 Compose 预检使用它（核对文档预演 P-3、P-6） |
-| P3 | pgBackRest 和 restic 的安装包已在管理机上下载，并与官方校验值核对一致（下载要负责人确认） | 负责人确认，调度员执行 | sha256 与官方值一致，并回填 `versions.lock.json` 的 `deployment_tools` |
+| P3 | APP_HOST 用的 pgBackRest 包（PGDG 2.59.3 的 deb，供 repo1 的 TLS 服务器）和 restic 包，已在管理机上下载，并与官方校验值核对一致（下载要负责人确认）。DATA_HOST **不单独安装** pgBackRest：它随 `nexloop/postgres` 镜像提供，版本相同 | 负责人确认，调度员执行 | 两个包的 sha256 与官方值一致，并回填 `versions.lock.json` 的 `deployment_tools`；镜像内 `pgbackrest version` 为 2.59.3 |
 | P4 | 私有材料齐全：私有 stage env（0600）与 SSH 配置；服务与客户端证书（已签发）；备份口令（pgBackRest repo1/2、restic repo1/2）；各 LUKS 口令；S3 桶与专用子账号凭据；参考端点的服务凭据与员工凭据 | 负责人 | 都在密码管理器和私有目录中；不进入仓库，也不交给任何会话 |
 | P5 | 两台主机可用空间（只读 inventory）：按 NX-035 手册 1.1 估算各 LUKS 卷，合计不超过可用空间的 70% | 调度员 | 估算记录在私有证据目录 |
 | P6 | LUKS 开机解锁方式：按 NX-035 手册 1.3 选定，推荐 A“人工解锁” | 负责人 | 决定已记录 |
@@ -86,7 +86,7 @@
 
 | # | 步骤 | 执行者 | B 类 | sudo | 耗时 | 完成判据 | 失败时撤销 |
 |---|---|---|---|---|---|---|---|
-| 4.1 | **首次部署内容与 smoke**（NX-032 D9）：只放合成租户；跑 doctor 全套（deploy-gate、`--tls-spec`、`--backup`、`--relay-source`）和 smoke | 调度员 | 否（只读加合成数据） | 否 | 45 分钟 | doctor 全部通过；总闸关闭；relay 产出 v6 上下文（stage compose 测试已核对，这里只看 Run 正常完成） | 合成租户的数据留在库中，不回退 |
+| 4.1 | **首次部署内容与 smoke**（NX-032 D9）：只放合成租户；跑 doctor 全套（deploy-gate、`--tls-spec`、`--backup`、`--relay-source`）和 smoke | 调度员 | 否（只读加合成数据） | 否 | 45 分钟 | doctor 全部通过；总闸关闭；relay 产出 v6 上下文，核对方法：用 metrics 只读角色或 doctor 查询 `runtime.nexloop_context_artifact_bindings` 中最近一条 `pack_text` 的 `schema_version`，应为 `nexloop.context-pack.v6`（只读这一个字段，不读上下文内容） | 合成租户的数据留在库中，不回退 |
 | 4.2 | **AT-058 外部探测**：管理机、DATA_HOST、APP_HOST 三处，各用一份私有 spec 运行 `probe_isolation.py`；包括 Agent Host 独立命名空间的两条负例 | 调度员（逐步授权）；DATA_HOST 上的运行由负责人确认 | 只读探测 | 否 | 1 小时 | 三份报告都是 `"passed": true` | 无（只读） |
 | 4.3 | **参考企业交付端点**（端点部署手册 §1–§4）：在 APP_HOST 上建独立 Compose 项目，有自己的项目名和卷；服务证书由内部 CA 签发（SAN 为 APP_HOST 的名称与地址）；`service_token` 与 `staff_token` 是两个不同的私有文件；启动后运行 `endpoint_conformance.py`，报告 `ok: true` | 调度员（逐步授权）；凭据由负责人生成并放入 | 是 | 是（秘密目录） | 1 小时 | `config -q` 通过；容器非 root，根文件系统只读；一致性检查 `ok: true`；端点不在 NexLoop 的网络中 | `docker compose -p <端点项目> down`（不加 `-v`）；删除私有凭据 |
 | 4.4 | **定时任务与告警**（NX-035 步骤 5）：`nexloop-pg-full`、`nexloop-pg-diff`、`nexloop-journal`、`nexloop-journal-restic`、`nexloop-restic-maint`（DATA_HOST），`nexloop-file-backup`（APP_HOST），都加上 `RequiresMountsFor=` | 调度员（逐步授权）；DATA_HOST 上的 unit 安装由负责人输入 sudo | 是 | 是 | 45 分钟 | `systemctl list-timers 'nexloop-*'` 的下次执行时间与计划一致；首次执行后清单中出现对应的行；告警规则包含 `file_backup_age`、`restore_journal_lag` 等 | `systemctl disable --now <timer>`、删除 unit、`daemon-reload`；仓库内容不动 |

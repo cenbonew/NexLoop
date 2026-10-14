@@ -1,0 +1,10 @@
+[Unit]
+Description=NexLoop restic retention and checks
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

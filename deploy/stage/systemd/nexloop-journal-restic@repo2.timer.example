@@ -1,0 +1,9 @@
+[Unit]
+Description=NexLoop restore journal to restic repo2 (every 15 minutes)
+
+[Timer]
+OnCalendar=*-*-* *:0/15:45
+Persistent=true
+
+[Install]
+WantedBy=timers.target

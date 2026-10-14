@@ -171,3 +171,22 @@ def test_the_effect_worker_reaches_only_postgresql_and_the_enterprise_endpoint(e
     # The Compose example's effect network is the same parameter (one value in both private files).
     compose_env = (STAGE / 'compose.app.env.example').read_text()
     assert f"EFFECT_EGRESS_CIDR={values['EFFECT_EGRESS_CIDR']}" in compose_env
+
+
+def test_the_pgbackrest_tls_port_is_open_to_data_host_only(env, tmp_path):
+    """NX-035 M8: APP_HOST's pgBackRest TLS server (repo1) accepts DATA_HOST and nothing else; the port is a whitelisted parameter."""
+    values = render.load_env(env)
+    assert values['PGBACKREST_TLS_PORT'] == '58432'
+    out = tmp_path / 'app-host.nft'
+    assert render.main(['--env', str(env), '--template', str(STAGE / 'firewall/app-host.nft.template'), '--out', str(out)]) == 0
+    text = out.read_text()
+    port, data = values['PGBACKREST_TLS_PORT'], values['DATA_HOST_ADDR']
+    lines = [l.strip() for l in text.splitlines()]
+    accept, drop = f'ip saddr {data} tcp dport {port} accept', f'tcp dport {port} drop'
+    assert accept in lines and drop in lines and lines.index(accept) < lines.index(drop)
+    for bad in ('80', 'x', '70000'):
+        broken = tmp_path / f'bad-{bad}.env'
+        broken.write_text(env.read_text().replace(f'PGBACKREST_TLS_PORT={port}', f'PGBACKREST_TLS_PORT={bad}'))
+        broken.chmod(0o600)
+        with pytest.raises(render.Refused, match='PGBACKREST_TLS_PORT'):
+            render.load_env(broken)
