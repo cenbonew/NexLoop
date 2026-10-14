@@ -22,10 +22,13 @@
 
 ## 硬约束（任何时段都不得违反）
 
-1. **迁移顺序**：首次 pgBackRest 全量备份写入清单并经校验（`verified`）之前，不执行任何迁移。`nexloop-migrate` 没有豁免开关（NX-035 迁移门槛，AT-056）。
-   - 第一天只对**空库**做初次 bootstrap，它是建库，不是迁移；备份执行者写清单要用到的函数，也是 bootstrap 建出来的。
-   - 此后对这个库做的任何迁移，都必须先通过 `authz.nexloop_migration_gate()`，即存在 60 分钟以内、catalog 与当前库一致的已验证备份。
-   - 这一点的理解请调度员在开工前确认，见文末“待确认”。
+1. **迁移顺序**（调度员 2026-10-14 答复）：没有验证过的备份，就不做迁移。周四下午按以下顺序执行：
+   1. 启动空集群；
+   2. 第一次 pgBackRest 全量备份，并做 verify。此时库里还没有清单表，结果只写进私有证据文件，不写库；
+   3. 空库初次 bootstrap；
+   4. 第二次 pgBackRest 全量备份，由备份执行者写进清单，状态必须是 `verified`。
+   
+   此后的 `nexloop-migrate` 一律先通过迁移门槛 `authz.nexloop_migration_gate()`，即存在 60 分钟以内、catalog 与当前库一致的已验证备份。门槛没有豁免开关（NX-035，AT-056）。
 2. **relay**：APP_HOST 运行 2 个 relay（`message-relay`、`message-relay-2`），连接预算按方案 B（合计 59/60，两个 API 的 `--identity-pool-max` 都是 3，见 [relay2-budget](../implementation/relay2-budget.md)）。部署门禁会核对 relay 容器数与预算一致。
 3. **Context v6**：relay 带 `--context-strategy recent_plus_required`，Agent Host 运行配置的 `context_input_protocol` 是 `nexloop.context-pack.v6`。不得去掉这个参数。
 4. **参考企业交付端点**：在 APP_HOST 上作为**独立 Compose 项目**运行，有自己的项目名和卷，不加入 NexLoop 的网络，也不连 NexLoop 的数据库。
@@ -36,7 +39,7 @@
 | # | 项 | 执行者 | 判据 |
 |---|---|---|---|
 | P1 | 已封存的签名发布 `$RID`：按发布用 CI 结果手册产出该 SHA 的 CI 结果，再按首个签名发布手册 §2 第 1–17 步构建、签名、封存 | 调度员；签名一步由负责人提供密钥 | `archive.py check` 输出 `ok: true`；gateway 已按 digest 固定 |
-| P2 | DATA_HOST 的 PG 镜像带有与锁文件一致的 pgBackRest 版本，并写入发布清单（NX-035 手册 2.0 第 2 项） | 调度员 | 发布清单中有该镜像的 digest。**这一项目前未见完成，未满足时 pgBackRest 无法在容器内归档，周四下午的备份步骤会被挡住** |
+| P2 | DATA_HOST 用的带 pgBackRest 的 PG 派生镜像（版本与锁文件一致）：由 L2 实现（分支 `l2/pg-pgbackrest-image`），**随首个签名发布提供**，镜像名与 digest 以 L2 的实现和发布清单为准（下文记作 `<PG_PGBACKREST_IMAGE>`） | 调度员 | 发布清单中有这个镜像的 digest；data 主机的 dry-run 与 Compose 预检使用它 |
 | P3 | pgBackRest 和 restic 的安装包已在管理机上下载，并与官方校验值核对一致（下载要负责人确认） | 负责人确认，调度员执行 | sha256 与官方值一致，并回填 `versions.lock.json` 的 `deployment_tools` |
 | P4 | 私有材料齐全：私有 stage env（0600）与 SSH 配置；服务与客户端证书（已签发）；备份口令（pgBackRest repo1/2、restic repo1/2）；各 LUKS 口令；S3 桶与专用子账号凭据；参考端点的服务凭据与员工凭据 | 负责人 | 都在密码管理器和私有目录中；不进入仓库，也不交给任何会话 |
 | P5 | 两台主机可用空间（只读 inventory）：按 NX-035 手册 1.1 估算各 LUKS 卷，合计不超过可用空间的 70% | 调度员 | 估算记录在私有证据目录 |
@@ -62,10 +65,11 @@
 | # | 步骤 | 执行者 | B 类 | sudo | 耗时 | 完成判据 | 失败时撤销 |
 |---|---|---|---|---|---|---|---|
 | 2.1 | **防火墙**（NX-032 步骤 3）：两台主机加载独立的 `inet nexloop_stage` 表；先 `nft -c` 只做检查，再加载。保持当前 SSH 会话不断开，另开一个会话验证 | 负责人本人（DATA_HOST）；APP_HOST 调度员逐步授权 | 是 | 是 | 30 分钟 | `nft -c` 没有输出；去掉 NexLoop 表之后规则集 hash 不变；新会话仍可 SSH 登录；APP_HOST 的规则中有效应 worker 访问参考端点的那一条出站规则 | `nft delete table inet nexloop_stage`（现有 UFW 和 Docker 规则不动） |
-| 2.2 | **启动数据层**（NX-032 步骤 4）：`nexloop-data` 项目，PG 镜像带 pgBackRest（前置 P2），归档配置在 1.1 已写入 | 调度员（逐步授权） | 是 | 否（docker 组；如果需要 sudo，由负责人输入） | 30 分钟 | PG、Valkey 都 healthy；`--deploy-gate`（data）的 `port_bindings`、`planned_ports_free_before`、`existing_services_unchanged` 都为 true；`sslmode=disable` 连接被拒；`show archive_mode` 为 `on` | `docker compose -p nexloop-data down`（不加 `-v`） |
-| 2.3 | **空库初次 bootstrap**（NX-032 步骤 5 的首次建库部分）：先对空库 `pg_dump -Fc`，在一次性实例上恢复核对（D5）→ 开运维窗口（步骤 7）→ 用迁移身份执行 bootstrap，到发布清单对应的 catalog head → 关窗口 → `ALTER ROLE nexloop_bootstrap NOLOGIN` | 负责人本人或逐步授权；DATA_HOST 上 `pg_hba` 和 nft 的改动由负责人输入 sudo | 是 | 是 | 45 分钟 | `bootstrap.verify()` 的 lineage 一致；`application_roles_unprivileged` 与 `bootstrap_identities_disabled` 都为 true；窗口已关闭（从管理机连 `$PG_PORT` 被拒或超时）；**没有执行任何 `nexloop-migrate`** | 库是空的，可以整体重建：`down` 后删除数据目录要负责人单独确认；不运行 down 迁移 |
-| 2.4 | **pgBackRest 安装与仓库**（NX-035 2.1–2.3）：APP_HOST 安装固定版本，建 `$PGBACKREST_REPO_USER`；DATA_HOST 到 APP_HOST 的受限身份（推荐 TLS 服务器模式，复用 NX-032 的 CA）；两台主机渲染 `pgbackrest.conf`（0600，`grep -c '__'` 为 0） | 调度员（逐步授权）；DATA_HOST 部分由负责人输入 sudo；口令由负责人从密码管理器填写 | 是 | 是 | 1 小时 | `pgbackrest version` 与锁文件一致；受限身份只能执行 pgbackrest；配置中没有占位符 | 删除二进制和用户；删除这把公钥或 TLS 证书；删除配置文件 |
-| 2.5 | **stanza 与首次全量备份**（NX-035 2.5）：`stanza-create`、`check`；再用执行者 `nexloop-backup pg … --repo repo1 --kind pg_full`，以及 `--repo repo2`；最后 `info` | 调度员（逐步授权） | 是 | 否 | 1 小时（视数据量） | `check` 输出 `completed successfully`；清单中 repo1、repo2 各有一行 `pg_full`，状态 `verified`；`doctor --backup` 的 `backup_age` 和 `wal_archive_lag` 通过（repo2 还有 `offsite_backup_age`）。**到这一步，迁移门槛才可能允许迁移** | `stanza-delete` 会删除整个 stanza，属于破坏性操作，只在首次失败时使用，并须负责人单独确认 |
+| 2.2 | **启动空集群**（NX-032 步骤 4）：`nexloop-data` 项目，PG 使用 `<PG_PGBACKREST_IMAGE>`（前置 P2），归档配置已在 1.1 写入；库里还没有任何 NexLoop 对象 | 调度员（逐步授权） | 是 | 否（docker 组；如果需要 sudo，由负责人输入） | 30 分钟 | PG、Valkey 都 healthy；`--deploy-gate`（data）的 `port_bindings`、`planned_ports_free_before`、`existing_services_unchanged` 都为 true；`sslmode=disable` 连接被拒；`show archive_mode` 为 `on`；`<PG_PGBACKREST_IMAGE>` 内 `pgbackrest version` 与锁文件一致 | `docker compose -p nexloop-data down`（不加 `-v`） |
+| 2.3 | **pgBackRest 安装与仓库**（NX-035 2.1–2.3）：APP_HOST 安装固定版本，建 `$PGBACKREST_REPO_USER`；DATA_HOST 到 APP_HOST 的受限身份（推荐 TLS 服务器模式，复用 NX-032 的 CA）；两台主机渲染 `pgbackrest.conf`（0600，`grep -c '__'` 为 0）；`stanza-create` 与 `check` | 调度员（逐步授权）；DATA_HOST 部分由负责人输入 sudo；仓库口令由负责人从密码管理器填写 | 是 | 是 | 1 小时 | `pgbackrest version` 与锁文件一致；受限身份只能执行 pgbackrest；配置中没有占位符；`check` 输出 `completed successfully`，WAL 已能归档 | 删除二进制和用户；删除这把公钥或 TLS 证书；删除配置文件；stanza 的处理见 2.4 |
+| 2.4 | **第一次全量备份（空集群，只写私有证据）**：直接调用 pgBackRest（`--repo=1 --type=full backup`，再对 repo 2 执行一次），然后 `verify`，再用 `info --output=json` 取得两份备份的标签。此时还没有清单表，也没有 `nexloop_backup` 角色（两者都由 bootstrap 建立），所以这一次用镜像自带的本机管理身份经容器内 socket 连接（`--pg1-user` 指向它），**不写库**。`info` 与 `verify` 的输出、备份标签、时间存为私有证据文件（0600，`$EVIDENCE_DIR/pgbackrest-first-<日期>.json`） | 调度员（逐步授权） | 是 | 否 | 45 分钟 | `verify` 无错误；`info` 中 repo1、repo2 各有一份 full，状态为 ok；证据文件已写入，内容只有标签、时间、LSN 和状态 | 这份备份只是空集群的基线，失败时重做即可；需要清掉 stanza 时用 `stanza-delete`，属于破坏性操作，须负责人单独确认 |
+| 2.5 | **空库初次 bootstrap**（NX-032 步骤 5 的首次建库部分）：开运维窗口（步骤 7）→ 用迁移身份执行 bootstrap，到发布清单对应的 catalog head → 关窗口 → `ALTER ROLE nexloop_bootstrap NOLOGIN`。D5 要求的可验证备份就是 2.4 那一份 | 负责人本人或逐步授权；DATA_HOST 上 `pg_hba` 和 nft 的改动由负责人输入 sudo | 是 | 是 | 45 分钟 | 2.4 的证据文件存在且 `verify` 无错误（**不满足就不开始**）；`bootstrap.verify()` 的 lineage 一致；`application_roles_unprivileged` 与 `bootstrap_identities_disabled` 都为 true；窗口已关闭（从管理机连 `$PG_PORT` 被拒或超时）；**没有执行任何 `nexloop-migrate`** | 不运行 down 迁移；需要回到建库前，用 2.4 的备份恢复空集群（NX-035 恢复流程），由负责人单独确认 |
+| 2.6 | **第二次全量备份（由备份执行者写进清单）**（NX-035 2.5）：`nexloop-backup pg … --repo repo1 --kind pg_full`，再对 `--repo repo2` 执行一次（以 `nexloop_backup` 身份，`--expected-version` 为锁文件版本），然后 `info` | 调度员（逐步授权） | 是 | 否 | 1 小时（视数据量） | 清单 `runtime.nexloop_backup_manifests` 中 repo1、repo2 各有一行 `pg_full`，状态 `verified`，catalog 与当前库一致；`doctor --backup` 的 `backup_age` 和 `wal_archive_lag` 通过（repo2 还有 `offsite_backup_age`）；`select authz.nexloop_migration_gate()` 返回 `allowed: true`。**到这一步，迁移门槛才可能允许迁移** | 失败时重做；清单行只追加，不回退；`stanza-delete` 须负责人单独确认 |
 | — | 缓冲与当日收尾：重新跑一次 inventory，核对 `existing_services_unchanged`；确认 LUKS 卷挂载、PG 归档在前进 | 调度员 | 否 | 否 | 30 分钟 | 当日判据已记入证据目录 | — |
 
 ## 周五上午：restic、迁移门槛、恢复演练、启动应用
@@ -73,7 +77,7 @@
 | # | 步骤 | 执行者 | B 类 | sudo | 耗时 | 完成判据 | 失败时撤销 |
 |---|---|---|---|---|---|---|---|
 | 3.1 | **restic**（NX-035 3.1–3.3）：DATA_HOST 用于恢复日志，APP_HOST 用于文件；建 `$FILE_BACKUP_USER`；初始化文件 repo1（DATA_HOST 的加密卷）和 repo2（S3）；首次 `nexloop-backup journal` 与恢复日志的 restic 备份；首次 `nexloop-file-backup --kind artifact` 与 `--kind runtime`，repo1、repo2 各一次 | 调度员（逐步授权）；DATA_HOST 上的安装由负责人输入 sudo；S3 初始化前 `set +x` | 是 | 是 | 1.5 小时 | `restic version` 与锁文件一致；`check` 输出 `no errors were found`；清单中有 `journal` 行和两类 `files_*` 的 `verified` 行（此时 Artifact 与 Run 都还是空的，文件数为 0 也算）；`doctor --backup` 的 `restore_journal_lag` 和 `file_backup_age` 通过 | 仓库中还没有快照时，删除本地仓库目录；S3 前缀由负责人在服务商控制台确认后删除；删除二进制和用户 |
-| 3.2 | **迁移门槛核对**：`select authz.nexloop_migration_gate()`（只读，metrics 或 owner 身份）。如果发布的 catalog 比 2.3 建库时新（正常情况下不会），这时才执行 `nexloop-migrate`，随后补一次 `pg_diff`（NX-035 2.6） | 调度员；如需迁移，负责人逐步授权并开关运维窗口 | 迁移是 B 类 | 窗口开关需要（DATA_HOST，负责人输入） | 20 分钟 | 门槛返回 `allowed: true`，或者没有待执行的迁移；迁移后 `bootstrap.verify()` 一致，新的 `pg_diff` 行为 `verified` | 不运行 down 迁移；需要回退时进入 NX-035 恢复流程 |
+| 3.2 | **迁移门槛核对**：先确认有没有待执行的迁移（发布的 catalog head 与 2.5 建库时一致，正常情况下没有）。如果有：先用备份执行者补一次 `pg_diff`（NX-035 2.6；门槛要求 60 分钟以内的已验证备份，2.6 那一份到周五已经过期），再看 `select authz.nexloop_migration_gate()` 为 `allowed: true`，然后开窗口执行 `nexloop-migrate`、关窗口，迁移后再补一次 `pg_diff` | 调度员；如需迁移，负责人逐步授权并开关运维窗口 | 迁移是 B 类 | 窗口开关需要（DATA_HOST，负责人输入） | 20 分钟（需要迁移时 1 小时） | 没有待执行的迁移；或者迁移前的 `pg_diff` 为 `verified`、门槛为 `allowed: true`、`nexloop-migrate` 输出 `migrated: true`、迁移后 `bootstrap.verify()` 一致、迁移后的 `pg_diff` 为 `verified` | 门槛拒绝时不迁移（没有豁免）；不运行 down 迁移；需要回退时进入 NX-035 恢复流程 |
 | 3.3 | **恢复演练门槛**（NX-035 步骤 4，第一次）：打恢复点 `drill-mark` → 提交一次合成删除 → 用 `nexloop-restore` 恢复到 `$DRILL_ROOT`（同一 PG 镜像，`--network none`，不挂任何凭据）→ 停在 `verified_readonly` → 记录 RTO 与 RPO → 销毁 | 调度员（逐步授权）；建立和销毁演练目录由负责人输入 sudo | 是 | 是 | 2 小时 | 报告 `passed: true`；RTO ≤ 2 小时，RPO ≤ 5 分钟；合成删除在恢复后已重放；生产库 `restore_state` 仍是 `open`；`restore_drill_overdue` 通过 | 只销毁演练目录（先核对目录标识）；生产库只多了只追加的恢复点和清单行，不回退 |
 | 3.4 | **启动应用**（NX-032 步骤 6）：`deploy.py load-check` 核对镜像 → `docker compose -p nexloop-app … up -d` → 门禁通过后 `deploy.py promote` | 调度员（逐步授权） | 是 | 否 | 1 小时 | `--deploy-gate`（app）全部为 true，包括 `guard_workers_exact`、`port_bindings`（内部端口只绑 127.0.0.1）、`real_dispatch_closed`、`agent_host_concurrency`、TLS 各项、`existing_services_unchanged`；relay 容器数为 2，与预算一致；`/health/ready` 只报告已核实的能力；`promote` 建立 `current` | `docker compose -p nexloop-app down`（数据目录保留）；`promote` 失败时两个链接自动恢复原样 |
 | — | 缓冲 | — | — | — | 30 分钟 | — | — |
@@ -141,8 +145,8 @@ ssh -t "$SSH_ALIAS_APP" 'f="/dev/shm/nexloop-model-key.$(id -u)"; sudo install -
 - **撤销**：`ssh -t "$SSH_ALIAS_APP" 'sudo rm -f "<MODEL_CREDENTIALS_FILE>"; rm -f "/dev/shm/nexloop-model-key.$(id -u)"'`。轮换 key 时，在 DeepSeek 控制台作废旧 key 后重做这两条。
 - **不要做的事**：不要用 `scp` 拷贝 `.env`，不要用 `echo "$KEY"`，不要 `export` 这个值，也不要用 `cat .env` 查看。
 
-## 待确认（请调度员在开工前答复）
+## 已答复的事项（调度员 2026-10-14）
 
-1. **迁移顺序的理解**：本单把“空库初次 bootstrap”放在首次备份之前（周四下午 2.3），因为备份执行者写清单所用的函数要先由 bootstrap 建出来。“迁移”指的是之后对已有库执行的 `nexloop-migrate`，放在首次备份验证通过之后（周五 3.2）。NX-035 手册“与 NX-032 的先后关系”一节把整个 NX-032 第 5 步都排在备份之后；如果调度员的本意是要求连 bootstrap 也在备份之后，需要另定首次备份写清单的方式。
-2. **前置 P2（带 pgBackRest 的 PG 镜像）**：本次核对时，锁文件中的 postgres 镜像仍是上游镜像（`resolved_index_manifest_only_runtime_unverified`）。如果周三晚上之前做不出这个镜像，周四下午的 2.4–2.5 就无法进行，进而挡住迁移门槛和周五的恢复演练。
-3. **OPERATIONS §9.4a**：在本单的基线上还没有这一节；周六就绪检查的 R1、R2 格式要等它合入后才能核对。
+1. **迁移顺序**：按“硬约束”第 1 条执行，周四下午的 2.2–2.6 已按此重排。
+2. **带 pgBackRest 的 PG 镜像**：由 L2 做成派生镜像，纳入首个签名发布（前置 P2）。
+3. **OPERATIONS §9.4a**：在 L3 的 `l3/nx037-trial-guards` 中，已包含在正在跑 CI 的集成轮 int/s5g 里。合入后再核对周六就绪检查 R1、R2 的格式。
