@@ -108,6 +108,14 @@ class DeliveryAuthorityPort:
         return db.execute('select authz.nexloop_local_delivery_authority(%s,%s,%s,%s,%s)',
             (port.session.token_digest, 'real', text, signature, payload)).fetchone()[0]
 
+    def health(self):
+        """NX-037 start guard: the executor credential authenticates against the current authority (database reachable)."""
+        try:
+            with self.backend._lock:
+                self.backend._assert_open()
+                self._port()
+        except Exception: raise DeliveryUnavailable() from None
+
     def query(self, intent_id):
         try:
             with self.backend._lock:
@@ -572,6 +580,10 @@ def make_server(configuration, authority, store):
         def do_GET(self):
             try:
                 self._authenticate()
+                if self.path == '/v1/health' and self.headers.get_all('Content-Length') in (None, ['0']):
+                    # NX-037 start guard: authenticated liveness (credential, current executor authority, the export store).
+                    authority.health(); store._check()
+                    return self._respond(200, {'state': 'ok'})
                 if self.headers.get_all('Content-Length') not in (None, ['0']) or not self.path.startswith('/v1/effects/'):
                     raise DeliveryUnavailable()
                 intent = _intent(self.path.removeprefix('/v1/effects/'))

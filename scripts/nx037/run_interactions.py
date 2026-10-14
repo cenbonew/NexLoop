@@ -3,7 +3,8 @@
     python scripts/nx037/run_interactions.py --driver synthetic --trial-id UUID --out DIR [--plan-file F] [--inject SEQ=FAULT]
     python scripts/nx037/run_interactions.py --driver real --trial-id UUID --out DIR --plan-file F \\
         --tenant UUID --owner-principal REF --value-catalog F --channel-ref REF --period-start ISO --period-end ISO \\
-        --metrics-dsn-file F --owner-session-file F
+        --metrics-dsn-file F --owner-session-file F --host-config F --consent-files F --webchat-provider-file F \
+        [--enterprise-provider-file F [--endpoint-parameters-file F]]
     ... --resume OWNER-CONFIRMATION-REF        # continue a paused trial (recorded in DIR/resumes.jsonl)
 
 Reads the trial configuration (deploy/configuration/nx037-trial.v1.json: D-g caps, mix, rules) and the owner-editable
@@ -15,7 +16,12 @@ after each, the executor collects its evidence and applies the stop and pause ru
 - real: refused unless, before anything runs, (1) the real tenant check of scripts/nx037/real_tenant_init.py passes on every
   item except the switch items (active tenant, D-g budget over the trial period, alert rules in effect), and (2) the three
   switch layers are exactly the plan's real_dispatch (this process's REAL_DISPATCH_ENABLED; the tenant switch and its data
-  mode, the open Action switches via authz.nexloop_nx037_open_switches of the metrics role). With them met, the real driver
+  mode, the open Action switches via authz.nexloop_nx037_open_switches of the metrics role), and (3) the start guards of
+  scripts/nx037/trial_guards.py hold, at the start and at every resume: D3 consent of every consumer the plan lists
+  (consent_missing), the trial window plan.window (outside_trial_window), the enterprise endpoint's conformance when the plan
+  opens nexloop.enterprise.deliver:1 (enterprise_endpoint_nonconformant), the WebChat reply delivery answering
+  (webchat_delivery_unavailable) and the outbound recorder keeping up (outbound_recorder_stalled). Each real interaction also
+  counts the tenant's actual model cost increase over it (0185), not only its trigger Run's cost. With them met, the real driver
   (nexloop_eios.interaction_drivers.RealDriver) prompts the operator, a person of the owner's staff playing the customer in
   the WebChat, for each interaction (stderr and prompts.jsonl in DIR), and watches through the metrics role for the Run and
   its effects (0172); it sends nothing itself. An interaction not completed within --interaction-timeout (default 900 s) is
@@ -33,6 +39,7 @@ reference. Output: one JSON line of ids, codes, numbers and times. Exit: 0 compl
 real mode preconditions).
 """
 import argparse
+from datetime import UTC, datetime
 from decimal import Decimal
 import json
 import os
@@ -67,7 +74,10 @@ def load_interaction_plan(path, trial_plan):
                              or type(real['deployment']) is not bool or type(real['tenant']) is not bool
                              or real['data_mode'] not in ('real', 'test', None) or type(real['actions']) is not list):
         raise Refused('interaction plan real_dispatch')
-    return {'order': validate_order(trial_plan, value.get('order')), 'real_dispatch': real}
+    consumers = value.get('consumers')
+    if consumers is not None and (type(consumers) is not list or any(type(c) is not str for c in consumers)):
+        raise Refused('interaction plan consumers')
+    return {'order': validate_order(trial_plan, value.get('order')), 'real_dispatch': real, 'consumers': consumers}
 
 
 def switch_state(connection, tenant, environ):
@@ -131,7 +141,8 @@ def month_cost_before(connection, tenant, currency, records):
     """The tenant's model cost this month in the trial currency (0185), less what this trial already recorded (counted by the
     executor itself), never below 0."""
     total = Decimal(str(connection.execute("select authz.nexloop_nx037_month_model_cost(%s,'real',%s)", (tenant, currency)).fetchone()[0]))
-    own = sum((Decimal(r['cost']['total']) for r in records), Decimal(0))
+    from nexloop_eios.controlled_interactions import counted_cost
+    own = sum((counted_cost(r) for r in records), Decimal(0))
     return max(total - own, Decimal(0))
 
 
@@ -170,7 +181,23 @@ def test_stack_refusals(args, trial, provider_routes_file=None):
     return failed
 
 
-def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack=False, provider_routes_file=None):
+DELIVER = 'eios:action:nexloop.enterprise.deliver:1'
+
+
+def guard_refusals(args, trial_config, plan, connection, now):
+    """The real-mode start guards (trial_guards): consent, trial window, enterprise endpoint, WebChat delivery, recorder."""
+    import trial_guards as G
+    failed, participants = G.consent(trial_config, {'consumers': plan['consumers']}, args.consent_files)
+    failed += G.window(trial_config, now)
+    if DELIVER in ((plan['real_dispatch'] or {}).get('actions') or []):
+        failed += G.enterprise_endpoint(args.enterprise_provider_file, args.endpoint_parameters_file, args.out) if args.enterprise_provider_file \
+            else ['enterprise_endpoint_nonconformant']
+    failed += G.webchat_delivery(args.webchat_provider_file) if args.webchat_provider_file else ['webchat_delivery_unavailable']
+    failed += G.outbound_recorder(connection, args.tenant)
+    return failed, participants
+
+
+def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack=False, provider_routes_file=None, clock=None):
     from nexloop_eios import controlled_interactions as X
     from nexloop_eios import interaction_drivers as D
     environ = os.environ if environ is None else environ
@@ -186,7 +213,8 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
     parser.add_argument('--interaction-timeout', type=int, default=900, help='real: seconds the operator has per interaction')
     parser.add_argument('--poll-seconds', type=float, default=2.0, help='real: observation interval')
     for name in ('--tenant', '--owner-principal', '--value-catalog', '--channel-ref', '--period-start', '--period-end',
-                 '--metrics-dsn-file', '--owner-session-file', '--host-config'):
+                 '--metrics-dsn-file', '--owner-session-file', '--host-config', '--consent-files', '--enterprise-provider-file',
+                 '--endpoint-parameters-file', '--webchat-provider-file'):
         parser.add_argument(name)
     try:
         args = parser.parse_args(argv)
@@ -225,12 +253,17 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
                                      channel_ref=args.channel_ref, period_start=args.period_start, period_end=args.period_end,
                                      trial=Path(args.trial_config))
             config = D.RealDriverConfig(channel_ref=args.channel_ref, owner_session_file=args.owner_session_file)
+            trial_config = json.loads(Path(args.trial_config).read_text(encoding='utf-8'))
             with connect(args.metrics_dsn_file) as connection:
                 ok, failed = real_preconditions(params, connection, plan['real_dispatch'], environ)
                 failed = failed + currency_preconditions(trial['currency'], args.host_config, test_stack=test_stack)
+                guards, participants = guard_refusals(args, trial_config, plan, connection, (clock or (lambda: datetime.now(UTC)))())
+                failed = failed + guards
                 before = month_cost_before(connection, args.tenant, trial['currency'], X.read_records(args.out))
             if failed:
                 return emit({'ok': False, 'refused': failed, 'trial_id': args.trial_id}, 3)
+            import trial_guards
+            trial_guards.record_consent(args.out, participants)
             observer = D.PgObserver(connect, args.metrics_dsn_file, args.tenant)
             driver = D.RealDriver(config, observer=observer, operator=operator or D.ConsoleOperator(args.out),
                                   timeout_seconds=args.interaction_timeout, poll_seconds=args.poll_seconds)
@@ -243,7 +276,8 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
         if args.driver == 'real':
             collector = _RealCollector(connect, args.metrics_dsn_file, args.tenant)
         state = X.run(trial, driver, collector, args.out, trial_id=args.trial_id, order=plan['order'], resume=args.resume,
-                      calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0), test_stack=test_stack)
+                      calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0), test_stack=test_stack,
+                      month_cost=_MonthCost(connect, args.metrics_dsn_file, args.tenant, trial['currency']) if args.driver == 'real' else None)
     except X.TrialPaused as paused:
         return emit({'ok': False, 'detail': 'paused_needs_resume', 'rules': str(paused).split(','), 'trial_id': args.trial_id}, 3)
     except RuntimeError as error:
@@ -253,6 +287,17 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
     except Exception as error:  # noqa: BLE001 - fixed text: a database error may carry connection details
         return emit({'ok': False, 'detail': type(error).__name__, 'trial_id': args.trial_id}, 3)
     return emit({'ok': state['status'] == 'completed', **state}, {'completed': 0, 'paused': 1, 'stopped': 2}[state['status']])
+
+
+class _MonthCost:
+    """The tenant's model cost this month in the trial currency (0185), read on a fresh metrics connection each time."""
+
+    def __init__(self, connect, dsn_file, tenant, currency):
+        self.connect, self.dsn_file, self.tenant, self.currency = connect, dsn_file, tenant, currency
+
+    def __call__(self):
+        with self.connect(self.dsn_file) as connection:
+            return Decimal(str(connection.execute("select authz.nexloop_nx037_month_model_cost(%s,'real',%s)", (self.tenant, self.currency)).fetchone()[0]))
 
 
 class _RealCollector:

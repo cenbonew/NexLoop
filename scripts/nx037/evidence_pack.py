@@ -139,7 +139,8 @@ def summarize_trial(directory):
     return {
         'trial_id': state['trial_id'], 'status': state['status'], 'rules': state['rules'], 'at_seq': state['at_seq'],
         'planned': state['planned'], 'recorded': len(records), 'by_kind': kinds, 'by_outcome': outcomes, 'time_ms': times,
-        'cost': {'total': str(sum((Decimal(r['cost']['total']) for r in records), Decimal(0))), 'currency': state['currency'],
+        'cost': {'total': str(sum((Decimal(r['cost']['total']) for r in records), Decimal(0))),
+                 'counted': str(sum((Decimal(r['cost'].get('counted', r['cost']['total'])) for r in records), Decimal(0))), 'currency': state['currency'],
                  'max_run': max((r['cost']['total'] for r in records), key=Decimal, default='0')},
         'model_calls': sum(r['model']['calls'] for r in records), 'tool_calls': sum(r['tool_calls'] for r in records),
         'receipts': sum(len(r['receipts']) for r in records), 'first_at': records[0]['started_at'] if records else None,
@@ -171,6 +172,10 @@ def build(out, items, trial=None):
         _write(root / 'interactions' / 'reconciliation.json', intents)
         dropped = [0]
         _write(root / 'interactions' / 'records.json', project(records, dropped))
+        consent = Path(trial) / 'consent.json'
+        if consent.exists():  # D3: consumer ids and consent sha256 only
+            participants = json.loads(consent.read_text(encoding='utf-8'))['participants']
+            _write(root / 'interactions' / 'participants.json', [{'consumer_id': p['consumer_id'], 'consent_sha256': p['consent_sha256']} for p in participants])
         index['items']['interactions'] = {'status': 'present', 'records': len(records), 'dropped_values': dropped[0],
                                           'sha256': _sha256(Path(trial) / 'interactions.jsonl')}
         if summary['test_stack']:

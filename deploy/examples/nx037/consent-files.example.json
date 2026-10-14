@@ -1,0 +1,3 @@
+{
+  "consumer:<CONSUMER_ID>": "<ABSOLUTE_PATH_TO_PRIVATE_CONSENT_FILE>"
+}

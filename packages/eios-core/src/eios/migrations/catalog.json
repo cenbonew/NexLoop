@@ -960,6 +960,11 @@
       "version": "0192",
       "name": "0192_adr032_identity_once_per_check.sql",
       "sha256": "1494b2e5b99d9877457ec74f2efaadf21c8c1f2dacecfdf0d563530cf464d84c"
+    },
+    {
+      "version": "0480",
+      "name": "0480_nx037_outbound_backlog.sql",
+      "sha256": "3b45ea8a789471ea9c1f82967c3acb813800c9b1a6e7e638be99cd470f96dcfb"
     }
   ]
 }

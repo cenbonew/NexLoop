@@ -1,0 +1,6 @@
+{
+  "note": "Add this block to your copy of deploy/configuration/nx037-trial.v2.json (D3 consent, run_interactions start guard). One entry per participant playing a customer; consent_sha256 is the sha256 of that participant's signed consent file, which stays private (0600) outside the repository. No names.",
+  "participants": [
+    {"consumer_ref": "consumer:<CONSUMER_ID>", "consent_sha256": "<CONSENT_SHA256>"}
+  ]
+}

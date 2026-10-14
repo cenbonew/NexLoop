@@ -178,8 +178,13 @@ def read_records(directory):
     return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
 
 
+def counted_cost(record):
+    """The cost a record counts toward the cumulative and monthly caps (cost.counted when the period increase was measured)."""
+    return _decimal(record['cost'].get('counted', record['cost']['total']))
+
+
 def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0), order=None,
-        resume=None, calibration_pause=False, test_stack=False):
+        resume=None, calibration_pause=False, test_stack=False, month_cost=None):
     """Runs (or resumes after a pause) the trial into `directory`: interactions.jsonl (one record per interaction, written
     before the next starts) and state.json (the outcome). An interaction already recorded is never run again: resuming
     continues after the last record (the error window restarts after a pause). A stopped trial does not resume (the owner
@@ -187,7 +192,13 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     reference, which is appended to resumes.jsonl (fsync) before anything runs; the interaction order may not change across
     resumes. With `calibration_pause` the trial pauses after the plan's calibration interactions (rule 'calibration') so the
     owner confirms the cost per interaction before the rest. `test_stack` (the local synthetic stack, never a real trial) marks
-    every record and the state test_stack: true; a trial keeps that mark across resumes."""
+    every record and the state test_stack: true; a trial keeps that mark across resumes.
+
+    `month_cost()` (real mode: the tenant's model cost this month in the trial currency, 0185) is read before and after each
+    interaction. The record keeps the trigger Run's own cost (cost.total, judged by the per-Run cap) and the actual increase over
+    the interaction (cost.period_increase: fallback, plan reevaluation and role Runs, extraction and matching, anything else the
+    tenant spent meanwhile); the larger of the two (cost.counted) is what the cumulative and monthly caps count, so neither is
+    underestimated. Without it the counted cost is the trigger Run's."""
     if str(uuid.UUID(trial_id)) != trial_id:
         raise ValueError('trial id must be a lowercase uuid')
     clock = clock or (lambda: datetime.now(UTC))
@@ -214,7 +225,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     elif resume is not None:
         raise ValueError('the trial is not paused')
     history = read_records(root)
-    cumulative = sum((_decimal(r['cost']['total']) for r in history), Decimal(0))
+    cumulative = sum((counted_cost(r) for r in history), Decimal(0))
     done = {r['interaction_id'] for r in history}
     status, rules, at_seq = 'completed', [], None
     for interaction in interactions:
@@ -224,6 +235,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             status, rules, at_seq = 'stopped', ['owner_stop'], interaction['seq']
             break
         started = clock()
+        month_before = month_cost() if month_cost is not None else None
         observed = driver.interact(interaction)
         ended = clock()
         evidence = collector.collect(observed['run_id']) if observed.get('run_id') else None
@@ -240,6 +252,13 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
                 total += _decimal(value['amount'])
             elif _decimal(value['amount']) != 0:
                 foreign[kind] = {'amount': str(value['amount']), 'currencies': currencies}
+        cost = {'total': str(total), 'by_kind': {k: v['amount'] for k, v in sorted(costs.items()) if k not in foreign}, 'currency': plan['currency'],
+                **({'other_currencies': dict(sorted(foreign.items()))} if foreign else {})}
+        counted = total
+        if month_before is not None:
+            increase = max(_decimal(month_cost()) - _decimal(month_before), Decimal(0))
+            counted = max(total, increase)
+            cost.update(period_increase=str(increase), counted=str(counted))
         record = {
             'seq': interaction['seq'], 'interaction_id': interaction['interaction_id'], 'kind': interaction['kind'],
             'run_id': observed.get('run_id'), 'started_at': _iso(started), 'ended_at': _iso(ended),
@@ -247,15 +266,14 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             'time_ms': {'end_to_end': end_to_end, 'model': model_ms, 'tool': tool_ms, 'platform': max(end_to_end - model_ms - tool_ms, 0)},
             'model': {k: (evidence or {}).get('model', {}).get(k, 0) for k in ('calls', 'failed', 'unknown')},
             'tool_calls': (evidence or {}).get('tool', {}).get('calls', 0),
-            'cost': {'total': str(total), 'by_kind': {k: v['amount'] for k, v in sorted(costs.items()) if k not in foreign}, 'currency': plan['currency'],
-                     **({'other_currencies': dict(sorted(foreign.items()))} if foreign else {})},
+            'cost': cost,
             'intents': (evidence or {}).get('intents', {}), 'intent_ids': (evidence or {}).get('intent_ids', []),
             'refusals': (evidence or {}).get('refusals', {}),
             'receipts': sorted(observed.get('receipts', [])), 'reconciliation': observed.get('reconciliation', 'not_applicable'),
             'facts': observed.get('facts', {}),
             **({'test_stack': True} if test_stack else {}),
         }
-        cumulative += total
+        cumulative += counted
         decision, fired = evaluate(record, history, plan, cumulative=cumulative, monthly=month_cost_before + cumulative,
                                    owner_stop=owner_stop())
         if decision is None and calibration_pause and interaction['seq'] == plan['calibration']:

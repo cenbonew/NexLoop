@@ -96,3 +96,22 @@ def test_enterprise_slot_examples():
     assert set(enrollment) == set(filled('relay-enrollment.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, CONTROL_ID_FROM_BUSINESS_SETUP=HEX,
                                          OFFERING_ID_FROM_CATALOG_SETUP=HEX, BINDING_ID_FROM_CATALOG_SETUP=HEX,
                                          RELAY_SERVICE_PRINCIPAL_ID='relay-principal', NEW_UUID=str(uuid.uuid4())))
+
+
+def test_trial_consent_examples_fit_the_start_guard(tmp_path):
+    """D3: the participants block, the consent file mapping and the plan's consumers, filled with synthetic values, pass the
+    run entry's consent guard."""
+    import hashlib
+    import sys
+    sys.path.insert(0, str(ROOT / 'scripts/nx037'))
+    import trial_guards
+    signed = tmp_path / 'consent'
+    signed.write_text('synthetic consent')
+    signed.chmod(0o600)
+    digest = hashlib.sha256(signed.read_bytes()).hexdigest()
+    trial = filled('trial-participants.example.json', CONSUMER_ID=HEX, CONSENT_SHA256=digest)
+    mapping = tmp_path / 'consent-files.json'
+    mapping.write_text(json.dumps(filled('consent-files.example.json', CONSUMER_ID=HEX, ABSOLUTE_PATH_TO_PRIVATE_CONSENT_FILE=str(signed))))
+    mapping.chmod(0o600)
+    plan = filled('interaction-plan-consumers.example.json', CONSUMER_ID=HEX)
+    assert trial_guards.consent(trial, plan, mapping) == ([], [{'consumer_id': HEX, 'consent_sha256': digest}])
