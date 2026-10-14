@@ -192,7 +192,7 @@ python scripts/nx037/run_interactions.py --driver synthetic --trial-id <TRIAL_UU
 #### real 模式（【B】负责人本人）
 
 ```bash
-python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> --out <PRIVATE_EVIDENCE_DIR> --plan-file <PLAN_FILE> --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE> --owner-session-file <OWNER_SESSION_FILE> --host-config <AGENT_HOST_RUNTIME_CONFIG_FILE>
+python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> --out <PRIVATE_EVIDENCE_DIR> --plan-file <PLAN_FILE> --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE> --owner-session-file <OWNER_SESSION_FILE> --host-config <AGENT_HOST_RUNTIME_CONFIG_FILE> --operator-authorization-file <OWNER_AUTHORIZATION_FILE> --webchat-provider-file <WEBCHAT_PROVIDER_FILE> --enterprise-provider-file <ENTERPRISE_PROVIDER_FILE> [--endpoint-parameters-file <NOOP_PARAMETERS_FILE>]
 ```
 
 - 私有文件（DSN、负责人会话）必须是 0600 的普通文件；缺参数、带 `--inject` 或文件不私有时，在连接数据库之前就拒绝。
@@ -200,6 +200,18 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
   1. 9.2 节 verify 中除三项开关以外的检查全部通过：租户 active，model 预算等于 D-g 累计上限并覆盖试运行期间，告警规则生效；
   2. 三层开关与计划的 `real_dispatch` 完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表（经 metrics 角色的 `authz.nexloop_nx037_open_switches` 读取）。
   3. 币种一致（D-g 方案 2，不换算）：`--host-config` 指向的 Agent Host 运行配置使用 `deepseek-flash`（否则 `host_not_real_model`），其 `cost_currency` 等于试运行币种（否则 `host_currency_differs`）；非 USD 时价目文件存在（`model_tariff_missing`）且模式、提供方、模型与币种正确（`model_tariff_invalid`）；回复保障兜底 Run 预算的币种等于试运行币种（否则 `reply_fallback_currency_differs`；检查的是 `reply-guarantee.v3.json`）。
+  4. **开跑与恢复守卫**（`scripts/nx037/trial_guards.py`，开始和每次 `--resume` 都检查）：
+     - **D3（负责人 2026-10-14 变更）**：试运行的客户由负责人操作的 AI 代理扮演（Claude Code / Codex 通过浏览器操作）；部署、网关、DeepSeek 真实模型、企业端点和 WebChat 都是真实的。
+       - 负责人一次性操作授权（`authorization_missing`）：授权书是一份私有文件（0600），不进仓库；试运行配置的 `operator_authorization.authorization_sha256` 登记它的 sha256，运行时用 `--operator-authorization-file` 给出。
+       - 参与者登记（`consent_missing`）：负责人是唯一的员工。计划 `consumers` 里的每个消费者账号都必须登记为 `kind: agent`，写明代理工具名（例如 "Claude Code via browser"），不写凭据。`kind: human` 只出现一次，就是负责人本人担任员工角色（`{"kind": "human", "role": "staff"}`，不带消费者账号）。人不会扮演客户。
+       - 试运行目录的 `consent.json` 和证据包只写 consumer id、kind、persona，不写工具说明，也不写姓名。
+       - 示例：`deploy/examples/nx037/trial-participants.example.json`、`interaction-plan-consumers.example.json`。
+       - 全部参与者都是代理时，每条交互记录、state 和证据包都标 `persona: simulated_agent`，后续分析可以据此排除。
+     - **试运行窗口**（`outside_trial_window`）：试运行配置的 `plan.window`（本地时间，时区默认 Asia/Shanghai），窗口外不开始，也不恢复。
+     - **企业端点**（`enterprise_endpoint_nonconformant`）：计划打开 `nexloop.enterprise.deliver:1` 时，用 effect worker 的企业 provider 文件运行 `endpoint_conformance.py`，报告留在 `<试运行目录>/preflight/`。这项检查会在端点上创建三条带标记的效应，因此应给 `--endpoint-parameters-file`，用企业确认为空操作的参数。
+     - **WebChat 投递**（`webchat_delivery_unavailable`）：经 effect worker 的回复 provider 文件请求投递服务的 `GET /v1/health`，必须返回 200 `{state: ok}`，表示凭据通过、执行者权限有效、存储可用。
+     - **出站录入器**（`outbound_recorder_stalled`）：已投递但超过 60 s 仍未写入会话的回复为 0（迁移 0480）。录入器停了但当时没有积压，这项会通过；之后第一次交互收不到回复，会以 `interaction_timeout` 暂停。
+- **期间实际费用**：每次交互前后各读一次租户本月 model 费用（0185）。记录里保留三项：`cost.total`（触发 Run 自身，用于单 Run 上限）、`cost.period_increase`（期间实际增量，含兜底、复评、角色 Run 和抽取等）、`cost.counted`（两者取大）。累计上限和月度上限按 `counted` 计算，所以不会因为触发 Run 之外的花费而被低估。按交互精确归属尚未实现：同期其他活动的花费也会计入这一次交互，计数只会偏高、不会偏低。
 - **月度费用起点**：执行器的月度上限从租户本月（UTC）已发生的 model 费用开始计算，经 metrics 角色的 `authz.nexloop_nx037_month_model_cost`（迁移 0185，只统计试运行币种）读取，并扣除本试运行已记录的部分，避免恢复时重复计算。
 - **按币种汇总**：每次交互只把试运行币种的费用计入合计；其他币种的非零费用单独记在 `other_currencies`，并立即停止（`currency_mismatch`）。
 - 可选参数：`--interaction-timeout <SECONDS>`（每次交互的时限，默认 900）、`--poll-seconds <SECONDS>`（观测间隔，默认 2）。
@@ -220,7 +232,41 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 | 0 | 完成 |
 | 1 | 暂停（错误率、费用、未了结的不明效应、交互超时 `interaction_timeout` 或校准），等负责人确认后 `--resume` |
 | 2 | 停止（立即停止规则命中），按 9.5 处置 |
-| 3 | 拒绝：输入错误、real 模式前置条件不满足（此时不会提示操作者）、需要恢复确认、试运行已停止 |
+| 3 | 拒绝：输入错误、real 模式前置条件或开跑守卫不满足（此时不会提示操作者）、需要恢复确认、试运行已停止 |
+
+#### 计划 v3（负责人 2026-10-14）
+
+- 文件：`deploy/configuration/nx037-interaction-plan.v3.json`，配套 `nx037-trial.v3.json`。共 36 次交互，配比 16/6/5/5/4；上限与停止、暂停规则和 v2 相同。
+- 每项写成 `{kind, variant, consumer}`。把 `consumer:<…>` 替换成代理使用的消费者账号，同一个占位符替换成同一个账号。
+- `REFUSAL_1`、`REFUSAL_2` 两个账号只用于拒收类，绝不用于交付类和结果未知类，否则运行入口拒绝（`account groups`）。
+- **多轮交互**：一次交互内的全部来信及其 Run 都纳入这次交互的判定（迁移 0481），包括每一轮 Run 的错误、拒收后联系、费用；单 Run 上限按其中最大的一个 Run 判定。
+- **完成标记**：运行入口提示后，扮演客户的代理把这次交互的全部消息发完，再创建提示里给出的 `<试运行目录>/operator-done/<序号>` 文件，表示完成。运行入口随后等每一条来信都了结再判定；到时限仍未标记，按 `interaction_timeout` 暂停。
+
+### 9.4a 开跑清单（负责人本人，每个试运行日）
+
+> **客户为模拟、系统为真实**：消费者由负责人操作的 AI 代理（Claude Code / Codex 通过浏览器）扮演。负责人是唯一的员工：员工侧的工作台接管回复和参考端点工单标记，由负责人本人做，或由负责人操作代理使用负责人唯一的工作台账号来做。部署、网关、DeepSeek 真实模型、企业端点与 WebChat 都是真实的。排期：10/17 校准，10/18–19 跑 30 次以上交互，10/20 验收（ROADMAP §7，负责人 2026-10-14）。
+
+开跑前：
+
+1. 三层开关按计划打开（9.3 节），`real_tenant_init.py verify` 中除开关以外的检查全部通过。
+2. 授权与参与者：负责人本人的一次性操作授权书放进私有目录（0600），在 `operator_authorization` 里登记 sha256；每个代理使用的消费者账号都在 `participants` 里登记（`kind: agent` 和工具名），并在计划的 `consumers` 里列出；负责人本人登记一次 `{"kind": "human", "role": "staff"}`。代理只用这些消费者账号登录 WebChat；员工侧使用负责人唯一的工作台账号。
+5. **负责人在场的时点**：只有两个，一是校准后的暂停核对（第 3 次交互之后，核对单次费用，然后用 `--resume` 恢复），二是异常决策（任何停止，或校准以外的暂停：错误率、费用、未了结的不明效应、交互超时，以及 critical 告警）。其余由代理按计划执行：扮演客户发消息、接管回复、标记工单、按运行入口的提示推进。
+3. 准备 provider 文件：企业 provider 文件与 effect worker 用的是同一份；回复 provider 文件指向 `webchat-delivery`；端点检查用的空操作参数文件已经和企业确认。
+4. 当前时间在 `plan.window` 内。
+
+运行入口会自动检查以下各项，不通过就拒绝开跑，按原因代码处理：同意、窗口、企业端点、WebChat 投递、录入器积压、开关、币种与 Host。
+
+**仍需人工补偿的项**（运行入口不检查）：
+
+- **单 Run 成本人工查看**：没有针对单个 Run 或单个请求真实成本的告警规则。
+  - 每次校准暂停和每个试运行日结束时，查看 `interactions.jsonl` 每条记录的 `cost.total` 与 `cost.period_increase`；
+  - 发现单次交互的期间增量明显高于触发 Run 成本时，查明来源（兜底、复评、角色 Run 或抽取）后再恢复。
+  - 执行器的 `per_run_cost_exceeded` 只针对触发 Run。
+- **告警值守**：告警只写入 `control.nexloop_alert_events`，没有外部通知渠道。试运行期间必须有人盯着工作台告警页或告警表：
+  - critical 告警会让执行器停止（`critical_alert`），但不会通知任何人；
+  - warning（例如 `budget_near_limit`、`unknown_oldest`、`effect_route_unconfigured`）只能靠值守人员发现。
+- **录入器存活**：开跑时如果没有积压，守卫无法判断录入器是否在运行。第一次交互后核对回复确实出现在会话里，否则会以 `interaction_timeout` 暂停。
+- **负责人会话文件**：运行入口只检查这个文件的权限，不用它登录。负责人核对自己的工作台会话有效，主体与 `--owner-principal` 一致。
 
 ### 9.5 停止或暂停之后
 

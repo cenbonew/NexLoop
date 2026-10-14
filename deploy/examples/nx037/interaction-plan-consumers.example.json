@@ -1,0 +1,4 @@
+{
+  "note": "Add this key to your interaction plan (deploy/configuration/nx037-interaction-plan.v2.json copy): the consumers who play the customer in this trial; each needs a participants entry with its consent.",
+  "consumers": ["consumer:<CONSUMER_ID>"]
+}

@@ -1,0 +1,8 @@
+{
+  "note": "Add these two blocks to your copy of deploy/configuration/nx037-trial.v2.json (D3, run_interactions start guard; owner 2026-10-14: the customers are AI agents the owner operates through the browser, the system is real, the owner is the only staff member). operator_authorization: the sha256 of the owner's own one-time authorization file, which stays private (0600) outside the repository and is given with --operator-authorization-file. participants: one kind agent entry per consumer account of the interaction plan (the tool only, never a credential); kind human appears only once, for the owner in the staff role (workbench takeover replies, ticket marks), with no consumer account. No names.",
+  "operator_authorization": {"authorization_sha256": "<AUTHORIZATION_SHA256>"},
+  "participants": [
+    {"kind": "agent", "consumer_ref": "consumer:<CONSUMER_ID>", "agent": "<AGENT_TOOL>"},
+    {"kind": "human", "role": "staff"}
+  ]
+}

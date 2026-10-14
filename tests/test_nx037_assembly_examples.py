@@ -96,3 +96,19 @@ def test_enterprise_slot_examples():
     assert set(enrollment) == set(filled('relay-enrollment.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, CONTROL_ID_FROM_BUSINESS_SETUP=HEX,
                                          OFFERING_ID_FROM_CATALOG_SETUP=HEX, BINDING_ID_FROM_CATALOG_SETUP=HEX,
                                          RELAY_SERVICE_PRINCIPAL_ID='relay-principal', NEW_UUID=str(uuid.uuid4())))
+
+
+def test_trial_consent_examples_fit_the_start_guard(tmp_path):
+    """D3 (owner 2026-10-14): the owner's authorization, the agent participants and the owner as the only staff member, and the
+    plan's consumers, filled with synthetic values, pass the run entry's guard."""
+    import hashlib
+    import sys
+    sys.path.insert(0, str(ROOT / 'scripts/nx037'))
+    import trial_guards
+    authorization = tmp_path / 'authorization'
+    authorization.write_text('synthetic owner authorization')
+    authorization.chmod(0o600)
+    digest = hashlib.sha256(authorization.read_bytes()).hexdigest()
+    trial = filled('trial-participants.example.json', CONSUMER_ID=HEX, AUTHORIZATION_SHA256=digest, AGENT_TOOL='Claude Code via browser')
+    plan = filled('interaction-plan-consumers.example.json', CONSUMER_ID=HEX)
+    assert trial_guards.consent(trial, plan, authorization) == ([], [{'consumer_id': HEX, 'kind': 'agent', 'persona': 'simulated_agent'}])

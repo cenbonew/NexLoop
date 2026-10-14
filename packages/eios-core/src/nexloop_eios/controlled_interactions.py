@@ -34,7 +34,9 @@ _REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
 # v2 (NX-037 gap B): only effect_categories changes (action-effect-categories.v3.json, nexloop.enterprise.deliver:1).
-SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2')
+# v3 (owner 2026-10-14): 36 interactions with variants and agent-played customers; caps and rules unchanged.
+SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2', 'nexloop.nx037-trial.v3')
+_VARIANT = re.compile(r'[a-z][a-z0-9_]{0,47}')
 
 
 class PlanInvalid(ValueError):
@@ -86,10 +88,22 @@ def load_plan(path, *, cost_caps=None):
     return validate_plan(json.loads(Path(path).read_text(encoding='utf-8')), cost_caps=cost_caps)
 
 
+def kind_of(item):
+    """An order item: a kind (plan v1/v2) or {kind, variant, consumer} (plan v3)."""
+    return item['kind'] if isinstance(item, dict) else item
+
+
 def validate_order(plan, order):
-    """An owner-edited order (a list of kinds) must hold exactly the plan's mix."""
-    if type(order) is not list or any(k not in KINDS for k in order) or len(order) != plan['total'] \
-            or {k: order.count(k) for k in KINDS} != plan['mix']:
+    """An owner-edited order (kinds, or plan v3 items {kind, variant, consumer}) must hold exactly the plan's mix (counted by
+    kind)."""
+    if type(order) is not list or len(order) != plan['total']:
+        raise PlanInvalid('order does not match the mix')
+    for item in order:
+        if isinstance(item, dict) and (set(item) != {'kind', 'variant', 'consumer'} or not _VARIANT.fullmatch(str(item['variant']))
+                                       or type(item['consumer']) is not str or not 1 <= len(item['consumer']) <= 200):
+            raise PlanInvalid('order item')
+    kinds = [kind_of(i) for i in order]
+    if any(k not in KINDS for k in kinds) or {k: kinds.count(k) for k in KINDS} != plan['mix']:
         raise PlanInvalid('order does not match the mix')
     return order
 
@@ -103,7 +117,8 @@ def schedule(plan, *, trial_id, order=None):
     (largest remainder), so every kind appears early. Deterministic for a trial id; each interaction has a stable id that
     survives retries and restarts."""
     if order is not None:
-        return [{'seq': i + 1, 'kind': k, 'interaction_id': str(uuid.uuid5(NAMESPACE, f'{trial_id}:{i + 1}'))}
+        return [{'seq': i + 1, 'kind': kind_of(k), 'interaction_id': str(uuid.uuid5(NAMESPACE, f'{trial_id}:{i + 1}')),
+                 **({'variant': k['variant'], 'consumer': k['consumer']} if isinstance(k, dict) else {})}
                 for i, k in enumerate(validate_order(plan, order))]
     remaining = dict(plan['mix'])
     total = plan['total']
@@ -134,7 +149,7 @@ def evaluate(record, history, plan, *, cumulative, monthly, owner_stop=False):
         stops.append('duplicate_external_effect')
     if facts.get('cross_tenant_reads', 0) > 0:
         stops.append('cross_tenant_read')
-    if _decimal(record['cost']['total']) > plan['cost_caps']['per_run']:
+    if _decimal(record['cost'].get('max_run', record['cost']['total'])) > plan['cost_caps']['per_run']:
         stops.append('per_run_cost_exceeded')
     if record['cost'].get('other_currencies'):
         stops.append('currency_mismatch')  # D-g option 2: no conversion; a cost outside the trial currency is not counted
@@ -178,8 +193,38 @@ def read_records(directory):
     return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
 
 
+def merge_evidence(items):
+    """One interaction's evidence over all its Runs (a long conversation has one Run per customer message): model and tool
+    counts and times summed, costs per kind summed with their currencies, intents and refusals counted together."""
+    if len(items) == 1:
+        return items[0]
+    out = {'model': {}, 'tool': {'calls': 0, 'ms': 0}, 'costs': {}, 'intents': {}, 'intent_ids': [], 'refusals': {}}
+    for item in items:
+        for key, value in (item.get('model') or {}).items():
+            if isinstance(value, (int, float)):
+                out['model'][key] = out['model'].get(key, 0) + value
+            elif key == 'cost':
+                out['model'][key] = str(_decimal(out['model'].get(key)) + _decimal(value))
+        for key in ('calls', 'ms'):
+            out['tool'][key] += (item.get('tool') or {}).get(key, 0)
+        for kind, value in (item.get('costs') or {}).items():
+            held = out['costs'].setdefault(kind, {'amount': '0', 'currencies': []})
+            held['amount'] = str(_decimal(held['amount']) + _decimal(value.get('amount')))
+            held['currencies'] = sorted(set(held['currencies']) | set(value.get('currencies') or []))
+        for field in ('intents', 'refusals'):
+            for key, n in (item.get(field) or {}).items():
+                out[field][key] = out[field].get(key, 0) + n
+        out['intent_ids'] += list(item.get('intent_ids') or [])
+    return out
+
+
+def counted_cost(record):
+    """The cost a record counts toward the cumulative and monthly caps (cost.counted when the period increase was measured)."""
+    return _decimal(record['cost'].get('counted', record['cost']['total']))
+
+
 def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0), order=None,
-        resume=None, calibration_pause=False, test_stack=False):
+        resume=None, calibration_pause=False, test_stack=False, month_cost=None, persona=None):
     """Runs (or resumes after a pause) the trial into `directory`: interactions.jsonl (one record per interaction, written
     before the next starts) and state.json (the outcome). An interaction already recorded is never run again: resuming
     continues after the last record (the error window restarts after a pause). A stopped trial does not resume (the owner
@@ -187,7 +232,15 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     reference, which is appended to resumes.jsonl (fsync) before anything runs; the interaction order may not change across
     resumes. With `calibration_pause` the trial pauses after the plan's calibration interactions (rule 'calibration') so the
     owner confirms the cost per interaction before the rest. `test_stack` (the local synthetic stack, never a real trial) marks
-    every record and the state test_stack: true; a trial keeps that mark across resumes."""
+    every record and the state test_stack: true; a trial keeps that mark across resumes.
+
+    `month_cost()` (real mode: the tenant's model cost this month in the trial currency, 0185) is read before and after each
+    interaction. The record keeps the trigger Run's own cost (cost.total, judged by the per-Run cap) and the actual increase over
+    the interaction (cost.period_increase: fallback, plan reevaluation and role Runs, extraction and matching, anything else the
+    tenant spent meanwhile); the larger of the two (cost.counted) is what the cumulative and monthly caps count, so neither is
+    underestimated. Without it the counted cost is the trigger Run's. `persona` (real mode: simulated_agent when every customer is
+    an AI agent the owner operates, owner 2026-10-14) is written into every record and the state, so later analyses can exclude
+    those accounts."""
     if str(uuid.UUID(trial_id)) != trial_id:
         raise ValueError('trial id must be a lowercase uuid')
     clock = clock or (lambda: datetime.now(UTC))
@@ -199,7 +252,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     if previous and previous['status'] == 'stopped':
         raise RuntimeError('trial stopped')
     interactions = schedule(plan, trial_id=trial_id, order=order)
-    digest = order_digest([i['kind'] for i in interactions])
+    digest = order_digest([{k: i[k] for k in ('kind', 'variant', 'consumer')} if 'variant' in i else i['kind'] for i in interactions])
     if previous and previous.get('order_digest', digest) != digest:
         raise PlanInvalid('the interaction order changed')
     if previous and previous.get('test_stack', False) is not bool(test_stack):
@@ -214,7 +267,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     elif resume is not None:
         raise ValueError('the trial is not paused')
     history = read_records(root)
-    cumulative = sum((_decimal(r['cost']['total']) for r in history), Decimal(0))
+    cumulative = sum((counted_cost(r) for r in history), Decimal(0))
     done = {r['interaction_id'] for r in history}
     status, rules, at_seq = 'completed', [], None
     for interaction in interactions:
@@ -224,9 +277,15 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             status, rules, at_seq = 'stopped', ['owner_stop'], interaction['seq']
             break
         started = clock()
+        month_before = month_cost() if month_cost is not None else None
         observed = driver.interact(interaction)
         ended = clock()
-        evidence = collector.collect(observed['run_id']) if observed.get('run_id') else None
+        run_ids = observed.get('run_ids') or ([observed['run_id']] if observed.get('run_id') else [])
+        collected = [collector.collect(r) for r in run_ids]
+        evidence = merge_evidence(collected) if collected else None
+        # The per-Run cap applies to each Run of the interaction (a long conversation has several), in the trial currency.
+        run_totals = [sum((_decimal(v['amount']) for v in (e.get('costs') or {}).values()
+                           if sorted(v.get('currencies') or []) in ([], [plan['currency']])), Decimal(0)) for e in collected]
         end_to_end = int(round((ended - started).total_seconds() * 1000))
         model_ms = int(evidence['model']['ms']) if evidence else 0
         tool_ms = int(evidence['tool']['ms']) if evidence else 0
@@ -240,22 +299,30 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
                 total += _decimal(value['amount'])
             elif _decimal(value['amount']) != 0:
                 foreign[kind] = {'amount': str(value['amount']), 'currencies': currencies}
+        cost = {'total': str(total), **({'max_run': str(max(run_totals))} if len(run_totals) > 1 else {}), 'by_kind': {k: v['amount'] for k, v in sorted(costs.items()) if k not in foreign}, 'currency': plan['currency'],
+                **({'other_currencies': dict(sorted(foreign.items()))} if foreign else {})}
+        counted = total
+        if month_before is not None:
+            increase = max(_decimal(month_cost()) - _decimal(month_before), Decimal(0))
+            counted = max(total, increase)
+            cost.update(period_increase=str(increase), counted=str(counted))
         record = {
             'seq': interaction['seq'], 'interaction_id': interaction['interaction_id'], 'kind': interaction['kind'],
-            'run_id': observed.get('run_id'), 'started_at': _iso(started), 'ended_at': _iso(ended),
+            'run_id': observed.get('run_id'), **({'run_ids': run_ids, 'messages': observed['messages']} if 'messages' in observed else {}),
+            **({'variant': interaction['variant']} if 'variant' in interaction else {}), 'started_at': _iso(started), 'ended_at': _iso(ended),
             'outcome': observed['outcome'], 'error_code': observed.get('error_code'),
             'time_ms': {'end_to_end': end_to_end, 'model': model_ms, 'tool': tool_ms, 'platform': max(end_to_end - model_ms - tool_ms, 0)},
             'model': {k: (evidence or {}).get('model', {}).get(k, 0) for k in ('calls', 'failed', 'unknown')},
             'tool_calls': (evidence or {}).get('tool', {}).get('calls', 0),
-            'cost': {'total': str(total), 'by_kind': {k: v['amount'] for k, v in sorted(costs.items()) if k not in foreign}, 'currency': plan['currency'],
-                     **({'other_currencies': dict(sorted(foreign.items()))} if foreign else {})},
+            'cost': cost,
             'intents': (evidence or {}).get('intents', {}), 'intent_ids': (evidence or {}).get('intent_ids', []),
             'refusals': (evidence or {}).get('refusals', {}),
             'receipts': sorted(observed.get('receipts', [])), 'reconciliation': observed.get('reconciliation', 'not_applicable'),
             'facts': observed.get('facts', {}),
             **({'test_stack': True} if test_stack else {}),
+            **({'persona': persona} if persona else {}),
         }
-        cumulative += total
+        cumulative += counted
         decision, fired = evaluate(record, history, plan, cumulative=cumulative, monthly=month_cost_before + cumulative,
                                    owner_stop=owner_stop())
         if decision is None and calibration_pause and interaction['seq'] == plan['calibration']:
@@ -268,7 +335,8 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             break
     state = {'trial_id': trial_id, 'status': status, 'rules': rules, 'at_seq': at_seq, 'recorded': len(history),
              'planned': plan['total'], 'cumulative_cost': str(cumulative), 'currency': plan['currency'], 'order_digest': digest,
-             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {})}
+             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {}),
+             **({'persona': persona} if persona else {})}
     tmp = state_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(state, sort_keys=True))
     os.replace(tmp, state_path)

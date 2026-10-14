@@ -1,0 +1,194 @@
+{
+  "schema": "nexloop.nx037-interaction-plan.v3",
+  "note": "Owner-editable (owner 2026-10-14): 36 interactions over two days, each {kind, variant, consumer}; the mix is counted by kind (16/6/5/5/4, nx037-trial.v3.json). The first three are the calibration (ordinary reply, delivery, unknown result). Replace each consumer:<...> with the consumer account an agent plays (the same account for the same placeholder); REFUSAL_1 and REFUSAL_2 play the refusals only and never a delivery or an unknown result (the run entry refuses otherwise). real_dispatch is the switch state the owner opened.",
+  "order": [
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "real_delivery",
+      "variant": "direct_order",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "unknown_reconciliation",
+      "variant": "post_delayed",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "real_delivery",
+      "variant": "direct_order",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "restricted_after_refusal",
+      "variant": "single_refusal",
+      "consumer": "consumer:<REFUSAL_1>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "human_takeover",
+      "variant": "takeover_reply",
+      "consumer": "consumer:<CUSTOMER_4>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_4>"
+    },
+    {
+      "kind": "unknown_reconciliation",
+      "variant": "post_delayed",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "real_delivery",
+      "variant": "direct_order",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "restricted_after_refusal",
+      "variant": "single_refusal",
+      "consumer": "consumer:<REFUSAL_2>"
+    },
+    {
+      "kind": "human_takeover",
+      "variant": "takeover_reply",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "single_question",
+      "consumer": "consumer:<CUSTOMER_4>"
+    },
+    {
+      "kind": "unknown_reconciliation",
+      "variant": "post_delayed",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "real_delivery",
+      "variant": "direct_order",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "long_conversation",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "restricted_after_refusal",
+      "variant": "repeated_refusal",
+      "consumer": "consumer:<REFUSAL_1>"
+    },
+    {
+      "kind": "human_takeover",
+      "variant": "takeover_reply",
+      "consumer": "consumer:<CUSTOMER_4>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "long_conversation",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "long_conversation",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "real_delivery",
+      "variant": "vague_then_order",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "restricted_after_refusal",
+      "variant": "repeated_refusal",
+      "consumer": "consumer:<REFUSAL_2>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "long_conversation",
+      "consumer": "consumer:<CUSTOMER_4>"
+    },
+    {
+      "kind": "human_takeover",
+      "variant": "takeover_after_delivery",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "vague_need",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "unknown_reconciliation",
+      "variant": "get_unavailable",
+      "consumer": "consumer:<CUSTOMER_1>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "vague_need",
+      "consumer": "consumer:<CUSTOMER_2>"
+    },
+    {
+      "kind": "real_delivery",
+      "variant": "vague_then_order",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "vague_need",
+      "consumer": "consumer:<CUSTOMER_3>"
+    },
+    {
+      "kind": "restricted_after_refusal",
+      "variant": "refusal_then_question",
+      "consumer": "consumer:<REFUSAL_1>"
+    },
+    {
+      "kind": "human_takeover",
+      "variant": "takeover_after_delivery",
+      "consumer": "consumer:<CUSTOMER_4>"
+    },
+    {
+      "kind": "ordinary_reply",
+      "variant": "vague_need",
+      "consumer": "consumer:<CUSTOMER_4>"
+    }
+  ],
+  "real_dispatch": {
+    "deployment": true,
+    "tenant": true,
+    "data_mode": "real",
+    "actions": [
+      "eios:action:nexloop.enterprise.deliver:1"
+    ]
+  }
+}

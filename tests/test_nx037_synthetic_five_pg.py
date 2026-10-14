@@ -16,6 +16,7 @@ refusal, takeover (the restricted customer writes again); the trial pauses after
 
 Run serially (Node 24, the built Host)."""
 import contextlib
+import hashlib
 import json
 import os
 import secrets
@@ -218,7 +219,6 @@ def enrolled_customer(f, admin, api, tmp_path):
     rows.append({'kind': 'relay_source_read_rule', 'key': [chain.source_principal], 'payload': rule.model_dump(mode='json')})
     token = secrets.token_urlsafe(48)
     end = next(r['payload']['expires_at'] for r in rows if r['kind'] == 'authentication')
-    import hashlib
     admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) '
                   'values(%s,%s,%s,%s,%s,%s,%s,%s)', (hashlib.sha256(token.encode()).hexdigest(), chain.tenant, declared.credential_id,
                                                       Jsonb(declared.model_dump(mode='json')), ['real'], 'nexloop-core', 'active', end))
@@ -242,7 +242,11 @@ def tenant_readiness(o, admin, tenant, trial, period):
                   "values(%s,'real','model','CNY',100,%s,%s,1)", (tenant, *period))
 
 
-def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, tmp_path):  # noqa: F811
+def refused_codes(capsys):
+    return json.loads(capsys.readouterr().out.strip().splitlines()[-1]).get('refused', [])
+
+
+def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, tmp_path, capsys):  # noqa: F811
     f = assembled_message
     o = f['original']
     p = o['paths']
@@ -370,21 +374,41 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
         catalog = private(tmp_path, 'value-catalog.json', json.dumps({'offerings': ['enterprise.synthetic-visit']}))
         owner_session = private(tmp_path, 'owner-session', 'synthetic-owner-session')
         out = tmp_path / 'trial'
+        # Start guards (trial_guards): the customer's D3 consent (a private synthetic file, registered by sha256 in the trial
+        # configuration, the consumer listed in the plan), the trial window (the run entry's clock: 12:00 local), the enterprise
+        # endpoint's conformance and the WebChat delivery through the effect worker's own provider files, the recorder backlog.
+        # Owner 2026-10-14: the customer is an AI agent the owner operates (here the automated operator); the owner's one-time
+        # authorization (a private file, by sha256) and the agent participant.
+        consumer_ref = 'consumer:' + person['consumer']
+        authorization = private(tmp_path, 'operator-authorization', 'synthetic owner authorization for the trial agents')
+        trial_config['operator_authorization'] = {'authorization_sha256': hashlib.sha256(authorization.read_bytes()).hexdigest()}
+        trial_config['participants'] = [{'kind': 'agent', 'consumer_ref': consumer_ref, 'agent': 'synthetic test operator'}]
+        trial_file.write_text(json.dumps(trial_config))
+        plan['consumers'] = [consumer_ref]
+        plan_file.write_text(json.dumps(plan))
+        local_noon = datetime.now(UTC).replace(hour=4, minute=0, second=0, microsecond=0)  # 12:00 Asia/Shanghai
         argv = ['--driver', 'real', '--trial-id', TRIAL_ID, '--out', str(out), '--trial-config', str(trial_file), '--plan-file', str(plan_file),
                 '--tenant', tenant, '--owner-principal', 'owner-principal-synthetic', '--value-catalog', str(catalog), '--channel-ref', 'channel:webchat:synthetic',
                 '--period-start', period[0].isoformat(), '--period-end', (period[1] - timedelta(hours=1)).isoformat(), '--metrics-dsn-file', str(metrics_dsn),
-                '--owner-session-file', str(owner_session), '--host-config', str(host_config), '--interaction-timeout', '40', '--poll-seconds', '0.5']
+                '--owner-session-file', str(owner_session), '--host-config', str(host_config), '--interaction-timeout', '40', '--poll-seconds', '0.5',
+                '--operator-authorization-file', str(authorization), '--enterprise-provider-file', str(enterprise_route), '--webchat-provider-file', str(webchat_route)]
 
         def connect(path):
             return psycopg.connect(Path(path).read_text().strip(), autocommit=True)
         # Without the test stack the deterministic Host is refused (host_not_real_model): the escape is a keyword, never the CLI.
-        assert R.main(argv, environ=opened, connect=connect, operator=operator) == 3 and not out.exists()
-        first = R.main(argv, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes)
+        assert R.main(argv, environ=opened, connect=connect, operator=operator, clock=lambda: local_noon) == 3 and not (out / 'state.json').exists()
+        # Counter-examples at the run entry: no operator authorization, or outside the window, refuses before anything runs.
+        without = [a for i, a in enumerate(argv) if a != '--operator-authorization-file' and (i == 0 or argv[i - 1] != '--operator-authorization-file')]
+        for args, at, code in ((without, local_noon, 'authorization_missing'), (argv, local_noon + timedelta(hours=8), 'outside_trial_window')):
+            assert R.main(args, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes, clock=lambda at=at: at) == 3
+            assert not (out / 'state.json').exists() and code in refused_codes(capsys)
+        first = R.main(argv, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes, clock=lambda: local_noon)
         assert operator.errors == [], operator.errors[-1]
         state = json.loads((out / 'state.json').read_text())
         assert operator.errors == [], operator.errors
         assert first == 1 and state['status'] == 'paused' and state['rules'] == ['calibration'] and state['at_seq'] == 3, (state, pump.failures)
-        second = R.main([*argv, '--resume', 'owner-confirmation:nx037-five'], environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes)
+        second = R.main([*argv, '--resume', 'owner-confirmation:nx037-five'], environ=opened, connect=connect, operator=operator, test_stack=True,
+                        provider_routes_file=routes, clock=lambda: local_noon)
         state = json.loads((out / 'state.json').read_text())
         assert second == 0 and state['status'] == 'completed' and state['recorded'] == 5, (state, pump.failures)
         assert pump.failures == [], pump.failures
@@ -417,7 +441,10 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
         assert deliver[0] in tickets and json.loads(tickets[deliver[0]][2])['consumer_ref'] == 'consumer:' + person['consumer']
         assert [m for m, i in endpoint['seen'] if i == deliver[0]].count('POST') == 1, endpoint['seen']
         records[kind]['deliver'] = deliver[0]
-    assert len(tickets) == 2
+    # The start guard's conformance checks also created marked effects on the endpoint (their documented behaviour); the trial's
+    # own tickets are the two of this consumer.
+    assert sum(json.loads(row[2]).get('consumer_ref') == 'consumer:' + person['consumer'] for row in tickets.values()) == 2
+    assert (out / 'preflight/endpoint-conformance.json').exists()
     # The unknown result: the worker recorded unknown, then queried (GET) and reconciled, never re-sent.
     unknown = records['unknown_reconciliation']['deliver']
     assert [m for m, i in endpoint['seen'] if i == unknown] == ['POST', 'GET'], endpoint['seen']
@@ -425,6 +452,10 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
     history = [s for (s,) in admin.execute("select event_kind from runtime.nexloop_effect_events where intent_id::text=%s order by created_at", (unknown,)).fetchall()]
     assert 'unknown' in history and history[-1] == 'fulfilled', history
     # Takeover: no Agent reply while a person held the conversation; the staff reply is the answer; handed back.
+    # Multi-turn observation (0481): both customer messages of the takeover belong to it; the one sent during the takeover has
+    # no Run and settled on its staff reply.
+    assert records['human_takeover']['messages'] == 2 and len(records['human_takeover']['run_ids']) == 1
+    assert all(r['messages'] == 1 for k, r in records.items() if k != 'human_takeover')
     during = [m for m in staff_view if m.get('reply_to_message_id') == operator.takeover['during']]
     assert [(m['sender_kind'], m['id']) for m in during] == [('human_takeover', operator.takeover['staff'])], during
     # Refusal: the consumer is restricted by the refusing message itself; its one bound reply still went out (ADR-023 §2.6).
@@ -439,3 +470,10 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
     summary = json.loads((tmp_path / 'evidence' / 'interactions' / 'summary.json').read_text())
     assert summary['by_kind'] == {k: 1 for k in X.KINDS} and summary['cost']['currency'] == 'CNY' and summary['status'] == 'completed'
     assert E.check(tmp_path / 'evidence') == []
+    # D3: the evidence names the participant by consumer id and consent sha256 only.
+    assert json.loads((tmp_path / 'evidence/interactions/participants.json').read_text()) == [
+        {'consumer_id': person['consumer'], 'kind': 'agent', 'persona': 'simulated_agent'}]
+    # Persona: every record, the state and the evidence summary say simulated_agent (the customers were agents; the system real).
+    assert all(r['persona'] == 'simulated_agent' for r in records.values()) and state['persona'] == 'simulated_agent' and summary['persona'] == 'simulated_agent'
+    # Counted cost: every record keeps the trigger Run's cost and the tenant's actual increase over the interaction.
+    assert all({'period_increase', 'counted'} <= set(r['cost']) for r in records.values())
