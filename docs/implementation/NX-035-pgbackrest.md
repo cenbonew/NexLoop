@@ -118,7 +118,7 @@ nexloop-backup pg --recorder-dsn-file <PRIVATE_RECORDER_DSN> --pgbackrest-comman
 - **`versions.lock.json` 的 `deployment_tools`**：
   - pgBackRest 2.59.3（Debian 包 `2.59.3-1.pgdg12+1`，PGDG），MIT；restic 0.18.0，BSD-2-Clause；
   - 2026-10-14 由 2.56.0 改为 2.59.3：PGDG bookworm-pgdg 中已经没有 2.56.0，候选版本只有 2.59.3 与 2.59.2（在锁定的基础镜像中实测），负责人确认改锁；
-  - 只写版本号和官方发布页地址，状态为 `pinned_not_installed`；
+  - 只写版本号和官方发布页地址，状态原为 `pinned_not_installed`，2026-10-14 管理机验签后改为 `verified_not_installed` 并回填 sha256；
   - 包和压缩包的 sha256 在安装时核对官方校验值后回填（运行手册 2.1、3.1，B 类，由负责人确认）；
   - 仓库和测试都不联网下载。
   - DATA_HOST 的 pgBackRest 由发布镜像 `nexloop/postgres` 提供（[NX-034-postgres-image.md](NX-034-postgres-image.md)），版本与锁文件一致，构建时核对。

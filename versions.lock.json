@@ -198,19 +198,23 @@
       "source": "https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.59.3",
       "license": "MIT",
       "requires": "PostgreSQL 18 support; the PGDG bookworm-pgdg main candidate in the pinned images.postgres base (read on the CI host 2026-10-14: 2.59.3-1.pgdg12+1 and 2.59.2-1.pgdg12+1; 2.56.0 not offered)",
-      "status": "pinned_not_installed",
-      "package_sha256": null,
+      "status": "verified_not_installed",
+      "package_sha256": "7ded7431b073588af7bc0cc9d9a110595a39dc46753b546ac008a4d91124894a",
       "debian_version": "2.59.3-1.pgdg12+1",
       "debian_source": "PGDG apt repository (apt.postgresql.org, bookworm-pgdg) as configured in the base image; older versions at apt-archive.postgresql.org",
       "image": "nexloop/postgres (deploy/postgres/Dockerfile, built by release.py; FROM images.postgres by digest)",
-      "debian_version_note": "Read with `apt-cache madison pgbackrest` in the pinned base image on the CI host (dispatcher 2026-10-14, owner-confirmed change from 2.56.0, which PGDG no longer offers). A new version changes version, source and debian_version together."
+      "debian_version_note": "Read with `apt-cache madison pgbackrest` in the pinned base image on the CI host (dispatcher 2026-10-14, owner-confirmed change from 2.56.0, which PGDG no longer offers). A new version changes version, source and debian_version together.",
+      "package": "pgbackrest_2.59.3-1.pgdg26.04+1_amd64.deb (APP_HOST repo1 server, Ubuntu 26.04; PGDG resolute-pgdg main)",
+      "package_verified": "2026-10-14 on the administration machine: Release signed by the PGDG key B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8 (gpg Good signature), Packages.gz sha256 listed in Release, package sha256 equal to the Packages entry"
     },
     "restic": {
       "version": "0.18.0",
       "source": "https://github.com/restic/restic/releases/tag/v0.18.0",
       "license": "BSD-2-Clause",
-      "status": "pinned_not_installed",
-      "archive_sha256": null
+      "status": "verified_not_installed",
+      "archive_sha256": "98f6dd8bf5b59058d04bfd8dab58e196cc2a680666ccee90275a3b722374438e",
+      "archive": "restic_0.18.0_linux_amd64.bz2",
+      "archive_verified": "2026-10-14 on the administration machine: SHA256SUMS signed by CF8F18F2844575973F79D4E191A6868BD3F7A907 (gpg Good signature), archive sha256 equal to its SHA256SUMS line"
     }
   }
 }

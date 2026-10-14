@@ -10,15 +10,18 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import check_licenses as C  # noqa: E402
 
 
-def test_both_tools_are_pinned_by_version_and_official_source_and_not_yet_installed():
+def test_both_tools_are_pinned_by_version_and_official_source_and_verified_before_installation():
     tools = C.deployment_tools(ROOT)
     assert set(tools) == {'pgbackrest', 'restic'}
     assert tools['pgbackrest']['license'] == 'MIT' and tools['restic']['license'] == 'BSD-2-Clause'
     assert tools['pgbackrest']['source'].startswith('https://github.com/pgbackrest/pgbackrest/releases/tag/release/' + tools['pgbackrest']['version'])
     assert tools['restic']['source'] == 'https://github.com/restic/restic/releases/tag/v' + tools['restic']['version']
-    # Digests are recorded at installation (deploy runbook steps 2.1, 3.1), never guessed here.
-    assert {tools['pgbackrest']['status'], tools['restic']['status']} == {'pinned_not_installed'}
-    assert tools['pgbackrest']['package_sha256'] is None and tools['restic']['archive_sha256'] is None
+    # Digests are recorded once the official artifacts are downloaded and checked on the administration machine (2026-10-14,
+    # P3 of the deploy-days sheet); the host installation checks them again (deploy runbook steps 2.1, 3.1).
+    assert {tools['pgbackrest']['status'], tools['restic']['status']} == {'verified_not_installed'}
+    for digest in (tools['pgbackrest']['package_sha256'], tools['restic']['archive_sha256']):
+        assert len(digest) == 64 and set(digest) <= set('0123456789abcdef')
+    assert tools['pgbackrest']['version'] in tools['pgbackrest']['package'] and tools['restic']['version'] in tools['restic']['archive']
 
 
 def test_the_license_check_refuses_an_unlisted_license_or_a_missing_field():

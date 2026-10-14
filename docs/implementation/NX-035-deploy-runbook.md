@@ -28,7 +28,7 @@
 | `nexloop-backup journal` | 已有 | 直接使用 |
 | 文件备份执行者 `nexloop-file-backup`（Artifact 和已终态 Run 目录，restic） | 已实现（迁移 0194；见 [文件备份执行者实现说明](NX-035-file-backup.md)） | 第 3.3 步的 Artifact 与 Run 目录条目，以及第 5.1 步的 `nexloop-file-backup` 定时任务；部署前还有三项待定，见该实现说明 §5 |
 | 恢复命令行 `nexloop-restore`（含 `--target-name` 和 `--target-time`） | 已实现（见 [恢复命令行](NX-035-restore-cli.md)） | 第 4 步直接使用 |
-| pgBackRest 和 restic 写入 `versions.lock.json` 与第三方许可清单 | 已写入版本与来源（`deployment_tools`，`pinned_not_installed`）；sha256 在安装时回填 | 第 2.1、3.1 步安装时核对官方校验值并回填锁文件 |
+| pgBackRest 和 restic 写入 `versions.lock.json` 与第三方许可清单 | 已写入版本与来源（`deployment_tools`）；2026-10-14 管理机下载并验签后状态为 `verified_not_installed`，已回填 sha256 | 第 2.1、3.1 步安装时核对官方校验值并回填锁文件 |
 
 **结论**：第 1 步和第 3 步中恢复日志的部分现在就能执行；第 2 步中“清单写入”和第 4 步都要等部署切片的代码合入。NX-032 的第 5 步（迁移）也必须等这两步完成。
 
