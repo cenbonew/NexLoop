@@ -199,7 +199,11 @@
       "license": "MIT",
       "requires": "PostgreSQL 18 support (confirm in the release notes before installing)",
       "status": "pinned_not_installed",
-      "package_sha256": null
+      "package_sha256": null,
+      "debian_version": null,
+      "debian_source": "PGDG apt repository (apt.postgresql.org, bookworm-pgdg) as configured in the base image; older versions at apt-archive.postgresql.org",
+      "image": "nexloop/postgres (deploy/postgres/Dockerfile, built by release.py; FROM images.postgres by digest)",
+      "debian_version_note": "The exact Debian package version (for example <version>-1.pgdg120+1), read with `apt-cache madison pgbackrest` in the pinned base image on the CI host, or from the offline .deb; the release build refuses while it is null."
     },
     "restic": {
       "version": "0.18.0",

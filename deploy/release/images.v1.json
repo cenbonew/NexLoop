@@ -1,11 +1,13 @@
 {
   "schema": "nexloop-release-images/1",
   "version": 1,
-  "decision": "NX-034 §2.1 (D1-D7 settled). The images of a stage release, built from a clean checkout of the released commit and saved with docker save into the release directory. Every image is named nexloop/<name> (the reference the NX-032 deploy dry-run renders: nexloop/<name>@sha256:<manifest digest>) and tagged with the release_id. Build arguments name base images in versions.lock.json and are passed by digest. 'build' images are built from a context prepared by the repository's own preparation scripts; 'upstream' images are pinned third-party images (already present by digest, never pulled by tag) retagged into the release. The web front end is built into the backend image. 'base' names the lock entry of the final stage (recorded as base_digest).",
+  "decision": "NX-034 §2.1 (D1-D7 settled). The images of a stage release, built from a clean checkout of the released commit and saved with docker save into the release directory. Every image is named nexloop/<name> (the reference the NX-032 deploy dry-run renders: nexloop/<name>@sha256:<manifest digest>) and tagged with the release_id. Build arguments name base images in versions.lock.json and are passed by digest. 'build' images are built from a context prepared by the repository's own preparation scripts; 'upstream' images are pinned third-party images (already present by digest, never pulled by tag) retagged into the release. The web front end is built into the backend image. 'base' names the lock entry of the final stage (recorded as base_digest). 'tool_args' pass exact tool versions read from versions.lock.json (a missing value refuses the build). postgres (NX-035): the pinned PostgreSQL + pgvector image with pgBackRest, the DATA_HOST image of a release.",
   "repository_prefix": "nexloop",
   "images": {
     "backend": {"kind": "build", "context": "community", "base": "python-build-base", "build_args": {"PYTHON_IMAGE": "python-build-base"}},
     "agent-host": {"kind": "build", "context": "host", "base": "node-host-base", "build_args": {"PYTHON_IMAGE": "python-build-base", "NODE_IMAGE": "node-host-base"}},
-    "gateway": {"kind": "upstream", "lock": "gateway"}
+    "gateway": {"kind": "upstream", "lock": "gateway"},
+    "postgres": {"kind": "build", "context": "postgres", "base": "postgres", "build_args": {"POSTGRES_IMAGE": "postgres"},
+                 "tool_args": {"PGBACKREST_VERSION": ["deployment_tools", "pgbackrest", "version"], "PGBACKREST_DEB_VERSION": ["deployment_tools", "pgbackrest", "debian_version"]}}
   }
 }
