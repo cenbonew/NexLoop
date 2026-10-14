@@ -4,13 +4,18 @@
 name: nexloop-data
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:?audited PostgreSQL 18 + pgvector image by digest}
+    # nexloop/postgres of the signed release (PostgreSQL 18 + pgvector + pgBackRest; the image runs as postgres, uid 999):
+    # the data directory, the socket directory and the files mounted below must be owned by or readable to uid 999.
+    image: ${POSTGRES_IMAGE:?nexloop/postgres of the signed release, by digest}
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${NEXLOOP_DB:?database name}
       POSTGRES_USER: nexloop_bootstrap
       POSTGRES_PASSWORD_FILE: /run/secrets/pg_bootstrap_password
       PGDATA: /var/lib/postgresql/18/docker
+      # NX-035: pgBackRest (archive_command and `docker exec -u postgres ... pgbackrest`) connects over the local socket with
+      # the SCRAM passwords of this private file (0600, uid 999); never a password on a command line.
+      PGPASSFILE: /etc/pgbackrest/pgpass
     command: [postgres, -c, config_file=/etc/postgresql/postgresql.conf]
     ports:
       - "${DATA_HOST_ADDR:?DATA_HOST address}:${PG_PORT:?PostgreSQL port}:5432"
@@ -21,6 +26,12 @@ services:
       - ${NEXLOOP_ROOT:?root}/secrets/postgres/server.crt:/run/tls/server.crt:ro
       - ${NEXLOOP_ROOT:?root}/secrets/postgres/server.key:/run/tls/server.key:ro
       - ${NEXLOOP_ROOT:?root}/secrets/postgres/ca.crt:/run/tls/ca.crt:ro
+      # NX-035: pgBackRest configuration (repository passphrases, object-store keys) and its pgpass, private, uid 999, 0600.
+      - ${NEXLOOP_ROOT:?root}/secrets/pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - ${NEXLOOP_ROOT:?root}/secrets/pgbackrest/pgpass:/etc/pgbackrest/pgpass:ro
+      # NX-035 design §4.1: the backup roles connect only over this host-local socket directory (0700, uid 999; the
+      # nexloop-backup executor on DATA_HOST uses host=$NEXLOOP_ROOT/run/postgresql in its private DSN files).
+      - ${NEXLOOP_ROOT:?root}/run/postgresql:/var/run/postgresql
     secrets: [pg_bootstrap_password]
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U nexloop_bootstrap -d $${POSTGRES_DB}"]
