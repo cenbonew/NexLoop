@@ -256,7 +256,7 @@ def _backup_timeline(pg_bin, target):
 
 def restore(*, pg_bin, base_backup=None, wal_archive=None, target, socket_dir, port, owner_user, restore_ref, window_start, window_end,
             journal_dir, evidence, recovery_target_name=None, recovery_target_time=None, backup_id=None, running_ports=(),
-            old_primary_fenced=False, hba_method='peer', restore_started_at=None, pgbackrest=None):
+            old_primary_fenced=False, hba_method='peer', restore_started_at=None, pgbackrest=None, drill_mark=None):
     """Restore into a new directory on a new, socket-only port, either from a pg_basebackup directory plus archived WAL (local)
     or with pgBackRest (`pgbackrest`: {pgbackrest, stanza, repo, config_file[, set_label]}; deployment, D1), to a named restore
     point or a time; set every application role NOLOGIN; write the fence; replay the journal; reconcile the effect window;
@@ -323,11 +323,69 @@ def restore(*, pg_bin, base_backup=None, wal_archive=None, target, socket_dir, p
             with db.transaction():
                 db.execute('set local role nexloop_owner')
                 report['verified'] = db.execute('select runtime.nexloop_restore_verified(%s)', (restore_ref,)).fetchone()[0]
+            report['checks'] = post_restore_checks(db, drill_mark=drill_mark)
+            failing = sorted(name for name, held in report['checks']['controls'].items() if not held)
+            if failing:
+                raise RestoreRefused('compensating controls of restore.open_scope do not hold: ' + ','.join(failing)
+                                     + ' ' + json.dumps(report['checks']['counts'], sort_keys=True))
         report['tool_seconds'] = round(time.monotonic() - started, 3)
         return instance, report
     except BaseException:
         instance.stop()
         raise
+
+
+# Checks before any scope is opened ----------------------------------------------------------------------------------------
+OPEN_SCOPE_HANDLER = 'control.nexloop_governed_restore_open_scope(text,text,text,text,text,jsonb)'
+
+
+def post_restore_checks(db, *, drill_mark=None):
+    """After verified_readonly and before nexloop.restore.open_scope (numbers and booleans only, run as the owner):
+    the migration ledger and checksums (bootstrap.verify); row counts of the append-only tables, compared with a drill mark
+    (counts up to the marked max ids and the sampled row hashes) when one is given; and the five compensating controls of the
+    open_scope Action (owner decision 2026-10-11, local implementation note §7):
+      owner_only        restore.open_scope is registered with its owner-checking handler, owned by nexloop_owner;
+      per_scope         one closed real scope per active tenant, none opened yet;
+      unverified_paused every channel that is not time-queryable or has unverifiable effects is paused (action_type scope);
+      report_complete   the fence is verified_readonly with replay, reconciliation, verification and the window end recorded;
+      opening_recorded  no scope is open without its opener and governed intent.
+    `passed` is true only when the lineage holds, every control holds and (with a mark) no count or sample differs."""
+    from nexloop_eios.bootstrap import verify
+    out = {'lineage': verify(db)}
+    with db.transaction():
+        db.execute('set local role nexloop_owner')
+        tables = [t for (t,) in db.execute('select unnest(runtime.nexloop_drill_tables())').fetchall()]
+        out['row_counts'] = {t.split(':', 1)[0]: db.execute('select runtime.nexloop_drill_table_counts(%s,null)', (t,)).fetchone()[0]['count'] for t in tables}
+        out['drill_compare'] = None if drill_mark is None else db.execute('select runtime.nexloop_drill_compare(%s)', (Jsonb(drill_mark),)).fetchone()[0]
+        state = db.execute('select state,replayed_at is not null,reconciled_at is not null,verified_at is not null,window_end is not null '
+                           'from control.nexloop_restore_state').fetchone()
+        registered = db.execute("select count(*) from control.nexloop_governed_capabilities where capability='restore.open_scope' "
+                                "and operation='open_restore_scope' and subject_rule='human' and handler=to_regprocedure(%s::text)", (OPEN_SCOPE_HANDLER,)).fetchone()[0]
+        handler_owner = db.execute('select pg_get_userbyid(proowner) from pg_proc where oid=to_regprocedure(%s::text)', (OPEN_SCOPE_HANDLER,)).fetchone()
+        tenants = db.execute("select count(*) from control.nexloop_tenants where status='active'").fetchone()[0]
+        scopes = db.execute("select count(*),count(*) filter (where opened),count(*) filter (where world='real') from control.nexloop_restore_scopes").fetchone()
+        # The NX-022 control scopes are tenant row-secured: each unverified channel is checked under its own tenant.
+        unpaused = 0
+        for tenant, world, action_type, paused in db.execute(
+                'select tenant_id,world,action_type,paused from control.nexloop_restore_channels where unverifiable>0 or not time_queryable').fetchall():
+            db.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
+            scope_paused = db.execute("select exists(select 1 from control.nexloop_control_scopes where tenant_id=%s and world=%s and scope_kind='action_type' "
+                                      "and scope_ref=%s and paused)", (tenant, world, action_type)).fetchone()[0]
+            unpaused += 0 if (paused and scope_paused) else 1
+        unrecorded = db.execute('select count(*) from control.nexloop_restore_scopes where opened and (opened_by is null or intent_id is null)').fetchone()[0]
+        channels = db.execute('select count(*),count(*) filter (where paused) from control.nexloop_restore_channels').fetchone()
+    out['controls'] = {
+        'owner_only': registered == 1 and handler_owner is not None and handler_owner[0] == 'nexloop_owner',
+        'per_scope': scopes[0] == scopes[2] == tenants and scopes[1] == 0,
+        'unverified_paused': unpaused == 0,
+        'report_complete': state is not None and state[0] == 'verified_readonly' and all(state[1:]),
+        'opening_recorded': unrecorded == 0}
+    out['counts'] = {'active_tenants': tenants, 'scopes': scopes[0], 'scopes_open': scopes[1], 'channels': channels[0], 'channels_paused': channels[1],
+                     'unverified_channels_not_paused': unpaused}
+    compare = out['drill_compare']
+    out['passed'] = all(out['controls'].values()) and (compare is None or (compare['count_mismatches'] == 0 and compare['sample_mismatches'] == 0
+                                                                and compare['catalog_equal'] is True))
+    return out
 
 
 # Migration gate ---------------------------------------------------------------------------------------------------------
