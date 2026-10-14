@@ -100,7 +100,7 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
         assert image.startswith('${') and 'by digest' in image, name
     # The Agent Host holds only its own TLS, transport key and guard CA: no DSN, credential, signing key or Artifact directory.
     host = app['services']['agent-host']
-    assert set(host['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca'}
+    assert set(host['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca', 'host_guard_key', 'host_runtime_config', 'host_model_configuration', 'host_model_tariff', 'host_model_key'}
     assert not any('artifact' in v for v in host.get('volumes', []))
     for name, s in app['services'].items():
         for secret in s.get('secrets', []):

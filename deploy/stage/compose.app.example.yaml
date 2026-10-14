@@ -75,7 +75,13 @@ services:
     user: "${AGENT_HOST_UID:?Agent Host UID}:${AGENT_HOST_UID:?Agent Host UID}"
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/runtime:/private/runtime
-    secrets: [host_cert, host_key, host_transport_key, guard_ca]
+    # Stage start (NX-032 stage secrets F2): the runtime configuration and every file it names are mounted secrets; the runtime
+    # configuration's guard_url port must be GUARD_PORT. No DSN, service credential, signing key or Artifact directory.
+    command: [--node, /usr/local/bin/node, --runtime-root, /private/runtime, --internal-key-file, /run/secrets/host_transport_key,
+              --port, "${HOST_INTERNAL_PORT:?Host port}", --tls-certificate-file, /run/secrets/host_cert, --tls-key-file, /run/secrets/host_key,
+              --runtime-config-file, /run/secrets/host_runtime_config]
+    secrets: [host_cert, host_key, host_transport_key, guard_ca, host_guard_key, host_runtime_config, host_model_configuration, host_model_tariff,
+              host_model_key]
     labels:
       nexloop.budget-service: none
   agent-link-relay:
@@ -101,7 +107,7 @@ services:
               --browser-origin, "${BROWSER_ORIGIN:?https origin}", --web-root, /opt/nexloop/web]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
     labels:
       nexloop.budget-service: "api,api-browser-identity"
   api-2:
@@ -119,7 +125,7 @@ services:
               --web-root, /opt/nexloop/web]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
     labels:
       nexloop.budget-service: "api,api-browser-identity"
   domain-worker:
@@ -307,7 +313,7 @@ services:
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/config/plan-reevaluation.json:/etc/nexloop/plan-reevaluation.json:ro
-    secrets: [plan_reevaluator_dsn, plan_reevaluator_pg_client_cert, plan_reevaluator_pg_client_key, plan_reevaluator_credential, signing_key, pg_ca, plan_reevaluator_api_dsn, plan_reevaluator_source_credential, plan_reevaluator_planner_credential, plan_reevaluator_queue_credential, plan_reevaluator_executor_credential]
+    secrets: [plan_reevaluator_dsn, plan_reevaluator_pg_client_cert, plan_reevaluator_pg_client_key, plan_reevaluator_credential, signing_key, pg_ca, plan_reevaluator_api_dsn, plan_reevaluator_api_pg_client_cert, plan_reevaluator_api_pg_client_key, plan_reevaluator_source_credential, plan_reevaluator_planner_credential, plan_reevaluator_queue_credential, plan_reevaluator_executor_credential]
     labels:
       nexloop.budget-service: "plan-reevaluator,plan-reevaluator-launcher"
   reply-guarantor:
@@ -324,7 +330,7 @@ services:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/config/reply-guarantee.json:/etc/nexloop/reply-guarantee.json:ro
       - ${NEXLOOP_ROOT:?root}/config/relay-run-profile.json:/etc/nexloop/relay-run-profile.json:ro
-    secrets: [reply_guarantor_dsn, reply_guarantor_pg_client_cert, reply_guarantor_pg_client_key, reply_guarantor_credential, signing_key, pg_ca, reply_guarantor_api_dsn, reply_guarantor_route_credential, reply_guarantor_source_credential, reply_guarantor_planner_credential, reply_guarantor_executor_credential]
+    secrets: [reply_guarantor_dsn, reply_guarantor_pg_client_cert, reply_guarantor_pg_client_key, reply_guarantor_credential, signing_key, pg_ca, reply_guarantor_api_dsn, reply_guarantor_api_pg_client_cert, reply_guarantor_api_pg_client_key, reply_guarantor_route_credential, reply_guarantor_source_credential, reply_guarantor_planner_credential, reply_guarantor_executor_credential]
     labels:
       nexloop.budget-service: "reply-guarantor,reply-guarantor-launcher"
   commitment-keeper:
@@ -408,10 +414,20 @@ secrets:
   host_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/server.key"}
   host_transport_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/transport.key"}
   guard_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/guard-ca.crt"}
+  # F2: the Host's guard bearer key (the same value as runtime-worker/guard-transport.key), its runtime configuration, the model
+  # configuration and the CNY tariff; the model provider key lives apart in agent-host-model/ (owner 10020, phase C).
+  host_guard_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/guard-transport.key"}
+  host_runtime_config: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/runtime-config.json"}
+  host_model_configuration: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/model-configuration.json"}
+  host_model_tariff: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host/model-tariff.cny.json"}
+  host_model_key: {file: "${NEXLOOP_ROOT:?root}/secrets/agent-host-model/model.key"}
   api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/api/dsn"}
   api_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.crt"}
   api_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/pg-client.key"}
   api_identity_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-dsn"}
+  # F1: the identity pool's own client certificate (CN nexloop_identity; pg_hba clientcert=verify-full).
+  api_identity_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-pg-client.crt"}
+  api_identity_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-pg-client.key"}
   api_browser_rate_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/browser-rate.key"}
   signing_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/signing.key"}
   pg_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/db-ca.crt"}
@@ -484,6 +500,8 @@ secrets:
   plan_reevaluator_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/pg-client.key"}
   plan_reevaluator_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/service-credential"}
   plan_reevaluator_api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/api-dsn"}
+  plan_reevaluator_api_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/api-pg-client.crt"}
+  plan_reevaluator_api_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/api-pg-client.key"}
   plan_reevaluator_source_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/source-credential"}
   plan_reevaluator_planner_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/planner-credential"}
   plan_reevaluator_queue_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/plan-reevaluator/queue-credential"}
@@ -493,6 +511,8 @@ secrets:
   reply_guarantor_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/pg-client.key"}
   reply_guarantor_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/service-credential"}
   reply_guarantor_api_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/api-dsn"}
+  reply_guarantor_api_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/api-pg-client.crt"}
+  reply_guarantor_api_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/api-pg-client.key"}
   reply_guarantor_route_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/route-credential"}
   reply_guarantor_source_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/source-credential"}
   reply_guarantor_planner_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/reply-guarantor/planner-credential"}

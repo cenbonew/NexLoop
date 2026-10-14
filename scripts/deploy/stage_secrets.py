@@ -17,7 +17,7 @@ Certificates come from issue_certs (the existing intermediate CA, --ca-dir); ran
 phase C and the manual configuration files are listed, not fabricated. No value is ever printed. The files are written as the
 current user; the intended owner (manifest `owner`) is applied when the owner installs them (`install -o <uid> -m 0600`).
 
-The private params JSON: {"data_host_addr", "data_host_name", "pg_port", "db_name", "nexloop_root", "signing_key_id",
+The private params JSON: {"data_host_addr", "data_host_name", "pg_port", "db_name", "nexloop_root", "signing_key_id", "guard_port",
 "sans": {"gateway": [...], "agent-host": [...], "guard": [...], "data": [...], "loopback": [...]}} (SANs as DNS:<name> or IP:<addr>).
 Prints one JSON object (counts and codes only). Exit 0 ok, 1 problems found, 2 refused.
 """
@@ -44,7 +44,7 @@ COMPOSE_APP = ROOT / 'deploy/stage/compose.app.example.yaml'
 COMPOSE_DATA = ROOT / 'deploy/stage/compose.data.example.yaml'
 # Owners (dispatcher 2026-10-14): backend services 10001, Agent Host 10020, gateway root (caddy runs as root with cap_drop ALL),
 # DATA_HOST postgres/valkey/pgbackrest 999 (the image users), backup the nexloop-backup user (its uid is the host's).
-OWNERS = {'agent-host': '10020', 'gateway': '0', 'postgres': '999', 'valkey': '999', 'pgbackrest': '999', 'backup': 'nexloop-backup'}
+OWNERS = {'agent-host': '10020', 'agent-host-model': '10020', 'gateway': '0', 'postgres': '999', 'valkey': '999', 'pgbackrest': '999', 'backup': 'nexloop-backup'}
 BACKEND_OWNER = '10001'
 # The PG role of each service DSN (the client certificate's CN must be the role: pg_hba clientcert=verify-full).
 PRIMARY_ROLE = {'api': 'nexloop_api', 'domain-worker': 'nexloop_domain_worker', 'action-worker': 'nexloop_action_worker',
@@ -56,12 +56,17 @@ SERVER_CERTS = {('gateway', 'server'): 'gateway', ('agent-host', 'server'): 'age
                 ('api', 'loopback'): 'loopback', ('runtime-worker', 'guard'): 'guard', ('postgres', 'server'): 'data', ('valkey', 'server'): 'data'}
 # Values that must be identical in several files (one secret, several readers).
 SHARED_VALUES = {'host-control': ['app:shared/host-control.key', 'app:agent-host/transport.key', 'app:retention-keeper/host-control.key'],
+                 # F2: the guard bearer key the runtime worker's guard checks and the Agent Host presents.
+                 'guard-transport': ['app:runtime-worker/guard-transport.key', 'app:agent-host/guard-transport.key'],
                  'webchat-provider': ['app:action-worker/webchat-provider-credential', 'app:webchat-delivery/provider-credential']}
 MANUAL = {'provider-routes': ('manual', 'NX-037 provider routing (effect_dispatch routes by Action)'),
           'webchat-provider-config': ('manual', 'the action worker\'s HttpEffectProvider configuration of webchat-delivery'),
           'enterprise-provider-config': ('C', 'the reference enterprise endpoint (run sheet 4.3)'),
           'enterprise-provider-credential': ('C', 'the reference endpoint service_token (run sheet 4.3)'),
           'model.env': ('C', 'model API key (owner, run sheet R6 pattern)'),
+          # F2: the Agent Host's model provider key, outside secrets/agent-host (which holds no credential), owner 10020; the model
+          # configuration's MODEL_CREDENTIALS_FILE names it (/run/secrets/host_model_key).
+          'model.key': ('C', 'the Agent Host model provider key (owner, agent-host-model/, owner 10020)'),
           'pgbackrest.conf': ('manual', 'NX-035 runbook 2.3: rendered by the owner with the repository passphrases and object-store keys')}
 DATA_FILES = ['postgres/bootstrap_password', 'postgres/server.crt', 'postgres/server.key', 'postgres/ca.crt',
               'valkey/valkey.acl', 'valkey/server.crt', 'valkey/server.key', 'valkey/ca.crt',
@@ -70,6 +75,18 @@ DATA_FILES = ['postgres/bootstrap_password', 'postgres/server.crt', 'postgres/se
 
 class Refused(ValueError):
     pass
+
+
+HOST_FILES = {'runtime-config.json': 'host_runtime_config', 'model-configuration.json': 'host_model_configuration',
+              'model-tariff.cny.json': 'host_model_tariff'}
+TARIFF = ROOT / 'deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json'
+RUNTIME_EXAMPLE = ROOT / 'deploy/stage/agent-host.runtime-config.example.json'
+
+
+def _client_dsn(name):
+    """The DSN file a client certificate belongs to: pg-client.* -> dsn, <x>-pg-client.* -> <x>-dsn."""
+    stem = name.rsplit('.', 1)[0]
+    return 'dsn' if stem == 'pg-client' else stem.removesuffix('-pg-client') + '-dsn'
 
 
 def _owner(service):
@@ -90,8 +107,12 @@ def classify(host, service, name):
         return 'config', phase, note
     if name in CA_FILES:
         return 'ca_bundle', 'A', 'the intermediate CA bundle (intermediate + root)'
-    if name in ('pg-client.crt', 'pg-client.key'):
-        return ('client_cert' if name.endswith('.crt') else 'client_key'), 'A', f'CN={_role(service, "dsn")}'
+    if name.endswith(('pg-client.crt', 'pg-client.key')):
+        # F1: a DSN's client certificate carries its role as CN (pg_hba clientcert=verify-full): pg-client.* for `dsn`,
+        # identity-pg-client.* for `identity-dsn`, api-pg-client.* for `api-dsn`.
+        return ('client_cert' if name.endswith('.crt') else 'client_key'), 'A', f'CN={_role(service, _client_dsn(name))}'
+    if name in HOST_FILES:
+        return HOST_FILES[name], 'A', 'the Agent Host runtime files (F2), no secret value'
     if name.endswith(('.crt', '.key')) and (service, stem) in SERVER_CERTS:
         return ('server_cert' if name.endswith('.crt') else 'server_key'), 'A', f'SANs: {SERVER_CERTS[(service, stem)]}'
     if name in ('dsn', 'identity-dsn', 'api-dsn'):
@@ -155,9 +176,11 @@ def _write(path, data, mode=0o600):
 
 def _params(path):
     p = json.loads(Path(path).read_text())
-    need = {'data_host_addr', 'data_host_name', 'pg_port', 'db_name', 'nexloop_root', 'signing_key_id', 'sans'}
+    need = {'data_host_addr', 'data_host_name', 'pg_port', 'db_name', 'nexloop_root', 'signing_key_id', 'sans', 'guard_port'}
     if type(p) is not dict or not need <= set(p) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', str(p['signing_key_id'])):
         raise Refused('params: ' + ', '.join(sorted(need)) + ' (signing_key_id as the services accept it)')
+    if type(p['guard_port']) is not int or not 1024 <= p['guard_port'] <= 65535:
+        raise Refused('params.guard_port: the Compose GUARD_PORT (the Agent Host runtime configuration\'s guard_url port)')
     if not {'gateway', 'agent-host', 'guard', 'data', 'loopback'} <= set(p['sans']):
         raise Refused('params.sans: gateway, agent-host, guard, data and loopback SAN lists')
     return p
@@ -190,12 +213,12 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
         if kind in ('server_cert', 'server_key', 'client_cert', 'client_key'):
             server = kind.startswith('server')
             stem = name.rsplit('.', 1)[0]
-            cert_name = f'{service}-{stem}' if server else f'{service}-pg-client'
+            cert_name = f'{service}-{stem}'
             if cert_name not in issued:
                 if server:
                     issue_certs.leaf('server', ca_dir, work, cert_name, sans=p['sans'][SERVER_CERTS[(service, stem)]])
                 else:
-                    issue_certs.leaf('client', ca_dir, work, cert_name, cn=_role(service, 'dsn'))
+                    issue_certs.leaf('client', ca_dir, work, cert_name, cn=_role(service, _client_dsn(name)))
                 issued[cert_name] = True
             source = work / (f'{cert_name}.chain.crt' if name.endswith('.crt') else f'{cert_name}.key')
             data = source.read_bytes()
@@ -203,12 +226,16 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
             data = bundle
         elif kind == 'dsn':
             role = _role(service, name)
-            secret = (e['secret'] or '').replace('_dsn', '').replace('_identity', '').replace('_api', '')
-            prefix = secret if f'{secret}_pg_client_cert' in {x['secret'] for x in entries} else service.replace('-', '_')
+            # F1: each DSN uses the client certificate whose CN is its own role: <secret without _dsn>_pg_client_cert.
+            prefix = (e['secret'] or '').removesuffix('_dsn')
+            if f'{prefix}_pg_client_cert' not in {x['secret'] for x in entries}:
+                raise Refused(f'no client certificate secret for {e["path"]}')
+            cert_entry = next(x for x in entries if x['secret'] == f'{prefix}_pg_client_cert')
+            if _role(cert_entry['service'], _client_dsn(cert_entry['path'].split('/', 1)[1])) != role:
+                raise Refused(f'client certificate CN differs from the role of {e["path"]}')
             data = (f"host={p['data_host_name']} hostaddr={p['data_host_addr']} port={p['pg_port']} dbname={p['db_name']} user={role} "
                     f"password={passwords[role]} sslmode=verify-full sslrootcert=/run/secrets/pg_ca "
                     f"sslcert=/run/secrets/{prefix}_pg_client_cert sslkey=/run/secrets/{prefix}_pg_client_key\n")
-            e['note'] += '' if role == _role(service, 'dsn') else f'; client certificate CN is {_role(service, "dsn")}, not {role} (see the document §4)'
         elif kind == 'socket_dsn':
             data = (f"host={p['nexloop_root']}/run/postgresql dbname={p['db_name']} user=nexloop_backup_recorder "
                     f"password={passwords['nexloop_backup_recorder']}\n")
@@ -225,7 +252,18 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
             data = signing
         elif kind == 'hex_key':
             stem = name.rsplit('.', 1)[0]
-            data = shared['host-control'] if stem in ('host-control', 'transport') else secrets.token_hex(32)
+            data = shared['host-control'] if stem in ('host-control', 'transport') else shared['guard-transport'] if stem == 'guard-transport' \
+                else secrets.token_hex(32)
+        elif kind == 'host_runtime_config':
+            # The shipped example with this stage's guard port (params guard_port = the Compose GUARD_PORT).
+            config = json.loads(RUNTIME_EXAMPLE.read_text())
+            config['guard_url'] = f"https://127.0.0.1:{p['guard_port']}/internal/v1/runtime/authorize"
+            data = json.dumps(config, indent=1) + '\n'
+        elif kind == 'host_model_configuration':
+            data = json.dumps({'MODEL_PROVIDER': 'deepseek', 'MODEL_ID': 'deepseek-flash', 'MODEL_BASE_URL': 'https://api.deepseek.com',
+                               'MODEL_CREDENTIALS_FILE': '/run/secrets/host_model_key', 'stage': True}, indent=1) + '\n'
+        elif kind == 'host_model_tariff':
+            data = TARIFF.read_bytes()
         elif kind == 'password':
             data = secrets.token_urlsafe(32)
         elif kind == 'valkey_acl':

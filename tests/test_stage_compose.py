@@ -67,7 +67,7 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     # The two API processes share their files, and so do the two relays (dispatcher 2026-10-13: same configuration, own vaults).
     assert shared <= SHARED | {'pg_ca'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}} \
         | {s for s in owners if s.startswith('message_relay_') and owners[s] == {'message-relay', 'message-relay-2'}}, shared
-    assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca'}
+    assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca', 'host_guard_key', 'host_runtime_config', 'host_model_configuration', 'host_model_tariff', 'host_model_key'}
     # Model credentials only where a model is called; channel provider configuration only in the action worker.
     assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker'} and owners['claim_matcher_model'] == {'claim-matcher'}
     # NX-037: every provider route's configuration, credential and CA only in the action worker (the enterprise credential

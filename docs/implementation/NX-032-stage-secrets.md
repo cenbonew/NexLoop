@@ -15,7 +15,7 @@
 
 ## 2. 步骤
 
-1. **params**（私有，0600）：`data_host_addr`、`data_host_name`、`pg_port`、`db_name`、`nexloop_root`、`signing_key_id`，以及五组 SAN：
+1. **params**（私有，0600）：`data_host_addr`、`data_host_name`、`pg_port`、`db_name`、`nexloop_root`、`signing_key_id`、`guard_port`（等于 Compose 的 `GUARD_PORT`，写进 Agent Host 运行配置的 `guard_url`），以及五组 SAN：
    - `gateway`：APP_HOST 的名称和地址；
    - `agent-host`：runtime worker、api 与 retention-keeper 连接 Host 时使用的名称或地址（agent link）；
    - `guard`：Host 连接 guard 时使用的名称或地址；
@@ -71,9 +71,29 @@
 
 | # | 问题 | 影响 | 建议 |
 |---|---|---|---|
-| F1 | **客户端证书 CN 与角色不一致**：`api/identity-dsn` 用 `nexloop_identity`，`plan-reevaluator/api-dsn` 和 `reply-guarantor/api-dsn` 用 `nexloop_api`，但这三个服务各自只有一张客户端证书，CN 是它们的主角色。pg_hba 是 `clientcert=verify-full`，要求 CN 等于用户名 | 这三条连接会被 PG 拒绝：api 的浏览器身份池、两个 launcher 池 | 二选一：Compose 为这三个服务各加一张第二角色的客户端证书；或者 pg_hba 用 `clientcert=verify-full map=<映射>`，在 pg_ident 中放行这三个 CN 到第二角色。前者改动最小。manifest 中这三条 DSN 已经注明了不一致 |
-| F2 | **Agent Host 的运行文件没有挂载**：`agent-host.runtime-config.example.json` 引用 `/run/secrets/guard_key`、`guard_certificate`、`model_configuration.json`、`model_tariff.cny.json`，Compose 中 agent-host 只挂了 `host_cert`、`host_key`、`host_transport_key`、`guard_ca` | Host 启动时会拒绝运行配置，或读不到 guard 密钥 | 对齐运行配置与 Compose 的秘密名，并补上运行配置、模型配置、价目文件的挂载。其中 `guard_key` 必须与 `runtime-worker/guard-transport.key` 是同一个值 |
+| F1（已修复，见 4.1） | **客户端证书 CN 与角色不一致**：`api/identity-dsn` 用 `nexloop_identity`，`plan-reevaluator/api-dsn` 和 `reply-guarantor/api-dsn` 用 `nexloop_api`，但这三个服务各自只有一张客户端证书，CN 是它们的主角色。pg_hba 是 `clientcert=verify-full`，要求 CN 等于用户名 | 这三条连接会被 PG 拒绝：api 的浏览器身份池、两个 launcher 池 | 二选一：Compose 为这三个服务各加一张第二角色的客户端证书；或者 pg_hba 用 `clientcert=verify-full map=<映射>`，在 pg_ident 中放行这三个 CN 到第二角色。前者改动最小。manifest 中这三条 DSN 已经注明了不一致 |
+| F2（已修复，见 4.1） | **Agent Host 的运行文件没有挂载**：`agent-host.runtime-config.example.json` 引用 `/run/secrets/guard_key`、`guard_certificate`、`model_configuration.json`、`model_tariff.cny.json`，Compose 中 agent-host 只挂了 `host_cert`、`host_key`、`host_transport_key`、`guard_ca` | Host 启动时会拒绝运行配置，或读不到 guard 密钥 | 对齐运行配置与 Compose 的秘密名，并补上运行配置、模型配置、价目文件的挂载。其中 `guard_key` 必须与 `runtime-worker/guard-transport.key` 是同一个值 |
 | F3 | **签名密钥有两种编码**：服务用 `AuthoritySigner.from_file` 读取 32 字节原始内容；受信配置读取 64 位十六进制 | 用错编码会导致签名校验失败 | 工具同时写出两份：`shared/signing.key` 是原始字节，`management/signing.key.hex` 是十六进制。`signing_key_id` 必须同时满足两边的格式（不能含冒号） |
+
+### 4.1 F1、F2 已修复（分支 `l3/stage-f1-f2`，2026-10-14）
+
+- **F1 客户端证书 CN**：按"最小改动"修，不放宽 pg_hba（不用 pg_ident 映射）。
+  - 三条 DSN 各有自己的第二张客户端证书，用独立的 secret 名：
+    - `api/identity-pg-client.{crt,key}`（`api_identity_pg_client_*`），CN 为 nexloop_identity；
+    - `plan-reevaluator/api-pg-client.{crt,key}`（`plan_reevaluator_api_pg_client_*`），CN 为 nexloop_api；
+    - `reply-guarantor/api-pg-client.{crt,key}`（`reply_guarantor_api_pg_client_*`），CN 为 nexloop_api。
+  - 生成器给每条 DSN 写入的 `sslcert`/`sslkey`，都是 secret 名为"该 DSN 的 secret 名去掉 `_dsn`，再加 `_pg_client_*`"的证书。证书 CN 与 DSN 的 user 不一致时，生成器拒绝生成。
+  - 测试在真实 PostgreSQL 上验证（`hostssl … cert clientcert=verify-full`）：三条 DSN 都能用新证书连上；换回旧的主证书则被拒，报错为 `certificate authentication failed`。
+- **F2 Agent Host 运行文件**：
+  - **启动命令**：Compose 给 agent-host 写明启动命令，包括 `--runtime-config-file /run/secrets/host_runtime_config`、控制密钥和 TLS 文件，不再沿用镜像默认的 `/private/host-server` 路径。
+  - **新增挂载**，都由生成器写出，不含秘密值：
+    - `host_runtime_config`（`agent-host/runtime-config.json`）：按示例生成，`guard_url` 端口取 params 的 `guard_port`；
+    - `host_model_configuration`（`agent-host/model-configuration.json`）：`stage: true`，`MODEL_CREDENTIALS_FILE=/run/secrets/host_model_key`；
+    - `host_model_tariff`（`agent-host/model-tariff.cny.json`）：仓库价目文件的副本；
+    - `host_guard_key`（`agent-host/guard-transport.key`）：与 `runtime-worker/guard-transport.key` 是同一个值，在 manifest 的 `shared_values.guard-transport` 中登记为共享值。
+  - **运行配置示例**改用这些 secret 名，`guard_ca_file` 指向已挂载的 `guard_ca`；示例的 guard 端口改为 8200，与 env 示例的 `GUARD_PORT` 一致。
+  - **模型凭据的位置约定**：`NEXLOOP_ROOT/secrets/agent-host-model/model.key`，属主 10020，0600，阶段 C 由负责人放入，挂载为 `host_model_key`。它不放在 `secrets/agent-host`（`secret_distribution` 会判为 `agent_host_holds_service_secret`），文件名和 secret 名也不含凭据字样。Agent Host 不挂任何 DSN、服务凭据、签名密钥或 Artifact 目录。
+  - 测试用真实的 Agent Host（Node 24）验证：用生成的运行文件能启动并通过存活探测；缺少运行配置里引用的文件时拒绝启动。
 
 ## 5. 两端共用同一个值的文件
 
