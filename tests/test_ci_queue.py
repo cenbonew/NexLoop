@@ -2,6 +2,7 @@
 the CI result as NX-034's input, and GitHub sync as pending when unreachable (AT-053 local evidence).
 
 Everything runs on temporary bare repositories and queue directories; identities and policies are synthetic."""
+import hashlib
 import json
 import os
 import subprocess
@@ -259,3 +260,68 @@ def test_cli_status_and_result(lab, capsys):
     once(lab)
     assert ci.main(['result', '--queue', str(lab['queue']), '--sha', lab['base']]) == 0
     assert json.loads(capsys.readouterr().out)['status'] == 'passed'
+
+
+# A candidate whose suite fails with a message carrying credential-looking text, and errors in another case.
+CI_TEST_FAILING = """#!/bin/sh
+set -e
+mkdir -p .ci-results
+cat > .ci-results/unit.xml <<'XML'
+<testsuite>
+ <testcase classname="tests.test_ok" name="t_ok"/>
+ <testcase classname="tests.test_pay" name="test_settles_once"><failure message="assert 1 == 2 while connecting postgresql://svc:hunter2@db/x password=hunter2 token: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP0123">Traceback line one
+line two with the raw log</failure></testcase>
+ <testcase classname="tests.test_pay" name="test_refund"><error>RuntimeError: boom
+second line</error></testcase>
+ <testcase classname="tests.test_pay" name="test_skip"><skipped/></testcase>
+</testsuite>
+XML
+"""
+
+
+def test_a_failed_run_keeps_the_failed_names_and_the_junit_files_and_release_refuses_it(lab, tmp_path):
+    sys.path.insert(0, str(ROOT / 'scripts/release'))
+    import release
+    from test_release_local import oci_archive
+    sha = lab['commit']('failing candidate', {'ci-test.sh': CI_TEST_FAILING, 'versions.lock.json': (ROOT / 'versions.lock.json').read_text()},
+                        parent=lab['base'])
+    lab['push']('integrator-a', f'{sha}:refs/heads/integration/failing')
+    result = once(lab)['outcome']
+    assert result['status'] == 'failed' and 'suite_not_clean:unit' in result['reasons']
+    attempt = lab['queue'] / 'results' / sha / 'attempt-1'
+    assert not (lab['tmp'] / 'builds' / f'{sha}-1').exists()  # the work directory is still removed
+    # result.json: additive summary only (schema unchanged); the names are in failures.json next to it.
+    assert result['schema'] == 'nexloop-ci-result/1' and result['failures'] == {'file': 'failures.json', 'count': 2, 'truncated': False}
+    failures = json.loads((attempt / 'failures.json').read_text())
+    assert failures['schema'] == 'nexloop-ci-failures/1' and failures['sha'] == sha and failures['attempt'] == 1
+    unit = failures['suites']['unit']
+    assert unit['stage'] == 'suite' and unit['count'] == 2 and unit['junit'] == 'junit/suite/unit.xml'
+    cases = {(c['classname'], c['name'], c['kind']): c['message'] for c in unit['cases']}
+    assert set(cases) == {('tests.test_pay', 'test_settles_once', 'failure'), ('tests.test_pay', 'test_refund', 'error')}
+    message = cases[('tests.test_pay', 'test_settles_once', 'failure')]
+    assert message.startswith('assert 1 == 2') and 'hunter2' not in message and 'abcdefghijklmnopqrstuvwxyzABCDEF' not in message
+    assert 'postgresql://<redacted>@' in message and 'password=<redacted>' in message and len(message) <= 300
+    assert cases[('tests.test_pay', 'test_refund', 'error')] == 'RuntimeError: boom'  # first line only, never the raw log
+    # The JUnit file itself is kept, 0640, byte for byte.
+    copy = attempt / 'junit' / 'suite' / 'unit.xml'
+    assert copy.stat().st_mode & 0o777 == 0o640 and hashlib.sha256(copy.read_bytes()).hexdigest() == result['stages'][0]['junit']['unit']['sha256']
+    # release.build_manifest still accepts only a passed result of this commit.
+    digest = 'sha256:' + 'a' * 64
+    images = tmp_path / 'images.json'
+    images.write_text(json.dumps({'nexloop-api': {'archive': str(oci_archive(tmp_path / 'api.tar', digest)), 'digest': digest}}))
+    with pytest.raises(release.Refused):
+        release.build_manifest(sha=sha, images=images, ci_result=attempt / 'result.json', out=tmp_path / 'rel', root=lab['work'])
+
+
+def test_a_passed_run_has_an_empty_failures_file_and_long_messages_and_lists_are_bounded(lab):
+    sha = lab['commit']('passing', parent=lab['base'])
+    lab['push']('integrator-a', f'{sha}:refs/heads/integration/passing')
+    result = once(lab)['outcome']
+    assert result['status'] == 'passed' and result['failures'] == {'file': 'failures.json', 'count': 0, 'truncated': False}
+    assert json.loads((lab['queue'] / 'results' / sha / 'attempt-1' / 'failures.json').read_text())['suites'] == {}
+    case = ci.ET.fromstring('<failure message="' + 'x ' * 400 + '"/>')
+    assert len(ci._failure_message(case)) == ci.FAILURE_MESSAGE_LIMIT
+    body = '<testsuite>' + ''.join(f'<testcase classname="c" name="t{i}"><failure/></testcase>' for i in range(ci.FAILURES_PER_SUITE + 5)) + '</testsuite>'
+    path = lab['tmp'] / 'many.xml'
+    path.write_text(body)
+    assert len(ci.junit_failures(path)) == ci.FAILURES_PER_SUITE + 5  # bounded when stored (FAILURES_PER_SUITE, truncated flag)

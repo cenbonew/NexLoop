@@ -199,6 +199,39 @@ def junit_counts(path):
     return {'tests': len(cases), 'passed': len(cases) - failed - errors - skipped, 'failed': failed, 'errors': errors, 'skipped': skipped}
 
 
+FAILURES_SCHEMA = 'nexloop-ci-failures/1'
+FAILURE_MESSAGE_LIMIT = 300
+FAILURES_PER_SUITE = 200
+_REDACT = (
+    (re.compile(r'([A-Za-z][A-Za-z0-9+.-]*://)[^\s/@]*@'), r'\1<redacted>@'),  # credentials in a URI
+    (re.compile(r'(?i)\b(password|passwd|secret|token|api[_-]?key|dsn|authorization)(\s*[=:]\s*)\S+'), r'\1\2<redacted>'),
+    (re.compile(r'[A-Za-z0-9+/=_-]{40,}'), '<redacted>'),  # long opaque runs (keys, tokens, digests)
+)
+
+
+def _failure_message(case):
+    """The failure's message attribute (or the first line of its text): one line, credentials and long opaque runs redacted,
+    at most FAILURE_MESSAGE_LIMIT characters. Never the raw log."""
+    text = case.get('message') or ((case.text or '').strip().splitlines() or [''])[0]
+    text = ' '.join(''.join(ch if ch.isprintable() else ' ' for ch in text).split())
+    for pattern, replacement in _REDACT:
+        text = pattern.sub(replacement, text)
+    return text[:FAILURE_MESSAGE_LIMIT]
+
+
+def junit_failures(path):
+    """Failed and errored cases of one JUnit file: [{classname, name, kind, message}] (kind 'failure' or 'error')."""
+    found = []
+    for case in ET.parse(path).getroot().iter('testcase'):
+        for kind in ('failure', 'error'):
+            node = case.find(kind)
+            if node is not None:
+                found.append({'classname': (case.get('classname') or '')[:FAILURE_MESSAGE_LIMIT], 'name': (case.get('name') or '')[:FAILURE_MESSAGE_LIMIT],
+                              'kind': kind, 'message': _failure_message(node)})
+                break
+    return found
+
+
 def judge(policy, stages, junit, baseline):
     """The trusted policy decides, not the candidate: every required suite present, nothing failed, errored or skipped, and no
     suite with fewer tests than the last main result beyond its registered allowance."""
@@ -388,6 +421,7 @@ def run_check(repo, queue, request, policy, identities, *, runner=None, workroot
         subprocess.run(['git', 'clone', '-q', '--no-checkout', '--no-hardlinks', str(repo), str(work)], check=True, env=env, capture_output=True)
         subprocess.run(['git', '-C', str(work), 'checkout', '-q', '--detach', sha], check=True, env=env, capture_output=True)
         result['locks'], result['catalog'] = _locks_and_catalog(work)
+        failures, kept = {}, attempt_dir / 'junit'
         for stage in policy['stages']['stages']:
             s0 = time.monotonic()
             argv = stage['argv']
@@ -406,6 +440,15 @@ def run_check(repo, queue, request, policy, identities, *, runner=None, workroot
                     counts = junit_counts(path)
                     junit[name] = counts
                     entry['junit'][name] = {'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(), **counts}
+                    # Kept with the result (the work directory is removed below): the JUnit file itself, and the failed names.
+                    copy = kept / stage['name'] / Path(path).name
+                    copy.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(path, copy)
+                    copy.chmod(0o640)
+                    cases = junit_failures(path)
+                    if cases:
+                        failures[name] = {'stage': stage['name'], 'junit': str(copy.relative_to(attempt_dir)), 'count': len(cases),
+                                          'truncated': len(cases) > FAILURES_PER_SUITE, 'cases': cases[:FAILURES_PER_SUITE]}
             stages.append(entry)
             if status != 'passed' and stage.get('stop_on_failure', True):
                 break
@@ -416,6 +459,11 @@ def run_check(repo, queue, request, policy, identities, *, runner=None, workroot
         probe = next((s['status'] for s in stages if s['name'] == 'isolation-probe'), None)
         result.update(status='passed' if not reasons else 'failed', reasons=reasons, stages=stages, suites=junit, counts=totals,
                       deadline_gate=gate, isolation=probe)
+        # Additive to nexloop-ci-result/1: where the failed names are (release.py reads sha, status, policy_version, deadline_gate
+        # and counts only; the result's digest still covers this whole file).
+        write_atomic(attempt_dir / 'failures.json', {'schema': FAILURES_SCHEMA, 'sha': sha, 'attempt': attempt, 'suites': failures})
+        result['failures'] = {'file': 'failures.json', 'count': sum(f['count'] for f in failures.values()),
+                              'truncated': any(f['truncated'] for f in failures.values())}
         shutil.rmtree(work)
     result['finished_at'], result['seconds'] = now(), round(time.monotonic() - t0, 3)
     first = next((json.loads(p.read_text()) for p in sorted((Path(queue) / 'results' / sha).glob('attempt-1/result.json'))), None)
