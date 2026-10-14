@@ -67,7 +67,8 @@ def test_a_verified_pgbackrest_backup_records_tool_version_and_evidence_and_open
     assert set(evidence) == {'schema', 'tool', 'tool_version', 'stanza', 'repo_key', 'label', 'type', 'prior', 'timestamp_start', 'timestamp_stop',
                              'archive_start', 'archive_stop', 'size', 'repository_size', 'backup_error', 'info_status', 'db_version', 'backrest_format', 'verify'}
     calls = json.loads(rest['state'].read_text())['calls']
-    assert ['--config=<set>'] == calls[0][-1:] and ['--stanza=nexloop', 'version'] == [a for a in calls[0] if not a.startswith('--config')]
+    # `version` runs on the bare command: pgBackRest 2.59 refuses a stanza or config option there (2026-10-14 deployment).
+    assert calls[0] == ['version'] and all(c[-1:] == ['--config=<set>'] for c in calls[1:])
     assert ['--stanza=nexloop', '--repo=1', '--type=full', 'backup'] in [[a for a in c if a != '--config=<set>'] for c in calls]
     switch_wal(db, cluster)
     assert backup.migration_gate(db) == {**backup.migration_gate(db), 'allowed': True, 'reasons': []}

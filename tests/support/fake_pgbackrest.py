@@ -9,7 +9,12 @@ from pathlib import Path
 state_path = Path(sys.argv[1])
 args = sys.argv[2:]
 state = json.loads(state_path.read_text())
-stanza = next(a.split('=', 1)[1] for a in args if a.startswith('--stanza='))
+command = [a for a in args if not a.startswith('--')]
+if command == ['version'] and any(a.startswith(('--stanza=', '--config=', '--repo=')) for a in args):
+    # As pgBackRest 2.59: `version` takes no stanza, config or repo option (2026-10-14 first deployment: ERROR [031]).
+    print("P00  ERROR: [031]: option 'stanza' not valid for command 'version'", file=sys.stderr)
+    sys.exit(31)
+stanza = next((a.split('=', 1)[1] for a in args if a.startswith('--stanza=')), None)
 repo = int(next((a.split('=', 1)[1] for a in args if a.startswith('--repo=')), '1'))
 config = next((a.split('=', 1)[1] for a in args if a.startswith('--config=')), None)
 state.setdefault('calls', []).append([a for a in args if not a.startswith('--config=')] + (['--config=<set>'] if config else []))

@@ -140,6 +140,7 @@ class PgBackRest:
             raise BackupUnavailable('stanza invalid')
         if config_file is not None:
             read_private_text(config_file, maximum=65536)  # 0600 and readable; the content stays pgbackrest's
+        self.command = list(command)
         self.prefix = [*command, *([f'--config={config_file}'] if config_file is not None else []), f'--stanza={stanza}']
         self.stanza, self.timeout = stanza, timeout
 
@@ -147,7 +148,9 @@ class PgBackRest:
         return subprocess.run([*self.prefix, *args], capture_output=True, text=True, timeout=timeout or self.timeout)
 
     def version(self):
-        found = _VERSION.search(self.run('version', timeout=60).stdout)
+        # `version` accepts no stanza or config option (pgBackRest 2.59: ERROR [031]); run it on the bare command.
+        done = subprocess.run([*self.command, 'version'], capture_output=True, text=True, timeout=60)
+        found = _VERSION.search(done.stdout)
         if not found:
             raise BackupUnavailable('pgbackrest version unavailable')
         return found.group(1)
