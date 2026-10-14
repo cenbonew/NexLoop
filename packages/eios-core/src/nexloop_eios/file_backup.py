@@ -2,7 +2,7 @@
 
 One run backs up one kind into one restic repository and records one manifest row (0146 ``authz.nexloop_record_backup``):
 
-- ``artifact`` (``files_artifact``): the Artifacts the owner-side inventory lists (0450: available and inside their
+- ``artifact`` (``files_artifact``): the Artifacts the owner-side inventory lists (0194: available and inside their
   retention, world real). Each file is copied into a fresh private staging directory and hashed again after the copy; a
   file whose copy does not match the inventory's sha256 and size is left out and counted.
 - ``runtime`` (``files_runtime``): the finished Pi Runs the inventory lists (every bound task terminal, no NX-029 purge

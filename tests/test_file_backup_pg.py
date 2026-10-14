@@ -1,4 +1,4 @@
-"""NX-035 slice 3 on PostgreSQL: the owner-side file backup inventory (0450) and nexloop-file-backup recording a
+"""NX-035 slice 3 on PostgreSQL: the owner-side file backup inventory (0194) and nexloop-file-backup recording a
 files_artifact / files_runtime row through the unchanged 0146 recorder. restic is tests/support/restic_stand_in.py.
 
 Synthetic rows are written by the test superuser with triggers suspended for that one statement (the same injection the

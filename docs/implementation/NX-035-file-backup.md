@@ -1,6 +1,6 @@
 # NX-035 切片三：文件备份执行者 `nexloop-file-backup`
 
-分支 `l5/nx035-file-backup`，从 main 7fb06a2 切出。迁移 `0450_nx035_file_backup_inventory.sql` 是临时号，合入时由调度员重编号；`versions.lock.json` 的 `bootstrap_revision` 也在合入时一并更新，本分支不改它。
+分支 `l5/nx035-file-backup`，从 main 7fb06a2 切出。迁移 `0194_nx035_file_backup_inventory.sql`（开发时临时号 0450，合入时重编号）；`versions.lock.json` 的 `bootstrap_revision` 也在合入时一并更新，本分支不改它。
 
 依据：
 
@@ -25,7 +25,7 @@
 
 文件类备份只写一行，没有 `pending` 行。这与 0146 对非 PG 类的规定一致。M12 的 `file_backup_age_seconds` 和告警规则 `file_backup_age` 已经按这两类的 verified 行计算，无需改动。
 
-## 2. 迁移 0450：owner 侧清单
+## 2. 迁移 0194：owner 侧清单
 
 新增函数 `authz.nexloop_file_backup_inventory(kind, after, limit)`：
 
@@ -46,7 +46,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 一次运行只备份一类，写一个仓库：
 
-1. **读清单**：从 0450 按页读出全部条目。条目的 ref 不符合规定形状时，整次运行停止，什么都不写。
+1. **读清单**：从 0194 按页读出全部条目。条目的 ref 不符合规定形状时，整次运行停止，什么都不写。
 2. **复制到暂存目录**：在 `--staging-root`（必须是 0700、属于本用户的目录）下新建一个暂存目录。
    - **Artifact**：逐级以 `O_NOFOLLOW` 打开源文件，任何一级是链接都不跟随；复制后对副本重算 sha256 和大小，与清单不一致就删除副本，计为 `mismatch`；源文件不存在或是链接，计为 `missing`。
    - **Run**：
@@ -80,7 +80,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - 清单 ref 越界时整次停止；
   - 命令行的退出码。
 - `tests/test_file_backup_pg.py`：在一次性 PG 18 上运行。覆盖：
-  - 0450 只列出有效的 Artifact 和已终态、未清除的 Run，不包括其他 world，跨租户分页正确；
+  - 0194 只列出有效的 Artifact 和已终态、未清除的 Run，不包括其他 world，跨租户分页正确；
   - 只有 recorder 能调用，参数校验生效，recorder 仍然读不到表；
   - 两类各一次端到端运行，经 0146 写入 verified 行。
 - **未覆盖**：没有用真实的 restic 运行。开发机和 CI 主机都没有安装 restic；版本锁与安装由 L2 处理，安装后应在部署主机上用真实 restic 跑一次第 3 步。

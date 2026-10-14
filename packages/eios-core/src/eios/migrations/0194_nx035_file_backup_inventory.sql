@@ -1,4 +1,4 @@
--- NX-035 slice 3 (temporary number 0450; renumbered at merge): the file backup executor's inventory.
+-- NX-035 slice 3: the file backup executor's inventory.
 -- nexloop-file-backup (APP_HOST) copies Artifacts and finished Pi Run directories into a restic repository and records a
 -- files_artifact / files_runtime row through authz.nexloop_record_backup (0146, unchanged). It decides nothing itself:
 -- this function is the owner-side list of what may enter a new snapshot (design §4.3), and the only thing it returns is

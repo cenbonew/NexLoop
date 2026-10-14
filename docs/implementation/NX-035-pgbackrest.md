@@ -46,7 +46,7 @@ nexloop-backup pg --recorder-dsn-file <PRIVATE_RECORDER_DSN> --pgbackrest-comman
 
 ## 2. 备份清单 schema：`nexloop-backup-manifest/2`
 
-表 `runtime.nexloop_backup_manifests`。v1 是 0146 的列；v2 是迁移 0430（临时号）新增的三列，都可为空，旧行保持为空。
+表 `runtime.nexloop_backup_manifests`。v1 是 0146 的列；v2 是迁移 0193新增的三列，都可为空，旧行保持为空。
 
 | 列 | 类型 | 说明 |
 |---|---|---|
