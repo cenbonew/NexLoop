@@ -15,6 +15,10 @@
 # base URL): only the host and path of the Debian, Debian security and PGDG sources are replaced; the signed-by keys and the
 # suites stay those of the base image, so apt still verifies the signed Release metadata (and through it every package's
 # sha256) exactly as with the origin servers. A mirror whose source line is not found fails the build.
+#
+# The upstream entrypoint uses gosu only to drop root; this image always runs as postgres (USER below; the stage compose sets
+# no user), so the base image's gosu (a Go binary, the only one in the image) is removed (NX-036). Starting the container as
+# root then fails instead of dropping privileges.
 ARG POSTGRES_IMAGE
 FROM ${POSTGRES_IMAGE}
 ARG PGBACKREST_VERSION
@@ -50,5 +54,6 @@ RUN set -eu; \
     test "$(dpkg-query --showformat='${Version}' --show pgbackrest)" = "${PGBACKREST_DEB_VERSION}"; \
     test "$(pgbackrest version)" = "pgBackRest ${PGBACKREST_VERSION}"; \
     rm -rf /var/lib/apt/lists/* /tmp/pgbackrest-debs; \
+    rm -f /usr/local/bin/gosu; ! command -v gosu; \
     install --directory --owner=postgres --group=postgres --mode=0750 /etc/pgbackrest /var/lib/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest
 USER postgres

@@ -154,9 +154,15 @@
       "pinned_at": "2026-10-14"
     },
     "python-build-base": {
-      "reference": "docker.io/library/python:3.12.10-slim-bookworm",
-      "digest": "sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db",
-      "status": "verified_digest_pinned_core_container_build"
+      "reference": "docker.io/library/python:3.12.15-slim-bookworm",
+      "digest": "sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258",
+      "status": "index_digest_and_amd64_layers_read_from_registry_build_unverified",
+      "resolved_at": "2026-10-14",
+      "reason": "NX-036 vulnerability remediation (docs/implementation/NX-036-vuln-remediation.md): Python 3.12.15 and the current bookworm security updates (libssl3 3.0.22-1~deb12u1, libsqlite3-0 3.40.1-2+deb12u2, libc6 2.36-9+deb12u14, libpam 1.5.2-6+deb12u2, libgnutls30 3.7.9-2+deb12u7, perl-base 5.36.0-7+deb12u3, gpgv 2.2.40-1.1+deb12u2, read from the linux/amd64 layers' dpkg status)",
+      "replaces": {
+        "reference": "docker.io/library/python:3.12.10-slim-bookworm",
+        "digest": "sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db"
+      }
     },
     "node-host-base": {
       "reference": "docker.io/library/node:24.13.0-bookworm-slim",

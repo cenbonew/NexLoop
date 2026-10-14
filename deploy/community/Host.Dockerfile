@@ -4,7 +4,10 @@ ARG NODE_IMAGE
 FROM ${PYTHON_IMAGE} AS python_runtime
 FROM ${NODE_IMAGE}
 COPY --from=python_runtime /usr/local/ /usr/local/
-RUN ldconfig && useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin nexloop
+# The Host runs only node and python3: the base image's npm and corepack (and their bundled packages) are removed (NX-036).
+RUN ldconfig && useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin nexloop \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+ && test ! -e /usr/local/lib/node_modules/npm && ! command -v npm && ! command -v corepack
 COPY agent_host.py /opt/nexloop/scripts/agent_host.py
 COPY runtime.tar /tmp/nexloop-runtime.tar
 RUN mkdir -p /opt/nexloop/apps/agent-host && tar -xf /tmp/nexloop-runtime.tar -C /opt/nexloop/apps/agent-host && rm /tmp/nexloop-runtime.tar
