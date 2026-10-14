@@ -1,5 +1,5 @@
 """NX-032 slice 3: the deployment dry-run — the signed release verified on the deploy side (AT-055), Compose images rendered from
-the manifest, DATA_HOST images from versions.lock.json, blind rollback refused (AT-057), host templates rendered (including the
+the manifest, DATA_HOST PostgreSQL from the release (nexloop/postgres) and Valkey from versions.lock.json, blind rollback refused (AT-057), host templates rendered (including the
 Gateway Caddyfile), steps listed and nothing executed. Synthetic releases in temporary directories; no host is contacted."""
 import json
 import subprocess
@@ -89,16 +89,49 @@ def test_app_dry_run_refuses_a_blind_rollback(signed, stage, tmp_path):
     assert run(signed, stage, 'rb2', current_manifest=same)['checks']['rollback_allowed'] is True
 
 
-def test_data_dry_run_uses_the_locked_images_and_renders_the_data_host(stage, tmp_path):
-    out = deploy.dry_run(host_role='data', stage_env=stage, out=tmp_path / 'data')
-    assert out['ready'] is True and sorted(out['rendered']) == ['compose.images.env', 'data-host.nft', 'pg_hba.conf', 'postgresql.conf', 'valkey.conf']
+DIGEST_POSTGRES = 'sha256:' + 'e' * 64
+
+
+@pytest.fixture
+def signed_data(inputs):  # noqa: F811
+    """A signed release whose image is nexloop/postgres (PostgreSQL + pgvector + pgBackRest, NX-035)."""
+    inputs['images'].write_text(json.dumps({'postgres': {'archive': str(oci_archive(inputs['tmp'] / 'postgres.tar', DIGEST_POSTGRES)), 'digest': DIGEST_POSTGRES,
+                                                         'base': 'postgres'}}))
+    make(inputs)
+    rel = inputs['tmp'] / 'release'
+    key, allowed = keypair(inputs['tmp'], 'release-key')
+    release.sign(rel, key)
+    return {**inputs, 'release': rel, 'allowed': allowed}
+
+
+def run_data(signed, stage, out, **kw):
+    args = dict(host_role='data', stage_env=stage, out=signed['tmp'] / out, release_dir=signed['release'], allowed_signers=signed['allowed'],
+                trusted_sha=signed['sha'])
+    return deploy.dry_run(**{**args, **kw})
+
+
+def test_data_dry_run_takes_postgres_from_the_signed_release_and_valkey_from_the_lock(signed_data, stage):
+    out = run_data(signed_data, stage, 'data')
+    assert out['ready'] is True and out['checks']['release_verified'] is True, out
+    assert sorted(out['rendered']) == ['compose.images.env', 'data-host.nft', 'pg_hba.conf', 'postgresql.conf', 'valkey.conf']
     lock = json.loads((ROOT / 'versions.lock.json').read_text())['images']
-    env = (tmp_path / 'data' / 'compose.images.env').read_text()
-    assert f"@{lock['postgres']['digest']}" in env and f"@{lock['valkey']['digest']}" in env
-    wrong = tmp_path / 'compose.data.env'
-    wrong.write_text('POSTGRES_IMAGE=docker.io/library/postgres@sha256:' + '0' * 64 + '\n')
-    refused = deploy.dry_run(host_role='data', stage_env=stage, out=tmp_path / 'data2', compose_env=wrong)
+    env = (signed_data['tmp'] / 'data' / 'compose.images.env').read_text()
+    assert env == f'POSTGRES_IMAGE=nexloop/postgres@{DIGEST_POSTGRES}\nVALKEY_IMAGE=docker.io/valkey/valkey@{lock["valkey"]["digest"]}\n'
+    assert lock['postgres']['digest'] not in env  # the upstream PostgreSQL image is only the build base now
+    steps = [s['step'] for s in out['steps']]
+    assert steps[:2] == ['inventory_before', 'load_images'] and 'compose.images.env' in next(s['command'] for s in out['steps'] if s['step'] == 'start_infra')
+    wrong = signed_data['tmp'] / 'compose.data.env'
+    wrong.write_text('POSTGRES_IMAGE=docker.io/pgvector/pgvector@' + lock['postgres']['digest'] + '\n')
+    refused = run_data(signed_data, stage, 'data2', compose_env=wrong)
     assert refused['ready'] is False and refused['details']['compose_image_mismatch'] == ['POSTGRES_IMAGE']
+
+
+def test_data_dry_run_refuses_without_a_release_or_with_a_release_lacking_postgres(signed, stage, tmp_path):
+    with pytest.raises(ValueError, match='data deployment needs --release-dir'):
+        deploy.dry_run(host_role='data', stage_env=stage, out=tmp_path / 'no-release')
+    out = run_data(signed, stage, 'app-release-on-data')  # the app release has no postgres image
+    assert out['ready'] is False and out['checks']['image_variables_mapped'] is False and out['details']['unmapped_images'] == ['postgres']
+    assert out['details']['missing_image_variables'] == ['POSTGRES_IMAGE']
 
 
 def test_cli_exit_codes_and_an_existing_output_is_refused(signed, stage, tmp_path):
@@ -125,7 +158,7 @@ def test_an_explicit_mapping_that_leaves_out_a_required_image_is_refused(signed,
     assert omitted + '=' not in (signed['tmp'] / ('omit-' + omitted) / 'compose.images.env').read_text()
 
 
-def test_the_data_host_renders_every_image_its_compose_file_requires(stage, tmp_path):
+def test_the_data_host_renders_every_image_its_compose_file_requires(signed_data, stage, tmp_path):
     assert deploy.required_image_variables('data') == sorted(deploy.DATA_IMAGES)
-    out = deploy.dry_run(host_role='data', stage_env=stage, out=tmp_path / 'data')
+    out = run_data(signed_data, stage, 'data')
     assert out['checks']['compose_image_variables_complete'] is True and out['details']['missing_image_variables'] == []

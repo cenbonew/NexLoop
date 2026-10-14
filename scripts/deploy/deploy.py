@@ -17,7 +17,8 @@ never connects to a host and never calls docker. Every step it lists is a B-clas
 - APP_HOST: the signed release must verify (release.py verify, AT-055): the manifest's commit equals the trusted SHA (given, or
   resolved from the trusted ref of the local repository), every manifest image is deployed and every archive is unchanged. The
   Compose image variables are rendered from the manifest; a private Compose env naming any other digest is refused.
-- DATA_HOST: the PostgreSQL and Valkey images are the digests pinned in versions.lock.json.
+- DATA_HOST: the PostgreSQL image is the release's nexloop/postgres (PostgreSQL + pgvector + pgBackRest, NX-035), verified like
+  the APP_HOST images; the Valkey image is the digest pinned in versions.lock.json.
 - With the currently deployed manifest: release.py rollback-check refuses a blind rollback (AT-057) and says how to move forward.
 - The configuration templates of the host are rendered (whitelist renderer) into --out with the Compose image env.
 - --load-check (on the deploy host only, it calls docker): release.py load-check (NX-034 part 2) loads every archive and refuses
@@ -41,7 +42,10 @@ from nexloop_eios import stage_render  # noqa: E402
 STAGE = ROOT / 'deploy/stage'
 TEMPLATES = {'data': ('postgresql.conf', 'pg_hba.conf', 'valkey.conf', 'data-host.nft'), 'app': ('Caddyfile', 'app-host.nft')}
 DEFAULT_APP_IMAGES = {'BACKEND_IMAGE': 'backend', 'AGENT_HOST_IMAGE': 'agent-host', 'GATEWAY_IMAGE': 'gateway'}
-DATA_IMAGES = {'POSTGRES_IMAGE': 'postgres', 'VALKEY_IMAGE': 'valkey'}
+# DATA_HOST: PostgreSQL from the signed release (nexloop/postgres carries pgBackRest, NX-035); Valkey stays the locked upstream image.
+DATA_RELEASE_IMAGES = {'POSTGRES_IMAGE': 'postgres'}
+DATA_LOCK_IMAGES = {'VALKEY_IMAGE': 'valkey'}
+DATA_IMAGES = {**DATA_RELEASE_IMAGES, **DATA_LOCK_IMAGES}
 # The Compose file of each host role; every `${*_IMAGE:?...}` it requires must be rendered from the manifest (or the lock).
 COMPOSE = {'app': STAGE / 'compose.app.example.yaml', 'data': STAGE / 'compose.data.example.yaml'}
 _REQUIRED_IMAGE = re.compile(r'\$\{([A-Z][A-Z0-9_]*_IMAGE):\?')
@@ -54,9 +58,10 @@ _IMAGE = re.compile(r'[a-z0-9][a-z0-9._/:-]{0,200}@(sha256:[0-9a-f]{64})')
 STEPS = {
     'data': [
         ('inventory_before', 'python3 - --phase before --planned-ports "$PG_PORT,$VALKEY_PORT" --data-root "$NEXLOOP_ROOT" --out <private> < scripts/deploy/inventory.py', None),
-        ('install_configuration', 'scp <out>/{postgresql.conf,pg_hba.conf,valkey.conf} "$SSH_ALIAS_DATA:$NEXLOOP_ROOT/config/"', 'restore the previous files and reload'),
+        ('load_images', 'deploy.py load-check --release-dir <release> on DATA_HOST (nexloop/postgres@<digest> must resolve to the manifest digest)', 'docker image rm <digest>'),
+        ('install_configuration', 'scp <out>/{postgresql.conf,pg_hba.conf,valkey.conf,compose.images.env} "$SSH_ALIAS_DATA:$NEXLOOP_ROOT/config/"', 'restore the previous files and reload'),
         ('firewall', 'ssh "$SSH_ALIAS_DATA" sudo nft -c -f <data-host.nft> && sudo nft -f <data-host.nft>', 'sudo nft delete table inet nexloop_stage'),
-        ('start_infra', 'ssh "$SSH_ALIAS_DATA" docker compose -p nexloop-data -f compose.data.yaml --env-file compose.data.env up -d',
+        ('start_infra', 'ssh "$SSH_ALIAS_DATA" docker compose -p nexloop-data -f compose.data.yaml --env-file compose.data.env --env-file compose.images.env up -d',
          'docker compose -p nexloop-data down (no -v)'),
         ('inventory_after_and_gate', 'inventory.py --phase after …; nexloop-doctor --deploy-gate <data spec>', None)],
     'app': [
@@ -96,15 +101,15 @@ def dry_run(*, host_role, stage_env, out, release_dir=None, allowed_signers=None
     values = stage_render.load_env(stage_env)
     provided = _env(compose_env) if compose_env else {}
     images = {}
-    if host_role == 'app':
+    if host_role in ('app', 'data'):
         if not (release_dir and allowed_signers):
-            raise ValueError('app deployment needs --release-dir and --allowed-signers')
+            raise ValueError(f'{host_role} deployment needs --release-dir and --allowed-signers')
         if trusted_sha is None:
             if not (repo and trusted_ref):
                 raise ValueError('--trusted-sha or --repo with --trusted-ref required')
             trusted_sha = _git(repo, 'rev-parse', '--verify', trusted_ref + '^{commit}')
         manifest = json.loads((Path(release_dir) / 'manifest.json').read_text())
-        mapping = image_vars or DEFAULT_APP_IMAGES
+        mapping = image_vars or (DEFAULT_APP_IMAGES if host_role == 'app' else DATA_RELEASE_IMAGES)
         by_name = {i['name']: i for i in manifest['images']}
         images = {var: f'nexloop/{name}@{by_name[name]["digest"]}' for var, name in mapping.items() if name in by_name}
         try:
@@ -132,9 +137,9 @@ def dry_run(*, host_role, stage_env, out, release_dir=None, allowed_signers=None
             except release.Refused as refused:
                 checks['rollback_allowed'] = False
                 details['rollback_refused'] = json.loads(str(refused))
-    else:
+    if host_role == 'data':
         lock = lock or json.loads((ROOT / 'versions.lock.json').read_text())['images']
-        for var, name in DATA_IMAGES.items():
+        for var, name in DATA_LOCK_IMAGES.items():
             images[var] = f'{lock[name]["reference"].split(":")[0]}@{lock[name]["digest"]}'
     # Every image the Compose file requires is rendered: an explicit --image-var mapping may not leave one out (it would only
     # fail at `docker compose up`).
