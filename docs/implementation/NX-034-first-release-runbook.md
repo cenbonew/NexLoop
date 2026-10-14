@@ -122,7 +122,7 @@
 | `$ALLOWED_SIGNERS` | 验签（dry-run、seal、check、promote） | 由发布公钥生成一行：`nexloop-release namespaces="nexloop-release" <公钥类型> <公钥>`。公钥取自 `/srv/nexloop/release-signing/` 中对应的 `.pub`，只含公钥，部署侧可读 |
 | `$PLAN_DIR_APP` / `$PLAN_DIR_DATA` | dry-run 输出（渲染的配置和 `compose.images.env`） | 由 `deploy.py dry-run --out` 生成，目录不能已存在 |
 | `$PRIVATE_COMPOSE_APP_ENV` | `docker compose ... compose.app.example.yaml --env-file` 预检 | 两部分拼接。① 非镜像变量：以 `deploy/stage/compose.app.env.example` 为模板，去掉三个 `*_IMAGE` 行，填入端口、地址、`AGENT_LINK_*`、`AGENT_EGRESS_CIDR`、`AGENT_HOST_UID`、`NEXLOOP_ROOT`、`SIGNING_KEY_ID`、`API_EXECUTION_PROFILE`、`BROWSER_*`、`WORKBENCH_APPLICATION_ID`。不放任何 secret（文件开头的注释写明了）。② 镜像变量：直接取 app 主机 dry-run 输出的 `$PLAN_DIR_APP/compose.images.env`，包含三项 `nexloop/<name>@sha256:…`，来自已签名清单 |
-| `$PRIVATE_COMPOSE_DATA_ENV` | data 主机 Compose 预检 | 以 `deploy/stage/compose.data.env.example` 为模板；镜像变量取 data 主机 dry-run 输出的 `$PLAN_DIR_DATA/compose.images.env`（`versions.lock.json` 中 postgres、valkey 的 digest） |
+| `$PRIVATE_COMPOSE_DATA_ENV` | data 主机 Compose 预检 | 以 `deploy/stage/compose.data.env.example` 为模板；镜像变量取 data 主机 dry-run 输出的 `$PLAN_DIR_DATA/compose.images.env`（发布中 `nexloop/postgres` 的 digest；valkey 取 `versions.lock.json` 的 digest） |
 | `$CURRENT_MANIFEST`（首次没有） | dry-run 的回滚核对 `--current-manifest` | 首次部署不传。之后取当前部署发布的 `manifest.json`，即 `$RELEASE_ROOT/current` 指向的那份 |
 
 ### 命令
@@ -130,10 +130,10 @@
 | # | 执行用户 | 命令 | 预期输出 | 失败时 |
 |---|---|---|---|---|
 | 1 | 部署账户（能读 `$RELEASE_ROOT`；dry-run 不需要 docker） | `scripts/deploy/deploy.py dry-run --host-role app --stage-env "$PRIVATE_STAGE_ENV" --out "$PLAN_DIR_APP" --release-dir "$RELEASE_ROOT/releases/$RID" --allowed-signers "$ALLOWED_SIGNERS" --repo "$TRUSTED_REPO" --trusted-ref refs/heads/main` | `ready: true`；checks 中 `release_verified`、`image_variables_mapped`、`compose_image_variables_complete`、`compose_images_from_manifest` 全为 true；`executed: false` | `release_refused`：签名、preflight、digest 或部署 SHA 不符。`missing_image_variables`：映射漏了镜像变量。都不能继续 |
-| 2 | 同上 | `scripts/deploy/deploy.py dry-run --host-role data --stage-env "$PRIVATE_STAGE_ENV" --out "$PLAN_DIR_DATA"` | `ready: true` | 同上 |
+| 2 | 同上 | `scripts/deploy/deploy.py dry-run --host-role data --stage-env "$PRIVATE_STAGE_ENV" --out "$PLAN_DIR_DATA" --release-dir "$RELEASE_ROOT/releases/$RID" --allowed-signers "$ALLOWED_SIGNERS" --repo "$TRUSTED_REPO" --trusted-ref refs/heads/main` | `ready: true`；`compose.images.env` 中 `POSTGRES_IMAGE=nexloop/postgres@<发布 digest>` | 同上；发布中没有 `postgres` 镜像时 `unmapped_images: ["postgres"]`，需要重新构建发布（[NX-034-postgres-image.md](NX-034-postgres-image.md)） |
 | 3 | 负责人或部署账户 | 按上表拼出 `$PRIVATE_COMPOSE_APP_ENV` 和 `$PRIVATE_COMPOSE_DATA_ENV`，再执行 dry-run 交叉核对：`deploy.py dry-run --host-role app ... --compose-env "$PRIVATE_COMPOSE_APP_ENV" --out "$PLAN_DIR_APP-2"` | `compose_images_from_manifest: true` | 私有 env 中的镜像与清单不一致，就修正拼接 |
 | 4 | 负责人或部署账户（只需 compose CLI，不连 daemon） | `docker compose -f deploy/stage/compose.app.example.yaml --env-file "$PRIVATE_COMPOSE_APP_ENV" config -q`，data 主机同样执行 | 退出码 0 | 缺变量或格式错误，按报错补齐私有 env |
-| 5 | 有 containerd docker 的部署主机账户（可选，load 在部署时也会做） | `scripts/deploy/deploy.py load-check --release-dir "$RELEASE_ROOT/releases/$RID"` | `loaded` 列出三个镜像，按 digest 解析一致 | `loaded_digest_differs`、`archive_changed`：停止部署 |
+| 5 | 有 containerd docker 的部署主机账户（可选，load 在部署时也会做） | `scripts/deploy/deploy.py load-check --release-dir "$RELEASE_ROOT/releases/$RID"` | `loaded` 列出全部镜像（含 `postgres`），按 digest 解析一致 | `loaded_digest_differs`、`archive_changed`：停止部署 |
 
 - 之后的 promote 和 rollback-check 属于 NX-032 部署的 B 类步骤，见 `NX-032-deploy-runbook.md` 和 NX-034 part2 §8。首次部署成功后，`deploy.py promote` 建立 `current`；第二个发布部署之后，才会有 `known_good`。
 
