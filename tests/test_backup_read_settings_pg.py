@@ -58,7 +58,9 @@ def test_nexloop_backup_gains_nothing_else(db, cluster):  # noqa: F811
         assert backup.execute("select pg_has_role('nexloop_backup', 'pg_monitor', 'member')").fetchone()[0] is False
 
 
-PGBACKREST = os.environ.get('NEXLOOP_TEST_PGBACKREST')
+# The release lane (CI host) has the pinned pgBackRest installed, so the real check runs there without opt-in; a development
+# machine without the binary skips with the reason below.
+PGBACKREST = os.environ.get('NEXLOOP_TEST_PGBACKREST') or shutil.which('pgbackrest')
 
 
 @pytest.mark.skipif(not PGBACKREST, reason='no pgBackRest binary given: set NEXLOOP_TEST_PGBACKREST=<path to pgbackrest> to run the real '
