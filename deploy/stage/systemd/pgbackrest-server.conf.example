@@ -2,14 +2,15 @@
 # /etc/pgbackrest/pgbackrest-server.conf, 0600, owner nexloop-pgbackrest. <...> are private values (addresses and paths of the
 # private stage env); no password is needed here because the repository cipher is applied by the client (DATA_HOST).
 [global]
-repo1-path=/srv/nexloop-backup/pg
+# <PG_BACKUP_REPO>: the mount point of the encrypted repo1 volume (owner nexloop-pgbackrest, 0700).
+repo1-path=<PG_BACKUP_REPO>
 log-level-console=info
 log-level-file=off
 
 tls-server-address=<APP_HOST_ADDR>
 tls-server-port=<PGBACKREST_TLS_PORT>
-tls-server-cert-file=/srv/nexloop/secrets/pgbackrest/server.chain.crt
-tls-server-key-file=/srv/nexloop/secrets/pgbackrest/server.key
-tls-server-ca-file=/srv/nexloop/secrets/pgbackrest/ca.crt
+tls-server-cert-file=/srv/nexloop/secrets/pgbackrest-server/server.crt
+tls-server-key-file=/srv/nexloop/secrets/pgbackrest-server/server.key
+tls-server-ca-file=/srv/nexloop/secrets/pgbackrest-server/ca.crt
 # Only the DATA_HOST client certificate (CN from the NexLoop CA) may use the stanza "nexloop".
 tls-server-auth=pgbackrest-data-client=nexloop

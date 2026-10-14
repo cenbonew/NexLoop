@@ -78,6 +78,12 @@
   - 注意：effect_executor 的令牌必须就是 owner 做 `configure_effect_control` 时使用的执行者令牌（摘要须一致）。
   - 未覆盖：plan-reevaluator 的 Role-run Source 需要的逐对象 READ 只能在租户组装后（阶段 C）授予。
 
+## 3a. pgBackRest TLS（M8）的证书目录约定
+
+- **DATA_HOST**：`secrets/pgbackrest/{client.crt,client.key,ca.crt}`，属主 999，在 Compose 中只读挂载到 PG 容器的 `/etc/pgbackrest/tls/`。客户端证书 CN 为 `pgbackrest-data-client`，即 `pgbackrest-server.conf` 中 `tls-server-auth` 放行的名字。
+- **APP_HOST**：`secrets/pgbackrest-server/{server.crt,server.key,ca.crt}`。它们是主机文件，不经过 Compose，由 systemd 单元 `nexloop-pgbackrest-server` 读取，属主 `nexloop-pgbackrest`。`server.crt` 是证书链，SAN 用 gateway 那组，即 APP_HOST 的名称和地址。
+- 这 6 个文件都由 `generate` 生成，记入 manifest，并由 `check` 核对。
+
 ## 4. 核对中发现的问题（需要处理，不在本次范围）
 
 | # | 问题 | 影响 | 建议 |

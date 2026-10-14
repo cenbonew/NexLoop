@@ -167,34 +167,39 @@ ssh "$SSH_ALIAS_APP" sudo useradd --system --no-create-home --shell /usr/sbin/no
 
 ### 2.3 配置文件
 
-每台主机一个 `pgbackrest.conf`，由负责人在主机上根据私有 env 渲染，权限 0600，属主为 postgres（容器内）或 `$PGBACKREST_REPO_USER`（APP_HOST）。仓库里只放下面这份带占位符的样例：
+M8 定为 TLS 服务器模式，两台主机各一个配置文件：
+
+- **APP_HOST**：`/etc/pgbackrest/pgbackrest-server.conf`，样例为 `deploy/stage/systemd/pgbackrest-server.conf.example`，由 `nexloop-pgbackrest-server` 使用。
+  - `repo1-path=<PG_BACKUP_REPO>`，填加密卷的实际挂载点。
+  - 证书在 `$NEXLOOP_ROOT/secrets/pgbackrest-server/`（样例为 /srv/nexloop），是 `stage_secrets.py` 生成的主机文件，见 NX-032-stage-secrets.md。
+- **DATA_HOST**：`$NEXLOOP_ROOT/secrets/pgbackrest/pgbackrest.conf`，容器内路径为 `/etc/pgbackrest/pgbackrest.conf`，权限 0600，uid 999。样例为 `deploy/stage/config/pgbackrest.conf.example`，只含占位符。要点：
+  - `pg1-path` 必须等于 compose 的 PGDATA，即 `/var/lib/postgresql/18/docker`；
+  - `repo1-host-type=tls`，并设置 `repo1-host`、`repo1-host-port`；
+  - `repo1-host-cert-file`、`repo1-host-key-file`、`repo1-host-ca-file` 指向容器内的 `/etc/pgbackrest/tls/{client.crt,client.key,ca.crt}`；客户端证书 CN 为 `pgbackrest-data-client`，与服务器的 `tls-server-auth` 一致；
+  - repo2（异地 S3）整段可选，对象存储就绪前只配 repo1；
+  - 首次备份时库内还没有 `nexloop_backup`，用 `pg1-user=nexloop_bootstrap`，并在 pgpass 中临时加入 bootstrap 行；2.5b 之后改回 `nexloop_backup`，同时删掉 bootstrap 行（与 2.4 的说明一致）。
+
+DATA_HOST 侧的核心配置如下（完整内容见样例文件）：
 
 ```
 [nexloop]
-pg1-path=/var/lib/postgresql/data
+pg1-path=/var/lib/postgresql/18/docker
 pg1-socket-path=/var/run/postgresql
 pg1-user=nexloop_backup
 
 [global]
+repo1-host-type=tls
 repo1-host=__APP_HOST_NAME__
-repo1-host-user=__PGBACKREST_REPO_USER__
+repo1-host-port=__PGBACKREST_TLS_PORT__
+repo1-host-cert-file=/etc/pgbackrest/tls/client.crt
+repo1-host-key-file=/etc/pgbackrest/tls/client.key
+repo1-host-ca-file=/etc/pgbackrest/tls/ca.crt
 repo1-path=__PG_BACKUP_REPO__
 repo1-cipher-type=aes-256-cbc
 repo1-cipher-pass=__REPO1_CIPHER_PASS__
 repo1-retention-full-type=time
 repo1-retention-full=35
 repo1-retention-diff=14
-repo2-type=s3
-repo2-s3-endpoint=__S3_ENDPOINT__
-repo2-s3-region=__S3_REGION__
-repo2-s3-bucket=__S3_BUCKET__
-repo2-path=/nexloop-pg
-repo2-s3-key=__S3_KEY__
-repo2-s3-key-secret=__S3_KEY_SECRET__
-repo2-cipher-type=aes-256-cbc
-repo2-cipher-pass=__REPO2_CIPHER_PASS__
-repo2-retention-full-type=time
-repo2-retention-full=35
 start-fast=y
 archive-async=y
 process-max=2
