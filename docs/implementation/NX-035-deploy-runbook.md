@@ -26,7 +26,7 @@
 | 清单表、恢复日志、恢复围栏、迁移门槛（`nexloop-migrate`）、`doctor --backup`、`backup.v1.json`、告警规则 v3 | 已合入 | 直接使用 |
 | `nexloop-backup pg` | 已改为调用 pgBackRest（`backup`、`verify`、`info`），清单写入工具、版本与校验证据（[NX-035-pgbackrest.md](NX-035-pgbackrest.md)，清单 schema v2） | 第 2.5、2.6 步直接使用；`--tool pg_basebackup` 只用于没有 pgBackRest 的开发与测试集群 |
 | `nexloop-backup journal` | 已有 | 直接使用 |
-| 文件备份执行者 `nexloop-file-backup`（Artifact 和已终态 Run 目录，restic） | 未实现（切片三） | 第 3 步先只备份恢复日志目录；Artifact 和 Run 目录的条目注明“待切片三” |
+| 文件备份执行者 `nexloop-file-backup`（Artifact 和已终态 Run 目录，restic） | 已实现（迁移 0194；见 [文件备份执行者实现说明](NX-035-file-backup.md)） | 第 3.3 步的 Artifact 与 Run 目录条目，以及第 5.1 步的 `nexloop-file-backup` 定时任务；部署前还有三项待定，见该实现说明 §5 |
 | 恢复命令行 `nexloop-restore`（含 `--target-name` 和 `--target-time`） | 已实现（见 [恢复命令行](NX-035-restore-cli.md)） | 第 4 步直接使用 |
 | pgBackRest 和 restic 写入 `versions.lock.json` 与第三方许可清单 | 已写入版本与来源（`deployment_tools`，`pinned_not_installed`）；sha256 在安装时回填 | 第 2.1、3.1 步安装时核对官方校验值并回填锁文件 |
 
@@ -267,7 +267,7 @@ nexloop-backup pg --recorder-dsn-file "$PRIVATE_RECORDER_DSN" --pgbackrest-comma
 - restic 版本固定为 `$RESTIC_VERSION`，写入 `versions.lock.json`，附发布包的 sha256；许可证为 BSD-2-Clause，登记到第三方清单。
 - 下载发布包要由负责人确认，下载后核对 sha256 和签名。
 
-### 3.1 安装（DATA_HOST 用于恢复日志；APP_HOST 用于文件，待切片三）
+### 3.1 安装（DATA_HOST 用于恢复日志；APP_HOST 用于文件）
 
 ```
 ssh "$SSH_ALIAS_DATA" sudo install -m 0755 "$RESTIC_PKG_DIR/restic" /usr/local/bin/restic
@@ -299,7 +299,7 @@ ssh "$SSH_ALIAS_DATA" sudo -u "$FILE_BACKUP_USER" env $(cat "$OFFSITE_CREDENTIAL
 | 恢复日志导出 | 每分钟 | `nexloop-backup journal --recorder-dsn-file "$RECORDER_DSN_FILE" --journal-dir "$JOURNAL_DIR"`。分段写到加密卷上，带哈希链 |
 | 恢复日志 → repo1 | 每 5 分钟 | `restic -r "$FILE_BACKUP_REPO/restic" --password-file … backup "$JOURNAL_DIR" --tag journal` |
 | 恢复日志 → repo2 | 每 15 分钟 | 同上，`-r s3:…` |
-| Artifact、已终态 Run 目录（APP_HOST）→ DATA_HOST 文件 repo1 和 repo2 | 每 15 分钟 | **待切片三的 `nexloop-file-backup`**：它按清单复制并校验 sha256，再调用 restic，结果写入清单的 `files_*` 行 |
+| Artifact、已终态 Run 目录（APP_HOST）→ DATA_HOST 文件 repo1 和 repo2 | 每 15 分钟 | `nexloop-file-backup --kind artifact --recorder-dsn-file "$RECORDER_DSN_FILE" --source-root "$ARTIFACT_ROOT" --staging-root "$FILE_BACKUP_STAGING" --repository-file "$FILE_BACKUP_REPO_FILE" --password-file "$FILE_BACKUP_PASS_FILE" --key-ref <标签>`；Run 目录用 `--kind runtime --source-root "$RUN_ROOT"`；repo2 再各跑一次（`--repo repo2`，仓库文件指向 S3，加 `--environment-file "$OFFSITE_CREDENTIAL_ENV"`）。它按 owner 侧清单复制并重算 sha256，调用 restic 与 `restic check`，结果写入清单的 `files_*` 行 |
 | 保留 | 每天 | `restic forget --keep-within 14d --keep-monthly 1 --prune`（与 D4 一致，最长 35 天） |
 | 校验 | 每天 / 每周 | 每天执行 `restic check`；每周执行 `restic check --read-data-subset 1/10` |
 
@@ -389,7 +389,7 @@ ssh "$SSH_ALIAS_DATA" sudo -u "$FILE_BACKUP_USER" env $(cat "$OFFSITE_CREDENTIAL
 | `nexloop-journal` | DATA_HOST | 每分钟 | `nexloop-backup journal` |
 | `nexloop-journal-restic` | DATA_HOST | repo1 每 5 分钟，repo2 每 15 分钟 | `restic backup "$JOURNAL_DIR"` |
 | `nexloop-restic-maint` | DATA_HOST | 每天，每周加深度校验 | `forget --prune` 和 `check` |
-| `nexloop-file-backup` | APP_HOST | 每 15 分钟 | 待切片三 |
+| `nexloop-file-backup` | APP_HOST | 每 15 分钟 | `--kind artifact` 与 `--kind runtime`，repo1 与 repo2 各一次（见 3.3） |
 
 - 这些计划与 `deploy/configuration/backup.v1.json` 一致；`doctor --backup` 会核对每周的完整备份是否存在。
 - **撤销**：

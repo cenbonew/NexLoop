@@ -965,6 +965,11 @@
       "version": "0193",
       "name": "0193_nx035_backup_tool_verification.sql",
       "sha256": "c44b094e6faba30813605e520f122eb9be7bfda64a384a8075f2bfc1c6005eb2"
+    },
+    {
+      "version": "0194",
+      "name": "0194_nx035_file_backup_inventory.sql",
+      "sha256": "72ca82b74a2562712cbf6910c9bc580a41eb15b530682f815cf187037d5e0dce"
     }
   ]
 }
