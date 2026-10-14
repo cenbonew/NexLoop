@@ -1,7 +1,7 @@
 NexLoop NX-037 受控真实闭环：负责人操作授权（模板；复制后填写，保存为私有文件 0600，不放进仓库）
 
 授权人：<OWNER_REFERENCE>（负责人本人，也是本租户唯一的员工）
-租户：<TENANT_ID>
+租户：<TENANT_DISPLAY_NAME>（<TENANT_ID>）
 试运行：<TRIAL_UUID>，期间 <PERIOD_START> 至 <PERIOD_END>，窗口每日 10:00–18:00（Asia/Shanghai）
 
 本人授权由本人操作的 AI 代理（<AGENT_TOOLS>，通过浏览器）在以下范围内扮演客户：

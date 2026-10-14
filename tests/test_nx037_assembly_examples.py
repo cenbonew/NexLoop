@@ -128,4 +128,4 @@ def test_the_operator_authorization_template_names_the_scope_and_holds_only_plac
     for point in ('nexloop.nx037-interaction-plan.v3', 'nexloop.nx037-trial.v3', '累计 100 CNY', '单 Run 2 CNY', '扮演客户', '客户为模拟、系统为真实'):
         assert point in text, point
     assert not re.search(r'\b\d{1,3}(\.\d{1,3}){3}\b', text) and '@' not in text
-    assert set(re.findall(r'<([A-Z0-9_]+)>', text)) == {'OWNER_REFERENCE', 'TENANT_ID', 'TRIAL_UUID', 'PERIOD_START', 'PERIOD_END', 'AGENT_TOOLS', 'PLAN_SHA256', 'DATE'}
+    assert set(re.findall(r'<([A-Z0-9_]+)>', text)) == {'OWNER_REFERENCE', 'TENANT_DISPLAY_NAME', 'TENANT_ID', 'TRIAL_UUID', 'PERIOD_START', 'PERIOD_END', 'AGENT_TOOLS', 'PLAN_SHA256', 'DATE'}
