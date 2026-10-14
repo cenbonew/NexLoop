@@ -2867,6 +2867,12 @@
         "ref": "ci:lane/runs/20261012T081812Z-957894c41126",
         "summary": "s5o 全量（957894c）：integration-parallel 失败 2 项：role_context_v6（基线 B）与 nx049_memo_stress[derived None]（迭代 449<600，并行阶段 2992 s 偏慢；同一检出串行复跑 3/3 通过 ⇒ 负载敏感 C 类）；门槛 4/4 245 s；heavy 22/22；pi 24、runtime 通过。",
         "recorded_at": "2026-10-12T09:56:59.767877+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "release 20261014-241993b9cc12-1 (commit 241993b, CI host)",
+        "summary": "First signed stage release (plan A, owner D-R1..D-R5 and A/B/C confirmations 2026-10-14). Release CI through the NX-033 queue on the lane: 241993b passed 4056/4056, deadline gate passed, policy 2. release.py build of 4 images (agent-host, backend, gateway caddy 2.11.7, nexloop/postgres with pgBackRest 2.59.3), sbom (syft 1.18.1, grype 0.86.1; stage lists findings: critical with fix in backend 4, agent-host 1, postgres base), preflight stage ok. nexloop-release copied, independently checked CI digest/commit/on-main and all 4 archive and SBOM sha256, signed (signature sha256 abc58df6...), sealed (0444/0555), archive check ok. Staging cleaned. Public tag/GitHub release not done (NX-036 vulnerability triage first).",
+        "recorded_at": "2026-10-14T09:35:00Z"
       }
     ]
   },
