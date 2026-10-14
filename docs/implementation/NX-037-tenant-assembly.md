@@ -71,7 +71,7 @@ python -m nexloop_eios.workbench_roles --roles deploy/authorization/workbench-ro
 
 ## 4. relay 的 Run 设置 `relay-run-profile.json`（【B】）
 
-部署级、对所有消费者相同的 6 个键，见 [`relay-run-profile.example.json`](../../deploy/examples/nx037/relay-run-profile.example.json)：`role_ref`、`context_manifest_ref`、`runtime_profile`（真实试运行为 `deepseek-flash`）、`budget`（单 Run 上限按 D-g；币种与试运行预算一致）、`runtime_owner_epoch`、`queue`。放进 relay 的私有目录，容器入口看到它时以 `--run-profile-file` 启动 relay（与单客户 recipe 互斥）。stage 的 relay 同时带 `--context-strategy recent_plus_required`，产出 Context v6，与 Agent Host 运行配置的 `context_input_protocol`（`nexloop.context-pack.v6`）一致；不要去掉这个参数。relay 默认 1 个进程；副本（1–3 个，各自独占 vault 目录）的前提与连接预算见 [NX-032 部署运行手册](NX-032-deploy-runbook.md) §6。
+部署级、对所有消费者相同的 6 个键，见 [`relay-run-profile.example.json`](../../deploy/examples/nx037/relay-run-profile.example.json)：`role_ref`、`context_manifest_ref`、`runtime_profile`（真实试运行为 `deepseek-flash`）、`budget`（单 Run 上限按 D-g；币种与试运行预算一致）、`runtime_owner_epoch`、`queue`。放进 relay 的私有目录，容器入口看到它时以 `--run-profile-file` 启动 relay（与单客户 recipe 互斥）。stage 的 relay 同时带 `--context-strategy recent_plus_required`，产出 Context v6，与 Agent Host 运行配置的 `context_input_protocol`（`nexloop.context-pack.v6`）一致；不要去掉这个参数。stage 默认运行 2 个 relay 进程（`message-relay`、`message-relay-2`，同一份 run profile，各自独占 vault 目录），连接预算见 [relay 双进程与连接预算](relay2-budget.md) 与 [NX-032 部署运行手册](NX-032-deploy-runbook.md) §6。
 
 - 【待确认】`role_ref` 与 `context_manifest_ref` 在真实租户中的取值（Role 定义与上下文清单 Artifact 的引用）：仓库中只有测试夹具的取值（例如 `role:explicit-source`、`artifact:owned-local-demo`），真实租户由调度员按 Role 与上下文策略的部署方式确定。
 - `budget.currency` 必须与租户模型预算和 Agent Host 成本策略的币种一致（就绪缺口 §0 第 1 项，D-g 已定案计价方式）。
