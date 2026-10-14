@@ -102,6 +102,30 @@ def compare(baseline, candidate, cell=CELL, limit=LIMIT, state='K'):
             'gate': gates, 'required_gate_items': required, 'passed': ok and all(result == 'pass' for result in required.values())}
 
 
+LABELS = {'ack_p95_ms': 'ACK p95', 'e2e_p95_ms': '端到端 p95', 'idle_dispatch_p95_ms': '空闲派发 p95'}
+
+
+def markdown(result, baseline='N', candidate=None):
+    """The comparison as the §11.6 table of the implementation note (read-only rendering of `compare`'s result): per metric the
+    baseline runs and median, the candidate runs and median, the ratio and the verdict; then the required gate items."""
+    candidate = candidate or result.get('state', 'K')
+    fmt = lambda v: '—' if v is None else (f'{v:.1f}' if isinstance(v, (int, float)) else str(v))  # noqa: E731
+    lines = [f"| 指标（ms） | {baseline} 各轮 | {baseline} 中位 | {candidate} 各轮 | {candidate} 中位 | 比值 | 判定（≤ {result['limit']}） |",
+             '|---|---|---|---|---|---|---|']
+    for name, row in result['metrics'].items():
+        if not row.get('judged', True):
+            verdict = f"只记录（{row.get('reason')}）"
+        else:
+            verdict = '通过' if row['within'] else '未通过'
+        lines.append(f"| {LABELS.get(name, name)} | {' / '.join(fmt(v) for v in row.get('baseline_runs', [row.get('baseline')]))} | {fmt(row.get('baseline'))} | "
+                     f"{' / '.join(fmt(v) for v in row.get('candidate_runs', [row.get('candidate')]))} | {fmt(row.get('candidate'))} | "
+                     f"{fmt(row.get('ratio')) if row.get('ratio') is None else format(row['ratio'], '.3f')} | {verdict} |")
+    failing = [name for name, value in result['required_gate_items'].items() if value != 'pass']
+    lines += ['', f"轮数：{baseline} {result['runs']['baseline']}，{candidate} {result['runs']['candidate']}；必需门槛项："
+              + ('全部通过' if not failing else '未通过 ' + '、'.join(failing)) + f"；正式判定：{'通过' if result['passed'] else '未通过'}。"]
+    return '\n'.join(lines) + '\n'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -115,13 +139,14 @@ def main(argv=None):
     c.add_argument('--candidate', required=True, nargs='+')
     c.add_argument('--cell', default=CELL)
     c.add_argument('--state', choices=('K', 'P'), default='K', help='candidate state: K (keys) or P (keys + lock pulse, ack recorded only)')
+    c.add_argument('--markdown', action='store_true', help='print the result as the implementation note §11.6 table (read-only)')
     args = parser.parse_args(argv)
     if args.command == 'matrix':
         Path(args.out).write_text(json.dumps(matrix(args.base or base_matrix(), args.rate, args.concurrency), indent=2) + '\n')
         return 0
     load = lambda paths: [json.loads(Path(p).read_text()) for p in paths]  # noqa: E731
     result = compare(load(args.baseline), load(args.candidate), args.cell, state=args.state)
-    print(json.dumps(result, indent=2))
+    print(markdown(result) if args.markdown else json.dumps(result, indent=2), end='' if args.markdown else '\n')
     return 0 if result['passed'] else 1
 
 

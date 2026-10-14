@@ -795,3 +795,35 @@ uv run --frozen python scripts/load/nx052_e2e.py compare --baseline .ci-results/
   - `test_in_state_p_the_ack_increase_is_recorded_not_judged`
   - `test_a_single_round_on_each_side_still_works_and_the_cli_takes_several`
   - `test_the_lock_pulse_log_and_its_offsets_in_the_steady_window`
+
+### §11.6 正式判定（1A，负责人 2026-10-14）
+
+**方法**
+
+- **同一提交**：N 和 K 都在同一个提交、同一个 200 客户模板上运行，C4-low 格，速率 0.1/s，Host 并发 4，其余参数与 §11.3 相同。
+- **交替执行**：按 N1 → K1 → N2 → K2 → N3 → K3 的顺序在 CI 主机上依次运行，让主机状态与时段的影响均匀落在两个状态上。每轮都是新建的运行；N 每轮都在本格克隆上删除 134 个外键（§11.4（四）修复之后）。
+- **三轮中位数**：对 ACK、端到端、空闲派发三项，分别取 N 的 3 个 p95 的中位数和 K 的 3 个 p95 的中位数，比值 = K 中位 / N 中位。
+- **判据**：三项比值都 ≤ 1.05，且 K 每一轮的必需门槛项都通过，才算正式判定通过。必需门槛项包括身份及其样本、未了结工作、guard 超时率、连接数、critical 告警、意外拒绝。这一格的 AT-060 总体判定不作要求（§11.3）。
+- **工具**：`scripts/load/nx052_e2e.py compare --baseline <N1> <N2> <N3> --candidate <K1> <K2> <K3>`，加 `--markdown` 直接输出下表。
+
+**结果**（待回填：CI 主机三轮完成后由调度员填入，运行目录 `<N1>` `<N2>` `<N3>` / `<K1>` `<K2>` `<K3>`，提交 `<COMMIT>`）
+
+| 指标（ms） | N 各轮 | N 中位 | K 各轮 | K 中位 | 比值 | 判定（≤ 1.05） |
+|---|---|---|---|---|---|---|
+| ACK p95 | `<N1>` / `<N2>` / `<N3>` | `<N_MED>` | `<K1>` / `<K2>` / `<K3>` | `<K_MED>` | `<RATIO>` | `<VERDICT>` |
+| 端到端 p95 | `<N1>` / `<N2>` / `<N3>` | `<N_MED>` | `<K1>` / `<K2>` / `<K3>` | `<K_MED>` | `<RATIO>` | `<VERDICT>` |
+| 空闲派发 p95 | `<N1>` / `<N2>` / `<N3>` | `<N_MED>` | `<K1>` / `<K2>` / `<K3>` | `<K_MED>` | `<RATIO>` | `<VERDICT>` |
+
+必需门槛项（K 各轮）：`<GATE_ITEMS>`。正式判定：`<FORMAL_VERDICT>`。
+
+**1A 之前的单轮 1.133 不作为判定依据**（归因见 §11.5）
+
+- **写库步骤一致**：N3 与 K 单轮相比，空闲派发 p95 为 11436.7 → 12959.7 ms（1.133）。但 relay 各写库步骤（goal/step/assignment 创建、effect_bind、message_bind）的 p50 在两次运行中处于相同的直方图桶，看不到与外键检查一致的增量。外键检查每插入一行是微秒级。
+- **p95 由一个积压样本决定**：每次运行都有 4 个样本落在 11–15 s，几乎全是 relay 段，即来信在 relay 里排在别的消息后面等待。72 个样本时，p95 正好落在这 4 个样本之间，由其中一个样本决定。自助法估计的 p95 95% 区间：N 为 7.1–13.1 s，K 为 7.0–13.3 s，完全重叠。
+- **历史运行在同一区间**：之前带外键的 K@e5e7ebd 12914、P@e5e7ebd 13105，与本轮的 N 11437、K 12960 都落在 11.4–13.1 s 之内。
+- **结论**：单轮比值是排队噪声，不是外键开销。因此改用三轮中位数（1A）作为正式判定。
+
+**P 状态（2A）**
+
+- P 只判端到端和空闲派发两项。ACK 照常记录，标为 accepted_limitation：0162 有意保留的锁冲突，见 CHANGELOG 已知限制。
+- 命令：`nx052_e2e.py compare --state P --baseline <N…> --candidate <P…> --markdown`。

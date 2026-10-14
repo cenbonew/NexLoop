@@ -104,6 +104,26 @@ def test_a_single_round_on_each_side_still_works_and_the_cli_takes_several(tmp_p
     assert nx052_e2e.main(['compare', '--state', 'P', '--baseline', *map(str, paths[:3]), '--candidate', str(paths[3])]) == 0
 
 
+def test_markdown_renders_the_formal_judgement_table(tmp_path, capsys):
+    """--markdown: per metric the N rounds and median, the K rounds and median, the ratio and the verdict (read-only rendering)."""
+    baseline = [report(361.0, 24874.8, 11436.7), report(362.0, 24800.0, 12914.0), report(360.0, 24900.0, 12000.0)]
+    candidate = [report(362.1, 24828.1, 12959.7), report(363.0, 24850.0, 12100.0), report(361.0, 24790.0, 12300.0)]
+    text = nx052_e2e.markdown(nx052_e2e.compare(baseline, candidate))
+    rows = {line.split('|')[1].strip(): [c.strip() for c in line.split('|')[2:-1]] for line in text.splitlines() if line.startswith('| ') and 'p95' in line}
+    assert rows['ACK p95'] == ['361.0 / 362.0 / 360.0', '361.0', '362.1 / 363.0 / 361.0', '362.1', '1.003', '通过']
+    assert rows['空闲派发 p95'] == ['11436.7 / 12914.0 / 12000.0', '12000.0', '12959.7 / 12100.0 / 12300.0', '12300.0', '1.025', '通过']
+    assert '轮数：N 3，K 3；必需门槛项：全部通过；正式判定：通过。' in text
+    p = nx052_e2e.markdown(nx052_e2e.compare(baseline, [report(425.4, 24672.9, 12287.6)], state='P'))
+    assert '| ACK p95 |' in p and '只记录（accepted_limitation）' in p and '| N 中位 | P 各轮 |' in p
+    paths = []
+    for i, r in enumerate(baseline + candidate):
+        paths.append(tmp_path / f'r{i}.json')
+        paths[-1].write_text(json.dumps(r))
+    assert nx052_e2e.main(['compare', '--markdown', '--baseline', *map(str, paths[:3]), '--candidate', *map(str, paths[3:])]) == 0
+    out = capsys.readouterr().out
+    assert out == text and not out.lstrip().startswith('{')
+
+
 def test_every_nx052_foreign_key_migration_is_a_named_batch():
     files = sorted(p.name for p in (ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx052_tenant_fk_*.sql'))
     assert sorted(f[4:] for f in files) == sorted(tenant_fk_state.BATCHES.values())
