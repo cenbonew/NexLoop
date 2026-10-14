@@ -190,3 +190,13 @@ def test_the_pgbackrest_tls_port_is_open_to_data_host_only(env, tmp_path):
         broken.chmod(0o600)
         with pytest.raises(render.Refused, match='PGBACKREST_TLS_PORT'):
             render.load_env(broken)
+
+
+def test_replies_of_admitted_connections_pass_the_forward_chains(tmp_path):
+    """2026-10-14 first start: the drop rules keyed on the original destination also matched the reply direction of a DNAT'ed
+    connection (the reply carries the container's source address), so APP_HOST never received PostgreSQL's SYN-ACK."""
+    for name in ('data-host.nft', 'app-host.nft'):
+        text = (ROOT / 'deploy/stage/firewall' / (name + '.template')).read_text()
+        chain = text[text.index('chain forward'):]
+        rules = [l.strip() for l in chain.splitlines()[1:] if l.strip() and not l.strip().startswith('#')]
+        assert rules[0].startswith('type filter hook forward') and rules[1] == 'ct direction reply accept', (name, rules[:2])

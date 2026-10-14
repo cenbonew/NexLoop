@@ -11,6 +11,9 @@ table inet nexloop_stage {
   }
   chain forward {
     type filter hook forward priority filter - 1; policy accept;
+    # Replies of admitted connections: the DNAT'ed reply leaves the container with its own source address, so the original-
+    # destination drop rules below would otherwise drop it (2026-10-14 first start: APP_HOST -> PostgreSQL SYN-ACKs dropped).
+    ct direction reply accept
     ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst { __GATEWAY_HTTPS_PORT__, __GATEWAY_REDIRECT_PORT__ } ip saddr __TRUSTED_LAN_CIDR__ accept
     ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst { __GATEWAY_HTTPS_PORT__, __GATEWAY_REDIRECT_PORT__ } drop
     # NX-037 D4: two namespaces, two egress rules. The application namespace (API, workers; __APP_CONTAINER_CIDR__) reaches
