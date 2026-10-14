@@ -36,4 +36,17 @@ HEAVY_TESTS=(
   'tests/test_native_web_delivery.py::test_native_provider_event_exact_id_different_transport_runs_delivers_once'
   'tests/test_offering_runtime_pg.py::test_actual_https_scope_denial_is_bounded_current_read_no_receipt'
   'tests/test_commercial_j01_pg.py::test_j01_verified_payment_wakes_the_plan_and_the_reevaluation_concludes_no_contact'
+  # Throughput or latency thresholds (N within a window, an elapsed/deadline upper bound): unchanged, judged at low parallelism.
+  'tests/test_nx049_memo_stress_pg.py::test_action_memo_never_serves_a_revoked_or_expired_allow'
+  'tests/test_nx049_memo_stress_pg.py::test_derived_message_memo_never_serves_a_revoked_deleted_or_moved_allow'
+  'tests/test_read_assert_memo.py::test_concurrent_revocation_never_serves_a_stale_allow'
+  'tests/test_runtime_effect_recovery.py::test_same_pi_run_survives_host_and_effect_worker_kill_query_first'
+  'tests/test_backend_lifecycle_capacity.py::test_eight_concurrent_requests_complete_on_pool_of_four'
+  'tests/test_effect_origin_expired_pg.py::test_a_dispatched_unknown_intent_stops_requery_and_unknown_backs_off'
+  'tests/test_effect_provider_transport.py::test_numeric_https_silent_tls_handshake_obeys_absolute_deadline'
+  'tests/test_effect_provider_transport.py::test_tls_trickle_close_response_cannot_extend_absolute_deadline'
+  'tests/test_valkey_wakeup_product.py::test_trickled_tls_reply_has_global_deadline_after_pg_commit'
+  'tests/test_relay_multi_consumer_pg.py::test_enrollment_throughput_in_process'
+  'tests/test_nx037_endpoint_conformance.py::test_conforming_endpoint_passes_every_check'
+  'tests/upstream/test_eios_application_restrictions.py::test_large_restriction_sets_have_bounded_lookup_cost_without_truncation'
 )
