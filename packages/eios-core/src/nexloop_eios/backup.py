@@ -422,6 +422,11 @@ def backup_main(argv=None):
     journal.add_argument('--recorder-dsn-file', type=Path, required=True)
     journal.add_argument('--journal-dir', type=Path, required=True)
     journal.add_argument('--repo', choices=('repo1', 'repo2'), default='repo1')
+    if argv is None:
+        import sys
+        argv = sys.argv[1:]
+    if argv[:1] == ['drill-mark']:
+        return drill_mark_main(argv[1:])
     args = parser.parse_args(argv)
     try:
         recorder = read_private_text(args.recorder_dsn_file, maximum=4096)
@@ -453,3 +458,108 @@ def migrate_main(argv=None):
         return 1
     print(json.dumps({'migrated': True, 'applied': applied}))
     return 0
+
+
+def _write_private(path, payload):
+    """A new 0600 file (never overwritten)."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'w') as handle:
+        handle.write(json.dumps(payload, sort_keys=True, default=str) + '\n')
+
+
+def drill_mark_main(argv=None):
+    """`nexloop-backup drill-mark`: mark a named restore point with counts and sampled row hashes (recorder identity) and keep
+    the mark in a new private file for the restore's comparison (the mark row itself commits after the restore point)."""
+    parser = _Parser(description='Mark a drill restore point (NX-035 §7.1)')
+    parser.add_argument('--recorder-dsn-file', type=Path, required=True)
+    parser.add_argument('--drill-id', required=True)
+    parser.add_argument('--out', type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        if args.out.exists():
+            raise RestoreRefused('mark file exists')
+        mark = drill_mark(read_private_text(args.recorder_dsn_file, maximum=4096), args.drill_id)
+        _write_private(args.out, mark)
+    except Exception as error:
+        print(json.dumps({'ok': False, 'error': type(error).__name__}))
+        return 1
+    print(json.dumps({'ok': True, 'restore_point': mark['restore_point'], 'marked_at': mark['marked_at'], 'tables': len(mark['tables'])}))
+    return 0
+
+
+def restore_main(argv=None):
+    """`nexloop-restore`: restore into a NEW instance (an empty --pg-path, a free --port, socket only) to a named restore point
+    (--target-name) or a time (--target-time), from pgBackRest (deployment) or a pg_basebackup directory (local); then the
+    fence, journal replay, window reconciliation, lineage and the open_scope compensating controls, ending in
+    verified_readonly (design §6). It never overwrites a database and never opens dispatch (owner: nexloop.restore.open_scope).
+    Credentials come only from private files: the pgBackRest configuration (its path is passed through, never read into this
+    process's output), the evidence and the drill mark. Output: one numbers-only JSON report; exit 0 passed, 1 refused or
+    failed, 2 configuration."""
+    parser = _Parser(description='Restore NexLoop PostgreSQL into a new instance (NX-035)')
+    parser.add_argument('--source', choices=('pgbackrest', 'basebackup'), required=True)
+    parser.add_argument('--pgbackrest-bin', type=Path)
+    parser.add_argument('--pgbackrest-config-file', type=Path)
+    parser.add_argument('--stanza')
+    parser.add_argument('--repo', choices=('1', '2'), default='1')
+    parser.add_argument('--set', dest='set_label')
+    parser.add_argument('--base-backup', type=Path)
+    parser.add_argument('--wal-archive', type=Path)
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument('--target-name', help='a named restore point (pg_create_restore_point, e.g. drill-<id>)')
+    target.add_argument('--target-time', help='an ISO 8601 time with offset')
+    parser.add_argument('--pg-bin', type=Path, required=True)
+    parser.add_argument('--pg-path', type=Path, required=True, help='the new instance data directory (absent or empty)')
+    parser.add_argument('--port', type=int, required=True)
+    parser.add_argument('--socket-dir', type=Path, required=True)
+    parser.add_argument('--owner-user', required=True)
+    parser.add_argument('--hba-method', choices=('peer', 'trust', 'scram-sha-256'), default='peer')
+    parser.add_argument('--restore-ref', required=True)
+    parser.add_argument('--journal-dir', type=Path, required=True)
+    parser.add_argument('--window-start', help='default: --target-time, or the drill mark time')
+    parser.add_argument('--window-end', help='default: now')
+    parser.add_argument('--evidence-file', type=Path, help='private JSON list of channel time evidence (absent: every channel stays paused)')
+    parser.add_argument('--drill-mark-file', type=Path, help='private JSON written by nexloop-backup drill-mark')
+    parser.add_argument('--old-primary-fenced', action='store_true')
+    parser.add_argument('--running-port', type=int, action='append', default=[])
+    parser.add_argument('--report-file', type=Path)
+    parser.add_argument('--stop', action='store_true', help='stop the restored instance after the checks (drills)')
+    args = parser.parse_args(argv)
+    try:
+        if args.source == 'pgbackrest':
+            if not (args.pgbackrest_bin and args.pgbackrest_config_file and args.stanza) or args.base_backup or args.wal_archive:
+                parser.error('pgbackrest source')
+            read_private_text(args.pgbackrest_config_file, maximum=65536)  # private (0600, owned) or refused; content not used here
+            source = dict(pgbackrest={'pgbackrest': args.pgbackrest_bin, 'stanza': args.stanza, 'repo': args.repo,
+                                      'config_file': args.pgbackrest_config_file, 'set_label': args.set_label})
+        else:
+            if not (args.base_backup and args.wal_archive) or args.pgbackrest_bin or args.pgbackrest_config_file or args.stanza:
+                parser.error('basebackup source')
+            source = dict(base_backup=args.base_backup, wal_archive=args.wal_archive)
+        mark = json.loads(read_private_text(args.drill_mark_file, maximum=1048576)) if args.drill_mark_file else None
+        evidence = json.loads(read_private_text(args.evidence_file, maximum=1048576)) if args.evidence_file else []
+        if args.target_time:
+            datetime.fromisoformat(args.target_time)
+        window_start = args.window_start or args.target_time or (mark or {}).get('marked_at')
+        if window_start is None:
+            parser.error('window start')
+        instance, report = restore(**source, pg_bin=args.pg_bin, target=args.pg_path, socket_dir=args.socket_dir, port=args.port,
+                                   owner_user=args.owner_user, restore_ref=args.restore_ref, window_start=window_start,
+                                   window_end=args.window_end or datetime.now(UTC), journal_dir=args.journal_dir, evidence=evidence,
+                                   recovery_target_name=args.target_name, recovery_target_time=args.target_time, running_ports=tuple(args.running_port),
+                                   old_primary_fenced=args.old_primary_fenced, hba_method=args.hba_method, drill_mark=mark)
+    except SystemExit:
+        raise
+    except RestoreRefused as refused:
+        print(json.dumps({'passed': False, 'refused': str(refused).split(' {', 1)[0]}))
+        return 1
+    except Exception as error:
+        print(json.dumps({'passed': False, 'error': type(error).__name__}))
+        return 1
+    if args.stop:
+        instance.stop()
+    result = {'passed': report['checks']['passed'], 'state': report['verified']['state'], 'instance': 'stopped' if args.stop else 'running',
+              'port': args.port, **report}
+    if args.report_file:
+        _write_private(args.report_file, result)
+    print(json.dumps(result, sort_keys=True, default=str))
+    return 0 if result['passed'] else 1
