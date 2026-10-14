@@ -15,6 +15,8 @@ while [[ $# -gt 0 ]]; do
     *) echo "usage: $0 [--seed N] [--consumers N] [--out DIR]" >&2; exit 2;;
   esac
 done
+# NX-052: the cell-level key drop is the matrix cells' measurement only; a template built with it would lack the keys.
+[[ -z "${NEXLOOP_LOAD_TENANT_FK_DROP_CELL:-}" ]] || { echo "build template: NEXLOOP_LOAD_TENANT_FK_DROP_CELL applies to matrix cells only; unset it" >&2; exit 2; }
 [[ -e "$OUT" ]] && { echo "build template: $OUT exists; choose a new --out" >&2; exit 1; }
 mkdir -p "$(dirname "$OUT")" && mkdir -m 700 "$OUT" "$OUT/tmp"
 export LC_ALL=C.UTF-8 LANG=C.UTF-8 REAL_DISPATCH_ENABLED=false

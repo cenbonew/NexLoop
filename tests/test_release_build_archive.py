@@ -126,7 +126,7 @@ def test_build_saves_each_image_under_the_reference_the_deploy_dry_run_renders(t
     assert str(tmp_path) not in (directory / 'manifest.json').read_text()
 
 
-def test_build_refuses_without_a_passed_result_the_containerd_store_or_a_consistent_digest(tmp_path, ci_result):
+def test_build_refuses_without_a_passed_result_the_containerd_store_or_a_consistent_digest(tmp_path, ci_result, monkeypatch):
     failed = tmp_path / 'failed.json'
     failed.write_text(json.dumps({'sha': head_sha(), 'status': 'failed'}))
     with pytest.raises(release.Refused, match='CI result'):
@@ -137,8 +137,14 @@ def test_build_refuses_without_a_passed_result_the_containerd_store_or_a_consist
         build(tmp_path, ci_result, Docker(inspect={f'nexloop/backend:20261011-{head_sha()[:12]}-104': 'sha256:' + 'f' * 64}), 104, only=['backend'])
     with pytest.raises(release.Refused, match='image build failed'):
         build(tmp_path, ci_result, Docker(fail={'build'}), 105, only=['backend'])
-    with pytest.raises(release.Refused, match='gateway: not pinned'):
-        build(tmp_path, ci_result, Docker(), 106, only=['gateway'])  # versions.lock.json has no gateway digest yet
+    # An unpinned gateway is refused; simulated, since versions.lock.json pins it since the first release (NX-034).
+    lock = json.loads((ROOT / 'versions.lock.json').read_text())
+    lock['images']['gateway'] = {'digest': '', 'status': 'unresolved_not_deployable'}
+    real = Path.read_text
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'read_text', lambda self, *a, **k: json.dumps(lock) if self == ROOT / 'versions.lock.json' else real(self, *a, **k))
+        with pytest.raises(release.Refused, match='gateway: not pinned'):
+            build(tmp_path, ci_result, Docker(), 106, only=['gateway'])
     with pytest.raises(release.InputError, match='unknown image'):
         build(tmp_path, ci_result, Docker(), 107, only=['other'])
     build(tmp_path, ci_result, Docker(), 108, only=['backend'])

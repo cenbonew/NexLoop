@@ -147,8 +147,11 @@
       "status": "unresolved_not_deployable"
     },
     "gateway": {
-      "digest": "",
-      "status": "unresolved_not_deployable"
+      "reference": "docker.io/library/caddy:2.11.7",
+      "digest": "sha256:173b26306d711395accaeba8b67afcaad2a085ccb1e6bf26010bfe8c095a5229",
+      "platform": "linux/amd64",
+      "status": "pinned",
+      "pinned_at": "2026-10-14"
     },
     "python-build-base": {
       "reference": "docker.io/library/python:3.12.10-slim-bookworm",

@@ -3,7 +3,9 @@
     matrix   write the matrix the lane runs for one state: the base matrix with one C4-low-class cell set to the given
              rate and host concurrency (every other cell unchanged, so matrix.py still validates; only that cell runs);
     compare  read the report.json of two lane runs (baseline = no tenant keys, candidate = keys, or keys + publications)
-             and judge ack, end-to-end and dispatch p95 against the +5 % limit.
+             and judge ack, end-to-end and dispatch p95 against the +5 % limit, plus the correctness and capacity gate items of the
+             candidate (owner 2026-10-14, ROADMAP §7: at 0.1/s the cell's AT-060 gate verdict is not required, its idle dispatch
+             gate being set for 0.05/s).
 
     uv run --frozen python scripts/load/nx052_e2e.py matrix --rate 0.1 --out <dir>/matrix.nx052.json
     uv run --frozen python scripts/load/nx052_e2e.py compare --baseline <runA>/report.json --candidate <runB>/report.json
@@ -19,6 +21,11 @@ CELL = 'C4-low'
 LIMIT = 1.05
 METRICS = {'ack_p95_ms': ('metrics', 'ack_p95_ms'), 'e2e_p95_ms': ('decomposition', 'e2e_ms', 'p95'),
            'idle_dispatch_p95_ms': ('metrics', 'idle_dispatch_p95_ms')}
+# Gate items of report.py that must still pass in the candidate (owner 2026-10-14, ROADMAP §7): identity (with its sample),
+# unresolved work, guard timeout rate, connections, critical alerts, unexpected refusals. The latency gates (ack, idle dispatch,
+# guard p95), drain and dead letters are not required in this C4-low-class cell at 0.1/s; the three p95 increases are judged above.
+REQUIRED_GATE_ITEMS = ('identity_violations', 'model_context_sample', 'unresolved_work', 'guard_timeout_rate_5m_max', 'connections_peak',
+                       'critical_alerts', 'unexpected_refusals')
 
 
 def base_matrix():
@@ -55,9 +62,12 @@ def compare(baseline, candidate, cell=CELL, limit=LIMIT):
         ratio = after / before
         rows[name] = {'baseline': before, 'candidate': after, 'ratio': round(ratio, 4), 'within': ratio <= limit}
         ok = ok and ratio <= limit
-    # Every existing threshold must still hold in both runs: report.py's gate verdict for the cell (§6.1).
+    # The required gate items must pass in the candidate (a missing item fails); the cell's overall gate verdict is reported only.
+    items = (b.get('gate') or {}).get('items') or {}
+    required = {name: (items.get(name) or {}).get('result', 'missing') for name in REQUIRED_GATE_ITEMS}
     gates = {'baseline': (a.get('gate') or {}).get('result'), 'candidate': (b.get('gate') or {}).get('result')}
-    return {'cell': cell, 'limit': limit, 'metrics': rows, 'gate': gates, 'passed': ok and gates['candidate'] == 'passed'}
+    return {'cell': cell, 'limit': limit, 'metrics': rows, 'gate': gates, 'required_gate_items': required,
+            'passed': ok and all(result == 'pass' for result in required.values())}
 
 
 def main(argv=None):
