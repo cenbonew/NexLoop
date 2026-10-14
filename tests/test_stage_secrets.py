@@ -347,3 +347,9 @@ def test_pgbackrest_tls_files_match_the_compose_mounts_the_server_conf_and_the_d
                             capture_output=True, text=True).stdout
     assert 'app.stage.invalid' in server and 'TLS Web Server Authentication' in server
     assert (secrets_root / 'app/secrets/pgbackrest-server/ca.crt').read_bytes() == (tree['ca'] / 'bundle.crt').read_bytes()
+
+
+def test_pgpass_uses_localhost_for_the_default_socket_directory():
+    """libpq matches pgpass host `localhost` for its default socket directory, not the path (2026-10-14 first start)."""
+    src = (ROOT / 'scripts/deploy/stage_secrets.py').read_text()
+    assert "'localhost:5432:*:nexloop_backup:'" in src and "'/var/run/postgresql:5432:" not in src

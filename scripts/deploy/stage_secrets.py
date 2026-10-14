@@ -255,7 +255,9 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
             data = (f"host={p['nexloop_root']}/run/postgresql dbname={p['db_name']} user=nexloop_backup_recorder "
                     f"password={passwords['nexloop_backup_recorder']}\n")
         elif kind == 'pgpass':
-            data = '/var/run/postgresql:5432:*:nexloop_backup:' + passwords['nexloop_backup'] + '\n'
+            # libpq looks up a connection over its default socket directory (/var/run/postgresql in the image) as host
+            # `localhost`, never as the directory path (2026-10-14 first start: "no password supplied").
+            data = 'localhost:5432:*:nexloop_backup:' + passwords['nexloop_backup'] + '\n'
             e['note'] = 'nexloop_backup line; for run sheet 2.4 the owner adds the nexloop_bootstrap line temporarily'
         elif kind == 'token':
             if name in ('provider-credential', 'webchat-provider-credential'):
