@@ -137,7 +137,12 @@ sudo rm <img>
 2. **PG 镜像**：DATA_HOST 的 PG 镜像必须包含同一版本的 pgBackRest，因为 `archive_command` 是在容器内执行的。
    - 这个镜像由 NX-034 的构建流程产出，并写入发布清单（digest）；
    - 核对命令：`ssh "$SSH_ALIAS_DATA" docker exec nexloop-data-postgres-1 pgbackrest version`，输出必须是 `pgBackRest $PGBACKREST_VERSION`。
-3. **非 superuser 实测（D1）**：在一次性集群上（CI 主机，或一次性的本地集群）用 `nexloop_backup` 角色完成 `backup` 和 `verify`。该角色只有 REPLICATION 权限和 `pg_backup_*`、`pg_switch_wal`、`pg_create_restore_point` 的执行权。**实测失败时报调度员，不能改用 superuser。**
+3. **非 superuser 实测（D1）**：在一次性集群上（CI 主机，或一次性的本地集群）用 `nexloop_backup` 角色完成 `backup` 和 `verify`。**实测失败时报调度员，不能改用 superuser。**
+   - **结论（2026-10-14）**：
+     - 只有 0146 的权限时（REPLICATION 加 `pg_backup_*`、`pg_switch_wal`、`pg_create_restore_point` 的执行权）不够。pgBackRest 2.59.3 的 `stanza-create` 和 `check` 报 "unable to select some rows from pg_settings"：它要读 `data_directory` 等受保护设置。
+     - 在 CI 主机的一次性集群上，再授予 `pg_read_all_settings`（`WITH INHERIT TRUE`，因为该角色是 NOINHERIT）后，`stanza-create`、`check`、全量 `backup`、`verify` 全部通过，角色仍然不是 superuser。
+     - 这条授权由迁移 **0197**（`0197_nx035_backup_read_settings.sql`）上线，只加这一条。
+   - **过渡（负责人选方案 A）**：0197 上线之前，部署暂时用 `nexloop_bootstrap` 执行备份。0197 随下一个签名发布经迁移门槛上线后，切回 `nexloop_backup`，并在当天重新实测一次 `check`、`backup`、`verify`。
 4. **部署切片的清单写入**：`nexloop-backup` 写清单的实现已经合入（见上文“实现状态”）。
 
 ### 2.1 APP_HOST 安装 pgBackRest（repo1 的仓库主机）
