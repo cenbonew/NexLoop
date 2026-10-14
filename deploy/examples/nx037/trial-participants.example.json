@@ -1,6 +1,7 @@
 {
-  "note": "Add this block to your copy of deploy/configuration/nx037-trial.v2.json (D3 consent, run_interactions start guard). One entry per participant playing a customer; consent_sha256 is the sha256 of that participant's signed consent file, which stays private (0600) outside the repository. No names.",
+  "note": "Add these two blocks to your copy of deploy/configuration/nx037-trial.v2.json (D3, run_interactions start guard; owner 2026-10-14: the customers are AI agents the owner operates through the browser, the system is real). operator_authorization: the sha256 of the owner's one-time authorization file, which stays private (0600) outside the repository and is given with --operator-authorization-file. participants: one entry per consumer account of the interaction plan; kind agent names the tool only (never a credential); kind human (reserved for later real people) carries the sha256 of that person's signed consent file instead, mapped by --consent-files. No names.",
+  "operator_authorization": {"authorization_sha256": "<AUTHORIZATION_SHA256>"},
   "participants": [
-    {"consumer_ref": "consumer:<CONSUMER_ID>", "consent_sha256": "<CONSENT_SHA256>"}
+    {"kind": "agent", "consumer_ref": "consumer:<CONSUMER_ID>", "agent": "<AGENT_TOOL>"}
   ]
 }

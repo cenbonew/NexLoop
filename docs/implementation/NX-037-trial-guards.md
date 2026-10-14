@@ -48,3 +48,17 @@ real 模式在开始时和每次 `--resume` 时检查以下各项。任何一项
 ## 4. 开跑清单与人工补偿
 
 见 [OPERATIONS.md](../OPERATIONS.md) §9.4a。仍需人工补偿的项：单 Run 成本人工查看、告警值守（没有外部通知渠道）、录入器存活（开跑时没有积压就无法判断）、负责人会话的有效性。
+
+## 5. 负责人 2026-10-14 变更：客户由 AI 代理扮演
+
+- **D3 改为两部分**：
+  - 负责人一次性操作授权：`operator_authorization.authorization_sha256`，加上私有授权文件 `--operator-authorization-file`；不满足时为 `authorization_missing`。
+  - 参与者登记：`participants` 每项包含 `kind`（agent 或 human）、`consumer_ref`，agent 还要写 `agent` 工具名；计划的每个消费者都必须登记，否则为 `consent_missing`。
+  - human 保留原来的同意书核对，留给以后真人参与。
+- **persona 标记**：全部参与者都是代理时，每条交互记录、state 和证据包 summary 都标 `persona: simulated_agent`；`participants.json` 写 consumer id、kind、persona。
+- **系统内的测试人设标记（未实现，已回报调度员）**：
+  - 现状：Consumer v1 是最小类型（部署时 `Consumer.create` 的属性为空；`consumer_profile.py` 的 `lifecycle_status` 等字段只是新租户的声明，没有发布）。没有现成的分类或标记字段，`lifecycle_status` 的语义也不合适。
+  - 最小方案：新增控制面表 `control.nexloop_consumer_personas`，字段为 tenant、world、consumer_id、persona（只允许 simulated_agent）、trial_id、set_by、set_at、reason；由可信配置（configurator）或负责人受治理 Action 写入；为 metrics 角色提供只读函数；分析视图和导出按它排除。
+  - 涉及 schema，按要求先回报，待审定后再做。
+- 开跑清单写明"客户为模拟、系统为真实"（OPERATIONS §9.4a）。验收报告模板：`docs/release/nx037-acceptance-report.template.md`。
+- 交互计划 v3 草案：`docs/implementation/NX-037-plan-v3-draft.md`，待审定。

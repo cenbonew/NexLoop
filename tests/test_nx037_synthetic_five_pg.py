@@ -377,10 +377,12 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
         # Start guards (trial_guards): the customer's D3 consent (a private synthetic file, registered by sha256 in the trial
         # configuration, the consumer listed in the plan), the trial window (the run entry's clock: 12:00 local), the enterprise
         # endpoint's conformance and the WebChat delivery through the effect worker's own provider files, the recorder backlog.
+        # Owner 2026-10-14: the customer is an AI agent the owner operates (here the automated operator); the owner's one-time
+        # authorization (a private file, by sha256) and the agent participant.
         consumer_ref = 'consumer:' + person['consumer']
-        signed = private(tmp_path, 'consent-signed', 'synthetic consent of the trial customer')
-        consent_files = private(tmp_path, 'consent-files.json', json.dumps({consumer_ref: str(signed)}))
-        trial_config['participants'] = [{'consumer_ref': consumer_ref, 'consent_sha256': hashlib.sha256(signed.read_bytes()).hexdigest()}]
+        authorization = private(tmp_path, 'operator-authorization', 'synthetic owner authorization for the trial agents')
+        trial_config['operator_authorization'] = {'authorization_sha256': hashlib.sha256(authorization.read_bytes()).hexdigest()}
+        trial_config['participants'] = [{'kind': 'agent', 'consumer_ref': consumer_ref, 'agent': 'synthetic test operator'}]
         trial_file.write_text(json.dumps(trial_config))
         plan['consumers'] = [consumer_ref]
         plan_file.write_text(json.dumps(plan))
@@ -389,15 +391,15 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
                 '--tenant', tenant, '--owner-principal', 'owner-principal-synthetic', '--value-catalog', str(catalog), '--channel-ref', 'channel:webchat:synthetic',
                 '--period-start', period[0].isoformat(), '--period-end', (period[1] - timedelta(hours=1)).isoformat(), '--metrics-dsn-file', str(metrics_dsn),
                 '--owner-session-file', str(owner_session), '--host-config', str(host_config), '--interaction-timeout', '40', '--poll-seconds', '0.5',
-                '--consent-files', str(consent_files), '--enterprise-provider-file', str(enterprise_route), '--webchat-provider-file', str(webchat_route)]
+                '--operator-authorization-file', str(authorization), '--enterprise-provider-file', str(enterprise_route), '--webchat-provider-file', str(webchat_route)]
 
         def connect(path):
             return psycopg.connect(Path(path).read_text().strip(), autocommit=True)
         # Without the test stack the deterministic Host is refused (host_not_real_model): the escape is a keyword, never the CLI.
         assert R.main(argv, environ=opened, connect=connect, operator=operator, clock=lambda: local_noon) == 3 and not (out / 'state.json').exists()
-        # Counter-examples at the run entry: no consent mapping, or outside the window, refuses before anything runs.
-        without_consent = [a for i, a in enumerate(argv) if a != '--consent-files' and (i == 0 or argv[i - 1] != '--consent-files')]
-        for args, at, code in ((without_consent, local_noon, 'consent_missing'), (argv, local_noon + timedelta(hours=8), 'outside_trial_window')):
+        # Counter-examples at the run entry: no operator authorization, or outside the window, refuses before anything runs.
+        without = [a for i, a in enumerate(argv) if a != '--operator-authorization-file' and (i == 0 or argv[i - 1] != '--operator-authorization-file')]
+        for args, at, code in ((without, local_noon, 'authorization_missing'), (argv, local_noon + timedelta(hours=8), 'outside_trial_window')):
             assert R.main(args, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes, clock=lambda at=at: at) == 3
             assert not (out / 'state.json').exists() and code in refused_codes(capsys)
         first = R.main(argv, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes, clock=lambda: local_noon)
@@ -466,6 +468,8 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
     assert E.check(tmp_path / 'evidence') == []
     # D3: the evidence names the participant by consumer id and consent sha256 only.
     assert json.loads((tmp_path / 'evidence/interactions/participants.json').read_text()) == [
-        {'consumer_id': person['consumer'], 'consent_sha256': trial_config['participants'][0]['consent_sha256']}]
+        {'consumer_id': person['consumer'], 'kind': 'agent', 'persona': 'simulated_agent'}]
+    # Persona: every record, the state and the evidence summary say simulated_agent (the customers were agents; the system real).
+    assert all(r['persona'] == 'simulated_agent' for r in records.values()) and state['persona'] == 'simulated_agent' and summary['persona'] == 'simulated_agent'
     # Counted cost: every record keeps the trigger Run's cost and the tenant's actual increase over the interaction.
     assert all({'period_increase', 'counted'} <= set(r['cost']) for r in records.values())

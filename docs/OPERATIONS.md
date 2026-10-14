@@ -192,7 +192,7 @@ python scripts/nx037/run_interactions.py --driver synthetic --trial-id <TRIAL_UU
 #### real 模式（【B】负责人本人）
 
 ```bash
-python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> --out <PRIVATE_EVIDENCE_DIR> --plan-file <PLAN_FILE> --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE> --owner-session-file <OWNER_SESSION_FILE> --host-config <AGENT_HOST_RUNTIME_CONFIG_FILE> --consent-files <CONSENT_FILES_JSON> --webchat-provider-file <WEBCHAT_PROVIDER_FILE> --enterprise-provider-file <ENTERPRISE_PROVIDER_FILE> [--endpoint-parameters-file <NOOP_PARAMETERS_FILE>]
+python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> --out <PRIVATE_EVIDENCE_DIR> --plan-file <PLAN_FILE> --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE> --owner-session-file <OWNER_SESSION_FILE> --host-config <AGENT_HOST_RUNTIME_CONFIG_FILE> --operator-authorization-file <OWNER_AUTHORIZATION_FILE> [--consent-files <CONSENT_FILES_JSON>] --webchat-provider-file <WEBCHAT_PROVIDER_FILE> --enterprise-provider-file <ENTERPRISE_PROVIDER_FILE> [--endpoint-parameters-file <NOOP_PARAMETERS_FILE>]
 ```
 
 - 私有文件（DSN、负责人会话）必须是 0600 的普通文件；缺参数、带 `--inject` 或文件不私有时，在连接数据库之前就拒绝。
@@ -201,14 +201,14 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
   2. 三层开关与计划的 `real_dispatch` 完全一致：本进程的 `REAL_DISPATCH_ENABLED`；租户开关及其 data_mode、打开的 Action 开关列表（经 metrics 角色的 `authz.nexloop_nx037_open_switches` 读取）。
   3. 币种一致（D-g 方案 2，不换算）：`--host-config` 指向的 Agent Host 运行配置使用 `deepseek-flash`（否则 `host_not_real_model`），其 `cost_currency` 等于试运行币种（否则 `host_currency_differs`）；非 USD 时价目文件存在（`model_tariff_missing`）且模式、提供方、模型与币种正确（`model_tariff_invalid`）；回复保障兜底 Run 预算的币种等于试运行币种（否则 `reply_fallback_currency_differs`；检查的是 `reply-guarantee.v3.json`）。
   4. **开跑与恢复守卫**（`scripts/nx037/trial_guards.py`，开始和每次 `--resume` 都检查）：
-     - **D3 知情同意**（`consent_missing`）：
-       - 每位参与员工签署的同意书是一份私有文件（0600），不进仓库；
-       - 试运行配置里的 `participants` 逐人登记 `consumer_ref` 和同意书的 sha256；
-       - 交互计划里的 `consumers` 列出扮演客户的消费者；
-       - `--consent-files` 是一个私有 JSON 文件，把每个 `consumer_ref` 映射到对应同意书的路径；
-       - 计划里的每个消费者都必须有登记，文件存在、私有，且 sha256 一致；
-       - 只有 consumer id 和 sha256 会写入试运行目录的 `consent.json` 和证据包，不写姓名。
-       - 示例：`deploy/examples/nx037/trial-participants.example.json`、`consent-files.example.json`。
+     - **D3（负责人 2026-10-14 变更）**：试运行的客户由负责人操作的 AI 代理扮演（Claude Code / Codex 通过浏览器操作）；部署、网关、DeepSeek 真实模型、企业端点和 WebChat 都是真实的。
+       - 负责人一次性操作授权（`authorization_missing`）：授权书是一份私有文件（0600），不进仓库；试运行配置的 `operator_authorization.authorization_sha256` 登记它的 sha256，运行时用 `--operator-authorization-file` 给出。
+       - 参与者登记（`consent_missing`）：交互计划 `consumers` 里的每个消费者账号都必须在 `participants` 里登记。`kind` 只允许 `agent` 或 `human`：
+         - `agent`：写明代理工具名（例如 "Claude Code via browser"），不写凭据；
+         - `human`：留给以后真人参与，要求私有同意书，sha256 一致，由 `--consent-files` 映射。
+       - 试运行目录的 `consent.json` 和证据包只写 consumer id、kind、persona（以及真人的同意书 sha256），不写工具说明，也不写姓名。
+       - 示例：`deploy/examples/nx037/trial-participants.example.json`、`interaction-plan-consumers.example.json`。
+       - 全部参与者都是代理时，每条交互记录、state 和证据包都标 `persona: simulated_agent`，后续分析可以据此排除。
      - **试运行窗口**（`outside_trial_window`）：试运行配置的 `plan.window`（本地时间，时区默认 Asia/Shanghai），窗口外不开始，也不恢复。
      - **企业端点**（`enterprise_endpoint_nonconformant`）：计划打开 `nexloop.enterprise.deliver:1` 时，用 effect worker 的企业 provider 文件运行 `endpoint_conformance.py`，报告留在 `<试运行目录>/preflight/`。这项检查会在端点上创建三条带标记的效应，因此应给 `--endpoint-parameters-file`，用企业确认为空操作的参数。
      - **WebChat 投递**（`webchat_delivery_unavailable`）：经 effect worker 的回复 provider 文件请求投递服务的 `GET /v1/health`，必须返回 200 `{state: ok}`，表示凭据通过、执行者权限有效、存储可用。
@@ -238,10 +238,12 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 
 ### 9.4a 开跑清单（负责人本人，每个试运行日）
 
+> **客户为模拟、系统为真实**：消费者由负责人操作的 AI 代理（Claude Code / Codex 通过浏览器）扮演；员工侧的人工接管和工单标记也可以交给代理操作。部署、网关、DeepSeek 真实模型、企业端点与 WebChat 都是真实的。排期：10/17 校准，10/18–19 跑 30 次以上交互，10/20 验收（ROADMAP §7，负责人 2026-10-14）。
+
 开跑前：
 
 1. 三层开关按计划打开（9.3 节），`real_tenant_init.py verify` 中除开关以外的检查全部通过。
-2. 同意书：新参与者签署后放进私有目录（0600），在试运行配置的 `participants` 里登记 sha256，并更新 `--consent-files` 映射和计划的 `consumers`。
+2. 授权与参与者：负责人的一次性操作授权书放进私有目录（0600），在 `operator_authorization` 里登记 sha256；每个代理使用的消费者账号都在 `participants` 里登记（`kind: agent` 和工具名），并在计划的 `consumers` 里列出。代理只用这些账号登录 WebChat；员工侧（接管、工单标记）交给代理时，在当天的开跑记录里写明使用的工作台账号。
 3. 准备 provider 文件：企业 provider 文件与 effect worker 用的是同一份；回复 provider 文件指向 `webchat-delivery`；端点检查用的空操作参数文件已经和企业确认。
 4. 当前时间在 `plan.window` 内。
 

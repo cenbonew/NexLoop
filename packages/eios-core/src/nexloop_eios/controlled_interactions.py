@@ -184,7 +184,7 @@ def counted_cost(record):
 
 
 def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0), order=None,
-        resume=None, calibration_pause=False, test_stack=False, month_cost=None):
+        resume=None, calibration_pause=False, test_stack=False, month_cost=None, persona=None):
     """Runs (or resumes after a pause) the trial into `directory`: interactions.jsonl (one record per interaction, written
     before the next starts) and state.json (the outcome). An interaction already recorded is never run again: resuming
     continues after the last record (the error window restarts after a pause). A stopped trial does not resume (the owner
@@ -198,7 +198,9 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     interaction. The record keeps the trigger Run's own cost (cost.total, judged by the per-Run cap) and the actual increase over
     the interaction (cost.period_increase: fallback, plan reevaluation and role Runs, extraction and matching, anything else the
     tenant spent meanwhile); the larger of the two (cost.counted) is what the cumulative and monthly caps count, so neither is
-    underestimated. Without it the counted cost is the trigger Run's."""
+    underestimated. Without it the counted cost is the trigger Run's. `persona` (real mode: simulated_agent when every customer is
+    an AI agent the owner operates, owner 2026-10-14) is written into every record and the state, so later analyses can exclude
+    those accounts."""
     if str(uuid.UUID(trial_id)) != trial_id:
         raise ValueError('trial id must be a lowercase uuid')
     clock = clock or (lambda: datetime.now(UTC))
@@ -272,6 +274,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             'receipts': sorted(observed.get('receipts', [])), 'reconciliation': observed.get('reconciliation', 'not_applicable'),
             'facts': observed.get('facts', {}),
             **({'test_stack': True} if test_stack else {}),
+            **({'persona': persona} if persona else {}),
         }
         cumulative += counted
         decision, fired = evaluate(record, history, plan, cumulative=cumulative, monthly=month_cost_before + cumulative,
@@ -286,7 +289,8 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             break
     state = {'trial_id': trial_id, 'status': status, 'rules': rules, 'at_seq': at_seq, 'recorded': len(history),
              'planned': plan['total'], 'cumulative_cost': str(cumulative), 'currency': plan['currency'], 'order_digest': digest,
-             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {})}
+             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {}),
+             **({'persona': persona} if persona else {})}
     tmp = state_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(state, sort_keys=True))
     os.replace(tmp, state_path)
