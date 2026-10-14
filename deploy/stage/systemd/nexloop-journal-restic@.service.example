@@ -1,0 +1,30 @@
+# NX-035 (deploy runbook step 5.1): DATA_HOST backup unit. Example only: copy to /etc/systemd/system/ without the
+# .example suffix, then `systemctl daemon-reload` and `systemctl enable --now <timer>` (B class, owner confirms).
+# User nexloop-backup owns the file repository and secrets/backup and is in the docker group only to reach the PG container
+# (pgBackRest runs inside the nexloop/postgres image). The executors come from the backup-only Python virtual environment
+# installed from the release commit (M13/M14). Every private value is a path in EnvironmentFile (0600, root:nexloop-backup);
+# no secret is written in this unit. RequiresMountsFor lists the LUKS mount points of NX-035 step 1 (example paths: keep them
+# equal to the private env), so the unit never starts on an unmounted, unencrypted directory.
+# Instance = repo1 (DATA_HOST file repository, every 5 minutes) or repo2 (S3-compatible offsite, every 15 minutes).
+# /etc/nexloop/restic-<instance>.env (0600, root:nexloop-backup) holds JOURNAL_DIR, RESTIC_REPOSITORY_FILE and
+# RESTIC_PASSWORD_FILE (paths: restic reads both itself, so no location or password is on the command line), and for repo2
+# also AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
+[Unit]
+Description=NexLoop restore journal to restic (%i)
+After=network-online.target nexloop-journal.service
+Wants=network-online.target
+RequiresMountsFor=/srv/nexloop/secrets /srv/nexloop-backup/files
+
+[Service]
+Type=oneshot
+User=nexloop-backup
+Group=nexloop-backup
+EnvironmentFile=/etc/nexloop/restic-%i.env
+ExecStart=/usr/local/bin/restic --no-cache backup --tag journal --host nexloop ${JOURNAL_DIR}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# ProtectSystem=strict: only the encrypted file repository volume (journal segments, restic repo1) is writable.
+ReadWritePaths=/srv/nexloop-backup/files
+UMask=0077

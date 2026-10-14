@@ -105,6 +105,8 @@ PARAMETERS = {
     'VALKEY_MAXMEMORY': _match(_SIZE), 'AGENT_HOST_UID': _uid, 'CI_UID': _uid, 'MODEL_PROVIDER_ALLOWLIST': _addresses,
     # NX-037 provider routing: the effect worker's own egress network and the one enterprise endpoint it may reach.
     'EFFECT_EGRESS_CIDR': _cidr, 'ENTERPRISE_ENDPOINT_ADDR': _addr, 'ENTERPRISE_ENDPOINT_PORT': _remote_port,
+    # NX-035 M8: the pgBackRest TLS server on APP_HOST (repo1); only DATA_HOST may connect to it.
+    'PGBACKREST_TLS_PORT': _port,
 }
 
 

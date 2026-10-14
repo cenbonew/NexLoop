@@ -1,0 +1,10 @@
+[Unit]
+Description=NexLoop restore journal export (every minute)
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -2,8 +2,13 @@
 # Gateway only for the trusted LAN; internal ports are never published; the application namespace reaches only DATA_HOST's
 # PostgreSQL and Valkey, the Agent Host namespace only the model allowlist (NX-037 D4), the effect worker namespace only PostgreSQL
 # and the enterprise endpoint (NX-037 provider routing); the CI user (NX-033) never reaches DATA_HOST
-# or the internal ports.
+# or the internal ports. NX-035 M8: the pgBackRest TLS server (repo1) on the host accepts DATA_HOST only.
 table inet nexloop_stage {
+  chain input {
+    type filter hook input priority filter - 1; policy accept;
+    ip saddr __DATA_HOST_ADDR__ tcp dport __PGBACKREST_TLS_PORT__ accept
+    tcp dport __PGBACKREST_TLS_PORT__ drop
+  }
   chain forward {
     type filter hook forward priority filter - 1; policy accept;
     ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst { __GATEWAY_HTTPS_PORT__, __GATEWAY_REDIRECT_PORT__ } ip saddr __TRUSTED_LAN_CIDR__ accept
@@ -30,5 +35,6 @@ table inet nexloop_stage {
     type filter hook output priority filter - 1; policy accept;
     meta skuid __CI_UID__ ip daddr __DATA_HOST_ADDR__ drop
     meta skuid __CI_UID__ oifname "lo" tcp dport { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } drop
+    meta skuid __CI_UID__ tcp dport __PGBACKREST_TLS_PORT__ drop
   }
 }

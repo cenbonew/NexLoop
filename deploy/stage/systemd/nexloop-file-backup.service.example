@@ -1,0 +1,27 @@
+# NX-035 slice 3 (deploy runbook step 5.1): APP_HOST file backup executor (Artifacts and finished Run stores into restic).
+# NOT ENABLED on the 2026-10-15/16 deploy days (owner decision M12): those days back up only the restore journal
+# (nexloop-journal-restic on DATA_HOST); Artifacts and Run directories are still empty. Enable it only after the recorder may
+# connect from APP_HOST (NX-035-file-backup.md §5 item 1) and the executor user can read both roots read-only (§5 item 2).
+# Example only; executors from the backup-only virtual environment installed from the release commit (M14).
+[Unit]
+Description=NexLoop file backup (Artifacts and finished Run stores, repo1 then repo2)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/nexloop/secrets
+
+[Service]
+Type=oneshot
+User=nexloop-file-backup
+Group=nexloop-file-backup
+EnvironmentFile=/etc/nexloop/file-backup.env
+ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF}
+ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --environment-file ${OFFSITE_ENVIRONMENT_FILE}
+ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF}
+ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --environment-file ${OFFSITE_ENVIRONMENT_FILE}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/srv/nexloop/data/artifacts /srv/nexloop/data/runtime
+ReadWritePaths=/srv/nexloop-backup/staging
+UMask=0077
