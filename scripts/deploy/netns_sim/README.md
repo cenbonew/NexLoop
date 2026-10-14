@@ -33,7 +33,7 @@
 python3 -I scripts/deploy/netns_sim/run.py --out "$HOME/nexloop-sim-reports/$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
-- **镜像**：默认使用 `versions.lock.json` 中的三个 digest：`pgvector/pgvector`、`valkey/valkey`、`python-build-base`（python:3.12.10-slim-bookworm）。
+- **镜像**：默认使用 `versions.lock.json` 中的三个 digest：`pgvector/pgvector`、`valkey/valkey`、`python-build-base`（python:3.12.15-slim-bookworm）。
   - 任一镜像本地没有时，脚本不会拉取，而是报 `{"passed": false, "error": "image_not_present_locally", "images": [...]}`，退出码 2。
   - 本地镜像如果只有 tag、没有这个 digest，可以用 `--postgres-image`、`--valkey-image`、`--python-image` 传入本地已有的引用。报告中会记录实际使用的引用。
 - **预期输出**：一行 JSON，退出码 0。示意如下（各位置的 `failed` 都为空列表）：

@@ -196,3 +196,18 @@ def test_missing_conditions_fail_the_preflight(tmp_path):
 def test_public_preflight_cli_is_a_refusal_without_the_tools(tmp_path):
     code, out = cli('public-preflight', '--ref', 'HEAD', '--out', tmp_path / 'out', env={**os.environ, 'PATH': '/usr/bin:/bin'})
     assert code == 1 and out['ok'] is False and out['steps']['source_sbom'] is False and out['steps']['history_scan'] is False
+
+
+def test_the_waiver_proposals_have_the_policy_shape_and_are_not_in_effect():
+    """deploy/compliance/vulnerability-waivers.proposed.v1.json (NX-036 remediation): every draft has exactly the waiver fields,
+    a valid pattern and period, and matches the wont-fix Critical it names; none is in the policy until the owner approves it."""
+    proposals = json.loads((ROOT / 'deploy/compliance/vulnerability-waivers.proposed.v1.json').read_text())
+    policy_now = release.load_vulnerability_policy()
+    assert proposals['schema'] == 'nexloop-vulnerability-waiver-proposals/1' and proposals['waivers']
+    for draft in proposals['waivers']:
+        assert draft['approved_by'].startswith('PENDING') and draft not in policy_now['waivers']
+        assert release._waiver_problem(draft, policy_now, date.fromisoformat(draft['created'])) is None
+        row = {'id': draft['id'], 'package': draft['package'], 'version': {'zlib1g': '1:1.2.13.dfsg-1', 'libsqlite3-0': '3.40.1-2+deb12u2'}[draft['package']],
+               'severity': 'Critical', 'fix': 'wont-fix', 'scope': draft['scope']}
+        verdict = release.evaluate_vulnerabilities([row], {**policy_now, 'waivers': [draft]}, 'stage', None, date.fromisoformat(draft['created']))
+        assert verdict['problems'] == [] and verdict['summary']['waived'] == [draft['id']]
