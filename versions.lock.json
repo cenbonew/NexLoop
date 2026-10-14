@@ -46,7 +46,7 @@
       "source_commit": "1e363db982daeca74058453ad12fc4a6cac333da",
       "provenance": "packages/eios-core/PROVENANCE.json",
       "lineage": "nexloop-eios-v1",
-      "bootstrap_revision": "0192",
+      "bootstrap_revision": "0193",
       "dependency_lock": "uv.lock"
     },
     "node": {
@@ -189,6 +189,24 @@
     "ssh-keygen": {
       "minimum_openssh": "8.2",
       "status": "system_openssh"
+    }
+  },
+  "deployment_tools": {
+    "decision": "NX-035 D1 (dispatcher 2026-10-14): the PG backup is pgBackRest (repo1 on APP_HOST, repo2 S3-compatible, client-side aes-256-cbc) and the file and restore-journal backup is restic (client-side encryption), at exactly these versions. Pinned here by version and official source only; nothing is downloaded by the repository or its tests. The package or archive sha256 is checked against the published checksum on the administration machine and again on the host at installation (NX-035-deploy-runbook.md steps 2.1 and 3.1, B class, owner-confirmed) and recorded here then; the PG image of DATA_HOST carries the same pgBackRest version (built by NX-034, digest in the release manifest). nexloop-backup refuses a pgBackRest whose `pgbackrest version` is not this one (--expected-version).",
+    "pgbackrest": {
+      "version": "2.56.0",
+      "source": "https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.56.0",
+      "license": "MIT",
+      "requires": "PostgreSQL 18 support (confirm in the release notes before installing)",
+      "status": "pinned_not_installed",
+      "package_sha256": null
+    },
+    "restic": {
+      "version": "0.18.0",
+      "source": "https://github.com/restic/restic/releases/tag/v0.18.0",
+      "license": "BSD-2-Clause",
+      "status": "pinned_not_installed",
+      "archive_sha256": null
     }
   }
 }

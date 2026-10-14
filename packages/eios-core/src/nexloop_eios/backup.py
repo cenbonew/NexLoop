@@ -1,9 +1,11 @@
 """NX-035 local part: PG base backup with manifest, restore-journal export, point-in-time restore behind the restore fence, and
 the migration gate (docs/implementation/NX-035-design.md; local implementation notes in NX-035-local-implementation.md).
 
-Local tools are PostgreSQL's own: pg_basebackup over the replication protocol as the non-superuser ``nexloop_backup`` role,
-pg_verifybackup for verification, WAL archived by ``archive_command``. At deployment pgBackRest (repo1/repo2, ``pgbackrest
-verify``) and restic (files, client-side encryption) take their place (D1); the manifest rows and the journal format stay.
+At deployment the PG backup is pgBackRest's (D1): ``nexloop-backup pg`` runs ``pgbackrest backup`` for one repo, then
+``pgbackrest verify`` and ``pgbackrest info --output=json``, and records the manifest rows with the tool, its version and the
+verification evidence (manifest schema nexloop-backup-manifest/2, docs/implementation/NX-035-pgbackrest.md). A failed verify is
+recorded 'failed', which the migration gate refuses. ``--tool pg_basebackup`` keeps the local path: pg_basebackup over the
+replication protocol as the non-superuser ``nexloop_backup`` role and pg_verifybackup. restic (files) is the file backup's.
 
 Journal segments are hash-chained JSON files written 0600 into a private directory; they hold sequence numbers, ids, hashes and
 times only. Encryption at rest is the file backup repository's (restic) at deployment — a gate before the controlled trial
@@ -11,7 +13,9 @@ run; segments written locally are not encrypted (dispatcher ruling Q1, 2026-10-1
 
 Every credential is a 0600 file read with read_private_text; nothing is passed as an argument value or environment value.
 
-    nexloop-backup  pg      --recorder-dsn-file F --replication-dsn-file F --pg-bin D --target D [--repo repo1] [--kind pg_full]
+    nexloop-backup  pg      --recorder-dsn-file F --pgbackrest-command-file F --stanza S [--pgbackrest-config-file F]
+                            [--expected-version V] [--repo repo1|repo2] [--kind pg_full|pg_diff|pg_incr]
+    nexloop-backup  pg      --tool pg_basebackup --recorder-dsn-file F --replication-dsn-file F --pg-bin D --target D [--repo repo1] [--kind pg_full]
     nexloop-backup  journal --recorder-dsn-file F --journal-dir D [--repo repo1]
     nexloop-migrate         --database-url-file F
 """
@@ -84,7 +88,7 @@ def take_pg_backup(*, recorder_conninfo, replication_conninfo, pg_bin, target, r
     backup_id = backup_id or datetime.now(UTC).strftime('%Y%m%d-%H%M%S') + '-' + kind.split('_')[1][0].upper()
     if not _LABEL.fullmatch(backup_id):
         raise BackupUnavailable('backup id invalid')
-    pending = {'backup_id': backup_id, 'repo': repo, 'kind': kind, 'verify_status': 'pending'}
+    pending = {'backup_id': backup_id, 'repo': repo, 'kind': kind, 'verify_status': 'pending', 'tool': 'pg_basebackup'}
     if release_id:pending['release_id'] = release_id
     if key_ref:pending['key_ref'] = key_ref
     record(recorder_conninfo, pending)
@@ -105,6 +109,112 @@ def take_pg_backup(*, recorder_conninfo, replication_conninfo, pg_bin, target, r
     record(recorder_conninfo, final)
     return {'backup_id': backup_id, 'verify_status': status, 'system_identifier': final['system_identifier'], 'timeline': final['timeline'],
             'start_lsn': final['start_lsn'], 'stop_lsn': final['stop_lsn']}
+
+
+# pgBackRest (deployment) ------------------------------------------------------------------------------------------------------
+VERIFICATION_SCHEMA = 'nexloop-backup-verification/1'
+PGBACKREST_TYPES = {'pg_full': 'full', 'pg_diff': 'diff', 'pg_incr': 'incr'}
+_STANZA = re.compile(r'[A-Za-z0-9._-]{1,64}')
+_VERSION = re.compile(r'pgBackRest ([0-9]+\.[0-9]+(?:\.[0-9]+)?)')
+_SUMMARY_SAFE = re.compile(r'[^A-Za-z0-9 ._:/=,()\-]')
+
+
+def _lsn(value):
+    hi, lo = str(value).split('/')
+    return f'{int(hi, 16):X}/{int(lo, 16):X}'
+
+
+def _iso(epoch):
+    return datetime.fromtimestamp(int(epoch), UTC).isoformat().replace('+00:00', 'Z')
+
+
+class PgBackRest:
+    """The pgbackrest command line for one stanza: ``command`` is the argv prefix that runs pgbackrest (for example through the
+    PG container); the configuration with the repository passphrases and object-store keys is pgbackrest's own private file,
+    named here but never read beyond its permission check and never logged."""
+
+    def __init__(self, command, stanza, *, config_file=None, timeout=86400):
+        if type(command) is not list or not command or any(type(x) is not str or not x or '\n' in x for x in command):
+            raise BackupUnavailable('pgbackrest command invalid')
+        if not _STANZA.fullmatch(stanza or ''):
+            raise BackupUnavailable('stanza invalid')
+        if config_file is not None:
+            read_private_text(config_file, maximum=65536)  # 0600 and readable; the content stays pgbackrest's
+        self.prefix = [*command, *([f'--config={config_file}'] if config_file is not None else []), f'--stanza={stanza}']
+        self.stanza, self.timeout = stanza, timeout
+
+    def run(self, *args, timeout=None):
+        return subprocess.run([*self.prefix, *args], capture_output=True, text=True, timeout=timeout or self.timeout)
+
+    def version(self):
+        found = _VERSION.search(self.run('version', timeout=60).stdout)
+        if not found:
+            raise BackupUnavailable('pgbackrest version unavailable')
+        return found.group(1)
+
+    def info(self, repo_key):
+        done = self.run(f'--repo={repo_key}', 'info', '--output=json', timeout=600)
+        if done.returncode != 0:
+            raise BackupUnavailable('pgbackrest info failed')
+        stanzas = [s for s in json.loads(done.stdout) if s.get('name') == self.stanza]
+        if len(stanzas) != 1:
+            raise BackupUnavailable('pgbackrest stanza missing from info')
+        return stanzas[0]
+
+
+def take_pgbackrest_backup(*, recorder_conninfo, command, stanza, repo='repo1', kind='pg_full', config_file=None, expected_version=None,
+                           backup_id=None, release_id=None, key_ref=None, tool=None):
+    """One pgBackRest backup of ``kind`` into ``repo``, then ``verify`` and ``info``; one pending row and one verified/failed row
+    with the verification evidence. A backup that pgBackRest did not complete leaves the pending row only (as pg_basebackup)."""
+    if kind not in PGBACKREST_TYPES:
+        raise BackupUnavailable('backup kind invalid')
+    if repo not in ('repo1', 'repo2'):
+        raise BackupUnavailable('repo invalid')
+    repo_key = int(repo[-1])
+    tool = tool or PgBackRest(command, stanza, config_file=config_file)
+    version = tool.version()
+    if expected_version is not None and version != expected_version:
+        raise BackupUnavailable(f'pgbackrest version {version} is not the pinned {expected_version}')
+    # Unique per attempt (microseconds): a second backup in the same second is a new attempt, never a replay of the first.
+    backup_id = backup_id or datetime.now(UTC).strftime('%Y%m%d-%H%M%S-%f') + '-' + PGBACKREST_TYPES[kind][0].upper()
+    if not _LABEL.fullmatch(backup_id):
+        raise BackupUnavailable('backup id invalid')
+    before = {b['label'] for b in tool.info(repo_key).get('backup', [])}
+    pending = {'backup_id': backup_id, 'repo': repo, 'kind': kind, 'verify_status': 'pending', 'tool': 'pgbackrest', 'tool_version': version}
+    if release_id:pending['release_id'] = release_id
+    if key_ref:pending['key_ref'] = key_ref
+    record(recorder_conninfo, pending)
+    taken = tool.run(f'--repo={repo_key}', f'--type={PGBACKREST_TYPES[kind]}', 'backup')
+    if taken.returncode != 0:
+        raise BackupUnavailable('pgbackrest backup failed')
+    verified = tool.run(f'--repo={repo_key}', 'verify')
+    stanza_info = tool.info(repo_key)
+    made = [b for b in stanza_info.get('backup', []) if b.get('label') not in before and b.get('type') == PGBACKREST_TYPES[kind]]
+    if len(made) != 1:
+        raise BackupUnavailable('pgbackrest backup not found in info')
+    made = made[0]
+    database = next((d for d in stanza_info.get('db', []) if d.get('id') == (made.get('database') or {}).get('id')
+                     and d.get('repo-key', repo_key) == (made.get('database') or {}).get('repo-key', repo_key)), None)
+    if database is None:
+        raise BackupUnavailable('pgbackrest backup database missing from info')
+    status_info = stanza_info.get('status') or {}
+    summary = (verified.stdout.strip().splitlines() or verified.stderr.strip().splitlines() or [''])[-1]
+    evidence = {'schema': VERIFICATION_SCHEMA, 'tool': 'pgbackrest', 'tool_version': version, 'stanza': stanza, 'repo_key': repo_key,
+                'label': made['label'], 'type': made['type'], 'prior': made.get('prior'),
+                'timestamp_start': _iso(made['timestamp']['start']), 'timestamp_stop': _iso(made['timestamp']['stop']),
+                'archive_start': made['archive']['start'], 'archive_stop': made['archive']['stop'],
+                'size': (made.get('info') or {}).get('size'), 'repository_size': ((made.get('info') or {}).get('repository') or {}).get('size'),
+                'backup_error': bool(made.get('error')), 'info_status': {'code': status_info.get('code'), 'message': status_info.get('message')},
+                'db_version': database.get('version'), 'backrest_format': (made.get('backrest') or {}).get('format'),
+                'verify': {'exit_code': verified.returncode, 'summary': _SUMMARY_SAFE.sub('', summary)[:200]}}
+    ok = verified.returncode == 0 and not evidence['backup_error'] and status_info.get('code') == 0
+    status = 'verified' if ok else 'failed'
+    final = {'backup_id': backup_id, 'repo': repo, 'kind': kind, 'verify_status': status, 'completed_at': evidence['timestamp_stop'],
+             'system_identifier': str(database['system-id']), 'timeline': int(made['archive']['start'][:8], 16),
+             'start_lsn': _lsn(made['lsn']['start']), 'stop_lsn': _lsn(made['lsn']['stop']), 'verification': evidence}
+    record(recorder_conninfo, final)
+    return {'backup_id': backup_id, 'verify_status': status, 'label': made['label'], 'tool_version': version, 'system_identifier': final['system_identifier'],
+            'timeline': final['timeline'], 'start_lsn': final['start_lsn'], 'stop_lsn': final['stop_lsn'], 'verify_exit_code': verified.returncode}
 
 
 # Restore journal --------------------------------------------------------------------------------------------------------
@@ -305,8 +415,12 @@ def backup_main(argv=None):
     parser = _Parser(description='NexLoop backup executor (NX-035)')
     sub = parser.add_subparsers(dest='command', required=True)
     pg = sub.add_parser('pg')
-    for name in ('recorder-dsn-file', 'replication-dsn-file', 'pg-bin', 'target'):
-        pg.add_argument('--' + name, type=Path, required=True)
+    pg.add_argument('--tool', choices=('pgbackrest', 'pg_basebackup'), default='pgbackrest')
+    pg.add_argument('--recorder-dsn-file', type=Path, required=True)
+    for name in ('replication-dsn-file', 'pg-bin', 'target', 'pgbackrest-command-file', 'pgbackrest-config-file'):
+        pg.add_argument('--' + name, type=Path)
+    pg.add_argument('--stanza')
+    pg.add_argument('--expected-version')
     pg.add_argument('--repo', choices=('repo1', 'repo2'), default='repo1')
     pg.add_argument('--kind', choices=('pg_full', 'pg_diff', 'pg_incr'), default='pg_full')
     journal = sub.add_parser('journal')
@@ -316,7 +430,16 @@ def backup_main(argv=None):
     args = parser.parse_args(argv)
     try:
         recorder = read_private_text(args.recorder_dsn_file, maximum=4096)
-        if args.command == 'pg':
+        if args.command == 'pg' and args.tool == 'pgbackrest':
+            if args.pgbackrest_command_file is None or args.stanza is None or args.replication_dsn_file or args.pg_bin or args.target:
+                raise BackupUnavailable('pgbackrest arguments')
+            result = take_pgbackrest_backup(recorder_conninfo=recorder, command=json.loads(Path(args.pgbackrest_command_file).read_text()),
+                                            stanza=args.stanza, repo=args.repo, kind=args.kind, config_file=args.pgbackrest_config_file,
+                                            expected_version=args.expected_version)
+            code = 0 if result['verify_status'] == 'verified' else 1
+        elif args.command == 'pg':
+            if not (args.replication_dsn_file and args.pg_bin and args.target) or args.pgbackrest_command_file or args.stanza:
+                raise BackupUnavailable('pg_basebackup arguments')
             result = take_pg_backup(recorder_conninfo=recorder, replication_conninfo=read_private_text(args.replication_dsn_file, maximum=4096),
                                     pg_bin=args.pg_bin, target=args.target, repo=args.repo, kind=args.kind)
             code = 0 if result['verify_status'] == 'verified' else 1
