@@ -116,6 +116,27 @@ python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py result --queue <QUEUE_DIR> --s
 
 结果文件是 `<QUEUE_DIR>/results/<SHA>/attempt-<n>/result.json`，其中 n 为最大的那次尝试。它与 stdout 内容相同。
 
+**失败时查看失败名**：工作目录在运行结束后删除，但 `attempt-<n>/` 保留以下内容，保留期与结果目录相同：
+- `failures.json`（schema `nexloop-ci-failures/1`）：按 suite 列出失败和错误的用例，包括 `classname`、`name`、`kind`（failure 或 error）、`message`。
+  - `message` 是用例的 message 属性，没有时取元素文本的第一行；
+  - 处理方式：去掉控制字符，遮蔽 URI 中的凭据、`password=`/`token:` 一类片段和 40 个字符以上的不透明串，截断到 300 字符；
+  - 不含原文日志；
+  - 每个 suite 最多保存 200 条，超出时 `truncated` 为 true。
+- `junit/<阶段>/<文件名>`：各阶段 JUnit 文件的原样副本，权限 0640；sha256 与 result.json 中 `stages[].junit` 记录的一致。
+- `result.json` 中新增的 `failures` 字段：`{file, count, truncated}`，只是摘要。这是对 `nexloop-ci-result/1` 的增量改动，schema 版本不变。`release.py` 只读取 `sha`、`status`、`policy_version`、`deadline_gate`、`counts`，不受影响。
+
+```bash
+python3 -c 'import json,sys; f=json.load(open(sys.argv[1])); [print(s, c["kind"], c["classname"]+"::"+c["name"], "|", c["message"]) for s,v in f["suites"].items() for c in v["cases"]]' <QUEUE_DIR>/results/<SHA>/attempt-<n>/failures.json
+```
+
+按合并规则，失败需要在同一检出上串行复跑取证。复跑的用例就取上面输出的 `classname::name`（pytest 用例 id 是 `<文件路径>::<name>`，classname 中的点号对应文件路径），例如：
+
+```bash
+uv run --frozen pytest -q -p no:cacheprovider '<tests/路径.py>::<name>'
+```
+
+复跑结论另行记录。结果目录只追加，失败的 `result.json` 不修改。
+
 **第 9 步 交给发布**
 ```bash
 python3 scripts/release/release.py build --sha <SHA> --ci-result <QUEUE_DIR>/results/<SHA>/attempt-<n>/result.json --release-root <RELEASE_ROOT>
