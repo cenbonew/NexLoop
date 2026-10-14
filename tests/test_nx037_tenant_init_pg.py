@@ -141,10 +141,12 @@ def test_run_evidence_is_numbers_only_for_the_metrics_role(pg, admin, published_
     assert evidence['model']['calls'] == 0 and evidence['intents'] == {} and evidence['intent_ids'] == []
 
 
-def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, admin, catalog, tmp_path, published_action, identity, uow, capsys):  # noqa: F811
+def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, admin, catalog, tmp_path, published_action, identity, uow, capsys, monkeypatch):  # noqa: F811
     """scripts/nx037/run_interactions.py --driver real: refused before anything runs unless the tenant check passes (budget,
     alert rules) and the three switch layers are exactly the plan's; with both, it stops at the missing real driver."""
     import run_interactions as R
+    # The start guards (consent, window, endpoint, delivery, recorder) have their own tests (test_nx037_trial_guards); held here.
+    monkeypatch.setattr(R, 'guard_refusals', lambda *unused: ([], []))
     reader, base, capability = published_action
     admin.execute('alter role nexloop_configurator login')
     manifest = json.loads(I.GRANTS.read_text())

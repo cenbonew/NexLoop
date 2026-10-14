@@ -970,6 +970,16 @@
       "version": "0194",
       "name": "0194_nx035_file_backup_inventory.sql",
       "sha256": "0f021b1d3680e4061f4b121cdbbabb72fee95cb8668cf9635eab8b982b840901"
+    },
+    {
+      "version": "0195",
+      "name": "0195_nx037_outbound_backlog.sql",
+      "sha256": "3b45ea8a789471ea9c1f82967c3acb813800c9b1a6e7e638be99cd470f96dcfb"
+    },
+    {
+      "version": "0196",
+      "name": "0196_nx037_interaction_messages.sql",
+      "sha256": "064bbebc6ef3318672cab661d22d64efc7e262844b1b9aab91991c6dead0d093"
     }
   ]
 }

@@ -114,7 +114,7 @@ def test_an_incomplete_backup_another_cluster_or_another_version_records_no_comp
 def test_a_pgbackrest_row_cannot_be_verified_without_its_evidence(cluster, db):  # noqa: F811
     with psycopg.connect(recorder(cluster), autocommit=True) as c:
         c.execute('select authz.nexloop_record_backup(%s)', (Jsonb({'backup_id': 'manual-F', 'repo': 'repo1', 'kind': 'pg_full', 'verify_status': 'pending',
-                                                                     'tool': 'pgbackrest', 'tool_version': '2.56.0'}),))
+                                                                     'tool': 'pgbackrest', 'tool_version': PINNED}),))
         sid = db.execute('select system_identifier::text from pg_control_system()').fetchone()[0]
         final = {'backup_id': 'manual-F', 'repo': 'repo1', 'kind': 'pg_full', 'verify_status': 'verified', 'completed_at': backup._now(), 'system_identifier': sid,
                  'timeline': 1, 'start_lsn': '0/1000000', 'stop_lsn': '0/1000100'}

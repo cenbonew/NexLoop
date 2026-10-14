@@ -310,7 +310,7 @@ source releases.
 
 | Tool | Version | License | Source |
 |---|---|---|---|
-| pgbackrest | 2.56.0 | MIT | https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.56.0 |
+| pgbackrest | 2.59.3 | MIT | https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.59.3 |
 | restic | 0.18.0 | BSD-2-Clause | https://github.com/restic/restic/releases/tag/v0.18.0 |
 
 ## Weak-copyleft dependencies

@@ -149,13 +149,15 @@ def test_actual_pi_role_run_on_v6_records_every_model_call(role_v6,admin,tmp_pat
         with host(runtime,key,config) as (_,client,headers):
             admitted=client.post('/internal/v1/runs/start',headers=headers,json={'activation_ref':activation,'command':command,'input':text})
             assert admitted.status_code==202
-            deadline=time.monotonic()+30
+            # Wait as long as the Run itself may run (ROLE_BUDGET active_timeout_seconds=60) plus a margin; the inspect result is in
+            # every failure message, so a failure under load names its outcome and failure_code instead of a bare assert.
+            deadline=time.monotonic()+75
             while True:
                 response=client.post('/internal/v1/runs/inspect',headers=headers,json={'activation_ref':activation,'command':command})
                 assert response.status_code==200;result=response.json()
                 if result['submission_status']=='done':break
-                assert time.monotonic()<deadline;time.sleep(.05)
-            assert result['runtime_outcome']=='succeeded'
+                assert time.monotonic()<deadline,result;time.sleep(.05)
+            assert result['runtime_outcome']=='succeeded',result
     calls,receipts=tool_evidence(runtime/command['run_id']/'runtime.sqlite')
     assert [c['id'] for c in calls if c['name']=='nexloop.service.request']==['message-service-first','message-service-rebuilt'] and len(receipts)==3
     from test_context_v6_pg import results
