@@ -93,7 +93,8 @@
 
 ### `acks.jsonl` / `dispatch.jsonl`
 
-- `acks.jsonl`：`{"ack_ms": 38.2, "status": 202}`。只有状态为 202 的行计入 ACK 时延；其余状态按代码计数。
+- `acks.jsonl`：`{"ack_ms": 38.2, "status": 202, "t_s": 12.345}`。只有状态为 202 的行计入 ACK 时延；其余状态按代码计数。`t_s` 是从稳态窗口开始到收到 ACK 的秒数（NX-052，2026-10-14），用于和租户行锁脉冲对齐，不参与判定。
+- `tenant-lock-pulses.jsonl`（只在设置了 `NEXLOOP_LOAD_TENANT_LOCK_PULSE` 的格里有）：`{"start_s": 4.012, "hold_ms": 200.4}`，稳态窗口内每次持锁的开始偏移和持锁时长，只供对齐，不参与判定。
 - `dispatch.jsonl`：`{"relay_ms": 120, "queue_ms": 180, "dispatch_ms": 300, "start_ms": 2400, "run_start_ms": 2580}`。口径（负责人 2026-10-13，4A，ROADMAP §7；恢复设计稿 §4.6）：`dispatch_ms` 为来信受理（`accepted_at`）到对应 Run 任务首次被 claim（`runtime.job_events` 的 running），等于 relay 段（受理 → 任务创建 `runtime.jobs.created_at`）加排队段（任务创建 → claim），2 s 门槛只适用于它。`start_ms`（claim → Host 首次执行授权）和 `run_start_ms`（任务创建 → 首次执行授权，即 2026-10-11 的旧口径）只观察。未发生的段为 null。只有 `dispatch_ms` 的旧格式行（2026-10-11 口径）在报告里标为 incomparable，不判通过。
 
 ### `refusals.jsonl` / `alerts.jsonl`

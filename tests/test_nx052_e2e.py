@@ -64,6 +64,46 @@ def test_cli_exit_code_follows_the_verdict(tmp_path):
     assert nx052_e2e.main(['compare', '--baseline', str(a), '--candidate', str(a)]) == 0
 
 
+def test_several_rounds_compare_the_median_of_each_sides_p95():
+    """1A (owner 2026-10-14): N and K three rounds each; each metric is the median of the runs' p95, ratio of the medians."""
+    baseline = [report(100, 2000, 11437), report(102, 2100, 12914), report(98, 1900, 12000)]
+    candidate = [report(103, 2050, 12960), report(101, 1950, 11800), report(140, 2400, 20000)]  # one outlier round each metric
+    result = nx052_e2e.compare(baseline, candidate)
+    rows = result['metrics']
+    assert rows['ack_p95_ms']['baseline'] == 100 and rows['ack_p95_ms']['candidate'] == 103 and rows['ack_p95_ms']['ratio'] == 1.03
+    assert rows['e2e_p95_ms']['baseline'] == 2000 and rows['e2e_p95_ms']['candidate'] == 2050
+    assert rows['idle_dispatch_p95_ms']['baseline'] == 12000 and rows['idle_dispatch_p95_ms']['candidate'] == 12960
+    assert rows['idle_dispatch_p95_ms']['ratio'] == 1.08 and not rows['idle_dispatch_p95_ms']['within'] and not result['passed']
+    assert rows['ack_p95_ms']['candidate_runs'] == [103, 101, 140] and result['runs'] == {'baseline': 3, 'candidate': 3}
+    even = nx052_e2e.compare([report(100, 2000, 800), report(110, 2000, 800)], [report(105, 2000, 800)])
+    assert even['metrics']['ack_p95_ms']['baseline'] == 105 and even['metrics']['ack_p95_ms']['ratio'] == 1.0
+    # A required gate item failing in any candidate round fails the comparison.
+    some = nx052_e2e.compare(baseline[:1], [report(100, 2000, 11437), report(100, 2000, 11437, gate='failed', failing=('unresolved_work',))])
+    assert not some['passed'] and some['required_gate_items']['unresolved_work'] == 'fail'
+
+
+def test_in_state_p_the_ack_increase_is_recorded_not_judged():
+    """2A (owner 2026-10-14): the tenant row lock pulse raises ack by design; P is judged on e2e and idle dispatch only."""
+    baseline, candidate = [report(361, 24874, 11437)], [report(425, 24672, 11800)]
+    p = nx052_e2e.compare(baseline, candidate, state='P')
+    assert p['passed'] and p['metrics']['ack_p95_ms'] == {**p['metrics']['ack_p95_ms'], 'within': False, 'judged': False, 'reason': 'accepted_limitation'}
+    assert p['metrics']['e2e_p95_ms']['judged'] and p['metrics']['idle_dispatch_p95_ms']['judged']
+    assert not nx052_e2e.compare(baseline, candidate)['passed']  # in state K the same ack increase fails
+    assert not nx052_e2e.compare(baseline, [report(425, 24672, 12500)], state='P')['passed']  # idle dispatch still judged in P
+
+
+def test_a_single_round_on_each_side_still_works_and_the_cli_takes_several(tmp_path):
+    one = nx052_e2e.compare(report(100, 2000, 800), report(104, 2090, 820))
+    assert one['passed'] and one['metrics']['ack_p95_ms']['baseline'] == 100 and one['gate'] == {'baseline': 'passed', 'candidate': 'passed'}
+    paths = []
+    for i, values in enumerate([(100, 2000, 800), (101, 2000, 800), (99, 2000, 800), (130, 2000, 800)]):
+        paths.append(tmp_path / f'r{i}.json')
+        paths[-1].write_text(json.dumps(report(*values)))
+    assert nx052_e2e.main(['compare', '--baseline', *map(str, paths[:3]), '--candidate', *map(str, paths[:3])]) == 0
+    assert nx052_e2e.main(['compare', '--baseline', *map(str, paths[:3]), '--candidate', str(paths[3])]) == 1
+    assert nx052_e2e.main(['compare', '--state', 'P', '--baseline', *map(str, paths[:3]), '--candidate', str(paths[3])]) == 0
+
+
 def test_every_nx052_foreign_key_migration_is_a_named_batch():
     files = sorted(p.name for p in (ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx052_tenant_fk_*.sql'))
     assert sorted(f[4:] for f in files) == sorted(tenant_fk_state.BATCHES.values())
@@ -282,3 +322,25 @@ def test_the_template_build_refuses_the_cell_variable_and_the_lane_withholds_it(
     assert 'env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL' in template_step
     assert 'env -u NEXLOOP_LOAD_TENANT_FK_DROP_CELL' not in next(line for line in lane.splitlines() if 'step_run matrix' in line)
     assert "NEXLOOP_LOAD_TENANT_FK_DROP_CELL'), 'NEXLOOP_LOAD_TENANT_FK_DROP_CELL applies to matrix cells only" in (ROOT / 'scripts/load/build_template_hold.py').read_text()
+
+
+def test_the_lock_pulse_log_and_its_offsets_in_the_steady_window(admin, tmp_path):
+    """Each pulse records when it held the tenant row lock; the cell keeps the pulses inside the steady window as offsets from its
+    start, beside the ACKs' t_s (numbers only)."""
+    from datetime import UTC, datetime, timedelta
+    import matrix
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000a','active') on conflict do nothing")
+    dsn = admin.info.dsn
+    log = tmp_path / 'pulses.jsonl'
+    start = datetime.now(UTC)
+    tenant_fk_state.pulse(dsn, '00000000-0000-4000-8000-00000000000a', 0.05, 0.05, once=True, log=log)
+    [line] = [json.loads(x) for x in log.read_text().splitlines()]
+    assert set(line) == {'locked_at', 'released_at'} and 0.04 <= line['released_at'] - line['locked_at'] < 1
+    end = datetime.now(UTC)
+    [row] = matrix.pulse_offsets(log, start, end)
+    assert set(row) == {'start_s', 'hold_ms'} and 0 <= row['start_s'] <= (end - start).total_seconds() and row['hold_ms'] >= 40
+    assert matrix.pulse_offsets(log, end + timedelta(seconds=1), end + timedelta(seconds=2)) == []
+    assert matrix.pulse_offsets(tmp_path / 'absent.jsonl', start, end) is None
+    assert "'t_s': round((now() - start).total_seconds(), 3)" in (ROOT / 'scripts/load/matrix.py').read_text()
