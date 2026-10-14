@@ -116,11 +116,12 @@ nexloop-backup pg --recorder-dsn-file <PRIVATE_RECORDER_DSN> --pgbackrest-comman
 ## 5. 版本与许可
 
 - **`versions.lock.json` 的 `deployment_tools`**：
-  - pgBackRest 2.56.0，MIT；restic 0.18.0，BSD-2-Clause；
+  - pgBackRest 2.59.3（Debian 包 `2.59.3-1.pgdg12+1`，PGDG），MIT；restic 0.18.0，BSD-2-Clause；
+  - 2026-10-14 由 2.56.0 改为 2.59.3：PGDG bookworm-pgdg 中已经没有 2.56.0，候选版本只有 2.59.3 与 2.59.2（在锁定的基础镜像中实测），负责人确认改锁；
   - 只写版本号和官方发布页地址，状态为 `pinned_not_installed`；
   - 包和压缩包的 sha256 在安装时核对官方校验值后回填（运行手册 2.1、3.1，B 类，由负责人确认）；
   - 仓库和测试都不联网下载。
-  - **安装前，负责人要在发布说明中确认所选的 pgBackRest 版本支持 PostgreSQL 18**；不满足就换版本，并同时修改锁文件。
+  - DATA_HOST 的 pgBackRest 由发布镜像 `nexloop/postgres` 提供（[NX-034-postgres-image.md](NX-034-postgres-image.md)），版本与锁文件一致，构建时核对。
 - **`THIRD_PARTY_NOTICES.md`**：由 `scripts/check_licenses.py` 从锁文件生成“Deployment tools”一节，许可按许可策略核对，不在 allowed 中就报问题。
   - 本机缺 `playwright-core`，生成器无法完成整份重新生成，所以这一节是按生成器的格式插入的；
   - `tests/test_deployment_tools_lock.py` 断言渲染结果与文件中的这一节逐字一致；

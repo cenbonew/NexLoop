@@ -194,12 +194,16 @@
   "deployment_tools": {
     "decision": "NX-035 D1 (dispatcher 2026-10-14): the PG backup is pgBackRest (repo1 on APP_HOST, repo2 S3-compatible, client-side aes-256-cbc) and the file and restore-journal backup is restic (client-side encryption), at exactly these versions. Pinned here by version and official source only; nothing is downloaded by the repository or its tests. The package or archive sha256 is checked against the published checksum on the administration machine and again on the host at installation (NX-035-deploy-runbook.md steps 2.1 and 3.1, B class, owner-confirmed) and recorded here then; the PG image of DATA_HOST carries the same pgBackRest version (built by NX-034, digest in the release manifest). nexloop-backup refuses a pgBackRest whose `pgbackrest version` is not this one (--expected-version).",
     "pgbackrest": {
-      "version": "2.56.0",
-      "source": "https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.56.0",
+      "version": "2.59.3",
+      "source": "https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.59.3",
       "license": "MIT",
-      "requires": "PostgreSQL 18 support (confirm in the release notes before installing)",
+      "requires": "PostgreSQL 18 support; the PGDG bookworm-pgdg main candidate in the pinned images.postgres base (read on the CI host 2026-10-14: 2.59.3-1.pgdg12+1 and 2.59.2-1.pgdg12+1; 2.56.0 not offered)",
       "status": "pinned_not_installed",
-      "package_sha256": null
+      "package_sha256": null,
+      "debian_version": "2.59.3-1.pgdg12+1",
+      "debian_source": "PGDG apt repository (apt.postgresql.org, bookworm-pgdg) as configured in the base image; older versions at apt-archive.postgresql.org",
+      "image": "nexloop/postgres (deploy/postgres/Dockerfile, built by release.py; FROM images.postgres by digest)",
+      "debian_version_note": "Read with `apt-cache madison pgbackrest` in the pinned base image on the CI host (dispatcher 2026-10-14, owner-confirmed change from 2.56.0, which PGDG no longer offers). A new version changes version, source and debian_version together."
     },
     "restic": {
       "version": "0.18.0",

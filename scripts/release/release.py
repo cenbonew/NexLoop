@@ -789,6 +789,27 @@ def pinned_reference(lock, name):
     return entry['reference'].split('@')[0].rsplit(':', 1)[0] + '@' + digest
 
 
+_TOOL_VALUE = re.compile(r'[0-9A-Za-z][0-9A-Za-z.+~:_-]{0,63}')
+_MIRROR = re.compile(r'https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?')
+
+
+def mirror_url(variable, value):
+    """A package mirror base URL (http or https, host and path only: no credentials, query or spaces)."""
+    if not _MIRROR.fullmatch(value):
+        raise InputError(f'{variable}: an http(s) base URL without credentials, query or spaces')
+    return value.rstrip('/')
+
+
+def pinned_tool_value(lock, path):
+    """An exact tool version from versions.lock.json (for example deployment_tools.pgbackrest.version): present, one token."""
+    value = lock
+    for key in path:
+        value = value.get(key) if type(value) is dict else None
+    if type(value) is not str or not _TOOL_VALUE.fullmatch(value):
+        raise Refused(f'{".".join(path)}: not pinned in versions.lock.json')
+    return value
+
+
 def require_checkout_at(root, sha):
     """Images are built from the released commit itself: HEAD is that commit and nothing is modified or untracked."""
     if git('rev-parse', 'HEAD', root=root) != sha:
@@ -805,12 +826,15 @@ def _prepare(context, target):
     elif context == 'host':
         from prepare_host_build import prepare_host
         prepare_host(target)
+    elif context == 'postgres':
+        from prepare_postgres_build import prepare_postgres
+        prepare_postgres(target)
     else:
         raise InputError('unknown build context ' + context)
     return target
 
 
-def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, docker=None, preparer=None, now=None, checkout_check=None):
+def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, docker=None, preparer=None, now=None, checkout_check=None, lock=None, environ=None):
     if not _SHA.fullmatch(sha or ''):
         raise InputError('sha must be a full 40-hex commit')
     ci = json.loads(Path(ci_result).read_text())
@@ -831,7 +855,7 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
     docker = docker or _docker
     require_containerd_store(docker)
     require_release_platform(docker)
-    lock = json.loads((root / 'versions.lock.json').read_text())
+    lock = lock or json.loads((root / 'versions.lock.json').read_text())
     staging = root / '.ci-results' / 'release-build' / rid
     if staging.exists():
         raise InputError('build staging directory exists')
@@ -844,6 +868,12 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
                 arguments = []
                 for argument, base in sorted(entry['build_args'].items()):
                     arguments += ['--build-arg', f'{argument}={pinned_reference(lock, base)}']
+                for argument, path in sorted((entry.get('tool_args') or {}).items()):
+                    arguments += ['--build-arg', f'{argument}={pinned_tool_value(lock, path)}']
+                for argument, variable in sorted((entry.get('mirror_args') or {}).items()):
+                    value = (environ if environ is not None else os.environ).get(variable, '')
+                    if value:
+                        arguments += ['--build-arg', f'{argument}={mirror_url(variable, value)}']
                 context = (preparer or _prepare)(entry['context'], staging / name)
                 # No provenance or SBOM attestations: the release digest names the linux/amd64 image alone.
                 code, _ = docker(['build', '--pull=false', '--platform', RELEASE_PLATFORM, '--provenance=false', '--sbom=false', *arguments, '--label', f'org.opencontainers.image.revision={sha}', '--tag', tag, str(context)], 3600)
