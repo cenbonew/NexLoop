@@ -239,8 +239,9 @@ def verify_signature(release_dir, allowed_signers):
         raise Refused('manifest signature invalid')
 
 
-def verify(release_dir, *, allowed_signers, deploy_sha, deploy_images):
-    """AT-055: what is about to be deployed must be exactly the signed, tested manifest."""
+def verify(release_dir, *, allowed_signers, deploy_sha, deploy_images, deployed_elsewhere=()):
+    """AT-055: what is about to be deployed must be exactly the signed, tested manifest. A two-host release is verified once per
+    host: `deployed_elsewhere` names the manifest images the other host role deploys, so only they may be absent here."""
     release_dir = Path(release_dir)
     verify_signature(release_dir, allowed_signers)
     manifest = json.loads((release_dir / 'manifest.json').read_text())
@@ -260,7 +261,7 @@ def verify(release_dir, *, allowed_signers, deploy_sha, deploy_images):
             failures.append('image_not_in_manifest:' + name)
         elif digest != expected[name]['digest']:
             failures.append('image_digest_differs:' + name)
-    missing = sorted(set(expected) - set(deploy_images))
+    missing = sorted(set(expected) - set(deploy_images) - set(deployed_elsewhere))
     if missing:
         failures.append('image_not_deployed_from_manifest:' + ','.join(missing))
     if failures:

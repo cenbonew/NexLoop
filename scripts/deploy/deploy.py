@@ -113,8 +113,11 @@ def dry_run(*, host_role, stage_env, out, release_dir=None, allowed_signers=None
         by_name = {i['name']: i for i in manifest['images']}
         images = {var: f'nexloop/{name}@{by_name[name]["digest"]}' for var, name in mapping.items() if name in by_name}
         try:
+            # The release is shared by both hosts: the other role's images may be absent here, nothing else may.
+            elsewhere = DATA_RELEASE_IMAGES.values() if host_role == 'app' else DEFAULT_APP_IMAGES.values()
             verified = release.verify(release_dir, allowed_signers=allowed_signers, deploy_sha=trusted_sha,
-                                      deploy_images={name: by_name[name]['digest'] for name in mapping.values() if name in by_name})
+                                      deploy_images={name: by_name[name]['digest'] for name in mapping.values() if name in by_name},
+                                      deployed_elsewhere=elsewhere)
             checks['release_verified'] = True
             details['release'] = {'release_id': verified['release_id'], 'commit': verified['commit']}
         except release.Refused as refused:

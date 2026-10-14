@@ -162,3 +162,27 @@ def test_the_data_host_renders_every_image_its_compose_file_requires(signed_data
     assert deploy.required_image_variables('data') == sorted(deploy.DATA_IMAGES)
     out = run_data(signed_data, stage, 'data')
     assert out['checks']['compose_image_variables_complete'] is True and out['details']['missing_image_variables'] == []
+
+
+@pytest.fixture
+def signed_both(inputs):  # noqa: F811
+    """The real release shape: one signed manifest carrying the app images and nexloop/postgres (found by the 2026-10-14 rehearsal)."""
+    digests = {'backend': DIGEST_API, 'agent-host': DIGEST_HOST, 'gateway': DIGEST_GATEWAY, 'postgres': DIGEST_POSTGRES}
+    images = {name: {'archive': str(oci_archive(inputs['tmp'] / f'{name}.tar', digest)), 'digest': digest} for name, digest in digests.items()}
+    images['postgres']['base'] = 'postgres'
+    inputs['images'].write_text(json.dumps(images))
+    make(inputs)
+    rel = inputs['tmp'] / 'release'
+    key, allowed = keypair(inputs['tmp'], 'release-key')
+    release.sign(rel, key)
+    return {**inputs, 'release': rel, 'allowed': allowed}
+
+
+def test_a_two_host_release_verifies_on_each_host_and_nothing_else_may_be_left_out(signed_both, stage):
+    app = run(signed_both, stage, 'both-app', image_vars=None)
+    assert app['ready'] is True and app['checks']['release_verified'] is True, app
+    data = run_data(signed_both, stage, 'both-data')
+    assert data['ready'] is True and data['checks']['release_verified'] is True, data
+    # Only the other role's images may be absent: an app mapping that leaves out an app image is still refused.
+    partial = run(signed_both, stage, 'both-partial', image_vars={'BACKEND_IMAGE': 'backend', 'AGENT_HOST_IMAGE': 'agent-host'})
+    assert partial['ready'] is False and 'image_not_deployed_from_manifest:gateway' in partial['details']['release_refused']
