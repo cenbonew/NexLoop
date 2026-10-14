@@ -24,11 +24,11 @@
 | 能力 | 状态 | 本手册中的处理 |
 |---|---|---|
 | 清单表、恢复日志、恢复围栏、迁移门槛（`nexloop-migrate`）、`doctor --backup`、`backup.v1.json`、告警规则 v3 | 已合入 | 直接使用 |
-| `nexloop-backup pg` | 已有，但用的是 `pg_basebackup` 加 `pg_verifybackup` | 部署切片要改为调用 pgBackRest，并把 `pgbackrest info` 和 `verify` 的结果写入清单。**在此之前迁移门槛会拒绝**，因为清单里没有 pgBackRest 的已验证行 |
+| `nexloop-backup pg` | 已改为调用 pgBackRest（`backup`、`verify`、`info`），清单写入工具、版本与校验证据（[NX-035-pgbackrest.md](NX-035-pgbackrest.md)，清单 schema v2） | 第 2.5、2.6 步直接使用；`--tool pg_basebackup` 只用于没有 pgBackRest 的开发与测试集群 |
 | `nexloop-backup journal` | 已有 | 直接使用 |
 | 文件备份执行者 `nexloop-file-backup`（Artifact 和已终态 Run 目录，restic） | 未实现（切片三） | 第 3 步先只备份恢复日志目录；Artifact 和 Run 目录的条目注明“待切片三” |
 | 恢复命令行 `nexloop-restore`（含 `--target-name` 和 `--target-time`） | 未实现（部署切片） | 第 4 步列出完整步骤，其中依赖它的命令标为“待实现” |
-| pgBackRest 和 restic 写入 `versions.lock.json` 与第三方许可清单 | 未做 | 第 2、3 步的前置条件 |
+| pgBackRest 和 restic 写入 `versions.lock.json` 与第三方许可清单 | 已写入版本与来源（`deployment_tools`，`pinned_not_installed`）；sha256 在安装时回填 | 第 2.1、3.1 步安装时核对官方校验值并回填锁文件 |
 
 **结论**：第 1 步和第 3 步中恢复日志的部分现在就能执行；第 2 步中“清单写入”和第 4 步都要等部署切片的代码合入。NX-032 的第 5 步（迁移）也必须等这两步完成。
 
@@ -230,7 +230,14 @@ ssh "$SSH_ALIAS_DATA" docker exec -u postgres nexloop-data-postgres-1 pgbackrest
 ssh "$SSH_ALIAS_DATA" docker exec -u postgres nexloop-data-postgres-1 pgbackrest --stanza=nexloop info --output=json
 ```
 
-接着执行部署切片提供的命令，把结果写入清单：`nexloop-backup pg --record-from-pgbackrest …`。具体参数以部署切片为准。
+首个全量备份不要直接调用 `pgbackrest backup`，而是通过执行者完成，这样备份、校验与清单写入是同一次操作（参数见 [NX-035-pgbackrest.md](NX-035-pgbackrest.md) §1）：
+
+```
+nexloop-backup pg --recorder-dsn-file "$PRIVATE_RECORDER_DSN" --pgbackrest-command-file "$PGBACKREST_COMMAND_JSON" --stanza nexloop --expected-version "$PGBACKREST_VERSION" --repo repo1 --kind pg_full
+nexloop-backup pg --recorder-dsn-file "$PRIVATE_RECORDER_DSN" --pgbackrest-command-file "$PGBACKREST_COMMAND_JSON" --stanza nexloop --expected-version "$PGBACKREST_VERSION" --repo repo2 --kind pg_full
+```
+
+上面列出的 `--repo=1/2 --type=full backup` 两行由这两条命令代替；`stanza-create`、`check`、`info` 照旧手工执行，用于核对。
 
 - **预期**：
   - `check` 输出 `completed successfully`；
@@ -242,10 +249,10 @@ ssh "$SSH_ALIAS_DATA" docker exec -u postgres nexloop-data-postgres-1 pgbackrest
 ### 2.6 迁移前后的差异备份（每次执行 NX-032 第 5 步时）
 
 ```
-pgbackrest --stanza=nexloop --type=diff backup && pgbackrest --stanza=nexloop verify
+nexloop-backup pg --recorder-dsn-file "$PRIVATE_RECORDER_DSN" --pgbackrest-command-file "$PGBACKREST_COMMAND_JSON" --stanza nexloop --expected-version "$PGBACKREST_VERSION" --repo repo1 --kind pg_diff
 ```
 
-执行后再写入清单，然后才调用 `nexloop-migrate`。迁移完成后，立即再执行一次。
+退出码为 0（清单中这一行为 `verified`）之后，才调用 `nexloop-migrate`。迁移完成后，立即再执行一次。
 
 - **预期**：迁移门槛输出 `{"migrated": true, ...}`。
 - **撤销**：不需要。
