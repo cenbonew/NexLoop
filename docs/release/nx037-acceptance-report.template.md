@@ -1,6 +1,6 @@
 # NX-037 受控真实闭环验收报告（模板）
 
-> **客户为模拟、系统为真实。** 本次试运行的消费者由负责人操作的 AI 代理（Claude Code / Codex 通过浏览器操作）扮演；员工侧的人工接管和工单标记也可能由代理完成。部署、网关、DeepSeek 真实模型、企业端点与 WebChat 都是真实的。交互记录与证据包标注 `persona: simulated_agent`；按客户行为得出的结论（满意度、话术效果等）不适用于真实客户。
+> **客户为模拟、系统为真实。** 本次试运行的消费者由负责人操作的 AI 代理（Claude Code / Codex 通过浏览器操作）扮演。负责人是唯一的员工：工作台接管回复和工单标记由负责人本人或负责人操作的代理完成。部署、网关、DeepSeek 真实模型、企业端点与 WebChat 都是真实的。交互记录与证据包标注 `persona: simulated_agent`；按客户行为得出的结论（满意度、话术效果等）不适用于真实客户。
 
 - 试运行 ID：`<TRIAL_UUID>`；日期：`<DATES>`；提交：`<COMMIT>`；发布清单：`<RELEASE_ID>`
 - 运行入口：`run_interactions.py --driver real`；证据包：`<EVIDENCE_DIR>`（`index.json` 的 `real_evidence` 应为 true，`interactions/summary.json` 的 `persona` 为 `simulated_agent`）

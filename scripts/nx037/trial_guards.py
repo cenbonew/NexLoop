@@ -3,10 +3,10 @@ or resumes. Each returns refusal codes (empty when the guard holds); no guard wr
 none prints a name, a path, a credential or a body.
 
 - D3 (owner 2026-10-14, ROADMAP §7: the customers are AI agents the owner operates through the browser; the system is real):
-  the owner's one-time operator authorization (a private file; its sha256 in the trial configuration's operator_authorization,
-  --operator-authorization-file) else authorization_missing; every consumer of the interaction plan registered in participants
-  with kind agent (the tool, never a credential) or human (kept for later real people: a private signed consent file mapped by
-  --consent-files, sha256 registered), else consent_missing. Only consumer ids, kinds, personas and sha256 reach the trial
+  the owner's own one-time operator authorization (a private file; its sha256 in the trial configuration's
+  operator_authorization, --operator-authorization-file) else authorization_missing; every consumer of the interaction plan a
+  participant of kind agent (the tool, never a credential); kind human only for the owner in the staff role (the owner is the
+  only staff member), never as a consumer; else consent_missing. Only consumer ids, kinds and personas reach the trial
   directory (consent.json) and the evidence pack.
 - trial window: the trial configuration's plan.window (local start/end, timezone, default Asia/Shanghai); outside it a trial
   neither starts nor resumes (outside_trial_window).
@@ -52,15 +52,16 @@ KINDS = ('agent', 'human')
 AGENT_TOOL = re.compile(r'[A-Za-z0-9][A-Za-z0-9 ._()/+-]{0,79}')
 
 
-def consent(trial_config, plan_value, consent_files, authorization_file=None):
-    """D3 (owner 2026-10-14, ROADMAP §7: the customers are AI agents the owner operates). (refusal codes, participants for the
-    record: [{consumer_id, kind, persona[, consent_sha256]}]).
+def consent(trial_config, plan_value, authorization_file=None):
+    """D3 (owner 2026-10-14, ROADMAP §7: the customers are AI agents the owner operates; the owner is the only staff member).
+    (refusal codes, participants for the record: [{consumer_id, kind, persona}]).
 
-    - operator_authorization {authorization_sha256}: the owner's one-time authorization (a private file, 0600) must exist and
+    - operator_authorization {authorization_sha256}: the owner's own one-time authorization (a private file, 0600) must exist and
       match, else authorization_missing;
-    - participants [{kind, consumer_ref, agent | consent_sha256}]: kind agent (agent: the tool, e.g. "Claude Code via browser",
-      never a credential) or human (kept for later real people: a private signed consent file mapped by --consent-files, sha256
-      as registered); every consumer of the plan must be a participant, else consent_missing."""
+    - participants: every consumer of the plan is a participant of kind agent (consumer_ref and the tool, e.g. "Claude Code via
+      browser", never a credential); kind human appears only for the owner in the staff role ({kind: human, role: staff}, no
+      consumer_ref): a consumer that is not an agent participant, a human entry with a consumer_ref, or any other kind refuses
+      with consent_missing."""
     failed = []
     authorization = trial_config.get('operator_authorization')
     digest = authorization.get('authorization_sha256') if type(authorization) is dict else None
@@ -69,30 +70,18 @@ def consent(trial_config, plan_value, consent_files, authorization_file=None):
         failed.append('authorization_missing')
     participants = trial_config.get('participants')
     consumers = plan_value.get('consumers')
-    if type(participants) is not list or type(consumers) is not list or not consumers:
+    if type(participants) is not list or type(consumers) is not list or not consumers or any(type(p) is not dict for p in participants):
         return failed + ['consent_missing'], []
-    registered = {p.get('consumer_ref'): p for p in participants if type(p) is dict}
-    files = None
+    for p in participants:
+        if p.get('kind') not in KINDS or (p['kind'] == 'human' and (p.get('role') != 'staff' or 'consumer_ref' in p)):
+            return failed + ['consent_missing'], []
+    agents = {p.get('consumer_ref'): p for p in participants if p['kind'] == 'agent'}
     recorded = []
     for ref in consumers:
-        entry = registered.get(ref)
-        if _consumer_id(ref) is None or entry is None or entry.get('kind') not in KINDS:
+        entry = agents.get(ref)
+        if _consumer_id(ref) is None or entry is None or type(entry.get('agent')) is not str or not AGENT_TOOL.fullmatch(entry['agent']):
             return failed + ['consent_missing'], []
-        if entry['kind'] == 'agent':
-            if type(entry.get('agent')) is not str or not AGENT_TOOL.fullmatch(entry['agent']):
-                return failed + ['consent_missing'], []
-            recorded.append({'consumer_id': _consumer_id(ref), 'kind': 'agent', 'persona': 'simulated_agent'})
-            continue
-        if files is None:
-            try:
-                files = json.loads(Path(consent_files).read_text(encoding='utf-8')) if consent_files is not None and _private(consent_files) else {}
-            except (OSError, ValueError):
-                files = {}
-        sha, path = entry.get('consent_sha256'), files.get(ref) if type(files) is dict else None
-        if (type(sha) is not str or len(sha) != 64 or type(path) is not str or not _private(path)
-                or hashlib.sha256(Path(path).read_bytes()).hexdigest() != sha):
-            return failed + ['consent_missing'], []
-        recorded.append({'consumer_id': _consumer_id(ref), 'kind': 'human', 'persona': 'human', 'consent_sha256': sha})
+        recorded.append({'consumer_id': _consumer_id(ref), 'kind': 'agent', 'persona': 'simulated_agent'})
     return failed, ([] if failed else recorded)
 
 

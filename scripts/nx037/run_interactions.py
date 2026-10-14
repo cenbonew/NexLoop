@@ -3,7 +3,7 @@
     python scripts/nx037/run_interactions.py --driver synthetic --trial-id UUID --out DIR [--plan-file F] [--inject SEQ=FAULT]
     python scripts/nx037/run_interactions.py --driver real --trial-id UUID --out DIR --plan-file F \\
         --tenant UUID --owner-principal REF --value-catalog F --channel-ref REF --period-start ISO --period-end ISO \\
-        --metrics-dsn-file F --owner-session-file F --host-config F --operator-authorization-file F [--consent-files F] \
+        --metrics-dsn-file F --owner-session-file F --host-config F --operator-authorization-file F \
         --webchat-provider-file F \
         [--enterprise-provider-file F [--endpoint-parameters-file F]]
     ... --resume OWNER-CONFIRMATION-REF        # continue a paused trial (recorded in DIR/resumes.jsonl)
@@ -19,7 +19,7 @@ after each, the executor collects its evidence and applies the stop and pause ru
   switch layers are exactly the plan's real_dispatch (this process's REAL_DISPATCH_ENABLED; the tenant switch and its data
   mode, the open Action switches via authz.nexloop_nx037_open_switches of the metrics role), and (3) the start guards of
   scripts/nx037/trial_guards.py hold, at the start and at every resume: the owner's operator authorization
-  (authorization_missing) and every consumer the plan lists registered as an agent or human participant (consent_missing), the trial window plan.window (outside_trial_window), the enterprise endpoint's conformance when the plan
+  (authorization_missing) and every consumer the plan lists registered as an agent participant (consent_missing), the trial window plan.window (outside_trial_window), the enterprise endpoint's conformance when the plan
   opens nexloop.enterprise.deliver:1 (enterprise_endpoint_nonconformant), the WebChat reply delivery answering
   (webchat_delivery_unavailable) and the outbound recorder keeping up (outbound_recorder_stalled). Each real interaction also
   counts the tenant's actual model cost increase over it (0185), not only its trigger Run's cost. With them met, the real driver
@@ -188,7 +188,7 @@ DELIVER = 'eios:action:nexloop.enterprise.deliver:1'
 def guard_refusals(args, trial_config, plan, connection, now):
     """The real-mode start guards (trial_guards): consent, trial window, enterprise endpoint, WebChat delivery, recorder."""
     import trial_guards as G
-    failed, participants = G.consent(trial_config, {'consumers': plan['consumers']}, args.consent_files, args.operator_authorization_file)
+    failed, participants = G.consent(trial_config, {'consumers': plan['consumers']}, authorization_file=args.operator_authorization_file)
     failed += G.window(trial_config, now)
     if DELIVER in ((plan['real_dispatch'] or {}).get('actions') or []):
         failed += G.enterprise_endpoint(args.enterprise_provider_file, args.endpoint_parameters_file, args.out) if args.enterprise_provider_file \
@@ -214,7 +214,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
     parser.add_argument('--interaction-timeout', type=int, default=900, help='real: seconds the operator has per interaction')
     parser.add_argument('--poll-seconds', type=float, default=2.0, help='real: observation interval')
     for name in ('--tenant', '--owner-principal', '--value-catalog', '--channel-ref', '--period-start', '--period-end',
-                 '--metrics-dsn-file', '--owner-session-file', '--host-config', '--consent-files', '--operator-authorization-file', '--enterprise-provider-file',
+                 '--metrics-dsn-file', '--owner-session-file', '--host-config', '--operator-authorization-file', '--enterprise-provider-file',
                  '--endpoint-parameters-file', '--webchat-provider-file'):
         parser.add_argument(name)
     try:

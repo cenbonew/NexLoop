@@ -53,8 +53,7 @@ real 模式在开始时和每次 `--resume` 时检查以下各项。任何一项
 
 - **D3 改为两部分**：
   - 负责人一次性操作授权：`operator_authorization.authorization_sha256`，加上私有授权文件 `--operator-authorization-file`；不满足时为 `authorization_missing`。
-  - 参与者登记：`participants` 每项包含 `kind`（agent 或 human）、`consumer_ref`，agent 还要写 `agent` 工具名；计划的每个消费者都必须登记，否则为 `consent_missing`。
-  - human 保留原来的同意书核对，留给以后真人参与。
+  - 参与者登记：负责人是唯一的员工（调度员补充，2026-10-14）。计划的每个消费者都必须是 `kind: agent` 的参与者（`consumer_ref` 加工具名）；`kind: human` 只用于负责人本人的员工角色（`role: staff`，不带消费者账号）。其他情况一律为 `consent_missing`。原来的真人同意书核对和 `--consent-files` 已经去掉。
 - **persona 标记**：全部参与者都是代理时，每条交互记录、state 和证据包 summary 都标 `persona: simulated_agent`；`participants.json` 写 consumer id、kind、persona。
 - **系统内的测试人设标记（未实现，已回报调度员）**：
   - 现状：Consumer v1 是最小类型（部署时 `Consumer.create` 的属性为空；`consumer_profile.py` 的 `lifecycle_status` 等字段只是新租户的声明，没有发布）。没有现成的分类或标记字段，`lifecycle_status` 的语义也不合适。

@@ -99,8 +99,8 @@ def test_enterprise_slot_examples():
 
 
 def test_trial_consent_examples_fit_the_start_guard(tmp_path):
-    """D3 (owner 2026-10-14): the operator authorization and agent participants, and the plan's consumers, filled with synthetic
-    values, pass the run entry's guard; the consent file mapping stays the form for later human participants."""
+    """D3 (owner 2026-10-14): the owner's authorization, the agent participants and the owner as the only staff member, and the
+    plan's consumers, filled with synthetic values, pass the run entry's guard."""
     import hashlib
     import sys
     sys.path.insert(0, str(ROOT / 'scripts/nx037'))
@@ -111,5 +111,4 @@ def test_trial_consent_examples_fit_the_start_guard(tmp_path):
     digest = hashlib.sha256(authorization.read_bytes()).hexdigest()
     trial = filled('trial-participants.example.json', CONSUMER_ID=HEX, AUTHORIZATION_SHA256=digest, AGENT_TOOL='Claude Code via browser')
     plan = filled('interaction-plan-consumers.example.json', CONSUMER_ID=HEX)
-    assert trial_guards.consent(trial, plan, None, authorization) == ([], [{'consumer_id': HEX, 'kind': 'agent', 'persona': 'simulated_agent'}])
-    assert filled('consent-files.example.json', CONSUMER_ID=HEX, ABSOLUTE_PATH_TO_PRIVATE_CONSENT_FILE='/private/consent') == {'consumer:' + HEX: '/private/consent'}
+    assert trial_guards.consent(trial, plan, authorization) == ([], [{'consumer_id': HEX, 'kind': 'agent', 'persona': 'simulated_agent'}])

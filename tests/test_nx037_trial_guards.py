@@ -26,21 +26,19 @@ A, B, C = 'consumer:' + 'a' * 64, 'consumer:' + 'b' * 64, 'consumer:' + 'c' * 64
 
 
 def consent_setup(tmp_path):
-    """Owner 2026-10-14: A and B are AI agents the owner operates (Claude Code / Codex through the browser); C is a real person
-    (kept for later), with a private signed consent file."""
+    """Owner 2026-10-14: A and B are AI agents the owner operates (Claude Code / Codex through the browser); the owner is the only
+    staff member (kind human, role staff, no consumer account)."""
     authorization = private(tmp_path / 'operator-authorization.txt', f'synthetic owner authorization {secrets.token_hex(8)}')
-    signed = private(tmp_path / 'consent-c.pdf', f'synthetic signed consent {secrets.token_hex(8)}')
     trial = {'operator_authorization': {'authorization_sha256': hashlib.sha256(authorization.read_bytes()).hexdigest()},
              'participants': [{'kind': 'agent', 'consumer_ref': A, 'agent': 'Claude Code via browser'},
                               {'kind': 'agent', 'consumer_ref': B, 'agent': 'Codex via browser'},
-                              {'kind': 'human', 'consumer_ref': C, 'consent_sha256': hashlib.sha256(signed.read_bytes()).hexdigest()}]}
-    mapping = private(tmp_path / 'consent-files.json', json.dumps({C: str(signed)}))
-    return trial, {'consumers': [A, B]}, mapping, authorization, signed
+                              {'kind': 'human', 'role': 'staff'}]}
+    return trial, {'consumers': [A, B]}, authorization
 
 
-def test_agent_participants_with_the_owner_authorization_pass_and_are_marked_simulated(tmp_path):
-    trial, plan, mapping, authorization, _ = consent_setup(tmp_path)
-    failed, recorded = G.consent(trial, plan, None, authorization)  # agents only: no consent files needed
+def test_agent_customers_with_the_owner_authorization_pass_and_are_marked_simulated(tmp_path):
+    trial, plan, authorization = consent_setup(tmp_path)
+    failed, recorded = G.consent(trial, plan, authorization)
     assert failed == [] and recorded == [{'consumer_id': 'a' * 64, 'kind': 'agent', 'persona': 'simulated_agent'},
                                          {'consumer_id': 'b' * 64, 'kind': 'agent', 'persona': 'simulated_agent'}]
     assert G.persona(recorded) == 'simulated_agent'
@@ -48,10 +46,6 @@ def test_agent_participants_with_the_owner_authorization_pass_and_are_marked_sim
     G.record_consent(out, recorded)
     assert json.loads((out / 'consent.json').read_text()) == {'participants': recorded} and (out / 'consent.json').stat().st_mode & 0o777 == 0o600
     assert 'Claude Code' not in (out / 'consent.json').read_text()  # the tool description stays in the configuration
-    # A real person (reserved): the signed consent file mapped, private and matching.
-    failed, recorded = G.consent(trial, {'consumers': [A, C]}, mapping, authorization)
-    assert failed == [] and recorded[1] == {'consumer_id': 'c' * 64, 'kind': 'human', 'persona': 'human', 'consent_sha256': trial['participants'][2]['consent_sha256']}
-    assert G.persona(recorded) == 'mixed' and G.persona(recorded[1:]) == 'human'
 
 
 @pytest.mark.parametrize('case,code', [('no_authorization_file', 'authorization_missing'), ('authorization_not_private', 'authorization_missing'),
@@ -59,9 +53,9 @@ def test_agent_participants_with_the_owner_authorization_pass_and_are_marked_sim
                                        ('consumer_not_registered', 'consent_missing'), ('unknown_kind', 'consent_missing'),
                                        ('agent_without_tool', 'consent_missing'), ('plan_without_consumers', 'consent_missing'),
                                        ('trial_without_participants', 'consent_missing'), ('not_a_consumer_ref', 'consent_missing'),
-                                       ('human_without_consent_file', 'consent_missing'), ('human_consent_differs', 'consent_missing')])
-def test_consent_and_authorization_refuse_each_missing_item(tmp_path, case, code):
-    trial, plan, mapping, authorization, signed = consent_setup(tmp_path)
+                                       ('human_as_consumer', 'consent_missing'), ('human_not_staff', 'consent_missing')])
+def test_authorization_and_participants_refuse_each_missing_item(tmp_path, case, code):
+    trial, plan, authorization = consent_setup(tmp_path)
     if case == 'no_authorization_file':
         authorization = None
     elif case == 'authorization_not_private':
@@ -71,7 +65,7 @@ def test_consent_and_authorization_refuse_each_missing_item(tmp_path, case, code
     elif case == 'no_authorization_block':
         del trial['operator_authorization']
     elif case == 'consumer_not_registered':
-        plan = {'consumers': [A, 'consumer:' + 'e' * 64]}
+        plan = {'consumers': [A, C]}
     elif case == 'unknown_kind':
         trial['participants'][1]['kind'] = 'robot'
     elif case == 'agent_without_tool':
@@ -82,12 +76,12 @@ def test_consent_and_authorization_refuse_each_missing_item(tmp_path, case, code
         del trial['participants']
     elif case == 'not_a_consumer_ref':
         plan = {'consumers': ['owner-principal-synthetic']}
-    elif case == 'human_without_consent_file':
-        plan, mapping = {'consumers': [C]}, None
-    elif case == 'human_consent_differs':
-        plan = {'consumers': [C]}
-        signed.write_text('changed')
-    failed, recorded = G.consent(trial, plan, mapping, authorization)
+    elif case == 'human_as_consumer':  # people never play the customer: the owner is staff only
+        trial['participants'][2] = {'kind': 'human', 'role': 'staff', 'consumer_ref': C}
+        plan = {'consumers': [A, C]}
+    elif case == 'human_not_staff':
+        trial['participants'][2] = {'kind': 'human', 'role': 'customer'}
+    failed, recorded = G.consent(trial, plan, authorization)
     assert code in failed and recorded == []
 
 

@@ -192,7 +192,7 @@ python scripts/nx037/run_interactions.py --driver synthetic --trial-id <TRIAL_UU
 #### real 模式（【B】负责人本人）
 
 ```bash
-python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> --out <PRIVATE_EVIDENCE_DIR> --plan-file <PLAN_FILE> --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE> --owner-session-file <OWNER_SESSION_FILE> --host-config <AGENT_HOST_RUNTIME_CONFIG_FILE> --operator-authorization-file <OWNER_AUTHORIZATION_FILE> [--consent-files <CONSENT_FILES_JSON>] --webchat-provider-file <WEBCHAT_PROVIDER_FILE> --enterprise-provider-file <ENTERPRISE_PROVIDER_FILE> [--endpoint-parameters-file <NOOP_PARAMETERS_FILE>]
+python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> --out <PRIVATE_EVIDENCE_DIR> --plan-file <PLAN_FILE> --tenant <TENANT_ID> --owner-principal <OWNER_PRINCIPAL_REF> --value-catalog <VALUE_CATALOG_FILE> --channel-ref <CHANNEL_REF> --period-start <PERIOD_START_ISO> --period-end <PERIOD_END_ISO> --metrics-dsn-file <METRICS_DSN_FILE> --owner-session-file <OWNER_SESSION_FILE> --host-config <AGENT_HOST_RUNTIME_CONFIG_FILE> --operator-authorization-file <OWNER_AUTHORIZATION_FILE> --webchat-provider-file <WEBCHAT_PROVIDER_FILE> --enterprise-provider-file <ENTERPRISE_PROVIDER_FILE> [--endpoint-parameters-file <NOOP_PARAMETERS_FILE>]
 ```
 
 - 私有文件（DSN、负责人会话）必须是 0600 的普通文件；缺参数、带 `--inject` 或文件不私有时，在连接数据库之前就拒绝。
@@ -203,10 +203,8 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
   4. **开跑与恢复守卫**（`scripts/nx037/trial_guards.py`，开始和每次 `--resume` 都检查）：
      - **D3（负责人 2026-10-14 变更）**：试运行的客户由负责人操作的 AI 代理扮演（Claude Code / Codex 通过浏览器操作）；部署、网关、DeepSeek 真实模型、企业端点和 WebChat 都是真实的。
        - 负责人一次性操作授权（`authorization_missing`）：授权书是一份私有文件（0600），不进仓库；试运行配置的 `operator_authorization.authorization_sha256` 登记它的 sha256，运行时用 `--operator-authorization-file` 给出。
-       - 参与者登记（`consent_missing`）：交互计划 `consumers` 里的每个消费者账号都必须在 `participants` 里登记。`kind` 只允许 `agent` 或 `human`：
-         - `agent`：写明代理工具名（例如 "Claude Code via browser"），不写凭据；
-         - `human`：留给以后真人参与，要求私有同意书，sha256 一致，由 `--consent-files` 映射。
-       - 试运行目录的 `consent.json` 和证据包只写 consumer id、kind、persona（以及真人的同意书 sha256），不写工具说明，也不写姓名。
+       - 参与者登记（`consent_missing`）：负责人是唯一的员工。计划 `consumers` 里的每个消费者账号都必须登记为 `kind: agent`，写明代理工具名（例如 "Claude Code via browser"），不写凭据。`kind: human` 只出现一次，就是负责人本人担任员工角色（`{"kind": "human", "role": "staff"}`，不带消费者账号）。人不会扮演客户。
+       - 试运行目录的 `consent.json` 和证据包只写 consumer id、kind、persona，不写工具说明，也不写姓名。
        - 示例：`deploy/examples/nx037/trial-participants.example.json`、`interaction-plan-consumers.example.json`。
        - 全部参与者都是代理时，每条交互记录、state 和证据包都标 `persona: simulated_agent`，后续分析可以据此排除。
      - **试运行窗口**（`outside_trial_window`）：试运行配置的 `plan.window`（本地时间，时区默认 Asia/Shanghai），窗口外不开始，也不恢复。
@@ -238,12 +236,13 @@ python scripts/nx037/run_interactions.py --driver real --trial-id <TRIAL_UUID> -
 
 ### 9.4a 开跑清单（负责人本人，每个试运行日）
 
-> **客户为模拟、系统为真实**：消费者由负责人操作的 AI 代理（Claude Code / Codex 通过浏览器）扮演；员工侧的人工接管和工单标记也可以交给代理操作。部署、网关、DeepSeek 真实模型、企业端点与 WebChat 都是真实的。排期：10/17 校准，10/18–19 跑 30 次以上交互，10/20 验收（ROADMAP §7，负责人 2026-10-14）。
+> **客户为模拟、系统为真实**：消费者由负责人操作的 AI 代理（Claude Code / Codex 通过浏览器）扮演。负责人是唯一的员工：员工侧的工作台接管回复和参考端点工单标记，由负责人本人做，或由负责人操作代理使用负责人唯一的工作台账号来做。部署、网关、DeepSeek 真实模型、企业端点与 WebChat 都是真实的。排期：10/17 校准，10/18–19 跑 30 次以上交互，10/20 验收（ROADMAP §7，负责人 2026-10-14）。
 
 开跑前：
 
 1. 三层开关按计划打开（9.3 节），`real_tenant_init.py verify` 中除开关以外的检查全部通过。
-2. 授权与参与者：负责人的一次性操作授权书放进私有目录（0600），在 `operator_authorization` 里登记 sha256；每个代理使用的消费者账号都在 `participants` 里登记（`kind: agent` 和工具名），并在计划的 `consumers` 里列出。代理只用这些账号登录 WebChat；员工侧（接管、工单标记）交给代理时，在当天的开跑记录里写明使用的工作台账号。
+2. 授权与参与者：负责人本人的一次性操作授权书放进私有目录（0600），在 `operator_authorization` 里登记 sha256；每个代理使用的消费者账号都在 `participants` 里登记（`kind: agent` 和工具名），并在计划的 `consumers` 里列出；负责人本人登记一次 `{"kind": "human", "role": "staff"}`。代理只用这些消费者账号登录 WebChat；员工侧使用负责人唯一的工作台账号。
+5. **负责人在场的时点**：只有两个，一是校准后的暂停核对（第 3 次交互之后，核对单次费用，然后用 `--resume` 恢复），二是异常决策（任何停止，或校准以外的暂停：错误率、费用、未了结的不明效应、交互超时，以及 critical 告警）。其余由代理按计划执行：扮演客户发消息、接管回复、标记工单、按运行入口的提示推进。
 3. 准备 provider 文件：企业 provider 文件与 effect worker 用的是同一份；回复 provider 文件指向 `webchat-delivery`；端点检查用的空操作参数文件已经和企业确认。
 4. 当前时间在 `plan.window` 内。
 
