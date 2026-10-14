@@ -53,7 +53,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # v2 (NX-037 gap B): the plan opens nexloop.enterprise.deliver:1, the trial applies effect categories v3. v1 files stay valid.
 TRIAL = ROOT / 'deploy/configuration/nx037-trial.v2.json'
 PLAN = ROOT / 'deploy/configuration/nx037-interaction-plan.v2.json'
-PLAN_SCHEMAS = ('nexloop.nx037-interaction-plan.v1', 'nexloop.nx037-interaction-plan.v2')
+PLAN_SCHEMAS = ('nexloop.nx037-interaction-plan.v1', 'nexloop.nx037-interaction-plan.v2', 'nexloop.nx037-interaction-plan.v3')
+PLAN_V3 = 'nexloop.nx037-interaction-plan.v3'
+# Plan v3 account groups (dispatcher 2026-10-14): a refusal restricts its consumer, and a restricted consumer's enterprise
+# deliveries are refused at dispatch; the refusal accounts never play a delivery or an unknown result.
+REFUSAL_KINDS, DELIVERY_KINDS = ('restricted_after_refusal',), ('real_delivery', 'unknown_reconciliation')
 SWITCH_CHECKS = ('deployment_switch_closed', 'tenant_switch_closed', 'action_switches_closed')
 # Synthetic tenants (tests/support/tenants.TENANT_A and TENANT_OTHER): the synthetic driver never runs against a real tenant.
 SYNTHETIC_TENANT, SYNTHETIC_OTHER = '00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000c'
@@ -78,7 +82,20 @@ def load_interaction_plan(path, trial_plan):
     consumers = value.get('consumers')
     if consumers is not None and (type(consumers) is not list or any(type(c) is not str for c in consumers)):
         raise Refused('interaction plan consumers')
-    return {'order': validate_order(trial_plan, value.get('order')), 'real_dispatch': real, 'consumers': consumers}
+    order = validate_order(trial_plan, value.get('order'))
+    v3 = value['schema'] == PLAN_V3
+    if v3 != all(isinstance(item, dict) for item in order):
+        raise Refused('interaction plan order items')  # v3: {kind, variant, consumer} items; v1/v2: kinds
+    if v3:
+        # The consumers are those of the order; a separate list, if given, must be the same set.
+        used = sorted({item['consumer'] for item in order})
+        if consumers is not None and sorted(set(consumers)) != used:
+            raise Refused('interaction plan consumers')
+        consumers = used
+        refusal = {i['consumer'] for i in order if i['kind'] in REFUSAL_KINDS}
+        if refusal & {i['consumer'] for i in order if i['kind'] in DELIVERY_KINDS}:
+            raise Refused('interaction plan account groups')
+    return {'order': order, 'real_dispatch': real, 'consumers': consumers}
 
 
 def switch_state(connection, tenant, environ):
@@ -267,7 +284,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
             trial_guards.record_consent(args.out, participants)
             trial_persona = trial_guards.persona(participants)
             observer = D.PgObserver(connect, args.metrics_dsn_file, args.tenant)
-            driver = D.RealDriver(config, observer=observer, operator=operator or D.ConsoleOperator(args.out),
+            driver = D.RealDriver(config, observer=observer, operator=operator or D.ConsoleOperator(args.out, wait=True),
                                   timeout_seconds=args.interaction_timeout, poll_seconds=args.poll_seconds)
             collector, calibration = None, True
     except (Refused, X.PlanInvalid, ValueError, OSError) as error:

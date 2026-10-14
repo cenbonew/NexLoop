@@ -965,6 +965,11 @@
       "version": "0480",
       "name": "0480_nx037_outbound_backlog.sql",
       "sha256": "3b45ea8a789471ea9c1f82967c3acb813800c9b1a6e7e638be99cd470f96dcfb"
+    },
+    {
+      "version": "0481",
+      "name": "0481_nx037_interaction_messages.sql",
+      "sha256": "064bbebc6ef3318672cab661d22d64efc7e262844b1b9aab91991c6dead0d093"
     }
   ]
 }

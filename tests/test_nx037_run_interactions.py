@@ -294,3 +294,72 @@ def test_test_stack_records_state_and_evidence_pack_are_never_real_evidence(tmp_
     assert paused['status'] == 'paused'
     with pytest.raises(X.PlanInvalid):
         X.run(trial, *fresh(), tmp_path / 'paused', trial_id=TRIAL_ID, order=ORDER, resume='owner-confirmation:x')
+
+
+PLAN_V3 = ROOT / 'deploy/configuration/nx037-interaction-plan.v3.json'
+TRIAL_V3 = ROOT / 'deploy/configuration/nx037-trial.v3.json'
+
+
+def test_plan_v3_loads_with_the_mix_counted_by_kind_and_v2_still_loads():
+    trial = X.load_plan(TRIAL_V3)
+    v2 = X.load_plan(R.TRIAL)
+    assert trial['cost_caps'] == v2['cost_caps'] and trial['currency'] == v2['currency'] and trial['calibration'] == v2['calibration']
+    assert json.loads(TRIAL_V3.read_text())['stop'] == json.loads(R.TRIAL.read_text())['stop']
+    assert json.loads(TRIAL_V3.read_text())['pause'] == json.loads(R.TRIAL.read_text())['pause']
+    plan = R.load_interaction_plan(PLAN_V3, trial)
+    assert len(plan['order']) == 36 and {k: [i['kind'] for i in plan['order']].count(k) for k in X.KINDS} == trial['mix'] == {
+        'ordinary_reply': 16, 'real_delivery': 6, 'restricted_after_refusal': 5, 'human_takeover': 5, 'unknown_reconciliation': 4}
+    assert [i['kind'] for i in plan['order'][:3]] == ['ordinary_reply', 'real_delivery', 'unknown_reconciliation']  # calibration
+    assert plan['consumers'] == sorted({i['consumer'] for i in plan['order']}) and len(plan['consumers']) == 6
+    assert R.load_interaction_plan(R.PLAN, v2)['consumers'] is None  # v2: kinds only
+
+
+def test_plan_v3_refuses_a_wrong_mix_bad_items_and_a_refusal_account_playing_a_delivery(tmp_path):
+    trial = X.load_plan(TRIAL_V3)
+    base = json.loads(PLAN_V3.read_text())
+
+    def load(change):
+        value = json.loads(json.dumps(base))
+        change(value)
+        path = tmp_path / 'plan.json'
+        path.write_text(json.dumps(value))
+        return R.load_interaction_plan(path, trial)
+    with pytest.raises(X.PlanInvalid):
+        load(lambda v: v['order'][0].update(kind='real_delivery'))  # 15/7: the mix no longer holds
+    with pytest.raises(X.PlanInvalid):
+        load(lambda v: v['order'][0].update(variant='Not A Variant'))
+    with pytest.raises(X.PlanInvalid):
+        load(lambda v: v['order'][0].pop('consumer'))
+    with pytest.raises(R.Refused):
+        load(lambda v: v['order'].__setitem__(0, 'ordinary_reply'))  # v3 items only
+
+    def refusal_delivers(v):
+        refusal = next(i['consumer'] for i in v['order'] if i['kind'] == 'restricted_after_refusal')
+        next(i for i in v['order'] if i['kind'] == 'real_delivery')['consumer'] = refusal
+    with pytest.raises(R.Refused, match='account groups'):
+        load(refusal_delivers)
+    with pytest.raises(R.Refused):
+        load(lambda v: v.update(consumers=['consumer:<CUSTOMER_1>']))  # a separate list must be the order's set
+
+
+def test_a_v3_synthetic_run_records_variants_and_a_long_conversations_runs_count_per_run():
+    import tempfile
+    trial = X.load_plan(TRIAL_V3)
+    order = json.loads(PLAN_V3.read_text())['order']
+    from nexloop_eios.interaction_drivers import SyntheticCollector, SyntheticDriver
+    driver = SyntheticDriver(tenant=R.SYNTHETIC_TENANT, other_tenant=R.SYNTHETIC_OTHER)
+    with tempfile.TemporaryDirectory() as out:
+        state = X.run(trial, driver, SyntheticCollector(driver), out, trial_id=TRIAL_ID, order=order)
+        records = X.read_records(out)
+    assert state['status'] == 'completed' and state['recorded'] == 36 and [r['variant'] for r in records] == [i['variant'] for i in order]
+    # Several Runs: costs summed for the interaction, the per-Run cap judged on the largest Run.
+    merged = X.merge_evidence([{'model': {'calls': 1, 'ms': 10}, 'tool': {'calls': 1, 'ms': 5}, 'costs': {'model': {'amount': '1.5', 'currencies': ['CNY']}},
+                                'intents': {'fulfilled': 1}, 'intent_ids': ['a'], 'refusals': {}},
+                               {'model': {'calls': 2, 'ms': 20}, 'tool': {'calls': 0, 'ms': 0}, 'costs': {'model': {'amount': '1.0', 'currencies': ['CNY']}},
+                                'intents': {'fulfilled': 1}, 'intent_ids': ['b'], 'refusals': {'NXC05': 1}}])
+    assert merged['model'] == {'calls': 3, 'ms': 30} and merged['costs'] == {'model': {'amount': '2.5', 'currencies': ['CNY']}}
+    assert merged['intents'] == {'fulfilled': 2} and merged['intent_ids'] == ['a', 'b'] and merged['refusals'] == {'NXC05': 1}
+    within = {'facts': {}, 'outcome': 'ok', 'cost': {'total': '2.5', 'max_run': '1.5'}}
+    assert X.evaluate(within, [], trial, cumulative=X.Decimal('2.5'), monthly=X.Decimal('2.5')) == (None, [])
+    over = {'facts': {}, 'outcome': 'ok', 'cost': {'total': '2.5', 'max_run': '2.1'}}
+    assert X.evaluate(over, [], trial, cumulative=X.Decimal('2.5'), monthly=X.Decimal('2.5')) == ('stop', ['per_run_cost_exceeded'])

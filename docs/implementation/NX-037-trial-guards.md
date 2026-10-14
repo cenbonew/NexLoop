@@ -55,9 +55,34 @@ real 模式在开始时和每次 `--resume` 时检查以下各项。任何一项
   - 负责人一次性操作授权：`operator_authorization.authorization_sha256`，加上私有授权文件 `--operator-authorization-file`；不满足时为 `authorization_missing`。
   - 参与者登记：负责人是唯一的员工（调度员补充，2026-10-14）。计划的每个消费者都必须是 `kind: agent` 的参与者（`consumer_ref` 加工具名）；`kind: human` 只用于负责人本人的员工角色（`role: staff`，不带消费者账号）。其他情况一律为 `consent_missing`。原来的真人同意书核对和 `--consent-files` 已经去掉。
 - **persona 标记**：全部参与者都是代理时，每条交互记录、state 和证据包 summary 都标 `persona: simulated_agent`；`participants.json` 写 consumer id、kind、persona。
-- **系统内的测试人设标记（未实现，已回报调度员）**：
-  - 现状：Consumer v1 是最小类型（部署时 `Consumer.create` 的属性为空；`consumer_profile.py` 的 `lifecycle_status` 等字段只是新租户的声明，没有发布）。没有现成的分类或标记字段，`lifecycle_status` 的语义也不合适。
-  - 最小方案：新增控制面表 `control.nexloop_consumer_personas`，字段为 tenant、world、consumer_id、persona（只允许 simulated_agent）、trial_id、set_by、set_at、reason；由可信配置（configurator）或负责人受治理 Action 写入；为 metrics 角色提供只读函数；分析视图和导出按它排除。
-  - 涉及 schema，按要求先回报，待审定后再做。
+- **系统内的测试人设标记：v0.1 不做**（调度员审定，2026-10-14）。
+  - v0.1 靠三样东西区分测试账号：交互记录与证据包里的 `persona: simulated_agent`、证据包的 `participants.json`、试运行配置的 `participants`。后续分析按 participants 清单排除这些账号。
+  - 局限：系统内（数据库、工作台、导出）没有标记，这些账号产生的会话、Claim、承诺等数据与真实客户的数据混在一起，只能事后按清单排除。
+  - **后续项（v0.1 之后，需要 ADR）**：
+    - 新增控制面表 `control.nexloop_consumer_personas`，字段为 tenant_id、world、consumer_id、persona（只允许 simulated_agent）、trial_id、set_by、set_at、reason；租户外键遵循 NX-052。
+    - 写入只走可信配置（configurator）或负责人的受治理 Action；运行时、Agent 和服务主体不能写。
+    - 读取：metrics 角色的只读函数；分析视图、导出（NX-029）和评测数据集在源头按它排除。
+    - ADR 需要决定：标记能否撤销、撤销是否留痕；被标记账号的数据保留期；标记是否影响派发（建议不影响，只影响分析）。
 - 开跑清单写明"客户为模拟、系统为真实"（OPERATIONS §9.4a）。验收报告模板：`docs/release/nx037-acceptance-report.template.md`。
 - 交互计划 v3 草案：`docs/implementation/NX-037-plan-v3-draft.md`，待审定。
+
+## 6. 计划 v3 与多轮判定（调度员审定，2026-10-14）
+
+- **新文件**：`nx037-interaction-plan.v3.json`、`nx037-trial.v3.json`。共 36 次，配比 16/6/5/5/4，前 3 次为校准（普通回复、交付、结果未知）；上限与规则字段和 v2 相同。
+- **加载器同时接受 v2 和 v3**：
+  - v3 的 order 项写成 `{kind, variant, consumer}`，配比仍按 kind 计数；
+  - consumers 取自 order；
+  - 拒收类账号不得出现在交付类和结果未知类里，否则拒绝（`account groups`）；
+  - order 摘要对 v3 包含变体和账号，对 v2 不变。
+- **多轮判定**：
+  - 新增迁移 0481 `authz.nexloop_nx037_interaction_messages`（metrics 角色，只返回 id 和时间），列出本次交互提示之后受理的全部来信；
+  - RealDriver 对每条来信按其受理时间走 0172 观测。全部了结才算完成：Run 已终结且没有未结效应；或者没有 Run（会话被接管），但已经有员工回复；
+  - 任何一轮的 Run 失败，本次交互都判为 error；拒收后联系等停止事实按各轮累加；
+  - 执行器收集每一轮 Run 的证据并合并（`merge_evidence`）；单 Run 上限按最大的那个 Run（`cost.max_run`）判定；
+  - 记录里增加 `run_ids`、`messages`、`variant`。
+- **完成标记**：ConsoleOperator（real 模式）提示后等待 `<试运行目录>/operator-done/<序号>`，代理发完全部消息后创建这个文件；到时限仍未创建，由驱动按超时处理。
+- **测试**：
+  - v3 加载与配比；坏配比、坏变体、缺账号、v3 用了字符串项、拒收账号做交付、consumers 与 order 不一致，都拒绝；
+  - 多轮：三轮都成功；中间一轮失败判为 error；后一轮拒收后联系触发停止；某一轮未了结时等到超时；接管消息凭员工回复了结；
+  - 多 Run 证据合并与按最大 Run 判定单 Run 上限；变体文本；完成标记的等待；
+  - 五类场景测试：接管交互的两条来信都被计入（`messages` 为 2，Run 为 1）。

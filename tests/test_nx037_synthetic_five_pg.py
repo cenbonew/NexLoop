@@ -452,6 +452,10 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
     history = [s for (s,) in admin.execute("select event_kind from runtime.nexloop_effect_events where intent_id::text=%s order by created_at", (unknown,)).fetchall()]
     assert 'unknown' in history and history[-1] == 'fulfilled', history
     # Takeover: no Agent reply while a person held the conversation; the staff reply is the answer; handed back.
+    # Multi-turn observation (0481): both customer messages of the takeover belong to it; the one sent during the takeover has
+    # no Run and settled on its staff reply.
+    assert records['human_takeover']['messages'] == 2 and len(records['human_takeover']['run_ids']) == 1
+    assert all(r['messages'] == 1 for k, r in records.items() if k != 'human_takeover')
     during = [m for m in staff_view if m.get('reply_to_message_id') == operator.takeover['during']]
     assert [(m['sender_kind'], m['id']) for m in during] == [('human_takeover', operator.takeover['staff'])], during
     # Refusal: the consumer is restricted by the refusing message itself; its one bound reply still went out (ADR-023 §2.6).

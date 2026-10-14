@@ -100,3 +100,73 @@ def test_console_operator_writes_codes_only(tmp_path):
         '{"seq": 1, "interaction_id": "37d00000-0000-4000-8000-000000000001", "kind": "ordinary_reply"}')
     with pytest.raises(ValueError):
         D.RealDriver(None, observer=None, operator=None, timeout_seconds=0)
+
+
+class MultiObserver:
+    """The 0481 message list plus each message's 0172 observation (by its acceptance time)."""
+
+    def __init__(self, views):
+        self.views = views  # [(message_id, accepted_at, observation)]
+
+    def now(self):
+        return 'T0'
+
+    def messages(self, since):
+        assert since == 'T0'
+        return [{'message_id': m, 'accepted_at': at} for m, at, _ in self.views]
+
+    def observe(self, since):
+        return next(v for _, at, v in self.views if at == since)
+
+
+def turn(n, **over):
+    return (str(n) * 64, f'T{n}', seen(message_id=str(n) * 64, run_id=f'37d00000-0000-4000-8000-0000000000{n:02d}', intent_ids=[f'i-{n}'],
+                                       outbound_ids=[str(n) * 63 + 'o'], **over))
+
+
+def test_a_long_conversation_is_judged_on_every_turn():
+    """Plan v3 long_conversation: every customer message of the interaction and its Run belong to it."""
+    out = driver(MultiObserver([turn(1), turn(2), turn(3)])).interact({**INTERACTION, 'variant': 'long_conversation', 'consumer': 'consumer:' + 'a' * 64})
+    assert out['outcome'] == 'ok' and out['messages'] == 3 and out['run_ids'] == [f'37d00000-0000-4000-8000-0000000000{n:02d}' for n in (1, 2, 3)]
+    assert out['run_id'] == out['run_ids'][0] and out['receipts'] == [r for n in (1, 2, 3) for r in (str(n) * 63 + 'o', f'i-{n}')]
+
+
+def test_a_failed_middle_turn_makes_the_interaction_an_error():
+    out = driver(MultiObserver([turn(1), turn(2, task_status='failed'), turn(3)])).interact(INTERACTION)
+    assert out['outcome'] == 'error' and out['error_code'] == 'run_failed' and len(out['run_ids']) == 3
+
+
+def test_a_contact_after_refusal_in_a_later_turn_stops_the_trial():
+    out = driver(MultiObserver([turn(1), turn(2), turn(3, contacts_after_refusal=1)])).interact(INTERACTION)
+    assert out['facts']['contacts_after_refusal'] == 1
+    plan = X.load_plan(X.Path(__file__).resolve().parents[1] / 'deploy/configuration/nx037-trial.v3.json')
+    assert X.evaluate({'facts': out['facts'], 'cost': {'total': '0'}, 'outcome': out['outcome']}, [], plan,
+                      cumulative=X.Decimal(0), monthly=X.Decimal(0)) == ('stop', ['contact_after_refusal'])
+
+
+def test_a_turn_still_open_keeps_the_interaction_waiting_and_a_taken_over_message_settles_on_its_staff_reply():
+    waiting = driver(MultiObserver([turn(1), turn(2, run_terminal=False, task_status='running')]), timeout=3).interact(INTERACTION)
+    assert waiting['error_code'] == 'interaction_timeout'
+    during = ('9' * 64, 'T9', seen(message_id='9' * 64, run_id=None, task_status=None, run_terminal=False, intents={}, intents_open=0,
+                                   intent_ids=[], outbound_ids=['s' * 64]))
+    out = driver(MultiObserver([turn(1), during])).interact(INTERACTION)
+    assert out['outcome'] == 'ok' and out['run_ids'] == ['37d00000-0000-4000-8000-000000000001'] and out['messages'] == 2
+    unanswered = (during[0], during[1], {**during[2], 'outbound_ids': []})
+    assert driver(MultiObserver([turn(1), unanswered]), timeout=3).interact(INTERACTION)['error_code'] == 'interaction_timeout'
+
+
+def test_the_instruction_carries_the_variant_and_the_account():
+    text = D.instruction({**INTERACTION, 'variant': 'repeated_refusal', 'consumer': 'consumer:' + 'r' * 64})
+    assert text.startswith(D.INSTRUCTIONS['ordinary_reply']) and D.VARIANTS['repeated_refusal'] in text and 'consumer:' + 'r' * 64 in text
+
+
+def test_the_console_operator_waits_for_the_done_mark(tmp_path):
+    import io
+    clock = Clock()
+    operator = D.ConsoleOperator(tmp_path, io.StringIO(), wait=True, sleep=clock.sleep, monotonic=clock.monotonic)
+    operator.prompt(INTERACTION, 'x', 5)
+    assert clock.t == 5  # not marked: waited until the deadline
+    (tmp_path / 'operator-done' / '1').write_text('')
+    clock.t = 0
+    operator.prompt(INTERACTION, 'x', 5)
+    assert clock.t == 0
