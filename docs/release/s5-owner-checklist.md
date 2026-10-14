@@ -33,13 +33,12 @@
 | # | 做什么 | 前置条件 | 所需材料 | 执行者 | 预计耗时 | 完成判据 | 对应 |
 |---|---|---|---|---|---|---|---|
 | 1.1 | 决定部署后 CI 车道与压测车道是否继续与运行环境同机（D-b），须在第 3 阶段步骤 1 之前 | 调度员提交方案 | — | 负责人 | 30 分钟 | ROADMAP 记录定案 | ROADMAP D-b、R6 |
-| 1.2 | 登录高峰复测结论：identity 池 3 对 4（连接预算方案 B 的前提）；不通过时在方案 A 与其他方案间决定 | 调度员在 CI 主机完成复测 | — | 负责人（只在不通过时） | 30 分钟 | 复测结论记录 | [relay2-budget](../implementation/relay2-budget.md) §4 |
 
 ## 2. 构建并签名首个 stage 发布（NX-034）
 
 逐条命令见 [首个签名发布运行手册](../implementation/NX-034-first-release-runbook.md)。
 
-**前置条件现状（2026-10-14）**：
+**前置条件现状（2026-10-14，上午按调度员通报更正）**：
 
 | 前置条件 | 状态 |
 |---|---|
@@ -48,17 +47,18 @@
 | syft、grype 固定版本（O3） | 已满足 |
 | 基础镜像 `python-build-base`、`node-host-base` 按 digest 固定 | 已满足（`versions.lock.json`） |
 | main 上有 CI 通过的提交 | 已满足：CI 合并基线已清零（s5t RESULT=PASS），此后各轮集成按合并规则通过；发布时取 gateway 固定提交之后、CI 通过的 SHA |
-| gateway 按 digest 固定（运行手册 §3） | **未满足**：`versions.lock.json` 中 gateway 仍为 `unresolved_not_deployable`；需要 D-R4 临时出站，并按 D-R5 核对版本 |
-| 移交目录与只读组（D-R2）、`nexloop-ci` 启用 containerd snapshotter（D-R3） | **未执行**：两项都是主机配置变更，逐条命令由负责人确认 |
-| 运行手册使用的 `$CI_QUEUE`（CI 结果）与 `$TRUSTED_REPO`（受信 bare 仓库） | **待核实**：要么用 CI 主机现有车道上的等价位置，要么先完成第 5 阶段 5.2；由调度员在执行前确认 |
+| gateway 按 digest 固定（运行手册 §3） | **已完成，待合入**：Caddy 2.11.7，只固定 amd64 manifest digest，`pinned_image_problems()` 为 `[]`；在分支 `nx034-pin-gateway`，随集成轮 int/s5d 跑 CI。D-R4 不再需要：CI 账户的 docker 经镜像加速即可按 digest 拉取，不必临时开放出站 |
+| 移交目录与只读组（D-R2） | **已满足**：只读组 `nexloop-release-read` 已建，`$HANDOFF_ROOT` 与 `$RELEASE_ROOT` 的发布目录已建好，权限 2750（负责人已确认） |
+| `nexloop-ci` 使用 containerd snapshotter（D-R3） | **已满足**：其 rootless docker 本来就是 containerd snapshotter，无需改配置 |
+| 运行手册使用的 `$CI_QUEUE`（CI 结果）与 `$TRUSTED_REPO`（受信 bare 仓库） | **有方案，待合入**：L2 分支 `l2/release-ci-queue` 在现有车道上用 NX-033 队列产出发布用的 CI 结果，手册为 `docs/implementation/NX-034-release-ci-queue.md`（随该分支合入）；不需要先完成第 5 阶段的完整切换 |
 | 发布用的应用镜像（backend、agent-host、web） | 由 2.2 的构建产生，不是前置条件 |
 
 
 | # | 做什么 | 前置条件 | 所需材料 | 执行者 | 预计耗时 | 完成判据 | 对应 |
 |---|---|---|---|---|---|---|---|
-| 2.0 | gateway 固定 digest：临时放行镜像仓库出站（D-R4）→ 核对 Caddy 版本（D-R5）→ `release.py pin-upstream` → 提交并合入 | D-R4 的主机配置变更经负责人确认 | — | 调度员（逐步授权） | 1 小时 | gateway 为 pinned，`pinned_image_problems()` 为空 | 运行手册 §3 |
-| 2.1 | 在 CI 主机上对发布提交跑本地 CI，得到通过的结果文件 | 2.0 已合入 | — | 调度员 | 约 40–50 分钟 | 结果文件写明该 SHA、`status=passed` | NX-033、NX-034 |
-| 2.2 | 首次真实构建（运行手册 §2 第 1–17 步：build → sbom → stage 预检 → 移交 → 独立核对 → sign → seal → check），先执行 D-R2 移交目录与 D-R3 containerd snapshotter 两项主机配置变更 | 2.1；D-R2、D-R3 已执行 | 发布签名私钥 | 调度员（逐步授权），签名一步由负责人提供密钥 | 约 1 小时 | `archive.py check` 通过；归档已封存 | NX-034、AT-055 |
+| 2.0 | gateway 固定 digest 的提交合入 main（已固定，随 int/s5d 跑 CI） | 该轮 CI 通过 | — | 调度员 | — | main 上 gateway 为 pinned，`pinned_image_problems()` 为空 | 运行手册 §3 |
+| 2.1 | 在 CI 主机上对发布提交跑本地 CI，按发布用 CI 队列的手册产出结果文件 | 2.0 与 `l2/release-ci-queue` 已合入 | — | 调度员 | 约 40–50 分钟 | 结果文件写明该 SHA、`status=passed` | NX-033、NX-034 |
+| 2.2 | 首次真实构建（运行手册 §2 第 1–17 步：build → sbom → stage 预检 → 移交 → 独立核对 → sign → seal → check） | 2.1（D-R2、D-R3 已满足） | 发布签名私钥 | 调度员（逐步授权），签名一步由负责人提供密钥 | 约 1 小时 | `archive.py check` 通过；归档已封存 | NX-034、AT-055 |
 
 ## 3. 双机部署（NX-032，按运行手册逐步执行）
 
@@ -154,4 +154,7 @@
 | NX-052 判据修订 | C4-low 格按 0.1/s 只比较 K 对 N、P 对 N 三项 p95 增幅（各 ≤5%），不再要求该格门槛判定为 passed；其余门槛项仍须通过（2026-10-14） | ROADMAP §7、NX-052 实现说明 §11 |
 | ADR-029a、ADR-031、ADR-032 | relay 上下文准备优化：同一条来信内复用 Source 签名信封；一次对象读取内只派生一次 Source 权限（0191）；一次读取授权检查内只解析一次调用者身份（0192）。已批准并合入 main（int/s5c） | adr/ |
 | 参考企业交付端点 | 负责人暂无企业端点，由项目提供参考端点（APP_HOST 独立 Compose 项目、服务工单语义），已合入（2026-10-13） | ROADMAP §7 |
-| relay 双进程 | stage 默认 2 个 relay，连接预算方案 B 合计 59/60（identity 池 3，登录高峰复测待做，见 1.2） | relay2-budget |
+| relay 双进程 | stage 默认 2 个 relay，连接预算方案 B 合计 59/60；登录高峰复测已完成（identity 池 3 时 ACK p95 885 ms，没有变差），方案 B 可行 | relay2-budget |
+| D-R2、D-R3 | 只读组 `nexloop-release-read` 与移交、发布目录（2750）已建并经负责人确认；`nexloop-ci` 本来就是 containerd snapshotter（2026-10-14） | 调度员通报 |
+| NX-052 测量方式（1A/2A） | N、K 各跑 3 轮，取 p95 中位数；P 的 ACK 写进限制说明（负责人 2026-10-14）。N 状态已跑通（删除 134 个外键） | 调度员通报 |
+| C4-low 优化后 | 空闲派发 p95 3194 ms（门槛 5 s），context_prepare p50 1213 ms | 调度员通报 |
