@@ -10,6 +10,7 @@
   - [参考企业交付端点部署手册](../../deploy/stage/reference-endpoint/README.md)；
   - [S5 负责人操作总清单](s5-owner-checklist.md)。
 - **只用角色名和参数**：管理机、APP_HOST、DATA_HOST、CI 主机；`$SSH_ALIAS_APP`、`$NEXLOOP_ROOT`、`<TENANT_ID>` 等。取值都在负责人的私有 env 文件里，本单不写任何地址、主机名或口令。
+- **真实租户名**：只记在负责人的私有文件里。公开文档、证据文件和提交说明一律写作 `<TENANT_DISPLAY_NAME>`，不写真实名字。
 - **执行者**：
   - “调度员”：调度员提交并执行命令；
   - “负责人”：负责人本人执行；
@@ -99,11 +100,46 @@
 | R3 | **真实租户初始化**：`real_tenant_init.py plan` → `execute`（受信配置）→ `verify`，除开关外全部通过（OPERATIONS §9.2） | plan 由调度员执行；execute 由负责人执行 | `verify` 除三项开关外都是 ready |
 | R4 | **租户装配**（[租户装配手册](../implementation/NX-037-tenant-assembly.md) §1–§6）：消费者 WebChat 账号（给代理用）、工作台成员、business 与 catalog setup、relay 登记，以及企业 slot（`nexloop-enterprise-setup` 加 `nexloop-relay-enroll` 的企业键） | 负责人（逐步授权） | relay profile 带 `enterprise` 块；relay 日志中没有 `enterprise_slot_skipped` |
 | R5 | **预算**：负责人在工作台提交 `Budget.set`（累计 ¥100，作为试运行期间的 model 预算）；在 DeepSeek 账号侧设人民币消费上限，作为第二道防线 | 负责人本人 | `real_tenant_init.py verify` 的预算项通过；账号侧上限已设置 |
-| R6 | **DeepSeek 凭据文件**：`MODEL_CREDENTIALS_FILE`（0600）只放在 Agent Host 的秘密目录；Host 运行配置使用 `deepseek-flash`、`cost_currency` 为 `CNY`、人民币价目文件 | 负责人放入凭据；调度员核对配置 | Host 启动无拒绝；`run_interactions.py` real 前置中的币种与 Host 检查通过 |
+| R6 | **DeepSeek 凭据文件**：由负责人按下文“模型凭据写入”两条命令，写进 APP_HOST 上 Agent Host 的私有凭据文件 `<MODEL_CREDENTIALS_FILE>`（0600，属主为 Agent Host 服务用户）；Host 运行配置使用 `deepseek-flash`、`cost_currency` 为 `CNY`、人民币价目文件 | 负责人本人写入；调度员只核对配置、权限和字节数，不读也不转发这个值 | 权限 `600`、属主 UID 正确、字节数与本地读出的一致；Host 启动无拒绝；`run_interactions.py` real 前置中的币种与 Host 检查通过 |
 | R7 | **根证书**：内部 CA 的根证书装进负责人浏览器，以及代理所用浏览器的信任库，用于 Gateway 的 TLS | 负责人本人 | 浏览器访问 WebChat 与工作台不出现证书警告 |
 | R8 | **三层真实派发开关**：此时仍全部关闭；核对交互计划 v2 的 `real_dispatch`（第三层只开 `eios:action:nexloop.enterprise.deliver:1`）。开关在周六校准开始时，由负责人按计划打开 | 负责人 | 实际开关与计划可以一一对应；`real_dispatch_closed` 仍为 true |
 | R9 | **参考端点员工凭据**：员工页面能用 `staff_token` 登录（工作时间内处理工单） | 负责人 | 登录成功；一致性检查留下的两张测试工单可以标记“已处理” |
 | R10 | **运行入口的私有文件**：metrics DSN、负责人会话文件、交互计划的私有副本、试运行证据目录 | 负责人 | 都是 0600 普通文件；合成模式演练一次（OPERATIONS §9.4）已完成 |
+
+### 模型凭据写入（负责人本人在开发机终端执行）
+
+- **来源**：DeepSeek key 在开发机仓库根目录的 `.env` 中，键名为 `MODEL_API_KEY`。这个文件已被 git 忽略，权限 0600，从未入库。
+- **目标**：APP_HOST 上 Agent Host 的私有凭据文件 `<MODEL_CREDENTIALS_FILE>`，0600，属主为 `<AGENT_HOST_UID>`。Host 读取文件内容并去掉首尾空白，文件里只放 key 本身，不放 `KEY=` 前缀。
+- **保证**：
+  - key 只在管道里流动：不出现在任何命令行参数、环境变量、shell 历史或日志中，命令文本本身不含 key；
+  - 中转文件放在 APP_HOST 的 `/dev/shm`（内存文件系统，不落系统盘），权限 0600，安装后立即删除；
+  - 核对只看权限、属主和字节数，从不回显内容。调度员不读、不转发这个值。
+
+第 1 条，在开发机的仓库根目录执行。它从 `.env` 取出值，去掉回车、可能的引号和换行（顺序如此，Windows 行尾的文件也能正确去引号），经 ssh 的标准输入写进 APP_HOST 的内存中转文件，然后只打印字节数：
+
+```bash
+sed -n 's/^MODEL_API_KEY=//p' .env | head -n 1 | tr -d '\r' | sed -e "s/^[\"']//" -e "s/[\"']\$//" | tr -d '\n' | ssh "$SSH_ALIAS_APP" 'umask 077 && cat > "/dev/shm/nexloop-model-key.$(id -u)" && wc -c < "/dev/shm/nexloop-model-key.$(id -u)"'
+```
+
+在本地用同一条管道只数字节数，与上面打印的值比对：
+
+```bash
+sed -n 's/^MODEL_API_KEY=//p' .env | head -n 1 | tr -d '\r' | sed -e "s/^[\"']//" -e "s/[\"']\$//" | tr -d '\n' | wc -c
+```
+
+第 2 条：sudo 口令由负责人在 `ssh -t` 的终端里输入。它把中转文件安装为 Agent Host 的私有凭据文件，删除中转文件，再打印权限、属主 UID 和字节数：
+
+```bash
+ssh -t "$SSH_ALIAS_APP" 'f="/dev/shm/nexloop-model-key.$(id -u)"; sudo install -o <AGENT_HOST_UID> -g <AGENT_HOST_UID> -m 0600 "$f" "<MODEL_CREDENTIALS_FILE>" && rm -f "$f" && sudo stat -c "%a %u %s" "<MODEL_CREDENTIALS_FILE>"'
+```
+
+- **判据**：
+  - 两次字节数相同，且大于 0；
+  - 第 2 条输出 `600 <AGENT_HOST_UID> <字节数>`；
+  - `/dev/shm` 下已经没有中转文件。
+  - 字节数为 0，说明 `.env` 中没有这个键，或格式不符。这时停下，由负责人自己检查 `.env`，不要把文件内容贴给任何会话。
+- **撤销**：`ssh -t "$SSH_ALIAS_APP" 'sudo rm -f "<MODEL_CREDENTIALS_FILE>"; rm -f "/dev/shm/nexloop-model-key.$(id -u)"'`。轮换 key 时，在 DeepSeek 控制台作废旧 key 后重做这两条。
+- **不要做的事**：不要用 `scp` 拷贝 `.env`，不要用 `echo "$KEY"`，不要 `export` 这个值，也不要用 `cat .env` 查看。
 
 ## 待确认（请调度员在开工前答复）
 
