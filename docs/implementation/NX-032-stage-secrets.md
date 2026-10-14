@@ -58,14 +58,25 @@
 
      现在只有测试夹具（`local_message_assembly_fixture`）和负载工具会造这些主体。
   2. 14 个 reference 与 Compose 文件的对应关系没有写成文件。例如 `message_relay` 这个 reference 对应 relay 的哪一个凭据？
-- **最小实现方案（本次没有实现）**：新增 `deploy/authorization/stage-principals.v1.json` 和一个 `stage_secrets.py register` 子命令：
-  - **manifest 内容**：
-    - 每个凭据文件写一项 `{file, principal_id, credential_id, application_id, database_role, actions}`；
-    - 其中 `actions` 取自各命令现有的授权需求：relay 的 route、planner、executor、source 按 NX-031 设计，plan-reevaluator 与 reply-guarantor 按各自的设计；
-    - domain-worker、action-worker、webchat-delivery 的 executor 主体按 0051 规则，webchat-delivery 与 action-worker 是同一个执行者；
-  - **register 的做法**：把它与 `service-grants.v1.json` 合并，生成受信配置 manifest；令牌从 `management/service-secrets.json` 读取，以文件路径为 reference；然后调用 `trusted_configuration.apply_manifest_with_secrets`。整个过程只用配置者角色，不直接写表。
-  - **测试**：在干净的 PG 上登记后，每个 Compose 服务都能以它的凭据文件认证，并且只得到 manifest 中声明的授权。
-  - **前提**：需要逐个服务核实它真正调用的 Action 与 READ。这是授权设计，要调度员排期，并由 L2 与 L3 核对。
+- **已实现（l2/stage-register）**：`deploy/authorization/stage-principals.v1.json` 加 `stage_secrets.py register`。
+  - `credential_files` 把 Compose 挂载的 28 个服务凭据文件逐个映射到一个主体（同一主体的所有文件持同一令牌，`generate` 按主体发令牌）。与 `service-grants.v1.json` 合并后共 21 个主体、61 条授权，测试从 Compose 读取凭据文件核对“无重复、无遗漏”。
+  - 新增 7 个主体与授权（证据的文件与行号写在每条 `purpose` 里）：
+
+    | 主体 | 使用者 | 授权 |
+    |---|---|---|
+    | effect_executor | action-worker、webchat-delivery，以及 relay/reply-guarantor/plan-reevaluator 的 executor-credential | service.request、service.query、service.receipt_reconcile、enterprise.deliver |
+    | message_relay（已有，扩充） | relay/reply-guarantor 的 route-credential | 增加 NexLoop.queue.operations |
+    | relay_source | relay/reply-guarantor 的 source | service.request、enterprise.deliver、context.bind；artifact local_real create/read；Message READ 由 `message_read_rule`（actor、body）给出 |
+    | relay_planner | relay/reply-guarantor 的 planner | Goal.create、PlanStep.create、MessageAssignment.create、plan.bind_effect_context |
+    | role_source | plan-reevaluator/source | service.request、context.bind_role；artifact local_real create/read |
+    | role_planner | plan-reevaluator/planner | plan.bind_effect_context |
+    | role_queue | plan-reevaluator/queue | NexLoop.queue.operations |
+    | artifact_maintenance | domain-worker | artifact orphans_real delete |
+
+  - 用法（只用配置者角色，经 `service_grants.apply` → `trusted_configuration.apply_manifest_with_secrets`；令牌不打印，暂存文件 0600 用后删除；可重复执行）：
+    `stage_secrets.py register --out <树> --tenant <租户> --configurator-dsn-file <文件> --signing-key-id <ID> --credential-expires-at <时间>`；`--dry-run` 只列出将登记的主体、授权与 message_read_rule。
+  - 注意：effect_executor 的令牌必须就是 owner 做 `configure_effect_control` 时使用的执行者令牌（摘要须一致）。
+  - 未覆盖：plan-reevaluator 的 Role-run Source 需要的逐对象 READ 只能在租户组装后（阶段 C）授予。
 
 ## 4. 核对中发现的问题（需要处理，不在本次范围）
 
