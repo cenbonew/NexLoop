@@ -27,7 +27,7 @@
 | `nexloop-backup pg` | 已有，但用的是 `pg_basebackup` 加 `pg_verifybackup` | 部署切片要改为调用 pgBackRest，并把 `pgbackrest info` 和 `verify` 的结果写入清单。**在此之前迁移门槛会拒绝**，因为清单里没有 pgBackRest 的已验证行 |
 | `nexloop-backup journal` | 已有 | 直接使用 |
 | 文件备份执行者 `nexloop-file-backup`（Artifact 和已终态 Run 目录，restic） | 未实现（切片三） | 第 3 步先只备份恢复日志目录；Artifact 和 Run 目录的条目注明“待切片三” |
-| 恢复命令行 `nexloop-restore`（含 `--target-name` 和 `--target-time`） | 未实现（部署切片） | 第 4 步列出完整步骤，其中依赖它的命令标为“待实现” |
+| 恢复命令行 `nexloop-restore`（含 `--target-name` 和 `--target-time`） | 已实现（分支 `l4/nx035-restore`，见 [恢复命令行](NX-035-restore-cli.md)） | 第 4 步直接使用 |
 | pgBackRest 和 restic 写入 `versions.lock.json` 与第三方许可清单 | 未做 | 第 2、3 步的前置条件 |
 
 **结论**：第 1 步和第 3 步中恢复日志的部分现在就能执行；第 2 步中“清单写入”和第 4 步都要等部署切片的代码合入。NX-032 的第 5 步（迁移）也必须等这两步完成。
@@ -316,22 +316,28 @@ ssh "$SSH_ALIAS_DATA" sudo -u "$FILE_BACKUP_USER" env $(cat "$OFFSITE_CREDENTIAL
 
 1. **打恢复点**（DATA_HOST，用备份身份）：
    ```
-   select authz.nexloop_drill_mark()
+   nexloop-backup drill-mark --recorder-dsn-file "$RECORDER_DSN_FILE" --drill-id <id> --out "$DRILL_REPORT_DIR/mark-<id>.json"
    ```
-   它在同一次调用中记录各只追加表的最大序号、按租户的计数和抽样行的哈希，写入一行 `drill_restore_point` 清单。
+   它调用 `authz.nexloop_drill_mark`，在同一次调用中记录各只追加表的最大序号、按租户的计数和抽样行的哈希，写入一行 `drill_restore_point` 清单，并把这个标记写进新的 0600 文件。恢复到这个点的库里没有这一行（它在恢复点之后才提交），所以第 4 步要用这个文件来比对。
 2. **提交合成删除请求**（用于验证 AT-059 的真实备份版本）：在恢复点之后，对 `world=test` 的合成 Consumer 提交一次删除请求，然后等待恢复日志导出。
-3. **恢复到演练目录**（APP_HOST，使用 `$DRILL_ROOT`）：
+3. **恢复到演练目录并执行恢复流程**（APP_HOST，使用 `$DRILL_ROOT`；在同一个 PG 镜像、以 `--network none` 启动的容器里执行，不挂载任何渠道、模型或效应凭据）：
    ```
-   pgbackrest --stanza=nexloop --repo=1 --type=name --target=drill-<id> --pg1-path="$DRILL_ROOT/pgdata" restore
+   nexloop-restore --source pgbackrest --pgbackrest-bin "$PGBACKREST_BIN" --pgbackrest-config-file "$PGBACKREST_CONFIG_FILE" \
+     --stanza nexloop --repo 1 --target-name drill-<id> --drill-mark-file "$DRILL_REPORT_DIR/mark-<id>.json" \
+     --pg-bin "$PG_BIN" --pg-path "$DRILL_ROOT/pgdata" --port "$DRILL_PORT" --socket-dir "$DRILL_ROOT/socket" --owner-user "$OWNER_USER" \
+     --restore-ref drill-<id> --journal-dir "$JOURNAL_RESTORE_DIR" --old-primary-fenced \
+     --report-file "$DRILL_REPORT_DIR/restore-<id>.json" --stop
    ```
-   - 用同一个 PG 镜像，以 `--network none` 启动容器，只监听本机 socket，不挂载任何渠道、模型或效应凭据。
-4. **执行恢复流程（待实现）**：运行部署切片提供的 `nexloop-restore --drill …`。它依次执行：
+   - 只恢复到新的空目录和空闲端口，只监听本机 socket，pg_hba 只放行 owner；pgBackRest 的配置（含仓库口令）只以 0600 私有文件的路径传入。
+   - 演练用 `--old-primary-fenced` 表示生产库不受影响（演练从不向同一个 stanza 归档）；真实灾难恢复时，必须先确认原主库已隔离。
+   - `$JOURNAL_RESTORE_DIR` 是从 restic 恢复出来的恢复日志目录。
+4. **恢复流程**（`nexloop-restore` 在上一步中依次执行）：
    - 设立围栏；
    - 校验恢复日志的哈希链，并重放；
    - 窗口对账；
    - `bootstrap.verify()`；
    - 停在 `verified_readonly`，在演练中永远不开放。
-5. **一致性校验**（由 `nexloop-restore` 输出，都是数字）：
+5. **一致性校验**（由 `nexloop-restore` 输出，都是数字；报告里还有 `open_scope` 的五条补偿控制，任何一条不成立都会拒绝）：
    - 迁移的版本和 checksum 一致；
    - 只追加表在最大序号以内的计数相等；
    - 抽样行的哈希相等；
@@ -409,4 +415,4 @@ ssh "$SSH_ALIAS_DATA" sudo -u "$FILE_BACKUP_USER" env $(cat "$OFFSITE_CREDENTIAL
   5. 删除各卷的镜像文件。
   
   删除仓库之后，对应时间段的数据就无法再恢复。
-- **数据恢复**（真实故障，不是演练）：按 NX-035 设计稿 §6 执行。恢复工具的命令行待部署切片实现。恢复之后，由负责人按 D8 逐个 scope 开放派发（`nexloop.restore.open_scope:1`）。
+- **数据恢复**（真实故障，不是演练）：按 NX-035 设计稿 §6 执行，用 `nexloop-restore --source pgbackrest --target-time <T>`（或 `--target-name`），参数见 [恢复命令行](NX-035-restore-cli.md)。恢复之后，由负责人按 D8 逐个 scope 开放派发（`nexloop.restore.open_scope:1`）。

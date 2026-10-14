@@ -206,7 +206,7 @@
 - **重建意图**（`reconstructed` / `effect_succeeded_unverified`，设计稿 §6.3 第 2 步）：留给切片三。
 - **各渠道的“按时间查询”读取器**：例如本地 JSON 投递、出站记录服务。目前对账函数接收调用方提供的证据；没有证据的渠道一律按“不能按时间查询”处理，保持暂停。
 - **文件备份**（Artifact 和已终态 Run 目录，restic）以及 §6.4 文件对齐：留给切片三。
-- **恢复工具的命令行、`--target-time` 场景、口令轮换**（开放时轮换应用角色口令并重新允许登录）、**按 configurator 成员文件重新应用工作台成员**：留到部署切片。
+- **恢复工具的命令行与 `--target-time` 场景**：已实现（`nexloop-restore`，见 [恢复命令行](NX-035-restore-cli.md)）。**口令轮换**（开放时轮换应用角色口令并重新允许登录）、**按 configurator 成员文件重新应用工作台成员**：仍留到部署切片。
 - **readiness 接入**：`runtime.nexloop_restore_readiness()` 尚未接入 API、各后台服务和 Runtime Worker 的 `/health/ready`；派发由围栏保证关闭。
 - **doctor `--backup`**、`deploy/configuration/backup.v1.json`（阈值和计划可配置）、工作台“备份”块的 UI：都未做。按调度员的范围，这次只做快照和告警规则 v3。
 - **部署相关**：pgBackRest 和 restic 的版本固定写入 `versions.lock.json`、非 superuser 的实测、systemd timer 与 `archive_command` 示例，都依赖 NX-032。
