@@ -1,0 +1,1096 @@
+{
+  "schema_version": "nexloop-capabilities/1",
+  "manifest_version": 1,
+  "decision": "NX-032 A2 (docs/implementation/NX-032-stage-publish-design.md §2.2, owner-approved 2026-10-15): the frozen capability snapshots the stage publication binds Actions and Functions to. schema_hash is computed by nexloop_eios.catalog_manifests from the contract (never written by hand); a snapshot is immutable once published, so a contract change is a new capability_version and a new Action version. Governed capabilities must be registered in control.nexloop_governed_capabilities by a migration, and their contract names the registered operation. Version 1 holds the capabilities of business-actions.v1.json, the six workbench goal capabilities, and the system Actions and Functions of system-actions.v1.json (T1 list). Function snapshots are side-effect free (conversation_effect_receipts and conversation_scope_denials require it); read-only Actions say why they are side-effecting.",
+  "capabilities": [
+    {
+      "capability_name": "NexLoop.queue.operations",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "enqueue",
+        "subject": "the operations run queue",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "4d6c572c7e625d9ec1dac2136c46774a16050db5e4ebb96dea85886d73b3f251",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "alert.silence",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "silence_alert",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "777475935928e0b0f88f0584484a1e13b3ad5c1332b40e1385c83c6cc03bf137",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "commercial.observe",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "commercial.observe",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "1f6b6f99f979d40a246b10b06656c1911f617b364031f339fce3d86085215da7",
+      "side_effects_reason": "0050 publishes an Action only with a side-effecting snapshot; commercial.observe is the owner's read of commercial observations"
+    },
+    {
+      "capability_name": "commitment.attest",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "attest_commitment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5c45d95235ef9255dfcddb498b993d92b25e27040726e769b0af7d0690de941f",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "commitment.bind_commercial",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "bind_commitment_commercial",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "47664317d1e4fc638102bc09e1e09b776b920aeef3db25cfd09f2ad797df8cc4",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "commitment.cancel",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "cancel_commitment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "9cc6ac1e6e88aece69a592de40671c9fa830bfb7c5822e2beaab5d2c8ad10f02",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "commitment.condition_met",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "commitment_condition_met",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "c26f81aab13a46015899f47afda201cfc14f2629d113c948295a13f99666a719",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "commitment.extend",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "extend_commitment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "a3c1edcf956b5a16c95adb3c411163701a3fb86fa12c6ebfa60184f074c8586a",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "commitment.mark_communication",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "mark_commitment_communication",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "931ca214fb0c50a30e1449ed732a9767bb228e9365f2d8dbcdfa5e09511c823e",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer.edit",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "edit",
+        "subject": "one Consumer-linked object",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "e790abc8382b2e2d25a52fbc475e981d36437c5dca112f9215414d2ccf0085d4",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer.erase",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "erase_consumer",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "890333ed03e3d77d280633019508c7f2714e064419bd9774739b0df3daf8837e",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer.export",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "export_consumer",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "e86d72b9fa0a345fdf078d6b7f3dc9230ad8ef29f102fc6fd54fcb6b984b50c3",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "contact_key.revoke",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "revoke_contact_key",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "fe9c4e6ec5e999858550fada383ae63f0d78c84d74756556c7c53918ffa9a3e9",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "context.audit",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "context.audit",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "592f7a906ed497a38d5c5d811a5a6ef902c928d86ef4ddd85ae10238690fb87e",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "context.strategy.publish",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "context.strategy.publish",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "012ed436285e4b8d1218989e1081d722afb52e4774590e2e714eb530e9f790dc",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "conversation.handback",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "hand_back_conversation",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "9c286c3cc519db9cca9f0dba8185f6023519abc97111cc1fe42c2fe165a5926c",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "conversation.takeover",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "take_over_conversation",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "d3dbe8f1fbae5683aff2948940c3c4aedbb755688e7b33e2d5c3ec045a99ee88",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "cost.record",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "record_cost",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "b3f0bb6ced65002073e0d845b847970567f055860b80119cd122e2c0811acab0",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "goals.agent.propose",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "propose_agent_goal",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "agent_or_human",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "f4bbb03d4113f5e8f9550662d69b4608bd0bdcfb4e47b33c4eca40953310605b",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "goals.budget.set",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "set_budget",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5d0ce8f5a57656365961d030a33924700cb72e86470a4761eac7fa914ea2ae98",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "goals.contact.release",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "release_contact_restriction",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "bc72b2669997844d5183b2eb403d9ca2359df9830b7eca3fa94ea8dc9ea07f5c",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "goals.control.set",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "set_control",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "65b72aded49872c6a905b0d6a39193a07f7160cf0819c8eaae27c0c783f47549",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "goals.metric.approve",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "approve_metric",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "14528ff38c0dd427eff5c5d9a8e1b0ea50f7e772e60cacc9b078228d5893294d",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "goals.version.publish",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "publish_goal",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "512f57637f0018c5ca8d39d7ae95bfba8baa8fc0cddd6118ff2fcf545c0eaa7e",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "incentive.issue",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "issue_incentive",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "af2fb4169b275e16f18238b39138955657ec8953f23f809acaf1628cb6ff3559",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "message.erase",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "erase_message",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "1f07c38f31742072f3b63e34861a95fab2507b10cec0e25407616514ce18adbf",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "message.staff_send",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "send_staff_reply",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "25051088d10b0622850d753d1422fdd55be7e78ed2c6cdf5322f062fae63bf93",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.context.bind",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "bind",
+        "subject": "a context artifact to a plan step",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "ebb13434208ddbd40b35d4a908217a6c2f29a75998e24d00bb3d13c0e18068ca",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.context.bind_role",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "bind",
+        "subject": "a role context artifact",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "4813a745cdfcd9b77926c2b9ae0ec279268906e2b885fa036240bde1c2ab4b05",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.conversation.read",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "read",
+        "subject": "one Conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "39449e2a98ed3b9130dd3fe5b8f3a90a5c46bf8e2044e94d1dfe772294b11d82",
+      "side_effects_reason": "0050 publishes an Action only with a side-effecting snapshot; this Action only reads (a Conversation)"
+    },
+    {
+      "capability_name": "nexloop.conversation.receipts.read",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": false,
+      "idempotent": true,
+      "required_scopes": [
+        "function.execute"
+      ],
+      "risk_level": "low",
+      "binds": "function",
+      "governed": false,
+      "contract": {
+        "operation": "read",
+        "subject": "the service receipts of a conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "52732cf5b8bdebd6b9e7145897f6eb94daed657cedcfa3347988f5b4c835fbe8",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.conversation.route",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "route",
+        "subject": "one Conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "1aee68598cf8b8eee3daa4b6a6b2bf0c855c2f67f351b9c0ef83843f85771348",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.conversation.scope_denials.read",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": false,
+      "idempotent": true,
+      "required_scopes": [
+        "function.execute"
+      ],
+      "risk_level": "low",
+      "binds": "function",
+      "governed": false,
+      "contract": {
+        "operation": "read",
+        "subject": "the scope denials of a conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "0f1ceba0b9a8284b24fc70bdf989d2941306d9396555f9c65c16a64d38772302",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.effect.configure_control",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "configure",
+        "subject": "one EffectControl",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "b98ee1679d190b7832360126a473788614e62804d5474e571e37c7eefb333221",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.enterprise.deliver",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "deliver",
+        "subject": "one enterprise delivery slot",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "43cec59d96bf83a1d3323815a5c8d3e73a35b98d3166d208cb3f28ee30c432ea",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.plan.bind_effect_context",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "bind",
+        "subject": "the effect context of a plan step",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "039762465c17ed27653ef5f231e30741acba31c7234ef8a374dfbbda668cbd2a",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.service.query",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "query",
+        "subject": "the provider result of a service effect",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5d0c049a0e964fa7ebc26cf530b759402447914084604bc8245c97b634193636",
+      "side_effects_reason": "0050 publishes an Action only with a side-effecting snapshot; this Action only reads (the provider result of an effect)"
+    },
+    {
+      "capability_name": "nexloop.service.receipt_reconcile",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "reconcile",
+        "subject": "the receipt of a service effect",
+        "key": [
+          "intent_id"
+        ],
+        "target_systems": [
+          "service"
+        ]
+      },
+      "schema_hash": "ff32b7bd059ba204d7547fa69832bc39976f6b4b94440642fdc3d5c3d19a40c5",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.service.request",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "request",
+        "subject": "one service effect for a Consumer",
+        "target_systems": [
+          "service"
+        ]
+      },
+      "schema_hash": "c8de95f7d2f9fb291ab9c6605c03273100a0e9fb09b39851ded8547a6a6feef8",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.service.scope_denial.record",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "record",
+        "subject": "one scope denial of a planned service effect",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "33caaf20488b134afd90bd1032093931e4195cb97fe187835f078cb8a73ef9c7",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "ontology.object.create",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "create",
+        "subject": "one object of the Action object type",
+        "input": "the object type properties",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "30068ff75605b63d3a8a1e033f6b49a7b1abe6415b8ed884417ab652c7f3c3d0",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "ontology.object.edit",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "edit",
+        "subject": "one object of the Action object type",
+        "input": "the object type properties",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "27212e83622b06f3813d4685e82e5a97173f6b06d531d8956c6dc2652d96d427",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "plan.request_reevaluation",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "request_plan_reevaluation",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "c94b5729227e52abd06dc47204d55a5274db809d49dc74e2b7ec71e72593182c",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "real_dispatch.set",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "set_real_dispatch",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "9274fda77496b349f04ac7835c265228d2eaa2615796297cc8146d4a57f45019",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "restore.open_scope",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "open_restore_scope",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "7273b99c3e2530c194d86fab21145fc0a465333a3e44ed910fa1fce566173887",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "retention.hold",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "hold_retention",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5afc43efc07643d1f96e7080f177bb4953ecdc9ccbc622fd698cb1b53ae48ed6",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "retention.release_hold",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "release_retention_hold",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "47dce37da17490394c402542a0361be47acacdd27b1922e4b4b46b2bafa5ef62",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "service.query_request",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "request_effect_query",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "6af9363d2b7991ebde256d9994d39b846c22a4259ce7fb92a41e6d4efee7def7",
+      "side_effects_reason": null
+    }
+  ]
+}

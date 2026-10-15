@@ -1,0 +1,1040 @@
+{
+  "schema_version": "nexloop-system-actions/1",
+  "manifest_version": 1,
+  "decision": "NX-032 A1 (docs/implementation/NX-032-stage-publish-design.md §2.1, owner-approved 2026-10-15): the system object types, Actions and Functions a new tenant needs, published by stage_secrets.py publish through 0050 together with business-actions.v1.json and the deploy/ontology manifests. Names follow the T1 list (system-catalog-names.v1.json). Schemas built by production code are referenced by builder key (nexloop_eios.system_catalog.BUILDERS, T1), never copied; every definition has created_at = valid_from and created_by below, so compilation is deterministic and a repeated publication is accepted by 0050. Governance is the deployment profile only: low risk, no approval, no policies; postgres Actions keyed by request_id, service Actions by request_id or intent_id.",
+  "valid_from": "2026-10-15T00:00:00+00:00",
+  "created_by": "nexloop-system-catalog",
+  "object_types": [
+    {
+      "type_name": "Consumer",
+      "version": 1,
+      "builder": "consumer_schema"
+    },
+    {
+      "type_name": "Goal",
+      "version": 1,
+      "builder": "effect_plan_schemas"
+    },
+    {
+      "type_name": "PlanStep",
+      "version": 1,
+      "builder": "effect_plan_schemas"
+    },
+    {
+      "type_name": "EffectControl",
+      "version": 1,
+      "builder": "effect_plan_schemas"
+    },
+    {
+      "type_name": "Conversation",
+      "version": 1,
+      "builder": "conversation_schemas"
+    },
+    {
+      "type_name": "Message",
+      "version": 1,
+      "builder": "conversation_schemas"
+    },
+    {
+      "type_name": "ConsumerOwnership",
+      "version": 1,
+      "builder": "conversation_schemas"
+    },
+    {
+      "type_name": "MessageAssignment",
+      "version": 1,
+      "builder": "message_assignment_schema"
+    },
+    {
+      "type_name": "ServiceOffering",
+      "version": 1,
+      "builder": "service_offering_schemas"
+    },
+    {
+      "type_name": "ConsumerServiceOffering",
+      "version": 1,
+      "builder": "service_offering_schemas"
+    },
+    {
+      "type_name": "IncentiveOffering",
+      "version": 1,
+      "builder": "incentive_offering_schemas"
+    },
+    {
+      "type_name": "ConsumerIncentiveOffering",
+      "version": 1,
+      "builder": "incentive_offering_schemas"
+    },
+    {
+      "type_name": "RoleDefinition",
+      "version": 1,
+      "builder": "role_mapping_schemas"
+    },
+    {
+      "type_name": "ConsumerRoleLink",
+      "version": 1,
+      "builder": "role_mapping_schemas"
+    },
+    {
+      "type_name": "RoleExecutionCeiling",
+      "version": 1,
+      "builder": "role_policy_schemas"
+    },
+    {
+      "type_name": "RoleAssignmentScope",
+      "version": 1,
+      "builder": "role_policy_schemas"
+    }
+  ],
+  "actions": [
+    {
+      "stable_name": "nexloop.conversation.route",
+      "version": 1,
+      "object_types": [
+        [
+          "Conversation",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.conversation.route",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "relay"
+    },
+    {
+      "stable_name": "nexloop.service.request",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.service.request",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "service"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "group": "relay"
+    },
+    {
+      "stable_name": "Goal.create",
+      "version": 1,
+      "object_types": [
+        [
+          "Goal",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "relay"
+    },
+    {
+      "stable_name": "PlanStep.create",
+      "version": 1,
+      "object_types": [
+        [
+          "PlanStep",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "relay"
+    },
+    {
+      "stable_name": "MessageAssignment.create",
+      "version": 1,
+      "object_types": [
+        [
+          "MessageAssignment",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "message_assignment_input"
+      },
+      "group": "relay"
+    },
+    {
+      "stable_name": "nexloop.plan.bind_effect_context",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ],
+        [
+          "Goal",
+          1
+        ],
+        [
+          "PlanStep",
+          1
+        ],
+        [
+          "EffectControl",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.plan.bind_effect_context",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "registrar_schema:bind"
+      },
+      "group": "relay"
+    },
+    {
+      "stable_name": "nexloop.context.bind",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ],
+        [
+          "Goal",
+          1
+        ],
+        [
+          "PlanStep",
+          1
+        ],
+        [
+          "EffectControl",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.context.bind",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "context_binding_schema"
+      },
+      "group": "relay"
+    },
+    {
+      "stable_name": "nexloop.service.scope_denial.record",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ],
+        [
+          "Goal",
+          1
+        ],
+        [
+          "PlanStep",
+          1
+        ],
+        [
+          "EffectControl",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.service.scope_denial.record",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "scope_denial_record_schema"
+      },
+      "group": "relay"
+    },
+    {
+      "stable_name": "NexLoop.queue.operations",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "NexLoop.queue.operations",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "relay"
+    },
+    {
+      "stable_name": "Conversation.create",
+      "version": 1,
+      "object_types": [
+        [
+          "Conversation",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "conversation"
+    },
+    {
+      "stable_name": "Message.create",
+      "version": 1,
+      "object_types": [
+        [
+          "Message",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "conversation"
+    },
+    {
+      "stable_name": "ConsumerOwnership.create",
+      "version": 1,
+      "object_types": [
+        [
+          "ConsumerOwnership",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "conversation"
+    },
+    {
+      "stable_name": "nexloop.conversation.read",
+      "version": 1,
+      "object_types": [
+        [
+          "Conversation",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.conversation.read",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "conversation"
+    },
+    {
+      "stable_name": "EffectControl.create",
+      "version": 1,
+      "object_types": [
+        [
+          "EffectControl",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "effect"
+    },
+    {
+      "stable_name": "nexloop.effect.configure_control",
+      "version": 1,
+      "object_types": [
+        [
+          "EffectControl",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.effect.configure_control",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "registrar_schema:configure"
+      },
+      "group": "effect"
+    },
+    {
+      "stable_name": "nexloop.service.query",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.service.query",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "effect"
+    },
+    {
+      "stable_name": "nexloop.service.receipt_reconcile",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.service.receipt_reconcile",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "service"
+      ],
+      "idempotency_key_fields": [
+        "intent_id"
+      ],
+      "input": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "intent_id": {
+              "type": "string"
+            },
+            "effect_fence": {
+              "type": "integer"
+            },
+            "query_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "intent_id",
+            "effect_fence",
+            "query_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "group": "effect"
+    },
+    {
+      "stable_name": "Goal.edit",
+      "version": 1,
+      "object_types": [
+        [
+          "Goal",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.edit",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "effect"
+    },
+    {
+      "stable_name": "EffectControl.edit",
+      "version": 1,
+      "object_types": [
+        [
+          "EffectControl",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.edit",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "effect"
+    },
+    {
+      "stable_name": "nexloop.enterprise.deliver",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.enterprise.deliver",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "enterprise_deliver_schema"
+      },
+      "group": "effect"
+    },
+    {
+      "stable_name": "Consumer.create",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "setup"
+    },
+    {
+      "stable_name": "ServiceOffering.create",
+      "version": 1,
+      "object_types": [
+        [
+          "ServiceOffering",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "setup"
+    },
+    {
+      "stable_name": "ConsumerServiceOffering.create",
+      "version": 1,
+      "object_types": [
+        [
+          "ConsumerServiceOffering",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "setup"
+    },
+    {
+      "stable_name": "RoleDefinition.create",
+      "version": 1,
+      "object_types": [
+        [
+          "RoleDefinition",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "role_run"
+    },
+    {
+      "stable_name": "ConsumerRoleLink.create",
+      "version": 1,
+      "object_types": [
+        [
+          "ConsumerRoleLink",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "role_run"
+    },
+    {
+      "stable_name": "RoleExecutionCeiling.create",
+      "version": 1,
+      "object_types": [
+        [
+          "RoleExecutionCeiling",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "role_run"
+    },
+    {
+      "stable_name": "RoleAssignmentScope.create",
+      "version": 1,
+      "object_types": [
+        [
+          "RoleAssignmentScope",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "role_run"
+    },
+    {
+      "stable_name": "ConsumerRoleLink.edit",
+      "version": 1,
+      "object_types": [
+        [
+          "ConsumerRoleLink",
+          1
+        ]
+      ],
+      "capability": [
+        "consumer.edit",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "role_run"
+    },
+    {
+      "stable_name": "RoleExecutionCeiling.edit",
+      "version": 1,
+      "object_types": [
+        [
+          "RoleExecutionCeiling",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.edit",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "role_run"
+    },
+    {
+      "stable_name": "RoleAssignmentScope.edit",
+      "version": 1,
+      "object_types": [
+        [
+          "RoleAssignmentScope",
+          1
+        ]
+      ],
+      "capability": [
+        "ontology.object.edit",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "role_run"
+    },
+    {
+      "stable_name": "nexloop.context.bind_role",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.context.bind_role",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "role_context_binding_schema"
+      },
+      "group": "role_run"
+    },
+    {
+      "stable_name": "Metric.approve",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "goals.metric.approve",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "workbench_goals"
+    },
+    {
+      "stable_name": "Goal.publish",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "goals.version.publish",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "workbench_goals"
+    },
+    {
+      "stable_name": "Goal.propose",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "goals.agent.propose",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "workbench_goals"
+    },
+    {
+      "stable_name": "Control.set",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "goals.control.set",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "workbench_goals"
+    },
+    {
+      "stable_name": "Budget.set",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "goals.budget.set",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "workbench_goals"
+    },
+    {
+      "stable_name": "Contact.release",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ]
+      ],
+      "capability": [
+        "goals.contact.release",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "workbench_goals"
+    }
+  ],
+  "functions": [
+    {
+      "stable_name": "nexloop.conversation.service_receipt",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ],
+        [
+          "Conversation",
+          1
+        ],
+        [
+          "Message",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.conversation.receipts.read",
+        "1.0.0"
+      ],
+      "builder": "service_receipt_function",
+      "group": "relay"
+    },
+    {
+      "stable_name": "nexloop.conversation.scope_denial",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ],
+        [
+          "Conversation",
+          1
+        ],
+        [
+          "Message",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.conversation.scope_denials.read",
+        "1.0.0"
+      ],
+      "builder": "scope_denial_function",
+      "group": "relay"
+    }
+  ]
+}
