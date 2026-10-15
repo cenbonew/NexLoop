@@ -1,0 +1,13 @@
+{
+  "schema_version": "nexloop-webchat-consumers/1",
+  "tenant_id": "<TENANT_ID>",
+  "browser_application_id": "<BROWSER_APPLICATION_ID>",
+  "caller_application_id": "eios:application:nexloop-webchat",
+  "consumers": [
+    {
+      "principal_id": "<PRINCIPAL_ID_FROM_IDENTITY_HUMAN>",
+      "subject_id": "<SUBJECT_ID_FROM_IDENTITY_HUMAN>",
+      "persona": "simulated_agent"
+    }
+  ]
+}
