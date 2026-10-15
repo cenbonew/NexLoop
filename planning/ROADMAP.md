@@ -191,6 +191,9 @@ CI 主机就是规划中的 APP_HOST。下列占用互斥，同一时间只做�
 | 2026-10-14 | 异地备份 repo2（负责人）：S3 兼容对象存储暂时没有，部署先只用 repo1（APP_HOST 加密卷，TLS 服务器模式）；O6 中“异地仓库在受控真实试运行之前”的时点未满足，作为已知风险记录（两台主机同一地点，单点灾难时备份不可用），repo2 就绪后补做首个全量备份与校验 | NX-035 部署手册 §2 |
 | 2026-10-15 | 排期顺延（负责人选 A）：部署中发现缺口 A1——新租户的系统对象类型与 Action 在生产/stage 没有发布入口（只有测试夹具插表；设计见 docs/implementation/NX-032-stage-publish-design.md，关键路径 T1–T3、T5 约 3.5–4 人天）。新排期：10/15–10/18 完成 A1 与其余部署步骤 → 10/19 校准 3 次 → 10/20–21 交互 36 次 → 10/22 AT-015、证据包与 v0.1 验收 | NX-032 A1 设计；run-41 |
 | 2026-10-15 | 调度员裁定：G-PLAN（计划重评无生产建立入口）与 G-ROLE-READ（Role Run 的逐对象 READ）不阻塞校准与 36 次交互（交互计划 v3 五类均不经 Role Run；消息 Run 不读角色对象，role_ref 须保持 role:<id> 形式），放到试运行之后，估计 1–1.5 天；G-CONTEXT-STRATEGY 不退回 v2，由 owner 经工作台发布策略（SQL 仅允许人类） | docs/release/assembly-dryrun-gaps.md |
+| 2026-10-15 | 负责人批准 NX-036 漏洞豁免（D6）：zlib CVE-2023-45853 ×3、sqlite CVE-2025-7458 ×2 接受豁免至 2027-01-12（不可达、上游 wont-fix）；CVE-2025-13836 不豁免。试运行后待办：升级 Python 基础镜像修复 CVE-2025-13836；retention.py 读取加上限；2027-01-12 前复审豁免（过期后 stage 发布检查也会失败） | docs/release/nx036-waiver-review-20261016.md；docs/implementation/NX-036-vuln-remediation.md |
+| 2026-10-15 | 负责人决定：决策评估（火山方舟 System One，beta）作为判断层在试运行后接入；今晚只在分支 l5/decision-eval-impl 实现离线部分，10/22 验收前不合入、不进发布；首批用途 Claim 复核与转人工判断，阈值待标注集校准 | docs/implementation/decision-eval-system-one-design.md |
+| 2026-10-15 | 负责人决定：模型预算期间提前为 10/18 00:00–10/23 00:00（+08:00，100 CNY），10/18 早上做带模型冒烟；stage 测试账户口令由调度员生成并经私有文件交付 | docs/release/run-model-smoke-20261018.md |
 
 待决：见 §6“下一道关卡的决定”。
 
