@@ -22,11 +22,8 @@ The private params JSON: {"data_host_addr", "data_host_name", "pg_port", "db_nam
 Prints one JSON object (counts and codes only). Exit 0 ok, 1 problems found, 2 refused.
 """
 import argparse
-import base64
 import hashlib
-import hmac
 import json
-import os
 import re
 import secrets
 import shutil
@@ -38,6 +35,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 import issue_certs  # noqa: E402
+from configurator_window import CONFIGURATOR, scram_verifier, write_private  # noqa: E402,F401
+from configurator_window import configurator_window as _configurator_window  # noqa: E402
 
 COMPOSE_APP = ROOT / 'deploy/stage/compose.app.example.yaml'
 GRANTS = ROOT / 'deploy/authorization/service-grants.v1.json'
@@ -170,23 +169,8 @@ def catalog(compose_app=COMPOSE_APP, compose_data=COMPOSE_DATA):
 
 
 # ---- generation --------------------------------------------------------------------------------------------------------------
-def scram_verifier(password, *, iterations=4096, salt=None):
-    """The PostgreSQL SCRAM-SHA-256 verifier (RFC 5803 form) of `password`: what ALTER ROLE ... PASSWORD stores as is."""
-    salt = salt or secrets.token_bytes(16)
-    salted = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, iterations)
-    client_key = hmac.new(salted, b'Client Key', 'sha256').digest()
-    server_key = hmac.new(salted, b'Server Key', 'sha256').digest()
-    def b64(value):
-        return base64.b64encode(value).decode()
-    return f'SCRAM-SHA-256${iterations}:{b64(salt)}${b64(hashlib.sha256(client_key).digest())}:{b64(server_key)}'
-
-
-def _write(path, data, mode=0o600):
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
-    with os.fdopen(fd, 'wb') as stream:
-        stream.write(data if isinstance(data, bytes) else data.encode())
-    os.chmod(path, mode)
+# scram_verifier and the private file writer live with the configurator window (configurator_window.py).
+_write = write_private
 
 
 def _params(path):
@@ -464,39 +448,9 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
             'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
 
 
-CONFIGURATOR = 'nexloop_configurator'
-
-
 def configurator_window(bootstrap_dsn_file):
-    """A login window for the configurator over the bootstrap socket (document §3b): the configurator logs in as itself
-    (trusted_configuration refuses SET ROLE and elevated sessions); the one-time password reaches PostgreSQL as a SCRAM verifier
-    only, and the role is NOLOGIN without a password again when the window closes, whatever happened."""
-    import contextlib
-
-    import psycopg
-    from psycopg.conninfo import conninfo_to_dict, make_conninfo
-    from nexloop_eios.trusted_configuration import read_private_text
-
-    @contextlib.contextmanager
-    def window():
-        bootstrap = read_private_text(bootstrap_dsn_file, maximum=16384).strip()
-        params = conninfo_to_dict(bootstrap)
-        if params.get('user') != 'nexloop_bootstrap' or not str(params.get('host', '')).startswith('/'):
-            raise Refused('--bootstrap-dsn-file: the nexloop_bootstrap DSN over the local socket (host=<socket directory>)')
-        password = secrets.token_hex(24)
-        import tempfile
-        scratch = Path(tempfile.mkdtemp(prefix='nexloop-configurator-'))
-        dsn = scratch / 'configurator-dsn'
-        with psycopg.connect(bootstrap, autocommit=True, connect_timeout=5) as admin:
-            admin.execute(f"alter role {CONFIGURATOR} login password '{scram_verifier(password)}'")
-            try:
-                _write(dsn, make_conninfo(bootstrap, user=CONFIGURATOR, password=password))
-                yield dsn
-            finally:
-                dsn.unlink(missing_ok=True)
-                scratch.rmdir()
-                admin.execute(f'alter role {CONFIGURATOR} nologin password null')
-    return window()
+    """The configurator login window over the bootstrap socket (document §3b; configurator_window.py)."""
+    return _configurator_window(bootstrap_dsn_file, refused=Refused)
 
 
 def check(out, *, uids=False, compose_app=COMPOSE_APP):
