@@ -789,10 +789,10 @@
         "operation": "deliver",
         "subject": "one enterprise delivery slot",
         "target_systems": [
-          "postgres"
+          "service"
         ]
       },
-      "schema_hash": "43cec59d96bf83a1d3323815a5c8d3e73a35b98d3166d208cb3f28ee30c432ea",
+      "schema_hash": "8f64faed2c50a3a9cfed6db01a86c52d95539895a2435edaaf422da54f67a018",
       "side_effects_reason": null
     },
     {
