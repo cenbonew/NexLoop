@@ -157,46 +157,34 @@ docker run $APPTOOL "$BACKEND_IMAGE" -m nexloop_eios.context_strategy_setup --re
 - **撤销**：策略只能发布新版本，不能删除。
 - **演练出处**：`publish_strategy`；`test_the_owner_publishes_the_relay_strategy_and_the_relay_issues_the_run`。
 
-## 5. 试运行预算 Budget.set（APP_HOST，owner 本人的会话；B，sudo-A）
+## 5. 试运行预算 Budget.set：`real_tenant_init.py budget`（APP_HOST，owner 本人的会话；B，sudo-A）
 
-- **请求内容**：`real_tenant_init.py plan` 打印的 `model_budget` 步，即 `budget_request`：累计上限 100（`nx037-trial.v3.json` 的 `cost_caps.cumulative`），币种与 configure 相同。
-- **执行身份**：只能由 owner 自己的工作台会话执行（Action `Budget.set`，capability `goals.budget.set`）。
-- **缺少入口**：没有 CLI，也没有工作台页面可以设置预算（缺口 G-BUDGET-CLI，见 §12）。下面的脚本与演练 `set_trial_budget` 调用的生产函数相同：`real_tenant_init.parameters` 和 `budget_request`、`context_strategy_setup.owner_session`、`browser_authorization.authenticate_browser_business`、`goal_controls.GoalGovernedActions.set_budget`。
-  - 脚本 `/in/budget_set.py`：
-
-```python
-import sys
-sys.path.insert(0, '/opt/release/scripts/nx037')
-import real_tenant_init as I
-from nexloop_eios import context_strategy_setup as C
-from nexloop_eios.backend import open_backend
-from nexloop_eios.browser_authorization import authenticate_browser_business
-from nexloop_eios.goal_controls import GoalGovernedActions
-from nexloop_eios.private_configuration import read_private_text as r
-tenant, workbench, owner_ref, catalog, channel, start, end, origin = sys.argv[1:9]
-p = I.parameters(tenant=tenant, owner_principal=owner_ref, value_catalog=catalog, channel_ref=channel, period_start=start, period_end=end)
-request = I.budget_request(p)
-with open_backend(database_url=r('/run/secrets/api_dsn', maximum=16384), artifact_root='/work/artifacts', signing_key_file='/run/secrets/signing_key',
-                  signing_key_id=sys.argv[9]) as api, \
-     C.owner_session(r('/run/secrets/api_identity_dsn', maximum=16384), bytes.fromhex(r('/run/secrets/api_browser_rate_key', maximum=128).strip()),
-                     {'tenant_id': tenant, 'workbench_application_id': workbench}, r('/in/owner-username', maximum=320).strip(),
-                     r('/in/owner-password', maximum=4096).strip(), origin) as session:
-    owner = GoalGovernedActions(api._pool, authenticate_browser_business(api._pool, session, world='real'), api._signer)
-    owner.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
-print('{"budget_set": true}')
-```
+- **请求内容**：与 `real_tenant_init.py plan` 打印的 `model_budget` 步相同（`budget_request`），即累计上限 100（trial 的 `cost_caps.cumulative`），币种与期间同 configure。
+- **身份**：owner 本人。子命令按工作台登录的方式登录：`context_strategy_setup.owner_session`，使用私有的用户名与口令文件和登录速率限制。然后以 owner 的浏览器业务授权（0045）提交 `Budget.set`，结束后撤销会话。没有 owner 成员身份（即没有 `Budget.set` 授权）的人会被拒绝。
+- **私有输入**（`/in`，10001，0600）：
+  - `owner-username`、`owner-password`：同 §4；
+  - 值目录 `value-catalog.json`：同 configure；
+  - 配方 `budget-recipe.json`：`{"schema_version":"nexloop-budget-setup/1","tenant_id":"$TENANT_ID","workbench_application_id":"$WORKBENCH_APPLICATION_ID","browser_origin":"$BROWSER_ORIGIN"}`。配方里没有秘密。
 
 ```
-docker run $APPTOOL "$BACKEND_IMAGE" /in/budget_set.py "$TENANT_ID" "$WORKBENCH_APPLICATION_ID" "$OWNER_PRINCIPAL_REF" /in/value-catalog.json \
-  "$CHANNEL_REF" "$PERIOD_START" "$PERIOD_END" "$BROWSER_ORIGIN" "$KEY_ID"
+docker run $APPTOOL "$BACKEND_IMAGE" /opt/release/scripts/nx037/real_tenant_init.py budget --tenant "$TENANT_ID" \
+  --owner-principal "$OWNER_PRINCIPAL_REF" --value-catalog /in/value-catalog.json --channel-ref "$CHANNEL_REF" \
+  --period-start "$PERIOD_START" --period-end "$PERIOD_END" --recipe /in/budget-recipe.json \
+  --username-file /in/owner-username --password-file /in/owner-password $BACKEND \
+  --identity-database-url-file /run/secrets/api_identity_dsn --browser-rate-key-file /run/secrets/api_browser_rate_key
 ```
 
-- 参数与 run-34 / run-41 §4.2 的 configure 完全相同：`$OWNER_PRINCIPAL_REF`、值目录文件、`$CHANNEL_REF`、试运行期间。值目录复制到 `/in/value-catalog.json`。
-- **预期**：`{"budget_set": true}`。`request_id` 由 `budget_request` 确定，所以再执行一次是重放，不会重复设置。
+- 参数与 run-34 / run-41 §4.2 的 configure 完全相同：`$OWNER_PRINCIPAL_REF`、`$CHANNEL_REF`、试运行期间。`$BACKEND` 见 §0.3。
+- **预期**：
+  - `{"mode":"budget","executed":true,"budget_kind":"model","limit_amount":"100",…,"replayed":false}`；
+  - 再执行一次 `replayed: true`，`request_id` 相同。`request_id` 由租户与期间开始时间决定，是稳定的业务意图 ID；
+  - 输出不含用户名与口令。
+- **失败**：输出 `{"ok":false,"detail":…}`，退出码 2，不写任何东西。口令文件不是 0600 或属主不对时，输出 `PermissionError`。
 - **核对**：
   - `real_tenant_init.py verify --metrics-dsn-file …`：`ready: true`，模型预算等于累计上限并覆盖试运行期间；
   - 或者 `select authz.nexloop_nx037_tenant_state('$TENANT_ID','real')` 中 `budgets.model.limit` 为 100。
-- **撤销**：用新的 Budget.set 改值；预算只有当前值。
+- **撤销**：用新的 Budget.set 改值（换期间，即换意图 ID）；预算只有当前值。
+- **演练出处**：`set_trial_budget`；负例见 `test_budget_cli_refuses_a_non_owner_and_a_password_file_that_is_not_private`。
 
 ## 6. 每个消费者的业务组装（APP_HOST，6 次；B，sudo-A）
 
@@ -344,7 +332,7 @@ docker compose -p nexloop-app ps
 
 | ID | 内容 | 影响 | 建议 |
 |---|---|---|---|
-| G-BUDGET-CLI | Budget.set 没有 CLI，工作台也没有预算页面，§5 只能用脚本调用生产函数 | 需要在 APP_HOST 上运行一段 Python | 给 `real_tenant_init.py` 增加 `budget` 子命令（owner 会话），与 `context_strategy_setup` 的登录方式相同 |
+| G-BUDGET-CLI | **已解决**：`real_tenant_init.py budget`（§5） | — | — |
 | G-ENTERPRISE | 企业端点属阶段 C；`--enterprise-placeholders` 不路由企业 Action | `real_delivery` 的企业交付为 `unrouted` | 阶段 C 提供端点后，用 `--enterprise-origin`、`--enterprise-connect-address` 重新生成路由 |
 | G-PLAN / G-ROLE-READ | 已判定不阻塞，放到试运行之后 | plan-reevaluator 空转 | — |
 | 未在 stage 验证 | 本单的 APP_HOST 一次性容器形态（`--network container:` 加 api secrets 挂载）只在演练中以等价方式验证：同一角色、同一 DSN 形态，用本地 trust DSN | 第一次执行时可能遇到 PG 防火墙或证书路径问题 | §1 第一个账号（owner）就是连通性试跑：它失败时不写任何东西，按报错核对防火墙与证书路径后再继续 |
