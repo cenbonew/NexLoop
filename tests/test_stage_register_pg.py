@@ -363,6 +363,12 @@ def test_publish_makes_every_granted_catalog_action_readable_by_its_grantee_and_
         assert {'message_relay', 'relay_source', 'relay_planner', 'effect_executor', 'commitment_keeper', 'commercial_recorder'} <= {r for r, _ in reads}
     # Idempotent: nothing to send.
     assert S.main(args) == 0 and json.loads(capsys.readouterr().out)['changed'] is False
+    # Review of a new type takes the tenant's create/edit snapshots (0101 nexloop_review_type_action_capabilities: first by
+    # resource_id per capability name). With the role Actions on 1.1.0 it must still be the shared 1.0.0 snapshots.
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))  # forced row security, as the review session sets it
+    caps = admin.execute('select ontology.nexloop_review_type_action_capabilities(%s)', (TENANT,)).fetchone()[0]
+    assert {n: (c['capability_version'], c['required_scopes']) for n, c in caps.items()} == {
+        'ontology.object.create': ('1.0.0', ['action.execute']), 'ontology.object.edit': ('1.0.0', ['action.execute'])}
     # A same-version Action with other content is refused before writing (0162 would also raise 40001).
     changed = json.loads(json.dumps(compiled))
     changed['actions'][0]['definition']['created_by'] = 'someone-else'
