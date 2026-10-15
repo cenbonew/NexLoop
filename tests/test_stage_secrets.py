@@ -243,6 +243,19 @@ def test_the_generated_dsns_connect_under_clientcert_verify_full_and_the_old_cer
                                  sslrootcert=str(tree['ca'] / 'bundle.crt'), sslcert=str(root / cert),
                                  sslkey=str(root / (cert.removesuffix('.crt') + '.key')), connect_timeout=5) as db:
                 return db.execute('select current_user').fetchone()[0]
+        # G-METRICS-DSN: the metrics client connects with its certificate alone (the cert-only DSN, no password).
+        admin_create = psycopg.connect(host=str(sock), port=port, user='nexloop_bootstrap', dbname='postgres', autocommit=True)
+        with admin_create:
+            admin_create.execute('create role nexloop_metrics login')
+        metrics = tree['out'] / 'management' / 'metrics'
+        with psycopg.connect(host='localhost', hostaddr='127.0.0.1', port=port, dbname='postgres', user='nexloop_metrics', sslmode='verify-full',
+                             sslrootcert=str(metrics / 'pg-ca.crt'), sslcert=str(metrics / 'metrics-pg-client.crt'),
+                             sslkey=str(metrics / 'metrics-pg-client.key'), connect_timeout=5) as db:
+            assert db.execute('select current_user').fetchone()[0] == 'nexloop_metrics'
+        with pytest.raises(psycopg.OperationalError, match='certificate authentication failed'):
+            psycopg.connect(host='localhost', hostaddr='127.0.0.1', port=port, dbname='postgres', user='nexloop_api', sslmode='verify-full',
+                            sslrootcert=str(metrics / 'pg-ca.crt'), sslcert=str(metrics / 'metrics-pg-client.crt'),
+                            sslkey=str(metrics / 'metrics-pg-client.key'), connect_timeout=5)
         assert connect('api/identity-dsn') == 'nexloop_identity'
         assert connect('plan-reevaluator/api-dsn') == 'nexloop_api'
         assert connect('reply-guarantor/api-dsn') == 'nexloop_api'
@@ -254,6 +267,42 @@ def test_the_generated_dsns_connect_under_clientcert_verify_full_and_the_old_cer
         subprocess.run([str(bindir / 'pg_ctl'), '-D', str(data), '-m', 'fast', '-w', 'stop'], check=True, stdout=subprocess.DEVNULL)
         import shutil
         shutil.rmtree(sock, ignore_errors=True)
+
+
+def test_the_metrics_client_is_generated_certificate_only_owner_only_and_checked(tree, tmp_path):
+    """G-METRICS-DSN: management/metrics holds the APP_HOST read-only metrics client (verify-full, user nexloop_metrics, no
+    password, paths of its installed location NEXLOOP_ROOT/ops/metrics, CN nexloop_metrics chained to the bundle), never a
+    service secret; DATA_HOST's copy is the backup executor's socket DSN with a SCRAM password in role-passwords.sql."""
+    import stat
+    metrics = tree['out'] / 'management' / 'metrics'
+    assert sorted(p.name for p in metrics.iterdir()) == sorted(S.METRICS_FILES) and stat.S_IMODE(metrics.stat().st_mode) == 0o700
+    assert all(stat.S_IMODE((metrics / n).stat().st_mode) == 0o600 for n in S.METRICS_FILES)
+    fields = dict(item.split('=', 1) for item in (metrics / 'metrics.dsn').read_text().split())
+    assert fields['sslmode'] == 'verify-full' and fields['user'] == 'nexloop_metrics' and 'password' not in fields
+    assert fields['host'] == 'data.stage.invalid' and fields['hostaddr'] == DATA_ADDR and fields['port'] == '55432'
+    assert {fields[k] for k in ('sslrootcert', 'sslcert', 'sslkey')} == {f'/srv/nexloop/ops/metrics/{n}' for n in ('pg-ca.crt', 'metrics-pg-client.crt', 'metrics-pg-client.key')}
+    assert cn(metrics / 'metrics-pg-client.crt') == 'nexloop_metrics'
+    verified = subprocess.run(['openssl', 'verify', '-CAfile', str(tree['ca'] / 'bundle.crt'), str(metrics / 'metrics-pg-client.crt')], capture_output=True, text=True)
+    assert verified.returncode == 0, verified.stderr
+    # Not a service secret: no compose file mounts it, and no service tree holds a nexloop_metrics DSN or certificate.
+    for host in ('app', 'data'):
+        for path in (tree['out'] / host / 'secrets').rglob('*'):
+            if path.is_file() and path.name != 'metrics.dsn' and path.suffix in ('', '.dsn') and 'dsn' in path.name:
+                assert 'user=nexloop_metrics' not in path.read_text(), path
+    data = (tree['out'] / 'data' / 'secrets' / 'backup' / 'metrics.dsn').read_text()
+    assert 'user=nexloop_metrics' in data and 'host=/srv/nexloop/run/postgresql' in data and 'password=' in data and 'sslmode' not in data
+    entry = next(f for f in tree['manifest']['files'] if f['path'] == 'backup/metrics.dsn')
+    assert entry['host'] == 'data' and entry['owner'] == 'nexloop-backup' and entry['kind'] == 'socket_dsn'
+    assert "ALTER ROLE nexloop_metrics PASSWORD 'SCRAM-SHA-256$" in (tree['out'] / 'management' / 'role-passwords.sql').read_text()
+    assert S.check(tree['out'])['ok']
+    # The check refuses a widened mode and a password in the APP_HOST DSN (on a copy of the tree).
+    import shutil
+    copy = tmp_path / 'tree'
+    shutil.copytree(tree['out'], copy)
+    (copy / 'management' / 'metrics' / 'metrics-pg-client.key').chmod(0o644)
+    dsn = copy / 'management' / 'metrics' / 'metrics.dsn'
+    dsn.write_text(dsn.read_text().strip() + ' password=x\n')
+    assert set(S.metrics_problems(copy / 'management' / 'metrics')) == {'metrics:file:metrics-pg-client.key', 'metrics:dsn'}
 
 
 def test_the_agent_host_starts_with_the_generated_runtime_files(tree, tmp_path):
@@ -393,3 +442,26 @@ def test_setup_credentials_reuse_the_principal_token_and_are_idempotent(tree, tm
     S.write_private(out / 'setup' / 'business-owner-credential', 'tampered')
     with pytest.raises(S.Refused, match='differs'):
         S.setup_credentials(out)
+
+
+def test_metrics_adds_the_client_to_a_tree_generated_without_it(tree, tmp_path):
+    """G-METRICS-DSN on the stage's existing tree: `metrics` adds management/metrics, the DATA_HOST socket DSN and the one ALTER ROLE
+    for the bootstrap window, records them in the manifest (check passes), prints no value and refuses a second run."""
+    import shutil
+    old = tmp_path / 'old'
+    shutil.copytree(tree['out'], old)
+    shutil.rmtree(old / 'management' / 'metrics')
+    (old / 'data' / 'secrets' / 'backup' / 'metrics.dsn').unlink()
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['path'] != 'backup/metrics.dsn']
+    manifest['management'] = [m for m in manifest['management'] if not m.startswith('metrics')]
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    assert S.check(old)['problems'] == ['metrics:directory']
+    printed = []
+    assert S.main(['metrics', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params'])]) == 0 or printed
+    assert S.check(old)['ok']
+    sql = (old / 'management' / 'metrics-role-password.sql').read_text()
+    assert sql.count('ALTER ROLE') == 1 and "ALTER ROLE nexloop_metrics PASSWORD 'SCRAM-SHA-256$" in sql
+    password = re.search(r'password=(\S+)', (old / 'data' / 'secrets' / 'backup' / 'metrics.dsn').read_text()).group(1)
+    assert password not in sql
+    assert S.main(['metrics', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params'])]) == 2
