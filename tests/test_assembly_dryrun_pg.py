@@ -195,7 +195,6 @@ WORKERS = ('webchat-delivery', 'action-worker', 'runtime-worker', 'message-relay
 EXPECTED_GAPS = {
     'claim-extraction-worker': ('skip', 'secret not generated in phase A: claim_extraction_worker_model'),  # G5: model.env, phase C
     'claim-matcher': ('skip', 'secret not generated in phase A: claim_matcher_model'),                      # G5: model.env, phase C
-    'runtime-worker': (1, 'Runtime Worker dispatch unavailable'),  # D-QUEUE: Compose --queue runtime, grant NexLoop.queue.operations
 }
 
 

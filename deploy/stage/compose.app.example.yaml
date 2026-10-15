@@ -202,7 +202,7 @@ services:
               /var/lib/nexloop/artifacts, --host-control-key-file, /run/secrets/host_control_key, --host-ca-file, /run/secrets/host_ca,
               --guard-key-file, /run/secrets/guard_transport_key, --guard-certificate-file, /run/secrets/guard_cert, --guard-tls-key-file,
               /run/secrets/guard_key, --guard-workers, "4", --dispatcher-pool-max, "2", --dispatch-loops, "4", --guard-port, "${GUARD_PORT:?guard port}",
-              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --world, real, --queue, runtime]
+              --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --world, real, --queue, operations]
     environment:
       <<: *environment
       NEX_EIOS_DB_POOL_MAX: "4"
