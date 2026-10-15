@@ -484,3 +484,85 @@ def test_budget_cli_refuses_a_non_owner_and_a_password_file_that_is_not_private(
     assert model_budget(admin) is None
     # The owner itself succeeds afterwards (the refusals left no state behind).
     assert set_trial_budget(st, admin)['executed'] is True
+
+
+def workbench_members(st, *labels):
+    """A members file with the given workbench Humans as owners (identity-<label>.json from create_human)."""
+    members = []
+    for label in labels:
+        body = json.loads((st.root / f'identity-{label}.json').read_text())
+        members.append({'principal_id': body['membership']['principal_id'], 'subject_id': body['subject']['subject_id'], 'role': 'owner'})
+    path = st.root / ('workbench-members-' + '-'.join(labels) + '.json')
+    if path.exists():
+        path.unlink()
+    A.private(st.root, path.name, json.dumps({'schema_version': 'nexloop-workbench-members/1', 'tenant_id': TENANT, 'application_id': 'stage-workbench',
+                                              'caller_application_id': 'eios:application:stage-workbench', 'members': members}))
+    return path
+
+
+def workbench_roles(st, members, *extra):
+    import subprocess
+    import sys
+    argv = [sys.executable, str(A.ROOT / 'scripts/deploy/workbench_roles.py'), '--roles', str(A.ROOT / 'deploy/authorization/workbench-roles.v1.json'),
+            '--members', str(members), '--apply', *extra, '--bootstrap-dsn-file', str(st.bootstrap_dsn), '--signing-key-file',
+            str(st.out / 'management' / 'signing.key.hex'), '--signing-key-id', 'stage-1']
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    return done.returncode, done.stdout, done.stderr
+
+
+def strategy_as(st, label, request_id):
+    """context_strategy_setup as the workbench Human <label> (username dryrun-<label>), with its own request id."""
+    recipe = st.root / f'context-strategy-{label}.json'
+    if not recipe.exists():
+        body = A.filled('context-strategy-setup.example.json', TENANT_ID=TENANT, WORKBENCH_APPLICATION_ID='stage-workbench')
+        A.private(st.root, recipe.name, json.dumps({**body, 'request_id': request_id}))
+    username = st.root / f'username-dryrun-{label}'
+    if not username.exists():
+        A.private(st.root, username.name, f'dryrun-{label}')
+    return A.run_tool('nexloop_eios.context_strategy_setup', [
+        '--recipe', str(recipe), '--strategies-file', str(A.ROOT / 'deploy/configuration/context-strategies.v1.json'),
+        *st.backend_args()[:6], '--artifact-root', str(st.artifacts), '--identity-database-url-file', str(st.root / 'identity-dsn'),
+        '--username-file', str(username), '--password-file', str(st.root / f'{label}-password'),
+        '--browser-rate-key-file', str(st.out / 'app' / 'secrets' / 'api' / 'browser-rate.key'), '--browser-origin', 'https://127.0.0.1:8443'])
+
+
+def test_a_revoked_workbench_owner_is_refused_and_the_remaining_owner_is_not(assembled, admin, capsys):
+    """G-WB-REVOKE: two owners applied with workbench_roles --apply; --revoke-member removes one (empty grant sets first, then the
+    smaller member list). The revoked owner's Budget.set and nexloop.context.strategy.publish are refused, the remaining owner performs
+    both; a rerun gives the same state; a members file that still lists the revoked owner is refused without any write."""
+    st = assembled
+    for label in ('owner', 'owner2'):
+        create_human(st, application='stage-workbench', username=f'dryrun-{label}', label=label)
+    both = workbench_members(st, 'owner', 'owner2')
+    code, out, err = workbench_roles(st, both)
+    assert code == 0, (out, err)
+    revoked = json.loads((st.root / 'identity-owner.json').read_text())['membership']['principal_id']
+    remaining = workbench_members(st, 'owner2')
+    publications = 'select count(*) from control.nexloop_configuration_publications where tenant_id=%s'
+    # Negative: the members file still lists the revoked owner -> refused before any write.
+    before = admin.execute(publications, (TENANT,)).fetchone()[0]
+    code, out, err = workbench_roles(st, both, '--revoke-member', revoked)
+    assert code == 2 and 'still lists a revoked member' in err, (code, out, err)
+    assert admin.execute(publications, (TENANT,)).fetchone()[0] == before
+    for _ in range(2):  # the rerun gives the same state
+        code, out, err = workbench_roles(st, remaining, '--revoke-member', revoked)
+        assert code == 0, (out, err)
+        result = json.loads(out)
+        assert result['revoked'] == [revoked] and result['members'] == 1 and result['revoked_grant_sets'] > 0
+        assert admin.execute("select rolcanlogin, rolpassword is null from pg_authid where rolname='nexloop_configurator'").fetchone() == (False, True)
+    grants = admin.execute("select payload->'grants' from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[1]=%s",
+                           (TENANT, revoked)).fetchall()
+    assert grants and all(g == [] for (g,) in grants)
+    # The revoked owner: Budget.set and the strategy publication refused, nothing written.
+    code, out, err = budget_cli(st, username='dryrun-owner', password_file=st.root / 'owner-password')
+    # Signed in (the password is right), refused by authorization: the grant sets are empty.
+    assert code == 2 and json.loads(out) == {'ok': False, 'detail': 'ActionAuthorizationDenied'}, (code, out, err)
+    assert model_budget(admin) is None
+    code, out, err = strategy_as(st, 'owner', 'context-strategy-revoked-owner')
+    assert code == 2 and json.loads(err) == {'ok': False, 'reason': 'ActionAuthorizationDenied'}, (code, out, err)
+    assert admin.execute('select count(*) from control.nexloop_context_strategies where tenant_id=%s', (TENANT,)).fetchone() == (0,)
+    # The remaining owner performs both.
+    code, out, err = budget_cli(st, username='dryrun-owner2', password_file=st.root / 'owner2-password')
+    assert code == 0 and json.loads(out)['executed'] is True, (code, out, err)
+    code, out, err = strategy_as(st, 'owner2', 'context-strategy-remaining-owner')
+    assert code == 0 and json.loads(out)['strategy_ref'] == 'context-strategy:recent_plus_required@1', (code, out, err)
