@@ -88,3 +88,27 @@ gateway 只有 3 个 Medium（修复状态 unknown），不处理。
    - 有修复的 High 下降。如果仍有剩余（例如 Node 基础镜像中的 Debian 包），逐条列出，再决定是否升级 `node-host-base`。
 4. 运行 Host 与 Pi 的真实用例，以及 community Host 镜像的运行时检查，确认去掉 npm 后 Host 正常。
 5. public 发布前：grype 数据库不超过 7 天（D12）；批准的豁免移入策略后，`release.py public-preflight` 第 8 步通过。
+
+## 2026-10-15：豁免批准与试运行后的待办
+
+**豁免已生效**：
+- 负责人 2026-10-15 批准五条豁免草稿：CVE-2023-45853 zlib1g（backend、agent-host、postgres）与 CVE-2025-7458 libsqlite3-0（backend、postgres）。审阅材料见 `docs/release/nx036-waiver-review-20261016.md`；
+- 五条豁免已移入 `deploy/compliance/vulnerability-policy.v1.json`；`approved_by` 写决定引用；backend 那条 libsqlite3-0 的 reason 按审阅材料 §1.2 更正；
+- 草稿文件已清空；
+- 期限都是 2026-10-14 至 2027-01-12（90 天，D6 上限）。
+
+**第 8 步（`vulnerabilities`）在发布 `20261015-4736ea179063-1` 上的预期**，D12 的漏洞库年龄另计：
+- 五个 wont-fix 的 Critical 都被豁免：`waived` 为 CVE-2023-45853 与 CVE-2025-7458，`cleanup` 为空，即每条豁免都用上了；
+- 有修复的 Critical 为 0，`blocking` 为空；
+- 有修复的 High 只列出：`listed` 至少含 CVE-2025-13836（backend、agent-host 的 python 3.12.15）；
+- 不阻断。
+
+**试运行后待办**（这里没有修改 planning，请由调度员同步到 ROADMAP 的待办）：
+
+1. **CVE-2025-13836**（High，有修复，不豁免）：
+   - Python 3.12 出现含修复的补丁版本后，更新 `versions.lock.json` 的 `python-build-base`，按本文"下一次发布构建要验证的事项"重建与重扫；
+   - postgres 镜像中的 `python3.11-minimal` 为 wont-fix（Debian），不可达，D5 下不列出。
+2. **`retention.py:97`**：把 `response.read()` 改为有上限的读取，与其他 `http.client` 调用一致。对端是 Agent Host 回环，属受信方，这样改只是对齐做法。
+3. **豁免到期 2027-01-12**：
+   - 到期后，`_waiver_problem` 判为 expired，stage 与 public 的检查都会失败；
+   - 到期前要复核：Debian 是否已出修复。有修复就升级并删除豁免；仍无修复且仍不可达，就由负责人续批新的 90 天。
