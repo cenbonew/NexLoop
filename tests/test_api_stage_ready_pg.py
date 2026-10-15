@@ -21,14 +21,14 @@ PLAN = ROOT / 'deploy/configuration/backup.v1.json'
 
 
 def private(path, text):
-    path.write_text(text)
+    path.write_bytes(text) if isinstance(text, bytes) else path.write_text(text)
     path.chmod(0o600)
     return path
 
 
 @pytest.fixture
 def files(tmp_path):
-    names = {'dsn': 'host=/nonexistent dbname=x', 'key': '00' * 32, 'cert': 'synthetic', 'tls_key': 'synthetic', 'host_key': 'synthetic', 'host_ca': 'synthetic'}
+    names = {'dsn': 'host=/nonexistent dbname=x', 'key': b'k' * 32, 'cert': 'synthetic', 'tls_key': 'synthetic', 'host_key': 'synthetic', 'host_ca': 'synthetic'}
     return {name: private(tmp_path / name, text) for name, text in names.items()}
 
 
@@ -70,6 +70,29 @@ def test_stage_refuses_secret_files_that_are_not_private(files, capsys):
     with pytest.raises(SystemExit):
         parse(stage_args(files), environ={})
     assert '--database-url-file' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('material', [bytes(range(256))[-32:], bytes([0xff, 0xfe, 0x00, 0x80]) * 8, b'A' * 32])
+def test_stage_accepts_any_32_byte_signing_key_read_raw(files, material):
+    # Run-34 2026-10-15: the first stage key was 32 random binary bytes (not UTF-8); the precheck decoded it as text and refused it
+    # although AuthoritySigner.from_file, which the backend uses, accepts it. The precheck now uses that same raw read.
+    files['key'].write_bytes(material)
+    assert parse(stage_args(files), environ={})[0].signing_key_file == files['key']
+
+
+@pytest.mark.parametrize('material', [b'k' * 31, b'k' * 33, ('00' * 32).encode()])
+def test_stage_refuses_a_signing_key_that_is_not_32_bytes(files, material, capsys):
+    files['key'].write_bytes(material)
+    with pytest.raises(SystemExit):
+        parse(stage_args(files), environ={})
+    assert '--signing-key-file' in capsys.readouterr().err
+
+
+def test_stage_refuses_a_signing_key_that_is_not_private(files, capsys):
+    files['key'].chmod(0o644)
+    with pytest.raises(SystemExit):
+        parse(stage_args(files), environ={})
+    assert '--signing-key-file' in capsys.readouterr().err
 
 
 def test_stage_ready_without_a_database_is_503_with_a_code_only(files):
