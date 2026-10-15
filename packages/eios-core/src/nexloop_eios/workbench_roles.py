@@ -7,6 +7,9 @@ subject_id, role}]}. Members are existing browser Humans the identity operator c
 Order (0140 enforces it): apply the members first (control.nexloop_configure_workbench, technical configurator), then the
 compiled grant facts through the 0050 trusted-configuration manifest (``compile_members`` → ``authority_facts``). To shrink
 a role or remove a member, revoke the grants first (empty grant sets), then apply the smaller member list.
+
+Removing a member from the command line (G-WB-REVOKE): `--apply --revoke-member PRINCIPAL_ID` (repeatable) with a members file that no
+longer lists it runs exactly that order (apply_revocations): the empty grant sets first, then the smaller member list.
 """
 import argparse
 import json
@@ -234,6 +237,28 @@ def apply(roles, members, *, database_url_file, signing_key_file, signing_key_id
             'roles_manifest_version': roles['manifest_version']}
 
 
+def apply_revocations(roles, members, revoked, *, database_url_file, signing_key_file, signing_key_id):
+    """G-WB-REVOKE: remove members in the order this module requires. First one 0050 manifest with empty grant sets for every
+    workbench Action of each revoked principal (revoke_member; the principal is still a member, so 0140 accepts the facts), then
+    `apply` with the remaining member list (members, the remaining members' grant facts). The member file must no longer list a
+    revoked principal. Same input, same state: a rerun writes the same empty sets and the same member list."""
+    validate_roles(roles)
+    validate_members(members, roles)
+    if not revoked or len(set(revoked)) != len(revoked) or any(type(r) is not str or not _NAME.fullmatch(r) for r in revoked):
+        raise WorkbenchRolesRejected('revoke-member: distinct principal ids')
+    still = sorted(set(revoked) & {m['principal_id'] for m in members['members']})
+    if still:
+        raise WorkbenchRolesRejected('the members file still lists a revoked member: ' + ', '.join(still))
+    tenant = members['tenant_id']
+    facts = [{'kind': kind, 'key': key, 'payload': fact.model_dump(mode='json')} for r in sorted(revoked) for kind, key, fact in revoke_member(roles, tenant, r)]
+    business = {'application_id': members['application_id'], 'caller_application_id': members['caller_application_id'], 'application_version': '1',
+                'requested_scopes': ['action.execute']}
+    revision = publish_human_authority(tenant, authority_facts=facts, business_application=business, humans=sorted(revoked), label='workbench-revoke',
+                                       database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id)
+    applied = apply(roles, members, database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id)
+    return {**applied, 'revoked': sorted(revoked), 'revoked_grant_sets': len(facts), 'revocation_revision': revision}
+
+
 def main(argv=None, *, window=None):
     p = argparse.ArgumentParser(description='Workbench roles → Human Action grants (NX-028 D1/D2), trusted configuration only')
     p.add_argument('--roles', type=Path, required=True)
@@ -248,6 +273,8 @@ def main(argv=None, *, window=None):
     p.add_argument('--bootstrap-dsn-file', type=Path)
     p.add_argument('--signing-key-file', type=Path)
     p.add_argument('--signing-key-id')
+    p.add_argument('--revoke-member', action='append', metavar='PRINCIPAL_ID',
+                   help='with --apply: empty grant sets for this member first, then the members file (which must not list it); repeatable')
     a = p.parse_args(argv)
     try:
         roles = validate_roles(load(a.roles))
@@ -259,6 +286,8 @@ def main(argv=None, *, window=None):
         if a.members is None:
             raise WorkbenchRolesRejected('members file required')
         members = load(a.members)
+        if a.revoke_member and not a.apply:
+            raise WorkbenchRolesRejected('--revoke-member needs --apply')
         if a.compile_facts:
             print(json.dumps(compile_members(roles, members), ensure_ascii=False, sort_keys=True))
             return 0
@@ -266,6 +295,9 @@ def main(argv=None, *, window=None):
             if not (a.signing_key_file and a.signing_key_id) or (a.configurator_dsn_file is None) == (a.bootstrap_dsn_file is None):
                 raise WorkbenchRolesRejected('apply needs one of --configurator-dsn-file / --bootstrap-dsn-file, --signing-key-file and --signing-key-id')
             def run(dsn):
+                if a.revoke_member:
+                    return apply_revocations(roles, members, a.revoke_member, database_url_file=dsn, signing_key_file=a.signing_key_file,
+                                             signing_key_id=a.signing_key_id)
                 return apply(roles, members, database_url_file=dsn, signing_key_file=a.signing_key_file, signing_key_id=a.signing_key_id)
             if a.bootstrap_dsn_file is not None:
                 if window is None:
