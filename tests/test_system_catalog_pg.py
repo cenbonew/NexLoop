@@ -6,6 +6,8 @@ scopes, object types, target systems, idempotency keys, risk, approval, policy r
 output and receipt schemas, capability name, kind, side effects, idempotency). Not compared: timestamps, authors, digests and
 capability schema hashes (placeholders in the fixtures), and the Consumer schema (the catalog publishes the fresh-tenant
 profile declaration; design §1.1)."""
+import json
+
 import pytest
 
 from nexloop_eios import system_catalog as C
@@ -146,3 +148,31 @@ def test_builder_keys_named_by_t2_exist_and_build():
             'context_binding_schema', 'role_context_binding_schema', 'enterprise_deliver_schema', 'message_assignment_input',
             'service_receipt_function', 'scope_denial_function'}
     assert keys <= set(C.builders()) and all(C.builders()[k]() is not None for k in keys)
+
+
+def test_the_publication_equals_the_builders_and_every_snapshot_is_the_capabilities_manifest_entry():
+    """T3 (dispatcher rulings 1-3): the catalog compiled from the manifests (catalog_publish) is the builders' catalog item by item,
+    every snapshot is the capabilities.v1.json entry it names, role Actions carry ontology.roles.manage in both (0057/0081), and
+    nexloop.enterprise.deliver targets the service system."""
+    import sys
+    sys.path.insert(0, str(ROOT / 'scripts/deploy'))
+    import stage_secrets as S
+    from nexloop_eios import catalog_publish as P
+    tenant = '00000000-0000-4000-8000-000000000001'
+    compiled = P.compile_catalog(tenant, **S.CATALOG)
+    snaps = snapshots()
+    for item in compiled['actions'] + compiled['functions']:
+        binding = item['definition']['capability_binding']
+        assert item['capability'] == snaps[(binding['capability_name'], binding['capability_version'])].model_dump(mode='json'), binding
+    created_at = datetime.fromisoformat(json.loads((ROOT / 'deploy/configuration/system-actions.v1.json').read_text())['valid_from'])
+    args = dict(tenant=tenant, created_by='nexloop-system-catalog', created_at=created_at, snapshots=snaps)
+    ours = {r['definition']['stable_name']: r for r in C.compile_system_actions(**args) + C.compile_system_functions(**args)}
+    published = {r['definition']['stable_name']: r for r in compiled['actions'] + compiled['functions']}
+    assert set(ours) <= set(published)
+    for name, row in ours.items():
+        assert row == published[name], name
+    roles = [s for s in C.ACTIONS if s.group == 'role_run' and s.name != 'nexloop.context.bind_role']
+    for spec in roles:
+        row = published[spec.name]
+        assert 'ontology.roles.manage' in row['definition']['required_scopes'] and 'ontology.roles.manage' in row['capability']['required_scopes'], spec.name
+    assert published['nexloop.enterprise.deliver']['definition']['governance']['change_scope']['target_systems'] == ['service']
