@@ -255,3 +255,22 @@ def test_restricted_worker_pool_statement_and_lock_timeout(authority):
         assert connection.execute('show statement_timeout').fetchone()[0]=='10s'
         assert connection.execute('show lock_timeout').fetchone()[0]=='3s'
         assert connection.execute('select session_user').fetchone()[0]=='nexloop_domain_worker'
+
+
+def test_an_activation_failure_names_its_exception_classes_without_values(accepted_input,tmp_path,monkeypatch):
+    """2026-10-16 stage: the task ended runtime_activation_unavailable and the cause (permission denied, a psycopg
+    InsufficientPrivilege) was only in the PostgreSQL log. The task result now names the class chain (no message, no value)."""
+    import psycopg
+    from eios.authz.errors import AuthorizationUnavailable
+    from nexloop_eios import runtime_activation
+    api,worker,args,issued=accepted_input;accepted=api.accept_runtime_event(**args)
+    def refused(self,**kw):
+        try:raise psycopg.errors.InsufficientPrivilege('permission denied for function value-not-reported')
+        except psycopg.Error:raise AuthorizationUnavailable('runtime activation unavailable') from None
+    monkeypatch.setattr(runtime_activation.RuntimeActivationPort,'create',refused)
+    with dispatch_host(worker,tmp_path) as (runtime,_,_,_,config):
+        result=RuntimeDispatcher(worker,config,queue='operations',total_timeout=10).run_once()
+    assert result['task_id']==accepted['task_id'] and result['status']=='failed'
+    assert result['result']['code']=='runtime_activation_unavailable'
+    assert result['result']['error_class']=='AuthorizationUnavailable' and result['result']['error_cause_class']=='InsufficientPrivilege'
+    assert 'value-not-reported' not in json.dumps(result)

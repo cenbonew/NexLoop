@@ -43,6 +43,17 @@ _STAGE_CODES={'control':'runtime_control_unavailable','activation':'runtime_acti
 ADMISSION_TIMEOUT_FACTOR=4
 
 
+def exception_classes(error,limit=8):
+    """The class names (no message, no value) of an exception and of what it was raised from or during, outermost first. A port that
+    hides its cause (`raise X from None`) still keeps it as __context__; 2026-10-16 stage: AuthorizationUnavailable over a psycopg
+    InsufficientPrivilege was visible only in the PostgreSQL log."""
+    names=[];seen=set()
+    while error is not None and len(names)<limit and id(error) not in seen:
+        seen.add(id(error));names.append(type(error).__name__)
+        error=error.__cause__ if error.__cause__ is not None else error.__context__
+    return names
+
+
 def next_poll_interval(interval,base):
     """Inspect polling backs off: double the last interval, at most POLL_MAX_SECONDS (never below the configured base)."""
     return min(interval*2,max(base,POLL_MAX_SECONDS))
@@ -212,7 +223,7 @@ class RuntimeDispatcher:
                     if missing.code=='runtime_state_missing':raise error from None
                     raise
             return observe()
-        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None;stage='payload'
+        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None;stage='payload';error_classes=None
         try:
             payload=job['payload']
             if type(payload) is not dict or set(payload)!={'run_command','input'}:raise RuntimeDispatchError('runtime_task_payload_invalid')
@@ -276,6 +287,7 @@ class RuntimeDispatcher:
             # Transport ambiguity may recover only the same persisted Run later.
             # Missing reclaimed state/conflict is terminal, never a new start.
             status='retry_wait' if code in _RETRYABLE or code.startswith('runtime_host_status_') else 'failed'
+            error_classes=exception_classes(error)
         result={'scope':'runtime_only','business_action_success':False,'runtime_outcome':outcome}
         if command is not None:result['run_id']=command.get('run_id')
         if receipt is not None:result['runtime_receipt']=receipt
@@ -289,6 +301,8 @@ class RuntimeDispatcher:
         if timing is not None:result['model_timing']=timing  # NX-031 A2: numbers only, beside tool_timing
         if failure is not None:result['failure_code']=failure
         if code is not None:result['code']=code
+        if error_classes:result['error_class']=error_classes[0]
+        if error_classes and len(error_classes)>1:result['error_cause_class']=error_classes[-1]
         try:
             self.worker.assert_task_lease(queue=self.queue,task_id=task_id,fence=fence)
             finished=self.worker.finish_task(queue=self.queue,task_id=task_id,fence=fence,status=status,result=result,retry_seconds=1 if status=='retry_wait' else 0)
