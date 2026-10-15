@@ -27,7 +27,8 @@ from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.property_access import PropertyAccessRule,PropertyGroupRestriction
 from multi_authority_fixture import seed_multi_authority
 from test_action_definitions import published_action  # noqa: F401
-from test_postgres_action_claims import governance_inputs
+from test_postgres_action_claims import governance_inputs  # noqa: F401 (other fixtures import it from here)
+from system_catalog_fixture import business_capabilities
 from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -47,9 +48,8 @@ def publish_commercial_type(admin,worlds=('real','test'),tenant=TENANT):
     for row in rows:
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s) on conflict do nothing',
             (tenant,row['type_name'],row['version'],Jsonb(row)))
-    base=governance_inputs()['capability_snapshot']
-    caps={name:base.model_copy(update={'capability_name':name,'has_side_effects':True}) for name in
-        ('ontology.object.create','ontology.object.edit','commercial.observe')}
+    # NX-032 A1 T4: the business Actions bind the capabilities.v1.json snapshots (1.0.0), as stage publication does.
+    caps=business_capabilities(('ontology.object.create','ontology.object.edit','commercial.observe'))
     compiled=business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
         created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=rows,capabilities=caps,
         select=('CommercialRecord.create','CommercialRecord.edit','CommercialRecord.observe'))
@@ -78,8 +78,7 @@ def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):
     tenant's published Commitment v1 / Consumer v1 (configuration fixture, as the commitment fixture publishes NX-028's)."""
     types=[admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name=%s and version=1",(tenant,t)).fetchone()[0]
         for t in sorted({REGISTRY_ACTIONS[n][0] for n in names})]
-    base=governance_inputs()['capability_snapshot']
-    caps={REGISTRY_ACTIONS[n][1]:base.model_copy(update={'capability_name':REGISTRY_ACTIONS[n][1],'has_side_effects':True}) for n in names}
+    caps=business_capabilities({REGISTRY_ACTIONS[n][1] for n in names})
     for row in business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
             created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=types,capabilities=caps,select=tuple(names)):
         d=row['definition']
