@@ -31,7 +31,7 @@ from nexloop_eios.commitments import CommitmentKeeper,CommitmentReadPort,load_se
 from nexloop_eios.effect_contexts import EFFECT
 from nexloop_eios.property_access import PropertyAccessRule,PropertyGroupRestriction
 from multi_authority_fixture import seed_multi_authority
-from test_postgres_action_claims import governance_inputs
+from system_catalog_fixture import business_capabilities
 from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -55,9 +55,8 @@ def publish_commitment_type(admin,tenant=TENANT,*,actions=True):
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s) on conflict do nothing',
             (tenant,row['type_name'],row['version'],Jsonb(row)))
     if not actions:return rows
-    base=governance_inputs()['capability_snapshot']
-    caps={name:base.model_copy(update={'capability_name':name,'has_side_effects':True}) for name in
-        ('ontology.object.create','ontology.object.edit','commitment.cancel','commitment.extend','commitment.attest','commitment.condition_met','commitment.mark_communication')}
+    caps=business_capabilities(('ontology.object.create','ontology.object.edit','commitment.cancel','commitment.extend','commitment.attest',
+        'commitment.condition_met','commitment.mark_communication'))  # deploy/configuration/capabilities.v1.json
     compiled=business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
         created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=rows,capabilities=caps,
         select=('Commitment.create','Commitment.edit')+HUMAN_ACTIONS)
@@ -71,8 +70,7 @@ def publish_commitment_type(admin,tenant=TENANT,*,actions=True):
 def publish_request_actions(admin,tenant=TENANT,names=REQUEST_ACTIONS):
     """NX-028 slices 2/3: human request / takeover Actions compiled from the business manifest (typed on the tenant's Consumer v1)."""
     consumer=admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1",(tenant,)).fetchone()[0]
-    base=governance_inputs()['capability_snapshot']
-    caps={n:base.model_copy(update={'capability_name':n,'has_side_effects':True}) for n in ('plan.request_reevaluation','service.query_request','conversation.takeover','conversation.handback','message.staff_send')}
+    caps=business_capabilities(('plan.request_reevaluation','service.query_request','conversation.takeover','conversation.handback','message.staff_send'))
     for row in business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=tenant,
             created_by='synthetic-configuration',created_at=datetime.now(UTC),object_types=[consumer],capabilities=caps,select=names):
         d=row['definition']

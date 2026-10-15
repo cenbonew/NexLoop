@@ -13,23 +13,20 @@ from eios.authz.applications import ResourceRestriction
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.identity.models import Subject,SubjectKind,TenantMembership,MembershipKind,LocalAccount,EncodedPasswordHash
-from eios.ontology.models import ObjectTypeDefinition
-from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.backend import open_backend
-from nexloop_eios.effect_contexts import CONFIGURE,BIND,EFFECT,effect_plan_schemas,registrar_schema
-from nexloop_eios.context_artifacts import ACTION as CONTEXT_BIND,context_binding_schema
+from nexloop_eios.effect_contexts import CONFIGURE,BIND,EFFECT
+from nexloop_eios.context_artifacts import ACTION as CONTEXT_BIND
 from nexloop_eios.browser_identity import open_browser_identity
 from nexloop_eios.browser_sessions import PostgresBrowserSessionUnitOfWork
 from nexloop_eios.browser_authorization import authenticate_browser_business
-from nexloop_eios.conversation_messages import conversation_schemas,ConversationOwnershipRegistrar,ConversationMessagePort,OWNERSHIP,CREATE,MESSAGE,READ
+from nexloop_eios.conversation_messages import ConversationOwnershipRegistrar,ConversationMessagePort,OWNERSHIP,CREATE,MESSAGE,READ
 from nexloop_eios.conversation_runtime_bridge import ConversationRuntimeBridge,ConversationRunReader,canonical_event_id,ROUTE
 from authority_fixture import authority_records,seed_authority
 from runtime_effect_fixture import seed_multi_uuid,PrivatePlan,QUEUE
-from test_postgres_action_claims import governance_inputs
+from system_catalog_fixture import publish_system_catalog
 from test_browser_evidence import authenticate
 from test_browser_session_creation import create
-from support.tenants import TENANT_A
 
 @pytest.fixture
 def message_plan(admin,pg,tmp_path):
@@ -37,26 +34,10 @@ def message_plan(admin,pg,tmp_path):
     key=tmp_path/'signer';key.write_bytes(material);key.chmod(0o600)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('runtime-effect',material))
     seed_authority(admin,tenant,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-seed')
-    schemas={schema.type_name:schema for schema in effect_plan_schemas()}
-    schemas.update({schema.type_name:schema for schema in conversation_schemas()})
-    schemas['Consumer']=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True)
-    base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
-    refs={name:definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
-    for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
-    actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),CONTEXT_BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',),READ:('Conversation',),ROUTE:('Conversation',)})
-    for name,types in actions.items():
-        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
-        body['stable_name']=name;body['object_types']=[refs[k].model_dump(mode='json') for k in types]
-        body['governance']['change_scope']['object_types']=body['object_types']
-        capname='ontology.object.create' if name.endswith('.create') else name;body['capability_binding']['capability_name']=capname
-        if name in (CONFIGURE,BIND):body['input_schema']=registrar_schema('configure' if name==CONFIGURE else 'bind')
-        if name==CONTEXT_BIND:body['input_schema']=context_binding_schema()
-        if name==EFFECT:
-            body['governance']['change_scope']['target_systems']=['service']
-            body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
-        published=type(definition).model_validate_json(json.dumps(body));cap=capability.model_copy(update={'capability_name':capname,'has_side_effects':True})
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (tenant,'real','eios:action:'+name+':1',Jsonb(published.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
+    # The system catalog (nexloop_eios.system_catalog, the same declaration stage publication uses) builds the types and Actions.
+    publish_system_catalog(admin,tenant,('Consumer','Goal','PlanStep','EffectControl','Conversation','Message','ConsumerOwnership'),
+        ('Consumer.create','Goal.create','PlanStep.create','EffectControl.create','Conversation.create','Message.create','ConsumerOwnership.create',
+         CONFIGURE,BIND,CONTEXT_BIND,EFFECT,'nexloop.service.query',READ,ROUTE))
     def targets(names):return [('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in names]
     owner_token=seed_multi_uuid(admin,tenant,targets(['Consumer.create','EffectControl.create',CONFIGURE,QUEUE,OWNERSHIP,ROUTE]),suffix='-owner')
     planner_token=seed_multi_uuid(admin,tenant,targets(['Goal.create','PlanStep.create',BIND]),suffix='-planner')

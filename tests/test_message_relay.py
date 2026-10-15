@@ -7,12 +7,9 @@ from datetime import UTC,datetime,timedelta
 import json,os,subprocess,sys
 from pathlib import Path
 import pytest
+from system_catalog_fixture import publish_system_catalog
 from psycopg.conninfo import make_conninfo
-from psycopg.types.json import Jsonb
 from eios.ontology.definitions import ActionDefinition
-from eios.ontology.version_resolution import CapabilityContractSnapshot
-from nexloop_eios.message_assignment_contract import message_assignment_action
-from nexloop_eios.message_relay import message_assignment_schema
 from nexloop_eios.run_credential_vault import RunCredentialVault
 from runtime_effect_fixture import seed_multi_uuid,PrivatePlan,QUEUE
 from eios.authz.operations import Operation
@@ -28,14 +25,7 @@ def effect_configuration(*args):
 @pytest.fixture
 def relay_plan(receipt_plan,admin,tmp_path):
     f=receipt_plan
-    definition_json,capability_json=admin.execute('select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s',
-        (f['tenant'],'eios:action:Consumer.create:1')).fetchone()
-    capability=CapabilityContractSnapshot.model_validate_json(json.dumps(capability_json))
-    schema=message_assignment_schema()
-    definition,capability=message_assignment_action(tenant=f['tenant'],created_by='synthetic-configurator',created_at=datetime.now(UTC),capability=capability)
-    admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(f['tenant'],schema.type_name,Jsonb(schema.model_dump(mode='json'))))
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-        (f['tenant'],'real','eios:action:MessageAssignment.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+    publish_system_catalog(admin,f['tenant'],('MessageAssignment',),('MessageAssignment.create',))  # nexloop_eios.system_catalog
     targets=[('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in ('Goal.create','PlanStep.create','MessageAssignment.create','nexloop.plan.bind_effect_context')]
     planner_token=seed_multi_uuid(admin,f['tenant'],targets,suffix='-relay-planner')
     # All service objects below are newly authenticated after canonical config.

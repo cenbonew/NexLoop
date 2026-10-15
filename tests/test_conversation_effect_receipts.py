@@ -3,8 +3,7 @@
 Synthetic authority/publication setup only. Objects, message routing, Intent
 admission and Action terminal evidence use their actual governed backend ports.
 """
-from datetime import UTC,datetime
-import hashlib,json,uuid
+import json,uuid
 
 import psycopg
 import pytest
@@ -14,12 +13,9 @@ from eios.authz import facts as F
 from eios.authz.applications import ResourceRestriction
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
-from eios.ontology.definitions import FunctionDefinition
-from eios.ontology.semantics import schema_contract_digest
-from eios.ontology.version_resolution import CapabilityContractSnapshot,validate_capability_binding
 from nexloop_eios.backend import open_backend
 from nexloop_eios.browser_authorization import authenticate_browser_business
-from nexloop_eios.conversation_effect_receipts import ConversationEffectReceiptPort,FUNCTION,QUERY_CAPABILITY
+from nexloop_eios.conversation_effect_receipts import ConversationEffectReceiptPort,FUNCTION
 from nexloop_eios.conversation_messages import ConversationDenied,READ
 from nexloop_eios.conversation_runtime_bridge import ConversationRuntimeBridge
 from nexloop_eios.postgres_artifacts import canonical_payload
@@ -74,22 +70,8 @@ def receipt_plan(message_plan,admin):
     app=F.ApplicationFacts.model_validate_json(json.dumps(body))
     admin.execute("update authz.nexloop_authority_facts set payload=%s where tenant_id=%s and fact_kind='application' and entity_key=%s",(Jsonb(app.model_dump(mode='json')),tenant,appkey))
     admin.execute('update control.nexloop_browser_business_applications set requested_scopes=%s where tenant_id=%s',(Jsonb(['action.execute','function.execute']),tenant))
-    rows=admin.execute("select type_name,version,definition from ontology.object_type_versions where tenant_id=%s and type_name in ('Consumer','Conversation','Message') order by type_name",(tenant,)).fetchall()
-    from eios.ontology.models import ObjectTypeDefinition
-    refrows=[]
-    for name,version,body in rows:
-        actual=ObjectTypeDefinition.model_validate_json(json.dumps(body));ref={'tenant_id':tenant,'schema_type':'object_type','stable_name':name,'version':version,'schema_digest':schema_contract_digest(actual)}
-        refrows.append({'reference':ref,'definition':body})
-    input_schema,output_schema=schemas();schema_hash=hashlib.sha256(canonical_payload({'input':input_schema,'output':output_schema}).encode()).hexdigest()
-    capability=CapabilityContractSnapshot.model_validate_json(json.dumps({'capability_name':QUERY_CAPABILITY,'capability_version':'1','schema_hash':schema_hash,
-        'kind':'atomic','has_side_effects':False,'idempotent':True,'required_scopes':['function.execute']}))
-    definition=FunctionDefinition.model_validate_json(json.dumps({'tenant_id':tenant,'definition_type':'function','stable_name':FUNCTION,'version':1,'status':'published',
-        'created_by':'synthetic-definition-owner','created_at':datetime.now(UTC).isoformat(),'required_scopes':['function.execute'],
-        'capability_binding':{'capability_name':QUERY_CAPABILITY,'capability_version':'1','schema_hash':schema_hash},
-        'applies_to':[{'object_type':entry['reference']} for entry in refrows],'input_schema':input_schema,'output_schema':output_schema}))
-    validate_capability_binding(definition,capability)
-    admin.execute('insert into control.nexloop_function_definitions values(%s,%s,%s,%s,%s,%s,true)',
-        (tenant,'real',target,Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json')),Jsonb(refrows)))
+    from system_catalog_fixture import publish_system_catalog
+    publish_system_catalog(admin,tenant,(),functions=(FUNCTION,))  # nexloop_eios.system_catalog
     # Actual authority configuration changes realm epochs. Reissue/rebind a real
     # Run using original authentic service credentials, never a copied identity.
     source=f['api'].authenticate(f['source_token'],world='real')

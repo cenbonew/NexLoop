@@ -3,31 +3,23 @@ No table seeded authority or business data; declaration builders are inputs to
 actual protected configuration50, never authentication success callbacks.
 """
 from datetime import UTC,datetime,timedelta
-import hashlib,json,secrets,uuid
+import json,secrets,uuid
 import pytest
 from eios.authz import facts as F
 from eios.authz.applications import ResourceRestriction,OperationRestriction
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
-from eios.ontology.models import ObjectTypeDefinition
-from eios.ontology.definitions import ActionDefinition,FunctionDefinition
-from eios.ontology.version_resolution import CapabilityContractSnapshot
-from eios.ontology.semantics import schema_contract_digest
-from nexloop_eios.effect_contexts import BIND,registrar_schema
-from nexloop_eios.context_artifacts import ACTION as CONTEXT_BIND,context_binding_schema
+from nexloop_eios.effect_contexts import BIND
+from nexloop_eios.context_artifacts import ACTION as CONTEXT_BIND
 from context_source_declarations import source_declarations
 from nexloop_eios.conversation_messages import CREATE,MESSAGE,READ
 from nexloop_eios.conversation_runtime_bridge import ROUTE
-from nexloop_eios.conversation_effect_receipts import FUNCTION,QUERY_CAPABILITY
-from nexloop_eios.message_assignment_contract import message_assignment_action
-from nexloop_eios.message_relay import message_assignment_schema
+from nexloop_eios.conversation_effect_receipts import FUNCTION
 from nexloop_eios.trusted_configuration import apply_manifest
-from nexloop_eios.postgres_artifacts import canonical_payload
 from authority_fixture import authority_records
 from runtime_effect_fixture import QUEUE
-from test_business_setup_pg import business_plan,declared_service,invoke
-from test_trusted_configuration_pg import configured,PrivateConfiguration,private
-from test_conversation_effect_receipts import schemas as receipt_schemas
+from test_business_setup_pg import business_plan,declared_service,invoke  # noqa: F401 (fixture re-export)
+from test_trusted_configuration_pg import configured,PrivateConfiguration,private  # noqa: F401 (fixture re-export)
 
 
 def human_declarations(tenant,human,extra=()):
@@ -65,46 +57,18 @@ def assembled_message(business_plan,admin,tmp_path,request):
     f=business_plan;original=f['f'];tenant=original['tenant'];manifest=f['manifest']
     # The specialized context fixture publishes its own immutable profile.
     publish_context=not {'context_message','offering_denial_plan'}.intersection(request.fixturenames)
-    base=next(a for a in manifest['actions'] if a['definition']['stable_name']=='Consumer.create')
-    schemas={s['type_name']:s for s in manifest['object_types']};assignment=message_assignment_schema()
-    schemas[assignment.type_name]=assignment.model_dump(mode='json')
-    refs={name:{**base['definition']['object_types'][0],'stable_name':name,
-        'schema_digest':schema_contract_digest(ObjectTypeDefinition.model_validate_json(json.dumps(schema)))} for name,schema in schemas.items()}
-    actions={a['definition']['stable_name']:a for a in manifest['actions']}
-    names={'Goal.create':['Goal'],'PlanStep.create':['PlanStep'],CREATE:['Conversation'],MESSAGE:['Message'],READ:['Conversation'],
-        ROUTE:['Conversation'],QUEUE:['Consumer'],'nexloop.service.query':['Consumer'],BIND:['Consumer','Goal','PlanStep','EffectControl']}
-    if publish_context:names[CONTEXT_BIND]=['Consumer','Goal','PlanStep','EffectControl']
-    for name,types in names.items():
-        body=json.loads(json.dumps(base['definition']));body.pop('contract_digest',None)
-        body['stable_name']=name;body['object_types']=[refs[t] for t in types]
-        body['governance']['change_scope']['object_types']=body['object_types']
-        capability_name='ontology.object.create' if name.endswith('.create') else name
-        body['capability_binding']['capability_name']=capability_name
-        if name==BIND:body['input_schema']=registrar_schema('bind')
-        if name==CONTEXT_BIND:body['input_schema']=context_binding_schema()
-        definition=ActionDefinition.model_validate_json(json.dumps(body))
-        actions[name]={'definition':definition.model_dump(mode='json'),
-            'capability':{**base['capability'],'capability_name':capability_name,'has_side_effects':True}}
+    # NX-032 A1 T4: the catalog's types, Actions and Function (system_catalog, capabilities.v1.json snapshots), not clones of a
+    # hand-built base; the business plan's rows travel again unchanged (same fixed created_at).
+    from system_catalog_fixture import catalog_manifest_rows
+    names=['Goal.create','PlanStep.create',CREATE,MESSAGE,READ,ROUTE,QUEUE,'nexloop.service.query',BIND,'MessageAssignment.create']
+    if publish_context:names.append(CONTEXT_BIND)
     # NX-037 synthetic five kinds (marker nx037_test_stack): the enterprise delivery Action (ADR-030, nexloop.enterprise.deliver:1)
     # is published with the tenant, and the executor holds it next to the reply. Without the marker nothing changes.
     enterprise='nx037_test_stack' in request.keywords
-    if enterprise:
-        from test_enterprise_slot_relay_pg import DELIVER_SCHEMA
-        body=json.loads(json.dumps(actions['nexloop.service.request']['definition']));body.pop('contract_digest',None)
-        body.update(stable_name='nexloop.enterprise.deliver',input_schema=DELIVER_SCHEMA)
-        body['capability_binding']['capability_name']='nexloop.enterprise.deliver'
-        actions['nexloop.enterprise.deliver']={'definition':ActionDefinition.model_validate_json(json.dumps(body)).model_dump(mode='json'),
-            'capability':{**actions['nexloop.service.request']['capability'],'capability_name':'nexloop.enterprise.deliver'}}
-    definition,capability=message_assignment_action(tenant=tenant,created_by='explicit-assembly-owner',created_at=datetime.now(UTC),
-        capability=CapabilityContractSnapshot.model_validate_json(json.dumps(base['capability'])))
-    actions[definition.stable_name]={'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json')}
-    input_schema,output_schema=receipt_schemas();digest=hashlib.sha256(canonical_payload({'input':input_schema,'output':output_schema}).encode()).hexdigest()
-    function=FunctionDefinition.model_validate_json(json.dumps({'tenant_id':tenant,'definition_type':'function','stable_name':FUNCTION,'version':1,'status':'published',
-        'created_by':'explicit-assembly-owner','created_at':datetime.now(UTC).isoformat(),'required_scopes':['function.execute'],
-        'capability_binding':{'capability_name':QUERY_CAPABILITY,'capability_version':'1','schema_hash':digest},
-        'applies_to':[{'object_type':refs[name]} for name in ['Consumer','Conversation','Message']], 'input_schema':input_schema,'output_schema':output_schema}))
-    function_cap=CapabilityContractSnapshot.model_validate_json(json.dumps({'capability_name':QUERY_CAPABILITY,'capability_version':'1','schema_hash':digest,
-        'kind':'atomic','has_side_effects':False,'idempotent':True,'required_scopes':['function.execute']}))
+    if enterprise:names.append('nexloop.enterprise.deliver')
+    type_rows,action_rows,function_rows=catalog_manifest_rows(tenant,('MessageAssignment',),names,(FUNCTION,))
+    schemas={s['type_name']:s for s in manifest['object_types']+type_rows}
+    actions={a['definition']['stable_name']:a for a in manifest['actions']+action_rows}
     route=[ROUTE,QUEUE]+(['nexloop.reply.fallback'] if 'reply_fallback' in request.keywords else [])  # NX-025: fallback issuance (0110)
     specs={'assembly-route':route,'assembly-planner':['Goal.create','PlanStep.create','MessageAssignment.create',BIND],
         'assembly-source':['nexloop.service.request'],'assembly-executor':['nexloop.service.request','nexloop.service.query']+(['nexloop.enterprise.deliver'] if enterprise else []),'assembly-runtime-worker':[QUEUE]}
@@ -129,7 +93,7 @@ def assembled_message(business_plan,admin,tmp_path,request):
         facts.update({(r['kind'],tuple(r['key'])):r for r in rows})
     human_facts,human_app=human_declarations(tenant,f['human']);facts.update({(r['kind'],tuple(r['key'])):r for r in human_facts})
     updated={**manifest,'manifest_id':str(uuid.uuid4()),'expected_revision':admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(tenant,)).fetchone()[0],
-        'object_types':list(schemas.values()),'actions':list(actions.values()),'functions':[{'definition':function.model_dump(mode='json'),'capability':function_cap.model_dump(mode='json')}],
+        'object_types':list(schemas.values()),'actions':list(actions.values()),'functions':function_rows,
         'authority_facts':list(facts.values()),'service_credentials':credentials,
         'browser_business_applications':[{'application_id':original['application'],'caller_application_id':human_app,'application_version':'1','requested_scopes':['action.execute','function.execute']}]}
     original['paths']['secrets'].write_text(json.dumps(secrets_map))

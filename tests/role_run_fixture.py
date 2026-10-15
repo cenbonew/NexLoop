@@ -3,27 +3,23 @@
 No fake Source identity or runtime callback authority. Context remains explicitly
 legacy until actual protected v3 Artifact bind is implemented and tested.
 """
-import json
 from pathlib import Path
 from datetime import datetime,UTC,timedelta
 import pytest
-from psycopg.types.json import Jsonb
 from eios.authz.resources import ResourceType
 from eios.authz.operations import Operation
-from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.backend import AuthenticatedServices
-from nexloop_eios.role_mapping import role_mapping_schemas,RoleMappingPort
+from nexloop_eios.role_mapping import RoleMappingPort
 from nexloop_eios.role_runs import bind_role_run,ROLE_FIELDS,LINK_FIELDS,STEP_FIELDS
 from nexloop_eios.role_policies import CEILING_FIELDS,SCOPE_FIELDS
-from support.tenants import TENANT_A
 # Same bounded budget as runtime_effect_fixture Run commands; must stay within the ceiling.
 # Per-Run distinct-submission ceiling; effect_units tests raise EffectControl budget instead.
 ROLE_EFFECT_UNITS=1
 ROLE_BUDGET={'maximum_model_turns':8,'maximum_tool_calls':8,'active_timeout_seconds':60,'maximum_cost':'1.0','currency':'USD'}
 from nexloop_eios.service_offerings import OFFERING_FIELDS,BINDING_FIELDS
-from test_postgres_action_claims import governance_inputs
 import runtime_effect_fixture as fixture
 from runtime_effect_fixture import runtime_effect_plan
+from system_catalog_fixture import publish_system_catalog
 
 @pytest.fixture
 def role_runtime_plan(monkeypatch,admin,request):
@@ -31,40 +27,13 @@ def role_runtime_plan(monkeypatch,admin,request):
     roles={};policies={};policy_editors=[];bindings={};packs={};catalogs={};binding_sources={};current_sources=[];end_tokens=[]
     def install(admin,tenant,api,consumer,sources,expiry):
         tokens,sources=original(admin,tenant,api,consumer,sources,expiry)
-        base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
-        from nexloop_eios.role_policies import role_policy_schemas
-        # 0078: Role ceiling/scope are governed policy objects, never metadata strings.
-        schemas=(*role_mapping_schemas(),*role_policy_schemas())
-        for schema in schemas:
-            body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
-            ref=definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)})
-            body.update(stable_name=schema.type_name+'.create',object_types=[ref.model_dump(mode='json')],required_scopes=['ontology.roles.manage'])
-            body['governance']['change_scope']['object_types']=body['object_types'];body['capability_binding']['capability_name']='ontology.object.create'
-            admin.execute('insert into ontology.object_type_versions values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))
-            pub=type(definition).model_validate_json(json.dumps(body))
-            cap=capability.model_copy(update={'capability_name':'ontology.object.create','required_scopes':('ontology.roles.manage',),'has_side_effects':True})
-            admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+schema.type_name+'.create:1',Jsonb(pub.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
-        from eios.ontology.definitions import ActionDefinition
-        from eios.ontology.version_resolution import CapabilityContractSnapshot
-        edit_def,edit_cap=admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id='eios:action:ConsumerRoleLink.create:1'",(tenant,)).fetchone()
-        edit_def=ActionDefinition.model_validate_json(json.dumps(edit_def))
-        edit_def=edit_def.model_copy(update={'stable_name':'ConsumerRoleLink.edit','contract_digest':None,'capability_binding':edit_def.capability_binding.model_copy(update={'capability_name':'consumer.edit'})})
-        edit_cap=CapabilityContractSnapshot.model_validate_json(json.dumps(edit_cap)).model_copy(update={'capability_name':'consumer.edit'})
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:ConsumerRoleLink.edit:1',Jsonb(edit_def.model_dump(mode='json')),Jsonb(edit_cap.model_dump(mode='json'))))
-        for kind in ('RoleExecutionCeiling','RoleAssignmentScope'):
-            policy_def,policy_cap=admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s",(tenant,'eios:action:'+kind+'.create:1')).fetchone()
-            policy_def=ActionDefinition.model_validate_json(json.dumps(policy_def))
-            policy_def=policy_def.model_copy(update={'stable_name':kind+'.edit','contract_digest':None,'capability_binding':policy_def.capability_binding.model_copy(update={'capability_name':'ontology.object.edit'})})
-            policy_cap=CapabilityContractSnapshot.model_validate_json(json.dumps(policy_cap)).model_copy(update={'capability_name':'ontology.object.edit'})
-            admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+kind+'.edit:1',Jsonb(policy_def.model_dump(mode='json')),Jsonb(policy_cap.model_dump(mode='json'))))
-        from nexloop_eios.role_context_artifacts import ACTION as CONTEXT,role_context_binding_schema
-        context_body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));context_body.pop('contract_digest',None)
-        actual_ref=admin.execute("select definition->'object_types' from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s",(tenant,'eios:action:'+fixture.EFFECT+':1')).fetchone()[0]
-        context_body['object_types']=actual_ref;context_body['governance']['change_scope']['object_types']=actual_ref
-        context_body['stable_name']=CONTEXT;context_body['input_schema']=role_context_binding_schema();context_body['capability_binding']['capability_name']=CONTEXT
-        context_definition=type(definition).model_validate_json(json.dumps(context_body));context_cap=capability.model_copy(update={'capability_name':CONTEXT,'has_side_effects':True})
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+CONTEXT+':1',Jsonb(context_definition.model_dump(mode='json')),Jsonb(context_cap.model_dump(mode='json'))))
-        targets=[('eios:action:'+schema.type_name+'.create:1',ResourceType.ACTION,Operation.EXECUTE) for schema in schemas]
+        # NX-032 A1 T4: the role types and Actions as the production catalog builds them (system_catalog; role Actions bind the
+        # 1.1.0 snapshots with ontology.roles.manage that 0057/0081 require), not hand-built definitions.
+        from nexloop_eios.role_context_artifacts import ACTION as CONTEXT
+        publish_system_catalog(admin,tenant,('RoleDefinition','ConsumerRoleLink','RoleExecutionCeiling','RoleAssignmentScope'),
+            ('RoleDefinition.create','ConsumerRoleLink.create','RoleExecutionCeiling.create','RoleAssignmentScope.create',
+             'ConsumerRoleLink.edit','RoleExecutionCeiling.edit','RoleAssignmentScope.edit',CONTEXT))
+        targets=[('eios:action:'+name+'.create:1',ResourceType.ACTION,Operation.EXECUTE) for name in ('RoleDefinition','ConsumerRoleLink','RoleExecutionCeiling','RoleAssignmentScope')]
         keeper_token=fixture.seed_multi_uuid(admin,tenant,targets,suffix='-role-maintainer',extra_scopes=('ontology.roles.manage',))
         keeper=api.authenticate(keeper_token,world='real')
         roleport=RoleMappingPort(keeper);now=datetime.now(UTC);valid=dict(valid_from=(now-timedelta(seconds=1)).isoformat(),valid_until=expiry)

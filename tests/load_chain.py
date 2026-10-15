@@ -194,19 +194,23 @@ def publish_workbench_actions(admin, tenant):
     """The workbench write entry's tenant Actions: human requests and takeovers (business manifest) and the goal controls
     derived from the compiled request Action, as tests/test_workbench_actions_http.py publishes them."""
     from eios.ontology.definitions import ActionDefinition
-    from eios.ontology.version_resolution import CapabilityContractSnapshot
     from commitment_fixture import TAKEOVER_ACTIONS, publish_request_actions
     publish_request_actions(admin, tenant=tenant)
     publish_request_actions(admin, tenant=tenant, names=TAKEOVER_ACTIONS)
-    row = admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id='eios:action:nexloop.plan.request_reevaluation:1'",
-                        (tenant,)).fetchone()
-    definition = ActionDefinition.model_validate_json(json.dumps(row[0]))
-    capability = CapabilityContractSnapshot.model_validate_json(json.dumps(row[1]))
-    for name, cap in GOAL_ACTIONS.items():
-        binding = definition.capability_binding.model_copy(update={'capability_name': cap})
-        d = definition.model_copy(update={'stable_name': name, 'capability_binding': binding, 'contract_digest': None})
+    # NX-032 A1 T4: the goal Actions as the catalog builds them (goals.* 1.0.0 snapshots), typed on this tenant's Consumer v1
+    # (the reference of the compiled request Action).
+    from system_catalog_fixture import catalog_manifest_rows
+    refs = admin.execute("select definition->'object_types' from control.nexloop_action_definitions where tenant_id=%s and resource_id='eios:action:nexloop.plan.request_reevaluation:1'",
+                         (tenant,)).fetchone()[0]
+    _, rows, _ = catalog_manifest_rows(tenant, (), tuple(GOAL_ACTIONS))
+    for row in rows:
+        d = row['definition']
+        d['object_types'] = refs
+        d['governance']['change_scope']['object_types'] = refs
+        d.pop('contract_digest', None)
+        d = ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-                      (tenant, 'real', f'eios:action:{name}:1', Jsonb(d.model_dump(mode='json')), Jsonb(capability.model_copy(update={'capability_name': cap}).model_dump(mode='json'))))
+                      (tenant, 'real', f"eios:action:{d['stable_name']}:1", Jsonb(d), Jsonb(row['capability'])))
 
 
 def workbench_members(admin, pg, tenant, workdir, identities=None):
@@ -272,8 +276,6 @@ def load_plans(admin, api, worker, identity_pool, tenant, owner_identity, plan_t
     Returns counts and seconds."""
     from pathlib import Path
     from datetime import timedelta as _td
-    from eios.ontology.definitions import ActionDefinition
-    from eios.ontology.version_resolution import CapabilityContractSnapshot
     from nexloop_eios import business_actions
     from nexloop_eios.browser_sessions import PostgresBrowserSessionUnitOfWork
     from nexloop_eios.context_engine import strategy as S
@@ -285,11 +287,10 @@ def load_plans(admin, api, worker, identity_pool, tenant, owner_identity, plan_t
     schema = S.context_strategy_object_type()
     admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s) on conflict do nothing',
                   (tenant, schema.type_name, 1, Jsonb(schema.model_dump(mode='json'))))
-    row = admin.execute("select capability from control.nexloop_action_definitions where tenant_id=%s and resource_id='eios:action:Goal.publish:1'", (tenant,)).fetchone()
-    capability = CapabilityContractSnapshot.model_validate_json(json.dumps(row[0]))
+    from system_catalog_fixture import business_capabilities
     for compiled in business_actions.compile_actions(business_actions.load(root / 'deploy/configuration/business-actions.v1.json'), tenant=tenant, created_by='load-owner',
             created_at=now, object_types=[schema.model_dump(mode='json')], select=(S.PUBLISH_ACTION,),
-            capabilities={S.PUBLISH_CAPABILITY: capability.model_copy(update={'capability_name': S.PUBLISH_CAPABILITY, 'has_side_effects': True})}):
+            capabilities=business_capabilities((S.PUBLISH_CAPABILITY,))):
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s) on conflict do nothing',
                       (tenant, 'real', f"eios:action:{compiled['definition']['stable_name']}:1", Jsonb(compiled['definition']), Jsonb(compiled['capability'])))
     # The owner's grant on it, compiled like every workbench member grant (nexloop_eios.workbench_roles) from the owner role (which
