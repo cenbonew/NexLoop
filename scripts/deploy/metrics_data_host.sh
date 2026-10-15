@@ -6,8 +6,8 @@
 # Steps (each stops the run on failure; nothing is printed but codes and counts):
 #   1 preflight: inputs present; the newly rendered pg_hba differs from the installed one only by nexloop_metrics lines
 #   2 ALTER ROLE nexloop_metrics (SCRAM verifier only) as nexloop_bootstrap over the container socket (bootstrap window)
-#   3 install the new pg_hba (same owner and mode, old one kept as .before-metrics), HUP PostgreSQL, check the reload; on a reload
-#     error the old file is restored and HUP'd again
+#   3 write the new pg_hba in place (same inode: the container bind-mounts the single file; old content kept as .before-metrics),
+#     check the container sees it, HUP PostgreSQL, check the reload; otherwise the old content is written back in place
 #   4 install metrics.dsn as $NEXLOOP_ROOT/secrets/backup/metrics.dsn (nexloop-backup, 0600; never overwritten)
 #   5 check: as nexloop-backup, select current_user over that DSN = nexloop_metrics
 set -euo pipefail
@@ -16,6 +16,10 @@ PROJECT=nexloop-data
 HBA="$NEXLOOP_ROOT/config/pg_hba.conf"
 DSN_TARGET="$NEXLOOP_ROOT/secrets/backup/metrics.dsn"
 BACKUP_PY=${BACKUP_PY:-/opt/nexloop/backup-venv/bin/python}
+# Rewrite a single-file bind mount in place: same inode, owner and mode (the container sees the new content); refuses if the inode
+# changed (for example a link replaced by an editor).
+inode_of() { ls -di "$1" | awk '{print $1}'; }
+write_in_place() { local src=$1 dst=$2 inode; inode=$(inode_of "$dst"); cat "$src" > "$dst"; [ "$(inode_of "$dst")" = "$inode" ]; }
 step() { printf '%s\n' "step $1: $2"; }
 fail() { printf '%s\n' "FAILED step $1: $2" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail 0 "run with sudo"
@@ -42,15 +46,23 @@ docker compose -p "$PROJECT" exec -T postgres sh -c \
   'PGPASSWORD="$(cat /run/secrets/pg_bootstrap_password)" exec psql -X -q -v ON_ERROR_STOP=1 -h /var/run/postgresql -U nexloop_bootstrap -d "$POSTGRES_DB"' \
   < "$METRICS_SRC/metrics-role-password.sql" >/dev/null || fail 2 "ALTER ROLE refused (is nexloop_bootstrap still in its login window?)"
 
-step 3 "install pg_hba and reload"
+step 3 "write pg_hba in place and reload"
+# The postgres container bind-mounts the single file config/pg_hba.conf: replacing it (install, cp to a new file, mv) gives the
+# host path a new inode while the container keeps the old one, so a HUP reloads the old rules (2026-10-16 stage: step 5 refused,
+# "no pg_hba.conf entry"). The file is therefore rewritten in place (same inode), and the reload is checked inside the container.
 cp -p "$HBA" "$HBA.before-metrics"
-install -o "$(stat -c %u "$HBA")" -g "$(stat -c %g "$HBA")" -m "$(stat -c %a "$HBA")" "$WORK/pg_hba.conf" "$HBA"
+write_in_place "$WORK/pg_hba.conf" "$HBA" || fail 3 "pg_hba could not be rewritten in place"
+container_matches() { docker compose -p "$PROJECT" exec -T postgres cat /etc/postgresql/pg_hba.conf | cmp -s - "$1"; }
 reload() { since=$(date -u +%Y-%m-%dT%H:%M:%SZ); docker compose -p "$PROJECT" kill -s HUP postgres >/dev/null; sleep 3
   logs=$(docker compose -p "$PROJECT" logs --since "$since" postgres 2>&1)
   printf '%s' "$logs" | grep -q 'received SIGHUP' && ! printf '%s' "$logs" | grep -qiE 'pg_hba.conf.*(not reloaded|invalid)|could not load pg_hba'; }
+if ! container_matches "$HBA" || ! docker compose -p "$PROJECT" exec -T postgres grep -q nexloop_metrics /etc/postgresql/pg_hba.conf; then
+  write_in_place "$HBA.before-metrics" "$HBA" || true
+  fail 3 "the container does not see the new pg_hba (its bind mount holds another inode): the previous content is written back; restart the postgres container (docker compose -p $PROJECT restart postgres) and rerun from step 3"
+fi
 if ! reload; then
-  cp -p "$HBA.before-metrics" "$HBA"; reload || true
-  fail 3 "pg_hba reload not clean; the previous file is restored and reloaded"
+  write_in_place "$HBA.before-metrics" "$HBA" || true; reload || true
+  fail 3 "pg_hba reload not clean; the previous content is written back in place and reloaded"
 fi
 
 step 4 "install secrets/backup/metrics.dsn"

@@ -1,6 +1,7 @@
 """Run sheet run-metrics-gate part 2: scripts/deploy/gate_dir.py derives tls.json and spec.json from the rendered Compose's secrets
 section (no guessed path) and the deploy-gate spec example; the tls input passes deploy_checks' shape and every *_dsn is listed."""
 import json
+import os
 import re
 import subprocess
 import sys
@@ -117,3 +118,69 @@ def test_the_data_host_script_is_valid_bash_and_its_pg_hba_expectation_holds(tmp
     before = '\n'.join(l for l in now.splitlines() if 'nexloop_metrics' not in l or l.lstrip().startswith('#'))
     added = [l for l in rules(now) if l not in rules(before)]
     assert len(added) == 2 and all('nexloop_metrics' in l for l in added) and set(rules(before)) <= set(rules(now))
+
+
+def _function(name):
+    """One shell function of metrics_data_host.sh (and the helpers it calls), runnable on its own."""
+    text = (ROOT / 'scripts/deploy/metrics_data_host.sh').read_text()
+    return '\n'.join(line for line in text.splitlines() if line.startswith(('inode_of()', 'write_in_place()')))
+
+
+def test_write_in_place_keeps_the_inode_a_bind_mount_holds(tmp_path):
+    """2026-10-16 stage: install gave config/pg_hba.conf a new inode, the container's single-file bind mount kept the old one and a
+    HUP reloaded the old rules. A hard link stands in for the bind mount: after write_in_place it shows the new content and the
+    inode is unchanged; replacing the file (install, the old way) leaves the link on the old content."""
+    host, mount = tmp_path / 'pg_hba.conf', tmp_path / 'container-view'
+    host.write_text('old rules\n')
+    host.chmod(0o640)
+    os.link(host, mount)
+    new = tmp_path / 'new'
+    new.write_text('old rules\nhostssl db nexloop_metrics 192.0.2.10/32 cert\n')
+    inode = host.stat().st_ino
+    done = subprocess.run(['bash', '-c', _function('write_in_place') + '\nwrite_in_place "$1" "$2"', '_', str(new), str(host)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert host.stat().st_ino == inode and oct(host.stat().st_mode)[-3:] == '640'
+    assert mount.read_text() == new.read_text()  # what the container sees
+    # The restore path is the same function: the old content comes back on the same inode.
+    backup = tmp_path / 'backup'
+    backup.write_text('old rules\n')
+    assert subprocess.run(['bash', '-c', _function('write_in_place') + '\nwrite_in_place "$1" "$2"', '_', str(backup), str(host)]).returncode == 0
+    assert mount.read_text() == 'old rules\n' and host.stat().st_ino == inode
+    # Negative control: replacing the file (a new inode) leaves the "container" on the old content.
+    replacement = tmp_path / 'replacement'
+    replacement.write_text('replaced\n')
+    os.replace(replacement, host)
+    assert host.stat().st_ino != inode and mount.read_text() == 'old rules\n'
+
+
+def test_step_3_checks_the_container_view_and_never_replaces_the_file():
+    text = (ROOT / 'scripts/deploy/metrics_data_host.sh').read_text()
+    step3 = text[text.index('step 3 '):text.index('step 4 ')]
+    assert 'install -o' not in step3 and 'mv ' not in step3
+    assert 'write_in_place "$WORK/pg_hba.conf" "$HBA"' in step3 and 'write_in_place "$HBA.before-metrics" "$HBA"' in step3
+    assert 'exec -T postgres cat /etc/postgresql/pg_hba.conf' in step3 and 'grep -q nexloop_metrics /etc/postgresql/pg_hba.conf' in step3
+    assert 'restart the postgres container' in step3
+
+
+def test_the_agent_host_configuration_is_read_by_the_host_uid_and_refusals_carry_a_code(tmp_path):
+    """Stage 2026-10-16: the gate (root) read the Host's runtime configuration with read_private_text, which requires the reader to
+    own it (10020), and reported a bare false. It is now read as owned by agent_host_config_uid; a refusal names its reason."""
+    import os
+    from nexloop_eios import deploy_checks as D
+    config = tmp_path / 'runtime-config.json'
+    config.write_text((STAGE / 'agent-host.runtime-config.example.json').read_text())
+    config.chmod(0o600)
+    me = os.geteuid()
+    def gate(**kw):
+        result = D.deploy_gate({'host_role': 'app', 'agent_host_config': str(config), **kw})
+        return result['checks']['agent_host_concurrency'], result['details']['agent_host_concurrency']
+    assert gate(agent_host_config_uid=me) == (True, 'passed')
+    assert gate(agent_host_config_uid=me + 1) == (False, 'file_owner_differs')
+    config.chmod(0o644)
+    assert gate(agent_host_config_uid=me) == (False, 'file_permissions')
+    config.chmod(0o600)
+    config.write_text('not json')
+    assert gate(agent_host_config_uid=me)[0] is False and gate(agent_host_config_uid=me)[1].startswith('configuration_invalid:')
+    assert gate(agent_host_config=str(tmp_path / 'absent'), agent_host_config_uid=me) == (False, 'file_missing')
+    spec = G.gate_spec(STAGE / 'deploy-gate.app.example.json', gate_dir=tmp_path / 'g', nexloop_root='/srv/nexloop', release_checkout='/opt/c')
+    assert spec['agent_host_config_uid'] == 10020

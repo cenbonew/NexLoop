@@ -52,7 +52,72 @@ def parse_docker_ps(text):
 
 
 def firewall_hash(ruleset):
+    """Algorithm 1 (kept for inventories taken before 2026-10-16): the whole rule set without the NexLoop table."""
     return hashlib.sha256(NEXLOOP_TABLE.sub('', ruleset).encode()).hexdigest()
+
+
+# Algorithm 2 (stage 2026-10-16: changed:firewall after G-APP-SUBNET and claim_egress, although UFW and every non-NexLoop rule were
+# the same): Docker writes rules (iptables-nft) for every Compose network, so NexLoop's own networks moved the hash. The rules that
+# name only a NexLoop network - its bridge, its subnet or an address in it - are left out; counters are reset (they change with
+# traffic). What remains is compared, and kept as text so a difference can be read line by line in the private evidence.
+FIREWALL_ALGORITHM = 2
+NEXLOOP_PROJECT_PREFIX = 'nexloop'
+_COUNTER = re.compile(r'counter packets \d+ bytes \d+')
+_ADDRESS = re.compile(r'(?<![\w.:])(\d{1,3}(?:\.\d{1,3}){3}(?:/\d{1,2})?)(?![\w.])')
+_STRUCTURE = re.compile(r'^(table|chain|set|map|flowtable)\b|^\}$|^type |^policy |^elements |^flags ')
+
+
+def nexloop_networks(inspected):
+    """`docker network inspect` objects -> {network name: {"bridge", "subnets"}} of the Compose projects named nexloop*. The bridge is
+    the network's bridge.name option or Docker's default br-<first 12 of the id>."""
+    out = {}
+    for n in inspected or []:
+        project = ((n.get('Labels') or {}).get('com.docker.compose.project') or '')
+        if not project.startswith(NEXLOOP_PROJECT_PREFIX):
+            continue
+        bridge = (n.get('Options') or {}).get('com.docker.network.bridge.name') or 'br-' + str(n.get('Id', ''))[:12]
+        subnets = sorted(c['Subnet'] for c in ((n.get('IPAM') or {}).get('Config') or []) if c.get('Subnet'))
+        out[n.get('Name', '')] = {'bridge': bridge, 'subnets': subnets}
+    return out
+
+
+def normalize_ruleset(ruleset, networks):
+    """Algorithm 2: the rule set's lines without the NexLoop table, without rules naming a NexLoop network (bridge, subnet or an
+    address inside one), with counters reset; table and chain structure stays."""
+    import ipaddress
+    bridges = {v['bridge'] for v in networks.values()}
+    subnets = [ipaddress.ip_network(s, strict=False) for v in networks.values() for s in v['subnets']]
+    def nexloop_rule(line):
+        if any(re.search(r'(?<![\w-])' + re.escape(b) + r'(?![\w-])', line) for b in bridges):
+            return True
+        for token in _ADDRESS.findall(line):
+            try:
+                net = ipaddress.ip_network(token, strict=False)
+            except ValueError:
+                continue
+            if any(net.overlaps(s) for s in subnets if s.version == net.version):
+                return True
+        return False
+    lines = []
+    for raw in NEXLOOP_TABLE.sub('', ruleset).splitlines():
+        line = _COUNTER.sub('counter', raw.strip())
+        if not line:
+            continue
+        if not _STRUCTURE.match(line) and nexloop_rule(line):
+            continue
+        lines.append(line)
+    return lines
+
+
+def firewall_v2(ruleset, networks):
+    lines = normalize_ruleset(ruleset, networks)
+    return {'firewall_algorithm': FIREWALL_ALGORITHM, 'firewall_normalized_sha256': hashlib.sha256('\n'.join(lines).encode()).hexdigest(),
+            'firewall_normalized_rules': lines, 'nexloop_networks': networks}
+
+
+def _docker_networks():
+    ids = _run('docker', 'network', 'ls', '-q', '--filter', 'label=com.docker.compose.project').split()
+    return json.loads(_run('docker', 'network', 'inspect', *ids) or '[]') if ids else []
 
 
 def _run(*argv):
@@ -67,8 +132,24 @@ def collect(*, phase, planned, data_root):
     units = parse_lines(_run('systemctl', 'list-units', '--type=service', '--state=running', '--no-legend', '--plain'))
     parent = os.path.dirname(data_root.rstrip('/')) or '/'
     data_dirs = {('nexloop:' + e if os.path.join(parent, e) == data_root.rstrip('/') else e): {} for e in sorted(os.listdir(parent))} if os.path.isdir(parent) else {}
+    ruleset = _run('nft', 'list', 'ruleset')
     return {'phase': phase, 'listening': listening, 'containers': containers, 'compose_projects': projects, 'units': units,
-            'data_directories': data_dirs, 'firewall_without_nexloop_sha256': firewall_hash(_run('nft', 'list', 'ruleset'))}
+            'data_directories': data_dirs, 'firewall_without_nexloop_sha256': firewall_hash(ruleset),
+            **firewall_v2(ruleset, nexloop_networks(_docker_networks()))}
+
+
+def rebaseline(old, current, *, now):
+    """--rebaseline: an inventory taken before algorithm 2 cannot be recomputed. The owner may accept the current firewall (algorithm 2)
+    as the new baseline: every other section of the old before stays, the firewall fields are the current ones, and the file says so."""
+    if old.get('phase') != 'before':
+        raise ValueError('--rebaseline needs a before inventory')
+    if old.get('firewall_algorithm') == FIREWALL_ALGORITHM:
+        raise ValueError('the before inventory already uses the current algorithm')
+    out = dict(old)
+    out.update({k: current[k] for k in ('firewall_algorithm', 'firewall_normalized_sha256', 'firewall_normalized_rules', 'nexloop_networks')})
+    out['firewall_rebaselined'] = {'at': now, 'previous_algorithm': 1, 'previous_sha256': old.get('firewall_without_nexloop_sha256'),
+                                   'decision': 'owner accepted the current firewall as the baseline (run sheet run-metrics-gate §2.3)'}
+    return out
 
 
 def main(argv=None):
@@ -77,9 +158,17 @@ def main(argv=None):
     p.add_argument('--planned-ports', required=True)
     p.add_argument('--data-root', required=True)
     p.add_argument('--out', required=True)
+    p.add_argument('--rebaseline', help='an old (algorithm 1) before inventory: write it to --out with the current firewall as its '
+                   'baseline (owner decision; --phase before)')
     a = p.parse_args(argv)
     planned = {int(x) for x in a.planned_ports.split(',') if x}
     value = collect(phase=a.phase, planned=planned, data_root=a.data_root)
+    if a.rebaseline:
+        if a.phase != 'before':
+            p.error('--rebaseline writes a before inventory (--phase before)')
+        from datetime import UTC, datetime
+        with open(a.rebaseline) as stream:
+            value = rebaseline(json.load(stream), value, now=datetime.now(UTC).isoformat())
     fd = os.open(a.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as stream:
         json.dump(value, stream, sort_keys=True, indent=1)

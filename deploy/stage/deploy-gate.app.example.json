@@ -40,5 +40,6 @@
  "disabled_roles": [
   "nexloop_owner"
  ],
- "agent_host_config": "<NEXLOOP_ROOT>/secrets/agent-host/runtime-config.json"
+ "agent_host_config": "<NEXLOOP_ROOT>/secrets/agent-host/runtime-config.json",
+ "agent_host_config_uid": 10020
 }

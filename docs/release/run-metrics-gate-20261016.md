@@ -63,13 +63,17 @@ sudo NEXLOOP_ROOT="$NEXLOOP_ROOT" STAGE_ENV="$STAGE_ENV" RELEASE_CHECKOUT="$RELE
 |---|---|---|
 | 1 | **预检**：输入文件齐全；`secrets/backup/metrics.dsn` 还不存在；SQL 只有一条针对 `nexloop_metrics` 的 SCRAM `ALTER ROLE`；用 `$STAGE_ENV` 重新渲染 pg_hba，新文件与已安装的相比**只多出两条 `nexloop_metrics` 规则**，一条不少，也没有别的新增 | `step 1: preflight` |
 | 2 | 以 `nexloop_bootstrap` 经容器内 socket 执行那条 `ALTER ROLE`，即 bootstrap 窗口。口令只在容器内从 `/run/secrets/pg_bootstrap_password` 读取，不出现在主机的命令行上 | `step 2: …` |
-| 3 | 备份 `config/pg_hba.conf` 为 `.before-metrics`，按原属主和权限装入新文件，对 postgres 发 HUP，确认日志出现 `received SIGHUP`、没有 pg_hba 报错。**重载不干净时，自动恢复原文件并再次 HUP**，然后报错退出 | `step 3: …` |
+| 3 | 备份 `config/pg_hba.conf` 为 `.before-metrics`，**原地写入**新内容（inode 不变，属主和权限不变）；先在容器内核对 `/etc/postgresql/pg_hba.conf` 与主机文件一致、且含 `nexloop_metrics` 行，再对 postgres 发 HUP，确认日志出现 `received SIGHUP`、没有 pg_hba 报错。容器看不到新内容或重载不干净时，原内容原地写回，然后报错退出 | `step 3: …` |
 | 4 | 装入 `$NEXLOOP_ROOT/secrets/backup/metrics.dsn`，属主 `nexloop-backup`，0600；已存在则不覆盖，第 1 步已拦下 | `step 4: …` |
 | 5 | 以 `nexloop-backup` 用这个 DSN 执行 `select current_user` | `done: current_user=nexloop_metrics; …` |
 
+- **注意：单文件绑定挂载与 inode**（2026-10-16 stage 实测）：postgres 容器对 `config/pg_hba.conf` 是单文件绑定挂载，绑定的是容器启动时的那个 inode。
+  - 用 `install`、`mv` 或编辑器的“另存后替换”换掉这个文件，主机路径会指向新 inode，而容器里看到的仍是旧内容（旧 inode 的链接数为 0）。这时 HUP 重载的还是旧规则，第 5 步报 `no pg_hba.conf entry`。
+  - 脚本现在原地写入，并在 HUP 前从容器内核对。
+  - 如果第 3 步报“the container does not see the new pg_hba”，说明容器仍持有旧 inode（例如之前有人用 `install` 换过文件）。处理：`docker compose -p nexloop-data restart postgres`，容器重启时会重新挂载当前 inode；然后从第 3 步重跑。这次重启有短暂停机，DATA_HOST 上的 PG 会中断几秒。
 - **第 2 步失败**最可能的原因：M9 之后 `nexloop_bootstrap` 已改为 NOLOGIN。先按 M9 的窗口规则临时恢复它，再重跑。这时第 1 步已经通过，pg_hba 还没改。
 - **撤销**（sudo-D，**B**）：
-  1. `cp -p $NEXLOOP_ROOT/config/pg_hba.conf.before-metrics $NEXLOOP_ROOT/config/pg_hba.conf`，然后 `docker compose -p nexloop-data kill -s HUP postgres`；
+  1. 原地写回（保持 inode）：`cat $NEXLOOP_ROOT/config/pg_hba.conf.before-metrics > $NEXLOOP_ROOT/config/pg_hba.conf`，然后 `docker compose -p nexloop-data kill -s HUP postgres`，再用 `docker compose -p nexloop-data exec -T postgres grep -c nexloop_metrics /etc/postgresql/pg_hba.conf` 核对容器内为 0；
   2. `shred -u $NEXLOOP_ROOT/secrets/backup/metrics.dsn`；
   3. 口令的撤销需要 bootstrap 窗口：`ALTER ROLE nexloop_metrics PASSWORD NULL`。
 
@@ -174,6 +178,18 @@ sudo docker run --rm --user 0 --read-only --network "container:$APPNET" \
 - **DSN 的属主**：闸门以 root 运行，这样才能看到每个服务的目录。但各服务的 DSN 属主是 10001，而原来的读取函数要求“读取进程本人是属主”，以 root 读会全部判失败。本单的提交为 `deploy_checks.tls` 增加了按条目指定 `uid` 的读法：文件必须是该 uid 的、普通文件、权限 0600、长度有限。`gate_dir` 为每条 DSN 写入服务 uid，所以 2.2 必须挂载 main 源码。
 - **G-CLAIM-EGRESS**：`compose_networks_match_firewall` 与 `running_networks_match_firewall` 包含 `claim_egress`。所以闸门要在 run-42 §8 上线之后跑；在那之前，这两项会因为缺 `CLAIM_EGRESS_CIDR` 或缺网络而为 false。
 - **before.json**：没有首次部署的 before 时，现场生成的 before 与 after 几乎同时取得，`existing_services_unchanged` 只说明“此刻一致”，不说明部署前后一致。证据里注明用的是哪一种。
+- **`agent_host_concurrency`**（2026-10-16 stage 实测为 false）：Host 的 `runtime-config.json` 属主是 10020，闸门以 root 运行，原来的读法因此判为 false。现在按 `agent_host_config_uid`（`gate_dir` 写入 10020）读取；读不了时，`details.agent_host_concurrency` 会给出原因码，例如 `file_owner_differs`、`file_permissions`、`configuration_invalid:<类型>`。
+- **防火墙比对，`existing_services_unchanged`**（2026-10-16 stage 实测为 `changed:firewall`）：
+  - **原因**：原算法对整个 `nft list ruleset` 求哈希，只排除了 `nexloop_stage` 表。而 Docker 会为每个 compose 网络写规则，所以 NexLoop 自己的网络一变（应用网络换子网、新增 claim_egress），哈希就变。
+  - **新算法**（`inventory.py` 算法 2）：剔除只涉及 NexLoop 网络的规则，依据是 `com.docker.compose.project` 以 nexloop 开头的网络、它们的网桥 `br-<id12>`、子网和子网内地址；计数器清零。
+  - 规范化后的规则文本另存在 inventory 的 `firewall_normalized_rules`，供私有证据逐行比对。
+  - **旧的 before**：首次部署时的 `before.json` 只有旧算法的哈希，无法重算。闸门会报 `firewall_before_old_algorithm`，不会直接判为通过。
+  - **接受新基线（B，sudo-A）**：如果负责人核对过当前规则，例如 UFW 逐条一致、没有新表、`nexloop_networks` 列出的网桥都属于 NexLoop，可以用旧 before 生成新基线：
+    ```
+    sudo python3 "$RELEASE_CHECKOUT/scripts/deploy/inventory.py" --phase before --planned-ports <同 2.1> --data-root "$NEXLOOP_ROOT" \
+      --rebaseline <旧 before.json> --out <新 before.json>
+    ```
+    新文件保留旧 before 的其他各节，防火墙改为当前规则，并写入 `firewall_rebaselined`（时间与旧哈希）。然后用 `--before <新 before.json>` 重做 2.1。闸门 details 会标出 `before_rebaselined`。
 - **valkey.conf**：检查的是由同一模板和同一 env 渲染的版本，不是 DATA_HOST 上的实际文件。如需核对实际文件，可从 DATA_HOST 取 `config/valkey.conf`，只读、核对 sha256，替换 `$GATE_DIR/valkey.conf` 后重跑 2.2。
 
 ### 2.4 收尾
