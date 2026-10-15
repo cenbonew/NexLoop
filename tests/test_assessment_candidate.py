@@ -25,6 +25,7 @@ def prepare_assessment(reader,template,cap,admin,endpoint,tenant,extra_targets=(
   scope=template.governance.change_scope.model_copy(update={'object_types':(ref,)})
   definition=template.model_copy(update={'contract_digest':None,'stable_name':'RelationshipAssessment.'+verb,'object_types':(ref,),'governance':template.governance.model_copy(update={'change_scope':scope}),'capability_binding':binding})
   capability=cap.model_copy(update={'capability_name':binding.capability_name})
+  # catalog-exception: synthetic RelationshipAssessment type and capabilities, not in the catalog
   admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+definition.stable_name+':1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
  from eios.ontology.models import RelationTypeDefinition
  relation=RelationTypeDefinition(relation_name='contact',source_type='Consumer',target_type='Consumer',version=1)

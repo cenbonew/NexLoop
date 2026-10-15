@@ -41,6 +41,7 @@ def published_action(admin,pg,request):
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',
           (TENANT_A,'Consumer',1,Jsonb(schema.model_dump(mode='json'))))
     if getattr(request,'param',None)=='wrong-capability':capability=capability.model_copy(update={'schema_hash':'f'*64})
+    # catalog-exception: published_action base and its deliberate variants (wrong digest, wrong capability, strict/external input, missing schema)
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
       (TENANT_A,'real','eios:action:Consumer.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     signer=AuthoritySigner('synthetic-reader',secrets.token_bytes(32))

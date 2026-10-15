@@ -34,6 +34,7 @@ def authority(admin,pg,tmp_path,request):
     body['object_types']=[ref.model_dump(mode='json')];body['governance']['change_scope']['object_types']=body['object_types']
     definition=type(definition).model_validate_json(json.dumps(body))
     admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',(tenant,'Consumer',1,Jsonb(schema.model_dump(mode='json'))))
+    # catalog-exception: governance_inputs template moved to another tenant (authority isolation case)
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:Consumer.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(inputs['capability_snapshot'].model_dump(mode='json'))))
     with ExitStack() as stack:
         config=dict(signing_key_file=key,signing_key_id='synthetic-runtime')

@@ -23,6 +23,7 @@ def install_generic_catalog(admin,backend,*,consumer_id,valid_until,submitter,se
         reference=original.object_types[0].model_copy(update={'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)})
         body['stable_name']=schema.type_name+'.create';body['object_types']=[reference.model_dump(mode='json')];body['governance']['change_scope']['object_types']=body['object_types'];body['capability_binding']['capability_name']='ontology.object.create'
         definition=type(original).model_validate_json(json.dumps(body))
+        # catalog-exception: offering types published per test with their own schemas (generic offering cases), not the stage catalog rows
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+schema.type_name+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(cap.model_copy(update={'capability_name':'ontology.object.create'}).model_dump(mode='json'))))
     create_targets=[('eios:action:'+s.type_name+'.create:1',ResourceType.ACTION,Operation.EXECUTE) for s in schemas]
     _,keeper_token=seed_multi_authority(admin,backend._pool,create_targets,identity_suffix='-catalog-maintainer')

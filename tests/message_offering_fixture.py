@@ -47,6 +47,7 @@ def install_message_catalog(admin,backend,tenant,consumer,source_token,*,suffix,
     expiry=(datetime.now(UTC)+timedelta(minutes=5)).isoformat();actions=definitions(tenant)
     if manifest is None:
         for schema in offering_schemas():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))
+        # catalog-exception: offering Actions on the message test tenant schemas; the catalog rows are covered by assembled_message
         for action in actions:admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+action['definition']['stable_name']+':1',Jsonb(action['definition']),Jsonb(action['capability'])))
         keeper=seed_multi_uuid(admin,tenant,[('eios:action:'+a['definition']['stable_name']+':1',ResourceType.ACTION,Operation.EXECUTE) for a in actions],suffix='-message-catalog-maintainer')
     else:

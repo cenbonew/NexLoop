@@ -29,6 +29,7 @@ def editor(published_action, admin):
     binding = definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'})
     definition = definition.model_copy(update={'stable_name':'Consumer.edit','capability_binding':binding})
     capability = capability.model_copy(update={'capability_name':'consumer.edit'})
+    # catalog-exception: Consumer.edit bound to consumer.edit on purpose (edit contract cases)
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
         (TENANT_A,'real','eios:action:Consumer.edit:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     targets=[('eios:action:Consumer.edit:1',ResourceType.ACTION,Operation.EXECUTE),

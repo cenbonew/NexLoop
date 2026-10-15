@@ -31,6 +31,7 @@ def policy_selection(published_action,admin,request):
         scopes=('ontology.roles.manage',) if manage else ()
         definition=base.model_copy(update={'stable_name':kind+'.create','contract_digest':None,'required_scopes':scopes,'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
         admin.execute('insert into ontology.object_type_versions values(%s,%s,1,%s)',(TENANT_A,kind,Jsonb(schema.model_dump(mode='json'))))
+        # catalog-exception: per-kind scope variations on purpose (binding cases)
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':scopes}).model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.create:1',ResourceType.ACTION,Operation.EXECUTE))
     session,token=seed_multi_authority(admin,reader.pool,targets,identity_suffix='-policy-config',extra_scopes=('ontology.roles.manage',))

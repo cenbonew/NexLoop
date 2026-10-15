@@ -226,6 +226,7 @@ def test_identity_no_longer_creatable_returns_the_candidate_to_review(review,fau
         body=copy.deepcopy(action[0]);body['version']=3
         if fault=='not_canonical':body['governance']['risk_level']='high'
         for ref in body['object_types']+body['governance']['change_scope']['object_types']:ref['version']=3
+        # catalog-exception: test type Pet and a deliberately non-canonical Action (fault case)
         admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real','eios:action:Pet.create:3',%s,%s)",
             (TENANT,Jsonb(body),Jsonb(action[1])))
     result=worker(f,suffix='-nx050-fault',extra_targets=[(f'eios:action:Pet.create:{v}',ResourceType.ACTION,EXECUTE) for v in (2,3)]).run_pending()[decided['decision_id']]

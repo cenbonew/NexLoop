@@ -75,6 +75,7 @@ def conversations(browser_business,admin,pg,tmp_path):
         body['capability_binding']['capability_name']='ontology.object.create'
         published=type(definition).model_validate_json(json.dumps(body))
         cap=capability.model_copy(update={'capability_name':'ontology.object.create','has_side_effects':True})
+        # catalog-exception: conversation contract cases on test-built schemas (all ontology.object.create), negative cases share them
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
             (tenant,'real','eios:action:'+action+':1',Jsonb(published.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
     _,token=seed_multi_authority(admin,reader.pool,[('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in ('Consumer.create',OWNERSHIP)],identity_suffix='-consumer-registrar')

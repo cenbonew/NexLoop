@@ -31,6 +31,7 @@ def rows(admin):
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')  # test harness: the two rows as configuration left them
         admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (TENANT_A,))
+        # catalog-exception: minimal stub row under session_replication_role=replica for a lock-order test
         admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real',%s,%s,%s)",
                       (TENANT_A, RESOURCE, Jsonb({'tenant_id': TENANT_A, 'status': 'published', 'stable_name': 'nexloop.service.request', 'version': 1}), Jsonb({})))
         admin.execute("""insert into control.nexloop_effect_control_ledger(control_id,tenant_id,world,consumer_id,owner_principal,owner_digest,

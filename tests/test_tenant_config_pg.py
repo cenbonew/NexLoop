@@ -59,6 +59,7 @@ def published(pg, admin, registered, tree, tmp_path):  # noqa: F811
 
 def publish_queue(admin, queue='operations', active=True):
     definition = {'tenant_id': TENANT, 'status': 'published', 'stable_name': f'NexLoop.queue.{queue}', 'version': 1}
+    # catalog-exception: stub NexLoop.queue.* rows with toggled active (queue configuration cases)
     admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active) values(%s,'real',%s,%s,'{}',%s)",
                   (TENANT, f'eios:action:NexLoop.queue.{queue}:1', Jsonb(definition), active))
 
