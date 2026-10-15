@@ -1,8 +1,30 @@
 {
   "schema_version": "nexloop-capabilities/1",
   "manifest_version": 1,
-  "decision": "NX-032 A2 (docs/implementation/NX-032-stage-publish-design.md §2.2, owner-approved 2026-10-15): the frozen capability snapshots the stage publication binds Actions and Functions to. schema_hash is computed by nexloop_eios.catalog_manifests from the contract (never written by hand); a snapshot is immutable once published, so a contract change is a new capability_version and a new Action version. Governed capabilities must be registered in control.nexloop_governed_capabilities by a migration, and their contract names the registered operation. Version 1 holds the capabilities of business-actions.v1.json and the six workbench goal capabilities; the system Actions of T1 are added from its list.",
+  "decision": "NX-032 A2 (docs/implementation/NX-032-stage-publish-design.md §2.2, owner-approved 2026-10-15): the frozen capability snapshots the stage publication binds Actions and Functions to. schema_hash is computed by nexloop_eios.catalog_manifests from the contract (never written by hand); a snapshot is immutable once published, so a contract change is a new capability_version and a new Action version. Governed capabilities must be registered in control.nexloop_governed_capabilities by a migration, and their contract names the registered operation. Version 1 holds the capabilities of business-actions.v1.json, the six workbench goal capabilities, and the system Actions and Functions of system-actions.v1.json (T1 list). Function snapshots are side-effect free (conversation_effect_receipts and conversation_scope_denials require it); read-only Actions say why they are side-effecting.",
   "capabilities": [
+    {
+      "capability_name": "NexLoop.queue.operations",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "enqueue",
+        "subject": "the operations run queue",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "4d6c572c7e625d9ec1dac2136c46774a16050db5e4ebb96dea85886d73b3f251",
+      "side_effects_reason": null
+    },
     {
       "capability_name": "alert.silence",
       "capability_version": "1.0.0",
@@ -184,6 +206,28 @@
         ]
       },
       "schema_hash": "931ca214fb0c50a30e1449ed732a9767bb228e9365f2d8dbcdfa5e09511c823e",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer.edit",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "edit",
+        "subject": "one Consumer-linked object",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "e790abc8382b2e2d25a52fbc475e981d36437c5dca112f9215414d2ccf0085d4",
       "side_effects_reason": null
     },
     {
@@ -573,6 +617,273 @@
         ]
       },
       "schema_hash": "25051088d10b0622850d753d1422fdd55be7e78ed2c6cdf5322f062fae63bf93",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.context.bind",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "bind",
+        "subject": "a context artifact to a plan step",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "ebb13434208ddbd40b35d4a908217a6c2f29a75998e24d00bb3d13c0e18068ca",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.context.bind_role",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "bind",
+        "subject": "a role context artifact",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "4813a745cdfcd9b77926c2b9ae0ec279268906e2b885fa036240bde1c2ab4b05",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.conversation.read",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "read",
+        "subject": "one Conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "39449e2a98ed3b9130dd3fe5b8f3a90a5c46bf8e2044e94d1dfe772294b11d82",
+      "side_effects_reason": "0050 publishes an Action only with a side-effecting snapshot; this Action only reads (a Conversation)"
+    },
+    {
+      "capability_name": "nexloop.conversation.receipts.read",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": false,
+      "idempotent": true,
+      "required_scopes": [
+        "function.execute"
+      ],
+      "risk_level": "low",
+      "binds": "function",
+      "governed": false,
+      "contract": {
+        "operation": "read",
+        "subject": "the service receipts of a conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "52732cf5b8bdebd6b9e7145897f6eb94daed657cedcfa3347988f5b4c835fbe8",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.conversation.route",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "route",
+        "subject": "one Conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "1aee68598cf8b8eee3daa4b6a6b2bf0c855c2f67f351b9c0ef83843f85771348",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.conversation.scope_denials.read",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": false,
+      "idempotent": true,
+      "required_scopes": [
+        "function.execute"
+      ],
+      "risk_level": "low",
+      "binds": "function",
+      "governed": false,
+      "contract": {
+        "operation": "read",
+        "subject": "the scope denials of a conversation",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "0f1ceba0b9a8284b24fc70bdf989d2941306d9396555f9c65c16a64d38772302",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.effect.configure_control",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "configure",
+        "subject": "one EffectControl",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "b98ee1679d190b7832360126a473788614e62804d5474e571e37c7eefb333221",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.enterprise.deliver",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "deliver",
+        "subject": "one enterprise delivery slot",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "43cec59d96bf83a1d3323815a5c8d3e73a35b98d3166d208cb3f28ee30c432ea",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.plan.bind_effect_context",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "bind",
+        "subject": "the effect context of a plan step",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "039762465c17ed27653ef5f231e30741acba31c7234ef8a374dfbbda668cbd2a",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.service.query",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "query",
+        "subject": "the provider result of a service effect",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5d0c049a0e964fa7ebc26cf530b759402447914084604bc8245c97b634193636",
+      "side_effects_reason": "0050 publishes an Action only with a side-effecting snapshot; this Action only reads (the provider result of an effect)"
+    },
+    {
+      "capability_name": "nexloop.service.receipt_reconcile",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "reconcile",
+        "subject": "the receipt of a service effect",
+        "key": [
+          "intent_id"
+        ],
+        "target_systems": [
+          "service"
+        ]
+      },
+      "schema_hash": "ff32b7bd059ba204d7547fa69832bc39976f6b4b94440642fdc3d5c3d19a40c5",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "nexloop.service.request",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "request",
+        "subject": "one service effect for a Consumer",
+        "target_systems": [
+          "service"
+        ]
+      },
+      "schema_hash": "c8de95f7d2f9fb291ab9c6605c03273100a0e9fb09b39851ded8547a6a6feef8",
       "side_effects_reason": null
     },
     {

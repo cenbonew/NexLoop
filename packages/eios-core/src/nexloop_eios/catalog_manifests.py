@@ -1,5 +1,6 @@
 """NX-032 A1/A2 (docs/implementation/NX-032-stage-publish-design.md §2): the versioned capability snapshot manifest
-(deploy/configuration/capabilities.v1.json, schema nexloop-capabilities/1) and its validator.
+(deploy/configuration/capabilities.v1.json, schema nexloop-capabilities/1), the system Action manifest
+(deploy/configuration/system-actions.v1.json, schema nexloop-system-actions/1) and their validators.
 
 Pure: it reads the manifest and the migration catalog, never a database. Each entry is the frozen
 CapabilityContractSnapshot of one capability version plus the contract it hashes:
@@ -132,3 +133,108 @@ def write_hashes(path):
             changed.append(item['capability_name'])
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n')
     return changed
+
+
+# ---- system Actions (deploy/configuration/system-actions.v1.json, schema nexloop-system-actions/1) ------------------------------
+SYSTEM_ACTIONS_SCHEMA = 'nexloop-system-actions/1'
+SYSTEM_TOP = {'schema_version', 'manifest_version', 'decision', 'valid_from', 'created_by', 'object_types', 'actions', 'functions'}
+SYSTEM_TYPE = {'type_name', 'version', 'builder'}
+SYSTEM_ACTION = {'stable_name', 'version', 'object_types', 'capability', 'target_systems', 'idempotency_key_fields', 'input', 'group'}
+SYSTEM_FUNCTION = {'stable_name', 'version', 'object_types', 'capability', 'builder', 'group'}
+# The governance a deployment manifest may declare for a system Action (design §1.2: no governance; the reader checks it).
+TARGETS = {('postgres',): ('request_id',), ('service',): ('request_id', 'intent_id')}
+_BUILDER = re.compile(r'[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)?')
+_STABLE = re.compile(r'[A-Za-z][A-Za-z0-9_.]{0,159}')
+
+
+def _builder_problem(key, builders):
+    if type(key) is not str or not _BUILDER.fullmatch(key):
+        return 'builder key'
+    if builders is not None and key not in builders:
+        return f'builder {key} is not in system_catalog.BUILDERS'
+    return None
+
+
+def validate_system_actions(value, *, capabilities, other_object_types=(), other_actions=(), builders=None):
+    """value: the system Action manifest. capabilities: a validated capabilities manifest. other_object_types: (type_name,
+    version) published by the ontology manifests (deploy/ontology/*.json), which this manifest references but never redeclares.
+    other_actions: (stable_name, version) of business-actions.v1.json, which must not overlap. builders: the builder keys of
+    nexloop_eios.system_catalog.BUILDERS (T1); None checks the key format only."""
+    if (type(value) is not dict or set(value) != SYSTEM_TOP or value['schema_version'] != SYSTEM_ACTIONS_SCHEMA
+            or type(value['manifest_version']) is not int or value['manifest_version'] < 1):
+        raise CatalogManifestRejected('system manifest shape')
+    from datetime import datetime
+    try:
+        valid_from = datetime.fromisoformat(value['valid_from'])
+    except (TypeError, ValueError):
+        raise CatalogManifestRejected('valid_from') from None
+    if valid_from.tzinfo is None:
+        raise CatalogManifestRejected('valid_from needs a time zone (it is every definition\'s created_at)')
+    for name in ('decision', 'created_by'):
+        if type(value[name]) is not str or not value[name].strip():
+            raise CatalogManifestRejected(name)
+    caps = {(c['capability_name'], c['capability_version']): c for c in capabilities['capabilities']}
+    types = set(other_object_types)
+    for item in value['object_types']:
+        if type(item) is not dict or set(item) != SYSTEM_TYPE or type(item['type_name']) is not str or item['version'] != 1:
+            raise CatalogManifestRejected(f'object type entry: {item!r}')
+        problem = _builder_problem(item['builder'], builders)
+        if problem:
+            raise CatalogManifestRejected(f"{problem}: {item['type_name']}")
+        key = (item['type_name'], item['version'])
+        if key in types:
+            raise CatalogManifestRejected(f'object type declared twice: {key[0]}')
+        types.add(key)
+    seen = set(other_actions)
+
+    def common(item, fields, binds):
+        if type(item) is not dict or set(item) != fields or type(item['stable_name']) is not str or not _STABLE.fullmatch(item['stable_name']):
+            raise CatalogManifestRejected(f'entry shape: {item!r}')
+        name = item['stable_name']
+        if type(item['version']) is not int or item['version'] < 1:
+            raise CatalogManifestRejected(f'version: {name}')
+        if (name, item['version']) in seen:
+            raise CatalogManifestRejected(f'declared twice (system or business): {name}')
+        seen.add((name, item['version']))
+        refs = item['object_types']
+        if (type(refs) is not list or not refs or any(type(r) is not list or len(r) != 2 for r in refs)
+                or len({tuple(r) for r in refs}) != len(refs) or not all(tuple(r) in types for r in refs)):
+            raise CatalogManifestRejected(f'object types not declared: {name}')
+        capability = item['capability']
+        entry = caps.get(tuple(capability)) if type(capability) is list and len(capability) == 2 else None
+        if entry is None:
+            raise CatalogManifestRejected(f'capability snapshot missing: {name}')
+        if entry['binds'] != binds:
+            raise CatalogManifestRejected(f'capability {entry["capability_name"]} binds {entry["binds"]}, not {binds}: {name}')
+        if type(item['group']) is not str or not item['group'].strip():
+            raise CatalogManifestRejected(f'group: {name}')
+        return entry
+    for item in value['actions']:
+        entry = common(item, SYSTEM_ACTION, 'action')
+        name = item['stable_name']
+        targets, keys = item['target_systems'], item['idempotency_key_fields']
+        if type(targets) is not list or tuple(targets) not in TARGETS or type(keys) is not list or len(keys) != 1 or keys[0] not in TARGETS[tuple(targets)]:
+            raise CatalogManifestRejected(f'target systems / idempotency key: {name}')
+        if targets != entry['contract'].get('target_systems'):
+            raise CatalogManifestRejected(f'target systems differ from the capability contract: {name}')
+        spec = item['input']
+        if spec is not None:
+            if type(spec) is not dict or len(spec) != 1 or not ({'builder', 'schema'} >= set(spec)):
+                raise CatalogManifestRejected(f'input: {name}')
+            if 'builder' in spec:
+                problem = _builder_problem(spec['builder'], builders)
+                if problem:
+                    raise CatalogManifestRejected(f'{problem}: {name}')
+            elif type(spec['schema']) is not dict or spec['schema'].get('type') != 'object':
+                raise CatalogManifestRejected(f'input schema: {name}')
+    for item in value['functions']:
+        common(item, SYSTEM_FUNCTION, 'function')
+        problem = _builder_problem(item['builder'], builders)
+        if problem:
+            raise CatalogManifestRejected(f"{problem}: {item['stable_name']}")
+    return value
+
+
+def load_system_actions(path, *, capabilities, other_object_types=(), other_actions=(), builders=None):
+    return validate_system_actions(json.loads(Path(path).read_text()), capabilities=capabilities, other_object_types=other_object_types,
+                                   other_actions=other_actions, builders=builders)
