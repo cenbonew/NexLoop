@@ -132,7 +132,8 @@ ACTIONS = (
     ActionSpec('ConsumerRoleLink.edit', ('ConsumerRoleLink',), 'consumer.edit', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
     ActionSpec('RoleExecutionCeiling.edit', ('RoleExecutionCeiling',), OBJECT_EDIT, 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
     ActionSpec('RoleAssignmentScope.edit', ('RoleAssignmentScope',), OBJECT_EDIT, 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
-    ActionSpec('nexloop.context.bind_role', BIND_TYPES, 'nexloop.context.bind_role', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan',
+    # Typed on the service effect Action's types (the fixture copies nexloop.service.request's object types).
+    ActionSpec('nexloop.context.bind_role', ('Consumer',), 'nexloop.context.bind_role', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan',
                input='role_context_bind'),
 )
 # Workbench goal Actions (tests/goal_fixture.py:ACTIONS): their object type is an open design decision (design §2.1, the fixtures
