@@ -33,7 +33,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
@@ -149,6 +148,7 @@ def classify(host, service, name):
 
 
 def catalog(compose_app=COMPOSE_APP, compose_data=COMPOSE_DATA):
+    import yaml  # not in the backend image; register (the one-off container, document §3b) does not need it
     app = yaml.safe_load(Path(compose_app).read_text())
     entries = []
     for secret, spec in sorted((app.get('secrets') or {}).items()):
@@ -505,6 +505,7 @@ def check(out, *, uids=False, compose_app=COMPOSE_APP):
     out = Path(out)
     manifest = json.loads((out / 'manifest.json').read_text())
     problems = []
+    import yaml
     compose = yaml.safe_load(Path(compose_app).read_text())
     for host in ('app', 'data'):
         root = out / host / 'secrets'
