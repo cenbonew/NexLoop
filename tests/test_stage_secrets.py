@@ -353,3 +353,11 @@ def test_pgpass_uses_localhost_for_the_default_socket_directory():
     """libpq matches pgpass host `localhost` for its default socket directory, not the path (2026-10-14 first start)."""
     src = (ROOT / 'scripts/deploy/stage_secrets.py').read_text()
     assert "'localhost:5432:*:nexloop_backup:'" in src and "'/var/run/postgresql:5432:" not in src
+
+
+def test_the_signing_key_is_32_bytes_of_text(tree):
+    """AuthoritySigner needs exactly 32 bytes and the stage preflight reads every private file as UTF-8 text (2026-10-15)."""
+    out = tree['out'] if isinstance(tree, dict) else tree
+    raw = (Path(out) / 'app/secrets/shared/signing.key').read_bytes()
+    assert len(raw) == 32 and raw.decode('ascii').strip() == raw.decode('ascii')
+    assert (Path(out) / 'management/signing.key.hex').read_text().strip() == raw.hex()

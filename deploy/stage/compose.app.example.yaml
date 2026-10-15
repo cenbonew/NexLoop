@@ -53,6 +53,10 @@ services:
   gateway:
     <<: *service
     image: ${GATEWAY_IMAGE:?gateway image by digest}
+    # The upstream caddy binary carries the file capability cap_net_bind_service; under cap_drop ALL and no-new-privileges the
+    # kernel refuses to exec it (2026-10-15 first start: "exec /usr/bin/caddy: operation not permitted"). Only that one
+    # capability is added back; the ports it binds stay the unprivileged 8443/8080.
+    cap_add: [NET_BIND_SERVICE]
     volumes:
       - ${NEXLOOP_ROOT:?root}/config/Caddyfile:/etc/caddy/Caddyfile:ro
     secrets: [gateway_cert, gateway_key, api_loopback_ca]

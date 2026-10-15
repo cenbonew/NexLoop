@@ -171,3 +171,9 @@ def test_every_context_produced_for_the_host_has_the_host_protocol(compose):
     fallback = json.loads(policies[-1].read_text())['fallback']['context_strategy']
     assert option(compose['services']['reply-guarantor']['command'], '--policy-file') and strategies[fallback] == host
 
+
+
+def test_only_the_gateway_gets_one_capability_back(compose):
+    """2026-10-15 first start: the caddy binary's file capability needs NET_BIND_SERVICE in the bounding set to exec at all."""
+    added = {name: spec.get('cap_add') for name, spec in compose['services'].items() if spec.get('cap_add')}
+    assert added == {'gateway': ['NET_BIND_SERVICE']}

@@ -26,6 +26,7 @@ import hashlib
 import json
 import re
 import secrets
+import string
 import shutil
 import sys
 from pathlib import Path
@@ -136,7 +137,7 @@ def classify(host, service, name):
             return 'token', 'A', 'shared between the action worker and webchat-delivery'
         return 'token', 'A/B', 'random token; registered by the trusted configuration after bootstrap (see the document §3)'
     if name == 'signing.key':
-        return 'signing_key', 'A/B', '32 raw bytes; the hex copy is registered by the trusted configuration'
+        return 'signing_key', 'A/B', '32 bytes of random URL-safe ASCII (about 192 bits); the hex copy is registered by the trusted configuration'
     if name.endswith('.key'):
         return 'hex_key', 'A', '32 bytes as 64 lower-case hex' + (' (one value: host-control)' if stem in ('host-control', 'transport') else '')
     if name == 'bootstrap_password':
@@ -199,7 +200,9 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
     shared['webchat-provider'] = secrets.token_urlsafe(48)
     roles = sorted({_role(e['service'], e['path'].split('/', 1)[1]) for e in entries if e['kind'] == 'dsn'} | {'nexloop_backup', 'nexloop_backup_recorder'})
     passwords = {role: secrets.token_hex(24) for role in roles}
-    signing = secrets.token_bytes(32)
+    # 32 bytes for AuthoritySigner (exactly 32), and valid UTF-8 for the stage preflight of the API and the workers, which reads
+    # every private file as text (2026-10-15 first start: random binary bytes were refused). URL-safe ASCII keeps ~192 bits.
+    signing = ''.join(secrets.choice(string.ascii_letters + string.digits + '-_') for _ in range(32)).encode()
     bundle = (ca_dir / 'bundle.crt').read_bytes()
     issued, tokens, role_tokens = {}, {}, {}
     for e in entries:
