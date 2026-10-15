@@ -397,7 +397,12 @@ services:
     labels:
       nexloop.budget-service: incentive-issuer
 networks:
-  app: {}
+  # G-APP-SUBNET (run sheet 4.2, 2026-10-15): the application network's subnet is fixed to APP_CONTAINER_CIDR, the source the
+  # APP_HOST nft rules match (app-host.nft.template, NX-037 D4). Without it Docker picks a subnet and those rules never match.
+  # Changing it needs `docker compose down` (networks are not recreated in place).
+  app:
+    ipam:
+      config: [{subnet: "${APP_CONTAINER_CIDR:?application network}"}]
   effect_egress:
     ipam:
       config: [{subnet: "${EFFECT_EGRESS_CIDR:?effect worker egress network}"}]

@@ -258,3 +258,61 @@ def test_the_gateway_passes_the_public_host_to_the_api():
     text = (ROOT / 'deploy/stage/config/Caddyfile.template').read_text()
     proxy = text[text.index('reverse_proxy'):text.index('header {')]
     assert 'header_up Host {http.request.hostport}' in proxy
+
+
+# G-APP-SUBNET (run sheet 4.2 external probe, 2026-10-15): the nft rules match container networks by source CIDR; a Compose network
+# without a fixed subnet gets whatever Docker picks and every rule for it silently misses. Host-side sources are not container networks.
+HOST_SOURCE_CIDRS = {'TRUSTED_LAN_CIDR', 'MGMT_SOURCE_CIDR'}
+
+
+def nft_container_cidrs(template):
+    return set(re.findall(r'ip saddr __([A-Z0-9_]+_CIDR)__', template.read_text())) - HOST_SOURCE_CIDRS
+
+
+def compose_subnet_variables(compose_doc):
+    """{network: variable} for networks whose ipam subnet is exactly ${VARIABLE:?...}."""
+    out = {}
+    for name, spec in (compose_doc.get('networks') or {}).items():
+        for config in ((spec or {}).get('ipam') or {}).get('config') or []:
+            m = re.fullmatch(r'\$\{([A-Z0-9_]+):\?[^}]*\}', str(config.get('subnet', '')))
+            if m:
+                out[name] = m.group(1)
+    return out
+
+
+def subnet_guard_problems(template, compose_doc, compose_env_text, stage_env_text):
+    """Every container CIDR of the nft template is the fixed ipam subnet of a Compose network, the Compose env file sets it, and to the
+    same value as stage.env (the renderer's input)."""
+    fixed = set(compose_subnet_variables(compose_doc).values())
+    compose_env = dict(l.split('=', 1) for l in compose_env_text.splitlines() if l and not l.startswith('#') and '=' in l)
+    stage_env = dict(l.split('=', 1) for l in stage_env_text.splitlines() if l and not l.startswith('#') and '=' in l)
+    problems = []
+    for var in sorted(nft_container_cidrs(template)):
+        if var not in fixed:
+            problems.append('no Compose network with a fixed subnet: ' + var)
+        elif var not in compose_env:
+            problems.append('Compose env does not set: ' + var)
+        elif compose_env[var] != stage_env.get(var):
+            problems.append('Compose env and stage.env differ: ' + var)
+    return problems
+
+
+def test_every_container_cidr_of_the_app_firewall_is_a_fixed_compose_subnet():
+    template = STAGE / 'firewall/app-host.nft.template'
+    assert nft_container_cidrs(template) == {'APP_CONTAINER_CIDR', 'EFFECT_EGRESS_CIDR', 'AGENT_EGRESS_CIDR'}
+    assert subnet_guard_problems(template, compose('compose.app.example.yaml'), (STAGE / 'compose.app.env.example').read_text(),
+                                 (STAGE / 'stage.env.example').read_text()) == []
+    assert compose_subnet_variables(compose('compose.app.example.yaml'))['app'] == 'APP_CONTAINER_CIDR'
+
+
+def test_the_subnet_guard_catches_the_unfixed_application_network():
+    """Reverse check: the Compose file of 1fcc2d6 (app: {}) and its env file without APP_CONTAINER_CIDR are refused."""
+    doc = compose('compose.app.example.yaml')
+    doc['networks']['app'] = {}
+    env = '\n'.join(l for l in (STAGE / 'compose.app.env.example').read_text().splitlines() if not l.startswith('APP_CONTAINER_CIDR='))
+    template, stage_env = STAGE / 'firewall/app-host.nft.template', (STAGE / 'stage.env.example').read_text()
+    assert subnet_guard_problems(template, doc, env, stage_env) == ['no Compose network with a fixed subnet: APP_CONTAINER_CIDR']
+    fixed = compose('compose.app.example.yaml')
+    assert subnet_guard_problems(template, fixed, env, stage_env) == ['Compose env does not set: APP_CONTAINER_CIDR']
+    other = (STAGE / 'compose.app.env.example').read_text().replace('APP_CONTAINER_CIDR=', 'APP_CONTAINER_CIDR=203.0.113.0/28\n#')
+    assert subnet_guard_problems(template, fixed, other, stage_env) == ['Compose env and stage.env differ: APP_CONTAINER_CIDR']

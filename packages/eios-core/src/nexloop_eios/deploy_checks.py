@@ -367,6 +367,51 @@ def compose_budget(budget, compose):
     return {'checks': {'compose_matches_budget': not problems}, 'details': {'compose_budget': sorted(problems)}}
 
 
+# Compose networks <-> firewall (G-APP-SUBNET, run sheet 4.2) -------------------------------------------------------------------
+# The APP_HOST nft rules (app-host.nft.template) match these Compose networks by source CIDR; each must have exactly that subnet,
+# declared (rendered Compose) and running (running_snapshot, docker network inspect). Names only in the details, never addresses.
+FIREWALL_NETWORKS = {'app': 'APP_CONTAINER_CIDR', 'effect_egress': 'EFFECT_EGRESS_CIDR', 'agent_egress': 'AGENT_EGRESS_CIDR'}
+
+
+def _subnets(values):
+    import ipaddress
+    out = set()
+    for v in values or ():
+        try:
+            out.add(ipaddress.ip_network(str(v), strict=False))
+        except ValueError:
+            out.add(str(v))
+    return out
+
+
+def firewall_networks(stage, compose, running=None):
+    """stage: stage_render.load_env values; compose: the rendered APP_HOST Compose (config --format json); running: running.json
+    (networks: {compose network: [subnets]}). Each firewall network has exactly the stage.env subnet; a missing input fails."""
+    import ipaddress
+    declared, live = [], []
+    networks = (compose or {}).get('networks') or {}
+    running_networks = None if running is None else running.get('networks')
+    for network, variable in FIREWALL_NETWORKS.items():
+        want = {ipaddress.ip_network(str(stage[variable]), strict=False)} if stage.get(variable) else None
+        if want is None:
+            declared.append('stage_env_missing:' + variable)
+            continue
+        got = _subnets(c.get('subnet') for c in (((networks.get(network) or {}).get('ipam') or {}).get('config') or []))
+        if got != want:
+            declared.append('subnet_differs:' + network)
+        if running_networks is not None and _subnets(running_networks.get(network)) != want:
+            live.append('subnet_differs:' + network)
+    checks = {'compose_networks_match_firewall': not declared}
+    details = {'compose_networks': declared}
+    if running_networks is None:
+        checks['running_networks_match_firewall'] = False
+        details['running_networks'] = ['not_provided']
+    else:
+        checks['running_networks_match_firewall'] = not live
+        details['running_networks'] = live
+    return {'checks': checks, 'details': {'firewall_networks': details}}
+
+
 # The gate (§6) ----------------------------------------------------------------------------------------------------------------
 REQUIRED_INPUTS = {
     'app': ('stage_env', 'connection_budget', 'running', 'inventory_before', 'inventory_after', 'secret_root', 'compose_json', 'tls_spec',
@@ -405,6 +450,11 @@ def deploy_gate(spec):
         merge(guard_and_registration(load('connection_budget'), load('running') if spec.get('running') else None))
     if role == 'app' and spec.get('connection_budget') and spec.get('compose_json'):
         merge(compose_budget(load('connection_budget'), load('compose_json')))
+    if role == 'app':
+        if stage is not None and spec.get('compose_json'):
+            merge(firewall_networks(stage, load('compose_json'), load('running') if spec.get('running') else None))
+        else:
+            checks['compose_networks_match_firewall'] = checks['running_networks_match_firewall'] = False
     if spec.get('inventory_before') and spec.get('inventory_after'):
         before, after = load('inventory_before'), load('inventory_after')
         merge(inventory_compare(before, after))
