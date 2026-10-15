@@ -14,7 +14,10 @@ What it writes (the shape deploy_checks.guard_and_registration reads):
   names counts one process (the budget declares one process per container, e.g. api = api-1 + api-2); "none" opens no pool;
 - a running container without the label is recorded under its Compose service name with pg true: fail closed, the gate then
   reports it as unregistered;
-- guard_children of the runtime-worker entry: the processes running `nexloop_eios.runtime_guard_worker` in its container.
+- guard_children of the runtime-worker entry: the processes running `nexloop_eios.runtime_guard_worker` in its container;
+- networks (G-APP-SUBNET): {<Compose network name>: [subnets]} of the project's networks (`docker network inspect`), which the gate
+  compares with the firewall CIDRs of stage.env (deploy_checks.firewall_networks). A capture without networks records none (the gate
+  then fails that check).
 Prints one JSON line (counts only). Exit 0 written, 2 refused (no docker, an existing output file, an invalid capture).
 """
 import argparse
@@ -50,8 +53,12 @@ def _labels(value):
     return labels
 
 
-def snapshot(containers, tops, project):
-    """containers: [{id, state, labels}] (docker ps); tops: {id: [args, ...]} (docker top). The running.json value."""
+NETWORK_LABEL = 'com.docker.compose.network'
+
+
+def snapshot(containers, tops, project, networks=()):
+    """containers: [{id, state, labels}] (docker ps); tops: {id: [args, ...]} (docker top); networks: [{labels, subnets}] (docker
+    network inspect). The running.json value."""
     services = {}
     for c in containers:
         labels = _labels(c.get('labels'))
@@ -64,7 +71,12 @@ def snapshot(containers, tops, project):
             row['processes'] += 1
             if entry == RUNTIME_WORKER:
                 row['guard_children'] = row.get('guard_children', 0) + sum(GUARD_MODULE in args for args in tops.get(c['id'], []))
-    return {'schema': 'nexloop-running/1', 'project': project, 'services': dict(sorted(services.items()))}
+    nets = {}
+    for n in networks:
+        labels = _labels(n.get('labels'))
+        if labels.get(PROJECT_LABEL) == project and labels.get(NETWORK_LABEL):
+            nets[labels[NETWORK_LABEL]] = sorted(str(s) for s in n.get('subnets') or [])
+    return {'schema': 'nexloop-running/1', 'project': project, 'services': dict(sorted(services.items())), 'networks': dict(sorted(nets.items()))}
 
 
 def _docker(*args):
@@ -85,7 +97,12 @@ def collect(project):
     for c in containers:
         lines = _docker('top', c['id'], '-eo', 'pid,args').splitlines()[1:]
         tops[c['id']] = [line.strip().split(None, 1)[1] if len(line.strip().split(None, 1)) == 2 else '' for line in lines]
-    return {'project': project, 'containers': containers, 'tops': tops}
+    networks = []
+    for line in _docker('network', 'ls', '--filter', f'label={PROJECT_LABEL}={project}', '--format', '{{json .}}').splitlines():
+        row = json.loads(line)
+        info = json.loads(_docker('network', 'inspect', '--format', '{{json .}}', row['ID']))
+        networks.append({'labels': info.get('Labels') or {}, 'subnets': [c.get('Subnet') for c in ((info.get('IPAM') or {}).get('Config') or []) if c.get('Subnet')]})
+    return {'project': project, 'containers': containers, 'tops': tops, 'networks': networks}
 
 
 def main(argv=None):
@@ -100,7 +117,9 @@ def main(argv=None):
         capture = json.loads(args.capture.read_text()) if args.capture else collect(args.project)
         if type(capture) is not dict or type(capture.get('containers')) is not list or type(capture.get('tops')) is not dict:
             raise Refused('capture invalid')
-        value = snapshot(capture['containers'], capture['tops'], capture.get('project', args.project))
+        if type(capture.get('networks', [])) is not list:
+            raise Refused('capture invalid')
+        value = snapshot(capture['containers'], capture['tops'], capture.get('project', args.project), capture.get('networks', []))
         fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             stream.write(json.dumps(value, indent=1, sort_keys=True) + '\n')
@@ -109,7 +128,7 @@ def main(argv=None):
         return 2
     runtime = value['services'].get(RUNTIME_WORKER, {})
     print(json.dumps({'ok': True, 'services': len(value['services']), 'processes': sum(r['processes'] for r in value['services'].values()),
-                      'guard_children': runtime.get('guard_children')}))
+                      'guard_children': runtime.get('guard_children'), 'networks': len(value['networks'])}))
     return 0
 
 

@@ -37,7 +37,10 @@ def running(**changes):
     services['caddy'] = {'processes': 1, 'pg': False}
     for name, value in changes.items():
         services[name] = value
-    return {'services': services}
+    # G-APP-SUBNET: the running firewall networks with the subnets of stage.env.example.
+    stage = dict(l.split('=', 1) for l in (ROOT / 'deploy/stage/stage.env.example').read_text().splitlines() if l and not l.startswith('#'))
+    networks = {n: [stage[v]] for n, v in deploy_checks.FIREWALL_NETWORKS.items()}
+    return {'services': services, 'networks': networks}
 
 
 def test_guard_is_exactly_four_and_every_running_pg_process_is_registered():
@@ -217,3 +220,24 @@ def test_doctor_deploy_gate_runs_every_check_and_fails_on_a_missing_input(pki, s
     assert main() == 1
     out = json.loads(capsys.readouterr().out)
     assert out['checks']['input_provided:running'] is False and out['checks']['running_processes_registered'] is False
+
+
+def test_the_firewall_networks_have_the_stage_env_subnets_declared_and_running(stage):
+    """G-APP-SUBNET: every Compose network the APP_HOST nft rules match by source CIDR (app, effect_egress, agent_egress) has exactly
+    the stage.env subnet in the rendered Compose and in the running project; anything else, or no running input, fails. Details name
+    networks only, never addresses."""
+    from nexloop_eios import stage_render
+    values = stage_render.load_env(stage)
+    ok = deploy_checks.firewall_networks(values, app_compose(), running())
+    assert ok['checks'] == {'compose_networks_match_firewall': True, 'running_networks_match_firewall': True}, ok
+    unfixed = app_compose()
+    unfixed['networks']['app'] = {}  # the 1fcc2d6 Compose: Docker picks the subnet
+    bad = deploy_checks.firewall_networks(values, unfixed, running())
+    assert bad['checks']['compose_networks_match_firewall'] is False and bad['details']['firewall_networks']['compose_networks'] == ['subnet_differs:app']
+    picked = running()
+    picked['networks']['app'] = ['192.0.2.0/24']  # a network created before the fix, never recreated
+    live = deploy_checks.firewall_networks(values, app_compose(), picked)
+    assert live['checks'] == {'compose_networks_match_firewall': True, 'running_networks_match_firewall': False}
+    assert live['details']['firewall_networks']['running_networks'] == ['subnet_differs:app'] and '192.0.2.0' not in json.dumps(live)
+    old = deploy_checks.firewall_networks(values, app_compose(), {'services': {}})
+    assert old['checks']['running_networks_match_firewall'] is False and old['details']['firewall_networks']['running_networks'] == ['not_provided']

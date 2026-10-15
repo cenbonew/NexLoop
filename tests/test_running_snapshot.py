@@ -72,8 +72,21 @@ def test_the_cli_writes_a_private_file_from_a_capture_and_never_overwrites(tmp_p
     run = subprocess.run([sys.executable, str(ROOT / 'scripts/deploy/running_snapshot.py'), '--capture', str(cap), '--out', str(out)],
                          capture_output=True, text=True)
     assert run.returncode == 0 and json.loads(run.stdout) == {'ok': True, 'services': len(BUDGET['services']),
-                                                         'processes': sum(s['processes'] for s in BUDGET['services']), 'guard_children': 4}
+                                                         'processes': sum(s['processes'] for s in BUDGET['services']), 'guard_children': 4,
+                                                         'networks': 0}
     assert out.stat().st_mode & 0o777 == 0o600 and json.loads(out.read_text())['schema'] == 'nexloop-running/1'
     again = subprocess.run([sys.executable, str(ROOT / 'scripts/deploy/running_snapshot.py'), '--capture', str(cap), '--out', str(out)],
                            capture_output=True, text=True)
     assert again.returncode == 2 and 'output exists' in again.stdout
+
+
+def test_the_project_networks_and_their_subnets_are_recorded():
+    """G-APP-SUBNET: running.json carries {Compose network: [subnets]} of this project's networks (docker network inspect)."""
+    cap = capture()
+    cap['networks'] = [
+        {'labels': {R.PROJECT_LABEL: 'nexloop-app', R.NETWORK_LABEL: 'app'}, 'subnets': ['198.51.100.128/25']},
+        {'labels': {R.PROJECT_LABEL: 'nexloop-app', R.NETWORK_LABEL: 'agent_link'}, 'subnets': ['203.0.113.16/29']},
+        {'labels': {R.PROJECT_LABEL: 'unrelated', R.NETWORK_LABEL: 'app'}, 'subnets': ['192.0.2.0/24']}]
+    value = R.snapshot(cap['containers'], cap['tops'], cap['project'], cap['networks'])
+    assert value['networks'] == {'agent_link': ['203.0.113.16/29'], 'app': ['198.51.100.128/25']}
+    assert R.snapshot(cap['containers'], cap['tops'], cap['project'])['networks'] == {}
