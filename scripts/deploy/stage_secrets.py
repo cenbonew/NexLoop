@@ -6,6 +6,7 @@
     stage_secrets.py signing-key --out DIR --tenant UUID --signing-key-id ID --bootstrap-dsn-file F   one more Authority signing key
     stage_secrets.py setup-credentials --out DIR                                   setup/ credentials of business/catalog setup
     stage_secrets.py check    --out DIR [--uids]                                       secret_distribution and manifest digests
+    stage_secrets.py metrics  --out DIR --ca-dir CA_DIR --params PRIVATE_JSON         G-METRICS-DSN: add the metrics client to an older tree
 
 The catalog is read from the APP_HOST Compose file's `secrets:` section (so it cannot drift from what the services mount) plus
 the fixed DATA_HOST files. `generate` writes, below a directory that must not exist:
@@ -79,9 +80,20 @@ MANUAL = {'provider-routes': ('manual', 'NX-037 provider routing (effect_dispatc
 DATA_FILES = ['postgres/bootstrap_password', 'postgres/server.crt', 'postgres/server.key', 'postgres/ca.crt',
               'valkey/valkey.acl', 'valkey/server.crt', 'valkey/server.key', 'valkey/ca.crt',
               'pgbackrest/pgbackrest.conf', 'pgbackrest/pgpass', 'pgbackrest/client.crt', 'pgbackrest/client.key', 'pgbackrest/ca.crt',
-              'backup/recorder.dsn']
+              'backup/recorder.dsn',
+              # G-METRICS-DSN: the read-only metrics role for `nexloop-doctor --backup` on DATA_HOST (owner nexloop-backup).
+              'backup/metrics.dsn']
 # M8: APP_HOST host files outside Compose, read by the systemd unit nexloop-pgbackrest-server (owner nexloop-pgbackrest).
 APP_HOST_FILES = ['pgbackrest-server/server.crt', 'pgbackrest-server/server.key', 'pgbackrest-server/ca.crt']
+
+
+# DATA_HOST socket DSN files (host-local socket directory, SCRAM): file name -> role.
+SOCKET_DSN_ROLES = {'recorder.dsn': 'nexloop_backup_recorder', 'metrics.dsn': 'nexloop_metrics'}
+# G-METRICS-DSN: the APP_HOST copy of the read-only metrics client (deploy-gate roles check, real_tenant_init verify). Not a service
+# secret: written to management/metrics/ and installed by the owner under NEXLOOP_ROOT/ops/metrics (0700 root, files 0600 root).
+METRICS_ROLE = 'nexloop_metrics'
+METRICS_DIR = 'ops/metrics'
+METRICS_FILES = ['metrics.dsn', 'metrics-pg-client.crt', 'metrics-pg-client.key', 'pg-ca.crt']
 
 
 class Refused(ValueError):
@@ -130,8 +142,8 @@ def classify(host, service, name):
         return ('server_cert' if name.endswith('.crt') else 'server_key'), 'A', f'SANs: {SERVER_CERTS[(service, stem)]}'
     if name in ('dsn', 'identity-dsn', 'api-dsn'):
         return 'dsn', 'A/B', f'role {_role(service, name)}; its password takes effect when role-passwords.sql runs (bootstrap window)'
-    if name == 'recorder.dsn':
-        return 'socket_dsn', 'A/B', 'role nexloop_backup_recorder over the DATA_HOST socket; password from role-passwords.sql'
+    if name in SOCKET_DSN_ROLES:
+        return 'socket_dsn', 'A/B', f'role {SOCKET_DSN_ROLES[name]} over the DATA_HOST socket; password from role-passwords.sql'
     if name == 'pgpass':
         return 'pgpass', 'A/B', 'nexloop_bootstrap (run sheet 2.4) and nexloop_backup (2.5b) lines'
     if name == 'service-credential' or name.endswith('-credential'):
@@ -200,7 +212,8 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
     work = out / '.issue'
     shared = {name: secrets.token_hex(32) for name in SHARED_VALUES}
     shared['webchat-provider'] = secrets.token_urlsafe(48)
-    roles = sorted({_role(e['service'], e['path'].split('/', 1)[1]) for e in entries if e['kind'] == 'dsn'} | {'nexloop_backup', 'nexloop_backup_recorder'})
+    roles = sorted({_role(e['service'], e['path'].split('/', 1)[1]) for e in entries if e['kind'] == 'dsn'} | {'nexloop_backup'}
+                   | set(SOCKET_DSN_ROLES.values()))
     passwords = {role: secrets.token_hex(24) for role in roles}
     # 32 bytes for AuthoritySigner (exactly 32), and valid UTF-8 for the stage preflight of the API and the workers, which reads
     # every private file as text (2026-10-15 first start: random binary bytes were refused). URL-safe ASCII keeps ~192 bits.
@@ -241,8 +254,9 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
                     f"password={passwords[role]} sslmode=verify-full sslrootcert=/run/secrets/pg_ca "
                     f"sslcert=/run/secrets/{prefix}_pg_client_cert sslkey=/run/secrets/{prefix}_pg_client_key\n")
         elif kind == 'socket_dsn':
-            data = (f"host={p['nexloop_root']}/run/postgresql dbname={p['db_name']} user=nexloop_backup_recorder "
-                    f"password={passwords['nexloop_backup_recorder']}\n")
+            role = SOCKET_DSN_ROLES[name]
+            data = (f"host={p['nexloop_root']}/run/postgresql dbname={p['db_name']} user={role} "
+                    f"password={passwords[role]}\n")
         elif kind == 'pgpass':
             # libpq looks up a connection over its default socket directory (/var/run/postgresql in the image) as host
             # `localhost`, never as the directory path (2026-10-14 first start: "no password supplied").
@@ -283,17 +297,64 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
         _write(target, data)
         e['generated'] = True
         e['sha256'] = hashlib.sha256(target.read_bytes()).hexdigest()
-    shutil.rmtree(work, ignore_errors=True)
     management = out / 'management'
+    _metrics_client(management / 'metrics', ca_dir, work, bundle, p)
+    shutil.rmtree(work, ignore_errors=True)
     _write(management / 'signing.key.hex', signing.hex())
     _write(management / 'role-passwords.sql', '-- Run once by the owner as nexloop_bootstrap in the bootstrap window (run sheet 2.5b): SCRAM verifiers only.\n'
            + ''.join(f'ALTER ROLE {role} PASSWORD \'{scram_verifier(pw)}\';\n' for role, pw in passwords.items()))
     _write(management / 'service-secrets.json', json.dumps(tokens, indent=1, sort_keys=True))
     manifest = {'schema': 'nexloop-stage-secrets/1', 'signing_key_id': p['signing_key_id'], 'roles': roles,
                 'shared_values': SHARED_VALUES, 'files': entries,
-                'management': ['signing.key.hex', 'role-passwords.sql', 'service-secrets.json']}
+                'management': ['signing.key.hex', 'role-passwords.sql', 'service-secrets.json', *(f'metrics/{n}' for n in METRICS_FILES)]}
     _write(out / 'manifest.json', json.dumps(manifest, indent=1, sort_keys=True))
     return summary(manifest)
+
+
+def _metrics_client(target, ca_dir, work, bundle, p):
+    """G-METRICS-DSN: the APP_HOST read-only metrics client. The certificate's CN is nexloop_metrics; pg_hba admits it from APP_HOST
+    with certificate authentication (no password, `hostssl ... nexloop_metrics ... cert`). The DSN names the installed location
+    NEXLOOP_ROOT/ops/metrics; nothing of it is mounted into a service."""
+    issue_certs.leaf('client', ca_dir, work, 'metrics-pg-client', cn=METRICS_ROLE)
+    installed = f"{p['nexloop_root']}/{METRICS_DIR}"
+    _write(target / 'metrics-pg-client.crt', (work / 'metrics-pg-client.chain.crt').read_bytes())
+    _write(target / 'metrics-pg-client.key', (work / 'metrics-pg-client.key').read_bytes())
+    _write(target / 'pg-ca.crt', bundle)
+    _write(target / 'metrics.dsn', f"host={p['data_host_name']} hostaddr={p['data_host_addr']} port={p['pg_port']} dbname={p['db_name']} "
+           f"user={METRICS_ROLE} sslmode=verify-full sslrootcert={installed}/pg-ca.crt sslcert={installed}/metrics-pg-client.crt "
+           f"sslkey={installed}/metrics-pg-client.key\n")
+
+
+def add_metrics(out, ca_dir, params_file):
+    """G-METRICS-DSN for a tree generated before the metrics client existed (generate writes it for new trees): management/metrics
+    (APP_HOST, certificate only), data/secrets/backup/metrics.dsn (DATA_HOST socket, SCRAM) and management/metrics-role-password.sql,
+    the one ALTER ROLE nexloop_metrics the owner runs in the bootstrap window. Nothing existing is overwritten; the manifest records
+    the new files. No value is printed."""
+    out, ca_dir = Path(out), Path(ca_dir)
+    manifest_path = out / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    if (out / 'management' / 'metrics').exists() or any(f['path'] == 'backup/metrics.dsn' for f in manifest['files']):
+        raise Refused('the tree already holds the metrics client')
+    p = _params(params_file)
+    work = out / '.issue-metrics'
+    try:
+        _metrics_client(out / 'management' / 'metrics', ca_dir, work, (ca_dir / 'bundle.crt').read_bytes(), p)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    password = secrets.token_hex(24)
+    target = out / 'data' / 'secrets' / 'backup' / 'metrics.dsn'
+    _write(target, f"host={p['nexloop_root']}/run/postgresql dbname={p['db_name']} user={METRICS_ROLE} password={password}\n")
+    _write(out / 'management' / 'metrics-role-password.sql', '-- Run once by the owner as nexloop_bootstrap in the bootstrap window: SCRAM verifier only.\n'
+           f"ALTER ROLE {METRICS_ROLE} PASSWORD '{scram_verifier(password)}';\n")
+    entry = {'host': 'data', 'path': 'backup/metrics.dsn', 'secret': None, 'service': 'backup', 'owner': _owner('backup')}
+    entry['kind'], entry['phase'], entry['note'] = classify('data', 'backup', 'metrics.dsn')
+    entry.update(generated=True, sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+    manifest['files'].append(entry)
+    manifest['roles'] = sorted(set(manifest['roles']) | {METRICS_ROLE})
+    manifest['management'] = [*manifest['management'], *(f'metrics/{n}' for n in METRICS_FILES), 'metrics-role-password.sql']
+    manifest_path.chmod(0o600)
+    manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    return {'added': ['management/metrics', 'data:backup/metrics.dsn', 'management/metrics-role-password.sql']}
 
 
 def summary(manifest):
@@ -566,8 +627,27 @@ def check(out, *, uids=False, compose_app=COMPOSE_APP):
         listed = {f['path'] for f in manifest['files'] if f['host'] == host and f.get('generated')}
         present = {str(p.relative_to(out / host / 'secrets')) for p in (out / host / 'secrets').rglob('*') if p.is_file()}
         problems += [f'unlisted:{host}:{p}' for p in sorted(present - listed)]
+    problems += metrics_problems(out / 'management' / 'metrics')
     pending = sorted(f"{f['host']}:{f['path']}" for f in manifest['files'] if not f.get('generated'))
     return {'ok': not problems, 'problems': problems, 'pending_manual_or_phase_c': pending}
+
+
+def metrics_problems(directory):
+    """G-METRICS-DSN: the APP_HOST metrics client is complete, owner-only (0600 files, 0700 directory) and certificate-only:
+    verify-full, user nexloop_metrics, no password."""
+    import stat
+    problems = []
+    if not directory.is_dir() or stat.S_IMODE(directory.stat().st_mode) != 0o700:
+        return ['metrics:directory']
+    for name in METRICS_FILES:
+        path = directory / name
+        if not path.is_file() or stat.S_IMODE(path.stat().st_mode) != 0o600:
+            problems.append('metrics:file:' + name)
+    if (directory / 'metrics.dsn').is_file():
+        fields = dict(item.split('=', 1) for item in (directory / 'metrics.dsn').read_text().split())
+        if fields.get('sslmode') != 'verify-full' or fields.get('user') != METRICS_ROLE or 'password' in fields:
+            problems.append('metrics:dsn')
+    return problems
 
 
 def browser_main(args):
@@ -784,6 +864,10 @@ def main(argv=None):
     q.add_argument('--signing-key-id')
     q.add_argument('--dry-run', action='store_true', help='compare only; without a DSN file only the compiled counts')
     q.add_argument('--emit-config', type=Path, help='write the worker configuration files the catalog makes valid (design §4)')
+    m = sub.add_parser('metrics', help='G-METRICS-DSN: add the read-only metrics client to a tree generated before it existed')
+    m.add_argument('--out', type=Path, required=True)
+    m.add_argument('--ca-dir', type=Path, required=True)
+    m.add_argument('--params', type=Path, required=True)
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -813,6 +897,8 @@ def main(argv=None):
             out, code = setup_credentials(args.out), 0
         elif args.command == 'publish':
             out, code = publish_main(args), 0
+        elif args.command == 'metrics':
+            out, code = add_metrics(args.out, args.ca_dir, args.params), 0
         elif args.command == 'generate':
             out, code = generate(args.out, args.ca_dir, args.params), 0
         else:

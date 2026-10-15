@@ -316,3 +316,18 @@ def test_the_subnet_guard_catches_the_unfixed_application_network():
     assert subnet_guard_problems(template, fixed, env, stage_env) == ['Compose env does not set: APP_CONTAINER_CIDR']
     other = (STAGE / 'compose.app.env.example').read_text().replace('APP_CONTAINER_CIDR=', 'APP_CONTAINER_CIDR=203.0.113.0/28\n#')
     assert subnet_guard_problems(template, fixed, other, stage_env) == ['Compose env and stage.env differ: APP_CONTAINER_CIDR']
+
+
+def test_the_metrics_role_authenticates_by_certificate_from_app_host_and_by_scram_on_the_data_host_socket(env, tmp_path):
+    """G-METRICS-DSN: the rendered pg_hba admits nexloop_metrics from APP_HOST with its client certificate alone (`cert`), before the
+    application line that would ask it for a password (pg_hba is first match), and over the DATA_HOST socket with SCRAM; it never
+    admits it from anywhere else (the final rejects)."""
+    values = render.load_env(env)
+    rules, _ = render.render((STAGE / 'config' / 'pg_hba.conf.template').read_text(), values)
+    lines = [' '.join(l.split()) for l in rules.splitlines() if l.strip() and not l.lstrip().startswith('#')]
+    cert = f"hostssl {values['NEXLOOP_DB']} nexloop_metrics {values['APP_HOST_ADDR']}/32 cert"
+    app = next(l for l in lines if l.startswith(f"hostssl {values['NEXLOOP_DB']} {values['APP_PG_ROLES']}"))
+    assert cert in lines and lines.index(cert) < lines.index(app) and 'nexloop_metrics' in values['APP_PG_ROLES'].split(',')
+    assert 'local all nexloop_metrics scram-sha-256' in lines
+    assert [l for l in lines if 'nexloop_metrics' in l and l not in (cert, app, 'local all nexloop_metrics scram-sha-256')] == []
+    assert lines[-4:] == ['hostnossl all all 0.0.0.0/0 reject', 'hostnossl all all ::/0 reject', 'host all all 0.0.0.0/0 reject', 'host all all ::/0 reject']
