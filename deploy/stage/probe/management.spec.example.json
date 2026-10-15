@@ -73,7 +73,8 @@
    "code": "app_reference_endpoint",
    "kind": "tcp",
    "target": "APP_REFERENCE_ENDPOINT",
-   "expect": "reachable"
+   "expect": "reachable",
+   "note": "CHANGE-AFTER-NFT-9643: the known and accepted stage deviation (owner 2026-10-15). Once app-host.nft with the REFERENCE_ENDPOINT_PORT rule is applied on APP_HOST (before the 10-19 calibration), change expect to \"unreachable\" (run sheet 4.2 §6)."
   },
   {
    "code": "app_api_internal",

@@ -192,6 +192,56 @@ def test_the_pgbackrest_tls_port_is_open_to_data_host_only(env, tmp_path):
             render.load_env(broken)
 
 
+def _reference_verdict(rules, *, saddr, daddr, dport, reply=False):
+    """First-match verdict of the rendered APP_HOST forward chain for a new connection to a DNAT'ed port (or its reply), over the
+    rules that can match it: the reply rule and the rules keyed on the reference endpoint's original destination."""
+    import ipaddress
+    chain = rules[rules.index('chain forward'):rules.index('chain output')]
+    for line in (l.strip() for l in chain.splitlines()):
+        if line == 'ct direction reply accept':
+            if reply:
+                return 'accept'
+            continue
+        m = re.fullmatch(r'ct original ip daddr (\S+) ct original proto-dst (\d+)(?: ip saddr (\S+))? (accept|drop)', line)
+        if m and not reply and m.group(1) == daddr and int(m.group(2)) == dport:
+            if m.group(3) is None or ipaddress.ip_address(saddr) in ipaddress.ip_network(m.group(3)):
+                return m.group(4)
+    return 'accept'  # policy accept: no rule of this table matched
+
+
+def test_the_reference_endpoint_admits_the_effect_worker_network_only(env, tmp_path):
+    """Owner ruling 2026-10-15 (run sheet 4.2): the reference endpoint published on APP_HOST (REFERENCE_ENDPOINT_PORT, a whitelisted
+    1024+ port) accepts new connections from EFFECT_EGRESS_CIDR only and drops every other source; replies still pass first."""
+    import ipaddress
+    values = render.load_env(env)
+    assert values['REFERENCE_ENDPOINT_PORT'] == '9643'
+    out = tmp_path / 'app-host.nft'
+    assert render.main(['--env', str(env), '--template', str(STAGE / 'firewall/app-host.nft.template'), '--out', str(out)]) == 0
+    rules = out.read_text()
+    port, app, effect = int(values['REFERENCE_ENDPOINT_PORT']), values['APP_HOST_ADDR'], values['EFFECT_EGRESS_CIDR']
+    lines = [l.strip() for l in rules.splitlines()]
+    accept = f'ct original ip daddr {app} ct original proto-dst {port} ip saddr {effect} accept'
+    drop = f'ct original ip daddr {app} ct original proto-dst {port} drop'
+    assert lines.index('ct direction reply accept') < lines.index(accept) < lines.index(drop)
+    effect_host = str(next(ipaddress.ip_network(effect).hosts()))
+    lan_host = str(next(ipaddress.ip_network(values['TRUSTED_LAN_CIDR']).hosts()))
+    app_host = str(next(ipaddress.ip_network(values['APP_CONTAINER_CIDR']).hosts()))
+    agent_host = str(next(ipaddress.ip_network(values['AGENT_EGRESS_CIDR']).hosts()))
+    # Positive: the effect worker network reaches the endpoint, and every reply passes.
+    assert _reference_verdict(rules, saddr=effect_host, daddr=app, dport=port) == 'accept'
+    assert _reference_verdict(rules, saddr=lan_host, daddr=app, dport=port, reply=True) == 'accept'
+    # Negative: the management LAN, the application namespace, the Agent Host namespace and DATA_HOST are dropped.
+    for source in (lan_host, app_host, agent_host, values['DATA_HOST_ADDR']):
+        assert _reference_verdict(rules, saddr=source, daddr=app, dport=port) == 'drop', source
+    # The port is a whitelisted parameter: a privileged or malformed value is refused.
+    for bad in ('443', 'x', '70000'):
+        broken = tmp_path / f'bad-ref-{bad}.env'
+        broken.write_text(env.read_text().replace(f'REFERENCE_ENDPOINT_PORT={port}', f'REFERENCE_ENDPOINT_PORT={bad}'))
+        broken.chmod(0o600)
+        with pytest.raises(render.Refused, match='REFERENCE_ENDPOINT_PORT'):
+            render.load_env(broken)
+
+
 def test_replies_of_admitted_connections_pass_the_forward_chains(tmp_path):
     """2026-10-14 first start: the drop rules keyed on the original destination also matched the reply direction of a DNAT'ed
     connection (the reply carries the container's source address), so APP_HOST never received PostgreSQL's SYN-ACK."""

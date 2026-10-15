@@ -35,3 +35,12 @@ def test_the_agent_host_negative_cases_and_the_positive_relay_path():
     expect = {p['code']: p['expect'] for p in spec['probes']}
     assert expect['data_pg_from_agent'] == expect['data_valkey_from_agent'] == expect['unlisted_target_from_agent'] == 'unreachable'
     assert expect['model_allowlisted_1'] == expect['guard_via_relay'] == 'reachable'
+
+
+def test_the_reference_endpoint_expectation_carries_its_change_point():
+    """Run sheet 4.2 §6: reachable from the management machine is the known stage deviation until the REFERENCE_ENDPOINT_PORT rule
+    of app-host.nft.template is applied; the probe names the change (expect -> unreachable)."""
+    spec = json.loads((ROOT / 'deploy/stage/probe/management.spec.example.json').read_text())
+    probe = next(p for p in spec['probes'] if p['code'] == 'app_reference_endpoint')
+    assert probe['expect'] == 'reachable' and probe['note'].startswith('CHANGE-AFTER-NFT-9643') and 'unreachable' in probe['note']
+    assert '__REFERENCE_ENDPOINT_PORT__' in (ROOT / 'deploy/stage/firewall/app-host.nft.template').read_text()
