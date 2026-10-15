@@ -141,3 +141,14 @@ def test_restore_cli_with_pgbackrest_to_a_time(admin, cluster, restorable, capsy
     conf = (cluster['root'] / 'pitr' / 'postgresql.auto.conf').read_text()
     assert "listen_addresses = ''" in conf and "archive_mode = 'off'" in conf
     assert (cluster['root'] / 'pitr' / 'pg_hba.conf').read_text() == 'local all nexloop_bootstrap trust\n'
+
+
+def test_the_restored_instance_connects_to_the_named_nexloop_database():
+    """2026-10-15 stage drill: the deployment's NexLoop database is not `postgres`; the restore must reach its schemas."""
+    from nexloop_eios.backup import RestoredInstance, RestoreRefused
+    instance = RestoredInstance('/usr/lib/postgresql/18/bin', '/tmp/x', '/tmp/s', 55433, 'nexloop_bootstrap', 'nexloop_stage')
+    assert 'dbname=nexloop_stage ' in instance.conninfo
+    assert 'dbname=postgres ' in RestoredInstance('/b', '/d', '/s', 1, 'u').conninfo
+    import pytest
+    with pytest.raises(RestoreRefused):
+        RestoredInstance('/b', '/d', '/s', 1, 'u', 'bad name;')

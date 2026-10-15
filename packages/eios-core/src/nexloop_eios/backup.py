@@ -296,12 +296,16 @@ def _port_free(port):
 
 
 class RestoredInstance:
-    def __init__(self, pg_bin, data, socket_dir, port, owner_user):
+    def __init__(self, pg_bin, data, socket_dir, port, owner_user, dbname='postgres'):
         self.pg_bin, self.data, self.socket_dir, self.port, self.owner_user = Path(pg_bin), Path(data), Path(socket_dir), port, owner_user
+        # The NexLoop database of the restored cluster (a deployment's is not `postgres`: 2026-10-15 stage drill, InvalidSchemaName).
+        if not re.fullmatch(r'[a-z_][a-z0-9_]{0,62}', dbname or ''):
+            raise RestoreRefused('database name invalid')
+        self.dbname = dbname
 
     @property
     def conninfo(self):
-        return f'host={self.socket_dir} port={self.port} dbname=postgres user={self.owner_user}'
+        return f'host={self.socket_dir} port={self.port} dbname={self.dbname} user={self.owner_user}'
 
     def stop(self):
         subprocess.run([str(self.pg_bin / 'pg_ctl'), '-D', str(self.data), '-m', 'fast', '-w', 'stop'], check=True, capture_output=True)
@@ -369,7 +373,7 @@ def _backup_timeline(pg_bin, target):
 
 def restore(*, pg_bin, base_backup=None, wal_archive=None, target, socket_dir, port, owner_user, restore_ref, window_start, window_end,
             journal_dir, evidence, recovery_target_name=None, recovery_target_time=None, backup_id=None, running_ports=(),
-            old_primary_fenced=False, hba_method='peer', restore_started_at=None, pgbackrest=None, drill_mark=None):
+            old_primary_fenced=False, hba_method='peer', restore_started_at=None, pgbackrest=None, drill_mark=None, dbname='postgres'):
     """Restore into a new directory on a new, socket-only port, either from a pg_basebackup directory plus archived WAL (local)
     or with pgBackRest (`pgbackrest`: {pgbackrest, stanza, repo, config_file[, set_label]}; deployment, D1), to a named restore
     point or a time; set every application role NOLOGIN; write the fence; replay the journal; reconcile the effect window;
@@ -395,7 +399,7 @@ def restore(*, pg_bin, base_backup=None, wal_archive=None, target, socket_dir, p
         materialize_pgbackrest(**pgbackrest, **settings)
     old_timeline = _backup_timeline(pg_bin, target)
     subprocess.run([str(pg_bin / 'pg_ctl'), '-D', str(target), '-l', str(target / 'restore.log'), '-w', '-t', '300', 'start'], check=True, capture_output=True)
-    instance = RestoredInstance(pg_bin, target, socket_dir, port, owner_user)
+    instance = RestoredInstance(pg_bin, target, socket_dir, port, owner_user, dbname)
     try:
         deadline = time.monotonic() + 300
         while True:
@@ -638,6 +642,7 @@ def restore_main(argv=None):
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--socket-dir', type=Path, required=True)
     parser.add_argument('--owner-user', required=True)
+    parser.add_argument('--dbname', default='postgres', help='the NexLoop database inside the restored cluster')
     parser.add_argument('--hba-method', choices=('peer', 'trust', 'scram-sha-256'), default='peer')
     parser.add_argument('--restore-ref', required=True)
     parser.add_argument('--journal-dir', type=Path, required=True)
@@ -672,7 +677,7 @@ def restore_main(argv=None):
                                    owner_user=args.owner_user, restore_ref=args.restore_ref, window_start=window_start,
                                    window_end=args.window_end or datetime.now(UTC), journal_dir=args.journal_dir, evidence=evidence,
                                    recovery_target_name=args.target_name, recovery_target_time=args.target_time, running_ports=tuple(args.running_port),
-                                   old_primary_fenced=args.old_primary_fenced, hba_method=args.hba_method, drill_mark=mark)
+                                   old_primary_fenced=args.old_primary_fenced, hba_method=args.hba_method, drill_mark=mark, dbname=args.dbname)
     except SystemExit:
         raise
     except RestoreRefused as refused:
