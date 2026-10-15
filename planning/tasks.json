@@ -2733,6 +2733,18 @@
         "ref": "dab12b1",
         "summary": "main at the end of 2026-10-15 rollouts (app subnet, nft persist, metrics DSN, operator password reset, claim egress).",
         "recorded_at": "2026-10-15T14:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only:evidence/deploy-20261015/inventory-before-app-20261016-baseline.json",
+        "summary": "CORRECTION of the 2026-10-15 run-46 note: \"rules outside the NexLoop table unchanged\" was not established - before and after inventories ran unprivileged, nft list ruleset was unreadable and both hashes were sha256(empty). UFW was compared line by line and is unchanged; the rest was unverified. 2026-10-16: owner accepted a new post-reboot baseline taken as root (firewall algorithm 2); deploy gate with it: every non-NexLoop comparison equal; remaining existing_services_unchanged / planned_ports_free_before findings are tool semantics (a post-deploy baseline labels planned ports other) - fix dispatched (L4 inventory baseline mode, unreadable-nft refusal).",
+        "recorded_at": "2026-10-16T00:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only:evidence/deploy-20261015/",
+        "summary": "2026-10-16 morning: G-METRICS-DSN rolled out (DATA_HOST socket and APP_HOST certificate both log in as nexloop_metrics; pg_hba needed a postgres container restart because the script replaced the bind-mounted file inode - script fixed in 6b28325); doctor --backup all true except file_backup_recent (M12); deploy gate 18/19 true with agent_host_concurrency fixed; reboot drills passed on APP_HOST (nexloop-nft before docker, no container before LUKS unlock, 25+1 services back) and DATA_HOST (DB down ~2 min, app reconnected, backups and WAL normal). LUKS and backup passphrases now in the owner keychain (no values recorded here).",
+        "recorded_at": "2026-10-16T00:30:00Z"
       }
     ]
   },
