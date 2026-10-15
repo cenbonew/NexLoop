@@ -33,7 +33,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
@@ -149,6 +148,7 @@ def classify(host, service, name):
 
 
 def catalog(compose_app=COMPOSE_APP, compose_data=COMPOSE_DATA):
+    import yaml  # not in the backend image; register (the one-off container, document §3b) does not need it
     app = yaml.safe_load(Path(compose_app).read_text())
     entries = []
     for secret, spec in sorted((app.get('secrets') or {}).items()):
@@ -445,7 +445,10 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
             raise G.ServiceGrantsRejected('follow_latest_refused')
         manifest = {**manifest, 'grants': [{k: v for k, v in g.items() if k != G.FOLLOW} for g in manifest['grants'] + derived]}
     management = Path(out) / 'management'
-    staged = management / '.register-secrets.json'
+    # A private temporary directory: management/ may be mounted read-only (document §3b, one-off container with --tmpfs /tmp).
+    import tempfile
+    scratch = Path(tempfile.mkdtemp(prefix='nexloop-register-'))
+    staged = scratch / 'register-secrets.json'
     _write(staged, json.dumps(secrets_map))
     try:
         report = G.apply(manifest, tenant, database_url_file=database_url_file, signing_key_file=management / 'signing.key.hex',
@@ -453,11 +456,47 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
                          owner_restrictions=G.load_owner_restrictions(ROOT / 'deploy/authorization/owner-property-restrictions.json'))
     finally:
         staged.unlink(missing_ok=True)
+        scratch.rmdir()
     extra = _apply_extra_facts(_message_read_facts(manifest, stage, tenant), tenant, database_url_file=database_url_file,
                                signing_key_file=management / 'signing.key.hex', signing_key_id=signing_key_id)
     return {'changed': report['changed'] or bool(extra), 'message_read_rules_written': extra, 'credentials_created': sorted(report['credentials_created']),
             'grants_added': len(report['grants_added']), 'grants_revoked': len(report['grants_revoked']),
             'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
+
+
+CONFIGURATOR = 'nexloop_configurator'
+
+
+def configurator_window(bootstrap_dsn_file):
+    """A login window for the configurator over the bootstrap socket (document §3b): the configurator logs in as itself
+    (trusted_configuration refuses SET ROLE and elevated sessions); the one-time password reaches PostgreSQL as a SCRAM verifier
+    only, and the role is NOLOGIN without a password again when the window closes, whatever happened."""
+    import contextlib
+
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    from nexloop_eios.trusted_configuration import read_private_text
+
+    @contextlib.contextmanager
+    def window():
+        bootstrap = read_private_text(bootstrap_dsn_file, maximum=16384).strip()
+        params = conninfo_to_dict(bootstrap)
+        if params.get('user') != 'nexloop_bootstrap' or not str(params.get('host', '')).startswith('/'):
+            raise Refused('--bootstrap-dsn-file: the nexloop_bootstrap DSN over the local socket (host=<socket directory>)')
+        password = secrets.token_hex(24)
+        import tempfile
+        scratch = Path(tempfile.mkdtemp(prefix='nexloop-configurator-'))
+        dsn = scratch / 'configurator-dsn'
+        with psycopg.connect(bootstrap, autocommit=True, connect_timeout=5) as admin:
+            admin.execute(f"alter role {CONFIGURATOR} login password '{scram_verifier(password)}'")
+            try:
+                _write(dsn, make_conninfo(bootstrap, user=CONFIGURATOR, password=password))
+                yield dsn
+            finally:
+                dsn.unlink(missing_ok=True)
+                scratch.rmdir()
+                admin.execute(f'alter role {CONFIGURATOR} nologin password null')
+    return window()
 
 
 def check(out, *, uids=False, compose_app=COMPOSE_APP):
@@ -466,6 +505,7 @@ def check(out, *, uids=False, compose_app=COMPOSE_APP):
     out = Path(out)
     manifest = json.loads((out / 'manifest.json').read_text())
     problems = []
+    import yaml
     compose = yaml.safe_load(Path(compose_app).read_text())
     for host in ('app', 'data'):
         root = out / host / 'secrets'
@@ -501,6 +541,7 @@ def main(argv=None):
     r.add_argument('--out', type=Path, required=True)
     r.add_argument('--tenant', required=True)
     r.add_argument('--configurator-dsn-file', type=Path)
+    r.add_argument('--bootstrap-dsn-file', type=Path, help='open a configurator login window over this bootstrap socket DSN (document §3b)')
     r.add_argument('--signing-key-id')
     r.add_argument('--credential-expires-at')
     r.add_argument('--dry-run', action='store_true')
@@ -513,10 +554,18 @@ def main(argv=None):
             out = {'files': [{k: v for k, v in e.items() if k != 'secret'} for e in catalog(args.compose_app, args.compose_data)]}
             code = 0
         elif args.command == 'register':
-            if not args.dry_run and not (args.configurator_dsn_file and args.signing_key_id and args.credential_expires_at):
-                raise Refused('register needs --configurator-dsn-file, --signing-key-id and --credential-expires-at (or --dry-run)')
-            out, code = register(args.out, tenant=args.tenant, database_url_file=args.configurator_dsn_file, signing_key_id=args.signing_key_id,
-                                 credential_expires_at=args.credential_expires_at, dry_run=args.dry_run), 0
+            if not args.dry_run and (not (args.signing_key_id and args.credential_expires_at)
+                                     or bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file)):
+                raise Refused('register needs one of --configurator-dsn-file / --bootstrap-dsn-file, --signing-key-id and --credential-expires-at (or --dry-run)')
+            def run(dsn):
+                return register(args.out, tenant=args.tenant, database_url_file=dsn, signing_key_id=args.signing_key_id,
+                                credential_expires_at=args.credential_expires_at, dry_run=args.dry_run)
+            if args.bootstrap_dsn_file and not args.dry_run:
+                with configurator_window(args.bootstrap_dsn_file) as dsn:
+                    out = run(dsn)
+            else:
+                out = run(args.configurator_dsn_file)
+            code = 0
         elif args.command == 'generate':
             out, code = generate(args.out, args.ca_dir, args.params), 0
         else:

@@ -136,3 +136,34 @@ def test_the_credential_files_of_one_principal_must_hold_one_token(tree, tmp_pat
     path.write_text(json.dumps(tokens))
     with pytest.raises(S.Refused, match='same token'):
         S.register(out, tenant=TENANT, database_url_file=tmp_path / 'unused', signing_key_id='stage-1', credential_expires_at='2030-01-01T00:00:00+00:00')
+
+
+def test_register_through_a_configurator_login_window_on_the_bootstrap_socket(pg, admin, tree, capsys):  # noqa: F811
+    """Document §3b: the stage has no configurator login; register opens a socket-only window from the bootstrap DSN, writes as
+    the configurator itself (operator_role, session_user), and leaves the role NOLOGIN without a password; SET ROLE is refused."""
+    from psycopg.conninfo import conninfo_to_dict
+
+    from nexloop_eios.trusted_configuration import configurator_connection
+    bootstrap(admin)
+    assert admin.execute("select rolcanlogin from pg_roles where rolname='nexloop_configurator'").fetchone() == (False,)
+    assert str(conninfo_to_dict(pg)['host']).startswith('/')
+    socket_dsn = tree['tmp'] / 'bootstrap-socket-dsn'
+    socket_dsn.write_text(make_conninfo(pg, user='nexloop_bootstrap'))
+    socket_dsn.chmod(0o600)
+    set_role = tree['tmp'] / 'set-role-dsn'
+    set_role.write_text(make_conninfo(pg, user='nexloop_bootstrap', options='-c role=nexloop_configurator'))
+    set_role.chmod(0o600)
+    with pytest.raises(Exception):
+        configurator_connection(set_role)  # bootstrap with SET ROLE is not the configurator (session_user, elevated)
+    expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+    args = ['register', '--out', str(tree['out']), '--tenant', TENANT, '--bootstrap-dsn-file', str(socket_dsn), '--signing-key-id', 'stage-1',
+            '--credential-expires-at', expires]
+    tokens = json.loads((tree['out'] / 'management' / 'service-secrets.json').read_text())
+    for expected_change in (True, False):
+        assert S.main(args) == 0
+        printed = capsys.readouterr().out
+        assert json.loads(printed)['changed'] is expected_change and not any(t in printed for t in tokens.values())
+        assert admin.execute("select rolcanlogin, rolpassword is null from pg_authid where rolname='nexloop_configurator'").fetchone() == (False, True)
+    rows = admin.execute('select operator_role, count(*) from control.nexloop_configuration_publications group by 1').fetchall()
+    assert [r[0] for r in rows] == ['nexloop_configurator'] and rows[0][1] >= 1
+    assert not list((tree['out'] / 'management').glob('.*'))

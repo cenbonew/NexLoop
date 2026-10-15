@@ -78,6 +78,62 @@
   - 注意：effect_executor 的令牌必须就是 owner 做 `configure_effect_control` 时使用的执行者令牌（摘要须一致）。
   - 未覆盖：plan-reevaluator 的 Role-run Source 需要的逐对象 READ 只能在租户组装后（阶段 C）授予。
 
+## 3b. register 以什么身份执行（stage 结论）
+
+- **代码要求**：`trusted_configuration.configurator_connection` 要求 `current_user` 与 `session_user` 都是 `nexloop_configurator`，且这个会话不是 superuser、没有 BYPASSRLS/CREATEDB/CREATEROLE/REPLICATION，也不是任何高权限角色或 `nexloop_owner` 的成员。0050 的发布表还有 `operator_role='nexloop_configurator'` 约束。
+- 所以“以 nexloop_bootstrap 登录后 `SET ROLE nexloop_configurator`”行不通（session_user 是 bootstrap，会被拒绝），它也会把超级用户会话带进配置路径。测试里的做法与 NX-048 的部署步骤相同：由管理员执行 `alter role nexloop_configurator login`，然后以配置者本人登录。
+- **最小授权做法（登录窗口）**：
+  - pg_hba 增加一行 `local all nexloop_configurator scram-sha-256`，只允许容器本机 socket，不新增网络入口。角色是 NOLOGIN 时这一行不起作用。
+  - register 增加 `--bootstrap-dsn-file`（bootstrap 的 socket DSN）。它的步骤是：
+    1. 以 bootstrap 生成一次性随机口令，执行 `ALTER ROLE nexloop_configurator LOGIN PASSWORD '<SCRAM 校验值>'`，日志里只有校验值，没有口令明文；
+    2. 以配置者本人经同一 socket 连接，完成全部写入；
+    3. 无论成功与否，都执行 `ALTER ROLE nexloop_configurator NOLOGIN PASSWORD NULL`，并删除临时 DSN。
+  - 写入的发布行 `operator_role` 是 `nexloop_configurator`，超级用户不直接写表。
+
+### 3b.1 在 DATA_HOST 上执行 register（运行单 3.x，3.4 启动应用之前）
+
+**前提**：
+- pg_hba 已包含上面那条 `local all nexloop_configurator` 行，并已 reload：`docker compose -p nexloop-data kill -s HUP postgres`。
+- 发布 backend 镜像只含 wheel，不含 `scripts/deploy` 和 `deploy/authorization`。所以要把同一发布提交的源码树只读挂入容器（`$RELEASE_SRC`，提交须与发布清单一致）。register 只用到这些文件，不需要 PyYAML。
+- 管理目录 `$MGMT` 是阶段 A 生成树的 `management/`，在管理机上，传到 DATA_HOST 的私有临时目录，权限 0700，用完删除。register 只读取其中的 `service-secrets.json` 与 `signing.key.hex`。
+
+**bootstrap 的 socket DSN**：负责人在私有临时目录写一个 0600 文件 `$BOOT_DSN`，属主 999，口令取自 `secrets/postgres/bootstrap_password`：
+
+```
+host=/var/run/postgresql dbname=<DB> user=nexloop_bootstrap password=<bootstrap 口令>
+```
+
+**先 dry-run 核对**，再正式执行（`$BACKEND_IMAGE` 写 digest 形式 `name@sha256:...`，与发布清单一致）：
+
+```
+docker run --rm --network none --read-only --user 999:999 --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  -v "$NEXLOOP_ROOT/run/postgresql:/var/run/postgresql" \
+  -v "$RELEASE_SRC:/opt/release:ro" \
+  -v "$MGMT:/stage/management:ro" \
+  -v "$BOOT_DSN:/run/bootstrap-dsn:ro" \
+  --entrypoint python "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py register \
+  --out /stage --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn \
+  --signing-key-id "$SIGNING_KEY_ID" --credential-expires-at "$CREDENTIAL_EXPIRES_AT"
+```
+
+dry-run 的做法：把上面命令的最后三个参数换成 `--dry-run`，并去掉 socket 与 DSN 两个挂载。
+
+**说明**：
+- `--network none`：只经挂载的 socket 目录连接 PG。
+- `--user 999`：这是 socket 目录与 DSN 文件的属主。
+- `--read-only` 加 `/tmp` tmpfs：临时 DSN 和暂存的令牌映射只写在 tmpfs 里，结束即删除。
+- 输出是 JSON，不含令牌。
+
+**预期与核对**：
+- 第一次运行：`changed: true`，`credentials_created` 为 21 个 reference，`message_read_rules_written: 1`，`extra_grants_outside_manifest: 0`。
+- 再运行一次：`changed: false`。
+- 之后以 bootstrap 查询：`select rolcanlogin, rolpassword is null from pg_authid where rolname='nexloop_configurator'` 应返回 `(f, t)`；`select distinct operator_role from control.nexloop_configuration_publications` 只有 `nexloop_configurator`。
+
+**撤销**：凭据与授权由 trusted configuration 管理，不直接删表。删除 `$BOOT_DSN` 和 `$MGMT` 的副本。
+
+**注意**：`signing.key.hex` 与 `$SIGNING_KEY_ID` 要与服务的 `shared/signing.key` 同源（阶段 A 同一棵树）。effect_executor 的令牌必须就是 `configure_effect_control` 使用的执行者令牌。
+
 ## 3a. pgBackRest TLS（M8）的证书目录约定
 
 - **DATA_HOST**：`secrets/pgbackrest/{client.crt,client.key,ca.crt}`，属主 999，在 Compose 中只读挂载到 PG 容器的 `/etc/pgbackrest/tls/`。客户端证书 CN 为 `pgbackrest-data-client`，即 `pgbackrest-server.conf` 中 `tls-server-auth` 放行的名字。
