@@ -102,3 +102,18 @@ def test_each_dsn_carries_its_service_uid_and_the_gate_reads_it_as_root_would(tm
     assert D.tls({'ca': str(tmp_path / 'none'), 'dsn_files': [{'name': 'x', 'path': str(link), 'uid': me}]})['details']['tls']['dsn']['x'] == ['dsn_file_unreadable_or_not_private']
     # Without uid the old rule holds (the reading process owns it).
     assert D.tls({'ca': str(tmp_path / 'none'), 'dsn_files': [{'name': 'x', 'path': str(dsn)}]})['details']['tls']['dsn']['x'] == []
+
+
+def test_the_data_host_script_is_valid_bash_and_its_pg_hba_expectation_holds(tmp_path):
+    """scripts/deploy/metrics_data_host.sh: bash syntax, and the rule it relies on - the G-METRICS-DSN template differs from the
+    template before it by exactly two rule lines, both nexloop_metrics."""
+    script = ROOT / 'scripts/deploy/metrics_data_host.sh'
+    assert subprocess.run(['bash', '-n', str(script)], capture_output=True).returncode == 0
+    text = script.read_text()
+    assert 'set -euo pipefail' in text and 'pg_hba.conf.before-metrics' in text and '-m 0600' in text and 'nexloop-backup' in text
+    def rules(template_text):
+        return [' '.join(l.split()) for l in template_text.splitlines() if l.strip() and not l.lstrip().startswith('#')]
+    now = (STAGE / 'config/pg_hba.conf.template').read_text()
+    before = '\n'.join(l for l in now.splitlines() if 'nexloop_metrics' not in l or l.lstrip().startswith('#'))
+    added = [l for l in rules(now) if l not in rules(before)]
+    assert len(added) == 2 and all('nexloop_metrics' in l for l in added) and set(rules(before)) <= set(rules(now))
