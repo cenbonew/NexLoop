@@ -4,6 +4,7 @@
     stage_secrets.py catalog  [--compose-app F] [--compose-data F]                  the inventory (paths, kinds, phases, owners)
     stage_secrets.py generate --out NEW_DIR --ca-dir CA_DIR --params PRIVATE_JSON    phase A files into a new private tree
     stage_secrets.py signing-key --out DIR --tenant UUID --signing-key-id ID --bootstrap-dsn-file F   one more Authority signing key
+    stage_secrets.py setup-credentials --out DIR                                   setup/ credentials of business/catalog setup
     stage_secrets.py check    --out DIR [--uids]                                       secret_distribution and manifest digests
 
 The catalog is read from the APP_HOST Compose file's `secrets:` section (so it cannot drift from what the services mount) plus
@@ -651,6 +652,49 @@ def signing_key_main(args):
         return register_signing_key(args.out, tenant=args.tenant, signing_key_id=args.signing_key_id, database_url_file=dsn)
 
 
+# Setup credentials (NX-032 A1 design §4.4, T6): business_setup and catalog_setup run once per consumer as their own service
+# principals (stage-principals.v1.json manifest_version 2). No Compose service mounts their credentials, so they are not in the
+# phase A catalog: this adds them to an existing tree below setup/ (outside app/ and data/, which `check` keeps exact) and to
+# management/service-secrets.json, where register reads every principal's token. A principal that already has a token (the effect
+# executor, the relay Source) gets a copy of it, never a second one. Idempotent: present entries are kept as they are.
+SETUP_PREFIX = 'setup/'
+
+
+def setup_credentials(out, principals_path=PRINCIPALS):
+    import os
+    out = Path(out)
+    stage = _stage_principals(principals_path)
+    store = out / 'management' / 'service-secrets.json'
+    tokens = json.loads(store.read_text())
+    by_role = {}
+    for key, token in tokens.items():
+        role = stage['credential_files'].get(key.split(':', 1)[1])
+        if role is not None:
+            by_role.setdefault(role, token)
+    wanted = sorted(path for path in stage['credential_files'] if path.startswith(SETUP_PREFIX))
+    added = []
+    for path in wanted:
+        key, target = 'setup:' + path, out / path
+        if key in tokens:
+            if not target.is_file() or target.read_text() != tokens[key]:
+                raise Refused('setup credential file differs from service-secrets.json: ' + path)
+            continue
+        if target.exists():
+            raise Refused('setup credential file exists without a service-secrets.json entry: ' + path)
+        role = stage['credential_files'][path]
+        token = by_role.setdefault(role, secrets.token_urlsafe(48))
+        _write(target, token)
+        tokens[key] = token
+        added.append(path)
+    if added:
+        # Replace the store atomically (0600, same directory); earlier entries are unchanged.
+        temporary = store.with_name('.service-secrets.json.new')
+        temporary.unlink(missing_ok=True)
+        _write(temporary, json.dumps(tokens, indent=1, sort_keys=True))
+        os.replace(temporary, store)
+    return {'changed': bool(added), 'added': added, 'setup_files': len(wanted)}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -688,6 +732,8 @@ def main(argv=None):
     sk.add_argument('--signing-key-id', required=True)
     sk.add_argument('--configurator-dsn-file', type=Path)
     sk.add_argument('--bootstrap-dsn-file', type=Path)
+    sc = sub.add_parser('setup-credentials', help='A3: the credential files of business_setup/catalog_setup below setup/ (before register)')
+    sc.add_argument('--out', type=Path, required=True)
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -713,6 +759,8 @@ def main(argv=None):
             out, code = browser_main(args), 0
         elif args.command == 'signing-key':
             out, code = signing_key_main(args), 0
+        elif args.command == 'setup-credentials':
+            out, code = setup_credentials(args.out), 0
         elif args.command == 'generate':
             out, code = generate(args.out, args.ca_dir, args.params), 0
         else:

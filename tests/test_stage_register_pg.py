@@ -36,7 +36,10 @@ def credential_files_of_compose():
 
 def test_every_compose_credential_file_has_exactly_one_principal_and_the_merge_has_no_duplicate():
     manifest, stage = S.merged_manifest()
-    assert set(stage['credential_files']) == credential_files_of_compose()
+    # Compose credential files, plus the setup tools' files (A3, below setup/, added by setup-credentials; no service mounts them).
+    assert {f for f in stage['credential_files'] if not f.startswith(S.SETUP_PREFIX)} == credential_files_of_compose()
+    assert sorted(f for f in stage['credential_files'] if f.startswith(S.SETUP_PREFIX)) == [
+        'setup/business-executor-credential', 'setup/business-owner-credential', 'setup/catalog-maintainer-credential', 'setup/catalog-source-credential']
     roles = [p['role'] for p in manifest['principals']]
     assert len(roles) == len(set(roles)) and set(stage['credential_files'].values()) == set(roles)
     keys = [(g['principal'], g['resource_id']) for g in manifest['grants']]
@@ -74,7 +77,7 @@ def session(r, role):
     tokens = json.loads((r['tree']['out'] / 'management' / 'service-secrets.json').read_text())
     path = next(p for p, owner in r['stage']['credential_files'].items() if owner == role)
     pool = r['pools'][principal['database_role']]
-    return pool, authenticate_service(pool, tokens['app:' + path], world='real')
+    return pool, authenticate_service(pool, tokens[('setup:' if path.startswith(S.SETUP_PREFIX) else 'app:') + path], world='real')
 
 
 def allowed(pool, s, resource, kind=ResourceType.ACTION, op=Operation.EXECUTE):
@@ -91,7 +94,7 @@ def test_register_gives_every_credential_file_its_principal_and_exactly_the_decl
     tokens = json.loads((r['tree']['out'] / 'management' / 'service-secrets.json').read_text())
     for path, role in r['stage']['credential_files'].items():
         principal = next(p for p in r['manifest']['principals'] if p['role'] == role)
-        s = authenticate_service(r['pools'][principal['database_role']], tokens['app:' + path], world='real')
+        s = authenticate_service(r['pools'][principal['database_role']], tokens[('setup:' if path.startswith(S.SETUP_PREFIX) else 'app:') + path], world='real')
         assert s.authentication.subject_principal_id == principal['principal_id'], path
     for role in sorted({g['principal'] for g in r['manifest']['grants']}):
         pool, s = session(r, role)
@@ -122,7 +125,7 @@ def test_register_is_idempotent_and_dry_run_writes_nothing(registered):
     assert again == {**again, 'changed': False, 'message_read_rules_written': 0, 'credentials_created': [], 'grants_added': 0, 'grants_revoked': 0}
     count = r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0]
     dry = r['register'](dry_run=True)
-    assert dry['dry_run'] is True and len(dry['principals']) == 21 and dry['credential_files'] == 28
+    assert dry['dry_run'] is True and len(dry['principals']) == 23 and dry['credential_files'] == 32
     assert r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0] == count
 
 

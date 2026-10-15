@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-stage-principals/1",
-  "manifest_version": 1,
-  "decision": "NX-032 run sheet 1.6 / phase B (dispatcher 2026-10-14): the service principals the stage Compose file needs beyond service-grants.v1.json, each with only the authority its code calls (evidence per grant in purpose: file and line), registered with service-grants.v1.json through the trusted configuration (scripts/deploy/stage_secrets.py register). Effect Actions (ADR-020 §3: never in the service grants manifest) only for effect_roles. One credential per principal: the credential files of one principal hold the same token. Not here: per-object READ of plan reevaluation Role Runs (RoleDefinition, ConsumerRoleLink, PlanStep, RoleExecutionCeiling, RoleAssignmentScope, catalog) is granted with the Role assembly of a tenant (phase C); those credentials are authenticated only when a plan launches.",
+  "manifest_version": 2,
+  "decision": "NX-032 run sheet 1.6 / phase B (dispatcher 2026-10-14): the service principals the stage Compose file needs beyond service-grants.v1.json, each with only the authority its code calls (evidence per grant in purpose: file and line), registered with service-grants.v1.json through the trusted configuration (scripts/deploy/stage_secrets.py register). Effect Actions (ADR-020 §3: never in the service grants manifest) only for effect_roles. One credential per principal: the credential files of one principal hold the same token. Not here: per-object READ of plan reevaluation Role Runs (RoleDefinition, ConsumerRoleLink, PlanStep, RoleExecutionCeiling, RoleAssignmentScope, catalog) is granted with the Role assembly of a tenant (phase C); those credentials are authenticated only when a plan launches. manifest_version 2 (NX-032 A1 design §4.4 / T6, dispatcher 2026-10-15): the two setup tools run once per tenant with their own service principals: business_owner (business_setup.py --owner-credential-file; its executor is effect_executor, the principal the action worker runs as, so the EffectControl it creates names that executor) and catalog_maintainer (catalog_setup.py --maintainer-credential-file; its delivery Source is relay_source, whose catalog READ comes from relay_source_read_rule). Their credential files live under setup/ and are added to a generated tree by `stage_secrets.py setup-credentials` before register; no Compose service mounts them.",
   "effect_roles": [
     "effect_executor",
     "relay_source",
@@ -84,6 +84,28 @@
       "database_role": "nexloop_domain_worker",
       "purpose": "The domain worker: one bounded page of final Artifact orphan maintenance per run (0018).",
       "source_task": "NX-008"
+    },
+    {
+      "role": "business_owner",
+      "subject_id": "nexloop-service-business-owner",
+      "principal_id": "nexloop-service-business-owner-principal",
+      "credential_id": "nexloop-service-business-owner-key",
+      "credential_reference": "business_owner",
+      "application_id": "eios:application:nexloop-business-owner",
+      "database_role": "nexloop_api",
+      "purpose": "The owner of a tenant's business setup (business_setup.py): creates the Consumer and its EffectControl, configures the control for the effect executor and registers the human Consumer owner. Used once per consumer by the operator, never by a running service.",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "role": "catalog_maintainer",
+      "subject_id": "nexloop-service-catalog-maintainer",
+      "principal_id": "nexloop-service-catalog-maintainer-principal",
+      "credential_id": "nexloop-service-catalog-maintainer-key",
+      "credential_reference": "catalog_maintainer",
+      "application_id": "eios:application:nexloop-catalog-maintainer",
+      "database_role": "nexloop_api",
+      "purpose": "The maintainer of a tenant's service catalog (catalog_setup.py): creates the ServiceOffering and the ConsumerServiceOffering that names relay_source as its delivery Source. Used once per consumer by the operator, never by a running service.",
+      "source_task": "NX-032 A3"
     }
   ],
   "grants": [
@@ -278,6 +300,66 @@
       ],
       "purpose": "final Artifact orphan sweep (artifact_orphans.py 24-25; 0018).",
       "source_task": "NX-008"
+    },
+    {
+      "principal": "business_owner",
+      "resource_type": "action",
+      "resource_id": "eios:action:Consumer.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "create the Consumer (business_setup.py 71).",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "business_owner",
+      "resource_type": "action",
+      "resource_id": "eios:action:EffectControl.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "create the EffectControl naming the owner and the effect executor (business_setup.py 77).",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "business_owner",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.effect.configure_control:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "configure the control for the executor credential (business_setup.py 82; backend.configure_effect_control, effect_contexts.CONFIGURE).",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "business_owner",
+      "resource_type": "action",
+      "resource_id": "eios:action:ConsumerOwnership.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "register the human Consumer owner (business_setup.py 87; conversation_messages.ConversationOwnershipRegistrar, OWNERSHIP).",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "catalog_maintainer",
+      "resource_type": "action",
+      "resource_id": "eios:action:ServiceOffering.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "create the offering (catalog_setup.py 54; service_offerings.governed_create_catalog 97).",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "catalog_maintainer",
+      "resource_type": "action",
+      "resource_id": "eios:action:ConsumerServiceOffering.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "bind the offering to the Consumer with relay_source as Source (service_offerings.governed_create_catalog 99).",
+      "source_task": "NX-032 A3"
     }
   ],
   "source_message_read_rules": [
@@ -320,6 +402,10 @@
     "reply-guarantor/source-credential": "relay_source",
     "retention-keeper/service-credential": "retention_keeper",
     "runtime-worker/service-credential": "runtime_worker",
+    "setup/business-executor-credential": "effect_executor",
+    "setup/business-owner-credential": "business_owner",
+    "setup/catalog-maintainer-credential": "catalog_maintainer",
+    "setup/catalog-source-credential": "relay_source",
     "webchat-delivery/service-credential": "effect_executor"
   }
 }

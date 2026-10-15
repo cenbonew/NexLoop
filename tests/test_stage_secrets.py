@@ -37,6 +37,7 @@ def tree(tmp_path_factory):
                                            'loopback': ['DNS:localhost', 'IP:' + LOOPBACK]}}))
     out = tmp / 'out'
     summary = S.generate(out, tmp / 'ca', params)
+    S.setup_credentials(out)  # A3: the setup tools' principals need a token before register
     return {'out': out, 'ca': tmp / 'ca', 'params': params, 'summary': summary, 'tmp': tmp,
             'manifest': json.loads((out / 'manifest.json').read_text())}
 
@@ -361,3 +362,29 @@ def test_the_signing_key_is_32_bytes_of_text(tree):
     raw = (Path(out) / 'app/secrets/shared/signing.key').read_bytes()
     assert len(raw) == 32 and raw.decode('ascii').strip() == raw.decode('ascii')
     assert (Path(out) / 'management/signing.key.hex').read_text().strip() == raw.hex()
+
+
+def test_setup_credentials_reuse_the_principal_token_and_are_idempotent(tree, tmp_path):
+    """A3: the setup tools' credential files live below setup/ (no Compose service mounts them; `check` stays exact) and share the
+    token of a principal that already has one; a second run adds nothing; a file that differs from the store is refused."""
+    import shutil
+    out = tmp_path / 'out'
+    shutil.copytree(tree['out'], out)
+    tokens = json.loads((out / 'management' / 'service-secrets.json').read_text())
+    setup = {k: v for k, v in tokens.items() if k.startswith('setup:')}
+    assert sorted(setup) == ['setup:setup/business-executor-credential', 'setup:setup/business-owner-credential',
+                             'setup:setup/catalog-maintainer-credential', 'setup:setup/catalog-source-credential']
+    assert setup['setup:setup/business-executor-credential'] == tokens['app:action-worker/service-credential']
+    assert setup['setup:setup/catalog-source-credential'] == tokens['app:message-relay/source-credential']
+    assert len({setup['setup:setup/business-owner-credential'], setup['setup:setup/catalog-maintainer-credential'], *[
+        v for k, v in tokens.items() if not k.startswith('setup:')]}) == len({v for k, v in tokens.items() if not k.startswith('setup:')}) + 2
+    for key, token in setup.items():
+        path = out / key.split(':', 1)[1]
+        assert path.read_text() == token and path.stat().st_mode & 0o777 == 0o600
+    assert (out / 'management' / 'service-secrets.json').stat().st_mode & 0o777 == 0o600
+    assert S.setup_credentials(out) == {'changed': False, 'added': [], 'setup_files': 4}
+    assert S.check(out)['ok'] is True
+    (out / 'setup' / 'business-owner-credential').unlink()
+    S.write_private(out / 'setup' / 'business-owner-credential', 'tampered')
+    with pytest.raises(S.Refused, match='differs'):
+        S.setup_credentials(out)
