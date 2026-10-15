@@ -297,6 +297,34 @@ claim-extraction-worker 与 claim-matcher 在自己的网络 `claim_egress` 上�
   - 旧口令登录失败，新口令登录成功。
 - **撤销**：无法恢复原口令。需要时用新的 request id 再重置一次。
 
+
+### 8a.10 共用网络命名空间的服务：一起重建（10/16 踩坑）
+
+compose 里用 `network_mode: service:<X>` 的服务，共用 X 容器的网络命名空间。X 被重建后会换成新容器，引用它的服务仍挂在已删除容器的命名空间上，网络就断了。10/16 agent-host 重建后，`agent-link-relay` 因此断开了到 guard 的链路。
+
+**规则**：重建（`up -d --force-recreate`，或让配置变化生效的 `up -d`）或重启（`restart`；X 重启后网络命名空间也会重新建立）任何被引用的服务 X 时，必须在同一条命令里同时处理所有引用它的服务。
+
+目前的依赖关系（`compose.app.example.yaml`，由 `tests/test_compose_network_mode_rebuild.py` 守护）：
+- `app-net` 被 18 个服务引用：
+  - app-link-relay、gateway、api-1、api-2；
+  - domain-worker、runtime-worker、message-relay、message-relay-2、outbound-recorder；
+  - claim-extraction-scheduler、recall-indexer、plan-reevaluator、reply-guarantor；
+  - commitment-keeper、commercial-recorder、retention-keeper、alert-evaluator、incentive-issuer。
+
+  重建 app-net 实际上等于重启整个项目，在维护窗口内进行。
+- `agent-host` 被 `agent-link-relay` 引用。
+- `action-worker` 被 `webchat-delivery` 引用。
+
+**查找依赖**（只读，APP_HOST 上执行）：
+
+```
+docker compose -p nexloop-app -f $NEXLOOP_ROOT/compose.app.yaml --env-file $NEXLOOP_ROOT/config/compose.app.env \
+  --env-file $NEXLOOP_ROOT/config/compose.images.env config --format json \
+  | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]; [print(v["network_mode"][8:], "<-", k) for k,v in sorted(s.items()) if str(v.get("network_mode","")).startswith("service:")]'
+```
+
+**核对**：重建后，对每个引用方执行 `docker inspect -f '{{.HostConfig.NetworkMode}}' <容器>`。它应指向 X 的**当前**容器 ID（与 `docker compose ps -q X` 一致）。
+
 ## 9. NX-037 受控真实闭环操作说明（负责人本人执行）
 
 > 依据：[NX-037 设计稿](implementation/NX-037-design.md)、[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md)、[ROADMAP](../planning/ROADMAP.md) §6–§7（D-g、D-i 定案）。参数在 [`deploy/configuration/nx037-trial.v2.json`](../deploy/configuration/nx037-trial.v2.json)（运行入口默认读 v2；v1 保留不变）。
