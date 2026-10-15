@@ -121,6 +121,34 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbenc
 - **撤销**：以空成员列表重新 apply（按模块注释的顺序，先撤销 grant 再缩小成员）。
 - **演练出处**：`owner_workbench`。
 
+### 2a. 撤出工作台成员：`--revoke-member`（DATA_HOST，配置者窗口；B，sudo-D）
+
+**适用**：成员不再可用，例如 owner 账号建号时口令输错、已无人知道口令。改由另一个账号担任 owner。该账号要先按 §1 建好，并已加入成员文件。
+
+**步骤**：
+1. 新成员文件 `$RUN/workbench-members.json`：去掉被撤成员，保留其余成员，并加上新 owner。被撤成员**不得**仍在文件中，否则工具拒绝且不写任何东西。
+2. 执行（`--revoke-member` 可重复）：
+
+```
+docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbench_roles.py --roles /opt/release/deploy/authorization/workbench-roles.v1.json \
+  --members /stage/workbench-members.json --apply --revoke-member <被撤成员的 principal_id> \
+  --bootstrap-dsn-file /run/bootstrap-dsn --signing-key-file /stage/management/signing.key.hex --signing-key-id $KEY_ID
+```
+
+- **顺序**（`workbench_roles.apply_revocations`，按模块注释与 0140）：
+  1. 先经 0050 为被撤成员的每个工作台 Action 写入**空授权集合**；撤销是一次写入，不删除；
+  2. 再按新成员文件 apply，即应用事实与 0045 行、成员列表、其余成员的授权。
+- **预期**：`revoked: [<principal>]`，`revoked_grant_sets` 等于工作台角色清单中的 Action 数，`members` 为剩余人数。再执行一次结果相同。
+- **核对**（bootstrap，只读）：
+  - `select payload->'grants' from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='grants' and entity_key[1]='<被撤成员>'`：全部为 `[]`；
+  - 配置者 NOLOGIN 且无口令；
+  - 被撤成员仍能登录（账号未停用），但执行 Budget.set、发布 Context 策略等工作台 Action 时都返回 `ActionAuthorizationDenied`。
+- **新 owner 接手**：
+  - §4 的 Context 策略：若还未发布，由新 owner 执行。已发布的策略不受影响，`published_by` 仍记录原发布者；
+  - §5 的 Budget.set：由新 owner 执行。用户名与口令文件换成新 owner 的。
+- **撤销**：把该成员重新加入成员文件，再普通 `--apply`，授权会按角色重新写入。
+- **演练出处**：`test_a_revoked_workbench_owner_is_refused_and_the_remaining_owner_is_not`。
+
 ## 3. WebChat 消费者授权：`webchat_consumers --apply`（DATA_HOST；B，sudo-D）
 
 配方 `$RUN/webchat-consumers.json`：由 `deploy/examples/nx037/webchat-consumers.example.json` 填出，`consumers` 列 6 个账号的 `principal_id`、`subject_id`，`persona` 均为 `simulated_agent`。
