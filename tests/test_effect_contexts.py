@@ -6,24 +6,18 @@ Consumer/Goal/Step/Control business object uses real governed object Actions.
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from datetime import UTC,datetime,timedelta
-import copy
-import json
 import secrets
 import pytest
 import psycopg
 from psycopg.conninfo import make_conninfo
-from psycopg.types.json import Jsonb
-from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
-from eios.ontology.semantics import schema_contract_digest
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.backend import open_backend
-from nexloop_eios.effect_contexts import EffectContextRegistrar,EffectContextUnavailable,CONFIGURE,BIND,EFFECT,registrar_schema,effect_plan_schemas
+from nexloop_eios.effect_contexts import EffectContextRegistrar,EffectContextUnavailable,CONFIGURE,BIND,EFFECT
 from nexloop_eios.effect_intents import EffectIntentUnavailable
 from authority_fixture import seed_authority
 from multi_authority_fixture import seed_multi_authority
-from test_postgres_action_claims import governance_inputs
 from generic_offering_fixture import install_generic_catalog
 from support.tenants import TENANT_A
 
@@ -34,26 +28,10 @@ def plan(admin,pg,tmp_path):
     tenant=TENANT_A;material=secrets.token_bytes(32);key=tmp_path/'key';key.write_bytes(material);key.chmod(0o600)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('synthetic-plan',material))
     seed_authority(admin,tenant,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-seed')
-    schemas={schema.type_name:schema for schema in effect_plan_schemas()}
-    schemas['Consumer']=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True)
-    base=governance_inputs();base_definition=base['action_definition'];base_capability=base['capability_snapshot']
-    refs={name:base_definition.object_types[0].model_copy(update={'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
-    for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
-    actions={name+'.create':(name,) for name in schemas}
-    actions.update({'Goal.edit':('Goal',),CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',)})
-    for name,types in actions.items():
-        body=base_definition.model_dump(mode='json');body.pop('contract_digest',None)
-        body['stable_name']=name;body['object_types']=[refs[t].model_dump(mode='json') for t in types]
-        body['governance']['change_scope']['object_types']=body['object_types']
-        capname='ontology.object.create' if name.endswith('.create') else ('ontology.object.edit' if name.endswith('.edit') else name)
-        body['capability_binding']['capability_name']=capname
-        if name in (CONFIGURE,BIND):body['input_schema']=registrar_schema('configure' if name==CONFIGURE else 'bind')
-        if name==EFFECT:body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
-        definition=type(base_definition).model_validate_json(json.dumps(body))
-        capability=base_capability.model_copy(update={'capability_name':capname})
-        # catalog-exception: effect context cases incl. a custom effect input schema (variant) on test-built schemas
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (tenant,'real','eios:action:'+name+':1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+    # NX-032 A1 T4c: the catalog's types and Actions (system_catalog, capabilities.v1.json snapshots), as the effect fixtures.
+    from system_catalog_fixture import publish_system_catalog
+    publish_system_catalog(admin,tenant,('Consumer','Goal','PlanStep','EffectControl'),
+        ('Consumer.create','Goal.create','PlanStep.create','EffectControl.create','Goal.edit',CONFIGURE,BIND,EFFECT))
     def targets(names):return [('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in names]
     with ExitStack() as stack:
         backend=stack.enter_context(open_backend(database_url=make_conninfo(pg,user='nexloop_api'),artifact_root=tmp_path/'artifacts',signing_key_file=key,signing_key_id='synthetic-plan'))

@@ -5,7 +5,6 @@ realm (its own cookie, slice 1) and CSRF, browser HUMAN authority for the human 
 refused and roles come from deploy/authorization/workbench-roles (owner / operator); the actual governed effect executor and loopback provider for the dispatch
 consistency check (AT-006 UI part). Synthetic data; admin seeds configuration fixtures and probes.
 """
-import json
 import secrets
 from datetime import UTC,datetime,timedelta
 
@@ -31,16 +30,8 @@ GOAL_ACTIONS={'Control.set':'goals.control.set','Contact.release':'goals.contact
 def publish_goal_actions(admin):
     """Owner control and contact release Actions, derived from the tenant's compiled human request Action (same Consumer v1
     schema reference, so the published contract stays valid), like goal_fixture.register_goal_actions does."""
-    from eios.ontology.definitions import ActionDefinition
-    from system_catalog_fixture import catalog_manifest_rows
-    # NX-032 A1 T4b: the catalog's goal Actions (goals.* 1.0.0 snapshots), typed on the request Action's Consumer reference.
-    refs=admin.execute("select definition->'object_types' from control.nexloop_action_definitions where resource_id='eios:action:nexloop.plan.request_reevaluation:1'").fetchone()[0]
-    _,rows,_=catalog_manifest_rows(TENANT,(),tuple(GOAL_ACTIONS))
-    for row in rows:
-        d=row['definition'];d['object_types']=refs;d['governance']['change_scope']['object_types']=refs;d.pop('contract_digest',None)
-        d=ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (TENANT,'real',f"eios:action:{d['stable_name']}:1",Jsonb(d),Jsonb(row['capability'])))
+    from system_catalog_fixture import publish_catalog_actions_like
+    publish_catalog_actions_like(admin,TENANT,tuple(GOAL_ACTIONS),'eios:action:nexloop.plan.request_reevaluation:1')
 
 
 @pytest.fixture

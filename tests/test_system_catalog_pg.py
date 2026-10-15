@@ -257,12 +257,12 @@ def test_the_seven_role_actions_as_published_execute_through_0057_and_0081(runti
 # definitions fails; a file that stops inserting must be removed from the list.
 DIRECT_DEFINITION_WRITERS = {
     'tests/system_catalog_fixture.py': 'catalog', 'tests/commitment_fixture.py': 'catalog', 'tests/commercial_fixture.py': 'catalog',
-    'tests/goal_fixture.py': 'catalog', 'tests/load_chain.py': 'catalog', 'tests/test_alert_silence_pg.py': 'catalog',
-    'tests/test_context_audit_pg.py': 'catalog', 'tests/test_context_engine_pg.py': 'catalog', 'tests/test_workbench_actions_http.py': 'catalog',
+    'tests/load_chain.py': 'catalog', 'tests/test_alert_silence_pg.py': 'catalog',
+    'tests/test_context_audit_pg.py': 'catalog', 'tests/test_context_engine_pg.py': 'catalog', 
     'tests/test_system_catalog_pg.py': 'catalog',
     'tests/generic_offering_fixture.py': 'exception', 'tests/message_offering_fixture.py': 'exception', 'tests/test_action_definitions.py': 'exception',
     'tests/test_assessment_candidate.py': 'exception', 'tests/test_business_actions.py': 'exception', 'tests/test_claim_matching_pg.py': 'exception',
-    'tests/test_conversation_messages.py': 'exception', 'tests/test_effect_contexts.py': 'exception', 'tests/test_goal_controls.py': 'exception',
+    'tests/test_goal_controls.py': 'exception',
     'tests/test_instance_approval_pg.py': 'exception', 'tests/test_ladder_deadlock_pg.py': 'exception',
     'tests/test_message_purpose_reads_pg.py': 'exception', 'tests/test_object_edits.py': 'exception', 'tests/test_receipt_tail.py': 'exception',
     'tests/test_relation_actions.py': 'exception', 'tests/test_role_mapping.py': 'exception', 'tests/test_role_policy_binding.py': 'exception',

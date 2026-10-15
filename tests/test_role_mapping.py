@@ -79,15 +79,9 @@ def test_governed_end_and_actual_property_authorized_projection(roles,admin):
     role=create('RoleDefinition','end-role',dict(name='role',responsibility='synthetic',ceiling_ref='eios:ceiling:declared-only',**valid))['object_id']
     props=dict(consumer_id=consumer,role_id=role,scope='synthetic',**valid)
     link=create('ConsumerRoleLink','end-link',props)['object_id']
-    from eios.ontology.definitions import ActionDefinition
-    from eios.ontology.version_resolution import CapabilityContractSnapshot
-    raw=admin.execute("select definition,capability from control.nexloop_action_definitions where resource_id='eios:action:ConsumerRoleLink.create:1'").fetchone()
-    definition,capability=ActionDefinition.model_validate_json(json.dumps(raw[0])),CapabilityContractSnapshot.model_validate_json(json.dumps(raw[1]))
-    binding=definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'})
-    edit=definition.model_copy(update={'stable_name':'ConsumerRoleLink.edit','capability_binding':binding,'contract_digest':None})
-    capability=capability.model_copy(update={'capability_name':'consumer.edit'})
-    # catalog-exception: role mapping contract cases incl. RoleDefinition.unprivileged (empty scopes) and RoleDefinition.edit (not in the catalog)
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:ConsumerRoleLink.edit:1',Jsonb(edit.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
+    # NX-032 A1 T4c: the catalog's ConsumerRoleLink.edit (consumer.edit 1.1.0, ontology.roles.manage), typed like the create.
+    from system_catalog_fixture import publish_catalog_actions_like
+    publish_catalog_actions_like(admin,TENANT_A,('ConsumerRoleLink.edit',),'eios:action:ConsumerRoleLink.create:1')
     targets=[('eios:action:ConsumerRoleLink.edit:1',ResourceType.ACTION,Operation.EXECUTE),('eios:object:ConsumerRoleLink/'+link,ResourceType.OBJECT,Operation.EDIT),('eios:property:ConsumerRoleLink/'+link+'/active',ResourceType.PROPERTY,Operation.EDIT)]
     for kind,obj,names in [('ConsumerRoleLink',link,props),('RoleDefinition',role,dict(name=1,responsibility=1,ceiling_ref=1,**valid))]:
         targets.append(('eios:object:'+kind+'/'+obj,ResourceType.OBJECT,Operation.READ))

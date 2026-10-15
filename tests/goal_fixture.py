@@ -31,16 +31,8 @@ def register_goal_actions(admin,base,capability):
     """NX-032 A1 T4: the six goal Actions as the catalog builds them (system_catalog, goals.* 1.0.0 snapshots of
     capabilities.v1.json), typed on this tenant's published Consumer v1 (`base`'s reference: the published_action fixture's
     Consumer, which is not the catalog's profile declaration). `capability` is no longer used (kept for the callers)."""
-    import json
-    from eios.ontology.definitions import ActionDefinition
-    from system_catalog_fixture import catalog_manifest_rows
-    refs=[r.model_dump(mode='json') for r in base.object_types]
-    _,rows,_=catalog_manifest_rows(TENANT,(),tuple(ACTIONS))
-    for row in rows:
-        d=row['definition'];d['object_types']=refs;d['governance']['change_scope']['object_types']=refs;d.pop('contract_digest',None)
-        d=ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (TENANT,'real',f"eios:action:{d['stable_name']}:1",Jsonb(d),Jsonb(row['capability'])))
+    from system_catalog_fixture import publish_catalog_actions_like
+    publish_catalog_actions_like(admin,TENANT,tuple(ACTIONS),f'eios:action:{base.stable_name}:{base.version}')
 
 
 def _owned_rows(admin,auth):
