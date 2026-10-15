@@ -257,8 +257,8 @@ def test_the_seven_role_actions_as_published_execute_through_0057_and_0081(runti
 # definitions fails; a file that stops inserting must be removed from the list.
 DIRECT_DEFINITION_WRITERS = {
     'tests/system_catalog_fixture.py': 'catalog', 'tests/commitment_fixture.py': 'catalog', 'tests/commercial_fixture.py': 'catalog',
-    'tests/goal_fixture.py': 'catalog', 'tests/load_chain.py': 'catalog', 'tests/test_alert_silence_pg.py': 'catalog',
-    'tests/test_context_audit_pg.py': 'catalog', 'tests/test_context_engine_pg.py': 'catalog', 'tests/test_workbench_actions_http.py': 'catalog',
+    'tests/load_chain.py': 'catalog', 'tests/test_alert_silence_pg.py': 'catalog',
+    'tests/test_context_audit_pg.py': 'catalog', 'tests/test_context_engine_pg.py': 'catalog', 
     'tests/test_system_catalog_pg.py': 'catalog',
     'tests/generic_offering_fixture.py': 'exception', 'tests/message_offering_fixture.py': 'exception', 'tests/test_action_definitions.py': 'exception',
     'tests/test_assessment_candidate.py': 'exception', 'tests/test_business_actions.py': 'exception', 'tests/test_claim_matching_pg.py': 'exception',

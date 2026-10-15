@@ -193,24 +193,13 @@ GOAL_ACTIONS = {'Control.set': 'goals.control.set', 'Contact.release': 'goals.co
 def publish_workbench_actions(admin, tenant):
     """The workbench write entry's tenant Actions: human requests and takeovers (business manifest) and the goal controls
     derived from the compiled request Action, as tests/test_workbench_actions_http.py publishes them."""
-    from eios.ontology.definitions import ActionDefinition
     from commitment_fixture import TAKEOVER_ACTIONS, publish_request_actions
     publish_request_actions(admin, tenant=tenant)
     publish_request_actions(admin, tenant=tenant, names=TAKEOVER_ACTIONS)
     # NX-032 A1 T4: the goal Actions as the catalog builds them (goals.* 1.0.0 snapshots), typed on this tenant's Consumer v1
     # (the reference of the compiled request Action).
-    from system_catalog_fixture import catalog_manifest_rows
-    refs = admin.execute("select definition->'object_types' from control.nexloop_action_definitions where tenant_id=%s and resource_id='eios:action:nexloop.plan.request_reevaluation:1'",
-                         (tenant,)).fetchone()[0]
-    _, rows, _ = catalog_manifest_rows(tenant, (), tuple(GOAL_ACTIONS))
-    for row in rows:
-        d = row['definition']
-        d['object_types'] = refs
-        d['governance']['change_scope']['object_types'] = refs
-        d.pop('contract_digest', None)
-        d = ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-                      (tenant, 'real', f"eios:action:{d['stable_name']}:1", Jsonb(d), Jsonb(row['capability'])))
+    from system_catalog_fixture import publish_catalog_actions_like
+    publish_catalog_actions_like(admin, tenant, tuple(GOAL_ACTIONS), 'eios:action:nexloop.plan.request_reevaluation:1')
 
 
 def workbench_members(admin, pg, tenant, workdir, identities=None):
