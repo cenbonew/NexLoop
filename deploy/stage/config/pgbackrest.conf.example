@@ -9,6 +9,9 @@ pg1-socket-path=/var/run/postgresql
 # First backup (no nexloop_backup role yet, run sheet 2.4): nexloop_bootstrap with the bootstrap line of pgpass;
 # after 2.5b change back to nexloop_backup and remove the bootstrap line.
 pg1-user=nexloop_backup
+# The NexLoop database, not the default `postgres`: the backup function grants of the migrations (0146) live in the database
+# they ran in, so pg_create_restore_point is denied in `postgres` (2026-10-15 deployment, check ERROR [057]).
+pg1-database=__NEXLOOP_DB__
 
 [global]
 # repo1: the pgBackRest TLS server on APP_HOST (deploy/stage/systemd/pgbackrest-server.conf.example).

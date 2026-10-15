@@ -182,6 +182,7 @@ M8 定为 TLS 服务器模式，两台主机各一个配置文件：
   - `repo1-host-type=tls`，并设置 `repo1-host`、`repo1-host-port`；
   - `repo1-host-cert-file`、`repo1-host-key-file`、`repo1-host-ca-file` 指向容器内的 `/etc/pgbackrest/tls/{client.crt,client.key,ca.crt}`；客户端证书 CN 为 `pgbackrest-data-client`，与服务器的 `tls-server-auth` 一致；
   - repo2（异地 S3）整段可选，对象存储就绪前只配 repo1；
+  - `pg1-database` 必须是 NexLoop 库：备份函数的授权（0146）只在执行迁移的那个库里生效，默认的 `postgres` 库会拒绝 `pg_create_restore_point`（2026-10-15 部署时 check 报 [057]）。
   - 首次备份时库内还没有 `nexloop_backup`，用 `pg1-user=nexloop_bootstrap`，并在 pgpass 中临时加入 bootstrap 行；2.5b 之后改回 `nexloop_backup`，同时删掉 bootstrap 行（与 2.4 的说明一致）。
 
 DATA_HOST 侧的核心配置如下（完整内容见样例文件）：
@@ -191,6 +192,7 @@ DATA_HOST 侧的核心配置如下（完整内容见样例文件）：
 pg1-path=/var/lib/postgresql/18/docker
 pg1-socket-path=/var/run/postgresql
 pg1-user=nexloop_backup
+pg1-database=__NEXLOOP_DB__
 
 [global]
 repo1-host-type=tls
