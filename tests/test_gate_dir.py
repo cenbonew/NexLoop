@@ -160,3 +160,27 @@ def test_step_3_checks_the_container_view_and_never_replaces_the_file():
     assert 'write_in_place "$WORK/pg_hba.conf" "$HBA"' in step3 and 'write_in_place "$HBA.before-metrics" "$HBA"' in step3
     assert 'exec -T postgres cat /etc/postgresql/pg_hba.conf' in step3 and 'grep -q nexloop_metrics /etc/postgresql/pg_hba.conf' in step3
     assert 'restart the postgres container' in step3
+
+
+def test_the_agent_host_configuration_is_read_by_the_host_uid_and_refusals_carry_a_code(tmp_path):
+    """Stage 2026-10-16: the gate (root) read the Host's runtime configuration with read_private_text, which requires the reader to
+    own it (10020), and reported a bare false. It is now read as owned by agent_host_config_uid; a refusal names its reason."""
+    import os
+    from nexloop_eios import deploy_checks as D
+    config = tmp_path / 'runtime-config.json'
+    config.write_text((STAGE / 'agent-host.runtime-config.example.json').read_text())
+    config.chmod(0o600)
+    me = os.geteuid()
+    def gate(**kw):
+        result = D.deploy_gate({'host_role': 'app', 'agent_host_config': str(config), **kw})
+        return result['checks']['agent_host_concurrency'], result['details']['agent_host_concurrency']
+    assert gate(agent_host_config_uid=me) == (True, 'passed')
+    assert gate(agent_host_config_uid=me + 1) == (False, 'file_owner_differs')
+    config.chmod(0o644)
+    assert gate(agent_host_config_uid=me) == (False, 'file_permissions')
+    config.chmod(0o600)
+    config.write_text('not json')
+    assert gate(agent_host_config_uid=me)[0] is False and gate(agent_host_config_uid=me)[1].startswith('configuration_invalid:')
+    assert gate(agent_host_config=str(tmp_path / 'absent'), agent_host_config_uid=me) == (False, 'file_missing')
+    spec = G.gate_spec(STAGE / 'deploy-gate.app.example.json', gate_dir=tmp_path / 'g', nexloop_root='/srv/nexloop', release_checkout='/opt/c')
+    assert spec['agent_host_config_uid'] == 10020

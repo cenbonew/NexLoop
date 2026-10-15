@@ -115,22 +115,52 @@ def check_certificate(*, chain, key, ca, purpose, names=(), cn=None, uid=None, n
     return {'passed': not problems, 'problems': sorted(set(problems)), 'warnings': warnings, 'days_left': int(days)}
 
 
-def _read_dsn_file(path, uid=None):
-    """A service's private DSN file as the gate reads it. Without `uid`: owned by this process (read_private_text). With `uid`: the
-    gate runs as root to see every service's directory, so the file must be owned by that service uid instead - still a regular file
-    (not followed through a link), owner-only (no group or other bits), bounded, like _key_file_ok for the keys."""
+class OwnedFileRefused(ValueError):
+    """A private file the gate refused; .code is the reason code reported in the details."""
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+def _read_owned_file(path, uid=None, *, maximum=16384):
+    """A service's private file as the gate reads it. Without `uid`: owned by this process (read_private_text). With `uid`: the gate
+    runs as root to see every service's directory, so the file must be owned by that service uid instead - still a regular file (not
+    followed through a link), owner-only (no group or other bits), bounded, like _key_file_ok for the keys. Refusals carry a code."""
     if uid is None:
         from nexloop_eios.private_configuration import read_private_text
-        return read_private_text(path, maximum=16384)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            return read_private_text(path, maximum=maximum)
+        except FileNotFoundError:
+            raise OwnedFileRefused('missing') from None
+        except PermissionError:
+            raise OwnedFileRefused('not_owned_by_reader_or_not_private') from None
+        except (OSError, ValueError):
+            raise OwnedFileRefused('unreadable_or_invalid') from None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        raise OwnedFileRefused('missing') from None
+    except OSError:
+        raise OwnedFileRefused('not_openable_or_link') from None
     with os.fdopen(fd, 'rb') as stream:
         info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_mode & 0o077:
-            raise PermissionError('private service-owned DSN required')
-        value = stream.read(16385)
-    if not value or len(value) > 16384:
-        raise ValueError('DSN length invalid')
-    return value.decode('utf-8').strip()
+        if not stat.S_ISREG(info.st_mode):
+            raise OwnedFileRefused('not_regular_file')
+        if info.st_uid != uid:
+            raise OwnedFileRefused('owner_differs')
+        if info.st_mode & 0o077:
+            raise OwnedFileRefused('permissions')
+        value = stream.read(maximum + 1)
+    if not value or len(value) > maximum:
+        raise OwnedFileRefused('length')
+    try:
+        return value.decode('utf-8').strip()
+    except UnicodeDecodeError:
+        raise OwnedFileRefused('not_utf8') from None
+
+
+def _read_dsn_file(path, uid=None):
+    return _read_owned_file(path, uid, maximum=16384)
 
 
 def check_dsn(text):
@@ -493,10 +523,18 @@ def deploy_gate(spec):
         except psycopg.Error:
             checks['roles_readable'] = False
     if role == 'app' and spec.get('agent_host_config'):
+        # The Agent Host's runtime configuration is owned by the Host uid (10020); the gate runs as root, so it reads it by that
+        # uid (agent_host_config_uid, written by gate_dir) and reports why it could not.
         from nexloop_eios import host_concurrency
-        from nexloop_eios.private_configuration import read_private_text
         try:
-            checks['agent_host_concurrency'] = host_concurrency.evaluate(host_concurrency.load(read_private_text(spec['agent_host_config'], maximum=32768)))['passed']
-        except Exception:
+            text = _read_owned_file(spec['agent_host_config'], spec.get('agent_host_config_uid'), maximum=32768)
+            result = host_concurrency.evaluate(host_concurrency.load(text))
+            checks['agent_host_concurrency'] = result['passed']
+            details['agent_host_concurrency'] = 'passed' if result['passed'] else 'limits_not_met'
+        except OwnedFileRefused as error:
             checks['agent_host_concurrency'] = False
+            details['agent_host_concurrency'] = 'file_' + error.code
+        except Exception as error:  # noqa: BLE001 - the code names the kind of failure only
+            checks['agent_host_concurrency'] = False
+            details['agent_host_concurrency'] = 'configuration_invalid:' + type(error).__name__
     return {'checks': checks, 'details': details}

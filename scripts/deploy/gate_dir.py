@@ -101,6 +101,8 @@ def gate_spec(example, *, gate_dir, nexloop_root, release_checkout):
                 compose_json=f'{g}/compose.json', tls_spec=f'{g}/tls.json',
                 connection_budget=f'{release_checkout}/deploy/stage/connection-budget.v1.json', secret_root=f'{r}/secrets',
                 roles_database_url_file=f'{r}/ops/metrics/metrics.dsn', agent_host_config=f'{r}/secrets/agent-host/runtime-config.json')
+    # The gate runs as root; the Host's runtime configuration is read as owned by the Host uid (deploy_checks._read_owned_file).
+    spec['agent_host_config_uid'] = spec['secret_uids']['agent-host']
     left = [k for k, v in spec.items() if isinstance(v, str) and '<' in v]
     if left:
         raise Refused('placeholders left in spec: ' + ', '.join(left))
