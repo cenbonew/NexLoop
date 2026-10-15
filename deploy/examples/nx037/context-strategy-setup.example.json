@@ -1,0 +1,8 @@
+{
+  "schema_version": "nexloop-context-strategy-setup/1",
+  "tenant_id": "<TENANT_ID>",
+  "workbench_application_id": "<WORKBENCH_APPLICATION_ID>",
+  "strategy_id": "recent_plus_required",
+  "version": 1,
+  "request_id": "context-strategy-recent-plus-required-1"
+}
