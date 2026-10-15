@@ -1091,6 +1091,77 @@
       },
       "schema_hash": "6af9363d2b7991ebde256d9994d39b846c22a4259ce7fb92a41e6d4efee7def7",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "ontology.object.create",
+      "capability_version": "1.1.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "ontology.roles.manage"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "create",
+        "subject": "one object of the Action object type",
+        "input": "the object type properties",
+        "target_systems": [
+          "postgres"
+        ],
+        "role_management": "RoleDefinition, ConsumerRoleLink, RoleExecutionCeiling, RoleAssignmentScope: 0057/0081 require ontology.roles.manage in the definition, the stored capability snapshot and the caller credential; the capability name stays in the 0057 whitelist"
+      },
+      "schema_hash": "e6c7460b9884ee47d344b126c703c8a0591d2ff7fb5a1b61629d912840d847d2",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "ontology.object.edit",
+      "capability_version": "1.1.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "ontology.roles.manage"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "edit",
+        "subject": "one object of the Action object type",
+        "input": "the object type properties",
+        "target_systems": [
+          "postgres"
+        ],
+        "role_management": "RoleDefinition, ConsumerRoleLink, RoleExecutionCeiling, RoleAssignmentScope: 0057/0081 require ontology.roles.manage in the definition, the stored capability snapshot and the caller credential; the capability name stays in the 0057 whitelist"
+      },
+      "schema_hash": "348b271c3230b325b289d4bd6fef3a919bc6a392cc0d312ea01ec54bd99042a1",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer.edit",
+      "capability_version": "1.1.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "ontology.roles.manage"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "edit",
+        "subject": "one Consumer-linked object",
+        "target_systems": [
+          "postgres"
+        ],
+        "role_management": "RoleDefinition, ConsumerRoleLink, RoleExecutionCeiling, RoleAssignmentScope: 0057/0081 require ontology.roles.manage in the definition, the stored capability snapshot and the caller credential; the capability name stays in the 0057 whitelist"
+      },
+      "schema_hash": "f89261c30ae84410ffb55acf2907e3d060f9987734aa0b4fb12d49b0233d57f4",
+      "side_effects_reason": null
     }
   ]
 }

@@ -16,6 +16,7 @@ from effect_execution_fixture import execution_plan  # noqa: F401
 from test_scope_denials import context_message, active_worker, denial_plan, declare_record_authority  # noqa: F401
 from test_enterprise_slot_relay_pg import publish_enterprise_action
 from datetime import UTC, datetime
+from pathlib import Path
 
 from support.tenants import TENANT_A
 
@@ -54,8 +55,16 @@ def function_key(definition, capability):
             'idempotent': capability['idempotent'], 'capability_scopes': sorted(capability['required_scopes'])}
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def snapshots():
+    from nexloop_eios import catalog_manifests
+    return catalog_manifests.snapshots(catalog_manifests.load(ROOT / 'deploy/configuration/capabilities.v1.json'))
+
+
 def built(tenant):
-    args = dict(tenant=tenant, created_by='catalog-check', created_at=datetime(2026, 10, 15, tzinfo=UTC))
+    args = dict(tenant=tenant, created_by='catalog-check', created_at=datetime(2026, 10, 15, tzinfo=UTC), snapshots=snapshots())
     return ({r['definition']['stable_name']: action_key(r['definition'], r['capability']) for r in C.compile_system_actions(**args)},
             {r['definition']['stable_name']: function_key(r['definition'], r['capability']) for r in C.compile_system_functions(**args)})
 

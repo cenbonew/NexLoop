@@ -25,6 +25,9 @@ from eios.ontology.version_resolution import validate_capability_binding
 from nexloop_eios import business_actions, business_object_types, catalog_manifests, system_catalog, system_object_types
 
 
+BUSINESS_CAPABILITY_VERSION = '1.0.0'
+
+
 class CatalogPublishRefused(ValueError):
     pass
 
@@ -76,12 +79,10 @@ def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_
             receipt_schema={'type': 'object'}, **({'input_schema': input_schema} if input_schema is not None else {}))
         validate_capability_binding(definition, capability)
         actions.append({'definition': definition.model_dump(mode='json'), 'capability': capability.model_dump(mode='json')})
-    by_name = {}
-    for (name, _version), snapshot in snapshots.items():
-        by_name.setdefault(name, snapshot)
+    # Business Actions bind the 1.0.0 snapshot of their capability (business-actions.v1.json names no version).
     used = {a['capability_name'] for a in business['actions']}
     actions += business_actions.compile_actions(business, tenant=tenant, created_by=created_by, created_at=created_at, object_types=list(types.values()),
-                                                capabilities={n: by_name[n] for n in used})
+                                                capabilities={n: snapshots[(n, BUSINESS_CAPABILITY_VERSION)] for n in used})
     functions = []
     for item in system['functions']:
         capability = snapshots[tuple(item['capability'])]
