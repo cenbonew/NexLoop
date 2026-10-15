@@ -229,7 +229,7 @@ def test_the_generated_dsns_connect_under_clientcert_verify_full_and_the_old_cer
                     '-w', 'start'], check=True, stdout=subprocess.DEVNULL)
     try:
         with psycopg.connect(host=str(sock), port=port, user='nexloop_bootstrap', dbname='postgres', autocommit=True) as admin:
-            for role in ('nexloop_identity', 'nexloop_api'):
+            for role in ('nexloop_identity', 'nexloop_api', 'nexloop_domain_worker'):
                 admin.execute(f'create role {role} login')
         root = tree['out'] / 'app' / 'secrets'
         compose = yaml.safe_load((ROOT / 'deploy/stage/compose.app.example.yaml').read_text())
@@ -256,6 +256,8 @@ def test_the_generated_dsns_connect_under_clientcert_verify_full_and_the_old_cer
             psycopg.connect(host='localhost', hostaddr='127.0.0.1', port=port, dbname='postgres', user='nexloop_api', sslmode='verify-full',
                             sslrootcert=str(metrics / 'pg-ca.crt'), sslcert=str(metrics / 'metrics-pg-client.crt'),
                             sslkey=str(metrics / 'metrics-pg-client.key'), connect_timeout=5)
+        # 2026-10-16: the runtime worker's DSN and certificate are the domain worker's (stage pg_hba: certificate CN = role).
+        assert connect('runtime-worker/dsn') == 'nexloop_domain_worker'
         assert connect('api/identity-dsn') == 'nexloop_identity'
         assert connect('plan-reevaluator/api-dsn') == 'nexloop_api'
         assert connect('reply-guarantor/api-dsn') == 'nexloop_api'
@@ -465,3 +467,76 @@ def test_metrics_adds_the_client_to_a_tree_generated_without_it(tree, tmp_path):
     password = re.search(r'password=(\S+)', (old / 'data' / 'secrets' / 'backup' / 'metrics.dsn').read_text()).group(1)
     assert password not in sql
     assert S.main(['metrics', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params'])]) == 2
+
+
+def _accepted_roles():
+    """The SQL login each stage entry point accepts, read from the code (verify_application_role checks)."""
+    from nexloop_eios.background_services import SERVICES
+    src = ROOT / 'packages/eios-core/src/nexloop_eios'
+    def literal(module, role):
+        assert f"'{role}'" in (src / module).read_text().replace(' ', ''), (module, role)
+        return {role}
+    def role_set(module):
+        found = re.findall(r"verify_application_role\([a-z]+\)\s*not in\s*\{([^}]*)\}", (src / module).read_text())
+        assert len(found) == 1, module
+        return set(re.findall(r"'([a-z_]+)'", found[0]))
+    accepted = {name: {role} for name, (_, role) in SERVICES.items()}
+    accepted.update({
+        'runtime-worker': role_set('runtime_worker.py') & role_set('runtime_guard_worker.py'),
+        'action-worker': literal('effect_worker.py', 'nexloop_action_worker'),
+        'webchat-delivery': literal('local_json_delivery.py', 'nexloop_action_worker'),
+        'message-relay': literal('message_relay_cli.py', 'nexloop_api'),
+        'outbound-recorder': literal('outbound_messages.py', 'nexloop_api'),
+        'api': literal('run_credentials.py', 'nexloop_api'),
+        'domain-worker': literal('artifact_orphans.py', 'nexloop_domain_worker'),
+    })
+    return accepted
+
+
+def test_every_stage_dsn_role_is_one_its_entry_point_accepts_and_the_runtime_worker_runs_as_its_tests_do():
+    """2026-10-16: the stage ran the runtime worker as nexloop_scheduler (accepted by the entry point) while every runtime test ran it
+    as nexloop_domain_worker, and the scheduler lacks most of the runtime path's functions. Each service's `dsn` role must be one its
+    entry point accepts, and the runtime worker's must be the role the runtime tests use."""
+    accepted = _accepted_roles()
+    services = sorted({e['service'] for e in S.catalog() if e['host'] == 'app' and e['path'].endswith('/dsn')})
+    assert set(services) <= set(accepted), sorted(set(services) - set(accepted))
+    for service in services:
+        assert S._role(service, 'dsn') in accepted[service], (service, S._role(service, 'dsn'), accepted[service])
+    tests_role = set()
+    for fixture in ('test_runtime_authority.py', 'runtime_effect_fixture.py'):
+        tests_role |= set(re.findall(r"user='(nexloop_[a-z_]+)'\),artifact_root=tmp_path/'worker", (ROOT / 'tests' / fixture).read_text().replace(' ', '')))
+    assert tests_role == {'nexloop_domain_worker'} and S._role('runtime-worker', 'dsn') == 'nexloop_domain_worker'
+
+
+def test_reissue_role_gives_the_runtime_worker_a_domain_worker_dsn_and_certificate_once(tree, tmp_path):
+    """The stage tree was generated with runtime-worker as nexloop_scheduler; reissue-role re-issues its DSN (the domain worker's
+    password, same host and certificates paths) and client certificate (CN nexloop_domain_worker), changes nothing else, and refuses a
+    second run."""
+    import shutil
+    from psycopg.conninfo import conninfo_to_dict
+    old = tmp_path / 'tree'
+    shutil.copytree(tree['out'], old)
+    secrets_root = old / 'app' / 'secrets'
+    # Make it the tree as generated before the mapping change.
+    dsn = secrets_root / 'runtime-worker' / 'dsn'
+    d = conninfo_to_dict(dsn.read_text().strip())
+    from psycopg.conninfo import make_conninfo
+    dsn.write_text(make_conninfo(**{**d, 'user': 'nexloop_scheduler', 'password': 'old-scheduler-password'}) + '\n')
+    manifest = json.loads((old / 'manifest.json').read_text())
+    import hashlib
+    for f in manifest['files']:
+        if f['path'] == 'runtime-worker/dsn':
+            f['sha256'] = hashlib.sha256(dsn.read_bytes()).hexdigest()
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    before = {p: p.read_bytes() for p in secrets_root.rglob('*') if p.is_file()}
+    assert S.main(['reissue-role', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params']), '--service', 'runtime-worker']) == 0
+    new = conninfo_to_dict(dsn.read_text().strip())
+    donor = conninfo_to_dict((secrets_root / 'domain-worker' / 'dsn').read_text().strip())
+    assert new['user'] == 'nexloop_domain_worker' and new['password'] == donor['password'] and new['sslmode'] == 'verify-full'
+    assert {k: v for k, v in new.items() if k not in ('user', 'password')} == {k: v for k, v in d.items() if k not in ('user', 'password')}
+    assert cn(secrets_root / 'runtime-worker' / 'pg-client.crt') == 'nexloop_domain_worker'
+    changed = sorted(str(p.relative_to(secrets_root)) for p, data in before.items() if p.read_bytes() != data)
+    assert changed == ['runtime-worker/dsn', 'runtime-worker/pg-client.crt', 'runtime-worker/pg-client.key']
+    assert oct((secrets_root / 'runtime-worker/pg-client.key').stat().st_mode)[-3:] == '600'
+    assert S.check(old)['ok']
+    assert S.main(['reissue-role', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params']), '--service', 'runtime-worker']) == 2

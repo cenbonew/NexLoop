@@ -287,9 +287,9 @@ dry-run 的做法：把上面命令的最后三个参数换成 `--dry-run`，并
 | app | `retention-keeper/pg-client.crt` | retention-keeper | PG 客户端证书（链） | CN=nexloop_domain_worker | 10001 | A |
 | app | `retention-keeper/pg-client.key` | retention-keeper | PG 客户端私钥 | CN=nexloop_domain_worker | 10001 | A |
 | app | `runtime-worker/service-credential` | runtime-worker | 随机令牌 | random token; registered by the trusted configuration after bootstrap (see the document §3) | 10001 | A/B |
-| app | `runtime-worker/dsn` | runtime-worker | DSN（verify-full） | role nexloop_scheduler; its password takes effect when role-passwords.sql runs (bootstrap window) | 10001 | A/B |
-| app | `runtime-worker/pg-client.crt` | runtime-worker | PG 客户端证书（链） | CN=nexloop_scheduler | 10001 | A |
-| app | `runtime-worker/pg-client.key` | runtime-worker | PG 客户端私钥 | CN=nexloop_scheduler | 10001 | A |
+| app | `runtime-worker/dsn` | runtime-worker | DSN（verify-full） | role nexloop_domain_worker (2026-10-16, was nexloop_scheduler); its password takes effect when role-passwords.sql runs (bootstrap window) | 10001 | A/B |
+| app | `runtime-worker/pg-client.crt` | runtime-worker | PG 客户端证书（链） | CN=nexloop_domain_worker | 10001 | A |
+| app | `runtime-worker/pg-client.key` | runtime-worker | PG 客户端私钥 | CN=nexloop_domain_worker | 10001 | A |
 | app | `shared/signing.key` | shared | 签名密钥（32 字节原始） | 32 raw bytes; the hex copy is registered by the trusted configuration | 10001 | A/B |
 | app | `webchat-delivery/server.crt` | webchat-delivery | 服务证书（链） | SANs: loopback | 10001 | A |
 | app | `webchat-delivery/service-credential` | webchat-delivery | 随机令牌 | random token; registered by the trusted configuration after bootstrap (see the document §3) | 10001 | A/B |

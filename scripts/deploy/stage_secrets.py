@@ -7,6 +7,7 @@
     stage_secrets.py setup-credentials --out DIR                                   setup/ credentials of business/catalog setup
     stage_secrets.py check    --out DIR [--uids]                                       secret_distribution and manifest digests
     stage_secrets.py metrics  --out DIR --ca-dir CA_DIR --params PRIVATE_JSON         G-METRICS-DSN: add the metrics client to an older tree
+    stage_secrets.py reissue-role --out DIR --ca-dir CA_DIR --params PRIVATE_JSON --service S   one service's DSN and certificate for its role
 
 The catalog is read from the APP_HOST Compose file's `secrets:` section (so it cannot drift from what the services mount) plus
 the fixed DATA_HOST files. `generate` writes, below a directory that must not exist:
@@ -27,6 +28,7 @@ Prints one JSON object (counts and codes only). Exit 0 ok, 1 problems found, 2 r
 import argparse
 import hashlib
 import json
+import os
 import re
 import secrets
 import string
@@ -52,8 +54,11 @@ OWNERS = {'agent-host': '10020', 'agent-host-model': '10020', 'gateway': '0', 'p
           'pgbackrest-server': 'nexloop-pgbackrest'}
 BACKEND_OWNER = '10001'
 # The PG role of each service DSN (the client certificate's CN must be the role: pg_hba clientcert=verify-full).
+# runtime-worker: nexloop_domain_worker (2026-10-16: as nexloop_scheduler the activation path was refused - read_action_bundle,
+# role_run_hint and most runtime functions are domain_worker's, 0063 revokes them from the scheduler - and every runtime test runs
+# the worker as nexloop_domain_worker; tests/test_stage_secrets.py pins the mapping to the roles each entry point accepts).
 PRIMARY_ROLE = {'api': 'nexloop_api', 'domain-worker': 'nexloop_domain_worker', 'action-worker': 'nexloop_action_worker',
-                'webchat-delivery': 'nexloop_action_worker', 'runtime-worker': 'nexloop_scheduler', 'message-relay': 'nexloop_api',
+                'webchat-delivery': 'nexloop_action_worker', 'runtime-worker': 'nexloop_domain_worker', 'message-relay': 'nexloop_api',
                 'outbound-recorder': 'nexloop_api', 'claim-extraction-scheduler': 'nexloop_api'}
 DSN_ROLE = {'identity-dsn': 'nexloop_identity', 'api-dsn': 'nexloop_api'}
 CA_FILES = {'api-loopback-ca.crt', 'guard-ca.crt', 'db-ca.crt', 'host-ca.crt', 'ca.crt', 'webchat-provider-ca.crt', 'enterprise-provider-ca.crt'}
@@ -355,6 +360,54 @@ def add_metrics(out, ca_dir, params_file):
     manifest_path.chmod(0o600)
     manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
     return {'added': ['management/metrics', 'data:backup/metrics.dsn', 'management/metrics-role-password.sql']}
+
+
+def reissue_role(out, ca_dir, params_file, service):
+    """Re-issue one service's DSN and client certificate for the role PRIMARY_ROLE now names (for example runtime-worker after its role
+    changed): `dsn` names the role with that role's password (read from another DSN of the same role in this tree; one password
+    per role), `pg-client.crt/.key` are a new certificate with CN = the role from the intermediate CA. Nothing else changes; the
+    manifest records the new digests. Refused when the service's DSN already names the role (run once per role change). No value is
+    printed."""
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    out, ca_dir = Path(out), Path(ca_dir)
+    manifest_path = out / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    role = _role(service, 'dsn')
+    entries = {f['path']: f for f in manifest['files'] if f['host'] == 'app' and f['service'] == service}
+    paths = [f'{service}/dsn', f'{service}/pg-client.crt', f'{service}/pg-client.key']
+    if any(p not in entries for p in paths):
+        raise Refused(f'{service} has no dsn and pg-client certificate in this tree')
+    secrets_root = out / 'app' / 'secrets'
+    current = conninfo_to_dict((secrets_root / f'{service}/dsn').read_text().strip())
+    if current.get('user') == role:
+        raise Refused(f'{service}/dsn already names {role}')
+    donors = [f for f in manifest['files'] if f['host'] == 'app' and f['kind'] == 'dsn' and f['service'] != service
+              and _role(f['service'], f['path'].split('/', 1)[1]) == role and (secrets_root / f['path']).is_file()]
+    if not donors:
+        raise Refused(f'no other DSN of {role} in this tree to take its password from')
+    password = conninfo_to_dict((secrets_root / donors[0]['path']).read_text().strip()).get('password')
+    if not password:
+        raise Refused(f'the DSN of {role} carries no password')
+    _params(params_file)  # the tree's private params must still be valid (same host, port and database as the DSN below)
+    work = out / f'.reissue-{service}'
+    try:
+        issue_certs.leaf('client', ca_dir, work, f'{service}-pg-client', cn=role)
+        new = {f'{service}/pg-client.crt': (work / f'{service}-pg-client.chain.crt').read_bytes(),
+               f'{service}/pg-client.key': (work / f'{service}-pg-client.key').read_bytes(),
+               f'{service}/dsn': (make_conninfo(**{**current, 'user': role, 'password': password}) + '\n').encode()}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    for path, data in new.items():
+        target = secrets_root / path
+        staged = target.with_name(target.name + '.reissue')
+        _write(staged, data)
+        os.replace(staged, target)  # the management tree, not a running bind mount; on the host the files are installed anew
+        entries[path]['sha256'] = hashlib.sha256(data).hexdigest()
+        if path.endswith(('.crt', '.key')):
+            entries[path]['note'] = f'CN={role}'
+    manifest_path.chmod(0o600)
+    manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    return {'service': service, 'role': role, 'reissued': paths}
 
 
 def summary(manifest):
@@ -864,6 +917,11 @@ def main(argv=None):
     q.add_argument('--signing-key-id')
     q.add_argument('--dry-run', action='store_true', help='compare only; without a DSN file only the compiled counts')
     q.add_argument('--emit-config', type=Path, help='write the worker configuration files the catalog makes valid (design §4)')
+    rr = sub.add_parser('reissue-role', help='re-issue one service\'s DSN and client certificate for its current PRIMARY_ROLE')
+    rr.add_argument('--out', type=Path, required=True)
+    rr.add_argument('--ca-dir', type=Path, required=True)
+    rr.add_argument('--params', type=Path, required=True)
+    rr.add_argument('--service', required=True)
     m = sub.add_parser('metrics', help='G-METRICS-DSN: add the read-only metrics client to a tree generated before it existed')
     m.add_argument('--out', type=Path, required=True)
     m.add_argument('--ca-dir', type=Path, required=True)
@@ -897,6 +955,8 @@ def main(argv=None):
             out, code = setup_credentials(args.out), 0
         elif args.command == 'publish':
             out, code = publish_main(args), 0
+        elif args.command == 'reissue-role':
+            out, code = reissue_role(args.out, args.ca_dir, args.params, args.service), 0
         elif args.command == 'metrics':
             out, code = add_metrics(args.out, args.ca_dir, args.params), 0
         elif args.command == 'generate':
