@@ -41,3 +41,14 @@ def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, cr
         admin.execute('insert into control.nexloop_function_definitions(tenant_id,world,resource_id,definition,capability,schemas) values(%s,%s,%s,%s,%s,%s)',
                       (tenant, 'real', f"eios:function:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability']), Jsonb(used)))
     return {row['definition']['stable_name']: row for row in rows}
+
+
+def business_capabilities(names):
+    """{capability name: snapshot} for business Actions, from the versioned snapshot manifest stage publication binds them to
+    (deploy/configuration/capabilities.v1.json, nexloop_eios.catalog_manifests)."""
+    from pathlib import Path
+
+    from nexloop_eios import catalog_manifests
+    manifest = catalog_manifests.load(Path(__file__).resolve().parents[1] / 'deploy/configuration/capabilities.v1.json')
+    by_name = {name: snapshot for (name, _version), snapshot in catalog_manifests.snapshots(manifest).items()}
+    return {name: by_name[name] for name in names}
