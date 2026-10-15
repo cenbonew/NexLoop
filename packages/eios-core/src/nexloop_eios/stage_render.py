@@ -107,6 +107,8 @@ PARAMETERS = {
     'EFFECT_EGRESS_CIDR': _cidr, 'ENTERPRISE_ENDPOINT_ADDR': _addr, 'ENTERPRISE_ENDPOINT_PORT': _remote_port,
     # NX-035 M8: the pgBackRest TLS server on APP_HOST (repo1); only DATA_HOST may connect to it.
     'PGBACKREST_TLS_PORT': _port,
+    # Owner ruling 2026-10-15 (run sheet 4.2): the reference endpoint published on APP_HOST admits the effect worker network only.
+    'REFERENCE_ENDPOINT_PORT': _port,
 }
 
 

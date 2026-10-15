@@ -2,7 +2,8 @@
 # Gateway only for the trusted LAN; internal ports are never published; the application namespace reaches only DATA_HOST's
 # PostgreSQL and Valkey, the Agent Host namespace only the model allowlist (NX-037 D4), the effect worker namespace only PostgreSQL
 # and the enterprise endpoint (NX-037 provider routing); the CI user (NX-033) never reaches DATA_HOST
-# or the internal ports. NX-035 M8: the pgBackRest TLS server (repo1) on the host accepts DATA_HOST only.
+# or the internal ports. NX-035 M8: the pgBackRest TLS server (repo1) on the host accepts DATA_HOST only. The reference endpoint
+# admits the effect worker network only (run sheet 4.2).
 table inet nexloop_stage {
   chain input {
     type filter hook input priority filter - 1; policy accept;
@@ -16,6 +17,10 @@ table inet nexloop_stage {
     ct direction reply accept
     ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst { __GATEWAY_HTTPS_PORT__, __GATEWAY_REDIRECT_PORT__ } ip saddr __TRUSTED_LAN_CIDR__ accept
     ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst { __GATEWAY_HTTPS_PORT__, __GATEWAY_REDIRECT_PORT__ } drop
+    # Owner ruling 2026-10-15 (run sheet 4.2): the reference endpoint (deploy/stage/reference-endpoint, published by DNAT on
+    # __APP_HOST_ADDR__) admits the effect worker network only; every other source is dropped. Replies pass by the rule above.
+    ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst __REFERENCE_ENDPOINT_PORT__ ip saddr __EFFECT_EGRESS_CIDR__ accept
+    ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst __REFERENCE_ENDPOINT_PORT__ drop
     # NX-037 D4: two namespaces, two egress rules. The application namespace (API, workers; __APP_CONTAINER_CIDR__) reaches
     # DATA_HOST's PostgreSQL and Valkey only and never a model address; the Agent Host's own namespace (__AGENT_EGRESS_CIDR__)
     # reaches the model provider allowlist on 443 only and never DATA_HOST. The agent link between them is an internal network
