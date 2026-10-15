@@ -985,6 +985,11 @@
       "version": "0197",
       "name": "0197_nx035_backup_read_settings.sql",
       "sha256": "813b263d1e4dfc1ebcaa05672cbce84b038564a342a8ad437267e78cd425f4d2"
+    },
+    {
+      "version": "0198",
+      "name": "0198_operator_password_reset.sql",
+      "sha256": "45c92625d2f35496a82680bb7ed67e2d42222c49e61f977692fcad174a879ace"
     }
   ]
 }
