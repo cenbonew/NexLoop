@@ -46,6 +46,12 @@
   - 路由文件中的路径写容器内的 `/run/secrets/...`；
   - webchat 路由：origin 为 `https://127.0.0.1:<WEBCHAT_DELIVERY_PORT>`，CA 为投递服务的证书，凭据与投递服务的 provider 凭据是同一个值，但分属两个服务各自的文件；
   - enterprise 路由：origin 为企业端点，CA 与凭据由企业提供。
+  - **生成器**（G-ROUTES）：`scripts/deploy/provider_routes.py --out-dir <新私有目录> --webchat-delivery-port <端口> [--enterprise-origin https://<主机>[:<端口>] --enterprise-connect-address <数字地址>]`。
+    - 它写出 `provider-routes`、`webchat-provider-config`，给出企业端点时再写 `enterprise-provider-config`。这些文件都是新建的，权限 0600，文件名与 Compose secret 的源文件一致（`secrets/action-worker/`），文件中的路径都是容器内的 `/run/secrets/...`。
+    - 路由的 Action 取自已发布的 `system-actions.v1.json` 中目标系统为 service、且由效应 worker 派发的那些。webchat 路由总会写；企业路由只在同时给出 origin 和数字地址时才写。
+    - 每份配置先用 worker 自己的 `EffectProviderConfiguration` 校验，校验不过就拒绝，退出码 2，什么都不写。凭据与 CA 文件不经过生成器。
+    - 测试 `tests/test_provider_routes_generator.py` 证明生成结果能被 `effect_worker._routes` 和 `_provider` 接受。
+    - 注意：stage Compose 的 action-worker 挂载了 enterprise 的三个 secret。不接企业端点时，这三份源文件仍要存在，否则 Compose 会因为源文件缺失而拒绝启动；而 worker 只读路由表里出现的配置。
 
 ## 3. 防火墙模板
 
