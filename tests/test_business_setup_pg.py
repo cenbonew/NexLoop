@@ -1,22 +1,17 @@
 """Actual technical publication/identity creation followed by governed setup CLI."""
 from datetime import UTC,datetime,timedelta
-import hashlib,json,secrets,subprocess,sys,uuid
-from pathlib import Path
+import json,secrets,subprocess,sys,uuid
 import pytest
 from psycopg.conninfo import make_conninfo
 from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from eios.authz.applications import ResourceRestriction,OperationRestriction
-from eios.ontology.models import ObjectTypeDefinition
-from eios.ontology.semantics import schema_contract_digest
-from nexloop_eios.effect_contexts import effect_plan_schemas,CONFIGURE,registrar_schema
-from nexloop_eios.conversation_messages import conversation_schemas
+from nexloop_eios.effect_contexts import CONFIGURE
+from test_postgres_action_claims import governance_inputs  # noqa: F401 (re-exported to other test modules)
 from nexloop_eios.trusted_configuration import apply_manifest
 from authority_fixture import authority_records
-from test_postgres_action_claims import governance_inputs
-from test_trusted_configuration_pg import configured,identity_manifest,create_human,private,PrivateConfiguration
-from support.tenants import TENANT_A
+from test_trusted_configuration_pg import configured,identity_manifest,create_human,private,PrivateConfiguration  # noqa: F401 (fixture)
 
 
 def declared_service(tenant,names,suffix):
@@ -43,31 +38,16 @@ def declared_service(tenant,names,suffix):
 @pytest.fixture
 def business_plan(configured,admin,tmp_path):
     f=configured;tenant=f['tenant'];body=identity_manifest(f);human=create_human(f,body)
-    schemas={s.type_name:s for s in effect_plan_schemas()}
-    schemas.update({s.type_name:s for s in conversation_schemas()})
-    schemas['Consumer']=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True)
-    base=governance_inputs();original=base['action_definition'];original_cap=base['capability_snapshot']
-    refs={name:original.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
-    actions=[]
-    for name,types in {'Consumer.create':['Consumer'],'EffectControl.create':['EffectControl'],'ConsumerOwnership.create':['ConsumerOwnership'],
-        CONFIGURE:['EffectControl'],'nexloop.service.request':['Consumer']}.items():
-        declaration=json.loads(json.dumps(original.model_dump(mode='json')).replace(TENANT_A,tenant));declaration.pop('contract_digest',None)
-        declaration['stable_name']=name;declaration['object_types']=[refs[t].model_dump(mode='json') for t in types]
-        declaration['governance']['change_scope']['object_types']=declaration['object_types']
-        capability_name='ontology.object.create' if name.endswith('.create') else name
-        declaration['capability_binding']['capability_name']=capability_name
-        if name==CONFIGURE:declaration['input_schema']=registrar_schema('configure')
-        if name=='nexloop.service.request':
-            declaration['governance']['change_scope']['target_systems']=['service']
-            declaration['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
-        definition=type(original).model_validate_json(json.dumps(declaration));capability=original_cap.model_copy(update={'capability_name':capability_name,'has_side_effects':True})
-        actions.append({'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json')})
+    # NX-032 A1 T4: the catalog's types and Actions (system_catalog, capabilities.v1.json snapshots), not hand-built JSON.
+    from system_catalog_fixture import catalog_manifest_rows
+    type_rows,actions,_=catalog_manifest_rows(tenant,('Consumer','Goal','PlanStep','EffectControl','Conversation','Message','ConsumerOwnership'),
+        ('Consumer.create','EffectControl.create','ConsumerOwnership.create',CONFIGURE,'nexloop.service.request'))
     owner,owner_expiry,owner_facts=declared_service(tenant,['Consumer.create','EffectControl.create','ConsumerOwnership.create',CONFIGURE],'-business-owner')
     executor,executor_expiry,executor_facts=declared_service(tenant,['nexloop.service.request'],'-business-executor')
     owner_token=secrets.token_urlsafe(48);executor_token=secrets.token_urlsafe(48)
     facts={(r['kind'],tuple(r['key'])):r for r in f['manifest']['authority_facts']+owner_facts+executor_facts}
     manifest={**f['manifest'],'manifest_id':str(uuid.uuid4()),'expected_revision':admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(tenant,)).fetchone()[0],
-        'object_types':[s.model_dump(mode='json') for s in schemas.values()],'actions':actions,'authority_facts':list(facts.values()),
+        'object_types':type_rows,'actions':actions,'authority_facts':list(facts.values()),
         'identity_allowances':[],
         'service_credentials':f['manifest']['service_credentials']+[
             {'reference':'business-owner','binding':owner.model_dump(mode='json'),'worlds':['real'],'expires_at':owner_expiry.isoformat(),'status':'active'},

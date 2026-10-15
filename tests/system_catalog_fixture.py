@@ -59,3 +59,17 @@ def business_capabilities(names):
     """{capability name: snapshot} for business Actions: their 1.0.0 snapshots (the role Actions' 1.1.0 versions of the shared
     names are not for business Actions; catalog_publish.BUSINESS_CAPABILITY_VERSION)."""
     return {name: snapshots()[(name, '1.0.0')] for name in names}
+
+
+MANIFEST_CREATED_AT = datetime(2026, 10, 15, tzinfo=UTC)
+
+
+def catalog_manifest_rows(tenant, types, actions=(), functions=()):
+    """(object type rows, Action rows, Function rows) of the catalog for a 0050 manifest (the fixtures that publish through the
+    trusted configuration). created_at is fixed, so two manifests carrying the same Action send identical rows (0162 accepts an
+    existing definition only when equal)."""
+    schemas = SC.object_types()
+    args = dict(tenant=tenant, created_by=CREATED_BY, created_at=MANIFEST_CREATED_AT, snapshots=snapshots())
+    action_rows = SC.compile_system_actions(**args, select=tuple(actions)) if actions else []
+    function_rows = [r for r in SC.compile_system_functions(**args) if r['definition']['stable_name'] in functions]
+    return [schemas[name].model_dump(mode='json') for name in types], action_rows, function_rows
