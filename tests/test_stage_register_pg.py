@@ -370,3 +370,12 @@ def test_publish_makes_every_granted_catalog_action_readable_by_its_grantee_and_
                 'capability': a['capability']} for a in compiled['actions']]
     pending, conflicts = P.diff(changed, lineage)
     assert not pending and conflicts == [changed['actions'][0]['definition']['stable_name'] + ':1']
+
+
+def test_publish_dry_run_without_a_database_compiles_and_emits_the_worker_configuration(tmp_path, capsys):
+    out = tmp_path / 'config'
+    assert S.main(['publish', '--out', str(tmp_path), '--tenant', TENANT, '--dry-run', '--emit-config', str(out)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert (result['compared'], result['object_types'], result['actions'], result['functions']) == (False, 20, 68, 2)
+    assert sorted(p.name for p in out.iterdir()) == sorted(result['emitted']) and all(oct(p.stat().st_mode)[-3:] == '600' for p in out.iterdir())
+    assert json.loads((out / 'claim-match.json').read_text()) == {}

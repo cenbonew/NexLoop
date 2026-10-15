@@ -698,32 +698,27 @@ def setup_credentials(out, principals_path=PRINCIPALS):
 CATALOG = {'capabilities_path': ROOT / 'deploy/configuration/capabilities.v1.json', 'system_actions_path': ROOT / 'deploy/configuration/system-actions.v1.json',
            'business_actions_path': ROOT / 'deploy/configuration/business-actions.v1.json',
            'system_types_path': ROOT / 'deploy/ontology/system-object-types.v1.json', 'business_types_path': ROOT / 'deploy/ontology/business-object-types.v1.json'}
-# Worker configuration files the catalog makes valid (run-41 §4.1, design §4): the shipped settings, an empty match configuration,
-# and the minimal recall set (published types only; which types to recall is NX-019/NX-021's decision). relay-run-profile.json
-# is not here: it references tenant-assembly objects (A5).
+# Worker configuration files that need no database read (run-41 §4.1, design §4): the shipped settings and an empty match
+# configuration. recall-types.json and relay-run-profile.json read the published state: scripts/deploy/tenant_config.py (T6).
 WORKER_CONFIG = {'commitments.json': 'deploy/configuration/commitments.v1.json', 'commercial.json': 'deploy/configuration/commercial.v1.json',
                  'plan-reevaluation.json': 'deploy/configuration/plan-reevaluation.v2.json', 'reply-guarantee.json': 'deploy/configuration/reply-guarantee.v3.json'}
 
 
-def emit_worker_config(directory, compiled):
+def emit_worker_config(directory):
     directory = Path(directory)
     written = []
     for name, source in WORKER_CONFIG.items():
         _write(directory / name, (ROOT / source).read_text())
         written.append(name)
     _write(directory / 'claim-match.json', '{}\n')
-    types = {t['type_name'] for t in compiled['object_types']}
-    if 'Consumer' not in types:
-        raise Refused('recall-types: Consumer is not in the catalog')
-    _write(directory / 'recall-types.json', json.dumps({'Consumer': None}) + '\n')
-    return written + ['claim-match.json', 'recall-types.json']
+    return written + ['claim-match.json']
 
 
 def publish_main(args):
     from nexloop_eios import catalog_publish as P
     compiled = P.compile_catalog(args.tenant, **CATALOG)
     counts = {'object_types': len(compiled['object_types']), 'actions': len(compiled['actions']), 'functions': len(compiled['functions'])}
-    emitted = emit_worker_config(args.emit_config, compiled) if args.emit_config else None
+    emitted = emit_worker_config(args.emit_config) if args.emit_config else None
     if args.dry_run and not (args.configurator_dsn_file or args.bootstrap_dsn_file):
         return {'dry_run': True, 'compared': False, **counts, 'emitted': emitted}
     if not args.signing_key_id or bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file):
