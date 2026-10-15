@@ -78,6 +78,18 @@
   - 注意：effect_executor 的令牌必须就是 owner 做 `configure_effect_control` 时使用的执行者令牌（摘要须一致）。
   - 未覆盖：plan-reevaluator 的 Role-run Source 需要的逐对象 READ 只能在租户组装后（阶段 C）授予。
 
+## 3b. register 以什么身份执行（stage 结论）
+
+- **代码要求**：`trusted_configuration.configurator_connection` 要求 `current_user` 与 `session_user` 都是 `nexloop_configurator`，且这个会话不是 superuser、没有 BYPASSRLS/CREATEDB/CREATEROLE/REPLICATION，也不是任何高权限角色或 `nexloop_owner` 的成员。0050 的发布表还有 `operator_role='nexloop_configurator'` 约束。
+- 所以“以 nexloop_bootstrap 登录后 `SET ROLE nexloop_configurator`”行不通（session_user 是 bootstrap，会被拒绝），它也会把超级用户会话带进配置路径。测试里的做法与 NX-048 的部署步骤相同：由管理员执行 `alter role nexloop_configurator login`，然后以配置者本人登录。
+- **最小授权做法（登录窗口）**：
+  - pg_hba 增加一行 `local all nexloop_configurator scram-sha-256`，只允许容器本机 socket，不新增网络入口。角色是 NOLOGIN 时这一行不起作用。
+  - register 增加 `--bootstrap-dsn-file`（bootstrap 的 socket DSN）。它的步骤是：
+    1. 以 bootstrap 生成一次性随机口令，执行 `ALTER ROLE nexloop_configurator LOGIN PASSWORD '<SCRAM 校验值>'`，日志里只有校验值，没有口令明文；
+    2. 以配置者本人经同一 socket 连接，完成全部写入；
+    3. 无论成功与否，都执行 `ALTER ROLE nexloop_configurator NOLOGIN PASSWORD NULL`，并删除临时 DSN。
+  - 写入的发布行 `operator_role` 是 `nexloop_configurator`，超级用户不直接写表。
+
 ## 3a. pgBackRest TLS（M8）的证书目录约定
 
 - **DATA_HOST**：`secrets/pgbackrest/{client.crt,client.key,ca.crt}`，属主 999，在 Compose 中只读挂载到 PG 容器的 `/etc/pgbackrest/tls/`。客户端证书 CN 为 `pgbackrest-data-client`，即 `pgbackrest-server.conf` 中 `tls-server-auth` 放行的名字。
