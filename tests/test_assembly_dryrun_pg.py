@@ -29,7 +29,7 @@ def stage(pg, admin, tree, tmp_path):  # noqa: F811
     assert S.main(['browser', '--out', str(out), '--tenant', TENANT, '--browser-application-id', 'stage-webchat', '--workbench-application-id',
                    'stage-workbench', '--identity-seal-file', str(seal), '--bootstrap-dsn-file', str(st.bootstrap_dsn), '--signing-key-id', 'stage-1']) == 0
     st.seal = seal
-    st.published = A.publish_system_catalog(out, tenant=TENANT, bootstrap_dsn_file=st.bootstrap_dsn, signing_key_id='stage-1')
+    st.published = A.publish_catalog(out, tenant=TENANT, bootstrap_dsn_file=st.bootstrap_dsn, signing_key_id='stage-1')
     return st
 
 
@@ -49,8 +49,8 @@ def create_human(st):
     return body['membership']['principal_id']
 
 
-def test_publish_then_business_catalog_and_enterprise_setup(stage, admin):
-    st = stage
+def assemble(st):
+    """publish (fixture) -> human -> business, catalog, enterprise setup -> relay enrollment; st.result holds each tool's output."""
     assert st.published['actions'] > 30 and st.published['functions'] >= 1
     human = create_human(st)
     end = A.end_of_trial()
@@ -94,9 +94,127 @@ def test_publish_then_business_catalog_and_enterprise_setup(stage, admin):
                                                                   '--enrollment-file', str(enroll)])
     assert code == 0, (out, err)
     st.result['enrollment'] = json.loads(out)
-    print(json.dumps(st.result, sort_keys=True))
+    return st
+
+
+@pytest.fixture
+def assembled(stage):
+    return assemble(stage)
+
+
+def test_publish_then_business_catalog_and_enterprise_setup_and_enrollment(assembled, admin):
+    r = assembled.result
+    assert r['business']['configured'] and r['catalog']['configured'] and r['enterprise']['configured'] and r['enrollment']['enrolled']
+    assert r['business']['owner_ref'] == 'principal:nexloop-service-business-owner-principal'
+    assert r['business']['executor_ref'] == 'principal:nexloop-service-effect-executor-principal'
+    assert r['catalog']['source_ref'] == 'principal:nexloop-service-relay-source-principal'
+    # Only governed Actions wrote the formal objects (one Consumer, its two EffectControls, two offerings and bindings, ownership).
+    counts = dict(admin.execute("select type_name, count(*) from ontology.objects where tenant_id=%s group by 1", (TENANT,)).fetchall())
+    assert counts == {'Consumer': 1, 'EffectControl': 2, 'ServiceOffering': 2, 'ConsumerServiceOffering': 2, 'ConsumerOwnership': 1}
 
 
 def slot_placeholders(slot):
     return {'ENTERPRISE_CONTROL_ID_FROM_ENTERPRISE_SETUP': slot['enterprise_control_id'], 'ENTERPRISE_OFFERING_ID_FROM_ENTERPRISE_SETUP': slot['enterprise_offering_id'],
             'ENTERPRISE_BINDING_ID_FROM_ENTERPRISE_SETUP': slot['enterprise_binding_id']}
+
+
+def tenant_configuration(st, admin, capsys):
+    """tenant_config recall-types and relay-run-profile. The RoleDefinition is inserted by the test administrator: no stage principal
+    holds RoleDefinition.create (gap G-ROLE in the gap list)."""
+    from test_tenant_config_pg import T
+    now = datetime.now(UTC)
+    role = 'd' * 64
+    from psycopg.types.json import Jsonb
+    admin.execute("insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,created_at,updated_at) values(%s,'real','RoleDefinition',%s,1,%s,now(),now())",
+                  (TENANT, role, Jsonb({'name': 'operations', 'responsibility': 'reply to consumers', 'ceiling_ref': 'ceiling:stage', 'active': True,
+                                        'valid_from': (now - timedelta(days=1)).isoformat(), 'valid_until': (now + timedelta(days=30)).isoformat()})))
+    files = {'recall-types.json': st.root / 'recall-types.json', 'relay-run-profile.json': st.root / 'relay-run-profile.json'}
+    common = ['--tenant', TENANT, '--bootstrap-dsn-file', str(st.bootstrap_dsn)]
+    assert T.main(['recall-types', *common, '--out', str(files['recall-types.json'])]) == 0
+    assert T.main(['relay-run-profile', *common, '--out', str(files['relay-run-profile.json']), '--role-id', role, '--maximum-cost', '2', '--currency', 'CNY']) == 0
+    capsys.readouterr()
+    return files
+
+
+def run_workers(st, admin, capsys, names, replace=None):
+    import subprocess
+    compose = A.compose_services()
+    config = st.root / 'config'
+    A.install_config(config, tenant_configuration(st, admin, capsys))
+    variables = {'WEBCHAT_DELIVERY_PORT': str(A.free_port()), 'GUARD_PORT': str(A.free_port()), 'HOST_INTERNAL_PORT': str(A.free_port())}
+    overlay = A.manual_files(st, st.root / 'manual', variables)
+    results, servers = {}, []
+    try:
+        for name in names:
+            try:
+                argv, env = A.worker_command(st, name, compose, config, st.root / ('w-' + name), variables, overlay,
+                                                 (replace or {}).get(name))
+            except A.Skip as skip:
+                results[name] = ('skip', str(skip))
+                continue
+            if name in A.SERVERS:
+                results[name] = start_server(argv, env, int(variables[A.SERVERS[name]]), servers)
+                continue
+            try:
+                done = subprocess.run(argv, capture_output=True, text=True, timeout=90, env=env)
+                results[name] = (done.returncode, (done.stdout[-600:] + '|' + done.stderr[-900:]).replace('\n', ' '))
+            except subprocess.TimeoutExpired:
+                results[name] = ('timeout', '')
+    finally:
+        for process in servers:
+            process.terminate()
+            process.wait(timeout=10)
+    return results
+
+
+def start_server(argv, env, port, servers):
+    """A server service: started (kept running for the services after it); ready when its port accepts a connection (30 s)."""
+    import socket
+    import subprocess
+    import time
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    servers.append(process)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and process.poll() is None:
+        try:
+            socket.create_connection(('127.0.0.1', port), timeout=0.5).close()
+            return (0, 'listening')
+        except OSError:
+            time.sleep(0.2)
+    if process.poll() is not None:
+        return (process.returncode, (process.stdout.read()[-300:] + '|' + process.stderr.read()[-900:]).replace('\n', ' '))
+    return ('timeout', '')
+
+
+WORKERS = ('webchat-delivery', 'action-worker', 'runtime-worker', 'message-relay', 'outbound-recorder', 'claim-extraction-scheduler',
+           'claim-extraction-worker', 'claim-matcher', 'recall-indexer', 'plan-reevaluator', 'reply-guarantor', 'commitment-keeper',
+           'commercial-recorder', 'retention-keeper', 'alert-evaluator', 'incentive-issuer', 'domain-worker')
+
+
+# Gap ids: docs/release/assembly-dryrun-gaps.md. Everything else must complete its first round (exit 0).
+EXPECTED_GAPS = {
+    'claim-extraction-worker': ('skip', 'secret not generated in phase A: claim_extraction_worker_model'),  # G5: model.env, phase C
+    'claim-matcher': ('skip', 'secret not generated in phase A: claim_matcher_model'),                      # G5: model.env, phase C
+    'runtime-worker': (1, 'Runtime Worker dispatch unavailable'),  # D-QUEUE: Compose --queue runtime, grant NexLoop.queue.operations
+}
+
+
+def test_each_worker_first_round(assembled, admin, capsys):
+    results = run_workers(assembled, admin, capsys, WORKERS)
+    with capsys.disabled():
+        for name, (code, detail) in results.items():
+            print(f'\nWORKER {name}: {code} {detail[:400]}')
+    for name in WORKERS:
+        code, detail = results[name]
+        if name in EXPECTED_GAPS:
+            assert code == EXPECTED_GAPS[name][0] and EXPECTED_GAPS[name][1] in detail, (name, code, detail)
+        else:
+            assert code == 0, (name, detail)
+    assert 'idle' in results['message-relay'][1] and '"indexed":1' in results['recall-indexer'][1]  # the Consumer indexed for recall
+
+
+def test_runtime_worker_first_round_on_the_granted_queue(assembled, admin, capsys):
+    """D-QUEUE: the same Compose command with --queue operations (the queue the runtime worker is granted and the relay and the
+    Role queue accept into) completes its first round."""
+    results = run_workers(assembled, admin, capsys, ('runtime-worker',), {'runtime-worker': {'--queue': 'operations'}})
+    assert results['runtime-worker'][0] == 0 and '"status":"idle"' in results['runtime-worker'][1], results
