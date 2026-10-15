@@ -9,6 +9,13 @@ local   all            nexloop_backup_recorder                             scram
 # NX-032 §3b: the configurator only over the container-local socket, only while `stage_secrets.py register --bootstrap-dsn-file`
 # holds its login window (the role is NOLOGIN without a password otherwise, so this line admits nobody).
 local   all            nexloop_configurator                                scram-sha-256
+# G-METRICS-DSN: the read-only metrics role (execute on the export, readiness and backup status functions only, 0131/0151/0161).
+# From APP_HOST (deploy gate, real_tenant_init verify) with its client certificate alone (CN nexloop_metrics, no password); this
+# line precedes the application line below, so the first match is certificate authentication. On DATA_HOST, `nexloop-doctor
+# --backup` (the backup executor's account) reaches it over the host-local socket directory with its SCRAM password, like the
+# backup recorder.
+hostssl __NEXLOOP_DB__ nexloop_metrics __APP_HOST_ADDR__/32 cert
+local   all            nexloop_metrics                                     scram-sha-256
 # Every application role from APP_HOST only: TLS, SCRAM and a client certificate whose CN is the role (clientcert=verify-full).
 hostssl __NEXLOOP_DB__ __APP_PG_ROLES__ __APP_HOST_ADDR__/32 scram-sha-256 clientcert=verify-full
 # Migration window only (§8 step 7): uncomment for the window, reload, and comment again afterwards.
