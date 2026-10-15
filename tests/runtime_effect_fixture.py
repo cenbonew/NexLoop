@@ -7,21 +7,18 @@ from contextlib import ExitStack
 from datetime import UTC,datetime,timedelta
 import hashlib,json,secrets,uuid
 import pytest
+from system_catalog_fixture import publish_system_catalog
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 from eios.authz import facts as F
 from eios.authz.applications import ResourceRestriction,OperationRestriction
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
-from eios.ontology.models import ObjectTypeDefinition
-from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.bootstrap import bootstrap
 from nexloop_eios.backend import open_backend
 from nexloop_eios.service_offerings import offering_schemas,json_export_example,OFFERING_FIELDS,BINDING_FIELDS
-from nexloop_eios.effect_contexts import CONFIGURE,BIND,EFFECT,effect_plan_schemas,registrar_schema
+from nexloop_eios.effect_contexts import CONFIGURE,BIND,EFFECT
 from authority_fixture import authority_records,seed_authority
-from test_postgres_action_claims import governance_inputs
-from support.tenants import TENANT_A
 QUEUE='NexLoop.queue.operations'
 
 
@@ -71,15 +68,9 @@ def install_runtime_catalog(admin,tenant,api,consumer,sources,expiry):
     Source gets exact directory READ plus original EFFECT, never CREATE/EDIT.
     Replace only synthetic pre-Run technical credentials, then real fresh auth.
     """
-    base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
     schemas=offering_schemas()
-    for schema in schemas:
-        admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))
-        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
-        reference=definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':schema.type_name,'schema_digest':schema_contract_digest(schema)})
-        body['stable_name']=schema.type_name+'.create';body['object_types']=[reference.model_dump(mode='json')];body['governance']['change_scope']['object_types']=body['object_types'];body['capability_binding']['capability_name']='ontology.object.create'
-        published=type(definition).model_validate_json(json.dumps(body))
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(tenant,'real','eios:action:'+schema.type_name+'.create:1',Jsonb(published.model_dump(mode='json')),Jsonb(capability.model_copy(update={'capability_name':'ontology.object.create','has_side_effects':True}).model_dump(mode='json'))))
+    # nexloop_eios.system_catalog builds the offering types and their create Actions.
+    publish_system_catalog(admin,tenant,[schema.type_name for schema in schemas],[schema.type_name+'.create' for schema in schemas])
     keeper_token=seed_multi_uuid(admin,tenant,[('eios:action:'+schema.type_name+'.create:1',ResourceType.ACTION,Operation.EXECUTE) for schema in schemas],suffix='-catalog-maintainer')
     offered=api.authenticate(keeper_token,world='real').create_object(action_name='ServiceOffering.create',action_version=1,intent_id='runtime-effect-catalog-offering',type_name='ServiceOffering',properties=json_export_example(valid_until=expiry))
     tokens=[]
@@ -101,32 +92,15 @@ def runtime_effect_plan(admin,pg,tmp_path):
     key=tmp_path/'signer';key.write_bytes(material);key.chmod(0o600)
     admin.execute('insert into authz.nexloop_authority_signing_keys values(%s,%s,true)',('runtime-effect',material))
     seed_authority(admin,tenant,'eios:action:Consumer.create:1',operation=Operation.EXECUTE,resource_type=ResourceType.ACTION,identity_suffix='-seed')
-    schemas={schema.type_name:schema for schema in effect_plan_schemas()}
-    schemas['Consumer']=ObjectTypeDefinition(type_name='Consumer',version=1,only_edit_via_actions=True)
-    base=governance_inputs();definition=base['action_definition'];capability=base['capability_snapshot']
-    refs={name:definition.object_types[0].model_copy(update={'tenant_id':tenant,'stable_name':name,'schema_digest':schema_contract_digest(schema)}) for name,schema in schemas.items()}
-    for name,schema in schemas.items():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
-    actions={name+'.create':(name,) for name in schemas};actions.update({CONFIGURE:('EffectControl',),BIND:tuple(schemas),EFFECT:('Consumer',),'nexloop.service.query':('Consumer',),'nexloop.service.receipt_reconcile':('Consumer',)})
-    for name,types in actions.items():
-        body=json.loads(json.dumps(definition.model_dump(mode='json')).replace(TENANT_A,tenant));body.pop('contract_digest',None)
-        body['stable_name']=name;body['object_types']=[refs[k].model_dump(mode='json') for k in types]
-        body['governance']['change_scope']['object_types']=body['object_types']
-        capname='ontology.object.create' if name.endswith('.create') else name;body['capability_binding']['capability_name']=capname
-        if name in (CONFIGURE,BIND):body['input_schema']=registrar_schema('configure' if name==CONFIGURE else 'bind')
-        if name==EFFECT:
-            body['governance']['change_scope']['target_systems']=['service']
-            body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
-        if name=='nexloop.service.query':
-            constraints=globals().get('_INITIAL_QUERY_CONSTRAINTS',{})
-            body['governance'].update(constraints.get('governance',{}))
-            body.update(constraints.get('definition',{}))
-        if name=='nexloop.service.receipt_reconcile':
-            body['governance']['change_scope']['target_systems']=['service']
-            body['governance']['idempotency']['key_fields']=['intent_id']
-            body['input_schema']={'type':'object','properties':{'intent_id':{'type':'string'},'effect_fence':{'type':'integer'},'query_id':{'type':'string'}},'required':['intent_id','effect_fence','query_id'],'additionalProperties':False}
-        published=type(definition).model_validate_json(json.dumps(body));cap=capability.model_copy(update={'capability_name':capname,'has_side_effects':True})
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (tenant,'real','eios:action:'+name+':1',Jsonb(published.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
+    # nexloop_eios.system_catalog builds the types and Actions. _INITIAL_QUERY_CONSTRAINTS (set by test_receipt_tail) is a deliberate
+    # variant of nexloop.service.query for that test only.
+    constraints=globals().get('_INITIAL_QUERY_CONSTRAINTS',{})
+    def query_variant(d):
+        d['governance'].update(constraints.get('governance',{}))
+        d.update(constraints.get('definition',{}))
+    publish_system_catalog(admin,tenant,('Consumer','Goal','PlanStep','EffectControl'),
+        ('Consumer.create','Goal.create','PlanStep.create','EffectControl.create',CONFIGURE,BIND,EFFECT,'nexloop.service.query','nexloop.service.receipt_reconcile'),
+        variants={'nexloop.service.query':query_variant} if constraints else None)
     def targets(names):return [('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in names]
     owner_token=seed_multi_uuid(admin,tenant,targets(['Consumer.create','EffectControl.create',CONFIGURE,QUEUE]),suffix='-owner')
     planner_token=seed_multi_uuid(admin,tenant,targets(['Goal.create','PlanStep.create',BIND]),suffix='-planner')

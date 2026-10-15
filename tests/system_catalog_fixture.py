@@ -1,8 +1,10 @@
 """Test publication of the system catalog (nexloop_eios.system_catalog, design NX-032-stage-publish-design.md §2.1, T4): the
 fixtures insert the object types and Action / Function definitions the production catalog builds, instead of hand-built JSON.
 The rows are what stage publication sends through 0050; the fixtures still insert them directly into a disposable tenant."""
+import json
 from datetime import UTC, datetime, timedelta
 
+from eios.ontology.definitions import ActionDefinition
 from psycopg.types.json import Jsonb
 
 from nexloop_eios import system_catalog as SC
@@ -10,9 +12,12 @@ from nexloop_eios import system_catalog as SC
 CREATED_BY = 'synthetic-owner'
 
 
-def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, created_at=None):
+def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, created_at=None, variants=None):
     """Inserts the named system object types, Actions and Functions (all v1) for `tenant`; `types` lists only the types not yet
-    inserted (a Function's applied-to types must already be the catalog's)."""
+    inserted (a Function's applied-to types must already be the catalog's).
+
+    variants: {Action name: function(definition dict) -> None}, for a test that deliberately publishes a changed definition (a
+    negative case or a schema variant); the catalog definition is the base and the change is visible at the call site."""
     created_at = created_at or datetime.now(UTC) - timedelta(days=1)
     schemas = SC.object_types()
     for name in types:
@@ -21,6 +26,10 @@ def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, cr
     rows = SC.compile_system_actions(tenant=tenant, created_by=CREATED_BY, created_at=created_at, select=tuple(actions)) if actions else []
     for row in rows:
         d = row['definition']
+        if variants and d['stable_name'] in variants:
+            variants[d['stable_name']](d)
+            d.pop('contract_digest', None)  # recomputed for the changed definition
+            d = ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
                       (tenant, 'real', f"eios:action:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability'])))
     for row in SC.compile_system_functions(tenant=tenant, created_by=CREATED_BY, created_at=created_at):
