@@ -12,7 +12,8 @@
 
 ### 0.1 已完成（不再重复）
 
-- DATA_HOST 上已执行：`register`（含 setup 主体 `business_owner`、`catalog_maintainer`、`role_assembler`，stage-principals v3）、`publish`、`real_tenant_init configure`；
+- DATA_HOST 上已执行：`register`（含 setup 主体 `business_owner`、`catalog_maintainer`，stage-principals v2）、`publish`、`real_tenant_init configure`；
+- **未完成：`role_assembler`**（stage-principals v3）。12:35 的 `setup-credentials` 早于 v3，所以管理树 `setup/` 下没有 `role-assembler-credential`，库里也没有 `nexloop-service-role-assembler-key`。§6 之前必须先补，见 §0.5；
 - signing key id 是 `nexloop-stage-20261015`（management/signing.key.hex 为 ASCII 新钥，run-34 之后登记）；
 - APP_HOST 的 `config/recall-types.json` 已放好。
 
@@ -73,8 +74,54 @@ git archive $MAIN scripts/deploy scripts/nx037 deploy/authorization deploy/confi
 # DATA_HOST：tar -x -C $RUN/src（属主 999）；APP_HOST：tar -x -C $APP_RUN/src（属主 10001）
 ```
 
-- **核对**：`git diff --stat <发布镜像提交> $MAIN -- packages/eios-core/src/eios` 必须为空，即迁移无差异。
+- **核对**：
+  - `git diff --stat <发布镜像提交> $MAIN -- packages/eios-core/src/eios` 必须为空，即迁移无差异；
+  - `git log --oneline <发布镜像提交>..$MAIN -- packages/eios-core/src/nexloop_eios/service_grants.py`：自 76df192 起只有 `6358949`（G-ROLE）一个提交，`git diff --stat` 为 11 行。差异内容：
+    - 服务主体可声明可选字段 `requested_scopes`，白名单只有 `ontology.roles.manage`，其他值、空列表或重复值都拒绝；
+    - `compile_principal` 把它并入凭据 binding 的 `requested_scopes` 与 scope 事实；
+    - 不声明该字段的主体，编译结果与 76df192 逐字节相同。
+  - 发布镜像 wheel 中的 `service_grants` 不认识这个字段，会以 `principal_shape` 拒绝 v3 清单。所以凡是 register 都必须用源码树，即 PYTHONPATH 优先（§0.3 的 `$COMMON` 已带）；
+  - 如果 main 前进后出现上面以外的差异，就停下核对。
 - **撤销**：删除这两个目录。
+
+### 0.5 补登记 `role_assembler`（管理机，然后 DATA_HOST；B，sudo-D）
+
+1. **管理机**：在管理树上补出 setup 凭据，使用 `$MAIN` 的检出。
+
+   ```
+   scripts/deploy/stage_secrets.py setup-credentials --out <管理树>
+   ```
+
+   - **预期**：`{"changed": true, "added": ["setup/role-assembler-credential"], "setup_files": 5}`。已有条目保持不变：`business-*`、`catalog-*` 的令牌不变。
+   - `management/service-secrets.json` 原子替换，权限 0600。
+   - 再执行一次：`changed: false`。
+2. **分发**：把更新后的 `management/service-secrets.json` 与 `setup/role-assembler-credential` 同步到 DATA_HOST 的 `$RUN`（属主 999，0600）。`setup/role-assembler-credential` 在 §6 前还要复制到 APP_HOST 的 `/in`。
+3. **DATA_HOST**：用源码树（`$COMMON` 已带 PYTHONPATH 优先）重跑 register。新代码的 `service_grants` 才认识 `requested_scopes`，见 §0.4。
+
+   ```
+   # dry-run：principals 24（含 role_assembler）、credential_files 33
+   docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py register --out /stage --tenant "$TENANT_ID" --dry-run
+   # 正式执行（B）
+   docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py register --out /stage --tenant "$TENANT_ID" \
+     --bootstrap-dsn-file /run/bootstrap-dsn --signing-key-id $KEY_ID --credential-expires-at "$CREDENTIAL_EXPIRES_AT"
+   # 再执行一次：changed=false
+   ```
+
+   - `$CREDENTIAL_EXPIRES_AT` 必须与首次 register 用的值相同。否则已有主体的凭据事实会因过期时间不同而被重写。
+
+   - **预期**：
+     - `changed: true`；
+     - `credentials_created` 只有 `role_assembler`；
+     - `grants_revoked: 0`，`extra_grants_outside_manifest: 0`；
+     - 其余主体不变，因为没有声明 `requested_scopes` 的主体编译结果相同。
+   - **核对**（bootstrap，只读）：
+     - `select status from authz.nexloop_service_credentials where tenant_id='$TENANT_ID' and credential_id='nexloop-service-role-assembler-key'`：`active`；
+     - `select binding->'requested_scopes' from authz.nexloop_service_credentials where credential_id='nexloop-service-role-assembler-key'`：含 `ontology.roles.manage`；
+     - 配置者 NOLOGIN。
+   - **撤销**：撤出服务主体要改清单（`service_grants` 的 retired 机制），需另行评审。`role_assembler` 只在 §7 使用，平时不持有任何运行中的服务。
+   - **测试**：
+     - `tests/test_stage_role_scope_pg.py`：带该 scope 的主体经 register 后能执行 0057 路径，不带的被拒；
+     - `tests/test_stage_register_pg.py`：dry-run 24 个主体、33 个凭据文件。
 
 ## 1. 账号：owner 与 WebChat 消费者（APP_HOST，`initial_identity --create`；B，sudo-A）
 
@@ -218,6 +265,8 @@ docker run $APPTOOL "$BACKEND_IMAGE" /opt/release/scripts/nx037/real_tenant_init
 
 对每个消费者 `<C>`（CUSTOMER_1..4、REFUSAL_1..2）依次执行 6.1–6.3，记下各自的输出 JSON（只含 ID）。
 
+**前提**：§0.5 已完成，即 `role_assembler` 已登记，`setup/role-assembler-credential` 已存在。
+
 **setup 凭据**：`setup/` 下的副本复制到 `/in`（10001，0600），全部步骤结束后删除：
 
 | `/in` 文件 | 来源（管理树 `setup/`） | 主体 |
@@ -226,7 +275,7 @@ docker run $APPTOOL "$BACKEND_IMAGE" /opt/release/scripts/nx037/real_tenant_init
 | `business-executor-credential` | `business-executor-credential` | `effect_executor` 的同一令牌 |
 | `catalog-maintainer-credential` | `catalog-maintainer-credential` | `catalog_maintainer` |
 | `catalog-source-credential` | `catalog-source-credential` | `relay_source` 的同一令牌 |
-| `role-assembler-credential` | `role-assembler-credential` | `role_assembler`（`ontology.roles.manage`） |
+| `role-assembler-credential` | `role-assembler-credential`（§0.5 补出） | `role_assembler`（`ontology.roles.manage`，§0.5 登记） |
 
 **配方**：都来自 `deploy/examples/nx037/`，下表列出各自要填的私有值。
 
