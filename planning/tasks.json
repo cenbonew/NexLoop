@@ -2709,6 +2709,30 @@
         "ref": "local-only/evidence/deploy-20261015",
         "summary": "10/14 晚提前执行部署执行单 1.1–1.6、2.1–2.6（负责人逐条确认）：两主机 5 个 LUKS 卷、服务用户与目录、秘密文件（APP 119+3、DATA 13，sha256 与清单一致，secret_distribution=true）、防火墙（独立表，原规则 hash 不变）、DATA_HOST 数据层运行、空库 bootstrap 到 0196（lineage 一致）。首次真实运行发现并修复 9 个部署缺陷（789d35e、2dd989c、b5ad6e6、879c213、5e7f5c8、48c0d63、5cc3eb6 等）。",
         "recorded_at": "2026-10-14T18:15:51.278155+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only:evidence/deploy-20261015/assembly-state-20261015.json",
+        "summary": "Stage synthetic tenant assembled (run-assembly, owner-confirmed per step): 1 workbench owner (nx-owner2; nx-owner revoked via workbench_roles --revoke-member, 33 grant sets emptied), 6 WebChat simulated consumers; workbench roles v11 and webchat consumer role applied; Context strategy recent_plus_required@1 published by the owner; role_assembler registered (24 service credentials); per consumer business/catalog/enterprise setup, role assembly and relay enrollment all active (replays verified); relay-run-profile placed; 25 app services running.",
+        "recorded_at": "2026-10-15T14:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only:evidence/deploy-20261015/run46/",
+        "summary": "run-46 after-inventory (read-only): signed release verified; all containers on release digests; existing_services_unchanged by inventory diff on both hosts; nft only approved changes; UFW unchanged except the planned M8 rule; 5 LUKS volumes active; secret tree permissions without deviation; catalog 0197/197; configurator NOLOGIN. Not run: doctor --backup and the gate roles check (no metrics DSN yet, G-METRICS-DSN implemented on main, rollout pending).",
+        "recorded_at": "2026-10-15T14:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only:evidence/deploy-20261015/run42/",
+        "summary": "run-42 external probes: management 9/9, DATA_HOST 5/5, CI user 4/4, Agent Host 7/7; application network failed 3 (model, DATA_HOST:22, any external 443) -> G-APP-SUBNET (compose app network had no fixed subnet); fixed and rolled out (down/up ~30 s), rerun application network 8/8 with a host-reachable positive control; 9643 reference endpoint rule live (management now unreachable, effect worker reachable); G-NFT-PERSIST unit enabled on both hosts; G-CLAIM-EGRESS rolled out (claim workers on their own egress network, probes 8/8, application network to model still unreachable).",
+        "recorded_at": "2026-10-15T14:30:00Z"
+      },
+      {
+        "type": "commit",
+        "ref": "dab12b1",
+        "summary": "main at the end of 2026-10-15 rollouts (app subnet, nft persist, metrics DSN, operator password reset, claim egress).",
+        "recorded_at": "2026-10-15T14:30:00Z"
       }
     ]
   },
@@ -2885,6 +2909,12 @@
         "ref": "ci-host:/srv/nexloop/releases/releases/20261014-76df1926d6c0-1",
         "summary": "第二个签名阶段发布 20261014-76df1926d6c0-1（commit 76df192：迁移 0197、NX-036 漏洞修复、10/14 部署缺陷修复）。发布 CI 队列 seq5 passed 4087/0 失败/0 跳过（seq4 90ade01 因 1 个跳过判 failed，测试修正后重跑）；critical_with_fix 四镜像均为 0；preflight stage ok；签名前核对 CI 记录 digest、commit、4 个镜像包与 4 份 SBOM sha256 一致；sign、seal（index 2）、archive check ok。on-main 由 nexloop-ci 与开发机 origin/main 核对（发布账户无仓库读权限）。",
         "recorded_at": "2026-10-14T18:15:51.278155+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "release 20261015-4736ea179063-1 (commit 4736ea1, CI host)",
+        "summary": "Third signed stage release: release CI through the NX-033 queue seq 7 passed 4237/4237, skipped 0, deadline gate passed (seq 6 on 84d9e80 failed 2 tests: nft -c without CAP_NET_ADMIN; fixed by moving the check to tests/host_checks, recorded unchanged); build, sbom, preflight stage ok; nexloop-release checked CI digest, commit, on-main and 4 archive/SBOM sha256, signed, sealed (index 3), archive check ok. Deployed to APP_HOST (backend, agent-host); DATA_HOST postgres intentionally kept on the previous signed image (rebuild digest differs), recorded as a known deviation.",
+        "recorded_at": "2026-10-15T14:30:00Z"
       }
     ]
   },
@@ -2949,6 +2979,12 @@
         "ref": "local-only/evidence/deploy-20261015/backup-2.6.txt",
         "summary": "APP_HOST pgBackRest TLS 服务（repo1，58432）运行；第一次全量备份 20261014-145352F（空集群，仅私有证据）、第二次 20261014-151149F 经 nexloop-backup 写入清单 verified，迁移门槛放行（0196）。D1 实测缺 pg_read_all_settings（负责人方案 A：暂用 nexloop_bootstrap，0197 随第二个发布上线）；repo2 暂缓（无 S3，风险已记）。",
         "recorded_at": "2026-10-14T18:15:51.278155+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "nexloop-pg-full.service (DATA_HOST, owner-run)",
+        "summary": "Full PG backup 20261015-132633F verified (pgBackRest 2.59.3, repo1) as the migration gate backup; migrate 0198 applied within the 60-minute gate window.",
+        "recorded_at": "2026-10-15T14:30:00Z"
       }
     ]
   },
@@ -3144,6 +3180,12 @@
         "ref": "CI run 20261013T035807Z-b05d77d23fe7 (b05d77d)",
         "summary": "CI host full run: all stages pass except integration-parallel 3424/2 (enterprise three-switch test and nx049_memo_stress), both passed 2/2 in serial rerun on the same checkout (load-sensitive, recorded in the merge baseline). Real trial not run; task stays in_progress.",
         "recorded_at": "2026-10-13T05:20:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only:evidence/deploy-20261015/",
+        "summary": "Stage smoke (owner browser, customer-1): WebChat login, 2 messages stored, relay issued 2 Runs onto the operations queue; operations jobs failed budget_exhausted (model budget period not yet started) and claim-extraction provider_unavailable (no model key, claim egress then blocked) - both expected; budget re-set by the owner session to 2026-10-18T00:00+08:00..2026-10-23T00:00+08:00, 100 CNY; model key deliberately not placed yet (phase C). With-model smoke planned 2026-10-18 morning.",
+        "recorded_at": "2026-10-15T14:30:00Z"
       }
     ]
   },
