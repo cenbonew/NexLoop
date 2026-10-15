@@ -32,14 +32,15 @@ def publish_goal_actions(admin):
     """Owner control and contact release Actions, derived from the tenant's compiled human request Action (same Consumer v1
     schema reference, so the published contract stays valid), like goal_fixture.register_goal_actions does."""
     from eios.ontology.definitions import ActionDefinition
-    from eios.ontology.version_resolution import CapabilityContractSnapshot
-    row=admin.execute("select definition,capability from control.nexloop_action_definitions where resource_id='eios:action:nexloop.plan.request_reevaluation:1'").fetchone()
-    definition=ActionDefinition.model_validate_json(json.dumps(row[0]));capability=CapabilityContractSnapshot.model_validate_json(json.dumps(row[1]))
-    for name,cap in GOAL_ACTIONS.items():
-        binding=definition.capability_binding.model_copy(update={'capability_name':cap})
-        d=definition.model_copy(update={'stable_name':name,'capability_binding':binding,'contract_digest':None})
+    from system_catalog_fixture import catalog_manifest_rows
+    # NX-032 A1 T4b: the catalog's goal Actions (goals.* 1.0.0 snapshots), typed on the request Action's Consumer reference.
+    refs=admin.execute("select definition->'object_types' from control.nexloop_action_definitions where resource_id='eios:action:nexloop.plan.request_reevaluation:1'").fetchone()[0]
+    _,rows,_=catalog_manifest_rows(TENANT,(),tuple(GOAL_ACTIONS))
+    for row in rows:
+        d=row['definition'];d['object_types']=refs;d['governance']['change_scope']['object_types']=refs;d.pop('contract_digest',None)
+        d=ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (TENANT,'real',f'eios:action:{name}:1',Jsonb(d.model_dump(mode='json')),Jsonb(capability.model_copy(update={'capability_name':cap}).model_dump(mode='json'))))
+            (TENANT,'real',f"eios:action:{d['stable_name']}:1",Jsonb(d),Jsonb(row['capability'])))
 
 
 @pytest.fixture
