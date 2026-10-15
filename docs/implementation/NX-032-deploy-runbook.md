@@ -25,7 +25,7 @@
 
 ## 每一步通用的前后核对
 
-- 执行前：`ssh "$SSH_ALIAS_<HOST>" python3 - --phase before --planned-ports "$PG_PORT,$VALKEY_PORT" --data-root "$NEXLOOP_ROOT" --out /tmp/nexloop-inventory-before.json < scripts/deploy/inventory.py`。只运行只读命令，写出一个 0600 的文件。
+- 执行前：`ssh "$SSH_ALIAS_<HOST>" sudo python3 - --phase before --planned-ports "$PG_PORT,$VALKEY_PORT" --data-root "$NEXLOOP_ROOT" --out /tmp/nexloop-inventory-before.json < scripts/deploy/inventory.py`。只运行只读命令，写出一个 0600 的文件。以 root 运行：`nft list ruleset` 需要 root；以普通账户运行时它什么也不输出，旧版本会把空规则的哈希（`e3b0c442…`）当作结果，导致前后两份都是“空对空”。现在读不到时写 `firewall_unreadable: true`，闸门报 `firewall_unreadable`、不判通过（2026-10-16）。部署之后要重新取参照时，用 `--phase baseline`（计划端口与 nexloop* 条目记为 NexLoop 所有，闸门只比较其余部分）。
   - APP_HOST 的 `--planned-ports` 改为 `$GATEWAY_HTTPS_PORT,$GATEWAY_REDIRECT_PORT,$API_INTERNAL_PORT,$API_INTERNAL_PORT_2,$HOST_INTERNAL_PORT,$GUARD_PORT`。
 - 执行后：同一命令，改用 `--phase after` 和另一个输出文件。
 - 核对：`nexloop-doctor --deploy-gate <spec>` 中的 `existing_services_unchanged` 必须为 true，即只出现 `nexloop` 前缀的新增项，既有项一项都没变。
