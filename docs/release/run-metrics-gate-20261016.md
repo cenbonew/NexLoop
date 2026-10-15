@@ -190,6 +190,11 @@ sudo docker run --rm --user 0 --read-only --network "container:$APPNET" \
       --rebaseline <旧 before.json> --out <新 before.json>
     ```
     新文件保留旧 before 的其他各节，防火墙改为当前规则，并写入 `firewall_rebaselined`（时间与旧哈希）。然后用 `--before <新 before.json>` 重做 2.1。闸门 details 会标出 `before_rebaselined`。
+- **清点必须以 root 运行**（2026-10-16 发现）：`nft list ruleset` 需要 root。部署前的 before 和 run-46 的 after 都是以普通账户取的，规则集为空，两边比的都是空规则的哈希。新版本读不到时写 `firewall_unreadable`，闸门报 `firewall_unreadable`，不判通过。这样的旧文件也会被识别出来（哈希等于 `e3b0c442…`）。
+- **部署后重新取参照**：用 `sudo python3 "$RELEASE_CHECKOUT/scripts/deploy/inventory.py" --phase baseline --planned-ports <同 2.1> --data-root "$NEXLOOP_ROOT" --out <baseline.json>`，然后用 `--before <baseline.json>` 跑 2.1。
+  - 闸门把计划端口当作 NexLoop 已占用来检查（`planned_ports_nexloop_at_baseline`），不再要求空闲（`planned_ports_free_before`）；
+  - `existing_services_unchanged` 只比较非 NexLoop 的部分；
+  - 按需激活的 unit（TriggeredBy）和 `user@<uid>` 会话列在 `units_on_demand_or_session`，只作提示，不算改动。
 - **valkey.conf**：检查的是由同一模板和同一 env 渲染的版本，不是 DATA_HOST 上的实际文件。如需核对实际文件，可从 DATA_HOST 取 `config/valkey.conf`，只读、核对 sha256，替换 `$GATE_DIR/valkey.conf` 后重跑 2.2。
 
 ### 2.4 收尾

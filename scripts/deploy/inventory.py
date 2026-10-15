@@ -4,9 +4,13 @@
 Runs only read-only commands (ss, docker ps, docker compose ls, systemctl list-units, nft list ruleset, a directory listing) and
 writes one private JSON file (0600) that `nexloop-doctor --deploy-gate` compares. The file stays on the host: it contains
 addresses and names of existing services. The NexLoop firewall table is excluded from the rule-set hash so that adding it is the
-only allowed firewall change.
+only allowed firewall change. Run it as root (sudo): `nft list ruleset` needs it, and without root the firewall is recorded as
+unreadable (firewall_unreadable), never as a hash of nothing.
 
-    inventory.py --phase before|after --planned-ports 55432,56379 --data-root <NEXLOOP_ROOT> --out <private.json>
+    sudo inventory.py --phase before|after|baseline --planned-ports 55432,56379 --data-root <NEXLOOP_ROOT> --out <private.json>
+
+`baseline` re-takes the reference after NexLoop is deployed (the planned ports and the nexloop* entries are NexLoop's); the gate then
+compares only the rest.
 """
 import argparse
 import hashlib
@@ -20,8 +24,8 @@ NEXLOOP_TABLE = re.compile(r'^table inet nexloop_stage \{.*?^\}\n?', re.S | re.M
 
 
 def parse_ss(text, *, planned=(), phase='before'):
-    """`ss -H -ltn` lines → {"addr:port": {"address", "port", "owner"}}. After deployment the planned ports are NexLoop's; before,
-    anything on them is another service (a conflict)."""
+    """`ss -H -ltn` lines → {"addr:port": {"address", "port", "owner"}}. After deployment (and in a baseline taken after it) the planned
+    ports are NexLoop's; before, anything on them is another service (a conflict)."""
     out = {}
     for line in text.splitlines():
         parts = line.split()
@@ -32,7 +36,7 @@ def parse_ss(text, *, planned=(), phase='before'):
         address = address.strip('[]').split('%')[0]
         if not port.isdigit():
             continue
-        owner = 'nexloop' if phase == 'after' and int(port) in planned else 'other'
+        owner = 'nexloop' if phase in ('after', 'baseline') and int(port) in planned else 'other'
         out[f'{address}:{port}'] = {'address': address, 'port': int(port), 'owner': owner}
     return out
 
@@ -125,6 +129,34 @@ def _run(*argv):
     return r.stdout if r.returncode == 0 else ''
 
 
+def _ruleset():
+    """`nft list ruleset`, or None when it cannot be read: not root, or a non-zero exit (2026-10-16: run as an ordinary account it
+    printed nothing and the inventories compared sha256("") with sha256("") - a hash of nothing is never written)."""
+    if os.geteuid() != 0:
+        return None
+    r = subprocess.run(['nft', 'list', 'ruleset'], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else None
+
+
+# Units that start and stop on their own (socket, D-Bus or timer activation: TriggeredBy is set) and login sessions (user@<uid>), so a
+# reboot or a login changes them without anyone touching an existing service. Reported apart, never a change.
+_USER_SESSION = re.compile(r'user(-runtime-dir)?@\d+\.service')
+
+
+def on_demand_units():
+    names = [line.split()[0] for line in _run('systemctl', 'list-units', '--type=service', '--all', '--no-legend', '--plain').splitlines() if line.strip()]
+    if not names:
+        return []
+    out, current = set(), None
+    for line in _run('systemctl', 'show', '-p', 'Id', '-p', 'TriggeredBy', *names).splitlines():
+        key, _, value = line.partition('=')
+        if key == 'Id':
+            current = value
+        elif key == 'TriggeredBy' and value.strip() and current:
+            out.add(current)
+    return sorted(out | {n for n in names if _USER_SESSION.fullmatch(n)})
+
+
 def collect(*, phase, planned, data_root):
     listening = parse_ss(_run('ss', '-H', '-ltn'), planned=planned, phase=phase)
     containers = parse_docker_ps(_run('docker', 'ps', '--format', '{{.Names}} {{.Image}}'))
@@ -132,10 +164,20 @@ def collect(*, phase, planned, data_root):
     units = parse_lines(_run('systemctl', 'list-units', '--type=service', '--state=running', '--no-legend', '--plain'))
     parent = os.path.dirname(data_root.rstrip('/')) or '/'
     data_dirs = {('nexloop:' + e if os.path.join(parent, e) == data_root.rstrip('/') else e): {} for e in sorted(os.listdir(parent))} if os.path.isdir(parent) else {}
-    ruleset = _run('nft', 'list', 'ruleset')
-    return {'phase': phase, 'listening': listening, 'containers': containers, 'compose_projects': projects, 'units': units,
-            'data_directories': data_dirs, 'firewall_without_nexloop_sha256': firewall_hash(ruleset),
-            **firewall_v2(ruleset, nexloop_networks(_docker_networks()))}
+    if phase == 'baseline':
+        # A baseline is taken after NexLoop is deployed: its own entries are marked so the gate compares only the rest.
+        for section in (containers, projects, units, data_dirs):
+            for key, value in section.items():
+                if key.startswith('nexloop'):
+                    value['owner'] = 'nexloop'
+    out = {'phase': phase, 'listening': listening, 'containers': containers, 'compose_projects': projects, 'units': units,
+           'data_directories': data_dirs, 'on_demand_units': on_demand_units()}
+    ruleset = _ruleset()
+    if ruleset is None:
+        out['firewall_unreadable'] = True
+    else:
+        out.update(firewall_without_nexloop_sha256=firewall_hash(ruleset), **firewall_v2(ruleset, nexloop_networks(_docker_networks())))
+    return out
 
 
 def rebaseline(old, current, *, now):
@@ -143,6 +185,8 @@ def rebaseline(old, current, *, now):
     as the new baseline: every other section of the old before stays, the firewall fields are the current ones, and the file says so."""
     if old.get('phase') != 'before':
         raise ValueError('--rebaseline needs a before inventory')
+    if current.get('firewall_unreadable'):
+        raise ValueError('the current firewall cannot be read (run as root)')
     if old.get('firewall_algorithm') == FIREWALL_ALGORITHM:
         raise ValueError('the before inventory already uses the current algorithm')
     out = dict(old)
@@ -154,7 +198,8 @@ def rebaseline(old, current, *, now):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    p.add_argument('--phase', choices=('before', 'after'), required=True)
+    p.add_argument('--phase', choices=('before', 'after', 'baseline'), required=True,
+                   help='baseline: taken after NexLoop is deployed (planned ports and nexloop* entries are NexLoop\'s); run as root')
     p.add_argument('--planned-ports', required=True)
     p.add_argument('--data-root', required=True)
     p.add_argument('--out', required=True)

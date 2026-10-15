@@ -364,12 +364,36 @@ def secret_distribution(secret_root, *, compose=None, uids=None):
 INVENTORY_SECTIONS = ('listening', 'containers', 'compose_projects', 'units', 'data_directories')
 
 
+_EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'  # sha256 of nothing
+_USER_SESSION = re.compile(r'user(-runtime-dir)?@\d+\.service')
+
+
+def _nexloop_entry(key, value, prefix):
+    return key.startswith(prefix) or (value or {}).get('owner') == prefix
+
+
 def inventory_compare(before, after, *, prefix='nexloop'):
     """Only NexLoop additions are allowed between the read-only inventories taken before and after a deployment step: every item
-    that existed before is unchanged and present, and the firewall rule set differs only by the NexLoop table. Counts only."""
+    that existed before is unchanged and present, and the firewall rule set differs only by the NexLoop table. Counts only.
+    A baseline (phase baseline, taken after deployment) is compared on its non-NexLoop entries only. Units that start and stop on
+    their own (TriggeredBy) and login sessions (user@<uid>) are listed apart, never a change. A firewall that either side could not
+    read (firewall_unreadable, or the hash of an empty rule set an ordinary account recorded) is a problem, never a pass."""
     problems, added = [], {}
+    baseline = before.get('phase') == 'baseline'
+    on_demand = set(before.get('on_demand_units') or []) | set(after.get('on_demand_units') or [])
+    transient = {'appeared': [], 'disappeared': [], 'changed': []}
     for section in INVENTORY_SECTIONS:
         b, a = before.get(section, {}), after.get(section, {})
+        if baseline:
+            b = {k: v for k, v in b.items() if not _nexloop_entry(k, v, prefix)}
+            a = {k: v for k, v in a.items() if not _nexloop_entry(k, v, prefix)} if section != 'listening' else a
+        if section == 'units':
+            moving = {k for k in set(b) | set(a) if k in on_demand or _USER_SESSION.fullmatch(k)}
+            transient['appeared'] += sorted(k for k in moving if k in a and k not in b)
+            transient['disappeared'] += sorted(k for k in moving if k in b and k not in a)
+            transient['changed'] += sorted(k for k in moving if k in a and k in b and a[k] != b[k])
+            b = {k: v for k, v in b.items() if k not in moving}
+            a = {k: v for k, v in a.items() if k not in moving}
         for key, value in b.items():
             if key not in a:
                 problems.append(f'removed:{section}')
@@ -381,7 +405,12 @@ def inventory_compare(before, after, *, prefix='nexloop'):
             problems.append(f'non_nexloop_addition:{section}')
         added[section] = len(new)
     firewall = {}
-    if before.get('firewall_algorithm') == 2 and after.get('firewall_algorithm') == 2:
+    unreadable = [side for side, inv in (('before', before), ('after', after))
+                  if inv.get('firewall_unreadable') or _EMPTY_SHA256 in (inv.get('firewall_without_nexloop_sha256'), inv.get('firewall_normalized_sha256'))]
+    if unreadable:
+        problems.append('firewall_unreadable')
+        firewall = {'unreadable': unreadable, 'note': 'nft list ruleset was not read (run inventory.py as root); nothing was compared'}
+    elif before.get('firewall_algorithm') == 2 and after.get('firewall_algorithm') == 2:
         # Algorithm 2 (scripts/deploy/inventory.py): rules naming only NexLoop's own networks are left out on both sides.
         if before.get('firewall_normalized_sha256') != after.get('firewall_normalized_sha256'):
             problems.append('changed:firewall')
@@ -398,6 +427,10 @@ def inventory_compare(before, after, *, prefix='nexloop'):
     details = {'problems': sorted(set(problems)), 'added': added}
     if firewall:
         details['firewall'] = firewall
+    if any(transient.values()):
+        details['units_on_demand_or_session'] = {k: v for k, v in transient.items() if v}  # a hint, not a change
+    if baseline:
+        details['before_is_baseline'] = True
     return {'checks': {'existing_services_unchanged': not problems}, 'details': {'inventory': details}}
 
 
@@ -525,8 +558,15 @@ def deploy_gate(spec):
         if stage is not None:
             listening = list(after.get('listening', {}).values())
             merge(port_bindings(listening, stage, role))
-            conflicts = port_bindings(list(before.get('listening', {}).values()), stage, role, before_deploy=True)['details']['port_bindings']
-            checks['planned_ports_free_before'] = not [p for p in conflicts if p.startswith('port_conflict')]
+            if before.get('phase') == 'baseline':
+                # A baseline is taken with NexLoop running: its planned ports must be NexLoop's (no other service on them, the
+                # public ones listening), not free.
+                held = port_bindings(list(before.get('listening', {}).values()), stage, role)['details']['port_bindings']
+                checks['planned_ports_nexloop_at_baseline'] = not held
+                details['planned_ports_at_baseline'] = held
+            else:
+                conflicts = port_bindings(list(before.get('listening', {}).values()), stage, role, before_deploy=True)['details']['port_bindings']
+                checks['planned_ports_free_before'] = not [p for p in conflicts if p.startswith('port_conflict')]
     if spec.get('secret_root'):
         merge(secret_distribution(spec['secret_root'], compose=load('compose_json') if spec.get('compose_json') else None, uids=spec.get('secret_uids')))
     if role == 'app' and spec.get('roles_database_url_file'):

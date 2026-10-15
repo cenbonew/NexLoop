@@ -94,3 +94,85 @@ def test_the_bridge_name_option_and_ipv6_are_honoured():
     assert nets == {'nexloop-x_n': {'bridge': 'nxbr0', 'subnets': ['2001:db8::/64']}}
     lines = I.normalize_ruleset('table ip filter {\n\tchain c {\n\t\tiifname "nxbr0" accept\n\t\tiifname "nxbr01" accept\n\t}\n}\n', nets)
     assert 'iifname "nxbr0" accept' not in lines and 'iifname "nxbr01" accept' in lines  # whole bridge names only
+
+
+# ---- 2026-10-16: unreadable firewall, baseline phase, on-demand units -------------------------------------------------------------
+EMPTY = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+
+
+def test_an_unreadable_firewall_is_recorded_as_such_and_never_compared(monkeypatch):
+    """As an ordinary account `nft list ruleset` prints nothing; the inventories then compared sha256("") with sha256("")."""
+    import hashlib
+    assert hashlib.sha256(b'').hexdigest() == EMPTY
+    monkeypatch.setattr(I.os, 'geteuid', lambda: 1000)
+    assert I._ruleset() is None
+    monkeypatch.setattr(I.os, 'geteuid', lambda: 0)
+    monkeypatch.setattr(I.subprocess, 'run', lambda *a, **k: type('R', (), {'returncode': 1, 'stdout': ''})())
+    assert I._ruleset() is None
+    for before, after in (({'firewall_unreadable': True}, {'firewall_algorithm': 2, **v2()}),
+                          ({'firewall_algorithm': 2, **v2()}, {'firewall_unreadable': True}),
+                          ({'firewall_without_nexloop_sha256': EMPTY}, {'firewall_without_nexloop_sha256': EMPTY})):  # the stage files
+        result = D.inventory_compare(before, after)
+        assert result['checks']['existing_services_unchanged'] is False and 'firewall_unreadable' in result['details']['inventory']['problems']
+        assert result['details']['inventory']['firewall']['note'].startswith('nft list ruleset was not read')
+    with pytest.raises(ValueError, match='cannot be read'):
+        I.rebaseline({'phase': 'before', 'firewall_without_nexloop_sha256': EMPTY}, {'phase': 'before', 'firewall_unreadable': True}, now='x')
+
+
+def test_the_baseline_phase_marks_nexloop_entries_and_the_gate_compares_the_rest():
+    ss = 'LISTEN 0 4096 192.0.2.10:8443 0.0.0.0:*\nLISTEN 0 4096 192.0.2.10:22 0.0.0.0:*\n'
+    assert I.parse_ss(ss, planned={8443}, phase='baseline')['192.0.2.10:8443']['owner'] == 'nexloop'
+    assert I.parse_ss(ss, planned={8443}, phase='before')['192.0.2.10:8443']['owner'] == 'other'
+    common = {'firewall_algorithm': 2, **v2()}
+    baseline = {'phase': 'baseline', **common, 'listening': I.parse_ss(ss, planned={8443}, phase='baseline'),
+                'containers': {'nexloop-app-api-1-1': {'image': 'old', 'owner': 'nexloop'}, 'other-db': {'image': 'x'}},
+                'units': {'nexloop-nft.service': {'owner': 'nexloop'}, 'ssh.service': {}}}
+    after = {'phase': 'after', **common, 'listening': I.parse_ss(ss, planned={8443}, phase='after'),
+             'containers': {'nexloop-app-api-1-1': {'image': 'new'}, 'other-db': {'image': 'x'}}, 'units': {'nexloop-nft.service': {}, 'ssh.service': {}}}
+    result = D.inventory_compare(baseline, after)
+    assert result['checks']['existing_services_unchanged'] is True and result['details']['inventory']['before_is_baseline'] is True
+    # A non-NexLoop change after the baseline is still found.
+    after['containers']['other-db'] = {'image': 'y'}
+    assert D.inventory_compare(baseline, after)['details']['inventory']['problems'] == ['changed:containers']
+    # The same baseline taken with --phase before (today's case): the planned port is 'other' and listening "changes".
+    wrong = {**baseline, 'phase': 'before', 'listening': I.parse_ss(ss, planned={8443}, phase='before')}
+    after['containers']['other-db'] = {'image': 'x'}
+    assert 'changed:listening' in D.inventory_compare(wrong, after)['details']['inventory']['problems']
+
+
+def test_the_gate_checks_planned_ports_held_by_nexloop_at_a_baseline(tmp_path):
+    from nexloop_eios import stage_render as render
+    STAGE = ROOT / 'deploy/stage'
+    env = tmp_path / 'stage.env'
+    env.write_text((STAGE / 'stage.env.example').read_text())
+    env.chmod(0o600)
+    values = render.load_env(env)
+    addr, port, redirect = values['APP_HOST_ADDR'], int(values['GATEWAY_HTTPS_PORT']), int(values['GATEWAY_REDIRECT_PORT'])
+    listening = {f'{addr}:{p}': {'address': addr, 'port': p, 'owner': 'nexloop'} for p in (port, redirect)}
+    common = {'firewall_algorithm': 2, **v2(), 'listening': listening}
+    def gate(before):
+        files = {}
+        for name, value in (('before', before), ('after', {'phase': 'after', **common})):
+            path = tmp_path / f'{name}-{len(list(tmp_path.iterdir()))}.json'
+            path.write_text(json.dumps(value))
+            files[name] = str(path)
+        result = D.deploy_gate({'host_role': 'app', 'stage_env': str(env), 'inventory_before': files['before'], 'inventory_after': files['after']})
+        return result['checks']
+    held = gate({'phase': 'baseline', **common})
+    assert held['planned_ports_nexloop_at_baseline'] is True and 'planned_ports_free_before' not in held
+    other = gate({'phase': 'baseline', **common, 'listening': {f'{addr}:{port}': {'address': addr, 'port': port, 'owner': 'other'}}})
+    assert other['planned_ports_nexloop_at_baseline'] is False
+    assert gate({'phase': 'before', **common, 'listening': {}})['planned_ports_free_before'] is True
+
+
+def test_on_demand_units_and_login_sessions_are_a_hint_not_a_change():
+    common = {'firewall_algorithm': 2, **v2()}
+    before = {**common, 'units': {'ssh.service': {}, 'uuidd.service': {}, 'user@1000.service': {}}, 'on_demand_units': ['uuidd.service']}
+    after = {**common, 'units': {'ssh.service': {}, 'fwupd.service': {}, 'user@120.service': {}}, 'on_demand_units': ['fwupd.service', 'uuidd.service']}
+    result = D.inventory_compare(before, after)
+    assert result['checks']['existing_services_unchanged'] is True
+    assert result['details']['inventory']['units_on_demand_or_session'] == {
+        'appeared': ['fwupd.service', 'user@120.service'], 'disappeared': ['user@1000.service', 'uuidd.service']}
+    # An ordinary service that disappears is still a change.
+    after['units'].pop('ssh.service')
+    assert D.inventory_compare(before, after)['details']['inventory']['problems'] == ['removed:units']
