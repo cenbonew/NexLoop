@@ -419,29 +419,68 @@ def test_the_owner_publishes_the_relay_strategy_and_the_relay_issues_the_run(ass
     assert run == (1,), run
 
 
-def set_trial_budget(st, admin):
-    """real_tenant_init step 4 (Budget.set) on the owner's own workbench session after workbench_roles --apply."""
+def budget_cli(st, *, username='dryrun-owner', password_file=None):
+    """G-BUDGET-CLI: scripts/nx037/real_tenant_init.py budget (Budget.set on the owner's own workbench session). Returns (code, out, err)."""
+    import subprocess
     import sys
-    from datetime import datetime as _dt
-    from nexloop_eios import context_strategy_setup as C
-    from nexloop_eios.backend import open_backend
-    from nexloop_eios.browser_authorization import authenticate_browser_business
-    from nexloop_eios.goal_controls import GoalGovernedActions
-    sys.path.insert(0, str(A.ROOT / 'scripts/nx037'))
-    import real_tenant_init as I
     catalog = st.root / 'value-catalog.json'
     if not catalog.exists():
         A.private(st.root, catalog.name, '{}')
-    now = _dt.now(UTC)
-    p = I.parameters(tenant=TENANT, owner_principal='owner-principal-synthetic', value_catalog=catalog, channel_ref='channel:webchat:synthetic',
-                     period_start=(now - timedelta(hours=1)).isoformat(), period_end=(now + timedelta(days=3)).isoformat())
-    request = I.budget_request(p)
-    recipe = {'tenant_id': TENANT, 'workbench_application_id': 'stage-workbench'}
-    rate_key = bytes.fromhex((st.out / 'app' / 'secrets' / 'api' / 'browser-rate.key').read_text().strip())
-    with open_backend(database_url=st.api_dsn.read_text().strip(), artifact_root=st.artifacts, signing_key_file=st.signing_key, signing_key_id='stage-1') as api, \
-            C.owner_session((st.root / 'identity-dsn').read_text().strip(), rate_key, recipe, 'dryrun-owner', (st.root / 'owner-password').read_text().strip(),
-                            'https://127.0.0.1:8443') as session:
-        owner = GoalGovernedActions(api._pool, authenticate_browser_business(api._pool, session, world='real'), api._signer)
-        owner.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
-    state = admin.execute("select authz.nexloop_nx037_tenant_state(%s,'real')", (TENANT,)).fetchone()[0]
-    assert state['budgets']['model']['limit'] in ('100', '100.00', 100) or float(state['budgets']['model']['limit']) == 100.0, state['budgets']
+    recipe = st.root / 'budget-recipe.json'
+    if not recipe.exists():
+        A.private(st.root, recipe.name, json.dumps({'schema_version': 'nexloop-budget-setup/1', 'tenant_id': TENANT,
+                                                    'workbench_application_id': 'stage-workbench', 'browser_origin': 'https://127.0.0.1:8443'}))
+    names = st.root / ('username-' + username)
+    if not names.exists():
+        A.private(st.root, names.name, username)
+    if not hasattr(st, 'budget_period'):
+        now = datetime.now(UTC).replace(microsecond=0)
+        st.budget_period = ((now - timedelta(hours=1)).isoformat(), (now + timedelta(days=3)).isoformat())
+    argv = [sys.executable, str(A.ROOT / 'scripts/nx037/real_tenant_init.py'), 'budget', '--tenant', TENANT, '--owner-principal', 'owner-principal-synthetic',
+            '--value-catalog', str(catalog), '--channel-ref', 'channel:webchat:synthetic', '--period-start', st.budget_period[0],
+            '--period-end', st.budget_period[1], '--recipe', str(recipe), '--username-file', str(names),
+            '--password-file', str(password_file or st.root / 'owner-password'), '--database-url-file', str(st.api_dsn),
+            '--identity-database-url-file', str(st.root / 'identity-dsn'), '--browser-rate-key-file', str(st.out / 'app' / 'secrets' / 'api' / 'browser-rate.key'),
+            '--signing-key-file', str(st.signing_key), '--signing-key-id', 'stage-1', '--artifact-root', str(st.artifacts)]
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=60, env={**__import__('os').environ, 'PYTHONPATH': str(A.ROOT / 'packages/eios-core/src')})
+    return done.returncode, done.stdout, done.stderr
+
+
+def model_budget(admin):
+    return admin.execute("select authz.nexloop_nx037_tenant_state(%s,'real')", (TENANT,)).fetchone()[0]['budgets'].get('model')
+
+
+def set_trial_budget(st, admin):
+    """real_tenant_init step 4 (Budget.set) through `real_tenant_init.py budget` after workbench_roles --apply; again: replayed."""
+    code, out, err = budget_cli(st)
+    assert code == 0, (out, err)
+    first = json.loads(out)
+    assert first['executed'] and first['replayed'] is False and first['budget_kind'] == 'model'
+    password = (st.root / 'owner-password').read_text()
+    assert password not in out + err and 'dryrun-owner' not in out + err  # credentials are never printed
+    code, out, err = budget_cli(st)
+    again = json.loads(out)
+    assert code == 0 and again['replayed'] is True and again['request_id'] == first['request_id']
+    budget = model_budget(admin)
+    assert float(budget['limit']) == float(first['limit_amount']), budget
+    return first
+
+
+def test_budget_cli_refuses_a_non_owner_and_a_password_file_that_is_not_private(assembled, admin, capsys):
+    """G-BUDGET-CLI negatives: a workbench Human who is not an owner member (no Budget.set grant) is refused; a password file that is
+    not private (mode 0644) is refused before any login. Nothing is written in either case."""
+    import os
+    st = assembled
+    owner_workbench(st, admin)
+    create_human(st, application='stage-workbench', username='dryrun-other', label='other')
+    code, out, err = budget_cli(st, username='dryrun-other', password_file=st.root / 'other-password')
+    assert code == 2 and json.loads(out)['ok'] is False, (code, out, err)
+    assert model_budget(admin) is None
+    loose = st.root / 'owner-password-loose'
+    loose.write_text((st.root / 'owner-password').read_text())
+    os.chmod(loose, 0o644)
+    code, out, err = budget_cli(st, password_file=loose)
+    assert code == 2 and json.loads(out) == {'ok': False, 'detail': 'PermissionError'}, (code, out, err)
+    assert model_budget(admin) is None
+    # The owner itself succeeds afterwards (the refusals left no state behind).
+    assert set_trial_budget(st, admin)['executed'] is True
