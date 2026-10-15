@@ -289,3 +289,99 @@ def test_signing_key_registers_a_second_key_without_changing_any_authority(pg, a
     S.write_private(out / 'management' / 'signing.key.hex', random.token_bytes(32).hex())
     assert S.main(args) == 2 and 'other key material' in capsys.readouterr().out
     assert publications() == published + 1
+
+
+def test_publish_makes_every_granted_catalog_action_readable_by_its_grantee_and_is_idempotent(pg, admin, tree, tmp_path, capsys):  # noqa: F811
+    """A1 T3: bootstrap, register, then `stage_secrets.py publish` (configurator window). Before: the relay route read fails as
+    run-41 observed (published action unavailable). After: every Action the catalog publishes and the merged manifest grants is
+    read (signed definition bundle, nexloop_read_action_bundle) by each grantee's own credential, which is the first call each
+    exiting worker makes; a second publish sends nothing; the configurator is NOLOGIN again; a conflicting same-version Action is
+    refused before anything is written."""
+    from nexloop_eios import catalog_publish as P
+    from nexloop_eios.action_definitions import PostgresActionDefinitionReader
+    from nexloop_eios.postgres_artifacts import AuthoritySigner
+
+    def private(name, text):
+        path = tmp_path / name
+        path.write_text(text)
+        path.chmod(0o600)
+        return path
+    bootstrap(admin)
+    socket_dsn = private('bootstrap-dsn', make_conninfo(pg, user='nexloop_bootstrap'))
+    expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+    window = ['--bootstrap-dsn-file', str(socket_dsn), '--signing-key-id', 'stage-1']
+    S.setup_credentials(tree['out'])  # A3: the business/catalog setup credentials (run sheet: before register)
+    assert S.main(['register', '--out', str(tree['out']), '--tenant', TENANT, *window, '--credential-expires-at', expires]) == 0
+    capsys.readouterr()
+    manifest, stage = S.merged_manifest()
+    tokens = json.loads((tree['out'] / 'management' / 'service-secrets.json').read_text())
+    assert any(k.startswith('setup:') for k in tokens)
+    signer = AuthoritySigner('stage-1', bytes.fromhex((tree['out'] / 'management' / 'signing.key.hex').read_text()))
+    compiled = P.compile_catalog(TENANT, **S.CATALOG)
+    catalog = {a['definition']['stable_name'] for a in compiled['actions']}
+    reads = sorted({(g['principal'], g['resource_id'].split(':')[2]) for g in manifest['grants']
+                    if g['resource_type'] == 'action' and g['resource_id'].split(':')[2] in catalog})
+    roles = {p['role']: p for p in manifest['principals']}
+    # Only roles that read definition bundles (0016 grants nexloop_read_action_bundle to these three); the scheduler's queue grant
+    # is checked by signed proof, not by a definition read.
+    reads = [(r, n) for r, n in reads if roles[r]['database_role'] in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker')]
+    files = {}
+    for path, role in stage['credential_files'].items():
+        files.setdefault(role, path)
+    pools = {}
+
+    def read(role, name):
+        principal = roles[role]
+        pool = pools[principal['database_role']]
+        token = next(t for k, t in tokens.items() if k.split(':', 1)[1] == files[role])
+        session = authenticate_service(pool, token, world='real')
+        return PostgresActionDefinitionReader(pool, session, signer).get(name, 1)
+    database_roles = sorted({roles[r]['database_role'] for r, _ in reads})
+    from contextlib import ExitStack
+    with ExitStack() as stack:
+        for role in database_roles:
+            pools[role] = stack.enter_context(open_core(make_conninfo(pg, user=role)))
+        with pytest.raises(Exception) as before:
+            read('message_relay', 'nexloop.conversation.route')
+        assert 'published action unavailable' in str(before.value), before.value  # run-41 §1
+        args = ['publish', '--out', str(tree['out']), '--tenant', TENANT, *window]
+        assert S.main(args + ['--dry-run']) == 0
+        planned = json.loads(capsys.readouterr().out)
+        assert planned['dry_run'] is True and len(planned['actions_to_publish']) == len(compiled['actions']) and not planned['conflicts']
+        assert S.main(args) == 0
+        first = json.loads(capsys.readouterr().out)
+        assert first['changed'] is True and (first['object_types'], first['actions'], first['functions']) == (20, 68, 2)
+        assert admin.execute("select rolcanlogin from pg_roles where rolname='nexloop_configurator'").fetchone() == (False,)
+        failures = []
+        for role, name in reads:
+            try:
+                definition, _ = read(role, name)
+                assert definition.stable_name == name
+            except Exception as error:  # noqa: BLE001 - collected and reported together
+                failures.append((role, name, type(error).__name__, str(error)[:120]))
+        assert not failures, failures
+        assert {'message_relay', 'relay_source', 'relay_planner', 'effect_executor', 'commitment_keeper', 'commercial_recorder'} <= {r for r, _ in reads}
+    # Idempotent: nothing to send.
+    assert S.main(args) == 0 and json.loads(capsys.readouterr().out)['changed'] is False
+    # Review of a new type takes the tenant's create/edit snapshots (0101 nexloop_review_type_action_capabilities: first by
+    # resource_id per capability name). With the role Actions on 1.1.0 it must still be the shared 1.0.0 snapshots.
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))  # forced row security, as the review session sets it
+    caps = admin.execute('select ontology.nexloop_review_type_action_capabilities(%s)', (TENANT,)).fetchone()[0]
+    assert {n: (c['capability_version'], c['required_scopes']) for n, c in caps.items()} == {
+        'ontology.object.create': ('1.0.0', ['action.execute']), 'ontology.object.edit': ('1.0.0', ['action.execute'])}
+    # A same-version Action with other content is refused before writing (0162 would also raise 40001).
+    changed = json.loads(json.dumps(compiled))
+    changed['actions'][0]['definition']['created_by'] = 'someone-else'
+    lineage = [{'stable_name': a['definition']['stable_name'], 'version': 1, 'world': 'real', 'active': True, 'definition': a['definition'],
+                'capability': a['capability']} for a in compiled['actions']]
+    pending, conflicts = P.diff(changed, lineage)
+    assert not pending and conflicts == [changed['actions'][0]['definition']['stable_name'] + ':1']
+
+
+def test_publish_dry_run_without_a_database_compiles_and_emits_the_worker_configuration(tmp_path, capsys):
+    out = tmp_path / 'config'
+    assert S.main(['publish', '--out', str(tmp_path), '--tenant', TENANT, '--dry-run', '--emit-config', str(out)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert (result['compared'], result['object_types'], result['actions'], result['functions']) == (False, 20, 68, 2)
+    assert sorted(p.name for p in out.iterdir()) == sorted(result['emitted']) and all(oct(p.stat().st_mode)[-3:] == '600' for p in out.iterdir())
+    assert json.loads((out / 'claim-match.json').read_text()) == {}

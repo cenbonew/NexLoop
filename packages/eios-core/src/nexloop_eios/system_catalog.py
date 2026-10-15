@@ -13,18 +13,14 @@ effect_contexts.py, context_artifacts.py, conversation_messages.py). Every Actio
 0050 refuses an Action whose snapshot does not (mig/0162), the fixtures do the same.
 """
 from dataclasses import dataclass
-import hashlib
 
 from eios.ontology.definitions import (ActionApprovalMode, ActionChangeScope, ActionDefinition, ActionGovernanceContract, ActionIdempotencyPolicy,
     ActionRiskLevel, DefinitionStatus, FunctionDefinition, OntologySchemaReference, OntologySchemaType)
 from eios.ontology.semantics import schema_contract_digest
-from eios.ontology.version_resolution import CapabilityContractKind, CapabilityContractSnapshot, validate_capability_binding
-from nexloop_eios.postgres_artifacts import canonical_payload
+from eios.ontology.version_resolution import validate_capability_binding
 
 OBJECT_CREATE = 'ontology.object.create'
 OBJECT_EDIT = 'ontology.object.edit'
-ACTION_CAPABILITY_VERSION = '1.0.0'  # the fixtures' binding (tests/test_postgres_action_claims.py:request)
-FUNCTION_CAPABILITY_VERSION = '1'    # tests/local_message_assembly_fixture.py:assembled_message
 # The service effect input (tests/runtime_effect_fixture.py:runtime_effect_plan, tests/message_runtime_fixture.py:message_plan).
 MESSAGE_INPUT = {'type': 'object', 'properties': {'message': {'type': 'string', 'minLength': 1}}, 'required': ['message'], 'additionalProperties': False}
 RECONCILE_INPUT = {'type': 'object', 'properties': {'intent_id': {'type': 'string'}, 'effect_fence': {'type': 'integer'}, 'query_id': {'type': 'string'}},
@@ -71,6 +67,7 @@ class ActionSpec:
     key_fields: tuple = ('request_id',)
     scopes: tuple = ('action.execute',)
     input: str | None = None  # key of INPUTS
+    capability_version: str = '1.0.0'  # capabilities.v1.json
 
 
 def _inputs():
@@ -83,11 +80,14 @@ def _inputs():
             'scope_denial_record': record_schema()}
 
 
-def _create(name, group, source, scopes=('action.execute',)):
-    return ActionSpec(name + '.create', (name,), OBJECT_CREATE, group, source, scopes=scopes)
+def _create(name, group, source, scopes=('action.execute',), capability_version='1.0.0'):
+    return ActionSpec(name + '.create', (name,), OBJECT_CREATE, group, source, scopes=scopes, capability_version=capability_version)
 
 
 ROLES = ('ontology.roles.manage',)
+# Role Actions bind the 1.1.0 snapshots of the shared capability names (required_scopes ontology.roles.manage): 0057 and 0081 require
+# the scope in the definition, the stored snapshot and the caller credential, and accept only the shared names (0057 whitelist).
+ROLE_CAPABILITY = '1.1.0'
 # Design §1.2, in the order of the name list (deploy/configuration/system-catalog-names.v1.json).
 ACTIONS = (
     # message-relay (and reply-guarantor fallback)
@@ -125,13 +125,13 @@ ACTIONS = (
     _create('ServiceOffering', 'setup', 'tests/runtime_effect_fixture.py:install_runtime_catalog'),
     _create('ConsumerServiceOffering', 'setup', 'tests/runtime_effect_fixture.py:install_runtime_catalog'),
     # role runtime (plan-reevaluator)
-    _create('RoleDefinition', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
-    _create('ConsumerRoleLink', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
-    _create('RoleExecutionCeiling', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
-    _create('RoleAssignmentScope', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
-    ActionSpec('ConsumerRoleLink.edit', ('ConsumerRoleLink',), 'consumer.edit', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
-    ActionSpec('RoleExecutionCeiling.edit', ('RoleExecutionCeiling',), OBJECT_EDIT, 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
-    ActionSpec('RoleAssignmentScope.edit', ('RoleAssignmentScope',), OBJECT_EDIT, 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES),
+    _create('RoleDefinition', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
+    _create('ConsumerRoleLink', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
+    _create('RoleExecutionCeiling', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
+    _create('RoleAssignmentScope', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
+    ActionSpec('ConsumerRoleLink.edit', ('ConsumerRoleLink',), 'consumer.edit', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
+    ActionSpec('RoleExecutionCeiling.edit', ('RoleExecutionCeiling',), OBJECT_EDIT, 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
+    ActionSpec('RoleAssignmentScope.edit', ('RoleAssignmentScope',), OBJECT_EDIT, 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
     # Typed on the service effect Action's types (the fixture copies nexloop.service.request's object types).
     ActionSpec('nexloop.context.bind_role', ('Consumer',), 'nexloop.context.bind_role', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan',
                input='role_context_bind'),
@@ -210,16 +210,17 @@ def _ref(tenant, schema):
                                    schema_digest=schema_contract_digest(schema))
 
 
-def action_capability(spec, input_schema):
-    """The frozen snapshot: atomic, idempotent, with side effects (0050); schema_hash over the capability name, version and input
-    contract (the fixtures used a placeholder; T2's capabilities.v1.json replaces this derivation by its versioned list)."""
-    digest = hashlib.sha256(canonical_payload({'capability': spec.capability, 'version': ACTION_CAPABILITY_VERSION, 'input': input_schema}).encode()).hexdigest()
-    return CapabilityContractSnapshot(capability_name=spec.capability, capability_version=ACTION_CAPABILITY_VERSION, schema_hash=digest,
-                                      kind=CapabilityContractKind.ATOMIC, has_side_effects=True, idempotent=True, required_scopes=spec.scopes)
+def _snapshot(snapshots, name, version='1.0.0'):
+    """The one source of capability snapshots: deploy/configuration/capabilities.v1.json (catalog_manifests.snapshots(), keyed
+    (name, version)); the builders never derive a snapshot themselves (dispatcher ruling 3, 2026-10-15)."""
+    if (name, version) not in snapshots:
+        raise ValueError(f'capability snapshot not declared: {name} {version}')
+    return snapshots[(name, version)]
 
 
-def compile_system_actions(*, tenant, created_by, created_at, select=None):
-    """[{'definition', 'capability'}] for ACTIONS (or the `select` names), in the 0050 manifest shape. Deterministic."""
+def compile_system_actions(*, tenant, created_by, created_at, snapshots, select=None):
+    """[{'definition', 'capability'}] for ACTIONS (or the `select` names), in the 0050 manifest shape. Deterministic.
+    snapshots: catalog_manifests.snapshots(capabilities manifest)."""
     types = object_types()
     inputs = _inputs()
     rows = []
@@ -228,7 +229,7 @@ def compile_system_actions(*, tenant, created_by, created_at, select=None):
             continue
         refs = tuple(_ref(tenant, types[t]) for t in spec.types)
         input_schema = inputs[spec.input] if spec.input else None
-        capability = action_capability(spec, input_schema)
+        capability = _snapshot(snapshots, spec.capability, spec.capability_version)
         definition = ActionDefinition(tenant_id=tenant, stable_name=spec.name, version=1, status=DefinitionStatus.PUBLISHED, created_by=created_by,
             created_at=created_at, required_scopes=spec.scopes, capability_binding=capability.binding(), object_types=refs,
             governance=ActionGovernanceContract(change_scope=ActionChangeScope(object_types=refs, target_systems=spec.target_systems),
@@ -242,18 +243,15 @@ def compile_system_actions(*, tenant, created_by, created_at, select=None):
     return rows
 
 
-def compile_system_functions(*, tenant, created_by, created_at):
-    """[{'definition', 'capability'}] for FUNCTIONS: read-only (no side effects), scope function.execute; schema_hash over the
-    input and output schemas as the fixtures compute it."""
+def compile_system_functions(*, tenant, created_by, created_at, snapshots):
+    """[{'definition', 'capability'}] for FUNCTIONS (read-only, no side effects); snapshots as compile_system_actions."""
     types = object_types()
     rows = []
     for spec in FUNCTIONS:
         input_schema, output_schema = _function_schemas(spec.schemas)
-        digest = hashlib.sha256(canonical_payload({'input': input_schema, 'output': output_schema}).encode()).hexdigest()
-        capability = CapabilityContractSnapshot(capability_name=spec.capability, capability_version=FUNCTION_CAPABILITY_VERSION, schema_hash=digest,
-            kind=CapabilityContractKind.ATOMIC, has_side_effects=False, idempotent=True, required_scopes=('function.execute',))
+        capability = _snapshot(snapshots, spec.capability)
         definition = FunctionDefinition(tenant_id=tenant, stable_name=spec.name, version=1, status=DefinitionStatus.PUBLISHED, created_by=created_by,
-            created_at=created_at, required_scopes=('function.execute',), capability_binding=capability.binding(),
+            created_at=created_at, required_scopes=capability.required_scopes, capability_binding=capability.binding(),
             applies_to=tuple({'object_type': _ref(tenant, types[t])} for t in spec.types), input_schema=input_schema, output_schema=output_schema)
         validate_capability_binding(definition, capability)
         rows.append({'definition': definition.model_dump(mode='json'), 'capability': capability.model_dump(mode='json')})

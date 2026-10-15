@@ -6,6 +6,8 @@ scopes, object types, target systems, idempotency keys, risk, approval, policy r
 output and receipt schemas, capability name, kind, side effects, idempotency). Not compared: timestamps, authors, digests and
 capability schema hashes (placeholders in the fixtures), and the Consumer schema (the catalog publishes the fresh-tenant
 profile declaration; design §1.1)."""
+import json
+
 import pytest
 
 from nexloop_eios import system_catalog as C
@@ -16,6 +18,7 @@ from effect_execution_fixture import execution_plan  # noqa: F401
 from test_scope_denials import context_message, active_worker, denial_plan, declare_record_authority  # noqa: F401
 from test_enterprise_slot_relay_pg import publish_enterprise_action
 from datetime import UTC, datetime
+from pathlib import Path
 
 from support.tenants import TENANT_A
 
@@ -54,8 +57,16 @@ def function_key(definition, capability):
             'idempotent': capability['idempotent'], 'capability_scopes': sorted(capability['required_scopes'])}
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def snapshots():
+    from nexloop_eios import catalog_manifests
+    return catalog_manifests.snapshots(catalog_manifests.load(ROOT / 'deploy/configuration/capabilities.v1.json'))
+
+
 def built(tenant):
-    args = dict(tenant=tenant, created_by='catalog-check', created_at=datetime(2026, 10, 15, tzinfo=UTC))
+    args = dict(tenant=tenant, created_by='catalog-check', created_at=datetime(2026, 10, 15, tzinfo=UTC), snapshots=snapshots())
     return ({r['definition']['stable_name']: action_key(r['definition'], r['capability']) for r in C.compile_system_actions(**args)},
             {r['definition']['stable_name']: function_key(r['definition'], r['capability']) for r in C.compile_system_functions(**args)})
 
@@ -137,3 +148,104 @@ def test_builder_keys_named_by_t2_exist_and_build():
             'context_binding_schema', 'role_context_binding_schema', 'enterprise_deliver_schema', 'message_assignment_input',
             'service_receipt_function', 'scope_denial_function'}
     assert keys <= set(C.builders()) and all(C.builders()[k]() is not None for k in keys)
+
+
+def test_the_publication_equals_the_builders_and_every_snapshot_is_the_capabilities_manifest_entry():
+    """T3 (dispatcher rulings 1-3): the catalog compiled from the manifests (catalog_publish) is the builders' catalog item by item,
+    every snapshot is the capabilities.v1.json entry it names, role Actions carry ontology.roles.manage in both (0057/0081), and
+    nexloop.enterprise.deliver targets the service system."""
+    import sys
+    sys.path.insert(0, str(ROOT / 'scripts/deploy'))
+    import stage_secrets as S
+    from nexloop_eios import catalog_publish as P
+    tenant = '00000000-0000-4000-8000-000000000001'
+    compiled = P.compile_catalog(tenant, **S.CATALOG)
+    snaps = snapshots()
+    for item in compiled['actions'] + compiled['functions']:
+        binding = item['definition']['capability_binding']
+        assert item['capability'] == snaps[(binding['capability_name'], binding['capability_version'])].model_dump(mode='json'), binding
+    created_at = datetime.fromisoformat(json.loads((ROOT / 'deploy/configuration/system-actions.v1.json').read_text())['valid_from'])
+    args = dict(tenant=tenant, created_by='nexloop-system-catalog', created_at=created_at, snapshots=snaps)
+    ours = {r['definition']['stable_name']: r for r in C.compile_system_actions(**args) + C.compile_system_functions(**args)}
+    published = {r['definition']['stable_name']: r for r in compiled['actions'] + compiled['functions']}
+    assert set(ours) <= set(published)
+    for name, row in ours.items():
+        assert row == published[name], name
+    roles = [s for s in C.ACTIONS if s.group == 'role_run' and s.name != 'nexloop.context.bind_role']
+    for spec in roles:
+        row = published[spec.name]
+        assert 'ontology.roles.manage' in row['definition']['required_scopes'] and 'ontology.roles.manage' in row['capability']['required_scopes'], spec.name
+    assert published['nexloop.enterprise.deliver']['definition']['governance']['change_scope']['target_systems'] == ['service']
+    # 0101 nexloop_review_type_action_capabilities takes, per capability name, the snapshot of the first Action by resource_id. That
+    # Action must bind 1.0.0 (not a role Action's 1.1.0): checked here on the catalog, on PostgreSQL in test_stage_register_pg.
+    for name in ('ontology.object.create', 'ontology.object.edit'):
+        first = min((f"eios:action:{n}:1", r) for n, r in published.items() if r['capability']['capability_name'] == name)[1]
+        assert first['capability']['capability_version'] == '1.0.0', name
+
+
+def test_the_seven_role_actions_as_published_execute_through_0057_and_0081(runtime_effect_plan, admin):  # noqa: F811
+    """Dispatcher ruling (2026-10-15): role Actions bind the 1.1.0 snapshots. On clean PostgreSQL the role types and the seven role
+    Actions exactly as catalog_publish compiles them are installed (as the fixtures install definitions), and a maintainer holding
+    ontology.roles.manage creates the ceiling, role, scope and link, edits the ceiling and scope, and ends the link through the
+    real SQL paths (0057 create/edit, 0081 role policy management)."""
+    import sys
+    from datetime import timedelta
+    from psycopg.types.json import Jsonb
+    from eios.authz.operations import Operation
+    from eios.authz.resources import ResourceType
+    from nexloop_eios import catalog_publish as P
+    from nexloop_eios.role_mapping import RoleMappingPort
+    from nexloop_eios.role_policies import RolePolicyPort
+    import runtime_effect_fixture as fixture
+    sys.path.insert(0, str(ROOT / 'scripts/deploy'))
+    import stage_secrets as S
+    plan = runtime_effect_plan
+    tenant, api, consumer, goal, step = plan['tenant'], plan['api'], plan['consumer'], plan['goal'], plan['step']
+    compiled = P.compile_catalog(tenant, **S.CATALOG)
+    role_names = {s.name for s in C.ACTIONS if s.group == 'role_run' and s.name != 'nexloop.context.bind_role'}
+    role_types = {'RoleDefinition', 'ConsumerRoleLink', 'RoleExecutionCeiling', 'RoleAssignmentScope'}
+    for row in compiled['object_types']:
+        if row['type_name'] in role_types:
+            admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)', (tenant, row['type_name'], Jsonb(row)))
+    for item in compiled['actions']:
+        d = item['definition']
+        if d['stable_name'] in role_names:
+            assert item['capability']['capability_version'] == '1.1.0' and item['capability']['required_scopes'] == ['ontology.roles.manage']
+            admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
+                          (tenant, 'real', f"eios:action:{d['stable_name']}:1", Jsonb(d), Jsonb(item['capability'])))
+        else:
+            assert item['capability']['capability_version'] == '1.0.0', d['stable_name']
+    targets = [('eios:action:' + n + ':1', ResourceType.ACTION, Operation.EXECUTE) for n in sorted(role_names)]
+    token = fixture.seed_multi_uuid(admin, tenant, targets, suffix='-catalog-role-maintainer', extra_scopes=('ontology.roles.manage',))
+    from datetime import UTC, datetime as dt
+    now = dt.now(UTC)
+    valid = dict(valid_from=(now - timedelta(seconds=1)).isoformat(), valid_until=(now + timedelta(minutes=5)).isoformat())
+    budget = {'maximum_model_turns': 8, 'maximum_tool_calls': 8, 'active_timeout_seconds': 60, 'maximum_cost': '1.0', 'currency': 'USD'}
+
+    def session():
+        return api.authenticate(token, world='real')
+    ceiling = RolePolicyPort(session()).create(kind='RoleExecutionCeiling', intent_id='catalog-ceiling', properties=dict(active=True,
+        action_resources=['eios:action:' + fixture.EFFECT + ':1'], consumer_ids=[consumer], goal_ids=[goal], step_ids=[step], budget=budget, effect_units=1, **valid))
+    role = RoleMappingPort(session()).create_role(intent_id='catalog-role', name='catalog-role', responsibility='governed service responsibility',
+                                                 ceiling_ref=ceiling['object_id'], **valid)
+    scope = RolePolicyPort(session()).create(kind='RoleAssignmentScope', intent_id='catalog-scope', properties=dict(active=True, role_id=role['object_id'],
+        consumer_id=consumer, goal_ids=[goal], step_ids=[step], **valid))
+    link = RoleMappingPort(session()).assign(intent_id='catalog-link', consumer_id=consumer, role_id=role['object_id'], scope=scope['object_id'], **valid)
+    # Edits also need the object/property EDIT grants on the objects just created (as tests/role_run_fixture.py grants them).
+    from nexloop_eios.role_policies import CEILING_FIELDS, SCOPE_FIELDS
+    edit_targets = [('eios:action:' + n + ':1', ResourceType.ACTION, Operation.EXECUTE) for n in ('RoleExecutionCeiling.edit', 'RoleAssignmentScope.edit',
+                                                                                                 'ConsumerRoleLink.edit')]
+    for kind, obj, fields in (('RoleExecutionCeiling', ceiling['object_id'], CEILING_FIELDS), ('RoleAssignmentScope', scope['object_id'], SCOPE_FIELDS),
+                              ('ConsumerRoleLink', link['object_id'], ('active',))):
+        edit_targets.append(('eios:object:' + kind + '/' + obj, ResourceType.OBJECT, Operation.EDIT))
+        edit_targets.extend(('eios:property:' + kind + '/' + obj + '/' + f, ResourceType.PROPERTY, Operation.EDIT) for f in fields)
+    editor = fixture.seed_multi_uuid(admin, tenant, edit_targets, suffix='-catalog-role-editor', extra_scopes=('ontology.roles.manage',))
+    for kind, created in (('RoleExecutionCeiling', ceiling), ('RoleAssignmentScope', scope)):
+        properties, revision = admin.execute('select properties,nexloop_revision from ontology.objects where tenant_id=%s and object_id=%s',
+                                             (tenant, created['object_id'])).fetchone()
+        RolePolicyPort(api.authenticate(editor, world='real')).edit(kind=kind, intent_id='catalog-edit-' + kind, object_id=created['object_id'], expected_revision=revision,
+                                       properties={**properties, 'active': False})
+    RoleMappingPort(api.authenticate(editor, world='real')).end(intent_id='catalog-end', link_id=link['object_id'], expected_revision=1)
+    rows = admin.execute("select type_name,nexloop_revision from ontology.objects where tenant_id=%s and type_name = any(%s) order by type_name",
+                         (tenant, sorted(role_types))).fetchall()
+    assert rows == [('ConsumerRoleLink', 2), ('RoleAssignmentScope', 2), ('RoleDefinition', 1), ('RoleExecutionCeiling', 2)]

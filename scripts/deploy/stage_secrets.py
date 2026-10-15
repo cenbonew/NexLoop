@@ -695,6 +695,46 @@ def setup_credentials(out, principals_path=PRINCIPALS):
     return {'changed': bool(added), 'added': added, 'setup_files': len(wanted)}
 
 
+CATALOG = {'capabilities_path': ROOT / 'deploy/configuration/capabilities.v1.json', 'system_actions_path': ROOT / 'deploy/configuration/system-actions.v1.json',
+           'business_actions_path': ROOT / 'deploy/configuration/business-actions.v1.json',
+           'system_types_path': ROOT / 'deploy/ontology/system-object-types.v1.json', 'business_types_path': ROOT / 'deploy/ontology/business-object-types.v1.json'}
+# Worker configuration files that need no database read (run-41 §4.1, design §4): the shipped settings and an empty match
+# configuration. recall-types.json and relay-run-profile.json read the published state: scripts/deploy/tenant_config.py (T6).
+WORKER_CONFIG = {'commitments.json': 'deploy/configuration/commitments.v1.json', 'commercial.json': 'deploy/configuration/commercial.v1.json',
+                 'plan-reevaluation.json': 'deploy/configuration/plan-reevaluation.v2.json', 'reply-guarantee.json': 'deploy/configuration/reply-guarantee.v3.json'}
+
+
+def emit_worker_config(directory):
+    directory = Path(directory)
+    written = []
+    for name, source in WORKER_CONFIG.items():
+        _write(directory / name, (ROOT / source).read_text())
+        written.append(name)
+    _write(directory / 'claim-match.json', '{}\n')
+    return written + ['claim-match.json']
+
+
+def publish_main(args):
+    from nexloop_eios import catalog_publish as P
+    compiled = P.compile_catalog(args.tenant, **CATALOG)
+    counts = {'object_types': len(compiled['object_types']), 'actions': len(compiled['actions']), 'functions': len(compiled['functions'])}
+    emitted = emit_worker_config(args.emit_config) if args.emit_config else None
+    if args.dry_run and not (args.configurator_dsn_file or args.bootstrap_dsn_file):
+        return {'dry_run': True, 'compared': False, **counts, 'emitted': emitted}
+    if not args.signing_key_id or bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file):
+        raise Refused('publish needs one of --configurator-dsn-file / --bootstrap-dsn-file and --signing-key-id (or --dry-run alone)')
+    signing = Path(args.out) / 'management' / 'signing.key.hex'
+
+    def run(dsn):
+        return P.publish(compiled, args.tenant, database_url_file=dsn, signing_key_file=signing, signing_key_id=args.signing_key_id, dry_run=args.dry_run)
+    if args.configurator_dsn_file:
+        result = run(args.configurator_dsn_file)
+    else:
+        with configurator_window(args.bootstrap_dsn_file) as dsn:
+            result = run(dsn)
+    return {**result, 'emitted': emitted}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -734,6 +774,14 @@ def main(argv=None):
     sk.add_argument('--bootstrap-dsn-file', type=Path)
     sc = sub.add_parser('setup-credentials', help='A3: the credential files of business_setup/catalog_setup below setup/ (before register)')
     sc.add_argument('--out', type=Path, required=True)
+    q = sub.add_parser('publish', help='A1: the tenant catalog (object types, Actions, Functions) through 0050')
+    q.add_argument('--out', type=Path, required=True)
+    q.add_argument('--tenant', required=True)
+    q.add_argument('--configurator-dsn-file', type=Path)
+    q.add_argument('--bootstrap-dsn-file', type=Path)
+    q.add_argument('--signing-key-id')
+    q.add_argument('--dry-run', action='store_true', help='compare only; without a DSN file only the compiled counts')
+    q.add_argument('--emit-config', type=Path, help='write the worker configuration files the catalog makes valid (design §4)')
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -761,6 +809,8 @@ def main(argv=None):
             out, code = signing_key_main(args), 0
         elif args.command == 'setup-credentials':
             out, code = setup_credentials(args.out), 0
+        elif args.command == 'publish':
+            out, code = publish_main(args), 0
         elif args.command == 'generate':
             out, code = generate(args.out, args.ca_dir, args.params), 0
         else:
@@ -773,7 +823,7 @@ def main(argv=None):
         if isinstance(error, ServiceGrantsRejected):
             print(json.dumps({'ok': False, 'error': 'ServiceGrantsRejected', 'detail': error.reason}))
             return 2
-        print(json.dumps({'ok': False, 'error': type(error).__name__, 'detail': str(error) if isinstance(error, (Refused, issue_certs.Refused)) else None}))
+        print(json.dumps({'ok': False, 'error': type(error).__name__, 'detail': str(error) if isinstance(error, (Refused, issue_certs.Refused)) or type(error).__name__ in ('CatalogPublishRefused', 'CatalogManifestRejected') else None}))
         return 2
     print(json.dumps(out, sort_keys=True))
     return code

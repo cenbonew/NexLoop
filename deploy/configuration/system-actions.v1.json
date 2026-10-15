@@ -687,7 +687,7 @@
       ],
       "capability": [
         "ontology.object.create",
-        "1.0.0"
+        "1.1.0"
       ],
       "target_systems": [
         "postgres"
@@ -709,7 +709,7 @@
       ],
       "capability": [
         "ontology.object.create",
-        "1.0.0"
+        "1.1.0"
       ],
       "target_systems": [
         "postgres"
@@ -731,7 +731,7 @@
       ],
       "capability": [
         "ontology.object.create",
-        "1.0.0"
+        "1.1.0"
       ],
       "target_systems": [
         "postgres"
@@ -753,7 +753,7 @@
       ],
       "capability": [
         "ontology.object.create",
-        "1.0.0"
+        "1.1.0"
       ],
       "target_systems": [
         "postgres"
@@ -775,7 +775,7 @@
       ],
       "capability": [
         "consumer.edit",
-        "1.0.0"
+        "1.1.0"
       ],
       "target_systems": [
         "postgres"
@@ -797,7 +797,7 @@
       ],
       "capability": [
         "ontology.object.edit",
-        "1.0.0"
+        "1.1.0"
       ],
       "target_systems": [
         "postgres"
@@ -819,7 +819,7 @@
       ],
       "capability": [
         "ontology.object.edit",
-        "1.0.0"
+        "1.1.0"
       ],
       "target_systems": [
         "postgres"
