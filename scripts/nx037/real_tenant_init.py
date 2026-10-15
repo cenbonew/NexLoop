@@ -7,13 +7,20 @@
     python scripts/nx037/real_tenant_init.py configure ... (--bootstrap-dsn-file F | --configurator-dsn-file F)
                                                        # steps 2 and 3 only, after stage_secrets.py register (run sheet 3.4)
     python scripts/nx037/real_tenant_init.py verify  --tenant UUID --metrics-dsn-file F ...        # the post-initialization check
+    python scripts/nx037/real_tenant_init.py budget  ... --recipe F --username-file F --password-file F --database-url-file F \
+        --identity-database-url-file F --browser-rate-key-file F --signing-key-file F --signing-key-id ID --artifact-root D
+                                                       # step 4 (Budget.set) as the owner, on the owner's own workbench session
 
 The real tenant is a new tenant id, never the synthetic demo tenant, and is initialized only through:
 - trusted configuration (the technical configurator role): service principals and grants (the 0050 path also creates the tenant),
   action effect categories v2 for the Actions the tenant has published (any other stays undeclared: customer contact and
   external, fail closed), alert rules;
 - the owner's governed Action `Budget.set` (owner change set_budget) for the D-g cumulative cap as the model budget of the trial
-  period: it needs the owner's own workbench session, so this script prints the request and never performs it;
+  period: it needs the owner's own workbench session. `plan` prints the request; `budget` (G-BUDGET-CLI) performs it by signing in
+  as the owner exactly as the workbench login does (context_strategy_setup.owner_session: the owner's username and password from
+  private files, never arguments, never printed; the browser login rate limit), then submits the request on the owner's browser
+  business authority (0045) and revokes the session. The request id is a stable business-intent id: running it again replays the
+  same change (`replayed: true`). A principal without the Budget.set grant (workbench owner role) is refused.
 - references only for the value catalog (file sha256) and the channel configuration (an opaque reference): the channel itself
   is connected in NX-037 B-class work, not here.
 `configure` runs only the effect categories and alert rules steps, for a tenant whose service principals and grants another
@@ -184,13 +191,53 @@ def _connect(dsn_file):
     return psycopg.connect(Path(dsn_file).read_text(encoding='utf-8').strip(), autocommit=True)
 
 
+BUDGET_RECIPE = 'nexloop-budget-setup/1'
+
+
+def budget_recipe(value, tenant):
+    """{schema_version, tenant_id, workbench_application_id, browser_origin}: where the owner signs in (no secret)."""
+    if type(value) is not dict or set(value) != {'schema_version', 'tenant_id', 'workbench_application_id', 'browser_origin'} \
+            or value['schema_version'] != BUDGET_RECIPE or value['tenant_id'] != tenant:
+        raise Refused('budget recipe: schema_version ' + BUDGET_RECIPE + ', the --tenant, workbench_application_id, browser_origin')
+    if not _REF.fullmatch(value['workbench_application_id'] or '') or not re.fullmatch(r'https://[A-Za-z0-9.-]+(:[0-9]{1,5})?', value['browser_origin'] or ''):
+        raise Refused('budget recipe: workbench_application_id and an https browser_origin')
+    return value
+
+
+def set_budget(p, recipe, *, database_url_file, identity_database_url_file, signing_key_file, signing_key_id, artifact_root, username_file,
+               password_file, browser_rate_key_file):
+    """Budget.set (budget_request) on the owner's own workbench session; the same production calls as the workbench."""
+    from nexloop_eios.backend import open_backend
+    from nexloop_eios.browser_authorization import authenticate_browser_business
+    from nexloop_eios.context_strategy_setup import owner_session
+    from nexloop_eios.goal_controls import GoalGovernedActions
+    from nexloop_eios.private_configuration import read_private_text
+    request = budget_request(p)
+    username = read_private_text(username_file, maximum=1024).strip()
+    password = read_private_text(password_file, maximum=1024).strip()
+    rate_key = bytes.fromhex(read_private_text(browser_rate_key_file, maximum=256).strip())
+    session_recipe = {'tenant_id': recipe['tenant_id'], 'workbench_application_id': recipe['workbench_application_id']}
+    with open_backend(database_url=read_private_text(database_url_file, maximum=16384).strip(), artifact_root=artifact_root,
+                      signing_key_file=signing_key_file, signing_key_id=signing_key_id) as api, \
+            owner_session(read_private_text(identity_database_url_file, maximum=16384).strip(), rate_key, session_recipe, username, password,
+                          recipe['browser_origin']) as session:
+        owner = GoalGovernedActions(api._pool, authenticate_browser_business(api._pool, session, world='real'), api._signer)
+        # set_budget takes aware datetimes; the request carries their ISO text for printing.
+        result = owner.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
+    return {'mode': 'budget', 'executed': True, 'tenant': p['tenant'], 'request_id': request['request_id'], 'budget_kind': request['budget_kind'],
+            'unit': request['unit'], 'limit_amount': request['limit_amount'], 'period_start': request['period_start'],
+            'period_end': request['period_end'], 'replayed': bool(result.get('replayed', False))}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='NX-037 real tenant initialization (dry-run by default)')
-    parser.add_argument('mode', nargs='?', choices=('plan', 'execute', 'configure', 'verify'), default='plan')
+    parser.add_argument('mode', nargs='?', choices=('plan', 'execute', 'configure', 'verify', 'budget'), default='plan')
     for name in ('--tenant', '--owner-principal', '--value-catalog', '--channel-ref', '--period-start', '--period-end'):
         parser.add_argument(name, required=True)
     for name in ('--cumulative', '--per-run', '--monthly', '--configurator-dsn-file', '--signing-key-file', '--signing-key-id',
-                 '--service-secrets-file', '--credential-expires-at', '--metrics-dsn-file', '--bootstrap-dsn-file'):
+                 '--service-secrets-file', '--credential-expires-at', '--metrics-dsn-file', '--bootstrap-dsn-file',
+                 '--recipe', '--username-file', '--password-file', '--database-url-file', '--identity-database-url-file', '--browser-rate-key-file',
+                 '--artifact-root'):
         parser.add_argument(name)
     args = parser.parse_args(argv)
     try:
@@ -214,6 +261,15 @@ def main(argv=None):
             else:
                 steps_done = configure(p, configurator_dsn_file=args.configurator_dsn_file)
             out, code = {'mode': 'configure', 'executed': True, 'tenant': p['tenant'], 'steps': steps_done}, 0
+        elif args.mode == 'budget':
+            needed = ('recipe', 'username_file', 'password_file', 'database_url_file', 'identity_database_url_file', 'browser_rate_key_file',
+                      'signing_key_file', 'signing_key_id', 'artifact_root')
+            if any(getattr(args, n) is None for n in needed):
+                raise Refused('budget needs --' + ', --'.join(n.replace('_', '-') for n in needed))
+            from nexloop_eios.private_configuration import read_private_text
+            recipe = budget_recipe(json.loads(read_private_text(args.recipe, maximum=4096)), p['tenant'])
+            out = set_budget(p, recipe, **{n: getattr(args, n) for n in needed if n != 'recipe'})
+            code = 0
         else:
             if args.metrics_dsn_file is None:
                 raise Refused('verify needs the metrics role connection file')
