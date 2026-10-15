@@ -10,6 +10,18 @@ from psycopg.types.json import Jsonb
 from nexloop_eios import system_catalog as SC
 
 CREATED_BY = 'synthetic-owner'
+ROOT = __import__('pathlib').Path(__file__).resolve().parents[1]
+_SNAPSHOTS = None
+
+
+def snapshots():
+    """{(capability name, version): snapshot} from deploy/configuration/capabilities.v1.json, the one source stage publication
+    binds (catalog_manifests.snapshots(), as catalog_publish)."""
+    global _SNAPSHOTS
+    if _SNAPSHOTS is None:
+        from nexloop_eios import catalog_manifests
+        _SNAPSHOTS = catalog_manifests.snapshots(catalog_manifests.load(ROOT / 'deploy/configuration/capabilities.v1.json'))
+    return _SNAPSHOTS
 
 
 def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, created_at=None, variants=None):
@@ -23,7 +35,7 @@ def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, cr
     for name in types:
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',
                       (tenant, name, Jsonb(schemas[name].model_dump(mode='json'))))
-    rows = SC.compile_system_actions(tenant=tenant, created_by=CREATED_BY, created_at=created_at, select=tuple(actions)) if actions else []
+    rows = SC.compile_system_actions(tenant=tenant, created_by=CREATED_BY, created_at=created_at, snapshots=snapshots(), select=tuple(actions)) if actions else []
     for row in rows:
         d = row['definition']
         if variants and d['stable_name'] in variants:
@@ -32,7 +44,7 @@ def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, cr
             d = ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
                       (tenant, 'real', f"eios:action:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability'])))
-    for row in SC.compile_system_functions(tenant=tenant, created_by=CREATED_BY, created_at=created_at):
+    for row in SC.compile_system_functions(tenant=tenant, created_by=CREATED_BY, created_at=created_at, snapshots=snapshots()):
         d = row['definition']
         if d['stable_name'] not in functions:
             continue
@@ -44,11 +56,6 @@ def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, cr
 
 
 def business_capabilities(names):
-    """{capability name: snapshot} for business Actions, from the versioned snapshot manifest stage publication binds them to
-    (deploy/configuration/capabilities.v1.json, nexloop_eios.catalog_manifests)."""
-    from pathlib import Path
-
-    from nexloop_eios import catalog_manifests
-    manifest = catalog_manifests.load(Path(__file__).resolve().parents[1] / 'deploy/configuration/capabilities.v1.json')
-    by_name = {name: snapshot for (name, _version), snapshot in catalog_manifests.snapshots(manifest).items()}
-    return {name: by_name[name] for name in names}
+    """{capability name: snapshot} for business Actions: their 1.0.0 snapshots (the role Actions' 1.1.0 versions of the shared
+    names are not for business Actions; catalog_publish.BUSINESS_CAPABILITY_VERSION)."""
+    return {name: snapshots()[(name, '1.0.0')] for name in names}
