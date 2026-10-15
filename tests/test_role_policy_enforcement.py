@@ -30,17 +30,9 @@ def current(admin, holder, args):
 
 def ceiling_editor(admin, holder, ceiling):
     tenant = TENANT_A
-    row = admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id='eios:action:RoleExecutionCeiling.create:1'",
-                        (tenant,)).fetchone()
-    definition, capability = dict(row[0]), dict(row[1])
-    definition.pop('contract_digest', None)
-    definition['stable_name'] = 'RoleExecutionCeiling.edit'
-    definition['capability_binding'] = {**definition['capability_binding'], 'capability_name': 'ontology.object.edit'}
-    capability['capability_name'] = 'ontology.object.edit'
-    from eios.ontology.definitions import ActionDefinition
-    definition = ActionDefinition.model_validate_json(json.dumps(definition)).model_dump(mode='json')
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-                  (tenant, 'real', 'eios:action:RoleExecutionCeiling.edit:1', Jsonb(definition), Jsonb(capability)))
+    # NX-032 A1 T4b: the catalog's RoleExecutionCeiling.edit (1.1.0 role snapshot, ontology.roles.manage).
+    from system_catalog_fixture import publish_catalog_actions_like
+    publish_catalog_actions_like(admin, tenant, ('RoleExecutionCeiling.edit',), 'eios:action:RoleExecutionCeiling.create:1')
     targets = [('eios:action:RoleExecutionCeiling.edit:1', ResourceType.ACTION, Operation.EXECUTE),
                ('eios:object:RoleExecutionCeiling/' + ceiling, ResourceType.OBJECT, Operation.EDIT)]
     targets.extend(('eios:property:RoleExecutionCeiling/' + ceiling + '/' + f, ResourceType.PROPERTY, Operation.EDIT) for f in CEILING_FIELDS)

@@ -73,3 +73,19 @@ def catalog_manifest_rows(tenant, types, actions=(), functions=()):
     action_rows = SC.compile_system_actions(**args, select=tuple(actions)) if actions else []
     function_rows = [r for r in SC.compile_system_functions(**args) if r['definition']['stable_name'] in functions]
     return [schemas[name].model_dump(mode='json') for name in types], action_rows, function_rows
+
+
+def publish_catalog_actions_like(admin, tenant, names, like):
+    """Inserts the catalog's Actions `names` typed with the object type references of the already published Action `like`
+    (resource id): for tests whose tenant published its own schema of those types. Everything else is the catalog's."""
+    refs = admin.execute('select definition->\'object_types\' from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s',
+                         (tenant, like)).fetchone()[0]
+    _, rows, _ = catalog_manifest_rows(tenant, (), tuple(names))
+    for row in rows:
+        d = row['definition']
+        d['object_types'] = refs
+        d['governance']['change_scope']['object_types'] = refs
+        d.pop('contract_digest', None)
+        d = ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
+                      (tenant, 'real', f"eios:action:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability'])))
