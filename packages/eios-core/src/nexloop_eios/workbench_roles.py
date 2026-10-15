@@ -98,41 +98,51 @@ def application_facts(roles, tenant, caller_application_id, *, valid_from):
 def compile_member(roles, tenant, member, *, valid_from, world='real'):
     """Deterministic Human authority facts for one member's role (no subject/membership/authentication: the browser
     directory owns those; configuration may only grant an existing Human, 0050)."""
-    pid, subject, role = member['principal_id'], member['subject_id'], member['role']
+    role = member['role']
+    return human_facts(tenant, member['principal_id'], member['subject_id'], 'nexloop-workbench-role:' + role, roles['manifest_version'],
+                       [(rid, ResourceType.ACTION) for rid in sorted(roles['roles'][role])], grant_prefix=role, binding_id='workbench-route',
+                       clearance_id='workbench-clearance', policy_set_id='workbench-world', valid_from=valid_from, world=world)
+
+
+def human_facts(tenant, pid, subject, role_id, role_version, resources, *, grant_prefix, binding_id, clearance_id, policy_set_id, valid_from,
+                world='real', catalog_scopes=frozenset({'action.execute'})):
+    """The authority facts that let one existing browser Human execute `resources` [(resource id, ResourceType.ACTION or
+    FUNCTION)] in `world`: actor, subject authority (one role), and per resource the graph node, grant, scope, controls and world
+    policy. Shared by the workbench roles and the webchat consumer role (webchat_consumers)."""
     base = dict(tenant_id=tenant, repository_witness=WITNESS)
-    role_id = 'nexloop-workbench-role:' + role
-    role_digest = _digest({'role': role_id, 'version': roles['manifest_version']})
+    role_digest = _digest({'role': role_id, 'version': role_version})
     facts = [
         ('actor', [pid], F.ActorFacts(**base, actor_id=subject, actor_principal_id=pid, kind=SubjectKind.HUMAN, status='active', revision=1)),
         ('subject_authority', [pid], F.SubjectAuthorityFacts(**base, subject_kind=GrantSubjectKind.HUMAN, principal_id=pid, groups=(),
             roles=(F.RevisionedAuthority(authority_id=role_id, revision=1, digest=role_digest),), attribute_revisions=(), clearances=(), revision=1, valid_until=None)),
     ]
-    clearance = F.SubjectClearanceFact(clearance_id='workbench-clearance', subject_kind=GrantSubjectKind.HUMAN, principal_id=pid,
+    clearance = F.SubjectClearanceFact(clearance_id=clearance_id, subject_kind=GrantSubjectKind.HUMAN, principal_id=pid,
         kind=F.ControlKind.ORGANIZATION, namespace='nexloop', value='internal', rank=0, dominates=frozenset(), revision=1,
         digest=_digest({'clearance': 'internal'}), valid_until=None)
     condition = Eq(op='eq', node_id='world-boundary', left=ActionParameterRef(kind='action_parameter', parameter_name='world'),
         right=LiteralValue(kind='literal', value=world))
     canonical = canonicalize_policy_expression(condition)
-    scopes = frozenset({'action.execute'})
-    for rid in sorted(roles['roles'][role]):
-        ref = ResourceReference(tenant_id=tenant, resource_id=rid, resource_type=ResourceType.ACTION, security_revision=1)
+    scopes = frozenset(catalog_scopes)
+    for rid, kind in resources:
+        ref = ResourceReference(tenant_id=tenant, resource_id=rid, resource_type=kind, security_revision=1)
         op = Operation.EXECUTE
+        scope = f'{kind.value}.{op.value}'
         facts.append(('resource_graph', [rid], F.ResourceGraphFacts(**base, root=F.ResourceNodeFact(resource=ref, parent=None, active=True), ancestors=(),
             dependencies=(), registry_revision=1, registry_digest=_digest(ref), closure_complete=True, next_cursor=None)))
-        grant = F.EffectiveGrantFact(grant_id=f'{role}:{rid}', subject_kind=GrantSubjectKind.HUMAN, subject_id=pid, role_id=role_id, role_revision=1,
+        grant = F.EffectiveGrantFact(grant_id=f'{grant_prefix}:{rid}', subject_kind=GrantSubjectKind.HUMAN, subject_id=pid, role_id=role_id, role_revision=1,
             role_digest=role_digest, resource=ref, operations=frozenset({op}), inherited=False, valid_from=valid_from, valid_until=None, revision=1,
             digest=_digest({'grant': rid, 'principal': pid, 'operations': ['execute']}))
         facts.append(('grants', [pid, rid], F.GrantFacts(**base, subject_kind=GrantSubjectKind.HUMAN, principal_id=pid, grants=(grant,), valid_until=None,
             complete=True, next_cursor=None, revision=1)))
-        facts.append(('scope', [pid, rid, op.value], F.ScopeAuthorityFacts(**base, principal_id=pid, binding_id='workbench-route', catalog_id='nexloop-scopes',
-            catalog_version='1', catalog_revision=1, catalog_digest=_digest({'scope': 'action.execute'}), catalog_scopes=scopes,
-            required_scopes=frozenset({'action.execute'}), authorities=(F.ScopeAuthority(scope='action.execute', resource_type=ResourceType.ACTION, operation=op, resource_id=rid),),
+        facts.append(('scope', [pid, rid, op.value], F.ScopeAuthorityFacts(**base, principal_id=pid, binding_id=binding_id, catalog_id='nexloop-scopes',
+            catalog_version='1', catalog_revision=1, catalog_digest=_digest({'scope': scope}), catalog_scopes=scopes,
+            required_scopes=frozenset({scope}), authorities=(F.ScopeAuthority(scope=scope, resource_type=kind, operation=op, resource_id=rid),),
             risk=F.AuthorizationRisk.SENSITIVE, authorized_scopes=scopes, revision=1, valid_until=None)))
         requirement = F.ResourceControlRequirementFact(requirement_id='internal-resource', resource=ref, operation=op, kind=F.ControlKind.ORGANIZATION,
             namespace='nexloop', value='internal', minimum_rank=0, dominance=F.ControlDominance.EXACT, revision=1, digest=_digest({'requirement': 'internal'}), valid_until=None)
         facts.append(('controls', [pid, rid, op.value], F.ControlFacts(**base, subject_clearances=(clearance,), resource_requirements=(requirement,), complete=True,
             valid_until=None, revision=1)))
-        rule = F.PolicyRuleFact(binding_id='world-policy', binding_digest=_digest({'world': world}), resource=ref, operation=op, policy_set_id='workbench-world',
+        rule = F.PolicyRuleFact(binding_id='world-policy', binding_digest=_digest({'world': world}), resource=ref, operation=op, policy_set_id=policy_set_id,
             active_version=1, version_digest=canonical.sha256, canonical_ast_utf8=canonical.utf8, canonical_ast_sha256=canonical.sha256, effect=PolicyEffect.REQUIRE,
             condition=condition, activation_head_revision=1, activation_head_digest=canonical.sha256, registry_revision=1, registry_digest=canonical.sha256,
             activation_witness=canonical.sha256, published_at=valid_from)
