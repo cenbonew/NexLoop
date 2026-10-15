@@ -218,3 +218,18 @@ def test_runtime_worker_first_round_on_the_granted_queue(assembled, admin, capsy
     Role queue accept into) completes its first round."""
     results = run_workers(assembled, admin, capsys, ('runtime-worker',), {'runtime-worker': {'--queue': 'operations'}})
     assert results['runtime-worker'][0] == 0 and '"status":"idle"' in results['runtime-worker'][1], results
+
+
+def test_the_webchat_consumer_has_no_business_authority_after_assembly(assembled, admin):
+    """G-WEBCHAT-AUTH: a webchat human's requests are authorized through the browser business authority snapshot (0045), which
+    needs a control.nexloop_browser_business_applications row for the browser application and the human's grant facts. The stage
+    tools register neither (stage_secrets browser: 'not registered here'; register/workbench_roles cover services and staff), so
+    the assembled consumer cannot open a conversation or send a message yet."""
+    assert admin.execute('select count(*) from control.nexloop_browser_business_applications where tenant_id=%s', (TENANT,)).fetchone() == (0,)
+    human = admin.execute('select principal_id from control.nexloop_consumer_owners where tenant_id=%s', (TENANT,)).fetchone()[0]
+    grants = admin.execute("select count(*) from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and %s = any(entity_key)",
+                           (TENANT, human)).fetchone()
+    assert grants == (0,)
+    # The same query finds the grant facts of a service principal (the check is not vacuous).
+    assert admin.execute("select count(*) from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and %s = any(entity_key)",
+                         (TENANT, 'nexloop-service-business-owner-principal')).fetchone()[0] > 0
