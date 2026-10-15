@@ -200,3 +200,11 @@ def test_replies_of_admitted_connections_pass_the_forward_chains(tmp_path):
         chain = text[text.index('chain forward'):]
         rules = [l.strip() for l in chain.splitlines()[1:] if l.strip() and not l.strip().startswith('#')]
         assert rules[0].startswith('type filter hook forward') and rules[1] == 'ct direction reply accept', (name, rules[:2])
+
+
+def test_the_gateway_passes_the_public_host_to_the_api():
+    """2026-10-15 first start: for an HTTPS upstream Caddy rewrites Host to the upstream address and the API's browser session
+    route refused every request (403); the public host:port is passed on explicitly."""
+    text = (ROOT / 'deploy/stage/config/Caddyfile.template').read_text()
+    proxy = text[text.index('reverse_proxy'):text.index('header {')]
+    assert 'header_up Host {http.request.hostport}' in proxy

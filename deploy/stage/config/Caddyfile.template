@@ -22,6 +22,9 @@ https://__APP_HOST_NAME__:8443 {
                 tls_trusted_ca_certs /run/secrets/api_loopback_ca
                 tls_server_name 127.0.0.1
             }
+            # Caddy sets Host to the upstream address for an HTTPS upstream; the API's browser routes require the public
+            # origin's host:port (browser_http.py session check), so the original Host is passed on (2026-10-15 first start: 403).
+            header_up Host {http.request.hostport}
             header_up -X-Forwarded-For
         }
     }
