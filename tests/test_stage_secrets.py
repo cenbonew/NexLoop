@@ -259,7 +259,11 @@ def test_the_generated_dsns_connect_under_clientcert_verify_full_and_the_old_cer
 def test_the_agent_host_starts_with_the_generated_runtime_files(tree, tmp_path):
     """F2: the actual Agent Host (Node 24, built dist) starts with the generated runtime configuration, model configuration,
     tariff and guard key, each read from where Compose mounts it (/run/secrets/<name> mapped to a private directory here), with a
-    synthetic model key; it answers its liveness probe. No model call is made at start."""
+    synthetic model key; it answers its liveness probe. No model call is made at start.
+
+    Requires Node 24 and apps/agent-host/dist rebuilt from this checkout; with another Node major or a stale dist the Host exits
+    at start and this test fails with 'the Host refused the generated runtime files' (dispatcher 2026-10-15). Without node or dist
+    it fails at once with 'Node 24 and the built Agent Host are required'. Rebuild: pnpm -C apps/agent-host build."""
     import shutil
     import time
     import httpx
@@ -291,7 +295,8 @@ def test_the_agent_host_starts_with_the_generated_runtime_files(tree, tmp_path):
         with httpx.Client(base_url=f'https://127.0.0.1:{port}', verify=trusted_tls(key), trust_env=False, timeout=2) as client:
             deadline = time.monotonic() + 15
             while True:
-                assert child.poll() is None, 'the Host refused the generated runtime files'
+                assert child.poll() is None, ('the Host refused the generated runtime files (needs Node 24 and a dist rebuilt from this '
+                                              'checkout: pnpm -C apps/agent-host build; a stale dist or another Node major also exits here)')
                 try:
                     if client.get('/health/live').status_code == 200:
                         break
