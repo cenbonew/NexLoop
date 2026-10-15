@@ -52,6 +52,11 @@
     - 每份配置先用 worker 自己的 `EffectProviderConfiguration` 校验，校验不过就拒绝，退出码 2，什么都不写。凭据与 CA 文件不经过生成器。
     - 测试 `tests/test_provider_routes_generator.py` 证明生成结果能被 `effect_worker._routes` 和 `_provider` 接受。
     - 注意：stage Compose 的 action-worker 挂载了 enterprise 的三个 secret。不接企业端点时，这三份源文件仍要存在，否则 Compose 会因为源文件缺失而拒绝启动；而 worker 只读路由表里出现的配置。
+    - **占位文件**：不接企业端点时，加 `--enterprise-placeholders`，生成器会另外写两份占位文件：
+      - `enterprise-provider-config`，内容为 `{}`；
+      - `enterprise-provider-credential`，内容为随机生成的 32 字节 URL-safe 值，任何端点都不认识它。
+    - 第三份 `enterprise-provider-ca.crt` 由调用方提供，例如复制 webchat 的 CA；生成器不读 CA 的内容。
+    - **这三份文件只为满足 Compose 的挂载，不在路由表中**，worker 不会读取它们。与 `--enterprise-origin` 同时给出时，生成器拒绝运行。
 
 ## 3. 防火墙模板
 
