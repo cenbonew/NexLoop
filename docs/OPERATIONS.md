@@ -231,6 +231,71 @@ Compose 的绑定挂载（`volumes:` 中 `<主机路径>:<容器路径>`）在�
   - **或者**改完后重建容器：`docker compose -p <项目> up -d --force-recreate <服务>`。对 PG 这是一次停机重启，要放在维护窗口内做。
 - **核对**：比较主机与容器里文件的摘要：`sha256sum <文件>` 对比 `docker exec <容器> sha256sum <容器内路径>`，两者一致后，再执行 HUP 或 reload。
 
+### 8a.7 `nexloop-nft`：防火墙表的 reload 与重启顺序（G-NFT-PERSIST）
+
+两台主机都由 `nexloop-nft.service` 在**开机时、Docker 之前**加载 `inet nexloop_stage`。
+
+- 加载文件放在根文件系统的 `$NEXLOOP_ROOT/config/firewall/`，不在 LUKS 卷上；
+- 它是一个事务：`table`、`delete table`、`include`；
+- unit 以 `RequiredBy=docker.service` 挂在 Docker 上：加载失败时 Docker 不启动，容器也就不会在没有隔离规则的情况下运行。
+
+安装步骤见 [run-42](release/run-42-20261015.md) §6a。
+
+- **改规则**：
+  1. 用私有 `stage.env` 与发布检出中的模板重新渲染，生成新的事务文件（旧文件先 `shred -u`）；
+  2. 执行 `sudo systemctl reload nexloop-nft`，原子地只替换这一张表；
+  3. 核对：`sudo nft list table inet nexloop_stage` 中出现了新的规则。
+- **不要 `restart`**：`restart` 会先删表再加载，中间有一段没有隔离规则的窗口。也**不要**启用 `nftables.service`：它的默认配置以 `flush ruleset` 开头，会清掉 UFW 与 Docker 的规则。
+- **主机重启时的顺序**（与 8a.1 合在一起看）：
+  1. `nexloop-nft` 自动加载，早于 Docker；
+  2. Docker 启动，`unless-stopped` 的容器被拉起，但这时 LUKS 卷还没解锁，容器读到的是空的底层目录；
+  3. 按 8a.1 先 `stop` 各项目，解锁并挂载卷，启动依赖卷的 unit，再按顺序 `up -d`。
+- **核对**：`systemctl is-active nexloop-nft` 为 `active`；部署闸门的 `compose_networks_match_firewall` 与 `running_networks_match_firewall` 为 true。
+- **停用**（只在撤回时使用）：执行 `sudo systemctl disable nexloop-nft`，**不带** `--now`，这样内存里的表会保留；然后删除 unit 文件，再 `daemon-reload`。
+
+### 8a.8 Claim worker 的出口网络与故障判读（G-CLAIM-EGRESS）
+
+claim-extraction-worker 与 claim-matcher 在自己的网络 `claim_egress` 上（子网 `CLAIM_EGRESS_CIDR`，compose 固定）。nft 对这个网段只放行三类目标：
+
+1. 模型 allowlist 的 443；
+2. DATA_HOST 的 PG；
+3. 其余一律 `ct state new drop`。
+
+它们不在应用命名空间里：应用网络到模型地址的规则是 drop（NX-037 D4）。
+
+| 现象 | 先查什么 | 判读 |
+|---|---|---|
+| Claim 提取或匹配一直不前进，日志里是连接超时或 provider 不可用 | `sudo docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' nexloop-app_claim_egress` 是否等于 `CLAIM_EGRESS_CIDR`；`sudo nft list table inet nexloop_stage \| grep -c "ip saddr <CLAIM_EGRESS_CIDR>"` 是否为 3 | 子网不符：compose 与 env 不一致，按 run-42 §8 重建这两个服务。规则不足 3 条：重新渲染后 `reload nexloop-nft` |
+| 子网和规则都对，仍然连不上模型 | 模型域名当前解析到的地址，是否都在私有 env 的 `MODEL_PROVIDER_ALLOWLIST` 里 | 供应商地址变了：由负责人重新解析、更新 allowlist、重新渲染并 reload（B 类）。不要临时放开整段网段 |
+| 能连模型，但模型返回鉴权错误 | 两个 worker 各自的 `model.env` 与模型凭据文件（只看是否存在、权限和属主，不看内容） | 凭据问题，按 deploy-days 执行单的“模型凭据写入”重新写入 |
+| 连不上 PG | 部署闸门；DATA_HOST 防火墙对 APP_HOST 的放行 | 与其他 worker 的 PG 故障相同 |
+| 想确认隔离是否完好 | 按 run-42 §3d 用一次性容器探测：模型与 PG 应通，Valkey、SSH、未列出的外网、API 都应不通 | 不通的变通了：最高优先级报负责人 |
+
+- 预算耗尽时（`budget_exhausted`），worker 的日志是拒绝而不是连接错误，不要误判为网络问题。
+- 这两个 worker 首次允许在凭据到位之前失败（run-34 G5）；凭据到位之后仍然失败，才按上表排查。
+
+### 8a.9 操作员重置口令：`identity_password_reset` 的使用规则（G-PW-RESET）
+
+适用于口令无人知道、邮件重置又无法送达的本地浏览器账户，例如 stage 上地址为 `.invalid` 的模拟客户与测试账户。命令与前提见 [run-assembly](release/run-assembly-20261015.md) §1a。
+
+- **身份**：以 identity 操作员（`nexloop_identity`，API 的 identity DSN）调用受治理函数 `control.nexloop_operator_reset_browser_password`（迁移 0198），不直接写任何表。
+- **效果**：
+  - 账户修订号加 1；
+  - `session_epoch` 加 1，所以旧会话全部失效；
+  - 失败计数与锁定清零；
+  - 写一条证据行，内容为操作员标签和 request id，不含口令。
+- **规则**：
+  1. **测试账户的口令由调度员用工具生成**：使用 `--generate-password-file <新文件>`，由工具在私有目录中生成 20 位随机口令，文件为 0600，已存在就拒绝。**只把文件路径告诉使用者**，口令本身不进聊天、仓库、证据、工单或日志。
+  2. 使用者从文件中读出口令后存入自己的密码管理器，然后 `shred -u` 这个文件。
+  3. 每次重置用一个新的、稳定的 `--request-id`，例如 `pw-reset-<日期>-<账户>`。相同的 request id 重跑只会回放结果（`replayed: true`），不会改两次。
+  4. 必须带 `--confirm-reset`，并给出 `--operator-label`，记录是谁执行的。
+  5. 只用于测试账户和确有需要的账户。真实客户的账户首选自助重置；不得不用本工具时，须经负责人批准，并告知客户。
+  6. 新口令至少 12 位，不能与当前口令或历史口令相同。
+- **核对**：
+  - 输出只有 ID、修订号与 epoch，形如 `{"reset": true, "replayed": false, …}`，不含口令或 hash；
+  - 旧口令登录失败，新口令登录成功。
+- **撤销**：无法恢复原口令。需要时用新的 request id 再重置一次。
+
 ## 9. NX-037 受控真实闭环操作说明（负责人本人执行）
 
 > 依据：[NX-037 设计稿](implementation/NX-037-design.md)、[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md)、[ROADMAP](../planning/ROADMAP.md) §6–§7（D-g、D-i 定案）。参数在 [`deploy/configuration/nx037-trial.v2.json`](../deploy/configuration/nx037-trial.v2.json)（运行入口默认读 v2；v1 保留不变）。
