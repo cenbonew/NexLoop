@@ -3,7 +3,7 @@
 把几份运行手册中的部署步骤，按这两天的四个时段排成一张执行单。**2026-10-14 晚的核对结果见 [deploy-days-20261015-review.md](deploy-days-20261015-review.md)**：其中 M8、M9、M12、M13、M14 五项需要在开工前先做决定，下文相应步骤处已标出。之后的排期是：10/17（周六）校准，10/18–19 受控交互，10/20 验收（ROADMAP §12）。
 
 
-## 实际进展（截至 2026-10-15，按各逐条命令单整理）
+## 实际进展（截至 2026-10-15 晚，按各逐条命令单整理；所列提交都是 main dab12b1 之前的合并）
 
 本节只记录实际完成了什么、出现了哪些偏差；下文原有步骤的正文不改。命令与证据以各逐条命令单为准。
 
@@ -16,8 +16,16 @@
 | 10/15 | 3.4 启动应用 | `nexloop-app` 已启动，14 个服务在运行；合成租户已执行 register、browser、configure | api 与 gateway 的启动问题由 c56a18f 修复；provider 配置原先要手写，已由生成器解决（G-ROUTES）；其余缺口 G3–G7 见该单 §5 | [run-34](run-34-20261015.md) |
 | 10/15 10:30 起 | 4.1 首次部署内容 | 进行中：7 个 worker 反复退出（它们的前置条件见该单 §2） | 业务对象类型与 Action 原先没有生产发布入口（A1），已由 `stage_secrets.py publish` 解决；A2–A7 待办 | [run-41](run-41-20261015.md) |
 | 10/15 | 组装演练（本地，不是 stage） | 在本地干净 PG 上从 bootstrap 跑到每个 worker 的首轮调用 | 缺口：D-QUEUE（已修）、G-WEBCHAT-AUTH、G-CONTEXT-STRATEGY、G-WORKBENCH-AUTH、G-ROLE、G-ROUTES（已补）；G-PLAN、G-ROLE-READ 未定 | [assembly-dryrun-gaps](assembly-dryrun-gaps.md) |
+| 10/15 下午 | 4.6 部署后清点 | 主要项都通过 | 缺口：doctor 用的 metrics DSN 文件没有生成入口，已补（a1f4b25，l4/metrics-dsn） | [run-46](run-46-20261015.md) |
+| 10/15 下午 | 4.2 AT-058 外部探测 | 复测通过 | 探测发现 **G-APP-SUBNET**：应用网络没有固定子网，nft 规则落空，应用网络能连模型地址和任意外网的 443。已修复：固定子网，并在部署闸门加两项检查（b900e82，l3/app-subnet），停机重建后复测通过。参考端点的 9643 规则也已上线（1124fde，l4/nft-9643） | [run-42](run-42-20261015.md) §3、§6、§7 |
+| 10/15 下午 | G-NFT-PERSIST | 两台主机都已启用 `nexloop-nft`，在 Docker 之前加载 `inet nexloop_stage` | 原先这张表只在内存里，重启后就消失（fdfbbe2，l3/nft-persist） | [run-42](run-42-20261015.md) §6a |
+| 10/15 晚 | 第三个签名发布 | 第三个签名发布 `20261015-4736ea179063-1`：CI 4237/4237 通过，已签名、封存 | — | [NX-034 首个签名发布手册](../implementation/NX-034-first-release-runbook.md) §2 |
+| 10/15 晚 | 迁移与换镜像 | 0198 迁移完成（先过迁移门槛与备份）；APP_HOST 换成新发布的镜像 | 0198 是操作员重置口令所需的函数（84d9e80，l3/pw-reset） | [run-assembly](run-assembly-20261015.md) §1a |
+| 10/15 晚 | 测试账户口令 | 7 个测试账户的口令已重置（`identity_password_reset`，口令由工具生成并写入私有文件） | 原口令建号时输错，邮件重置因 `.invalid` 地址无法送达 | [run-assembly](run-assembly-20261015.md) §1a |
+| 10/15 晚 | 冒烟 | 走到了 Run 签发 | 失败原因为 `budget_exhausted` 与 `provider_unavailable`；预算期间已调整为从 10/18 开始（a924498，l3/budget-cli） | [run-assembly](run-assembly-20261015.md) |
+| 10/15 晚 | G-CLAIM-EGRESS | 已上线，§3d 探测通过 | claim-extraction-worker 与 claim-matcher 移到自己的出口网络 `claim_egress`；修复 G-APP-SUBNET 之后它们原先连不上模型（efba1ec，l4/claim-egress） | [run-42](run-42-20261015.md) §3d、§8 |
 
-尚未开始：3.1 restic 的文件部分（按 M12 推迟）、4.2 AT-058 外部探测、4.3 参考端点、4.4 定时任务的全部启用、4.5 回滚核对、4.6 收尾，以及周六就绪检查。各项进展以调度员的记录为准。
+尚未开始或未完成：3.1 restic 的文件部分（按 M12 推迟）、4.3 参考端点（9643 规则已上线）、4.4 定时任务的全部启用、4.5 回滚核对，以及周六就绪检查（预算期间已改为从 10/18 开始）。各项进展以调度员的记录为准。
 
 - **依据**（命令细节以原手册为准，本单只定顺序、执行者、判据和撤销方式）：
   - [NX-032 部署运行手册](../implementation/NX-032-deploy-runbook.md)：步骤 0–8、AT-058、首次部署内容；
