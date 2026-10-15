@@ -286,6 +286,42 @@
       "group": "relay"
     },
     {
+      "stable_name": "nexloop.service.scope_denial.record",
+      "version": 1,
+      "object_types": [
+        [
+          "Consumer",
+          1
+        ],
+        [
+          "Goal",
+          1
+        ],
+        [
+          "PlanStep",
+          1
+        ],
+        [
+          "EffectControl",
+          1
+        ]
+      ],
+      "capability": [
+        "nexloop.service.scope_denial.record",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": {
+        "builder": "scope_denial_record_schema"
+      },
+      "group": "relay"
+    },
+    {
       "stable_name": "NexLoop.queue.operations",
       "version": 1,
       "object_types": [

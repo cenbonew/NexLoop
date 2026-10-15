@@ -887,6 +887,28 @@
       "side_effects_reason": null
     },
     {
+      "capability_name": "nexloop.service.scope_denial.record",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": false,
+      "contract": {
+        "operation": "record",
+        "subject": "one scope denial of a planned service effect",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "33caaf20488b134afd90bd1032093931e4195cb97fe187835f078cb8a73ef9c7",
+      "side_effects_reason": null
+    },
+    {
       "capability_name": "ontology.object.create",
       "capability_version": "1.0.0",
       "kind": "atomic",
