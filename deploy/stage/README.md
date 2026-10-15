@@ -106,3 +106,24 @@ N=4 时，DSN、服务凭据、签名密钥、guard 密钥和 guard TLS 私钥�
 ## 两个 relay（2026-10-13，连接预算方案 B）
 
 `compose.app.example.yaml` 默认运行 `message-relay` 与 `message-relay-2`。两者配置与凭据相同，各用自己的 vault 目录（`data/relay-vault`、`data/relay-vault-2`，各自 0700，属主为服务用户），不能共用：一个 vault 只能有一个属主进程。连接预算为 relay 2×2，API 浏览器 identity 池每进程 3（`--identity-pool-max 3`），合计 59/60。详见 `docs/implementation/relay2-budget.md`。
+
+## 7. 依赖租户状态的 worker 配置文件（NX-032 A1 设计 §4，T6）
+
+三个文件都放在 APP_HOST 的 `$NEXLOOP_ROOT/config/`，属主 10001，权限 0600，Compose 以只读方式挂到 `/etc/nexloop/`。
+
+| 主机文件 | 读取方 | 来源 |
+|---|---|---|
+| `claim-match.json` | claim-matcher（`background_services.load_match_configuration`） | 复制 `deploy/stage/claim-match.example.json`，内容是 `{}`：两个键 `edit_actions`、`create_actions` 都可以省略，即不配置匹配 Action。要启用时写成 `{"edit_actions": {"<类型>": ["<Action>", 1]}, "create_actions": {...}}`，所列 Action 须已发布 |
+| `recall-types.json` | recall-indexer（`background_services.load_types`） | publish 之后执行 `scripts/deploy/tenant_config.py recall-types --tenant <UUID> --bootstrap-dsn-file <F> --out recall-types.json [--types Consumer,...]`。只接受已为该租户发布的类型，默认 `{"Consumer": null}` |
+| `relay-run-profile.json` | 两个 message-relay、reply-guarantor（`message_relay.validate_run_profile`） | 租户组装之后执行 `tenant_config.py relay-run-profile --tenant <UUID> --bootstrap-dsn-file <F> --out relay-run-profile.json --role-id <RoleDefinition 对象 ID> --maximum-cost <每 Run 上限> --currency <币种>` |
+
+- `tenant_config.py` 只在只读事务中读库，从不写库；输出文件必须是新文件，不会覆盖。
+- `relay-run-profile` 的检查：
+  - RoleDefinition 必须 active 且当前有效；
+  - `NexLoop.queue.<queue>:1` 必须已发布；
+  - 结果必须能通过 relay 自身的校验。
+- `context_manifest_ref` 固定写 `artifact:context-bind-pending`。relay 与兜底回复在绑定前都会把它换成实际绑定的 Context artifact。
+- **setup 主体（A3）**：`business_setup` 与 `catalog_setup` 以各自的服务主体运行，即 `stage-principals.v1.json` 第 2 版中的 `business_owner` 与 `catalog_maintainer`。`business_owner` 还负责 `nexloop-relay-enroll`。
+  - 在 `register` 之前先执行 `stage_secrets.py setup-credentials --out <树>`，在 `setup/` 下生成这两个主体的凭据文件，并加入 `management/service-secrets.json`。
+  - executor 凭据复用 `effect_executor` 的 token，Source 凭据复用 `relay_source` 的 token；
+  - 重复执行不会再新增。
