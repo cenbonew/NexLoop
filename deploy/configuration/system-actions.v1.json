@@ -600,7 +600,7 @@
         "1.0.0"
       ],
       "target_systems": [
-        "postgres"
+        "service"
       ],
       "idempotency_key_fields": [
         "request_id"
