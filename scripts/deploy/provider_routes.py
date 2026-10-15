@@ -19,12 +19,17 @@ overwritten), mode 0600, named as the Compose secret sources under secrets/actio
 routed Actions only). Exit: 0 written, 2 refused.
 
     scripts/deploy/provider_routes.py --out-dir <NEW_PRIVATE_DIR> --webchat-delivery-port <PORT>
-        [--enterprise-origin https://<host>[:<port>] --enterprise-connect-address <IP>] [--timeout 2]
+        [--enterprise-origin https://<host>[:<port>] --enterprise-connect-address <IP> | --enterprise-placeholders] [--timeout 2]
+
+--enterprise-placeholders (no enterprise endpoint): also writes enterprise-provider-config ({}) and enterprise-provider-credential
+(random, 32 bytes URL-safe), only to satisfy the action-worker's Compose secret mounts; they are not in the routes file and the
+worker never reads them. enterprise-provider-ca.crt is the caller's (for example a copy of the WebChat CA); not read here.
 """
 import argparse
 import ipaddress
 import json
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -114,7 +119,18 @@ def write(out_dir, files):
     for name, body in files.items():
         fd = os.open(out_dir / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w') as stream:
-            stream.write(json.dumps(body, indent=2, sort_keys=True) + '\n')
+            stream.write(body if type(body) is str else json.dumps(body, indent=2, sort_keys=True) + '\n')
+
+
+PLACEHOLDER_CONFIG, PLACEHOLDER_CREDENTIAL = 'enterprise-provider-config', 'enterprise-provider-credential'
+
+
+def placeholders():
+    """Without an enterprise endpoint the stage Compose still mounts the three enterprise secrets of the action-worker; these
+    files only satisfy the mounts. They are not in the routes file, so the worker never reads them: an empty JSON object as the
+    config and a fresh random URL-safe credential (32 bytes) that no endpoint knows. The CA file is not written here: the caller
+    supplies it (or copies the WebChat CA); its content is never read."""
+    return {PLACEHOLDER_CONFIG: {}, PLACEHOLDER_CREDENTIAL: secrets.token_urlsafe(32) + '\n'}
 
 
 class _Parser(argparse.ArgumentParser):
@@ -129,16 +145,25 @@ def main(argv=None):
     parser.add_argument('--enterprise-origin')
     parser.add_argument('--enterprise-connect-address')
     parser.add_argument('--timeout', type=float, default=2.0)
+    parser.add_argument('--enterprise-placeholders', action='store_true',
+                        help='no enterprise endpoint: also write placeholder enterprise config and credential for the Compose mounts')
     args = parser.parse_args(argv)
     try:
         files = build(webchat_delivery_port=args.webchat_delivery_port, enterprise_origin=args.enterprise_origin,
                       enterprise_connect_address=args.enterprise_connect_address, timeout=args.timeout)
+        if args.enterprise_placeholders:
+            if args.enterprise_origin:
+                raise Refused('placeholders are only for a deployment without an enterprise endpoint')
+            files.update(placeholders())
         write(args.out_dir, files)
     except Refused as refused:
         print(json.dumps({'ok': False, 'refused': str(refused)}))
         return 2
     routes = files[FILES['action_worker_provider_routes']]['routes']
-    print(json.dumps({'ok': True, 'files': sorted(files), 'routes': sorted(routes)}))
+    result = {'ok': True, 'files': sorted(files), 'routes': sorted(routes)}
+    if args.enterprise_placeholders:
+        result['placeholders'] = [PLACEHOLDER_CONFIG, PLACEHOLDER_CREDENTIAL]  # not routed; the CA mount source comes from the caller
+    print(json.dumps(result))
     return 0
 
 

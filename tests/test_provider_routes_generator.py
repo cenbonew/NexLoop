@@ -109,3 +109,23 @@ def test_cli_writes_new_private_files_and_refuses_an_existing_directory(tmp_path
     assert json.loads(capsys.readouterr().out) == {'ok': False, 'refused': 'output directory exists'}
     assert routes_tool.main(['--out-dir', str(tmp_path / 'other'), '--webchat-delivery-port', '18443', '--enterprise-origin', 'https://e.example.invalid']) == 2
     assert not (tmp_path / 'other').exists()
+
+
+def test_placeholders_satisfy_the_compose_mounts_without_being_routed(tmp_path, capsys):
+    out = tmp_path / 'action-worker'
+    assert routes_tool.main(['--out-dir', str(out), '--webchat-delivery-port', '18443', '--enterprise-placeholders']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['routes'] == ['nexloop.service.request'] and result['placeholders'] == ['enterprise-provider-config', 'enterprise-provider-credential']
+    assert json.loads((out / 'enterprise-provider-config').read_text()) == {}
+    credential = (out / 'enterprise-provider-credential').read_text().strip()
+    assert len(credential) == 43 and credential.replace('-', '').replace('_', '').isalnum()
+    assert not (out / 'enterprise-provider-ca.crt').exists()  # the CA is the caller's
+    assert all((p.stat().st_mode & 0o777) == 0o600 for p in out.iterdir())
+    assert set(json.loads((out / 'provider-routes').read_text())['routes']) == {'nexloop.service.request'}
+    # Two runs never share a placeholder credential.
+    assert routes_tool.main(['--out-dir', str(tmp_path / 'again'), '--webchat-delivery-port', '18443', '--enterprise-placeholders']) == 0
+    assert (tmp_path / 'again' / 'enterprise-provider-credential').read_text().strip() != credential
+    # With a real endpoint placeholders are refused and nothing is written.
+    assert routes_tool.main(['--out-dir', str(tmp_path / 'both'), '--webchat-delivery-port', '18443', '--enterprise-placeholders',
+                             '--enterprise-origin', 'https://e.example.invalid', '--enterprise-connect-address', documentation_address()]) == 2
+    assert not (tmp_path / 'both').exists()
