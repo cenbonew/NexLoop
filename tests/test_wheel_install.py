@@ -115,3 +115,57 @@ with psycopg.connect(sys.stdin.read(),autocommit=True) as c:
         'actual_restricted_pg_artifact_smoke':True,'installed_console_help_passed':len(console_commands),
         'installed_sandbox_test_loop':True,
         'dependency_install':'offline, frozen exported requirements, require-hashes, no-deps'},indent=2)+'\n')
+
+
+THIRD_PARTY_IMPORTS = r'''
+import ast, importlib, json, pathlib, sys
+import eios, nexloop_eios
+std = set(sys.stdlib_module_names)
+found = {}
+for package in (eios, nexloop_eios):
+    for path in pathlib.Path(package.__file__).parent.rglob('*.py'):
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module] if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module else []
+            for name in names:
+                top = name.split('.')[0]
+                if top not in std and top not in ('eios', 'nexloop_eios'):
+                    found.setdefault(top, path.name)
+missing = {}
+for top, where in sorted(found.items()):
+    try:
+        importlib.import_module(top)
+    except ImportError as error:
+        missing[top] = where
+print(json.dumps({'imports': sorted(found), 'missing': missing, 'origin': nexloop_eios.__file__}))
+'''
+
+EXTRACTION_CALL = r'''
+import json, socket
+from nexloop_eios.conversation_extraction import ExtractionProviderUnavailable, OpenAICompatibleExtractionProvider
+with socket.socket() as s:
+    s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]   # closed once the block ends: nothing listens there
+class Profile:
+    provider = 'deepseek'; model_id = 'deepseek-flash'; base_url = 'http://127.0.0.1:%d/v1' % port
+    def credential_for_provider(self): return 'synthetic-not-a-key'
+try:
+    OpenAICompatibleExtractionProvider(Profile(), timeout=2).complete('system', '{}')
+except ExtractionProviderUnavailable as error:
+    print(json.dumps({'raised': 'ExtractionProviderUnavailable', 'code': getattr(error, 'code', None)}))
+'''
+
+
+def test_every_third_party_import_resolves_in_the_production_install(installed_core_wheel):
+    """G-HTTPX-DEP (2026-10-16): the release image had no httpx (a dev-only dependency) and every claim extraction failed with
+    provider_unavailable, because conversation_extraction imports it inside complete(). In the non-editable install with the
+    production requirements only (uv export --no-dev, as prepare_community_build.py builds the image), every third-party module
+    imported anywhere in eios / nexloop_eios (module level or inside a function) must import, and the extraction provider's call
+    path must reach its own transport error instead of ModuleNotFoundError."""
+    owned, python, _ = installed_core_wheel
+    run = subprocess.run([str(python), '-I', '-c', THIRD_PARTY_IMPORTS], capture_output=True, text=True, timeout=120, cwd=owned)
+    assert run.returncode == 0, run.stderr[-2000:]
+    result = json.loads(run.stdout)
+    assert str(ROOT) not in result['origin'] and 'httpx' in result['imports']
+    assert result['missing'] == {}, result['missing']
+    call = subprocess.run([str(python), '-I', '-c', EXTRACTION_CALL], capture_output=True, text=True, timeout=60, cwd=owned)
+    assert call.returncode == 0 and json.loads(call.stdout) == {'raised': 'ExtractionProviderUnavailable', 'code': 'transport'}, (call.stdout, call.stderr[-1000:])

@@ -90,9 +90,10 @@
       "name": "certifi",
       "version_pattern": ".*",
       "scopes": [
-        "dev"
+        "dev",
+        "runtime"
       ],
-      "use": "CA bundle used unmodified by the test HTTP client only.",
+      "use": "CA bundle (certificate data only) used unmodified by httpx: by the test HTTP client, and since 2026-10-16 (G-HTTPX-DEP) at runtime by the claim extraction provider (conversation_extraction, httpx is an eios-core dependency). Installed as a separate wheel, never modified or vendored; MPL-2.0 file-level terms keep NexLoop's own code MIT.",
       "review_by": "2027-04-11"
     },
     {

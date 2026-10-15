@@ -16,10 +16,13 @@ source releases.
 | argon2-cffi | 25.1.0 | MIT |
 | argon2-cffi-bindings | 26.1.0 | MIT |
 | attrs | 26.1.0 | MIT |
+| certifi | 2026.7.22 | MPL-2.0 |
 | cffi | 2.1.1 | MIT-0 |
 | click | 8.5.0 | BSD-3-Clause |
 | fastapi | 0.142.2 | MIT |
 | h11 | 0.16.0 | MIT |
+| httpcore | 1.0.9 | BSD-3-Clause |
+| httpx | 0.28.1 | BSD-3-Clause |
 | idna | 3.20 | BSD-3-Clause |
 | jsonschema | 4.26.0 | MIT |
 | jsonschema-specifications | 2025.9.1 | MIT |
@@ -44,11 +47,8 @@ source releases.
 
 | Package | Version | License |
 |---|---|---|
-| certifi | 2026.7.22 | MPL-2.0 |
 | colorama | 0.4.6 | BSD-3-Clause |
 | execnet | 2.1.2 | MIT |
-| httpcore | 1.0.9 | BSD-3-Clause |
-| httpx | 0.28.1 | BSD-3-Clause |
 | hypothesis | 6.168.5 | MPL-2.0 |
 | iniconfig | 2.3.1 | MIT |
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |
@@ -317,7 +317,7 @@ source releases.
 
 Used unmodified as separate libraries (license policy):
 
-- certifi 2026.7.22 (MPL-2.0, dev): CA bundle used unmodified by the test HTTP client only.
+- certifi 2026.7.22 (MPL-2.0, runtime): CA bundle (certificate data only) used unmodified by httpx: by the test HTTP client, and since 2026-10-16 (G-HTTPX-DEP) at runtime by the claim extraction provider (conversation_extraction, httpx is an eios-core dependency). Installed as a separate wheel, never modified or vendored; MPL-2.0 file-level terms keep NexLoop's own code MIT.
 - hypothesis 6.168.5 (MPL-2.0, dev): Property-based testing library, test only, unmodified.
 - psycopg 3.3.6 (LGPL-3.0-only, runtime): PostgreSQL driver imported unmodified as a separate library; LGPL text ships in its wheel; NexLoop source releases do not redistribute it.
 - psycopg-binary 3.3.6 (LGPL-3.0-only, runtime): Binary build of psycopg (bundles libpq and its own dependencies with their license files); unmodified, not redistributed by NexLoop source releases.
