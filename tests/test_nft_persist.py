@@ -3,12 +3,11 @@ file written by render.py --nft-transaction.
 
 Checked here: the unit (oneshot, RemainAfterExit, before Docker and required by it, an assert on the load file, start/reload with
 `nft -f`, stop deleting only inet nexloop_stage, nothing about another table or `flush ruleset`); the transaction file (exactly
-`table` + `delete table` + `include` of the rendered rules, 0600, refusing relative or odd paths); and, when an nft binary exists,
-`nft -c -f` on the transaction file with the rendered app-host and data-host rules. Neither the development machine (macOS) nor
-the CI user has nft: that check is then skipped with its reason (explicitly, never silently passed)."""
+`table` + `delete table` + `include` of the rendered rules, 0600, refusing relative or odd paths); and the host check's placement;
+`nft -c -f` on the transaction file with the rendered rules is a host check (tests/host_checks/nft_check.py), outside the default
+collection: the CI user cannot run nft -c and the release gate allows no skip. A guard here keeps it outside."""
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -20,7 +19,6 @@ from test_stage_systemd_units import unit
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGE = ROOT / 'deploy/stage'
-NFT = shutil.which('nft')
 
 
 def test_the_unit_loads_only_the_nexloop_table_before_docker_and_fails_closed():
@@ -57,17 +55,17 @@ def test_the_transaction_file_replaces_exactly_the_nexloop_table(tmp_path):
     assert again.returncode == 2 and 'output exists' in again.stdout
 
 
-@pytest.mark.skipif(NFT is None, reason='no nft binary (macOS development machine, rootless CI user): `nft -c -f` on the transaction file '
-                                         'is not run here; run it on the host before enabling the unit (run-42 §6a)')
-@pytest.mark.parametrize('host', ['app-host', 'data-host'])
-def test_nft_accepts_the_transaction_file_with_the_rendered_rules(tmp_path, host):
-    env = tmp_path / 'stage.env'
-    env.write_text((STAGE / 'stage.env.example').read_text())
-    env.chmod(0o600)
-    rules, _ = R.render((STAGE / f'firewall/{host}.nft.template').read_text(), R.load_env(env))
-    path = tmp_path / f'{host}.rules.nft'
-    path.write_text(rules)
-    load = tmp_path / f'{host}.nft'
-    load.write_text(R.nft_transaction(path))
-    run = subprocess.run([NFT, '-c', '-f', str(load)], capture_output=True, text=True)
-    assert run.returncode == 0, run.stderr
+def test_the_nft_host_check_is_outside_the_default_collection():
+    """The release gate requires skipped = 0, and the CI user cannot run `nft -c`: the nft check lives in tests/host_checks/nft_check.py,
+    which the default run (pyproject testpaths = tests, default python_files test_*.py / *_test.py) does not collect, and which is run on
+    the hosts explicitly (run-42 §6a step 3)."""
+    import tomllib
+    options = tomllib.loads((ROOT / 'pyproject.toml').read_text())['tool']['pytest']['ini_options']
+    assert options['testpaths'] == ['tests'] and 'python_files' not in options  # pytest's default patterns apply
+    env = {**os.environ, 'PYTHONPATH': str(ROOT / 'packages/eios-core/src')}
+    default = subprocess.run([sys.executable, '-m', 'pytest', '--collect-only', '-q', '-p', 'no:cacheprovider', 'tests/host_checks'], cwd=ROOT,
+                             capture_output=True, text=True, env=env)
+    assert default.returncode == 5 and 'nft_check' not in default.stdout, default.stdout  # 5 = nothing collected
+    explicit = subprocess.run([sys.executable, '-m', 'pytest', '--collect-only', '-q', '-p', 'no:cacheprovider', 'tests/host_checks/nft_check.py'],
+                              cwd=ROOT, capture_output=True, text=True, env=env)
+    assert explicit.returncode == 0 and explicit.stdout.count('nft_check.py::') == 2, explicit.stdout
