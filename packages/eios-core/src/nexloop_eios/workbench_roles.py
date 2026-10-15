@@ -215,16 +215,21 @@ def publish_human_authority(tenant, *, authority_facts, business_application, hu
 
 
 def apply(roles, members, *, database_url_file, signing_key_file, signing_key_id):
-    """G-WORKBENCH-AUTH: the whole workbench configuration in one run, in the order 0140 requires: the members
-    (control.nexloop_configure_workbench), then their compiled grant facts and the workbench application's 0045 business row
-    through one 0050 manifest (scope action.execute). Same input, same state."""
+    """G-WORKBENCH-AUTH: the whole workbench configuration in one run, in the order the SQL requires: the workbench caller application
+    fact and its 0045 business row (0050; control.nexloop_configure_workbench refuses an application that is not a published browser
+    business application), then the members (configure_workbench), then the members' grant facts (0050, 0140: grants follow the
+    member list). Same input, same state."""
+    validate_roles(roles)
+    validate_members(members, roles)
+    facts = compile_members(roles, members)
+    application = [f for f in facts if f['kind'] == 'application']
+    common = dict(business_application={'application_id': members['application_id'], 'caller_application_id': members['caller_application_id'],
+                                        'application_version': '1', 'requested_scopes': ['action.execute']},
+                  database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id)
+    publish_human_authority(members['tenant_id'], authority_facts=application, humans=[], label='workbench-application', **common)
     configured = apply_members(roles, members, database_url_file=database_url_file)
-    revision = publish_human_authority(
-        members['tenant_id'], authority_facts=compile_members(roles, members),
-        business_application={'application_id': members['application_id'], 'caller_application_id': members['caller_application_id'],
-                              'application_version': '1', 'requested_scopes': ['action.execute']},
-        humans=[m['principal_id'] for m in members['members']], label='workbench-roles', database_url_file=database_url_file,
-        signing_key_file=signing_key_file, signing_key_id=signing_key_id)
+    revision = publish_human_authority(members['tenant_id'], authority_facts=facts, humans=[m['principal_id'] for m in members['members']],
+                                       label='workbench-roles', **common)
     return {'configured': True, 'workbench': configured, 'authority_revision': revision, 'members': len(members['members']),
             'roles_manifest_version': roles['manifest_version']}
 
