@@ -108,3 +108,18 @@ class ConversationEffectReceiptPort:
             if error.sqlstate=='42501':raise ConversationDenied() from None
             raise ConversationUnavailable() from None
         except Exception:raise ConversationUnavailable() from None
+
+
+def receipt_query_schemas():
+    """The published input/output contract of FUNCTION (NX-032 A1: from tests/test_conversation_effect_receipts.py:schemas, which
+    the fixtures publish; tests/test_system_catalog.py keeps the two identical until the fixtures read this function)."""
+    receipt={'type':'object','additionalProperties':False,'properties':{
+        'intent_id':{'type':'string'},'receipt_id':{'type':'string'},
+        'state':{'enum':['accepted','dispatching','unknown','observed_fulfilled','fulfilled','failed','confirmed']},
+        'scope':{'const':'service_delivery'},'provider_state':{'enum':['accepted','fulfilled','not_found',None]},
+        'governed_claim_finalized':{'type':'boolean'},'business_action_success':{'type':'boolean'}},
+        'required':['intent_id','receipt_id','state','scope','provider_state','governed_claim_finalized','business_action_success']}
+    run={'type':'object','additionalProperties':False,'properties':{key:{'type':'string'} for key in ['run_id','request_id','task_id','status']},'required':['run_id','request_id','task_id','status']}
+    input_schema={'type':'object','additionalProperties':False,'properties':{'message_id':{'type':'string','minLength':64,'maxLength':64}},'required':['message_id']}
+    output_schema={'type':'object','additionalProperties':False,'properties':{'message_id':{'type':'string'},'run':{'anyOf':[{'type':'null'},run]},'receipt':{'anyOf':[{'type':'null'},receipt]}},'required':['message_id','run','receipt']}
+    return input_schema,output_schema

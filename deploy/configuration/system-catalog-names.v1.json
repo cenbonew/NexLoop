@@ -191,6 +191,19 @@
    "fixture": "tests/local_message_assembly_fixture.py:assembled_message"
   },
   {
+   "stable_name": "nexloop.service.scope_denial.record",
+   "version": 1,
+   "object_types": [
+    "Consumer",
+    "Goal",
+    "PlanStep",
+    "EffectControl"
+   ],
+   "capability": "nexloop.service.scope_denial.record",
+   "group": "relay",
+   "fixture": "tests/test_scope_denials.py:denial_plan"
+  },
+  {
    "stable_name": "Conversation.create",
    "version": 1,
    "object_types": [
@@ -648,8 +661,8 @@
     "Conversation",
     "Message"
    ],
-   "capability": "(to confirm)",
-   "fixture": "backend.read_message_scope_denial"
+   "capability": "nexloop.conversation.scope_denials.read",
+   "fixture": "tests/test_scope_denials.py:denial_plan"
   }
  ]
 }
