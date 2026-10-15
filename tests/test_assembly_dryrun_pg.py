@@ -69,3 +69,34 @@ def test_publish_then_business_catalog_and_enterprise_setup(stage, admin):
     assert code == 0, (out, err)
     offering = json.loads(out)
     st.result = {'business': setup, 'catalog': offering}
+    enterprise = A.private(st.root, 'enterprise-recipe.json', json.dumps(A.filled(
+        'enterprise-setup-recipe.example.json', NEW_UUID=A.new_uuid(), CONSUMER_ID_FROM_BUSINESS_SETUP=setup['consumer_id'],
+        SERVICE_CODE_SUFFIX='dryrun', OFFERING_TITLE='Synthetic enterprise offering', CNY_PRICE_AMOUNT='10.00', TRIAL_PERIOD_END_UTC_ISO=end)))
+    code, out, err = A.run_tool('nexloop_eios.enterprise_setup', [*st.backend_args(), '--owner-credential-file', str(st.setup_file('business-owner-credential')),
+                                                                  '--executor-credential-file', str(st.setup_file('business-executor-credential')),
+                                                                  '--maintainer-credential-file', str(st.setup_file('catalog-maintainer-credential')),
+                                                                  '--source-credential-file', str(st.setup_file('catalog-source-credential')),
+                                                                  '--recipe-file', str(enterprise)])
+    assert code == 0, (out, err)
+    slot = json.loads(out)
+    st.result['enterprise'] = slot
+    # Relay enrollment by the EffectControl owner (business_owner), with the enterprise slot.
+    manifest, _ = S.merged_manifest()
+    relay_principal = next(p['principal_id'] for p in manifest['principals'] if p['role'] == 'message_relay')
+    enrollment = A.filled('relay-enrollment-enterprise.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=setup['consumer_id'],
+                          CONTROL_ID_FROM_BUSINESS_SETUP=setup['control_id'], OFFERING_ID_FROM_CATALOG_SETUP=offering['offering_id'],
+                          BINDING_ID_FROM_CATALOG_SETUP=offering['binding_id'], RELAY_SERVICE_PRINCIPAL_ID=relay_principal, NEW_UUID=A.new_uuid(),
+                          **{k: v for k, v in slot_placeholders(slot).items()})
+    enroll = A.private(st.root, 'relay-enrollment.json', json.dumps(enrollment))
+    code, out, err = A.run_tool('nexloop_eios.relay_enrollment', ['--database-url-file', str(st.api_dsn), '--signing-key-file', str(st.signing_key),
+                                                                  '--signing-key-id', 'stage-1', '--artifact-root', str(st.artifacts),
+                                                                  '--owner-credential-file', str(st.setup_file('business-owner-credential')),
+                                                                  '--enrollment-file', str(enroll)])
+    assert code == 0, (out, err)
+    st.result['enrollment'] = json.loads(out)
+    print(json.dumps(st.result, sort_keys=True))
+
+
+def slot_placeholders(slot):
+    return {'ENTERPRISE_CONTROL_ID_FROM_ENTERPRISE_SETUP': slot['enterprise_control_id'], 'ENTERPRISE_OFFERING_ID_FROM_ENTERPRISE_SETUP': slot['enterprise_offering_id'],
+            'ENTERPRISE_BINDING_ID_FROM_ENTERPRISE_SETUP': slot['enterprise_binding_id']}
