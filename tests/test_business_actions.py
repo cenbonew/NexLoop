@@ -161,6 +161,7 @@ def test_deployment_actions_provide_both_type_action_capabilities(admin):
         capabilities={'ontology.object.create':capability('ontology.object.create'),'ontology.object.edit':capability('ontology.object.edit')},
         select=('Message.agent_create','Consumer.edit'))
     for row in rows:
+        # catalog-exception: doctor test needs pre-existing rows (already published / conflicting lineage), on purpose not the catalog
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
             (tenant,'real',f"eios:action:{row['definition']['stable_name']}:{row['definition']['version']}",Jsonb(row['definition']),Jsonb(row['capability'])))
     with admin.transaction():
@@ -200,6 +201,7 @@ def test_doctor_reads_the_tenant_through_the_configurator(admin,pg,tmp_path):
     bootstrap(admin);tenant=TENANT_A
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(tenant,))
     inputs=governance_inputs();definition=inputs['action_definition'].model_copy(update={'stable_name':'Consumer.edit','contract_digest':None})
+    # catalog-exception: doctor test needs pre-existing rows (already published / conflicting lineage), on purpose not the catalog
     admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real','eios:action:Consumer.edit:1',%s,%s)",
         (tenant,Jsonb(definition.model_dump(mode='json')),Jsonb(inputs['capability_snapshot'].model_dump(mode='json'))))
     admin.execute('alter role nexloop_configurator login')

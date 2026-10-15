@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 from nexloop_eios.authorization import authenticate_service
+from system_catalog_fixture import business_capabilities  # NX-032 A1 T4b: capabilities.v1.json snapshots
 from nexloop_eios.context_engine import strategy as S
 from nexloop_eios.context_engine.authority import ContextDenied,signed_read
 from nexloop_eios.context_engine.semantic import OpenWorkReader,SemanticAdapter
@@ -45,7 +46,7 @@ def strategies(identity,uow,published_action,admin):
     admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',(TENANT,schema.type_name,1,Jsonb(schema.model_dump(mode='json'))))
     rows=business_actions.compile_actions(business_actions.load(ROOT/'deploy/configuration/business-actions.v1.json'),tenant=TENANT,created_by='synthetic-owner',
         created_at=datetime.now(UTC),object_types=[schema.model_dump(mode='json')],select=(S.PUBLISH_ACTION,),
-        capabilities={S.PUBLISH_CAPABILITY:capability.model_copy(update={'capability_name':S.PUBLISH_CAPABILITY,'has_side_effects':True})})
+        capabilities=business_capabilities((S.PUBLISH_CAPABILITY,)))
     for row in rows:
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
             (TENANT,'real',f"eios:action:{row['definition']['stable_name']}:1",Jsonb(row['definition']),Jsonb(row['capability'])))

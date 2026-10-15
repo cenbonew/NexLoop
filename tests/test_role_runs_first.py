@@ -26,6 +26,7 @@ def selected(roles,admin):
     ref=base.object_types[0].model_copy(update={'stable_name':'PlanStep','schema_digest':schema_contract_digest(schema)})
     definition=base.model_copy(update={'stable_name':'PlanStep.create','contract_digest':None,'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
     admin.execute('insert into ontology.object_type_versions values(%s,%s,1,%s)',(TENANT_A,'PlanStep',Jsonb(schema.model_dump(mode='json'))))
+    # catalog-exception: test PlanStep type of the role-runs ordering case
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:PlanStep.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
     creator=GovernedObjectCreator(reader.pool,authenticate_service(reader.pool,create.token,world='real'),reader.signer)
     def c(kind,intent,props):return creator.create(action_name=kind+'.create',action_version=1,intent_id=intent,type_name=kind,properties=props)['object_id']

@@ -374,6 +374,7 @@ def test_run_credential_of_the_purpose_principal_never_derives_read(deployed,adm
     base=d['fixture']['base'];definition=base['definition']
     body=definition.model_dump(mode='json');body.pop('contract_digest',None);body['stable_name']='nexloop.claim.extract'
     published=type(definition).model_validate_json(json.dumps(body))
+    # catalog-exception: nexloop.claim.extract is a grant id, not a catalog Action; stub definition for the read path
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
         (TENANT,'real','eios:action:nexloop.claim.extract:1',Jsonb(published.model_dump(mode='json')),
          Jsonb(base['capability'].model_copy(update={'has_side_effects':True}).model_dump(mode='json'))))

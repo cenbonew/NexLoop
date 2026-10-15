@@ -51,6 +51,7 @@ def plan(admin,pg,tmp_path):
         if name==EFFECT:body['input_schema']={'type':'object','properties':{'message':{'type':'string','minLength':1}},'required':['message'],'additionalProperties':False}
         definition=type(base_definition).model_validate_json(json.dumps(body))
         capability=base_capability.model_copy(update={'capability_name':capname})
+        # catalog-exception: effect context cases incl. a custom effect input schema (variant) on test-built schemas
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
             (tenant,'real','eios:action:'+name+':1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     def targets(names):return [('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in names]

@@ -21,6 +21,7 @@ def roles(published_action,admin,pg):
         ref=base.object_types[0].model_copy(update={'stable_name':kind,'schema_digest':schema_contract_digest(schema)})
         definition=base.model_copy(update={'stable_name':kind+'.create','required_scopes':('ontology.roles.manage',),'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
         admin.execute('insert into ontology.object_type_versions values(%s,%s,%s,%s)',(TENANT_A,kind,1,Jsonb(schema.model_dump(mode='json'))))
+        # catalog-exception: role mapping contract cases incl. RoleDefinition.unprivileged (empty scopes) and RoleDefinition.edit (not in the catalog)
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':('ontology.roles.manage',)}).model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.create:1',ResourceType.ACTION,Operation.EXECUTE))
     targets.append(('eios:action:Consumer.create:1',ResourceType.ACTION,Operation.EXECUTE))
@@ -85,6 +86,7 @@ def test_governed_end_and_actual_property_authorized_projection(roles,admin):
     binding=definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'})
     edit=definition.model_copy(update={'stable_name':'ConsumerRoleLink.edit','capability_binding':binding,'contract_digest':None})
     capability=capability.model_copy(update={'capability_name':'consumer.edit'})
+    # catalog-exception: role mapping contract cases incl. RoleDefinition.unprivileged (empty scopes) and RoleDefinition.edit (not in the catalog)
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:ConsumerRoleLink.edit:1',Jsonb(edit.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     targets=[('eios:action:ConsumerRoleLink.edit:1',ResourceType.ACTION,Operation.EXECUTE),('eios:object:ConsumerRoleLink/'+link,ResourceType.OBJECT,Operation.EDIT),('eios:property:ConsumerRoleLink/'+link+'/active',ResourceType.PROPERTY,Operation.EDIT)]
     for kind,obj,names in [('ConsumerRoleLink',link,props),('RoleDefinition',role,dict(name=1,responsibility=1,ceiling_ref=1,**valid))]:
@@ -184,6 +186,7 @@ def test_generic_create_without_management_contract_cannot_bypass_role_guard(rol
     raw=admin.execute("select definition,capability from control.nexloop_action_definitions where resource_id='eios:action:RoleDefinition.create:1'").fetchone()
     definition=ActionDefinition.model_validate_json(json.dumps(raw[0])).model_copy(update={'stable_name':'RoleDefinition.unprivileged','required_scopes':(),'contract_digest':None})
     capability=CapabilityContractSnapshot.model_validate_json(json.dumps(raw[1])).model_copy(update={'required_scopes':()})
+    # catalog-exception: role mapping contract cases incl. RoleDefinition.unprivileged (empty scopes) and RoleDefinition.edit (not in the catalog)
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:RoleDefinition.unprivileged:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
     session,_=seed_multi_authority(admin,reader.pool,[('eios:action:RoleDefinition.unprivileged:1',ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-non-management-create')
     creator=GovernedObjectCreator(reader.pool,session,reader.signer)
@@ -224,6 +227,7 @@ def test_fixed_port_configurable_duties_scope_and_authorized_current_projection(
         definition=ActionDefinition.model_validate_json(json.dumps(raw[0]));capability=CapabilityContractSnapshot.model_validate_json(json.dumps(raw[1]))
         binding=definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'})
         definition=definition.model_copy(update={'stable_name':kind+'.edit','capability_binding':binding,'contract_digest':None});capability=capability.model_copy(update={'capability_name':'consumer.edit'})
+        # catalog-exception: role mapping contract cases incl. RoleDefinition.unprivileged (empty scopes) and RoleDefinition.edit (not in the catalog)
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.edit:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.edit:1',ResourceType.ACTION,Operation.EXECUTE))
         for operation in (Operation.READ,Operation.EDIT):

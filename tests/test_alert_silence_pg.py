@@ -15,13 +15,13 @@ from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
 from nexloop_eios import business_actions
+from system_catalog_fixture import business_capabilities  # NX-032 A1 T4b: capabilities.v1.json snapshots
 from nexloop_eios.browser_http import BrowserConfiguration
 from nexloop_eios.http_api import ApiConfiguration, create_app
 from nexloop_eios.observability import apply_rules, load_rules
 from nexloop_eios.workbench_roles import apply_members, compile_members
 from commitment_fixture import ROOT, TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
-from test_postgres_action_claims import governance_inputs
 from test_browser_http import ORIGIN, login
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
@@ -34,9 +34,8 @@ RULES = ROOT / 'deploy/configuration/alert-rules.v1.json'
 
 def publish_silence(admin):
     consumer = admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1", (TENANT,)).fetchone()[0]
-    cap = governance_inputs()['capability_snapshot'].model_copy(update={'capability_name': 'alert.silence', 'has_side_effects': True})
     for row in business_actions.compile_actions(business_actions.load(ROOT / 'deploy/configuration/business-actions.v1.json'), tenant=TENANT,
-            created_by='synthetic-configuration', created_at=datetime.now(UTC), object_types=[consumer], capabilities={'alert.silence': cap}, select=('nexloop.alert.silence',)):
+            created_by='synthetic-configuration', created_at=datetime.now(UTC), object_types=[consumer], capabilities=business_capabilities(('alert.silence',)), select=('nexloop.alert.silence',)):
         d = row['definition']
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
             (TENANT, 'real', f"eios:action:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability'])))

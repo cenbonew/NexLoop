@@ -77,6 +77,7 @@ def test_current_recovery_definition_and_nested_tail(role_runtime_plan,admin,tmp
                 from eios.ontology.definitions import ActionDefinition
                 definition.pop('contract_digest',None)
                 definition=ActionDefinition.model_validate_json(json.dumps(definition)).model_dump(mode='json')
+                # catalog-exception: fault injection: nexloop.service.query v2 with risk high
                 admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real','eios:action:nexloop.service.query:2',%s,%s)",(tenant,Jsonb(definition),Jsonb(capability)))
                 admin.execute("update control.nexloop_action_definitions set active=false where tenant_id=%s and resource_id='eios:action:nexloop.service.query:1'",(tenant,))
                 worker=backend.authenticate(plan['executor_token'],world='real')

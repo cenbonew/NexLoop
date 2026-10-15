@@ -249,3 +249,41 @@ def test_the_seven_role_actions_as_published_execute_through_0057_and_0081(runti
     rows = admin.execute("select type_name,nexloop_revision from ontology.objects where tenant_id=%s and type_name = any(%s) order by type_name",
                          (tenant, sorted(role_types))).fetchall()
     assert rows == [('ConsumerRoleLink', 2), ('RoleAssignmentScope', 2), ('RoleDefinition', 1), ('RoleExecutionCeiling', 2)]
+
+
+# NX-032 A1 T4b: test files allowed to write definition rows directly. "catalog": the rows come from the production catalog
+# (system_catalog / capabilities.v1.json) and the insert is only the test publication; "exception": a deliberate negative case,
+# variant or test-only type, explained by a `# catalog-exception:` comment at each insert. Only shrinks: a new file that inserts
+# definitions fails; a file that stops inserting must be removed from the list.
+DIRECT_DEFINITION_WRITERS = {
+    'tests/system_catalog_fixture.py': 'catalog', 'tests/commitment_fixture.py': 'catalog', 'tests/commercial_fixture.py': 'catalog',
+    'tests/goal_fixture.py': 'catalog', 'tests/load_chain.py': 'catalog', 'tests/test_alert_silence_pg.py': 'catalog',
+    'tests/test_context_audit_pg.py': 'catalog', 'tests/test_context_engine_pg.py': 'catalog', 'tests/test_workbench_actions_http.py': 'catalog',
+    'tests/test_system_catalog_pg.py': 'catalog',
+    'tests/generic_offering_fixture.py': 'exception', 'tests/message_offering_fixture.py': 'exception', 'tests/test_action_definitions.py': 'exception',
+    'tests/test_assessment_candidate.py': 'exception', 'tests/test_business_actions.py': 'exception', 'tests/test_claim_matching_pg.py': 'exception',
+    'tests/test_conversation_messages.py': 'exception', 'tests/test_effect_contexts.py': 'exception', 'tests/test_goal_controls.py': 'exception',
+    'tests/test_instance_approval_pg.py': 'exception', 'tests/test_ladder_deadlock_pg.py': 'exception',
+    'tests/test_message_purpose_reads_pg.py': 'exception', 'tests/test_object_edits.py': 'exception', 'tests/test_receipt_tail.py': 'exception',
+    'tests/test_relation_actions.py': 'exception', 'tests/test_role_mapping.py': 'exception', 'tests/test_role_policy_binding.py': 'exception',
+    'tests/test_role_policy_governance.py': 'exception', 'tests/test_role_runs_first.py': 'exception', 'tests/test_runtime_authority.py': 'exception',
+    'tests/test_tenant_config_pg.py': 'exception',
+}
+
+
+def test_direct_definition_writers_only_shrink():
+    import re
+    pattern = re.compile(r'insert\s+into\s+control\.nexloop_(action|function)_definitions', re.I)
+    writers = {}
+    for path in sorted((ROOT / 'tests').rglob('*.py')):
+        lines = path.read_text().split('\n')
+        hits = [i for i, line in enumerate(lines) if pattern.search(line)]
+        if hits:
+            writers[str(path.relative_to(ROOT))] = (lines, hits)
+    assert set(writers) == set(DIRECT_DEFINITION_WRITERS), {'new (use system_catalog_fixture)': sorted(set(writers) - set(DIRECT_DEFINITION_WRITERS)),
+                                                           'gone (remove from the list)': sorted(set(DIRECT_DEFINITION_WRITERS) - set(writers))}
+    for path, kind in DIRECT_DEFINITION_WRITERS.items():
+        if kind == 'exception':
+            lines, hits = writers[path]
+            unexplained = [i + 1 for i in hits if not any('catalog-exception:' in lines[j] for j in range(max(0, i - 3), i))]
+            assert not unexplained, (path, unexplained)

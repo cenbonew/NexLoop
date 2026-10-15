@@ -44,17 +44,9 @@ DELIVER_SCHEMA = {'type': 'object', 'properties': {'summary': {'type': 'string',
 
 
 def publish_enterprise_action(admin, tenant):
-    definition, capability = admin.execute('select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s',
-                                           (tenant, REPLY)).fetchone()
-    base = governance_inputs()
-    body = dict(definition)
-    body.pop('contract_digest', None)
-    body.update(stable_name='nexloop.enterprise.deliver', input_schema=DELIVER_SCHEMA)
-    body['capability_binding'] = {**body['capability_binding'], 'capability_name': 'nexloop.enterprise.deliver'}
-    model = type(base['action_definition']).model_validate_json(json.dumps(body))
-    cap = type(base['capability_snapshot']).model_validate_json(json.dumps({**capability, 'capability_name': 'nexloop.enterprise.deliver'}))
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-                  (tenant, 'real', DELIVER, Jsonb(model.model_dump(mode='json')), Jsonb(cap.model_dump(mode='json'))))
+    """NX-032 A1 T4b: the catalog's nexloop.enterprise.deliver (service target, DELIVER input), typed like the tenant's reply Action."""
+    from system_catalog_fixture import publish_catalog_actions_like
+    publish_catalog_actions_like(admin, tenant, ('nexloop.enterprise.deliver',), REPLY)
 
 
 @pytest.fixture

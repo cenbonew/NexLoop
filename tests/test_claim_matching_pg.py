@@ -72,6 +72,7 @@ def publish_action(admin,tenant,name,schema,capability_name=None):
     if capability_name:
         declaration['capability_binding']['capability_name']=capability_name;capability=capability.model_copy(update={'capability_name':capability_name})
     definition=type(original).model_validate_json(json.dumps(declaration))
+    # catalog-exception: generic helper publishing NX-020 test schemas (Product etc.), not in the catalog
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
         (tenant,'real',f'eios:action:{name}:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_dump(mode='json'))))
 

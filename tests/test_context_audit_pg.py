@@ -14,6 +14,7 @@ import pytest
 from psycopg.types.json import Jsonb
 from eios.authz.resources import ResourceType
 from nexloop_eios import business_actions
+from system_catalog_fixture import business_capabilities  # NX-032 A1 T4b: capabilities.v1.json snapshots
 from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.context_engine.audit import AUDIT_ACTION,AUDIT_CAPABILITY,ContextAuditReader,context_manifest_object_type
 from nexloop_eios.context_engine.authority import ContextDenied,action_claims
@@ -35,7 +36,7 @@ def audit_rows(tenant,capability):
     schema=context_manifest_object_type()
     rows=business_actions.compile_actions(MANIFEST,tenant=tenant,created_by='synthetic-owner',created_at=datetime.now(UTC),
         object_types=[schema.model_dump(mode='json')],select=(AUDIT_ACTION,),
-        capabilities={AUDIT_CAPABILITY:capability.model_copy(update={'capability_name':AUDIT_CAPABILITY,'has_side_effects':True})})
+        capabilities=business_capabilities((AUDIT_CAPABILITY,)))  # `capability` kept in the signature for the callers
     return schema,rows
 
 

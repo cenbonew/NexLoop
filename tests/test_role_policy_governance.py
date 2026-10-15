@@ -21,6 +21,7 @@ def policies(published_action,admin,pg):
         ref=base.object_types[0].model_copy(update={'stable_name':kind,'schema_digest':schema_contract_digest(schema)})
         definition=base.model_copy(update={'stable_name':kind+'.create','required_scopes':('ontology.roles.manage',),'object_types':(ref,),'governance':base.governance.model_copy(update={'change_scope':base.governance.change_scope.model_copy(update={'object_types':(ref,)})})})
         admin.execute('insert into ontology.object_type_versions values(%s,%s,%s,%s)',(TENANT_A,kind,1,Jsonb(schema.model_dump(mode='json'))))
+        # catalog-exception: role policy governance cases on test-built definitions (variants)
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',(TENANT_A,'real','eios:action:'+kind+'.create:1',Jsonb(definition.model_dump(mode='json')),Jsonb(capability.model_copy(update={'required_scopes':('ontology.roles.manage',)}).model_dump(mode='json'))))
         targets.append(('eios:action:'+kind+'.create:1',ResourceType.ACTION,Operation.EXECUTE))
     targets.append(('eios:action:Consumer.create:1',ResourceType.ACTION,Operation.EXECUTE))

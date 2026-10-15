@@ -201,6 +201,7 @@ def test_at007_goal_revision_and_customer_change_invalidate_old_plan(env,admin):
     raw=admin.execute("select definition,capability from control.nexloop_action_definitions where resource_id='eios:action:Consumer.create:1'").fetchone()
     definition,capability=ActionDefinition.model_validate_json(json.dumps(raw[0])),CapabilityContractSnapshot.model_validate_json(json.dumps(raw[1]))
     edit=definition.model_copy(update={'stable_name':'Consumer.edit','capability_binding':definition.capability_binding.model_copy(update={'capability_name':'consumer.edit'}),'contract_digest':None})
+    # catalog-exception: Consumer.edit bound to the legacy consumer.edit capability on purpose (contract case)
     admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
         (TENANT_A,'real','eios:action:Consumer.edit:1',Jsonb(edit.model_dump(mode='json')),Jsonb(capability.model_copy(update={'capability_name':'consumer.edit'}).model_dump(mode='json'))))
     editor_session,_=seed_multi_authority(admin,env.reader.pool,[('eios:action:Consumer.edit:1',ResourceType.ACTION,Operation.EXECUTE),
