@@ -86,9 +86,10 @@ def compare(admin, tenant, label):
 
 def test_the_coverage_lists_every_built_action_and_function_once():
     names = [n for group in COVERAGE.values() for n in group]
-    assert len(names) == len(set(names)) and set(names) == {s.name for s in C.ACTIONS}
+    # The workbench goal Actions have no fixture definition to compare with (tests/goal_fixture.py clones a load-chain Action).
+    assert len(names) == len(set(names)) and set(names) | set(C.GOAL_ACTIONS) == {s.name for s in C.ACTIONS}
     assert {n for group in FUNCTION_COVERAGE.values() for n in group} == {s.name for s in C.FUNCTIONS}
-    assert not set(C.PENDING_GOAL_ACTIONS) & set(names)
+    assert not set(C.GOAL_ACTIONS) & set(names)
 
 
 def test_builders_are_deterministic_and_carry_their_source():
@@ -124,7 +125,15 @@ def test_the_name_list_for_t2_is_the_builders_list():
     from pathlib import Path
     names = json.loads((Path(__file__).resolve().parents[1] / 'deploy/configuration/system-catalog-names.v1.json').read_text())
     listed = {a['stable_name']: a for a in names['system_actions']}
-    assert set(listed) == {s.name for s in C.ACTIONS} | set(C.PENDING_GOAL_ACTIONS)
+    assert set(listed) == {s.name for s in C.ACTIONS}
     assert all(listed[s.name]['capability'] == s.capability and sorted(listed[s.name]['object_types']) == sorted(s.types) for s in C.ACTIONS)
     assert {f['stable_name']: f['capability'] for f in names['functions']} == {s.name: s.capability for s in C.FUNCTIONS}
     assert {t['type_name'] for t in names['object_types']} >= set(C.object_types())
+
+
+def test_builder_keys_named_by_t2_exist_and_build():
+    keys = {'consumer_schema', 'effect_plan_schemas', 'conversation_schemas', 'message_assignment_schema', 'service_offering_schemas',
+            'incentive_offering_schemas', 'role_mapping_schemas', 'role_policy_schemas', 'registrar_schema:configure', 'registrar_schema:bind',
+            'context_binding_schema', 'role_context_binding_schema', 'enterprise_deliver_schema', 'message_assignment_input',
+            'service_receipt_function', 'scope_denial_function'}
+    assert keys <= set(C.builders()) and all(C.builders()[k]() is not None for k in keys)

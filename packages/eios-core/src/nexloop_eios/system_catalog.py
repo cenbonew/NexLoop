@@ -136,10 +136,13 @@ ACTIONS = (
     ActionSpec('nexloop.context.bind_role', ('Consumer',), 'nexloop.context.bind_role', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan',
                input='role_context_bind'),
 )
-# Workbench goal Actions (tests/goal_fixture.py:ACTIONS): their object type is an open design decision (design §2.1, the fixtures
-# clone a Consumer-typed definition), so they are listed, not built, until it is decided.
-PENDING_GOAL_ACTIONS = {'Metric.approve': 'goals.metric.approve', 'Goal.publish': 'goals.version.publish', 'Goal.propose': 'goals.agent.propose',
-                        'Control.set': 'goals.control.set', 'Budget.set': 'goals.budget.set', 'Contact.release': 'goals.contact.release'}
+# Workbench goal Actions (tests/goal_fixture.py:ACTIONS). Typed on Consumer:1 only because an ActionDefinition must reference a
+# published type (L4 review, T2): NX-022 goals, controls and budgets are not ontology objects (0068 tables, written by the 0124
+# governed handlers), and goal_controls._submit checks only the capability name. Not the relay plan's Goal type.
+GOAL_ACTIONS = {'Metric.approve': 'goals.metric.approve', 'Goal.publish': 'goals.version.publish', 'Goal.propose': 'goals.agent.propose',
+                'Control.set': 'goals.control.set', 'Budget.set': 'goals.budget.set', 'Contact.release': 'goals.contact.release'}
+ACTIONS += tuple(ActionSpec(name, ('Consumer',), capability, 'workbench_goals', 'tests/goal_fixture.py:register_goal_actions')
+                 for name, capability in GOAL_ACTIONS.items())
 
 
 @dataclass(frozen=True)
@@ -165,6 +168,41 @@ def _function_schemas(key):
         return receipt_query_schemas()
     from nexloop_eios.conversation_scope_denials import query_schemas
     return query_schemas()
+
+
+def _builders():
+    """The builder keys deploy/configuration/system-actions.v1.json (T2) names, each a production function: a schema list, one
+    schema, an input schema, or a Function's (input, output) pair."""
+    from nexloop_eios.consumer_profile import consumer_profile_schema
+    from nexloop_eios.context_artifacts import context_binding_schema
+    from nexloop_eios.conversation_messages import conversation_schemas
+    from nexloop_eios.effect_contexts import effect_plan_schemas, registrar_schema
+    from nexloop_eios.incentives import offering_schemas as incentive_schemas
+    from nexloop_eios.message_relay import message_assignment_schema
+    from nexloop_eios.role_context_artifacts import role_context_binding_schema
+    from nexloop_eios.role_mapping import role_mapping_schemas
+    from nexloop_eios.role_policies import role_policy_schemas
+    from nexloop_eios.scope_denials import record_schema
+    from nexloop_eios.service_offerings import offering_schemas
+    return {'consumer_schema': consumer_profile_schema, 'effect_plan_schemas': effect_plan_schemas, 'conversation_schemas': conversation_schemas,
+            'message_assignment_schema': message_assignment_schema, 'service_offering_schemas': offering_schemas,
+            'incentive_offering_schemas': incentive_schemas, 'role_mapping_schemas': role_mapping_schemas, 'role_policy_schemas': role_policy_schemas,
+            'registrar_schema:configure': lambda: registrar_schema('configure'), 'registrar_schema:bind': lambda: registrar_schema('bind'),
+            'context_binding_schema': context_binding_schema, 'role_context_binding_schema': role_context_binding_schema,
+            'enterprise_deliver_schema': lambda: DELIVER_INPUT, 'scope_denial_record_schema': record_schema,
+            # message_assignment_contract.message_assignment_action sets no input schema: the ActionDefinition default (empty object).
+            'message_assignment_input': lambda: {},
+            'service_receipt_function': lambda: _function_schemas('receipt'), 'scope_denial_function': lambda: _function_schemas('scope_denial')}
+
+
+BUILDERS = None
+
+
+def builders():
+    global BUILDERS
+    if BUILDERS is None:
+        BUILDERS = _builders()
+    return BUILDERS
 
 
 def _ref(tenant, schema):
