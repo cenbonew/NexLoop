@@ -54,8 +54,12 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     services = compose['services']
     owners = {}
     for name, spec in services.items():
-        if name not in ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery'):
+        if name not in ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker',
+                        'claim-matcher'):
             assert spec['network_mode'] == 'service:app-net', name
+        if name in ('claim-extraction-worker', 'claim-matcher'):
+            # G-CLAIM-EGRESS: their own egress network (PG and the model allowlist only), never the application namespace.
+            assert 'network_mode' not in spec and list(spec['networks']) == ['claim_egress'], name
         if name != 'app-net':
             assert spec['read_only'] is True and spec['cap_drop'] == ['ALL'], name
             assert spec['security_opt'] == ['no-new-privileges:true'] and not spec.get('ports'), name
