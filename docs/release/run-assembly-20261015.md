@@ -150,6 +150,60 @@ docker run $APPTOOL "$BACKEND_IMAGE" -m nexloop_eios.initial_identity --manifest
 - **撤销**：账号不能删除；账号可以停用（NX-029 路径）。配额只增不减，所以清单要先核对再执行。
 - **演练出处**：`create_human`。
 
+### 1a. 重置模拟客户口令：`identity_password_reset`（G-PW-RESET；APP_HOST；B，sudo-A）
+
+**适用**：6 个 WebChat 模拟客户（`customer-1`..`customer-4`、`refusal-1`、`refusal-2`）建号时口令输错，现在无人知道口令。它们的邮箱都是 `.invalid`，邮件重置流程无法送达。
+
+**前提：迁移**（B，sudo-D）。工具调用的 SQL 函数 `control.nexloop_operator_reset_browser_password` 来自迁移 0198（临时号，合入时由调度员重新编号）。
+- 先按 NX-035 手册第 5 步执行 `nexloop-migrate`：迁移门槛要求有 60 分钟以内的已验证备份，没有就不迁移，也没有豁免；
+- 迁移后立即再做一次备份；
+- 核对：`select max(version) from control.schema_migrations` 等于 main 的 catalog 末项。
+
+**授权边界**（迁移 0198 的注释）：
+- 只有 `nexloop_identity`（`session_user`）能执行，函数属主为 `nexloop_owner`，只授给这一个角色；
+- 目标只能是 active 的人类主体的 active 本地账号，所在的浏览器应用也须 active；
+- 修改按账号 revision 做乐观锁；
+- 配额与成员身份都不变；
+- 证据写入 `control.nexloop_browser_login_events`，类型为 `operator_password_reset`，含 operator_label、request_id、账号、revision、epoch，不含口令或哈希。
+
+**效果**：
+- 新的 argon2id 哈希，旧哈希进入 `password_history`；
+- `session_epoch + 1`，该账号的所有旧会话立即失效；
+- `failed_attempts`、`lockout` 清零，`updated_at` 更新。
+
+**输出目录**：§0.3 的 `$APPTOOL` 把 `/in` 挂成只读，所以生成的口令文件写到另一个可写目录 `$APP_RUN/out`（0700，属主 10001），挂到 `/out`。
+
+```
+sudo install -d -o 10001 -g 10001 -m 0700 $APP_RUN/out
+for C in customer-1 customer-2 customer-3 customer-4 refusal-1 refusal-2; do
+  docker run $APPTOOL -v $APP_RUN/out:/out "$BACKEND_IMAGE" -m nexloop_eios.identity_password_reset \
+    --identity-database-url-file /run/secrets/api_identity_dsn --tenant "$TENANT_ID" --application-id "$BROWSER_APPLICATION_ID" \
+    --username "$C" --generate-password-file /out/password-$C --request-id "pw-reset-20261015-$C" --operator-label stage-owner --confirm-reset
+done
+```
+
+- **身份**：`nexloop_identity`，经 api 的 identity DSN 与客户端证书。
+- **口令**：工具为每个账号生成 20 位随机口令，写入新的私有文件 `/out/password-<C>`（0600）。文件已存在时工具拒绝，不覆盖。
+- **预期**：每个账号输出 `{"reset": true, "replayed": false, "account_id": …, "revision": <加 1>, "session_epoch": <加 1>}`。输出中不含口令。
+- **幂等**：同一个 `--request-id` 再执行，改用 `--password-file /out/password-<C>`，结果为 `replayed: true`，什么都不改。
+  - 不要用新的 request id 重跑：口令文件已存在会被拒绝；用同一个口令则判为口令重用。
+- **核对**（bootstrap，只读）：
+  - 每个账号在 `control.nexloop_browser_login_events` 中有一条 `operator_password_reset`，request_id 一一对应；
+  - 新口令能在 WebChat 登录，旧口令不能。
+- **口令文件的处理**：
+  1. 由负责人本人逐个读取，例如 `sudo cat $APP_RUN/out/password-<C>`，在本人终端里看，不经任何会话转述；
+  2. 存入密码管理器；
+  3. 确认已保存后执行 `sudo shred -u $APP_RUN/out/password-*`，并删除 `$APP_RUN/out`。
+  - 口令不进仓库、证据或聊天。
+- **撤销**：口令无法恢复成原值，因为原值本来就没人知道。需要时再执行一次重置，用新的 request id 和新的口令文件。
+- **测试**：`tests/test_identity_password_reset_pg.py`，覆盖：
+  - 旧口令登录失败、新口令登录成功；
+  - 重置前创建的会话不再可读；
+  - `failed_attempts` 清零、有证据行；
+  - 重放不改动；
+  - 拒绝情形：权限不对的文件、未加 `--confirm-reset`、非 identity 角色、已存在的输出文件、其他角色直接调用 SQL 函数；
+  - 输出不含口令。
+
 ## 2. 工作台授权：`workbench_roles --apply`（DATA_HOST，配置者窗口；B，sudo-D）
 
 成员文件 `$RUN/workbench-members.json`（0600，999），格式见 `workbench_roles` 模块注释：
