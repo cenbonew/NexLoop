@@ -380,9 +380,25 @@ def inventory_compare(before, after, *, prefix='nexloop'):
         if any(not k.startswith(prefix) and (a[k] or {}).get('owner') != prefix for k in new):
             problems.append(f'non_nexloop_addition:{section}')
         added[section] = len(new)
-    if before.get('firewall_without_nexloop_sha256') != after.get('firewall_without_nexloop_sha256'):
+    firewall = {}
+    if before.get('firewall_algorithm') == 2 and after.get('firewall_algorithm') == 2:
+        # Algorithm 2 (scripts/deploy/inventory.py): rules naming only NexLoop's own networks are left out on both sides.
+        if before.get('firewall_normalized_sha256') != after.get('firewall_normalized_sha256'):
+            problems.append('changed:firewall')
+            b, a = before.get('firewall_normalized_rules') or [], after.get('firewall_normalized_rules') or []
+            firewall = {'lines_only_before': len([x for x in b if x not in a]), 'lines_only_after': len([x for x in a if x not in b])}
+        if before.get('firewall_rebaselined'):
+            firewall['before_rebaselined'] = True  # the owner accepted this baseline (inventory.py --rebaseline)
+    elif after.get('firewall_algorithm') == 2:
+        # The before inventory has only the algorithm 1 hash, which cannot be recomputed from it: never a pass by default.
+        problems.append('firewall_before_old_algorithm')
+        firewall = {'note': 'before uses the old algorithm and cannot be recomputed; inventory.py --rebaseline (owner decision)'}
+    elif before.get('firewall_without_nexloop_sha256') != after.get('firewall_without_nexloop_sha256'):
         problems.append('changed:firewall')
-    return {'checks': {'existing_services_unchanged': not problems}, 'details': {'inventory': {'problems': sorted(set(problems)), 'added': added}}}
+    details = {'problems': sorted(set(problems)), 'added': added}
+    if firewall:
+        details['firewall'] = firewall
+    return {'checks': {'existing_services_unchanged': not problems}, 'details': {'inventory': details}}
 
 
 # Budget <-> Compose (L5 review 2026-10-11) ---------------------------------------------------------------------------------------

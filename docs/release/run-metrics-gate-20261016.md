@@ -178,6 +178,18 @@ sudo docker run --rm --user 0 --read-only --network "container:$APPNET" \
 - **DSN 的属主**：闸门以 root 运行，这样才能看到每个服务的目录。但各服务的 DSN 属主是 10001，而原来的读取函数要求“读取进程本人是属主”，以 root 读会全部判失败。本单的提交为 `deploy_checks.tls` 增加了按条目指定 `uid` 的读法：文件必须是该 uid 的、普通文件、权限 0600、长度有限。`gate_dir` 为每条 DSN 写入服务 uid，所以 2.2 必须挂载 main 源码。
 - **G-CLAIM-EGRESS**：`compose_networks_match_firewall` 与 `running_networks_match_firewall` 包含 `claim_egress`。所以闸门要在 run-42 §8 上线之后跑；在那之前，这两项会因为缺 `CLAIM_EGRESS_CIDR` 或缺网络而为 false。
 - **before.json**：没有首次部署的 before 时，现场生成的 before 与 after 几乎同时取得，`existing_services_unchanged` 只说明“此刻一致”，不说明部署前后一致。证据里注明用的是哪一种。
+- **`agent_host_concurrency`**（2026-10-16 stage 实测为 false）：Host 的 `runtime-config.json` 属主是 10020，闸门以 root 运行，原来的读法因此判为 false。现在按 `agent_host_config_uid`（`gate_dir` 写入 10020）读取；读不了时，`details.agent_host_concurrency` 会给出原因码，例如 `file_owner_differs`、`file_permissions`、`configuration_invalid:<类型>`。
+- **防火墙比对，`existing_services_unchanged`**（2026-10-16 stage 实测为 `changed:firewall`）：
+  - **原因**：原算法对整个 `nft list ruleset` 求哈希，只排除了 `nexloop_stage` 表。而 Docker 会为每个 compose 网络写规则，所以 NexLoop 自己的网络一变（应用网络换子网、新增 claim_egress），哈希就变。
+  - **新算法**（`inventory.py` 算法 2）：剔除只涉及 NexLoop 网络的规则，依据是 `com.docker.compose.project` 以 nexloop 开头的网络、它们的网桥 `br-<id12>`、子网和子网内地址；计数器清零。
+  - 规范化后的规则文本另存在 inventory 的 `firewall_normalized_rules`，供私有证据逐行比对。
+  - **旧的 before**：首次部署时的 `before.json` 只有旧算法的哈希，无法重算。闸门会报 `firewall_before_old_algorithm`，不会直接判为通过。
+  - **接受新基线（B，sudo-A）**：如果负责人核对过当前规则，例如 UFW 逐条一致、没有新表、`nexloop_networks` 列出的网桥都属于 NexLoop，可以用旧 before 生成新基线：
+    ```
+    sudo python3 "$RELEASE_CHECKOUT/scripts/deploy/inventory.py" --phase before --planned-ports <同 2.1> --data-root "$NEXLOOP_ROOT" \
+      --rebaseline <旧 before.json> --out <新 before.json>
+    ```
+    新文件保留旧 before 的其他各节，防火墙改为当前规则，并写入 `firewall_rebaselined`（时间与旧哈希）。然后用 `--before <新 before.json>` 重做 2.1。闸门 details 会标出 `before_rebaselined`。
 - **valkey.conf**：检查的是由同一模板和同一 env 渲染的版本，不是 DATA_HOST 上的实际文件。如需核对实际文件，可从 DATA_HOST 取 `config/valkey.conf`，只读、核对 sha256，替换 `$GATE_DIR/valkey.conf` 后重跑 2.2。
 
 ### 2.4 收尾
