@@ -167,3 +167,71 @@ def test_register_through_a_configurator_login_window_on_the_bootstrap_socket(pg
     rows = admin.execute('select operator_role, count(*) from control.nexloop_configuration_publications group by 1').fetchall()
     assert [r[0] for r in rows] == ['nexloop_configurator'] and rows[0][1] >= 1
     assert not list((tree['out'] / 'management').glob('.*'))
+
+
+def test_browser_registration_lets_webchat_and_workbench_log_in_through_the_api_and_is_idempotent(pg, admin, tree, tmp_path, capsys):  # noqa: F811
+    """G1 (run-34 §2): after bootstrap and register, `stage_secrets.py browser` (configurator login window) registers both browser
+    applications, the local_login rate policy and the initial identity allowances; an initial identity created per application
+    logs in through http_api's real login routes (WebChat and workbench); a second run publishes nothing."""
+    import hashlib
+
+    from fastapi.testclient import TestClient
+
+    from nexloop_eios.browser_http import BrowserConfiguration
+    from nexloop_eios.http_api import ApiConfiguration, create_app
+    from nexloop_eios.initial_identity import create_initial_identity
+
+    def private(name, text):
+        path = tmp_path / name
+        path.write_text(text)
+        path.chmod(0o600)
+        return path
+    bootstrap(admin)
+    socket_dsn = private('bootstrap-dsn', make_conninfo(pg, user='nexloop_bootstrap'))
+    expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+    assert S.main(['register', '--out', str(tree['out']), '--tenant', TENANT, '--bootstrap-dsn-file', str(socket_dsn), '--signing-key-id', 'stage-1',
+                   '--credential-expires-at', expires]) == 0
+    seal = random.token_hex(32)
+    seal_file = private('seal', seal)
+    args = ['browser', '--out', str(tree['out']), '--tenant', TENANT, '--browser-application-id', 'stage-webchat', '--workbench-application-id', 'stage-workbench',
+            '--identity-seal-file', str(seal_file), '--bootstrap-dsn-file', str(socket_dsn), '--signing-key-id', 'stage-1']
+    capsys.readouterr()
+    publications = 'select count(*) from control.nexloop_configuration_publications'
+    before = admin.execute(publications).fetchone()[0]
+    assert S.main(args) == 0 and json.loads(capsys.readouterr().out)['changed'] is True
+    assert admin.execute(publications).fetchone()[0] == before + 1
+    assert admin.execute("select rolcanlogin from pg_roles where rolname='nexloop_configurator'").fetchone() == (False,)
+    assert admin.execute('select application_id, revision, active from control.nexloop_browser_applications where tenant_id=%s order by 1', (TENANT,)).fetchall() == \
+        [('stage-webchat', 1, True), ('stage-workbench', 1, True)]
+    assert admin.execute('select idempotency_key_digest from control.nexloop_initial_identity_allowances where tenant_id=%s', (TENANT,)).fetchall() == \
+        [(hashlib.sha256(bytes.fromhex(seal)).hexdigest(),)] * 2
+    # Idempotent: nothing is published again; dry-run prints the plan and no seal.
+    assert S.main(args) == 0 and json.loads(capsys.readouterr().out)['changed'] is False
+    assert admin.execute(publications).fetchone()[0] == before + 1
+    assert S.main(args[:-4] + ['--dry-run']) == 0 and seal not in capsys.readouterr().out
+    # A changed allowance is refused before anything is written (0050 never resets an allowance).
+    assert S.main(args + ['--webchat-accounts', '11']) == 2 and 'never reset' in capsys.readouterr().out
+    # One human per application through initial_identity (nexloop_identity), then the api's own login routes.
+    identity_dsn = private('identity-dsn', make_conninfo(pg, user='nexloop_identity'))
+    password = private('password', random.token_urlsafe(24))
+    now = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+    for app, user in (('stage-webchat', 'synthetic-consumer'), ('stage-workbench', 'synthetic-staff')):
+        subject = 'synthetic-human-' + user
+        create_initial_identity({'schema_version': '1.0', 'tenant_id': TENANT, 'application_id': app, 'request_id': str(__import__('uuid').uuid4()),
+            'operator_label': 'stage-owner',
+            'subject': {'subject_id': subject, 'kind': 'human', 'status': 'active', 'created_at': now, 'updated_at': now, 'revision': 1},
+            'membership': {'tenant_id': TENANT, 'subject_id': subject, 'principal_id': 'synthetic-principal-' + user, 'kind': 'home', 'status': 'active',
+                           'valid_from': now, 'valid_until': None, 'trusted_attributes': {}, 'revision': 1},
+            'account': {'tenant_id': TENANT, 'local_account_id': 'synthetic-account-' + user, 'subject_id': subject, 'username': user,
+                        'verified_email': user + '@example.invalid', 'status': 'active', 'failed_attempts': 0, 'lockout_level': 0, 'locked_until': None,
+                        'must_change_password': False, 'session_epoch': 1, 'created_at': now, 'updated_at': now, 'revision': 1}},
+            database_url_file=identity_dsn, password_file=password, idempotency_key_file=seal_file)
+    origin = 'https://app.stage.invalid'
+    rate = private('rate-key', random.token_hex(32))
+    config = ApiConfiguration(tmp_path / 'missing', tmp_path / 'missing-key', tmp_path / 'unused', 'missing',
+                              BrowserConfiguration(identity_dsn, rate, TENANT, 'stage-webchat', origin),
+                              workbench=BrowserConfiguration(identity_dsn, rate, TENANT, 'stage-workbench', origin))
+    with TestClient(create_app(config), base_url=origin) as client:
+        for path, user in (('/api/v1/auth', 'synthetic-consumer'), ('/api/v1/workbench/auth', 'synthetic-staff')):
+            ok = client.post(path + '/login', headers={'Origin': origin}, json={'username': user, 'password': password.read_text()})
+            assert ok.status_code == 200 and ok.json()['principal_id'] == 'synthetic-principal-' + user, (path, ok.text)
