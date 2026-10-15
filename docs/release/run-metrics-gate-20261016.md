@@ -63,13 +63,17 @@ sudo NEXLOOP_ROOT="$NEXLOOP_ROOT" STAGE_ENV="$STAGE_ENV" RELEASE_CHECKOUT="$RELE
 |---|---|---|
 | 1 | **预检**：输入文件齐全；`secrets/backup/metrics.dsn` 还不存在；SQL 只有一条针对 `nexloop_metrics` 的 SCRAM `ALTER ROLE`；用 `$STAGE_ENV` 重新渲染 pg_hba，新文件与已安装的相比**只多出两条 `nexloop_metrics` 规则**，一条不少，也没有别的新增 | `step 1: preflight` |
 | 2 | 以 `nexloop_bootstrap` 经容器内 socket 执行那条 `ALTER ROLE`，即 bootstrap 窗口。口令只在容器内从 `/run/secrets/pg_bootstrap_password` 读取，不出现在主机的命令行上 | `step 2: …` |
-| 3 | 备份 `config/pg_hba.conf` 为 `.before-metrics`，按原属主和权限装入新文件，对 postgres 发 HUP，确认日志出现 `received SIGHUP`、没有 pg_hba 报错。**重载不干净时，自动恢复原文件并再次 HUP**，然后报错退出 | `step 3: …` |
+| 3 | 备份 `config/pg_hba.conf` 为 `.before-metrics`，**原地写入**新内容（inode 不变，属主和权限不变）；先在容器内核对 `/etc/postgresql/pg_hba.conf` 与主机文件一致、且含 `nexloop_metrics` 行，再对 postgres 发 HUP，确认日志出现 `received SIGHUP`、没有 pg_hba 报错。容器看不到新内容或重载不干净时，原内容原地写回，然后报错退出 | `step 3: …` |
 | 4 | 装入 `$NEXLOOP_ROOT/secrets/backup/metrics.dsn`，属主 `nexloop-backup`，0600；已存在则不覆盖，第 1 步已拦下 | `step 4: …` |
 | 5 | 以 `nexloop-backup` 用这个 DSN 执行 `select current_user` | `done: current_user=nexloop_metrics; …` |
 
+- **注意：单文件绑定挂载与 inode**（2026-10-16 stage 实测）：postgres 容器对 `config/pg_hba.conf` 是单文件绑定挂载，绑定的是容器启动时的那个 inode。
+  - 用 `install`、`mv` 或编辑器的“另存后替换”换掉这个文件，主机路径会指向新 inode，而容器里看到的仍是旧内容（旧 inode 的链接数为 0）。这时 HUP 重载的还是旧规则，第 5 步报 `no pg_hba.conf entry`。
+  - 脚本现在原地写入，并在 HUP 前从容器内核对。
+  - 如果第 3 步报“the container does not see the new pg_hba”，说明容器仍持有旧 inode（例如之前有人用 `install` 换过文件）。处理：`docker compose -p nexloop-data restart postgres`，容器重启时会重新挂载当前 inode；然后从第 3 步重跑。这次重启有短暂停机，DATA_HOST 上的 PG 会中断几秒。
 - **第 2 步失败**最可能的原因：M9 之后 `nexloop_bootstrap` 已改为 NOLOGIN。先按 M9 的窗口规则临时恢复它，再重跑。这时第 1 步已经通过，pg_hba 还没改。
 - **撤销**（sudo-D，**B**）：
-  1. `cp -p $NEXLOOP_ROOT/config/pg_hba.conf.before-metrics $NEXLOOP_ROOT/config/pg_hba.conf`，然后 `docker compose -p nexloop-data kill -s HUP postgres`；
+  1. 原地写回（保持 inode）：`cat $NEXLOOP_ROOT/config/pg_hba.conf.before-metrics > $NEXLOOP_ROOT/config/pg_hba.conf`，然后 `docker compose -p nexloop-data kill -s HUP postgres`，再用 `docker compose -p nexloop-data exec -T postgres grep -c nexloop_metrics /etc/postgresql/pg_hba.conf` 核对容器内为 0；
   2. `shred -u $NEXLOOP_ROOT/secrets/backup/metrics.dsn`；
   3. 口令的撤销需要 bootstrap 窗口：`ALTER ROLE nexloop_metrics PASSWORD NULL`。
 
