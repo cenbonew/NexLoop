@@ -2745,6 +2745,12 @@
         "ref": "local-only:evidence/deploy-20261015/",
         "summary": "2026-10-16 morning: G-METRICS-DSN rolled out (DATA_HOST socket and APP_HOST certificate both log in as nexloop_metrics; pg_hba needed a postgres container restart because the script replaced the bind-mounted file inode - script fixed in 6b28325); doctor --backup all true except file_backup_recent (M12); deploy gate 18/19 true with agent_host_concurrency fixed; reboot drills passed on APP_HOST (nexloop-nft before docker, no container before LUKS unlock, 25+1 services back) and DATA_HOST (DB down ~2 min, app reconnected, backups and WAL normal). LUKS and backup passphrases now in the owner keychain (no values recorded here).",
         "recorded_at": "2026-10-16T00:30:00Z"
+      },
+      {
+        "type": "command",
+        "ref": "nexloop-doctor --deploy-gate (APP_HOST, gate-20261016e, main 196ddb0 tools, release backend c9b816dd)",
+        "summary": "Deploy gate on the stage after the reboot drills: 19/19 checks true, foundation_checks_passed=true (product_ready=false as expected). Before = root baseline-phase inventory taken 2026-10-16 after the owner accepted a new baseline (earlier unprivileged inventories had hashed an unreadable nft ruleset; corrected).",
+        "recorded_at": "2026-10-15T23:10:00Z"
       }
     ]
   },
