@@ -17,10 +17,19 @@ import release  # noqa: E402
 from test_release_local import cli, fake_tool, inputs, make  # noqa: E402,F401
 
 TODAY = date(2026, 10, 11)
+# The public preflight reads the committed policy from a clean checkout, so its check date must lie inside the committed waivers'
+# period (owner-approved 2026-10-15: created 2026-10-14, expires 2027-01-12). A waiver created after the check date is refused
+# ('outside the allowed period'): that is the policy's meaning, not something the tests may relax.
+PREFLIGHT_TODAY = date(2026, 10, 16)
+APPROVAL = 'owner 2026-10-15 NX-036 D6 (docs/release/nx036-waiver-review-20261016.md)'
+WAIVED_VERSIONS = {'zlib1g': '1:1.2.13.dfsg-1', 'libsqlite3-0': '3.40.1-2+deb12u2'}
 
 
 def policy(**changes):
+    """The committed thresholds without the committed waivers (the synthetic tests bring their own); the committed waivers are
+    checked on their own in test_the_committed_policy_has_the_decided_values and test_the_approved_waivers_cover_exactly_the_wont_fix_criticals."""
     value = release.load_vulnerability_policy()
+    value['waivers'] = []
     value.update(changes)
     return value
 
@@ -39,7 +48,11 @@ def waiver(**changes):
 def test_the_committed_policy_has_the_decided_values():
     p = release.load_vulnerability_policy()
     assert p['thresholds']['stage']['block'] == [] and p['thresholds']['public']['block'] == [{'severity': 'Critical', 'fix': 'fixed'}]
-    assert p['database_max_age_days'] == {'stage': None, 'public': 7} and p['waiver_max_days'] == 90 and p['waivers'] == []
+    assert p['database_max_age_days'] == {'stage': None, 'public': 7} and p['waiver_max_days'] == 90
+    # D6: the five owner-approved waivers (2026-10-15), each valid on its creation day and at most waiver_max_days long.
+    assert len(p['waivers']) == 5 and all(w['approved_by'] == APPROVAL for w in p['waivers'])
+    assert all(release._waiver_problem(w, p, date.fromisoformat(w['created'])) is None for w in p['waivers'])
+    assert all((date.fromisoformat(w['expires']) - date.fromisoformat(w['created'])).days <= p['waiver_max_days'] for w in p['waivers'])
     assert 'owner decided' in p['decision'] and all(d in p['decision'] for d in ('D5', 'D6', 'D12'))
 
 
@@ -149,7 +162,7 @@ def sbom_ok():
 
 
 def preflight(tmp_path, runner, maker=sbom_ok, previous='HEAD~1', **kw):
-    return release.public_preflight('HEAD', tmp_path / 'out', previous_public=previous, runner=runner, sbom_maker=maker, today=TODAY, **kw)
+    return release.public_preflight('HEAD', tmp_path / 'out', previous_public=previous, runner=runner, sbom_maker=maker, today=PREFLIGHT_TODAY, **kw)
 
 
 def test_public_preflight_passes_only_when_all_nine_steps_pass_and_summarises_for_the_owner(tmp_path):
@@ -198,16 +211,27 @@ def test_public_preflight_cli_is_a_refusal_without_the_tools(tmp_path):
     assert code == 1 and out['ok'] is False and out['steps']['source_sbom'] is False and out['steps']['history_scan'] is False
 
 
-def test_the_waiver_proposals_have_the_policy_shape_and_are_not_in_effect():
-    """deploy/compliance/vulnerability-waivers.proposed.v1.json (NX-036 remediation): every draft has exactly the waiver fields,
-    a valid pattern and period, and matches the wont-fix Critical it names; none is in the policy until the owner approves it."""
+def test_the_approved_waivers_cover_exactly_the_wont_fix_criticals():
+    """NX-036 D6 (owner 2026-10-15): the drafts were approved and moved into the policy; no draft is pending. Each committed waiver
+    matches the wont-fix Critical it names (release 20261015-4736ea179063-1: zlib1g in backend, agent-host, postgres; libsqlite3-0 in
+    backend, postgres), so a public check inside the period passes them, and before its creation day or after expiry it fails."""
     proposals = json.loads((ROOT / 'deploy/compliance/vulnerability-waivers.proposed.v1.json').read_text())
-    policy_now = release.load_vulnerability_policy()
-    assert proposals['schema'] == 'nexloop-vulnerability-waiver-proposals/1' and proposals['waivers']
-    for draft in proposals['waivers']:
-        assert draft['approved_by'].startswith('PENDING') and draft not in policy_now['waivers']
-        assert release._waiver_problem(draft, policy_now, date.fromisoformat(draft['created'])) is None
-        row = {'id': draft['id'], 'package': draft['package'], 'version': {'zlib1g': '1:1.2.13.dfsg-1', 'libsqlite3-0': '3.40.1-2+deb12u2'}[draft['package']],
-               'severity': 'Critical', 'fix': 'wont-fix', 'scope': draft['scope']}
-        verdict = release.evaluate_vulnerabilities([row], {**policy_now, 'waivers': [draft]}, 'stage', None, date.fromisoformat(draft['created']))
-        assert verdict['problems'] == [] and verdict['summary']['waived'] == [draft['id']]
+    assert proposals['schema'] == 'nexloop-vulnerability-waiver-proposals/1' and proposals['waivers'] == []
+    committed = release.load_vulnerability_policy()
+    assert sorted((w['id'], w['scope']) for w in committed['waivers']) == [
+        ('CVE-2023-45853', 'image:agent-host'), ('CVE-2023-45853', 'image:backend'), ('CVE-2023-45853', 'image:postgres'),
+        ('CVE-2025-7458', 'image:backend'), ('CVE-2025-7458', 'image:postgres')]
+    rows = [{'id': w['id'], 'package': w['package'], 'version': WAIVED_VERSIONS[w['package']], 'severity': 'Critical', 'fix': 'wont-fix', 'scope': w['scope']}
+            for w in committed['waivers']]
+    inside = release.evaluate_vulnerabilities(rows, committed, 'public', '2026-10-15T00:00:00Z', PREFLIGHT_TODAY)
+    # Every waiver is used by its own row (no cleanup entry), and the summary names the two CVEs (ids, deduplicated).
+    assert inside['problems'] == [] and inside['summary']['waived'] == ['CVE-2023-45853', 'CVE-2025-7458'] and inside['summary']['cleanup'] == []
+    other_scope = release.evaluate_vulnerabilities([{**rows[0], 'scope': 'image:gateway'}], committed, 'stage', None, PREFLIGHT_TODAY)
+    assert other_scope['summary']['waived'] == []  # a waiver covers only its own image
+    before = release.evaluate_vulnerabilities(rows, committed, 'public', '2026-10-10T00:00:00Z', date(2026, 10, 13))
+    assert any('outside the allowed period' in p for p in before['problems'])
+    after = release.evaluate_vulnerabilities(rows, committed, 'stage', None, date(2027, 1, 13))
+    assert any('expired' in p for p in after['problems'])
+    backend_sqlite = next(w for w in committed['waivers'] if w['package'] == 'libsqlite3-0' and w['scope'] == 'image:backend')
+    assert 'file_backup' in backend_sqlite['reason'] and 'fixed' in backend_sqlite['reason']  # the corrected reason (review §1.2)
+
