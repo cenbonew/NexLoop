@@ -1,0 +1,12 @@
+{
+  "schema_version": "nexloop-webchat-consumer-role/1",
+  "manifest_version": 1,
+  "decision": "G-WEBCHAT-AUTH (docs/release/assembly-dryrun-gaps.md): what a webchat consumer (a browser Human owning its Consumer) executes through the browser business authority snapshot (0045): open a conversation, write and read its messages, read a message's service receipt and scope denial (web_chat_http). Applied by nexloop_eios.webchat_consumers through the 0050 trusted configuration; only these consumer resources may ever appear (webchat_consumers.CONSUMER_RESOURCES).",
+  "resources": [
+    "eios:action:Conversation.create:1",
+    "eios:action:Message.create:1",
+    "eios:action:nexloop.conversation.read:1",
+    "eios:function:nexloop.conversation.scope_denial:1",
+    "eios:function:nexloop.conversation.service_receipt:1"
+  ]
+}
