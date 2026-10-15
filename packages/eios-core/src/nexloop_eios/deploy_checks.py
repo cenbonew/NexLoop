@@ -115,6 +115,24 @@ def check_certificate(*, chain, key, ca, purpose, names=(), cn=None, uid=None, n
     return {'passed': not problems, 'problems': sorted(set(problems)), 'warnings': warnings, 'days_left': int(days)}
 
 
+def _read_dsn_file(path, uid=None):
+    """A service's private DSN file as the gate reads it. Without `uid`: owned by this process (read_private_text). With `uid`: the
+    gate runs as root to see every service's directory, so the file must be owned by that service uid instead - still a regular file
+    (not followed through a link), owner-only (no group or other bits), bounded, like _key_file_ok for the keys."""
+    if uid is None:
+        from nexloop_eios.private_configuration import read_private_text
+        return read_private_text(path, maximum=16384)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_mode & 0o077:
+            raise PermissionError('private service-owned DSN required')
+        value = stream.read(16385)
+    if not value or len(value) > 16384:
+        raise ValueError('DSN length invalid')
+    return value.decode('utf-8').strip()
+
+
 def check_dsn(text):
     """Every service DSN is a complete verify-full connection string (11 §4): no other sslmode, CA, client cert and key named."""
     from psycopg.conninfo import conninfo_to_dict
@@ -152,15 +170,14 @@ def check_valkey_conf(text):
 
 
 def tls(spec, *, now=None):
-    """spec: {"ca": path, "certificates": [{"name", "chain", "key", "purpose", "names"|"cn", "uid"?}], "dsn_files": [{name, path}],
+    """spec: {"ca": path, "certificates": [{"name", "chain", "key", "purpose", "names"|"cn", "uid"?}], "dsn_files": [{name, path, uid?}],
     "valkey_conf": path}. Paths come from the private deployment; results carry names and codes only."""
     certs = {c['name']: check_certificate(chain=c['chain'], key=c['key'], ca=spec['ca'], purpose=c['purpose'], names=c.get('names', ()),
                                           cn=c.get('cn'), uid=c.get('uid'), now=now) for c in spec.get('certificates', [])}
     dsns = {}
     for item in spec.get('dsn_files', []):
         try:
-            from nexloop_eios.private_configuration import read_private_text
-            dsns[item['name']] = check_dsn(read_private_text(item['path'], maximum=16384))
+            dsns[item['name']] = check_dsn(_read_dsn_file(item['path'], item.get('uid')))
         except Exception:
             dsns[item['name']] = ['dsn_file_unreadable_or_not_private']
     valkey = check_valkey_conf(Path(spec['valkey_conf']).read_text()) if spec.get('valkey_conf') else ['valkey_conf_not_given']
