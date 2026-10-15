@@ -1,0 +1,44 @@
+{
+ "host_role": "app",
+ "stage_env": "<GATE_DIR>/stage.env",
+ "connection_budget": "<RELEASE_CHECKOUT>/deploy/stage/connection-budget.v1.json",
+ "running": "<GATE_DIR>/running.json",
+ "inventory_before": "<GATE_DIR>/before.json",
+ "inventory_after": "<GATE_DIR>/after.json",
+ "secret_root": "<NEXLOOP_ROOT>/secrets",
+ "secret_uids": {
+  "action-worker": 10001,
+  "agent-host": 10020,
+  "agent-host-model": 10020,
+  "alert-evaluator": 10001,
+  "api": 10001,
+  "claim-extraction-scheduler": 10001,
+  "claim-extraction-worker": 10001,
+  "claim-matcher": 10001,
+  "commercial-recorder": 10001,
+  "commitment-keeper": 10001,
+  "domain-worker": 10001,
+  "gateway": 0,
+  "incentive-issuer": 10001,
+  "message-relay": 10001,
+  "outbound-recorder": 10001,
+  "plan-reevaluator": 10001,
+  "recall-indexer": 10001,
+  "reply-guarantor": 10001,
+  "retention-keeper": 10001,
+  "runtime-worker": 10001,
+  "shared": 10001,
+  "webchat-delivery": 10001
+ },
+ "compose_json": "<GATE_DIR>/compose.json",
+ "tls_spec": "<GATE_DIR>/tls.json",
+ "roles_database_url_file": "<NEXLOOP_ROOT>/secrets/<READ_ONLY_ROLE_SERVICE>/dsn",
+ "admin_roles": [
+  "nexloop_bootstrap",
+  "nexloop_owner"
+ ],
+ "disabled_roles": [
+  "nexloop_owner"
+ ],
+ "agent_host_config": "<NEXLOOP_ROOT>/secrets/agent-host/runtime-config.json"
+}
