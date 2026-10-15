@@ -13,12 +13,11 @@ from eios.authz import facts as F
 from eios.authz.applications import ResourceRestriction
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
-from eios.ontology.semantics import schema_contract_digest
 from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.browser_authorization import authenticate_browser_business
 from nexloop_eios.conversation_messages import (
     ConversationMessagePort,ConversationOwnershipRegistrar,ConversationConflict,ConversationUnavailable,
-    conversation_schemas,OWNERSHIP,CREATE,MESSAGE,READ)
+    OWNERSHIP,CREATE,MESSAGE,READ)
 from nexloop_eios.object_actions import GovernedObjectCreator
 from authority_fixture import authority_records,replace_fact
 from multi_authority_fixture import seed_multi_authority
@@ -63,21 +62,9 @@ def conversations(browser_business,admin,pg,tmp_path):
     body.update(resources=[item.model_dump(mode='json') for item in resources],version_digest=digest,record_digest=digest)
     app=F.ApplicationFacts.model_validate_json(json.dumps(body))
     admin.execute("update authz.nexloop_authority_facts set payload=%s where tenant_id=%s and fact_kind='application' and entity_key=%s",(Jsonb(app.model_dump(mode='json')),tenant,[auth.caller_application_id,'1']))
-    schemas={schema.type_name:schema for schema in conversation_schemas()}
-    definition=base['definition'];capability=base['capability']
-    for name,schema in schemas.items():
-        admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,name,Jsonb(schema.model_dump(mode='json'))))
-    for action,type_name in [(OWNERSHIP,'ConsumerOwnership'),(CREATE,'Conversation'),(MESSAGE,'Message'),(READ,'Conversation')]:
-        reference=definition.object_types[0].model_copy(update={'stable_name':type_name,'schema_digest':schema_contract_digest(schemas[type_name])})
-        body=definition.model_dump(mode='json');body.pop('contract_digest',None)
-        body['stable_name']=action;body['object_types']=[reference.model_dump(mode='json')]
-        body['governance']['change_scope']['object_types']=body['object_types']
-        body['capability_binding']['capability_name']='ontology.object.create'
-        published=type(definition).model_validate_json(json.dumps(body))
-        cap=capability.model_copy(update={'capability_name':'ontology.object.create','has_side_effects':True})
-        # catalog-exception: conversation contract cases on test-built schemas (all ontology.object.create), negative cases share them
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
-            (tenant,'real','eios:action:'+action+':1',Jsonb(published.model_dump(mode='json')),Jsonb(cap.model_dump(mode='json'))))
+    # NX-032 A1 T4c: the catalog's conversation types and Actions (system_catalog, capabilities.v1.json snapshots).
+    from system_catalog_fixture import publish_system_catalog
+    publish_system_catalog(admin,tenant,('Conversation','Message','ConsumerOwnership'),(OWNERSHIP,CREATE,MESSAGE,READ))
     _,token=seed_multi_authority(admin,reader.pool,[('eios:action:'+name+':1',ResourceType.ACTION,Operation.EXECUTE) for name in ('Consumer.create',OWNERSHIP)],identity_suffix='-consumer-registrar')
     registrar_session=authenticate_service(reader.pool,token,world='real')
     consumer=GovernedObjectCreator(reader.pool,registrar_session,reader.signer).create(action_name='Consumer.create',action_version=1,intent_id='conversation-consumer-'+secrets.token_hex(12),type_name='Consumer',properties={})['object_id']
