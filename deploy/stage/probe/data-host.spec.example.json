@@ -1,0 +1,65 @@
+{
+ "location": "DATA_HOST",
+ "targets": {
+  "APP_GATEWAY_HTTPS": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 8443
+  },
+  "APP_GATEWAY_REDIRECT": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 8080
+  },
+  "APP_PGBACKREST_TLS": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 58432
+  },
+  "APP_REFERENCE_ENDPOINT": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 9643
+  },
+  "APP_API_INTERNAL": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 8000
+  },
+  "APP_HOST_CONTROL": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 8100
+  },
+  "APP_GUARD": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 8200
+  }
+ },
+ "probes": [
+  {
+   "code": "app_pgbackrest_tls",
+   "kind": "tcp",
+   "target": "APP_PGBACKREST_TLS",
+   "expect": "reachable"
+  },
+  {
+   "code": "app_gateway_https",
+   "kind": "tcp",
+   "target": "APP_GATEWAY_HTTPS",
+   "expect": "reachable"
+  },
+  {
+   "code": "app_api_internal",
+   "kind": "tcp",
+   "target": "APP_API_INTERNAL",
+   "expect": "unreachable"
+  },
+  {
+   "code": "app_host_control",
+   "kind": "tcp",
+   "target": "APP_HOST_CONTROL",
+   "expect": "unreachable"
+  },
+  {
+   "code": "app_guard",
+   "kind": "tcp",
+   "target": "APP_GUARD",
+   "expect": "unreachable"
+  }
+ ]
+}

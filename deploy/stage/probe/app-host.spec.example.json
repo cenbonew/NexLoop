@@ -1,0 +1,133 @@
+{
+ "location": "APP_HOST_APP_NAMESPACE",
+ "targets": {
+  "DATA_PG": {
+   "host": "<DATA_HOST_ADDR>",
+   "port": 55432
+  },
+  "DATA_VALKEY": {
+   "host": "<DATA_HOST_ADDR>",
+   "port": 56379
+  },
+  "MODEL_ALLOWLISTED_1": {
+   "host": "<MODEL_ALLOWLIST_ADDR_1>",
+   "port": 443
+  },
+  "MODEL_ALLOWLISTED_2": {
+   "host": "<MODEL_ALLOWLIST_ADDR_2>",
+   "port": 443
+  },
+  "UNLISTED_EXTERNAL": {
+   "host": "<UNLISTED_EXTERNAL_ADDR>",
+   "port": 443
+  },
+  "DATA_SSH": {
+   "host": "<DATA_HOST_ADDR>",
+   "port": 22
+  }
+ },
+ "probes": [
+  {
+   "code": "pg_ok",
+   "kind": "pg",
+   "target": "DATA_PG",
+   "expect": "authenticated",
+   "ca": "/probe/pg-ca.crt",
+   "server_name": "<DATA_HOST_NAME>",
+   "user": "nexloop_api",
+   "database": "<NEXLOOP_DB>",
+   "cert": "/probe/api-pg-client.crt",
+   "key": "/probe/api-pg-client.key",
+   "password_file": "/probe/api-password"
+  },
+  {
+   "code": "pg_plaintext",
+   "kind": "pg",
+   "target": "DATA_PG",
+   "expect": "server_refused",
+   "ca": "/probe/pg-ca.crt",
+   "server_name": "<DATA_HOST_NAME>",
+   "user": "nexloop_api",
+   "database": "<NEXLOOP_DB>",
+   "cert": "/probe/api-pg-client.crt",
+   "key": "/probe/api-pg-client.key",
+   "sslmode": "disable"
+  },
+  {
+   "code": "pg_no_client_cert",
+   "kind": "pg",
+   "target": "DATA_PG",
+   "expect": "server_refused",
+   "ca": "/probe/pg-ca.crt",
+   "server_name": "<DATA_HOST_NAME>",
+   "user": "nexloop_api",
+   "database": "<NEXLOOP_DB>",
+   "cert": null,
+   "key": null
+  },
+  {
+   "code": "pg_wrong_password",
+   "kind": "pg",
+   "target": "DATA_PG",
+   "expect": "auth_failed",
+   "ca": "/probe/pg-ca.crt",
+   "server_name": "<DATA_HOST_NAME>",
+   "user": "nexloop_api",
+   "database": "<NEXLOOP_DB>",
+   "cert": "/probe/api-pg-client.crt",
+   "key": "/probe/api-pg-client.key",
+   "password_file": "/probe/wrong-password"
+  },
+  {
+   "code": "valkey_ok",
+   "kind": "valkey",
+   "target": "DATA_VALKEY",
+   "expect": "pong",
+   "ca": "/probe/pg-ca.crt",
+   "server_name": "<DATA_HOST_NAME>",
+   "cert": "/probe/cache-valkey-client.crt",
+   "key": "/probe/cache-valkey-client.key",
+   "user": "<VALKEY_CACHE_USER>",
+   "password_file": "/probe/cache-password"
+  },
+  {
+   "code": "valkey_default_user",
+   "kind": "valkey",
+   "target": "DATA_VALKEY",
+   "expect": "acl_refused",
+   "ca": "/probe/pg-ca.crt",
+   "server_name": "<DATA_HOST_NAME>",
+   "cert": "/probe/cache-valkey-client.crt",
+   "key": "/probe/cache-valkey-client.key"
+  },
+  {
+   "code": "valkey_plaintext",
+   "kind": "valkey",
+   "target": "DATA_VALKEY",
+   "expect": "server_refused",
+   "ca": "/probe/pg-ca.crt",
+   "server_name": "<DATA_HOST_NAME>",
+   "cert": "/probe/cache-valkey-client.crt",
+   "key": "/probe/cache-valkey-client.key",
+   "plaintext": true
+  },
+  {
+   "code": "data_other_port",
+   "kind": "tcp",
+   "target": "DATA_SSH",
+   "expect": "unreachable"
+  },
+  {
+   "code": "model_from_application_namespace",
+   "kind": "tcp",
+   "target": "MODEL_ALLOWLISTED_1",
+   "expect": "unreachable"
+  },
+  {
+   "code": "unlisted_external",
+   "kind": "tcp",
+   "target": "UNLISTED_EXTERNAL",
+   "expect": "unreachable"
+  }
+ ]
+}

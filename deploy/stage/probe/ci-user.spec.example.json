@@ -1,0 +1,47 @@
+{
+ "location": "CI_HOST_USER",
+ "targets": {
+  "DATA_PG": {
+   "host": "<DATA_HOST_ADDR>",
+   "port": 55432
+  },
+  "DATA_VALKEY": {
+   "host": "<DATA_HOST_ADDR>",
+   "port": 56379
+  },
+  "APP_GATEWAY_LOOPBACK": {
+   "host": "127.0.0.1",
+   "port": 8443
+  },
+  "APP_PGBACKREST_TLS": {
+   "host": "<APP_HOST_ADDR>",
+   "port": 58432
+  }
+ },
+ "probes": [
+  {
+   "code": "data_pg",
+   "kind": "tcp",
+   "target": "DATA_PG",
+   "expect": "unreachable"
+  },
+  {
+   "code": "data_valkey",
+   "kind": "tcp",
+   "target": "DATA_VALKEY",
+   "expect": "unreachable"
+  },
+  {
+   "code": "gateway_loopback",
+   "kind": "tcp",
+   "target": "APP_GATEWAY_LOOPBACK",
+   "expect": "unreachable"
+  },
+  {
+   "code": "pgbackrest_tls",
+   "kind": "tcp",
+   "target": "APP_PGBACKREST_TLS",
+   "expect": "unreachable"
+  }
+ ]
+}
