@@ -92,6 +92,133 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 | 故障处理的目标流程 | [17_OPERATIONS_RUNBOOK](handoff/docs/17_OPERATIONS_RUNBOOK.md) §7 |
 | 安全事件 | [SECURITY.md](../SECURITY.md) 的处置流程：暂停 scope 与派发 → 保留证据 → 撤销凭据 → 核对已发生动作 → 修复验证 → 受控恢复 |
 
+## 8a. stage 运维要点（两台主机，NX-032/035，10/15 部署后）
+
+只用角色名与参数：`$NEXLOOP_ROOT`、`<卷名>`、`<挂载点>` 的取值都在负责人的私有 env 中。凡改动主机的操作都属于 B 类：DATA_HOST 上的 sudo 由负责人本人输入，APP_HOST 上的操作逐步授权。
+
+### 8a.1 主机重启后：LUKS 人工解锁与挂载顺序
+
+LUKS 卷采用人工解锁（NX-035 手册 1.3 方式 A），主机重启后卷**不会自动挂载**。按下面的顺序恢复：
+
+1. **先停住依赖这些卷的容器**。Compose 项目带 `restart: unless-stopped`，开机后 Docker 会在卷挂载之前就把它们拉起来，这时它们读到的是挂载点下面空的底层目录（见 8a.5）。所以先执行：
+   ```
+   docker compose -p <项目> stop
+   ```
+   DATA_HOST 是 `nexloop-data`；APP_HOST 是 `nexloop-app`，以及参考端点的独立项目。
+2. **逐卷解锁并挂载**（负责人输入 LUKS 口令）：
+   ```
+   sudo cryptsetup open <镜像文件> <卷名>
+   sudo mount /dev/mapper/<卷名> <挂载点>
+   findmnt <挂载点>
+   ```
+   - DATA_HOST：`nexloop-secrets`（`$NEXLOOP_ROOT/secrets`），以及文件仓库与恢复日志卷；
+   - APP_HOST：`nexloop-secrets`、pgBackRest repo1 卷、演练卷。
+   - 秘密卷最先挂。
+3. **确认 systemd unit 会自己恢复**：备份定时任务和 pgBackRest TLS 服务都带 `RequiresMountsFor=`，卷挂载之前它们不会启动，卷挂好后也不会自动补跑，所以要手动启动：
+   - DATA_HOST：`nexloop-*.timer`；
+   - APP_HOST：`nexloop-pgbackrest-server`。
+   ```
+   sudo systemctl start <unit>
+   systemctl list-timers 'nexloop-*'
+   ```
+4. **按顺序重新启动容器**：
+   1. DATA_HOST 的 `nexloop-data`，等 PG healthy；
+   2. APP_HOST 的 pgBackRest TLS 服务；
+   3. APP_HOST 的 `nexloop-app`；
+   4. 参考端点。
+   ```
+   docker compose -p <项目> up -d
+   ```
+   用 `up -d` 而不是 `start`，让容器按当前的挂载重新建立绑定。
+5. **核对**：
+   - `nexloop-doctor --deploy-gate` 中两台主机的检查都为 true；
+   - `nexloop-doctor --backup` 见 8a.2；
+   - PG 的 WAL 归档恢复前进：`wal_archiving` 为 true。
+
+### 8a.2 备份定时任务与 `doctor --backup` 的日常核对
+
+- **定时任务**：unit 示例与计划见 [`deploy/stage/systemd/README.md`](../deploy/stage/systemd/README.md)：
+  - DATA_HOST：`nexloop-pg-full`、`nexloop-pg-diff`、`nexloop-journal`、`nexloop-journal-restic@repo1` 与 `@repo2`、`nexloop-restic-maint`；
+  - APP_HOST：`nexloop-file-backup`，10/15–16 未启用（M12）。
+- **每天**看一次：
+  ```
+  systemctl list-timers 'nexloop-*'
+  systemctl --failed 'nexloop-*'
+  nexloop-doctor --backup --metrics-database-url-file <METRICS_DSN_FILE> --backup-plan deploy/configuration/backup.v1.json
+  ```
+  检查名以代码为准：
+  - `backup_manifest_present`、`backup_recent`、`full_backup_recent`、`required_repos_recent`、`latest_backup_verified`、`wal_archiving`；
+  - `journal_export`、`file_backup_recent`、`restore_drill_recent`；
+  - `restore_state_open`、`deletion_replay_closed`。
+  
+  `file_backup_recent` 在文件备份启用之前不会通过，是已知项。
+- **失败时**：先看 `journalctl -u <unit>`。执行者只打印计数、标签和错误类型，不打印凭据。不要手工改清单表（它只追加，也没有手工入口）。
+
+### 8a.3 pgBackRest TLS 服务（repo1，APP_HOST）
+
+- **服务与配置**：
+  - unit：`nexloop-pgbackrest-server`，以 `nexloop-pgbackrest` 身份运行，它也是 repo1 的属主；
+  - 配置：`/etc/pgbackrest/pgbackrest-server.conf`，0600；
+  - `tls-server-auth` 只放行 DATA_HOST 客户端证书的 CN；
+  - 防火墙：`app-host.nft` 的 input 链只接受 DATA_HOST 访问 `PGBACKREST_TLS_PORT`。
+- **核对**：
+  - `systemctl status nexloop-pgbackrest-server`；
+  - DATA_HOST 上 `docker exec -u postgres <PG 容器> pgbackrest --stanza=nexloop check` 成功。
+- **证书轮换**（服务证书 90 天）：替换 `secrets/pgbackrest/` 下的证书和私钥，然后 `systemctl restart nexloop-pgbackrest-server`。客户端证书的 CN 不能变，变了 `tls-server-auth` 就不再放行。
+- **注意**：服务端不持有仓库口令，加密由 DATA_HOST 的客户端完成。在 APP_HOST 上直接读 repo1 时（例如恢复演练），口令只放进演练用的私有配置，用完 `shred`（见 [run-33](release/run-33-20261015.md)）。
+
+### 8a.4 配置者登录窗口与“配置者平时 NOLOGIN”
+
+stage 上 `nexloop_configurator` 平时是 **NOLOGIN、没有口令**。需要配置者身份的工具，经 `scripts/deploy/configurator_window.py` 的登录窗口运行：
+
+1. 用一次性口令（只以 SCRAM verifier 形式写入 PG）让配置者暂时可以登录；
+2. DSN 只存在于一个私有临时文件中；
+3. 无论成败，窗口关闭时都恢复为 NOLOGIN、无口令。
+
+| 工具 | 用途 |
+|---|---|
+| `stage_secrets.py register` | 建租户、服务主体、凭据与授权（0050） |
+| `stage_secrets.py browser` | 浏览器应用登记 |
+| `stage_secrets.py signing-key` | 再登记一把 Authority 签名密钥 |
+| `stage_secrets.py publish` | 发布业务对象类型与 Action 目录（A1，见 [run-41](release/run-41-20261015.md) §3a） |
+| `workbench_roles.py … --apply` | 工作台成员与角色 |
+| `webchat_consumers.py … --apply` | WebChat 消费者账号 |
+| `scripts/nx037/real_tenant_init.py configure` | 效应类别与告警规则 |
+
+这些工具都通过 `--bootstrap-dsn-file`，经 DATA_HOST 本机 socket 开窗（pg_hba 中 `local all nexloop_configurator scram-sha-256` 那一行）。
+
+**核对**（每次用完、每天一次）：以 bootstrap 身份执行下面的查询，应返回 `f` 和 `t`：
+
+```
+select rolcanlogin, rolpassword is null from pg_authid where rolname='nexloop_configurator'
+```
+
+返回其他值，说明有窗口没关好：立即执行 `alter role nexloop_configurator nologin password null`，并查这次窗口是谁开的。
+
+### 8a.5 Docker 绑定挂载：源文件缺失时会自建同名空目录（10/15 踩坑）
+
+Compose 的绑定挂载（`volumes:` 中 `<主机路径>:<容器路径>`）在主机路径不存在时，Docker 会以 root 身份**创建一个同名的空目录**再挂进去，不报错。本该是文件的挂载就变成了目录，容器读到的是空目录，表现为配置读取失败或权限错误。
+
+- **常见原因**：
+  - 源文件还没生成，或者文件名拼错；
+  - LUKS 卷未挂载，路径落在了底层空目录上（见 8a.1）。
+- **处理**：
+  1. `docker compose -p <项目> stop <服务>`；
+  2. 用 `ls -la <主机路径>` 确认它是 Docker 自建的空目录：属主 root，目录为空；
+  3. `sudo rmdir <主机路径>`，只删空目录；
+  4. 放入正确的文件，属主和权限按服务要求；
+  5. `docker compose -p <项目> up -d <服务>`。
+- **预防**：启动前先 `docker compose … config -q`，并逐一核对每个绑定源存在且类型正确（文件或目录）。`secrets:` 中 `file:` 指向的源文件缺失时，Compose 会直接拒绝启动，比绑定挂载更安全。
+
+### 8a.6 `sed -i` 会换 inode：容器看不到新内容
+
+`sed -i` 并不改原文件，而是写一个新文件再改名替换，文件的 inode 因此变了。以**单个文件**绑定挂载进容器的配置（例如 `postgresql.conf`、`pg_hba.conf`），容器里挂的仍是旧 inode，看不到修改；这时 HUP 或 reload 读到的也还是旧内容。
+
+- **两种做法**：
+  - **原地写入**，inode 不变：`sudo sh -c 'cat new > <文件>'`，或 `sudo tee <文件> < new > /dev/null`；
+  - **或者**改完后重建容器：`docker compose -p <项目> up -d --force-recreate <服务>`。对 PG 这是一次停机重启，要放在维护窗口内做。
+- **核对**：比较主机与容器里文件的摘要：`sha256sum <文件>` 对比 `docker exec <容器> sha256sum <容器内路径>`，两者一致后，再执行 HUP 或 reload。
+
 ## 9. NX-037 受控真实闭环操作说明（负责人本人执行）
 
 > 依据：[NX-037 设计稿](implementation/NX-037-design.md)、[NX-037 A 类前置实现说明](implementation/NX-037-prep-implementation.md)、[ROADMAP](../planning/ROADMAP.md) §6–§7（D-g、D-i 定案）。参数在 [`deploy/configuration/nx037-trial.v2.json`](../deploy/configuration/nx037-trial.v2.json)（运行入口默认读 v2；v1 保留不变）。
