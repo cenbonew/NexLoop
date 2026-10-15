@@ -15,7 +15,7 @@ CLASSES = {'tcp': {'reachable', 'unreachable'}, 'pg': {'authenticated', 'server_
 
 
 def test_every_example_is_a_valid_spec_with_placeholder_addresses():
-    assert {p.name.split('.')[0] for p in SPECS} == {'management', 'data-host', 'app-host', 'agent-host', 'ci-user'}
+    assert {p.name.split('.')[0] for p in SPECS} == {'management', 'data-host', 'app-host', 'agent-host', 'ci-user', 'claim-egress'}
     locations = set()
     for path in SPECS:
         spec = json.loads(path.read_text())
@@ -44,3 +44,13 @@ def test_the_reference_endpoint_expectation_carries_its_change_point():
     probe = next(p for p in spec['probes'] if p['code'] == 'app_reference_endpoint')
     assert probe['expect'] == 'reachable' and probe['note'].startswith('CHANGE-AFTER-NFT-9643') and 'unreachable' in probe['note']
     assert '__REFERENCE_ENDPOINT_PORT__' in (ROOT / 'deploy/stage/firewall/app-host.nft.template').read_text()
+
+
+def test_the_claim_egress_spec_covers_its_firewall_rules():
+    """G-CLAIM-EGRESS: model 443 and DATA_HOST PostgreSQL reachable; DATA_HOST's other ports, an unlisted address (with its positive
+    control) and the API unreachable."""
+    spec = json.loads((ROOT / 'deploy/stage/probe/claim-egress.spec.example.json').read_text())
+    expect = {p['code']: p['expect'] for p in spec['probes']}
+    assert expect == {'model_allowlisted_1': 'reachable', 'model_allowlisted_2': 'reachable', 'data_pg': 'reachable', 'data_valkey': 'unreachable',
+                      'data_ssh': 'unreachable', 'unlisted_external': 'unreachable', 'api_on_host': 'unreachable', 'api_in_app_net': 'unreachable'}
+    assert 'Positive control' in next(p for p in spec['probes'] if p['code'] == 'unlisted_external')['note']
