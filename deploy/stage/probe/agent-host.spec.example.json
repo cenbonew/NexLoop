@@ -1,0 +1,77 @@
+{
+ "location": "AGENT_HOST",
+ "targets": {
+  "DATA_PG": {
+   "host": "<DATA_HOST_ADDR>",
+   "port": 55432
+  },
+  "DATA_VALKEY": {
+   "host": "<DATA_HOST_ADDR>",
+   "port": 56379
+  },
+  "MODEL_ALLOWLISTED_1": {
+   "host": "<MODEL_ALLOWLIST_ADDR_1>",
+   "port": 443
+  },
+  "MODEL_ALLOWLISTED_2": {
+   "host": "<MODEL_ALLOWLIST_ADDR_2>",
+   "port": 443
+  },
+  "UNLISTED_EXTERNAL": {
+   "host": "<UNLISTED_EXTERNAL_ADDR>",
+   "port": 443
+  },
+  "GUARD_VIA_RELAY": {
+   "host": "127.0.0.1",
+   "port": 8200
+  },
+  "APP_API_LOOPBACK": {
+   "host": "127.0.0.1",
+   "port": 8000
+  }
+ },
+ "probes": [
+  {
+   "code": "model_allowlisted_1",
+   "kind": "tcp",
+   "target": "MODEL_ALLOWLISTED_1",
+   "expect": "reachable"
+  },
+  {
+   "code": "model_allowlisted_2",
+   "kind": "tcp",
+   "target": "MODEL_ALLOWLISTED_2",
+   "expect": "reachable"
+  },
+  {
+   "code": "data_pg_from_agent",
+   "kind": "tcp",
+   "target": "DATA_PG",
+   "expect": "unreachable"
+  },
+  {
+   "code": "data_valkey_from_agent",
+   "kind": "tcp",
+   "target": "DATA_VALKEY",
+   "expect": "unreachable"
+  },
+  {
+   "code": "unlisted_target_from_agent",
+   "kind": "tcp",
+   "target": "UNLISTED_EXTERNAL",
+   "expect": "unreachable"
+  },
+  {
+   "code": "guard_via_relay",
+   "kind": "tcp",
+   "target": "GUARD_VIA_RELAY",
+   "expect": "reachable"
+  },
+  {
+   "code": "api_not_relayed",
+   "kind": "tcp",
+   "target": "APP_API_LOOPBACK",
+   "expect": "unreachable"
+  }
+ ]
+}
