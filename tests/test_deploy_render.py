@@ -92,10 +92,13 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
     published = {name: s.get('ports') for name, s in app['services'].items() if s.get('ports')}
     assert list(published) == ['app-net'] and all(p.startswith('${APP_HOST_ADDR') for p in published['app-net'])
     for name, s in app['services'].items():
-        if name not in ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery'):  # NX-037: own namespaces
+        own = ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher')
+        if name not in own:  # NX-037 / G-CLAIM-EGRESS: own namespaces
             assert s['network_mode'] == 'service:app-net' and s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == 'false', name
-        if name in ('action-worker', 'webchat-delivery'):
+        if name in ('action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher'):
             assert s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == 'false', name
+        if name in ('claim-extraction-worker', 'claim-matcher'):
+            assert s['networks'] == ['claim_egress'] and 'network_mode' not in s and s.get('cap_drop') == ['ALL'], name
         image = s['image']
         assert image.startswith('${') and 'by digest' in image, name
     # The Agent Host holds only its own TLS, transport key and guard CA: no DSN, credential, signing key or Artifact directory.
@@ -299,7 +302,10 @@ def subnet_guard_problems(template, compose_doc, compose_env_text, stage_env_tex
 
 def test_every_container_cidr_of_the_app_firewall_is_a_fixed_compose_subnet():
     template = STAGE / 'firewall/app-host.nft.template'
-    assert nft_container_cidrs(template) == {'APP_CONTAINER_CIDR', 'EFFECT_EGRESS_CIDR', 'AGENT_EGRESS_CIDR'}
+    assert nft_container_cidrs(template) == {'APP_CONTAINER_CIDR', 'EFFECT_EGRESS_CIDR', 'AGENT_EGRESS_CIDR', 'CLAIM_EGRESS_CIDR'}
+    # The deploy gate checks the same networks on the rendered and the running Compose (deploy_checks.FIREWALL_NETWORKS).
+    from nexloop_eios.deploy_checks import FIREWALL_NETWORKS
+    assert set(FIREWALL_NETWORKS.values()) == nft_container_cidrs(template)
     assert subnet_guard_problems(template, compose('compose.app.example.yaml'), (STAGE / 'compose.app.env.example').read_text(),
                                  (STAGE / 'stage.env.example').read_text()) == []
     assert compose_subnet_variables(compose('compose.app.example.yaml'))['app'] == 'APP_CONTAINER_CIDR'
@@ -331,3 +337,23 @@ def test_the_metrics_role_authenticates_by_certificate_from_app_host_and_by_scra
     assert 'local all nexloop_metrics scram-sha-256' in lines
     assert [l for l in lines if 'nexloop_metrics' in l and l not in (cert, app, 'local all nexloop_metrics scram-sha-256')] == []
     assert lines[-4:] == ['hostnossl all all 0.0.0.0/0 reject', 'hostnossl all all ::/0 reject', 'host all all 0.0.0.0/0 reject', 'host all all ::/0 reject']
+
+
+def test_the_claim_workers_reach_postgresql_and_the_model_allowlist_only(env, tmp_path):
+    """G-CLAIM-EGRESS: the claim workers' namespace (CLAIM_EGRESS_CIDR, a whitelisted CIDR) reaches DATA_HOST's PostgreSQL and the
+    model provider allowlist on 443 only, then its own default drop; the application namespace still never reaches a model address."""
+    good = env.read_text()
+    values = render.load_env(env)
+    env.write_text(re.sub(r'^CLAIM_EGRESS_CIDR=.*$', 'CLAIM_EGRESS_CIDR=claim.invalid', good, flags=re.M))
+    with pytest.raises(render.Refused, match='CLAIM_EGRESS_CIDR'):
+        render.load_env(env)
+    env.write_text(good)
+    rules, _ = render.render((STAGE / 'firewall' / 'app-host.nft.template').read_text(), values)
+    claim = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['CLAIM_EGRESS_CIDR'])]
+    assert claim == [
+        f"ip saddr {values['CLAIM_EGRESS_CIDR']} ip daddr {values['DATA_HOST_ADDR']} tcp dport {values['PG_PORT']} accept",
+        f"ip saddr {values['CLAIM_EGRESS_CIDR']} ip daddr {{ {values['MODEL_PROVIDER_ALLOWLIST']} }} tcp dport 443 accept",
+        f"ip saddr {values['CLAIM_EGRESS_CIDR']} ct state new drop"]
+    app = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['APP_CONTAINER_CIDR'])]
+    assert app[0] == f"ip saddr {values['APP_CONTAINER_CIDR']} ip daddr {{ {values['MODEL_PROVIDER_ALLOWLIST']} }} drop"
+    assert f"CLAIM_EGRESS_CIDR={values['CLAIM_EGRESS_CIDR']}" in (STAGE / 'compose.app.env.example').read_text()

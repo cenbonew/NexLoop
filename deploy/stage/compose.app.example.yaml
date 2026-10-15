@@ -7,7 +7,8 @@
 # the agent egress network (egress: the model provider allowlist only, never DATA_HOST). The two meet only on `agent_link`, an
 # internal network without any route outside, where two loopback relays (nexloop_eios.loopback_relay) carry exactly the two needed
 # links with their loopback endpoints unchanged: API/Runtime Worker -> Host control (127.0.0.1:HOST_INTERNAL_PORT) and Host -> guard
-# (127.0.0.1:GUARD_PORT). TLS stays end to end between the original peers. Only the Gateway ports are published, on APP_HOST_ADDR. Every service mounts its own secret files one by
+# (127.0.0.1:GUARD_PORT). TLS stays end to end between the original peers. Two more own namespaces: the action worker and the NexLoop delivery service on `effect_egress`
+# (NX-037 provider routing), and the claim workers, the other model credential holders, on `claim_egress` (G-CLAIM-EGRESS). Only the Gateway ports are published, on APP_HOST_ADDR. Every service mounts its own secret files one by
 # one (never a directory) and nothing else's; the Agent Host gets no DSN, service credential, signing key, channel credential or
 # Artifact directory (design §4.2); no service gets a secret through its environment (only REAL_DISPATCH_ENABLED, which starts false, D9).
 #
@@ -267,8 +268,17 @@ services:
     labels:
       nexloop.budget-service: claim-extraction-scheduler
   claim-extraction-worker:
-    # Model credentials only here and in claim-matcher (as files).
-    <<: *service
+    # Model credentials only here and in claim-matcher (as files). G-CLAIM-EGRESS: both run in their own namespace on `claim_egress`
+    # (not app-net: the application namespace never reaches a model address, NX-037 D4); firewall: DATA_HOST's PostgreSQL and the
+    # model provider allowlist on 443 only. They need nothing else of the application namespace (no API, Host, guard or Valkey).
+    image: ${BACKEND_IMAGE:?backend image by digest}
+    restart: unless-stopped
+    networks: [claim_egress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: *environment
     entrypoint: [nexloop-claim-extraction-worker]
     command: [--database-url-file, /run/secrets/claim_extraction_worker_dsn, --service-credential-file, /run/secrets/claim_extraction_worker_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
@@ -280,7 +290,15 @@ services:
     labels:
       nexloop.budget-service: claim-extraction-worker
   claim-matcher:
-    <<: *service
+    # G-CLAIM-EGRESS: same namespace rules as claim-extraction-worker.
+    image: ${BACKEND_IMAGE:?backend image by digest}
+    restart: unless-stopped
+    networks: [claim_egress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: *environment
     entrypoint: [nexloop-claim-matcher]
     command: [--database-url-file, /run/secrets/claim_matcher_dsn, --service-credential-file, /run/secrets/claim_matcher_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
@@ -409,6 +427,9 @@ networks:
   agent_egress:
     ipam:
       config: [{subnet: "${AGENT_EGRESS_CIDR:?Agent Host egress network}"}]
+  claim_egress:
+    ipam:
+      config: [{subnet: "${CLAIM_EGRESS_CIDR:?claim workers' model egress network}"}]
   agent_link:
     internal: true
     ipam:
