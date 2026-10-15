@@ -235,3 +235,54 @@ def test_browser_registration_lets_webchat_and_workbench_log_in_through_the_api_
         for path, user in (('/api/v1/auth', 'synthetic-consumer'), ('/api/v1/workbench/auth', 'synthetic-staff')):
             ok = client.post(path + '/login', headers={'Origin': origin}, json={'username': user, 'password': password.read_text()})
             assert ok.status_code == 200 and ok.json()['principal_id'] == 'synthetic-principal-' + user, (path, ok.text)
+
+
+def test_signing_key_registers_a_second_key_without_changing_any_authority(pg, admin, tree, tmp_path, capsys):  # noqa: F811
+    """Run-34 2026-10-15: the stage registered its first signing key as 32 raw binary bytes (key id nexloop-stage-20261014); the
+    generator now writes 32 bytes of URL-safe ASCII, registered under a new key id by `signing-key` through the configurator window:
+    an empty 0050 manifest (every list empty) that adds (key_id, material, active) and nothing else. Both keys stay active; facts,
+    credentials and grants are unchanged; a second run changes nothing; a key id already held by other material is refused; the
+    configurator is NOLOGIN without a password afterwards."""
+    import shutil
+    out = tmp_path / 'stage'
+    shutil.copytree(tree['out'], out)
+    ascii_hex = (out / 'management' / 'signing.key.hex').read_text()
+    assert len(bytes.fromhex(ascii_hex)) == 32 and bytes.fromhex(ascii_hex).decode('ascii')  # the generator's ASCII key
+    old = random.token_bytes(32)
+    (out / 'management' / 'signing.key.hex').unlink()
+    S.write_private(out / 'management' / 'signing.key.hex', old.hex())
+    bootstrap(admin)
+    socket_dsn = tmp_path / 'bootstrap-socket-dsn'
+    socket_dsn.write_text(make_conninfo(pg, user='nexloop_bootstrap'))
+    socket_dsn.chmod(0o600)
+    expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+    assert S.main(['register', '--out', str(out), '--tenant', TENANT, '--bootstrap-dsn-file', str(socket_dsn), '--signing-key-id', 'nexloop-stage-20261014',
+                   '--credential-expires-at', expires]) == 0
+    capsys.readouterr()
+
+    def counts():
+        return admin.execute("""select (select count(*) from authz.nexloop_authority_facts where tenant_id=%s),
+            (select md5(string_agg(fact_kind||entity_key::text||payload::text, '|' order by fact_kind, entity_key)) from authz.nexloop_authority_facts where tenant_id=%s),
+            (select count(*) from authz.nexloop_service_credentials where tenant_id=%s),
+            (select md5(string_agg(token_digest||status||binding::text, '|' order by token_digest)) from authz.nexloop_service_credentials where tenant_id=%s)""",
+                             (TENANT, TENANT, TENANT, TENANT)).fetchone()
+    before = counts()
+    (out / 'management' / 'signing.key.hex').unlink()
+    S.write_private(out / 'management' / 'signing.key.hex', ascii_hex)
+    args = ['signing-key', '--out', str(out), '--tenant', TENANT, '--signing-key-id', 'nexloop-stage-20261015', '--bootstrap-dsn-file', str(socket_dsn)]
+    publications = lambda: admin.execute('select count(*) from control.nexloop_configuration_publications where tenant_id=%s', (TENANT,)).fetchone()[0]  # noqa: E731
+    published = publications()
+    for expected in (True, False):
+        assert S.main(args) == 0
+        printed = json.loads(capsys.readouterr().out)
+        assert printed['changed'] is expected and printed['signing_key_id'] == 'nexloop-stage-20261015'
+        assert admin.execute("select rolcanlogin, rolpassword is null from pg_authid where rolname='nexloop_configurator'").fetchone() == (False, True)
+    assert publications() == published + 1  # the second run opened no window and published nothing
+    keys = {k: (bytes(m), a) for k, m, a in admin.execute('select key_id, key_material, active from authz.nexloop_authority_signing_keys').fetchall()}
+    assert keys['nexloop-stage-20261014'] == (old, True) and keys['nexloop-stage-20261015'] == (bytes.fromhex(ascii_hex), True)
+    assert counts() == before  # no fact, credential or grant changed
+    # A key id held by other material is refused (key ids are immutable), without opening a window.
+    (out / 'management' / 'signing.key.hex').unlink()
+    S.write_private(out / 'management' / 'signing.key.hex', random.token_bytes(32).hex())
+    assert S.main(args) == 2 and 'other key material' in capsys.readouterr().out
+    assert publications() == published + 1

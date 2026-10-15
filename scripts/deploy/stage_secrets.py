@@ -3,6 +3,7 @@
 
     stage_secrets.py catalog  [--compose-app F] [--compose-data F]                  the inventory (paths, kinds, phases, owners)
     stage_secrets.py generate --out NEW_DIR --ca-dir CA_DIR --params PRIVATE_JSON    phase A files into a new private tree
+    stage_secrets.py signing-key --out DIR --tenant UUID --signing-key-id ID --bootstrap-dsn-file F   one more Authority signing key
     stage_secrets.py check    --out DIR [--uids]                                       secret_distribution and manifest digests
 
 The catalog is read from the APP_HOST Compose file's `secrets:` section (so it cannot drift from what the services mount) plus
@@ -594,6 +595,62 @@ def browser_main(args):
         return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=dsn, signing_key_id=args.signing_key_id, state=state)
 
 
+# Signing key rotation (run-34, 2026-10-15): register one more Authority signing key without changing any authority. 0050/0162
+# control.nexloop_configure_manifest inserts (key_id, material, active) on conflict(key_id) do nothing and requires that exact
+# row afterwards; every list of the manifest is processed item by item, so a manifest whose lists are all empty writes and revokes
+# nothing else (it only appends a publication row and advances authority_revision by one). Existing keys stay active.
+def signing_key_state(connection, key_id):
+    """The current row of `key_id` (read-only): (material, active) or None."""
+    row = connection.execute('select key_material, active from authz.nexloop_authority_signing_keys where key_id=%s', (key_id,)).fetchone()
+    return None if row is None else (bytes(row[0]), row[1])
+
+
+def register_signing_key(out, *, tenant, signing_key_id, database_url_file, state=None):
+    """Publish an empty manifest carrying management/signing.key.hex under `signing_key_id`. With `state` (the current row of that
+    key id) an already registered identical key publishes nothing; a key id held by other material is refused."""
+    import uuid
+    from nexloop_eios import service_grants as G
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    from nexloop_eios.trusted_configuration import apply_manifest_with_secrets, read_private_text
+    hex_file = Path(out) / 'management' / 'signing.key.hex'
+    material = bytes.fromhex(read_private_text(hex_file, maximum=128))
+    if len(material) != 32 or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', signing_key_id or ''):
+        raise Refused('signing key: 32 bytes in management/signing.key.hex and a key id without colons')
+    if state is not None:
+        if state[0] != material:
+            raise Refused('the key id is registered with other key material (key ids are immutable): choose a new key id')
+        if state[1]:
+            return {'changed': False, 'signing_key_id': signing_key_id}
+        raise Refused('the key id is registered but inactive; 0050 never reactivates a key')
+    current = G.inventory(database_url_file, tenant)
+    if not current['tenant_present']:
+        raise Refused('tenant not configured yet: run register first')
+    body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
+            'object_types': [], 'actions': [], 'functions': [], 'authority_facts': [], 'service_credentials': [], 'browser_applications': [],
+            'browser_business_applications': [], 'browser_rate_policies': [], 'identity_allowances': []}
+    body['manifest_id'] = str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-signing-key:' + signing_key_id + ':' + hashlib.sha256(material).hexdigest()))
+    result = apply_manifest_with_secrets(body, database_url_file=database_url_file, signing_key_file=hex_file, signing_key_id=signing_key_id, service_secrets={})
+    return {'changed': True, 'signing_key_id': signing_key_id, 'authority_revision': result['authority_revision']}
+
+
+def signing_key_main(args):
+    import psycopg
+    from nexloop_eios.trusted_configuration import read_private_text
+    if bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file):
+        raise Refused('signing-key needs one of --configurator-dsn-file / --bootstrap-dsn-file')
+    if args.configurator_dsn_file:
+        return register_signing_key(args.out, tenant=args.tenant, signing_key_id=args.signing_key_id, database_url_file=args.configurator_dsn_file)
+    # Window mode: the current row is read (read-only transaction) through the bootstrap socket; an identical registered key opens
+    # no window and publishes nothing.
+    with psycopg.connect(read_private_text(args.bootstrap_dsn_file, maximum=16384).strip(), connect_timeout=5) as reader:
+        reader.execute('set transaction read only')
+        state = signing_key_state(reader, args.signing_key_id)
+    if state is not None:
+        return register_signing_key(args.out, tenant=args.tenant, signing_key_id=args.signing_key_id, database_url_file=None, state=state)
+    with configurator_window(args.bootstrap_dsn_file) as dsn:
+        return register_signing_key(args.out, tenant=args.tenant, signing_key_id=args.signing_key_id, database_url_file=dsn)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -625,6 +682,12 @@ def main(argv=None):
     b.add_argument('--bootstrap-dsn-file', type=Path)
     b.add_argument('--signing-key-id')
     b.add_argument('--dry-run', action='store_true')
+    sk = sub.add_parser('signing-key', help='register management/signing.key.hex under a new key id (empty manifest; no authority change)')
+    sk.add_argument('--out', type=Path, required=True)
+    sk.add_argument('--tenant', required=True)
+    sk.add_argument('--signing-key-id', required=True)
+    sk.add_argument('--configurator-dsn-file', type=Path)
+    sk.add_argument('--bootstrap-dsn-file', type=Path)
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -648,6 +711,8 @@ def main(argv=None):
             code = 0
         elif args.command == 'browser':
             out, code = browser_main(args), 0
+        elif args.command == 'signing-key':
+            out, code = signing_key_main(args), 0
         elif args.command == 'generate':
             out, code = generate(args.out, args.ca_dir, args.params), 0
         else:
