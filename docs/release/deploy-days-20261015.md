@@ -2,6 +2,23 @@
 
 把几份运行手册中的部署步骤，按这两天的四个时段排成一张执行单。**2026-10-14 晚的核对结果见 [deploy-days-20261015-review.md](deploy-days-20261015-review.md)**：其中 M8、M9、M12、M13、M14 五项需要在开工前先做决定，下文相应步骤处已标出。之后的排期是：10/17（周六）校准，10/18–19 受控交互，10/20 验收（ROADMAP §12）。
 
+
+## 实际进展（截至 2026-10-15，按各逐条命令单整理）
+
+本节只记录实际完成了什么、出现了哪些偏差；下文原有步骤的正文不改。命令与证据以各逐条命令单为准。
+
+| 时间 | 执行单步骤 | 结果 | 偏差摘要 | 逐条命令单 |
+|---|---|---|---|---|
+| 10/14 晚 | 1.1–1.5 | 完成：加密卷、目录、服务用户 | 提前一天完成；评审结论见 [review](deploy-days-20261015-review.md)（M8 TLS 服务器模式，M9 推迟 NOLOGIN，M12 文件备份这两天只做恢复日志，M13/M14 用主机 venv） | — |
+| 10/14 晚 | 开工前置 P1 | 完成：签名发布 `20261014-76df1926d6c0-1`（commit 76df192）已封存 | — | [run-34](run-34-20261015.md) 适用状态 |
+| 10/15 | 2.2–2.6 | 完成：DATA_HOST 库到 0197；bootstrap 完成；首次备份（D1）成立 | 迁移门槛按两次备份夹着 bootstrap 执行（硬约束第 1 条） | [run-34](run-34-20261015.md) 适用状态 |
+| 10/15 上午 | 3.3 恢复演练 | **passed**：d20261015a，RTO 49.4 s，RPO 60.2 s，`drill_compare` 0 差异，`result_id` 1；生产库未受影响 | 6 处偏差：APP_HOST 只有 Python 3.14、演练卷挂载点 0711、`spool-path`、`en_US.UTF-8` locale、`--dbname`、RPO 以 `marked_at` 为基准。另有 glibc 排序规则差异的限制；AT-059 合成删除待补 | [run-33](run-33-20261015.md) §10 |
+| 10/15 | 3.4 启动应用 | `nexloop-app` 已启动，14 个服务在运行；合成租户已执行 register、browser、configure | api 与 gateway 的启动问题由 c56a18f 修复；provider 配置原先要手写，已由生成器解决（G-ROUTES）；其余缺口 G3–G7 见该单 §5 | [run-34](run-34-20261015.md) |
+| 10/15 10:30 起 | 4.1 首次部署内容 | 进行中：7 个 worker 反复退出（它们的前置条件见该单 §2） | 业务对象类型与 Action 原先没有生产发布入口（A1），已由 `stage_secrets.py publish` 解决；A2–A7 待办 | [run-41](run-41-20261015.md) |
+| 10/15 | 组装演练（本地，不是 stage） | 在本地干净 PG 上从 bootstrap 跑到每个 worker 的首轮调用 | 缺口：D-QUEUE（已修）、G-WEBCHAT-AUTH、G-CONTEXT-STRATEGY、G-WORKBENCH-AUTH、G-ROLE、G-ROUTES（已补）；G-PLAN、G-ROLE-READ 未定 | [assembly-dryrun-gaps](assembly-dryrun-gaps.md) |
+
+尚未开始：3.1 restic 的文件部分（按 M12 推迟）、4.2 AT-058 外部探测、4.3 参考端点、4.4 定时任务的全部启用、4.5 回滚核对、4.6 收尾，以及周六就绪检查。各项进展以调度员的记录为准。
+
 - **依据**（命令细节以原手册为准，本单只定顺序、执行者、判据和撤销方式）：
   - [NX-032 部署运行手册](../implementation/NX-032-deploy-runbook.md)：步骤 0–8、AT-058、首次部署内容；
   - [NX-035 备份部署运行手册](../implementation/NX-035-deploy-runbook.md)：LUKS、pgBackRest、restic、恢复演练门槛、定时任务；另见 [pgBackRest 执行者](../implementation/NX-035-pgbackrest.md)、[文件备份执行者](../implementation/NX-035-file-backup.md)、[恢复命令行](../implementation/NX-035-restore-cli.md)；
