@@ -370,7 +370,8 @@ def compose_budget(budget, compose):
 # Compose networks <-> firewall (G-APP-SUBNET, run sheet 4.2) -------------------------------------------------------------------
 # The APP_HOST nft rules (app-host.nft.template) match these Compose networks by source CIDR; each must have exactly that subnet,
 # declared (rendered Compose) and running (running_snapshot, docker network inspect). Names only in the details, never addresses.
-FIREWALL_NETWORKS = {'app': 'APP_CONTAINER_CIDR', 'effect_egress': 'EFFECT_EGRESS_CIDR', 'agent_egress': 'AGENT_EGRESS_CIDR'}
+FIREWALL_NETWORKS = {'app': 'APP_CONTAINER_CIDR', 'effect_egress': 'EFFECT_EGRESS_CIDR', 'agent_egress': 'AGENT_EGRESS_CIDR',
+                     'claim_egress': 'CLAIM_EGRESS_CIDR'}
 
 
 def _subnets(values):

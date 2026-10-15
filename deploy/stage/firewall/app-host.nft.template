@@ -1,7 +1,8 @@
 # NX-032 §3.1–3.2: APP_HOST rules in their own table (undo: nft delete table inet nexloop_stage). Applied by the owner only.
 # Gateway only for the trusted LAN; internal ports are never published; the application namespace reaches only DATA_HOST's
 # PostgreSQL and Valkey, the Agent Host namespace only the model allowlist (NX-037 D4), the effect worker namespace only PostgreSQL
-# and the enterprise endpoint (NX-037 provider routing); the CI user (NX-033) never reaches DATA_HOST
+# and the enterprise endpoint (NX-037 provider routing), the claim workers' namespace only PostgreSQL and the model allowlist
+# (G-CLAIM-EGRESS); the CI user (NX-033) never reaches DATA_HOST
 # or the internal ports. NX-035 M8: the pgBackRest TLS server (repo1) on the host accepts DATA_HOST only. The reference endpoint
 # admits the effect worker network only (run sheet 4.2).
 table inet nexloop_stage {
@@ -35,6 +36,12 @@ table inet nexloop_stage {
     ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport __PG_PORT__ accept
     ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __ENTERPRISE_ENDPOINT_ADDR__ tcp dport __ENTERPRISE_ENDPOINT_PORT__ accept
     ip saddr __EFFECT_EGRESS_CIDR__ ct state new drop
+    # G-CLAIM-EGRESS: the claim workers' own namespace (__CLAIM_EGRESS_CIDR__; claim-extraction-worker, claim-matcher, the only
+    # model credential holders besides the Agent Host) reaches DATA_HOST's PostgreSQL and the model provider allowlist on 443 only;
+    # never Valkey, never another DATA_HOST port, nothing else.
+    ip saddr __CLAIM_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport __PG_PORT__ accept
+    ip saddr __CLAIM_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } tcp dport 443 accept
+    ip saddr __CLAIM_EGRESS_CIDR__ ct state new drop
     ip saddr __AGENT_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ drop
     ip saddr __AGENT_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } tcp dport 443 accept
     ip saddr __AGENT_EGRESS_CIDR__ ct state new drop
