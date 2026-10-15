@@ -38,3 +38,14 @@ DATA_HOST 容器内的 `pgbackrest.conf` 相应写：
 `repo1-cipher-*` 仍由客户端设置，服务器端不持有仓库口令。
 
 **撤销**：`systemctl disable --now <unit>`，删除 unit 文件，再执行 `systemctl daemon-reload`。仓库内容不动。
+
+## 防火墙表持久化（G-NFT-PERSIST）
+
+| 文件 | 内容 |
+|---|---|
+| `nexloop-nft.service.example` | 两台主机各一份。oneshot，在 `docker.service` 之前从根文件系统加载 `inet nexloop_stage`，并且是 `docker.service` 的 RequiredBy：加载失败时 Docker 不启动。`reload` 原子替换这张表，`stop` 只删除这张表 |
+
+- **加载文件**：`render.py --nft-transaction <渲染后的规则> --out <host>.nft` 生成。它是一个事务：`table`、`delete table`、`include`。
+- **文件位置**：两个文件都在 `$NEXLOOP_ROOT/config/firewall/`，root 0600，不放在 LUKS 卷上。
+- **不得同时启用** `nftables.service`：它默认的配置文件以 `flush ruleset` 开头。
+- 安装与核对见 [run-42 §6a](../../../docs/release/run-42-20261015.md)。

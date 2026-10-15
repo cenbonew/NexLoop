@@ -1,0 +1,40 @@
+# G-NFT-PERSIST (2026-10-15): load the inet nexloop_stage table (app-host.nft / data-host.nft, NX-032 §3.1–3.2, NX-037 D4) at boot.
+# Both hosts had it only in memory (nftables.service disabled, no rules file): a reboot removed every isolation rule.
+#
+# Files (root, 0600, on the root file system, NOT on a LUKS volume: they must exist before the manual unlock of OPERATIONS 8a.1):
+#   <NEXLOOP_ROOT>/config/firewall/<host>.rules.nft  the rendered template (render.py --env ... --template ...nft.template)
+#   <NEXLOOP_ROOT>/config/firewall/<host>.nft        the load file (render.py --nft-transaction <rules file> --out <this>):
+#                                                    `table` + `delete table` + `include` = one atomic transaction that replaces
+#                                                    exactly inet nexloop_stage and never touches another table (UFW, Docker).
+# <host> is app-host or data-host; <NEXLOOP_ROOT> is the deployment root (fill both in on the host).
+#
+# Order with Docker: this unit runs BEFORE docker.service, not after it. Docker starts the Compose containers itself as soon as
+# docker.service is up (restart: unless-stopped); a unit ordered After=docker.service would leave them running without the
+# isolation rules until it ran. The table is independent of Docker (its own table and hooks at priority filter - 1; it matches
+# addresses and conntrack state, not Docker's chains or interfaces), so it can be loaded first. RequiredBy=docker.service makes a
+# failed load fail closed: Docker, and with it every container, does not start without the rules.
+# AssertPathExists (not ConditionPathExists): a missing load file fails the unit, it is never silently skipped.
+# Remove this unit's RequiredBy (systemctl disable, then enable after editing) only if that is ever not wanted.
+#
+# Never enable nftables.service next to this unit: its default /etc/nftables.conf begins with `flush ruleset`.
+# Reload after a rule change: `systemctl reload nexloop-nft` (atomic; no window without rules). `stop` deletes the table:
+# isolation is gone until the next start, so stop only with the Compose projects down.
+# Example only; B class, owner confirms. Undo: systemctl disable --now nexloop-nft; remove the unit (the table goes with stop).
+[Unit]
+Description=NexLoop stage firewall table (inet nexloop_stage)
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target docker.service
+Wants=network-pre.target
+AssertPathExists=<NEXLOOP_ROOT>/config/firewall/<host>.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f <NEXLOOP_ROOT>/config/firewall/<host>.nft
+ExecReload=/usr/sbin/nft -f <NEXLOOP_ROOT>/config/firewall/<host>.nft
+ExecStop=/usr/sbin/nft delete table inet nexloop_stage
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=docker.service

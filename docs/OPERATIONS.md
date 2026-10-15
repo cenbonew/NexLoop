@@ -100,6 +100,18 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 LUKS 卷采用人工解锁（NX-035 手册 1.3 方式 A），主机重启后卷**不会自动挂载**。按下面的顺序恢复：
 
+0. **先确认防火墙表已加载**（G-NFT-PERSIST，run-42 §6a）：
+   - `nexloop-nft.service` 在 `docker.service` 之前从根文件系统加载 `inet nexloop_stage`，不依赖 LUKS 卷；
+   - 它是 `docker.service` 的 RequiredBy，加载失败时 Docker 与全部容器都不会启动（失败即停）。
+   ```
+   systemctl is-active nexloop-nft docker
+   sudo nft list table inet nexloop_stage | grep -c -E 'accept|drop'
+   ```
+   - 第一行应为两个 `active`，第二行的条数与 run-42 §6a 第 4 步记录的相同。
+   - 如果 `nexloop-nft` 失败：
+     1. 看 `journalctl -u nexloop-nft`，常见原因是文件缺失或渲染出错；
+     2. 修好 `$NEXLOOP_ROOT/config/firewall/<host>.nft` 后，先 `sudo nft -c -f` 检查，再 `sudo systemctl start nexloop-nft docker`；
+     3. **不要**为了让 Docker 起来而禁用这个依赖。
 1. **先停住依赖这些卷的容器**。Compose 项目带 `restart: unless-stopped`，开机后 Docker 会在卷挂载之前就把它们拉起来，这时它们读到的是挂载点下面空的底层目录（见 8a.5）。所以先执行：
    ```
    docker compose -p <项目> stop
