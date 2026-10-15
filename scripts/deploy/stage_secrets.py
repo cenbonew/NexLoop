@@ -403,6 +403,88 @@ def _apply_extra_facts(facts, tenant, *, database_url_file, signing_key_file, si
     return len(writes)
 
 
+# G1 (run-34 §2): the browser login chain of the stage api. Values follow the readers, not names:
+# - control.nexloop_read_browser_identity (0021) needs an active control.nexloop_browser_applications row per application;
+# - browser_http.login_work consumes the rate policy 'local_login' (operator nexloop_identity) before authenticating (0032);
+# - control.nexloop_initial_identity_create (0162) needs an enabled allowance per application for initial_identity --create.
+# browser_business_applications is read only by the business authority snapshot (0045), not by login: not registered here.
+LOGIN_RATE = {'action': 'local_login', 'maximum_attempts': 20, 'window_seconds': 60}
+_APP_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
+
+
+def browser_entries(*, browser_application_id, workbench_application_id, seal_digest, webchat_accounts=10, workbench_accounts=5,
+                    operator_label='stage-owner'):
+    """The 0050 browser categories for the WebChat application and the workbench application (http_api requires two ids)."""
+    if browser_application_id == workbench_application_id or not all(_APP_ID.fullmatch(x or '') for x in (browser_application_id, workbench_application_id)):
+        raise Refused('two different browser application ids are required (http_api: workbench id differs from the browser id)')
+    if not re.fullmatch('[0-9a-f]{64}', seal_digest or '') or not _APP_ID.fullmatch(operator_label or ''):
+        raise Refused('seal digest (sha256 of the initial identity idempotency key) and operator label are required')
+    if not all(type(n) is int and 1 <= n <= 100 for n in (webchat_accounts, workbench_accounts)):
+        raise Refused('maximum accounts per application: 1..100')
+    apps = [(browser_application_id, webchat_accounts), (workbench_application_id, workbench_accounts)]
+    return {'browser_applications': [{'application_id': a, 'active': True} for a, _ in apps],
+            'browser_rate_policies': [{**LOGIN_RATE, 'operator_principal_id': 'nexloop_identity', 'active': True}],
+            'identity_allowances': [{'application_id': a, 'enabled': True, 'maximum_accounts': n, 'operator_label': operator_label,
+                                     'idempotency_key_digest': seal_digest} for a, n in apps]}
+
+
+def browser_state(connection, tenant):
+    """Read-only current values of the managed browser rows (for the idempotency check; the window's bootstrap session)."""
+    apps = {a: act for a, act in connection.execute('select application_id, active from control.nexloop_browser_applications where tenant_id=%s', (tenant,))}
+    rates = {a: (m, w, act) for a, m, w, act in connection.execute(
+        "select action, maximum_attempts, window_seconds, active from control.nexloop_browser_rate_policies where tenant_id=%s and operator_principal_id='nexloop_identity'", (tenant,))}
+    allowances = {a: (e, m, label, d) for a, e, m, label, d in connection.execute(
+        'select application_id, enabled, maximum_accounts, operator_label, idempotency_key_digest from control.nexloop_initial_identity_allowances where tenant_id=%s', (tenant,))}
+    return {'applications': apps, 'rates': rates, 'allowances': allowances}
+
+
+def _browser_pending(entries, state):
+    """Entries that differ from the current rows; an allowance that exists with other values is refused (0050 never resets it)."""
+    if state is None:
+        return entries, []
+    pending = {'browser_applications': [e for e in entries['browser_applications'] if state['applications'].get(e['application_id']) is not e['active']],
+               'browser_rate_policies': [e for e in entries['browser_rate_policies']
+                                         if state['rates'].get(e['action']) != (e['maximum_attempts'], e['window_seconds'], e['active'])],
+               'identity_allowances': []}
+    conflicts = []
+    for e in entries['identity_allowances']:
+        current = state['allowances'].get(e['application_id'])
+        wanted = (e['enabled'], e['maximum_accounts'], e['operator_label'], e['idempotency_key_digest'])
+        if current is None:
+            pending['identity_allowances'].append(e)
+        elif current != wanted:
+            conflicts.append(e['application_id'])
+    return pending, conflicts
+
+
+def apply_browser(out, *, tenant, entries, database_url_file, signing_key_id, state=None, dry_run=False):
+    """Register the browser applications, the login rate policy and the initial identity allowances (0050, configurator only).
+    With `state` (the current rows) only differing entries are sent and an unchanged configuration publishes nothing."""
+    import uuid
+    from nexloop_eios import service_grants as G
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    from nexloop_eios.trusted_configuration import apply_manifest_with_secrets
+    pending, conflicts = _browser_pending(entries, state)
+    summary = {'applications': [e['application_id'] for e in entries['browser_applications']], 'rate_policies': [e['action'] for e in entries['browser_rate_policies']],
+               'allowances': {e['application_id']: e['maximum_accounts'] for e in entries['identity_allowances']}}
+    if conflicts:
+        raise Refused('identity allowance exists with other values (never reset): ' + ', '.join(sorted(conflicts)))
+    if dry_run:
+        return {'dry_run': True, **summary}
+    if not any(pending.values()):
+        return {'changed': False, **summary}
+    current = G.inventory(database_url_file, tenant)
+    if not current['tenant_present']:
+        raise Refused('tenant not configured yet: run register first')
+    body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
+            'object_types': [], 'actions': [], 'functions': [], 'authority_facts': [], 'service_credentials': [], 'browser_business_applications': [],
+            **pending}
+    body['manifest_id'] = str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-browser:' + str(current['authority_revision']) + ':' + canonical_payload(body)))
+    result = apply_manifest_with_secrets(body, database_url_file=database_url_file, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
+                                         signing_key_id=signing_key_id, service_secrets={})
+    return {'changed': True, 'authority_revision': result['authority_revision'], **summary}
+
+
 def _reference_secrets(out, manifest, stage):
     """credential_reference -> token from management/service-secrets.json (file -> token); a principal's files share one token."""
     tokens = json.loads((Path(out) / 'management' / 'service-secrets.json').read_text())
@@ -527,6 +609,34 @@ def check(out, *, uids=False, compose_app=COMPOSE_APP):
     return {'ok': not problems, 'problems': problems, 'pending_manual_or_phase_c': pending}
 
 
+def browser_main(args):
+    import hashlib as _h
+
+    import psycopg
+    from nexloop_eios.trusted_configuration import read_private_text
+    seal = bytes.fromhex(read_private_text(args.identity_seal_file, maximum=128).strip())
+    if len(seal) != 32:
+        raise Refused('--identity-seal-file: 32 bytes as 64 hex')
+    entries = browser_entries(browser_application_id=args.browser_application_id, workbench_application_id=args.workbench_application_id,
+                              seal_digest=_h.sha256(seal).hexdigest(), webchat_accounts=args.webchat_accounts,
+                              workbench_accounts=args.workbench_accounts, operator_label=args.operator_label)
+    if args.dry_run:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=None, signing_key_id=None, dry_run=True)
+    if not args.signing_key_id or bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file):
+        raise Refused('browser needs one of --configurator-dsn-file / --bootstrap-dsn-file and --signing-key-id (or --dry-run)')
+    if args.configurator_dsn_file:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=args.configurator_dsn_file, signing_key_id=args.signing_key_id)
+    # Window mode: the current rows are read (read-only transaction) through the bootstrap socket, so an unchanged configuration
+    # publishes nothing; the writes go through the configurator's own login only.
+    with psycopg.connect(read_private_text(args.bootstrap_dsn_file, maximum=16384).strip(), connect_timeout=5) as reader:
+        reader.execute('set transaction read only')
+        state = browser_state(reader, args.tenant)
+    if not any(_browser_pending(entries, state)[0].values()) and not _browser_pending(entries, state)[1]:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=None, signing_key_id=args.signing_key_id, state=state)
+    with configurator_window(args.bootstrap_dsn_file) as dsn:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=dsn, signing_key_id=args.signing_key_id, state=state)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -545,6 +655,19 @@ def main(argv=None):
     r.add_argument('--signing-key-id')
     r.add_argument('--credential-expires-at')
     r.add_argument('--dry-run', action='store_true')
+    b = sub.add_parser('browser', help='G1: browser applications, login rate policy and initial identity allowances (0050)')
+    b.add_argument('--out', type=Path, required=True)
+    b.add_argument('--tenant', required=True)
+    b.add_argument('--browser-application-id', required=True)
+    b.add_argument('--workbench-application-id', required=True)
+    b.add_argument('--identity-seal-file', type=Path, required=True, help='the 32-byte hex idempotency key initial_identity --create will use')
+    b.add_argument('--webchat-accounts', type=int, default=10)
+    b.add_argument('--workbench-accounts', type=int, default=5)
+    b.add_argument('--operator-label', default='stage-owner')
+    b.add_argument('--configurator-dsn-file', type=Path)
+    b.add_argument('--bootstrap-dsn-file', type=Path)
+    b.add_argument('--signing-key-id')
+    b.add_argument('--dry-run', action='store_true')
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -566,6 +689,8 @@ def main(argv=None):
             else:
                 out = run(args.configurator_dsn_file)
             code = 0
+        elif args.command == 'browser':
+            out, code = browser_main(args), 0
         elif args.command == 'generate':
             out, code = generate(args.out, args.ca_dir, args.params), 0
         else:
