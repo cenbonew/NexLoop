@@ -67,6 +67,10 @@ from nexloop_eios.trusted_configuration import (FACT_MODELS,ConfigurationRejecte
 SCHEMA='nexloop-service-grants/1'
 TOP={'schema_version','manifest_version','decision','valid_from','world','principals','grants','deferred','excluded_by_policy'}
 PRINCIPAL={'role','subject_id','principal_id','credential_id','credential_reference','application_id','database_role','purpose','source_task'}
+# Optional principal field: scopes beyond the grants' resource_type.operation that a credential must request. Only
+# ontology.roles.manage, which 0057/0081 require in the caller credential's requested_scopes for the role Actions (G-ROLE).
+EXTRA_SCOPES='requested_scopes'
+ALLOWED_EXTRA_SCOPES=frozenset({'ontology.roles.manage'})
 GRANT={'principal','resource_type','resource_id','operations','purpose','source_task'}
 FOLLOW='follow_latest_version'
 RULES='property_access_rules'
@@ -130,8 +134,11 @@ def validate(value):
         if marker in authority_text:_reject('excluded_by_policy:'+marker)
     principals={};identifiers=set()
     for item in value['principals']:
-        if type(item) is not dict or set(item)!=PRINCIPAL:_reject('principal_shape')
+        if type(item) is not dict or set(item)-{EXTRA_SCOPES}!=PRINCIPAL:_reject('principal_shape')
         if any(type(item[k]) is not str or not item[k] for k in PRINCIPAL):_reject('principal_shape')
+        extra=item.get(EXTRA_SCOPES,[])
+        if (EXTRA_SCOPES in item and (type(extra) is not list or not extra or len(set(extra))!=len(extra)
+                or any(type(x) is not str for x in extra))) or not set(extra)<=ALLOWED_EXTRA_SCOPES:_reject('principal_requested_scopes')
         if _ROLE.fullmatch(item['role']) is None or item['role'] in principals:_reject('principal_role')
         for k in ('subject_id','principal_id','credential_id','credential_reference'):
             if _ID.fullmatch(item[k]) is None or item[k] in identifiers:_reject('principal_identifier')
@@ -362,7 +369,7 @@ def compile_principal(manifest,tenant,principal,*,credential_expires_at):
     """Deterministic EIOS authority facts and credential binding for one service principal."""
     world=manifest['world'];past=datetime.fromisoformat(manifest['valid_from'])
     grants=sorted((g for g in manifest['grants'] if g['principal']==principal['role']),key=lambda g:g['resource_id'])
-    scopes=frozenset(f"{g['resource_type']}.{op}" for g in grants for op in g['operations'])
+    scopes=frozenset(f"{g['resource_type']}.{op}" for g in grants for op in g['operations'])|frozenset(principal.get(EXTRA_SCOPES,()))
     subject,pid,app=principal['subject_id'],principal['principal_id'],principal['application_id']
     base=dict(tenant_id=tenant,repository_witness=WITNESS)
     version_digest=_digest({'schema':SCHEMA,'application':app,'version':'1','principal':pid,'world':world})

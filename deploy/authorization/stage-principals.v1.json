@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-stage-principals/1",
-  "manifest_version": 2,
-  "decision": "NX-032 run sheet 1.6 / phase B (dispatcher 2026-10-14): the service principals the stage Compose file needs beyond service-grants.v1.json, each with only the authority its code calls (evidence per grant in purpose: file and line), registered with service-grants.v1.json through the trusted configuration (scripts/deploy/stage_secrets.py register). Effect Actions (ADR-020 §3: never in the service grants manifest) only for effect_roles. One credential per principal: the credential files of one principal hold the same token. Not here: per-object READ of plan reevaluation Role Runs (RoleDefinition, ConsumerRoleLink, PlanStep, RoleExecutionCeiling, RoleAssignmentScope, catalog) is granted with the Role assembly of a tenant (phase C); those credentials are authenticated only when a plan launches. manifest_version 2 (NX-032 A1 design §4.4 / T6, dispatcher 2026-10-15): the two setup tools run once per tenant with their own service principals: business_owner (business_setup.py --owner-credential-file, then nexloop-relay-enroll --owner-credential-file as the EffectControl owner; its executor is effect_executor, the principal the action worker runs as, so the EffectControl it creates names that executor) and catalog_maintainer (catalog_setup.py --maintainer-credential-file; its delivery Source is relay_source, whose catalog READ comes from relay_source_read_rule). Their credential files live under setup/ and are added to a generated tree by `stage_secrets.py setup-credentials` before register; no Compose service mounts them.",
+  "manifest_version": 3,
+  "decision": "NX-032 run sheet 1.6 / phase B (dispatcher 2026-10-14): the service principals the stage Compose file needs beyond service-grants.v1.json, each with only the authority its code calls (evidence per grant in purpose: file and line), registered with service-grants.v1.json through the trusted configuration (scripts/deploy/stage_secrets.py register). Effect Actions (ADR-020 §3: never in the service grants manifest) only for effect_roles. One credential per principal: the credential files of one principal hold the same token. Not here: per-object READ of plan reevaluation Role Runs (RoleDefinition, ConsumerRoleLink, PlanStep, RoleExecutionCeiling, RoleAssignmentScope, catalog) is granted with the Role assembly of a tenant (phase C); those credentials are authenticated only when a plan launches. manifest_version 2 (NX-032 A1 design §4.4 / T6, dispatcher 2026-10-15): the two setup tools run once per tenant with their own service principals: business_owner (business_setup.py --owner-credential-file, then nexloop-relay-enroll --owner-credential-file as the EffectControl owner; its executor is effect_executor, the principal the action worker runs as, so the EffectControl it creates names that executor) and catalog_maintainer (catalog_setup.py --maintainer-credential-file; its delivery Source is relay_source, whose catalog READ comes from relay_source_read_rule). Their credential files live under setup/ and are added to a generated tree by `stage_secrets.py setup-credentials` before register; no Compose service mounts them. manifest_version 3 (G-ROLE, dispatcher 2026-10-15): role_assembler (nexloop_eios.role_assembly --assembler-credential-file) creates a consumer's standing Goal and PlanStep and its Role objects (ceiling, definition, assignment scope, link) through the published Actions; it requests ontology.roles.manage, which 0057/0081 require in the caller credential for the role Actions (service_grants requested_scopes). Its credential file is below setup/ like the other setup tools.",
   "effect_roles": [
     "effect_executor",
     "relay_source",
@@ -106,6 +106,20 @@
       "database_role": "nexloop_api",
       "purpose": "The maintainer of a tenant's service catalog (catalog_setup.py): creates the ServiceOffering and the ConsumerServiceOffering that names relay_source as its delivery Source. Used once per consumer by the operator, never by a running service.",
       "source_task": "NX-032 A3"
+    },
+    {
+      "role": "role_assembler",
+      "subject_id": "nexloop-service-role-assembler",
+      "principal_id": "nexloop-service-role-assembler-principal",
+      "credential_id": "nexloop-service-role-assembler-key",
+      "credential_reference": "role_assembler",
+      "application_id": "eios:application:nexloop-role-assembler",
+      "database_role": "nexloop_api",
+      "purpose": "Assembles a consumer's Role (role_assembly.py): the standing Goal and PlanStep of its Role Runs, the execution ceiling, the RoleDefinition, the assignment scope and the ConsumerRoleLink. Used once per consumer by the operator, never by a running service.",
+      "source_task": "NX-032 G-ROLE",
+      "requested_scopes": [
+        "ontology.roles.manage"
+      ]
     }
   ],
   "grants": [
@@ -380,6 +394,66 @@
       ],
       "purpose": "withdraw the enrollment (relay_enrollment.py 24/89).",
       "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "role_assembler",
+      "resource_type": "action",
+      "resource_id": "eios:action:Goal.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the standing Goal of the Role Runs (role_assembly.assemble_role).",
+      "source_task": "NX-032 G-ROLE"
+    },
+    {
+      "principal": "role_assembler",
+      "resource_type": "action",
+      "resource_id": "eios:action:PlanStep.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the standing PlanStep: the consumer's EffectControl, submitter the Role Source (role_assembly.assemble_role; 0041, 0180 enrollment).",
+      "source_task": "NX-032 G-ROLE"
+    },
+    {
+      "principal": "role_assembler",
+      "resource_type": "action",
+      "resource_id": "eios:action:RoleExecutionCeiling.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the Role's execution ceiling (role_assembly; role_policies.RolePolicyPort.create, 0081).",
+      "source_task": "NX-032 G-ROLE"
+    },
+    {
+      "principal": "role_assembler",
+      "resource_type": "action",
+      "resource_id": "eios:action:RoleDefinition.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the Role (role_assembly; role_mapping.RoleMappingPort.create_role, 0057).",
+      "source_task": "NX-032 G-ROLE"
+    },
+    {
+      "principal": "role_assembler",
+      "resource_type": "action",
+      "resource_id": "eios:action:RoleAssignmentScope.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the consumer's assignment scope (role_assembly; RolePolicyPort.create, 0081).",
+      "source_task": "NX-032 G-ROLE"
+    },
+    {
+      "principal": "role_assembler",
+      "resource_type": "action",
+      "resource_id": "eios:action:ConsumerRoleLink.create:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "the consumer's link to the Role (role_assembly; RoleMappingPort.assign, 0057).",
+      "source_task": "NX-032 G-ROLE"
     }
   ],
   "source_message_read_rules": [
@@ -426,6 +500,7 @@
     "setup/business-owner-credential": "business_owner",
     "setup/catalog-maintainer-credential": "catalog_maintainer",
     "setup/catalog-source-credential": "relay_source",
+    "setup/role-assembler-credential": "role_assembler",
     "webchat-delivery/service-credential": "effect_executor"
   }
 }

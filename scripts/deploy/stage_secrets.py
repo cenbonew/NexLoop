@@ -332,7 +332,9 @@ def merged_manifest(grants_path=GRANTS, principals_path=PRINCIPALS):
     roles = {p['role'] for p in base['principals']}
     identifiers = {p[k] for p in base['principals'] for k in ('subject_id', 'principal_id', 'credential_id', 'credential_reference')}
     for item in stage['principals']:
-        if set(item) != G.PRINCIPAL or item['role'] in roles or item['database_role'] not in G.DATABASE_ROLES:
+        extra = item.get(G.EXTRA_SCOPES, [])
+        if set(item) - {G.EXTRA_SCOPES} != G.PRINCIPAL or item['role'] in roles or item['database_role'] not in G.DATABASE_ROLES \
+                or (G.EXTRA_SCOPES in item and (type(extra) is not list or not extra or len(set(extra)) != len(extra) or not set(extra) <= G.ALLOWED_EXTRA_SCOPES)):
             raise Refused('stage principal shape, duplicate role or database role: ' + str(item.get('role')))
         for k in ('subject_id', 'principal_id', 'credential_id', 'credential_reference'):
             if not G._ID.fullmatch(item[k]) or item[k] in identifiers:
