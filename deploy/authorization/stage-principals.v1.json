@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-stage-principals/1",
   "manifest_version": 2,
-  "decision": "NX-032 run sheet 1.6 / phase B (dispatcher 2026-10-14): the service principals the stage Compose file needs beyond service-grants.v1.json, each with only the authority its code calls (evidence per grant in purpose: file and line), registered with service-grants.v1.json through the trusted configuration (scripts/deploy/stage_secrets.py register). Effect Actions (ADR-020 §3: never in the service grants manifest) only for effect_roles. One credential per principal: the credential files of one principal hold the same token. Not here: per-object READ of plan reevaluation Role Runs (RoleDefinition, ConsumerRoleLink, PlanStep, RoleExecutionCeiling, RoleAssignmentScope, catalog) is granted with the Role assembly of a tenant (phase C); those credentials are authenticated only when a plan launches. manifest_version 2 (NX-032 A1 design §4.4 / T6, dispatcher 2026-10-15): the two setup tools run once per tenant with their own service principals: business_owner (business_setup.py --owner-credential-file; its executor is effect_executor, the principal the action worker runs as, so the EffectControl it creates names that executor) and catalog_maintainer (catalog_setup.py --maintainer-credential-file; its delivery Source is relay_source, whose catalog READ comes from relay_source_read_rule). Their credential files live under setup/ and are added to a generated tree by `stage_secrets.py setup-credentials` before register; no Compose service mounts them.",
+  "decision": "NX-032 run sheet 1.6 / phase B (dispatcher 2026-10-14): the service principals the stage Compose file needs beyond service-grants.v1.json, each with only the authority its code calls (evidence per grant in purpose: file and line), registered with service-grants.v1.json through the trusted configuration (scripts/deploy/stage_secrets.py register). Effect Actions (ADR-020 §3: never in the service grants manifest) only for effect_roles. One credential per principal: the credential files of one principal hold the same token. Not here: per-object READ of plan reevaluation Role Runs (RoleDefinition, ConsumerRoleLink, PlanStep, RoleExecutionCeiling, RoleAssignmentScope, catalog) is granted with the Role assembly of a tenant (phase C); those credentials are authenticated only when a plan launches. manifest_version 2 (NX-032 A1 design §4.4 / T6, dispatcher 2026-10-15): the two setup tools run once per tenant with their own service principals: business_owner (business_setup.py --owner-credential-file, then nexloop-relay-enroll --owner-credential-file as the EffectControl owner; its executor is effect_executor, the principal the action worker runs as, so the EffectControl it creates names that executor) and catalog_maintainer (catalog_setup.py --maintainer-credential-file; its delivery Source is relay_source, whose catalog READ comes from relay_source_read_rule). Their credential files live under setup/ and are added to a generated tree by `stage_secrets.py setup-credentials` before register; no Compose service mounts them.",
   "effect_roles": [
     "effect_executor",
     "relay_source",
@@ -93,7 +93,7 @@
       "credential_reference": "business_owner",
       "application_id": "eios:application:nexloop-business-owner",
       "database_role": "nexloop_api",
-      "purpose": "The owner of a tenant's business setup (business_setup.py): creates the Consumer and its EffectControl, configures the control for the effect executor and registers the human Consumer owner. Used once per consumer by the operator, never by a running service.",
+      "purpose": "The owner of a tenant's business setup (business_setup.py): creates the Consumer and its EffectControl, configures the control for the effect executor and registers the human Consumer owner. Then enrolls the consumer with the relay (nexloop-relay-enroll). Used once per consumer by the operator, never by a running service.",
       "source_task": "NX-032 A3"
     },
     {
@@ -359,6 +359,26 @@
         "execute"
       ],
       "purpose": "bind the offering to the Consumer with relay_source as Source (service_offerings.governed_create_catalog 99).",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "business_owner",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.relay.enroll:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "enroll (and read) the consumer for the relay as the owner of its EffectControl (relay_enrollment.py 23/82/95; 0160 re-checks the owner).",
+      "source_task": "NX-032 A3"
+    },
+    {
+      "principal": "business_owner",
+      "resource_type": "action",
+      "resource_id": "eios:action:nexloop.relay.withdraw:1",
+      "operations": [
+        "execute"
+      ],
+      "purpose": "withdraw the enrollment (relay_enrollment.py 24/89).",
       "source_task": "NX-032 A3"
     }
   ],
