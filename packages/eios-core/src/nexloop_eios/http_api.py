@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from nexloop_eios.backend import open_backend
 from nexloop_eios.private_configuration import read_private_text
+from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios.host_control import HostControlConfiguration, probe_host
 
 
@@ -239,9 +240,11 @@ def stage_refusals(a,environ):
     if environ.get('MODEL_PROVIDER','').strip().lower()=='test':refusals.append('test model provider refused')
     for key in environ:
         if key in STAGE_FORBIDDEN_ENVIRONMENT or key.startswith(STAGE_FORBIDDEN_PREFIXES):refusals.append('test or secret environment refused: '+key)
-    for name in ('database_url_file','signing_key_file'):
-        try:read_private_text(getattr(a,name),maximum=16384)
-        except Exception:refusals.append('private file required: --'+name.replace('_','-'))
+    try:read_private_text(a.database_url_file,maximum=16384)
+    except Exception:refusals.append('private file required: --database-url-file')
+    # The signing key is raw bytes (any 32, binary or ASCII): checked with the backend's own read, never decoded as text.
+    try:AuthoritySigner.from_file(a.signing_key_file)
+    except Exception:refusals.append('private file required: --signing-key-file')
     return refusals
 
 
