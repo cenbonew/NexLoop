@@ -81,7 +81,7 @@ def report(items, questions, results):
             q['verdicts'][str(verdict)] = q['verdicts'].get(str(verdict), 0) + 1
             if result.status == 'ok':
                 a = result.answers[qid]
-                key = _bucket(a['probability']) if a['type'] == 'noul' else str(a['choice'] if a['type'] == 'choice' else a['score'])
+                key = _bucket(a['probability']) if a['type'] == 'noul' else str(a['choice'] if a['type'] == 'choice' else a['level'])
                 q['distribution'][key] = q['distribution'].get(key, 0) + 1
     for s in sets.values():
         latencies = s.pop('latency_ms')

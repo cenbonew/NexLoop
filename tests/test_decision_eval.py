@@ -20,16 +20,37 @@ STATE = {'customer': '我下周三想预约上门维修。', 'claim': {'predicat
 
 
 def claim_answers(grounded=0.97, kind='stated_intent', confidence=0.95, injection=0.01):
+    """The response shape observed on 2026-10-15 (see REAL_SHAPES): noul under "noul", choice with a confidence that is not the
+    chosen probability."""
     options = CLAIM['questions']['kind']['options']
     probs = {o: (confidence if o == kind else round((1 - confidence) / (len(options) - 1), 6)) for o in options}
-    return {'answers': {'grounded': {'probability': grounded}, 'kind': {'choice': kind, 'confidence': confidence, 'probabilities': probs},
-                        'injection': {'probability': injection}}, 'usage': {'input_tokens': 1012, 'output_tokens': 0}}
+    return {'model': 'synthetic-model',
+            'answers': {'grounded': {'type': 'noul', 'noul': grounded},
+                        'kind': {'type': 'choice', 'choice': kind, 'probabilities': probs, 'confidence': round(confidence - 0.006, 5)},
+                        'injection': {'type': 'noul', 'noul': injection}},
+            'usage': {'input_tokens': 1012, 'output_tokens': 0}}
 
 
 def handoff_answers(needs_human=0.05, score=0, p=0.9):
-    probs = {str(v): (p if v == score else round((1 - p) / 3, 6)) for v in range(4)}
-    return {'answers': {'needs_human': {'probability': needs_human},
-                        'risk': {'score': score, 'probabilities': probs, 'legend': HANDOFF['questions']['risk']['legend']}}}
+    probs = {str(v): (p if v == score else round((1 - p) / 3, 6)) for v in (3, 0, 2, 1)}       # keys in no particular order
+    weighted = sum(int(k) * v for k, v in probs.items())
+    return {'model': 'synthetic-model',
+            'answers': {'needs_human': {'type': 'noul', 'noul': needs_human},
+                        'risk': {'type': 'score', 'score': weighted, 'probabilities': probs, 'confidence': p,
+                                 'legend': dict(reversed(list(HANDOFF['questions']['risk']['legend'].items())))}},
+            'usage': {'input_tokens': 980, 'output_tokens': 0}}
+
+
+# The three answer shapes of the real call (dispatcher 2026-10-15, synthetic data; values as returned), mapped to this file's
+# question ids. Regression samples: parsing must accept them unchanged.
+REAL_SHAPES = {
+    'noul': {'type': 'noul', 'noul': 0.999620015485248},
+    'choice': {'type': 'choice', 'choice': 'constraint', 'probabilities': {'hypothesis': 0.00019, 'intent': 0.00039, 'preference': 0.00063,
+                                                                         '信息不足': 8.2e-05, 'constraint': 0.99871}, 'confidence': 0.99293},
+    'score': {'type': 'score', 'score': 1.9998364966138267, 'probabilities': {'2': 0.99985, '0': 1.18e-05, '1': 0.00014}, 'confidence': 0.99861,
+              'legend': {'1': '…', '2': '…', '0': '…'}},
+}
+REAL_TOP_LEVEL = {'model': 'synthetic-model', 'usage': {'input_tokens': 1010, 'output_tokens': 0}}
 
 
 class FakeTransport:
@@ -129,12 +150,13 @@ def mutate(path, value):
 
 
 @pytest.mark.parametrize('payload', [
-    b'not json', {'answers': []}, {}, mutate(('answers', 'grounded'), KeyError), mutate(('answers', 'grounded', 'probability'), 1.2),
-    mutate(('answers', 'grounded', 'probability'), -0.1), mutate(('answers', 'grounded', 'probability'), 'high'),
-    mutate(('answers', 'grounded', 'probability'), True), mutate(('answers', 'grounded', 'probability'), float('nan')),
+    b'not json', {'answers': []}, {}, mutate(('answers', 'grounded'), KeyError), mutate(('answers', 'grounded', 'noul'), 1.2),
+    mutate(('answers', 'grounded', 'noul'), -0.1), mutate(('answers', 'grounded', 'noul'), 'high'),
+    mutate(('answers', 'grounded', 'noul'), True), mutate(('answers', 'grounded', 'noul'), float('nan')),
+    mutate(('answers', 'grounded', 'type'), 'choice'),                         # type disagrees with the question
     mutate(('answers', 'kind', 'choice'), 'unknown_kind'), mutate(('answers', 'kind', 'confidence'), 2),
-    mutate(('answers', 'kind', 'probabilities', 'hypothesis'), 0.9),          # sum is not 1
-    mutate(('answers', 'injection'), {'prob': 0.1}),
+    mutate(('answers', 'kind', 'probabilities', 'hypothesis'), 0.9),          # sum is not 1 (beyond 1e-3)
+    mutate(('answers', 'injection'), {'probability': 0.1}),                   # the old field name is not accepted
 ])
 def test_an_invalid_response_is_uncertain_and_never_cached(credential, payload):
     transport = FakeTransport((200, payload), (200, claim_answers()))
@@ -148,7 +170,7 @@ def test_choice_must_be_the_most_probable_and_score_inside_the_scale(credential)
     wrong_choice = claim_answers(kind='stated_intent', confidence=0.95)
     wrong_choice['answers']['kind']['choice'] = 'hypothesis'
     assert client(credential, FakeTransport((200, wrong_choice))).evaluate(CLAIM, STATE).reason == 'invalid_response'
-    for bad in ({'score': 4}, {'score': '2'}, {'probabilities': {'0': 1.0}}):
+    for bad in ({'score': 3.5}, {'score': -0.1}, {'score': '2'}, {'probabilities': {'0': 1.0}}, {'legend': {'0': 'a', '1': 'b'}}):
         payload = handoff_answers()
         payload['answers']['risk'].update(bad)
         assert client(credential, FakeTransport((200, payload))).evaluate(HANDOFF, 'x').reason == 'invalid_response'
@@ -288,3 +310,31 @@ def test_shadow_live_report_with_a_fake_client(items, credential, tmp_path, caps
     assert handoff['decisions'] == {'uncertain': 1} and handoff['failure_rate'] == 1 and handoff['failures'] == {'http_5xx': 1}
     assert handoff['questions']['needs_human']['shares'] == {'uncertain': 1.0}
     assert SYNTHETIC_CREDENTIAL not in out_file.read_text()
+
+
+# Real response shapes (regression) ---------------------------------------------------------------------------------------
+def test_the_real_answer_shapes_parse_unchanged():
+    noul = de.validate_answer(CLAIM['questions']['grounded'], REAL_SHAPES['noul'])
+    assert noul == {'type': 'noul', 'probability': 0.999620015485248}
+    options = list(REAL_SHAPES['choice']['probabilities'])                    # the real call's options, including a Chinese label
+    choice = de.validate_answer({'type': 'choice', 'options': options}, REAL_SHAPES['choice'])
+    assert choice['choice'] == 'constraint' and choice['choice_probability'] == 0.99871 and choice['confidence'] == 0.99293
+    score = de.validate_answer({'type': 'score', 'scale': [0, 2]}, REAL_SHAPES['score'])
+    assert score['score'] == 1.9998364966138267 and score['level'] == 2 and score['level_probability'] == 0.99985 and score['confidence'] == 0.99861
+
+
+def test_the_real_top_level_shape_with_zero_output_tokens_is_ok(credential):
+    payload = {**REAL_TOP_LEVEL, 'answers': {'needs_human': REAL_SHAPES['noul'],
+                                             'risk': {**REAL_SHAPES['score'], 'probabilities': {'2': 0.99985, '0': 1.18e-05, '1': 0.00013, '3': 0.00001},
+                                                      'legend': {'1': '…', '2': '…', '0': '…', '3': '…'}}}}
+    result = client(credential, FakeTransport((200, payload))).evaluate(HANDOFF, 'x')
+    assert result.status == 'ok' and result.usage == {'input_tokens': 1010, 'output_tokens': 0}
+    assert de.verdicts(HANDOFF, result) == {'needs_human': 'yes', 'risk': 2}
+    assert de.decide('handoff', HANDOFF, result) == ('handoff', 'decision_eval_handoff')
+
+
+def test_sum_tolerance_and_confidence_is_never_cross_checked():
+    question = {'type': 'choice', 'options': ['a', 'b']}
+    assert de.validate_answer(question, {'choice': 'a', 'probabilities': {'a': 0.9995, 'b': 0.0009}, 'confidence': 0.2}) is not None  # sum 1.0004
+    assert de.validate_answer(question, {'choice': 'a', 'probabilities': {'a': 0.998, 'b': 0.0005}}) is None                            # sum 0.9985
+    assert de.validate_answer(question, {'choice': 'b', 'probabilities': {'a': 0.6, 'b': 0.4}}) is None                                # not the most probable

@@ -7,8 +7,9 @@ business object, and the caller decides through governed EIOS Actions.
 - Request: POST <endpoint> with `ark-beta-systemone-api: true`, a Bearer credential read per call from a private file
   (read_private_text: 0600, owned, regular; never from the environment or .env), body {model, state, questions}.
 - Every failure is `uncertain`, never an exception to the caller: transport error, timeout, HTTP error, a body that is not JSON
-  or whose answers do not validate strictly (noul probability in [0,1]; choice in the declared options with probabilities that
-  sum to 1 and the chosen one the most probable; score inside the declared scale), a missing question, an exhausted deadline.
+  or whose answers do not validate strictly (noul value in [0,1]; choice in the declared options, probabilities over exactly those
+  options summing to 1 within 1e-3, the chosen one the most probable; score a number inside the scale with probabilities and legend
+  over exactly the scale's keys), a missing question, an exhausted deadline. `confidence` is recorded, never cross-checked.
 - Retries: transport errors, timeouts and 5xx only, exponential backoff with jitter inside one absolute deadline; 4xx never.
 - Cache key: sha256 of the canonical state + question-set version + model id; an in-memory cache of validated results only.
 - No credential, state text or response body is ever logged or returned; results carry numbers, codes and digests.
@@ -125,33 +126,52 @@ def _probability(value):
     return type(value) in (int, float) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1
 
 
+SUM_TOLERANCE = 1e-3
+
+
 def _distribution(probabilities, keys):
+    """Probabilities over exactly `keys` (any order), each in [0,1], summing to 1 within SUM_TOLERANCE."""
     if type(probabilities) is not dict or set(probabilities) != set(keys) or not all(_probability(p) for p in probabilities.values()):
         return False
-    return abs(sum(probabilities.values()) - 1) <= 0.01
+    return abs(sum(probabilities.values()) - 1) <= SUM_TOLERANCE
 
 
 def validate_answer(question, answer):
-    """A strictly validated answer reduced to numbers, or None when anything is off."""
+    """A strictly validated answer reduced to numbers, or None when anything is off. Shapes as observed on 2026-10-15:
+    noul {"type":"noul","noul":p}; choice {"type","choice","probabilities","confidence"} where confidence is recorded only (it is
+    not the chosen option's probability); score {"type","score" (weighted, not an integer),"probabilities" (keys "0".."n", any
+    order),"confidence","legend"}."""
     if type(answer) is not dict:
         return None
     kind = question['type']
-    if kind == 'noul':
-        p = answer.get('probability')
-        return {'type': 'noul', 'probability': float(p)} if _probability(p) else None
-    if kind == 'choice':
-        options, choice, confidence, probs = question['options'], answer.get('choice'), answer.get('confidence'), answer.get('probabilities')
-        if choice not in options or not _probability(confidence) or not _distribution(probs, options):
-            return None
-        if probs[choice] < max(probs.values()) - 1e-9:
-            return None
-        return {'type': 'choice', 'choice': choice, 'confidence': float(confidence), 'probabilities': {k: float(v) for k, v in probs.items()}}
-    low, high = question['scale']
-    score, probs = answer.get('score'), answer.get('probabilities')
-    keys = [str(v) for v in range(low, high + 1)]
-    if type(score) is not int or isinstance(score, bool) or not low <= score <= high or not _distribution(probs, keys):
+    if 'type' in answer and answer['type'] != kind:
         return None
-    return {'type': 'score', 'score': score, 'probabilities': {k: float(v) for k, v in probs.items()}}
+    if kind == 'noul':
+        p = answer.get('noul')
+        return {'type': 'noul', 'probability': float(p)} if _probability(p) else None
+    confidence = answer.get('confidence')
+    if confidence is not None and not _probability(confidence):
+        return None
+    if kind == 'choice':
+        options, choice, probs = question['options'], answer.get('choice'), answer.get('probabilities')
+        if choice not in options or not _distribution(probs, options):
+            return None
+        if probs[choice] < max(probs.values()) - 1e-12:
+            return None
+        return {'type': 'choice', 'choice': choice, 'choice_probability': float(probs[choice]),
+                'confidence': None if confidence is None else float(confidence), 'probabilities': {k: float(v) for k, v in probs.items()}}
+    low, high = question['scale']
+    keys = [str(v) for v in range(low, high + 1)]
+    score, probs, legend = answer.get('score'), answer.get('probabilities'), answer.get('legend')
+    if type(score) not in (int, float) or isinstance(score, bool) or not math.isfinite(score) or not low <= score <= high:
+        return None
+    if not _distribution(probs, keys):
+        return None
+    if legend is not None and (type(legend) is not dict or set(legend) != set(keys)):
+        return None
+    level = max(keys, key=lambda k: probs[k])
+    return {'type': 'score', 'score': float(score), 'level': int(level), 'level_probability': float(probs[level]),
+            'confidence': None if confidence is None else float(confidence), 'probabilities': {k: float(v) for k, v in probs.items()}}
 
 
 def parse_response(qset, payload):
@@ -171,7 +191,7 @@ def _usage(payload):
     usage = payload.get('usage') if type(payload) is dict else None
     out = {}
     if type(usage) is dict:
-        for key in ('input_tokens', 'output_tokens'):
+        for key in ('input_tokens', 'output_tokens'):  # output_tokens is 0 for judgment-only answers; that is normal
             if type(usage.get(key)) is int and usage[key] >= 0:
                 out[key] = usage[key]
     return out
@@ -307,9 +327,11 @@ def verdicts(qset, result):
         if question['type'] == 'noul':
             out[qid] = 'yes' if a['probability'] >= t['high'] else 'no' if a['probability'] <= t['low'] else 'between'
         elif question['type'] == 'choice':
-            out[qid] = a['choice'] if a['confidence'] >= t['confidence'] else 'between'
+            # The chosen option's own probability decides; the response's confidence is recorded only.
+            out[qid] = a['choice'] if a['choice_probability'] >= t['confidence'] else 'between'
         else:
-            out[qid] = a['score'] if a['probabilities'][str(a['score'])] >= t['confidence'] else 'between'
+            # The most probable level decides (score itself is a weighted value, not a level).
+            out[qid] = a['level'] if a['level_probability'] >= t['confidence'] else 'between'
     return out
 
 
