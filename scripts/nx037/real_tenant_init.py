@@ -4,6 +4,8 @@
         [--cumulative 100 --per-run 2 --monthly 300] --period-start ISO --period-end ISO          # default: dry-run, prints the steps
     python scripts/nx037/real_tenant_init.py execute ... --configurator-dsn-file F --signing-key-file F --signing-key-id ID \\
         --service-secrets-file F --credential-expires-at ISO                                       # trusted configuration steps only
+    python scripts/nx037/real_tenant_init.py configure ... (--bootstrap-dsn-file F | --configurator-dsn-file F)
+                                                       # steps 2 and 3 only, after stage_secrets.py register (run sheet 3.4)
     python scripts/nx037/real_tenant_init.py verify  --tenant UUID --metrics-dsn-file F ...        # the post-initialization check
 
 The real tenant is a new tenant id, never the synthetic demo tenant, and is initialized only through:
@@ -14,6 +16,10 @@ The real tenant is a new tenant id, never the synthetic demo tenant, and is init
   period: it needs the owner's own workbench session, so this script prints the request and never performs it;
 - references only for the value catalog (file sha256) and the channel configuration (an opaque reference): the channel itself
   is connected in NX-037 B-class work, not here.
+`configure` runs only the effect categories and alert rules steps, for a tenant whose service principals and grants another
+trusted path already created (the stage: `stage_secrets.py register`); with --bootstrap-dsn-file it opens the configurator login
+window over the bootstrap socket (scripts/deploy/configurator_window.py, NX-032-stage-secrets.md §3b), which closes (NOLOGIN, no
+password) whatever happens.
 plan and verify never write; execute performs only the trusted configuration steps above (no direct table write). None of
 the modes opens a real dispatch switch or reads a channel secret.
 
@@ -38,6 +44,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
+sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 CONFIG = ROOT / 'deploy/configuration'
 TRIAL = CONFIG / 'nx037-trial.v2.json'  # v2: effect categories v3 (NX-037 gap B)
 GRANTS = ROOT / 'deploy/authorization/service-grants.v1.json'
@@ -114,13 +121,29 @@ def execute(p, *, configurator_dsn_file, signing_key_file, signing_key_id, servi
     """Runs the trusted configuration steps (configurator role through the configuration functions; idempotent). The budget
     step is performed only through `owner_actions` (the owner's own governed session, GoalGovernedActions); without it the
     step stays pending and is reported with its request."""
-    from nexloop_eios import effect_categories, observability
     from nexloop_eios import service_grants as G
     done = {}
     report = G.apply(G.load(GRANTS), p['tenant'], database_url_file=configurator_dsn_file, signing_key_file=signing_key_file,
                      signing_key_id=signing_key_id, service_secrets_file=service_secrets_file,
                      credential_expires_at=_time(credential_expires_at), owner_restrictions=G.load_owner_restrictions(OWNER_RESTRICTIONS))
     done['service_grants'] = {'changed': bool(report.get('changed')), 'grants_added': len(report.get('grants_added', []))}
+    done.update(configure(p, configurator_dsn_file=configurator_dsn_file))
+    request = budget_request(p)
+    if owner_actions is None:
+        done['model_budget'] = {'status': 'owner_pending', 'request_id': request['request_id']}
+    else:
+        owner_actions.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
+        done['model_budget'] = {'status': 'submitted', 'request_id': request['request_id']}
+    return {'mode': 'execute', 'executed': True, 'tenant': p['tenant'], 'steps': done}
+
+
+def configure(p, *, configurator_dsn_file):
+    """Steps 2 and 3 alone (effect categories, alert rules), configurator role; idempotent. The stage runs them after
+    `stage_secrets.py register` has created the tenant and its service principals (run sheet 3.4): `execute` would apply
+    service-grants.v1.json instead of the stage's merged grants manifest that register owns."""
+    from nexloop_eios import effect_categories, observability
+    from nexloop_eios import service_grants as G
+    done = {}
     # Only Actions the tenant has published can be declared (the declaration is frozen by the published definition's digest).
     # An Action published later stays undeclared until this step is run again: undeclared is customer contact and external
     # (fail closed), so deferring never opens anything.
@@ -133,13 +156,7 @@ def execute(p, *, configurator_dsn_file, signing_key_file, signing_key_id, servi
         done['effect_categories'].update({k: v for k, v in categories.items() if type(v) in (int, bool)})
     rules = observability.apply_rules(p['alert_rules'], p['tenant'], database_url_file=configurator_dsn_file)
     done['alert_rules'] = {k: v for k, v in rules.items() if type(v) in (int, bool)}
-    request = budget_request(p)
-    if owner_actions is None:
-        done['model_budget'] = {'status': 'owner_pending', 'request_id': request['request_id']}
-    else:
-        owner_actions.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
-        done['model_budget'] = {'status': 'submitted', 'request_id': request['request_id']}
-    return {'mode': 'execute', 'executed': True, 'tenant': p['tenant'], 'steps': done}
+    return done
 
 
 def verify(p, connection, *, environ=None):
@@ -169,11 +186,11 @@ def _connect(dsn_file):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='NX-037 real tenant initialization (dry-run by default)')
-    parser.add_argument('mode', nargs='?', choices=('plan', 'execute', 'verify'), default='plan')
+    parser.add_argument('mode', nargs='?', choices=('plan', 'execute', 'configure', 'verify'), default='plan')
     for name in ('--tenant', '--owner-principal', '--value-catalog', '--channel-ref', '--period-start', '--period-end'):
         parser.add_argument(name, required=True)
     for name in ('--cumulative', '--per-run', '--monthly', '--configurator-dsn-file', '--signing-key-file', '--signing-key-id',
-                 '--service-secrets-file', '--credential-expires-at', '--metrics-dsn-file'):
+                 '--service-secrets-file', '--credential-expires-at', '--metrics-dsn-file', '--bootstrap-dsn-file'):
         parser.add_argument(name)
     args = parser.parse_args(argv)
     try:
@@ -187,6 +204,16 @@ def main(argv=None):
                 raise Refused('execute needs the trusted configuration files')
             out = execute(p, **{n: getattr(args, n) for n in needed})
             code = 0
+        elif args.mode == 'configure':
+            if (args.configurator_dsn_file is None) == (args.bootstrap_dsn_file is None):
+                raise Refused('configure needs one of --configurator-dsn-file / --bootstrap-dsn-file')
+            if args.bootstrap_dsn_file:
+                from configurator_window import configurator_window
+                with configurator_window(args.bootstrap_dsn_file, refused=Refused) as dsn:
+                    steps_done = configure(p, configurator_dsn_file=dsn)
+            else:
+                steps_done = configure(p, configurator_dsn_file=args.configurator_dsn_file)
+            out, code = {'mode': 'configure', 'executed': True, 'tenant': p['tenant'], 'steps': steps_done}, 0
         else:
             if args.metrics_dsn_file is None:
                 raise Refused('verify needs the metrics role connection file')
