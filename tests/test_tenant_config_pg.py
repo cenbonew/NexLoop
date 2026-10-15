@@ -130,3 +130,16 @@ def test_tenant_config_never_writes_the_database(published, admin, tmp_path, cap
     assert run(published, tmp_path, capsys, 'relay-run-profile', '--role-id', ROLE, '--maximum-cost', '2', '--currency', 'CNY')[0] == 0
     assert admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s', (TENANT,)).fetchone() == before
     assert admin.execute("select count(*) from ontology.objects where tenant_id=%s", (TENANT,)).fetchone() == (1,)
+
+
+def test_the_claim_match_example_is_the_minimal_configuration_the_matcher_loads(tmp_path):
+    import yaml
+    from nexloop_eios.background_services import load_match_configuration
+    example = ROOT / 'deploy/stage/claim-match.example.json'
+    assert json.loads(example.read_text()) == {}
+    installed = tmp_path / 'claim-match.json'  # installed as the service's private file (0600), as the loader requires
+    S.write_private(installed, example.read_text())
+    configuration = load_match_configuration(installed)
+    assert (configuration.edit_actions, configuration.create_actions) == ({}, {})
+    compose = yaml.safe_load((ROOT / 'deploy/stage/compose.app.example.yaml').read_text())
+    assert any(v.endswith('/config/claim-match.json:/etc/nexloop/claim-match.json:ro') for v in compose['services']['claim-matcher']['volumes'])
