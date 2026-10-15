@@ -23,7 +23,6 @@ import argparse
 import json
 import re
 import sys
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,7 +33,7 @@ from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType
 
 from nexloop_eios.authorization import WITNESS
-from nexloop_eios.workbench_roles import human_facts
+from nexloop_eios.workbench_roles import human_facts, publish_human_authority
 
 ROLE_SCHEMA = 'nexloop-webchat-consumer-role/1'
 CONSUMERS_SCHEMA = 'nexloop-webchat-consumers/1'
@@ -48,7 +47,6 @@ CONSUMER_RESOURCES = {'eios:action:Conversation.create:1': ResourceType.ACTION, 
                       'eios:function:nexloop.conversation.service_receipt:1': ResourceType.FUNCTION,
                       'eios:function:nexloop.conversation.scope_denial:1': ResourceType.FUNCTION}
 ROLE_ID = 'nexloop-webchat-role:consumer'
-NAMESPACE = uuid.UUID('6b0f7f0e-8a43-5d0c-9a7e-2f1d0c4b9e11')
 _NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
@@ -136,25 +134,12 @@ def summary(recipe):
 def apply(role, recipe, *, database_url_file, signing_key_file, signing_key_id):
     """One 0050 manifest through the technical configurator (trusted_configuration refuses any other session). The tenant and the
     browser application must exist (register, browser), and every consumer must be an existing browser Human (0050)."""
-    from nexloop_eios import service_grants as G
-    from nexloop_eios.postgres_artifacts import canonical_payload
-    from nexloop_eios.trusted_configuration import apply_manifest_with_secrets
     compiled = compile_recipe(role, recipe)
-    tenant = recipe['tenant_id']
-    current = G.inventory(database_url_file, tenant)
-    if not current['tenant_present']:
-        raise WebchatConsumersRejected('tenant not configured yet')
-    humans = set(current.get('human_identifiers') or [])
-    missing = sorted(c['principal_id'] for c in recipe['consumers'] if c['principal_id'] not in humans)
-    if missing:
-        raise WebchatConsumersRejected('not an existing browser Human: ' + ', '.join(missing))
-    body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
-            'object_types': [], 'actions': [], 'functions': [], 'service_credentials': [], 'browser_applications': [], 'browser_rate_policies': [],
-            'identity_allowances': [], **compiled}
-    body['manifest_id'] = str(uuid.uuid5(NAMESPACE, tenant + ':webchat-consumers:' + str(current['authority_revision']) + ':' + canonical_payload(body)))
-    result = apply_manifest_with_secrets(body, database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id,
-                                         service_secrets={})
-    return {'configured': True, 'authority_revision': result['authority_revision'], **summary(recipe)}
+    revision = publish_human_authority(recipe['tenant_id'], authority_facts=compiled['authority_facts'],
+                                       business_application=compiled['browser_business_applications'][0],
+                                       humans=[c['principal_id'] for c in recipe['consumers']], label='webchat-consumers', database_url_file=database_url_file,
+                                       signing_key_file=signing_key_file, signing_key_id=signing_key_id, refused=WebchatConsumersRejected)
+    return {'configured': True, 'authority_revision': revision, **summary(recipe)}
 
 
 def main(argv=None, *, window=None):

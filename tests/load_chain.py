@@ -292,12 +292,12 @@ def load_plans(admin, api, worker, identity_pool, tenant, owner_identity, plan_t
             capabilities={S.PUBLISH_CAPABILITY: capability.model_copy(update={'capability_name': S.PUBLISH_CAPABILITY, 'has_side_effects': True})}):
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s) on conflict do nothing',
                       (tenant, 'real', f"eios:action:{compiled['definition']['stable_name']}:1", Jsonb(compiled['definition']), Jsonb(compiled['capability'])))
-    # The owner's grant on it, compiled like every workbench member grant (nexloop_eios.workbench_roles) from the role with this one
-    # Action added; written as the trusted configuration writes compiled facts.
+    # The owner's grant on it, compiled like every workbench member grant (nexloop_eios.workbench_roles) from the owner role (which
+    # carries it since workbench roles v11); written as the trusted configuration writes compiled facts.
     import copy
     from nexloop_eios.workbench_roles import compile_members, load as load_roles
     roles = copy.deepcopy(load_roles(root / 'deploy/authorization/workbench-roles.v1.json'))
-    roles['roles']['owner'] = [*roles['roles']['owner'], f'eios:action:{S.PUBLISH_ACTION}:1']
+    assert f'eios:action:{S.PUBLISH_ACTION}:1' in roles['roles']['owner']  # workbench roles v11: the owner publishes strategies
     members = {'schema_version': 'nexloop-workbench-members/1', 'tenant_id': tenant, 'application_id': WORKBENCH_APP, 'caller_application_id': CALLER,
                'members': [{'principal_id': owner_identity[2].principal_id, 'subject_id': owner_identity[1].subject_id, 'role': 'owner'}]}
     facts = []
@@ -321,7 +321,7 @@ def load_plans(admin, api, worker, identity_pool, tenant, owner_identity, plan_t
                                          window_start=period[0], window_end=period[1])])
     builtin = next(x for x in S.load_builtins(root / 'deploy/configuration/context-strategies.v1.json') if x['strategy_id'] == 'recent_plus_required')
     S.StrategyPublisher(api._pool, authenticate_browser_business(api._pool, session, world='real'), api._signer).publish(builtin, request_id='load-strategy-recent-plus-required-1')
-    # Restore the workbench application's catalog to the configured roles (the added Action was only for this publication).
+    # The workbench application's catalog as the configured roles compile it.
     original = load_roles(root / 'deploy/authorization/workbench-roles.v1.json')
     _write_facts(admin, tenant, [(item['kind'], item['key'], item['payload']) for item in compile_members(original, members) if item['kind'] == 'application'])
     goals_seconds = time.monotonic() - started

@@ -54,7 +54,8 @@ def validate_roles(value):
                   'eios:action:nexloop.restore.open_scope:1',  # NX-035: opening a restored database is the owner's
                   'eios:action:nexloop.incentive.issue:1',  # AT-043: it spends the tenant incentive budget
                   'eios:action:nexloop.real_dispatch.set:1',  # 0153: opening real dispatch is the owner's
-                  'eios:action:nexloop.contact_key.revoke:1'}  # NX-053: re-allowing contact with an erased identity is the owner's
+                  'eios:action:nexloop.contact_key.revoke:1',  # NX-053: re-allowing contact with an erased identity is the owner's
+                  'eios:action:nexloop.context.strategy.publish:1'}  # how Context is assembled is the owner's
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')
     return value
@@ -189,7 +190,51 @@ def apply_members(roles, members, *, database_url_file):
             (members['tenant_id'], canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
 
 
-def main(argv=None):
+def publish_human_authority(tenant, *, authority_facts, business_application, humans, label, database_url_file, signing_key_file, signing_key_id,
+                            refused=WorkbenchRolesRejected):
+    """One 0050 manifest (technical configurator) with Human authority facts and the browser application's 0045 business row
+    (caller application, version, requested scopes). Every Human must be an existing browser Human (0050 refuses the grant otherwise);
+    the tenant must exist. Shared by the workbench roles and the webchat consumer role."""
+    import uuid
+    from nexloop_eios import service_grants as G
+    from nexloop_eios.trusted_configuration import apply_manifest_with_secrets
+    current = G.inventory(database_url_file, tenant)
+    if not current['tenant_present']:
+        raise refused('tenant not configured yet')
+    known = set(current.get('human_identifiers') or [])
+    missing = sorted(h for h in humans if h not in known)
+    if missing:
+        raise refused('not an existing browser Human: ' + ', '.join(missing))
+    body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
+            'object_types': [], 'actions': [], 'functions': [], 'service_credentials': [], 'browser_applications': [], 'browser_rate_policies': [],
+            'identity_allowances': [], 'authority_facts': authority_facts, 'browser_business_applications': [business_application]}
+    body['manifest_id'] = str(uuid.uuid5(G.NAMESPACE, tenant + ':' + label + ':' + str(current['authority_revision']) + ':' + canonical_payload(body)))
+    result = apply_manifest_with_secrets(body, database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id,
+                                         service_secrets={})
+    return result['authority_revision']
+
+
+def apply(roles, members, *, database_url_file, signing_key_file, signing_key_id):
+    """G-WORKBENCH-AUTH: the whole workbench configuration in one run, in the order the SQL requires: the workbench caller application
+    fact and its 0045 business row (0050; control.nexloop_configure_workbench refuses an application that is not a published browser
+    business application), then the members (configure_workbench), then the members' grant facts (0050, 0140: grants follow the
+    member list). Same input, same state."""
+    validate_roles(roles)
+    validate_members(members, roles)
+    facts = compile_members(roles, members)
+    application = [f for f in facts if f['kind'] == 'application']
+    common = dict(business_application={'application_id': members['application_id'], 'caller_application_id': members['caller_application_id'],
+                                        'application_version': '1', 'requested_scopes': ['action.execute']},
+                  database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id)
+    publish_human_authority(members['tenant_id'], authority_facts=application, humans=[], label='workbench-application', **common)
+    configured = apply_members(roles, members, database_url_file=database_url_file)
+    revision = publish_human_authority(members['tenant_id'], authority_facts=facts, humans=[m['principal_id'] for m in members['members']],
+                                       label='workbench-roles', **common)
+    return {'configured': True, 'workbench': configured, 'authority_revision': revision, 'members': len(members['members']),
+            'roles_manifest_version': roles['manifest_version']}
+
+
+def main(argv=None, *, window=None):
     p = argparse.ArgumentParser(description='Workbench roles → Human Action grants (NX-028 D1/D2), trusted configuration only')
     p.add_argument('--roles', type=Path, required=True)
     p.add_argument('--members', type=Path)
@@ -198,6 +243,11 @@ def main(argv=None):
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--compile-facts', action='store_true', help='print the authority_facts for the 0050 manifest')
     mode.add_argument('--apply-members', action='store_true')
+    mode.add_argument('--apply', action='store_true', help='members, grant facts and the business application row (G-WORKBENCH-AUTH)')
+    p.add_argument('--configurator-dsn-file', type=Path)
+    p.add_argument('--bootstrap-dsn-file', type=Path)
+    p.add_argument('--signing-key-file', type=Path)
+    p.add_argument('--signing-key-id')
     a = p.parse_args(argv)
     try:
         roles = validate_roles(load(a.roles))
@@ -212,12 +262,25 @@ def main(argv=None):
         if a.compile_facts:
             print(json.dumps(compile_members(roles, members), ensure_ascii=False, sort_keys=True))
             return 0
+        if a.apply:
+            if not (a.signing_key_file and a.signing_key_id) or (a.configurator_dsn_file is None) == (a.bootstrap_dsn_file is None):
+                raise WorkbenchRolesRejected('apply needs one of --configurator-dsn-file / --bootstrap-dsn-file, --signing-key-file and --signing-key-id')
+            def run(dsn):
+                return apply(roles, members, database_url_file=dsn, signing_key_file=a.signing_key_file, signing_key_id=a.signing_key_id)
+            if a.bootstrap_dsn_file is not None:
+                if window is None:
+                    raise WorkbenchRolesRejected('--bootstrap-dsn-file: use scripts/deploy/workbench_roles.py')
+                with window(a.bootstrap_dsn_file) as dsn:
+                    print(json.dumps(run(dsn), sort_keys=True))
+            else:
+                print(json.dumps(run(a.configurator_dsn_file), sort_keys=True))
+            return 0
         if a.database_url_file is None:
             raise WorkbenchRolesRejected('database url file required')
         print(json.dumps(apply_members(roles, members, database_url_file=a.database_url_file)))
         return 0
     except Exception as error:
-        print(json.dumps({'valid': False, 'reason': str(error) if isinstance(error, WorkbenchRolesRejected) else 'rejected'}), file=sys.stderr)
+        print(json.dumps({'valid': False, 'reason': str(error) if isinstance(error, WorkbenchRolesRejected) else type(error).__name__}), file=sys.stderr)
         return 2
 
 

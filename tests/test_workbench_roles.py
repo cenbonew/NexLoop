@@ -59,3 +59,15 @@ def test_members_file_is_validated_and_subject_ids_stay_out_of_the_stored_map(tm
     assert main(['--roles', str(ROOT / 'deploy/authorization/workbench-roles.v1.json'), '--members', str(members), '--check']) == 0
     assert main(['--roles', str(ROOT / 'deploy/authorization/workbench-roles.v1.json'), '--members', str(members), '--apply-members']) == 2
     assert 'database url file required' in capsys.readouterr().err
+
+
+def test_the_owner_role_publishes_context_strategies_and_no_other_role_does():
+    """workbench roles v11 (G-CONTEXT-STRATEGY): the owner holds nexloop.context.strategy.publish, owner-only."""
+    action = 'eios:action:nexloop.context.strategy.publish:1'
+    assert ROLES['manifest_version'] >= 11 and action in ROLES['roles']['owner']
+    import copy
+    from nexloop_eios.workbench_roles import WorkbenchRolesRejected, validate_roles
+    leaked = copy.deepcopy(ROLES)
+    leaked['roles']['operator'] = [*leaked['roles']['operator'], action]
+    with pytest.raises(WorkbenchRolesRejected, match='owner-only'):
+        validate_roles(leaked)

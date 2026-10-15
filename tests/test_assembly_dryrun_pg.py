@@ -33,16 +33,19 @@ def stage(pg, admin, tree, tmp_path):  # noqa: F811
     return st
 
 
-def create_human(st):
-    """identity-human.example.json through initial_identity --create (the browser registration's operator path)."""
+def create_human(st, *, application='stage-webchat', username='dryrun-consumer', label='human'):
+    """identity-human.example.json through initial_identity --create (the browser registration's operator path). The consumer is
+    'human' (identity-human.json, human-password); another Human gets its own files (identity-<label>.json, <label>-password)."""
     from configurator_window import write_private  # noqa: F401
     now = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
-    body = A.filled('identity-human.example.json', TENANT_ID=TENANT, BROWSER_APPLICATION_ID='stage-webchat', NEW_UUID=A.new_uuid(),
-                    OPERATOR_LABEL='stage-owner', SUBJECT_ID='dryrun-human-' + A.new_uuid(), NOW_UTC_ISO=now, PRINCIPAL_ID='dryrun-principal-' + A.new_uuid(),
-                    LOCAL_ACCOUNT_ID='dryrun-account-' + A.new_uuid(), USERNAME='dryrun-consumer', EMAIL='consumer@example.invalid')
-    manifest = A.private(st.root, 'identity-human.json', json.dumps(body))
-    identity_dsn = A.private(st.root, 'identity-dsn', A.make_conninfo(st.pg, user='nexloop_identity'))
-    password = A.private(st.root, 'human-password', A.token())
+    body = A.filled('identity-human.example.json', TENANT_ID=TENANT, BROWSER_APPLICATION_ID=application, NEW_UUID=A.new_uuid(),
+                    OPERATOR_LABEL='stage-owner', SUBJECT_ID=f'dryrun-{label}-' + A.new_uuid(), NOW_UTC_ISO=now, PRINCIPAL_ID=f'dryrun-{label}-principal-' + A.new_uuid(),
+                    LOCAL_ACCOUNT_ID=f'dryrun-{label}-account-' + A.new_uuid(), USERNAME=username, EMAIL=f'{label}@example.invalid')
+    manifest = A.private(st.root, 'identity-human.json' if label == 'human' else f'identity-{label}.json', json.dumps(body))
+    identity_dsn = st.root / 'identity-dsn'
+    if not identity_dsn.exists():
+        A.private(st.root, identity_dsn.name, A.make_conninfo(st.pg, user='nexloop_identity'))
+    password = A.private(st.root, 'human-password' if label == 'human' else f'{label}-password', A.token())
     code, out, err = A.run_tool('nexloop_eios.initial_identity', ['--manifest', str(manifest), '--create', '--identity-database-url-file', str(identity_dsn),
                                                                   '--password-file', str(password), '--idempotency-key-file', str(st.seal)])
     assert code == 0, (out, err)
@@ -291,11 +294,11 @@ def test_the_webchat_consumer_opens_a_conversation_and_writes_after_the_consumer
     assignments = admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='MessageAssignment' and properties->>'message_id'=%s",
                                 (TENANT, message)).fetchone()
     assert assignments == (1,) and '"status":"idle"' not in detail, (assignments, detail)
-    # Gap G-CONTEXT-STRATEGY (docs/release/assembly-dryrun-gaps.md): the round then stops at the v6 context preparation, because no
-    # assembly step publishes the ContextStrategy the relay's --context-strategy names (recent_plus_required); the message is given
-    # back for a later round.
+    # Without the tenant's Context strategy the round then stops at the v6 context preparation (the relay names
+    # recent_plus_required) and gives the message back; the owner publishes it in
+    # test_the_owner_publishes_the_relay_strategy_and_the_relay_issues_the_run (G-CONTEXT-STRATEGY).
     assert code == 1 and 'Message relay unavailable' in detail, detail
-    assert admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='ContextStrategy'", (TENANT,)).fetchone() == (0,)
+    assert admin.execute('select count(*) from control.nexloop_context_strategies where tenant_id=%s', (TENANT,)).fetchone() == (0,)
 
 
 def webchat_message(st, admin, capsys):
@@ -348,3 +351,97 @@ def test_the_assembled_role_is_what_a_role_run_binds(assembled, admin, capsys):
     assert admin.execute("select role_id, link_id, step_id from control.nexloop_relay_enrollments where tenant_id=%s order by enrollment_revision desc limit 1",
                          (TENANT,)).fetchone() == (role['role_id'], role['link_id'], role['step_id'])
     assert json.loads(files['relay-run-profile.json'].read_text())['role_ref'] == 'role:' + role['role_id']
+
+
+def owner_workbench(st, admin):
+    """G-WORKBENCH-AUTH: an owner Human on the workbench application, configured by scripts/deploy/workbench_roles.py --apply through
+    the configurator window (members, grant facts, the workbench's 0045 business row)."""
+    import subprocess
+    import sys
+    principal = create_human(st, application='stage-workbench', username='dryrun-owner', label='owner')
+    owner = json.loads((st.root / 'identity-owner.json').read_text())
+    members = A.private(st.root, 'workbench-members.json', json.dumps({
+        'schema_version': 'nexloop-workbench-members/1', 'tenant_id': TENANT, 'application_id': 'stage-workbench',
+        'caller_application_id': 'eios:application:stage-workbench',
+        'members': [{'principal_id': principal, 'subject_id': owner['subject']['subject_id'], 'role': 'owner'}]}))
+    argv = [sys.executable, str(A.ROOT / 'scripts/deploy/workbench_roles.py'), '--roles', str(A.ROOT / 'deploy/authorization/workbench-roles.v1.json'),
+            '--members', str(members), '--apply', '--bootstrap-dsn-file', str(st.bootstrap_dsn), '--signing-key-file',
+            str(st.out / 'management' / 'signing.key.hex'), '--signing-key-id', 'stage-1']
+    for _ in range(2):  # same input, same state
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+        assert done.returncode == 0, (done.stdout, done.stderr)
+        assert admin.execute("select rolcanlogin, rolpassword is null from pg_authid where rolname='nexloop_configurator'").fetchone() == (False, True)
+    assert admin.execute("select caller_application_id from control.nexloop_browser_business_applications where tenant_id=%s and application_id='stage-workbench'",
+                         (TENANT,)).fetchone() == ('eios:application:stage-workbench',)
+    return principal
+
+
+def publish_strategy(st):
+    """G-CONTEXT-STRATEGY: nexloop_eios.context_strategy_setup, the owner signing in with private username and password files."""
+    recipe = st.root / 'context-strategy-setup.json'
+    if not recipe.exists():
+        A.private(st.root, recipe.name, json.dumps(A.filled('context-strategy-setup.example.json', TENANT_ID=TENANT, WORKBENCH_APPLICATION_ID='stage-workbench')))
+    username = st.root / 'owner-username'
+    if not username.exists():
+        A.private(st.root, username.name, 'dryrun-owner')
+    password = (st.root / 'owner-password').read_text()
+    code, out, err = A.run_tool('nexloop_eios.context_strategy_setup', [
+        '--recipe', str(recipe), '--strategies-file', str(A.ROOT / 'deploy/configuration/context-strategies.v1.json'),
+        *st.backend_args()[:6], '--artifact-root', str(st.artifacts), '--identity-database-url-file', str(st.root / 'identity-dsn'),
+        '--username-file', str(username), '--password-file', str(st.root / 'owner-password'),
+        '--browser-rate-key-file', str(st.out / 'app' / 'secrets' / 'api' / 'browser-rate.key'), '--browser-origin', 'https://127.0.0.1:8443'])
+    assert code == 0, (out, err)
+    assert password not in out + err and 'dryrun-owner' not in out + err  # credentials are never printed
+    return json.loads(out)
+
+
+def test_the_owner_publishes_the_relay_strategy_and_the_relay_issues_the_run(assembled, admin, capsys):
+    """G-CONTEXT-STRATEGY and G-WORKBENCH-AUTH: the owner (workbench roles v11, applied with workbench_roles --apply) publishes
+    recent_plus_required through context_strategy_setup (again: replayed); the owner's workbench session also sets the trial budget
+    (Budget.set, real_tenant_init step 4); then the consumer's message passes the relay's v6 context preparation and its Run is issued
+    and accepted (relay first round: queued)."""
+    st = assembled
+    owner_workbench(st, admin)
+    first, again = publish_strategy(st), publish_strategy(st)
+    assert first['strategy_ref'] == again['strategy_ref'] == 'context-strategy:recent_plus_required@1'
+    assert first['replayed'] is False and again['replayed'] is True and first['outcome_id'] == again['outcome_id']
+    assert admin.execute('select strategy_id, version, published_by from control.nexloop_context_strategies where tenant_id=%s', (TENANT,)).fetchall() == [
+        ('recent_plus_required', 1, json.loads((st.root / 'identity-owner.json').read_text())['membership']['principal_id'])]
+    set_trial_budget(st, admin)
+    apply_webchat_consumer_role(st, admin)
+    message = webchat_message(st, admin, capsys)
+    results = run_workers(st, admin, capsys, ('message-relay',))
+    code, detail = results['message-relay']
+    with capsys.disabled():
+        print(f'\nSTRATEGY relay: {code} {detail[:400]}')
+    assert code == 0 and '"status":"queued"' in detail, detail
+    run = admin.execute("select count(*) from runtime.nexloop_message_routes where tenant_id=%s and message_id=%s", (TENANT, message)).fetchone()
+    assert run == (1,), run
+
+
+def set_trial_budget(st, admin):
+    """real_tenant_init step 4 (Budget.set) on the owner's own workbench session after workbench_roles --apply."""
+    import sys
+    from datetime import datetime as _dt
+    from nexloop_eios import context_strategy_setup as C
+    from nexloop_eios.backend import open_backend
+    from nexloop_eios.browser_authorization import authenticate_browser_business
+    from nexloop_eios.goal_controls import GoalGovernedActions
+    sys.path.insert(0, str(A.ROOT / 'scripts/nx037'))
+    import real_tenant_init as I
+    catalog = st.root / 'value-catalog.json'
+    if not catalog.exists():
+        A.private(st.root, catalog.name, '{}')
+    now = _dt.now(UTC)
+    p = I.parameters(tenant=TENANT, owner_principal='owner-principal-synthetic', value_catalog=catalog, channel_ref='channel:webchat:synthetic',
+                     period_start=(now - timedelta(hours=1)).isoformat(), period_end=(now + timedelta(days=3)).isoformat())
+    request = I.budget_request(p)
+    recipe = {'tenant_id': TENANT, 'workbench_application_id': 'stage-workbench'}
+    rate_key = bytes.fromhex((st.out / 'app' / 'secrets' / 'api' / 'browser-rate.key').read_text().strip())
+    with open_backend(database_url=st.api_dsn.read_text().strip(), artifact_root=st.artifacts, signing_key_file=st.signing_key, signing_key_id='stage-1') as api, \
+            C.owner_session((st.root / 'identity-dsn').read_text().strip(), rate_key, recipe, 'dryrun-owner', (st.root / 'owner-password').read_text().strip(),
+                            'https://127.0.0.1:8443') as session:
+        owner = GoalGovernedActions(api._pool, authenticate_browser_business(api._pool, session, world='real'), api._signer)
+        owner.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
+    state = admin.execute("select authz.nexloop_nx037_tenant_state(%s,'real')", (TENANT,)).fetchone()[0]
+    assert state['budgets']['model']['limit'] in ('100', '100.00', 100) or float(state['budgets']['model']['limit']) == 100.0, state['budgets']
