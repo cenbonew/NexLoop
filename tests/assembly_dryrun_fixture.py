@@ -153,7 +153,7 @@ def compose_services():
 
 
 # Services that are servers (no --once): started, ready line awaited, then stopped. domain-worker is a sh loop around one run.
-SERVERS = {'webchat-delivery': 'WEBCHAT_DELIVERY_PORT'}  # ready when its loopback port accepts a connection
+SERVERS = {'webchat-delivery': 'WEBCHAT_DELIVERY_PORT', 'api-1': 'API_INTERNAL_PORT'}  # ready when its loopback port accepts a connection
 
 
 def free_port():

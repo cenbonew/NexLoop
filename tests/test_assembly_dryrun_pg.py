@@ -245,19 +245,88 @@ def test_runtime_worker_first_round_on_the_granted_queue(assembled, admin, capsy
     assert results['runtime-worker'][0] == 0 and '"status":"idle"' in results['runtime-worker'][1], results
 
 
-def test_the_webchat_consumer_has_no_business_authority_after_assembly(assembled, admin):
-    """G-WEBCHAT-AUTH: a webchat human's requests are authorized through the browser business authority snapshot (0045), which
-    needs a control.nexloop_browser_business_applications row for the browser application and the human's grant facts. The stage
-    tools register neither (stage_secrets browser: 'not registered here'; register/workbench_roles cover services and staff), so
-    the assembled consumer cannot open a conversation or send a message yet."""
+def apply_webchat_consumer_role(st, admin):
+    """G-WEBCHAT-AUTH: scripts/deploy/webchat_consumers.py through the configurator window, with the identity Human of the dry run as
+    the one simulated consumer (deploy/examples/nx037/webchat-consumers.example.json)."""
+    human = json.loads((st.root / 'identity-human.json').read_text())
+    recipe = st.root / 'webchat-consumers.json'
+    if not recipe.exists():
+        A.private(st.root, recipe.name, json.dumps(A.filled(
+            'webchat-consumers.example.json', TENANT_ID=TENANT, BROWSER_APPLICATION_ID='stage-webchat',
+            PRINCIPAL_ID_FROM_IDENTITY_HUMAN=human['membership']['principal_id'], SUBJECT_ID_FROM_IDENTITY_HUMAN=human['subject']['subject_id'])))
+    import subprocess
+    import sys
+    argv = [sys.executable, str(A.ROOT / 'scripts/deploy/webchat_consumers.py'), '--role', str(A.ROOT / 'deploy/authorization/webchat-consumer-role.v1.json'),
+            '--recipe', str(recipe), '--apply', '--bootstrap-dsn-file', str(st.bootstrap_dsn), '--signing-key-file',
+            str(st.out / 'management' / 'signing.key.hex'), '--signing-key-id', 'stage-1']
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, (done.stdout, done.stderr)
+    assert admin.execute("select rolcanlogin, rolpassword is null from pg_authid where rolname='nexloop_configurator'").fetchone() == (False, True)
+    return json.loads(done.stdout), human
+
+
+def test_the_webchat_consumer_opens_a_conversation_and_writes_after_the_consumer_role_is_applied(assembled, admin, capsys):
+    """G-WEBCHAT-AUTH, closed: before the consumer role the assembled consumer has no business authority (no 0045 application row, no
+    grant facts); webchat_consumers registers both through 0050, and the consumer then opens a conversation and writes a message
+    through the real /api/v1 routes of the stage API, and the relay's first round takes it as input."""
+    st = assembled
     assert admin.execute('select count(*) from control.nexloop_browser_business_applications where tenant_id=%s', (TENANT,)).fetchone() == (0,)
-    human = admin.execute('select principal_id from control.nexloop_consumer_owners where tenant_id=%s', (TENANT,)).fetchone()[0]
-    grants = admin.execute("select count(*) from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and %s = any(entity_key)",
-                           (TENANT, human)).fetchone()
-    assert grants == (0,)
-    # The same query finds the grant facts of a service principal (the check is not vacuous).
-    assert admin.execute("select count(*) from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and %s = any(entity_key)",
-                         (TENANT, 'nexloop-service-business-owner-principal')).fetchone()[0] > 0
+    first, human = apply_webchat_consumer_role(st, admin)
+    again, _ = apply_webchat_consumer_role(st, admin)  # same input, same state
+    principal = human['membership']['principal_id']
+    assert first['configured'] and first['granted'] == 1 and first['personas'] == ['simulated_agent'] and again['granted'] == 1
+    assert admin.execute('select caller_application_id, application_version, requested_scopes from control.nexloop_browser_business_applications where tenant_id=%s',
+                         (TENANT,)).fetchall() == [('eios:application:nexloop-webchat', '1', ['action.execute', 'function.execute'])]
+    granted = {row[0] for row in admin.execute("select entity_key[2] from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[1]=%s",
+                                               (TENANT, principal)).fetchall()}
+    assert granted == set(json.loads((A.ROOT / 'deploy/authorization/webchat-consumer-role.v1.json').read_text())['resources'])
+    message = webchat_message(st, admin, capsys)
+    assert admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='Message' and object_id=%s", (TENANT, message)).fetchone() == (1,)
+    results = run_workers(st, admin, capsys, ('message-relay',))
+    code, detail = results['message-relay']
+    with capsys.disabled():
+        print(f'\nWEBCHAT relay: {code} {detail[:400]}')
+    # The relay's first round takes the message as input: it claims it, creates the Goal, the PlanSteps and the MessageAssignment,
+    # and issues the Run (all through governed Actions and 0049).
+    assignments = admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='MessageAssignment' and properties->>'message_id'=%s",
+                                (TENANT, message)).fetchone()
+    assert assignments == (1,) and '"status":"idle"' not in detail, (assignments, detail)
+    # Gap G-CONTEXT-STRATEGY (docs/release/assembly-dryrun-gaps.md): the round then stops at the v6 context preparation, because no
+    # assembly step publishes the ContextStrategy the relay's --context-strategy names (recent_plus_required); the message is given
+    # back for a later round.
+    assert code == 1 and 'Message relay unavailable' in detail, detail
+    assert admin.execute("select count(*) from ontology.objects where tenant_id=%s and type_name='ContextStrategy'", (TENANT,)).fetchone() == (0,)
+
+
+def webchat_message(st, admin, capsys):
+    """The stage API (compose api-1, disabled execution profile) on a loopback port; the consumer logs in, opens a conversation and
+    writes one message through /api/v1. Returns the Message id."""
+    import httpx
+    port = A.free_port()
+    origin = 'https://127.0.0.1:' + str(port)
+    variables = {'API_EXECUTION_PROFILE': 'disabled', 'HOST_INTERNAL_PORT': str(A.free_port()), 'API_INTERNAL_PORT': str(port), 'BROWSER_TENANT_ID': TENANT,
+                 'BROWSER_APPLICATION_ID': 'stage-webchat', 'WORKBENCH_APPLICATION_ID': 'stage-workbench', 'BROWSER_ORIGIN': origin}
+    argv, env = A.worker_command(st, 'api-1', A.compose_services(), st.root / 'config', st.root / 'w-api-1', variables, None,
+                                 {'--web-root': str(A.ROOT / 'apps/web/dist')})
+    servers = []
+    try:
+        started = start_server(argv, env, port, servers)
+        assert started == (0, 'listening'), started
+        with httpx.Client(base_url=origin, verify=False, trust_env=False, timeout=10) as client:  # loopback test API, synthetic certificate
+            login = client.post('/api/v1/auth/login', headers={'Origin': origin},
+                                json={'username': 'dryrun-consumer', 'password': (st.root / 'human-password').read_text()})
+            assert login.status_code == 200, login.text
+            headers = {'Origin': origin, 'X-CSRF-Token': login.json()['csrf_token'], 'Idempotency-Key': 'dryrun-conversation-' + A.new_uuid()}
+            conversation = client.post('/api/v1/conversations', headers=headers, json={})
+            assert conversation.status_code == 200, conversation.text
+            headers['Idempotency-Key'] = 'dryrun-message-' + A.new_uuid()
+            sent = client.post('/api/v1/conversations/' + conversation.json()['id'] + '/messages', headers=headers, json={'body': 'synthetic first message'})
+            assert sent.status_code == 202 and sent.json()['created'] is True and sent.json()['message']['status'] == 'accepted', sent.text
+            return sent.json()['message']['id']
+    finally:
+        for process in servers:
+            process.terminate()
+            process.wait(timeout=10)
 
 
 def test_the_assembled_role_is_what_a_role_run_binds(assembled, admin, capsys):
