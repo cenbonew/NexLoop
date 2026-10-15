@@ -118,16 +118,42 @@ def slot_placeholders(slot):
             'ENTERPRISE_BINDING_ID_FROM_ENTERPRISE_SETUP': slot['enterprise_binding_id']}
 
 
+def assemble_role(st):
+    """G-ROLE: role-assembly.example.json through nexloop_eios.role_assembly as role_assembler, then the owner enrolls the consumer again
+    with role_id, link_id and step_id (relay-enrollment example plus the three role keys)."""
+    r = st.result
+    recipe = A.filled('role-assembly.example.json', NEW_UUID=A.new_uuid(), CONSUMER_ID_FROM_BUSINESS_SETUP=r['business']['consumer_id'],
+                      CONTROL_ID_FROM_BUSINESS_SETUP=r['business']['control_id'], NOW_UTC_ISO=(datetime.now(UTC) - timedelta(seconds=5)).replace(microsecond=0).isoformat(),
+                      TRIAL_PERIOD_END_UTC_ISO=A.end_of_trial(), ROLE_NAME='operations', ROLE_RESPONSIBILITY='reply to the consumer within the plan',
+                      PER_RUN_COST_CAP='2', TRIAL_CURRENCY='CNY')
+    path = A.private(st.root, 'role-assembly.json', json.dumps(recipe))
+    argv = [*st.backend_args(), '--assembler-credential-file', str(st.setup_file('role-assembler-credential')), '--recipe-file', str(path)]
+    code, out, err = A.run_tool('nexloop_eios.role_assembly', argv)
+    assert code == 0, (out, err)
+    role = json.loads(out)
+    again = A.run_tool('nexloop_eios.role_assembly', argv)  # an identical replay returns the same objects
+    assert again[0] == 0 and json.loads(again[1]) == role, again
+    manifest, _ = S.merged_manifest()
+    relay_principal = next(p['principal_id'] for p in manifest['principals'] if p['role'] == 'message_relay')
+    enrollment = A.filled('relay-enrollment-enterprise.example.json', CONSUMER_ID_FROM_BUSINESS_SETUP=r['business']['consumer_id'],
+                          CONTROL_ID_FROM_BUSINESS_SETUP=r['business']['control_id'], OFFERING_ID_FROM_CATALOG_SETUP=r['catalog']['offering_id'],
+                          BINDING_ID_FROM_CATALOG_SETUP=r['catalog']['binding_id'], RELAY_SERVICE_PRINCIPAL_ID=relay_principal, NEW_UUID=A.new_uuid(),
+                          **slot_placeholders(r['enterprise']))
+    enrollment.update(role_id=role['role_id'], link_id=role['link_id'], step_id=role['step_id'])
+    enroll = A.private(st.root, 'relay-enrollment-role.json', json.dumps(enrollment))
+    code, out, err = A.run_tool('nexloop_eios.relay_enrollment', ['--database-url-file', str(st.api_dsn), '--signing-key-file', str(st.signing_key),
+                                                                  '--signing-key-id', 'stage-1', '--artifact-root', str(st.artifacts),
+                                                                  '--owner-credential-file', str(st.setup_file('business-owner-credential')),
+                                                                  '--enrollment-file', str(enroll)])
+    assert code == 0, (out, err)
+    st.result['role'] = role
+    return role
+
+
 def tenant_configuration(st, admin, capsys):
-    """tenant_config recall-types and relay-run-profile. The RoleDefinition is inserted by the test administrator: no stage principal
-    holds RoleDefinition.create (gap G-ROLE in the gap list)."""
+    """tenant_config recall-types and relay-run-profile, the latter from the Role assembled by role_assembly (G-ROLE)."""
     from test_tenant_config_pg import T
-    now = datetime.now(UTC)
-    role = 'd' * 64
-    from psycopg.types.json import Jsonb
-    admin.execute("insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,created_at,updated_at) values(%s,'real','RoleDefinition',%s,1,%s,now(),now())",
-                  (TENANT, role, Jsonb({'name': 'operations', 'responsibility': 'reply to consumers', 'ceiling_ref': 'ceiling:stage', 'active': True,
-                                        'valid_from': (now - timedelta(days=1)).isoformat(), 'valid_until': (now + timedelta(days=30)).isoformat()})))
+    role = assemble_role(st)['role_id']
     files = {'recall-types.json': st.root / 'recall-types.json', 'relay-run-profile.json': st.root / 'relay-run-profile.json'}
     common = ['--tenant', TENANT, '--bootstrap-dsn-file', str(st.bootstrap_dsn)]
     assert T.main(['recall-types', *common, '--out', str(files['recall-types.json'])]) == 0
@@ -232,3 +258,24 @@ def test_the_webchat_consumer_has_no_business_authority_after_assembly(assembled
     # The same query finds the grant facts of a service principal (the check is not vacuous).
     assert admin.execute("select count(*) from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and %s = any(entity_key)",
                          (TENANT, 'nexloop-service-business-owner-principal')).fetchone()[0] > 0
+
+
+def test_the_assembled_role_is_what_a_role_run_binds(assembled, admin, capsys):
+    """G-ROLE: role_assembly (role_assembler, ontology.roles.manage) creates the Role objects a Role Run binds, consistent with each
+    other and with the consumer; the relay enrollment carries role_id, link_id and step_id (0180 checks them); tenant_config names
+    that Role in the run profile. (plan-reevaluator's first round: test_each_worker_first_round, which now uses this Role.)"""
+    st = assembled
+    files = tenant_configuration(st, admin, capsys)
+    role = st.result['role']
+    objects = {r[0]: (r[1], r[2]) for r in admin.execute("select object_id, type_name, properties from ontology.objects where tenant_id=%s", (TENANT,))}
+    assert objects[role['role_id']][0] == 'RoleDefinition' and objects[role['role_id']][1]['ceiling_ref'] == role['ceiling_id']
+    link = objects[role['link_id']][1]
+    assert (link['consumer_id'], link['role_id'], link['scope'], link['active']) == (role['consumer_id'], role['role_id'], role['scope_id'], True)
+    scope, ceiling = objects[role['scope_id']][1], objects[role['ceiling_id']][1]
+    assert (scope['role_id'], scope['consumer_id'], scope['goal_ids'], scope['step_ids']) == (role['role_id'], role['consumer_id'], [role['goal_id']], [role['step_id']])
+    assert (ceiling['consumer_ids'], ceiling['goal_ids'], ceiling['step_ids']) == ([role['consumer_id']], [role['goal_id']], [role['step_id']])
+    step = objects[role['step_id']][1]
+    assert (step['control_id'], step['submitter_principals']) == (st.result['business']['control_id'], ['nexloop-service-role-source-principal'])
+    assert admin.execute("select role_id, link_id, step_id from control.nexloop_relay_enrollments where tenant_id=%s order by enrollment_revision desc limit 1",
+                         (TENANT,)).fetchone() == (role['role_id'], role['link_id'], role['step_id'])
+    assert json.loads(files['relay-run-profile.json'].read_text())['role_ref'] == 'role:' + role['role_id']

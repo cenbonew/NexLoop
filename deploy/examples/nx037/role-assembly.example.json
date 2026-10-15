@@ -1,0 +1,15 @@
+{
+  "schema_version": "nexloop-role-assembly/1",
+  "request_id": "<NEW_UUID>",
+  "consumer_id": "<CONSUMER_ID_FROM_BUSINESS_SETUP>",
+  "control_id": "<CONTROL_ID_FROM_BUSINESS_SETUP>",
+  "source_principal_id": "nexloop-service-role-source-principal",
+  "valid_from": "<NOW_UTC_ISO>",
+  "valid_until": "<TRIAL_PERIOD_END_UTC_ISO>",
+  "role": {"name": "<ROLE_NAME>", "responsibility": "<ROLE_RESPONSIBILITY>"},
+  "ceiling": {
+    "action_resources": ["eios:action:nexloop.service.request:1"],
+    "budget": {"maximum_model_turns": 8, "maximum_tool_calls": 8, "active_timeout_seconds": 120, "maximum_cost": "<PER_RUN_COST_CAP>", "currency": "<TRIAL_CURRENCY>"},
+    "effect_units": 1
+  }
+}
