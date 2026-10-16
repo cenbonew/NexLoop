@@ -24,11 +24,34 @@
 | `RELEASE_DIR` | 发布 7 的签名发布目录（含 `images/*.tar` 与 manifest），由 b39b61b 构建 | run-34 §4.1 |
 | `RELEASE_CHECKOUT` | b39b61b 的检出，管理机与 APP_HOST 各一份 | run-metrics-gate §0 |
 | `RUN` | DATA_HOST 的 stage 管理树（含 `management/`、`boot.dsn`）；`$RUN/src` 要换成 b39b61b 的源码树 | run-assembly §0.2 |
-| `COMMON`、`WINDOW` | DATA_HOST 一次性容器参数，原样取自 run-assembly §0.3 | run-assembly §0.3 |
-| `BACKEND_IMAGE` | **新**的 backend 引用（第 4.1 步 dry-run 产物 `compose.images.env` 中的值）；第 4 步之前也可用，只要 `docker load` 过 | run-34 §4.4 |
+| `COMMON`、`WINDOW` | DATA_HOST 一次性容器参数，取自 run-assembly §0.3，但 `--user` 按下方“`$RUN` 与容器用户”改 | run-assembly §0.3 |
+| `BACKEND_IMAGE` | APP_HOST：**新**的 backend 引用（第 4.1 步产物 `compose.images.env` 中的值）。DATA_HOST：见下方“DATA_HOST 用哪个镜像” | run-34 §4.4 |
 | `TENANT_ID`、`KEY_ID`、`CREDENTIAL_EXPIRES_AT` | 与首次 register 相同的值。`CREDENTIAL_EXPIRES_AT` 不同会重写已有主体的凭据事实 | run-assembly §0.5 |
 | `PGBACKREST_COMMAND_JSON`、`PGBACKREST_VERSION` | 与 DATA_HOST 定时任务 `nexloop-pg-diff` 使用的相同（版本 2.59.3） | NX-035 部署手册 §2.6，deploy-days 2.6 |
 | `C` | `sudo docker compose -p nexloop-app -f $NEXLOOP_ROOT/config/compose.app.yaml --env-file $NEXLOOP_ROOT/config/compose.app.env --env-file $NEXLOOP_ROOT/config/compose.images.env` | run-delivery-ca §1 |
+
+**`$RUN` 与容器用户**（2026-10-16 执行时更正）：
+- run-34 §1.4 的原意：`$RUN` 是 DATA_HOST 上的私有目录，0700，**属主 999**（PG 容器的 uid），文件 0600、属主 999，所以 `$COMMON` 写的是 `--user 999:999`。
+- 规则是：`--user` 必须等于 `$RUN` 中文件的属主。`read_private_text` 要求私有文件属于当前 euid；`--user` 与属主不同时，0700 的目录根本进不去。
+- stage 上实际的 `$RUN` 属主是 DATA_HOST 管理账户（1000），执行时用的是 `--user 1000:1000`。所以不要照抄 999，先取实际属主：
+  ```
+  RUN_USER=$(stat -c %u:%g "$RUN/boot.dsn"); echo "$RUN_USER"; stat -c '%a %u' "$RUN" "$RUN/boot.dsn" "$RUN/management/service-secrets.json"
+  ```
+  - 预期：三行属主相同，目录 700、文件 600。不一致时先改成一致（sudo-D），不要放宽权限。
+  - 然后把 `$COMMON` 中的 `--user 999:999` 换成 `--user $RUN_USER`。
+  - PG 的 socket 目录要对这个 uid 可连接；2026-10-16 实测 1000 可以连接。
+
+**DATA_HOST 用哪个镜像**（第 1.2、2.x、3.x、6.2 步）：
+- `$COMMON` 设了 `PYTHONPATH=/opt/release/packages/eios-core/src`，Python 代码来自 `$RUN/src`（要换成发布提交的源码树），镜像只提供解释器和依赖。
+- 所以 DATA_HOST 可以继续用已经载入的上一版 backend 镜像（stage 上是 `c9b816dd…`），前提是**依赖没有变**。在管理机上核对：
+  ```
+  git -C "$RELEASE_CHECKOUT" diff <该镜像的构建提交> <发布提交> -- uv.lock packages/eios-core/pyproject.toml
+  ```
+  预期输出为空。不为空时，DATA_HOST 也要载入新镜像：
+  1. 从签名发布目录取 backend 归档 `$RELEASE_DIR/images/<backend>.tar`（与 APP_HOST 第 4.2 步相同的文件），用 `scp -p` 传到 DATA_HOST 的私有目录；
+  2. `sha256sum` 的值必须等于发布 manifest 中该归档的哈希（`deploy.py load-check` 在 APP_HOST 核对的是同一项）；
+  3. `docker load -i <backend>.tar`，然后 `docker image inspect --format '{{json .RepoDigests}}' nexloop/backend@<清单 digest>` 能解析到清单中的 digest。
+  - 不要在 DATA_HOST 跑 `deploy.py load-check`：它要求清单中的**每个**镜像都已载入，DATA_HOST 没有 agent-host 等镜像，会以退出码 3 结束。
 
 **时机**：选一个没有进行中冒烟和交互的时段。第 4 步会重建全部 25 个 APP_HOST 服务，期间 WebChat 不可用几十秒到几分钟。已受理的消息和 effect 都在 PG 里，重建后继续处理。
 
@@ -107,6 +130,36 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" -c 'import sys; from nexloop_eios.ba
 2. 立即再执行一次 2.1 的差异备份，预期 `verified`。
 
 ## 3. 重跑 register，更新 relay_source 的 message_read_rule（DATA_HOST；**B**，sudo-D）
+
+### 3.0 先核对 `$RUN` 与管理机的秘密树一致（只比 key 和摘要，不比值）
+
+2026-10-16 执行时，register 第一次被拒：`no token generated for principals: role_assembler`。原因是 DATA_HOST 上的 `$RUN` 是 10/15 上午的副本，缺少 G-ROLE 之后新增的 `setup/role-assembler-credential`，以及 `service-secrets.json` 中对应的条目。
+
+在两台机器上分别运行同一段程序：管理机对管理树 `$MGMT_TREE`，DATA_HOST 对 `$RUN`（用 `$RUN_USER` 身份）。它只输出 key 名、文件路径和 sha256 的前 12 位，不输出任何值：
+
+```
+python3 - "$TREE" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+root = Path(sys.argv[1]); h = lambda b: hashlib.sha256(b).hexdigest()[:12]
+secrets = json.loads((root / 'management/service-secrets.json').read_text())
+for k in sorted(secrets):
+    print('key', k, h(json.dumps(secrets[k], sort_keys=True).encode()))
+for d in ('management', 'setup'):
+    for f in sorted((root / d).rglob('*')) if (root / d).is_dir() else []:
+        if f.is_file():
+            print('file', f.relative_to(root), h(f.read_bytes()))
+PY
+```
+
+- `$TREE`：管理机上是 `$MGMT_TREE`；DATA_HOST 上是 `$RUN`，用 `sudo -u "#${RUN_USER%%:*}" python3 - "$RUN"` 运行。
+- 两边输出存成两个私有文件，然后 `diff`。
+- **预期**：除了只在管理机上才有的条目（例如 `management/` 中 register 用不到的文件），register 读取的所有 key 和文件，两边的摘要都一致。
+- **缺项或摘要不同**：按 run-assembly §0.5 第 1、2 步补齐。管理机上的树为准：
+  - 先在管理机执行 `scripts/deploy/stage_secrets.py setup-credentials --out "$MGMT_TREE"`（缺 setup 凭据时；已有条目不变，`changed: false` 表示原本就齐全）；
+  - 再把 `management/service-secrets.json` 和缺少的 `setup/…` 文件同步到 `$RUN`，属主 `$RUN_USER`、0600；
+  - 然后重跑上面的比对，直到一致。
+- 不要只补一个文件：`service-secrets.json` 和 `setup/` 下的文件必须一起来自管理机的同一棵树。
 
 **出处**：run-context-sources §3 第 2 步；命令形态同 run-assembly §0.5；参数取自 `stage_secrets.py` 的 `register` 子命令（`--out --tenant --configurator-dsn-file|--bootstrap-dsn-file --signing-key-id --credential-expires-at --dry-run`）。
 
@@ -233,8 +286,19 @@ GATE_DIR=$NEXLOOP_ROOT/ops/gate-release7
 sudo python3 "$RELEASE_CHECKOUT/scripts/deploy/gate_dir.py" --nexloop-root "$NEXLOOP_ROOT" --release-checkout "$RELEASE_CHECKOUT" \
   --stage-env "$STAGE_ENV" --gate-dir "$GATE_DIR" \
   --planned-ports <GATEWAY_HTTPS_PORT>,<GATEWAY_REDIRECT_PORT>,<HOST_INTERNAL_PORT>,<GUARD_PORT>,<WEBCHAT_DELIVERY_PORT> \
-  --before <部署后基线 baseline.json>
+  --before "$BASELINE"
 ```
+
+部署后基线：`inventory.py --out` 以 `O_EXCL` 打开文件，**拒绝覆盖已存在的文件**。所以每次取基线都用新的文件名：
+
+```
+BASELINE=$NEXLOOP_ROOT/ops/baseline-release7-$(date -u +%Y%m%dT%H%M%SZ).json
+sudo python3 "$RELEASE_CHECKOUT/scripts/deploy/inventory.py" --phase baseline \
+  --planned-ports <GATEWAY_HTTPS_PORT>,<GATEWAY_REDIRECT_PORT>,<HOST_INTERNAL_PORT>,<GUARD_PORT>,<WEBCHAT_DELIVERY_PORT> \
+  --data-root "$NEXLOOP_ROOT" --out "$BASELINE"
+```
+
+`--gate-dir` 同样必须是新目录（`gate_dir.py` 拒绝已存在的目录），所以重跑时 `GATE_DIR` 也要换名。
 
 然后运行 run-metrics-gate §2.2 的 `docker run … nexloop-doctor --deploy-gate "$GATE_DIR/spec.json"`。
 
@@ -249,6 +313,10 @@ sudo python3 "$RELEASE_CHECKOUT/scripts/deploy/gate_dir.py" --nexloop-root "$NEX
   - `input_owner_differs` 等 `input_*` 代码：文件属主或权限不对，按 run-delivery-ca §1 修正；
   - `origin_differs`：webchat-delivery 的 `--origin` 与路由配置中的 origin 不一致，报调度员。
 - 其余检查为 false 时，按 run-metrics-gate §2.3 的已知前提处理，不修改输入文件。
+- **`existing_services_unchanged` 因 OS 自己启动的单元为 false**（2026-10-16：`fwupd.service`，由 D-Bus 激活）：
+  - 从本分支的 `inventory.py` 起，D-Bus 激活的单元也归入 `on_demand_units`，判据是：`Type=dbus`、有 `BusName`、`UnitFileState` 为 static 或 disabled。这样的单元只会出现在 `details.inventory.units_on_demand_or_session` 中作为提示，不算改动。
+  - 已启用（enabled）的 `Type=dbus` 服务（例如 NetworkManager）仍然参与比较。
+  - 用旧版 `inventory.py` 取的基线不含这项信息。可以用新版重取基线；或者像 2026-10-16 那样，由负责人确认后以部署后的现状作为新基线（**B**）。
 
 ## 6. 冒烟（只读确认）
 

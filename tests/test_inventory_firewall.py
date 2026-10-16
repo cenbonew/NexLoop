@@ -176,3 +176,40 @@ def test_on_demand_units_and_login_sessions_are_a_hint_not_a_change():
     # An ordinary service that disappears is still a change.
     after['units'].pop('ssh.service')
     assert D.inventory_compare(before, after)['details']['inventory']['problems'] == ['removed:units']
+
+
+SHOW = """Type=dbus
+BusName=org.freedesktop.fwupd
+Id=fwupd.service
+UnitFileState=static
+TriggeredBy=
+
+Type=dbus
+BusName=org.freedesktop.NetworkManager
+Id=NetworkManager.service
+UnitFileState=enabled
+TriggeredBy=
+
+Type=simple
+BusName=
+Id=uuidd.service
+UnitFileState=indirect
+TriggeredBy=uuidd.socket
+
+Type=notify
+BusName=
+Id=ssh.service
+UnitFileState=enabled
+TriggeredBy=
+"""
+
+
+def test_d_bus_activated_units_are_on_demand_but_enabled_d_bus_services_are_not(monkeypatch):
+    """2026-10-16 stage: fwupd.service (D-Bus activation, TriggeredBy empty) appeared after the baseline and failed
+    existing_services_unchanged. A static/disabled Type=dbus unit with a BusName is on demand; an enabled one is a service."""
+    outputs = {'list-units': 'fwupd.service loaded active running x\nNetworkManager.service loaded active running x\n'
+                             'uuidd.service loaded active running x\nssh.service loaded active running x\nuser@1000.service loaded active running x\n',
+               'show': SHOW}
+    monkeypatch.setattr(I, '_run', lambda *argv: outputs[argv[1]])
+    assert I.on_demand_units() == ['fwupd.service', 'user@1000.service', 'uuidd.service']
+    assert [u['Id'] for u in I.parse_show(SHOW)] == ['fwupd.service', 'NetworkManager.service', 'uuidd.service', 'ssh.service']
