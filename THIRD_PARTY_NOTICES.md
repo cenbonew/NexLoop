@@ -317,7 +317,7 @@ source releases.
 
 Used unmodified as separate libraries (license policy):
 
-- certifi 2026.7.22 (MPL-2.0, runtime): CA bundle (certificate data only) used unmodified by httpx: by the test HTTP client, and since 2026-10-16 (G-HTTPX-DEP) at runtime by the claim extraction provider (conversation_extraction, httpx is an eios-core dependency). Installed as a separate wheel, never modified or vendored; MPL-2.0 file-level terms keep NexLoop's own code MIT.
+- certifi 2026.7.22 (MPL-2.0, runtime): CA bundle (certificate data only) used unmodified by httpx: by the test HTTP client, and since 2026-10-16 (G-HTTPX-DEP) at runtime by the claim extraction provider (conversation_extraction, httpx is an eios-core dependency). Installed as a separate wheel, never modified or vendored; MPL-2.0 file-level terms keep NexLoop's own code MIT. Runtime scope approved by the owner on 2026-10-16.
 - hypothesis 6.168.5 (MPL-2.0, dev): Property-based testing library, test only, unmodified.
 - psycopg 3.3.6 (LGPL-3.0-only, runtime): PostgreSQL driver imported unmodified as a separate library; LGPL text ships in its wheel; NexLoop source releases do not redistribute it.
 - psycopg-binary 3.3.6 (LGPL-3.0-only, runtime): Binary build of psycopg (bundles libpq and its own dependencies with their license files); unmodified, not redistributed by NexLoop source releases.
