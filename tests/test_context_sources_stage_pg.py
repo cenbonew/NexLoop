@@ -33,7 +33,7 @@ def test_the_stage_rule_lists_conversation_id():
     assert 'conversation_id' in STAGE_RULE_FIELDS and STAGE_RULE_FIELDS == sorted(set(STAGE_RULE_FIELDS))
 
 
-def test_a_derived_only_source_reads_every_required_context_source(multi):
+def test_a_derived_only_source_reads_every_required_context_source(multi):  # noqa: F811
     m = multi
     m['enroll']('A')
     stage_rule(m)
