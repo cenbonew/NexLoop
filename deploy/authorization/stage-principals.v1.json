@@ -460,11 +460,14 @@
     {
       "principal": "relay_source",
       "fields": [
+        "accepted_at",
         "actor",
-        "body"
+        "body",
+        "conversation_id",
+        "sequence"
       ],
       "valid_until": "2027-10-09T00:00:00+00:00",
-      "purpose": "Message READ of the relay Source for the message Run Context (0077 derivation).",
+      "purpose": "Message READ of the relay Source for the message Run Context (0077 derivation); conversation_id also covers the Message's own Conversation (0102 conversation_read_basis), which the Context's evidence reads (10/16: without it every pack's evidence was required_source_unreadable).",
       "source_task": "NX-047"
     }
   ],

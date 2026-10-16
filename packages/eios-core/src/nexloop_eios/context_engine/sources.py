@@ -41,6 +41,16 @@ def consumer_conversations(pool,session,signer,consumer_id):
     return rows['conversations']
 
 
+def consumer_read_proof(pool,session,signer,consumer_id):
+    """Consumer READ for the Context: configured, else the relay Source's derived READ (0142, the stage Source has no
+    per-object grant)."""
+    try:return read_proof(pool,session,ResourceType.OBJECT,'Consumer/'+consumer_id)
+    except ContextDenied:
+        from nexloop_eios.object_reads import AuthorizedObjectReader
+        try:return AuthorizedObjectReader(pool,session,signer)._authority(ResourceType.OBJECT,'Consumer/'+consumer_id)
+        except Exception:raise ContextDenied('eios:object:Consumer/'+consumer_id) from None
+
+
 def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy):
     import psycopg
     from nexloop_eios.goal_controls import ControlDenied,ControlPlane
@@ -48,7 +58,7 @@ def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy):
     out=Collected()
     # Unconfirmed execution (intents, outbound not accepted by the channel): Consumer READ.
     try:
-        proof=read_proof(pool,session,ResourceType.OBJECT,'Consumer/'+consumer_id)
+        proof=consumer_read_proof(pool,session,signer,consumer_id)
         rows=signed_read(pool,session,signer,'open_work',{'consumer_id':consumer_id},proofs=[proof])
         out.items+=open_work_items(rows,decision=out.keep(proof))
     except (ContextDenied,psycopg.errors.InsufficientPrivilege):
