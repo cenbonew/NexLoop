@@ -4,7 +4,7 @@
 # and the enterprise endpoint (NX-037 provider routing), the claim workers' namespace only PostgreSQL and the model allowlist
 # (G-CLAIM-EGRESS); the CI user (NX-033) never reaches DATA_HOST
 # or the internal ports. NX-035 M8: the pgBackRest TLS server (repo1) on the host accepts DATA_HOST only. The reference endpoint
-# admits the effect worker network only (run sheet 4.2).
+# admits the effect worker network only (run sheet 4.2), and the trusted staff networks for its staff page when STAFF_ALLOW_CIDRS is set.
 table inet nexloop_stage {
   chain input {
     type filter hook input priority filter - 1; policy accept;
@@ -21,6 +21,9 @@ table inet nexloop_stage {
     # Owner ruling 2026-10-15 (run sheet 4.2): the reference endpoint (deploy/stage/reference-endpoint, published by DNAT on
     # __APP_HOST_ADDR__) admits the effect worker network only; every other source is dropped. Replies pass by the rule above.
     ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst __REFERENCE_ENDPOINT_PORT__ ip saddr __EFFECT_EGRESS_CIDR__ accept
+    # Calibration 2026-10-17: the staff page (same port, /staff) for the trusted staff networks STAFF_ALLOW_CIDRS only. Optional: the
+    # renderer leaves this line out when the parameter is absent or empty, so by default no staff network is admitted.
+    ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst __REFERENCE_ENDPOINT_PORT__ ip saddr { __STAFF_ALLOW_CIDRS__ } accept
     ct original ip daddr __APP_HOST_ADDR__ ct original proto-dst __REFERENCE_ENDPOINT_PORT__ drop
     # NX-037 D4: two namespaces, two egress rules. The application namespace (API, workers; __APP_CONTAINER_CIDR__) reaches
     # DATA_HOST's PostgreSQL and Valkey only and never a model address; the Agent Host's own namespace (__AGENT_EGRESS_CIDR__)

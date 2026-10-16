@@ -94,6 +94,18 @@ def _addresses(v):
     return v
 
 
+def _cidrs_or_empty(v):
+    """A comma-separated list of CIDRs, or empty (the optional rule is then left out)."""
+    if v == '':
+        return v
+    parts = v.split(',')
+    if len(set(parts)) != len(parts):
+        raise ValueError()
+    for part in parts:
+        _cidr(part)
+    return ', '.join(parts)
+
+
 def _uid(v):
     if not re.fullmatch(r'[1-9][0-9]{2,8}', v):
         raise ValueError()
@@ -116,7 +128,12 @@ PARAMETERS = {
     'PGBACKREST_TLS_PORT': _port,
     # Owner ruling 2026-10-15 (run sheet 4.2): the reference endpoint published on APP_HOST admits the effect worker network only.
     'REFERENCE_ENDPOINT_PORT': _port,
+    # Calibration 2026-10-17: trusted staff networks that may open the reference endpoint's staff page (same port). Optional: absent
+    # or empty, every line using it is left out, so the staff page stays closed like the rest of the endpoint (default deny).
+    'STAFF_ALLOW_CIDRS': _cidrs_or_empty,
 }
+# Optional parameters: a template line that uses one is rendered only when the env file gives it a non-empty value.
+OPTIONAL_LINE_PARAMETERS = frozenset({'STAFF_ALLOW_CIDRS'})
 
 
 def load_env(path):
@@ -145,6 +162,9 @@ def load_env(path):
 
 
 def render(text, values):
+    absent = {name for name in OPTIONAL_LINE_PARAMETERS if not values.get(name)}
+    if absent:
+        text = ''.join(line for line in text.splitlines(keepends=True) if not any(f'__{name}__' in line for name in absent))
     needed = set(PLACEHOLDER.findall(text))
     unknown = sorted(needed - set(PARAMETERS))
     missing = sorted(needed & set(PARAMETERS) - set(values))
