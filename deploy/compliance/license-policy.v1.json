@@ -1143,12 +1143,12 @@
     {
       "path": "apps/web/public/brand/nexloop-logo.png",
       "owner": "project",
-      "note": "NexLoop folded-N logo and wordmark, selected and approved by the project owner on 2026-10-16; prepared with built-in image generation for NexLoop (apps/web/public/brand/README.md)."
+      "note": "NexLoop folded-N logo and wordmark, selected and approved by the project owner on 2026-10-16; prepared with built-in image generation for NexLoop (docs/design/brand-assets.md)."
     },
     {
       "path": "apps/web/public/brand/nexloop-mark.png",
       "owner": "project",
-      "note": "Standalone folded-N mark derived from the approved NexLoop logo on 2026-10-16 with built-in image generation (apps/web/public/brand/README.md)."
+      "note": "Standalone folded-N mark derived from the approved NexLoop logo on 2026-10-16 with built-in image generation (docs/design/brand-assets.md)."
     }
   ],
   "own_python": [
