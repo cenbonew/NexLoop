@@ -138,23 +138,44 @@ def _ruleset():
     return r.stdout if r.returncode == 0 else None
 
 
-# Units that start and stop on their own (socket, D-Bus or timer activation: TriggeredBy is set) and login sessions (user@<uid>), so a
-# reboot or a login changes them without anyone touching an existing service. Reported apart, never a change.
+# Units that start and stop on their own, so a reboot, a login or the OS changes them without anyone touching an existing service.
+# Reported apart, never a change:
+# - socket, path or timer activation: TriggeredBy is set;
+# - D-Bus activation (for example fwupd.service, started by a client or by fwupd-refresh): TriggeredBy stays empty, so a Type=dbus
+#   unit with a BusName that is not enabled (UnitFileState static or disabled) counts too; an enabled Type=dbus service
+#   (NetworkManager, for example) is a service someone runs and is still compared (2026-10-16 stage: fwupd.service appeared);
+# - login sessions (user@<uid>, user-runtime-dir@<uid>).
 _USER_SESSION = re.compile(r'user(-runtime-dir)?@\d+\.service')
+_SHOWN = ('Id', 'TriggeredBy', 'Type', 'BusName', 'UnitFileState')
+
+
+def parse_show(text):
+    """`systemctl show -p ... unit...`: one block of KEY=value lines per unit, blocks separated by an empty line; the property order
+    within a block is systemd's own, not the order of -p."""
+    units, current = [], {}
+    for line in text.splitlines() + ['']:
+        if not line.strip():
+            if current:
+                units.append(current)
+            current = {}
+            continue
+        key, _, value = line.partition('=')
+        current[key] = value.strip()
+    return units
+
+
+def on_demand(unit):
+    if unit.get('TriggeredBy'):
+        return True
+    return unit.get('Type') == 'dbus' and bool(unit.get('BusName')) and unit.get('UnitFileState') in ('static', 'disabled')
 
 
 def on_demand_units():
     names = [line.split()[0] for line in _run('systemctl', 'list-units', '--type=service', '--all', '--no-legend', '--plain').splitlines() if line.strip()]
     if not names:
         return []
-    out, current = set(), None
-    for line in _run('systemctl', 'show', '-p', 'Id', '-p', 'TriggeredBy', *names).splitlines():
-        key, _, value = line.partition('=')
-        if key == 'Id':
-            current = value
-        elif key == 'TriggeredBy' and value.strip() and current:
-            out.add(current)
-    return sorted(out | {n for n in names if _USER_SESSION.fullmatch(n)})
+    shown = parse_show(_run('systemctl', 'show', *(a for p in _SHOWN for a in ('-p', p)), *names))
+    return sorted({u['Id'] for u in shown if u.get('Id') and on_demand(u)} | {n for n in names if _USER_SESSION.fullmatch(n)})
 
 
 def collect(*, phase, planned, data_root):
