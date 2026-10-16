@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import subprocess
 
 import pytest
@@ -15,6 +16,8 @@ from nexloop_eios.local_json_delivery import arguments as local_json_delivery_ar
 from nexloop_eios import background_services, connection_budget, deploy_checks, effect_worker, message_relay_cli, outbound_messages, runtime_worker
 from nexloop_eios.browser_identity import open_browser_identity
 from test_deploy_render import ROOT, STAGE, interpolate
+
+sys.path.insert(0, str(ROOT / "scripts/deploy"))
 
 BUDGET = json.loads((STAGE / 'connection-budget.v1.json').read_text())
 SHARED = {'signing_key', 'pg_ca', 'host_ca', 'host_control_key'}
@@ -219,3 +222,25 @@ def test_the_real_dispatch_switch_is_one_compose_variable_closed_by_default_and_
             assert {n for n, s in services.items() if (s.get('environment') or {}).get('REAL_DISPATCH_ENABLED') == value} == set(services) - {'app-net'}
         for value in ('yes', '1', 'open'):
             assert config(value).returncode != 0, value
+
+
+def test_the_calibration_run_entry_form_gets_what_it_reads_from_the_action_worker():
+    """Calibration gap 2 (run-calibration-20261017 §2.1): the run entry runs in a one-off container with --network container:<action
+    worker>, --volumes-from <action worker>:ro and --user 10001. That form holds only if the rendered Compose gives the action worker
+    every file the run entry reads by container path (both provider files and the credential and CA files they name, as file
+    secrets, i.e. bind mounts that --volumes-from carries), the action worker's files belong to 10001, the WebChat delivery whose
+    health the guard GETs on 127.0.0.1 shares the action worker's namespace, and the switch variable is in its environment."""
+    import provider_routes as P
+    rendered = yaml.safe_load(interpolate((STAGE / 'compose.app.example.yaml').read_text(), STAGE / 'compose.app.env.example'))
+    worker = rendered['services']['action-worker']
+    mounted = set(worker['secrets'])
+    for config_secret, credential, ca in P.CREDENTIALS.values():
+        assert {config_secret, credential, ca} <= mounted
+        assert all('file' in rendered['secrets'][name] for name in (config_secret, credential, ca))  # file secrets: bind mounts
+    assert set(P.FILES) <= mounted
+    assert rendered['services']['webchat-delivery']['network_mode'] == 'service:action-worker'
+    assert worker['environment']['REAL_DISPATCH_ENABLED'] == 'false'
+    spec = json.loads((STAGE / 'deploy-gate.app.example.json').read_text())
+    assert spec['secret_uids']['action-worker'] == 10001 and 'user' not in worker  # the backend image's service user, 10001
+    # The run entry's --webchat-provider-file and --enterprise-provider-file are these container paths.
+    assert {f'/run/secrets/{name}' for name in ('action_worker_webchat_provider', 'action_worker_enterprise_provider')} <= {f'/run/secrets/{n}' for n in mounted}

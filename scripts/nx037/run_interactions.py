@@ -7,6 +7,7 @@
         --webchat-provider-file F \
         [--enterprise-provider-file F [--endpoint-parameters-file F]]
     ... --resume OWNER-CONFIRMATION-REF        # continue a paused trial (recorded in DIR/resumes.jsonl)
+    ... --preflight                             # real: the start checks only, then exit (see below)
 
 Reads the trial configuration (deploy/configuration/nx037-trial.v1.json: D-g caps, mix, rules) and the owner-editable
 interaction plan (deploy/configuration/nx037-interaction-plan.v1.json: the order of the 30 interactions, which must hold the
@@ -34,6 +35,13 @@ refused), a Host configuration without any real model item (no model_tariff_file
 maximum_request_cost), every effect provider route of the run on a loopback origin (127.0.0.1, ::1, localhost; the caller passes
 the effect worker's routes file), and still in the trial currency CNY. Every record and the state are marked test_stack: true, and an evidence pack
 of such a trial says real_evidence: false. It is never evidence of the real trial.
+
+--preflight (real mode; calibration 2026-10-17): parse the arguments, read every private file and run every start check the real run
+does (tenant verify without the switch items, the three switch layers against the plan, currency and Host, operator authorization
+and participants, trial window, the WebChat delivery health GET, the recorder backlog), then exit: 0 when nothing refuses, 3 with
+the refusal codes. It sends nothing and writes nothing: no prompt, no consent.json, no trial state, and the enterprise endpoint
+conformance (which creates three marked effects on the endpoint) is not run; only the enterprise provider file is read
+(enterprise_provider_unreadable). The output names that check under not_run. It does not need --out to be new or to exist.
 
 A stopped trial never resumes (start a new trial id). A paused trial continues only with --resume and the owner's confirmation
 reference. Output: one JSON line of ids, codes, numbers and times. Exit: 0 completed; 1 paused; 2 stopped; 3 refused (input or
@@ -202,14 +210,21 @@ def test_stack_refusals(args, trial, provider_routes_file=None):
 DELIVER = 'eios:action:nexloop.enterprise.deliver:1'
 
 
-def guard_refusals(args, trial_config, plan, connection, now):
-    """The real-mode start guards (trial_guards): consent, trial window, enterprise endpoint, WebChat delivery, recorder."""
+def guard_refusals(args, trial_config, plan, connection, now, *, preflight=False):
+    """The real-mode start guards (trial_guards): consent, trial window, enterprise endpoint, WebChat delivery, recorder. With
+    preflight the enterprise conformance (it creates effects on the endpoint) is replaced by reading the provider file."""
     import trial_guards as G
     failed, participants = G.consent(trial_config, {'consumers': plan['consumers']}, authorization_file=args.operator_authorization_file)
     failed += G.window(trial_config, now)
     if DELIVER in ((plan['real_dispatch'] or {}).get('actions') or []):
-        failed += G.enterprise_endpoint(args.enterprise_provider_file, args.endpoint_parameters_file, args.out) if args.enterprise_provider_file \
-            else ['enterprise_endpoint_nonconformant']
+        if preflight:
+            try:
+                G._provider(args.enterprise_provider_file)
+            except (OSError, ValueError, TypeError):
+                failed.append('enterprise_provider_unreadable')
+        else:
+            failed += G.enterprise_endpoint(args.enterprise_provider_file, args.endpoint_parameters_file, args.out) if args.enterprise_provider_file \
+                else ['enterprise_endpoint_nonconformant']
     failed += G.webchat_delivery(args.webchat_provider_file) if args.webchat_provider_file else ['webchat_delivery_unavailable']
     failed += G.outbound_recorder(connection, args.tenant)
     return failed, participants
@@ -230,6 +245,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
     parser.add_argument('--calibration-pause', action='store_true', help='synthetic: pause after the calibration interactions')
     parser.add_argument('--interaction-timeout', type=int, default=900, help='real: seconds the operator has per interaction')
     parser.add_argument('--poll-seconds', type=float, default=2.0, help='real: observation interval')
+    parser.add_argument('--preflight', action='store_true', help='real: run the start checks only, send and write nothing')
     for name in ('--tenant', '--owner-principal', '--value-catalog', '--channel-ref', '--period-start', '--period-end',
                  '--metrics-dsn-file', '--owner-session-file', '--host-config', '--operator-authorization-file', '--enterprise-provider-file',
                  '--endpoint-parameters-file', '--webchat-provider-file'):
@@ -250,6 +266,8 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
             refused = test_stack_refusals(args, trial, provider_routes_file)
             if refused:
                 return emit({'ok': False, 'refused': refused, 'trial_id': args.trial_id}, 3)
+        if args.preflight and (args.driver != 'real' or args.resume):
+            raise Refused('--preflight is for a real start only')
         if args.driver == 'synthetic':
             if any(getattr(args, n) for n in ('owner_session_file', 'metrics_dsn_file', 'channel_ref')):
                 raise Refused('synthetic mode takes no real configuration')
@@ -275,8 +293,12 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
             with connect(args.metrics_dsn_file) as connection:
                 ok, failed = real_preconditions(params, connection, plan['real_dispatch'], environ)
                 failed = failed + currency_preconditions(trial['currency'], args.host_config, test_stack=test_stack)
-                guards, participants = guard_refusals(args, trial_config, plan, connection, (clock or (lambda: datetime.now(UTC)))())
+                guards, participants = guard_refusals(args, trial_config, plan, connection, (clock or (lambda: datetime.now(UTC)))(),
+                                                      preflight=args.preflight)
                 failed = failed + guards
+                if args.preflight:
+                    return emit({'ok': not failed, 'preflight': True, 'refused': failed, 'not_run': ['enterprise_endpoint_conformance'],
+                                 'trial_id': args.trial_id}, 3 if failed else 0)
                 before = month_cost_before(connection, args.tenant, trial['currency'], X.read_records(args.out))
             if failed:
                 return emit({'ok': False, 'refused': failed, 'trial_id': args.trial_id}, 3)

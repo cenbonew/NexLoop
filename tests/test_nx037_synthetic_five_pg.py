@@ -418,6 +418,26 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
         for args, at, code in ((without, local_noon, 'authorization_missing'), (argv, local_noon + timedelta(hours=8), 'outside_trial_window')):
             assert R.main(args, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes, clock=lambda at=at: at) == 3
             assert not (out / 'state.json').exists() and code in refused_codes(capsys)
+        # --preflight (calibration 2026-10-17): every start check against the live stack, then exit; nothing written, nothing sent,
+        # no prompt (the operator is never called), the enterprise conformance not run (it would create effects on the endpoint).
+        prompts = len(operator.prompts)
+        pre_out = tmp_path / 'preflight-trial'
+        pre = [*argv, '--preflight']
+        pre[pre.index('--out') + 1] = str(pre_out)
+        assert R.main(pre, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes,
+                      clock=lambda: local_noon) == 0
+        line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert line == {'ok': True, 'preflight': True, 'refused': [], 'not_run': ['enterprise_endpoint_conformance'], 'trial_id': TRIAL_ID}
+        assert not pre_out.exists() and len(operator.prompts) == prompts
+        # The same preflight sees a delivery it cannot reach and an enterprise provider file it cannot read (not private).
+        loose = tmp_path / 'enterprise-provider-loose'
+        loose.write_text(enterprise_route.read_text())
+        loose.chmod(0o644)
+        dead = private(tmp_path, 'webchat-provider-dead', json.dumps({**json.loads(webchat_route.read_text()), 'origin': f'https://127.0.0.1:{free_port()}'}))
+        bad = list(pre)
+        bad[bad.index('--enterprise-provider-file') + 1], bad[bad.index('--webchat-provider-file') + 1] = str(loose), str(dead)
+        assert R.main(bad, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes, clock=lambda: local_noon) == 3
+        assert {'enterprise_provider_unreadable', 'webchat_delivery_unavailable'} <= set(refused_codes(capsys)) and not pre_out.exists()
         first = R.main(argv, environ=opened, connect=connect, operator=operator, test_stack=True, provider_routes_file=routes, clock=lambda: local_noon)
         assert operator.errors == [], operator.errors[-1]
         state = json.loads((out / 'state.json').read_text())
