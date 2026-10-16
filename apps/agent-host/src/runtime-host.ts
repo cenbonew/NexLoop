@@ -6,7 +6,7 @@ import {refillingResponses} from './deterministic-queue.js';
 import {delayed,latencySampler,parseDeterministicLatency} from './deterministic-latency.js';
 import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context} from '@earendil-works/pi-ai';
 import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-runtime-adapter.js';
-import {RuntimeEffectClient,requestScope} from './runtime-effect-tools.js';
+import {RuntimeEffectClient,requestScope,RUN_INSTRUCTIONS} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validateModelTariff} from './trusted-model-profile.js';
 import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
@@ -328,6 +328,8 @@ export class RuntimeHost{
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
       activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
     this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
+      // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
+      ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:RUN_INSTRUCTIONS}:{}),
       // v6 Runs record each actual model request (AT-027); in multi-protocol mode that is decided per Run.
       recordModelRequests:multi?(command:RunCommand)=>runProtocol(command.run_id)===CONTEXT_PROTOCOL_V6:contextProtocol===CONTEXT_PROTOCOL_V6,
       authorize:async(command,operation,request,result)=>guard(command,operation,undefined,undefined,request,result)});

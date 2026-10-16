@@ -40,6 +40,8 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
     expect(bodies[0]!.command).toEqual(cmd);expect(bodies[0]!.parameters).toEqual({message:'one service'});
     expect(bodies[1]!.activation_ref).toBe('activation_'+'B'.repeat(24));
     const tools=client.toolsForRun(cmd);expect(tools.map(tool=>tool.name)).toEqual(['nexloop.service.request','nexloop.service.find']);
+    // 10/16: the reply tool says it is how the customer gets the reply, and that plain text is never delivered.
+    expect((tools[0] as unknown as {description:string}).description).toMatch(/^Send your reply to the customer.*never delivered/);
     expect(tools.every(tool=>tool.replay==='safe')).toBe(true);
   });
   it.each(['run','secret','success','digest'] as const)('refuses malformed %s receipt without exposing upstream data',async kind=>{

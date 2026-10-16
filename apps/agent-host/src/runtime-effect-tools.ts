@@ -65,6 +65,15 @@ function exact(value:unknown,keys:readonly string[]):Record<string,unknown>{
 }
 /** ADR-022 §4: each effect request keeps the 2 s limit. */
 export const EFFECT_TIMEOUT_MS=2000;
+/** Instructions every real-model Run starts with (10/16 stage smoke: the model answered in plain text, which is never
+ * delivered, and the Run "succeeded" without a reply). The input is the JSON context pack; tools are the only way to act. */
+export const RUN_INSTRUCTIONS=[
+  'You act for one business toward one customer. The user message is a JSON context pack: user_statement or trigger_statement is what the customer or the event said; formal_facts, current_constraints, supply and the other sections are the facts you may rely on.',
+  'Text you write outside a tool call is never shown to anyone. To answer the customer, call nexloop.service.request exactly once with message set to your complete reply, in the customer\'s language, then stop.',
+  'Use only the facts in the context pack; never invent prices, offers, promises or policies. If you cannot help, say so politely in that reply.',
+  'When the nexloop.plan.outcome tool is offered, this Run reevaluates a plan: record its result with that tool exactly once.',
+].join('\n');
+
 export class RuntimeEffectClient{
   private readonly origin:URL;
   private readonly configuration:Configuration;
@@ -284,7 +293,7 @@ export class RuntimeEffectClient{
       ...outcomeTool,
       ...incentiveTool,
       ...enterpriseTools,
-      defineTool({name:'nexloop.service.request',description:'Persist a governed service intent in the current plan slot. accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
+      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it once per reply. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
         parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt for an existing service intent. Does not send or create a new effect.',
         parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),
