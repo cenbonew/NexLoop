@@ -131,7 +131,7 @@ def verify_project(output):
     if set(realm)!={'origin','password'} or realm['origin']!=f'https://localhost:{m['web_port']}':raise ValueError('browser realm drift')
     tls.load_cert_chain(output/'secrets/browser-cert.pem',output/'secrets/browser-key.pem')
     for name,digest in m['build_sha256'].items():
-        if name not in ('.dockerignore','Dockerfile','requirements.txt','nexloop_eios_core-0.1.0-py3-none-any.whl') and not (name.startswith('web/') and '..' not in Path(name).parts and Path(name).suffix in {'.html','.css','.js'}):raise ValueError('unexpected build entry')
+        if name not in ('.dockerignore','Dockerfile','requirements.txt','nexloop_eios_core-0.1.0-py3-none-any.whl') and not (name.startswith('web/') and '..' not in Path(name).parts and Path(name).suffix in {'.html','.css','.js','.png'}):raise ValueError('unexpected build entry')
         p=output/'build'/name
         if p.is_symlink() or hashlib.sha256(p.read_bytes()).hexdigest()!=digest:raise ValueError('build context drift')
     if any(p.is_symlink() for p in (output/'build').rglob('*')) or set(str(p.relative_to(output/'build')) for p in (output/'build').rglob('*') if p.is_file())!=set(m['build_sha256']):raise ValueError('unexpected build content')
