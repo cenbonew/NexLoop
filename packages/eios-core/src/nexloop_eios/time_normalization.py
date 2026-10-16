@@ -9,8 +9,8 @@ it is checked here deterministically and merged with the rule reading (conversat
 - both read it differently: neither is chosen; the rules' reading is kept with status ambiguous and both readings are named;
 - a proposal that fails a check is refused by name and the rules' reading stands.
 
-valid_time keeps the Claim contract (claim.schema.json); the audit (source, both readings, the refusal code, how many
-assumptions the model stated) goes into guard_flags as bounded codes. Minutes are never invented: an expression without a
+The audit goes into valid_time.normalization (claim.schema.json, owner-approved 2026-10-17): source, verdict (accepted, agreed,
+conflict or the refusal code), both readings and the model's stated assumptions; guard_flags carry time_source only. Minutes are never invented: an expression without a
 clock time is read at most to the hour range of a part of day, and a plain day is the whole day [00:00, next 00:00).
 """
 from datetime import datetime, timedelta
@@ -93,37 +93,66 @@ def check(proposed, *, expression, anchor, timezone):
     return kind, start, end, granularity, assumptions
 
 
-def _span(start, end):
-    return start.isoformat(timespec='minutes') + '/' + end.isoformat(timespec='minutes')
-
-
 def _reading(valid_time, zone):
-    """(kind, start, end) of a rule reading, with a deadline compared on its bound."""
+    """(kind, start, end) of a rule reading in the tenant zone."""
     start = datetime.fromisoformat(valid_time['start']).astimezone(zone)
     end = datetime.fromisoformat(valid_time['end']).astimezone(zone)
     return valid_time['kind'], start, end
 
 
+def _iso(value):
+    return value.isoformat()
+
+
+def _proposal_reading(proposed, timezone):
+    """The model's reading as it was proposed, when it has the reading's shape (else None): kept even when refused."""
+    if type(proposed) is not dict or proposed.get('kind') not in KINDS:
+        return None
+    try:
+        zone = ZoneInfo(timezone)
+        start = _instant(proposed.get('start'), 'x').astimezone(zone)
+        end = _instant(proposed.get('end'), 'x').astimezone(zone)
+    except Refused:
+        return None
+    return {'kind': proposed['kind'], 'start': _iso(start), 'end': _iso(end),
+            **({'granularity': proposed['granularity']} if proposed.get('granularity') in GRANULARITIES else {})}
+
+
+def _rule_reading(rule):
+    if rule.get('kind') not in KINDS or not rule.get('start') or not rule.get('end'):
+        return None
+    return {'kind': rule['kind'], 'start': rule['start'], 'end': rule['end'], **({'granularity': rule['granularity']} if rule.get('granularity') else {})}
+
+
+def _assumptions(proposed):
+    values = proposed.get('assumptions') if type(proposed) is dict else None
+    return [a for a in values if type(a) is str][:8] if type(values) is list else []
+
+
 def merge(rule, proposed, *, expression, anchor, timezone):
-    """(valid_time, guard flags) from the rule reading and the model's proposal (None when it gave none)."""
+    """(valid_time, guard flags) from the rule reading and the model's proposal (None when it gave none). valid_time carries
+    normalization whenever the model proposed something; the flags are time_source only."""
     if proposed is None:
         return rule, []
+
+    def out(value, source, verdict):
+        return value | {'normalization': {'source': source, 'verdict': verdict, 'llm': _proposal_reading(proposed, timezone),
+                                          'rule': _rule_reading(rule), 'assumptions': [a[:200] for a in _assumptions(proposed)]}}, ['time_source:' + source]
     if not expression:
-        return rule, ['time_llm_without_expression']
+        return out(rule, 'rule', 'time_llm_without_expression')
     try:
-        kind, start, end, granularity, assumptions = check(proposed, expression=expression, anchor=anchor, timezone=timezone)
+        kind, start, end, granularity, _ = check(proposed, expression=expression, anchor=anchor, timezone=timezone)
     except Refused as refused:
-        return rule, ['time_llm_refused:' + refused.code]
+        return out(rule, 'rule', refused.code)
     zone = ZoneInfo(timezone)
-    flags = ['time_llm:' + kind + ':' + _span(start, end)] + (['time_llm_assumptions:' + str(len(assumptions))] if assumptions else [])
     if rule.get('kind') == 'past_reference':
-        return rule, flags + ['time_source:rule']
+        return out(rule, 'rule', 'past_reference')
     if rule['status'] in ('resolved', 'ambiguous'):
         rule_kind, rule_start, rule_end = _reading(rule, zone)
         same = rule_end == end if 'deadline' in (rule_kind, kind) else (rule_start, rule_end) == (start, end)
         if same and (rule_kind == 'deadline') == (kind == 'deadline'):
-            return rule, flags + ['time_source:llm+rule']
-        return rule | {'status': 'ambiguous'}, flags + ['time_source:conflict', 'time_rule:' + rule_kind + ':' + _span(rule_start, rule_end)]
+            return out(rule, 'llm+rule', 'agreed')
+        return out(rule | {'status': 'ambiguous'}, 'conflict', 'conflict')
     local = anchor.astimezone(zone)
     vague = granularity in ('part_of_day', 'period', 'month')
     if kind == 'deadline':
@@ -134,4 +163,4 @@ def merge(rule, proposed, *, expression, anchor, timezone):
     else:
         value = {'kind': kind, 'status': 'ambiguous' if vague else 'resolved', 'granularity': granularity,
                  'start': start.isoformat(), 'end': end.isoformat()}
-    return {k: rule[k] for k in ('expression', 'timezone', 'anchor')} | value, flags + ['time_source:llm']
+    return out({k: rule[k] for k in ('expression', 'timezone', 'anchor')} | value, 'llm', 'accepted')

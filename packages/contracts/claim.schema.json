@@ -332,6 +332,129 @@
           "format": "date-time",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$",
           "description": "server acceptance time of the cited Message"
+        },
+        "normalization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "verdict"
+          ],
+          "description": "Owner 2026-10-17: how the time was read. Present when the extraction model proposed an absolute reading: source (rule: the proposal was refused or not used; llm: the rules could not read it and the checked proposal stands; llm+rule: both agree; conflict: both read it differently, neither chosen), verdict (accepted, agreed, conflict, or the refusal code), both readings and the model's stated assumptions. Absent on Claims extracted before it.",
+          "properties": {
+            "source": {
+              "enum": [
+                "rule",
+                "llm",
+                "llm+rule",
+                "conflict"
+              ]
+            },
+            "verdict": {
+              "type": "string",
+              "pattern": "^[a-z_]{1,64}$"
+            },
+            "llm": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "start",
+                    "end"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "point",
+                        "interval",
+                        "deadline"
+                      ]
+                    },
+                    "start": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    "end": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    "granularity": {
+                      "enum": [
+                        "minute",
+                        "hour",
+                        "day",
+                        "part_of_day",
+                        "am_pm_unspecified",
+                        "period",
+                        "month"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "rule": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "start",
+                    "end"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "point",
+                        "interval",
+                        "deadline"
+                      ]
+                    },
+                    "start": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    "end": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    "granularity": {
+                      "enum": [
+                        "minute",
+                        "hour",
+                        "day",
+                        "part_of_day",
+                        "am_pm_unspecified",
+                        "period",
+                        "month"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "assumptions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "maxItems": 8
+            }
+          }
         }
       },
       "allOf": [

@@ -30,7 +30,18 @@ def run(expression, anchor, time):
 
 
 def source(flags):
-    return next(f for f in flags if f.startswith('time_source:')).split(':', 1)[1]
+    assert len(flags) == 1 and flags[0].startswith('time_source:')  # the flags carry the source only
+    return flags[0].split(':', 1)[1]
+
+
+def plain(valid_time):
+    """valid_time without its normalization record (what the rules alone would read)."""
+    return {k: v for k, v in valid_time.items() if k != 'normalization'}
+
+
+def refused(got, rule, flags, code):
+    assert plain(got) == rule and source(flags) == 'rule' and got['normalization']['verdict'] == code
+    return True
 
 
 def test_friday_deadline_the_rules_cannot_read_becomes_the_nearest_friday():
@@ -40,42 +51,44 @@ def test_friday_deadline_the_rules_cannot_read_becomes_the_nearest_friday():
     # A day-level deadline leaves inclusive/exclusive open, as the rules read one: ambiguous, its latest bound that Friday.
     assert got['kind'] == 'deadline' and got['status'] == 'ambiguous' and got['end'] == day('2026-10-17')
     assert got['latest_bound_window'] == [day('2026-10-16'), day('2026-10-17')] and got['start'] == '2026-10-14T10:00:00+08:00'
-    assert 'time_llm_assumptions:1' in flags and 'time_llm:deadline:2026-10-14T10:00+08:00/2026-10-17T00:00+08:00' in flags
+    n = got['normalization']
+    assert n['verdict'] == 'accepted' and n['rule'] is None and n['assumptions'] == ['周五指本周五']
+    assert n['llm'] == {'kind': 'deadline', 'start': '2026-10-14T10:00:00+08:00', 'end': day('2026-10-17'), 'granularity': 'day'}
     # Another Friday than the nearest one is refused by name; the rules' reading (unresolved) stands.
     rule, got, flags = run('周五前', WED, {'kind': 'deadline', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-24'), 'granularity': 'day'})
-    assert got == rule and flags == ['time_llm_refused:time_llm_weekday']
+    assert refused(got, rule, flags, 'time_llm_weekday') and got['normalization']['llm']['end'] == day('2026-10-24')  # kept for audit
 
 
 def test_friday_said_on_a_saturday_is_next_week_s_friday():
     _, got, flags = run('周五前', SAT, {'kind': 'deadline', 'start': '2026-10-17T10:00+08:00', 'end': day('2026-10-24'), 'granularity': 'day'})
     assert source(flags) == 'llm' and got['end'] == day('2026-10-24')
     _, got, flags = run('周五前', SAT, {'kind': 'deadline', 'start': day('2026-10-16'), 'end': day('2026-10-17'), 'granularity': 'day'})
-    assert flags == ['time_llm_refused:time_llm_anchor']  # the past Friday: before the anchor
+    assert got['normalization']['verdict'] == 'time_llm_anchor'  # the past Friday: before the anchor
 
 
 def test_tomorrow_afternoon_agrees_with_the_rules_and_an_invented_hour_is_refused():
     rule, got, flags = run('明天下午', WED, {'kind': 'interval', 'start': '2026-10-15T12:00+08:00', 'end': '2026-10-15T18:00+08:00', 'granularity': 'part_of_day'})
-    assert got == rule and rule['status'] == 'ambiguous' and source(flags) == 'llm+rule'
+    assert plain(got) == rule and rule['status'] == 'ambiguous' and source(flags) == 'llm+rule' and got['normalization']['verdict'] == 'agreed'
     rule, got, flags = run('明天下午', WED, {'kind': 'point', 'start': '2026-10-15T14:00+08:00', 'end': '2026-10-15T15:00+08:00', 'granularity': 'hour'})
-    assert got == rule and flags == ['time_llm_refused:time_llm_invented_minute']
+    assert refused(got, rule, flags, 'time_llm_invented_minute')
 
 
 def test_next_wednesday_morning_read_as_this_week_is_a_conflict_with_both_readings_named():
     rule, got, flags = run('下周三上午', WED, {'kind': 'interval', 'start': '2026-10-14T06:00+08:00', 'end': '2026-10-14T12:00+08:00', 'granularity': 'part_of_day'})
     assert (rule['start'], rule['end']) == ('2026-10-21T06:00:00+08:00', '2026-10-21T12:00:00+08:00')
     # Neither is chosen silently: the rules' reading stays, ambiguous, and both readings are in the flags.
-    assert got == rule | {'status': 'ambiguous'} and source(flags) == 'conflict'
-    assert 'time_rule:interval:2026-10-21T06:00+08:00/2026-10-21T12:00+08:00' in flags
-    assert 'time_llm:interval:2026-10-14T06:00+08:00/2026-10-14T12:00+08:00' in flags
+    assert plain(got) == rule | {'status': 'ambiguous'} and source(flags) == 'conflict'
+    n = got['normalization']
+    assert n['verdict'] == 'conflict' and (n['rule']['start'], n['llm']['start']) == ('2026-10-21T06:00:00+08:00', '2026-10-14T06:00:00+08:00')
     _, got, flags = run('下周三上午', WED, {'kind': 'interval', 'start': '2026-10-21T06:00+08:00', 'end': '2026-10-21T12:00+08:00', 'granularity': 'part_of_day'})
     assert source(flags) == 'llm+rule'
 
 
 def test_end_of_month_across_the_month_and_three_days_later_across_the_year():
     rule, got, flags = run('月底前', MONTH_END, {'kind': 'deadline', 'start': '2026-10-30T10:00+08:00', 'end': day('2026-11-01'), 'granularity': 'period'})
-    assert got == rule and rule['end'] == day('2026-11-01') and source(flags) == 'llm+rule'
+    assert plain(got) == rule and rule['end'] == day('2026-11-01') and source(flags) == 'llm+rule'
     rule, got, flags = run('三天后', YEAR_END, {'kind': 'point', 'start': day('2027-01-02'), 'end': day('2027-01-03'), 'granularity': 'day'})
-    assert got == rule and rule['status'] == 'resolved' and rule['start'] == day('2027-01-02') and source(flags) == 'llm+rule'
+    assert plain(got) == rule and rule['status'] == 'resolved' and rule['start'] == day('2027-01-02') and source(flags) == 'llm+rule'
 
 
 def test_in_a_couple_of_days_is_read_by_the_model_within_a_week_only():
@@ -83,7 +96,7 @@ def test_in_a_couple_of_days_is_read_by_the_model_within_a_week_only():
     assert rule['status'] == 'unresolved' and got['status'] == 'resolved' and (got['start'], got['end']) == (day('2026-10-16'), day('2026-10-17'))
     assert source(flags) == 'llm' and got['kind'] == 'point' and got['anchor'] == rule['anchor'] and got['expression'] == '过两天'
     _, got, flags = run('过两天', WED, {'kind': 'point', 'start': day('2026-10-30'), 'end': day('2026-10-31'), 'granularity': 'day'})
-    assert got['status'] == 'unresolved' and flags == ['time_llm_refused:time_llm_anchor']
+    assert got['status'] == 'unresolved' and refused(got, rule, flags, 'time_llm_anchor')
 
 
 def test_the_tenant_timezone_day_not_the_utc_day():
@@ -91,11 +104,11 @@ def test_the_tenant_timezone_day_not_the_utc_day():
     rule, got, flags = run('明天', LATE_UTC, {'kind': 'point', 'start': '2026-10-17T00:00Z', 'end': '2026-10-18T00:00Z', 'granularity': 'day'})
     assert rule['start'] == day('2026-10-18')
     # Its UTC midnights are not local day bounds: an invented time, refused.
-    assert got == rule and flags == ['time_llm_refused:time_llm_invented_minute']
+    assert refused(got, rule, flags, 'time_llm_invented_minute')
     rule, got, flags = run('明天', LATE_UTC, {'kind': 'point', 'start': day('2026-10-17'), 'end': day('2026-10-18'), 'granularity': 'day'})
-    assert got == rule | {'status': 'ambiguous'} and source(flags) == 'conflict'
-    _, _, flags = run('明天', LATE_UTC, {'kind': 'point', 'start': day('2026-10-18'), 'end': day('2026-10-19'), 'granularity': 'day', 'timezone': 'UTC'})
-    assert flags == ['time_llm_refused:time_llm_timezone']
+    assert plain(got) == rule | {'status': 'ambiguous'} and source(flags) == 'conflict'
+    rule, got, flags = run('明天', LATE_UTC, {'kind': 'point', 'start': day('2026-10-18'), 'end': day('2026-10-19'), 'granularity': 'day', 'timezone': 'UTC'})
+    assert refused(got, rule, flags, 'time_llm_timezone')
 
 
 @pytest.mark.parametrize('time,code', [
@@ -109,14 +122,14 @@ def test_the_tenant_timezone_day_not_the_utc_day():
 ])
 def test_an_illegal_reading_is_refused_by_name(time, code):
     rule, got, flags = run('过两天', WED, time)
-    assert got == rule and flags == ['time_llm_refused:' + code]
+    assert refused(got, rule, flags, code)
 
 
 def test_no_reading_or_no_expression():
     rule, got, flags = run('过两天', WED, None)
     assert got == rule and flags == []
     rule, got, flags = run('', WED, {'kind': 'point', 'start': day('2026-10-16'), 'end': day('2026-10-17'), 'granularity': 'day'})
-    assert got == rule and flags == ['time_llm_without_expression']
+    assert refused(got, rule, flags, 'time_llm_without_expression')
 
 
 def test_extraction_carries_the_reading_into_the_claim_and_the_payload_carries_the_weekday():
@@ -137,4 +150,8 @@ def test_extraction_carries_the_reading_into_the_claim_and_the_payload_carries_t
     provider = DeterministicExtractionProvider({hashlib.sha256(payload.encode()).hexdigest(): response})
     [claim] = extract([message], context, provider).claims
     assert claim['time_expression'] == '周五前' and claim['valid_time']['end'] == day('2026-10-17') and claim['valid_time']['kind'] == 'deadline'
-    assert 'time_source:llm' in claim['guard_flags'] and all(len(f) <= 80 for f in claim['guard_flags'])
+    assert 'time_source:llm' in claim['guard_flags'] and not any(f.startswith('time_llm') for f in claim['guard_flags'])
+    assert claim['valid_time']['normalization']['source'] == 'llm' and claim['valid_time']['normalization']['assumptions'] == ['周五指本周五']
+    # The Claim (with its normalization) conforms to claim.schema.json.
+    from test_claim_contract import EXAMPLE, valid
+    assert valid(dict(EXAMPLE, time_expression=claim['time_expression'], valid_time=claim['valid_time'], guard_flags=claim['guard_flags']))
