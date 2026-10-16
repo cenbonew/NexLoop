@@ -112,7 +112,7 @@ def test_unanswered_message_gets_one_llm_fallback_reply_and_settles(assembled_me
         c['recipe']=f['recipe'];tenant=c['tenant'];consumer=c['consumer']
         assert outbound(admin,tenant)==[] and pending(admin,tenant)==['reply:'+consumer['id']]
         with guarantor(c,admin,tmp_path,token) as g:
-            # Reply fail-fast (0199): the silent original Run submitted no reply, so its reply guarantee is due now, not after
+            # Reply fail-fast (0200): the silent original Run submitted no reply, so its reply guarantee is due now, not after
             # start_after_seconds.
             assert g['worker']().run_once()['fallback_started']==1
             run_id=g['launcher'].last['run_id']
