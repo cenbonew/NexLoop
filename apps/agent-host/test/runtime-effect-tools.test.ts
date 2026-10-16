@@ -12,7 +12,7 @@ import {command} from './pi-runtime-support.ts';
 const resources:{server:Server;directory:string}[]=[];
 const intent='11111111-1111-4111-8111-111111111111';
 const receipt={intent_id:intent,receipt_id:'22222222-2222-4222-8222-222222222222',state:'accepted',payload_digest:'a'.repeat(64),provider_payload_digest:'b'.repeat(64),scope:'effect_intent',business_action_success:false};
-async function bridge(options:{status?:number;change?:(value:Record<string,unknown>)=>unknown;silent?:boolean}={}){
+async function bridge(options:{status?:number|((call:number)=>number);change?:(value:Record<string,unknown>)=>unknown;silent?:boolean}={}){
   const directory=mkdtempSync(join(tmpdir(),'nexloop-effect-tls-'));
   execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',join(directory,'key'),'out',join(directory,'cert')].map(value=>value==='out'?'-out':value).concat(['-days','1','-subj','/CN=127.0.0.1','-addext','subjectAltName=IP:127.0.0.1']),{stdio:'ignore'});
   const bodies:Record<string,unknown>[]=[];const cmd=command();let active='activation_'+'A'.repeat(24);
@@ -20,8 +20,9 @@ async function bridge(options:{status?:number;change?:(value:Record<string,unkno
     const chunks:Buffer[]=[];request.on('data',chunk=>chunks.push(chunk));request.on('end',()=>{
       bodies.push(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>);
       if(options.silent)return;
-      const value=options.change?options.change({run_id:cmd.run_id,receipt}):{run_id:cmd.run_id,receipt};
-      response.writeHead(options.status??200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));
+      const status=typeof options.status==='function'?options.status(bodies.length):options.status??200;
+      const value=status===409?{code:'intent_payload_conflict'}:options.change?options.change({run_id:cmd.run_id,receipt}):{run_id:cmd.run_id,receipt};
+      response.writeHead(typeof options.status==='function'?options.status(bodies.length):options.status??200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));
     });
   });server.listen(0,'127.0.0.1');await once(server,'listening');resources.push({server,directory});
   const port=(server.address() as {port:number}).port;
@@ -54,6 +55,18 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
   it('preserves only fixed409 payload conflict, never raw diagnostic fields',async()=>{
     const {client,cmd}=await bridge({status:409,change:()=>({code:'intent_payload_conflict',debug:'SYNTHETIC_SECRET_SENTINEL'})});
     await expect(client.call(cmd,'submit',{message:'service'})).rejects.toMatchObject({code:'intent_payload_conflict'});
+  });
+  it('a second, different reply in the same Run is answered as already sent, not as a tool error (10/17 stage smoke)',async()=>{
+    const {client,cmd,bodies}=await bridge({status:call=>call===1?200:409});
+    const tool=client.toolsForRun(cmd).find(item=>item.name==='nexloop.service.request') as unknown as {execute:(args:unknown)=>Promise<{isError?:boolean;content:{text:string}[]}>};
+    const first=await tool.execute({message:'the reply'});
+    expect(first.isError).toBeUndefined();expect(JSON.parse(first.content[0]!.text)).toEqual(receipt);
+    const second=await tool.execute({message:'one more thing'});
+    expect(second.isError).toBeUndefined();
+    expect(JSON.parse(second.content[0]!.text)).toMatchObject({code:'reply_already_submitted',intent_id:intent});
+    expect(bodies).toHaveLength(2);
+    const description=(client.toolsForRun(cmd)[0] as unknown as {description:string}).description;
+    expect(description).toMatch(/exactly once per Run/);
   });
   it('refuses invalid parameters and absent current activation before network',async()=>{
     const {client,cmd,bodies,setActivation}=await bridge();

@@ -254,9 +254,19 @@ export class RuntimeEffectClient{
       try{return {content:[{type:'text' as const,text:JSON.stringify(await this.call(bound,operation,args,action))}]};}
       catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','intent_payload_conflict'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
+    // 10/17 stage smoke: the service intent is keyed on this Run's slot (0040), so one Run has one reply. A second, different
+    // service.request (the model adding to a reply already submitted) is a 409 conflict; it is answered as a normal result that
+    // says the reply was already sent and names its intent, not as a tool error that would fail a Run whose reply went out.
+    let submitted:string|undefined;
     const invoke=async(operation:'submit'|'find',args:unknown)=>{
-      try{return {content:[{type:'text' as const,text:JSON.stringify(await this.call(bound,operation,args))}]};}
-      catch(error){if(error instanceof RuntimeError&&error.code==='outside_catalog_terms')return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'outside_catalog_terms',scope:catalogScope})}]};if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
+      try{
+        const receipt=await this.call(bound,operation,args);
+        if(operation==='submit')submitted=receipt.intent_id;
+        return {content:[{type:'text' as const,text:JSON.stringify(receipt)}]};
+      }
+      catch(error){if(error instanceof RuntimeError&&error.code==='outside_catalog_terms')return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'outside_catalog_terms',scope:catalogScope})}]};
+        if(error instanceof RuntimeError&&error.code==='intent_payload_conflict'&&operation==='submit')return {content:[{type:'text' as const,text:JSON.stringify({code:'reply_already_submitted',...(submitted!==undefined?{intent_id:submitted}:{}),next:'This Run already sent its one reply; nothing more was sent. End the Run now.'})}]};
+        if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
     const outcomeTool=options.planOutcome===true?[defineTool({name:'nexloop.plan.outcome',
       description:'Record the result of this plan reevaluation exactly once. no_action, needs_information, waiting_external and escalate are normal results. plan_update replaces the plan with new steps; action_intent names an intent this Run already submitted. Read current facts first; never re-run an old step mechanically.',
@@ -293,7 +303,7 @@ export class RuntimeEffectClient{
       ...outcomeTool,
       ...incentiveTool,
       ...enterpriseTools,
-      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it once per reply. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
+      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
         parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt for an existing service intent. Does not send or create a new effect.',
         parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),

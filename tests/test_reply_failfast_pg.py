@@ -42,3 +42,31 @@ def test_a_message_run_without_a_reply_fails_and_makes_the_reply_due_now(relay_p
     assert admin.execute('select count(*) from runtime.nexloop_effect_submissions').fetchone() == (0,)
     # The message's reply-due item (0109) waited start_after_seconds; it is due now.
     assert waiting == (True,) and admin.execute(due, ('reply:' + task[1],)).fetchone() == (False,)
+
+
+def test_a_message_run_that_replied_never_makes_the_reply_due_early(relay_plan, admin, tmp_path):  # noqa: F811
+    """10/17 stage smoke: a Run that submitted its reply and then failed (a later tool call) must not expedite the reply
+    guarantee: 0200 looks only at whether the Run submitted nexloop.service.request, never at its outcome."""
+    from nexloop_eios.runtime_dispatch import reply_settle
+    candidate = relay_plan
+    f = candidate['f']
+    assert invoke(candidate).returncode == 0
+    task = admin.execute('select task_id,message_id,run_id from runtime.nexloop_message_routes').fetchone()
+    due = "select available_at from runtime.nexloop_work_feed where feed='reply-due' and item_key=%s"
+    before = admin.execute(due, ('reply:' + task[1],)).fetchone()
+    runtime, key = files(tmp_path)
+    guard_key = tmp_path / 'guard-key'
+    guard_key.write_text(secrets.token_hex(32))
+    guard_key.chmod(0o600)
+    with fresh_worker(f, tmp_path) as worker:
+        with guard_server(worker, tmp_path, guard_key) as port:
+            with actual_host(runtime, key, effect_configuration(tmp_path, port, guard_key)) as (_, client, headers):
+                control = HostControlConfiguration(str(client.base_url).rstrip('/'), key, tmp_path / 'host-cert.pem')
+                dispatched = RuntimeDispatcher(worker, control, queue='operations', total_timeout=15).run_once()
+                assert dispatched['claimed'] is True, dispatched
+                result = worker.inspect_task(queue='operations', task_id=task[0])['result']
+                assert result.get('code') != NO_REPLY_CODE
+        # Settled again as a failed Run would be: replied, nothing expedited, the due time unchanged.
+        assert reply_settle(worker, str(task[2])) == {'reply_run': True, 'kind': 'message', 'replied': True, 'expedited': False}
+    assert admin.execute('select count(*) from runtime.nexloop_effect_submissions where run_id=%s', (task[2],)).fetchone()[0] >= 1
+    assert admin.execute(due, ('reply:' + task[1],)).fetchone() in (before, None)
