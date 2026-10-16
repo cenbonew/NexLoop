@@ -410,6 +410,9 @@ def test_unknown_reconciled_by_provider_query_and_recorder_sigkill_recovers(asse
         assert outbound(admin,tenant)[0][1]=='unknown' and c['recorder'].pending()==[]
         # Provider back: the QUERY observes the original export → delivered. Never a second POST/product.
         lease_expired()
+        # 0174 backoff deferred the next query (finite, not infinity); make it due now instead of waiting it out.
+        assert admin.execute("select available_at>clock_timestamp() and available_at<'infinity'::timestamptz from runtime.nexloop_effect_outbox where intent_id=%s",(intent,)).fetchone()==(True,)
+        admin.execute('update runtime.nexloop_effect_outbox set available_at=clock_timestamp() where intent_id=%s',(intent,))
         with delivery_service(c,tmp_path,material):
             assert 'fulfilled' in effect_worker(c,tmp_path,config,secret,lease=3)
         assert len(list(material['root'].glob('*.export.json')))==1
