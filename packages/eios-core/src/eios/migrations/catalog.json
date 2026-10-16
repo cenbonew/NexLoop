@@ -995,6 +995,11 @@
       "version": "0199",
       "name": "0199_effect_query_window.sql",
       "sha256": "a80dfff456cb9e80e07df63e7292cdce965045f79f9f94ecaacdbd7ad643389d"
+    },
+    {
+      "version": "0200",
+      "name": "0200_message_run_reply_settle.sql",
+      "sha256": "8067a36ab854584ceeba3e6125d99237476ebe17dfb65bed1d2eb62c3f3d63f9"
     }
   ]
 }
