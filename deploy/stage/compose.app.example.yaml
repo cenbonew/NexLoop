@@ -10,7 +10,7 @@
 # (127.0.0.1:GUARD_PORT). TLS stays end to end between the original peers. Two more own namespaces: the action worker and the NexLoop delivery service on `effect_egress`
 # (NX-037 provider routing), and the claim workers, the other model credential holders, on `claim_egress` (G-CLAIM-EGRESS). Only the Gateway ports are published, on APP_HOST_ADDR. Every service mounts its own secret files one by
 # one (never a directory) and nothing else's; the Agent Host gets no DSN, service credential, signing key, channel credential or
-# Artifact directory (design §4.2); no service gets a secret through its environment (only REAL_DISPATCH_ENABLED, which starts false, D9).
+# Artifact directory (design §4.2); no service gets a secret through its environment (only REAL_DISPATCH_ENABLED, from the compose env, default false, D9).
 #
 # Each container carries `nexloop.budget-service`: the connection-budget entries (deploy/stage/connection-budget.v1.json) whose pools
 # it opens, or "none". `nexloop-doctor --deploy-gate` compares both directions.
@@ -24,10 +24,15 @@ x-service: &service
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   environment: &environment
-    REAL_DISPATCH_ENABLED: "false"
+    # The deployment layer of the real dispatch switch (D9): REAL_DISPATCH_ENABLED in the private compose env, default false. The
+    # same variable feeds the Agent Host below; app-net's `extends` accepts only true or false (see there).
+    REAL_DISPATCH_ENABLED: "${REAL_DISPATCH_ENABLED:-false}"
 services:
   app-net:
     # Holds the shared network namespace; the backend image (already in the release) sleeps, so no extra image is needed.
+    # REAL_DISPATCH_ENABLED may only be true or false: any other value names a file that does not exist (real-dispatch.<value>.yaml
+    # next to this file, both empty), so `docker compose config` and `up` fail instead of starting with an unexpected switch value.
+    extends: {file: "real-dispatch.${REAL_DISPATCH_ENABLED:-false}.yaml", service: real-dispatch}
     image: ${BACKEND_IMAGE:?backend image by digest}
     entrypoint: [sleep, infinity]
     restart: unless-stopped
@@ -72,7 +77,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     environment:
-      REAL_DISPATCH_ENABLED: "false"
+      REAL_DISPATCH_ENABLED: "${REAL_DISPATCH_ENABLED:-false}"
     networks:
       agent_egress: {}
       agent_link:

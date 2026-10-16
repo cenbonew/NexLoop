@@ -94,9 +94,9 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
     for name, s in app['services'].items():
         own = ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher')
         if name not in own:  # NX-037 / G-CLAIM-EGRESS: own namespaces
-            assert s['network_mode'] == 'service:app-net' and s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == 'false', name
+            assert s['network_mode'] == 'service:app-net' and s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == '${REAL_DISPATCH_ENABLED:-false}', name
         if name in ('action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher'):
-            assert s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == 'false', name
+            assert s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == '${REAL_DISPATCH_ENABLED:-false}', name
         if name in ('claim-extraction-worker', 'claim-matcher'):
             assert s['networks'] == ['claim_egress'] and 'network_mode' not in s and s.get('cap_drop') == ['ALL'], name
         image = s['image']
@@ -113,15 +113,19 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
     assert cmd[cmd.index('--guard-workers') + 1] == '4' and cmd[cmd.index('--dispatch-loops') + 1] == '4'
 
 
-def interpolate(text, env_file):
-    """The Compose rules this file uses: ${VAR:?message} must be set, ${VAR} substituted, $$ is a literal $."""
+def interpolate(text, env_file, overrides=None):
+    """The Compose rules this file uses: ${VAR:?message} must be set, ${VAR:-default} falls back when unset or empty, ${VAR}
+    substituted, $$ is a literal $."""
     values = dict(l.split('=', 1) for l in env_file.read_text().splitlines() if l and not l.startswith('#'))
+    values.update(overrides or {})
     def sub(m):
-        name, required = m.group(1), m.group(2) is not None
-        if required and not values.get(name):
+        name, mode, arg = m.group(1), m.group(2), m.group(3)
+        if mode == ':?' and not values.get(name):
             raise AssertionError('required variable unset: ' + name)
+        if mode == ':-' and not values.get(name):
+            return arg
         return values.get(name, '')
-    return re.sub(r'\$\{([A-Z0-9_]+)(:\?[^}]*)?\}', sub, text.replace('$$', '\0')).replace('\0', '$')
+    return re.sub(r'\$\{([A-Z0-9_]+)(?:(:\?|:-)([^}]*))?\}', sub, text.replace('$$', '\0')).replace('\0', '$')
 
 
 def test_compose_examples_render_with_their_env_files_and_docker_compose_config():
