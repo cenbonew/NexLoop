@@ -60,6 +60,19 @@ def next_poll_interval(interval,base):
 
 _RETRYABLE=frozenset({'runtime_transport_unavailable','runtime_transport_timeout','runtime_dispatch_timeout','runtime_response_invalid'})
 _FAILURE_CODES=frozenset({'runtime_authorization_unavailable','runtime_authorization_denied'})
+NO_REPLY_CODE='runtime_no_reply_submitted'
+
+
+def reply_settle(worker,run_id):
+    """0200: whether this Run answers a message and submitted its reply; when not, the message's reply-due item becomes due now.
+    Best effort: the queue result never depends on it ({} when unavailable)."""
+    try:
+        session=worker._session
+        with worker._backend._pool.connection() as c,c.transaction():
+            value=c.execute('select authz.nexloop_message_run_reply_settle(%s,%s,%s)',(session.token_digest,session.world,run_id)).fetchone()[0]
+        return value if type(value) is dict else {}
+    except Exception:
+        return {}
 
 
 def model_timing(value):
@@ -278,6 +291,12 @@ class RuntimeDispatcher:
             if outcome=='failed' and inspection.get('failure_code') in _FAILURE_CODES:
                 failure=inspection['failure_code']
                 if failure=='runtime_authorization_unavailable':code=failure
+            # Reply fail-fast (10/16 stage smoke): a terminal message or fallback reply Run that submitted no reply is a definite
+            # failure (the model answered in plain text, which is never delivered), and its message's reply guarantee is due now.
+            if outcome in {'succeeded','failed','cancelled'}:
+                settled=reply_settle(self.worker,command['run_id'])
+                if settled.get('reply_run') is True and settled.get('replied') is False and status=='succeeded':
+                    status='failed';code=NO_REPLY_CODE
         except StaleQueueLease:
             return {'claimed':True,'task_id':task_id,'fence':fence,'status':'lease_lost'}
         except Exception as error:
