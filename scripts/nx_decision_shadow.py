@@ -4,7 +4,7 @@
 Input JSON: {"items": [{"id": "<label>", "set": "claim_review" | "handoff", "state": <text or object>,
              ["extracted_kind": "<kind>"]}, ...]} — synthetic data or an export of test-persona conversations only.
 
-    nx_decision_shadow.py --input ITEMS.json [--questions deploy/configuration/decision-questions.v1.json] [--out REPORT.json]
+    nx_decision_shadow.py --input ITEMS.json [--questions-version 2 | --questions FILE] [--out REPORT.json]
                           (default, --dry-run) | --live --endpoint https://… --credential-file F --model ID
 
 - Default is a dry run: no network, no credential read. It prints, per item, what would be sent: question-set version, question
@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 from nexloop_eios import decision_eval as de  # noqa: E402
 
-DEFAULT_QUESTIONS = ROOT / 'deploy/configuration/decision-questions.v1.json'
+DEFAULT_QUESTIONS_VERSION = 2
 
 
 class InputInvalid(ValueError):
@@ -97,7 +97,9 @@ def report(items, questions, results):
 def main(argv=None, *, client_factory=None):
     parser = argparse.ArgumentParser(description='Offline shadow of the decision-evaluation layer')
     parser.add_argument('--input', type=Path, required=True)
-    parser.add_argument('--questions', type=Path, default=DEFAULT_QUESTIONS)
+    parser.add_argument('--questions-version', type=int, default=DEFAULT_QUESTIONS_VERSION,
+                        help='decision-questions.v<N>.json under deploy/configuration (v1 stays loadable for reproduction)')
+    parser.add_argument('--questions', type=Path, help='an explicit question file instead of --questions-version')
     parser.add_argument('--out', type=Path)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--dry-run', action='store_true', default=True)
@@ -108,7 +110,7 @@ def main(argv=None, *, client_factory=None):
     parser.add_argument('--timeout', type=float, default=5.0)
     args = parser.parse_args(argv)
     try:
-        questions = de.load_questions(args.questions)
+        questions = de.load_questions(args.questions) if args.questions else de.load_questions_version(args.questions_version, ROOT / 'deploy/configuration')
         items = load_items(args.input, questions)
     except (OSError, ValueError) as error:
         print(json.dumps({'ok': False, 'error': type(error).__name__}))

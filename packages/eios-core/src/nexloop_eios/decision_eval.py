@@ -35,6 +35,10 @@ _ID = re.compile(r'[a-z][a-z0-9_]{0,63}')
 _VERSION = re.compile(r'[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*\.v[1-9][0-9]*')
 _MODEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 _CREDENTIAL = re.compile(r'[\x21-\x7e]{8,4096}')
+# A choice option is the label exactly as the criteria writes it and the API returns it (v2: e.g. a Chinese label); no mapping.
+_OPTION = re.compile(r'[^\x00-\x1f\x7f:,]{1,64}')
+LEGACY_INSUFFICIENT = 'insufficient_information'  # v1 has no `insufficient` field; its label is this one
+CONFIGURATION = Path(__file__).resolve().parents[4] / 'deploy/configuration'
 MAX_STATE_BYTES = 65536
 
 
@@ -67,7 +71,7 @@ def validate_questions(body):
             for text in ('instructions', 'criteria'):
                 if type(q.get(text)) is not str or not 1 <= len(q[text]) <= 2000:
                     fail(f'{name}.{qid}: {text}')
-            allowed = {'version', 'type', 'instructions', 'criteria'} | ({'options'} if q['type'] == 'choice' else set()) \
+            allowed = {'version', 'type', 'instructions', 'criteria'} | ({'options', 'insufficient'} if q['type'] == 'choice' else set()) \
                 | ({'scale', 'legend'} if q['type'] == 'score' else set())
             if not set(q) <= allowed:
                 fail(f'{name}.{qid}: keys')
@@ -77,8 +81,15 @@ def validate_questions(body):
                     fail(f'{name}.{qid}: noul thresholds')
             elif q['type'] == 'choice':
                 options = q.get('options')
-                if type(options) is not list or not 2 <= len(options) <= 16 or len(set(options)) != len(options) or not all(type(o) is str and _ID.fullmatch(o) for o in options):
+                if type(options) is not list or not 2 <= len(options) <= 16 or len(set(options)) != len(options) \
+                        or not all(type(o) is str and o == o.strip() and _OPTION.fullmatch(o) for o in options):
                     fail(f'{name}.{qid}: options')
+                if 'insufficient' in q and q['insufficient'] not in options:
+                    fail(f'{name}.{qid}: insufficient must be one of the options')
+                if body['version'] >= 2:
+                    # v2 and later: every option is spelled in the criteria exactly as declared (the API answers with it).
+                    if 'insufficient' not in q or not all(o in q['criteria'] for o in options):
+                        fail(f'{name}.{qid}: v2 options must be written in the criteria and name the insufficient label')
                 if type(t) is not dict or set(t) != {'confidence'} or type(t['confidence']) not in (int, float) or not 0 < t['confidence'] <= 1:
                     fail(f'{name}.{qid}: choice threshold')
             else:
@@ -99,6 +110,26 @@ def load_questions(path):
         return validate_questions(json.loads(Path(path).read_text()))
     except (OSError, ValueError) as error:
         raise QuestionsInvalid(str(error) if isinstance(error, QuestionsInvalid) else 'questions file unreadable') from None
+
+
+def questions_path(version, root=CONFIGURATION):
+    if type(version) is not int or not 1 <= version <= 999:
+        raise QuestionsInvalid('question file version')
+    return Path(root) / f'decision-questions.v{version}.json'
+
+
+def load_questions_version(version, root=CONFIGURATION):
+    """The question file of exactly this version (decision-questions.v<N>.json whose `version` is N). Earlier versions stay
+    loadable unchanged so that past judgments can be reproduced."""
+    body = load_questions(questions_path(version, root))
+    if body['version'] != version:
+        raise QuestionsInvalid('question file version mismatch')
+    return body
+
+
+def insufficient_label(question):
+    """The choice label that means "not enough information": declared in v2+, the legacy label in v1."""
+    return question.get('insufficient', LEGACY_INSUFFICIENT)
 
 
 # Request and response --------------------------------------------------------------------------------------------------
@@ -347,7 +378,8 @@ def decide(set_name, qset, result, *, extracted_kind=None):
         if v.get('grounded') == 'no':
             return 'needs_human', 'ungrounded'
         kind = v.get('kind')
-        if v.get('grounded') == 'yes' and v.get('injection') == 'no' and kind not in ('between', 'insufficient_information') \
+        insufficient = insufficient_label(qset['questions']['kind']) if 'kind' in qset['questions'] else LEGACY_INSUFFICIENT
+        if v.get('grounded') == 'yes' and v.get('injection') == 'no' and kind not in ('between', insufficient) \
                 and (extracted_kind is None or kind == extracted_kind):
             return 'pass', 'grounded'
         return 'uncertain', 'uncertain'

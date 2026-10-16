@@ -285,7 +285,7 @@ def items(tmp_path):
 
 def test_shadow_dry_run_is_the_default_and_never_touches_network_or_credential(items, capsys, monkeypatch):
     monkeypatch.setattr(de, 'https_transport', lambda *a, **k: pytest.fail('network used in a dry run'))
-    assert shadow.main(['--input', str(items)]) == 0
+    assert shadow.main(['--input', str(items), '--questions-version', '1']) == 0
     out = json.loads(capsys.readouterr().out)
     assert out['mode'] == 'dry-run' and out['network'] is False and [r['set'] for r in out['requests']] == ['claim_review.v1', 'handoff.v1']
     assert all(set(r) == {'id', 'set', 'questions', 'state_digest', 'request_bytes'} for r in out['requests'])
@@ -301,7 +301,7 @@ def test_shadow_live_report_with_a_fake_client(items, credential, tmp_path, caps
     clock = Clock()
     factory = lambda **kw: de.DecisionEvalClient(**kw, transport=transport, sleep=clock.sleep, clock=clock, jitter=lambda: 1.0)
     out_file = tmp_path / 'report.json'
-    assert shadow.main(['--input', str(items), '--live', '--endpoint', 'https://decision.example.invalid/x', '--credential-file', str(credential),
+    assert shadow.main(['--input', str(items), '--questions-version', '1', '--live', '--endpoint', 'https://decision.example.invalid/x', '--credential-file', str(credential),
                         '--model', 'synthetic-model', '--out', str(out_file)], client_factory=factory) == 0
     report = json.loads(out_file.read_text())
     assert (out_file.stat().st_mode & 0o777) == 0o600
@@ -338,3 +338,77 @@ def test_sum_tolerance_and_confidence_is_never_cross_checked():
     assert de.validate_answer(question, {'choice': 'a', 'probabilities': {'a': 0.9995, 'b': 0.0009}, 'confidence': 0.2}) is not None  # sum 1.0004
     assert de.validate_answer(question, {'choice': 'a', 'probabilities': {'a': 0.998, 'b': 0.0005}}) is None                            # sum 0.9985
     assert de.validate_answer(question, {'choice': 'b', 'probabilities': {'a': 0.6, 'b': 0.4}}) is None                                # not the most probable
+
+
+# v2 question file: options as the API labels them (owner 2026-10-16) ------------------------------------------------------
+V2 = de.load_questions_version(2)
+CLAIM_V2 = V2['sets']['claim_review']
+
+
+def claim_answers_v2(kind, p=0.99871, grounded=0.97, injection=0.01):
+    options = CLAIM_V2['questions']['kind']['options']
+    probs = {o: (p if o == kind else round((1 - p) / (len(options) - 1), 8)) for o in options}
+    return {'model': 'synthetic-model', 'usage': {'input_tokens': 1010, 'output_tokens': 0},
+            'answers': {'grounded': {'type': 'noul', 'noul': grounded}, 'injection': {'type': 'noul', 'noul': injection},
+                        'kind': {'type': 'choice', 'choice': kind, 'probabilities': probs, 'confidence': 0.99293}}}
+
+
+def test_v2_is_loaded_by_version_and_v1_stays_unchanged():
+    v1 = de.load_questions_version(1)
+    assert v1 == QUESTIONS and v1['version'] == 1 and V2['version'] == 2
+    assert v1['sets']['claim_review']['questions']['kind']['options'] == ['stated_fact', 'stated_preference', 'stated_intent', 'hypothesis',
+                                                                           'insufficient_information']
+    kind = CLAIM_V2['questions']['kind']
+    assert kind['insufficient'] == '信息不足' and '信息不足' in kind['options']
+    assert all(o in kind['criteria'] for o in kind['options'])                 # each label written in the criteria as declared
+    assert CLAIM_V2['version'] == 'claim_review.v2' and all(q['version'].endswith('.v2') for q in CLAIM_V2['questions'].values())
+    with pytest.raises(de.QuestionsInvalid):
+        de.load_questions_version(3)
+
+
+@pytest.mark.parametrize('kind', CLAIM_V2['questions']['kind']['options'])
+def test_v2_every_option_label_is_accepted_as_returned(credential, kind):
+    result = client(credential, FakeTransport((200, claim_answers_v2(kind)))).evaluate(CLAIM_V2, STATE)
+    assert result.status == 'ok' and result.answers['kind']['choice'] == kind
+    decision = de.decide('claim_review', CLAIM_V2, result)
+    assert decision == (('uncertain', 'uncertain') if kind == '信息不足' else ('pass', 'grounded'))
+
+
+def test_labels_are_never_mapped_between_versions(credential):
+    # A v1 label in a v2 answer, and a v2 label in a v1 answer, are both invalid: uncertain, nothing mapped.
+    v1_label_in_v2 = claim_answers_v2('fact')
+    v1_label_in_v2['answers']['kind']['choice'] = 'insufficient_information'
+    assert client(credential, FakeTransport((200, v1_label_in_v2))).evaluate(CLAIM_V2, STATE).reason == 'invalid_response'
+    v2_label_in_v1 = claim_answers()
+    probs = v2_label_in_v1['answers']['kind']['probabilities']
+    probs['信息不足'] = probs.pop('insufficient_information')
+    v2_label_in_v1['answers']['kind']['choice'] = '信息不足'
+    v2_label_in_v1['answers']['kind']['probabilities'] = {k: (0.99 if k == '信息不足' else 0.0025) for k in probs}
+    assert client(credential, FakeTransport((200, v2_label_in_v1))).evaluate(CLAIM, STATE).reason == 'invalid_response'
+    # The real call's sample label set (REAL_SHAPES) is still accepted only by a question that declares exactly those labels.
+    assert de.validate_answer(CLAIM_V2['questions']['kind'], REAL_SHAPES['choice']) is None
+
+
+def test_v1_decisions_are_unchanged_by_v2():
+    assert de.decide('claim_review', CLAIM, ok(CLAIM, claim_answers(kind='insufficient_information')))[0] == 'uncertain'
+    assert de.decide('claim_review', CLAIM, ok(CLAIM, claim_answers()), extracted_kind='stated_intent') == ('pass', 'grounded')
+
+
+@pytest.mark.parametrize('change', [
+    lambda q: q.pop('insufficient'),                                            # v2 must name the insufficient label
+    lambda q: q.update(insufficient='not-an-option'),
+    lambda q: q.update(criteria='labels are not written here'),                # v2 options must appear in the criteria
+    lambda q: q['options'].append('bad:label'),
+])
+def test_an_invalid_v2_choice_definition_is_refused(change):
+    body = copy.deepcopy(V2)
+    change(body['sets']['claim_review']['questions']['kind'])
+    with pytest.raises(de.QuestionsInvalid):
+        de.validate_questions(body)
+
+
+def test_shadow_defaults_to_v2_and_can_reproduce_v1(items, capsys):
+    assert shadow.main(['--input', str(items)]) == 0
+    assert [r['set'] for r in json.loads(capsys.readouterr().out)['requests']] == ['claim_review.v2', 'handoff.v2']
+    assert shadow.main(['--input', str(items), '--questions-version', '1']) == 0
+    assert [r['set'] for r in json.loads(capsys.readouterr().out)['requests']] == ['claim_review.v1', 'handoff.v1']
