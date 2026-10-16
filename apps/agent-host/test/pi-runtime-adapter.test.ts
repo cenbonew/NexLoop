@@ -72,6 +72,21 @@ describe('actual frozen Pi Harness RuntimeAdapter with SQLite FULL',()=>{
     await until(async()=>(await adapter.inspect(cmd)).submission_status==='done');
     expect((await adapter.inspect(cmd)).runtime_outcome).toBe('failed');
     expect(counts(path,cmd.run_id).tasks.some(row=>String(row.kind).includes('tool')&&String(row.record).includes('completed'))).toBe(true);
+    // 10/16: the cause is named with codes only (a returned tool error without its own code is tool_error).
+    if(kind==='isError')expect(await adapter.inspect(cmd)).toMatchObject({failure_code:'runtime_tool_error',failure_detail:'tool_error'});
+  });
+
+  it('names a returned tool error by the tool result\'s own code, never its text',async()=>{
+    const path=await root();
+    const tool=defineTool({name:'nexloop.probe',description:'Coded error-result probe',parameters:Type.Object({}),
+      execute:async()=>({isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'outside_catalog_terms',scope:{secret:'not shown'}})}]})});
+    const {adapter,faux}=open(path,{tools:[tool]});
+    faux.setResponses([fauxAssistantMessage(fauxToolCall('nexloop.probe',{}, {id:'coded-error-tool'}),{stopReason:'toolUse'}),fauxAssistantMessage('complete')]);
+    const cmd=command();await adapter.start(cmd,'synthetic input');
+    await until(async()=>(await adapter.inspect(cmd)).submission_status==='done');
+    const inspected=await adapter.inspect(cmd);
+    expect(inspected).toMatchObject({runtime_outcome:'failed',failure_code:'runtime_tool_error',failure_detail:'outside_catalog_terms'});
+    expect(JSON.stringify(inspected)).not.toContain('not shown');
   });
 
   it('rejects fresh runtime creation after execution was authorized while preserving existing replay',async()=>{

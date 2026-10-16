@@ -114,7 +114,7 @@ def test_register_gives_every_credential_file_its_principal_and_exactly_the_decl
     source = next(p for p in r['manifest']['principals'] if p['role'] == 'relay_source')['principal_id']
     rule = r['admin'].execute("select payload from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='message_read_rule' and entity_key=%s",
                               (TENANT, [source])).fetchone()
-    assert rule and rule[0]['fields'] == ['actor', 'body'] and rule[0]['active'] is True
+    assert rule and rule[0]['fields'] == ['accepted_at', 'actor', 'body', 'conversation_id', 'sequence'] and rule[0]['active'] is True
     # Only digests are stored.
     stored = json.dumps(r['admin'].execute('select array_agg(token_digest) from authz.nexloop_service_credentials').fetchone()[0])
     assert not any(t in stored for t in tokens.values())

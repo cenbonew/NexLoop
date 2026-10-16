@@ -54,7 +54,16 @@ def test_reused_proofs_bind_the_same_pack_as_a_preparation_without_reuse(v6, adm
     assert f['v6_relay']().run_once() == 'queued'
     pack, row = bound(admin)
     assert fresh['same_snapshot'] is True
-    assert row[0] == fresh['pack'] and canonical_payload(pack) == fresh['pack']
+    # Item decisions cite read proofs whose expiry is the time they were built (now + 25 s): a preparation without reuse builds
+    # its own, so the two cite different decision refs for the same items. Everything else is byte for byte (0201: the pack now
+    # carries the Consumer in consumer_state, the first item with a decision in this fixture).
+    def without_decisions(text):
+        value = json.loads(text)
+        for section in ('constraints', 'consumer_state', 'open_work', 'evidence', 'semantics', 'experience'):
+            for item in value[section]:
+                item['access_decision_ref'] = 'decision:normalized'
+        return canonical_payload(value)
+    assert without_decisions(row[0]) == without_decisions(fresh['pack']) and canonical_payload(pack) == row[0]
     [scope] = scopes
     # Built once, used three times: the catalog READ envelopes (snapshot read + catalog envelope), the catalog envelope and the
     # message, Run, Action and Artifact proofs (snapshot, bind, recheck).

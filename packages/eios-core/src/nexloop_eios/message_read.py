@@ -193,7 +193,7 @@ class DerivedEvidenceReads:
         reader = self.reader; session = reader.session; signer = reader.signer
         consumer_id = basis['consumer_id']
         if consumer_id not in self._consumer:
-            consumer = reader._configured(ResourceType.OBJECT, 'Consumer/' + consumer_id, Operation.READ)
+            consumer = reader._authority(ResourceType.OBJECT, 'Consumer/' + consumer_id, Operation.READ)
             consumer.update(protocol='nexloop-object-read-v1', key_id=signer.key_id, type_name='Consumer',
                             object_id=consumer_id, fields=[], property_authorities=[])
             text = canonical_payload(consumer)
