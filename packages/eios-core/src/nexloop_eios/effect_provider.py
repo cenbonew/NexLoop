@@ -91,6 +91,21 @@ def _digest(value):
     return value
 
 
+def profile_identity(origin, connect_address, ca_text, test_loopback_http=False):
+    """The provider profile one side of an effect computes (HttpEffectProvider.profile_digest; the delivery service its own from
+    --origin and --provider-ca-file): endpoint, numeric routing and trust material. Both sides must agree, or the delivery authority
+    (0175) refuses every delivery."""
+    parsed=urlsplit(origin)
+    return {'protocol':'nexloop-service-effect-http-v1','origin':f'{parsed.scheme}://{parsed.hostname}:{parsed.port or 443}',
+        'connect_address':str(ipaddress.ip_address(connect_address or parsed.hostname)),
+        'trust_digest':'system' if ca_text is None else hashlib.sha256(ca_text.encode()).hexdigest(),
+        'test_loopback_http':test_loopback_http}
+
+
+def profile_digest_of(identity):
+    return hashlib.sha256(canonical_payload(identity).encode()).hexdigest()
+
+
 class HttpEffectProvider:
     """HTTPS, no proxy/redirect, bounded framing and absolute response deadline.
 
@@ -115,13 +130,9 @@ class HttpEffectProvider:
         # material identify the provider queried for an already durable attempt.
         # Snapshot CA bytes once so the actual request uses exactly this profile.
         if self._profile_digest is None:
-            config=self.configuration;origin=urlsplit(config.origin)
+            config=self.configuration
             self._ca_material=(None if config.ca_file is None else read_private_text(config.ca_file,maximum=32768))
-            identity={'protocol':'nexloop-service-effect-http-v1','origin':f'{origin.scheme}://{origin.hostname}:{origin.port or 443}',
-                'connect_address':str(ipaddress.ip_address(config.connect_address or origin.hostname)),
-                'trust_digest':'system' if self._ca_material is None else hashlib.sha256(self._ca_material.encode()).hexdigest(),
-                'test_loopback_http':config.test_loopback_http}
-            self._profile_digest=hashlib.sha256(canonical_payload(identity).encode()).hexdigest()
+            self._profile_digest=profile_digest_of(profile_identity(config.origin,config.connect_address,self._ca_material,config.test_loopback_http))
         return self._profile_digest
 
     def dispatch(self, *, intent_id, payload_digest, parameters):
