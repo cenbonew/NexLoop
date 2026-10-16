@@ -84,7 +84,7 @@ def switching(commitments, identity, uow, admin, pg, tmp_path):
             csrf = workbench_login(client, member).json()['csrf_token']
             body = {'action_type': None, 'data_mode': None, 'reason': 'synthetic switch change', **body}
             return act(client, csrf, 'set_real_dispatch', body)
-    c.update(switch=switch, owner_member=owner, operator_member=operator, configurator=configurator)
+    c.update(switch=switch, owner_member=owner, operator_member=operator, configurator=configurator, config=config)
     return c
 
 
