@@ -112,3 +112,50 @@ gateway 只有 3 个 Medium（修复状态 unknown），不处理。
 3. **豁免到期 2027-01-12**：
    - 到期后，`_waiver_problem` 判为 expired，stage 与 public 的检查都会失败；
    - 到期前要复核：Debian 是否已出修复。有修复就升级并删除豁免；仍无修复且仍不可达，就由负责人续批新的 90 天。
+
+## 2026-10-17：试运行后待办 1、2 的处置（分支，随 AT-015 之后的发布上线）
+
+### CVE-2025-13836：现锁基础镜像已含修复，无更新的 3.12 补丁版本可升
+
+核查（开发机，匿名只读读取公开数据源，未连接项目服务器）：
+
+| 来源 | 结论 |
+|---|---|
+| CVE 记录（PSF 为 CNA，`cveawg.mitre.org`） | CPython 受影响范围 `3.12.0 ≤ v < 3.12.13`（另有 3.10/3.11/3.13/3.14 各自范围） |
+| NVD（Analyzed，2026-09-03） | CPE `python:python` `3.12.0 ≤ v < 3.12.13` |
+| CPython git | 3.12 分支修复提交 `14b1fdb0a94b`（gh-119451，2025-12-22）；GitHub compare：`v3.12.12` 不含，`v3.12.13`、`v3.12.14`、`v3.12.15` 均含；`Misc/NEWS.d/3.12.13.rst` 的 Security 节列出 gh-119451 |
+| 现锁 `python-build-base` 本身 | 按 digest 读取 index `sha256:34386ef0…`（与锁一致）→ linux/amd64 manifest `sha256:2ed6491b…` → 第 3 层 `sha256:86a9e13e…`（下载后 sha256 核对通过）：`patchlevel.h` 为 `PY_VERSION "3.12.15"`，`http/client.py` 含有界读取 `_MIN_READ_BUF_SIZE = 1 << 20` 与 `cursize = min(amt, _MIN_READ_BUF_SIZE)`，即修复代码在镜像里 |
+| Docker Hub 标签 | `3.12.15-slim-bookworm` 仍是 3.12 最新（2026-10-06，digest 与锁相同）；没有 3.12.16 |
+| Debian（postgres 镜像的 `python3.11-minimal`） | security tracker：bookworm `python3.11` 在 `3.11.2-6+deb12u7` **已修复**。pgvector 现锁镜像（linux/amd64 末层 `sha256:1db3babb…` 的 dpkg status）中 `python3.11-minimal`、`libpython3.11-minimal` 为 `3.11.2-6+deb12u7`，状态 `deinstall ok config-files`（程序已卸载，只留配置） |
+
+本地私有附件里 10/14 发布（`20261014-…`）的发现：backend、agent-host 的 `python 3.12.10` 有 CVE-2025-13836（fixed），已由 3.12.15 解决；postgres 的两条是 `deb12u7`、grype 标 `wont-fix`（漏洞库的 Debian 数据当时未更新；按 D5 本就不列出）。上文 10/15 段落里“`listed` 至少含 CVE-2025-13836（backend、agent-host 的 python 3.12.15）”是预期写法，**不是 3.12.15 的实测发现**；按上表，3.12.15 不在受影响范围内。
+
+结论与改动：
+
+1. **不改 digest**：没有比现锁更新的 3.12 补丁版本；现锁 3.12.15 已含修复。换到 3.13 需改 `requires-python >=3.12,<3.13` 与全部锁，属另一项大改动，不在本项范围。
+2. **构建期下限**：`deploy/community/Dockerfile`（backend）与 `Host.Dockerfile`（agent-host 复制 `/usr/local` 后）在第一个 RUN 中断言 `sys.version_info >= (3, 12, 13)`，低于修复版本的基础镜像构建即失败。`tests/test_python_base_cve_floor.py` 核对锁中版本 ≥ 3.12.13 且两处断言存在。
+3. 不改许可证策略，所以不需要重生 THIRD_PARTY_NOTICES；SBOM 内容不变（基础镜像不变，新增的只是一条不安装任何东西的 RUN 检查）。
+
+**下一次发布（AT-015 之后）调度员在 CI 主机上要核对的事项**（只读；镜像不变，无需新拉取）：
+
+```
+# 1) 基础镜像仍按原 digest 在本地（从不按标签拉取）
+docker image inspect --format '{{.Id}}' docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+# 2) 构建后：两个镜像的 Python 版本与修复代码（镜像按 digest 引用，不联网）
+docker run --rm --network none --entrypoint python3 "<backend 镜像@sha256>" -c 'import sys,http.client as c;print(sys.version.split()[0],c._MIN_READ_BUF_SIZE)'
+docker run --rm --network none --entrypoint python3 "<agent-host 镜像@sha256>" -c 'import sys,http.client as c;print(sys.version.split()[0],c._MIN_READ_BUF_SIZE)'
+#    预期两行都是：3.12.15 1048576
+# 3) 新发布的发现中 CVE-2025-13836 的位置（只含编号、包、版本、修复状态）
+for f in sbom/*.findings.json; do echo "== $f"; jq -c '.[] | select(.id=="CVE-2025-13836")' "$f"; done
+```
+
+第 3 条的判读：
+
+- 预期 backend、agent-host 不再出现 `python 3.12.15` 的这一项；postgres 的 `python3.11-minimal deb12u7` 若仍出现，应为 `wont-fix` 或 `not-fixed`，不列出也不阻断；
+- **若 backend/agent-host 仍以 `python 3.12.15`、`fixed` 列出**，那是 grype 0.86.1（schema v5 漏洞库）的匹配数据与 CVE 记录、NVD 不一致，不是镜像未修复。处置需负责人决定：它是 High，stage 与 public 都只列出不阻断，不需要豁免；如要从列表中消去，只能升级 grype（改 `versions.lock.json` 的 pinned 工具，另立任务）。在此之前不得为此写豁免，因为负责人 10/15 决定此项不豁免。
+
+### retention.py 读取上限
+
+`HostPurger`（Agent Host 回环 `runs/purge`）的 `response.read()` 改为 `read(RESPONSE_LIMIT+1)`，`RESPONSE_LIMIT=4096`；超过上限按 `failed` 处理，队列保留该项，与 `host_control.py` 的 4097/4096 做法一致。`nexloop_eios` 包内已没有其它无界的 HTTP 响应读取（`git grep '\.read()'` 只剩文件读取）。
+
+测试 `tests/test_retention_host_reply_bound.py`（本机 TLS 回环假 Host）：上限内的回复照常读取；超过上限的回复（4097 字节、1 MiB）即使内容是 `purged` 也判 `failed`；声明 1 GiB、只发出超过上限的字节后挂起的回复，在 5 秒内返回 `failed`（连接超时是 10 秒）；非 200 判 `failed`。用改动前的 `retention.py` 运行，后三类中 3 个用例失败，即测试能识别回退。

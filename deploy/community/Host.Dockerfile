@@ -5,7 +5,9 @@ FROM ${PYTHON_IMAGE} AS python_runtime
 FROM ${NODE_IMAGE}
 COPY --from=python_runtime /usr/local/ /usr/local/
 # The Host runs only node and python3: the base image's npm and corepack (and their bundled packages) are removed (NX-036).
-RUN ldconfig && useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin nexloop \
+# CVE-2025-13836 (http.client read buffering) is fixed in CPython 3.12.13; the build fails on an older Python base (NX-036).
+RUN ldconfig && python3 -c 'import sys; sys.exit(sys.version_info[:3] < (3, 12, 13))' \
+ && useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin nexloop \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
  && test ! -e /usr/local/lib/node_modules/npm && ! command -v npm && ! command -v corepack
 COPY agent_host.py /opt/nexloop/scripts/agent_host.py
