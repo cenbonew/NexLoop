@@ -268,7 +268,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # phase erases as before). No Claim value becomes formal or is projected.
         # NX-031 slice 3 0148 answers the leasing matcher whether a claim-match Conversation still has a Claim to match (a boolean
         # from the 0102 pending predicate, the same states the purpose READ uses); no Claim value is read, returned or projected.
-        '_nx029_retention','_nx029_erasure','_nx029_expiry_classes','_relay_erasure','_at043_incentives','_claim_match_settled')) for name in migrations)
+        # Context sources 0201 copies the 0145 v6 source check verbatim (its Claim rules unchanged: evidence only, raw quote) and adds
+        # conversation-turn Message items; the new turn read returns Message bodies, never a Claim.
+        '_nx029_retention','_nx029_erasure','_nx029_expiry_classes','_relay_erasure','_at043_incentives','_claim_match_settled',
+        '_context_conversation_turns')) for name in migrations)
 
 
 def correction_window(conversations):
