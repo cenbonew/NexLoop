@@ -123,8 +123,11 @@ def slot_placeholders(slot):
 
 def assemble_role(st):
     """G-ROLE: role-assembly.example.json through nexloop_eios.role_assembly as role_assembler, then the owner enrolls the consumer again
-    with role_id, link_id and step_id (relay-enrollment example plus the three role keys)."""
+    with role_id, link_id and step_id (relay-enrollment example plus the three role keys). Once per dry run: a later call returns the
+    same Role (run_workers configures the workers again)."""
     r = st.result
+    if 'role' in r:
+        return r['role']
     recipe = A.filled('role-assembly.example.json', NEW_UUID=A.new_uuid(), CONSUMER_ID_FROM_BUSINESS_SETUP=r['business']['consumer_id'],
                       CONTROL_ID_FROM_BUSINESS_SETUP=r['business']['control_id'], NOW_UTC_ISO=(datetime.now(UTC) - timedelta(seconds=5)).replace(microsecond=0).isoformat(),
                       TRIAL_PERIOD_END_UTC_ISO=A.end_of_trial(), ROLE_NAME='operations', ROLE_RESPONSIBILITY='reply to the consumer within the plan',

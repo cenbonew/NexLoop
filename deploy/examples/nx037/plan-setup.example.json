@@ -1,0 +1,28 @@
+{
+  "schema_version": "nexloop-plan-setup/1",
+  "plan_id": "<NEW_UUID>",
+  "consumer_id": "<CONSUMER_ID_FROM_BUSINESS_SETUP>",
+  "goal_version_ref": "<GOAL_VERSION_REF_FROM_GOAL_SETUP>",
+  "context_strategy_ref": "<STRATEGY_REF_FROM_CONTEXT_STRATEGY_SETUP>",
+  "strategy": {"content": "<PLAN_STRATEGY_TEXT>"},
+  "recipe": {
+    "role_id": "<ROLE_ID_FROM_ROLE_ASSEMBLY>",
+    "link_id": "<LINK_ID_FROM_ROLE_ASSEMBLY>",
+    "step_id": "<STEP_ID_FROM_ROLE_ASSEMBLY>",
+    "offering_id": "<OFFERING_ID_FROM_CATALOG_SETUP>",
+    "binding_id": "<BINDING_ID_FROM_CATALOG_SETUP>",
+    "control_id": "<CONTROL_ID_FROM_BUSINESS_SETUP>"
+  },
+  "steps": [
+    {
+      "step_key": "<PLAN_STEP_KEY>",
+      "step_object_id": null,
+      "prerequisites": ["<PLAN_STEP_PREREQUISITE>"],
+      "expected_result": "<PLAN_STEP_EXPECTED_RESULT>",
+      "stop_if": [],
+      "reassess_at": "<REASSESS_AT_UTC_ISO>",
+      "budget": {"maximum_model_turns": 4, "maximum_tool_calls": 8, "active_timeout_seconds": 120},
+      "intent_ref": null
+    }
+  ]
+}
