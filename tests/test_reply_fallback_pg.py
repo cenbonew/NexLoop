@@ -112,8 +112,8 @@ def test_unanswered_message_gets_one_llm_fallback_reply_and_settles(assembled_me
         c['recipe']=f['recipe'];tenant=c['tenant'];consumer=c['consumer']
         assert outbound(admin,tenant)==[] and pending(admin,tenant)==['reply:'+consumer['id']]
         with guarantor(c,admin,tmp_path,token) as g:
-            assert not any(g['worker']().run_once().values())  # not due before start_after_seconds
-            make_due(admin)
+            # Reply fail-fast (0199): the silent original Run submitted no reply, so its reply guarantee is due now, not after
+            # start_after_seconds.
             assert g['worker']().run_once()['fallback_started']==1
             run_id=g['launcher'].last['run_id']
             assert admin.execute('select message_id from authz.nexloop_message_fallback_issuances where run_id=%s',(run_id,)).fetchone()==(consumer['id'],)
