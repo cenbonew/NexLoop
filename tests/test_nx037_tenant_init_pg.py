@@ -146,7 +146,7 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
     alert rules) and the three switch layers are exactly the plan's; with both, it stops at the missing real driver."""
     import run_interactions as R
     # The start guards (consent, window, endpoint, delivery, recorder) have their own tests (test_nx037_trial_guards); held here.
-    monkeypatch.setattr(R, 'guard_refusals', lambda *unused: ([], []))
+    monkeypatch.setattr(R, 'guard_refusals', lambda *unused, **keywords: ([], []))  # keywords: preflight (run_interactions --preflight)
     reader, base, capability = published_action
     admin.execute('alter role nexloop_configurator login')
     manifest = json.loads(I.GRANTS.read_text())
