@@ -1,0 +1,37 @@
+{
+  "_comment": "NX-035 repo2: the IAM policy of the DATA_HOST backup sub-user (pgBackRest repo2 and the journal restic repo2). Prefix-scoped like the NEX-EIOS backup identity, with its measured TOS spellings (tos:ListObjects on the bucket TRN with the condition key tos:prefix in lower case; GetObject/PutObject on the exact prefix TRNs). Unlike it, tos:DeleteObject is granted: pgBackRest expire and restic forget/prune remove their own old objects. Multipart actions are for large uploads. No bucket configuration action. The APP_HOST sub-user: the same shape with nexloop/restic-files/ only. Check the multipart action names against the TOS IAM action list before applying.",
+  "Version": "1.0",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:ListObjects"
+      ],
+      "Resource": [
+        "trn:tos:::__TOS_BUCKET__"
+      ],
+      "Condition": {
+        "StringLike": {
+          "tos:prefix": [
+            "nexloop/pgbackrest/*",
+            "nexloop/restic-journal/*"
+          ]
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:GetObject",
+        "tos:PutObject",
+        "tos:DeleteObject",
+        "tos:AbortMultipartUpload",
+        "tos:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "trn:tos:::__TOS_BUCKET__/nexloop/pgbackrest/*",
+        "trn:tos:::__TOS_BUCKET__/nexloop/restic-journal/*"
+      ]
+    }
+  ]
+}

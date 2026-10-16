@@ -1,0 +1,12 @@
+{
+  "schema": "nexloop-backup-plan/1",
+  "version": 2,
+  "decision": "NX-035 repo2 (owner 2026-10-17: the offsite repository on Volcengine TOS through its S3-compatible endpoint, docs/implementation/NX-035-repo2-tos.md): backup.v1.json with repo2 required. Switch doctor --backup to this file only after the first verified pg_full in repo2 (run sheet run-repo2-tos); from then on required_repos_recent also needs repo2 within max_backup_age_seconds. Everything else is v1 unchanged.",
+  "pg": {"full_every_hours": 168, "differential_every_hours": 24, "incremental_every_hours": 6, "incremental_enabled": false, "verify_every_backup": true},
+  "wal": {"archive_timeout_seconds": 60, "max_archive_age_seconds": 300},
+  "files": {"snapshot_every_minutes": 15, "max_age_seconds": 3600},
+  "retention": {"pitr_window_days": 14, "monthly_full_keep": 1, "max_retention_days": 35},
+  "journal": {"export_every_seconds": 60, "max_lag_seconds": 300},
+  "limits": {"max_backup_age_seconds": 93600, "max_full_backup_age_seconds": 691200, "max_drill_age_seconds": 3024000},
+  "repos": {"required": ["repo1", "repo2"], "optional": []}
+}

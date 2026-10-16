@@ -1,0 +1,21 @@
+{
+  "_comment": "NX-035 repo2 lifecycle: what the rules must say, not a TOS API document (enter them in the TOS console or through the SDK's lifecycle model, as NEX-EIOS's adapter does). No expiration rule may reach nexloop/: pgBackRest and restic expire their own data, and a bucket rule deleting objects under a repository corrupts it. Only: abort incomplete multipart uploads after 1 day; with versioning enabled (owner decision), noncurrent versions expire after 14 days.",
+  "Rules": [
+    {
+      "ID": "abort-incomplete-multipart",
+      "Prefix": "nexloop/",
+      "Status": "Enabled",
+      "AbortInCompleteMultipartUpload": {
+        "DaysAfterInitiation": 1
+      }
+    },
+    {
+      "ID": "noncurrent-versions-14d",
+      "Prefix": "nexloop/",
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 14
+      }
+    }
+  ]
+}

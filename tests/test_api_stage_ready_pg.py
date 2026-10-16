@@ -223,3 +223,20 @@ def test_doctor_backup_on_a_catalog_without_backups_fails_through_the_metrics_ro
     assert result['checks']['restore_state_open'] is True and result['checks']['deletion_replay_closed'] is True
     api = private(tmp_path / 'api-dsn', make_conninfo(pg, user='nexloop_api'))
     assert doctor.backup(api, PLAN)['checks']['backup_status'] is False  # only the read-only metrics role
+
+
+def test_doctor_backup_plan_v2_requires_the_offsite_repo2(tmp_path, monkeypatch):
+    """NX-035 repo2 on TOS: backup.v2.json is v1 with repo2 required; any other repository set is refused."""
+    v1, v2 = json.loads(PLAN.read_text()), json.loads((PLAN.parent / 'backup.v2.json').read_text())
+    assert {k: v for k, v in v2.items() if k not in ('version', 'decision', 'repos')} == {k: v for k, v in v1.items() if k not in ('version', 'decision', 'repos')}
+    status = json.loads(json.dumps(GOOD))
+    monkeypatch.setattr(doctor, 'read_backup_status', lambda path: status)
+    v2_file = PLAN.parent / 'backup.v2.json'
+    assert 'required_repos_recent' in doctor.backup(tmp_path / 'dsn', v2_file)['details']['backup']['failed']  # repo2 never backed up
+    status['backup']['repo_backup_age_seconds'] = {'repo1': 3600, 'repo2': 7200}
+    assert all(doctor.backup(tmp_path / 'dsn', v2_file)['checks'].values())
+    status['backup']['repo_backup_age_seconds']['repo2'] = 93601
+    assert 'required_repos_recent' in doctor.backup(tmp_path / 'dsn', v2_file)['details']['backup']['failed']
+    for repos in ({'required': ['repo2'], 'optional': ['repo1']}, {'required': ['repo1', 'repo2'], 'optional': ['repo3']}, {'required': [], 'optional': []}):
+        (tmp_path / 'plan.json').write_text(json.dumps({**v2, 'repos': repos}))
+        assert doctor.backup(tmp_path / 'dsn', tmp_path / 'plan.json')['checks'] == {'backup_plan_file': False}
