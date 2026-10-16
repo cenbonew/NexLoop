@@ -194,6 +194,7 @@ CI 主机就是规划中的 APP_HOST。下列占用互斥，同一时间只做�
 | 2026-10-15 | 负责人批准 NX-036 漏洞豁免（D6）：zlib CVE-2023-45853 ×3、sqlite CVE-2025-7458 ×2 接受豁免至 2027-01-12（不可达、上游 wont-fix）；CVE-2025-13836 不豁免。试运行后待办：升级 Python 基础镜像修复 CVE-2025-13836；retention.py 读取加上限；2027-01-12 前复审豁免（过期后 stage 发布检查也会失败） | docs/release/nx036-waiver-review-20261016.md；docs/implementation/NX-036-vuln-remediation.md |
 | 2026-10-15 | 负责人决定：决策评估（火山方舟 System One，beta）作为判断层在试运行后接入；今晚只在分支 l5/decision-eval-impl 实现离线部分，10/22 验收前不合入、不进发布；首批用途 Claim 复核与转人工判断，阈值待标注集校准 | docs/implementation/decision-eval-system-one-design.md |
 | 2026-10-15 | 负责人决定：模型预算期间提前为 10/18 00:00–10/23 00:00（+08:00，100 CNY），10/18 早上做带模型冒烟；stage 测试账户口令由调度员生成并经私有文件交付 | docs/release/run-model-smoke-20261018.md |
+| 2026-10-16 | 负责人决定：每周 7 天正常推进，周末无休；排期整体提前 2 天：10/16 带模型冒烟 → 10/17 校准 3 次 → 10/18–19 交互 36 次 → 10/20 AT-015、证据包与 v0.1 验收（冒烟发现问题则顺延，最晚 10/21 验收）。模型预算期间同日改为 10/16 00:00–10/23 00:00（+08:00，100 CNY） | docs/release/run-model-smoke-20261018.md |
 
 待决：见 §6“下一道关卡的决定”。
 
