@@ -359,7 +359,7 @@ def test_v2_is_loaded_by_version_and_v1_stays_unchanged():
     assert v1['sets']['claim_review']['questions']['kind']['options'] == ['stated_fact', 'stated_preference', 'stated_intent', 'hypothesis',
                                                                            'insufficient_information']
     kind = CLAIM_V2['questions']['kind']
-    assert kind['insufficient'] == '信息不足' and '信息不足' in kind['options']
+    assert kind['insufficient'] == '信息不足' and kind['options'] == list(REAL_SHAPES['choice']['probabilities'])  # exactly the real labels
     assert all(o in kind['criteria'] for o in kind['options'])                 # each label written in the criteria as declared
     assert CLAIM_V2['version'] == 'claim_review.v2' and all(q['version'].endswith('.v2') for q in CLAIM_V2['questions'].values())
     with pytest.raises(de.QuestionsInvalid):
@@ -376,7 +376,7 @@ def test_v2_every_option_label_is_accepted_as_returned(credential, kind):
 
 def test_labels_are_never_mapped_between_versions(credential):
     # A v1 label in a v2 answer, and a v2 label in a v1 answer, are both invalid: uncertain, nothing mapped.
-    v1_label_in_v2 = claim_answers_v2('fact')
+    v1_label_in_v2 = claim_answers_v2('constraint')
     v1_label_in_v2['answers']['kind']['choice'] = 'insufficient_information'
     assert client(credential, FakeTransport((200, v1_label_in_v2))).evaluate(CLAIM_V2, STATE).reason == 'invalid_response'
     v2_label_in_v1 = claim_answers()
@@ -385,8 +385,14 @@ def test_labels_are_never_mapped_between_versions(credential):
     v2_label_in_v1['answers']['kind']['choice'] = '信息不足'
     v2_label_in_v1['answers']['kind']['probabilities'] = {k: (0.99 if k == '信息不足' else 0.0025) for k in probs}
     assert client(credential, FakeTransport((200, v2_label_in_v1))).evaluate(CLAIM, STATE).reason == 'invalid_response'
-    # The real call's sample label set (REAL_SHAPES) is still accepted only by a question that declares exactly those labels.
-    assert de.validate_answer(CLAIM_V2['questions']['kind'], REAL_SHAPES['choice']) is None
+    # v2's option set is exactly the real call's: the real sample passes unchanged; an answer with a label outside it does not.
+    assert de.validate_answer(CLAIM_V2['questions']['kind'], REAL_SHAPES['choice'])['choice'] == 'constraint'
+    with_fact = copy.deepcopy(REAL_SHAPES['choice'])
+    with_fact['probabilities'] = {**with_fact['probabilities'], 'fact': 0.0}
+    assert de.validate_answer(CLAIM_V2['questions']['kind'], with_fact) is None
+    fact_chosen = claim_answers_v2('constraint')
+    fact_chosen['answers']['kind']['choice'] = 'fact'
+    assert client(credential, FakeTransport((200, fact_chosen))).evaluate(CLAIM_V2, STATE).reason == 'invalid_response'
 
 
 def test_v1_decisions_are_unchanged_by_v2():
