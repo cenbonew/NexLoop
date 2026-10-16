@@ -171,3 +171,13 @@ grype 0.86.1 只能读 v5 漏洞库，v5 库停在 2026-03-09，D12 无法满足
 - zlib 豁免不再被用到，进入 cleanup。
 
 Node 与 pgvector 两个基础层在新库下会出现有修复的 Critical，public 发布将被阻断，需要另立任务升级这两个基础镜像。
+
+### 基础层安全更新（消除 v6 库下有修复的 Critical）
+
+agent-host 的 Node 基础层与 postgres 的 pgvector 基础层，按 `versions.lock.json` 中的 `security_updates` 精确升级 Debian 包：
+
+- postgres 的基础镜像换为 pgvector 0.8.7-pg18-bookworm（PostgreSQL 18.6，同一大版本）；
+- postgres 清除 `rc` 状态的残留包；
+- Node 运行时保持 24.13.0。
+
+做法、模拟扫描结果，以及 CI 主机和 DATA_HOST 的操作步骤，见 `docs/release/run-base-security-20261017.md`。

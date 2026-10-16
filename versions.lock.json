@@ -114,15 +114,31 @@
   },
   "images": {
     "postgres": {
-      "reference": "docker.io/pgvector/pgvector:0.8.5-pg18-bookworm",
-      "digest": "sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0",
-      "postgres_version": "18.4",
-      "pgvector_version": "0.8.5",
+      "reference": "docker.io/pgvector/pgvector:0.8.7-pg18-bookworm",
+      "digest": "sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11",
+      "postgres_version": "18.6",
+      "pgvector_version": "0.8.7",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
       ],
-      "status": "resolved_index_manifest_only_runtime_unverified",
+      "status": "resolved_index_manifest_and_amd64_scan_only_runtime_unverified",
+      "resolved_at": "2026-10-17",
+      "security_updates": [
+        "perl-base=5.36.0-7+deb12u4",
+        "perl=5.36.0-7+deb12u4",
+        "perl-modules-5.36=5.36.0-7+deb12u4",
+        "libperl5.36=5.36.0-7+deb12u4",
+        "libpcre2-8-0=10.42-1+deb12u2"
+      ],
+      "security_reason": "NX-036 (docs/release/run-base-security-20261017.md): grype 0.120.0 with the v6 database finds fixed Critical findings in the perl packages of the newest pgvector bookworm image; bookworm-security has the fixed versions. The python3.11 entries are config-files remnants (no binaries) and are purged in deploy/postgres/Dockerfile.",
+      "previous": {
+        "reference": "docker.io/pgvector/pgvector:0.8.5-pg18-bookworm",
+        "digest": "sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0",
+        "postgres_version": "18.4",
+        "pgvector_version": "0.8.5",
+        "reason": "same PostgreSQL major (18) and pgvector 0.8.x bug-fix releases only: the data directory and the vector extension are used unchanged (the extension's catalog version stays until ALTER EXTENSION vector UPDATE)"
+      },
       "replaces": {
         "reference": "docker.io/library/postgres:18.4-bookworm",
         "digest": "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
@@ -168,7 +184,17 @@
     "node-host-base": {
       "reference": "docker.io/library/node:24.13.0-bookworm-slim",
       "digest": "sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f",
-      "status": "verified_official_index_arm64_host_build_and_container_runtime"
+      "status": "verified_official_index_arm64_host_build_and_container_runtime",
+      "security_updates": [
+        "perl-base=5.36.0-7+deb12u4",
+        "libgnutls30=3.7.9-2+deb12u7",
+        "libc6=2.36-9+deb12u14",
+        "libc-bin=2.36-9+deb12u14",
+        "libcap2=1:2.66-4+deb12u3+b1",
+        "libpcre2-8-0=10.42-1+deb12u2",
+        "dpkg=1.21.23"
+      ],
+      "security_reason": "NX-036 (docs/release/run-base-security-20261017.md): the Node runtime stays 24.13.0 (the version the Host is built and tested with); the Debian packages of this base with fixed Critical/High findings are upgraded to these exact bookworm / bookworm-security versions in deploy/community/Host.Dockerfile."
     }
   },
   "release_tools": {

@@ -825,6 +825,21 @@ def pinned_tool_value(lock, path):
     return value
 
 
+_PACKAGE_PIN = re.compile(r'[a-z0-9][a-z0-9.+-]{0,63}=[0-9][0-9A-Za-z.+~:_-]{0,63}')
+
+
+def pinned_package_list(lock, path):
+    """Exact Debian security updates of a base image (for example images.postgres.security_updates): a non-empty list of
+    unique "package=version" pins, passed to the build as one space-separated argument."""
+    value = lock
+    for key in path:
+        value = value.get(key) if type(value) is dict else None
+    if (type(value) is not list or not value or not all(type(v) is str and _PACKAGE_PIN.fullmatch(v) for v in value)
+            or len({v.split('=', 1)[0] for v in value}) != len(value)):
+        raise Refused(f'{".".join(path)}: not pinned in versions.lock.json')
+    return ' '.join(value)
+
+
 def require_checkout_at(root, sha):
     """Images are built from the released commit itself: HEAD is that commit and nothing is modified or untracked."""
     if git('rev-parse', 'HEAD', root=root) != sha:
@@ -885,6 +900,8 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
                     arguments += ['--build-arg', f'{argument}={pinned_reference(lock, base)}']
                 for argument, path in sorted((entry.get('tool_args') or {}).items()):
                     arguments += ['--build-arg', f'{argument}={pinned_tool_value(lock, path)}']
+                for argument, path in sorted((entry.get('security_args') or {}).items()):
+                    arguments += ['--build-arg', f'{argument}={pinned_package_list(lock, path)}']
                 for argument, variable in sorted((entry.get('mirror_args') or {}).items()):
                     value = (environ if environ is not None else os.environ).get(variable, '')
                     if value:
