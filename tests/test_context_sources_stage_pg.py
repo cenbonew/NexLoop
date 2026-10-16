@@ -45,3 +45,29 @@ def test_a_derived_only_source_reads_every_required_context_source(multi):  # no
     other = m['consumers']['B']
     found = collect(api._pool, source._session, api._signer, consumer_id=other['consumer'], conversation_ids=conversations_of(m, other), strategy={'include_hypotheses': False})
     assert {i['section'] for i in found.insufficient} == {'open_work', 'evidence'}
+
+
+def test_a_stage_source_s_second_message_pack_carries_the_earlier_turn_and_the_consumer(multi):  # noqa: F811
+    """Through the relay (derived-only Source, the stage message_read_rule, recent_plus_required): A's messages are A1 (conversation
+    0), A2 (conversation 1), A3 (conversation 0). A3's bound pack has no insufficiency, its evidence carries A1 as an earlier turn
+    of the same conversation (0201) and not A3 itself (that is the user_statement), and consumer_state holds the Consumer."""
+    from nexloop_eios.run_credential_vault import RunCredentialVault
+    from test_context_v6_pg import STRATEGY, seed_strategy
+    m = multi
+    m['enroll']('A')
+    stage_rule(m)
+    seed_strategy(m['admin'], m['tenant'], STRATEGY)
+    c = m['consumers']['A']
+    with RunCredentialVault(m['vault_dir']) as vault:
+        assert [m['relay'](vault, context_strategy='recent_plus_required').run_once() for _ in range(3)] == ['queued'] * 3
+    packs = {}
+    for text, run_id in m['admin'].execute('select pack_text,run_id::text from runtime.nexloop_context_artifact_bindings').fetchall():
+        pack = json.loads(text)
+        packs[pack['user_statement']['message_id']] = pack
+    first, second, third = (packs[message] for message in c['messages'])
+    for pack in (first, second, third):
+        assert pack['insufficient'] == [], pack['insufficient']
+        assert [i['ref'] for i in pack['consumer_state']] == ['eios:object:Consumer/' + c['consumer']]
+    turns = [i for i in third['evidence'] if i['subsection'] == 'conversation']
+    assert [(t['ref'], t['content']['speaker'], t['content']['body']) for t in turns] == [('eios:object:Message/' + c['messages'][0], 'consumer', 'A 第一条')]
+    assert not [i for i in first['evidence'] if i['subsection'] == 'conversation']  # its conversation had no earlier turn

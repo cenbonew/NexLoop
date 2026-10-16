@@ -331,11 +331,13 @@ def test_budget_trims_evidence_but_never_pinned_sources(v6,admin,mode):
     refs={i['ref'] for i in pack['evidence']}
     assert {'claim:'+c for c in pinned}<=refs
     omitted=pack['budget_report']['omitted']
-    assert omitted and {o['ref'] for o in omitted}<={'claim:'+c for c in loose} and not any(o['ref'] in refs for o in omitted)
+    # 0201: the Consumer (consumer_state, not pinned) may be omitted too when only pinned sources fit.
+    consumer_ref='eios:object:Consumer/'+f['f']['recipe']['consumer_id']
+    assert omitted and {o['ref'] for o in omitted}<={'claim:'+c for c in loose}|{consumer_ref} and not any(o['ref'] in refs for o in omitted)
     if mode=='trim':
         assert {o['reason'] for o in omitted}=={'older_claim_evidence'} and pack['insufficient']==[]
     else:
-        assert {o['reason'] for o in omitted}=={'mandatory_exceeds_budget'} and {'claim:'+c for c in loose}=={o['ref'] for o in omitted}
+        assert {o['reason'] for o in omitted}=={'mandatory_exceeds_budget'} and {'claim:'+c for c in loose}=={o['ref'] for o in omitted}-{consumer_ref}
         assert pack['insufficient'][0]['code']=='mandatory_exceeds_budget' and set(pack['insufficient'][0]['refs'])=={'claim:'+c for c in pinned}
         # Pinned items are whole, never truncated.
         assert all(next(i for i in pack['evidence'] if i['ref']=='claim:'+c)['content']['quote'].startswith('不要再联系我'+long) for c in pinned)

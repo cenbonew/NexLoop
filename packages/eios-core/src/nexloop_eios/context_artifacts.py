@@ -223,7 +223,8 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         strategy=StrategyRegistry(self.pool,self.session,self.signer,run=self.run).get(self.strategy_id)
         if strategy is None:raise ValueError('context strategy unavailable')
         consumer=command['consumer_ref'].removeprefix('consumer:')
-        found=collect(self.pool,self.session,self.signer,consumer_id=consumer,conversation_ids=[core['user_statement']['conversation_id']],strategy=strategy.definition)
+        found=collect(self.pool,self.session,self.signer,consumer_id=consumer,conversation_ids=[core['user_statement']['conversation_id']],strategy=strategy.definition,
+            current_message_id=core['user_statement']['message_id'],current_sequence=core['user_statement']['sequence'])
         goal=next(f for f in core['formal_facts'] if f['type']=='Goal')
         statement=core['user_statement']
         body,outcome=assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role=None,

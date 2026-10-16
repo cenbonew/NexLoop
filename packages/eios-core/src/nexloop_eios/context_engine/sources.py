@@ -9,7 +9,7 @@ import hmac
 
 from eios.authz.resources import ResourceType
 from nexloop_eios.context_engine.authority import ContextDenied,decision_ref,read_proof,signed_read
-from nexloop_eios.context_engine.sections import claim_items,open_work_items
+from nexloop_eios.context_engine.sections import claim_items,conversation_items,open_work_items
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 
@@ -34,6 +34,22 @@ def _claims_view(pool,session,signer,conversation_id,proof):
         return db.execute('select authz.nexloop_read_conversation_claims(%s,%s,%s,%s)',(session.token_digest,session.world,text,signature)).fetchone()[0]
 
 
+def _turns_view(pool,session,signer,conversation_id,proof,limit):
+    """0201: the latest turns of one conversation under the same Conversation READ decision as its Claims."""
+    from nexloop_eios.assembly import verify_application_role
+    claims={**proof,'protocol':'nexloop-turn-read-v1','key_id':signer.key_id,'conversation_id':conversation_id,'limit':limit}
+    text=canonical_payload(claims);signature=hmac.new(signer.material,('nexloop-turn-read-v1:'+text).encode(),'sha256').hexdigest()
+    with pool.connection() as db,db.transaction():
+        verify_application_role(db)
+        return db.execute('select authz.nexloop_read_conversation_turns(%s,%s,%s,%s)',(session.token_digest,session.world,text,signature)).fetchone()[0]
+
+
+def _turn_limit(strategy):
+    """Twice the strategy's protected recent turns (consumer and Agent), at least 2, at most 64."""
+    recent=((strategy.get('sections') or {}).get('evidence') or {}).get('recent_turns',6)
+    return max(2,min(64,2*int(recent)))
+
+
 def consumer_conversations(pool,session,signer,consumer_id):
     """Conversation ids of one Consumer under current Consumer READ (Role Runs, 0093)."""
     proof=read_proof(pool,session,ResourceType.OBJECT,'Consumer/'+consumer_id)
@@ -51,7 +67,7 @@ def consumer_read_proof(pool,session,signer,consumer_id):
         except Exception:raise ContextDenied('eios:object:Consumer/'+consumer_id) from None
 
 
-def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy):
+def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy,current_message_id=None,current_sequence=None):
     import psycopg
     from nexloop_eios.goal_controls import ControlDenied,ControlPlane
     from nexloop_eios.object_reads import AuthorizedObjectReader
@@ -60,7 +76,18 @@ def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy):
     try:
         proof=consumer_read_proof(pool,session,signer,consumer_id)
         rows=signed_read(pool,session,signer,'open_work',{'consumer_id':consumer_id},proofs=[proof])
-        out.items+=open_work_items(rows,decision=out.keep(proof))
+        decision=out.keep(proof)
+        out.items+=open_work_items(rows,decision=decision)
+        # The Consumer itself in consumer_state (formal, object level; a property is shown only with its own READ decision,
+        # which the relay Source's derived READ does not give: none here).
+        # Its decision is the object reader's (request-memoized, as the Conversation decisions below), so one preparation and a
+        # preparation without proof reuse (ADR-029a) cite the same decision.
+        from nexloop_eios.context_engine.sections import formal_object_item
+        reader=AuthorizedObjectReader(pool,session,signer)
+        current=reader.get('Consumer',consumer_id)
+        state=reader._authority(ResourceType.OBJECT,'Consumer/'+consumer_id)
+        out.items.append(formal_object_item('consumer_state',{'type_name':'Consumer','object_id':consumer_id,'revision':current['revision'],'properties':{}},
+            decision=out.keep(state)))
     except (ContextDenied,psycopg.errors.InsufficientPrivilege):
         out.insufficient.append({'code':'required_source_unreadable','section':'open_work','refs':['eios:object:Consumer/'+consumer_id]})
     # Claim evidence (source text only; hypotheses never in a real-world Context): Conversation READ each.
@@ -69,7 +96,13 @@ def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy):
         try:
             proof=AuthorizedObjectReader(pool,session,signer)._authority(ResourceType.OBJECT,'Conversation/'+conversation_id)
             view=_claims_view(pool,session,signer,conversation_id,proof)
-            out.items+=claim_items(view,strategy,decision=out.keep(proof))
+            decision=out.keep(proof)
+            out.items+=claim_items(view,strategy,decision=decision)
+            # 0201: the conversation itself (earlier turns; the current statement is the pack's user_statement).
+            # Earlier turns only: never the current statement or anything accepted after it.
+            turns=[t for t in _turns_view(pool,session,signer,conversation_id,proof,_turn_limit(strategy))['turns']
+                   if t['id']!=current_message_id and (current_sequence is None or t['sequence']<current_sequence)]
+            out.items+=conversation_items(turns,decision=decision)
         except Exception as error:
             if not isinstance(error,(ContextDenied,psycopg.errors.InsufficientPrivilege)) and type(error).__name__ not in ('ActionAuthorizationDenied','AuthorizationFactDenied','AuthorizationUnavailable'):raise
             unreadable.append('eios:object:Conversation/'+conversation_id)
