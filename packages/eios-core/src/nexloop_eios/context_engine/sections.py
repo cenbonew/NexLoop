@@ -86,12 +86,14 @@ def open_work_items(open_work,*,decision):
     return assert_partition(out)
 
 
-def conversation_items(messages,*,decision,negation_refs=frozenset()):
-    """Persisted stream records (inbound and channel-accepted outbound), as untrusted data."""
+def conversation_items(messages,*,decision,negation_refs=frozenset(),latest_consumer=None):
+    """Persisted stream records (inbound and channel-accepted outbound), as untrusted data. 0202: latest_consumer (a Message id)
+    is the customer's latest turn before the current statement; it carries latest_consumer_turn (pinned)."""
     out=[]
     for record in messages:
         ref='eios:object:Message/'+record['id']
         tags={'negation'} if ref in negation_refs else set()
+        if latest_consumer is not None and record['id']==latest_consumer:tags.add('latest_consumer_turn')
         out.append(Item('evidence','conversation',ref,str(record['sequence']),
             {'speaker':'agent' if record.get('direction')=='outbound' else 'consumer','body':record['body'],'sequence':record['sequence'],
              'accepted_at':record['accepted_at']},'conversation',decision,relevance=0.5,at=record['accepted_at'],tags=frozenset(tags)))

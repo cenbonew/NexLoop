@@ -133,7 +133,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
         if(createHash('sha256').update(canonicalContextJSON(item.content),'utf8').digest('hex')!==item.content_hash)return fail();
         if(section!=='evidence'&&String(item.ref).startsWith('claim:'))return fail();
         if((item.evidence_kind==='hypothesis')!==(section==='evidence'&&item.subsection==='hypotheses'))return fail();
-        if(item.tags.some(tag=>!['negation','contact_limit','unconfirmed'].includes(String(tag))))return fail();
+        if(item.tags.some(tag=>!['negation','contact_limit','unconfirmed','latest_consumer_turn'].includes(String(tag))))return fail();
       }
     }
     exact(pack.budget_report,['estimator','input_token_budget','output_reserve','framing_reserve','available','used','sections','omitted']);

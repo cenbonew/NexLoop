@@ -11,7 +11,8 @@ import math
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 MANDATORY_SECTIONS=('bindings','role','goal','current_event','constraints')
-PIN_TAGS=frozenset({'negation','contact_limit','unconfirmed'})
+# 0202: the customer's latest turn before the current statement is pinned too (SQL requires it present and tagged).
+PIN_TAGS=frozenset({'negation','contact_limit','unconfirmed','latest_consumer_turn'})
 SECTIONS=MANDATORY_SECTIONS+('consumer_state','open_work','evidence','semantics','experience')
 
 
@@ -77,17 +78,23 @@ def apply_budget(items,strategy,*,estimator=None):
     def drop(item,reason):
         kept.remove(item);omitted.append({'section':item.section,'subsection':item.subsection,'ref':item.ref,'reason':reason})
     def used():return sum(cost[id(i)] for i in kept)
-    # 1. Section quotas for non-pinned items (lowest relevance, then oldest, first out).
+    recent=strategy['sections']['evidence']['recent_turns']
+    def recent_turns():
+        turns=sorted([i for i in kept if i.subsection=='conversation'],key=lambda i:(i.at,i.ref))
+        return {id(i) for i in turns[-recent:]} if recent else set()
+    # 1. Section quotas for non-pinned items (lowest relevance, then oldest, first out). In evidence the recent conversation
+    # turns are protected as in older_conversation, and Claims go before older turns (0202).
     for section in ('consumer_state','open_work','evidence','semantics','experience'):
         limit=strategy['sections'][section]['max_items']
+        protected=recent_turns() if section=='evidence' else set()
         loose=[i for i in kept if i.section==section and not i.pinned]
-        for item in _order_worst_first(loose,lambda i:(i.relevance,i.at,i.ref))[:max(0,len(loose)-limit)]:drop(item,'section_quota')
+        over=max(0,len(loose)-limit)
+        for item in _order_worst_first([i for i in loose if id(i) not in protected],lambda i:(i.subsection=='conversation',i.relevance,i.at,i.ref))[:over]:drop(item,'section_quota')
     pinned=[i for i in kept if i.pinned]
     if sum(cost[id(i)] for i in pinned)>available:
         for item in [i for i in kept if not i.pinned]:drop(item,'mandatory_exceeds_budget')
         insufficient.append({'code':'mandatory_exceeds_budget','section':None,'refs':[i.ref for i in pinned]})
         return BudgetOutcome(kept,omitted,insufficient,_report(items,kept,omitted,cost,strategy,estimator))
-    recent=strategy['sections']['evidence']['recent_turns']
     def candidates(step):
         loose=[i for i in kept if not i.pinned]
         if step=='duplicate_evidence':

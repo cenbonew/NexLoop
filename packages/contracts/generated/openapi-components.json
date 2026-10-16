@@ -3117,11 +3117,12 @@
                     "enum": [
                       "negation",
                       "contact_limit",
-                      "unconfirmed"
+                      "unconfirmed",
+                      "latest_consumer_turn"
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 3
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -3190,11 +3191,12 @@
                     "enum": [
                       "negation",
                       "contact_limit",
-                      "unconfirmed"
+                      "unconfirmed",
+                      "latest_consumer_turn"
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 3
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -3264,11 +3266,12 @@
                     "enum": [
                       "negation",
                       "contact_limit",
-                      "unconfirmed"
+                      "unconfirmed",
+                      "latest_consumer_turn"
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 3
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -3343,11 +3346,12 @@
                     "enum": [
                       "negation",
                       "contact_limit",
-                      "unconfirmed"
+                      "unconfirmed",
+                      "latest_consumer_turn"
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 3
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -3449,11 +3453,12 @@
                     "enum": [
                       "negation",
                       "contact_limit",
-                      "unconfirmed"
+                      "unconfirmed",
+                      "latest_consumer_turn"
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 3
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -3521,11 +3526,12 @@
                     "enum": [
                       "negation",
                       "contact_limit",
-                      "unconfirmed"
+                      "unconfirmed",
+                      "latest_consumer_turn"
                     ]
                   },
                   "uniqueItems": true,
-                  "maxItems": 3
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -5145,7 +5151,7 @@
     "commitment-view.schema.json": "f7c8290bacf1bbc70d23ba8da3a8cf4125ac8ac3d1d2b37f85c967c392909502",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-v6.schema.json": "cd9b3bdf2902ce20a9bf7180a3d32c5eb683f549af08e48c45a868bf12c25269",
+    "context-pack-v6.schema.json": "692551a02a92033a0066bdb4c0eb92e320a27590b425ec3e071a8073df3f9d8d",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
