@@ -1010,6 +1010,11 @@
       "version": "0202",
       "name": "0202_context_latest_consumer_turn.sql",
       "sha256": "5d5e28f2be677ab6ece7eb5c9483b82504f4bdac4eda6593b18d720ba49b4370"
+    },
+    {
+      "version": "0203",
+      "name": "0203_nx037_interaction_effects.sql",
+      "sha256": "dcb1c331a61778c581798de9a969359fa510a44d5ec93c383cca5ed2db7b921e"
     }
   ]
 }

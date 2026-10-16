@@ -7,6 +7,7 @@
         --webchat-provider-file F \
         [--enterprise-provider-file F [--endpoint-parameters-file F]]
     ... --resume OWNER-CONFIRMATION-REF        # continue a paused trial (recorded in DIR/resumes.jsonl)
+    ... --void-seq N --void-confirmation REF   # withdraw the last record (seq N) from the evidence and redo it (DIR/voids.jsonl)
     ... --preflight                             # real: the start checks only, then exit (see below)
 
 Reads the trial configuration (deploy/configuration/nx037-trial.v1.json: D-g caps, mix, rules) and the owner-editable
@@ -241,6 +242,8 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
     parser.add_argument('--trial-config', default=str(TRIAL))
     parser.add_argument('--plan-file', default=str(PLAN))
     parser.add_argument('--resume')
+    parser.add_argument('--void-seq', type=int, help='withdraw the last recorded interaction (this seq) from the evidence and run it again')
+    parser.add_argument('--void-confirmation', help="the owner's confirmation reference for --void-seq (recorded in DIR/voids.jsonl)")
     parser.add_argument('--inject', action='append', default=[], metavar='SEQ=FAULT')
     parser.add_argument('--calibration-pause', action='store_true', help='synthetic: pause after the calibration interactions')
     parser.add_argument('--interaction-timeout', type=int, default=900, help='real: seconds the operator has per interaction')
@@ -317,6 +320,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
         if args.driver == 'real':
             collector = _RealCollector(connect, args.metrics_dsn_file, args.tenant)
         state = X.run(trial, driver, collector, args.out, trial_id=args.trial_id, order=plan['order'], resume=args.resume,
+                      void=(args.void_seq, args.void_confirmation) if args.void_seq is not None else None,
                       calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0), test_stack=test_stack,
                       persona=trial_persona if args.driver == 'real' else None,
                       month_cost=_MonthCost(connect, args.metrics_dsn_file, args.tenant, trial['currency']) if args.driver == 'real' else None)
