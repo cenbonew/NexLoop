@@ -1,3 +1,4 @@
+import {Brand} from '../Brand';
 import {useEffect,useState,type FormEvent} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
@@ -56,7 +57,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   useEffect(()=>{const back=()=>setRoute(parseRoute(window.location.pathname));window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
   function go(next:Route){window.history.pushState(null,'',routePath(next));setRoute(next);}
   const logout=useMutation({mutationFn:workbenchLogout,onSettled:()=>{cache.removeQueries({queryKey:['workbench']});void session.refetch();}});
-  return <div className="shell workbench"><header>NexLoop 负责人工作台</header><main>
+  return <div className="shell workbench"><header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span></header><main>
     {session.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :session.isError?<section><h1>暂时无法连接</h1><p role="alert">{STATE_TEXT[kindOf(session.error)]}</p><button type="button" onClick={()=>void session.refetch()}>重试</button></section>
       :!session.data?<WorkbenchLogin onLogin={()=>void session.refetch()}/>

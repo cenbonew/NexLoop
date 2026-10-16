@@ -1,5 +1,9 @@
 # NexLoop
 
+<picture>
+  <img src="apps/web/public/brand/nexloop-logo.png" alt="NexLoop" width="400">
+</picture>
+
 [English](README.md) | 简体中文
 
 NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期与阶段目标（O / KR），Agent 在本体限定的受治理 Action 边界内，持续理解消费者、履行承诺、交付价值，并根据真实结果调整计划。

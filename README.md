@@ -1,5 +1,9 @@
 # NexLoop
 
+<picture>
+  <img src="apps/web/public/brand/nexloop-logo.png" alt="NexLoop" width="400">
+</picture>
+
 English | [简体中文](README.zh-CN.md)
 
 NexLoop is an open-source **continuous-operations system** for enterprises. An owner sets long-term and stage goals (objectives and key results); Agents work inside governed Action boundaries defined by the ontology to keep understanding consumers, fulfil commitments, deliver value, and adjust plans based on real outcomes.

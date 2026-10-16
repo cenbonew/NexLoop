@@ -2281,6 +2281,12 @@
         "ref": "ci:lane/20261010T214015Z-caaf3aeea5fe",
         "summary": "Full CI for caaf3ae (integration-s4n): 2781 passed / 14 failed, all within baseline; deadline phase 2/2.",
         "recorded_at": "2026-10-11T06:24:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/brand-integration.md",
+        "summary": "Approved folded N identity integrated into shared web header, workbench, browser/touch icon and bilingual README; build and layout checks recorded.",
+        "recorded_at": "2026-10-16T06:54:51.752150+00:00"
       }
     ]
   },

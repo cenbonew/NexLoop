@@ -31,3 +31,9 @@
 
 /* NX-030: a critical alert that is not silenced stands out (appended). */
 .workbench tr.critical td{font-weight:600}
+
+/* Shared NexLoop identity: preserve the full asset ratio at every viewport. */
+.brand-header{display:flex;align-items:center;gap:20px;flex-wrap:wrap;letter-spacing:normal}
+.brand-logo{display:block;width:240px;max-width:100%;height:auto;object-fit:contain}
+.brand-context{font-size:18px;line-height:28px;color:var(--muted);font-weight:500}
+@media(max-width:767px){.brand-logo{width:190px}.brand-header{gap:10px 16px}.brand-context{font-size:16px;line-height:24px}}
