@@ -173,3 +173,32 @@ def test_strategy_and_section_vocabularies_match_storage_constraints():
     from nexloop_eios.context_engine.budget import SECTIONS
     for name in SECTIONS:assert f"'{name}'" in text
     assert set(TRIM_STEPS)==set(BASE['trim_order'])
+
+
+def test_evidence_quota_drops_claims_before_recent_turns_and_never_the_latest_consumer_turn():
+    """0202: past the evidence quota, Claims go first; the recent_turns latest turns stay (as in older_conversation) and the
+    latest consumer turn is pinned."""
+    s=strategy(budget=100000,evidence={'max_items':12,'recent_turns':6})
+    tight=strategy(budget=100000,evidence={'max_items':4,'recent_turns':6})
+    claims=[item('evidence','claim_evidence',f'claim:{n:064x}',10,relevance=0.9,at=f'2026-10-09T00:{n:02d}:00Z',kind='user_statement') for n in range(30)]
+    turns=[item('evidence','conversation',f'eios:object:Message/{n:064x}',10,at=f'2026-10-10T00:{n:02d}:00Z',
+                tags=('latest_consumer_turn',) if n==7 else ()) for n in range(8)]
+    out=apply_budget(turns+claims,s)
+    kept=[i.ref for i in out.kept]
+    # 37 loose items over a quota of 12: 25 Claims go, every turn stays, turns listed before the remaining Claims.
+    assert [r for r in kept if 'Message/' in r]==[t.ref for t in turns] and len(kept)==13
+    assert kept.index(turns[-1].ref)<min(kept.index(c.ref) for c in claims if c.ref in kept)
+    assert {o['ref'] for o in out.omitted}=={c.ref for c in claims[:25]} and out.insufficient==[]
+    # A quota below recent_turns: every Claim and the older turns go, the 6 latest turns stay (the quota yields to them).
+    out=apply_budget(turns+claims,tight)
+    assert [i.ref for i in out.kept]==[t.ref for t in turns[2:]]
+    assert {o['reason'] for o in out.omitted}=={'section_quota'} and out.insufficient==[]
+    assert turns[-1].pinned and 'latest_consumer_turn' in turns[-1].tags
+
+
+def test_conversation_items_tag_only_the_named_latest_consumer_turn():
+    rows=[{'id':'a'*64,'sequence':1,'body':'要导出','accepted_at':'2026-10-10T00:00:00Z','direction':'inbound'},
+          {'id':'b'*64,'sequence':2,'body':'好的','accepted_at':'2026-10-10T00:01:00Z','direction':'outbound'}]
+    got=conversation_items(rows,decision=D,latest_consumer='a'*64)
+    assert [sorted(i.tags) for i in got]==[['latest_consumer_turn'],[]]
+    assert [sorted(i.tags) for i in conversation_items(rows,decision=D)]==[[],[]]

@@ -1005,6 +1005,11 @@
       "version": "0201",
       "name": "0201_context_conversation_turns.sql",
       "sha256": "dc7779b522eafd99e8d1ee2c8fa809d7dd6f5265a02ed2820b93cdadfb1bfa3f"
+    },
+    {
+      "version": "0202",
+      "name": "0202_context_latest_consumer_turn.sql",
+      "sha256": "5d5e28f2be677ab6ece7eb5c9483b82504f4bdac4eda6593b18d720ba49b4370"
     }
   ]
 }

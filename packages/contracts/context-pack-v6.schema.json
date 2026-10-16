@@ -1093,11 +1093,12 @@
               "enum": [
                 "negation",
                 "contact_limit",
-                "unconfirmed"
+                "unconfirmed",
+                "latest_consumer_turn"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 3
+            "maxItems": 4
           }
         },
         "required": [
@@ -1166,11 +1167,12 @@
               "enum": [
                 "negation",
                 "contact_limit",
-                "unconfirmed"
+                "unconfirmed",
+                "latest_consumer_turn"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 3
+            "maxItems": 4
           }
         },
         "required": [
@@ -1240,11 +1242,12 @@
               "enum": [
                 "negation",
                 "contact_limit",
-                "unconfirmed"
+                "unconfirmed",
+                "latest_consumer_turn"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 3
+            "maxItems": 4
           }
         },
         "required": [
@@ -1319,11 +1322,12 @@
               "enum": [
                 "negation",
                 "contact_limit",
-                "unconfirmed"
+                "unconfirmed",
+                "latest_consumer_turn"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 3
+            "maxItems": 4
           }
         },
         "required": [
@@ -1425,11 +1429,12 @@
               "enum": [
                 "negation",
                 "contact_limit",
-                "unconfirmed"
+                "unconfirmed",
+                "latest_consumer_turn"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 3
+            "maxItems": 4
           }
         },
         "required": [
@@ -1497,11 +1502,12 @@
               "enum": [
                 "negation",
                 "contact_limit",
-                "unconfirmed"
+                "unconfirmed",
+                "latest_consumer_turn"
               ]
             },
             "uniqueItems": true,
-            "maxItems": 3
+            "maxItems": 4
           }
         },
         "required": [

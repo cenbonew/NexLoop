@@ -97,12 +97,16 @@ def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy,current_
             proof=AuthorizedObjectReader(pool,session,signer)._authority(ResourceType.OBJECT,'Conversation/'+conversation_id)
             view=_claims_view(pool,session,signer,conversation_id,proof)
             decision=out.keep(proof)
-            out.items+=claim_items(view,strategy,decision=decision)
             # 0201: the conversation itself (earlier turns; the current statement is the pack's user_statement).
             # Earlier turns only: never the current statement or anything accepted after it.
             turns=[t for t in _turns_view(pool,session,signer,conversation_id,proof,_turn_limit(strategy))['turns']
                    if t['id']!=current_message_id and (current_sequence is None or t['sequence']<current_sequence)]
-            out.items+=conversation_items(turns,decision=decision)
+            # 0202: turns first, so the model reads what was said before the extracted Claims; the customer's latest turn before
+            # the current statement is tagged (only in a message Context, where the current statement is known).
+            inbound=[t for t in turns if t.get('direction')!='outbound']
+            latest=max(inbound,key=lambda t:t['sequence'])['id'] if inbound and current_sequence is not None else None
+            out.items+=conversation_items(turns,decision=decision,latest_consumer=latest)
+            out.items+=claim_items(view,strategy,decision=decision)
         except Exception as error:
             if not isinstance(error,(ContextDenied,psycopg.errors.InsufficientPrivilege)) and type(error).__name__ not in ('ActionAuthorizationDenied','AuthorizationFactDenied','AuthorizationUnavailable'):raise
             unreadable.append('eios:object:Conversation/'+conversation_id)
