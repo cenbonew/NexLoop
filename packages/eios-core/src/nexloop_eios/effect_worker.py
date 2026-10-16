@@ -87,7 +87,10 @@ class _FreshExecutor:
     def __init__(self,backend,path,world):self.backend,self.path,self.world=backend,path,world
     def service(self):return self.backend.authenticate(read_private_text(self.path,maximum=16384),world=self.world)
     def __getattr__(self,name):
-        if name not in {'claim_effect','prepare_effect_dispatch','authorize_effect_query','record_effect_observation','record_effect_query_observation','record_effect_unknown','record_unrouted'}:
+        if name not in {'claim_effect','prepare_effect_dispatch','authorize_effect_query','record_effect_observation','record_effect_query_observation','record_effect_unknown','record_unrouted',
+                        # 0174: without these the dispatcher's getattr found nothing, so the unknown back-off and the expired-origin stop never
+                        # ran in the worker (10/16 stage: an unknown intent re-queried about once a second, one event each time).
+                        'back_off_unknown','settle_expired_origin'}:
             raise AttributeError(name)
         def invoke(**arguments):return getattr(self.service(),name)(**arguments)
         return invoke
