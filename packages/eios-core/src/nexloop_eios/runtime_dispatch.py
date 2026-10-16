@@ -59,7 +59,8 @@ def next_poll_interval(interval,base):
     return min(interval*2,max(base,POLL_MAX_SECONDS))
 
 _RETRYABLE=frozenset({'runtime_transport_unavailable','runtime_transport_timeout','runtime_dispatch_timeout','runtime_response_invalid'})
-_FAILURE_CODES=frozenset({'runtime_authorization_unavailable','runtime_authorization_denied'})
+_FAILURE_CODES=frozenset({'runtime_authorization_unavailable','runtime_authorization_denied','runtime_tool_error','runtime_task_failed'})
+_DETAIL=re.compile(r'[a-z][a-z_]{0,63}')
 NO_REPLY_CODE='runtime_no_reply_submitted'
 
 
@@ -236,7 +237,7 @@ class RuntimeDispatcher:
                     if missing.code=='runtime_state_missing':raise error from None
                     raise
             return observe()
-        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None;stage='payload';error_classes=None
+        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None;failure_detail=None;stage='payload';error_classes=None
         try:
             payload=job['payload']
             if type(payload) is not dict or set(payload)!={'run_command','input'}:raise RuntimeDispatchError('runtime_task_payload_invalid')
@@ -290,6 +291,9 @@ class RuntimeDispatcher:
             # the reply guarantee's fallback takes the message, as for any failed Run; a denial keeps runtime_failed.
             if outcome=='failed' and inspection.get('failure_code') in _FAILURE_CODES:
                 failure=inspection['failure_code']
+                # 10/16: a tool's own error code or a failed task's runtime code (codes only; anything else is dropped).
+                detail=inspection.get('failure_detail')
+                failure_detail=detail if type(detail) is str and _DETAIL.fullmatch(detail) else None
                 if failure=='runtime_authorization_unavailable':code=failure
             # Reply fail-fast (10/16 stage smoke): a terminal message or fallback reply Run that submitted no reply is a definite
             # failure (the model answered in plain text, which is never delivered), and its message's reply guarantee is due now.
@@ -319,6 +323,7 @@ class RuntimeDispatcher:
             except Exception:pass
         if timing is not None:result['model_timing']=timing  # NX-031 A2: numbers only, beside tool_timing
         if failure is not None:result['failure_code']=failure
+        if failure_detail is not None:result['failure_detail']=failure_detail
         if code is not None:result['code']=code
         if error_classes:result['error_class']=error_classes[0]
         if error_classes and len(error_classes)>1:result['error_cause_class']=error_classes[-1]

@@ -313,6 +313,14 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     // NX-031: a failed Run names an authorization failure with one allowlisted code (no transcript): an unanswered guard
     // (runtime_authorization_unavailable) wins over a denial, so a retryable cause is never reported as a refusal.
     let unavailable=false,denied=false;
+    // 10/16 stage: a failed Run named no cause. Now also a returned tool error (its own code, e.g. outside_catalog_terms) or a
+    // failed task's fixed runtime code: codes only (^[a-z_]{1,64}$), never a message, parameter or transcript text.
+    let toolError:string|undefined,taskError:string|undefined;
+    const code=(value:unknown)=>typeof value==='string'&&/^[a-z][a-z_]{0,63}$/.test(value)?value:undefined;
+    const toolCode=(message:{content?:unknown}):string=>{
+      const text=Array.isArray(message.content)?message.content.find((part:{type?:string;text?:unknown})=>part?.type==='text')?.text:undefined;
+      try{return code((JSON.parse(String(text)) as {code?:unknown}).code)??'tool_error';}catch{return 'tool_error';}
+    };
     const marks=(message:unknown)=>{if(message==='runtime_authorization_unavailable')unavailable=true;else if(message==='runtime_authorization_denied')denied=true;};
     const runtimeOutcome=await run.harness.commit(async tx=>{
       const tasks=[];let cursor;
@@ -321,7 +329,9 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       }while(cursor);
       scanned=tasks;
       if(tasks.some(task=>task.state.status!=='terminal'))return 'running' as const;
-      for(const task of tasks)if(task.state.status==='terminal'&&task.state.outcome.status==='failed')marks((task.state.outcome as {error?:{message?:unknown}}).error?.message);
+      for(const task of tasks)if(task.state.status==='terminal'&&task.state.outcome.status==='failed'){
+        const message=(task.state.outcome as {error?:{message?:unknown}}).error?.message;marks(message);taskError??=code(message);
+      }
       const taskFailed=tasks.some(task=>task.state.status==='terminal'&&['failed','faulted','orphaned'].includes(task.state.outcome.status));
       if(!taskFailed&&tasks.some(task=>task.state.status==='terminal'&&task.state.outcome.status==='aborted'))return 'cancelled' as const;
       // Pi deliberately completes ToolTask for a returned isError result.
@@ -335,8 +345,9 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
           if(entryCount>1024||entryCursor&&entryCount>=1024)return taskFailed?'failed' as const:'unknown' as const;
           for(const entry of page.items)if(ToolResultEntry.is(entry)){
             for(const diagnostic of entry.data.diagnostics)if(diagnostic.severity==='error')marks(diagnostic.message);
-            if(!taskFailed&&(entry.model?.some(message=>message.role==='toolResult'&&message.isError)
-              ||entry.data.diagnostics.some(diagnostic=>diagnostic.severity==='error')))return 'failed' as const;
+            const errored=entry.model?.find(message=>message.role==='toolResult'&&message.isError);
+            if(errored)toolError??=toolCode(errored as {content?:unknown});
+            if(!taskFailed&&(errored||entry.data.diagnostics.some(diagnostic=>diagnostic.severity==='error')))return 'failed' as const;
           }
         }while(entryCursor);
       }
@@ -350,7 +361,8 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     },BACKGROUND_CONTEXT);
     // NX-031 A2: numbers only, from the same durable task records (a restarted Host reports the same figure).
     return {...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2},
-      model_timing:modelTiming(scanned),...(runtimeOutcome!=='failed'?{}:unavailable?{failure_code:'runtime_authorization_unavailable' as const}:denied?{failure_code:'runtime_authorization_denied' as const}:{})};
+      model_timing:modelTiming(scanned),...(runtimeOutcome!=='failed'?{}:unavailable?{failure_code:'runtime_authorization_unavailable' as const}:denied?{failure_code:'runtime_authorization_denied' as const}
+        :toolError?{failure_code:'runtime_tool_error' as const,failure_detail:toolError}:taskError?{failure_code:'runtime_task_failed' as const,failure_detail:taskError}:{})};
   });}
   cancel(command:unknown):Promise<{run_id:string;status:'cancel_requested'}>{return this.serial(async()=>{
     const valid=validateRunCommand(command);await this.authorize(valid,'cancel');const run=await this.open(valid,false);this.check(run,valid);

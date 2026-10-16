@@ -49,12 +49,13 @@ describe('runtime_authorization_unavailable through the Pi adapter',()=>{
     const inspection=await adapter.inspect(cmd);
     expect(inspection.runtime_outcome).toBe('failed');expect(inspection.failure_code).toBe('runtime_authorization_denied');
   });
-  it('a failed Run that no authorization caused has no failure_code',async()=>{
+  it('a failed Run that no authorization caused names no authorization failure (its own tool or task code instead, 10/16)',async()=>{
     const {adapter}=await open(async operation=>{if(operation==='model')return {ever_execution_authorized:true};if(operation==='tool')return {ever_execution_authorized:true};return {ever_execution_authorized:false};},true);
     const cmd=command();await adapter.start(cmd,'input');
     await until(async()=>(await adapter.inspect(cmd)).runtime_outcome!=='running');
     const inspection=await adapter.inspect(cmd);
-    expect(inspection.runtime_outcome).toBe('failed');expect(inspection).not.toHaveProperty('failure_code');
+    expect(inspection.runtime_outcome).toBe('failed');
+    expect(['runtime_tool_error','runtime_task_failed']).toContain(inspection.failure_code);
   });
   it('a succeeded Run has no failure_code',async()=>{
     const {adapter}=await open(async operation=>({ever_execution_authorized:operation==='tool'||operation==='model'}));
