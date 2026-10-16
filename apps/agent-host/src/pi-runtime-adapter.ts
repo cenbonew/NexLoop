@@ -30,6 +30,8 @@ export type PiRuntimeOptions={
   root:string;models:Models;model:ModelRef;tools?:readonly ToolRegistration[];
   /** Trusted Host registry factory; each closure receives its immutable Run binding. */
   toolsForRun?:(command:RunCommand)=>readonly ToolRegistration[];
+  /** Agent instructions of every new Run conversation (real-model profiles; the deterministic profiles script their turns). */
+  instructions?:string;
   costPolicy?:{kind:'deterministic_zero';currency:string}|{kind:'bounded_request';currency:string;maximum_request_cost:string};
   /** Trusted code-only diagnostic observer; never an authorization gate.
    * Not exposed through Host JSON/HTTP. Bounded metadata only, no model body,
@@ -261,7 +263,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     let conversation=run.binding.conversation_id?await run.harness.conversation(run.binding.conversation_id as ConversationId,BACKGROUND_CONTEXT):undefined;
     if(!conversation){
       if(resume||run.binding.run_id||authority.ever_execution_authorized)throw new RuntimeError('runtime_state_missing');
-      conversation=await run.harness.createConversation({ownership:{kind:'ownerless'},agent:{model:this.options.model},init:async(tx,id)=>{
+      conversation=await run.harness.createConversation({ownership:{kind:'ownerless'},agent:{model:this.options.model,...(this.options.instructions?{instructions:this.options.instructions}:{})},init:async(tx,id)=>{
         const state=await tx.doc(BindingDoc);Object.assign(state,{command_digest:createHash('sha256').update(canonical(valid)).digest('hex'),run_id:valid.run_id,request_id:valid.request_id,payload_digest:digest,conversation_id:id,submission_id:0,started_at:Date.now(),model_calls:0,tool_calls:0,model_cost_reserved:'0'});
       }},BACKGROUND_CONTEXT);
       run.binding=(await run.harness.snapshot(BindingDoc,BACKGROUND_CONTEXT))!;
