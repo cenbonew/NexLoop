@@ -109,6 +109,25 @@ def secret_tree(root):
     return root
 
 
+def delivery_profile_files(compose, root):
+    """Synthetic host files behind the delivery profile check (deploy_checks.delivery_provider_profile): the routes file, the webchat
+    provider config and one CA copy for each side, owned by the test user (the uids default to the file owner)."""
+    ca = '-----BEGIN CERTIFICATE-----\nsynthetic\n-----END CERTIFICATE-----\n'
+    origin = next(c for c in map(str, compose['services']['webchat-delivery']['command']) if c.startswith('https://'))
+    files = {'action_worker_provider_routes': json.dumps({'schema': 'nexloop-effect-provider-routes/1',
+                                                          'routes': {'nexloop.service.request': '/run/secrets/action_worker_webchat_provider'}}),
+             'action_worker_webchat_provider': json.dumps({'origin': origin, 'credential_file': '/run/secrets/action_worker_webchat_provider_credential',
+                                                           'ca_file': '/run/secrets/action_worker_webchat_provider_ca', 'timeout': 2}),
+             'action_worker_webchat_provider_ca': ca, 'webchat_delivery_provider_ca': ca}
+    for name, text in files.items():
+        path = root / name.split('_')[0] / name
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.write_text(text)
+        path.chmod(0o600)
+        compose['secrets'][name] = {'file': str(path)}
+    return compose
+
+
 def app_compose():
     return yaml.safe_load(interpolate((ROOT / 'deploy/stage/compose.app.example.yaml').read_text(), ROOT / 'deploy/stage/compose.app.env.example'))
 
@@ -203,7 +222,7 @@ def test_doctor_deploy_gate_runs_every_check_and_fails_on_a_missing_input(pki, s
     host_config = private('agent-host.json', json.dumps(json.loads((ROOT / 'deploy/stage/agent-host.runtime-config.example.json').read_text())))
     spec = {'host_role': 'app', 'stage_env': str(stage), 'connection_budget': str(ROOT / 'deploy/stage/connection-budget.v1.json'),
             'running': private('running.json', running()), 'inventory_before': private('before.json', before), 'inventory_after': private('after.json', after),
-            'secret_root': str(secret_tree(tmp_path / 'secrets')), 'compose_json': private('compose.json', app_compose()), 'tls_spec': private('tls.json', tls_spec),
+            'secret_root': str(secret_tree(tmp_path / 'secrets')), 'compose_json': private('compose.json', delivery_profile_files(app_compose(), tmp_path / 'delivery')), 'tls_spec': private('tls.json', tls_spec),
             'roles_database_url_file': private('roles.dsn', pg), 'disabled_roles': ['nexloop_owner'], 'agent_host_config': host_config}
     from nexloop_eios.doctor import main
     sys.argv = ['nexloop-doctor', '--deploy-gate', private('gate.json', spec)]

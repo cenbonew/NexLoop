@@ -61,7 +61,10 @@ PRIMARY_ROLE = {'api': 'nexloop_api', 'domain-worker': 'nexloop_domain_worker', 
                 'webchat-delivery': 'nexloop_action_worker', 'runtime-worker': 'nexloop_domain_worker', 'message-relay': 'nexloop_api',
                 'outbound-recorder': 'nexloop_api', 'claim-extraction-scheduler': 'nexloop_api'}
 DSN_ROLE = {'identity-dsn': 'nexloop_identity', 'api-dsn': 'nexloop_api'}
-CA_FILES = {'api-loopback-ca.crt', 'guard-ca.crt', 'db-ca.crt', 'host-ca.crt', 'ca.crt', 'webchat-provider-ca.crt', 'enterprise-provider-ca.crt'}
+# provider-ca.crt (webchat-delivery): the same bundle as action-worker/webchat-provider-ca.crt, so both sides of the WebChat delivery
+# compute the same provider profile (delivery CA, 2026-10-16).
+CA_FILES = {'api-loopback-ca.crt', 'guard-ca.crt', 'db-ca.crt', 'host-ca.crt', 'ca.crt', 'webchat-provider-ca.crt', 'enterprise-provider-ca.crt',
+            'provider-ca.crt'}
 SERVER_CERTS = {('gateway', 'server'): 'gateway', ('agent-host', 'server'): 'agent-host', ('webchat-delivery', 'server'): 'loopback',
                 ('api', 'loopback'): 'loopback', ('runtime-worker', 'guard'): 'guard', ('postgres', 'server'): 'data', ('valkey', 'server'): 'data',
                 # M8: the pgBackRest TLS server on APP_HOST answers on APP_HOST's name and address (the gateway SANs).

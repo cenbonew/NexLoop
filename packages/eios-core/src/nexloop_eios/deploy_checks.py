@@ -509,6 +509,56 @@ def firewall_networks(stage, compose, running=None):
     return {'checks': checks, 'details': {'firewall_networks': details}}
 
 
+# WebChat delivery provider profile (delivery CA, 2026-10-16) ------------------------------------------------------------------
+WEBCHAT_ACTION = 'nexloop.service.request'
+
+
+def _argument(command, flag):
+    command = [str(c) for c in command or []]
+    return command[command.index(flag) + 1] if flag in command and command.index(flag) + 1 < len(command) else None
+
+
+def delivery_provider_profile(compose, uids=None):
+    """The WebChat delivery service and the action worker's route to it must compute the same provider profile (origin, connect
+    address, CA content: effect_provider.profile_identity), or the delivery authority (0175) refuses every delivery and each effect
+    ends unknown. compose: the rendered APP_HOST Compose (container secret paths are mapped to their host files); the gate reads
+    the files by their service uid. Details are codes only."""
+    import json
+    from nexloop_eios.effect_provider import profile_identity
+    uids = uids or {}
+    services = (compose or {}).get('services') or {}
+    files = {name: (spec or {}).get('file') for name, spec in ((compose or {}).get('secrets') or {}).items()}
+    def host(container_path):
+        if not container_path or not container_path.startswith('/run/secrets/'):
+            raise OwnedFileRefused('not_a_secret_path')
+        path = files.get(container_path.removeprefix('/run/secrets/'))
+        if not path:
+            raise OwnedFileRefused('secret_not_declared')
+        return path
+    def read(container_path):
+        path = host(container_path)
+        return _read_owned_file(path, uids.get(Path(path).parent.name), maximum=32768)
+    try:
+        delivery = (services.get('webchat-delivery') or {}).get('command')
+        worker = (services.get('action-worker') or {}).get('command')
+        origin, delivery_ca = _argument(delivery, '--origin'), _argument(delivery, '--provider-ca-file')
+        routes_file = _argument(worker, '--provider-routes-file')
+        if not (origin and delivery_ca and routes_file):
+            raise OwnedFileRefused('arguments_missing')
+        route = json.loads(read(routes_file)).get('routes', {}).get(WEBCHAT_ACTION)
+        if not route:
+            raise OwnedFileRefused('route_missing')
+        config = json.loads(read(route))
+        mine = profile_identity(origin, None, read(delivery_ca))
+        theirs = profile_identity(config['origin'], config.get('connect_address'), read(config['ca_file']))
+    except OwnedFileRefused as error:
+        return {'checks': {'webchat_delivery_profile_matches_route': False}, 'details': {'webchat_delivery_profile': ['input_' + error.code]}}
+    except (KeyError, TypeError, ValueError):
+        return {'checks': {'webchat_delivery_profile_matches_route': False}, 'details': {'webchat_delivery_profile': ['input_invalid']}}
+    differs = sorted(f'{field}_differs' for field in ('origin', 'connect_address', 'trust_digest') if mine[field] != theirs[field])
+    return {'checks': {'webchat_delivery_profile_matches_route': not differs}, 'details': {'webchat_delivery_profile': differs}}
+
+
 # The gate (§6) ----------------------------------------------------------------------------------------------------------------
 REQUIRED_INPUTS = {
     'app': ('stage_env', 'connection_budget', 'running', 'inventory_before', 'inventory_after', 'secret_root', 'compose_json', 'tls_spec',
@@ -547,6 +597,11 @@ def deploy_gate(spec):
         merge(guard_and_registration(load('connection_budget'), load('running') if spec.get('running') else None))
     if role == 'app' and spec.get('connection_budget') and spec.get('compose_json'):
         merge(compose_budget(load('connection_budget'), load('compose_json')))
+    if role == 'app':
+        if spec.get('compose_json'):
+            merge(delivery_provider_profile(load('compose_json'), spec.get('secret_uids')))
+        else:
+            checks['webchat_delivery_profile_matches_route'] = False
     if role == 'app':
         if stage is not None and spec.get('compose_json'):
             merge(firewall_networks(stage, load('compose_json'), load('running') if spec.get('running') else None))

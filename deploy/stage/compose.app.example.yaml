@@ -171,6 +171,9 @@ services:
     # NX-037: the NexLoop delivery service of nexloop.service.request (nexloop_eios.local_json_delivery, HttpEffectProvider
     # protocol: POST /v1/effects, GET /v1/effects/<intent>). Shares the action worker's namespace and listens on its loopback only
     # (WEBCHAT_DELIVERY_PORT); it authenticates as the same executor principal (0051) from its own copy of the credential.
+    # Its provider profile (origin, connect address, CA) must equal the action worker's route to it, or the delivery authority (0175)
+    # refuses every delivery: --provider-ca-file is its own copy of the action worker's webchat-provider-ca.crt (2026-10-16 stage: it
+    # named the server certificate chain and every delivery was refused); the deploy gate compares the two profiles.
     image: ${BACKEND_IMAGE:?backend image by digest}
     restart: unless-stopped
     network_mode: service:action-worker
@@ -185,13 +188,13 @@ services:
               /var/lib/nexloop/artifacts, --delivery-root, /var/lib/nexloop/webchat-delivery,
               --origin, "https://127.0.0.1:${WEBCHAT_DELIVERY_PORT:?delivery service loopback port}",
               --certificate-file, /run/secrets/webchat_delivery_cert, --tls-key-file, /run/secrets/webchat_delivery_key,
-              --provider-ca-file, /run/secrets/webchat_delivery_cert, --provider-credential-file, /run/secrets/webchat_delivery_provider_credential,
+              --provider-ca-file, /run/secrets/webchat_delivery_provider_ca, --provider-credential-file, /run/secrets/webchat_delivery_provider_credential,
               --pool-max, "2"]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/data/webchat-delivery:/var/lib/nexloop/webchat-delivery
     secrets: [webchat_delivery_dsn, webchat_delivery_pg_client_cert, webchat_delivery_pg_client_key, webchat_delivery_credential, signing_key, pg_ca,
-              webchat_delivery_cert, webchat_delivery_key, webchat_delivery_provider_credential]
+              webchat_delivery_cert, webchat_delivery_key, webchat_delivery_provider_credential, webchat_delivery_provider_ca]
     labels:
       nexloop.budget-service: webchat-delivery
   runtime-worker:
@@ -489,6 +492,7 @@ secrets:
   webchat_delivery_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/server.crt"}
   webchat_delivery_key: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/server.key"}
   webchat_delivery_provider_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/provider-credential"}
+  webchat_delivery_provider_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/webchat-delivery/provider-ca.crt"}
   runtime_worker_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/dsn"}
   runtime_worker_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.crt"}
   runtime_worker_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/runtime-worker/pg-client.key"}

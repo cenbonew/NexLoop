@@ -540,3 +540,13 @@ def test_reissue_role_gives_the_runtime_worker_a_domain_worker_dsn_and_certifica
     assert oct((secrets_root / 'runtime-worker/pg-client.key').stat().st_mode)[-3:] == '600'
     assert S.check(old)['ok']
     assert S.main(['reissue-role', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params']), '--service', 'runtime-worker']) == 2
+
+
+def test_the_delivery_service_gets_the_same_ca_as_the_action_worker_route(tree):
+    """Delivery CA (2026-10-16): webchat-delivery/provider-ca.crt is generated, with the same content as
+    action-worker/webchat-provider-ca.crt, owned like the other webchat-delivery files."""
+    root = tree['out'] / 'app' / 'secrets'
+    assert (root / 'webchat-delivery/provider-ca.crt').read_bytes() == (root / 'action-worker/webchat-provider-ca.crt').read_bytes()
+    entry = next(f for f in tree['manifest']['files'] if f['path'] == 'webchat-delivery/provider-ca.crt')
+    other = next(f for f in tree['manifest']['files'] if f['path'] == 'webchat-delivery/dsn')
+    assert entry['kind'] == 'ca_bundle' and entry['owner'] == other['owner'] and oct((root / 'webchat-delivery/provider-ca.crt').stat().st_mode)[-3:] == '600'
