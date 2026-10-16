@@ -1,0 +1,8 @@
+{
+  "schema": "nexloop-real-dispatch-switch/1",
+  "reason": "NX-037 interactions <DATE>: open as planned in nx037-interaction-plan.v3 real_dispatch",
+  "tenant": {"enabled": true, "data_mode": "real"},
+  "actions": [
+    {"action_type": "eios:action:nexloop.enterprise.deliver:1", "enabled": true}
+  ]
+}

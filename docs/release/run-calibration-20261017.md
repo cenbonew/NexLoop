@@ -69,9 +69,63 @@ python scripts/nx037/real_tenant_init.py verify --tenant "$TENANT_ID" --owner-pr
 
 计划 v3 的 `real_dispatch` 是 `{"deployment": true, "tenant": true, "data_mode": "real", "actions": ["eios:action:nexloop.enterprise.deliver:1"]}`。运行入口要求实际开关与它**完全一致**，多开、少开都拒绝（`switch_<层>_differs`）。
 
-1. **租户层与 Action 层**：负责人在工作台执行 `set_real_dispatch`，只打开该租户（data_mode `real`）和 `eios:action:nexloop.enterprise.deliver:1`（OPERATIONS §9.3）。
+1. **租户层与 Action 层**：负责人用下面“租户层与 Action 层：配置驱动的开关工具”一节的工具，按私有配置一次打开该租户（data_mode `real`）和 `eios:action:nexloop.enterprise.deliver:1`（OPERATIONS §9.3）。它走的仍是工作台的受治理 owner Action `set_real_dispatch`，不再需要浏览器控制台。
 2. **部署层 `REAL_DISPATCH_ENABLED`**：见下面的“打开”和“收工关闭”两段。计划 v3 中 `deployment: true` 是负责人已经定下的开关状态，但打开这个动作本身仍是 **B** 类，当天由负责人确认。
 3. **核对**：§2.1 容器内 `REAL_DISPATCH_ENABLED` 的值，加上 `authz.nexloop_nx037_open_switches` 的结果，与计划一致。运行入口（包括 §2.2a 的 `--preflight`）会自动核对，不一致会以退出码 3 列出 `switch_*_differs`。
+
+#### 租户层与 Action 层：配置驱动的开关工具（负责人本人，管理机；**B**）
+
+工具：`scripts/deploy/real_dispatch_switch.py`，只用标准库，负责人在自己的管理机上运行。
+
+**做什么**：
+1. 以负责人的工作台账号登录（工作台自己的登录域），取得 CSRF；
+2. 读取当前开关：`GET /api/v1/workbench/metrics` 中的 `real_dispatch`，只有状态和 revision，来自 0153 的 `runtime.nexloop_real_dispatch_switches_read`；
+3. 与配置比对，**只对状态不同的项**调用受治理的 owner Action：`POST /api/v1/workbench/actions/set_real_dispatch`，即 `nexloop.real_dispatch.set:1`；
+4. 再读一次，输出前后状态和每次变更的 `control_revision`，然后退出登录。
+
+它不连数据库，不写开关表，也不改部署层；部署层只打印一条提示。
+
+**私有输入**（管理机，0600，属于运行它的用户）：
+- 配置文件：以 `deploy/examples/real-dispatch-switch.example.json` 为模板，内容为 `tenant {enabled, data_mode}`、`actions [{action_type, enabled}]` 和 `reason`。配置中没有列出的 Action 保持不变。
+- 用户名文件：负责人的工作台用户名。
+- 口令：从钥匙串经管道传给 `--password-stdin`，不出现在命令行参数、shell 历史或输出中；也可以用私有文件 `--password-file`。
+
+```
+O=https://<APP_HOST_NAME>:<GATEWAY_HTTPS_PORT>
+# 1) 预演：只读当前状态并列出将要做的变更，不改任何东西
+security find-generic-password -s <KEYCHAIN_SERVICE> -a <KEYCHAIN_ACCOUNT> -w | python3 scripts/deploy/real_dispatch_switch.py \
+  --origin "$O" --ca-file <内部 CA> --username-file <用户名文件> --password-stdin --config <私有配置> --dry-run
+# 2) 执行（B：负责人当日确认）
+security find-generic-password -s <KEYCHAIN_SERVICE> -a <KEYCHAIN_ACCOUNT> -w | python3 scripts/deploy/real_dispatch_switch.py \
+  --origin "$O" --ca-file <内部 CA> --username-file <用户名文件> --password-stdin --config <私有配置>
+```
+
+- `--ca-file` 用签发 Gateway 证书的内部 CA，与浏览器信任的是同一个。`--origin` 必须与工作台的 `BROWSER_ORIGIN` 完全一致，因为服务端核对 Origin 和 Host。
+- 管理机要在 Gateway 的受信 LAN 中，也就是防火墙 `TRUSTED_LAN_CIDR` 范围内。
+- **预期**：
+  - `ok: true`；
+  - `changes` 列出改了哪些项；
+  - `results` 中每一项 `status: 200`，并带 `control_revision`，每次变更加 1；
+  - `after` 与配置一致，`converged: true`；
+  - `deployment_layer` 是一条提示，说明部署层不由这个工具管。
+- **再次执行同一配置**：`changes: []`，什么都不发送。
+- **请求键**：每次变更的 Idempotency-Key 由目标状态、该开关的当前 revision 和 reason 派生。中途失败后重跑，会重放同一个请求，不会重复执行；之后再次改同一个开关，会从新的 revision 开始，是一个新请求。
+- **失败**（退出码 1）：
+  - 登录被拒：`login refused (401)`；
+  - 不是 owner：`results` 中为 `status: 403, code: forbidden`；
+  - 读不到状态：`switch state unreadable (…)`；
+  - 收敛失败：`converged: false`。
+  - 工具在第一个被拒的请求处停止，再读一次并输出实际状态。不要改用浏览器控制台绕过，先查原因。
+- **输入错误**（退出码 2）：文件不私有、配置格式错误、`--close-all` 没给 `--reason` 等。这时不会发出任何请求。
+- **收工一键全关**：
+  ```
+  security find-generic-password -s <KEYCHAIN_SERVICE> -a <KEYCHAIN_ACCOUNT> -w | python3 scripts/deploy/real_dispatch_switch.py \
+    --origin "$O" --ca-file <内部 CA> --username-file <用户名文件> --password-stdin --close-all --reason "<日期> 收工关闭"
+  ```
+  关闭租户层和**所有**已打开的 Action 层，`after` 中全部为 `enabled: false`。
+- **测试**：`tests/test_real_dispatch_switch_tool.py`：
+  - 配置校验、变更计划、请求键、私有文件、各种输入在发出请求之前就被拒；
+  - 用生产的 `create_app` 端到端运行：预演不改状态；打开后 revision 连续；重跑不发送；operator 被拒 403；全关；同一配置再次打开是新请求，而不是重放。
 
 #### 部署层：打开（APP_HOST；**B**，sudo-A；窗口开始前）
 
@@ -105,7 +159,7 @@ $C up -d
 
 #### 部署层：收工关闭（**B**，sudo-A；窗口结束或校准暂停后）
 
-1. 负责人在工作台撤销 Action 层和租户层（`set_real_dispatch`）。
+1. 负责人用开关工具 `--close-all` 关闭租户层和 Action 层（见上面的“配置驱动的开关工具”）。
 2. 用上面同样的命令，把值写回 `false`（先备份），执行 `$C config --quiet`、`$C up -d`，再做 netns 核对。核对两处容器内的值，预期都是 `REAL_DISPATCH_ENABLED=false`。
 3. 重跑部署门禁（run-release7-deploy §5，用新的 `GATE_DIR`），`real_dispatch_closed` 应为 true。
 
