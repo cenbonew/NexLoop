@@ -238,7 +238,7 @@ def counted_cost(record):
 
 
 def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0), order=None,
-        resume=None, calibration_pause=False, test_stack=False, month_cost=None, persona=None, void=None):
+        resume=None, calibration_pause=False, test_stack=False, month_cost=None, persona=None, void=None, driver_mode=None):
     """Runs (or resumes after a pause) the trial into `directory`: interactions.jsonl (one record per interaction, written
     before the next starts) and state.json (the outcome). An interaction already recorded is never run again: resuming
     continues after the last record (the error window restarts after a pause). A stopped trial does not resume (the owner
@@ -247,6 +247,9 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     resumes. With `calibration_pause` the trial pauses after the plan's calibration interactions (rule 'calibration') so the
     owner confirms the cost per interaction before the rest. `test_stack` (the local synthetic stack, never a real trial) marks
     every record and the state test_stack: true; a trial keeps that mark across resumes.
+
+    `driver_mode` (the runner's --driver: real or synthetic) is written into every record and the state, a mark only (nothing is
+    judged on it), so evidence can tell a real trial from a synthetic one.
 
     `void` = (seq, owner confirmation reference) withdraws the last recorded interaction, which must have that seq, from the
     evidence (10/17 calibration: a record judged before its effect evidence was required): voids.jsonl gets one fsynced line
@@ -360,6 +363,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             'facts': observed.get('facts', {}),
             **({'test_stack': True} if test_stack else {}),
             **({'persona': persona} if persona else {}),
+            **({'driver': driver_mode} if driver_mode else {}),
         }
         cumulative += counted
         decision, fired = evaluate(record, history, plan, cumulative=cumulative, monthly=month_cost_before + cumulative,
@@ -375,7 +379,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     state = {'trial_id': trial_id, 'status': status, 'rules': rules, 'at_seq': at_seq, 'recorded': len(history),
              'planned': plan['total'], 'cumulative_cost': str(cumulative), 'currency': plan['currency'], 'order_digest': digest,
              'resumes': len(read_resumes(root)), **({'voided': len(read_voids(root))} if read_voids(root) else {}), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {}),
-             **({'persona': persona} if persona else {})}
+             **({'persona': persona} if persona else {}), **({'driver': driver_mode} if driver_mode else {})}
     tmp = state_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(state, sort_keys=True))
     os.replace(tmp, state_path)

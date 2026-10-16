@@ -10,6 +10,13 @@ summarized: counts by kind and outcome, time decomposition percentiles, cost, th
 their reconciliation states. A trial run on the local synthetic stack (state or any record test_stack: true) is test evidence:
 the pack says test_stack: true and real_evidence: false, and it never counts as evidence of the real trial.
 
+real_evidence (always written when a trial is given) is true only for a trial run by the real driver and not on the test stack.
+The driver is the one the runner recorded in the state and every record (`driver`); a trial written before that field
+existed counts as real only when the state and every record carry the real mode's persona (the synthetic driver writes none),
+and the pack says how it decided (driver_source: recorded or inferred_from_persona). The owner's voids (voids.jsonl) and
+resumes (resumes.jsonl) are part of the pack (projected, counted, sha256); a voided record is listed apart in the summary and
+counts nowhere else.
+
 Allowed values: uuids, hex hashes and commits, times and dates, decimal numbers, booleans, null, and codes from the fixed
 vocabulary below (scenario kinds, rule ids, statuses). Any other string is refused when the pack is written and by `check`.
 
@@ -32,6 +39,7 @@ _PATTERNS = [re.compile(p) for p in (
     r'\d{4}-\d{2}-\d{2}',                                                  # date
     r'-?\d{1,18}(\.\d{1,12})?',                                            # decimal string
     r'\d{8}T\d{6}Z-[0-9a-f]{7,40}(-\d{1,4})?',                              # release id
+    r'\d{8}-[0-9a-f]{7,40}(-\d{1,4})?',                                     # release id as stage names it (date-commit-n)
 )]
 _KEY = re.compile(r'[a-z0-9_][a-z0-9_.:-]{0,63}')
 
@@ -42,7 +50,7 @@ def _vocabulary():
     return frozenset((*KINDS, *STOP_RULES, *PAUSE_RULES, *ITEMS, 'present', 'missing', 'completed', 'paused', 'stopped', 'continue',
                       'stop', 'pause', 'ok', 'error', 'settled', 'unresolved', 'not_applicable', 'accepted', 'dispatching', 'observed_fulfilled', 'unknown',
                       'fulfilled', 'failed', 'confirmed', 'synthetic_error', 'interaction_timeout', 'run_failed', 'delivery_missing', 'reconciliation_missing', 'unexpected_delivery', 'effect_evidence_unavailable', 'nexloop.nx037-evidence.v1', 'CNY', 'USD',
-                      'agent', 'human', 'simulated_agent', 'mixed',
+                      'agent', 'human', 'simulated_agent', 'mixed', 'real', 'synthetic', 'recorded', 'inferred_from_persona',
                       # 10/18: Run failure codes and the effect tools (0204 failure evidence)
                       'runtime_failed', 'runtime_tool_error', 'runtime_task_failed', 'runtime_model_unavailable', 'runtime_effect_unavailable',
                       'runtime_tool_unavailable', 'invalid_effect_request', 'tool_error', 'intent_payload_conflict', 'outside_catalog_terms',
@@ -127,12 +135,35 @@ def release_fields(manifest):
             'images': [{'digest': keep(i.get('digest')), 'archive_sha256': keep(i.get('archive_sha256'))} for i in manifest.get('images') or []]}
 
 
+def _lines(path):
+    return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
+
+
+def trial_driver(state, records):
+    """(driver, driver_source): the driver the runner recorded (state and every record agree, else mixed), or for a trial
+    written before that field, real only when the state and every record carry the real mode's persona."""
+    if 'driver' in state or any('driver' in r for r in records):
+        drivers = {state.get('driver')} | {r.get('driver') for r in records}
+        return (drivers.pop() if len(drivers) == 1 and None not in drivers else 'mixed'), 'recorded'
+    real = bool(state.get('persona')) and all(r.get('persona') for r in records)
+    return ('real' if real else 'synthetic'), 'inferred_from_persona'
+
+
 def summarize_trial(directory):
     from decimal import Decimal
     root = Path(directory)
     from nexloop_eios.controlled_interactions import read_records
     records = read_records(root)  # an interaction the owner voided (voids.jsonl) is not evidence
     state = json.loads((root / 'state.json').read_text(encoding='utf-8'))
+    voids = _lines(root / 'voids.jsonl')
+    raw = _lines(root / 'interactions.jsonl')
+    voided = []
+    for v in voids:
+        hit = next((r for r in raw if (r['interaction_id'], r['ended_at']) == (v['interaction_id'], v['ended_at'])), None)
+        voided.append({'seq': v['seq'], 'interaction_id': v['interaction_id'], 'ended_at': v['ended_at'], 'voided_at': v.get('at'),
+                       'kind': hit and hit['kind'], 'outcome': hit and hit['outcome'], 'error_code': hit and hit.get('error_code')})
+    driver, driver_source = trial_driver(state, raw)
+    test_stack = state.get('test_stack') is True or any(r.get('test_stack') is True for r in raw)
     kinds, outcomes = {}, {}
     for r in records:
         kinds[r['kind']] = kinds.get(r['kind'], 0) + 1
@@ -153,9 +184,11 @@ def summarize_trial(directory):
         'model_calls': sum(r['model']['calls'] for r in records), 'tool_calls': sum(r['tool_calls'] for r in records),
         'receipts': sum(len(r['receipts']) for r in records), 'first_at': records[0]['started_at'] if records else None,
         'last_at': records[-1]['ended_at'] if records else None,
-        'test_stack': state.get('test_stack') is True or any(r.get('test_stack') is True for r in records),
+        'test_stack': test_stack,
         # Owner 2026-10-14: simulated_agent when the customers were AI agents the owner operated (the system itself was real).
         'persona': state.get('persona'),
+        'driver': driver, 'driver_source': driver_source, 'real_evidence': driver == 'real' and not test_stack,
+        'voided': voided, 'resumes': len(_lines(root / 'resumes.jsonl')),
     }, intents, records
 
 
@@ -189,8 +222,17 @@ def build(out, items, trial=None):
                                                                  for p in participants])
         index['items']['interactions'] = {'status': 'present', 'records': len(records), 'dropped_values': dropped[0],
                                           'sha256': _sha256(Path(trial) / 'interactions.jsonl')}
-        if summary['test_stack']:
-            index['test_stack'], index['real_evidence'] = True, False
+        # The owner's voids and resumes: projected (ids, refs that are allowed values, times), counted and hashed.
+        for name in ('voids', 'resumes'):
+            source = Path(trial) / f'{name}.jsonl'
+            if source.exists():
+                rows, lost = _lines(source), [0]
+                _write(root / 'interactions' / f'{name}.json', project(rows, lost))
+                index['items'][name] = {'status': 'present', 'count': len(rows), 'dropped_values': lost[0], 'sha256': _sha256(source)}
+            else:
+                index['items'][name] = {'status': 'missing', 'count': 0}
+        index['test_stack'] = summary['test_stack']
+        index['driver'], index['driver_source'], index['real_evidence'] = summary['driver'], summary['driver_source'], summary['real_evidence']
     else:
         index['items']['interactions'] = {'status': 'missing'}
     _write(root / 'index.json', index)

@@ -322,7 +322,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
         state = X.run(trial, driver, collector, args.out, trial_id=args.trial_id, order=plan['order'], resume=args.resume,
                       void=(args.void_seq, args.void_confirmation) if args.void_seq is not None else None,
                       calibration_pause=calibration, month_cost_before=before if args.driver == 'real' else Decimal(0), test_stack=test_stack,
-                      persona=trial_persona if args.driver == 'real' else None,
+                      persona=trial_persona if args.driver == 'real' else None, driver_mode=args.driver,
                       month_cost=_MonthCost(connect, args.metrics_dsn_file, args.tenant, trial['currency']) if args.driver == 'real' else None)
     except X.TrialPaused as paused:
         return emit({'ok': False, 'detail': 'paused_needs_resume', 'rules': str(paused).split(','), 'trial_id': args.trial_id}, 3)
