@@ -74,6 +74,25 @@ export const RUN_INSTRUCTIONS=[
   'When the nexloop.plan.outcome tool is offered, this Run reevaluates a plan: record its result with that tool exactly once.',
 ].join('\n');
 
+/** 10/17 calibration: the model read business_action_success:false as "delivery failed" and offered to try again. The enterprise
+ * tools answer in two separate plain fields instead of the raw receipt: whether the enterprise has the order (the effect
+ * state) and the enterprise's own business result, which is always still pending here (its staff handle the order and report
+ * back later). No internal field names, digests or receipt ids reach the model. */
+export const ENTERPRISE_RESULT_GUIDE='The result has request_status (sending: the request is on its way to the enterprise; order_placed: the enterprise has the order; checking: not yet known whether the enterprise received it, it is being checked automatically; not_placed: the enterprise system did not take it), enterprise_result (pending_enterprise: the enterprise staff have not yet reported the outcome; this is normal and not a failure) and next_step. Never ask again or place the order again yourself: a second request would be a duplicate order. Tell the customer in plain words, never these field names or codes.';
+const REQUEST_STATUS:Record<string,'sending'|'order_placed'|'checking'|'not_placed'>={accepted:'sending',dispatching:'sending',observed_fulfilled:'order_placed',
+  fulfilled:'order_placed',confirmed:'order_placed',unknown:'checking',failed:'not_placed'};
+const NEXT_STEP={
+  sending:'Tell the customer the request has been passed to the enterprise and they will follow up. Do not request it again.',
+  order_placed:'Tell the customer the order has been placed with the enterprise and its staff will handle it and follow up. Do not request it again.',
+  checking:'Tell the customer the request was sent and is being confirmed; they will be updated. Do not request it again.',
+  not_placed:'Tell the customer the order could not be placed right now and a person will follow up. Do not request it again yourself.',
+} as const;
+export function presentEnterpriseReceipt(receipt:EffectReceipt){
+  const status=REQUEST_STATUS[receipt.state];
+  if(status===undefined)throw new RuntimeError('runtime_effect_unavailable');
+  return {request_id:receipt.intent_id,request_status:status,enterprise_result:'pending_enterprise' as const,next_step:NEXT_STEP[status]};
+}
+
 export class RuntimeEffectClient{
   private readonly origin:URL;
   private readonly configuration:Configuration;
@@ -251,7 +270,7 @@ export class RuntimeEffectClient{
   toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;enterprise?:EffectSupply}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
     const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
-      try{return {content:[{type:'text' as const,text:JSON.stringify(await this.call(bound,operation,args,action))}]};}
+      try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action)))}]};}
       catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','intent_payload_conflict'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
     // 10/17 stage smoke: the service intent is keyed on this Run's slot (0040), so one Run has one reply. A second, different
@@ -292,13 +311,14 @@ export class RuntimeEffectClient{
     // only when the Run credential grants nexloop.enterprise.deliver:1). Availability, not authority: the guard rechecks.
     const enterprise=options.enterprise;
     const enterpriseTools=enterprise?.action===ENTERPRISE?[defineTool({name:'nexloop.enterprise.deliver',
-      description:`Ask the enterprise to deliver its catalog service "${enterprise.title}" (${enterprise.service_code}, ${enterprise.price_amount} CNY) to this customer through its own system. accepted is not delivery: the result comes back as a receipt. Only when the customer asked for this service; never for another service, price or customer.`,
+      description:`Ask the enterprise to deliver its catalog service "${enterprise.title}" (${enterprise.service_code}, ${enterprise.price_amount} CNY) to this customer through its own system. Only when the customer asked for this service; never for another service, price or customer. Write summary and details in the customer's own language (the language of the customer's messages): the enterprise staff read them as the order. ${ENTERPRISE_RESULT_GUIDE}`,
       parameters:Type.Object({summary:Type.String({minLength:1,maxLength:200}),details:Type.Optional(Type.String({maxLength:2000})),
         consumer_ref:Type.Optional(Type.String({minLength:1,maxLength:80}))},{additionalProperties:false}),
       replay:'safe',execute:async args=>invokeAction('submit',args,ENTERPRISE)}),
-      defineTool({name:'nexloop.enterprise.find',description:'Read the current receipt of an enterprise delivery this Run requested. Does not send anything.',
-        parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),
-        replay:'safe',execute:async args=>invokeAction('find',args,ENTERPRISE)})]:[];
+      defineTool({name:'nexloop.enterprise.find',description:`Read the current state of an enterprise delivery this Run requested (its request_id). Does not send anything and never places it again. ${ENTERPRISE_RESULT_GUIDE}`,
+        parameters:Type.Object({request_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),
+        replay:'safe',execute:async args=>invokeAction('find',args!==null&&typeof args==='object'&&!Array.isArray(args)&&Object.keys(args).length===1&&Object.hasOwn(args,'request_id')
+          ?{intent_id:(args as {request_id:unknown}).request_id}:args,ENTERPRISE)})]:[];
     return [
       ...outcomeTool,
       ...incentiveTool,

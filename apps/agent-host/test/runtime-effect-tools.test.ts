@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import {afterEach,describe,expect,it} from 'vitest';
-import {RuntimeEffectClient} from '../src/runtime-effect-tools.ts';
+import {ENTERPRISE_RESULT_GUIDE,RuntimeEffectClient} from '../src/runtime-effect-tools.ts';
 import {command} from './pi-runtime-support.ts';
 
 const resources:{server:Server;directory:string}[]=[];
@@ -120,6 +120,34 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
     // The reply tool's request is unchanged (no action key).
     await client.call(cmd,'submit',{message:'one service'});
     expect(Object.keys(bodies[2]!).sort()).toEqual(['activation_ref','command','parameters']);
+  });
+  type Run={execute:(args:unknown)=>Promise<{isError?:boolean;content:{text:string}[]}>;description:string};
+  const tool=(client:RuntimeEffectClient,cmd:ReturnType<typeof command>,name:string)=>client.toolsForRun(cmd,{enterprise:supply}).find(item=>item.name===name) as unknown as Run;
+  it.each([['fulfilled','order_placed'],['confirmed','order_placed'],['observed_fulfilled','order_placed'],['accepted','sending'],['dispatching','sending'],['unknown','checking'],['failed','not_placed']] as const)(
+    '10/17 calibration: a %s receipt is shown as request_status %s with the enterprise result pending, never the raw receipt',async(state,status)=>{
+    const {client,cmd,bodies}=await bridge({change:body=>({...body,receipt:{...receipt,state}})});
+    for(const [name,args] of [['nexloop.enterprise.deliver',{summary:'上门检查一次'}],['nexloop.enterprise.find',{request_id:intent}]] as const){
+      const result=await tool(client,cmd,name).execute(args);
+      expect(result.isError).toBeUndefined();
+      const shown=JSON.parse(result.content[0]!.text);
+      expect(Object.keys(shown).sort()).toEqual(['enterprise_result','next_step','request_id','request_status']);
+      expect(shown).toMatchObject({request_id:intent,request_status:status,enterprise_result:'pending_enterprise'});
+      // No internal field reaches the model: not the success flag, digests, receipt id or raw state.
+      expect(result.content[0]!.text).not.toMatch(/business_action_success|payload_digest|receipt_id|scope|effect_intent/);
+      expect(shown.next_step).toMatch(/Do not request it again/);
+    }
+    expect(bodies[1]!.intent_id).toBe(intent);  // find still reads the same intent
+  });
+  it('tells the model the result fields, that pending is not a failure, no second order, and the customer\'s language',async()=>{
+    const {client,cmd}=await bridge();
+    for(const name of ['nexloop.enterprise.deliver','nexloop.enterprise.find']){
+      const description=tool(client,cmd,name).description;
+      expect(description).toContain(ENTERPRISE_RESULT_GUIDE);
+      expect(description).toMatch(/not a failure/);
+      expect(description).toMatch(/duplicate order/);
+      expect(description).toMatch(/never these field names/);
+    }
+    expect(tool(client,cmd,'nexloop.enterprise.deliver').description).toMatch(/summary and details in the customer's own language/);
   });
   it('refuses another consumer, unknown keys and oversized text before the network',async()=>{
     const {client,cmd,bodies}=await bridge();
