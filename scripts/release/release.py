@@ -288,6 +288,28 @@ def _tool(name, pinned):
     return path
 
 
+# grype reads only the database the CI host's update job imported (NX-036 D12): a scan never downloads one or checks for a
+# newer grype, and grype's own age refusal is off because the age is judged by the policy (stage records it, public allows
+# at most database_max_age_days). Without a database grype fails, and so does the scan.
+GRYPE_SCAN_ENV = {'GRYPE_DB_AUTO_UPDATE': 'false', 'GRYPE_DB_VALIDATE_AGE': 'false', 'GRYPE_CHECK_FOR_APP_UPDATE': 'false'}
+
+
+def grype_scan(grype, target, pinned, what):
+    """grype over one SPDX file -> (report, database build time). The database must be valid and of the pinned schema."""
+    result = subprocess.run([grype, 'sbom:' + str(target), '-o', 'json', '-q'], capture_output=True, text=True,
+                            env={**os.environ, **GRYPE_SCAN_ENV})
+    if result.returncode != 0:
+        raise Refused(what + ' vulnerability scan failed')
+    report = json.loads(result.stdout)
+    db = (report.get('descriptor') or {}).get('db') or {}
+    status = db.get('status') if isinstance(db.get('status'), dict) else db
+    schema = str(status.get('schemaVersion') or '')
+    expected = pinned['grype']['database_schema']
+    if status.get('valid') is False or not re.fullmatch(re.escape(expected) + r'(\.[0-9]+)*', schema):
+        raise Refused(f'{what} vulnerability database {schema or "unknown"} is not a valid {expected} database')
+    return report, status.get('built')
+
+
 def sbom(release_dir, root=ROOT):
     release_dir = Path(release_dir)
     pinned = pinned_tools(root)
@@ -304,10 +326,7 @@ def sbom(release_dir, root=ROOT):
         archive = release_dir / image['archive']
         if subprocess.run([syft, 'scan', 'oci-archive:' + str(archive), '-o', 'spdx-json=' + str(target), '-q'], capture_output=True).returncode != 0 or not target.exists():
             raise Refused('sbom generation failed: ' + image['name'])
-        result = subprocess.run([grype, 'sbom:' + str(target), '-o', 'json', '-q'], capture_output=True, text=True)
-        if result.returncode != 0:
-            raise Refused('vulnerability scan failed: ' + image['name'])
-        report = json.loads(result.stdout)
+        report, built = grype_scan(grype, target, pinned, image['name'])
         found = findings(report, 'image:' + image['name'])
         (release_dir / 'sbom' / (image['name'].replace('/', '_') + '.findings.json')).write_text(json.dumps(found, indent=2, sort_keys=True) + '\n')
         all_findings.extend(found)
@@ -319,8 +338,7 @@ def sbom(release_dir, root=ROOT):
                       and ((m.get('vulnerability') or {}).get('fix') or {}).get('state') == 'fixed')
         image['sbom_sha256'] = sha256_file(target)
         scan['images'][image['name']] = {'counts': counts, 'critical_with_fix': fixable}
-        db = (report.get('descriptor') or {}).get('db') or {}
-        scan['db'] = db.get('built') or (db.get('status') or {}).get('built')
+        scan['db'] = built
     verdict = evaluate_vulnerabilities(all_findings, load_vulnerability_policy(root), 'stage', scan.get('db'))
     scan['policy'] = verdict['summary']
     manifest['scan'] = scan  # counts and identifiers only; never vulnerability text (D2: reported, not blocking)
@@ -439,12 +457,8 @@ def source_sbom(checkout, out, root=ROOT):
     target = out / 'source.spdx.json'
     if subprocess.run([syft, 'scan', 'dir:' + str(checkout), '-o', 'spdx-json=' + str(target), '-q'], capture_output=True).returncode != 0 or not target.exists():
         raise Refused('source sbom generation failed')
-    result = subprocess.run([grype, 'sbom:' + str(target), '-o', 'json', '-q'], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise Refused('source vulnerability scan failed')
-    report = json.loads(result.stdout)
-    db = (report.get('descriptor') or {}).get('db') or {}
-    return json.loads(target.read_text()), findings(report, 'source'), db.get('built') or (db.get('status') or {}).get('built')
+    report, built = grype_scan(grype, target, pinned, 'source')
+    return json.loads(target.read_text()), findings(report, 'source'), built
 
 
 # ---- NX-036: public release gate (nine steps; any missing condition is a failure) --------------------------------------

@@ -109,7 +109,7 @@ def test_sbom_writes_findings_and_refuses_on_an_expired_waiver_but_still_needs_t
     bin_dir.mkdir()
     fake_tool(bin_dir, 'syft', pinned['syft']['version'], 'for a in "$@"; do case "$a" in spdx-json=*) echo \'{"spdxVersion":"SPDX-2.3"}\' > "${a#spdx-json=}";; esac; done')
     report = json.dumps({'matches': [{'vulnerability': {'id': 'CVE-2026-0001', 'severity': 'Critical', 'fix': {'state': 'fixed'}, 'description': 'SECRET-TEXT'},
-                                      'artifact': {'name': 'libx', 'version': '1.2.3'}}], 'descriptor': {'db': {'built': '2026-10-10T00:00:00Z'}}})
+                                      'artifact': {'name': 'libx', 'version': '1.2.3'}}], 'descriptor': {'db': {'status': {'schemaVersion': 'v6.1.10', 'built': '2026-10-10T00:00:00Z', 'valid': True}}}})
     fake_tool(bin_dir, 'grype', pinned['grype']['version'], f"echo '{report}'")
     monkeypatch.setenv('PATH', f'{bin_dir}:/usr/bin:/bin')
     result = release.sbom(rel)

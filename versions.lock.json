@@ -172,7 +172,7 @@
     }
   },
   "release_tools": {
-    "decision": "NX-034 D1/D2 (dispatcher 2026-10-11): manifests are signed with OpenSSH ssh-keygen -Y (namespace nexloop-release); SBOMs by syft and vulnerability counts by grype, at exactly these versions. A missing or different tool is reported, never a pass. Binary digests are recorded when the tools are first installed on the CI host from their official release archives (status below). Installed on the CI host on 2026-10-11 (owner decision O3): official release archives checked against the published checksums on the development machine and again on the CI host, binaries in the CI user's own directory (no root); the archive and binary digests above are what a re-install must reproduce. The grype vulnerability database is fetched by a daily update job only.",
+    "decision": "NX-034 D1/D2 (dispatcher 2026-10-11): manifests are signed with OpenSSH ssh-keygen -Y (namespace nexloop-release); SBOMs by syft and vulnerability counts by grype, at exactly these versions. A missing or different tool is reported, never a pass. Binary digests are recorded when the tools are first installed on the CI host from their official release archives (status below). Installed on the CI host on 2026-10-11 (owner decision O3): official release archives checked against the published checksums on the development machine and again on the CI host, binaries in the CI user's own directory (no root); the archive and binary digests above are what a re-install must reproduce. The grype vulnerability database is fetched by a daily update job only (imported after its checksum is checked; scans never download one).",
     "syft": {
       "version": "1.18.1",
       "source": "https://github.com/anchore/syft/releases/tag/v1.18.1",
@@ -184,14 +184,23 @@
       "git_commit": "5e16e5031a13f8a11057feb8544decebfc43b4ed"
     },
     "grype": {
-      "version": "0.86.1",
-      "source": "https://github.com/anchore/grype/releases/tag/v0.86.1",
-      "status": "installed_ci_host",
-      "installed_at": "2026-10-11",
-      "archive": "grype_0.86.1_linux_amd64.tar.gz",
-      "archive_sha256": "2d1533dae213a27b741e0cb31b2cd354159a283325475512ae90c1c2412f4098",
-      "binary_sha256_linux_amd64": "09654d92ae31ad3a07b04889cd2be00f174a9c1399ff485cf16bb587ce1aad3c",
-      "git_commit": "5c4fee7b1170976ab435de052fc3611bc955f1f1"
+      "version": "0.120.0",
+      "source": "https://github.com/anchore/grype/releases/tag/v0.120.0",
+      "status": "pinned_not_installed_ci_host",
+      "pinned_at": "2026-10-17",
+      "archive": "grype_0.120.0_linux_amd64.tar.gz",
+      "archive_sha256": "a5a1218dce63acdac152a6b3b5bb366e7267e36f4069848cf455543b3fa5700e",
+      "binary_sha256_linux_amd64": "4de6935c80c111d3d37b2b09f86d1a30b3d10a2f7146d4dbe74ed86c81f35790",
+      "git_commit": "10fbc043ecbaf8436daa9efac9f1632557caf277",
+      "database_schema": "v6",
+      "database_listing": "https://grype.anchore.io/databases/v6/latest.json",
+      "reason": "grype 0.86.1 reads only schema v5 vulnerability databases, the last of which was built on 2026-03-09, so the D12 age limit could never be met and findings stopped at that date (docs/release/run-grype-v6-20261017.md). Archive checked against the release's published checksums on the development machine; the binary digest is that of the archive's grype. Installation on the CI host is a B-class step of that runbook.",
+      "replaces": {
+        "version": "0.86.1",
+        "archive_sha256": "2d1533dae213a27b741e0cb31b2cd354159a283325475512ae90c1c2412f4098",
+        "binary_sha256_linux_amd64": "09654d92ae31ad3a07b04889cd2be00f174a9c1399ff485cf16bb587ce1aad3c",
+        "database_schema": "v5"
+      }
     },
     "ssh-keygen": {
       "minimum_openssh": "8.2",

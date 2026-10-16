@@ -154,7 +154,7 @@ def test_sbom_and_scan_need_the_pinned_tools_and_never_pass_without_them(inputs)
     # Stand-ins with the pinned versions: syft writes an SPDX file, grype reports one critical (fixable) and one low finding.
     fake_tool(bin_dir, 'syft', pinned['syft']['version'], 'for a in "$@"; do case "$a" in spdx-json=*) echo \'{"spdxVersion":"SPDX-2.3"}\' > "${a#spdx-json=}";; esac; done')
     report = json.dumps({'matches': [{'vulnerability': {'severity': 'Critical', 'fix': {'state': 'fixed'}, 'description': 'SECRET-TEXT'}},
-                                     {'vulnerability': {'severity': 'Low'}}], 'descriptor': {'db': {'built': '2026-10-10T00:00:00Z'}}})
+                                     {'vulnerability': {'severity': 'Low'}}], 'descriptor': {'db': {'status': {'schemaVersion': 'v6.1.10', 'built': '2026-10-10T00:00:00Z', 'valid': True}}}})
     fake_tool(bin_dir, 'grype', pinned['grype']['version'], f"echo '{report}'")
     env = {**os.environ, 'PATH': f'{bin_dir}:/usr/bin:/bin'}
     code, out = cli('sbom', '--release-dir', rel, env=env)

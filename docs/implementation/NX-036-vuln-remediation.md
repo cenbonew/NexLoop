@@ -159,3 +159,15 @@ for f in sbom/*.findings.json; do echo "== $f"; jq -c '.[] | select(.id=="CVE-20
 `HostPurger`（Agent Host 回环 `runs/purge`）的 `response.read()` 改为 `read(RESPONSE_LIMIT+1)`，`RESPONSE_LIMIT=4096`；超过上限按 `failed` 处理，队列保留该项，与 `host_control.py` 的 4097/4096 做法一致。`nexloop_eios` 包内已没有其它无界的 HTTP 响应读取（`git grep '\.read()'` 只剩文件读取）。
 
 测试 `tests/test_retention_host_reply_bound.py`（本机 TLS 回环假 Host）：上限内的回复照常读取；超过上限的回复（4097 字节、1 MiB）即使内容是 `purged` 也判 `failed`；声明 1 GiB、只发出超过上限的字节后挂起的回复，在 5 秒内返回 `failed`（连接超时是 10 秒）；非 200 判 `failed`。用改动前的 `retention.py` 运行，后三类中 3 个用例失败，即测试能识别回退。
+
+### grype 升级到 0.120.0（漏洞库 v6）
+
+grype 0.86.1 只能读 v5 漏洞库，v5 库停在 2026-03-09，D12 无法满足。本分支把 `release_tools.grype` 升到 0.120.0；`release.py` 的 `grype_scan()` 只用导入的库，库龄交给策略判定，并拒绝无效库或非 v6 库。CI 主机的安装与离线更新库，见 `docs/release/run-grype-v6-20261017.md`。
+
+开发机用 v6 库实测锁定的 Python 基础镜像：
+
+- CVE-2025-13836 不再列出；
+- sqlite 豁免仍然生效；
+- zlib 豁免不再被用到，进入 cleanup。
+
+Node 与 pgvector 两个基础层在新库下会出现有修复的 Critical，public 发布将被阻断，需要另立任务升级这两个基础镜像。
