@@ -192,3 +192,15 @@ from commitment_fixture import commitments  # noqa: E402,F401
 from effect_execution_fixture import execution_plan, governed_effect_executor  # noqa: E402,F401
 test_the_outbound_recorder_guard_refuses_a_stalled_backlog = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)(
     test_the_outbound_recorder_guard_refuses_a_stalled_backlog)
+
+
+def test_preflight_is_only_for_a_real_start(tmp_path, capsys):
+    """--preflight (calibration 2026-10-17) runs the real start checks only; with the synthetic driver or with --resume it is
+    refused before anything is read or written."""
+    import run_interactions as R
+    out = tmp_path / 'trial'
+    for argv in (['--driver', 'synthetic', '--trial-id', '00000000-0000-4000-8000-000000000001', '--out', str(out), '--preflight'],
+                 ['--driver', 'real', '--trial-id', '00000000-0000-4000-8000-000000000001', '--out', str(out), '--preflight', '--resume', 'owner:x']):
+        assert R.main(argv) == 3
+        assert json.loads(capsys.readouterr().out.strip())['detail'] == '--preflight is for a real start only'
+    assert not out.exists()

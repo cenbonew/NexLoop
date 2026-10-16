@@ -3,7 +3,11 @@ its own secret files, the common hardening and a command its real argument parse
 budget entry; doctor --deploy-gate compares Compose and budget both ways. No container is started."""
 import copy
 import json
+import os
 import re
+import shutil
+import sys
+import subprocess
 
 import pytest
 import yaml
@@ -12,6 +16,8 @@ from nexloop_eios.local_json_delivery import arguments as local_json_delivery_ar
 from nexloop_eios import background_services, connection_budget, deploy_checks, effect_worker, message_relay_cli, outbound_messages, runtime_worker
 from nexloop_eios.browser_identity import open_browser_identity
 from test_deploy_render import ROOT, STAGE, interpolate
+
+sys.path.insert(0, str(ROOT / "scripts/deploy"))
 
 BUDGET = json.loads((STAGE / 'connection-budget.v1.json').read_text())
 SHARED = {'signing_key', 'pg_ca', 'host_ca', 'host_control_key'}
@@ -181,3 +187,60 @@ def test_only_the_gateway_gets_one_capability_back(compose):
     """2026-10-15 first start: the caddy binary's file capability needs NET_BIND_SERVICE in the bounding set to exec at all."""
     added = {name: spec.get('cap_add') for name, spec in compose['services'].items() if spec.get('cap_add')}
     assert added == {'gateway': ['NET_BIND_SERVICE']}
+
+
+def test_the_real_dispatch_switch_is_one_compose_variable_closed_by_default_and_only_true_or_false():
+    """Calibration gap 1 (2026-10-17): the deployment layer REAL_DISPATCH_ENABLED comes from the private compose env, default false;
+    the x-service anchor and the Agent Host take the same variable and nothing else sets it; app-net extends real-dispatch.<value>.yaml,
+    so a value other than true or false fails `docker compose config`."""
+    text = (STAGE / 'compose.app.example.yaml').read_text()
+    raw = yaml.safe_load(text)
+    reference = '${REAL_DISPATCH_ENABLED:-false}'
+    setters = sorted(name for name, s in raw['services'].items() if 'REAL_DISPATCH_ENABLED' in (s.get('environment') or {}))
+    assert raw['x-service']['environment'] == {'REAL_DISPATCH_ENABLED': reference}
+    assert raw['services']['agent-host']['environment'] == {'REAL_DISPATCH_ENABLED': reference}
+    # Every other service carries it only through the anchor (YAML merge gives the same mapping).
+    assert all(raw['services'][n]['environment']['REAL_DISPATCH_ENABLED'] == reference for n in setters)
+    assert len(re.findall(r'^\s+REAL_DISPATCH_ENABLED:\s', text, re.M)) == 2 and text.count(reference) == 3
+    assert raw['services']['app-net']['extends'] == {'file': 'real-dispatch.${REAL_DISPATCH_ENABLED:-false}.yaml', 'service': 'real-dispatch'}
+    assert sorted(p.name for p in STAGE.glob('real-dispatch.*.yaml')) == ['real-dispatch.false.yaml', 'real-dispatch.true.yaml']
+    env = STAGE / 'compose.app.env.example'
+    assert 'REAL_DISPATCH_ENABLED=false' in env.read_text().splitlines()
+    for overrides, want in (({}, 'false'), ({'REAL_DISPATCH_ENABLED': ''}, 'false'), ({'REAL_DISPATCH_ENABLED': 'true'}, 'true')):
+        rendered = yaml.safe_load(interpolate(text, env, overrides))
+        values = {s['environment']['REAL_DISPATCH_ENABLED'] for s in rendered['services'].values() if s.get('environment')}
+        assert values == {want} and rendered['services']['app-net']['extends']['file'] == f'real-dispatch.{want}.yaml'
+    docker = shutil.which('docker')
+    if docker:
+        def config(value):
+            return subprocess.run([docker, 'compose', '-f', 'compose.app.example.yaml', '--env-file', 'compose.app.env.example', 'config', '--format', 'json'],
+                                  cwd=STAGE, capture_output=True, text=True, timeout=60, env={**os.environ, 'REAL_DISPATCH_ENABLED': value})
+        for value in ('false', 'true'):
+            run = config(value)
+            assert run.returncode == 0, run.stderr[-2000:]
+            services = json.loads(run.stdout)['services']
+            assert {n for n, s in services.items() if (s.get('environment') or {}).get('REAL_DISPATCH_ENABLED') == value} == set(services) - {'app-net'}
+        for value in ('yes', '1', 'open'):
+            assert config(value).returncode != 0, value
+
+
+def test_the_calibration_run_entry_form_gets_what_it_reads_from_the_action_worker():
+    """Calibration gap 2 (run-calibration-20261017 §2.1): the run entry runs in a one-off container with --network container:<action
+    worker>, --volumes-from <action worker>:ro and --user 10001. That form holds only if the rendered Compose gives the action worker
+    every file the run entry reads by container path (both provider files and the credential and CA files they name, as file
+    secrets, i.e. bind mounts that --volumes-from carries), the action worker's files belong to 10001, the WebChat delivery whose
+    health the guard GETs on 127.0.0.1 shares the action worker's namespace, and the switch variable is in its environment."""
+    import provider_routes as P
+    rendered = yaml.safe_load(interpolate((STAGE / 'compose.app.example.yaml').read_text(), STAGE / 'compose.app.env.example'))
+    worker = rendered['services']['action-worker']
+    mounted = set(worker['secrets'])
+    for config_secret, credential, ca in P.CREDENTIALS.values():
+        assert {config_secret, credential, ca} <= mounted
+        assert all('file' in rendered['secrets'][name] for name in (config_secret, credential, ca))  # file secrets: bind mounts
+    assert set(P.FILES) <= mounted
+    assert rendered['services']['webchat-delivery']['network_mode'] == 'service:action-worker'
+    assert worker['environment']['REAL_DISPATCH_ENABLED'] == 'false'
+    spec = json.loads((STAGE / 'deploy-gate.app.example.json').read_text())
+    assert spec['secret_uids']['action-worker'] == 10001 and 'user' not in worker  # the backend image's service user, 10001
+    # The run entry's --webchat-provider-file and --enterprise-provider-file are these container paths.
+    assert {f'/run/secrets/{name}' for name in ('action_worker_webchat_provider', 'action_worker_enterprise_provider')} <= {f'/run/secrets/{n}' for n in mounted}

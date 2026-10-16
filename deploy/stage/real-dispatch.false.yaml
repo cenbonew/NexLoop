@@ -1,0 +1,4 @@
+# REAL_DISPATCH_ENABLED=false: the app-net service of compose.app.example.yaml extends this empty service. It exists only so that a
+# value other than true or false (no such file) makes `docker compose config` fail. Deploy both files next to compose.app.yaml.
+services:
+  real-dispatch: {}

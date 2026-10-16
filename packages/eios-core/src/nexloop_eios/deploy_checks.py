@@ -307,6 +307,11 @@ _SECRET_ENV = re.compile(r'(PASSWORD|SECRET|TOKEN|DSN|DATABASE_URL|API_KEY|CREDE
 AGENT_HOST = 'agent-host'
 
 
+# The stage Compose example takes the deployment switch from the compose env, default false (calibration 2026-10-17); unrendered
+# (stage_secrets check) that reference is closed. The deploy gate reads the rendered Compose, where the value is true or false.
+DISPATCH_TEMPLATE_DEFAULT = '${REAL_DISPATCH_ENABLED:-false}'
+
+
 def secret_distribution(secret_root, *, compose=None, uids=None):
     """NEXLOOP_ROOT/secrets/<service>/: directory 0700, files 0600, regular, one link, owned by the service UID when given. The Agent
     Host directory holds no DSN, credential, signing or channel file. In the rendered APP_HOST Compose: no secret value in any
@@ -337,14 +342,14 @@ def secret_distribution(secret_root, *, compose=None, uids=None):
                 problems.append(f'file_owner:{name}')
             if name == AGENT_HOST and _SECRET_NAME.search(f.name):
                 problems.append('agent_host_holds_service_secret')
-    dispatch_open = []
+    dispatch_open = []  # rendered Compose: 'false' closed; the unrendered example: its default-false variable reference
     if compose is not None:
         for svc, spec in (compose.get('services') or {}).items():
             env = spec.get('environment') or {}
             for key, value in env.items():
                 if _SECRET_ENV.search(key) and not key.endswith('_FILE'):
                     problems.append(f'secret_in_environment:{svc}')
-                if key == 'REAL_DISPATCH_ENABLED' and str(value).lower() != 'false':
+                if key == 'REAL_DISPATCH_ENABLED' and str(value).lower() != 'false' and str(value) != DISPATCH_TEMPLATE_DEFAULT:
                     dispatch_open.append(svc)
             if svc == AGENT_HOST:
                 secrets = [s if isinstance(s, str) else s.get('source', '') for s in spec.get('secrets') or []]

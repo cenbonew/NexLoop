@@ -70,17 +70,47 @@ python scripts/nx037/real_tenant_init.py verify --tenant "$TENANT_ID" --owner-pr
 计划 v3 的 `real_dispatch` 是 `{"deployment": true, "tenant": true, "data_mode": "real", "actions": ["eios:action:nexloop.enterprise.deliver:1"]}`。运行入口要求实际开关与它**完全一致**，多开、少开都拒绝（`switch_<层>_differs`）。
 
 1. **租户层与 Action 层**：负责人在工作台执行 `set_real_dispatch`，只打开该租户（data_mode `real`）和 `eios:action:nexloop.enterprise.deliver:1`（OPERATIONS §9.3）。
-2. **部署层 `REAL_DISPATCH_ENABLED`**：
-   - stage 的 compose 中，这个值写在两处：`x-service: &service` 公共段中的 `environment: &environment` 和 `app-net` 服务，都硬编码为 `"false"`（D9）；
-   - 要打开，就要修改已部署的 `$NEXLOOP_ROOT/config/compose.app.yaml`，把这两处改为 `"true"`（先备份，sudo-A），然后全量 `up -d`，并按 run-release7-deploy §4.5 核对 25 个服务和网络命名空间；
-   - **这一步此前没有在 stage 执行过，也没有现成的命令单**。执行前请调度员确认改动范围；
-   - 打开后，部署门禁的 `real_dispatch_closed` 会变为 false，这是预期的。门禁结论按“开关已按计划打开”记录。
-3. **核对**：§2.1 容器内 `REAL_DISPATCH_ENABLED` 的值，加上 `authz.nexloop_nx037_open_switches` 的结果，与计划一致。运行入口会自动核对，不一致会以退出码 3 列出 `switch_*_differs`。
+2. **部署层 `REAL_DISPATCH_ENABLED`**：见下面的“打开”和“收工关闭”两段。计划 v3 中 `deployment: true` 是负责人已经定下的开关状态，但打开这个动作本身仍是 **B** 类，当天由负责人确认。
+3. **核对**：§2.1 容器内 `REAL_DISPATCH_ENABLED` 的值，加上 `authz.nexloop_nx037_open_switches` 的结果，与计划一致。运行入口（包括 §2.2a 的 `--preflight`）会自动核对，不一致会以退出码 3 列出 `switch_*_differs`。
 
-**收工时关闭**（10/17 校准暂停后，第二天开跑前再打开）：
-- 工作台撤销 Action 层和租户层；
-- compose 中两处改回 `"false"`，执行全量 `up -d`。
-- 这一点由负责人决定：也可以保持打开到 10/19 交互结束，但窗口外（10:00–18:00 以外）没有人值守。
+#### 部署层：打开（APP_HOST；**B**，sudo-A；窗口开始前）
+
+从发布 8 之后的 compose 起，这个开关是 `compose.app.env` 中的变量 `REAL_DISPATCH_ENABLED`：缺省为 false，只接受 `true` 或 `false`。依据是 `compose.app.example.yaml` 的 `x-service` 锚点和 agent-host 两处 `${REAL_DISPATCH_ENABLED:-false}`；app-net 的 `extends` 指向 `real-dispatch.<值>.yaml`，其他任何值都找不到文件，`compose config` 因此失败。
+
+**前提**：部署目录 `$NEXLOOP_ROOT/config/` 中已经有这个版本的 `compose.app.yaml`，以及与它同目录的 `real-dispatch.true.yaml`、`real-dispatch.false.yaml`（从发布提交的 `deploy/stage/` 复制，root 0640）。核对：
+```
+grep -c 'REAL_DISPATCH_ENABLED:-false' $NEXLOOP_ROOT/config/compose.app.yaml; ls $NEXLOOP_ROOT/config/real-dispatch.*.yaml
+```
+预期：`3`，两个文件都在。否则先按 run-release7-deploy §4.3 更新 compose。
+
+```
+B=$NEXLOOP_ROOT/ops/dispatch-switch-backup; sudo install -d -o root -g root -m 0700 "$B"
+sudo cp -p $NEXLOOP_ROOT/config/compose.app.env "$B/compose.app.env.$(date -u +%Y%m%dT%H%M%SZ)"
+sudo sed -i 's/^REAL_DISPATCH_ENABLED=.*/REAL_DISPATCH_ENABLED=true/' $NEXLOOP_ROOT/config/compose.app.env
+grep -q '^REAL_DISPATCH_ENABLED=true$' $NEXLOOP_ROOT/config/compose.app.env || echo 'REAL_DISPATCH_ENABLED=true' | sudo tee -a $NEXLOOP_ROOT/config/compose.app.env >/dev/null
+$C config --quiet && echo config-ok
+$C up -d
+```
+
+- `$C` 的含义见 run-release7-deploy §0：`docker compose -p nexloop-app -f …/compose.app.yaml --env-file …/compose.app.env --env-file …/compose.images.env`。
+- **`up -d` 只重建引用这个变量的服务**：变量变了，只有环境里有它的服务配置会变，compose 只重建这些服务。按 compose 渲染，是 app-net 以外的 24 个：`x-service` 锚点下的全部服务，加上 agent-host。app-net 的环境里没有这个变量（它只有 `extends` 那一个空片段），所以**不会重建**，依附它的 18 个服务的网络命名空间仍然有效。
+- **network_mode 依附**：webchat-delivery 依附 action-worker，agent-link-relay 依附 agent-host。两组的两方都在这 24 个里，会一起重建。重建后必须核对依附方指向的是**当前**的目标容器，用 run-release7-deploy §4.5 的 netns 核对。如果显示 STALE，执行 `$C up -d --force-recreate --no-deps webchat-delivery`（或 `agent-link-relay`）。不要只重建 action-worker：它重建后，webchat-delivery 也必须跟着重建。
+- **核对两处容器内的值**：
+  ```
+  for s in action-worker agent-host; do printf '%s ' $s; sudo docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $($C ps -q $s) | grep '^REAL_DISPATCH_ENABLED='; done
+  ```
+  预期两行都是 `REAL_DISPATCH_ENABLED=true`。action-worker 代表锚点下的服务，agent-host 是单独写的那一处。
+- 再核对 25 个服务都是 running，restart 次数为 0（run-release7-deploy §4.5）。
+- **门禁**：开关打开期间，`real_dispatch_closed` 为 false，`details.secrets.dispatch_open` 列出这 24 个服务，这是预期的。只在试运行窗口内接受这个结果。收工关闭后重跑门禁，它应回到 true。
+
+#### 部署层：收工关闭（**B**，sudo-A；窗口结束或校准暂停后）
+
+1. 负责人在工作台撤销 Action 层和租户层（`set_real_dispatch`）。
+2. 用上面同样的命令，把值写回 `false`（先备份），执行 `$C config --quiet`、`$C up -d`，再做 netns 核对。核对两处容器内的值，预期都是 `REAL_DISPATCH_ENABLED=false`。
+3. 重跑部署门禁（run-release7-deploy §5，用新的 `GATE_DIR`），`real_dispatch_closed` 应为 true。
+
+- 也可以由负责人决定保持打开到 10/19 交互结束；但窗口外（10:00–18:00 以外）没有人值守，所以建议每天收工都关闭。
+- **撤销**（打开过程中出错）：把备份的 `compose.app.env` 复制回去，执行 `$C up -d`。
 
 ### 1.5 参考端点演练开关是关闭的
 
@@ -110,18 +140,52 @@ AW=$(sudo docker compose -p nexloop-app ps -q action-worker)
 RUNI="sudo docker run --rm -i --user 10001:10001 --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
   --network container:$AW --volumes-from $AW:ro -e REAL_DISPATCH_ENABLED=$(sudo docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $AW | sed -n 's/^REAL_DISPATCH_ENABLED=//p') \
   -v $RELEASE_CHECKOUT:/opt/release:ro -v $TRIAL_IN:$TRIAL_IN:ro -v $METRICS_DIR:$METRICS_DIR:ro -v $TRIAL_DIR:$TRIAL_DIR \
+  -v $TRIAL_IN/host-model-tariff:/run/secrets/host_model_tariff:ro \
   -w /opt/release --entrypoint python $BACKEND_IMAGE"
 ```
 
 - `$RELEASE_CHECKOUT` 是发布 8 提交的检出：运行入口从 `scripts/nx037/` 和 `deploy/configuration/` 读文件。
-- `$METRICS_DIR`：DSN 里的证书路径是绝对路径，所以在容器里挂到同一路径；目录内文件的属主要是 10001、权限 0600（libpq 要求私钥属于当前用户）。如果现有的是 root 所有的副本，就复制一份。
+- `$METRICS_DIR`：metrics 角色的 10001 副本，生成方法见下面的“metrics 文件的 10001 副本”。DSN 中的证书路径是绝对路径，所以副本要挂到 DSN 中写的同一路径上。
 - **Host 配置**（`--host-config`）：
   - Agent Host 的 `runtime-config.json` 属主是 10020，10001 读不了；它引用的价目文件 `model_tariff_file` 是容器内路径 `/run/secrets/host_model_tariff`；
   - 运行入口只读这两个文件来核对 `runtime_profile`、`cost_currency` 和价目字段（`currency_preconditions`），不读模型凭据；
   - 做法：把这两个文件各复制一份，属主 10001、0600，内容不改（核对 sha256），配置副本放在 `$TRIAL_IN/host-config.json`；价目副本用 `-v $TRIAL_IN/host-model-tariff:/run/secrets/host_model_tariff:ro` 挂到原路径。
-- **这个执行形态还没有在 stage 演练过**：
+- **metrics 文件的 10001 副本**（sudo-A）：
+  ```
+  M=$NEXLOOP_ROOT/ops/metrics; METRICS_DIR=$M-10001
+  sudo install -d -o 10001 -g 10001 -m 0700 "$METRICS_DIR"
+  for f in metrics.dsn metrics-pg-client.crt metrics-pg-client.key pg-ca.crt; do sudo install -o 10001 -g 10001 -m 0600 "$M/$f" "$METRICS_DIR/$f"; sudo cmp "$M/$f" "$METRICS_DIR/$f"; done
+  ```
+  - 文件名取自 run-metrics-gate §1 的 `management/metrics/` 四个文件。以 APP_HOST 上 `$M` 中的实际文件名为准；`cmp` 不报差异，就说明内容没有改。
+  - **DSN 中证书路径的处理**：DSN 里的 `sslcert`、`sslkey`、`sslrootcert` 指向 `$M` 下的绝对路径。在容器里把副本挂到原路径即可，**不改 DSN 内容**：§2.1 的 `RUNI` 中把 `-v $METRICS_DIR:$METRICS_DIR:ro` 换成 `-v $METRICS_DIR:$M:ro`，`--metrics-dsn-file` 用 `$M/metrics.dsn`。
+  - **为什么不直接改原文件的属主**：
+    - `$M` 中的文件属于 root，部署门禁（run-metrics-gate §2.2）以 root 读取它们；
+    - libpq 要求私钥属于当前用户（或者属于 root、且权限不超过 0640）。改成 10001 后，以 root 运行的门禁仍然能读，但这会让一个服务 uid 永久持有只读角色的凭据。而 action-worker 和其他服务都是 10001，这等于把这份凭据交给了所有以 10001 运行的服务；
+    - 副本只在试运行期间存在，用完删除，原文件保持不变。
+  - **用后删除**（校准暂停后或当天收工时）：`sudo shred -u "$METRICS_DIR"/* && sudo rmdir "$METRICS_DIR"`。下一个试运行日重新生成。
+- **这个执行形态还没有在 stage 演练过**：先跑 §2.2a 的 `--preflight`。
   - 2.2 的第一次运行如果在交互之前就被拒（退出码 3），按 `refused` 中的代码处理。被拒时不会发出任何提示，也不会产生交互；
   - 被拒时，`consent.json` 还没有写（守卫全部通过后才写），只有企业端点检查在 `$TRIAL_DIR/preflight/` 留下报告。可以用同一个 `TRIAL_DIR` 重跑，也可以换一个新的。
+
+### 2.2a 预检：`--preflight`（不外发、不写入）
+
+用 2.2 的完整命令加 `--preflight`，`--out` 可以指向一个还不存在的目录：
+
+```
+$RUNI scripts/nx037/run_interactions.py <与 2.2 相同的参数> --preflight
+```
+
+- **作用**（`run_interactions.py` 的 `--preflight`）：解析参数，读取全部私有文件，执行真实开跑时的每一项开跑前检查，包括租户 verify、三层开关、币种与 Host、授权与参与者、窗口、WebChat 投递 `GET /v1/health`、录入器积压，然后退出。
+- 它不发出提示，不写 `consent.json`，不建试运行状态，也不创建目录。
+- 企业端点一致性检查**不运行**，因为它会在端点上创建三条带标记的效应。预检只读企业 provider 文件，读不了时给出 `enterprise_provider_unreadable`；输出的 `not_run` 中会列出 `enterprise_endpoint_conformance`。
+- **预期**：`{"ok": true, "preflight": true, "refused": [], "not_run": ["enterprise_endpoint_conformance"], …}`，退出码 0。
+- **不是 0 时**：按 `refused` 中的代码修正执行形态或输入，再预检，直到通过。这一步可以在开关打开之前做；那时 `switch_deployment_differs` 等开关代码是预期会出现的，其余代码都应该为空。
+- 依据：`tests/test_nx037_synthetic_five_pg.py` 在完整的本地栈上运行 `--preflight`：通过时什么都不写，也没有提示；投递不可达时报 `webchat_delivery_unavailable`，provider 文件不私有时报 `enterprise_provider_unreadable`。
+- `tests/test_stage_compose.py` 核对了 §2.1 这一形态所依赖的 compose 事实：
+  - action-worker 以 file secret 挂载了两个 provider 文件及其凭据和 CA 文件，`--volumes-from` 会带上这些绑定挂载；
+  - action-worker 的文件属于 10001；
+  - webchat-delivery 与 action-worker 共享网络命名空间。
+- **局限**：本地没有在真实的 docker 容器中运行过这一形态，因为开发机没有可用的 Docker daemon。预检就是 stage 上的第一次实证。
 
 ### 2.2 启动（**B**：这一步开始会有真实的企业交付和 WebChat 外发）
 
@@ -259,8 +323,8 @@ PY
 - 汇总在全部交互结束后统一做：`scripts/nx037/evidence_pack.py --out <新目录> --item … --trial <TRIAL_DIR>`（OPERATIONS §9.6；`--out` 必须是不存在的目录）。校准当天不做。
 - 证据只放 ID、哈希、数字、时间和代码；不放口令、DSN、主机地址、消息正文或真实租户名（真实租户名写作 `<TENANT_DISPLAY_NAME>`）。
 
-## 7. 本单没有覆盖、需要调度员确认的事项
+## 7. 已处理的缺口（调度员 2026-10-16 裁定，分支 l4/calibration-gaps）
 
-1. **部署层开关的打开方式**（§1.4 第 2 项）：compose 中两处硬编码为 `"false"`，没有现成命令单；门禁的 `real_dispatch_closed` 在打开期间为 false。
-2. **运行入口的执行形态**（§2.1）：用 `--volumes-from action-worker` 加 `--network container:` 的一次性容器，以及 Host 配置和价目的 10001 副本。这一形态是按代码的文件读取要求推出来的，还没有在 stage 演练过。
-3. **metrics 文件的属主**：run-metrics-gate 中闸门以 root 读取；这里要 10001 的副本。
+1. **部署层开关**：改为 compose env 变量，只能是 true 或 false（§1.4 的“打开”和“收工关闭”两段）。
+2. **运行入口的执行形态**：新增 `--preflight`，§2.2a 先做预检；compose 测试核对了这一形态依赖的挂载、uid 和网络命名空间。真实容器中的首次实证就是 stage 上的预检。
+3. **metrics 副本**：以 10001 安装、内容不变（`cmp` 核对）、挂回原路径、用后删除（§2.1）。
