@@ -46,7 +46,7 @@
 - **会话**：cookie 与 CSRF token 只保存在内存中，或保存在私有会话文件 `--session-file` 中（默认 `~/.nexloop/consumer/session.json`，0600）。它们从不出现在任何输出里；会话文件权限过宽时，命令拒绝运行。
 - **MCP**：`login` 工具**只接受 username**。口令由 server 自己按启动参数读取：
   - `--password-dir <目录>/<username>`，私有文件；
-  - 或 `--keychain-service <服务名>`，执行 `security find-generic-password -w -s <服务> -a <username>`，不经过 shell。
+  - 或 `--keychain-service <服务名>`，执行 `security find-generic-password -w -s <服务> -a <账户>`，不经过 shell。服务名中的 `{username}` 会替换成登录用户名；`--keychain-account` 指定固定账户，不给时账户就是用户名。stage 的条目是服务 `nexloop/stage/{username}`、账户 `nexloop`。
   
   所以口令不会进入代理的对话记录、工具参数或结果。
 - **TLS**：`--ca-file` 指向 stage 的内部 CA，不提供关闭证书校验的选项。
@@ -88,7 +88,7 @@ server 用 stdio 传输 JSON-RPC 2.0，每行一条消息。支持 `initialize`�
 ```toml
 [mcp_servers.nexloop_consumer]
 command = "/opt/nexloop/consumer-venv/bin/nexloop-consumer-mcp"
-args = ["--origin", "https://<WEBCHAT_ORIGIN>", "--ca-file", "<CA_FILE>", "--keychain-service", "nexloop/stage-consumer"]
+args = ["--origin", "https://<WEBCHAT_ORIGIN>", "--ca-file", "<CA_FILE>", "--keychain-service", "nexloop/stage/{username}", "--keychain-account", "nexloop"]
 ```
 
 Claude Code 用的是同一组参数（`claude mcp add nexloop-consumer -- <command> <args…>`）。
@@ -131,3 +131,112 @@ Claude Code 用的是同一组参数（`claude mcp add nexloop-consumer -- <comm
 - **等待回复**：`wait_reply` 是轮询，默认每 2 秒一次。凡是“不是本消费者发的”消息都算回复，包括员工接管后的回复。SSE watch 只读一次流：服务端会在 `stream_seconds` 后结束这次连接，需要时再调用一次。
 - **会话受限**：消费者会话受限（`restricted`）时，写操作会被服务端以 403 拒绝。客户端不绕开这一点。
 - **定位**：这是测试驱动用的客户端，不是对外开放的 API。浏览器会话的限流与 cookie 策略原样适用。
+
+## 7. 负责人上手（管理机，按步骤复制执行）
+
+- **前提**：
+  - 本地 main 检出须包含本节所在的提交，因为 MCP 的 `--keychain-account` 选项是随本节一起加入的；
+  - 管理机上有 `uv`，以及 Python 3.12（也可以让 uv 自动获取）；
+  - 钥匙串中已有调度员写入的测试人设条目：服务名为 `nexloop/stage/<用户名>`，账户为 `nexloop`，用户名为 `customer-1`…`customer-4`、`refusal-1`、`refusal-2`（见 `~/.nexloop/vault-index.md`）。
+- **约定**：本节不写真实地址或主机名。WebChat 的 origin 与 CA 文件名放在你自己的私有 env 文件中，下面的命令都从变量读取。
+
+### 7.1 写私有 env（一次）
+
+```bash
+mkdir -p ~/.nexloop && cat > ~/.nexloop/consumer.env <<'EOF2'
+export NEXLOOP_CHECKOUT=<本地 main 检出的绝对路径>
+export NEXLOOP_WEBCHAT_ORIGIN=<WebChat origin，形如 https://<主机>:<端口>，取自私有 stage env>
+export NEXLOOP_STAGE_CA="$HOME/.nexloop/stage/<CA 文件名>"
+EOF2
+chmod 600 ~/.nexloop/consumer.env
+```
+
+以后每开一个终端，先执行：
+
+```bash
+source ~/.nexloop/consumer.env
+```
+
+### 7.2 安装两个命令
+
+推荐用 uv tool。这种方式以可编辑模式指向本地检出，`git pull` 之后不必重装：
+
+```bash
+uv tool install --python 3.12 --editable "$NEXLOOP_CHECKOUT/packages/eios-core"
+command -v nexloop-consumer nexloop-consumer-mcp
+nexloop-consumer --help >/dev/null && echo installed
+```
+
+如果不用 uv，可以改用独立 venv：
+
+```bash
+python3.12 -m venv ~/.nexloop/consumer-venv
+~/.nexloop/consumer-venv/bin/pip install -e "$NEXLOOP_CHECKOUT/packages/eios-core"
+export PATH="$HOME/.nexloop/consumer-venv/bin:$PATH"
+```
+
+- **判据**：两个命令都能找到；`--help` 退出码为 0。
+- **撤销**：`uv tool uninstall nexloop-eios-core`，或者删除 `~/.nexloop/consumer-venv`。
+
+### 7.3 核对钥匙串条目（不显示口令）
+
+```bash
+for u in customer-1 customer-2 customer-3 customer-4 refusal-1 refusal-2; do
+  security find-generic-password -s "nexloop/stage/$u" -a nexloop >/dev/null 2>&1 && echo "$u ok" || echo "$u missing"
+done
+```
+
+第一次读取某个条目时，macOS 会弹窗询问是否允许 `security` 访问，选“允许”或“始终允许”。
+
+### 7.4 冒烟：login → send → wait-reply（CLI）
+
+> **注意**：这是在 stage 上发出一条真实消息。它会触发真实的 Run，产生真实的模型费用，并且会出现在会话与试运行的观测中。请在受控交互的窗口之外执行，并且与调度员约定好使用哪个测试人设，避免混进正在进行的试运行记录。
+
+```bash
+source ~/.nexloop/consumer.env
+U=customer-1
+S="$HOME/.nexloop/consumer/$U.session.json"
+C=(--ca-file "$NEXLOOP_STAGE_CA" --session-file "$S")
+
+security find-generic-password -w -s "nexloop/stage/$U" -a nexloop \
+  | nexloop-consumer --origin "$NEXLOOP_WEBCHAT_ORIGIN" "${C[@]}" login --username "$U" --password-stdin
+
+nexloop-consumer "${C[@]}" send --text '你好，我想咨询一下上门维修的时间。' | tee /tmp/consumer-send.json
+SEQ=$(python3 -c 'import json; print(json.load(open("/tmp/consumer-send.json"))["message"]["sequence"])')
+
+nexloop-consumer "${C[@]}" wait-reply --after-sequence "$SEQ" --timeout 180
+```
+
+- **预期**：
+  - login 输出 `{"ok": true, "principal_id": …, "authenticated": true, …}`；
+  - send 输出 `"created": true`；
+  - wait-reply 在回复写入后输出 `"replied": true` 和回复内容。180 秒内没有回复时，输出 `"timed_out": true`，这时用 `nexloop-consumer "${C[@]}" receipts --message-id <id>` 看 Run 的状态。
+- **失败时**：
+  - `unauthenticated`：口令与账号对不上，找调度员重置（OPERATIONS §8a.9）；
+  - `rate_limited`：等 `retry_after` 秒后再试；
+  - `transport_unavailable`：检查 origin 与 CA 文件。
+- **收尾**：`nexloop-consumer "${C[@]}" logout`。会话文件可以保留，下次 login 会覆盖它。
+
+### 7.5 配置 Codex（MCP）
+
+Codex 的配置文件不会展开环境变量，所以先用下面的命令，把本机的实际值写成一段配置，追加到 `~/.codex/config.toml`。这个文件只在你本机，不进仓库：
+
+```bash
+source ~/.nexloop/consumer.env
+mkdir -p ~/.codex
+cat >> ~/.codex/config.toml <<EOF2
+
+[mcp_servers.nexloop_consumer]
+command = "$(command -v nexloop-consumer-mcp)"
+args = ["--origin", "$NEXLOOP_WEBCHAT_ORIGIN", "--ca-file", "$NEXLOOP_STAGE_CA", "--keychain-service", "nexloop/stage/{username}", "--keychain-account", "nexloop"]
+EOF2
+tail -4 ~/.codex/config.toml
+```
+
+- **说明**：
+  - `{username}` 是字面量，由 server 在 login 时替换成用户名，所以一个 server 可以登录任一测试人设；
+  - 口令由 server 从钥匙串读取，不会进入 Codex 的对话；
+  - 想让几个代理并行扮演不同顾客，就复制这一段，换一个名字（例如 `nexloop_consumer_2`），各自 login 不同的用户名。
+- **重启 Codex** 后，可以这样交代代理（示例提示）：
+  > 用 nexloop_consumer 工具扮演测试顾客 customer-2：先 `login`，再用 `send_message` 咨询上门维修，然后用 `wait_for_reply`（`after_sequence` 填上一步返回的 `message.sequence`，`timeout_seconds` 填 180）等回复，最后用 `get_history` 汇报整段对话。不要尝试其他账号，不要索要或输出任何口令。
+- **撤销**：从 `~/.codex/config.toml` 删除 `[mcp_servers.nexloop_consumer]` 这一段。
