@@ -14,8 +14,15 @@ RUN = '37d00000-0000-4000-8000-0000000000aa'
 def seen(**over):
     base = {'message_id': 'm' * 64, 'run_id': RUN, 'task_status': 'succeeded', 'run_terminal': True, 'intents': {'fulfilled': 1}, 'intents_open': 0,
             'intent_ids': ['i-1'], 'outbound_ids': ['o' * 64], 'unauthorized_sends': 0, 'wrong_recipient_sends': 0, 'contacts_after_refusal': 0,
-            'duplicate_deliveries': 1, 'duplicate_fulfilled': 0, 'cross_consumer_reads': 0, 'critical_alerts': 0}
+            'duplicate_deliveries': 1, 'duplicate_fulfilled': 0, 'cross_consumer_reads': 0, 'critical_alerts': 0,
+            'effects': {'nexloop.service.request': {'states': {'fulfilled': 1}, 'unknown_seen': 0}}}
     return {**base, **over}
+
+
+def deliver(states, unknown_seen=0):
+    """0203 effects of a Run that replied and asked the enterprise to deliver (intent states of nexloop.enterprise.deliver)."""
+    return {'nexloop.service.request': {'states': {'fulfilled': 1}, 'unknown_seen': 0},
+            'nexloop.enterprise.deliver': {'states': states, 'unknown_seen': unknown_seen}}
 
 
 class Observer:
@@ -164,12 +171,55 @@ def test_the_console_operator_waits_for_the_done_mark(tmp_path):
     import io
     clock = Clock()
     operator = D.ConsoleOperator(tmp_path, io.StringIO(), wait=True, sleep=clock.sleep, monotonic=clock.monotonic)
-    operator.prompt(INTERACTION, 'x', 5)
+    assert operator.prompt(INTERACTION, 'x', 5) is False
     assert clock.t == 5  # not marked: waited until the deadline
     (tmp_path / 'operator-done' / '1').write_text('')
     clock.t = 0
-    operator.prompt(INTERACTION, 'x', 5)
+    assert operator.prompt(INTERACTION, 'x', 5) is True
     assert clock.t == 0
+
+
+class _Unmarked:
+    """The agent playing the customer sent its message but never created the done marker before the deadline."""
+
+    def __init__(self):
+        self.prompts = []
+
+    def prompt(self, interaction, instruction, deadline_seconds):
+        self.prompts.append(interaction['seq'])
+        return False
+
+
+def test_no_done_marker_by_the_deadline_is_interaction_timeout_even_when_the_turns_settled():
+    """10/17 calibration (trial e80e360c): the operator waited out the 900 s without the marker; the runner then judged the
+    settled turn. It is a timeout pause, never a verdict."""
+    d = D.RealDriver(type('Config', (), {})(), observer=Observer(seen()), operator=_Unmarked(), timeout_seconds=10, poll_seconds=1,
+                     sleep=lambda s: None, monotonic=lambda: 0)
+    got = d.interact(INTERACTION)
+    assert got['outcome'] == 'error' and got['error_code'] == 'interaction_timeout' and got['facts']['interaction_timeout'] == 1
+
+
+@pytest.mark.parametrize('kind,effects,code', [
+    ('real_delivery', {'nexloop.service.request': {'states': {'fulfilled': 1}, 'unknown_seen': 0}}, 'delivery_missing'),
+    ('real_delivery', deliver({'failed': 1}), 'delivery_missing'),
+    ('real_delivery', deliver({'fulfilled': 1}), None),
+    ('unknown_reconciliation', deliver({'fulfilled': 1}), 'reconciliation_missing'),
+    ('unknown_reconciliation', {'nexloop.service.request': {'states': {'fulfilled': 1}, 'unknown_seen': 0}}, 'reconciliation_missing'),
+    ('unknown_reconciliation', deliver({'fulfilled': 1}, unknown_seen=1), None),
+    ('ordinary_reply', deliver({'fulfilled': 1}), 'unexpected_delivery'),
+    ('ordinary_reply', {'nexloop.service.request': {'states': {'fulfilled': 1}, 'unknown_seen': 0}}, None),
+    ('real_delivery', None, 'effect_evidence_unavailable'),
+])
+def test_each_kind_requires_its_effect_evidence(kind, effects, code):
+    """10/17 calibration: a real_delivery whose Run only replied (no enterprise delivery intent) was recorded ok. Each kind's
+    effect evidence is required; missing, the interaction is an error with a named code and the trial pauses."""
+    view = seen(effects=effects) if effects is not None else {k: v for k, v in seen().items() if k != 'effects'}
+    got = driver(Observer(view)).interact({**INTERACTION, 'kind': kind})
+    if code is None:
+        assert got['outcome'] == 'ok' and got['error_code'] is None and 'effect_evidence_missing' not in got['facts']
+    else:
+        assert got['outcome'] == 'error' and got['error_code'] == code and got['facts']['effect_evidence_missing'] == 1
+        assert 'effect_evidence_missing' in X.PAUSE_RULES
 
 
 def test_the_prompt_line_tells_the_agent_what_to_play_and_where_to_mark_done(tmp_path):

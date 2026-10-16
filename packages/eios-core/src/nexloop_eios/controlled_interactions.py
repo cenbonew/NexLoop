@@ -29,7 +29,7 @@ from pathlib import Path
 KINDS = ('ordinary_reply', 'real_delivery', 'restricted_after_refusal', 'human_takeover', 'unknown_reconciliation')
 STOP_RULES = ('unauthorized_send', 'wrong_recipient', 'contact_after_refusal', 'duplicate_external_effect', 'cross_tenant_read',
               'per_run_cost_exceeded', 'critical_alert', 'owner_stop')
-PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unknown_effect', 'calibration', 'interaction_timeout')
+PAUSE_RULES = ('error_rate', 'cumulative_cost', 'monthly_cost', 'unresolved_unknown_effect', 'calibration', 'interaction_timeout', 'effect_evidence_missing')
 _REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
@@ -174,6 +174,8 @@ def evaluate(record, history, plan, *, cumulative, monthly, owner_stop=False):
         pauses.append('unresolved_unknown_effect')
     if facts.get('interaction_timeout', 0) > 0:
         pauses.append('interaction_timeout')  # the operator did not complete the interaction in time
+    if facts.get('effect_evidence_missing', 0) > 0:
+        pauses.append('effect_evidence_missing')  # the kind's required effect (e.g. the enterprise delivery) is not in the records
     return ('pause', pauses) if pauses else (None, [])
 
 
@@ -189,7 +191,15 @@ def _append(path, row):
 
 
 def read_records(directory):
+    """The trial's records in order, without the ones the owner voided (voids.jsonl: interaction id and end time)."""
     path = Path(directory) / 'interactions.jsonl'
+    records = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
+    voided = {(v['interaction_id'], v['ended_at']) for v in read_voids(directory)}
+    return [r for r in records if (r['interaction_id'], r['ended_at']) not in voided]
+
+
+def read_voids(directory):
+    path = Path(directory) / 'voids.jsonl'
     return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
 
 
@@ -224,7 +234,7 @@ def counted_cost(record):
 
 
 def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=None, month_cost_before=Decimal(0), order=None,
-        resume=None, calibration_pause=False, test_stack=False, month_cost=None, persona=None):
+        resume=None, calibration_pause=False, test_stack=False, month_cost=None, persona=None, void=None):
     """Runs (or resumes after a pause) the trial into `directory`: interactions.jsonl (one record per interaction, written
     before the next starts) and state.json (the outcome). An interaction already recorded is never run again: resuming
     continues after the last record (the error window restarts after a pause). A stopped trial does not resume (the owner
@@ -233,6 +243,11 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     resumes. With `calibration_pause` the trial pauses after the plan's calibration interactions (rule 'calibration') so the
     owner confirms the cost per interaction before the rest. `test_stack` (the local synthetic stack, never a real trial) marks
     every record and the state test_stack: true; a trial keeps that mark across resumes.
+
+    `void` = (seq, owner confirmation reference) withdraws the last recorded interaction, which must have that seq, from the
+    evidence (10/17 calibration: a record judged before its effect evidence was required): voids.jsonl gets one fsynced line
+    naming that record (interaction id and end time); interactions.jsonl is never edited; read_records leaves the record out;
+    and the interaction runs again now. On a paused trial the owner's resume reference is required as well.
 
     `month_cost()` (real mode: the tenant's model cost this month in the trial currency, 0185) is read before and after each
     interaction. The record keeps the trigger Run's own cost (cost.total, judged by the per-Run cap) and the actual increase over
@@ -257,6 +272,12 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
         raise PlanInvalid('the interaction order changed')
     if previous and previous.get('test_stack', False) is not bool(test_stack):
         raise PlanInvalid('the trial stack changed')
+    if void is not None:
+        # Checked before anything is appended (a refused void leaves no resume line either).
+        seq, reference = void
+        last = (read_records(root) or [None])[-1]
+        if not _REF.fullmatch(str(reference)) or last is None or last['seq'] != seq:
+            raise ValueError('only the last recorded interaction can be voided, with an owner confirmation reference')
     if previous and previous['status'] == 'paused':
         if resume is None:
             raise TrialPaused(','.join(previous['rules']))
@@ -266,6 +287,9 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
                                          'at': _iso(clock())})
     elif resume is not None:
         raise ValueError('the trial is not paused')
+    if void is not None:
+        _append(root / 'voids.jsonl', {'seq': seq, 'interaction_id': last['interaction_id'], 'ended_at': last['ended_at'],
+                                       'confirmation_ref': reference, 'at': _iso(clock())})
     history = read_records(root)
     cumulative = sum((counted_cost(r) for r in history), Decimal(0))
     done = {r['interaction_id'] for r in history}
@@ -335,7 +359,7 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             break
     state = {'trial_id': trial_id, 'status': status, 'rules': rules, 'at_seq': at_seq, 'recorded': len(history),
              'planned': plan['total'], 'cumulative_cost': str(cumulative), 'currency': plan['currency'], 'order_digest': digest,
-             'resumes': len(read_resumes(root)), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {}),
+             'resumes': len(read_resumes(root)), **({'voided': len(read_voids(root))} if read_voids(root) else {}), 'updated_at': _iso(clock()), **({'test_stack': True} if test_stack else {}),
              **({'persona': persona} if persona else {})}
     tmp = state_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(state, sort_keys=True))

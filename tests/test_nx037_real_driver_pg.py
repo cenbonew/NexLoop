@@ -190,28 +190,34 @@ def test_real_driver_with_an_automated_operator_on_the_synthetic_stack(assembled
 
         config = json.loads((ROOT / 'deploy/configuration/nx037-trial.v1.json').read_text())
         config.update(calibration_interactions=0, plan={**config['plan'], 'total': 5,
-                                                        'mix': {'ordinary_reply': 5, 'real_delivery': 0, 'restricted_after_refusal': 0, 'human_takeover': 0, 'unknown_reconciliation': 0}})
+                                                        'mix': {'ordinary_reply': 4, 'real_delivery': 1, 'restricted_after_refusal': 0, 'human_takeover': 0, 'unknown_reconciliation': 0}})
         trial = X.validate_plan(config)
-        order = ['ordinary_reply'] * 5
+        # 10/17 calibration: interaction 3 is a real_delivery whose Run only replies (this stack offers no enterprise delivery).
+        order = ['ordinary_reply', 'ordinary_reply', 'real_delivery', 'ordinary_reply', 'ordinary_reply']
         out = tmp_path / 'trial'
         first = X.run(trial, driver, Collector(), out, trial_id=TRIAL_ID, order=order)
         assert first['status'] == 'paused' and first['rules'] == ['interaction_timeout'] and first['at_seq'] == 2, first
         with pytest.raises(X.TrialPaused):
             X.run(trial, driver, Collector(), out, trial_id=TRIAL_ID, order=order)
         second = X.run(trial, driver, Collector(), out, trial_id=TRIAL_ID, order=order, resume='owner-confirmation:nx037-e2e')
-        assert second['status'] == 'stopped' and second['rules'] == ['critical_alert'] and second['at_seq'] == 4, second
+        assert second['status'] == 'paused' and second['rules'] == ['effect_evidence_missing'] and second['at_seq'] == 3, second
+        third = X.run(trial, driver, Collector(), out, trial_id=TRIAL_ID, order=order, resume='owner-confirmation:nx037-e2e-2')
+        assert third['status'] == 'stopped' and third['rules'] == ['critical_alert'] and third['at_seq'] == 4, third
         assert pump.failures == [], pump.failures
 
     records = X.read_records(out)
-    assert [r['seq'] for r in records] == [1, 2, 3, 4] and operator.prompts == [(1, 'ordinary_reply'), (2, 'ordinary_reply'), (3, 'ordinary_reply'), (4, 'ordinary_reply')]
+    assert [r['seq'] for r in records] == [1, 2, 3, 4] and operator.prompts == [(1, 'ordinary_reply'), (2, 'ordinary_reply'), (3, 'real_delivery'), (4, 'ordinary_reply')]
+    # The real_delivery that only replied: never ok, named, paused (its Run itself succeeded).
+    assert records[2]['outcome'] == 'error' and records[2]['error_code'] == 'delivery_missing' and records[2]['run_id']
+    assert records[2]['decision'] == {'action': 'pause', 'rules': ['effect_evidence_missing']}
     done = [records[0], records[2], records[3]]
-    assert all(r['outcome'] == 'ok' and r['run_id'] and r['intents'] == {'fulfilled': 1} and len(r['intent_ids']) == 1 for r in done), [(r['seq'], r['outcome'], r['error_code'], bool(r['run_id']), r['intents'], len(r['intent_ids']), r['reconciliation'], r['facts']) for r in done]
+    assert all((r['outcome'] == 'ok' or r['seq'] == 3) and r['run_id'] and r['intents'] == {'fulfilled': 1} and len(r['intent_ids']) == 1 for r in done), [(r['seq'], r['outcome'], r['error_code'], bool(r['run_id']), r['intents'], len(r['intent_ids']), r['reconciliation'], r['facts']) for r in done]
     assert len({r['run_id'] for r in done}) == 3 and all(r['reconciliation'] == 'settled' for r in done)
     assert all(r['facts']['unauthorized_sends'] == 0 and r['facts']['wrong_recipient_sends'] == 0 and r['facts']['contacts_after_refusal'] == 0
                and r['facts']['max_executions_per_intent'] == 1 and r['facts']['cross_tenant_reads'] == 0 for r in done)
     assert records[1]['error_code'] == 'interaction_timeout' and records[1]['decision'] == {'action': 'pause', 'rules': ['interaction_timeout']}
     assert records[3]['facts']['critical_alerts'] == 1 and records[3]['decision'] == {'action': 'stop', 'rules': ['critical_alert']}
-    [resume] = X.read_resumes(out)
-    assert resume['after_seq'] == 2 and resume['confirmation_ref'] == 'owner-confirmation:nx037-e2e'
+    resume, again = X.read_resumes(out)
+    assert resume['after_seq'] == 2 and resume['confirmation_ref'] == 'owner-confirmation:nx037-e2e' and again['after_seq'] == 3
     assert len(list(delivery_root.glob('*.export.json'))) == 3  # one governed delivery per completed interaction, none for 2
     assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (tenant,)).fetchone() == (3,)

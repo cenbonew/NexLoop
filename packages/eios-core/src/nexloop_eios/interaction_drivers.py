@@ -194,6 +194,12 @@ def instruction(interaction):
     return text
 
 
+DELIVER_ACTION = 'nexloop.enterprise.deliver'
+SETTLED_STATES = ('fulfilled', 'confirmed', 'failed')
+# The kinds whose effect evidence the runner checks (0203); the others are judged by their Run and stop facts as before.
+EFFECT_EVIDENCE = ('ordinary_reply', 'real_delivery', 'unknown_reconciliation')
+
+
 class ConsoleOperator:
     """The person who plays the customer in the real trial: each prompt goes to the terminal (stderr) and, as ids and codes
     only, to prompts.jsonl beside the trial evidence."""
@@ -225,6 +231,9 @@ class ConsoleOperator:
             end = self.monotonic() + deadline_seconds
             while not done.exists() and self.monotonic() < end:
                 self.sleep(1)
+            # 10/17 calibration: the deadline without the done marker is not a completed interaction (interaction_timeout).
+            return done.exists()
+        return None
 
 
 class PgObserver:
@@ -264,22 +273,24 @@ class RealDriver:
 
     def interact(self, interaction):
         since = self.observer.now()
-        self.operator.prompt(interaction, instruction(interaction), self.timeout)
+        # One deadline for the whole interaction, the operator's wait included (10/17 calibration: the operator waited the full
+        # timeout, then a fresh deadline started and the turns seen so far were judged).
         deadline = self.monotonic() + self.timeout
+        completed = self.operator.prompt(interaction, instruction(interaction), self.timeout)
         multi = hasattr(self.observer, 'messages')
         views = []
         while True:
             views = self._views(since) if multi else [self.observer.observe(since)]
-            if views and all(self._settled(v) for v in views):
+            if completed is not False and views and all(self._settled(v) for v in views):
                 break
-            if self.monotonic() >= deadline:
-                # No answer in time: a pause, never a guess. The run id is kept when a Run was seen.
+            if completed is False or self.monotonic() >= deadline:
+                # No completion marker, or no answer in time: a pause, never a guess. The run id is kept when a Run was seen.
                 first = views[0] if views else {}
                 return {'run_id': first.get('run_id'), 'outcome': 'error', 'error_code': 'interaction_timeout', 'receipts': [],
                         'reconciliation': 'not_applicable',
                         'facts': {'interaction_timeout': 1, 'critical_alerts': max((v.get('critical_alerts', 0) for v in views), default=0)}}
             self.sleep(self.poll)
-        return self._result(views, multi)
+        return self._result(views, multi, interaction['kind'])
 
     def _views(self, since):
         """Every customer message of the interaction, each through the 0172 observation at its own acceptance time."""
@@ -302,7 +313,29 @@ class RealDriver:
         return bool(seen.get('outbound_ids'))
 
     @staticmethod
-    def _result(views, multi):
+    def _effect_gap(kind, views):
+        """The effect evidence each kind requires (0203 `effects`), or the error code naming what is missing: real_delivery needs
+        an enterprise delivery fulfilled; unknown_reconciliation one that went through unknown and was settled by the query;
+        ordinary_reply none at all. A view without `effects` is no evidence."""
+        if any('effects' not in v for v in views if v.get('run_id')):
+            return 'effect_evidence_unavailable' if kind in EFFECT_EVIDENCE else None
+        deliveries = [v['effects'].get(DELIVER_ACTION) for v in views if v.get('run_id')]
+        states, seen = {}, 0
+        for d in deliveries:
+            for state, n in ((d or {}).get('states') or {}).items():
+                states[state] = states.get(state, 0) + n
+            seen += (d or {}).get('unknown_seen', 0)
+        settled = sum(n for state, n in states.items() if state in SETTLED_STATES)
+        if kind == 'real_delivery' and not any(states.get(state) for state in ('fulfilled', 'confirmed')):
+            return 'delivery_missing'
+        if kind == 'unknown_reconciliation' and not (seen and settled and settled == sum(states.values())):
+            return 'reconciliation_missing'
+        if kind == 'ordinary_reply' and states:
+            return 'unexpected_delivery'
+        return None
+
+    @staticmethod
+    def _result(views, multi, kind=None):
         intents = {}
         for v in views:
             for state, n in (v.get('intents') or {}).items():
@@ -318,7 +351,13 @@ class RealDriver:
         }
         runs = [v for v in views if v.get('run_id')]
         ok = bool(runs) and all(v['task_status'] == 'succeeded' for v in runs)
-        out = {'run_id': runs[0]['run_id'] if runs else None, 'outcome': 'ok' if ok else 'error', 'error_code': None if ok else 'run_failed',
+        code = None if ok else 'run_failed'
+        gap = RealDriver._effect_gap(kind, views) if kind in EFFECT_EVIDENCE else None
+        if ok and gap:
+            # The Run succeeded but the kind's effect evidence is missing: never ok, and the trial pauses for the owner.
+            ok, code = False, gap
+            facts['effect_evidence_missing'] = 1
+        out = {'run_id': runs[0]['run_id'] if runs else None, 'outcome': 'ok' if ok else 'error', 'error_code': code,
                'receipts': [r for v in views for r in list(v.get('outbound_ids') or []) + list(v.get('intent_ids') or [])],
                'reconciliation': 'unresolved' if intents.get('unknown') else ('settled' if intents else 'not_applicable'), 'facts': facts}
         if multi:

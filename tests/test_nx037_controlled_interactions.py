@@ -187,3 +187,23 @@ def test_costs_are_kept_per_currency_and_a_foreign_currency_stops(tmp_path):
     assert state['status'] == 'stopped' and 'currency_mismatch' in state['rules'] and state['at_seq'] == 1
     assert record['cost']['other_currencies'] == {'model_usd': {'amount': '0.01', 'currencies': ['USD']}}
     assert 'model_usd' not in record['cost']['by_kind']
+
+
+def test_the_owner_voids_the_last_record_and_it_runs_again_without_editing_the_evidence(tmp_path):
+    """10/17 calibration (trial e80e360c): a record judged before its effect evidence was required is withdrawn by the owner:
+    voids.jsonl names it, interactions.jsonl keeps every line, read_records leaves it out, and that interaction runs again."""
+    state, records, _ = execute(tmp_path, inject={2: 'error'}, plan=X.load_plan(PLAN), calibration_pause=True)
+    assert state['status'] == 'paused' and state['at_seq'] == 3 and [r['seq'] for r in records] == [1, 2, 3]
+    raw = (tmp_path / 'trial' / 'interactions.jsonl').read_text()
+    for bad in ((2, 'owner-void:1'), (3, 'bad ref with spaces')):  # only the last record, only with a confirmation reference
+        with pytest.raises(ValueError):
+            execute(tmp_path, resume='owner-confirmation:1', void=bad)
+    assert not (tmp_path / 'trial' / 'voids.jsonl').exists() and not (tmp_path / 'trial' / 'resumes.jsonl').exists()
+    with pytest.raises(X.TrialPaused):
+        execute(tmp_path, void=(3, 'owner-void:1'))  # a paused trial still needs the owner's resume
+    resumed, records, _ = execute(tmp_path, resume='owner-confirmation:1', void=(3, 'owner-void:1'))
+    voids = X.read_voids(tmp_path / 'trial')
+    assert len(voids) == 1 and voids[0]['seq'] == 3 and voids[0]['confirmation_ref'] == 'owner-void:1'
+    lines = (tmp_path / 'trial' / 'interactions.jsonl').read_text()
+    assert lines.startswith(raw) and lines.count('\n') == raw.count('\n') + 28  # nothing rewritten: the redo of 3 and 4..30 appended
+    assert [r['seq'] for r in records] == list(range(1, 31)) and resumed['status'] == 'completed' and resumed['voided'] == 1

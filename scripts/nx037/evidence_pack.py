@@ -41,7 +41,7 @@ def _vocabulary():
     from nexloop_eios.controlled_interactions import KINDS, PAUSE_RULES, STOP_RULES
     return frozenset((*KINDS, *STOP_RULES, *PAUSE_RULES, *ITEMS, 'present', 'missing', 'completed', 'paused', 'stopped', 'continue',
                       'stop', 'pause', 'ok', 'error', 'settled', 'unresolved', 'not_applicable', 'accepted', 'dispatching', 'observed_fulfilled', 'unknown',
-                      'fulfilled', 'failed', 'confirmed', 'synthetic_error', 'interaction_timeout', 'run_failed', 'nexloop.nx037-evidence.v1', 'CNY', 'USD',
+                      'fulfilled', 'failed', 'confirmed', 'synthetic_error', 'interaction_timeout', 'run_failed', 'delivery_missing', 'reconciliation_missing', 'unexpected_delivery', 'effect_evidence_unavailable', 'nexloop.nx037-evidence.v1', 'CNY', 'USD',
                       'agent', 'human', 'simulated_agent', 'mixed'))
 
 
@@ -124,7 +124,8 @@ def release_fields(manifest):
 def summarize_trial(directory):
     from decimal import Decimal
     root = Path(directory)
-    records = [json.loads(line) for line in (root / 'interactions.jsonl').read_text(encoding='utf-8').splitlines()]
+    from nexloop_eios.controlled_interactions import read_records
+    records = read_records(root)  # an interaction the owner voided (voids.jsonl) is not evidence
     state = json.loads((root / 'state.json').read_text(encoding='utf-8'))
     kinds, outcomes = {}, {}
     for r in records:
