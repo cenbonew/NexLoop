@@ -209,9 +209,10 @@ def _reference_verdict(rules, *, saddr, daddr, dport, reply=False):
             if reply:
                 return 'accept'
             continue
-        m = re.fullmatch(r'ct original ip daddr (\S+) ct original proto-dst (\d+)(?: ip saddr (\S+))? (accept|drop)', line)
+        m = re.fullmatch(r'ct original ip daddr (\S+) ct original proto-dst (\d+)(?: ip saddr (\{ [^}]+ \}|\S+))? (accept|drop)', line)
         if m and not reply and m.group(1) == daddr and int(m.group(2)) == dport:
-            if m.group(3) is None or ipaddress.ip_address(saddr) in ipaddress.ip_network(m.group(3)):
+            sources = None if m.group(3) is None else [c.strip() for c in m.group(3).strip('{} ').split(',')]
+            if sources is None or any(ipaddress.ip_address(saddr) in ipaddress.ip_network(c) for c in sources):
                 return m.group(4)
     return 'accept'  # policy accept: no rule of this table matched
 
@@ -361,3 +362,43 @@ def test_the_claim_workers_reach_postgresql_and_the_model_allowlist_only(env, tm
     app = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['APP_CONTAINER_CIDR'])]
     assert app[0] == f"ip saddr {values['APP_CONTAINER_CIDR']} ip daddr {{ {values['MODEL_PROVIDER_ALLOWLIST']} }} drop"
     assert f"CLAIM_EGRESS_CIDR={values['CLAIM_EGRESS_CIDR']}" in (STAGE / 'compose.app.env.example').read_text()
+
+
+def test_the_staff_page_admits_only_the_configured_staff_networks(env, tmp_path):
+    """Calibration 2026-10-17: STAFF_ALLOW_CIDRS (optional) admits trusted staff networks to the reference endpoint's port (its staff
+    page) before the drop. Empty or absent, the rule is not rendered at all and nothing but the effect worker network gets in."""
+    import ipaddress
+    values = render.load_env(env)
+    assert values['STAFF_ALLOW_CIDRS'] == ''
+    template = STAGE / 'firewall/app-host.nft.template'
+    port, app = int(values['REFERENCE_ENDPOINT_PORT']), values['APP_HOST_ADDR']
+    lan = ipaddress.ip_network(values['TRUSTED_LAN_CIDR'])
+    staff_host, other_lan_host = str(lan[10]), str(lan[11])
+
+    def rendered(name, staff):
+        e = tmp_path / f'{name}.env'
+        e.write_text(env.read_text().replace('STAFF_ALLOW_CIDRS=', f'STAFF_ALLOW_CIDRS={staff}'))
+        e.chmod(0o600)
+        out = tmp_path / f'{name}.nft'
+        assert render.main(['--env', str(e), '--template', str(template), '--out', str(out)]) == 0
+        return out.read_text()
+    closed = rendered('closed', '')
+    assert not [l for l in closed.splitlines() if 'proto-dst' in l and '{' in l and str(port) in l]
+    assert _reference_verdict(closed, saddr=staff_host, daddr=app, dport=port) == 'drop'
+    one = rendered('one', f'{staff_host}/32')
+    lines = [l.strip() for l in one.splitlines()]
+    staff = f'ct original ip daddr {app} ct original proto-dst {port} ip saddr {{ {staff_host}/32 }} accept'
+    drop = f'ct original ip daddr {app} ct original proto-dst {port} drop'
+    assert lines.index(staff) < lines.index(drop)
+    assert _reference_verdict(one, saddr=staff_host, daddr=app, dport=port) == 'accept'
+    assert _reference_verdict(one, saddr=other_lan_host, daddr=app, dport=port) == 'drop'
+    effect_host = str(next(ipaddress.ip_network(values['EFFECT_EGRESS_CIDR']).hosts()))
+    assert _reference_verdict(one, saddr=effect_host, daddr=app, dport=port) == 'accept'
+    two = rendered('two', f'{staff_host}/32,{other_lan_host}/32')
+    assert _reference_verdict(two, saddr=other_lan_host, daddr=app, dport=port) == 'accept'
+    for bad in ('x', f'{staff_host}/33', f'{staff_host}/32,{staff_host}/32', f'{lan}; drop', f'{staff_host}/24'):
+        broken = tmp_path / 'bad-staff.env'
+        broken.write_text(env.read_text().replace('STAFF_ALLOW_CIDRS=', f'STAFF_ALLOW_CIDRS={bad}'))
+        broken.chmod(0o600)
+        with pytest.raises(render.Refused, match='STAFF_ALLOW_CIDRS'):
+            render.load_env(broken)
