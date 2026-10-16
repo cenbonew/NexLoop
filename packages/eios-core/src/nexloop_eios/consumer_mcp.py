@@ -4,7 +4,8 @@
 
 Tools: login, new_conversation, send_message, wait_for_reply, get_history, get_receipt. The login tool takes a username only:
 the password is read by the server from --password-dir/<username> (a private 0600 file) or from the macOS Keychain
-(`security find-generic-password -w -s <service> -a <username>`, run without a shell), so it never enters the agent's
+(`security find-generic-password -w -s <service> -a <account>`, run without a shell; `{username}` in --keychain-service is
+replaced by the login username and --keychain-account fixes the account, e.g. service nexloop/stage/{username}, account nexloop), so it never enters the agent's
 transcript, the tool arguments or any result. Results carry no cookie or CSRF token. The session lives in this process only.
 
 Protocol: JSON-RPC 2.0, one message per line on stdin/stdout (MCP stdio transport); `initialize`, `tools/list`, `tools/call`,
@@ -44,17 +45,22 @@ TOOLS = [
 
 
 class PasswordSource:
-    def __init__(self, *, password_dir=None, keychain_service=None, run=subprocess.run):
+    def __init__(self, *, password_dir=None, keychain_service=None, keychain_account=None, run=subprocess.run):
         if (password_dir is None) == (keychain_service is None):
             raise ValueError('exactly one password source')
-        self.password_dir, self.keychain_service, self.run = password_dir, keychain_service, run
+        if keychain_account is not None and not _USERNAME.fullmatch(keychain_account):
+            raise ValueError('keychain account')
+        self.password_dir, self.keychain_service, self.keychain_account, self.run = password_dir, keychain_service, keychain_account, run
 
     def __call__(self, username):
         if not _USERNAME.fullmatch(username or ''):
             raise ConsumerChannelError('username_invalid')
         if self.password_dir is not None:
             return read_password(password_file=Path(self.password_dir) / username)
-        done = self.run(['security', 'find-generic-password', '-w', '-s', self.keychain_service, '-a', username],
+        # The service may name the user ("nexloop/stage/{username}") with a fixed account (e.g. "nexloop"); else the account is the user.
+        service = self.keychain_service.replace('{username}', username)
+        account = self.keychain_account or username
+        done = self.run(['security', 'find-generic-password', '-w', '-s', service, '-a', account],
                         capture_output=True, text=True, timeout=10)
         value = (done.stdout or '').rstrip('\n')
         if done.returncode != 0 or not value:
@@ -136,10 +142,12 @@ def main(argv=None, *, transport=None, stdin=sys.stdin, stdout=sys.stdout, run=s
     p.add_argument('--ca-file', type=Path)
     source = p.add_mutually_exclusive_group(required=True)
     source.add_argument('--password-dir', type=Path)
-    source.add_argument('--keychain-service')
+    source.add_argument('--keychain-service', help='Keychain service; "{username}" is replaced by the login username')
+    p.add_argument('--keychain-account', help='fixed Keychain account (default: the login username)')
     args = p.parse_args(argv)
     client = ConsumerClient(args.origin, transport=transport, ca_file=args.ca_file)
-    Server(client, PasswordSource(password_dir=args.password_dir, keychain_service=args.keychain_service, run=run)).serve(stdin, stdout)
+    Server(client, PasswordSource(password_dir=args.password_dir, keychain_service=args.keychain_service,
+                                  keychain_account=args.keychain_account, run=run)).serve(stdin, stdout)
     return 0
 
 

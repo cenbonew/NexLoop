@@ -93,6 +93,9 @@ def test_password_sources_never_argv(tmp_path):
     with pytest.raises(ConsumerChannelError):
         source('customer; rm -rf /')
     assert len(calls) == 1
+    per_user = consumer_mcp.PasswordSource(keychain_service='nexloop/stage/{username}', keychain_account='nexloop', run=run)
+    assert per_user('refusal-1') == 'keychain-value'
+    assert calls[-1] == ['security', 'find-generic-password', '-w', '-s', 'nexloop/stage/refusal-1', '-a', 'nexloop']
 
 
 def test_session_file_is_private_and_cli_refuses_a_loose_one(tmp_path):
