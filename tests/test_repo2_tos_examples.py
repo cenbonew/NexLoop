@@ -42,14 +42,20 @@ def test_the_bucket_policy_is_tls_only_in_the_tos_spellings():
     assert deny['Resource'] == ['trn:tos:::__TOS_BUCKET__', 'trn:tos:::__TOS_BUCKET__/*']
 
 
-def test_the_iam_policy_is_prefix_scoped_and_never_configures_the_bucket():
-    policy = json.loads((TOS / 'iam-policy-data-host.example.json').read_text())
-    listing, objects = policy['Statement']
-    assert listing['Action'] == ['tos:ListObjects'] and listing['Resource'] == ['trn:tos:::__TOS_BUCKET__']
-    assert listing['Condition'] == {'StringLike': {'tos:prefix': ['nexloop/pgbackrest/*', 'nexloop/restic-journal/*']}}
-    assert all(r.startswith('trn:tos:::__TOS_BUCKET__/nexloop/') for r in objects['Resource'])
-    actions = {a for s in policy['Statement'] for a in s['Action']}
-    assert not [a for a in actions if re.search(r'Bucket(Policy|Acl|Encryption|Lifecycle|Versioning)|PutBucket|DeleteBucket|\*', a)]
+def test_the_iam_policies_are_prefix_scoped_and_never_configure_the_bucket():
+    """Listing is tos:ListBucket on the bucket TRN with tos:prefix (the official TOS example; tos:ListObjects was refused with 403
+    on the stage 2026-10-17); objects only under the role's prefixes; no bucket configuration action or wildcard."""
+    for name, prefixes in (('data-host', ['nexloop/pgbackrest/', 'nexloop/restic-journal/']), ('app-host', ['nexloop/restic-files/'])):
+        policy = json.loads((TOS / f'iam-policy-{name}.example.json').read_text())
+        listing, head, objects = policy['Statement']
+        assert 'Version' not in policy
+        assert listing['Action'] == ['tos:ListBucket'] and listing['Resource'] == ['trn:tos:::__TOS_BUCKET__']
+        assert listing['Condition'] == {'StringLike': {'tos:prefix': [p + '*' for p in prefixes]}}
+        assert head == {'Effect': 'Allow', 'Action': ['tos:HeadBucket'], 'Resource': ['trn:tos:::__TOS_BUCKET__']}
+        assert objects['Resource'] == ['trn:tos:::__TOS_BUCKET__/' + p + '*' for p in prefixes]
+        actions = {a for s in policy['Statement'] for a in s['Action']}
+        assert 'tos:ListObjects' not in actions
+        assert not [a for a in actions if re.search(r'Bucket(Policy|Acl|Encryption|Lifecycle|Versioning)|PutBucket|DeleteBucket|\*', a)]
 
 
 def test_no_lifecycle_rule_expires_repository_objects():

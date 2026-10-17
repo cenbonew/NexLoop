@@ -28,7 +28,7 @@
 | **版本与覆盖** | Versioning 必须为 **Disabled**，依靠 forbid-overwrite 保证单个对象不可覆盖；Enabled 或 Suspended 时审计器 fail closed，需人工迁桶 | `data-protection.md`；`_versioning_is_acceptable` |
 | **生命周期** | 每个前缀一条过期规则：daily 90 天、monthly 365 天、archive 永不过期（禁止被空前缀或宽泛前缀的规则覆盖）；未完成的分段上传 1 天后终止 | `data_protection_bucket.py` 中 `lifecycle` 的期望值 |
 | **IAM** | 每个身份一套、按前缀限定：备份身份只能读写两个 DR 前缀，**没有删除权限、没有桶配置权限**；恢复身份默认关闭，恢复时临时启用，只读；Artifact 身份对这个桶零权限 | `identity_access`、`RecoveryActivationTemplate` |
-| **TOS 特有写法**（实测） | 列举动作是 `tos:ListObjects`，前缀条件键必须是全小写的 `tos:prefix`（`prefix`、`tos:Prefix` 都会被拒）；桶策略写 `"Version": "1.0"`、`Principal: ["*"]`、`"tos:securetransport": ["false"]`。照抄 AWS 写法会让整条策略被拒 | `data_protection_bucket.py` 第 831–900 行的注释 |
+| **TOS 特有写法**（实测） | 前缀条件键必须是全小写的 `tos:prefix`（`prefix`、`tos:Prefix` 都会被拒）。上游审计内部把列举表示为 `tos:ListObjects`，**IAM 实际校验的动作名是 `tos:ListBucket`**（官方示例 6349/1183391；2026-10-17 stage 实测：写成 `tos:ListObjects` 时列举返回 403）；桶策略写 `"Version": "1.0"`、`Principal: ["*"]`、`"tos:securetransport": ["false"]`。照抄 AWS 写法会让整条策略被拒 | `data_protection_bucket.py` 第 831–900 行的注释 |
 | **审计与演练** | 每日只读漂移审计，覆盖 ACL、Policy、SSE、Versioning、Lifecycle、IAM、访问日志、云审计；每月 checksum 演练；每季度做隔离恢复 | `data-protection.md` |
 
 ## 2. NexLoop 的条件与上游有哪些不同
@@ -72,7 +72,7 @@
 ### 3.2 身份与凭据
 
 - **两个专用子用户**，各自一对 AK/SK，按前缀限定（示例 `deploy/examples/tos/iam-policy-data-host.example.json`）：
-  - DATA_HOST：`tos:ListObjects`（加 `tos:prefix` 条件），以及对 `nexloop/pgbackrest/`、`nexloop/restic-journal/` 的 Get、Put、Delete 和分段上传相关动作；
+  - DATA_HOST：`tos:ListBucket`（加 `tos:prefix` 条件）、`tos:HeadBucket`，以及对 `nexloop/pgbackrest/`、`nexloop/restic-journal/` 的 Get、Put、Delete 和分段上传相关动作；
   - APP_HOST：同样的形状，只限 `nexloop/restic-files/`；
   - 都没有任何桶配置权限。
 - **恢复身份**（可选，与上游相同）：一个只读子用户，平时停用，恢复演练时临时启用，对 `nexloop/` 只有 Get 和 List。

@@ -50,12 +50,12 @@
 | 子用户（建议名称） | 前缀 | 策略模板 |
 |---|---|---|
 | `nexloop-backup-data` | `nexloop/pgbackrest/`、`nexloop/restic-journal/` | `deploy/examples/tos/iam-policy-data-host.example.json` |
-| `nexloop-backup-app` | `nexloop/restic-files/` | 同一个模板，两处前缀都换成 `nexloop/restic-files/*` |
+| `nexloop-backup-app` | `nexloop/restic-files/` | `deploy/examples/tos/iam-policy-app-host.example.json` |
 
 1. 新建用户：**只开通编程访问**，不开通控制台登录，不加入任何用户组，不附加任何系统策略。
 2. 新建自定义策略，按模板填写：
    - `__TOS_BUCKET__` 换成桶名；
-   - 列举动作写 `tos:ListObjects`，条件键写**全小写**的 `tos:prefix`（上游实测：`prefix`、`tos:Prefix` 都会被拒）；
+   - 列举动作写 **`tos:ListBucket`**（不是 `tos:ListObjects`：2026-10-17 实测写成后者时列举返回 403），资源为桶本身，条件键写**全小写**的 `tos:prefix`（`prefix`、`tos:Prefix` 都会被拒）；另加 `tos:HeadBucket`；不需要 `Version` 字段；
    - 对象动作：Get、Put、Delete，以及分段上传相关的动作。动作名以控制台策略编辑器的列表为准，不要用通配符 `tos:*`；
    - **不给**任何桶配置动作（策略、ACL、生命周期、加密、版本控制、删除桶）。
    - 然后把策略附加给对应的用户。

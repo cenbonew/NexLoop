@@ -26,7 +26,7 @@
 2. 在访问控制中新建两个子用户：只开通编程访问，不开通控制台登录。
 3. 给每个子用户附一条自定义策略，按 `deploy/examples/tos/iam-policy-data-host.example.json` 填写：
    - `__TOS_BUCKET__` 填数据保护桶的名字；
-   - 列举动作 `tos:ListObjects` 加全小写的条件键 `tos:prefix`，只放 `nexloop/...` 的前缀；
+   - 列举动作 `tos:ListBucket`（不是 `tos:ListObjects`）加全小写的条件键 `tos:prefix`，只放 `nexloop/...` 的前缀；
    - 对象动作 Get、Put、Delete 以及分段上传相关的动作，资源只写 `nexloop/...` 下的路径；
    - APP_HOST 子用户只放 `nexloop/restic-files/`；
    - **不给**任何桶配置动作，**不给** `disaster-recovery/`、`archive/` 下的任何资源。

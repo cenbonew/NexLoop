@@ -1,11 +1,10 @@
 {
-  "_comment": "NX-035 repo2: the IAM policy of the DATA_HOST backup sub-user (pgBackRest repo2 and the journal restic repo2). Prefix-scoped like the NEX-EIOS backup identity, with its measured TOS spellings (tos:ListObjects on the bucket TRN with the condition key tos:prefix in lower case; GetObject/PutObject on the exact prefix TRNs). Unlike it, tos:DeleteObject is granted: pgBackRest expire and restic forget/prune remove their own old objects. Multipart actions are for large uploads. No bucket configuration action. The APP_HOST sub-user: the same shape with nexloop/restic-files/ only. Check the multipart action names against the TOS IAM action list before applying.",
-  "Version": "1.0",
+  "_comment": "NX-035 repo2: the IAM policy of the DATA_HOST (pgBackRest repo2, journal restic repo2) backup sub-user. Action names and condition as the official TOS example for one bucket and one prefix (docs.volcengine.com 6349/1183391, 2026-10-17): listing is tos:ListBucket on the bucket TRN, limited with StringLike on tos:prefix (lower case); no Version element. tos:HeadBucket lets restic check the bucket exists (no object data). Objects: get, put, delete (pgBackRest expire, restic forget/prune), multipart. No bucket configuration action, no tos:* wildcard. Replace __TOS_BUCKET__ (the name stays in the private env).",
   "Statement": [
     {
       "Effect": "Allow",
       "Action": [
-        "tos:ListObjects"
+        "tos:ListBucket"
       ],
       "Resource": [
         "trn:tos:::__TOS_BUCKET__"
@@ -18,6 +17,15 @@
           ]
         }
       }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:HeadBucket"
+      ],
+      "Resource": [
+        "trn:tos:::__TOS_BUCKET__"
+      ]
     },
     {
       "Effect": "Allow",

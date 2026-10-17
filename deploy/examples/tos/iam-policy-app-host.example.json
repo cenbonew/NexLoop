@@ -1,0 +1,43 @@
+{
+  "_comment": "NX-035 repo2: the IAM policy of the APP_HOST (file restic repo2) backup sub-user. Action names and condition as the official TOS example for one bucket and one prefix (docs.volcengine.com 6349/1183391, 2026-10-17): listing is tos:ListBucket on the bucket TRN, limited with StringLike on tos:prefix (lower case); no Version element. tos:HeadBucket lets restic check the bucket exists (no object data). Objects: get, put, delete (pgBackRest expire, restic forget/prune), multipart. No bucket configuration action, no tos:* wildcard. Replace __TOS_BUCKET__ (the name stays in the private env).",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:ListBucket"
+      ],
+      "Resource": [
+        "trn:tos:::__TOS_BUCKET__"
+      ],
+      "Condition": {
+        "StringLike": {
+          "tos:prefix": [
+            "nexloop/restic-files/*"
+          ]
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:HeadBucket"
+      ],
+      "Resource": [
+        "trn:tos:::__TOS_BUCKET__"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:GetObject",
+        "tos:PutObject",
+        "tos:DeleteObject",
+        "tos:AbortMultipartUpload",
+        "tos:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "trn:tos:::__TOS_BUCKET__/nexloop/restic-files/*"
+      ]
+    }
+  ]
+}
