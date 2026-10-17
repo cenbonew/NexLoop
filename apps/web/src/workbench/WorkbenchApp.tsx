@@ -21,7 +21,7 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
   const [username,setUsername]=useState('');const [password,setPassword]=useState('');
   const mutation=useMutation({mutationFn:()=>workbenchLogin(username,password),onSuccess:()=>{setPassword('');onLogin();}});
   function submit(event:FormEvent){event.preventDefault();mutation.mutate();}
-  return <section aria-labelledby="workbench-login-title"><h1 id="workbench-login-title">登录负责人工作台</h1><p className="subtitle">企业成员账号；顾客账号不能进入工作台</p>
+  return <section className="workbench-login" aria-labelledby="workbench-login-title"><h1 id="workbench-login-title">登录负责人工作台</h1><p className="subtitle">企业成员账号；顾客账号不能进入工作台</p>
     <form onSubmit={submit}><div className="field"><label htmlFor="wb-username">账号</label><input id="wb-username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     <div className="field"><label htmlFor="wb-password">密码</label><input id="wb-password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     {mutation.isError?<p className="error" role="alert">{kindOf(mutation.error)==='unauthenticated'?'账号或密码不正确。':STATE_TEXT[kindOf(mutation.error)]}</p>:null}
@@ -54,6 +54,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   const cache=useQueryClient();
   const session=useQuery({queryKey:['workbench','session'],queryFn:readWorkbenchSession,refetchOnWindowFocus:false});
   const [route,setRoute]=useState<Route>(()=>parseRoute(window.location.pathname));
+  const [menu,setMenu]=useState(false);
   useEffect(()=>{const back=()=>setRoute(parseRoute(window.location.pathname));window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
   function go(next:Route){window.history.pushState(null,'',routePath(next));setRoute(next);}
   const logout=useMutation({mutationFn:workbenchLogout,onSettled:()=>{cache.removeQueries({queryKey:['workbench']});void session.refetch();}});
@@ -62,8 +63,11 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
       :session.isError?<section><h1>暂时无法连接</h1><p role="alert">{STATE_TEXT[kindOf(session.error)]}</p><button type="button" onClick={()=>void session.refetch()}>重试</button></section>
       :!session.data?<WorkbenchLogin onLogin={()=>void session.refetch()}/>
       :<div className="workbench-layout">
-        <nav aria-label="工作台导航"><ul>{(Object.keys(PAGES) as PageKey[]).map(page=><li key={page}>
-          <a href={routePath({page})} aria-current={route.page===page?'page':undefined} onClick={event=>{event.preventDefault();go({page});}}>{PAGES[page]}</a></li>)}</ul>
+        {/* md/sm (<1024): the navigation sits behind this visible menu button instead of a horizontal strip (web layout batch 1). */}
+        <button type="button" className="workbench-menu-toggle" aria-expanded={menu} aria-controls="workbench-nav" onClick={()=>setMenu(!menu)}>
+          <span>{menu?'收起菜单':'菜单'}</span><span className="menu-current">{PAGES[route.page]}</span></button>
+        <nav id="workbench-nav" className={menu?'open':undefined} aria-label="工作台导航"><ul>{(Object.keys(PAGES) as PageKey[]).map(page=><li key={page}>
+          <a href={routePath({page})} aria-current={route.page===page?'page':undefined} onClick={event=>{event.preventDefault();setMenu(false);go({page});}}>{PAGES[page]}</a></li>)}</ul>
           <button type="button" onClick={()=>logout.mutate()} disabled={logout.isPending}>退出</button></nav>
         <WorkbenchPage route={route} go={go} slots={slots}/>
       </div>}

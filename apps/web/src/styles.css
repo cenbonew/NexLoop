@@ -1,33 +1,73 @@
-:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#12233b;background:#fff;font-synthesis:none;--muted:#66758b;--border:#e2e8f0;--accent:#2463eb}
-*{box-sizing:border-box}body{margin:0}.shell{min-height:100dvh;position:relative;padding:60px 90px 100px}header{font-size:32px;font-weight:650;line-height:40px;letter-spacing:-.8px}main{width:524px;max-width:100%;margin:145px auto 0;transform:translateX(44px)}h1{font-size:44px;line-height:55px;margin:0;font-weight:650;letter-spacing:-.6px}.subtitle{font-size:18px;line-height:27px;color:var(--muted);margin:8px 0 0}form{margin-top:48px}.field{margin-bottom:32px}label{display:block;font-size:17px;font-weight:600;line-height:24px;margin-bottom:8px}input{width:100%;height:64px;border:1px solid var(--border);border-radius:10px;background:#fff;font:inherit;font-size:18px;padding:0 18px;color:inherit}input::placeholder{color:var(--muted)}input:focus-visible,button:focus-visible{outline:3px solid #93b4ff;outline-offset:3px}button{width:100%;height:64px;border:0;border-radius:9px;background:var(--accent);color:white;font:inherit;font-size:20px;font-weight:600;cursor:pointer}button:hover{background:#1c51cb}button:disabled{cursor:wait;opacity:.7}.note{font-size:15px;line-height:24px;color:var(--muted);margin:30px 0 0}.error{font-size:15px;line-height:24px;color:#b42318;margin:0 0 20px}.workspace{font-size:20px;line-height:30px;margin:36px 0}.workspace~button{margin-top:32px}footer{position:absolute;left:90px;bottom:54px;color:var(--muted);font-size:16px;line-height:24px}
-@media(max-width:767px){.shell{padding:28px 24px 100px}header{font-size:24px;line-height:32px}main{margin-top:90px;transform:none;width:100%}h1{font-size:32px;line-height:42px}.subtitle{font-size:16px;line-height:24px}form{margin-top:32px}input,button{height:52px;font-size:16px}.field{margin-bottom:24px}.note{font-size:13px;line-height:22px}footer{left:24px;bottom:28px;font-size:14px}}
+/* Foundation (web layout batch 1, 2026-10-18; docs/implementation/web-layout-audit-20261018.md §4.1). One set of breakpoints for
+   the customer pages and the workbench; media queries cannot read variables, so use exactly these widths:
+   sm <640 · md 640–1023 · lg 1024–1439 · xl ≥1440. Colours, spacing and type are variables; dark mode redefines the colours. */
+:root{color-scheme:light dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-synthesis:none;
+  --bg:#f6f8fb;--surface:#ffffff;--surface-2:#fbfcfe;--hover:#f2f6ff;--text:#12233b;--text-2:#334155;--muted:#5f6f85;--border:#e2e8f0;--border-strong:var(--border-strong);
+  --accent:#2463eb;--accent-soft:#e9f0ff;--primary-bg:#2463eb;--primary-hover:#1c51cb;--primary-text:#ffffff;--danger:#b42318;--focus:#93b4ff;--input-bg:#ffffff;
+  --ok-soft:#eef7f1;--ok-text:#2f6f4f;--warn-soft:#fffaeb;--warn-text:#7a2e0e;--violet-soft:#f8f4ff;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--radius-sm:6px;--radius:10px;--radius-lg:12px;
+  --fs-small:13px;--fs-body:15px;--fs-customer:16px;--control-h:44px;
+  --page-max:880px;--gutter:24px;
+  color:var(--text);background:var(--surface)}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1220;--surface:#111a29;--surface-2:#152034;--hover:#1b2a45;--text:#e6edf7;--text-2:#c9d4e3;--muted:#9fb0c6;
+  --border:#2b3a52;--border-strong:#3b5480;--accent:#8fb3ff;--accent-soft:#1b2c4f;--primary-bg:#2f62d9;--primary-hover:#3d70e6;--primary-text:#ffffff;--danger:#fca5a5;
+  --focus:#8fb3ff;--input-bg:#0e1726;--ok-soft:#12291c;--ok-text:#86efac;--warn-soft:#33240c;--warn-text:#fde7c2;--violet-soft:#221a3d}}
+*{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--text)}
+/* Customer pages: one centred column; the logo, the content and the footer share its left edge (no offset). */
+.shell{min-height:100dvh;display:flex;flex-direction:column;width:100%;max-width:calc(var(--page-max) + 2 * var(--gutter));margin:0 auto;padding:var(--space-6) var(--gutter)}
+header{font-size:32px;font-weight:650;line-height:40px;letter-spacing:-.8px}
+main{width:100%;max-width:var(--page-max);margin:72px 0 0}
+footer{margin-top:auto;padding-top:48px;color:var(--muted);font-size:14px;line-height:22px}
+h1{font-size:44px;line-height:55px;margin:0;font-weight:650;letter-spacing:-.6px}.subtitle{font-size:18px;line-height:27px;color:var(--muted);margin:8px 0 0}
+form{margin-top:48px}.field{margin-bottom:28px}label{display:block;font-size:16px;font-weight:600;line-height:24px;margin-bottom:8px}
+input{width:100%;height:var(--control-h);border:1px solid var(--border);border-radius:var(--radius);background:var(--input-bg);font:inherit;font-size:16px;padding:0 16px;color:inherit}
+select,textarea{background:var(--input-bg);color:inherit}input::placeholder,textarea::placeholder{color:var(--muted)}input:focus-visible,button:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+/* Buttons size to their label; only the primary action (a form's submit) carries the accent colour. */
+button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:var(--control-h);padding:0 20px;border:1px solid var(--border);border-radius:9px;
+  background:var(--surface);color:var(--text);font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+button:hover{background:var(--hover)}
+button[type=submit],form button:not([type]),button.primary{background:var(--primary-bg);border-color:transparent;color:var(--primary-text)}
+button[type=submit]:hover,form button:not([type]):hover,button.primary:hover{background:var(--primary-hover)}
+button:disabled{cursor:wait;opacity:.7}
+.note{font-size:15px;line-height:24px;color:var(--muted);margin:30px 0 0}.error{font-size:15px;line-height:24px;color:var(--danger);margin:0 0 20px}
+.workspace{font-size:var(--fs-small);line-height:20px;margin:4px 0 0;color:var(--muted);overflow-wrap:anywhere}
+/* The login form keeps its design size (docs/design/login-design-spec.md: 524 px, 64 px controls on desktop). */
+.login-form{max-width:524px}.login-form input,.login-form button[type=submit]{height:64px;font-size:18px}.login-form button[type=submit]{width:100%;font-size:20px}
+/* Signed in: a compact header row (title, workspace, sign out) so the conversation starts on the first screen. */
+.account-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);flex-wrap:wrap}
+.account-head h1{font-size:28px;line-height:36px}
+@media (min-width:1440px){:root{--page-max:960px}}
+@media (max-width:1023px){:root{--page-max:720px}}
+@media (max-width:639px){:root{--gutter:16px}.shell{padding:28px var(--gutter)}header{font-size:24px;line-height:32px}main{margin-top:40px}
+  h1{font-size:32px;line-height:42px}.subtitle{font-size:16px;line-height:24px}form{margin-top:32px}.field{margin-bottom:24px}
+  .login-form input,.login-form button[type=submit]{height:52px;font-size:16px}.note{font-size:13px;line-height:22px}.account-head h1{font-size:24px;line-height:32px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 
-.chat{margin-top:48px;border-top:1px solid var(--border);padding-top:24px}.chat h2{font-size:26px}.chat select,.chat textarea{width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:12px;background:white}.chat textarea{min-height:120px;resize:vertical}.chat select{margin-bottom:16px}.chat button{font-size:16px;height:48px;margin-top:12px}.chat .note{margin:16px 0}.messages{padding:0;list-style:none}.messages li{padding:16px;margin:16px 0;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}.messages time,.messages span{display:block;color:var(--muted);font-size:13px}.messages p{white-space:pre-wrap}.chat select:focus-visible,.chat textarea:focus-visible{outline:3px solid #93b4ff;outline-offset:3px}
+.chat{margin-top:48px;border-top:1px solid var(--border);padding-top:24px}.chat h2{font-size:26px}.chat select,.chat textarea{width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--input-bg);color:inherit}.chat textarea{min-height:120px;resize:vertical}.chat select{margin-bottom:16px}.chat button{margin-top:12px}.chat .note{margin:16px 0}.messages{padding:0;list-style:none}.messages li{padding:16px;margin:16px 0;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}.messages time,.messages span{display:block;color:var(--muted);font-size:13px}.messages p{white-space:pre-wrap}
 
-.review{margin-top:48px;border-top:1px solid var(--border);padding-top:24px}.review h2{font-size:26px}.review h4{margin:20px 0 8px}.review button{font-size:16px;height:auto;min-height:48px;padding:8px 12px;margin-top:12px;text-align:left}.queue,.evidence{padding:0;list-style:none}.queue li,.evidence li{margin:8px 0}.evidence li{padding:12px;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}.evidence small{display:block;color:var(--muted)}.scores{display:grid;grid-template-columns:auto 1fr;gap:4px 16px}.scores dd{margin:0}.decisions button:disabled{cursor:not-allowed;background:#94a3b8}.candidate{overflow-wrap:anywhere}
-.messages li.outbound{border-left:3px solid #2f6f4f;background:#f2f8f4}
-.messages li.outbound>span{font-weight:600;color:#2f6f4f}
-.review .warning{border-left:4px solid #b54708;background:#fffaeb;color:#7a2e0e;padding:10px 14px;font-size:15px;line-height:24px;margin:12px 0}
+.review{margin-top:48px;border-top:1px solid var(--border);padding-top:24px}.review h2{font-size:26px}.review h4{margin:20px 0 8px}.review button{height:auto;min-height:44px;padding:8px 12px;margin-top:12px;text-align:left}.queue,.evidence{padding:0;list-style:none}.queue li,.evidence li{margin:8px 0}.evidence li{padding:12px;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}.evidence small{display:block;color:var(--muted)}.scores{display:grid;grid-template-columns:auto 1fr;gap:4px 16px}.scores dd{margin:0}.decisions button:disabled{cursor:not-allowed;opacity:.5}.candidate{overflow-wrap:anywhere}
+.messages li.outbound{border-left:3px solid var(--ok-text);background:var(--ok-soft)}
+.messages li.outbound>span{font-weight:600;color:var(--ok-text)}
+.review .warning{border-left:4px solid #b54708;background:var(--warn-soft);color:var(--warn-text);padding:10px 14px;font-size:15px;line-height:24px;margin:12px 0}
 
 /* NX-028 slice 1: owner workbench (appended; existing rules unchanged). */
 .workbench-layout{display:grid;grid-template-columns:minmax(10rem,14rem) 1fr;gap:1.5rem;align-items:start}
 .workbench-layout nav ul{list-style:none;margin:0;padding:0}
 .workbench-layout nav a{display:block;padding:.35rem .5rem;border-radius:.375rem;text-decoration:none}
-.workbench-layout nav a[aria-current="page"]{font-weight:600;background:rgba(0,0,0,.06)}
+.workbench-layout nav a[aria-current="page"]{font-weight:600;background:var(--accent-soft)}
 .workbench-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:1rem}
-.workbench-block{border:1px solid rgba(0,0,0,.12);border-radius:.5rem;padding:.75rem 1rem}
+.workbench-block{border:1px solid var(--border);border-radius:.5rem;padding:.75rem 1rem}
 .workbench-block-forbidden,.workbench-block-unavailable{border-style:dashed}
 .workbench-actions:empty{display:none}
 .workbench-state{border-left:3px solid #b26b00;padding:.25rem .75rem}
 .workbench-state-forbidden,.workbench-state-unauthenticated{border-left-color:#8a8a8a}
 .workbench .pending{color:#8a5a00}
 .workbench table{border-collapse:collapse;width:100%}
-.workbench th,.workbench td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid rgba(0,0,0,.08);vertical-align:top}
+.workbench th,.workbench td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid var(--border);vertical-align:top}
 .workbench .link{background:none;border:none;padding:0;color:inherit;text-decoration:underline;cursor:pointer}
 .evidence-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:1rem}
 .workbench-messages .message-outbound{margin-left:2rem}
-@media (max-width:720px){.workbench-layout{grid-template-columns:1fr}}
 
 /* NX-030: a critical alert that is not silenced stands out (appended). */
 .workbench tr.critical td{font-weight:600}
@@ -36,54 +76,56 @@
 .brand-header{display:flex;align-items:center;gap:20px;flex-wrap:wrap;letter-spacing:normal}
 .brand-logo{display:block;width:240px;max-width:100%;height:auto;object-fit:contain}
 .brand-context{font-size:18px;line-height:28px;color:var(--muted);font-weight:500}
-@media(max-width:767px){.brand-logo{width:190px}.brand-header{gap:10px 16px}.brand-context{font-size:16px;line-height:24px}}
+@media (max-width:639px){.brand-logo{width:190px}.brand-header{gap:10px 16px}.brand-context{font-size:16px;line-height:24px}}
+/* The navy wordmark needs a light backing on dark surfaces (docs/design/brand-assets.md). */
+@media (prefers-color-scheme:dark){.brand-logo{background:#ffffff;border-radius:8px;padding:4px 10px}}
 
 /* Workbench on desktop (2026-10-17, owner feedback): use the width (max 1440 px), sidebar + content, compact controls,
    table headers on one line, takeover bar at the top of a conversation. The login page keeps the narrow centred column. */
-.shell.workbench{padding:28px 40px 80px;background:#f6f8fb}
-.workbench main{width:auto;max-width:1440px;margin:24px auto 0;transform:none}
-.workbench footer{position:static;margin:40px auto 0;max-width:1440px;font-size:13px}
-.workbench .brand-header{max-width:1440px;margin:0 auto}
-.workbench-layout{grid-template-columns:13.5rem minmax(0,1fr);gap:24px}
-.workbench-layout nav{position:sticky;top:16px;background:#fff;border:1px solid var(--border);border-radius:12px;padding:8px}
-.workbench-layout nav a{padding:8px 12px;font-size:14px;line-height:20px;color:#12233b;border-radius:8px}
-.workbench-layout nav a:hover{background:#f2f6ff}
-.workbench-layout nav a[aria-current="page"]{background:#e9f0ff;color:var(--accent);font-weight:650}
-.workbench-page{min-width:0;background:#fff;border:1px solid var(--border);border-radius:12px;padding:20px 24px;overflow-x:auto}
+.shell.workbench{--page-max:1440px;--gutter:40px;max-width:none;padding:28px var(--gutter) 32px;background:var(--bg);font-size:var(--fs-body)}
+.workbench main{width:100%;max-width:var(--page-max);margin:24px auto 0}
+.workbench footer{width:100%;max-width:var(--page-max);margin:0 auto;font-size:13px}
+.workbench .brand-header{width:100%;max-width:var(--page-max);margin:0 auto}
+.workbench-layout{grid-template-columns:15rem minmax(0,1fr);gap:24px}
+.workbench-layout nav{position:sticky;top:16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:8px}
+.workbench-layout nav a{padding:8px 12px;font-size:14px;line-height:20px;color:var(--text);border-radius:8px}
+.workbench-layout nav a:hover{background:var(--hover)}
+.workbench-layout nav a[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:650}
+.workbench-page{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;overflow-x:auto}
 .workbench-page h1{font-size:24px;line-height:32px;letter-spacing:-.3px;margin-bottom:12px}
 .workbench-page h2{font-size:16px;line-height:24px;margin:20px 0 8px}
 .workbench form{margin-top:0}
 .workbench .field{margin-bottom:12px}
 .workbench label{font-size:13px;line-height:20px;margin-bottom:4px}
-.workbench input,.workbench select,.workbench textarea{height:auto;min-height:36px;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;width:100%;max-width:32rem}
+.workbench input,.workbench select,.workbench textarea{height:auto;min-height:36px;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;width:100%;max-width:32rem;background:var(--input-bg);color:inherit}
 .workbench button{width:auto;height:auto;min-height:36px;padding:6px 14px;font-size:14px;border-radius:8px;margin-top:4px}
 .workbench .link{min-height:0;margin:0;font-size:inherit;color:var(--accent);text-decoration:none}
 .workbench .link:hover{background:none;text-decoration:underline}
-.workbench-layout nav>button{width:100%;margin-top:8px;background:#fff;color:#12233b;border:1px solid var(--border)}
-.workbench-layout nav>button:hover{background:#f2f6ff}
+.workbench-layout nav>button{width:100%;margin-top:8px;background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.workbench-layout nav>button:hover{background:var(--hover)}
 .workbench table{font-size:14px}
-.workbench th{white-space:nowrap;font-size:13px;color:var(--muted);font-weight:600;background:#f8fafc}
+.workbench th{white-space:nowrap;font-size:13px;color:var(--muted);font-weight:600;background:var(--surface-2)}
 .workbench th,.workbench td{padding:8px 10px}
-.workbench tbody tr:hover td{background:#fafcff}
+.workbench tbody tr:hover td{background:var(--hover)}
 .workbench-actions{display:grid;gap:12px;margin-bottom:16px}
-.workbench-action{border:1px solid var(--border);border-radius:10px;padding:12px 16px;background:#fbfcfe}
+.workbench-action{border:1px solid var(--border);border-radius:10px;padding:12px 16px;background:var(--surface-2)}
 .workbench-action h2{margin:0 0 8px;font-size:15px}
-.consumer-name{font-weight:600}.consumer-alias{color:#334155;font-weight:500}.consumer-alias small{color:var(--muted);margin-left:2px;font-size:12px}
+.consumer-name{font-weight:600}.consumer-alias{color:var(--text-2);font-weight:500}.consumer-alias small{color:var(--muted);margin-left:2px;font-size:13px}
 .consumer-head{font-size:16px}
 .conversation-list{list-style:none;padding:0;margin:0;display:grid;gap:6px;max-width:44rem}
-.workbench .conversation-item{display:flex;justify-content:space-between;gap:12px;width:100%;text-align:left;background:#fff;color:#12233b;border:1px solid var(--border);
+.workbench .conversation-item{display:flex;justify-content:space-between;gap:12px;width:100%;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--border);
   border-radius:10px;padding:10px 14px;margin:0;font-weight:400}
-.workbench .conversation-item:hover{background:#f2f6ff;border-color:#b9cdf7}
+.workbench .conversation-item:hover{background:var(--hover);border-color:#b9cdf7}
 .conversation-time{font-weight:600;font-variant-numeric:tabular-nums}.conversation-meta{color:var(--muted);font-size:13px}
-.badge-latest{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:#e8f7ee;color:#166534;font-size:12px;font-weight:700}
+.badge-latest{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:#e8f7ee;color:#166534;font-size:13px;font-weight:700}
 /* Takeover bar: first thing on a conversation, sticky while the messages scroll. */
-.takeover-bar{position:sticky;top:0;z-index:2;border:1px solid #c9d8f6;background:#f5f8ff;border-radius:12px;padding:12px 16px;display:grid;gap:8px}
-.takeover-bar.takeover-on{border-color:#c4a8f5;background:#f8f4ff}
+.takeover-bar{position:sticky;top:0;z-index:2;border:1px solid var(--border-strong);background:var(--hover);border-radius:12px;padding:12px 16px;display:grid;gap:8px}
+.takeover-bar.takeover-on{border-color:#c4a8f5;background:var(--violet-soft)}
 .takeover-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
-.takeover-pill{padding:3px 10px;border-radius:999px;background:#e9f0ff;color:var(--accent);font-weight:700;font-size:13px}
+.takeover-pill{padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:13px}
 .takeover-pill-on{background:#ede5ff;color:#6d28d9}
 .takeover-notice{margin:0;padding:8px 12px;border-radius:8px;background:#e8f7ee;color:#14532d;font-size:14px;font-weight:600}
-.takeover-notice-back{background:#e9f0ff;color:#1c3d8f}
+.takeover-notice-back{background:var(--accent-soft);color:#1c3d8f}
 .workbench .takeover-form{border:0;background:none;padding:0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end}
 .workbench .takeover-form .field{flex:1 1 16rem}.workbench .takeover-form .field:has(input[type=number]){flex:0 0 11rem}
 .workbench .takeover-form h2{display:none}
@@ -92,40 +134,57 @@
 .workbench .takeover-form>p{flex-basis:100%;margin:0}
 .workbench-messages{list-style:none;padding:0;display:grid;gap:8px}
 .workbench-messages li{border:1px solid var(--border);border-radius:10px;padding:8px 12px;max-width:46rem}
-.workbench-messages .message-outbound{margin-left:auto;background:#f5f8ff}
-.workbench-messages .meta{margin:0 0 4px;font-size:12px;color:var(--muted)}.workbench-messages li>p:last-child{margin:0}
-@media (max-width:900px){.shell.workbench{padding:16px 12px 60px}.workbench-layout{grid-template-columns:1fr;gap:12px}
-  .workbench-layout>*{min-width:0}.workbench-layout nav{position:static;display:flex;align-items:center;gap:8px;padding:6px}
-  .workbench-layout nav ul{display:flex;gap:4px;overflow-x:auto;white-space:nowrap;flex:1;min-width:0}
-  .workbench-layout nav>button{width:auto;margin:0;flex:none}
+.workbench-messages .message-outbound{margin-left:auto;background:var(--hover)}
+.workbench-messages .meta{margin:0 0 4px;font-size:13px;color:var(--muted)}.workbench-messages li>p:last-child{margin:0}
+/* md and sm (<1024): the sidebar becomes a menu behind a visible "菜单" button in the top bar (no horizontal pill strip). */
+.workbench .workbench-menu-toggle{display:none}
+@media (max-width:1023px){.shell.workbench{--gutter:16px;padding:16px var(--gutter) 24px}.workbench-layout{grid-template-columns:minmax(0,1fr);gap:12px}
+  .workbench-layout>*{min-width:0}
+  .workbench .workbench-menu-toggle{display:flex;justify-content:space-between;width:100%;margin:0;min-height:44px;background:var(--surface);color:var(--text);border:1px solid var(--border)}
+  .workbench-menu-toggle .menu-current{color:var(--accent);font-weight:650}
+  .workbench-layout nav{position:static;display:none;padding:8px}.workbench-layout nav.open{display:block}
+  .workbench-layout nav ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:4px}
+  .workbench-layout nav a{padding:10px 12px}
   .workbench input,.workbench select,.workbench textarea{max-width:none}
   .workbench-page{padding:14px}.workbench .takeover-form .field,.workbench .takeover-form .field:has(input[type=number]){flex-basis:100%}.takeover-bar{position:static}}
-.workbench-lead{margin:-4px 0 14px;font-size:15px;color:#334155}
-/* WebChat on desktop: the signed-in page with the conversation gets a wider column; the login page keeps its 524 px spec. */
-@media(min-width:1024px){main:has(.chat){width:min(880px,100%);transform:none}.chat textarea{min-height:96px}}
+@media (max-width:639px){.workbench .brand-header .brand-logo{width:150px}.workbench .brand-context{font-size:15px}}
+/* Workbench login: a centred card. */
+.workbench-login{max-width:440px;margin:8vh auto 0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px 32px 24px;
+  box-shadow:0 8px 24px -16px rgba(18,35,59,.25)}
+.workbench-login h1{font-size:26px;line-height:34px}.workbench-login .subtitle{font-size:15px;margin-top:6px}
+.workbench-login form{margin-top:24px}.workbench-login .field{margin-bottom:16px}
+.workbench .workbench-login input{max-width:none;min-height:44px;font-size:15px}.workbench .workbench-login button[type=submit]{width:100%;min-height:44px;margin-top:8px}
+@media (max-width:639px){.workbench-login{margin-top:24px;padding:24px 18px}}
+.workbench-lead{margin:-4px 0 14px;font-size:15px;color:var(--text-2)}
 /* Real dispatch switches on the settings page (2026-10-18). */
-.real-dispatch{margin:20px 0;border:1px solid var(--border);border-radius:12px;padding:12px 16px;background:#fbfcfe}
+.real-dispatch{margin:20px 0;border:1px solid var(--border);border-radius:12px;padding:12px 16px;background:var(--surface-2)}
 .real-dispatch h2{margin-top:0}.real-dispatch-layers td:first-child{white-space:nowrap;font-weight:600}
-.rd-pill{display:inline-block;padding:1px 10px;border-radius:999px;font-size:12px;font-weight:700}
-.rd-on{background:#e8f7ee;color:#166534}.rd-off{background:#eef2f7;color:#475569}.rd-unknown{background:#fff4e0;color:#8a4b00}
+.rd-pill{display:inline-block;padding:1px 10px;border-radius:999px;font-size:13px;font-weight:700}
+.rd-on{background:#e8f7ee;color:#166534}.rd-off{background:var(--hover);color:#475569}.rd-unknown{background:#fff4e0;color:#8a4b00}
 .rd-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.workbench .rd-close{background:#fff;color:#b42318;border:1px solid #f3c1bd}
-.rd-confirm{margin-top:12px;border:1px solid #f1c27d;background:#fffaf1;border-radius:10px;padding:12px 16px}.rd-confirm h3{margin:0 0 6px;font-size:15px}
+.workbench .rd-buttons>button:not(.rd-close){background:var(--primary-bg);color:var(--primary-text);border-color:transparent}
+.workbench .rd-close{background:var(--surface);color:#b42318;border:1px solid #f3c1bd}
+.rd-confirm{margin-top:12px;border:1px solid #f1c27d;background:var(--warn-soft);border-radius:10px;padding:12px 16px}.rd-confirm h3{margin:0 0 6px;font-size:15px}
 .rd-results{margin-top:12px}.rd-results h3{margin:0 0 6px;font-size:14px}.rd-results ul{margin:0;padding-left:18px}
 .rd-ok{color:#166534}.rd-fail{color:#b42318}
 .rd-warning{margin:8px 0;padding:8px 12px;border-radius:8px;background:#fff4e0;color:#7a3e00;font-weight:600;border-left:4px solid #d97706}
 /* "客户近期往来" on the conversation page (2026-10-18): the customer's recent exchanges across conversations. */
-.customer-history{border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin:12px 0 16px;background:#fbfcfe}
+.customer-history{border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin:12px 0 16px;background:var(--surface-2)}
 .customer-history-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.customer-history-head h2{margin:0;font-size:16px}
-.workbench .history-toggle{margin:0 0 0 auto;background:#fff;color:var(--accent);border:1px solid #c9d8f6}
-.workbench .history-toggle:hover{background:#f2f6ff}
+.workbench .history-toggle{margin:0 0 0 auto;background:var(--surface);color:var(--accent);border:1px solid var(--border-strong)}
+.workbench .history-toggle:hover{background:var(--hover)}
 .history-list{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:6px}
-.history-item{border-left:3px solid #c9d8f6;padding:4px 10px;background:#fff;border-radius:0 8px 8px 0}
-.history-outbound{border-left-color:#a7c4f2;background:#f7faff}
-.history-item .meta{margin:0;font-size:12px;color:var(--muted)}.history-body{margin:2px 0 0;font-size:14px;white-space:pre-wrap}
-.history-conv{font-weight:600;color:#334155}.history-current{color:var(--accent)}
-.workbench .history-more{margin-top:8px;background:#fff;color:var(--accent);border:1px solid #c9d8f6}
+.history-item{border-left:3px solid var(--border-strong);padding:4px 10px;background:var(--surface);border-radius:0 8px 8px 0}
+.history-outbound{border-left-color:#a7c4f2;background:var(--hover)}
+.history-item .meta{margin:0;font-size:13px;color:var(--muted)}.history-body{margin:2px 0 0;font-size:14px;white-space:pre-wrap}
+.history-conv{font-weight:600;color:var(--text-2)}.history-current{color:var(--accent)}
+.workbench .history-more{margin-top:8px;background:var(--surface);color:var(--accent);border:1px solid var(--border-strong)}
 .history-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:12px;margin-top:12px;border-top:1px dashed var(--border);padding-top:10px}
 .history-summary h3{margin:0 0 6px;font-size:13px;color:var(--muted)}.history-summary ul{list-style:none;padding:0;margin:0;display:grid;gap:4px;font-size:13px}
-.history-summary .badge{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:#eef2f7;font-size:12px}
-.customer-history-head .note{margin:0;font-size:12px;font-weight:400;line-height:18px;color:var(--muted)}.history-conv{margin-right:2px}
+.history-summary .badge{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--hover);font-size:13px}
+.customer-history-head .note{margin:0;font-size:13px;font-weight:400;line-height:18px;color:var(--muted)}.history-conv{margin-right:2px}
+/* Long identifiers in table cells wrap instead of pushing the table past the page (headers stay on one line); on sm the table is its
+   own horizontal scroller instead (cells keep their words; batch 2 turns these tables into card lists). */
+@media (min-width:640px){.workbench td{overflow-wrap:anywhere}}
+@media (max-width:639px){.workbench table{display:block;overflow-x:auto;max-width:100%}.workbench td{white-space:nowrap}}
+@media (max-width:639px){.real-dispatch-layers td:first-child{white-space:normal}}
