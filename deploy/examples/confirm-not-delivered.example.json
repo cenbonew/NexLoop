@@ -1,0 +1,9 @@
+{
+  "schema": "nexloop-confirm-not-delivered/1",
+  "confirmation_ref": "owner-confirm:20261018-1",
+  "reason": "Provider query returned not_found after the wait; provider record retention checked against the dispatch time.",
+  "provider_retention_checked": true,
+  "intents": [
+    {"intent_id": "00000000-0000-4000-8000-000000000001", "reply_followup": "owner_follow_up"}
+  ]
+}

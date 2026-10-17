@@ -341,5 +341,9 @@ class WorkbenchQueries:
     def alerts(self, *, limit=100):
         return self.reader.observe('alerts', limit=limit)
 
+    def effect_determination(self, intent_id):
+        # 0210: the owner's read-only precheck before confirming an unknown effect did not happen (codes and times only).
+        return self.reader.observe('effect_determination', intent_id=intent_id)
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

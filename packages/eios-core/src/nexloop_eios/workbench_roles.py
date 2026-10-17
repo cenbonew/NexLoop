@@ -58,6 +58,7 @@ def validate_roles(value):
                   'eios:action:nexloop.incentive.issue:1',  # AT-043: it spends the tenant incentive budget
                   'eios:action:nexloop.real_dispatch.set:1',  # 0153: opening real dispatch is the owner's
                   'eios:action:nexloop.contact_key.revoke:1',  # NX-053: re-allowing contact with an erased identity is the owner's
+                  'eios:action:nexloop.effect.confirm_not_delivered:1',  # 0210: closing an unknown effect as not delivered is the owner's
                   'eios:action:nexloop.context.strategy.publish:1'}  # how Context is assembled is the owner's
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')

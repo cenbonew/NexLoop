@@ -54,7 +54,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-037 prerequisite (0153): the owner opens or closes real dispatch for the tenant or one Action of it.
     'set_real_dispatch':'real_dispatch.set',
     # NX-053 (0154): the owner revokes an erased contact key (by key digest or by erasure request), with a reason.
-    'revoke_contact_key':'contact_key.revoke'}
+    'revoke_contact_key':'contact_key.revoke',
+    # 0210: the owner confirms an unknown effect did not happen (evidence and wait checked in SQL; nothing is sent).
+    'confirm_effect_not_delivered':'service.confirm_not_delivered'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -268,6 +270,15 @@ class GoalGovernedActions:
         if key_digest is not None:body['key_digest']=key_digest
         if erasure_request_id is not None:body['erasure_request_id']=erasure_request_id
         return self._submit(action_name,action_version,body)
+
+    # 0210 (owner 2026-10-18): owner only; the handler (SQL) checks the not_found evidence, the wait and the reply follow-up.
+    def confirm_effect_not_delivered(self,*,action_name,action_version,request_id,intent_id,confirmation_ref,reason,provider_retention_checked,reply_followup='owner_follow_up'):
+        if (not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(intent_id)) or type(reason) is not str or not 1<=len(reason)<=500
+                or type(confirmation_ref) is not str or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}',confirmation_ref)
+                or type(provider_retention_checked) is not bool or reply_followup not in ('owner_follow_up','fallback_reply')):
+            raise ValueError('intent, confirmation reference, reason, retention confirmation and reply follow-up required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'confirm_effect_not_delivered','intent_id':str(intent_id),
+            'confirmation_ref':confirmation_ref,'reason':reason,'provider_retention_checked':provider_retention_checked,'reply_followup':reply_followup})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

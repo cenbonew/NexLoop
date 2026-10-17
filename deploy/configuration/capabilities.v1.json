@@ -300,6 +300,29 @@
       "side_effects_reason": null
     },
     {
+      "capability_name": "service.confirm_not_delivered",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "confirm_effect_not_delivered",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "f7a1dc9fda268e3c569d2029c18301bc4e5f186a3f3b425c87bce64452a59c8f",
+      "side_effects_reason": null
+    },
+    {
       "capability_name": "context.audit",
       "capability_version": "1.0.0",
       "kind": "atomic",

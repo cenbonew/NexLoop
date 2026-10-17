@@ -80,6 +80,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 | 就绪检查 | `nexloop-api --mode stage` 的 `/health/ready`：只返回状态与原因代码（[实现说明](implementation/api-stage-ready-implementation.md)） |
 | 暂停 / 恢复（租户、角色、客户、策略、Action 类型） | 工作台写入口（负责人），受治理 Action `Control.set`；恢复不回放旧任务，只登记复评 |
 | 结果不明的效应 | 工作台“查询执行结果”（只把对账提前，不重发） |
+| 确认结果不明的效应未发生 | 只有负责人，查询结果为 not_found 且等待期满后，用配置文件加一条命令 `scripts/deploy/confirm_not_delivered.py`（工作台写入口 `confirm_effect_not_delivered`，0210；[运行手册](release/run-confirm-not-delivered.md)）；不发送任何东西 |
 | 解除联系限制 | 只有负责人（ADR-023） |
 | 撤销删除后联系键的拦截 | 只有负责人，写明理由，工作台写入口 `revoke_contact_key`（NX-053） |
 | 人工接管 / 交还 | 工作台（负责人、运营），默认 2 小时、上限 24 小时 |

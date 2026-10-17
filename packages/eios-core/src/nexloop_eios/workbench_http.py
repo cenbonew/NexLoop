@@ -212,6 +212,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'human_actions', limit=limit)
 
+    @routes.get('/effect-determination/{intent_id}')
+    async def effect_determination(intent_id: str, request: Request):
+        # 0210: the owner's read-only precheck before confirming an unknown effect did not happen (codes and times; owner only).
+        if request.query_params or not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', intent_id):
+            return error('invalid_request', 422)
+        return await invoke(request, 'effect_determination', intent_id=intent_id)
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.

@@ -93,6 +93,9 @@ OPERATIONS={
     'revoke_contact_key':{'key_digest':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[0-9a-f]{64}',v)) else (_ for _ in ()).throw(ValueError('key')),
         'erasure_request_id':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9._:-]{1,190}',v)) else (_ for _ in ()).throw(ValueError('request')),
         'reason':lambda v:v if type(v) is str and 1<=len(v.strip())<=500 else (_ for _ in ()).throw(ValueError('reason'))},
+    # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
+    'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,
+        'provider_retention_checked':_bool,'reply_followup':lambda v:v if v in ('owner_follow_up','fallback_reply') else (_ for _ in ()).throw(ValueError('follow-up'))},
     # 0220: owner-only real dispatch switch; the tenant scope names its data mode, the action scope one resource id.
     'set_real_dispatch':{'scope_kind':lambda v:v if v in ('tenant','action_type') else (_ for _ in ()).throw(ValueError('scope')),
         'enabled':lambda v:v if type(v) is bool else (_ for _ in ()).throw(ValueError('enabled')),'reason':_reason,
@@ -134,8 +137,8 @@ def router(config,*,ports_for_browser):
     routes=APIRouter(prefix='/api/v1/workbench/actions')
     origin=urlsplit(config.origin)
 
-    def error(code,status):
-        return JSONResponse({'code':code,'message':'请求未完成','trace_id':str(uuid.uuid4()),'retryable':status==503,'details':{}},
+    def error(code,status,details=None):
+        return JSONResponse({'code':code,'message':'请求未完成','trace_id':str(uuid.uuid4()),'retryable':status==503,'details':details or {}},
             status_code=status,headers={'Cache-Control':'no-store'})
 
     def bound(request):
@@ -181,8 +184,10 @@ def router(config,*,ports_for_browser):
             return error('unauthenticated',401)
         except LookupError:
             return error('not_found',404)
-        except psycopg.errors.InvalidParameterValue:
-            return error('not_allowed_in_state',409)  # the handler refused this transition (state, target, reason)
+        except psycopg.errors.InvalidParameterValue as refused:
+            # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
+            code=re.fullmatch(r'effect determination: ([a-z_]{1,40})',refused.diag.message_primary or '')
+            return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)
         except (PermissionError,psycopg.errors.InsufficientPrivilege):

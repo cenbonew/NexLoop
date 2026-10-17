@@ -1045,6 +1045,11 @@
       "version": "0209",
       "name": "0209_queue_dead_letter_cause.sql",
       "sha256": "16dbdc7a8466292e90e93773be48010bd95a8f211e7f22de1ddc16fac7352992"
+    },
+    {
+      "version": "0210",
+      "name": "0210_effect_confirm_not_delivered.sql",
+      "sha256": "4837db981b21549f928203c2a9bfc462d9cbd6653724d25583104e529f430274"
     }
   ]
 }

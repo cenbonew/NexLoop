@@ -639,6 +639,11 @@
    "stable_name": "nexloop.contact_key.revoke",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.effect.confirm_not_delivered",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [

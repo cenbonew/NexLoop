@@ -44,7 +44,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # 0153 (NX-037 prerequisite): the owner opens or closes real dispatch for the tenant or one of its Actions.
     'real_dispatch.set':'human_owner',
     # NX-053 (0154): the owner revokes an erased contact key.
-    'contact_key.revoke':'human_owner'}
+    'contact_key.revoke':'human_owner',
+    # 0210: the owner confirms an unknown effect did not happen.
+    'service.confirm_not_delivered':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
