@@ -16,7 +16,7 @@
 
 | 项 | 说明 | 保存位置 |
 |---|---|---|
-| TOS 桶 | **新建、专用**，不与任何业务桶共用；只写桶名 | 私有 env（`__TOS_BUCKET__`） |
+| TOS 桶 | **已建好**（2026-10-17，`cn-shanghai`），专用，不与任何业务桶共用；公开文档写作 `<TOS_BUCKET>` | 只放在私有 env（`__TOS_BUCKET__`） |
 | region | 例如 `cn-shanghai`；S3 端点为 `tos-s3-<region>.volces.com` | 私有 env（`__TOS_REGION__`） |
 | 版本控制 | 建议**开启**，历史版本 14 天后过期（误删或恶意删除可在 14 天内找回）；不开启也可以（方案 §3.1） | 负责人决定，记录在变更记录中 |
 | 对象锁（WORM） | 建议**不开启**：开启后 pgBackRest expire 和 restic prune 删不掉过期对象 | 同上 |
@@ -25,27 +25,81 @@
 
 主账号的 AK **不得**用于备份。
 
-## 1. TOS 控制台：建桶与治理（负责人本人；B）
+## 1. TOS 控制台：桶设置核对、子用户、只读验证（负责人本人；B）
 
-1. 建桶：私有 ACL，地域为上面的 region，默认加密 SSE-TOS（AES256），版本控制和对象锁按 §0 的决定。
-2. 桶策略：按 `deploy/examples/tos/bucket-policy.example.json` 配置，只允许 TLS。注意使用 TOS 的写法：`"Version": "1.0"`、`tos:securetransport`，照抄 AWS 写法会被拒（上游实测）。
-3. 生命周期：按 `deploy/examples/tos/lifecycle.example.json` 配置：
-   - 未完成的分段上传 1 天后终止；
-   - 开启了版本控制的，历史版本 14 天后过期；
-   - **不要**给 `nexloop/` 设任何过期规则，否则会把仓库删坏。
-4. 子用户与策略：按 `deploy/examples/tos/iam-policy-data-host.example.json` 配置：
-   - 列举动作写 `tos:ListObjects`，前缀条件键写全小写的 `tos:prefix`；
-   - 分段上传相关的动作名，先对照 TOS 的 IAM 动作列表；
-   - APP_HOST 子用户只限 `nexloop/restic-files/`；
-   - 为两个子用户各生成一对 AK/SK，直接存入钥匙串，不经剪贴板历史，也不写进任何文件。
-5. **核对清单**：每月复核一次，代替上游的每日自动审计：
-   - ACL 为 private，匿名访问为空；
-   - 策略只拒绝非 TLS 请求；
-   - 默认加密为 AES256；
-   - 版本控制的状态与决定一致；
-   - 生命周期只有上面的规则；
-   - 两个子用户的权限只覆盖各自的前缀；
-   - 没有主账号的 AK 在使用中。
+**现状（2026-10-17 15:1x）**：负责人已在 `cn-shanghai` 建好专用桶。桶名只写在私有 env 中，公开文档写作 `<TOS_BUCKET>`。桶策略、加密、版本控制和子用户可能还没有配置，所以从核对开始。
+
+### 1.1 桶设置逐项核对（控制台，在桶的设置页中逐项看）
+
+| # | 项 | 应为 | 不是时 |
+|---|---|---|---|
+| 1 | 地域 | `cn-shanghai` | 地域建桶后不能改：新建一个桶 |
+| 2 | 访问权限（ACL） | **私有**：没有公共读、没有公共读写，匿名授权为空 | 改为私有 |
+| 3 | 默认加密 | **服务端加密 SSE-TOS（AES256）**；不用 KMS 也可以 | 开启 SSE-TOS |
+| 4 | 版本控制 | **建议开启**（方案 B 的主要好处：误删或恶意删除后 14 天内可找回） | 开启；以后关闭只能“暂停”，不能回到“从未开启” |
+| 5 | 对象锁（WORM、合规保留） | **关闭**：pgBackRest expire 和 restic prune 需要删除自己的过期对象 | 对象锁通常只能在建桶时设定，开了就关不掉：需要新建桶 |
+| 6 | 桶策略 | 只有一条：拒绝非 TLS 请求。按 `deploy/examples/tos/bucket-policy.example.json` 填写，`__TOS_BUCKET__` 换成桶名；用 TOS 的写法：`"Version": "1.0"`、`Principal: ["*"]`、`"tos:securetransport": ["false"]` | 粘贴示例；控制台报错时，以控制台的语法检查为准，但不要放宽语义 |
+| 7 | 生命周期 | (a) 前缀 `nexloop/` 的未完成分段上传 1 天后终止；(b) 开了版本控制的，前缀 `nexloop/` 的历史版本 14 天后删除。**不要有任何“当前版本过期删除”的规则**（会把仓库删坏） | 按 `deploy/examples/tos/lifecycle.example.json` 新建；删掉多余的规则 |
+| 8 | 跨域（CORS）、静态网站托管、镜像回源 | 都不开 | 关闭 |
+| 9 | 访问日志、云审计（可选） | 建议开启，便于事后追查；投递到负责人自己的日志项目 | 可以稍后再开 |
+
+### 1.2 两个子用户（访问控制）
+
+两个子用户都按下面的方法建立，各自只授权自己的前缀：
+
+| 子用户（建议名称） | 前缀 | 策略模板 |
+|---|---|---|
+| `nexloop-backup-data` | `nexloop/pgbackrest/`、`nexloop/restic-journal/` | `deploy/examples/tos/iam-policy-data-host.example.json` |
+| `nexloop-backup-app` | `nexloop/restic-files/` | 同一个模板，两处前缀都换成 `nexloop/restic-files/*` |
+
+1. 新建用户：**只开通编程访问**，不开通控制台登录，不加入任何用户组，不附加任何系统策略。
+2. 新建自定义策略，按模板填写：
+   - `__TOS_BUCKET__` 换成桶名；
+   - 列举动作写 `tos:ListObjects`，条件键写**全小写**的 `tos:prefix`（上游实测：`prefix`、`tos:Prefix` 都会被拒）；
+   - 对象动作：Get、Put、Delete，以及分段上传相关的动作。动作名以控制台策略编辑器的列表为准，不要用通配符 `tos:*`；
+   - **不给**任何桶配置动作（策略、ACL、生命周期、加密、版本控制、删除桶）。
+   - 然后把策略附加给对应的用户。
+3. 为用户新建访问密钥。AK/SK **只显示一次**，直接存入钥匙串，不经剪贴板历史，不存入任何文件：
+   ```
+   security add-generic-password -s nexloop/backup/tos-data-access-key -a "$USER" -w     # 回车后按提示粘贴 AK；不在命令行中写值
+   security add-generic-password -s nexloop/backup/tos-data-secret-key -a "$USER" -w     # 粘贴 SK
+   ```
+   - APP_HOST 子用户用 `nexloop/backup/tos-app-access-key`、`nexloop/backup/tos-app-secret-key`；
+   - 不加值的 `-w` 会让 `security` 交互式地读取，值不会出现在命令行参数或 shell 历史中；
+   - 在 `~/.nexloop/vault-index.md` 中登记条目名（不写值）。
+4. 同时生成三个客户端口令，同样存入钥匙串：`nexloop/backup/repo2-cipher-pass`、`nexloop/backup/restic-repo2-journal`、`nexloop/backup/restic-repo2-files`。每个 32 位以上的随机串，与 repo1 的口令不同。
+
+### 1.3 只读验证（负责人在自己的终端运行；调度员只看输出）
+
+工具：`scripts/deploy/tos_prefix_probe.py`，只用标准库。
+- 它**自己**用 `security find-generic-password -s <条目> -w` 从钥匙串读取 AK/SK，不经命令行参数，也不输出密钥；
+- 用 S3 SigV4 签名访问 `tos-s3-cn-shanghai.volces.com`（TLS）；
+- 只输出每项检查的名字、前缀、预期和实际的 HTTP 状态码，不输出对象名或响应内容。
+
+```
+python3 scripts/deploy/tos_prefix_probe.py --bucket "$TOS_BUCKET" --role data
+python3 scripts/deploy/tos_prefix_probe.py --bucket "$TOS_BUCKET" --role app
+```
+
+- `$TOS_BUCKET` 来自负责人的私有 env，不要贴到聊天中；工具的输出里也没有桶名。
+- 第一次运行时，macOS 可能弹窗询问是否允许 `security` 访问钥匙串条目，选择“允许”（不要选“始终允许”）。
+- **预期**：`ok: true`，退出码 0。逐项为：
+  - `list_own:<自己的每个前缀>`：200；
+  - `list_bucket_root`：403（整个桶列不出来，说明策略按前缀限定了）；
+  - `list_other:<另一个子用户的前缀>`：403；
+  - `list_path_style:…`：只报告，不判定。这一项回答方案 §5 中 restic 寻址的问题：200 说明 TOS 接受 path 风格，restic 不需要加 `-o s3.bucket-lookup=dns`；403 或 400 说明需要加。
+- **加 `--write`**：在自己的前缀下写入并删除一个 0 字节的探针对象 `.nexloop-probe-<uuid>`，预期 put 200、delete 204；在另一个子用户的前缀下 put，预期 403。这样也验证了删除权限，pgBackRest expire 和 restic prune 都需要它。
+  - 开了版本控制时，删除后会留下一个历史版本，14 天后由生命周期清掉。
+- **不符时**：
+  - `list_own` 为 403：策略没有附加上，或者条件键写错了（`tos:prefix` 必须全小写）；
+  - `list_bucket_root` 或 `list_other` 为 200：策略范围太宽，比如用了 `tos:*` 或资源写成了整个桶，要先改正再继续；
+  - `keychain item unreadable`：条目名不对，或者钥匙串没有解锁；
+  - 连接错误：检查本机网络和代理。
+- 输出只有检查名和状态码，可以直接贴给调度员。
+
+### 1.4 每月复核
+
+每月复核一次 §1.1 的表格，再跑一次 §1.3（不加 `--write`）。这代替上游的每日自动审计（方案 §4）。
 
 ## 2. DATA_HOST：pgBackRest repo2（**B**，sudo-D）
 
