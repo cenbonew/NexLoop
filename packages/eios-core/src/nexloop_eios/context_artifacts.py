@@ -282,7 +282,8 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         except Exception as error:
             import psycopg
             # Operator-only: which SQL check refused (never returned to the Run or Host).
-            self.last_diagnostic=(type(error).__name__,getattr(getattr(error,'diag',None),'message_primary',None))
+            self.last_diagnostic=(type(error).__name__,getattr(getattr(error,'diag',None),'message_primary',None)
+                or (str(error) if isinstance(error,ValueError) and re.fullmatch(r'[a-z][a-z0-9_]{0,63}',str(error)) else None))
             self.last_check=check_code(self.last_diagnostic)
             if isinstance(error,psycopg.Error) and error.diag.message_primary=='context artifact conflict':raise ContextArtifactConflict() from None
             raise ContextArtifactUnavailable() from None
