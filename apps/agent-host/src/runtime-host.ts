@@ -36,7 +36,7 @@ export function messageRun(input:unknown):boolean{
   try{const statement=(JSON.parse(input) as {user_statement?:unknown}).user_statement;return !!statement&&typeof statement==='object'&&!Array.isArray(statement);}
   catch{return false;}
 }
-function enterpriseSupply(input:unknown):EffectSupply|undefined{
+export function enterpriseSupply(input:unknown):EffectSupply|undefined{
   if(typeof input!=='string')return undefined;
   try{
     const supplies=(JSON.parse(input) as {effect_supplies?:unknown}).effect_supplies;
