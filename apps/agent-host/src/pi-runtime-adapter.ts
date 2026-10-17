@@ -8,6 +8,7 @@ import {lazyStream,type Model,type Api,type Models,type AssistantMessageEventStr
 import {Harness,GenerationTask,hook,ToolResultEntry,createRegistry,defineDoc,type ConversationId,type SubmissionId,type ModelRef,type ToolRegistration} from '@earendil-works/pi-durable';
 import {openNodeSqliteDatabase} from '@earendil-works/pi-durable/storage/sqlite/node';
 import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
+import {modelFetch,type ConnectFailure} from './model-fetch.js';
 import {providerFailure,safeProviderMessage,safeProviderStream,type ProviderFailure} from './runtime-provider-boundary.js';
 /** Owner 2026-10-18 (option B): the fixed refusal codes a model may correct within its Run (guard or Host refusals, never a
  * thrown tool or an authorization failure). */
@@ -17,7 +18,7 @@ export const RECOVERABLE_TOOL_CODES=new Set(['invalid_effect_request','effect_in
 export function modelFailureLine(runId:string,call:number,elapsedMs:number,failure:ProviderFailure):string{
   return JSON.stringify({ts:new Date().toISOString(),service:'agent-host',level:'warning',event:'model call failed',
     detail:{run_id:runId,call_sequence:call,elapsed_ms:Math.max(0,Math.round(elapsedMs)),kind:failure.kind,http_status:failure.http_status,exception:failure.exception,
-      reason:failure.reason??'other',cause_code:failure.cause_code??null}})+'\n';
+      reason:failure.reason??'other',cause_code:failure.cause_code??null,connect_phase:failure.connect_phase??null,connect_failures:failure.connect_failures??0}})+'\n';
 }
 import {purgeRunDirectory,validRunId} from './run-purge.js';
 import {modelTiming} from './model-timing.js';
@@ -52,6 +53,9 @@ export type PiRuntimeOptions={
   recordModelRequests?:boolean|((command:RunCommand)=>boolean);
   /** 10/18: each model request's own timeout (the provider's timeoutMs), never past the Run's active deadline. No retry. */
   modelRequestTimeoutMs?:number;
+  /** 10/18 (release 14): the model provider's connector bounds TCP + TLS (timeoutMs) and retries a connection-phase failure at
+   * most `retries` times on a new connection; nothing after the request was written is retried. */
+  modelConnect?:{timeoutMs:number;retries:number;ca?:string|Buffer};
   /** Trusted server implementation must check current identity, PG lease/fence and control revisions. */
   authorize:(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot,result?:ModelResult)=>Promise<{ever_execution_authorized:boolean}>;
 };
@@ -244,7 +248,13 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
             args[2]={...(args[2] as object|undefined),timeoutMs:Math.max(1000,Math.min(timeout,deadline-began))};
           }
           let reported=false;  // the harness reads both the stream and its result: one line per call
-          const report=(failure:ProviderFailure)=>{if(reported)return;reported=true;process.stderr.write(modelFailureLine(command.run_id,call,Date.now()-began,failure));};
+          const connects:(ConnectFailure|null)[]=[];
+          if(this.options.modelConnect)args[2]={...(args[2] as object|undefined),fetch:modelFetch(this.options.modelConnect,failure=>connects.push(failure))};
+          // pi-ai hands on the provider's text only: the connection-phase code and phase come from the model fetch itself.
+          const report=(failure:ProviderFailure)=>{if(reported)return;reported=true;const last=connects.at(-1);
+            // A final connection-phase failure names its phase and code; after the provider answered, the failure is the provider's.
+            process.stderr.write(modelFailureLine(command.run_id,call,Date.now()-began,{...failure,cause_code:failure.cause_code??last?.code??null,
+              connect_phase:last?.phase??null,connect_failures:connects.filter(Boolean).length}));};
           try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,recordRequests?settleFor(call):undefined,report);}catch(error){report(providerFailure('stream_exception',error));throw new RuntimeError('runtime_model_unavailable');}}));
         if(property==='fetchDeferred'&&typeof value==='function')return async(...args:unknown[])=>{if(recordRequests)throw new RuntimeError('runtime_model_request_unrecorded');await consume('model');try{const message=safeProviderMessage(await Reflect.apply(value,target,args) as AssistantMessage);checkCost(message);return message;}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(property==='cancelDeferred'&&typeof value==='function')return async(...args:unknown[])=>{await this.authorize(command,'cancel');try{return await Reflect.apply(value,target,args);}catch{throw new RuntimeError('runtime_model_unavailable');}};

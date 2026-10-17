@@ -59,7 +59,7 @@ describe('a failed model call leaves one allowlisted diagnostic line',()=>{
     expect(lines).toHaveLength(1);
     const line=JSON.parse(lines[0]!);
     expect(line.detail).toMatchObject({run_id:cmd.run_id,call_sequence:1,kind:'provider_error',http_status:503,reason:'http',cause_code:null});
-    expect(Object.keys(line.detail).sort()).toEqual(['call_sequence','cause_code','elapsed_ms','exception','http_status','kind','reason','run_id']);
+    expect(Object.keys(line.detail).sort()).toEqual(['call_sequence','cause_code','connect_failures','connect_phase','elapsed_ms','exception','http_status','kind','reason','run_id']);
     expect(JSON.stringify(stderr.mock.calls)).not.toContain(sentinel);
     expect((await adapter.inspect(cmd)).runtime_outcome).toBe('failed');
   });
@@ -69,7 +69,9 @@ describe('a failed model call leaves one allowlisted diagnostic line',()=>{
     expect(providerFailure('provider_error',{status:429,errorMessage:'x'})).toEqual({kind:'provider_error',http_status:429,exception:null,reason:'http',cause_code:null});
     expect(providerFailure('provider_error',{errorMessage:'upstream said 200 ok'})).toEqual({kind:'provider_error',http_status:null,exception:null,reason:'other',cause_code:null});
     expect(JSON.parse(modelFailureLine('r',3,12085.4,{kind:'aborted',http_status:null,exception:null})).detail).toEqual(
-      {run_id:'r',call_sequence:3,elapsed_ms:12085,kind:'aborted',http_status:null,exception:null,reason:'other',cause_code:null});
+      {run_id:'r',call_sequence:3,elapsed_ms:12085,kind:'aborted',http_status:null,exception:null,reason:'other',cause_code:null,connect_phase:null,connect_failures:0});
+    expect(JSON.parse(modelFailureLine('r',1,10491,{kind:'provider_error',http_status:null,exception:null,reason:'timeout',cause_code:'UND_ERR_CONNECT_TIMEOUT',connect_phase:'tls',connect_failures:3})).detail)
+      .toMatchObject({cause_code:'UND_ERR_CONNECT_TIMEOUT',connect_phase:'tls',connect_failures:3});
   });
   it('10/18: a reason from the provider text (never the text) and an undici/Node code from the cause chain',()=>{
     const connect=Object.assign(new TypeError('fetch failed'),{cause:Object.assign(new Error('Connect Timeout Error'),{code:'UND_ERR_CONNECT_TIMEOUT'})});

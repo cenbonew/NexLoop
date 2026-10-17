@@ -34,6 +34,9 @@ importers:
       '@earendil-works/pi-durable':
         specifier: workspace:*
         version: link:../../vendor/pi/packages/durable
+      undici:
+        specifier: 8.11.2
+        version: 8.11.2
     devDependencies:
       '@types/node':
         specifier: 24.10.1

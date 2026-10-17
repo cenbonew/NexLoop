@@ -14,7 +14,8 @@ function open(extra:Record<string,unknown>={}){
 }
 describe('model request timeout configuration',()=>{
  it.each([{model_request_timeout_ms:40000},{model_request_timeout_ms:4999,runtime_profile:'deepseek-flash'},{model_request_timeout_ms:120001,runtime_profile:'deepseek-flash'},
-  {model_request_timeout_ms:30000.5,runtime_profile:'deepseek-flash'},{model_request_timeout_ms:'40000',runtime_profile:'deepseek-flash'}])('rejects %j',extra=>{
+  {model_request_timeout_ms:30000.5,runtime_profile:'deepseek-flash'},{model_request_timeout_ms:'40000',runtime_profile:'deepseek-flash'},
+  {model_connect_timeout_ms:4000},{model_connect_timeout_ms:999,runtime_profile:'deepseek-flash'},{model_connect_timeout_ms:10001,runtime_profile:'deepseek-flash'}])('rejects %j',extra=>{
   expect(()=>open(extra)).toThrow('runtime configuration refused');
  });
 });

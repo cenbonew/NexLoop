@@ -9,6 +9,8 @@ import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-
 import {RuntimeEffectClient,requestScope,RUN_INSTRUCTIONS} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validateModelTariff} from './trusted-model-profile.js';
+// 10/18 (release 14): the model provider connection (TCP + TLS) bound and its retries on a new connection, before any request byte.
+const MODEL_CONNECT_TIMEOUT_MS=4000,MODEL_CONNECT_RETRIES=2;
 import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
 
 type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation};
@@ -73,7 +75,7 @@ export class RuntimeHost{
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','model_request_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     // D-g option 2 (owner 2026-10-13): the cost currency is USD (Pi catalogue prices) or CNY (a versioned tariff file at the
@@ -110,6 +112,8 @@ export class RuntimeHost{
     // AT-043: the incentive tool rides on the effect tools; SQL still requires the Run's credential to name the Action.
     // 10/18: one model request's own bound, below the Run's active budget (the adapter takes the smaller). Real profile only.
     if(config.model_request_timeout_ms!==undefined&&(!Number.isInteger(config.model_request_timeout_ms)||(config.model_request_timeout_ms as number)<5000||(config.model_request_timeout_ms as number)>120000||config.runtime_profile!=='deepseek-flash'))throw new Error('runtime configuration refused');
+    // 10/18 (release 14): TCP + TLS bound of the model provider connection, real profile only (default 4000 there; 2 retries on a new connection).
+    if(config.model_connect_timeout_ms!==undefined&&(!Number.isInteger(config.model_connect_timeout_ms)||(config.model_connect_timeout_ms as number)<1000||(config.model_connect_timeout_ms as number)>10000||config.runtime_profile!=='deepseek-flash'))throw new Error('runtime configuration refused');
     if(config.incentive_tool!==undefined&&(config.incentive_tool!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
     if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
@@ -342,6 +346,7 @@ export class RuntimeHost{
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:RUN_INSTRUCTIONS}:{}),
       ...(typeof config.model_request_timeout_ms==='number'?{modelRequestTimeoutMs:config.model_request_timeout_ms}:{}),
+      ...(config.runtime_profile==='deepseek-flash'?{modelConnect:{timeoutMs:typeof config.model_connect_timeout_ms==='number'?config.model_connect_timeout_ms:MODEL_CONNECT_TIMEOUT_MS,retries:MODEL_CONNECT_RETRIES}}:{}),
       // v6 Runs record each actual model request (AT-027); in multi-protocol mode that is decided per Run.
       recordModelRequests:multi?(command:RunCommand)=>runProtocol(command.run_id)===CONTEXT_PROTOCOL_V6:contextProtocol===CONTEXT_PROTOCOL_V6,
       authorize:async(command,operation,request,result)=>guard(command,operation,undefined,undefined,request,result)});

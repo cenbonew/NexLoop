@@ -21,7 +21,9 @@ export function safeProviderMessage(message:AssistantMessage):AssistantMessage{
  * reported, before any payload is stripped, as fixed fields only: its kind, the HTTP status when one is found (three digits,
  * 4xx/5xx) and an exception class name. Never a message, a body, a header or a key. */
 export type ProviderFailure={kind:'provider_error'|'aborted'|'stream_exception'|'settle_failed';http_status:number|null;exception:string|null;
-  reason?:'timeout'|'connection'|'aborted'|'http'|'other';cause_code?:string|null};
+  reason?:'timeout'|'connection'|'aborted'|'http'|'other';cause_code?:string|null;
+  /** 10/18: the stalled connection phase of the final attempt (connect: no TCP; tls: handshake), and all connection failures. */
+  connect_phase?:'connect'|'tls'|null;connect_failures?:number};
 const STATUS=/\b([45][0-9]{2})\b/;
 function statusOf(value:unknown):number|null{
   const direct=value&&typeof value==='object'?(value as {status?:unknown;statusCode?:unknown}).status??(value as {statusCode?:unknown}).statusCode:undefined;
