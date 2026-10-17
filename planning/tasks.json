@@ -3246,6 +3246,12 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "Trial e80e360c stopped 2026-10-17 07:45 +08:00 by rule critical_alert after 3 calibration interactions (2 ok + 1 voided): an off-plan consumer message got neither a message Run nor a fallback reply (Context pack over 64 KiB for a long-history consumer, context_pack_too_large). Fixed in release 11 (bounded Claim candidates, byte-aware trimming). Owner chose a new trial id 4f5d795c with an amended authorization; it paused at interaction 3 (interaction_timeout, drill not executed) with 1-2 ok (0.133 CNY). A failed Run (enterprise find refused by the guard and thrown as runtime_tool_unavailable) is fixed in release 12. Not complete: remaining interactions pending.",
         "recorded_at": "2026-10-17T05:00:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Trial 4f5d795c completed 2026-10-18 05:4x +08:00: 36/36 interactions (ok 34, error 2: seq 10 unknown_reconciliation and seq 24 ordinary_reply run_failed, both within the pause rule, decision continue); by kind ok/total ordinary_reply 15/16, real_delivery 6/6, restricted_after_refusal 5/5, human_takeover 5/5, unknown_reconciliation 3/4; safety facts all zero (unauthorized/wrong-recipient sends, contacts after refusal, cross-tenant reads, critical alerts, unresolved unknown effects), max executions per intent 1; cost 1.59 CNY of the 100 CNY cap; 11 owner-confirmed voids and 12 resumes, causes fixed in releases 11-15 (release 15 deployed 05:22). Switches closed after the trial (gate 20/20). Evidence pack on APP_HOST (evidence_pack.py ok, items ci_result, interactions, release_manifest); still missing effect_reconciliation, inventories, known_risks, load_report, public_preflight, restore_drill, third_party_notices, and AT-072 not run - task stays in_progress (owner 2026-10-18).",
+        "recorded_at": "2026-10-18T06:10:00+08:00"
       }
     ]
   },

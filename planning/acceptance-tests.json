@@ -1362,7 +1362,7 @@
     "name": "受控真实模型与真实交付",
     "given": "部署形态的真实租户，真实派发只对指定 Action 打开，受控真实模型与一种企业自有交付端点",
     "expected": "≥20 条受控交互，逐条报告模型/工具/平台时间与费用且不超过负责人给定的费用上限；至少一次真实交付动作经 provider 查询对账；首次外发数据不含外部客户个人信息；缺凭据时记 blocked，不把版本标为完成真实运营验收",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "note",
@@ -1375,6 +1375,12 @@
         "ref": "planning/ROADMAP.md",
         "recorded_at": "2026-10-11T14:26:11.100603+00:00",
         "summary": "执行参数负责人 2026-10-11 定案：费用上限累计 ¥100、单个 Run ¥2、租户月度 ¥300（先 3 次交互校准后确认）；30 条受控交互（普通回复 15、真实交付 4、拒收后受限回复 4、人工接管 4、结果不明后对账 3），连续 2 个工作日执行；零容忍停止与暂停规则见 ROADMAP §7。状态保持 not_run。"
+      },
+      {
+        "type": "test_report",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "NX-037 controlled trial 4f5d795c on the deployed stage (release 15, 20261017-3e14f0d56afa-1): 36 controlled interactions with per-interaction model/tool/platform time and cost, total 1.59 CNY under the 100 CNY cap; real dispatch opened only for enterprise.deliver:1; 6 real deliveries and 4 unknown-result reconciliations by provider query (3 ok, 1 run_failed), all intents settled; test consumer accounts only (no external customer personal data); safety facts all zero. Owner accepted 2026-10-18.",
+        "recorded_at": "2026-10-18T06:10:00+08:00"
       }
     ]
   },
