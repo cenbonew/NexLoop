@@ -1,0 +1,4327 @@
+{
+ "_note": "grype 0.120.0 JSON for the locked python-build-base (python:3.12.15-slim-bookworm, linux/amd64) over a syft 1.18.1 SPDX SBOM, vulnerability database v6.1.10 built 2026-10-16 (scanned 2026-10-17 on the development machine). Trimmed to the fields release.py reads: identifiers, package, version, severity and fix state; no vulnerability text, no local paths.",
+ "descriptor": {
+  "db": {
+   "status": {
+    "built": "2026-10-16T06:29:51Z",
+    "schemaVersion": "v6.1.10",
+    "valid": true
+   }
+  },
+  "name": "grype",
+  "version": "0.120.0"
+ },
+ "matches": [
+  {
+   "artifact": {
+    "name": "tar",
+    "type": "deb",
+    "version": "1.34+dfsg-1.2+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2005-2541",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "login",
+    "type": "deb",
+    "version": "1:4.13+dfsg1-1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2007-5686",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "passwd",
+    "type": "deb",
+    "version": "1:4.13+dfsg1-1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2007-5686",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2010-4756",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2010-4756",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "apt",
+    "type": "deb",
+    "version": "2.6.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2011-3374",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libapt-pkg6.0",
+    "type": "deb",
+    "version": "2.6.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2011-3374",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgnutls30",
+    "type": "deb",
+    "version": "3.7.9-2+deb12u7"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2011-3389",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "perl-base",
+    "type": "deb",
+    "version": "5.36.0-7+deb12u4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2011-4116",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsystemd0",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2013-4392",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libudev1",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2013-4392",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "coreutils",
+    "type": "deb",
+    "version": "9.1-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2016-2781",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "coreutils",
+    "type": "deb",
+    "version": "9.1-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2017-18018",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2018-20796",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2018-20796",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgssapi-krb5-2",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2018-5709",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libk5crypto3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2018-5709",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5-3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2018-5709",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5support0",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2018-5709",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgcrypt20",
+    "type": "deb",
+    "version": "1.10.1-3+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2018-6829",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010022",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010022",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010023",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010023",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010024",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010024",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010025",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-1010025",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-9192",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2019-9192",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2021-45346",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-0563",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gcc-12-base",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-27943",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgcc-s1",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-27943",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libstdc++6",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-27943",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gpgv",
+    "type": "deb",
+    "version": "2.2.40-1.1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2022-3219",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsystemd0",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2023-31437",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libudev1",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2023-31437",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsystemd0",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2023-31438",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libudev1",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2023-31438",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsystemd0",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2023-31439",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libudev1",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2023-31439",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "perl-base",
+    "type": "deb",
+    "version": "5.36.0-7+deb12u4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2023-31486",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libncursesw6",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2023-50495",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libtinfo6",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2023-50495",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "ncurses-base",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2023-50495",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "ncurses-bin",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2023-50495",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam-modules",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2024-10041",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam-modules-bin",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2024-10041",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam-runtime",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2024-10041",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam0g",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2024-10041",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgcrypt20",
+    "type": "deb",
+    "version": "1.10.1-3+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-2236",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgssapi-krb5-2",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26458",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libk5crypto3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26458",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5-3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26458",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5support0",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26458",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgssapi-krb5-2",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26461",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libk5crypto3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26461",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5-3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26461",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5support0",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2024-26461",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "login",
+    "type": "deb",
+    "version": "1:4.13+dfsg1-1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2024-56433",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "passwd",
+    "type": "deb",
+    "version": "1:4.13+dfsg1-1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2024-56433",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "python",
+    "type": "UnknownPackage",
+    "version": "3.12.15"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "3.13.10",
+      "3.14.1",
+      "3.15.0a2"
+     ]
+    },
+    "id": "CVE-2025-12781",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libtasn1-6",
+    "type": "deb",
+    "version": "4.19.0-2+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-13151",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-14104",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "python",
+    "type": "UnknownPackage",
+    "version": "3.12.15"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "3.13.15",
+      "3.14.7",
+      "3.15.0a6"
+     ]
+    },
+    "id": "CVE-2025-15366",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "python",
+    "type": "UnknownPackage",
+    "version": "3.12.15"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "3.15.0a6"
+     ]
+    },
+    "id": "CVE-2025-15367",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libssl3",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-27587",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "openssl",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-27587",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-29088",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gpgv",
+    "type": "deb",
+    "version": "2.2.40-1.1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-30258",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "coreutils",
+    "type": "deb",
+    "version": "9.1-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-5278",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libncursesw6",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-6141",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libtinfo6",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-6141",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "ncurses-base",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-6141",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "ncurses-bin",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-6141",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gpgv",
+    "type": "deb",
+    "version": "2.2.40-1.1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-68972",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libncursesw6",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-69720",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libtinfo6",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-69720",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "ncurses-base",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-69720",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "ncurses-bin",
+    "type": "deb",
+    "version": "6.4-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-69720",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2025-70873",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-7458",
+    "severity": "Critical"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2025-7709",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gcc-12-base",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-102010",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgcc-s1",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-102010",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libstdc++6",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-102010",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "dash",
+    "type": "deb",
+    "version": "0.5.12-2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-102473",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "dash",
+    "type": "deb",
+    "version": "0.5.12-2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-102474",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gpgv",
+    "type": "deb",
+    "version": "2.2.40-1.1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-105712",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgssapi-krb5-2",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107708",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libk5crypto3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107708",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5-3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107708",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5support0",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107708",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgssapi-krb5-2",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107778",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libk5crypto3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107778",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5-3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107778",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5support0",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-107778",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-11822",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-11824",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgssapi-krb5-2",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-11850",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libk5crypto3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-11850",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5-3",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-11850",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libkrb5support0",
+    "type": "deb",
+    "version": "1.20.1-2+deb12u5"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-11850",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "python",
+    "type": "UnknownPackage",
+    "version": "3.12.15"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "3.15.0rc3"
+     ]
+    },
+    "id": "CVE-2026-12345",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-13595",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libp11-kit0",
+    "type": "deb",
+    "version": "0.24.1-2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-13757",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsystemd0",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-15059",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libudev1",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-15059",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "perl-base",
+    "type": "deb",
+    "version": "5.36.0-7+deb12u4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-15534",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsystemd0",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-16742",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libudev1",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-16742",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-18374",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-18374",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "tar",
+    "type": "deb",
+    "version": "1.34+dfsg-1.2+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-18477",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "tar",
+    "type": "deb",
+    "version": "1.34+dfsg-1.2+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-18508",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libp11-kit0",
+    "type": "deb",
+    "version": "0.24.1-2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-18938",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-19499",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-19499",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-19542",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-19542",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "zlib1g",
+    "type": "deb",
+    "version": "1:1.2.13.dfsg-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27171",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-27456",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-3184",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "python",
+    "type": "UnknownPackage",
+    "version": "3.12.15"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "3.13.13",
+      "3.14.4",
+      "3.15.0a8"
+     ]
+    },
+    "id": "CVE-2026-3446",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "python",
+    "type": "UnknownPackage",
+    "version": "3.12.15"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "3.13.13",
+      "3.14.4",
+      "3.15.0a8"
+     ]
+    },
+    "id": "CVE-2026-3479",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libssl3",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-35189",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "openssl",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-35189",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsystemd0",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-40228",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libudev1",
+    "type": "deb",
+    "version": "252.39-1~deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-40228",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gzip",
+    "type": "deb",
+    "version": "1.12-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-41991",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gzip",
+    "type": "deb",
+    "version": "1.12-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-41992",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libbz2-1.0",
+    "type": "deb",
+    "version": "1.0.8-5+b1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-42250",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-50812",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsqlite3-0",
+    "type": "deb",
+    "version": "3.40.1-2+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-50813",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53613",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53615",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "diffutils",
+    "type": "deb",
+    "version": "1:3.8-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-53910",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-5435",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-5435",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libacl1",
+    "type": "deb",
+    "version": "2.3.1-3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-54369",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libacl1",
+    "type": "deb",
+    "version": "2.3.1-3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-54370",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libattr1",
+    "type": "deb",
+    "version": "1:2.5.1-4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-54371",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam-modules",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-54411",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam-modules-bin",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-54411",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam-runtime",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-54411",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libpam0g",
+    "type": "deb",
+    "version": "1.5.2-6+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-54411",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-5450",
+    "severity": "Critical"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-5450",
+    "severity": "Critical"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libssl3",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-54872",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "openssl",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-54872",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "coreutils",
+    "type": "deb",
+    "version": "9.1-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-56391",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "coreutils",
+    "type": "deb",
+    "version": "9.1-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-56392",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "tar",
+    "type": "deb",
+    "version": "1.34+dfsg-1.2+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-5704",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gpgv",
+    "type": "deb",
+    "version": "2.2.40-1.1+deb12u2"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-57062",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-5928",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-5928",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "python",
+    "type": "UnknownPackage",
+    "version": "3.12.15"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "3.13.14",
+      "3.14.5rc1",
+      "3.15.0b1"
+     ]
+    },
+    "id": "CVE-2026-6019",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-6238",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-6238",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-6368",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-6368",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgnutls30",
+    "type": "deb",
+    "version": "3.7.9-2+deb12u7"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-67693",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-6791",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-6791",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libssl3",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-75805",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "openssl",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-75805",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libssl3",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-75806",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "openssl",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-75806",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-76642",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-77117",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-77117",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libssl3",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-77696",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "openssl",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-77696",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78408",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78409",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "bsdutils",
+    "type": "deb",
+    "version": "1:2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libblkid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libmount1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libsmartcols1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libuuid1",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "mount",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "util-linux-extra",
+    "type": "deb",
+    "version": "2.38.1-5+deb12u3"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-78410",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-80489",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-80489",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "perl-base",
+    "type": "deb",
+    "version": "5.36.0-7+deb12u4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-82560",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libssl3",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-84782",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "openssl",
+    "type": "deb",
+    "version": "3.0.22-1~deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-84782",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "zlib1g",
+    "type": "deb",
+    "version": "1:1.2.13.dfsg-1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-85091",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-8674",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-8674",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-86805",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-86805",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgnutls30",
+    "type": "deb",
+    "version": "3.7.9-2+deb12u7"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-88647",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgnutls30",
+    "type": "deb",
+    "version": "3.7.9-2+deb12u7"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-88648",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-89092",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-89092",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgnutls30",
+    "type": "deb",
+    "version": "3.7.9-2+deb12u7"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-95184",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgnutls30",
+    "type": "deb",
+    "version": "3.7.9-2+deb12u7"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-95209",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgnutls30",
+    "type": "deb",
+    "version": "3.7.9-2+deb12u7"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-95210",
+    "severity": "Negligible"
+   }
+  },
+  {
+   "artifact": {
+    "name": "perl-base",
+    "type": "deb",
+    "version": "5.36.0-7+deb12u4"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-9538",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "gcc-12-base",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-95619",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libgcc-s1",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-95619",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libstdc++6",
+    "type": "deb",
+    "version": "12.2.0-14+deb12u1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "wont-fix",
+     "versions": []
+    },
+    "id": "CVE-2026-95619",
+    "severity": "High"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-95818",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-95818",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc-bin",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-97399",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "libc6",
+    "type": "deb",
+    "version": "2.36-9+deb12u14"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "not-fixed",
+     "versions": []
+    },
+    "id": "CVE-2026-97399",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "pip",
+    "type": "python",
+    "version": "25.0.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "25.3"
+     ]
+    },
+    "id": "GHSA-4xh5-x5gv-qwph",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "pip",
+    "type": "python",
+    "version": "25.0.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "26.1"
+     ]
+    },
+    "id": "GHSA-58qw-9mgm-455v",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "pip",
+    "type": "python",
+    "version": "25.0.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "26.0"
+     ]
+    },
+    "id": "GHSA-6vgw-5pg2-w6jp",
+    "severity": "Low"
+   }
+  },
+  {
+   "artifact": {
+    "name": "pip",
+    "type": "python",
+    "version": "25.0.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "26.1"
+     ]
+    },
+    "id": "GHSA-jp4c-xjxw-mgf9",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "pip",
+    "type": "python",
+    "version": "25.0.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "26.2.0"
+     ]
+    },
+    "id": "GHSA-qwm4-qh6w-59xr",
+    "severity": "Medium"
+   }
+  },
+  {
+   "artifact": {
+    "name": "pip",
+    "type": "python",
+    "version": "25.0.1"
+   },
+   "vulnerability": {
+    "fix": {
+     "state": "fixed",
+     "versions": [
+      "26.1.2"
+     ]
+    },
+    "id": "GHSA-wf93-45jw-7689",
+    "severity": "Medium"
+   }
+  }
+ ]
+}

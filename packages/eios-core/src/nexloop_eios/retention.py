@@ -81,7 +81,11 @@ class ErasurePort(_SignedPort):
 
 
 class HostPurger:
-    """The Agent Host's loopback runs/purge (D8): TLS to 127.0.0.1 with the Host's internal key; private files only."""
+    """The Agent Host's loopback runs/purge (D8): TLS to 127.0.0.1 with the Host's internal key; private files only.
+    The reply is read with an upper bound like every other http.client read (NX-036, CVE-2025-13836): a longer body is a
+    failure, never buffered whole."""
+
+    RESPONSE_LIMIT=4096
 
     def __init__(self,*,port,key_file,ca_file):
         from nexloop_eios.private_configuration import read_private_text
@@ -94,8 +98,8 @@ class HostPurger:
         try:
             connection.request('POST','/internal/v1/runs/purge',body=json.dumps({'run_id':str(run_id)}),
                 headers={'Authorization':'Bearer '+self.key,'Content-Type':'application/json','Host':f'127.0.0.1:{self.port}'})
-            response=connection.getresponse();body=response.read()
-            if response.status!=200:return 'failed'
+            response=connection.getresponse();body=response.read(self.RESPONSE_LIMIT+1)
+            if response.status!=200 or len(body)>self.RESPONSE_LIMIT:return 'failed'
             outcome=json.loads(body).get('outcome')
             return outcome if outcome in ('purged','absent') else 'failed'
         except (OSError,ValueError,http.client.HTTPException):

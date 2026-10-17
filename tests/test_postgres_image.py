@@ -36,7 +36,8 @@ def test_the_dockerfile_builds_from_the_locked_base_installs_only_the_locked_pgb
     assert [line.split()[0] for line in lines].count('FROM') == 1
     assert {'ARG PGBACKREST_VERSION', 'ARG PGBACKREST_DEB_VERSION'} <= set(lines)
     installs = re.findall(r'apt-get install[^;\\]*', DOCKERFILE)
-    assert installs == ['apt-get install --yes --no-install-recommends "pgbackrest=${PGBACKREST_DEB_VERSION}"']
+    assert installs == ['apt-get install --yes --no-install-recommends "pgbackrest=${PGBACKREST_DEB_VERSION}"',
+                        'apt-get install --yes --no-install-recommends --only-upgrade ${SECURITY_UPDATES}']
     assert 'test "$(pgbackrest version)" = "pgBackRest ${PGBACKREST_VERSION}"' in DOCKERFILE
     assert 'sha256sum --check --strict SHA256SUMS' in DOCKERFILE and 'curl' not in DOCKERFILE and 'wget' not in DOCKERFILE
 
@@ -52,6 +53,7 @@ def test_the_release_config_passes_the_locked_base_and_the_locked_pgbackrest_ver
     assert entry == {'kind': 'build', 'context': 'postgres', 'base': 'postgres', 'build_args': {'POSTGRES_IMAGE': 'postgres'},
                      'tool_args': {'PGBACKREST_VERSION': ['deployment_tools', 'pgbackrest', 'version'],
                                    'PGBACKREST_DEB_VERSION': ['deployment_tools', 'pgbackrest', 'debian_version']},
+                     'security_args': {'SECURITY_UPDATES': ['images', 'postgres', 'security_updates']},
                      'mirror_args': {'APT_DEBIAN_MIRROR': 'NEXLOOP_APT_DEBIAN_MIRROR', 'APT_DEBIAN_SECURITY_MIRROR': 'NEXLOOP_APT_DEBIAN_SECURITY_MIRROR',
                                      'APT_PGDG_MIRROR': 'NEXLOOP_APT_PGDG_MIRROR'}}
     assert release.pinned_tool_value(LOCK, entry['tool_args']['PGBACKREST_VERSION']) == LOCK['deployment_tools']['pgbackrest']['version']
@@ -81,7 +83,8 @@ def test_the_release_build_makes_nexloop_postgres_for_amd64_with_the_exact_versi
     args = [built[i + 1] for i, a in enumerate(built) if a == '--build-arg']
     assert args == ['POSTGRES_IMAGE=docker.io/pgvector/pgvector@' + LOCK['images']['postgres']['digest'],
                     'PGBACKREST_DEB_VERSION=' + LOCK['deployment_tools']['pgbackrest']['debian_version'],
-                    'PGBACKREST_VERSION=' + LOCK['deployment_tools']['pgbackrest']['version']]
+                    'PGBACKREST_VERSION=' + LOCK['deployment_tools']['pgbackrest']['version'],
+                    'SECURITY_UPDATES=' + ' '.join(LOCK['images']['postgres']['security_updates'])]
     manifest = json.loads((Path(out['release_dir']) / 'manifest.json').read_text())
     (image,) = manifest['images']
     assert image['name'] == 'postgres' and image['reference'] == 'nexloop/postgres@' + image['digest'] and out['images'] == {'postgres': image['reference']}

@@ -16,6 +16,12 @@
 # suites stay those of the base image, so apt still verifies the signed Release metadata (and through it every package's
 # sha256) exactly as with the origin servers. A mirror whose source line is not found fails the build.
 #
+# Security updates (NX-036): SECURITY_UPDATES is versions.lock.json images.postgres.security_updates, exact "package=version"
+# pins of Debian fixes the upstream base still lacks. The online path upgrades exactly those (--only-upgrade: nothing new is
+# installed); the offline path takes them from debs/ like pgBackRest. Either way every pinned package must then be installed at
+# exactly its pinned version. Packages left only as configuration files (state rc, no binaries; the base's python3.11) are
+# purged so no removed package stays in the package database.
+#
 # The upstream entrypoint uses gosu only to drop root; this image always runs as postgres (USER below; the stage compose sets
 # no user), so the base image's gosu (a Go binary, the only one in the image) is removed (NX-036). Starting the container as
 # root then fails instead of dropping privileges.
@@ -23,13 +29,14 @@ ARG POSTGRES_IMAGE
 FROM ${POSTGRES_IMAGE}
 ARG PGBACKREST_VERSION
 ARG PGBACKREST_DEB_VERSION
+ARG SECURITY_UPDATES
 ARG APT_DEBIAN_MIRROR=
 ARG APT_DEBIAN_SECURITY_MIRROR=
 ARG APT_PGDG_MIRROR=
 USER root
 COPY debs/ /tmp/pgbackrest-debs/
 RUN set -eu; \
-    test -n "${PGBACKREST_VERSION}" && test -n "${PGBACKREST_DEB_VERSION}"; \
+    test -n "${PGBACKREST_VERSION}" && test -n "${PGBACKREST_DEB_VERSION}" && test -n "${SECURITY_UPDATES}"; \
     if [ -f /tmp/pgbackrest-debs/SHA256SUMS ]; then \
         cd /tmp/pgbackrest-debs; \
         sha256sum --check --strict SHA256SUMS; \
@@ -50,7 +57,15 @@ RUN set -eu; \
         if [ -n "${APT_PGDG_MIRROR}" ]; then mirror 'https?://apt\.postgresql\.org/pub/repos/apt/?' "${APT_PGDG_MIRROR%/}"; fi; \
         apt-get update; \
         apt-get install --yes --no-install-recommends "pgbackrest=${PGBACKREST_DEB_VERSION}"; \
+        apt-get install --yes --no-install-recommends --only-upgrade ${SECURITY_UPDATES}; \
     fi; \
+    for pin in ${SECURITY_UPDATES}; do \
+        test "$(dpkg-query --showformat='${db:Status-Abbrev}${Version}' --show "${pin%%=*}")" = "ii ${pin#*=}" \
+            || { echo "${pin%%=*} is not installed at ${pin#*=}" >&2; exit 1; }; \
+    done; \
+    leftovers="$(dpkg-query --showformat='${db:Status-Abbrev} ${Package}\n' --show | awk '$1 == "rc" {print $2}')"; \
+    if [ -n "$leftovers" ]; then dpkg --purge $leftovers; fi; \
+    test -z "$(dpkg-query --showformat='${db:Status-Abbrev} ${Package}\n' --show | awk '$1 == "rc"')"; \
     test "$(dpkg-query --showformat='${Version}' --show pgbackrest)" = "${PGBACKREST_DEB_VERSION}"; \
     test "$(pgbackrest version)" = "pgBackRest ${PGBACKREST_VERSION}"; \
     rm -rf /var/lib/apt/lists/* /tmp/pgbackrest-debs; \
