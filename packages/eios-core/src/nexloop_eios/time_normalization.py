@@ -13,7 +13,7 @@ The audit goes into valid_time.normalization (claim.schema.json, owner-approved 
 conflict or the refusal code), both readings and the model's stated assumptions; guard_flags carry time_source only. Minutes are never invented: an expression without a
 clock time is read at most to the hour range of a part of day, and a plain day is the whole day [00:00, next 00:00).
 """
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import re
 from zoneinfo import ZoneInfo
 
@@ -22,7 +22,9 @@ GRANULARITIES = ('minute', 'hour', 'day', 'part_of_day', 'period', 'month')
 KEYS = {'kind', 'start', 'end', 'granularity', 'timezone', 'assumptions'}
 ISO = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})')
 CLOCK = re.compile(r'(\d{1,2}|[一二两三四五六七八九十]{1,3})(点|:|：)')
-DEADLINE = re.compile(r'(前|之前|以前|截止|为止|最晚|最迟)$|^(最晚|最迟)')
+# A deadline word at the end ("周五前", "周五截止") or a leading 截止/截至(到) before a time word ("截止周五", "截止到月底"); not
+# "截止目前/截至现在" (so far) or "截止日期/截止时间" (a noun).
+DEADLINE = re.compile(r'(?<!目)(前|之前|以前)$|(截止|为止|最晚|最迟)$|^(最晚|最迟)|^截[止至]到?(?!目前|现在|日期|时间)(?=[周星礼下本这明后今月\d一二三四五六七八九十])')
 PAST = re.compile(r'(前天|昨天|昨日|上周|上星期|上个月|去年|刚才|之前那|[零一二两三四五六七八九十\d]{1,3}(个)?(天|日|周|星期|礼拜|月|年)(前|之前|以前)$)')
 BARE_WEEKDAY = re.compile(r'(?<![下本这上每])(周|星期|礼拜)([一二三四五六日天])')
 WEEKDAY = {'一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6}
@@ -46,6 +48,52 @@ def _instant(value, code):
     if parsed.tzinfo is None:
         raise Refused(code)
     return parsed
+
+
+def _midnight(t):
+    return (t.hour, t.minute, t.second, t.microsecond) == (0, 0, 0, 0)
+
+
+def _next_day(t):
+    return datetime.combine(t.date() + timedelta(days=1), time(), tzinfo=t.tzinfo)
+
+
+def _next_month(t):
+    return datetime(t.year + (t.month == 12), t.month % 12 + 1, 1, tzinfo=t.tzinfo)
+
+
+def _on(granularity, t):
+    """t lies on a boundary of the granularity (wall clock in the tenant zone)."""
+    if granularity == 'day':
+        return _midnight(t)
+    if granularity == 'month':
+        return _midnight(t) and t.day == 1
+    if granularity == 'hour':
+        return (t.minute, t.second, t.microsecond) == (0, 0, 0)
+    if granularity == 'minute':
+        return (t.second, t.microsecond) == (0, 0)
+    return True
+
+
+def _span(kind, granularity, start, end):
+    """PR #5 review (P1): the span must be the one the kind and granularity say. An interval's end is read downstream as a
+    commitment's due time, so a point is exactly one unit (a day [00:00, next 00:00), an hour, a minute, a month; a part of day
+    at most one day), an interval is non-empty and on its granularity's boundaries, and a deadline is non-empty and ends on one."""
+    if end <= start:
+        raise Refused('time_llm_span')
+    if kind == 'deadline':
+        ok = _on(granularity, end)
+    elif kind == 'point':
+        ok = {'day': _midnight(start) and end == _next_day(start),
+              'month': _on('month', start) and end == _next_month(start),
+              'hour': _on('hour', start) and end == start + timedelta(hours=1),
+              'minute': _on('minute', start) and end == start + timedelta(minutes=1),
+              'part_of_day': end <= _next_day(start) and end - start <= timedelta(days=1),
+              'period': end - start <= timedelta(days=31)}[granularity]
+    else:
+        ok = _on(granularity, start) and _on(granularity, end) and (granularity != 'part_of_day' or end - start <= timedelta(days=1))
+    if not ok:
+        raise Refused('time_llm_span')
 
 
 def check(proposed, *, expression, anchor, timezone):
@@ -77,6 +125,7 @@ def check(proposed, *, expression, anchor, timezone):
     # "前/之前" is a deadline, and only such words make one.
     if bool(DEADLINE.search(expression)) != (kind == 'deadline'):
         raise Refused('time_llm_deadline_mismatch')
+    _span(kind, granularity, start, end)
     # Relation to the anchor: a future expression ends after the anchor and stays within the horizon.
     if not PAST.search(expression):
         if end <= local or start < datetime(local.year, local.month, local.day, tzinfo=zone) or end > local + HORIZON:

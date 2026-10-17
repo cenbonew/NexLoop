@@ -155,3 +155,70 @@ def test_extraction_carries_the_reading_into_the_claim_and_the_payload_carries_t
     # The Claim (with its normalization) conforms to claim.schema.json.
     from test_claim_contract import EXAMPLE, valid
     assert valid(dict(EXAMPLE, time_expression=claim['time_expression'], valid_time=claim['valid_time'], guard_flags=claim['guard_flags']))
+
+
+# PR #5 review (P1): the span must be the one the kind and granularity say (an interval's end becomes a commitment's due time).
+from nexloop_eios.time_normalization import DEADLINE, Refused, check  # noqa: E402
+
+
+def checked(expression, time, anchor=WED):
+    return check(time, expression=expression, anchor=anchor, timezone=TZ)
+
+
+@pytest.mark.parametrize('expression,time', [
+    ('周五', {'kind': 'point', 'start': day('2026-10-16'), 'end': day('2026-10-17'), 'granularity': 'day'}),
+    ('周五下午3点', {'kind': 'point', 'start': '2026-10-16T15:00+08:00', 'end': '2026-10-16T16:00+08:00', 'granularity': 'hour'}),
+    ('周五下午3点20', {'kind': 'point', 'start': '2026-10-16T15:20+08:00', 'end': '2026-10-16T15:21+08:00', 'granularity': 'minute'}),
+    ('明天下午', {'kind': 'interval', 'start': '2026-10-15T12:00+08:00', 'end': '2026-10-15T18:00+08:00', 'granularity': 'part_of_day'}),
+    ('周五到下周一', {'kind': 'interval', 'start': day('2026-10-16'), 'end': day('2026-10-20'), 'granularity': 'day'}),
+    ('下个月', {'kind': 'point', 'start': day('2026-11-01'), 'end': day('2026-12-01'), 'granularity': 'month'}),
+    ('周五前', {'kind': 'deadline', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-17'), 'granularity': 'day'}),
+])
+def test_a_span_that_matches_its_kind_and_granularity_is_accepted(expression, time):
+    assert checked(expression, time)[0] == time['kind']
+
+
+@pytest.mark.parametrize('expression,time', [
+    # 周三说“周五”: a point day stretched to two weeks later.
+    ('周五', {'kind': 'point', 'start': day('2026-10-16'), 'end': day('2026-10-30'), 'granularity': 'day'}),
+    ('周五', {'kind': 'point', 'start': day('2026-10-16'), 'end': day('2026-10-16'), 'granularity': 'day'}),  # zero length
+    ('周五下午3点', {'kind': 'point', 'start': '2026-10-16T15:00+08:00', 'end': '2026-10-16T17:00+08:00', 'granularity': 'hour'}),
+    ('周五下午3点', {'kind': 'point', 'start': '2026-10-16T15:30+08:00', 'end': '2026-10-16T16:30+08:00', 'granularity': 'hour'}),
+    ('周五下午3点20', {'kind': 'point', 'start': '2026-10-16T15:20+08:00', 'end': '2026-10-16T15:50+08:00', 'granularity': 'minute'}),
+    ('明天下午', {'kind': 'point', 'start': '2026-10-15T12:00+08:00', 'end': '2026-10-16T18:00+08:00', 'granularity': 'part_of_day'}),
+    ('明天下午', {'kind': 'interval', 'start': '2026-10-15T12:00+08:00', 'end': '2026-10-15T12:00+08:00', 'granularity': 'part_of_day'}),
+    ('周五到下周一', {'kind': 'interval', 'start': day('2026-10-16'), 'end': day('2026-10-16'), 'granularity': 'day'}),  # empty interval
+    ('周五到下周一3点', {'kind': 'interval', 'start': day('2026-10-16'), 'end': '2026-10-19T03:30+08:00', 'granularity': 'day'}),  # off the day boundary
+    ('下个月', {'kind': 'point', 'start': day('2026-11-01'), 'end': day('2026-11-30'), 'granularity': 'month'}),
+    ('下个月', {'kind': 'interval', 'start': day('2026-11-02'), 'end': day('2026-12-01'), 'granularity': 'month'}),
+    ('周五前', {'kind': 'deadline', 'start': day('2026-10-17'), 'end': day('2026-10-17'), 'granularity': 'day'}),  # empty deadline
+])
+def test_a_span_that_disagrees_with_its_kind_or_granularity_is_refused(expression, time):
+    with pytest.raises(Refused) as refusal:
+        checked(expression, time)
+    assert refusal.value.code == 'time_llm_span'
+
+
+def test_the_wrong_span_is_refused_through_merge_and_the_rule_reading_stands():
+    rule, got, flags = run('周五', WED, {'kind': 'point', 'start': day('2026-10-16'), 'end': day('2026-10-30'), 'granularity': 'day'})
+    assert refused(got, rule, flags, 'time_llm_span')
+
+
+# PR #5 review (P2): a leading 截止/截止到 makes a deadline too; a non-time use does not.
+@pytest.mark.parametrize('expression', ['周五前', '周五之前', '周五截止', '截止周五', '截止到周五', '截至下周一', '截止到月底', '截止10号', '最晚周五'])
+def test_deadline_words_before_or_after_the_time(expression):
+    assert DEADLINE.search(expression)
+
+
+@pytest.mark.parametrize('expression', ['截止目前', '截至现在', '截止日期', '截止时间', '周五', '周五下午', '目前'])
+def test_non_time_or_non_deadline_uses_are_not_deadlines(expression):
+    assert not DEADLINE.search(expression)
+
+
+def test_a_leading_deadline_word_is_accepted_as_a_deadline():
+    time = {'kind': 'deadline', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-17'), 'granularity': 'day'}
+    for expression in ('截止周五', '截止到周五'):
+        assert checked(expression, time)[0] == 'deadline'
+    with pytest.raises(Refused) as refusal:
+        checked('截止周五', {'kind': 'point', 'start': day('2026-10-16'), 'end': day('2026-10-17'), 'granularity': 'day'})
+    assert refusal.value.code == 'time_llm_deadline_mismatch'
