@@ -13,7 +13,7 @@
   - 对每条意图调用受治理的定义器 `authz.nexloop_effect_requery_order`（0205）。
   - 每条意图只“武装”一次查询：把 outbox 设为立即可领。
   - 同时在 `runtime.nexloop_effect_requery_orders` 记下审计：哪个 executor、什么时间、负责人的确认引用。
-- **前置条件**：以下全部满足才会武装，否则返回原因码，不做任何改动。
+- **前置条件**：以下全部满足才会武装，否则返回原因码，不做任何改动。（0206 起不再检查派发控制：订单只武装一次查询，不发送任何东西；0205 的这项检查会在 worker 事务之外把部署层开关读成关闭，导致发布 13 上两单都返回 `controls_refuse`。）
 
   | 条件 | 不满足时的原因码 |
   |---|---|
@@ -21,7 +21,6 @@
   | 意图状态是 unknown | `not_unknown` |
   | outbox 已停止（infinity） | `not_stopped` |
   | 来源 Run 已过期 | `origin_current` |
-  | 派发控制放行 | `controls_refuse` |
   | 同一确认引用未用过 | `reference_used` |
   | 每条意图最多 3 次订单 | `orders_exhausted` |
 

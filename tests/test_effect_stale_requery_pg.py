@@ -106,7 +106,7 @@ from support.effect_provider import effect_provider  # noqa: E402,F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: E402,F401
 
 
-def test_the_order_needs_a_stopped_unknown_intent_an_expired_origin_passing_controls_and_at_most_three_orders(governed_effect_executor, admin):  # noqa: F811
+def test_the_order_needs_a_stopped_unknown_intent_an_expired_origin_and_at_most_three_orders(governed_effect_executor, admin):  # noqa: F811
     from test_effect_dispatch import accepted
     from test_effect_origin_expired_pg import expire
     fixture = governed_effect_executor
@@ -120,9 +120,23 @@ def test_the_order_needs_a_stopped_unknown_intent_an_expired_origin_passing_cont
             assert executor.requery_stale_unknown(intent_id=intent, confirmation_ref=f'owner:{n}') == {'intent_id': intent, 'armed': True, 'orders': n}
             admin.execute("update runtime.nexloop_effect_outbox set available_at='infinity' where intent_id=%s", (intent,))  # the query left it stopped
         assert executor.requery_stale_unknown(intent_id=intent, confirmation_ref='owner:4')['reason'] == 'orders_exhausted'
-        # The owner's controls come first: while this channel is paused nothing is armed (checked before the order count).
-        from test_nx022_dispatch_e2e import pause
-        tenant, action = admin.execute('select tenant_id,action_name from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone()
-        pause(admin, tenant, 'action_type', action, paused=True)
-        assert executor.requery_stale_unknown(intent_id=intent, confirmation_ref='owner:5')['reason'] == 'controls_refuse'
     assert admin.execute('select count(*) from runtime.nexloop_effect_requery_orders where intent_id=%s', (intent,)).fetchone() == (3,)
+
+
+def test_dispatch_controls_never_refuse_an_order_a_query_sends_nothing(governed_effect_executor, admin):  # noqa: F811
+    """0206 (10/18 release 13): both owner orders were refused controls_refuse. A later control change (here a paused channel,
+    which also supersedes the intent's control snapshot) and the real-dispatch deployment layer, unset outside the worker's
+    admitting transaction, are dispatch checks; an order arms a query only, so it is armed."""
+    from test_effect_dispatch import accepted
+    from test_effect_origin_expired_pg import expire
+    from test_nx022_dispatch_e2e import pause
+    fixture = governed_effect_executor
+    intent = accepted(fixture)['intent_id']
+    admin.execute("update runtime.nexloop_effect_intents set state='unknown' where intent_id=%s", (intent,))
+    admin.execute("update runtime.nexloop_effect_outbox set state='unknown',available_at='infinity' where intent_id=%s", (intent,))
+    expire(admin, fixture)
+    tenant, action = admin.execute('select tenant_id,action_name from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone()
+    pause(admin, tenant, 'action_type', action, paused=True)
+    with fixture.current_executor() as executor:
+        assert executor.requery_stale_unknown(intent_id=intent, confirmation_ref='owner:1') == {'intent_id': intent, 'armed': True, 'orders': 1}
+    assert admin.execute("select available_at<='now'::timestamptz+interval '1 second' from runtime.nexloop_effect_outbox where intent_id=%s", (intent,)).fetchone() == (True,)

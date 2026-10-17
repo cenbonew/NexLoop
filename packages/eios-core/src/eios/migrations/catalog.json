@@ -1025,6 +1025,11 @@
       "version": "0205",
       "name": "0205_effect_stale_unknown_requery.sql",
       "sha256": "5b7ef4817b5e0a716783bed2f5e2b61cc3cb4c722dbd786f0c672c08821f5350"
+    },
+    {
+      "version": "0206",
+      "name": "0206_effect_requery_without_dispatch_controls.sql",
+      "sha256": "d92287d91aea7ad895205d3d2f9d6faab9334e9b0c0e7b425555708685095547"
     }
   ]
 }
