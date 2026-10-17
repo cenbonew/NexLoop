@@ -288,7 +288,14 @@ export class RuntimeEffectClient{
     // recorded failed. In a message Run (replyEndsRun) the reply is the last step: once the reply tool has its receipt the Run
     // ends at that tool round (pi-durable terminates only when every call of the round asks to), with no closing model call.
     const end=options.replyEndsRun===true?{control:{terminate:true as const}}:{};
+    // 10/18 release 13 (Run eede1a41): the model put the enterprise offering in the reply's request_scope; the guard refused it
+    // (effect_intent_unavailable) twice before a reply without scope went out. request_scope is the reply's own catalog terms
+    // only: naming the enterprise offering is refused here, before any request, with what to do instead.
+    const enterpriseOffering=options.enterprise?.offering_id;
     const invoke=async(operation:'submit'|'find',args:unknown)=>{
+      const scope=operation==='submit'&&args&&typeof args==='object'?(args as {request_scope?:{offering_id?:unknown}}).request_scope:undefined;
+      if(enterpriseOffering!==undefined&&scope&&typeof scope==='object'&&scope.offering_id===enterpriseOffering)
+        return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'request_scope_wrong_service',next:'request_scope is only for this reply\'s own catalog terms. Send the reply without request_scope; the enterprise order is placed with nexloop.enterprise.deliver.'})}]};
       try{
         const receipt=await this.call(bound,operation,args);
         if(operation==='submit')submitted=receipt.intent_id;
@@ -337,7 +344,7 @@ export class RuntimeEffectClient{
       ...outcomeTool,
       ...incentiveTool,
       ...enterpriseTools,
-      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
+      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key. request_scope is optional and only for this reply\'s own catalog service when the customer asked for a guarantee or discount: omit it otherwise, and never put the enterprise offering or a request_id in it.',
         parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt of a reply this Run sent (an intent_id nexloop.service.request returned in this Run; any other gives effect_intent_unavailable). Does not send or create a new effect.',
         parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),

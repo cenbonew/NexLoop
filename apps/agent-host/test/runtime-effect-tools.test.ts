@@ -193,6 +193,17 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
     expect(deliver).toMatch(/an earlier order is never a reason to skip this one/);
     expect(find).toMatch(/Not being able to read an earlier order never stops a new one/);
   });
+  it('10/18 (Run eede1a41): the enterprise offering in a reply\'s request_scope is refused before the network, with what to do',async()=>{
+    type Run={execute:(args:unknown)=>Promise<{isError?:boolean;content:{text:string}[]}>;description:string};
+    const {client,cmd,bodies}=await bridge();
+    const reply=client.toolsForRun(cmd,{enterprise:supply}).find(t=>t.name==='nexloop.service.request') as unknown as Run;
+    const scope={offering_id:supply.offering_id,offering_revision:1,requested_guarantees:[],requested_discounts:[]};
+    const refused=await reply.execute({message:'已下单',request_scope:scope});
+    expect(refused.isError).toBe(true);expect(JSON.parse(refused.content[0]!.text).code).toBe('request_scope_wrong_service');
+    expect(bodies).toEqual([]);  // nothing reached the guard
+    expect((await reply.execute({message:'已下单'})).isError).toBeUndefined();  // the reply without scope goes out
+    expect(reply.description).toMatch(/never put the enterprise offering or a request_id in it/);
+  });
   it('refuses another consumer, unknown keys and oversized text before the network',async()=>{
     const {client,cmd,bodies}=await bridge();
     for(const args of [{summary:'x',consumer_ref:'consumer:'+'f'.repeat(64)},{summary:'x',tenant_id:cmd.tenant_id},{summary:''},{summary:'x'.repeat(201)},{summary:'x',details:'y'.repeat(2001)},{details:'only'}])
