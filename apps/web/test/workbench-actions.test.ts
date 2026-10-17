@@ -6,6 +6,7 @@ import {WRITE_TEXT,actions,consumer,me,overview,readActions,readConsumer,takeove
 import {CommitmentControls,ConsumerControls,ConversationControls,DONE_TEXT,GOVERNED_SLOTS,governedWrite,takeoverText} from '../src/workbench/actions';
 import {Actions} from '../src/workbench/pages/Actions';
 import {WorkbenchPage} from '../src/workbench/WorkbenchApp';
+import {when} from '../src/workbench/pages/Consumers';
 
 const id=(c:string)=>c.repeat(64);
 const ROLES:Record<'owner'|'operator',string[]>={
@@ -137,6 +138,17 @@ test('overview takeover block: the takeovers in effect, labelled; an unavailable
   const sections=(t:unknown)=>({goals:{status:'unavailable',data:null},commitments:{status:'unavailable',data:null},actions:{status:'unavailable',data:null},
     contact:{status:'unavailable',data:null},takeovers:t,backlog:{status:'unavailable',data:null},commercial:{status:'unavailable',data:null}});
   const parsed=overview(sections({status:'ok',data:takeover(false)}));
-  expect(parsed.takeovers.status==='ok'&&parsed.takeovers.data.map(takeoverText)).toEqual(['人工接管中（本会话）：由 synthetic-staff-owner接管，到期 2026-10-10T11:00:00+00:00']);
+  expect(parsed.takeovers.status==='ok'&&parsed.takeovers.data.map(takeoverText)).toEqual(['人工接管中（本会话）：由 synthetic-staff-owner接管，到期 '+when('2026-10-10T11:00:00+00:00')]);  // local, readable time
   expect(overview(sections({status:'unavailable',data:null})).takeovers).toEqual({status:'unavailable',data:null});
+});
+
+test('desktop usability: the takeover controls are one bar at the top with the state, and hand-back is a separate form instance',()=>{
+  const base:[unknown[],unknown][]=[[['workbench','me'],member('owner')],[['workbench','conversation',id('5')],conversationView]];
+  const none=render(client([...base,[['workbench','takeovers'],{...takeovers(takeover(true)),takeovers:[]}]]),h(ConversationControls,{conversationId:id('5')}));
+  expect(none).toMatch(/<section class="takeover-bar"[^>]*aria-label="人工接管">/);expect(none).toContain('Agent 处理中');
+  expect(none.indexOf('takeover-bar')).toBeLessThan(none.indexOf('接管本会话'));
+  const mine=render(client([...base,[['workbench','takeovers'],takeovers(takeover(true))]]),h(ConversationControls,{conversationId:id('5')}));
+  expect(mine).toContain('takeover-bar takeover-on');expect(mine).toContain('人工接管中</span>');
+  // A previous take-over success never shows up as a hand-back outcome (separate keyed form instances).
+  expect(mine).not.toContain(DONE_TEXT.hand_back_conversation);
 });

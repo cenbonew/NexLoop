@@ -100,3 +100,20 @@ test('reviewer evidence: pending items show bodies or the restricted label; an e
   expect(REVIEW_ENDED_TEXT).toContain('不再可读');
   expect(parseRoute('/workbench/knowledge/'+cid)).toEqual({page:'knowledge',id:cid});
 });
+
+test('desktop usability: readable names, a non-identifying alias otherwise, and conversations with their last message time',async()=>{
+  const {consumers,consumer,consumerAlias,DISPLAY_NOTE}=await import('../src/workbench/api');
+  const {when}=await import('../src/workbench/pages/Consumers');
+  const row={consumer_id:id('2'),restricted:false,open_commitments:0,active_plans:0,conversations:1};
+  expect(consumers({items:[{...row,display:{status:'ok',name:'合成客户甲'}}],next_cursor:null}).items[0].display).toEqual({status:'ok',name:'合成客户甲'});
+  expect(consumers({items:[{...row,display:{status:'withheld'}}],next_cursor:null}).items[0].display).toEqual({status:'withheld'});
+  expect(consumers({items:[row],next_cursor:null}).items[0].display).toEqual({status:'absent'});   // an older server
+  expect(()=>consumers({items:[{...row,display:{status:'guess',name:'x'}}],next_cursor:null})).toThrow(WorkbenchError);
+  const alias=consumerAlias(id('2'));expect(alias).toMatch(/^客户 \S{4}·\S{3}$/);expect(alias.length).toBeLessThan(id('2').length);
+  expect(DISPLAY_NOTE.withheld).toBe('名称受限');
+  const detail=consumer({consumer_id:id('2'),paused:false,restriction:null,display:{status:'withheld'},commitments:[],properties:{status:'ok',values:{},withheld:['display_name']},
+    conversations:[{conversation_id:id('3'),last_sequence:4,last_message_at:'2026-10-17 13:13:54.071455+00'},{conversation_id:id('4'),last_sequence:0,last_message_at:null}]});
+  expect(detail.conversations.map(c=>c.last_message_at)).toEqual(['2026-10-17 13:13:54.071455+00',null]);
+  expect(when('2026-10-17 13:13:54.071455+00')).toBe(new Date('2026-10-17T13:13:54.071Z').toLocaleString('zh-CN',{hour12:false}));
+  expect(when(null)).toBe('—');expect(when('not a time')).toBe('not a time');
+});

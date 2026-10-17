@@ -132,23 +132,36 @@ export function goals(value:unknown):Goals{
 export const readGoals=()=>get('/api/v1/workbench/goals',goals);
 
 // ---- consumers ----
-export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number};
+/** A readable name through the per-property READ (ADR-025): 'withheld' (owner-restricted), 'forbidden' (no property read) and 'absent'
+ * are shown as a non-identifying alias, never as a guess. Older servers send no `display`: treated as absent. */
+export type DisplayName={status:'ok';name:string}|{status:'withheld'|'forbidden'|'absent'};
+function displayName(value:unknown):DisplayName{
+  if(value===undefined)return {status:'absent'};
+  const o=object(value);
+  if(o.status==='ok')return {status:'ok',name:text(o.name)};
+  if(o.status==='withheld'||o.status==='forbidden'||o.status==='absent')return {status:o.status};
+  throw new WorkbenchError('invalid');
+}
+/** A short alias derived from the opaque id: stable, not personal data, and not the full id. */
+export function consumerAlias(consumerId:string):string{return `客户 ${consumerId.slice(0,4)}·${consumerId.slice(-3)}`;}
+export const DISPLAY_NOTE:Record<Exclude<DisplayName['status'],'ok'>,string>={withheld:'名称受限',forbidden:'无名称读取权限',absent:'未登记名称'};
+export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName};
 export type ConsumerPage={items:ConsumerRow[];next_cursor:string|null};
 export function consumers(value:unknown):ConsumerPage{
   const v=object(value);
-  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations)};}),
+  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display)};}),
     next_cursor:v.next_cursor===null?null:id(v.next_cursor)};
 }
 export const readConsumers=(after?:string)=>get('/api/v1/workbench/consumers'+(after?'?after='+encodeURIComponent(after):''),consumers);
 export type ConsumerDetail={consumer_id:string;paused:boolean;restriction:{active:boolean;control_revision:number;rule_id:string;restricted_at:string;released_at:string|null}|null;
-  conversations:{conversation_id:string;last_sequence:number}[];commitments:string[];properties:{status:'ok';values:Record<string,unknown>;withheld:string[]}|{status:'forbidden';values:null;withheld:string[]}};
+  display:DisplayName;conversations:{conversation_id:string;last_sequence:number;last_message_at:string|null}[];commitments:string[];properties:{status:'ok';values:Record<string,unknown>;withheld:string[]}|{status:'forbidden';values:null;withheld:string[]}};
 export function consumer(value:unknown):ConsumerDetail{
   const v=object(value);const p=object(v.properties);
   const restriction=v.restriction===null?null:(()=>{const r=object(v.restriction);return {active:flag(r.active),control_revision:count(r.control_revision),rule_id:text(r.rule_id),restricted_at:text(r.restricted_at),released_at:maybeText(r.released_at)};})();
   // ADR-025: owner-restricted property groups are listed by name as withheld, never shown.
   const withheld=list(p.withheld??[]).map(text);
   const properties=p.status==='ok'?{status:'ok' as const,values:object(p.values),withheld}:p.status==='forbidden'&&p.values===null?{status:'forbidden' as const,values:null,withheld}:(()=>{throw new WorkbenchError('invalid');})();
-  return {consumer_id:id(v.consumer_id),paused:flag(v.paused),restriction,conversations:list(v.conversations).map(x=>{const o=object(x);return {conversation_id:id(o.conversation_id),last_sequence:count(o.last_sequence)};}),
+  return {consumer_id:id(v.consumer_id),paused:flag(v.paused),restriction,display:displayName(v.display),conversations:list(v.conversations).map(x=>{const o=object(x);return {conversation_id:id(o.conversation_id),last_sequence:count(o.last_sequence),last_message_at:o.last_message_at===undefined?null:maybeText(o.last_message_at)};}),
     commitments:list(v.commitments).map(id),properties};
 }
 export const readConsumer=(consumerId:string)=>get('/api/v1/workbench/consumers/'+consumerId,consumer);
