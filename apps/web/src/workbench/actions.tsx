@@ -11,6 +11,7 @@ import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEX
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
 import {Short} from './pages/Page';
+import {when} from './pages/Consumers';
 
 export type SlotValue=ReactNode|((route:Route)=>ReactNode);
 export type Slots=Partial<Record<PageKey,SlotValue>>;
@@ -47,9 +48,12 @@ export async function governedWrite(cache:QueryClient,operation:Operation,body:R
   }
 }
 
-function useWrite(operation:Operation){
+function useWrite(operation:Operation,onDone?:()=>void){
   const cache=useQueryClient();const pending=useRef<{body:string;key:string}|null>(null);
-  return useMutation({mutationFn:(body:Record<string,unknown>)=>governedWrite(cache,operation,body,pending)});
+  // onDone is a mutation-level callback: it still runs when the refetch after the write has already replaced this form
+  // (take-over → hand-back), which a per-call mutate() callback would not.
+  const done=useRef(onDone);done.current=onDone;
+  return useMutation({mutationFn:(body:Record<string,unknown>)=>governedWrite(cache,operation,body,pending),onSuccess:()=>done.current?.()});
 }
 
 function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof useWrite>}){
@@ -65,11 +69,12 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
 }
 
 /** A form for one operation: shown only when the role carries it. */
-function Form({operation,title,member,children,body,disabled}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;disabled?:boolean}){
-  const write=useWrite(operation);
+function Form({operation,title,member,children,body,disabled,onDone,className}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+  disabled?:boolean;onDone?:()=>void;className?:string}){
+  const write=useWrite(operation,onDone);
   if(!offers(member,operation))return null;
   function submit(event:FormEvent){event.preventDefault();const b=body();if(b)write.mutate(b);}
-  return <form className="workbench-action" aria-label={title} onSubmit={submit}><h2>{title}</h2>{children}
+  return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><h2>{title}</h2>{children}
     <button type="submit" disabled={disabled||write.isPending}>{write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
     <Outcome operation={operation} write={write}/></form>;
 }
@@ -171,28 +176,37 @@ export function EffectQueryForm({member}:{member:Me}){
 
 // ---- takeover / hand-back / staff reply (slice 3, D3–D6) ----
 export function takeoverText(t:Takeover):string{
-  return `人工接管中（${t.scope_kind==='consumer'?'整个客户':'本会话'}）：${t.mine?'由我':'由 '+t.taken_by}接管，到期 ${t.expires_at}`;
+  return `人工接管中（${t.scope_kind==='consumer'?'整个客户':'本会话'}）：${t.mine?'由我':'由 '+t.taken_by}接管，到期 ${when(t.expires_at)}`;
 }
 
 function TakeoverControls({member,scopeKind,scopeRef,consumerId,conversationId}:{member:Me;scopeKind:'conversation'|'consumer';scopeRef:string;consumerId:string;conversationId?:string}){
   const takeovers=useQuery({queryKey:['workbench','takeovers'],queryFn:readTakeovers});
   const [minutes,setMinutes]=useState<number|null>(null);const [reason,setReason]=useState('');
+  // The last takeover / hand-back result stays visible after the form it came from is replaced (desktop usability 2026-10-17).
+  const [notice,setNotice]=useState<{operation:Operation;at:string}|null>(null);
+  const done=(operation:Operation)=>()=>{setNotice({operation,at:new Date().toLocaleTimeString('zh-CN',{hour12:false})});setReason('');};
   if(takeovers.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
   if(takeovers.isError)return <p className="note" role="status">接管状态暂不可用：{STATE_TEXT[kindOf(takeovers.error)]}</p>;
   const {policy,takeovers:list}=takeovers.data;
   const current=conversationId?takeoverOf(list,conversationId,consumerId):list.find(t=>t.consumer_id===consumerId)??null;
-  if(current)return <>
-    <p className="warning" role="status">{takeoverText(current)}</p>
-    <Form operation="hand_back_conversation" title="交还给 Agent" member={member} body={()=>({takeover_id:current.takeover_id,reason})}>
-      <Reason id="handback-reason" value={reason} onChange={setReason}/></Form>
-  </>;
   const value=minutes??Math.round(policy.default_seconds/60);
-  return <Form operation="take_over_conversation" title={scopeKind==='consumer'?'接管整个客户':'接管本会话'} member={member}
-    body={()=>({scope_kind:scopeKind,scope_ref:scopeRef,duration_seconds:value*60,reason})}>
-    <div className="field"><label htmlFor="takeover-minutes">时长（分钟，最长 {Math.round(policy.max_seconds/60)}）</label>
-      <input id="takeover-minutes" type="number" min={1} max={Math.round(policy.max_seconds/60)} value={value} onChange={e=>setMinutes(Number(e.target.value))} required/></div>
-    <Reason id="takeover-reason" value={reason} onChange={setReason}/>
-  </Form>;
+  return <section className={'takeover-bar'+(current?' takeover-on':'')} aria-label="人工接管">
+    <div className="takeover-status" role="status">
+      <span className={'takeover-pill'+(current?' takeover-pill-on':'')}>{current?'人工接管中':'Agent 处理中'}</span>
+      <span>{current?takeoverText(current):scopeKind==='consumer'?'该客户的会话由 Agent 回复。':'本会话由 Agent 回复；接管后 Agent 暂停回复，顾客看到“人工客服处理中”。'}</span>
+    </div>
+    {notice?<p className={'takeover-notice'+(notice.operation==='hand_back_conversation'?' takeover-notice-back':'')} role="status">
+      {notice.at} · {notice.operation==='hand_back_conversation'?'已交还给 Agent。':'已接管。'}{DONE_TEXT[notice.operation].replace(/^已(交还|接管)：/,'')}</p>:null}
+    {current?<Form key="hand-back" operation="hand_back_conversation" title="交还给 Agent" member={member} className="takeover-form" onDone={done('hand_back_conversation')}
+      body={()=>({takeover_id:current.takeover_id,reason})}>
+      <Reason id="handback-reason" value={reason} onChange={setReason}/></Form>
+    :<Form key="take-over" operation="take_over_conversation" title={scopeKind==='consumer'?'接管整个客户':'接管本会话'} member={member} className="takeover-form" onDone={done('take_over_conversation')}
+      body={()=>({scope_kind:scopeKind,scope_ref:scopeRef,duration_seconds:value*60,reason})}>
+      <div className="field"><label htmlFor="takeover-minutes">时长（分钟，最长 {Math.round(policy.max_seconds/60)}）</label>
+        <input id="takeover-minutes" type="number" min={1} max={Math.round(policy.max_seconds/60)} value={value} onChange={e=>setMinutes(Number(e.target.value))} required/></div>
+      <Reason id="takeover-reason" value={reason} onChange={setReason}/>
+    </Form>}
+  </section>;
 }
 
 /** Conversation page: takeover state and controls; while I hold the takeover, reply to one inbound message (native WebChat only). */

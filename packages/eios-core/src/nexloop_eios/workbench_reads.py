@@ -214,7 +214,28 @@ class WorkbenchQueries:
     def consumers(self, *, after=None, limit=50):
         payload = {'limit': limit, **({'after': after} if after else {})}
         items = self.reader.call('consumers', **payload)['consumers']
+        for item in items:
+            item['display'] = self._display_name(item['consumer_id'])
         return {'items': items, 'next_cursor': items[-1]['consumer_id'] if len(items) == limit else None}
+
+    def _display_name(self, consumer_id):
+        # Desktop usability (2026-10-17): a readable name in the list through the same per-property READ as the detail view
+        # (ADR-025 / AT-003). No new grant: an owner-restricted display_name is 'withheld' (never read), a member without the
+        # property read gets 'forbidden', a Consumer without the property 'absent'; the page then shows a non-identifying alias.
+        try:
+            fields = self.reader.consumer_fields(consumer_id) or []
+        except WorkbenchForbidden:
+            return {'status': 'forbidden'}
+        field = next((f for f in fields if f['name'] == 'display_name'), None)
+        if field is None or not field['present']:
+            return {'status': 'absent'}
+        if not field['readable']:
+            return {'status': 'withheld'}
+        values = self.reader.read_object('Consumer', consumer_id, ['display_name'], 'consumer')
+        name = (values or {}).get('display_name')
+        if not isinstance(name, str) or not name.strip():
+            return {'status': 'forbidden' if values is None else 'absent'}
+        return {'status': 'ok', 'name': name.strip()[:80]}
 
     def consumer(self, *, consumer_id):
         value = self.reader.call('consumer', consumer_id=consumer_id)
@@ -222,6 +243,20 @@ class WorkbenchQueries:
             return None
         # AT-003: Consumer properties only through per-property READ; withheld ones are listed, never shown.
         value['properties'] = self._consumer_properties(consumer_id)
+        # The name comes from the properties just read (no second read, no second audit row).
+        props = value['properties']
+        name = (props['values'] or {}).get('display_name') if props['status'] == 'ok' else None
+        value['display'] = ({'status': 'ok', 'name': name.strip()[:80]} if isinstance(name, str) and name.strip()
+                            else {'status': 'forbidden'} if props['status'] != 'ok'
+                            else {'status': 'withheld'} if 'display_name' in props['withheld'] else {'status': 'absent'})
+        # Desktop usability: each conversation's last message time through the conversation read (same WORKBENCH_READ),
+        # newest first; a conversation without messages sorts last.
+        for item in value['conversations']:
+            view = self.reader.call('conversation', conversation_id=item['conversation_id']) or {'messages': []}
+            messages = view['messages']
+            item['last_message_at'] = messages[-1]['accepted_at'] if messages else None
+            item['messages'] = len(messages)
+        value['conversations'].sort(key=lambda c: (c['last_message_at'] is not None, c['last_message_at'] or '', c['conversation_id']), reverse=True)
         return value
 
     def _consumer_properties(self, consumer_id):

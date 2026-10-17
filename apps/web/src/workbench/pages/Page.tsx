@@ -3,9 +3,10 @@ import type {UseQueryResult} from '@tanstack/react-query';
 import {STATE_TEXT,SECTION_TEXT,kindOf,type Section} from '../api';
 
 /** Every page: one title, an `actions` slot for slice 2/3 governed Actions (empty by default), and exact states (AT-045). */
-export function Page<T>({title,query,actions,empty,children}:{title:string;query:UseQueryResult<T>;actions?:ReactNode;empty?:(data:T)=>boolean;children:(data:T)=>ReactNode}){
+export function Page<T>({title,lead,query,actions,empty,children}:{title:string;lead?:ReactNode;query:UseQueryResult<T>;actions?:ReactNode;empty?:(data:T)=>boolean;children:(data:T)=>ReactNode}){
   return <section className="workbench-page" aria-labelledby="workbench-page-title">
     <h1 id="workbench-page-title">{title}</h1>
+    {lead?<p className="workbench-lead">{lead}</p>:null}
     {actions?<div className="workbench-actions" role="group" aria-label="可执行的操作">{actions}</div>:null}
     {query.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :query.isError?<Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>

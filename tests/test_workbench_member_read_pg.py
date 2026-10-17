@@ -267,3 +267,34 @@ def test_customer_service_agent_and_run_reads_keep_their_previous_results(workbe
     for name, session in sessions().items():
         assert WorkbenchReader(pool, session, signer).message_fields(message, ('body',)) is None, name
     assert audit_rows(admin) == []
+
+
+def test_consumer_list_shows_the_readable_name_and_never_a_restricted_one(workbench):
+    """Desktop usability (2026-10-17): the list and the detail show Consumer.display_name through the same per-property READ (one
+    audited read per Consumer); an owner-restricted display_name is 'withheld' and its value never appears; no new grant."""
+    w = workbench
+    provision(w)
+    admin, consumer = w['admin'], w['f']['consumer']
+    definition = {'type_name': 'Consumer', 'version': 98, 'properties': [{'property_name': 'display_name', 'value_type': 'string'},
+        {'property_name': 'favorite_sport', 'value_type': 'string'}],
+        'property_groups': [{'group_name': 'identity', 'property_names': ['display_name']}, {'group_name': 'preference', 'property_names': ['favorite_sport']}]}
+    admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,98,%s)', (TENANT, 'Consumer', Jsonb(definition)))
+    admin.execute("update ontology.objects set schema_version=98,properties=%s where tenant_id=%s and type_name='Consumer' and object_id=%s",
+        (Jsonb({'display_name': '合成客户甲', 'favorite_sport': '网球'}), TENANT, consumer))
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        before = len(audit_rows(admin))
+        listed = client.get('/api/v1/workbench/consumers').json()['items']
+        assert [i['display'] for i in listed if i['consumer_id'] == consumer] == [{'status': 'ok', 'name': '合成客户甲'}]
+        assert [(r[2], r[4]) for r in audit_rows(admin)[before:]] == [('consumer', 'consumer')]  # only this Consumer carries the property
+        detail = client.get('/api/v1/workbench/consumers/' + consumer).json()
+        assert detail['display'] == {'status': 'ok', 'name': '合成客户甲'}
+        assert detail['conversations'][0]['last_message_at'] and detail['conversations'][0]['messages'] >= 1
+    admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)',
+        (TENANT, 'property_group_restriction', ['Consumer'], Jsonb({'tenant_id': TENANT, 'type_name': 'Consumer', 'restricted_groups': ['identity'], 'decision': 'owner 2026-10-17 (synthetic)'})))
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        listed = client.get('/api/v1/workbench/consumers')
+        assert [i['display'] for i in listed.json()['items'] if i['consumer_id'] == consumer] == [{'status': 'withheld'}] and '合成客户甲' not in listed.text
+        detail = client.get('/api/v1/workbench/consumers/' + consumer)
+        assert detail.json()['display'] == {'status': 'withheld'} and '合成客户甲' not in detail.text
