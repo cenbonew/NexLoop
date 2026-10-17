@@ -27,6 +27,15 @@ export async function readRuntimeBody(request:IncomingMessage){
 }
 /** ADR-030: the enterprise offering of a Message Run's context (effect_supplies), if any. Availability of the tool only;
  * the context was validated at admission and the guard rechecks the Run credential and the catalog on every call. */
+/** A message Run (a customer message's own Run or its fallback reply): its Context carries the customer's statement. Role and
+ * plan Runs have none. In a message Run the reply is the last step (runtime-effect-tools replyEndsRun). Real model profiles
+ * only: the deterministic test profile scripts turns after the reply on purpose (identical replay, receipt find) to prove the
+ * stable business key, exactly like the instructions given to a real model only. */
+export function messageRun(input:unknown):boolean{
+  if(typeof input!=='string')return false;
+  try{const statement=(JSON.parse(input) as {user_statement?:unknown}).user_statement;return !!statement&&typeof statement==='object'&&!Array.isArray(statement);}
+  catch{return false;}
+}
 function enterpriseSupply(input:unknown):EffectSupply|undefined{
   if(typeof input!=='string')return undefined;
   try{
@@ -327,7 +336,7 @@ export class RuntimeHost{
     }
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
       activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
-    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
+    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:RUN_INSTRUCTIONS}:{}),
       // v6 Runs record each actual model request (AT-027); in multi-protocol mode that is decided per Run.

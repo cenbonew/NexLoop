@@ -8,7 +8,13 @@ import {lazyStream,type Model,type Api,type Models,type AssistantMessageEventStr
 import {Harness,GenerationTask,hook,ToolResultEntry,createRegistry,defineDoc,type ConversationId,type SubmissionId,type ModelRef,type ToolRegistration} from '@earendil-works/pi-durable';
 import {openNodeSqliteDatabase} from '@earendil-works/pi-durable/storage/sqlite/node';
 import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
-import {safeProviderMessage,safeProviderStream} from './runtime-provider-boundary.js';
+import {safeProviderMessage,safeProviderStream,type ProviderFailure} from './runtime-provider-boundary.js';
+
+/** 10/18 stage: one allowlisted stderr line per failed model call (fixed fields only; never a message, body or key). */
+export function modelFailureLine(runId:string,call:number,elapsedMs:number,failure:ProviderFailure):string{
+  return JSON.stringify({ts:new Date().toISOString(),service:'agent-host',level:'warning',event:'model call failed',
+    detail:{run_id:runId,call_sequence:call,elapsed_ms:Math.max(0,Math.round(elapsedMs)),kind:failure.kind,http_status:failure.http_status,exception:failure.exception}})+'\n';
+}
 import {purgeRunDirectory,validRunId} from './run-purge.js';
 import {modelTiming} from './model-timing.js';
 import {MAXIMUM_REQUEST_BYTES} from './trusted-model-profile.js';
@@ -206,7 +212,9 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       const registrations=[...(this.options.tools??[]),...(this.options.toolsForRun?.(structuredClone(command))??[])];
       if(registrations.some(tool=>!/^nexloop\.[A-Za-z0-9_.-]+$/.test(tool.name))||new Set(registrations.map(tool=>tool.name)).size!==registrations.length)throw new RuntimeError('runtime_tool_refused');
       const wireNames=providerToolNames(registrations.map(tool=>tool.name),command.runtime_profile==='deepseek-flash'&&this.options.model.provider==='deepseek');
-      const tools=registrations.map((tool,index)=>({...tool,name:wireNames[index]!,execute:async(args,api,context)=>{await consume('tool');const gatewayApi=new Proxy(api,{get:(target,key)=>{if(key==='models')throw new RuntimeError('runtime_tool_model_access_refused');const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}});try{return await tool.execute(args,gatewayApi,context);}catch{throw new RuntimeError('runtime_tool_unavailable');}}} satisfies ToolRegistration));
+      const tools=registrations.map((tool,index)=>({...tool,name:wireNames[index]!,execute:async(args,api,context)=>{await consume('tool');const gatewayApi=new Proxy(api,{get:(target,key)=>{if(key==='models')throw new RuntimeError('runtime_tool_model_access_refused');const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}});try{return await tool.execute(args,gatewayApi,context);}catch(error){
+        // 10/18 stage (Run 1ab1d785): keep the tool's own fixed runtime code (e.g. runtime_effect_unavailable), never its text.
+        throw new RuntimeError(error instanceof RuntimeError&&/^[a-z][a-z_]{0,63}$/.test(error.code)?error.code:'runtime_tool_unavailable');}}} satisfies ToolRegistration));
       const checkCost=(message:AssistantMessage)=>{
         const cost=message.usage?.cost?.total,policy=this.options.costPolicy;
         if(typeof cost!=='number'||!Number.isFinite(cost)||cost<0||!policy)throw new RuntimeError('runtime_model_cost_unavailable');
@@ -223,7 +231,10 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       }})]}:{})});
       const guardedModels=new Proxy(this.options.models,{get:(target,property)=>{
         const value=Reflect.get(target,property,target);
-        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,recordRequests?settleFor(call):undefined);}catch{throw new RuntimeError('runtime_model_unavailable');}}));
+        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});const began=Date.now();
+          let reported=false;  // the harness reads both the stream and its result: one line per call
+          const report=(failure:ProviderFailure)=>{if(reported)return;reported=true;process.stderr.write(modelFailureLine(command.run_id,call,Date.now()-began,failure));};
+          try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,recordRequests?settleFor(call):undefined,report);}catch(error){report({kind:'stream_exception',http_status:null,exception:error instanceof Error&&/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.constructor.name)?error.constructor.name:null});throw new RuntimeError('runtime_model_unavailable');}}));
         if(property==='fetchDeferred'&&typeof value==='function')return async(...args:unknown[])=>{if(recordRequests)throw new RuntimeError('runtime_model_request_unrecorded');await consume('model');try{const message=safeProviderMessage(await Reflect.apply(value,target,args) as AssistantMessage);checkCost(message);return message;}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(property==='cancelDeferred'&&typeof value==='function')return async(...args:unknown[])=>{await this.authorize(command,'cancel');try{return await Reflect.apply(value,target,args);}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(typeof value==='function')return (...args:unknown[])=>{try{const result=Reflect.apply(value,target,args);if(result instanceof Promise)return result.catch(()=>{throw new RuntimeError('runtime_model_unavailable');});return result;}catch{throw new RuntimeError('runtime_model_unavailable');}};
@@ -315,12 +326,17 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     let unavailable=false,denied=false;
     // 10/16 stage: a failed Run named no cause. Now also a returned tool error (its own code, e.g. outside_catalog_terms) or a
     // failed task's fixed runtime code: codes only (^[a-z_]{1,64}$), never a message, parameter or transcript text.
-    let toolError:string|undefined,taskError:string|undefined;
+    let toolError:string|undefined,taskError:string|undefined,failedTool:string|undefined;
     const code=(value:unknown)=>typeof value==='string'&&/^[a-z][a-z_]{0,63}$/.test(value)?value:undefined;
     const toolCode=(message:{content?:unknown}):string=>{
       const text=Array.isArray(message.content)?message.content.find((part:{type?:string;text?:unknown})=>part?.type==='text')?.text:undefined;
-      try{return code((JSON.parse(String(text)) as {code?:unknown}).code)??'tool_error';}catch{return 'tool_error';}
+      // A returned {code} JSON, or a thrown tool's fixed runtime code (the whole text is the code), else tool_error.
+      try{return code((JSON.parse(String(text)) as {code?:unknown}).code)??'tool_error';}catch{return code(String(text).trim())??'tool_error';}
     };
+    // 10/18: which tool failed, by its canonical registered name; a name this Run never offered is unregistered_tool.
+    const registered=new Map<string,string>();
+    try{for(const tool of [...(this.options.tools??[]),...(this.options.toolsForRun?.(structuredClone(valid))??[])]){registered.set(tool.name,tool.name);registered.set(tool.name.replaceAll('.','_'),tool.name);}}catch{/* names only */}
+    const toolName=(message:{toolName?:unknown}):string=>typeof message.toolName==='string'&&registered.get(message.toolName)||'unregistered_tool';
     const marks=(message:unknown)=>{if(message==='runtime_authorization_unavailable')unavailable=true;else if(message==='runtime_authorization_denied')denied=true;};
     const runtimeOutcome=await run.harness.commit(async tx=>{
       const tasks=[];let cursor;
@@ -346,7 +362,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
           for(const entry of page.items)if(ToolResultEntry.is(entry)){
             for(const diagnostic of entry.data.diagnostics)if(diagnostic.severity==='error')marks(diagnostic.message);
             const errored=entry.model?.find(message=>message.role==='toolResult'&&message.isError);
-            if(errored)toolError??=toolCode(errored as {content?:unknown});
+            if(errored&&toolError===undefined){toolError=toolCode(errored as {content?:unknown});failedTool=toolName(errored as {toolName?:unknown});}
             if(!taskFailed&&(errored||entry.data.diagnostics.some(diagnostic=>diagnostic.severity==='error')))return 'failed' as const;
           }
         }while(entryCursor);
@@ -362,7 +378,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     // NX-031 A2: numbers only, from the same durable task records (a restarted Host reports the same figure).
     return {...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2},
       model_timing:modelTiming(scanned),...(runtimeOutcome!=='failed'?{}:unavailable?{failure_code:'runtime_authorization_unavailable' as const}:denied?{failure_code:'runtime_authorization_denied' as const}
-        :toolError?{failure_code:'runtime_tool_error' as const,failure_detail:toolError}:taskError?{failure_code:'runtime_task_failed' as const,failure_detail:taskError}:{})};
+        :toolError?{failure_code:'runtime_tool_error' as const,failure_detail:toolError,failure_tool:failedTool}:taskError?{failure_code:'runtime_task_failed' as const,failure_detail:taskError}:{})};
   });}
   cancel(command:unknown):Promise<{run_id:string;status:'cancel_requested'}>{return this.serial(async()=>{
     const valid=validateRunCommand(command);await this.authorize(valid,'cancel');const run=await this.open(valid,false);this.check(run,valid);

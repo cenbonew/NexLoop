@@ -363,3 +363,21 @@ def test_a_v3_synthetic_run_records_variants_and_a_long_conversations_runs_count
     assert X.evaluate(within, [], trial, cumulative=X.Decimal('2.5'), monthly=X.Decimal('2.5')) == (None, [])
     over = {'facts': {}, 'outcome': 'ok', 'cost': {'total': '2.5', 'max_run': '2.1'}}
     assert X.evaluate(over, [], trial, cumulative=X.Decimal('2.5'), monthly=X.Decimal('2.5')) == ('stop', ['per_run_cost_exceeded'])
+
+
+def test_a_failed_run_s_tool_reaches_the_interaction_record(tmp_path):
+    """10/18 stage (Run 1ab1d785): the record names which tool failed (the Run evidence's failure, 0204), codes only."""
+    from nexloop_eios.interaction_drivers import SyntheticCollector, SyntheticDriver
+
+    class Failing(SyntheticCollector):
+        def collect(self, run_id):
+            return {**super().collect(run_id), 'failure': {'code': 'runtime_failed', 'failure_code': 'runtime_tool_error',
+                                                           'failure_detail': 'invalid_effect_request', 'failure_tool': 'nexloop.enterprise.deliver'}}
+    driver = SyntheticDriver(tenant=R.SYNTHETIC_TENANT, other_tenant=R.SYNTHETIC_OTHER)
+    X.run(X.load_plan(R.TRIAL), driver, Failing(driver), tmp_path / 't', trial_id=TRIAL_ID, order=ORDER)
+    record = X.read_records(tmp_path / 't')[0]
+    assert record['failures'] == [{'code': 'runtime_failed', 'failure_code': 'runtime_tool_error', 'failure_detail': 'invalid_effect_request',
+                                   'failure_tool': 'nexloop.enterprise.deliver'}]
+    import evidence_pack as E
+    E.build(tmp_path / 'pack', {}, tmp_path / 't')
+    assert E.check(tmp_path / 'pack') == [] and json.loads((tmp_path / 'pack' / 'index.json').read_text())['items']['interactions']['dropped_values'] == 0

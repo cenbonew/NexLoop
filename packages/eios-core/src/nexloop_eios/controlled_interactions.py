@@ -225,6 +225,8 @@ def merge_evidence(items):
             for key, n in (item.get(field) or {}).items():
                 out[field][key] = out[field].get(key, 0) + n
         out['intent_ids'] += list(item.get('intent_ids') or [])
+        if item.get('failure'):
+            out.setdefault('failures', []).append(item['failure'])
     return out
 
 
@@ -341,6 +343,9 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
             'cost': cost,
             'intents': (evidence or {}).get('intents', {}), 'intent_ids': (evidence or {}).get('intent_ids', []),
             'refusals': (evidence or {}).get('refusals', {}),
+            # 10/18: why a Run of this interaction failed (codes only, 0204): which tool, when a tool failed.
+            **({'failures': (evidence or {}).get('failures') or ([evidence['failure']] if (evidence or {}).get('failure') else [])}
+               if (evidence or {}).get('failure') or (evidence or {}).get('failures') else {}),
             'receipts': sorted(observed.get('receipts', [])), 'reconciliation': observed.get('reconciliation', 'not_applicable'),
             'facts': observed.get('facts', {}),
             **({'test_stack': True} if test_stack else {}),

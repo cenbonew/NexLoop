@@ -40,6 +40,10 @@ def test_a_message_run_without_a_reply_fails_and_makes_the_reply_due_now(relay_p
                 result = worker.inspect_task(queue='operations', task_id=task[0])['result']
                 assert result['runtime_outcome'] == 'succeeded' and result['code'] == NO_REPLY_CODE and result['run_id'] == command['run_id']
     assert admin.execute('select count(*) from runtime.nexloop_effect_submissions').fetchone() == (0,)
+    # 0204: the NX-037 Run evidence names why this Run failed (codes only).
+    tenant = admin.execute('select tenant_id from runtime.nexloop_message_routes where run_id=%s', (command['run_id'],)).fetchone()[0]
+    failure = admin.execute("select runtime.nexloop_nx037_run_evidence(%s,'real',%s)->'failure'", (tenant, command['run_id'])).fetchone()[0]
+    assert failure == {'code': NO_REPLY_CODE}
     # The message's reply-due item (0109) waited start_after_seconds; it is due now.
     assert waiting == (True,) and admin.execute(due, ('reply:' + task[1],)).fetchone() == (False,)
 

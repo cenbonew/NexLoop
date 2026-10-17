@@ -42,7 +42,11 @@ def _vocabulary():
     return frozenset((*KINDS, *STOP_RULES, *PAUSE_RULES, *ITEMS, 'present', 'missing', 'completed', 'paused', 'stopped', 'continue',
                       'stop', 'pause', 'ok', 'error', 'settled', 'unresolved', 'not_applicable', 'accepted', 'dispatching', 'observed_fulfilled', 'unknown',
                       'fulfilled', 'failed', 'confirmed', 'synthetic_error', 'interaction_timeout', 'run_failed', 'delivery_missing', 'reconciliation_missing', 'unexpected_delivery', 'effect_evidence_unavailable', 'nexloop.nx037-evidence.v1', 'CNY', 'USD',
-                      'agent', 'human', 'simulated_agent', 'mixed'))
+                      'agent', 'human', 'simulated_agent', 'mixed',
+                      # 10/18: Run failure codes and the effect tools (0204 failure evidence)
+                      'runtime_failed', 'runtime_tool_error', 'runtime_task_failed', 'runtime_model_unavailable', 'runtime_effect_unavailable',
+                      'runtime_tool_unavailable', 'invalid_effect_request', 'tool_error', 'intent_payload_conflict', 'outside_catalog_terms',
+                      'nexloop.service.request', 'nexloop.service.find', 'nexloop.enterprise.deliver', 'nexloop.enterprise.find', 'unregistered_tool'))
 
 
 VOCABULARY = _vocabulary()
