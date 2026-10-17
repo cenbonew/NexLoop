@@ -51,24 +51,34 @@ stat -c '%u %a' $NEXLOOP_ROOT/secrets/agent-host/model-configuration.json   # ag
 
 两者应一致，记为 `$HOST_UID`。如果不一致，停下报告调度员。
 
-### 1.3 写入（负责人在 APP_HOST 的交互终端执行，B）
+### 1.3 写入：从钥匙串经管道写入（正式做法，B）
 
-`read -rs` 不回显，变量不进入任何命令行参数（`printf` 是 shell 内建命令，不产生新进程）。临时文件写在 0700 的私有目录里，用 `install` 一次设定属主和权限。
+密钥保存在管理机的钥匙串里，项目 `nexloop/model/deepseek`、账户 `nexloop`。**不手打**，也不经过剪贴板。脚本是 `scripts/deploy/install_model_key.sh`，取自发布源码树，放在 APP_HOST 上只读的位置。
 
 ```
-umask 077; T=$(mktemp -d)
-read -rs -p 'model key: ' K; echo
-printf '%s\n' "$K" > "$T/model.key"
-printf 'MODEL_PROVIDER=deepseek\nMODEL_ID=deepseek-flash\nMODEL_BASE_URL=https://api.deepseek.com\nMODEL_API_KEY=%s\n' "$K" > "$T/model.env"
-unset K
-sudo install -d -o "$HOST_UID" -g "$HOST_UID" -m 0700 $NEXLOOP_ROOT/secrets/agent-host-model
-sudo install -o "$HOST_UID" -g "$HOST_UID" -m 0600 "$T/model.key" $NEXLOOP_ROOT/secrets/agent-host-model/model.key
-sudo install -o 10001 -g 10001 -m 0600 "$T/model.env" $NEXLOOP_ROOT/secrets/claim-extraction-worker/model.env
-sudo install -o 10001 -g 10001 -m 0600 "$T/model.env" $NEXLOOP_ROOT/secrets/claim-matcher/model.env
-shred -u "$T/model.key" "$T/model.env"; rmdir "$T"
+security find-generic-password -a nexloop -s nexloop/model/deepseek -w \
+  | ssh <APP_HOST> 'sudo NEXLOOP_ROOT=<NEXLOOP_ROOT> bash <发布源码树>/scripts/deploy/install_model_key.sh'
 ```
 
-如果这几个文件此前已作为占位存在，`install` 会覆盖它们。`set -x` 必须是关闭的。
+脚本按顺序做这些事：
+1. 只从 stdin 读一行密钥。stdin 是终端、为空或多于一行都拒绝，所以只能经管道传入。
+2. 核对密钥是可打印 ASCII、不含空格、不超过 8192 个字符（与 `trusted-model-profile.ts`、`provider_credentials.py` 的限制相同）。
+3. 读出运行中的 agent-host 进程 UID（`docker compose exec -T agent-host id -u`），与 `secrets/agent-host/model-configuration.json` 的属主比对。两者不一致（G-UID）就停下，不写任何文件。
+4. 用 `install` 一次设定属主和权限，写入三个文件：
+   - `model.key`：属主为 agent-host 的进程 UID，权限 0600；
+   - 两个 `model.env`：属主 10001，权限 0600，内容是 `MODEL_PROVIDER`、`MODEL_ID`、`MODEL_BASE_URL` 三个固定值加 `MODEL_API_KEY`。
+5. 临时文件放在 root 的 0700 临时目录里，写完用 `shred` 删除。
+6. 只打印文件名、属主、权限和字节数。
+
+脚本开头写了 `set +x`，密钥不会出现在命令行参数、日志或终端输出里。
+
+**前提**：
+- **sudo 不能等密码**：stdin 已经被密钥占用，sudo 没法在这里交互输入密码。负责人可以二选一：
+  - 为这一个脚本配置免密 sudo（sudoers 中只放行这一条命令，B）；
+  - 以 root 登录执行。
+- **脚本以发布源码树中的版本为准**：执行前对它做一次 `sha256sum`，与该发布提交中的同名文件比对。
+
+**失败时**：脚本以退出码 2 结束，标准错误输出一行原因，并且什么都没写。
 
 ### 1.4 核对（只看属主、权限、长度）
 
@@ -85,13 +95,16 @@ sudo stat -c '%n %u %a %s' $NEXLOOP_ROOT/secrets/agent-host-model/model.key $NEX
 
 ```
 docker compose -p nexloop-app -f $NEXLOOP_ROOT/compose.app.yaml --env-file $NEXLOOP_ROOT/config/compose.app.env \
-  --env-file $NEXLOOP_ROOT/config/compose.images.env up -d --force-recreate agent-host claim-extraction-worker claim-matcher
+  --env-file $NEXLOOP_ROOT/config/compose.images.env up -d --force-recreate agent-host agent-link-relay claim-extraction-worker claim-matcher
 ```
 
-- **预期**：三个服务的状态都是 running 或 healthy。
+**为什么要带上 `agent-link-relay`**：它用的是 `network_mode: service:agent-host`，也就是共用 agent-host 容器的网络命名空间。agent-host 重建后会换一个新容器，而 relay 仍然挂在已删除容器的命名空间上，Agent Host 到 guard 的链路就断了。10/16 在 stage 上实际遇到过，当时单独重建 relay 修复。通用规则见 OPERATIONS §8a.10。
+
+- **预期**：四个服务的状态都是 running 或 healthy。
+- **核对链路**：`docker compose -p nexloop-app logs --since 3m agent-link-relay` 不应出现连接错误。冒烟中的 Run 不应出现 `runtime_authorization_unavailable`。
 - **日志核对**：`docker compose -p nexloop-app logs --since 3m agent-host claim-extraction-worker claim-matcher | grep -E 'refused|unavailable'`，结果应为空。出现 `runtime_model_configuration_refused` 时：
   - 属主或权限不对：回到 1.2、1.4 检查；
-  - 密钥里有空格或非 ASCII 字符：重新写入。
+  - 密钥里有空格或非 ASCII 字符：1.3 的脚本本该拒绝这种密钥，出现时检查钥匙串里的条目。
 
 **出口**：
 - agent-host 走 `agent_egress`，两个 claim worker 走 `claim_egress`；
@@ -101,7 +114,7 @@ docker compose -p nexloop-app -f $NEXLOOP_ROOT/compose.app.yaml --env-file $NEXL
 ### 1.6 撤销
 
 1. 删除三个文件：`sudo shred -u` 依次处理三个文件。
-2. 重建这三个服务。
+2. 按 1.5 重建服务，**同样带上 `agent-link-relay`**。
 3. 撤销后两个 claim worker 回到 `test` 模式，每个任务失败为 `provider_unavailable`；agent-host 的 Run 失败为 `runtime_model_configuration_refused`。
 4. 如果密钥可能已经泄露，同时在模型服务方吊销这个密钥。
 
