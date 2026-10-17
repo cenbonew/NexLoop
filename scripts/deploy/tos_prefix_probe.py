@@ -16,8 +16,9 @@ Requests go to the TOS S3-compatible endpoint (AWS Signature Version 4, service 
     tos_prefix_probe.py --bucket <TOS_BUCKET> --role data|app [--region cn-shanghai] [--write]
         [--access-key-item nexloop/backup/tos-data-access-key --secret-key-item nexloop/backup/tos-data-secret-key]
 
-Output: one JSON object of check names, prefixes, expected and actual HTTP status codes (no keys, no object names, no bodies).
-Exit 0 every check as expected; 1 a check differs (or the endpoint is unreachable); 2 input refused. Standard library only.
+Output: one JSON object of check names, prefixes, expected and actual HTTP status codes (no keys, no object names, no bodies). A
+request that does not complete is its own failed check with the stage it stopped at (connect, send, response_headers) and the
+error type; the following checks still run. Exit 0 every check as expected; 1 a check differs or failed; 2 input refused. Standard library only.
 """
 import argparse
 import hashlib
@@ -65,18 +66,43 @@ def sign(method, host, path, query, headers, payload_hash, *, access_key, secret
     return headers
 
 
+class ProbeFailed(Exception):
+    """A request that did not complete: the stage it stopped at (connect, send, response_headers) and the error type."""
+
+    def __init__(self, stage, error):
+        super().__init__(stage)
+        self.stage, self.error = stage, error
+
+
 class HttpsTransport:
-    def __init__(self, timeout=15):
+    """One TLS connection per request. Only the status line and headers are waited for: a body is read only when the response
+    declares a small Content-Length (an answer without a length on a kept-alive connection would otherwise be read until the
+    timeout, which is how the first write probes of 2026-10-17 ended as a bare TimeoutError). The body is never printed."""
+
+    def __init__(self, timeout=15, connection_factory=None):
         self.timeout, self.context = timeout, ssl.create_default_context()
+        # Tests pass a plain-HTTP factory to a local server; the probe itself always speaks TLS to port 443.
+        self._connection = connection_factory or (lambda host, timeout: http.client.HTTPSConnection(host, 443, timeout=timeout, context=self.context))
 
     def request(self, method, host, path, query, headers, body=b''):
         target = path + ('?' + '&'.join(f'{quote(k, safe="-_.~")}={quote(v, safe="-_.~")}' for k, v in query) if query else '')
-        connection = http.client.HTTPSConnection(host, 443, timeout=self.timeout, context=self.context)
+        connection = self._connection(host, self.timeout)
+        stage = 'connect'
         try:
-            connection.request(method, target, body=body or None, headers=headers)
+            connection.connect()
+            stage = 'send'
+            # body as bytes (b'' for the probe object): http.client sends exactly the signed Content-Length, no Expect header.
+            connection.request(method, target, body=body, headers=headers)
+            stage = 'response_headers'
             response = connection.getresponse()
-            response.read(65536)  # drained, never printed
+            if response.length is not None and response.length <= 65536:
+                try:
+                    response.read()
+                except (OSError, http.client.HTTPException):
+                    pass  # the status is what counts
             return response.status
+        except (OSError, ssl.SSLError, http.client.HTTPException) as error:
+            raise ProbeFailed(stage, type(error).__name__) from None
         finally:
             connection.close()
 
@@ -102,19 +128,25 @@ def run(probe, role, *, write=False):
     own, other = PREFIXES[role], PREFIXES['app' if role == 'data' else 'data']
     checks = []
 
-    def check(name, expected, status):
+    def check(name, expected, request):
+        """One check; a request that does not complete is recorded with its stage and error, and the next checks still run."""
+        try:
+            status = request()
+        except ProbeFailed as failed:
+            checks.append({'check': name, 'expected': expected, 'status': None, 'stage': failed.stage, 'error': failed.error, 'ok': False})
+            return
         checks.append({'check': name, 'expected': expected, 'status': status, 'ok': expected is None or status == expected})
     for prefix in own:
-        check(f'list_own:{prefix}', 200, probe.list(prefix))
-    check('list_bucket_root', 403, probe.list(''))
+        check(f'list_own:{prefix}', 200, lambda prefix=prefix: probe.list(prefix))
+    check('list_bucket_root', 403, lambda: probe.list(''))
     for prefix in other:
-        check(f'list_other:{prefix}', 403, probe.list(prefix))
-    check(f'list_path_style:{own[0]}', None, probe.list(own[0], path_style=True))
+        check(f'list_other:{prefix}', 403, lambda prefix=prefix: probe.list(prefix))
+    check(f'list_path_style:{own[0]}', None, lambda: probe.list(own[0], path_style=True))
     if write:
         name = f'.nexloop-probe-{uuid.uuid4().hex}'
-        check(f'put_own:{own[0]}', 200, probe.call('PUT', own[0] + name))
-        check(f'delete_own:{own[0]}', 204, probe.call('DELETE', own[0] + name))
-        check(f'put_other:{other[0]}', 403, probe.call('PUT', other[0] + name))
+        check(f'put_own:{own[0]}', 200, lambda: probe.call('PUT', own[0] + name))
+        check(f'delete_own:{own[0]}', 204, lambda: probe.call('DELETE', own[0] + name))  # also after a failed put: harmless
+        check(f'put_other:{other[0]}', 403, lambda: probe.call('PUT', other[0] + name))
     return checks
 
 
@@ -136,6 +168,7 @@ def main(argv=None, *, stdin=None, transport=None, runner=subprocess.run):
     parser.add_argument('--secret-key-item')
     parser.add_argument('--credentials-stdin', action='store_true', help='two lines on stdin: access key id, secret access key')
     parser.add_argument('--write', action='store_true', help='also put and delete one 0-byte probe object under the own prefix')
+    parser.add_argument('--timeout', type=float, default=15.0, help='seconds per request (connect, send and response headers)')
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -162,11 +195,10 @@ def main(argv=None, *, stdin=None, transport=None, runner=subprocess.run):
             access, secret = keychain(items[0], runner), keychain(items[1], runner)
     except Refused as error:
         return emit({'ok': False, 'detail': str(error)}, 2)
-    probe = Probe(transport or HttpsTransport(), bucket=args.bucket, region=args.region, endpoint=endpoint, access_key=access, secret_key=secret)
-    try:
-        checks = run(probe, args.role, write=args.write)
-    except (OSError, ssl.SSLError, http.client.HTTPException) as error:
-        return emit({'ok': False, 'detail': type(error).__name__}, 1)
+    if not 1 <= args.timeout <= 120:
+        return emit({'ok': False, 'detail': 'timeout out of range (1-120 s)'}, 2)
+    probe = Probe(transport or HttpsTransport(args.timeout), bucket=args.bucket, region=args.region, endpoint=endpoint, access_key=access, secret_key=secret)
+    checks = run(probe, args.role, write=args.write)  # every request failure is a check of its own (stage, error)
     ok = all(c['ok'] for c in checks)
     return emit({'ok': ok, 'role': args.role, 'region': args.region, 'checks': checks}, 0 if ok else 1)
 

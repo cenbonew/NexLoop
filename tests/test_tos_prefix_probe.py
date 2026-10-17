@@ -76,3 +76,70 @@ def test_keys_come_from_the_keychain_by_item_name_never_from_argv(capsys):
                  ['--bucket', 'synthetic-bucket', '--role', 'data', '--access-key-item', 'a b']):
         assert P.main(argv, transport=Fake(()), runner=runner) == 2
         capsys.readouterr()
+
+
+def _server(answer):
+    """A local HTTP server over a raw socket: answer(method, path, headers) -> bytes to send, or None to stay silent."""
+    import socket
+    import threading
+    listener = socket.socket()
+    listener.bind(('127.0.0.1', 0))
+    listener.listen(8)
+    seen = []
+
+    def serve():
+        while True:
+            try:
+                conn, _ = listener.accept()
+            except OSError:
+                return
+            data = b''
+            while b'\r\n\r\n' not in data:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            head = data.split(b'\r\n\r\n', 1)[0].decode()
+            method, path = head.split(' ')[:2]
+            headers = {k.lower(): v.strip() for k, _, v in (line.partition(':') for line in head.split('\r\n')[1:])}
+            seen.append((method, path, headers))
+            reply = answer(method, path, headers)
+            if reply is not None:
+                conn.sendall(reply)
+            threading.Thread(target=lambda c=conn: (threading.Event().wait(5), c.close()), daemon=True).start()  # kept open
+    threading.Thread(target=serve, daemon=True).start()
+    return listener, seen
+
+
+def test_a_put_answered_without_a_length_on_a_kept_alive_connection_returns_its_status_at_once():
+    """2026-10-17 stage: --write ended as a bare TimeoutError. A 200 without Content-Length (connection kept open) was read to EOF;
+    now only the status and headers are awaited. The PUT carries Content-Length 0, no Expect, the signed empty-payload hash."""
+    import http.client
+    import time
+    listener, seen = _server(lambda method, path, headers: b'HTTP/1.1 200 OK\r\nx-tos-request-id: synthetic\r\n\r\n')
+    port = listener.getsockname()[1]
+    transport = P.HttpsTransport(timeout=3, connection_factory=lambda host, timeout: http.client.HTTPConnection('127.0.0.1', port, timeout=timeout))
+    probe = P.Probe(transport, bucket='synthetic-bucket', region='cn-shanghai', endpoint='tos-s3-cn-shanghai.volces.com', access_key='a', secret_key='b')
+    started = time.monotonic()
+    assert probe.call('PUT', 'nexloop/pgbackrest/.nexloop-probe-x') == 200
+    assert time.monotonic() - started < 2
+    method, path, headers = seen[0]
+    assert (method, path, headers['content-length'], headers['x-amz-content-sha256']) == ('PUT', '/nexloop/pgbackrest/.nexloop-probe-x', '0', P.EMPTY_SHA256)
+    assert 'expect' not in headers and 'content-length' in headers['authorization']
+    listener.close()
+
+
+def test_a_request_without_an_answer_is_its_own_failed_check_with_its_stage_and_the_rest_still_run(capsys):
+    import http.client
+    listener, _ = _server(lambda method, path, headers: None if method == 'PUT' else b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
+    port = listener.getsockname()[1]
+    transport = P.HttpsTransport(timeout=1, connection_factory=lambda host, timeout: http.client.HTTPConnection('127.0.0.1', port, timeout=timeout))
+    code = P.main(['--bucket', 'synthetic-bucket', '--role', 'app', '--credentials-stdin', '--write'], stdin=io.StringIO('a\nb\n'), transport=transport)
+    out = json.loads(capsys.readouterr().out)
+    by = {c['check']: c for c in out['checks']}
+    assert code == 1 and not out['ok'] and len(out["checks"]) == 8  # every check reported, none lost to the timeout
+    assert by['put_own:nexloop/restic-files/'] == {'check': 'put_own:nexloop/restic-files/', 'expected': 200, 'status': None,
+                                                   'stage': 'response_headers', 'error': 'TimeoutError', 'ok': False}
+    assert by['delete_own:nexloop/restic-files/']['status'] == 403 and by['list_bucket_root'] == {'check': 'list_bucket_root', 'expected': 403, 'status': 403, 'ok': True}
+    assert by['put_other:nexloop/pgbackrest/']['stage'] == 'response_headers'
+    listener.close()
