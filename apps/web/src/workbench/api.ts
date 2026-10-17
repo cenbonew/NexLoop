@@ -334,6 +334,8 @@ export const OPERATION_ACTION={
   send_staff_reply:'eios:action:nexloop.message.staff_send:1',
   // NX-030: owner only (workbench-roles v4).
   silence_alert:'eios:action:nexloop.alert.silence:1',
+  // 0220: owner only; the real dispatch switches (tenant and Action layers).
+  set_real_dispatch:'eios:action:nexloop.real_dispatch.set:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -451,6 +453,8 @@ export function metrics(value:unknown):Metrics{
     guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at)};
 }
 export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
+/** The real dispatch switches from the same metrics read (states and revisions only, 0153). */
+export const readRealDispatchSwitches=()=>get('/api/v1/workbench/metrics',value=>object(value).real_dispatch);
 export const PROCESS_UNAVAILABLE_TEXT='最近 5 分钟没有样本：未加载，不代表为零。';
 export const REFUSAL_TEXT:Record<string,string>={NXC01:'已暂停',NXC02:'控制已变更（需复评）',NXC03:'目标已改版',NXC04:'对象已变更',NXC05:'客户联系受限',NXC06:'人工接管中',
   NXB01:'预算耗尽',NXB02:'预算记账冲突',NXB03:'预算未配置',NXM01:'观测冲突'};

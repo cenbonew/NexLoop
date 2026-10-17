@@ -73,7 +73,19 @@ def test_real_chromium_workbench_desktop_and_phone(conversations, admin, pg, tmp
     assert conversation['bar_above_messages'] and conversation['pill_before'] == 'Agent 处理中'
     assert conversation['pill_taken'] == '人工接管中' and conversation['pill_back'] == 'Agent 处理中'
     assert '已交还给 Agent' in conversation['notice']
+    switches = observed['switches']   # the owner's real dispatch button, through the governed Action (2026-10-18)
+    state = dict(switches['before'])
+    assert state['部署层 REAL_DISPATCH_ENABLED'] == '未知' and state['租户层'] == '未设置（关）'
+    assert '打开租户开关（数据模式 real）' in switches['plan'] and 'enterprise.deliver:1' in switches['plan']
+    assert switches['opened'].count('完成，新版本') == 2 and '未完成' not in switches['opened']
+    opened = dict(switches['after_open'])
+    assert opened['租户层'] == '开' and opened['Action 层 · enterprise.deliver:1'] == '开'
+    assert switches['closed'].count('完成，新版本') == 2
+    closed = dict(switches['after_close'])
+    assert closed['租户层'] == '关' and closed['Action 层 · enterprise.deliver:1'] == '关'
+    assert admin.execute("select scope_kind,enabled from control.nexloop_real_dispatch_switches order by scope_kind").fetchall() == [('action_type', False), ('tenant', False)]
+    assert admin.execute("select count(*) from control.nexloop_control_events where event_kind='real_dispatch'").fetchone() == (4,)
     assert observed['phone']['overflow'] == {'consumers': 0, 'consumer': 0, 'conversation': 0}
     assert observed['errors'] == []
     assert sorted(p.name for p in shots.glob('*.png')) == sorted(['consumers-1440.png', 'consumer-1440.png', 'conversation-taken-1440.png',
-        'conversation-handed-back-1440.png', 'consumers-375.png', 'consumer-375.png', 'conversation-375.png'])
+        'conversation-handed-back-1440.png', 'real-dispatch-opened-1440.png', 'consumers-375.png', 'consumer-375.png', 'conversation-375.png'])

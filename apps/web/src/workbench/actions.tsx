@@ -28,6 +28,7 @@ export const DONE_TEXT:Record<Operation,string>={
   hand_back_conversation:'已交还：只有最新一条未回复的来信恢复待回复，更早的记为接管期间已处理；计划将重新评估。',
   send_staff_reply:'已发送给顾客；不代表问题已解决或承诺已兑现。',
   silence_alert:'已静默：期间仍会评估和记录，只是不再提示；到期自动结束。',
+  set_real_dispatch:'已提交；开关以重新读取的状态为准。部署层 REAL_DISPATCH_ENABLED 不在工作台控制范围内。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
