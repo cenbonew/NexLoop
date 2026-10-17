@@ -1060,6 +1060,11 @@
       "version": "0212",
       "name": "0212_context_degraded_fallback.sql",
       "sha256": "7300dd7f857c9819178871355c0420268b80aede83505e9dee5639b84e6effd6"
+    },
+    {
+      "version": "0213",
+      "name": "0213_nx046_owner_knowledge_read.sql",
+      "sha256": "8ecd491fba2a9dc66d6edac3848bb1f3e744580d27ae81e00641199db679ef8b"
     }
   ]
 }
