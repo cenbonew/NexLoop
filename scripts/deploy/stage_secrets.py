@@ -479,6 +479,14 @@ def merged_manifest(grants_path=GRANTS, principals_path=PRINCIPALS):
     for rule in stage.get('source_message_read_rules', []):
         if set(rule) != {'principal', 'fields', 'valid_until', 'purpose', 'source_task'} or rule['principal'] not in {p['role'] for p in stage['principals']}:
             raise Refused('source_message_read_rules shape')
+    # G-ROLE-READ (0211): the Source of plan reevaluation Role Runs reads its active plans' objects by SQL derivation, never by
+    # per-object grants (those would change its credential scopes). One rule per principal, an effect role only.
+    seen_rules = set()
+    for rule in stage.get('role_source_read_rules', []):
+        if set(rule) != {'principal', 'valid_until', 'purpose', 'source_task'} or rule['principal'] not in {p['role'] for p in stage['principals']} \
+                or rule['principal'] not in effect_roles or rule['principal'] in seen_rules:
+            raise Refused('role_source_read_rules shape')
+        seen_rules.add(rule['principal'])
     merged = {**base, 'principals': base['principals'] + stage['principals'], 'grants': base['grants'] + stage['grants']}
     return merged, stage
 
@@ -488,6 +496,13 @@ def _message_read_facts(manifest, stage, tenant):
     ids = {p['role']: p['principal_id'] for p in manifest['principals']}
     return [('message_read_rule', [ids[r['principal']]], MessageReadRule(tenant_id=tenant, principal_id=ids[r['principal']], type_name='Message',
              fields=tuple(sorted(r['fields'])), active=True, valid_until=r['valid_until'])) for r in stage.get('source_message_read_rules', [])]
+
+
+def _role_source_read_facts(manifest, stage, tenant):
+    from nexloop_eios.property_access import RoleSourceReadRule
+    ids = {p['role']: p['principal_id'] for p in manifest['principals']}
+    return [('role_source_read_rule', [ids[r['principal']]], RoleSourceReadRule(tenant_id=tenant, principal_id=ids[r['principal']], active=True,
+             valid_until=r['valid_until'])) for r in stage.get('role_source_read_rules', [])]
 
 
 def _apply_extra_facts(facts, tenant, *, database_url_file, signing_key_file, signing_key_id):
@@ -501,14 +516,14 @@ def _apply_extra_facts(facts, tenant, *, database_url_file, signing_key_file, si
     stored = {(r['kind'], tuple(r['key'])): r['payload'] for r in current['facts']}
     writes = [(k, key, f) for k, key, f in facts if stored.get((k, tuple(key))) != json.loads(f.model_dump_json())]
     if not writes:
-        return 0
+        return []
     body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'] or 'active',
             'object_types': [], 'actions': [], 'functions': [], 'service_credentials': [], 'browser_applications': [], 'browser_business_applications': [],
             'browser_rate_policies': [], 'identity_allowances': [],
             'authority_facts': [{'kind': k, 'key': list(key), 'payload': json.loads(f.model_dump_json())} for k, key, f in writes]}
     body['manifest_id'] = str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-extra:' + str(current['authority_revision']) + ':' + canonical_payload(body)))
     apply_manifest_with_secrets(body, database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id, service_secrets={})
-    return len(writes)
+    return [k for k, _, _ in writes]
 
 
 # G1 (run-34 §2): the browser login chain of the stage api. Values follow the readers, not names:
@@ -624,6 +639,7 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
         return {'dry_run': True, 'principals': sorted(p['role'] for p in manifest['principals']),
                 'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in manifest['grants']),
                 'message_read_rules': [r['principal'] for r in stage.get('source_message_read_rules', [])],
+                'role_source_read_rules': [r['principal'] for r in stage.get('role_source_read_rules', [])],
                 'credential_files': len(stage['credential_files'])}
     secrets_map = _reference_secrets(out, manifest, stage)
     # service_grants.apply re-validates a manifest whose grants follow the latest Action version, and that validation refuses the
@@ -647,9 +663,11 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     finally:
         staged.unlink(missing_ok=True)
         scratch.rmdir()
-    extra = _apply_extra_facts(_message_read_facts(manifest, stage, tenant), tenant, database_url_file=database_url_file,
+    extra = _apply_extra_facts(_message_read_facts(manifest, stage, tenant) + _role_source_read_facts(manifest, stage, tenant), tenant,
+                               database_url_file=database_url_file,
                                signing_key_file=management / 'signing.key.hex', signing_key_id=signing_key_id)
-    return {'changed': report['changed'] or bool(extra), 'message_read_rules_written': extra, 'credentials_created': sorted(report['credentials_created']),
+    return {'changed': report['changed'] or bool(extra), 'message_read_rules_written': extra.count('message_read_rule'),
+            'role_source_read_rules_written': extra.count('role_source_read_rule'), 'credentials_created': sorted(report['credentials_created']),
             'grants_added': len(report['grants_added']), 'grants_revoked': len(report['grants_revoked']),
             'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
 

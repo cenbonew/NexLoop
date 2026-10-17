@@ -1,0 +1,32 @@
+{
+  "schema_version": "nexloop-goal-setup/1",
+  "tenant_id": "<TENANT_ID>",
+  "workbench_application_id": "<WORKBENCH_APPLICATION_ID>",
+  "metric": {
+    "request_id": "goal-setup-metric-<NEW_UUID>",
+    "metric_id": "<METRIC_ID>",
+    "version": 1,
+    "name": "<METRIC_NAME>",
+    "aggregation": "ratio_of_sums",
+    "unit": "ratio",
+    "currency": null,
+    "maturity_seconds": 3600,
+    "refund_rule": "net_of_refunds",
+    "cohort_rule": "<COHORT_RULE>"
+  },
+  "goal": {
+    "request_id": "goal-setup-goal-<NEW_UUID>",
+    "goal_id": "<NX022_GOAL_ID>",
+    "expected_current_version": 0,
+    "goal_kind": "long_term",
+    "objective": "<GOAL_OBJECTIVE>",
+    "period_start": "<NOW_UTC_ISO>",
+    "period_end": "<TRIAL_PERIOD_END_UTC_ISO>",
+    "priority": 3,
+    "change_summary": "<CHANGE_SUMMARY>",
+    "key_results": [
+      {"kr_key": "<KR_KEY>", "metric_id": "<METRIC_ID>", "metric_version": 1, "target": "<KR_TARGET>", "direction": "at_least",
+       "window_start": "<NOW_UTC_ISO>", "window_end": "<TRIAL_PERIOD_END_UTC_ISO>"}
+    ]
+  }
+}

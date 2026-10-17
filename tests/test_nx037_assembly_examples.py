@@ -129,3 +129,27 @@ def test_the_operator_authorization_template_names_the_scope_and_holds_only_plac
         assert point in text, point
     assert not re.search(r'\b\d{1,3}(\.\d{1,3}){3}\b', text) and '@' not in text
     assert set(re.findall(r'<([A-Z0-9_]+)>', text)) == {'OWNER_REFERENCE', 'TENANT_DISPLAY_NAME', 'TENANT_ID', 'TRIAL_UUID', 'PERIOD_START', 'PERIOD_END', 'AGENT_TOOLS', 'PLAN_SHA256', 'DATE'}
+
+
+def test_plan_setup_and_goal_setup_recipes():
+    """G-PLAN / G-GOAL: the two examples pass the tools' own validators; the plan carries the settings of the reevaluator's file."""
+    from nexloop_eios.goal_setup import goal_fields, validate_recipe as goal
+    from nexloop_eios.plan_reevaluation import load_settings
+    from nexloop_eios.plan_setup import plan_body
+    now = datetime.now(UTC).replace(microsecond=0)
+    plan = filled('plan-setup.example.json', NEW_UUID=str(uuid.uuid4()), CONSUMER_ID_FROM_BUSINESS_SETUP=HEX, GOAL_VERSION_REF_FROM_GOAL_SETUP='goal:renewal-trial' + chr(64) + '1', STRATEGY_REF_FROM_CONTEXT_STRATEGY_SETUP='context-strategy:recent_plus_required' + chr(64) + '1',
+                  PLAN_STRATEGY_TEXT='synthetic', ROLE_ID_FROM_ROLE_ASSEMBLY=HEX, LINK_ID_FROM_ROLE_ASSEMBLY=HEX, STEP_ID_FROM_ROLE_ASSEMBLY=HEX,
+                  OFFERING_ID_FROM_CATALOG_SETUP=HEX, BINDING_ID_FROM_CATALOG_SETUP=HEX, CONTROL_ID_FROM_BUSINESS_SETUP=HEX, PLAN_STEP_KEY='confirm',
+                  PLAN_STEP_PREREQUISITE='synthetic', PLAN_STEP_EXPECTED_RESULT='synthetic', REASSESS_AT_UTC_ISO=(now + timedelta(minutes=5)).isoformat())
+    body = plan_body(plan, load_settings(ROOT / 'deploy/configuration/plan-reevaluation.v2.json'))
+    assert body['settings'] == {'self_window_seconds': 600, 'self_trigger_cap': 2, 'min_reassess_seconds': 60}
+    # The example step budget fits the role assembly example's ceiling (8 / 8 / 120), so a launch is not refused by the Role ceiling.
+    ceiling = json.loads((EXAMPLES / 'role-assembly.example.json').read_text().replace('"<PER_RUN_COST_CAP>"', '"2"').replace('"<TRIAL_CURRENCY>"', '"CNY"')
+                         .replace('<', '').replace('>', ''))['ceiling']['budget']
+    assert all(body['steps'][0]['budget'][k] <= ceiling[k] for k in body['steps'][0]['budget'])
+    recipe = goal(filled('goal-setup.example.json', TENANT_ID=TENANT, WORKBENCH_APPLICATION_ID='stage-workbench', NEW_UUID=str(uuid.uuid4()), METRIC_ID='renewal-rate',
+                         METRIC_NAME='Renewal rate', COHORT_RULE='frozen cohort', NX022_GOAL_ID='renewal-trial', GOAL_OBJECTIVE='synthetic',
+                         NOW_UTC_ISO=now.isoformat(), TRIAL_PERIOD_END_UTC_ISO=(now + timedelta(days=3)).isoformat(), CHANGE_SUMMARY='synthetic',
+                         KR_KEY='renewal', KR_TARGET='0.70'))
+    from nexloop_eios.goal_controls import goal_payload
+    assert goal_payload(operation='publish_goal', **goal_fields(recipe['goal']))['expected_current_version'] == 0
