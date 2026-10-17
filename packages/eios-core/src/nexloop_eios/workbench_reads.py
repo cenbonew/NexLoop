@@ -280,6 +280,33 @@ class WorkbenchQueries:
             item['content'] = {'status': 'ok', 'actor': content.get('actor'), 'body': content.get('body')} if content is not None else {'status': 'restricted'}
         return value
 
+    def consumer_history(self, *, consumer_id, before=None, limit=10):
+        """The customer's recent exchanges across all of their conversations, newest first, `limit` per page (owner feedback 2026-10-18:
+        a member who takes over sees what the customer said before). Composed of the existing governed reads only: the consumer read
+        (its conversations), the conversation read (order, direction, time) and the per-message READ for bodies, made for the page's
+        messages only (each audited with the purpose 'conversation'); a body the member may not read is 'restricted'. Cursor:
+        '<accepted_at>|<message id>' of the last item; the next page holds the strictly older messages."""
+        value = self.reader.call('consumer', consumer_id=consumer_id)
+        if value is None:
+            return None
+        items = []
+        for conversation in value['conversations']:
+            view = self.reader.call('conversation', conversation_id=conversation['conversation_id']) or {'messages': []}
+            for m in view['messages']:
+                items.append({'id': m['id'], 'conversation_id': conversation['conversation_id'], 'sequence': m['sequence'], 'accepted_at': m['accepted_at'],
+                              'direction': m['direction'], 'sender_kind': m['sender_kind']})
+        items.sort(key=lambda x: (x['accepted_at'] or '', x['id']), reverse=True)
+        if before is not None:
+            at, _, message_id = before.rpartition('|')
+            items = [x for x in items if ((x['accepted_at'] or ''), x['id']) < (at, message_id)]
+        page = items[:limit]
+        for item in page:
+            content = self.reader.message_fields(item['id'], ('actor', 'body'), 'conversation')
+            item['content'] = {'status': 'ok', 'actor': content.get('actor'), 'body': content.get('body')} if content is not None else {'status': 'restricted'}
+        last = page[-1] if page else None
+        return {'consumer_id': consumer_id, 'conversations': len(value['conversations']), 'items': page,
+                'next_cursor': f"{last['accepted_at']}|{last['id']}" if last and len(items) > limit else None}
+
     def plans(self, *, consumer_id=None):
         return self.reader.call('plans', **({'consumer_id': consumer_id} if consumer_id else {}))
 

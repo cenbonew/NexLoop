@@ -298,3 +298,40 @@ def test_consumer_list_shows_the_readable_name_and_never_a_restricted_one(workbe
         assert [i['display'] for i in listed.json()['items'] if i['consumer_id'] == consumer] == [{'status': 'withheld'}] and '合成客户甲' not in listed.text
         detail = client.get('/api/v1/workbench/consumers/' + consumer)
         assert detail.json()['display'] == {'status': 'withheld'} and '合成客户甲' not in detail.text
+
+
+def test_customer_history_pages_across_conversations_newest_first_with_governed_bodies(workbench):
+    """Owner feedback 2026-10-18 ("客户近期往来"): the customer's exchanges across all of their conversations, newest first, 10 per
+    page with a cursor; bodies through the per-message READ (one audit row per message shown); members only; malformed input 422."""
+    w = workbench
+    port = w['f']['port']
+    # Before provisioning (the later authority seeding moves the directory the port's session was authenticated against).
+    second = port.create_conversation(idempotency_key='history-second-conversation')
+    for i in range(11):
+        port.accept_message(conversation_id=second['id'], idempotency_key=f'history-message-{i:02d}', body=f'第二个会话的第 {i + 1} 条')
+    provision(w)
+    consumer = w['f']['consumer']
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        before = len(audit_rows(w['admin']))
+        first = client.get(f'/api/v1/workbench/consumers/{consumer}/history')
+        assert first.status_code == 200, first.text
+        page1 = first.json()
+        assert page1['conversations'] == 2 and len(page1['items']) == 10 and page1['next_cursor']
+        assert [i['content']['body'] for i in page1['items']] == [f'第二个会话的第 {n} 条' for n in range(11, 1, -1)]
+        assert all(i['conversation_id'] == second['id'] and i['direction'] == 'inbound' for i in page1['items'])
+        assert [(r[2], r[4]) for r in audit_rows(w['admin'])[before:]] == [('message', 'conversation')] * 10   # only the page's bodies are read
+        page2 = client.get(f'/api/v1/workbench/consumers/{consumer}/history', params={'before': page1['next_cursor']}).json()
+        assert [i['content']['body'] for i in page2['items']] == ['第二个会话的第 1 条', BODY] and page2['next_cursor'] is None
+        assert page2['items'][-1]['conversation_id'] == w['conversation']['id']
+        ids = [i['id'] for i in page1['items'] + page2['items']]
+        assert len(ids) == len(set(ids)) == 12
+        stamps = [i['accepted_at'] for i in page1['items'] + page2['items']]
+        assert stamps == sorted(stamps, reverse=True)
+        small = client.get(f'/api/v1/workbench/consumers/{consumer}/history', params={'limit': '3'}).json()
+        assert len(small['items']) == 3 and small['next_cursor']
+        for params in ({'limit': '51'}, {'limit': '0'}, {'before': 'not a cursor'}, {'before': '2026-10-18|' + 'g' * 64}, {'other': '1'}):
+            assert client.get(f'/api/v1/workbench/consumers/{consumer}/history', params=params).status_code == 422
+        assert client.get('/api/v1/workbench/consumers/' + '0' * 64 + '/history').status_code == 404
+    with w['client']() as client:  # the customer's own WebChat session is another realm
+        assert client.get(f'/api/v1/workbench/consumers/{consumer}/history').status_code == 401

@@ -85,7 +85,9 @@ def test_real_chromium_workbench_desktop_and_phone(conversations, admin, pg, tmp
     assert closed['租户层'] == '关' and closed['Action 层 · enterprise.deliver:1'] == '关'
     assert admin.execute("select scope_kind,enabled from control.nexloop_real_dispatch_switches order by scope_kind").fetchall() == [('action_type', False), ('tenant', False)]
     assert admin.execute("select count(*) from control.nexloop_control_events where event_kind='real_dispatch'").fetchone() == (4,)
+    history = observed['history']   # "客户近期往来" (2026-10-18): above the conversation's own messages, the latest exchange, Beijing time
+    assert history['above_messages'] and history['items'] == 1 and '本会话' in history['text'] and '北京时间' in history['text']
     assert observed['phone']['overflow'] == {'consumers': 0, 'consumer': 0, 'conversation': 0}
     assert observed['errors'] == []
     assert sorted(p.name for p in shots.glob('*.png')) == sorted(['consumers-1440.png', 'consumer-1440.png', 'conversation-taken-1440.png',
-        'conversation-handed-back-1440.png', 'real-dispatch-opened-1440.png', 'consumers-375.png', 'consumer-375.png', 'conversation-375.png'])
+        'conversation-handed-back-1440.png', 'real-dispatch-opened-1440.png', 'customer-history-1440.png', 'consumers-375.png', 'consumer-375.png', 'conversation-375.png'])
