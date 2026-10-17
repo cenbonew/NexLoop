@@ -8,7 +8,7 @@ import {lazyStream,type Model,type Api,type Models,type AssistantMessageEventStr
 import {Harness,GenerationTask,hook,ToolResultEntry,createRegistry,defineDoc,type ConversationId,type SubmissionId,type ModelRef,type ToolRegistration} from '@earendil-works/pi-durable';
 import {openNodeSqliteDatabase} from '@earendil-works/pi-durable/storage/sqlite/node';
 import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
-import {safeProviderMessage,safeProviderStream,type ProviderFailure} from './runtime-provider-boundary.js';
+import {providerFailure,safeProviderMessage,safeProviderStream,type ProviderFailure} from './runtime-provider-boundary.js';
 /** Owner 2026-10-18 (option B): the fixed refusal codes a model may correct within its Run (guard or Host refusals, never a
  * thrown tool or an authorization failure). */
 export const RECOVERABLE_TOOL_CODES=new Set(['invalid_effect_request','effect_intent_unavailable','request_scope_wrong_service','outside_catalog_terms']);
@@ -16,7 +16,8 @@ export const RECOVERABLE_TOOL_CODES=new Set(['invalid_effect_request','effect_in
 /** 10/18 stage: one allowlisted stderr line per failed model call (fixed fields only; never a message, body or key). */
 export function modelFailureLine(runId:string,call:number,elapsedMs:number,failure:ProviderFailure):string{
   return JSON.stringify({ts:new Date().toISOString(),service:'agent-host',level:'warning',event:'model call failed',
-    detail:{run_id:runId,call_sequence:call,elapsed_ms:Math.max(0,Math.round(elapsedMs)),kind:failure.kind,http_status:failure.http_status,exception:failure.exception}})+'\n';
+    detail:{run_id:runId,call_sequence:call,elapsed_ms:Math.max(0,Math.round(elapsedMs)),kind:failure.kind,http_status:failure.http_status,exception:failure.exception,
+      reason:failure.reason??'other',cause_code:failure.cause_code??null}})+'\n';
 }
 import {purgeRunDirectory,validRunId} from './run-purge.js';
 import {modelTiming} from './model-timing.js';
@@ -49,6 +50,8 @@ export type PiRuntimeOptions={
   assertOwner:()=>void;
   /** Context v6: send each actual model request to the guard before the call. */
   recordModelRequests?:boolean|((command:RunCommand)=>boolean);
+  /** 10/18: each model request's own timeout (the provider's timeoutMs), never past the Run's active deadline. No retry. */
+  modelRequestTimeoutMs?:number;
   /** Trusted server implementation must check current identity, PG lease/fence and control revisions. */
   authorize:(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot,result?:ModelResult)=>Promise<{ever_execution_authorized:boolean}>;
 };
@@ -235,9 +238,14 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       const guardedModels=new Proxy(this.options.models,{get:(target,property)=>{
         const value=Reflect.get(target,property,target);
         if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});const began=Date.now();
+          const timeout=this.options.modelRequestTimeoutMs;
+          if(timeout!==undefined){
+            const deadline=Math.min(Date.parse(command.not_after),began+command.budget.active_timeout_seconds*1000);  // the Run's own timer still aborts at its real deadline
+            args[2]={...(args[2] as object|undefined),timeoutMs:Math.max(1000,Math.min(timeout,deadline-began))};
+          }
           let reported=false;  // the harness reads both the stream and its result: one line per call
           const report=(failure:ProviderFailure)=>{if(reported)return;reported=true;process.stderr.write(modelFailureLine(command.run_id,call,Date.now()-began,failure));};
-          try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,recordRequests?settleFor(call):undefined,report);}catch(error){report({kind:'stream_exception',http_status:null,exception:error instanceof Error&&/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.constructor.name)?error.constructor.name:null});throw new RuntimeError('runtime_model_unavailable');}}));
+          try{return safeProviderStream(Reflect.apply(value,target,args) as AssistantMessageEventStream,checkCost,recordRequests?settleFor(call):undefined,report);}catch(error){report(providerFailure('stream_exception',error));throw new RuntimeError('runtime_model_unavailable');}}));
         if(property==='fetchDeferred'&&typeof value==='function')return async(...args:unknown[])=>{if(recordRequests)throw new RuntimeError('runtime_model_request_unrecorded');await consume('model');try{const message=safeProviderMessage(await Reflect.apply(value,target,args) as AssistantMessage);checkCost(message);return message;}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(property==='cancelDeferred'&&typeof value==='function')return async(...args:unknown[])=>{await this.authorize(command,'cancel');try{return await Reflect.apply(value,target,args);}catch{throw new RuntimeError('runtime_model_unavailable');}};
         if(typeof value==='function')return (...args:unknown[])=>{try{const result=Reflect.apply(value,target,args);if(result instanceof Promise)return result.catch(()=>{throw new RuntimeError('runtime_model_unavailable');});return result;}catch{throw new RuntimeError('runtime_model_unavailable');}};

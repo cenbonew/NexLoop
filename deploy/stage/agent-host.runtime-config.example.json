@@ -10,5 +10,6 @@
   "effect_tools": true,
   "context_input_protocol": "nexloop.context-pack.v6",
   "maximum_active_runs": 4,
-  "run_admission_wait_ms": 500
+  "run_admission_wait_ms": 500,
+  "model_request_timeout_ms": 40000
 }
