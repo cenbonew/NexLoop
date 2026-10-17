@@ -34,6 +34,10 @@ try{
   await page.locator('.takeover-bar').waitFor({timeout:20000});
   const top=async sel=>page.locator(sel).first().evaluate(e=>e.getBoundingClientRect().top);
   result.conversation={bar_above_messages:(await top('.takeover-bar'))<(await top('.workbench-messages')),pill_before:await page.locator('.takeover-pill').innerText()};
+  await page.locator('.customer-history .history-item').first().waitFor({timeout:20000});
+  result.history={above_messages:(await top('.customer-history'))<(await top('.workbench-messages')),items:await page.locator('.customer-history .history-item').count(),
+    text:await page.locator('.customer-history').innerText()};
+  await page.locator('.customer-history').screenshot({path:`${shots}/customer-history-1440.png`});
   await page.fill('#takeover-reason','合成测试：人工核对');await page.getByRole('button',{name:'接管本会话'}).click();
   try{await page.locator('.takeover-notice',{hasText:'已接管'}).waitFor({timeout:20000});}
   catch(e){await page.screenshot({path:`${shots}/failure.png`,fullPage:true});throw new Error('take-over not confirmed: '+(await page.locator('.takeover-bar').innerText()));}

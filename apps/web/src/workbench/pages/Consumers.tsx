@@ -1,6 +1,7 @@
 import {useState,type ReactNode} from 'react';
-import {useQuery} from '@tanstack/react-query';
-import {DISPLAY_NOTE,consumerAlias,readConsumer,readConsumers,readConversation,RESTRICTED_TEXT,type DisplayName} from '../api';
+import {useInfiniteQuery,useQuery} from '@tanstack/react-query';
+import {COMMITMENT_STATUS_TEXT,DISPLAY_NOTE,STATE_TEXT,consumerAlias,kindOf,readConsumer,readConsumerActions,readConsumerCommitments,readConsumerHistory,readConsumers,readConversation,RESTRICTED_TEXT,
+  type DisplayName,type HistoryItem} from '../api';
 import {Page,Short} from './Page';
 
 /** The customer's readable name, or a non-identifying alias with the reason no name is shown (ADR-025). */
@@ -9,10 +10,48 @@ export function ConsumerName({consumerId,display}:{consumerId:string;display:Dis
     :<span className="consumer-name consumer-alias">{consumerAlias(consumerId)}<small>（{DISPLAY_NOTE[display.status]}）</small></span>;
 }
 /** A PostgreSQL or ISO timestamp as local date and time; anything unparsable is shown as given (never hidden). */
-export function when(value:string|null):string{
+export function when(value:string|null,timeZone?:string):string{
   if(!value)return '—';
   const iso=value.replace(' ','T').replace(/(\.\d{3})\d+/,'$1').replace(/([+-]\d{2})$/,'$1:00');
-  const d=new Date(iso);return Number.isNaN(d.getTime())?value:d.toLocaleString('zh-CN',{hour12:false});
+  const d=new Date(iso);return Number.isNaN(d.getTime())?value:d.toLocaleString('zh-CN',{hour12:false,...(timeZone?{timeZone}:{})});
+}
+/** Beijing time, as the owner reads it whatever the member's machine is set to. */
+export const beijing=(value:string|null)=>when(value,'Asia/Shanghai');
+const senderText=(m:{direction:string;sender_kind:string})=>m.direction==='inbound'?'顾客':m.sender_kind==='agent'?'Agent':m.sender_kind==='human_takeover'?'人工客服':'企业';
+
+/** "客户近期往来" (owner feedback 2026-10-18): what this customer said and was told across all of their conversations, newest first.
+ * Collapsed it shows the latest exchange; expanded the latest 10, and "查看更早" pages back 10 at a time (cursor). Bodies come through
+ * the per-message READ (restricted ones are labelled), so a member sees no more than the conversation page would show. */
+export function CustomerHistory({consumerId,currentConversationId}:{consumerId:string;currentConversationId?:string}){
+  const [open,setOpen]=useState(false);
+  const history=useInfiniteQuery({queryKey:['workbench','consumer-history',consumerId],initialPageParam:'',
+    queryFn:({pageParam})=>readConsumerHistory(consumerId,pageParam||undefined),getNextPageParam:last=>last.next_cursor??undefined});
+  const commitments=useQuery({queryKey:['workbench','consumer-commitments',consumerId],queryFn:()=>readConsumerCommitments(consumerId),enabled:open});
+  const actions=useQuery({queryKey:['workbench','consumer-actions',consumerId],queryFn:()=>readConsumerActions(consumerId),enabled:open});
+  if(history.isPending)return <section className="customer-history" aria-label="客户近期往来"><p role="status">{STATE_TEXT.loading}</p></section>;
+  if(history.isError)return <section className="customer-history" aria-label="客户近期往来"><p className="note" role="status">客户近期往来暂不可用：{STATE_TEXT[kindOf(history.error)]}</p></section>;
+  const items:HistoryItem[]=history.data.pages.flatMap(p=>p.items);const total=history.data.pages[0]?.conversations??0;
+  const shown=open?items:items.slice(0,1);
+  return <section className="customer-history" aria-label="客户近期往来">
+    <header className="customer-history-head"><h2>客户近期往来</h2><span className="note">{total} 个会话 · 按时间倒序 · 北京时间</span>
+      {items.length>1||history.hasNextPage?<button type="button" className="history-toggle" aria-expanded={open} onClick={()=>setOpen(!open)}>{open?'收起':'展开最近 10 条'}</button>:null}</header>
+    {items.length?<ol className="history-list">{shown.map(m=><li key={m.id} className={'history-item history-'+m.direction}>
+      <p className="meta"><span className={'history-conv'+(m.conversation_id===currentConversationId?' history-current':'')}>{m.conversation_id===currentConversationId?'本会话':<>会话 <Short value={m.conversation_id}/></>}</span>
+        · #{m.sequence} · {senderText(m)}{m.content.status==='ok'&&m.content.actor&&m.direction==='outbound'?`（${m.content.actor}）`:''} · {beijing(m.accepted_at)}</p>
+      {m.content.status==='ok'?<p className="history-body">{m.content.body}</p>:<p className="note">{RESTRICTED_TEXT}</p>}</li>)}</ol>
+      :<p className="note">这位客户还没有消息。</p>}
+    {open&&history.hasNextPage?<button type="button" className="history-more" disabled={history.isFetchingNextPage} onClick={()=>void history.fetchNextPage()}>
+      {history.isFetchingNextPage?'正在加载…':'查看更早'}</button>:null}
+    {open&&!history.hasNextPage&&items.length>1?<p className="note">已显示全部 {items.length} 条。</p>:null}
+    {open?<div className="history-summary">
+      <div><h3>承诺</h3>{commitments.isPending?<p role="status">{STATE_TEXT.loading}</p>:commitments.isError?<p className="note">{STATE_TEXT[kindOf(commitments.error)]}</p>
+        :commitments.data.commitments.length?<ul>{commitments.data.commitments.slice(0,5).map(c=><li key={c.commitment_id}><span className="badge">{COMMITMENT_STATUS_TEXT[c.status]??c.status}</span>
+          {typeof c.properties.content==='string'?c.properties.content:c.quote??<Short value={c.commitment_id}/>}</li>)}</ul>:<p className="note">暂无承诺。</p>}</div>
+      <div><h3>最近的订单与 Action</h3>{actions.isPending?<p role="status">{STATE_TEXT.loading}</p>:actions.isError?<p className="note">{STATE_TEXT[kindOf(actions.error)]}</p>
+        :actions.data.intents.length?<ul>{actions.data.intents.slice(0,5).map(a=><li key={a.intent_id}><span className="badge">{a.state}</span>{a.action_name.replace(/^nexloop\./,'')} · {beijing(a.created_at)}</li>)}</ul>
+        :<p className="note">暂无。</p>}</div>
+    </div>:null}
+  </section>;
 }
 
 export function Consumers({actions,onOpen}:{actions?:ReactNode;onOpen:(consumerId:string)=>void}){
@@ -52,12 +91,16 @@ export function ConsumerDetail({consumerId,actions,onConversation}:{consumerId:s
 
 export function Conversation({conversationId,actions}:{conversationId:string;actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','conversation',conversationId],queryFn:()=>readConversation(conversationId)});
-  return <Page title="会话" query={query} actions={actions} empty={d=>d.messages.length===0}>{data=><ol className="workbench-messages">
+  return <Page title="会话" query={query} actions={actions}>{data=><>
+    <CustomerHistory consumerId={data.consumer_id} currentConversationId={data.conversation_id}/>
+    <h2>本会话消息</h2>
+    {data.messages.length?<ol className="workbench-messages">
     {data.messages.map(m=><li key={m.id} className={'message-'+m.direction}>
       <p className="meta">#{m.sequence} · {m.direction==='outbound'?(m.sender_kind==='agent'?'企业 Agent 回复':m.sender_kind==='human_takeover'?`人工客服回复${m.content.status==='ok'&&m.content.actor?`（${m.content.actor}）`:''}`:'企业回复'):'顾客'} · {when(m.accepted_at)}
         {m.provider?` · 渠道 ${m.provider.namespace}${m.provider.sequence!==null?` 序号 ${m.provider.sequence}`:''}${m.provider.trust==='client'?'（客户端陈述）':''}${m.provider.skewed?'（时间偏差）':''}`:''}
         {m.reply_to_message_id?<> · 回复 <Short value={m.reply_to_message_id}/></>:null}</p>
       {m.content.status==='ok'?<p>{m.content.body}</p>:<p className="note">{RESTRICTED_TEXT}</p>}
     </li>)}
-  </ol>}</Page>;
+  </ol>:<p className="note" role="status">{STATE_TEXT.empty}</p>}
+  </>}</Page>;
 }

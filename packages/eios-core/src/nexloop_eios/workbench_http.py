@@ -20,6 +20,7 @@ from eios.identity.sessions import BrowserSessionService
 from nexloop_eios.browser_http import WORKBENCH_COOKIE
 
 _ID = re.compile(r'[a-f0-9]{64}')
+_CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{64}')
 _STATES = ('accepted', 'dispatching', 'unknown', 'fulfilled', 'failed', 'confirmed')
 HEADERS = {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'}
 
@@ -111,6 +112,20 @@ def router(config, *, ports_for_workbench):
         if not _ID.fullmatch(consumer_id) or request.query_params:
             return error('invalid_request', 422)
         return await invoke(request, 'consumer', consumer_id=consumer_id)
+
+    @routes.get('/consumers/{consumer_id}/history')
+    async def consumer_history(consumer_id: str, request: Request):
+        # The customer's recent exchanges across conversations, newest first; cursor '<accepted_at>|<message id>'.
+        try:
+            q = query(request, ('before', 'limit'))
+            if not _ID.fullmatch(consumer_id) or 'before' in q and not _CURSOR.fullmatch(q['before']):
+                raise ValueError()
+            limit = limit_of(q['limit']) if 'limit' in q else 10
+            if limit > 50:
+                raise ValueError()
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'consumer_history', consumer_id=consumer_id, before=q.get('before'), limit=limit)
 
     @routes.get('/conversations/{conversation_id}')
     async def conversation(conversation_id: str, request: Request):

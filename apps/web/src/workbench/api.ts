@@ -183,6 +183,22 @@ export function conversation(value:unknown):ConversationView{
 }
 export const readConversation=(conversationId:string)=>get('/api/v1/workbench/conversations/'+conversationId,conversation);
 
+// ---- the customer's recent exchanges across conversations (owner feedback 2026-10-18) ----
+export type HistoryItem={id:string;conversation_id:string;sequence:number;accepted_at:string;direction:'inbound'|'outbound';sender_kind:string;
+  content:{status:'ok';actor:string|null;body:string|null}|{status:'restricted'}};
+export type ConsumerHistory={consumer_id:string;conversations:number;items:HistoryItem[];next_cursor:string|null};
+export function consumerHistory(value:unknown):ConsumerHistory{
+  const v=object(value);
+  return {consumer_id:id(v.consumer_id),conversations:count(v.conversations),next_cursor:maybeText(v.next_cursor),items:list(v.items).map(x=>{
+    const o=object(x);const c=object(o.content);
+    if(o.direction!=='inbound'&&o.direction!=='outbound')throw new WorkbenchError('invalid');
+    const content=c.status==='ok'?{status:'ok' as const,actor:maybeText(c.actor),body:maybeText(c.body)}:c.status==='restricted'?{status:'restricted' as const}:(()=>{throw new WorkbenchError('invalid');})();
+    return {id:id(o.id),conversation_id:id(o.conversation_id),sequence:count(o.sequence),accepted_at:text(o.accepted_at),direction:o.direction,sender_kind:text(o.sender_kind),content};})};
+}
+export const HISTORY_PAGE=10;
+export const readConsumerHistory=(consumerId:string,before?:string)=>
+  get('/api/v1/workbench/consumers/'+consumerId+'/history?limit='+HISTORY_PAGE+(before?'&before='+encodeURIComponent(before):''),consumerHistory);
+
 // ---- plans ----
 export type Plan={plan_id:string;version:number;consumer_id:string;goal_version_ref:string;status:string;created_at:string;steps:{step_key:string;expected_result:string;reassess_at:string|null}[];outcomes:{kind:string;recorded_at:string}[]};
 export function plans(value:unknown):Plan[]{
@@ -206,6 +222,8 @@ export function actions(value:unknown):Actions{
     unknown:{count:count(u.count),oldest_age_seconds:u.oldest_age_seconds===null?null:count(u.oldest_age_seconds)}};
 }
 export const readActions=(state?:string)=>get('/api/v1/workbench/actions'+(state?'?state='+encodeURIComponent(state):''),actions);
+/** One customer's most recent governed Actions (orders, deliveries, queries), for the customer summary. */
+export const readConsumerActions=(consumerId:string,limit=5)=>get('/api/v1/workbench/actions?consumer_id='+consumerId+'&limit='+limit,actions);
 
 // ---- commitments (commitment-view contract) ----
 export type EvidenceItem={kind:string;ref:string;occurred_at:string};
@@ -229,6 +247,7 @@ export function commitmentList(value:unknown):Commitments{
   return {commitments:list(v.commitments).map(commitmentView),exceptions:list(v.exceptions).map(x=>{const o=object(x);return {subject_ref:text(o.subject_ref),reason:text(o.reason),raised_at:text(o.raised_at)};})};
 }
 export const readCommitments=(all=false)=>get('/api/v1/workbench/commitments'+(all?'?all=true':''),commitmentList);
+export const readConsumerCommitments=(consumerId:string)=>get('/api/v1/workbench/commitments?consumer_id='+consumerId+'&all=true',commitmentList);
 export const readCommitment=(commitmentId:string)=>get('/api/v1/workbench/commitments/'+commitmentId,commitmentView);
 /** Open vs ended (design §6). Status comes only from the object; the interface never infers it. */
 export const OPEN_STATUSES=['conditional','open','in_progress','breached'];
