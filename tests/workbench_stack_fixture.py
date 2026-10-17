@@ -9,6 +9,7 @@ import subprocess
 
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
+from commercial_fixture import publish_registry_actions
 from commitment_fixture import TAKEOVER_ACTIONS, publish_request_actions
 from test_workbench_actions_http import publish_goal_actions
 from test_workbench_read_pg import CALLER, ROLES, TENANT, WORKBENCH_APP, add_human, members_file, write_facts
@@ -38,6 +39,8 @@ def workbench_stack(conversations, admin, pg, tmp_path, *, port, web):
     publish_request_actions(admin)
     publish_request_actions(admin, names=TAKEOVER_ACTIONS)
     publish_goal_actions(admin)
+    # The owner's real dispatch switch Action (0153), as the stage tenant publishes it; the switches start closed.
+    publish_registry_actions(admin, ('nexloop.real_dispatch.set',))
     # The workbench: its own browser application; owner and operator members by trusted configuration (configurator).
     admin.execute('insert into control.nexloop_browser_applications values(%s,%s,1,true)', (TENANT, WORKBENCH_APP))
     admin.execute('insert into control.nexloop_browser_business_applications values(%s,%s,%s,%s,%s)', (TENANT, WORKBENCH_APP, CALLER, '1', Jsonb(['action.execute'])))

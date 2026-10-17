@@ -103,3 +103,14 @@
 .workbench-lead{margin:-4px 0 14px;font-size:15px;color:#334155}
 /* WebChat on desktop: the signed-in page with the conversation gets a wider column; the login page keeps its 524 px spec. */
 @media(min-width:1024px){main:has(.chat){width:min(880px,100%);transform:none}.chat textarea{min-height:96px}}
+/* Real dispatch switches on the settings page (2026-10-18). */
+.real-dispatch{margin:20px 0;border:1px solid var(--border);border-radius:12px;padding:12px 16px;background:#fbfcfe}
+.real-dispatch h2{margin-top:0}.real-dispatch-layers td:first-child{white-space:nowrap;font-weight:600}
+.rd-pill{display:inline-block;padding:1px 10px;border-radius:999px;font-size:12px;font-weight:700}
+.rd-on{background:#e8f7ee;color:#166534}.rd-off{background:#eef2f7;color:#475569}.rd-unknown{background:#fff4e0;color:#8a4b00}
+.rd-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.workbench .rd-close{background:#fff;color:#b42318;border:1px solid #f3c1bd}
+.rd-confirm{margin-top:12px;border:1px solid #f1c27d;background:#fffaf1;border-radius:10px;padding:12px 16px}.rd-confirm h3{margin:0 0 6px;font-size:15px}
+.rd-results{margin-top:12px}.rd-results h3{margin:0 0 6px;font-size:14px}.rd-results ul{margin:0;padding-left:18px}
+.rd-ok{color:#166534}.rd-fail{color:#b42318}
+.rd-warning{margin:8px 0;padding:8px 12px;border-radius:8px;background:#fff4e0;color:#7a3e00;font-weight:600;border-left:4px solid #d97706}

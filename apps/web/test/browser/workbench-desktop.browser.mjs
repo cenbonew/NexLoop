@@ -44,6 +44,21 @@ try{
   result.conversation.pill_back=await page.locator('.takeover-pill').innerText();
   result.conversation.notice=await page.locator('.takeover-notice').innerText();
   await page.screenshot({path:`${shots}/conversation-handed-back-1440.png`,fullPage:true});
+  // Real dispatch switches (owner 2026-10-18): the owner's one-click open and close through the governed Action, state read back.
+  await page.goto('/workbench/settings');
+  await page.locator('.real-dispatch-layers').waitFor({timeout:20000});
+  const pills=async()=>page.locator('.real-dispatch-layers tbody tr').evaluateAll(rows=>rows.map(r=>[r.cells[0].innerText,r.querySelector('.rd-pill').innerText]));
+  result.switches={before:await pills()};
+  await page.getByRole('button',{name:'一键开启'}).click();
+  result.switches.plan=await page.locator('.rd-confirm ol').innerText();
+  await page.fill('#rd-reason','合成测试：负责人打开真实派发');await page.getByRole('button',{name:'确认执行'}).click();
+  await page.locator('.rd-results').waitFor({timeout:20000});await page.waitForTimeout(500);
+  result.switches.opened=await page.locator('.rd-results').innerText();result.switches.after_open=await pills();
+  await page.screenshot({path:`${shots}/real-dispatch-opened-1440.png`,fullPage:true});
+  await page.getByRole('button',{name:'一键关闭'}).click();
+  await page.fill('#rd-reason','合成测试：演示结束关闭');await page.getByRole('button',{name:'确认执行'}).click();
+  await page.locator('.rd-results',{hasText:'关闭'}).waitFor({timeout:20000});await page.waitForTimeout(500);
+  result.switches.closed=await page.locator('.rd-results').innerText();result.switches.after_close=await pills();
   await page.setViewportSize({width:375,height:812});
   const overflow={};
   for(const [name,path] of [['consumers','/workbench/consumers'],['consumer',`/workbench/consumers/${session.consumer_id}`],['conversation',`/workbench/consumers/conversations/${session.conversation_id}`]]){

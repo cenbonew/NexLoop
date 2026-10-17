@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readAudit,readSettings} from '../api';
 import {Failure,Page} from './Page';
+import {RealDispatchPanel} from '../RealDispatchPanel';
 
 const ROLE_TEXT:Record<string,string>={owner:'负责人',operator:'运营',reviewer:'审核人'};
 export function Settings({actions}:{actions?:ReactNode}){
@@ -11,6 +12,7 @@ export function Settings({actions}:{actions?:ReactNode}){
     <h2>成员与角色（只读）</h2>
     <table><thead><tr><th>成员</th><th>角色</th></tr></thead><tbody>{data.members.map(m=><tr key={m.principal_id}><td>{m.principal_id}</td><td>{ROLE_TEXT[m.role]??m.role}</td></tr>)}</tbody></table>
     <p className="note">成员与角色只能经可信配置变更，工作台内不能自助注册或改角色。</p>
+    <RealDispatchPanel/>
     <ReadAudit/>
   </>}</Page>;
 }
