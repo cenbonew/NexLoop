@@ -107,27 +107,29 @@ export class RuntimeEffectClient{
       const valid=validateRunCommand(command);
       const ref=this.configuration.activationForRun(valid.run_id);
       if(!ref||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(ref)||Date.parse(valid.not_after)<=Date.now())throw new Error();
-      let argumentsBody:Record<string,unknown>;
-      if(action!==undefined&&action!==ENTERPRISE)throw new Error();
-      if(operation==='submit'&&action===ENTERPRISE){
-        // ADR-030: the enterprise delivery parameters (the Action's input_schema): summary, optional details, consumer_ref
-        // (this Run's own consumer; filled when absent). No tenant_id; unknown keys refused. SQL re-checks everything.
-        const row=arguments_ as Record<string,unknown>;
-        if(!row||typeof row!=='object'||Array.isArray(row)||Object.keys(row).some(key=>!['summary','details','consumer_ref'].includes(key)))throw new Error();
-        if(typeof row.summary!=='string'||[...row.summary].length<1||[...row.summary].length>200)throw new Error();
-        if(row.details!==undefined&&(typeof row.details!=='string'||[...row.details].length>2000))throw new Error();
-        if(row.consumer_ref!==undefined&&row.consumer_ref!==valid.consumer_ref)throw new Error();
-        argumentsBody={parameters:{summary:row.summary,...(row.details!==undefined?{details:row.details}:{}),consumer_ref:valid.consumer_ref}};
-      }else if(operation==='submit'){
-        const hasScope=arguments_!==null&&typeof arguments_==='object'&&Object.hasOwn(arguments_,'request_scope');
-        const row=exact(arguments_,hasScope?['message','request_scope']:['message']);
-        if(typeof row.message!=='string'||[...row.message].length<1||[...row.message].length>8192)throw new Error();
-        argumentsBody={parameters:{message:row.message},...(hasScope?{request_scope:requestScope(row.request_scope)}:{})};
-      }else if(operation==='find'){
-        const row=exact(arguments_,['intent_id']);
-        if(typeof row.intent_id!=='string'||!uuid.test(row.intent_id))throw new Error();
-        argumentsBody={intent_id:row.intent_id};
-      }else throw new Error();
+      let argumentsBody:Record<string,unknown>={};
+      try{
+        if(action!==undefined&&action!==ENTERPRISE)throw new RuntimeError('invalid_effect_request');
+        if(operation==='submit'&&action===ENTERPRISE){
+          // ADR-030: the enterprise delivery parameters (the Action's input_schema): summary, optional details, consumer_ref
+          // (this Run's own consumer; filled when absent). No tenant_id; unknown keys refused. SQL re-checks everything.
+          const row=arguments_ as Record<string,unknown>;
+          if(!row||typeof row!=='object'||Array.isArray(row)||Object.keys(row).some(key=>!['summary','details','consumer_ref'].includes(key)))throw new RuntimeError('invalid_effect_request');
+          if(typeof row.summary!=='string'||[...row.summary].length<1||[...row.summary].length>200)throw new RuntimeError('invalid_effect_request');
+          if(row.details!==undefined&&(typeof row.details!=='string'||[...row.details].length>2000))throw new RuntimeError('invalid_effect_request');
+          if(row.consumer_ref!==undefined&&row.consumer_ref!==valid.consumer_ref)throw new RuntimeError('invalid_effect_request');
+          argumentsBody={parameters:{summary:row.summary,...(row.details!==undefined?{details:row.details}:{}),consumer_ref:valid.consumer_ref}};
+        }else if(operation==='submit'){
+          const hasScope=arguments_!==null&&typeof arguments_==='object'&&Object.hasOwn(arguments_,'request_scope');
+          const row=exact(arguments_,hasScope?['message','request_scope']:['message']);
+          if(typeof row.message!=='string'||[...row.message].length<1||[...row.message].length>8192)throw new RuntimeError('invalid_effect_request');
+          argumentsBody={parameters:{message:row.message},...(hasScope?{request_scope:requestScope(row.request_scope)}:{})};
+        }else if(operation==='find'){
+          const row=exact(arguments_,['intent_id']);
+          if(typeof row.intent_id!=='string'||!uuid.test(row.intent_id))throw new RuntimeError('invalid_effect_request');
+          argumentsBody={intent_id:row.intent_id};
+        }else throw new RuntimeError('invalid_effect_request');
+      }catch{throw new RuntimeError('invalid_effect_request');}  // any refused parameter, before the network
       const key=this.configuration.privateMaterial(this.configuration.keyPath,64).toString('utf8');
       if(!/^[0-9a-f]{64}$/.test(key))throw new Error();
       const ca=this.configuration.privateMaterial(this.configuration.caPath,32768);
@@ -144,7 +146,7 @@ export class RuntimeEffectClient{
         return await this.once(url,ca,key,body,valid,operation,arguments_);
       }
     }catch(error){
-      if(error instanceof RuntimeError&&['intent_payload_conflict','outside_catalog_terms'].includes(error.code))throw error;
+      if(error instanceof RuntimeError&&['intent_payload_conflict','outside_catalog_terms','invalid_effect_request','effect_intent_unavailable'].includes(error.code))throw error;
       throw new RuntimeError('runtime_effect_unavailable');
     }
   }
@@ -168,6 +170,11 @@ export class RuntimeEffectClient{
               if(result&&typeof result==='object'&&(result as Record<string,unknown>).code==='intent_payload_conflict')reject(new RuntimeError('intent_payload_conflict'));else fail();
               return;
             }
+            // 10/18 stage (Run 1ab1d785): the guard's fail-closed answers (403 effect_intent_unavailable, e.g. a find of an intent
+            // this Run did not create; 400 invalid_effect_request) were dropped as malformed and the tool threw. They are fixed
+            // codes the model can act on: kept as such (still no text, header or debug field).
+            if(response.statusCode===403&&result&&typeof result==='object'&&Object.keys(result).length===1&&(result as Record<string,unknown>).code==='effect_intent_unavailable'){reject(new RuntimeError('effect_intent_unavailable'));return;}
+            if(response.statusCode===400&&result&&typeof result==='object'&&Object.keys(result).length===1&&(result as Record<string,unknown>).code==='invalid_effect_request'){reject(new RuntimeError('invalid_effect_request'));return;}
             if(response.statusCode===403){const denied=exact(result,['code','scope']);if(denied.code!=='outside_catalog_terms')throw new Error();validateRejectedScope(denied.scope);reject(new RuntimeError('outside_catalog_terms'));return;}
             if(response.statusCode!==200)throw new Error();
             const envelope=exact(result,['run_id','receipt']);
@@ -271,7 +278,7 @@ export class RuntimeEffectClient{
     const bound=validateRunCommand(command);
     const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action)))}]};}
-      catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','intent_payload_conflict'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('runtime_effect_unavailable');}
+      catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','intent_payload_conflict','invalid_effect_request','effect_intent_unavailable'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
     // 10/17 stage smoke: the service intent is keyed on this Run's slot (0040), so one Run has one reply. A second, different
     // service.request (the model adding to a reply already submitted) is a 409 conflict; it is answered as a normal result that
@@ -288,6 +295,9 @@ export class RuntimeEffectClient{
         return {content:[{type:'text' as const,text:JSON.stringify(receipt)}],...(operation==='submit'?end:{})};
       }
       catch(error){if(error instanceof RuntimeError&&error.code==='outside_catalog_terms')return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'outside_catalog_terms',scope:catalogScope})}]};
+        // 10/18: parameters this Host refuses before any request (unknown keys, lengths, another consumer) come back as a code the
+        // model can correct, instead of an exception that ends the call with no reason.
+        if(error instanceof RuntimeError&&['invalid_effect_request','effect_intent_unavailable'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};
         if(error instanceof RuntimeError&&error.code==='intent_payload_conflict'&&operation==='submit')return {content:[{type:'text' as const,text:JSON.stringify({code:'reply_already_submitted',...(submitted!==undefined?{intent_id:submitted}:{}),next:'This Run already sent its one reply; nothing more was sent. End the Run now.'})}],...end};
         if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
@@ -319,7 +329,7 @@ export class RuntimeEffectClient{
       parameters:Type.Object({summary:Type.String({minLength:1,maxLength:200}),details:Type.Optional(Type.String({maxLength:2000})),
         consumer_ref:Type.Optional(Type.String({minLength:1,maxLength:80}))},{additionalProperties:false}),
       replay:'safe',execute:async args=>invokeAction('submit',args,ENTERPRISE)}),
-      defineTool({name:'nexloop.enterprise.find',description:`Read the current state of an enterprise delivery this Run requested (its request_id). Does not send anything and never places it again. ${ENTERPRISE_RESULT_GUIDE}`,
+      defineTool({name:'nexloop.enterprise.find',description:`Read the current state of an enterprise delivery this Run requested: only a request_id that nexloop.enterprise.deliver returned in this Run (earlier orders cannot be read here; effect_intent_unavailable means it is not this Run's). Does not send anything and never places it again. ${ENTERPRISE_RESULT_GUIDE}`,
         parameters:Type.Object({request_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),
         replay:'safe',execute:async args=>invokeAction('find',args!==null&&typeof args==='object'&&!Array.isArray(args)&&Object.keys(args).length===1&&Object.hasOwn(args,'request_id')
           ?{intent_id:(args as {request_id:unknown}).request_id}:args,ENTERPRISE)})]:[];
@@ -329,7 +339,7 @@ export class RuntimeEffectClient{
       ...enterpriseTools,
       defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key.',
         parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
-      defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt for an existing service intent. Does not send or create a new effect.',
+      defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt of a reply this Run sent (an intent_id nexloop.service.request returned in this Run; any other gives effect_intent_unavailable). Does not send or create a new effect.',
         parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),
     ];
   }

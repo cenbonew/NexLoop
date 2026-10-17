@@ -83,7 +83,7 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
   });
   it('refuses invalid parameters and absent current activation before network',async()=>{
     const {client,cmd,bodies,setActivation}=await bridge();
-    await expect(client.call(cmd,'submit',{message:'service',tenant_id:cmd.tenant_id})).rejects.toMatchObject({code:'runtime_effect_unavailable'});
+    await expect(client.call(cmd,'submit',{message:'service',tenant_id:cmd.tenant_id})).rejects.toMatchObject({code:'invalid_effect_request'});
     setActivation('');await expect(client.call(cmd,'find',{intent_id:intent})).rejects.toMatchObject({code:'runtime_effect_unavailable'});
     expect(bodies).toHaveLength(0);
   });
@@ -162,10 +162,31 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
     }
     expect(tool(client,cmd,'nexloop.enterprise.deliver').description).toMatch(/summary and details in the customer's own language/);
   });
+  it('10/18: a refused delivery parameter comes back to the model as invalid_effect_request (a tool result), not an exception',async()=>{
+    type Run={execute:(args:unknown)=>Promise<{isError?:boolean;content:{text:string}[]}>};
+    const {client,cmd,bodies}=await bridge();
+    const deliver=client.toolsForRun(cmd,{enterprise:supply}).find(t=>t.name==='nexloop.enterprise.deliver') as unknown as Run;
+    for(const args of [{summary:'x',consumer_ref:cmd.consumer_ref.replace('consumer:','')},{summary:'x'.repeat(201)}]){
+      const result=await deliver.execute(args);
+      expect(result.isError).toBe(true);expect(JSON.parse(result.content[0]!.text)).toEqual({code:'invalid_effect_request'});
+    }
+    expect(bodies).toEqual([]);
+  });
+  it('10/18: a find of an intent this Run did not create (guard 403 effect_intent_unavailable) is a coded result, not an exception',async()=>{
+    type Run={execute:(args:unknown)=>Promise<{isError?:boolean;content:{text:string}[]}>;description:string};
+    const {client,cmd}=await bridge({status:403,change:()=>({code:'effect_intent_unavailable'})});
+    const tools=client.toolsForRun(cmd,{enterprise:supply});
+    const find=tools.find(t=>t.name==='nexloop.enterprise.find') as unknown as Run;
+    const result=await find.execute({request_id:intent});
+    expect(result.isError).toBe(true);expect(JSON.parse(result.content[0]!.text)).toEqual({code:'effect_intent_unavailable'});
+    const reply=tools.find(t=>t.name==='nexloop.service.request') as unknown as Run;
+    expect(JSON.parse((await reply.execute({message:'x'})).content[0]!.text)).toEqual({code:'effect_intent_unavailable'});
+    expect(find.description).toMatch(/only a request_id that nexloop.enterprise.deliver returned in this Run/);
+  });
   it('refuses another consumer, unknown keys and oversized text before the network',async()=>{
     const {client,cmd,bodies}=await bridge();
     for(const args of [{summary:'x',consumer_ref:'consumer:'+'f'.repeat(64)},{summary:'x',tenant_id:cmd.tenant_id},{summary:''},{summary:'x'.repeat(201)},{summary:'x',details:'y'.repeat(2001)},{details:'only'}])
-      await expect(client.call(cmd,'submit',args,'nexloop.enterprise.deliver:1')).rejects.toThrow('runtime_effect_unavailable');
+      await expect(client.call(cmd,'submit',args,'nexloop.enterprise.deliver:1')).rejects.toThrow('invalid_effect_request');
     expect(bodies).toEqual([]);
   });
 });

@@ -1015,6 +1015,11 @@
       "version": "0203",
       "name": "0203_nx037_interaction_effects.sql",
       "sha256": "dcb1c331a61778c581798de9a969359fa510a44d5ec93c383cca5ed2db7b921e"
+    },
+    {
+      "version": "0204",
+      "name": "0204_nx037_run_failure_evidence.sql",
+      "sha256": "293d2a2123b8a9ad027f330d4bd672308512790fdacd5378a1adc5751b8880e0"
     }
   ]
 }

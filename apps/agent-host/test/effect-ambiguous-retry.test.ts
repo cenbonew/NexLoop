@@ -53,7 +53,7 @@ describe('effect client: one same-body request after an ambiguous answer',()=>{
     await expect(client.call(cmd,'find',{intent_id:intent})).resolves.toEqual(receipt);
     expect(bodies.length).toBe(2);
   },15000);
-  it.each([['409','intent_payload_conflict'],['403','runtime_effect_unavailable'],['bad','runtime_effect_unavailable']] as const)('a definite %s answer is not repeated',async(first,code)=>{
+  it.each([['409','intent_payload_conflict'],['403','effect_intent_unavailable'],['bad','runtime_effect_unavailable']] as const)('a definite %s answer is not repeated',async(first,code)=>{
     const {client,cmd,bodies}=await scripted([first,'ok']);
     await expect(client.call(cmd,'submit',{message:'one governed request'})).rejects.toMatchObject({code});
     expect(bodies.length).toBe(1);
