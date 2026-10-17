@@ -171,7 +171,8 @@ def test_the_instruction_carries_the_variant_and_the_account():
 def test_the_console_operator_waits_for_the_done_mark(tmp_path):
     import io
     clock = Clock()
-    operator = D.ConsoleOperator(tmp_path, io.StringIO(), wait=True, sleep=clock.sleep, monotonic=clock.monotonic)
+    # The prompt is issued at wall time 1 s: a marker written now is after it (fresh).
+    operator = D.ConsoleOperator(tmp_path, io.StringIO(), wait=True, sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 1.0)
     assert operator.prompt(INTERACTION, 'x', 5) is False
     assert clock.t == 5  # not marked: waited until the deadline
     (tmp_path / 'operator-done' / '1').write_text('')
@@ -260,3 +261,23 @@ def test_offplan_sender_is_in_the_evidence_vocabulary():
     sys.path.insert(0, str(X.Path(__file__).resolve().parents[1] / 'scripts/nx037'))
     import evidence_pack as E
     assert E.allowed('offplan_sender') and E.violations({'error_code': 'offplan_sender', 'facts': {'offplan_messages': 1}}) == []
+
+
+def test_a_done_marker_older_than_the_prompt_never_completes_the_interaction(tmp_path):
+    """10/18 (trial 4f5d795c): interaction 3 was redone after a void; its old operator-done/3 was taken as done at once. A marker
+    older than the prompt is retired (renamed, kept) and the operator must mark this prompt again."""
+    import io
+    import os
+    clock = Clock()
+    operator = D.ConsoleOperator(tmp_path, io.StringIO(), wait=True, sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 2_000_000_000.0)
+    (tmp_path / 'operator-done').mkdir(mode=0o700)
+    old = tmp_path / 'operator-done' / '1'
+    old.write_text('')
+    os.utime(old, (1_000_000_000, 1_000_000_000))  # from an earlier attempt
+    assert operator.prompt(INTERACTION, 'x', 5) is False and clock.t == 5  # not completed by the old marker
+    assert not old.exists() and (tmp_path / 'operator-done' / '1.stale-2000000000').exists()  # retired, never deleted
+    clock.t = 0
+    fresh = tmp_path / 'operator-done' / '1'
+    fresh.write_text('')
+    os.utime(fresh, (2_000_000_001, 2_000_000_001))  # marked after this prompt
+    assert operator.prompt(INTERACTION, 'x', 5) is True

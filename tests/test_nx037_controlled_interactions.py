@@ -207,3 +207,17 @@ def test_the_owner_voids_the_last_record_and_it_runs_again_without_editing_the_e
     lines = (tmp_path / 'trial' / 'interactions.jsonl').read_text()
     assert lines.startswith(raw) and lines.count('\n') == raw.count('\n') + 28  # nothing rewritten: the redo of 3 and 4..30 appended
     assert [r['seq'] for r in records] == list(range(1, 31)) and resumed['status'] == 'completed' and resumed['voided'] == 1
+
+
+def test_a_void_retires_the_operator_done_marker_of_that_interaction(tmp_path):
+    """10/18: voiding the last record also retires its operator-done marker (renamed with the void time, never deleted), so the
+    redo is not completed by the marker of the voided attempt."""
+    state, records, _ = execute(tmp_path, plan=X.load_plan(PLAN), calibration_pause=True)
+    at = state['at_seq']
+    (tmp_path / 'trial' / 'operator-done').mkdir(mode=0o700)
+    (tmp_path / 'trial' / 'operator-done' / str(at)).write_text('')
+    (tmp_path / 'trial' / 'operator-done' / str(at - 1)).write_text('')  # an earlier interaction's marker stays
+    execute(tmp_path, resume='owner-confirmation:1', void=(at, 'owner-void:1'))
+    names = sorted(p.name for p in (tmp_path / 'trial' / 'operator-done').iterdir())
+    assert str(at) not in names and str(at - 1) in names
+    assert any(n.startswith(f'{at}.voided-') for n in names)

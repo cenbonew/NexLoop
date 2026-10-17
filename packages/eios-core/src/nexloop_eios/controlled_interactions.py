@@ -290,8 +290,14 @@ def run(plan, driver, collector, directory, *, trial_id, clock=None, owner_stop=
     elif resume is not None:
         raise ValueError('the trial is not paused')
     if void is not None:
+        at = clock()
         _append(root / 'voids.jsonl', {'seq': seq, 'interaction_id': last['interaction_id'], 'ended_at': last['ended_at'],
-                                       'confirmation_ref': reference, 'at': _iso(clock())})
+                                       'confirmation_ref': reference, 'at': _iso(at)})
+        # 10/18: the voided attempt's operator done marker is retired with it (renamed, never deleted), so the redo is not
+        # taken as completed by a marker left from before.
+        marker = root / 'operator-done' / str(seq)
+        if marker.exists():
+            marker.rename(marker.with_name(f"{seq}.voided-{at.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}"))
     history = read_records(root)
     cumulative = sum((counted_cost(r) for r in history), Decimal(0))
     done = {r['interaction_id'] for r in history}

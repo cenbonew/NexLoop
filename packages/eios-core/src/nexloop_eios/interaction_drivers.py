@@ -204,19 +204,24 @@ class ConsoleOperator:
     """The person who plays the customer in the real trial: each prompt goes to the terminal (stderr) and, as ids and codes
     only, to prompts.jsonl beside the trial evidence."""
 
-    def __init__(self, directory, stream=None, *, wait=False, sleep=None, monotonic=None):
+    def __init__(self, directory, stream=None, *, wait=False, sleep=None, monotonic=None, wall=None):
         import sys
         import time
         self.path, self.stream = Path(directory) / 'prompts.jsonl', stream or sys.stderr
         # Plan v3 (multi-turn): with wait, the prompt returns only when the operator (the agent playing the customer) marks the
         # interaction done by creating <dir>/operator-done/<seq>, or at its deadline; every turn then belongs to it.
         self.done, self.wait = Path(directory) / 'operator-done', wait
-        self.sleep, self.monotonic = sleep or time.sleep, monotonic or time.monotonic
+        self.sleep, self.monotonic, self.wall = sleep or time.sleep, monotonic or time.monotonic, wall or time.time
 
     def prompt(self, interaction, instruction, deadline_seconds):
         import json
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         done = self.done / str(interaction['seq'])
+        issued = self.wall()
+        # 10/18 (trial 4f5d795c, interaction 3 redone after a void): a done marker older than this prompt belongs to an earlier
+        # attempt. It is retired (renamed, never deleted) and never counts as this interaction's completion.
+        if done.exists() and done.stat().st_mtime < issued:
+            done.rename(done.with_name(f"{done.name}.stale-{int(issued)}"))
         # One machine-readable line per prompt for the agent playing the customer: what to play, with which account, and (when
         # waiting) the file to create once every message of the interaction is sent.
         with open(self.path, 'a', encoding='utf-8') as handle:
@@ -229,10 +234,11 @@ class ConsoleOperator:
         if self.wait:
             self.done.mkdir(mode=0o700, parents=True, exist_ok=True)
             end = self.monotonic() + deadline_seconds
-            while not done.exists() and self.monotonic() < end:
+            fresh = lambda: done.exists() and done.stat().st_mtime >= issued  # noqa: E731
+            while not fresh() and self.monotonic() < end:
                 self.sleep(1)
             # 10/17 calibration: the deadline without the done marker is not a completed interaction (interaction_timeout).
-            return done.exists()
+            return fresh()
         return None
 
 
