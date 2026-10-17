@@ -60,9 +60,9 @@
 - **SQL 层**：其他租户、无规则的主体、有规则但不是 step submitter 的主体（种入故障规则）都派生不到。
 - **首轮**：plan-reevaluator 的 stage 命令（`--once`）输出 `launched: 1`。断言了 Run 凭据、Role 策略绑定、Context v6 pack、`operations` 队列和预算 4/8/120/2.00 CNY。
 
-另有：`tests/test_nx037_assembly_examples.py` 校验两个新配方示例；读授权、relay 派生、stage register、计划复评、组装演练等定向回归。在 main `47383ae9` 之上（Node 24，`LC_ALL=C.UTF-8`，Agent Host 和 web 的 dist 已重建）：
+另有：`tests/test_nx037_assembly_examples.py` 校验两个新配方示例；读授权、relay 派生、stage register、计划复评、组装演练等定向回归。在 main `0eba7c54` 之上（Node 24，`LC_ALL=C.UTF-8`，Agent Host 和 web 的 dist 已重建）：
 
-- 定向 PG 回归：`pytest -n 3` 共 26 个文件，**256 passed**，耗时 7 分 16 秒。包括 test_bootstrap、test_function_search_path、test_claim_store_pg（AT-064），以及真实 Pi 的 relay 多消费者用例；
+- 定向 PG 回归：`pytest -n 3` 共 26 个文件，**257 passed**，耗时 5 分 33 秒（load 8.6→10.9）。包括 test_bootstrap、test_function_search_path、test_claim_store_pg（AT-064），以及真实 Pi 的 relay 多消费者用例；
 - `scripts/ci/stages/static.sh`：退出码 0，其中含 `check_definer_search_path`。
 
 ## 风险
@@ -75,11 +75,11 @@
 
 ## 提交
 
-- `37fbba52` G-ROLE-READ：派生迁移、stage-principals v4、register。
-- `10b37f66` G-PLAN：plan_setup、goal_setup、测试、命令单。
-- `546dd1ad` 重编号到临时 0211。
-- 本说明另作一个提交。
+- `8cfb1954` G-ROLE-READ：派生迁移、stage-principals v4、register。
+- `2b4a30c5` G-PLAN：plan_setup、goal_setup、测试、命令单。
+- `6881881f`、`dd008d9e` 重编号（先改到 0205，再改到当前的 0211）。
+- `546d32da` 本说明。
 
-prepush-scan 的结果（基准 main `47383ae9`）见完成报告。
+prepush-scan 的结果（基准 main `0eba7c54`）见完成报告。
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
