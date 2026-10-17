@@ -2769,6 +2769,12 @@
         "ref": "nexloop-doctor --deploy-gate (APP_HOST, gate-20261016e, main 196ddb0 tools, release backend c9b816dd)",
         "summary": "Deploy gate on the stage after the reboot drills: 19/19 checks true, foundation_checks_passed=true (product_ready=false as expected). Before = root baseline-phase inventory taken 2026-10-16 after the owner accepted a new baseline (earlier unprivileged inventories had hashed an unreadable nft ruleset; corrected).",
         "recorded_at": "2026-10-15T23:10:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Release 11 deployed on APP_HOST 2026-10-17 11:01 +08:00 without migration: 25 services running, 0 restarts, relay and webchat network namespaces shared, gateway root 200; deploy gate 19/20 with only real_dispatch_closed false because the owner keeps the three real-dispatch switches open for the NX-037 trial.",
+        "recorded_at": "2026-10-17T05:00:00Z"
       }
     ]
   },
@@ -2951,6 +2957,18 @@
         "ref": "release 20261015-4736ea179063-1 (commit 4736ea1, CI host)",
         "summary": "Third signed stage release: release CI through the NX-033 queue seq 7 passed 4237/4237, skipped 0, deadline gate passed (seq 6 on 84d9e80 failed 2 tests: nft -c without CAP_NET_ADMIN; fixed by moving the check to tests/host_checks, recorded unchanged); build, sbom, preflight stage ok; nexloop-release checked CI digest, commit, on-main and 4 archive/SBOM sha256, signed, sealed (index 3), archive check ok. Deployed to APP_HOST (backend, agent-host); DATA_HOST postgres intentionally kept on the previous signed image (rebuild digest differs), recorded as a known deviation.",
         "recorded_at": "2026-10-15T14:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Signed stage releases 7-11 through the NX-033 release queue (CI 4302-4345 tests, 0 failed on the release attempt): 20261016-0bc66f36259b-1 (seal 6) .. 20261017-5d4e8f7da4d8-1 (seal 10). Release 11 CI attempt 1 on 54713d8e failed 1/4345 (takeover relay stderr assertion); fixed in 5d4e8f7d, attempt on 5d4e8f7d passed 4345/4345. Release 12 (47383ae9, migration 0204) CI started 2026-10-17T04:27Z.",
+        "recorded_at": "2026-10-17T05:00:00Z"
+      },
+      {
+        "type": "commit",
+        "ref": "47383ae9b81e30c082d9f19f27a33d5bed295254",
+        "summary": "origin/main after merging l2/context-artifact-unavailable (5d4e8f7d line) and l2/reply-final-and-provider-diag; prepush-scan PASS, ls-remote equal.",
+        "recorded_at": "2026-10-17T05:00:00Z"
       }
     ]
   },
@@ -3222,6 +3240,12 @@
         "ref": "local-only:evidence/deploy-20261015/",
         "summary": "Stage smoke (owner browser, customer-1): WebChat login, 2 messages stored, relay issued 2 Runs onto the operations queue; operations jobs failed budget_exhausted (model budget period not yet started) and claim-extraction provider_unavailable (no model key, claim egress then blocked) - both expected; budget re-set by the owner session to 2026-10-18T00:00+08:00..2026-10-23T00:00+08:00, 100 CNY; model key deliberately not placed yet (phase C). With-model smoke planned 2026-10-18 morning.",
         "recorded_at": "2026-10-15T14:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Trial e80e360c stopped 2026-10-17 07:45 +08:00 by rule critical_alert after 3 calibration interactions (2 ok + 1 voided): an off-plan consumer message got neither a message Run nor a fallback reply (Context pack over 64 KiB for a long-history consumer, context_pack_too_large). Fixed in release 11 (bounded Claim candidates, byte-aware trimming). Owner chose a new trial id 4f5d795c with an amended authorization; it paused at interaction 3 (interaction_timeout, drill not executed) with 1-2 ok (0.133 CNY). A failed Run (enterprise find refused by the guard and thrown as runtime_tool_unavailable) is fixed in release 12. Not complete: remaining interactions pending.",
+        "recorded_at": "2026-10-17T05:00:00Z"
       }
     ]
   },
