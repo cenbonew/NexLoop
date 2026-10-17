@@ -1020,6 +1020,11 @@
       "version": "0204",
       "name": "0204_nx037_run_failure_evidence.sql",
       "sha256": "293d2a2123b8a9ad027f330d4bd672308512790fdacd5378a1adc5751b8880e0"
+    },
+    {
+      "version": "0205",
+      "name": "0205_effect_stale_unknown_requery.sql",
+      "sha256": "5b7ef4817b5e0a716783bed2f5e2b61cc3cb4c722dbd786f0c672c08821f5350"
     }
   ]
 }
