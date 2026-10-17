@@ -1,7 +1,9 @@
-"""Web layout batch 1 acceptance (docs/implementation/web-layout-audit-20261018.md §4.2) in a real browser engine (headless Chromium via
+"""Web layout batch 1 and 2 acceptance (docs/implementation/web-layout-audit-20261018.md §4.2) in a real browser engine (headless Chromium via
 Playwright): the built Web served by the production app over loopback HTTPS on the synthetic workbench stack
 (tests/workbench_stack_fixture.py), measured by apps/web/test/browser/web-layout.browser.mjs at 1440, 1024 and 390 px, dark at 1440
-and 390.
+and 390. Batch 2 on the same run: the stack carries a synthetic seed (tests/smoke_seed.large_records, 12 customers) so the
+consumers table has many rows; tables are cards below 640 px and tables above; WebChat's top bar, conversation names and pinned
+composer.
 
 Opt-in lane like tests/test_sse_real_browser.py: marked `real_browser`, deselected unless `-m real_browser`. Needs Node 24, the pinned
 Playwright of apps/web and its Chromium headless shell. Synthetic accounts only; REAL_DISPATCH_ENABLED=false; run serially.
@@ -24,20 +26,23 @@ from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_conversation_messages import conversations  # noqa: F401
 from test_sse_real_browser import ROOT, build_web
+from smoke_seed import large_records
 from workbench_stack_fixture import private, workbench_stack
 
 pytestmark = pytest.mark.real_browser
-PAGES = ('customer-login', 'customer-webchat', 'wb-login', 'wb-overview', 'wb-consumers', 'wb-consumer', 'wb-conversation', 'wb-settings')
+PAGES = ('customer-login', 'customer-webchat', 'wb-login', 'wb-overview', 'wb-consumers', 'wb-consumer', 'wb-conversation', 'wb-settings',
+         'wb-actions', 'wb-commitments', 'wb-operations', 'wb-audit')
 
 
-def test_real_chromium_web_layout_batch_one(conversations, admin, pg, tmp_path, monkeypatch):  # noqa: F811
+def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, tmp_path, monkeypatch):  # noqa: F811
     import uvicorn
     from nexloop_eios.http_api import create_app
     monkeypatch.setenv('REAL_DISPATCH_ENABLED', 'false')
     web = tmp_path / 'web'
     build_web(web)
     port = free_port()
-    config, certificate, key, credentials = workbench_stack(conversations, admin, pg, tmp_path, port=port, web=web)
+    config, certificate, key, credentials = workbench_stack(conversations, admin, pg, tmp_path, port=port, web=web,
+                                                              seed=large_records(customers=12, long_conversation_turns=20))
     server = uvicorn.Server(uvicorn.Config(create_app(config), host='127.0.0.1', port=port, ssl_certfile=str(certificate), ssl_keyfile=str(key),
                                            access_log=False, log_level='warning'))
     thread = threading.Thread(target=server.run, daemon=True)
@@ -66,8 +71,18 @@ def test_real_chromium_web_layout_batch_one(conversations, admin, pg, tmp_path, 
     pages = observed['pages']
     expected = {f'{p}-{w}' for p in PAGES for w in (1440, 1024, 390)} | {f'{p}-{w}-dark' for p in PAGES for w in (1440, 390)}
     assert set(pages) == expected
-    failing = {k: v for k, v in pages.items() if v['hscroll'] > 0 or v['offscreen'] or v['font_min'] < 13 or v['th_max'] > 44}
+    failing = {k: v for k, v in pages.items() if v['hscroll'] > 0 or v['offscreen'] or v['font_min'] < 13 or v['th_max'] > 44
+               or (k.split('-')[-1] == '390' or k.endswith('390-dark')) and v['scrollers']}
     assert failing == {}, failing
     assert observed['dark_differs'] == {f'{p}-{w}': True for p in PAGES for w in (1440, 390)}
     assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 14,
                                 'closed_after_navigation': True, 'hscroll_open': 0}
+    # Batch 2: the consumers table lists the fixture's customer and the 12 seeded ones; cards below 640 px, a table above.
+    consumers = {w: pages[f'wb-consumers-{w}']['tables'] for w in (1440, 1024, 390)}
+    assert [t['rows'] for t in consumers[390]] == [13]
+    assert consumers[390][0] | {'row_max': 0} == {'rows': 13, 'cards': True, 'head_hidden': True, 'labelled': True, 'row_max': 0}
+    assert consumers[390][0]['row_max'] <= 260, consumers[390]
+    assert all(not t['cards'] and not t['head_hidden'] for w in (1440, 1024) for t in consumers[w])
+    narrow = [t for k, v in pages.items() if k.endswith(('-390', '-390-dark')) for t in v['tables'] if t['rows']]
+    assert narrow and all(t['cards'] and t['head_hidden'] and t['labelled'] for t in narrow), narrow
+    assert observed['chat'] == {'option_texts_without_ids': True, 'meta_in_bar': True, 'sent_through_composer': True, 'composer_pinned': True}

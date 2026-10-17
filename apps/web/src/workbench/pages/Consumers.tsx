@@ -3,6 +3,7 @@ import {useInfiniteQuery,useQuery} from '@tanstack/react-query';
 import {COMMITMENT_STATUS_TEXT,DISPLAY_NOTE,STATE_TEXT,consumerAlias,kindOf,readConsumer,readConsumerActions,readConsumerCommitments,readConsumerHistory,readConsumers,readConversation,RESTRICTED_TEXT,
   type DisplayName,type HistoryItem} from '../api';
 import {Page,Short} from './Page';
+import {DataTable} from '../DataTable';
 
 /** The customer's readable name, or a non-identifying alias with the reason no name is shown (ADR-025). */
 export function ConsumerName({consumerId,display}:{consumerId:string;display:DisplayName}){
@@ -59,10 +60,11 @@ export function Consumers({actions,onOpen}:{actions?:ReactNode;onOpen:(consumerI
   const cursor=after[after.length-1];
   const query=useQuery({queryKey:['workbench','consumers',cursor??''],queryFn:()=>readConsumers(cursor)});
   return <Page title="消费者" query={query} actions={actions} empty={d=>d.items.length===0&&!cursor}>{data=><>
-    <table className="workbench-table"><thead><tr><th>客户</th><th>ID</th><th>联系限制</th><th>未结束承诺</th><th>活跃计划</th><th>会话</th></tr></thead>
-      <tbody>{data.items.map(c=><tr key={c.consumer_id}><td><button type="button" className="link" onClick={()=>onOpen(c.consumer_id)}><ConsumerName consumerId={c.consumer_id} display={c.display}/></button></td>
-        <td><Short value={c.consumer_id}/></td>
-        <td>{c.restricted?'受限':'—'}</td><td>{c.open_commitments}</td><td>{c.active_plans}</td><td>{c.conversations}</td></tr>)}</tbody></table>
+    <DataTable label="消费者" rows={data.items} rowKey={c=>c.consumer_id} columns={[
+      {label:'客户',main:true,cell:c=><button type="button" className="link" onClick={()=>onOpen(c.consumer_id)}><ConsumerName consumerId={c.consumer_id} display={c.display}/></button>},
+      {label:'ID',cell:c=><Short value={c.consumer_id}/>},
+      {label:'联系限制',cell:c=>c.restricted?'受限':'—'},
+      {label:'未结束承诺',num:true,cell:c=>c.open_commitments},{label:'活跃计划',num:true,cell:c=>c.active_plans},{label:'会话',num:true,cell:c=>c.conversations}]}/>
     <div className="pager">{after.length?<button type="button" onClick={()=>setAfter(after.slice(0,-1))}>上一页</button>:null}
       {data.next_cursor?<button type="button" onClick={()=>setAfter([...after,data.next_cursor!])}>下一页</button>:null}</div>
   </>}</Page>;
@@ -74,7 +76,7 @@ export function ConsumerDetail({consumerId,actions,onConversation}:{consumerId:s
   return <Page title="消费者详情" query={query} actions={actions}
     lead={d?<><ConsumerName consumerId={d.consumer_id} display={d.display}/> <Short value={d.consumer_id}/>{d.paused?' · 主动联系已暂停':''}</>:null}>{data=><>
     <h2>联系限制</h2>
-    {data.restriction?<p className={data.restriction.active?'warning':'note'}>{data.restriction.active?'受限':'已解除'} · 规则 {data.restriction.rule_id} · 控制 revision {data.restriction.control_revision} · {data.restriction.restricted_at}</p>:<p className="note">没有联系限制。</p>}
+    {data.restriction?<p className={data.restriction.active?'warning':'note'}>{data.restriction.active?'受限':'已解除'} · 规则 {data.restriction.rule_id} · 控制 revision {data.restriction.control_revision} · {when(data.restriction.restricted_at)}</p>:<p className="note">没有联系限制。</p>}
     <h2>属性</h2>
     {data.properties.status==='ok'?(Object.keys(data.properties.values).length?<dl>{Object.entries(data.properties.values).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{typeof v==='string'?v:JSON.stringify(v)}</dd></div>)}</dl>:<p className="note">没有可读属性。</p>)
       :<p className="note" role="status">无属性读取权限：字段与证据不显示（AT-003）。</p>}

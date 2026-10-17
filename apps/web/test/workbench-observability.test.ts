@@ -6,6 +6,7 @@ import {BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,PROCESS_UNAVAILABLE_TEXT,Wo
 import {DONE_TEXT,GOVERNED_SLOTS,SilenceForm,governedWrite,silenceUntil} from '../src/workbench/actions';
 import {Alerts,Audit,Operations} from '../src/workbench/pages/Observability';
 import {parseRoute} from '../src/workbench/route';
+import {when} from '../src/workbench/pages/Consumers';
 
 const owner:Me=me({principal_id:'synthetic-owner',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.alert.silence:1']});
 const operator:Me=me({principal_id:'synthetic-operator',role:'operator',actions:['eios:action:nexloop.workbench.read:1']});
@@ -31,7 +32,7 @@ test('alerts parse strictly; a stale evaluator is announced and a silenced alert
   const stale=render(client([[['workbench','alerts'],alerts(alertsBody(true))]]),h(Alerts,{}));
   expect(stale).toContain(EVALUATOR_STALE_TEXT);expect(stale).toContain('queue_dead_letter');
   const silenced=render(client([[['workbench','alerts'],alerts(alertsBody(false,'2026-10-11T09:00:00+00:00'))]]),h(Alerts,{}));
-  expect(silenced).toContain('已静默至 2026-10-11T09:00:00+00:00（仍在评估和记录）');
+  expect(silenced).toContain(`已静默至 ${when('2026-10-11T09:00:00+00:00')}（仍在评估和记录）`);
 });
 
 test('operations: unavailable process sections and backups are labelled, never zero; refusals carry their meaning',()=>{

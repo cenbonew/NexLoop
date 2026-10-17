@@ -18,7 +18,7 @@ try{
   const errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await page.goto('/workbench/consumers');
   await page.fill('#wb-username',session.username);await page.fill('#wb-password',password);await page.click('button[type=submit]');
-  await page.locator('table.workbench-table tbody tr').first().waitFor({timeout:20000});
+  await page.locator('table.data-table tbody tr').first().waitFor({timeout:20000});
   result.desktop={
     main:await page.locator('main').evaluate(e=>Math.round(e.getBoundingClientRect().width)),
     nav:await page.locator('.workbench-layout nav').evaluate(e=>Math.round(e.getBoundingClientRect().width)),

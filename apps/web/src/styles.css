@@ -158,7 +158,7 @@ button:disabled{cursor:wait;opacity:.7}
 .workbench-lead{margin:-4px 0 14px;font-size:15px;color:var(--text-2)}
 /* Real dispatch switches on the settings page (2026-10-18). */
 .real-dispatch{margin:20px 0;border:1px solid var(--border);border-radius:12px;padding:12px 16px;background:var(--surface-2)}
-.real-dispatch h2{margin-top:0}.real-dispatch-layers td:first-child{white-space:nowrap;font-weight:600}
+.real-dispatch h2{margin-top:0}.real-dispatch .data-table td.cell-main{white-space:nowrap;font-weight:600}
 .rd-pill{display:inline-block;padding:1px 10px;border-radius:999px;font-size:13px;font-weight:700}
 .rd-on{background:#e8f7ee;color:#166534}.rd-off{background:var(--hover);color:#475569}.rd-unknown{background:#fff4e0;color:#8a4b00}
 .rd-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
@@ -187,4 +187,44 @@ button:disabled{cursor:wait;opacity:.7}
    own horizontal scroller instead (cells keep their words; batch 2 turns these tables into card lists). */
 @media (min-width:640px){.workbench td{overflow-wrap:anywhere}}
 @media (max-width:639px){.workbench table{display:block;overflow-x:auto;max-width:100%}.workbench td{white-space:nowrap}}
-@media (max-width:639px){.real-dispatch-layers td:first-child{white-space:normal}}
+
+/* Web layout batch 2: the shared responsive table (workbench/DataTable.tsx). Desktop: counts are narrow and right-aligned, the main
+   column and long-text columns share the spare width. Below 640 px every row is a card: the main cell is its title, every other
+   cell a "label  value" line (label from data-label), so no column is cut off and nothing scrolls sideways. */
+.workbench table.data-table{table-layout:auto}
+.data-table th.cell-num,.data-table td.cell-num{text-align:right;white-space:nowrap;width:1%}
+.data-table td.cell-main{min-width:10rem}
+.data-table td.cell-wide{min-width:14rem}
+@media (max-width:639px){
+  .workbench table.data-table{display:block;position:relative;overflow:visible;border:0}
+  .data-table thead{position:absolute;left:0;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .data-table tbody{display:flex;flex-direction:column;gap:10px}
+  .data-table tr{display:flex;flex-wrap:wrap;gap:4px 16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:10px 12px}
+  .workbench .data-table tbody tr:hover td{background:none}
+  .workbench .data-table td{display:inline-flex;align-items:baseline;gap:6px;padding:0;border:0;white-space:normal;overflow-wrap:anywhere;text-align:left;
+    width:auto;min-width:0;max-width:100%}
+  .workbench .data-table td::before{content:attr(data-label);color:var(--muted);font-size:13px;white-space:nowrap}
+  .workbench .data-table td.cell-wide{flex-basis:100%}
+  .workbench .data-table td.cell-main{display:block;flex-basis:100%;font-weight:600;font-size:15px;padding:0 0 6px;margin-bottom:2px;border-bottom:1px solid var(--border)}
+  .workbench .data-table td.cell-main::before{content:none}
+  .data-table tr.critical{border-color:var(--danger)}
+}
+
+/* WebChat (batch 2): the conversation, its mode and world sit in one top bar; the composer stays at the bottom of the viewport while
+   the message list scrolls. */
+.chat-bar{display:flex;flex-direction:column;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.chat-bar h2{margin:0}
+.chat-picker{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.chat-picker label{margin:0}.chat-picker select{flex:1 1 14rem;min-width:0;width:auto}
+.chat-meta{margin:0}
+.chat-composer{position:sticky;bottom:0;background:var(--surface);padding:12px 0 8px;border-top:1px solid var(--border);margin-top:12px;z-index:1}
+.chat-composer textarea{min-height:4.5rem}
+.chat-composer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+@media (max-width:639px){.chat-composer-actions button{flex:1 1 auto}}
+.chat .chat-picker select{margin:0}.chat .chat-picker button,.chat .chat-composer button{margin-top:0}
+.chat .chat-composer textarea{min-height:4.5rem}.chat .chat-composer .note{margin:6px 0 10px}
+/* MessageReceipt: a compact secondary control under the message; its result reads as part of the message card. */
+.message-receipt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:10px}
+.chat .message-receipt button{margin-top:0;height:36px;padding:0 14px;font-size:14px}
+.message-receipt p{margin:0;font-size:14px}.message-receipt small{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+@media (max-height:600px){.chat .chat-composer textarea{min-height:2.75rem}.chat .chat-composer label{margin-bottom:4px}.chat .chat-composer .note{margin:4px 0 6px;font-size:13px}}

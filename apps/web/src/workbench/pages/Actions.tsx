@@ -2,6 +2,8 @@ import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {INTENT_STATE_TEXT,readActions,type Dispatch} from '../api';
 import {Page,Short} from './Page';
+import {when} from './Consumers';
+import {DataTable} from '../DataTable';
 
 /** Dispatch prediction comes from SQL (the same checks as dispatch); without it the page says so instead of guessing. */
 export function dispatchText(dispatch:Dispatch):string{
@@ -20,10 +22,9 @@ export function Actions({actions}:{actions?:ReactNode}){
     <select id="intent-state" value={state} onChange={e=>setState(e.target.value)}><option value="">全部</option>
       {Object.entries(INTENT_STATE_TEXT).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select>
     <p>待核对 {data.unknown.count} 个{data.unknown.oldest_age_seconds!==null?`，最久 ${Math.round(data.unknown.oldest_age_seconds/60)} 分钟`:''}。默认动作是“查询执行结果”，不是重发。</p>
-    {data.intents.length?<table><thead><tr><th>意图</th><th>Action</th><th>状态</th><th>尝试</th><th>最近观察</th><th>派发预判</th></tr></thead><tbody>
-      {data.intents.map(i=><tr key={i.intent_id}><td><Short value={i.intent_id}/></td><td>{i.action_name}@{i.action_version}</td>
-        <td className={i.state==='unknown'?'pending':undefined}>{INTENT_STATE_TEXT[i.state]??i.state}</td><td>{i.attempts}</td>
-        <td>{i.observation?`${i.observation.provider_state} · ${i.observation.observed_at}`:'—'}</td><td>{dispatchText(i.dispatch)}</td></tr>)}
-    </tbody></table>:<p className="note">暂无记录。</p>}
+    {data.intents.length?<DataTable label="Action 意图" rows={data.intents} rowKey={i=>i.intent_id} columns={[
+      {label:'Action',main:true,cell:i=>`${i.action_name}@${i.action_version}`},{label:'意图',cell:i=><Short value={i.intent_id}/>},
+      {label:'状态',cell:i=><span className={i.state==='unknown'?'pending':undefined}>{INTENT_STATE_TEXT[i.state]??i.state}</span>},{label:'尝试',num:true,cell:i=>i.attempts},
+      {label:'最近观察',cell:i=>i.observation?`${i.observation.provider_state} · ${when(i.observation.observed_at)}`:'—'},{label:'派发预判',cell:i=>dispatchText(i.dispatch)}]}/>:<p className="note">暂无记录。</p>}
   </>}</Page>;
 }

@@ -1,5 +1,6 @@
 /** The real dispatch switches on the settings page: the three layers for every member, the one-click controls for the owner only. */
-import {useState} from 'react';
+import {useState,type ReactNode} from 'react';
+import {DataTable} from './DataTable';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,WRITE_TEXT,WorkbenchError,kindOf,offers,readMe,readRealDispatchSwitches,writeKindOf,type Me} from './api';
 import {DELIVER,apply,checkReason,describe,plan,realDispatch,type Change,type RealDispatch,type StepResult} from './realDispatch';
@@ -23,14 +24,14 @@ export function RealDispatchPanel(){
 function Layers({state}:{state:RealDispatch}){
   const deliver=state.actions.find(a=>a.action_type===DELIVER);
   const others=state.actions.filter(a=>a.action_type!==DELIVER);
-  return <table className="real-dispatch-layers"><thead><tr><th>层</th><th>状态</th><th>说明</th></tr></thead><tbody>
-    <tr><td>部署层 REAL_DISPATCH_ENABLED</td><td><span className="rd-pill rd-unknown">未知</span></td><td>由部署层控制：APP_HOST 的 compose 环境变量，平时保持打开；需在 APP_HOST 部署层开启，工作台无法读取或修改。</td></tr>
-    <tr><td>租户层</td><td><span className={'rd-pill '+(state.tenant?.enabled?'rd-on':'rd-off')}>{onOff(state.tenant?.enabled)}</span></td>
-      <td>数据模式 {state.tenant?.data_mode??'—'} · 版本 {state.tenant?.revision??0}{state.tenant?.enabled&&state.tenant.data_mode!=='real'?'（test 模式按关闭处理）':''}</td></tr>
-    <tr><td>Action 层 · enterprise.deliver:1</td><td><span className={'rd-pill '+(deliver?.enabled?'rd-on':'rd-off')}>{onOff(deliver?.enabled)}</span></td><td>版本 {deliver?.revision??0}</td></tr>
-    {others.map(a=><tr key={a.action_type}><td>Action 层 · {a.action_type.replace(/^eios:action:(nexloop\.)?/,'')}</td>
-      <td><span className={'rd-pill '+(a.enabled?'rd-on':'rd-off')}>{onOff(a.enabled)}</span></td><td>版本 {a.revision}</td></tr>)}
-  </tbody></table>;
+  const pill=(on:boolean|undefined)=><span className={'rd-pill '+(on?'rd-on':'rd-off')}>{onOff(on)}</span>;
+  const rows:{layer:string;status:ReactNode;note:ReactNode}[]=[
+    {layer:'部署层 REAL_DISPATCH_ENABLED',status:<span className="rd-pill rd-unknown">未知</span>,note:'由部署层控制：APP_HOST 的 compose 环境变量，平时保持打开；需在 APP_HOST 部署层开启，工作台无法读取或修改。'},
+    {layer:'租户层',status:pill(state.tenant?.enabled),note:`数据模式 ${state.tenant?.data_mode??'—'} · 版本 ${state.tenant?.revision??0}${state.tenant?.enabled&&state.tenant.data_mode!=='real'?'（test 模式按关闭处理）':''}`},
+    {layer:'Action 层 · enterprise.deliver:1',status:pill(deliver?.enabled),note:`版本 ${deliver?.revision??0}`},
+    ...others.map(a=>({layer:`Action 层 · ${a.action_type.replace(/^eios:action:(nexloop\.)?/,'')}`,status:pill(a.enabled),note:`版本 ${a.revision}`}))];
+  return <DataTable className="real-dispatch-layers" label="真实派发三层开关" rows={rows} rowKey={r=>r.layer} columns={[
+    {label:'层',main:true,cell:r=>r.layer},{label:'状态',cell:r=>r.status},{label:'说明',wide:true,cell:r=>r.note}]}/>;
 }
 
 function Controls({state,onRead}:{state:RealDispatch;member:Me;onRead:()=>Promise<unknown>}){
