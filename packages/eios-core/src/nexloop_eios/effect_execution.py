@@ -339,6 +339,15 @@ class EffectExecutionPort:
                 return db.execute('select authz.nexloop_effect_origin_expired(%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)))).fetchone()[0]
         except Exception:return None
 
+    def requery_stale_unknown(self,*,intent_id,confirmation_ref):
+        """0205: arm one more query of this executor's own stopped unknown intent (origin expired), under the owner's
+        confirmation reference. Returns {intent_id, armed, reason|orders}; the effect worker does the query itself."""
+        try:
+            with self.pool.connection() as db,db.transaction():
+                verify_application_role(db)
+                return db.execute('select authz.nexloop_effect_requery_order(%s,%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)),confirmation_ref)).fetchone()[0]
+        except Exception:raise EffectExecutionUnavailable() from None
+
     def record_unrouted(self,*,intent_id):
         """NX-037: the claimed intent's Action has no provider route in this worker; recorded as the effect refusal NXE01 (0184,
         deduplicated per intent for ten minutes by 0131) for the metrics and alerts. Best effort, never raises."""
