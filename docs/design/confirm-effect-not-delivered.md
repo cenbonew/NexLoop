@@ -1,6 +1,6 @@
 # 设计稿｜负责人确认“该效应未发生”（confirm not delivered）
 
-状态：**设计稿**，实现待负责人确认。对应的 ADR 草稿：`docs/design/ADR-033-draft-confirm-effect-not-delivered.md`。
+状态：**已实现**（负责人 2026-10-18 对 §7 的 5 项全部按推荐拍板）：迁移 0210 `effect_confirm_not_delivered`，运行手册 `docs/release/run-confirm-not-delivered.md`。与本稿的出入：投递尝试行保持原状态（0042 没有 failed）；出站转移事件来源记为 `intent`；不检查派发控制（判定不派发任何东西）。对应的 ADR 草稿：`docs/design/ADR-033-draft-confirm-effect-not-delivered.md`。
 背景：10/16 冒烟留下 2 条 unknown 回复意图（1f6ac3bd、d1dc3853）。0205 允许负责人下单重查；但 webchat-delivery 只保留了 10/16 21:42 之后的投递记录，所以重查很可能返回 not_found。按 ADR，结果不明的效应要先查询、再对账，绝不盲目重发。目前没有受治理的办法让这类意图收尾，`unknown_over_24h` 会一直告警。
 
 ## 1. 现状
