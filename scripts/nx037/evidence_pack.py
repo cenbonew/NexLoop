@@ -56,7 +56,10 @@ def _vocabulary():
                       'runtime_tool_unavailable', 'invalid_effect_request', 'tool_error', 'intent_payload_conflict', 'outside_catalog_terms',
                       'nexloop.service.request', 'nexloop.service.find', 'nexloop.enterprise.deliver', 'nexloop.enterprise.find', 'unregistered_tool',
                       'offplan_sender',  # 10/18: a message from an account outside the plan (0207)
-                      'effect_intent_unavailable', 'request_scope_wrong_service'))  # 10/18: corrected tool errors (option B, 0208)
+                      'effect_intent_unavailable', 'request_scope_wrong_service',  # 10/18: corrected tool errors (option B, 0208)
+                      # 10/18: the effect_reconciliation item (scripts/nx037/effect_reconciliation.py): outbox and delivery states, 0210
+                      'nexloop.nx037-effect-reconciliation.v1', 'pending', 'leased', 'query_pending', 'persisted', 'provider_accepted', 'delivered',
+                      'not_found', 'confirmed_not_delivered'))
 
 
 VOCABULARY = _vocabulary()
