@@ -263,6 +263,26 @@ def drill(directory, *, delay_next_posts=None, delay_seconds=5.0, get_unavailabl
 
 # ---- HTTP --------------------------------------------------------------------------------------------------------------
 
+# The staff page on a desktop browser (2026-10-17: text too small, the table wider than the window with squeezed columns):
+# readable base size, a full-width fixed-layout table whose columns share the width (long ids wrap instead of widening it), the
+# mark form stacked inside its cell. Inline only (the page's CSP allows inline style and nothing else).
+PAGE_STYLE = (
+    'body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:24px 32px;'
+    'color:#1f2328;background:#f6f8fa}'
+    'h1{font-size:24px;margin:0 0 8px}p{max-width:72em}'
+    'table{width:100%;border-collapse:collapse;table-layout:fixed;background:#fff;border:1px solid #d0d7de}'
+    'th,td{padding:10px 12px;border-bottom:1px solid #d0d7de;text-align:left;vertical-align:top;overflow-wrap:anywhere}'
+    'th{background:#eef1f4;font-size:14px;font-weight:600}'
+    'th:nth-child(1){width:30%}th:nth-child(2){width:19%}th:nth-child(3){width:12%}th:nth-child(4){width:9%}'
+    'th:nth-child(5){width:8%}th:nth-child(6){width:22%}'
+    'code{font-size:13px;word-break:break-all}small{font-size:14px;color:#57606a}'
+    'td form input{display:block;width:100%;box-sizing:border-box;margin:0 0 6px;padding:6px 8px;font-size:15px}'
+    'button{font-size:15px;padding:6px 12px;margin:0 6px 4px 0;cursor:pointer}'
+    'form label input{font-size:15px;padding:6px 8px}'
+    '@media (max-width:800px){body{padding:16px}table{table-layout:auto}}'
+)
+
+
 def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=None, tls_key_file=None, secure_cookie=True,
                 tenant_label=''):
     if len(tenant_label) > 100:
@@ -290,9 +310,8 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
             self.wfile.write(content)
 
         def send_html(self, status, body, extra=()):
-            content = ('<!doctype html><meta charset="utf-8"><title>服务工单</title>'
-                       '<style>body{font-family:sans-serif;margin:2em}td,th{padding:4px 8px;border-bottom:1px solid #ddd;text-align:left}'
-                       'code{font-size:12px}</style>' + body).encode()
+            content = ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                       '<title>服务工单</title><style>' + PAGE_STYLE + '</style>' + body).encode()
             self.send_response(status)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(content)))

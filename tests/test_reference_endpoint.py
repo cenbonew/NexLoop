@@ -255,3 +255,15 @@ def test_ticket_fields_survive_existing_data(tmp_path):
     assert endpoint_module.ticket_fields('not json') == ('not json', '', '')
     with pytest.raises(ValueError):
         again.mark(body['intent_id'], 'fulfilled', '')
+
+
+def test_the_staff_page_style_is_inline_readable_and_fits_a_desktop_window():
+    """2026-10-17: the staff page's text was small and its table wider than a 1024 px window with squeezed columns. The style is
+    one inline block (the CSP allows inline style only): viewport meta, a readable base size, a full-width fixed-layout table
+    whose six columns share the width, ids that wrap instead of widening it."""
+    style = endpoint_module.PAGE_STYLE
+    assert 'font:16px/1.6' in style and 'table{width:100%' in style and 'table-layout:fixed' in style and 'overflow-wrap:anywhere' in style
+    widths = [int(w) for w in re.findall(r'th:nth-child\(\d\)\{width:(\d+)%\}', style)]
+    assert len(widths) == 6 and sum(widths) == 100
+    assert 'code{font-size:13px' in style and 'small{font-size:14px' in style
+    assert not re.search(r'url\(|@import|<', style)  # nothing the CSP would block, nothing that closes the style element
