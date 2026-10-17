@@ -33,7 +33,11 @@ def test_hold_workbench_smoke(conversations, admin, pg, tmp_path):
     port = int(os.environ['NEXLOOP_DEV_SMOKE_PORT'])
     web = Path(os.environ['NEXLOOP_DEV_SMOKE_WEB'])
     origin = f'https://127.0.0.1:{port}'
-    config, certificate, key, credentials = workbench_stack(conversations, admin, pg, tmp_path, port=port, web=web)
+    seed = None
+    if os.environ.get('NEXLOOP_DEV_SMOKE_SEED') == 'large':
+        from smoke_seed import large_records
+        seed = large_records()
+    config, certificate, key, credentials = workbench_stack(conversations, admin, pg, tmp_path, port=port, web=web, seed=seed)
     descriptor = os.open(out / 'credentials.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, 'w') as handle:
         json.dump(credentials, handle, ensure_ascii=False, indent=2)
