@@ -287,7 +287,8 @@ def test_test_stack_records_state_and_evidence_pack_are_never_real_evidence(tmp_
     assert index['test_stack'] is True and index['real_evidence'] is False
     assert json.loads((tmp_path / 'pack-marked' / 'interactions' / 'summary.json').read_text())['test_stack'] is True
     E.build(tmp_path / 'pack-plain', {}, tmp_path / 'plain')
-    assert 'real_evidence' not in json.loads((tmp_path / 'pack-plain' / 'index.json').read_text())
+    # R2 (AT-015 prep): a synthetic trial without the test stack mark is never real evidence either (no persona, no driver).
+    assert json.loads((tmp_path / 'pack-plain' / 'index.json').read_text())['real_evidence'] is False
     assert E.check(tmp_path / 'pack-marked') == []
     # A paused test stack trial cannot be resumed as another stack (and the reverse).
     paused = X.run(trial, *fresh(), tmp_path / 'paused', trial_id=TRIAL_ID, order=ORDER, calibration_pause=True, test_stack=True)
@@ -408,3 +409,68 @@ def test_tool_errors_the_model_corrected_reach_the_record_and_the_pack(tmp_path)
                                 ({'recovered_tool_errors': [{'tool': 'nexloop.x', 'code': 'x', 'text': 'y'}]}, 'succeeded'),
                                 ({'recovered_tool_errors': listed * 9}, 'succeeded'), ({}, 'succeeded')):
         assert recovered_tool_errors(inspection, outcome) is None
+
+
+def _pack(tmp_path, name, **kw):
+    import evidence_pack as E
+    from nexloop_eios.interaction_drivers import SyntheticCollector, SyntheticDriver
+    driver = SyntheticDriver(tenant=R.SYNTHETIC_TENANT, other_tenant=R.SYNTHETIC_OTHER)
+    X.run(X.load_plan(R.TRIAL), driver, SyntheticCollector(driver), tmp_path / name, trial_id=TRIAL_ID, order=ORDER, **kw)
+    E.build(tmp_path / ('pack-' + name), {}, tmp_path / name)
+    load = lambda f: json.loads((tmp_path / ('pack-' + name) / f).read_text())  # noqa: E731
+    assert E.check(tmp_path / ('pack-' + name)) == []
+    return load('index.json'), load('interactions/summary.json')
+
+
+def test_real_evidence_only_for_the_real_driver_off_the_test_stack(tmp_path):
+    """R2 (AT-015 prep): the runner marks every record and the state with its driver; the pack says real_evidence true only for
+    the real driver off the test stack. A trial from before the mark counts as real only with the real mode's persona."""
+    index, summary = _pack(tmp_path, 'real', driver_mode='real', persona='simulated_agent')
+    assert index['real_evidence'] is True and index['driver'] == 'real' and index['driver_source'] == 'recorded' and index['test_stack'] is False
+    assert all(r['driver'] == 'real' for r in X.read_records(tmp_path / 'real')) and summary['real_evidence'] is True
+    index, _ = _pack(tmp_path, 'synthetic', driver_mode='synthetic')
+    assert index['real_evidence'] is False and index['driver'] == 'synthetic'
+    index, _ = _pack(tmp_path, 'stack', driver_mode='real', persona='simulated_agent', test_stack=True)
+    assert index['real_evidence'] is False and index['test_stack'] is True
+    index, _ = _pack(tmp_path, 'legacy-real', persona='simulated_agent')  # written before the driver mark
+    assert index['real_evidence'] is True and index['driver_source'] == 'inferred_from_persona'
+    index, _ = _pack(tmp_path, 'legacy-synthetic')
+    assert index['real_evidence'] is False and index['driver'] == 'synthetic'
+    # The run entry passes its --driver: a synthetic run says so in its state.
+    assert R.main(['--driver', 'synthetic', '--trial-id', TRIAL_ID, '--out', str(tmp_path / 'cli')]) == 0
+    assert json.loads((tmp_path / 'cli' / 'state.json').read_text())['driver'] == 'synthetic'
+
+
+def test_the_stage_release_id_form_is_kept():
+    """R1 (AT-015 prep): stage names its releases date-commit-n (20261016-102397d91942-1); the pack keeps that id."""
+    import evidence_pack as E
+    for value in ('20261016-102397d91942-1', '20261016-102397d91942', '20261012T020000Z-' + 'a' * 12):
+        assert E.release_fields({'release_id': value})['release_id'] == value
+    assert E.release_fields({'release_id': 'stage release 1'})['release_id'] is None
+
+
+def test_voids_and_resumes_are_in_the_pack_and_a_voided_record_is_listed_apart(tmp_path):
+    """R3 (AT-015 prep): voids.jsonl and resumes.jsonl enter the pack (projected, counted, sha256); the voided record is in the
+    summary's own list and counts nowhere else."""
+    import evidence_pack as E
+    from nexloop_eios.interaction_drivers import SyntheticCollector, SyntheticDriver
+
+    def fresh():
+        driver = SyntheticDriver(tenant=R.SYNTHETIC_TENANT, other_tenant=R.SYNTHETIC_OTHER)
+        return driver, SyntheticCollector(driver)
+    trial = X.load_plan(R.TRIAL)
+    paused = X.run(trial, *fresh(), tmp_path / 't', trial_id=TRIAL_ID, order=ORDER, calibration_pause=True, driver_mode='real', persona='simulated_agent')
+    at = paused['at_seq']
+    X.run(trial, *fresh(), tmp_path / 't', trial_id=TRIAL_ID, order=ORDER, resume='owner-confirmation:1', void=(at, 'owner-void:1'),
+          driver_mode='real', persona='simulated_agent')
+    E.build(tmp_path / 'pack', {}, tmp_path / 't')
+    index = json.loads((tmp_path / 'pack' / 'index.json').read_text())
+    summary = json.loads((tmp_path / 'pack' / 'interactions' / 'summary.json').read_text())
+    assert index['items']['voids']['status'] == 'present' and index['items']['voids']['count'] == 1 and len(index['items']['voids']['sha256']) == 64
+    assert index['items']['resumes']['count'] == 1 and summary['resumes'] == 1
+    [voided] = summary['voided']
+    assert voided['seq'] == at and voided['kind'] == ORDER[at - 1] and voided['outcome'] == 'ok'
+    assert summary['recorded'] == index['items']['interactions']['records'] == summary['planned']  # the voided record is not counted
+    rows = json.loads((tmp_path / 'pack' / 'interactions' / 'voids.json').read_text())
+    assert rows[0]['seq'] == at and rows[0]['interaction_id'] == voided['interaction_id']
+    assert E.check(tmp_path / 'pack') == []
