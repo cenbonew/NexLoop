@@ -13,6 +13,12 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 
 ITEM_SECTIONS=('constraints','consumer_state','open_work','evidence','semantics','experience')
 MAX_PACK_BYTES=65536  # same bound as the bound Run input (Host, 0053 bind)
+# context-pack-v6.schema.json item caps per section: a pack beyond them is as unbindable as one beyond the bytes.
+MAX_SECTION_ITEMS={'constraints':64,'consumer_state':256,'open_work':128,'evidence':256,'semantics':64,'experience':64}
+
+
+def _too_large(body):
+    return len(canonical_payload(body).encode())>MAX_PACK_BYTES or any(len(body[name])>limit for name,limit in MAX_SECTION_ITEMS.items())
 
 
 def wire_item(item):
@@ -40,14 +46,14 @@ def assemble_v6(*,strategy,bindings,role,current_event,goal,formal_facts,current
     # 10/18 stage: the token budget does not bound bytes (UTF-8 text, item metadata, the omission report). Over the bound
     # input size, the non-pinned section quotas (recent turns included) are halved until it fits; pinned items never go.
     tight=strategy
-    while len(canonical_payload(body).encode())>MAX_PACK_BYTES and any(not i.pinned for i in outcome.kept):
+    while _too_large(body) and any(not i.pinned for i in outcome.kept):
         tight={**tight,'sections':{name:{k:(v//2 if k in ('max_items','recent_turns') else v) for k,v in quota.items()} for name,quota in tight['sections'].items()}}
         outcome=apply_budget(items,tight,estimator=estimator)
         body=_body(strategy,bindings,role,current_event,user_statement,goal,formal_facts,current_constraints,supply,outcome,extra_insufficient,relationship_context,effect_supplies)
         if all(q['max_items']==0 for q in tight['sections'].values()):break
     _assert_no_float(body)
+    if _too_large(body):raise ValueError('context_pack_too_large')
     ContextPackV6.model_validate(body)
-    if len(canonical_payload(body).encode())>MAX_PACK_BYTES:raise ValueError('context_pack_too_large')
     return body,outcome
 
 

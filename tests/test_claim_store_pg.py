@@ -273,7 +273,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         '_nx029_retention','_nx029_erasure','_nx029_expiry_classes','_relay_erasure','_at043_incentives','_claim_match_settled',
         # Context latest turn 0202 copies the 0113 v6 section check verbatim (its pinned-Claim requirement unchanged) and adds the
         # latest_consumer_turn tag on a conversation-turn Message; no Claim value is read or projected.
-        '_context_conversation_turns','_context_latest_consumer_turn')) for name in migrations)
+        # Degraded fallback 0211 copies the 0202 v6 section check verbatim (its pinned-Claim requirement unchanged) and accepts named
+        # open work as mandatory_exceeds_budget for a fallback Run only; no Claim value is read or projected.
+        '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback')) for name in migrations)
 
 
 def correction_window(conversations):

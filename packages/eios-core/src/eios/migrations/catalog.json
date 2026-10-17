@@ -1050,6 +1050,11 @@
       "version": "0210",
       "name": "0210_effect_confirm_not_delivered.sql",
       "sha256": "4837db981b21549f928203c2a9bfc462d9cbd6653724d25583104e529f430274"
+    },
+    {
+      "version": "0211",
+      "name": "0211_context_degraded_fallback.sql",
+      "sha256": "26271b049b4830115d7032be0f44ea7017f77c2e02fda6aed8be1ea3e1ac8880"
     }
   ]
 }
