@@ -157,7 +157,8 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
       const description=tool(client,cmd,name).description;
       expect(description).toContain(ENTERPRISE_RESULT_GUIDE);
       expect(description).toMatch(/not a failure/);
-      expect(description).toMatch(/duplicate order/);
+      expect(description).toMatch(/Within this Run, once the result is back, do not request the same order again/);
+      expect(description).not.toMatch(/place the order again yourself/);  // 10/18: no longer read as "never order again"
       expect(description).toMatch(/never these field names/);
     }
     expect(tool(client,cmd,'nexloop.enterprise.deliver').description).toMatch(/summary and details in the customer's own language/);
@@ -182,6 +183,15 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
     const reply=tools.find(t=>t.name==='nexloop.service.request') as unknown as Run;
     expect(JSON.parse((await reply.execute({message:'x'})).content[0]!.text)).toEqual({code:'effect_intent_unavailable'});
     expect(find.description).toMatch(/only a request_id that nexloop.enterprise.deliver returned in this Run/);
+  });
+  it('10/18 (trial 4f5d795c): a new order in a new message is placed even when the history shows an earlier one',async()=>{
+    const {client,cmd}=await bridge();
+    const tools=client.toolsForRun(cmd,{enterprise:supply});
+    const deliver=(tools.find(t=>t.name==='nexloop.enterprise.deliver') as unknown as {description:string}).description;
+    const find=(tools.find(t=>t.name==='nexloop.enterprise.find') as unknown as {description:string}).description;
+    expect(deliver).toMatch(/that is a new order: place it now with this tool, even if the conversation history shows an earlier order/);
+    expect(deliver).toMatch(/an earlier order is never a reason to skip this one/);
+    expect(find).toMatch(/Not being able to read an earlier order never stops a new one/);
   });
   it('refuses another consumer, unknown keys and oversized text before the network',async()=>{
     const {client,cmd,bodies}=await bridge();
