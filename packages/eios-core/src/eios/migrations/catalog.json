@@ -1035,6 +1035,11 @@
       "version": "0207",
       "name": "0207_nx037_interaction_message_sender.sql",
       "sha256": "fe9de18fa54c105321d6b7a9cad8a57e78acf848a52b867275f11566fb569995"
+    },
+    {
+      "version": "0208",
+      "name": "0208_nx037_recovered_tool_errors.sql",
+      "sha256": "8f09751f82c8fa69d0874eb3d18a6c5d7153fb267e428f98c65947a0f1bc5409"
     }
   ]
 }

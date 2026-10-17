@@ -381,3 +381,30 @@ def test_a_failed_run_s_tool_reaches_the_interaction_record(tmp_path):
     import evidence_pack as E
     E.build(tmp_path / 'pack', {}, tmp_path / 't')
     assert E.check(tmp_path / 'pack') == [] and json.loads((tmp_path / 'pack' / 'index.json').read_text())['items']['interactions']['dropped_values'] == 0
+
+
+def test_tool_errors_the_model_corrected_reach_the_record_and_the_pack(tmp_path):
+    """Owner 2026-10-18 (option B): a succeeded Run's corrected tool errors are in the record (recovered_tool_errors), counted,
+    never hidden; the interaction stays ok."""
+    from nexloop_eios.interaction_drivers import SyntheticCollector, SyntheticDriver
+    from nexloop_eios.runtime_dispatch import recovered_tool_errors
+    listed = [{'tool': 'nexloop.service.request', 'code': 'effect_intent_unavailable'}, {'tool': 'nexloop.service.request', 'code': 'request_scope_wrong_service'}]
+
+    class Corrected(SyntheticCollector):
+        def collect(self, run_id):
+            return {**super().collect(run_id), 'recovered_tool_errors': listed}
+    driver = SyntheticDriver(tenant=R.SYNTHETIC_TENANT, other_tenant=R.SYNTHETIC_OTHER)
+    X.run(X.load_plan(R.TRIAL), driver, Corrected(driver), tmp_path / 't', trial_id=TRIAL_ID, order=ORDER)
+    record = X.read_records(tmp_path / 't')[0]
+    assert record['recovered_tool_errors'] == listed and record['outcome'] == 'ok'
+    import evidence_pack as E
+    E.build(tmp_path / 'pack', {}, tmp_path / 't')
+    assert E.check(tmp_path / 'pack') == [] and json.loads((tmp_path / 'pack' / 'index.json').read_text())['items']['interactions']['dropped_values'] == 0
+    # The dispatcher keeps only well-formed entries of a succeeded Run.
+    assert recovered_tool_errors({'recovered_tool_errors': listed}, 'succeeded') == listed
+    for inspection, outcome in (({'recovered_tool_errors': listed}, 'failed'), ({'recovered_tool_errors': []}, 'succeeded'),
+                                ({'recovered_tool_errors': [{'tool': 'nexloop.x', 'code': 'Free text'}]}, 'succeeded'),
+                                ({'recovered_tool_errors': [{'tool': 'unregistered_tool', 'code': 'effect_intent_unavailable'}]}, 'succeeded'),
+                                ({'recovered_tool_errors': [{'tool': 'nexloop.x', 'code': 'x', 'text': 'y'}]}, 'succeeded'),
+                                ({'recovered_tool_errors': listed * 9}, 'succeeded'), ({}, 'succeeded')):
+        assert recovered_tool_errors(inspection, outcome) is None

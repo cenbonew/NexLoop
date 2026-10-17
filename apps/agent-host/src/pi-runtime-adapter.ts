@@ -9,6 +9,9 @@ import {Harness,GenerationTask,hook,ToolResultEntry,createRegistry,defineDoc,typ
 import {openNodeSqliteDatabase} from '@earendil-works/pi-durable/storage/sqlite/node';
 import {SqliteStorage} from '@earendil-works/pi-durable/storage/sqlite';
 import {safeProviderMessage,safeProviderStream,type ProviderFailure} from './runtime-provider-boundary.js';
+/** Owner 2026-10-18 (option B): the fixed refusal codes a model may correct within its Run (guard or Host refusals, never a
+ * thrown tool or an authorization failure). */
+export const RECOVERABLE_TOOL_CODES=new Set(['invalid_effect_request','effect_intent_unavailable','request_scope_wrong_service','outside_catalog_terms']);
 
 /** 10/18 stage: one allowlisted stderr line per failed model call (fixed fields only; never a message, body or key). */
 export function modelFailureLine(runId:string,call:number,elapsedMs:number,failure:ProviderFailure):string{
@@ -327,6 +330,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     // 10/16 stage: a failed Run named no cause. Now also a returned tool error (its own code, e.g. outside_catalog_terms) or a
     // failed task's fixed runtime code: codes only (^[a-z_]{1,64}$), never a message, parameter or transcript text.
     let toolError:string|undefined,taskError:string|undefined,failedTool:string|undefined;
+    const results:{order:number;tool:string;error:string|undefined}[]=[],recovered:{tool:string;code:string}[]=[];
     const code=(value:unknown)=>typeof value==='string'&&/^[a-z][a-z_]{0,63}$/.test(value)?value:undefined;
     const toolCode=(message:{content?:unknown}):string=>{
       const text=Array.isArray(message.content)?message.content.find((part:{type?:string;text?:unknown})=>part?.type==='text')?.text:undefined;
@@ -361,13 +365,24 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
           if(entryCount>1024||entryCursor&&entryCount>=1024)return taskFailed?'failed' as const:'unknown' as const;
           for(const entry of page.items)if(ToolResultEntry.is(entry)){
             for(const diagnostic of entry.data.diagnostics)if(diagnostic.severity==='error')marks(diagnostic.message);
-            const errored=entry.model?.find(message=>message.role==='toolResult'&&message.isError);
-            if(errored&&toolError===undefined){toolError=toolCode(errored as {content?:unknown});failedTool=toolName(errored as {toolName?:unknown});}
-            if(!taskFailed&&(errored||entry.data.diagnostics.some(diagnostic=>diagnostic.severity==='error')))return 'failed' as const;
+            if(!taskFailed&&entry.data.diagnostics.some(diagnostic=>diagnostic.severity==='error'))return 'failed' as const;
+            for(const message of entry.model??[])if(message.role==='toolResult')
+              results.push({order:Number(entry.id),tool:toolName(message as {toolName?:unknown}),error:message.isError===true?toolCode(message as {content?:unknown}):undefined});
           }
         }while(entryCursor);
       }
-      if(taskFailed)return 'failed' as const;
+      // Owner 2026-10-18 (option B): a tool error the guard or this Host refused with a fixed code, followed later by a success
+      // of the same tool, was corrected by the model: it is recorded (recovered_tool_errors) and does not fail the Run. Any other
+      // error (a thrown tool, an authorization failure, no later success) fails the Run as before.
+      results.sort((a,b)=>a.order-b.order);  // entries are scanned newest first; judge them in call order
+      for(const [index,result] of results.entries()){
+        if(result.error===undefined)continue;
+        const corrected=RECOVERABLE_TOOL_CODES.has(result.error)&&result.tool!=='unregistered_tool'
+          &&results.slice(index+1).some(later=>later.tool===result.tool&&later.error===undefined);
+        if(corrected)recovered.push({tool:result.tool,code:result.error});
+        else{toolError??=result.error;failedTool??=result.tool;}
+      }
+      if(taskFailed||toolError!==undefined)return 'failed' as const;
 
       if(status.type!=='input'||status.status!=='done')return status.status==='unanswered'?'failed' as const:'unknown' as const;
       const answers=await tx.scanEntries({conversationId:run.binding.conversation_id as ConversationId,minEntryId:status.answer,maxEntryId:status.answer},1);
@@ -377,7 +392,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     },BACKGROUND_CONTEXT);
     // NX-031 A2: numbers only, from the same durable task records (a restarted Host reports the same figure).
     return {...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2},
-      model_timing:modelTiming(scanned),...(runtimeOutcome!=='failed'?{}:unavailable?{failure_code:'runtime_authorization_unavailable' as const}:denied?{failure_code:'runtime_authorization_denied' as const}
+      model_timing:modelTiming(scanned),...(runtimeOutcome==='succeeded'&&recovered.length>0?{recovered_tool_errors:recovered.slice(0,16)}:{}),...(runtimeOutcome!=='failed'?{}:unavailable?{failure_code:'runtime_authorization_unavailable' as const}:denied?{failure_code:'runtime_authorization_denied' as const}
         :toolError?{failure_code:'runtime_tool_error' as const,failure_detail:toolError,failure_tool:failedTool}:taskError?{failure_code:'runtime_task_failed' as const,failure_detail:taskError}:{})};
   });}
   cancel(command:unknown):Promise<{run_id:string;status:'cancel_requested'}>{return this.serial(async()=>{

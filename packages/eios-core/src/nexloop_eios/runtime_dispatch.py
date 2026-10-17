@@ -77,6 +77,16 @@ def reply_settle(worker,run_id):
         return {}
 
 
+def recovered_tool_errors(inspection,outcome):
+    """Owner 2026-10-18 (option B): the tool errors the model corrected within a succeeded Run, as [{tool, code}] with canonical
+    tool names and fixed codes only (1-16 entries); anything else (or a Run that did not succeed) gives None."""
+    listed=inspection.get('recovered_tool_errors') if type(inspection) is dict else None
+    if outcome!='succeeded' or type(listed) is not list or not 0<len(listed)<=16:return None
+    if not all(type(r) is dict and set(r)=={'tool','code'} and type(r['tool']) is str and _TOOL.fullmatch(r['tool']) and r['tool']!='unregistered_tool'
+               and type(r['code']) is str and _DETAIL.fullmatch(r['code']) for r in listed):return None
+    return [{'tool':r['tool'],'code':r['code']} for r in listed]
+
+
 def model_timing(value):
     """NX-031 A2: the Host's model time of a Run, passed on only as exactly {calls, total_ms, max_ms} of non-negative numbers
     (no other key, no text); anything else is dropped (the Run's outcome never depends on it)."""
@@ -238,7 +248,7 @@ class RuntimeDispatcher:
                     if missing.code=='runtime_state_missing':raise error from None
                     raise
             return observe()
-        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None;failure_detail=None;failure_tool=None;stage='payload';error_classes=None
+        outcome='unknown';code=None;status='failed';receipt=None;timing=None;failure=None;failure_detail=None;failure_tool=None;recovered=None;stage='payload';error_classes=None
         try:
             payload=job['payload']
             if type(payload) is not dict or set(payload)!={'run_command','input'}:raise RuntimeDispatchError('runtime_task_payload_invalid')
@@ -286,6 +296,7 @@ class RuntimeDispatcher:
                 receipt['persistence']={'journal_mode':'wal','synchronous':2}
                 timing=model_timing(inspection.get('model_timing'))
             status='succeeded' if outcome=='succeeded' else 'retry_wait' if outcome=='unknown' else 'failed'
+            recovered=recovered_tool_errors(inspection,outcome)
             if status!='succeeded':code='runtime_'+outcome
             # NX-031: the Host names an authorization failure with one allowlisted code. A guard that did not answer (after the
             # Host's bounded retries) is not a denial: the task code says so. The Pi Run is terminal, so the task ends failed and
@@ -328,6 +339,7 @@ class RuntimeDispatcher:
         if failure is not None:result['failure_code']=failure
         if failure_detail is not None:result['failure_detail']=failure_detail
         if failure_tool is not None:result['failure_tool']=failure_tool
+        if recovered is not None:result['recovered_tool_errors']=recovered
         if code is not None:result['code']=code
         if error_classes:result['error_class']=error_classes[0]
         if error_classes and len(error_classes)>1:result['error_cause_class']=error_classes[-1]
