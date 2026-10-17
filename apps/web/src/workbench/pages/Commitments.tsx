@@ -2,6 +2,8 @@ import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,RESTRICTED_TEXT,readCommitment,readCommitments,type CommitmentView,type EvidenceItem} from '../api';
 import {Page,Short} from './Page';
+import {when} from './Consumers';
+import {DataTable} from '../DataTable';
 
 /** The promised words: shown only with the source Message's READ while it exists. */
 export function quoteText(view:CommitmentView):string{
@@ -16,7 +18,7 @@ export function dueText(view:CommitmentView):string{
 
 function Evidence({title,items,note}:{title:string;items:EvidenceItem[];note?:string}){
   return <div className="evidence-column"><h3>{title}</h3>{note?<p className="note">{note}</p>:null}
-    {items.length?<ul>{items.map(x=><li key={x.kind+x.ref}>{x.kind} · {x.occurred_at}</li>)}</ul>:<p className="note">暂无证据。</p>}</div>;
+    {items.length?<ul>{items.map(x=><li key={x.kind+x.ref}>{x.kind} · {when(x.occurred_at)}</li>)}</ul>:<p className="note">暂无证据。</p>}</div>;
 }
 
 export function Commitments({actions,onOpen}:{actions?:ReactNode;onOpen:(commitmentId:string)=>void}){
@@ -27,11 +29,12 @@ export function Commitments({actions,onOpen}:{actions?:ReactNode;onOpen:(commitm
     return <>
       <div role="tablist"><button type="button" role="tab" aria-selected={!ended} onClick={()=>setEnded(false)}>未结束</button>
         <button type="button" role="tab" aria-selected={ended} onClick={()=>setEnded(true)}>已结束</button></div>
-      {rows.length?<table><thead><tr><th>承诺</th><th>状态</th><th>期限</th><th>条件</th><th>异常</th></tr></thead><tbody>
-        {rows.map(c=><tr key={c.commitment_id}><td><button type="button" className="link" onClick={()=>onOpen(c.commitment_id)}>{typeof c.properties.predicate==='string'?c.properties.predicate:<Short value={c.commitment_id}/>}</button></td>
-          <td>{COMMITMENT_STATUS_TEXT[c.status]??c.status}</td><td>{dueText(c)}</td><td>{typeof c.properties.condition==='string'&&c.properties.condition?c.properties.condition:'—'}</td>
-          <td>{c.exceptions.map(e=>e.reason).join('、')||'—'}</td></tr>)}</tbody></table>:<p className="note">暂无记录。</p>}
-      {data.exceptions.length?<><h2>异常</h2><ul>{data.exceptions.map(e=><li key={e.subject_ref+e.reason}>{e.reason} · {e.subject_ref} · {e.raised_at}</li>)}</ul></>:null}
+      {rows.length?<DataTable label="承诺" rows={rows} rowKey={c=>c.commitment_id} columns={[
+        {label:'承诺',main:true,cell:c=><button type="button" className="link" onClick={()=>onOpen(c.commitment_id)}>{typeof c.properties.predicate==='string'?c.properties.predicate:<Short value={c.commitment_id}/>}</button>},
+        {label:'状态',cell:c=>COMMITMENT_STATUS_TEXT[c.status]??c.status},{label:'期限',cell:dueText},
+        {label:'条件',wide:true,cell:c=>typeof c.properties.condition==='string'&&c.properties.condition?c.properties.condition:'—'},
+        {label:'异常',cell:c=>c.exceptions.map(e=>e.reason).join('、')||'—'}]}/>:<p className="note">暂无记录。</p>}
+      {data.exceptions.length?<><h2>异常</h2><ul>{data.exceptions.map(e=><li key={e.subject_ref+e.reason}>{e.reason} · {e.subject_ref} · {when(e.raised_at)}</li>)}</ul></>:null}
     </>;}}</Page>;
 }
 
@@ -46,7 +49,7 @@ export function CommitmentDetail({commitmentId,actions}:{commitmentId:string;act
       <Evidence title="客户确认" items={c.evidence.customer_confirmed}/>
       <div className="evidence-column"><h3>问题解决</h3><p className="note">不可用（v0.1 不推断问题是否解决）。</p></div>
     </div>
-    <h2>事件</h2><ol>{c.events.map((e,i)=><li key={i}>{e.kind} · {e.recorded_at}{e.principal_id?` · ${e.principal_id}`:''}</li>)}</ol>
-    {c.exceptions.length?<><h2>异常</h2><ul>{c.exceptions.map(e=><li key={e.reason}>{e.reason} · {e.raised_at}</li>)}</ul></>:null}
+    <h2>事件</h2><ol>{c.events.map((e,i)=><li key={i}>{e.kind} · {when(e.recorded_at)}{e.principal_id?` · ${e.principal_id}`:''}</li>)}</ol>
+    {c.exceptions.length?<><h2>异常</h2><ul>{c.exceptions.map(e=><li key={e.reason}>{e.reason} · {when(e.raised_at)}</li>)}</ul></>:null}
   </>}</Page>;
 }

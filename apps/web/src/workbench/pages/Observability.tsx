@@ -6,6 +6,8 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Backup,type Process} from '../api';
 import {Page} from './Page';
+import {when} from './Consumers';
+import {DataTable} from '../DataTable';
 
 const age=ageText;
 
@@ -13,15 +15,15 @@ export function Alerts({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
   return <Page title="告警" query={query} actions={actions}>{data=><>
     {data.evaluator.stale?<p className="warning" role="alert">{EVALUATOR_STALE_TEXT}</p>
-      :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 {data.evaluator.last_evaluated_at ?? '—'}。</p>}
+      :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 {when(data.evaluator.last_evaluated_at)}。</p>}
     <h2>正在触发</h2>
-    {data.firing.length?<table><thead><tr><th>级别</th><th>规则</th><th>对象</th><th>当前值</th><th>首次触发</th><th>次数</th><th>静默</th></tr></thead><tbody>
-      {data.firing.map(a=><tr key={a.dedupe_key} className={a.severity==='critical'&&!a.silenced_until?'critical':undefined}>
-        <td>{SEVERITY_TEXT[a.severity]}</td><td>{a.rule_id}</td><td>{a.selector??'—'}</td><td>{a.value??'—'}</td><td>{a.first_fired_at}</td><td>{a.fire_count}</td>
-        <td>{a.silenced_until?`已静默至 ${a.silenced_until}（仍在评估和记录）`:'—'}</td></tr>)}</tbody></table>
+    {data.firing.length?<DataTable label="正在触发的告警" rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[
+      {label:'规则',main:true,cell:a=>a.rule_id},{label:'级别',cell:a=>SEVERITY_TEXT[a.severity]},{label:'对象',cell:a=>a.selector??'—'},{label:'当前值',num:true,cell:a=>a.value??'—'},
+      {label:'首次触发',cell:a=>when(a.first_fired_at)},{label:'次数',num:true,cell:a=>a.fire_count},
+      {label:'静默',cell:a=>a.silenced_until?`已静默至 ${when(a.silenced_until)}（仍在评估和记录）`:'—'}]}/>
       :<p className="note">当前没有触发中的告警。</p>}
     <h2>最近事件</h2>
-    {data.events.length?<ol>{data.events.map(e=><li key={e.event_id}>{e.recorded_at} · {e.kind==='firing'?'触发':'恢复'} · {SEVERITY_TEXT[e.severity]} · {e.rule_id}{e.selector?`（${e.selector}）`:''}
+    {data.events.length?<ol>{data.events.map(e=><li key={e.event_id}>{when(e.recorded_at)} · {e.kind==='firing'?'触发':'恢复'} · {SEVERITY_TEXT[e.severity]} · {e.rule_id}{e.selector?`（${e.selector}）`:''}
       {e.value!==null?` · 值 ${e.value}`:''}{e.threshold!==null?` / 阈值 ${e.threshold}`:''}</li>)}</ol>:<p className="note">暂无事件。</p>}
   </>}</Page>;
 }
@@ -56,7 +58,7 @@ function Counts({values,labels}:{values:Record<string,number>;labels?:Record<str
 export function Operations({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','metrics'],queryFn:readMetrics});
   return <Page title="运行状态" query={query} actions={actions}>{m=><>
-    <p className="note">快照时间 {m.computed_at}；只含代码、计数、年龄和比率，不含原文。</p>
+    <p className="note">快照时间 {when(m.computed_at)}；只含代码、计数、年龄和比率，不含原文。</p>
     <div className="workbench-grid">
       <article className="workbench-block"><h3>派发拒绝（最近 1 小时）</h3><Counts values={m.refusals.last_hour} labels={REFUSAL_TEXT}/></article>
       <article className="workbench-block"><h3>外部动作</h3><p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>
@@ -83,8 +85,8 @@ export function Audit({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','human-actions'],queryFn:readHumanActions});
   return <Page title="审计" query={query} actions={actions} empty={d=>d.length===0}>{items=><>
     <p className="note">谁在什么时候做了哪些受治理的人类操作，以及成员读取消息原文和客户资料的记录（只有负责人可见；只含 ID、类别和时间）。</p>
-    <table><thead><tr><th>时间</th><th>类别</th><th>操作</th><th>成员</th><th>对象</th></tr></thead><tbody>
-      {items.map((x,i)=><tr key={i}><td>{x.occurred_at}</td><td>{x.category==='read'?'读取':'操作'}</td><td>{x.action}</td><td>{x.principal_id}{x.role?`（${x.role}）`:''}</td>
-        <td>{x.target_kind}{x.target_ref?` · ${x.target_ref}`:''}</td></tr>)}</tbody></table>
+    <DataTable label="审计" rows={items} rowKey={(_,i)=>String(i)} columns={[
+      {label:'时间',main:true,cell:x=>when(x.occurred_at)},{label:'类别',cell:x=>x.category==='read'?'读取':'操作'},{label:'操作',cell:x=>x.action},
+      {label:'成员',cell:x=>`${x.principal_id}${x.role?`（${x.role}）`:''}`},{label:'对象',wide:true,cell:x=>`${x.target_kind}${x.target_ref?` · ${x.target_ref}`:''}`}]}/>
   </>}</Page>;
 }

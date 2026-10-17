@@ -2,6 +2,8 @@
 # Development machine only: one-command workbench smoke environment (NX-028 page integration).
 #
 #   scripts/dev/workbench_smoke.sh     # Web http://127.0.0.1:8744 (NEXLOOP_DEV_SMOKE_WEB_PORT), API 8743 (NEXLOOP_DEV_SMOKE_PORT)
+#   NEXLOOP_DEV_SMOKE_SEED=large scripts/dev/workbench_smoke.sh   # plus 40 synthetic customers, multi-row tables, a 60-turn conversation
+#                                                                 # (tests/smoke_seed.py; layout batch 2 acceptance)
 #
 # Starts a disposable PostgreSQL through the test fixtures (bootstrap + synthetic tenant, one owner and one operator
 # workbench member via the configurator, one customer conversation with one inbound message), serves the production API on
@@ -24,6 +26,8 @@ DIR="$ROOT/.dev-smoke"
 export LC_ALL=C.UTF-8 LANG=C.UTF-8 REAL_DISPATCH_ENABLED=false
 export PYTHONPATH="$ROOT/packages/eios-core/src:$ROOT/tests"
 export NEXLOOP_DEV_SMOKE_DIR="$DIR" NEXLOOP_DEV_SMOKE_PORT="$PORT" NEXLOOP_DEV_SMOKE_WEB="$DIR/web"
+case "${NEXLOOP_DEV_SMOKE_SEED:-}" in ""|large) ;; *) echo "workbench smoke: NEXLOOP_DEV_SMOKE_SEED must be empty or large" >&2; exit 1;; esac
+export NEXLOOP_DEV_SMOKE_SEED="${NEXLOOP_DEV_SMOKE_SEED:-}"
 
 if [[ -e "$DIR" ]]; then
   echo "workbench smoke: $DIR exists (another run, or an unclean exit); stop that run or remove the directory" >&2

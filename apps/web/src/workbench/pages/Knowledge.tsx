@@ -2,6 +2,8 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {RESTRICTED_TEXT,REVIEW_ENDED_TEXT,readReviewEvidence,readReviewQueue} from '../api';
 import {Page,Short} from './Page';
+import {when} from './Consumers';
+import {DataTable} from '../DataTable';
 import {ApiError} from '../../api';
 import {DecisionBar} from '../../Review';
 import {WORKBENCH_REVIEW,readCandidate,reviewError,type CandidateDetail} from '../../review-api';
@@ -18,9 +20,9 @@ export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidate
   const query=useQuery({queryKey:['workbench','review'],queryFn:readReviewQueue});
   return <Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
     <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。审核员在候选的证据页中提交决定（通过、并入已有定义、拒绝），决定写入审计。</p>
-    <table><thead><tr><th>候选</th><th>类别</th><th>证据</th><th>提出时间</th></tr></thead><tbody>
-      {items.map(x=><tr key={x.candidate_id}><td><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??x.candidate_id}</button></td>
-        <td>{x.kind}</td><td>{x.evidence_count}</td><td>{x.created_at}</td></tr>)}</tbody></table>
+    <DataTable label="待审核候选" rows={items} rowKey={x=>x.candidate_id} columns={[
+      {label:'候选',main:true,cell:x=><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??x.candidate_id}</button>},
+      {label:'类别',cell:x=>x.kind},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=>when(x.created_at)}]}/>
   </>}</Page>;
 }
 
