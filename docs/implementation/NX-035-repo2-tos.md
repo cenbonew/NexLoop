@@ -166,3 +166,63 @@
 | 静态 AK/SK | 上游首选 ECS 角色，但 NexLoop 的主机没有这个条件 | 按前缀限定、每台主机一个子用户、文件 0600、可轮换、开启版本控制以便找回误删 |
 | 公网中断时的 WAL 归档 | repo2 推送失败会让 `archive-push` 报错，WAL 积压 | 第 7 步断网演练，观察 `wal_archiving` 和 `pg_wal` 的增长 |
 | 桶治理没有自动审计 | 上游每天审计，这里只有人工核对 | 每月按第 1 步的核对清单人工复核一次；审计器作为后续项 |
+
+## 6. 复用方案：放进 NEX-EIOS 现有的数据保护桶（负责人 2026-10-17 追问）
+
+负责人要求“复用 NEX-EIOS 的备份方式”。本节回答四个问题：
+1. 上游实际使用的是什么；
+2. 能不能直接复用现有的桶；
+3. 复用时负责人最少要做哪些操作；
+4. 复用版的命令单。
+
+命令单见 [run-repo2-tos-reuse-20261017](../release/run-repo2-tos-reuse-20261017.md)，负责人要做的事见 [repo2-tos-owner-actions](../release/repo2-tos-owner-actions.md)。
+
+### 6.1 上游实际使用的是什么（冻结上游只读核实）
+
+| 项 | 冻结代码与配置中的事实 | 出处 |
+|---|---|---|
+| 桶 | **两个桶**：Artifact 桶，名字是代码常量 `PRODUCTION_BUCKET`；数据保护桶，名字由 env `NEX_EIOS_DATA_PROTECTION_TOS_BUCKET` 给出，**代码拒绝它与 Artifact 桶同名**（`dr_backup.py` 第 183–184 行）。仓库中的示例值是占位，生产实际使用的数据保护桶名不在仓库里 | `artifact_settings.py` 第 10 行；`ops/systemd/nex-eios-data-protection.env.example`；`dr_backup.py` |
+| 地域 | `cn-shanghai`，写死并校验 | `artifact_settings.py` 第 11 行，`_validate_endpoint` |
+| 加密 | 数据保护桶默认加密 SSE-TOS（`AES256`），每次写入也带上；DR 文件在上传前另做 age 客户端加密 | `DATA_PROTECTION_WRITER_CONTRACT`，桶审计的期望值 `encryption: AES256` |
+| 生命周期 | 三条规则：`disaster-recovery/daily/` 90 天过期，`disaster-recovery/monthly/` 365 天过期，空前缀（整个桶）的未完成分段上传 1 天后终止；`archive/<channel>/` 永不过期 | 桶审计的期望值 `lifecycle` |
+| 版本控制 | 必须为 Disabled（或 Suspended、Unknown，表示“不再写入新版本”）；Enabled 时审计 fail closed | `_ACCEPTABLE_VERSIONING` |
+| 身份 | ECS 实例角色；期望各数据保护身份“没有长期静态凭据”（`CredentialState: Disabled`）；身份按前缀授权，备份身份没有删除权限；有每日只读漂移审计（ACL、Policy、SSE、Versioning、Lifecycle、IAM、访问日志、云审计） | `data_protection_bucket.py` 中 `identity_access`、`iam`；`data-protection.md` |
+| 覆盖保护 | forbid-overwrite 是**写入方在每次请求上带的头**（`forbid_overwrite=True`），不是桶级设置 | `data_protection.py` 第 457、514 行；`storage.py` 第 338 行 |
+
+- **私有附注**：`local-only/` 中没有 TOS 相关的记录。`LOCAL_SOURCES.md` 不存在，`LAN_PLAN.md`、`stage.env.draft` 中都没有桶、地域或账号。
+- **待负责人确认**：生产实际使用的数据保护桶名，以及它当前的版本控制、生命周期、策略是否与上表一致。这些只能在控制台或用上游的 audit-only 命令读出，本次没有连接任何服务。
+
+### 6.2 能不能直接复用：两种做法的对比
+
+**可以复用的是数据保护桶，不是 Artifact 桶。** 上游的规则是数据保护数据不进 Artifact 桶（代码拒绝同名），NexLoop 的备份同样属于数据保护，应遵守这条规则。
+
+| 方面 | A. 复用数据保护桶，前缀 `nexloop/`，独立子用户 | B. 新建专用桶（§3 的原方案） |
+|---|---|---|
+| **桶策略** | 不冲突：现有策略只拒绝非 TLS 请求，而 pgBackRest、restic 都走 TLS。**不改**桶策略 | 新建，与原方案相同 |
+| **生命周期是否会误删** | **不会**：两条过期规则只作用于 `disaster-recovery/daily/` 和 `disaster-recovery/monthly/`，`nexloop/` 不在其中。整个桶的“未完成分段上传 1 天后终止”对 NexLoop 无害。**但不能再添加规则**：上游审计会把任何多出来的规则报为漂移 | 可以自定（只设分段上传，加上历史版本过期） |
+| **版本控制** | **只能保持 Disabled**，否则上游审计 fail closed。后果：NexLoop 的子用户密钥泄露后，`nexloop/` 下的数据被删除就**无法找回**（只剩 repo1） | 可以开启，历史版本保留 14 天，误删或恶意删除可以找回 |
+| **删除隔离** | IAM 按前缀限定：NexLoop 子用户只能删除 `nexloop/` 下的对象，碰不到 `disaster-recovery/` 和 `archive/`；上游的身份没有删除权限，也碰不到 `nexloop/`。**仍然耦合的地方**：桶级事故处置（上游手册要求阻断写入、停用、迁移桶）会同时停掉 NexLoop 的 repo2；误删整个桶会同时失去两边的数据 | 完全隔离 |
+| **上游审计** | 上游的 IAM 审计只核对它自己列出的身份，NexLoop 子用户不在其中，按代码判断不会报漂移。负责人在加子用户的**前后各跑一次上游的 audit-only**，确认仍为 compliant | 不受影响 |
+| **计费** | 同一个账号、同一个桶：存储、请求、公网流量都计在这个桶上，无法直接按项目拆分（按前缀统计需要另开桶清单或分析功能） | 单独一个桶，账单可以直接区分 |
+| **加密** | 继承桶默认的 SSE-TOS，再加上 NexLoop 自己的客户端加密（pgBackRest cipher、restic）。与上游的双层加密一致 | 相同 |
+| **负责人在控制台的工作量** | **最少**：只建两个子用户、各附一条前缀策略、各生成一对 AK。不改桶的任何设置 | 建桶、策略、生命周期、加密、版本控制，再加子用户 |
+
+**建议**：
+- 如果负责人看重“最少操作、与 NEX-EIOS 同一套治理”，选 **A**，代价是没有版本控制带来的误删保护；
+- 如果看重“误删可以找回、账单清楚、事故互不影响”，选 **B**。
+- 两者的 NexLoop 侧配置只差桶名，切换的成本很低：以后从 A 迁到 B，只需新建 repo2 并做一次全量。
+
+### 6.3 复用时 NexLoop 侧与 §3 的差别
+
+- **桶名**：数据保护桶的实际名字，只写进主机上的私有配置。region 为 `cn-shanghai`，端点 `tos-s3-cn-shanghai.volces.com`。
+- **前缀**：与 §3.1 相同：`nexloop/pgbackrest/`、`nexloop/restic-journal/`、`nexloop/restic-files/`。上游的前缀是 `disaster-recovery/`、`archive/`，不冲突。
+- **生命周期**：不添加任何规则。`deploy/examples/tos/lifecycle.example.json` 只用于方案 B。
+- **版本控制**：保持桶的现状，即 Disabled。
+- **身份**：两个子用户及其前缀策略，与 `iam-policy-data-host.example.json` 相同，模板不需要改。
+- **Keychain 条目**：与 §3.2 相同，只是不需要“桶”的相关条目，因为桶名不是秘密，写进私有 env 即可：
+  - `nexloop/backup/tos-data-access-key`、`nexloop/backup/tos-data-secret-key`；
+  - `nexloop/backup/tos-app-access-key`、`nexloop/backup/tos-app-secret-key`；
+  - `nexloop/backup/repo2-cipher-pass`、`nexloop/backup/restic-repo2-journal`、`nexloop/backup/restic-repo2-files`。
+- **审计**：在负责人每月的人工核对之外，加上“上游 audit-only 仍为 compliant”这一项。
+
+代码和模板都不需要再改：`pgbackrest-repo2-tos.conf.example` 和两个 env 示例中的 `__TOS_BUCKET__` 填上数据保护桶的名字即可。
