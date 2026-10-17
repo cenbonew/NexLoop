@@ -112,15 +112,16 @@ def test_console_operator_writes_codes_only(tmp_path):
 class MultiObserver:
     """The 0196 message list plus each message's 0172 observation (by its acceptance time)."""
 
-    def __init__(self, views):
+    def __init__(self, views, senders=None):
         self.views = views  # [(message_id, accepted_at, observation)]
+        self.senders = senders or {}  # message_id -> consumer id (0207); default: the planned account 'a' * 64
 
     def now(self):
         return 'T0'
 
     def messages(self, since):
         assert since == 'T0'
-        return [{'message_id': m, 'accepted_at': at} for m, at, _ in self.views]
+        return [{'message_id': m, 'accepted_at': at, 'consumer_id': self.senders.get(m, 'a' * 64)} for m, at, _ in self.views]
 
     def observe(self, since):
         return next(v for _, at, v in self.views if at == since)
@@ -234,3 +235,28 @@ def test_the_prompt_line_tells_the_agent_what_to_play_and_where_to_mark_done(tmp
     line = json.loads((tmp_path / 'prompts.jsonl').read_text().strip())
     assert line == {'seq': 7, 'interaction_id': INTERACTION['interaction_id'], 'kind': 'restricted_after_refusal', 'variant': 'repeated_refusal',
                     'consumer': 'consumer:' + 'r' * 64, 'done_file': str(tmp_path / 'operator-done' / '7'), 'deadline_seconds': 900}
+
+
+def test_a_message_from_an_account_outside_the_plan_makes_the_interaction_an_error():
+    """10/18 trial 4f5d795c: interaction 1 planned customer-1; customer-2 wrote first. Every message's sender is checked (0207):
+    the other account's message is counted (offplan_messages) and the interaction is an error (offplan_sender), never dropped."""
+    planned = {**INTERACTION, 'variant': 'long_conversation', 'consumer': 'consumer:' + 'a' * 64}
+    first, second = turn(1), turn(2)
+    out = driver(MultiObserver([first, second], senders={first[0]: 'b' * 64})).interact(planned)
+    assert out['outcome'] == 'error' and out['error_code'] == 'offplan_sender' and out['facts']['offplan_messages'] == 1
+    assert out['messages'] == 1 and out['run_ids'] == [second[2]['run_id']]  # the planned account's own turn is still judged
+    # Only the other account wrote: still an error, not a wait for a message that will never come.
+    out = driver(MultiObserver([first], senders={first[0]: 'b' * 64})).interact(planned)
+    assert out['error_code'] == 'offplan_sender' and out['facts']['offplan_messages'] == 1 and out['messages'] == 0
+    # Without a per-interaction consumer the planned accounts of the trial are the allowed senders.
+    d = driver(MultiObserver([first, second], senders={first[0]: 'b' * 64}));d.consumers = frozenset({'a' * 64})
+    assert d.interact(INTERACTION)['error_code'] == 'offplan_sender'
+    d = driver(MultiObserver([first, second]));d.consumers = frozenset({'a' * 64})
+    assert d.interact(INTERACTION)['outcome'] == 'ok'
+
+
+def test_offplan_sender_is_in_the_evidence_vocabulary():
+    import sys
+    sys.path.insert(0, str(X.Path(__file__).resolve().parents[1] / 'scripts/nx037'))
+    import evidence_pack as E
+    assert E.allowed('offplan_sender') and E.violations({'error_code': 'offplan_sender', 'facts': {'offplan_messages': 1}}) == []

@@ -309,7 +309,7 @@ def main(argv=None, *, environ=None, connect=_connect, operator=None, test_stack
             trial_guards.record_consent(args.out, participants)
             trial_persona = trial_guards.persona(participants)
             observer = D.PgObserver(connect, args.metrics_dsn_file, args.tenant)
-            driver = D.RealDriver(config, observer=observer, operator=operator or D.ConsoleOperator(args.out, wait=True),
+            driver = D.RealDriver(config, observer=observer, operator=operator or D.ConsoleOperator(args.out, wait=True), consumers=plan['consumers'],
                                   timeout_seconds=args.interaction_timeout, poll_seconds=args.poll_seconds)
             collector, calibration = None, True
     except (Refused, X.PlanInvalid, ValueError, OSError) as error:

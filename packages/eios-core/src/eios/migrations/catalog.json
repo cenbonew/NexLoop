@@ -1030,6 +1030,11 @@
       "version": "0206",
       "name": "0206_effect_requery_without_dispatch_controls.sql",
       "sha256": "d92287d91aea7ad895205d3d2f9d6faab9334e9b0c0e7b425555708685095547"
+    },
+    {
+      "version": "0207",
+      "name": "0207_nx037_interaction_message_sender.sql",
+      "sha256": "fe9de18fa54c105321d6b7a9cad8a57e78acf848a52b867275f11566fb569995"
     }
   ]
 }

@@ -263,12 +263,14 @@ class RealDriver:
     error, contacts after refusal and every other stop fact are summed over the turns, and each turn's Run is collected for
     cost. An observer without `messages` (tests) gives the first message only. Sends nothing itself."""
 
-    def __init__(self, config, *, observer, operator, timeout_seconds=900, poll_seconds=2.0, sleep=None, monotonic=None):
+    def __init__(self, config, *, observer, operator, timeout_seconds=900, poll_seconds=2.0, sleep=None, monotonic=None, consumers=None):
         import time
         if not 1 <= timeout_seconds <= 86400 or not 0 < poll_seconds <= 60:
             raise ValueError('interaction timing')
         self.config, self.observer, self.operator = config, observer, operator
         self.timeout, self.poll = timeout_seconds, poll_seconds
+        # 10/18 (trial 4f5d795c): the planned customer accounts; a message from any other account is never part of an interaction.
+        self.consumers = frozenset(str(c).removeprefix('consumer:') for c in (consumers or ()))
         self.sleep, self.monotonic = sleep or time.sleep, monotonic or time.monotonic
 
     def interact(self, interaction):
@@ -278,10 +280,12 @@ class RealDriver:
         deadline = self.monotonic() + self.timeout
         completed = self.operator.prompt(interaction, instruction(interaction), self.timeout)
         multi = hasattr(self.observer, 'messages')
-        views = []
+        # The account each message must come from: the interaction's own consumer (plan v3), else any planned account.
+        allowed = frozenset([str(interaction['consumer']).removeprefix('consumer:')]) if interaction.get('consumer') else self.consumers
+        views, offplan = [], 0
         while True:
-            views = self._views(since) if multi else [self.observer.observe(since)]
-            if completed is not False and views and all(self._settled(v) for v in views):
+            views, offplan = self._views(since, allowed) if multi else ([self.observer.observe(since)], 0)
+            if completed is not False and (views or offplan) and all(self._settled(v) for v in views):
                 break
             if completed is False or self.monotonic() >= deadline:
                 # No completion marker, or no answer in time: a pause, never a guess. The run id is kept when a Run was seen.
@@ -290,17 +294,28 @@ class RealDriver:
                         'reconciliation': 'not_applicable',
                         'facts': {'interaction_timeout': 1, 'critical_alerts': max((v.get('critical_alerts', 0) for v in views), default=0)}}
             self.sleep(self.poll)
+        if offplan:
+            # A message from an account outside the plan: counted, the interaction is an error (never silently dropped).
+            out = self._result(views, multi, interaction['kind']) if views else {'run_id': None, 'outcome': 'error', 'receipts': [],
+                'reconciliation': 'not_applicable', 'facts': {}, **({'run_ids': [], 'messages': 0} if multi else {})}
+            out.update(outcome='error', error_code='offplan_sender')
+            out['facts'] = {**out['facts'], 'offplan_messages': offplan}
+            return out
         return self._result(views, multi, interaction['kind'])
 
-    def _views(self, since):
-        """Every customer message of the interaction, each through the 0172 observation at its own acceptance time."""
-        views = []
+    def _views(self, since, allowed=frozenset()):
+        """Every customer message of the interaction, each through the 0172 observation at its own acceptance time, and how many
+        came from an account outside `allowed` (0207 consumer_id; a message without one cannot be verified and counts too)."""
+        views, offplan = [], 0
         for message in self.observer.messages(since) or []:
+            if allowed and message.get('consumer_id') not in allowed:
+                offplan += 1
+                continue
             seen = self.observer.observe(message['accepted_at'])
             if seen.get('message_id') != message['message_id']:
                 seen = {'message_id': None}  # two messages accepted at the same instant: not settled until the next look
             views.append(seen)
-        return views
+        return views, offplan
 
     @staticmethod
     def _settled(seen):

@@ -221,3 +221,7 @@ def test_real_driver_with_an_automated_operator_on_the_synthetic_stack(assembled
     assert resume['after_seq'] == 2 and resume['confirmation_ref'] == 'owner-confirmation:nx037-e2e' and again['after_seq'] == 3
     assert len(list(delivery_root.glob('*.export.json'))) == 3  # one governed delivery per completed interaction, none for 2
     assert admin.execute('select count(*) from runtime.nexloop_effect_intents where tenant_id=%s', (tenant,)).fetchone() == (3,)
+    # 0207: every interaction message names its sender (the conversation's Consumer), so the driver can check the planned account.
+    listed = admin.execute("select runtime.nexloop_nx037_interaction_messages(%s,'real','-infinity')", (tenant,)).fetchone()[0]
+    consumers = {c for (c,) in admin.execute('select consumer_id from runtime.nexloop_conversations where tenant_id=%s', (tenant,)).fetchall()}
+    assert listed and all(m['consumer_id'] in consumers for m in listed)

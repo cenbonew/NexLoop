@@ -46,7 +46,8 @@ def _vocabulary():
                       # 10/18: Run failure codes and the effect tools (0204 failure evidence)
                       'runtime_failed', 'runtime_tool_error', 'runtime_task_failed', 'runtime_model_unavailable', 'runtime_effect_unavailable',
                       'runtime_tool_unavailable', 'invalid_effect_request', 'tool_error', 'intent_payload_conflict', 'outside_catalog_terms',
-                      'nexloop.service.request', 'nexloop.service.find', 'nexloop.enterprise.deliver', 'nexloop.enterprise.find', 'unregistered_tool'))
+                      'nexloop.service.request', 'nexloop.service.find', 'nexloop.enterprise.deliver', 'nexloop.enterprise.find', 'unregistered_tool',
+                      'offplan_sender'))  # 10/18: offplan_sender, a message from an account outside the plan (0207)
 
 
 VOCABULARY = _vocabulary()
