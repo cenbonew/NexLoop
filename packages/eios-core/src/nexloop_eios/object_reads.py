@@ -45,7 +45,7 @@ class AuthorizedObjectReader:
         # 0161: a relay's Source reads its enrolled consumers' Consumer, offering and binding (READ only, no type READ).
         if basis.get('derivation')==RELAY_SOURCE_DERIVATION:
             return relay_source_claims(self.session,target,basis) if operation is Operation.READ else None
-        # 0205: the Role Source reads the objects of its current, active plans (READ only, no type READ).
+        # 0211: the Role Source reads the objects of its current, active plans (READ only, no type READ).
         if basis.get('derivation')==ROLE_SOURCE_DERIVATION:
             return role_source_claims(self.session,target,basis) if operation is Operation.READ else None
         type_read=self._configured(ResourceType.OBJECT_TYPE,basis['type_name'],Operation.READ)

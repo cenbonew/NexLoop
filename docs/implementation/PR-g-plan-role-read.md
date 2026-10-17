@@ -1,6 +1,6 @@
 # PR 草稿：NX-032 G-PLAN / G-ROLE-READ（plan reevaluation 的生产入口与 Role Source 的派生 READ）
 
-分支 `claude/l6-g-plan-4edba0`，基于 main `47383ae9`。迁移号为临时号 **0205**，最终编号以调度员合入顺序为准。
+分支 `claude/l6-g-plan-4edba0`，基于 main `0eba7c54`。迁移号为临时号 **0211**，最终编号以调度员合入顺序为准。
 
 ## 范围
 
@@ -17,7 +17,7 @@
 - **命令单**：`docs/release/run-g-plan-20261017.md`，含 stage 步骤（B 类）、只读核对、撤销与限制。AT-015 之后执行。
 - **不在范围**：planning 状态、契约 schema、消息 Run 路径。
 
-## 迁移 0205（`0205_nx032_role_source_read.sql`）
+## 迁移 0211（`0211_nx032_role_source_read.sql`）
 
 为什么不能逐对象授予：给 role_source 加 object/property READ，会改变它凭据的 requested_scopes（`object.read`/`property.read`）。`service_grants.apply` 会因 `credential_rotation_required` 拒绝，而 stage 没有凭据轮换路径。所以照 0161（`relay_source_read_rule`）的形态，改由 SQL 在每次读取时派生：
 
@@ -30,7 +30,7 @@
    - 属性必须在对象当前 schema 版本中声明，且不属于 owner 受限组。
 
    覆盖的对象：计划的 Consumer、step 的 Goal、PlanStep、EffectControl、ServiceOffering、ConsumerServiceOffering、RoleDefinition、ConsumerRoleLink、RoleExecutionCeiling（role 的 `ceiling_ref`）、RoleAssignmentScope（link 的 `scope`）。字段表固定，按生产发起路径实测得出，是最小集合。
-3. **路径选择**：`authz.nexloop_property_access_basis` 改名为 `_before_role_source_v0205` 再包装。前一版本已返回 derived 时（如 relay Source），原样返回；主体对该资源有已配置 grants 时，配置优先。
+3. **路径选择**：`authz.nexloop_property_access_basis` 改名为 `_before_role_source_v0211` 再包装。前一版本已返回 derived 时（如 relay Source），原样返回；主体对该资源有已配置 grants 时，配置优先。
 4. **证明校验**：`authz.nexloop_assert_role_source_read` 每次使用时重新派生，并比对规则 hash、plan_id、plan_version、consumer、类型和受限组 hash。
 5. **读入口**：两个读入口（`nexloop_assert_read_authority` 和内层 `_before_message_read_v0072`）改名再包装，只多一个 `derivation = 'role-source-v1'` 分支，其余原样转交。
 
@@ -77,7 +77,7 @@
 
 - `37fbba52` G-ROLE-READ：派生迁移、stage-principals v4、register。
 - `10b37f66` G-PLAN：plan_setup、goal_setup、测试、命令单。
-- `546dd1ad` 重编号到临时 0205。
+- `546dd1ad` 重编号到临时 0211。
 - 本说明另作一个提交。
 
 prepush-scan 的结果（基准 main `47383ae9`）见完成报告。

@@ -123,7 +123,7 @@ ROLE_SOURCE_DERIVATION='role-source-v1'
 
 
 class RoleSourceReadRule(BaseModel):
-    """Trusted-configuration ``role_source_read_rule`` payload (key: [source principal]; 0205, G-ROLE-READ).
+    """Trusted-configuration ``role_source_read_rule`` payload (key: [source principal]; 0211, G-ROLE-READ).
 
     The Source principal of plan reevaluation Role Runs. SQL derives, at each read, READ on the objects of a current, active
     plan whose PlanStep lists this Source as a submitter (the recipe's step, role, link, ceiling, scope, control, offering and

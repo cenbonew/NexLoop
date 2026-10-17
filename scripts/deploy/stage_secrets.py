@@ -479,7 +479,7 @@ def merged_manifest(grants_path=GRANTS, principals_path=PRINCIPALS):
     for rule in stage.get('source_message_read_rules', []):
         if set(rule) != {'principal', 'fields', 'valid_until', 'purpose', 'source_task'} or rule['principal'] not in {p['role'] for p in stage['principals']}:
             raise Refused('source_message_read_rules shape')
-    # G-ROLE-READ (0205): the Source of plan reevaluation Role Runs reads its active plans' objects by SQL derivation, never by
+    # G-ROLE-READ (0211): the Source of plan reevaluation Role Runs reads its active plans' objects by SQL derivation, never by
     # per-object grants (those would change its credential scopes). One rule per principal, an effect role only.
     seen_rules = set()
     for rule in stage.get('role_source_read_rules', []):
