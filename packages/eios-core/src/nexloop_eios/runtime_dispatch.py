@@ -179,6 +179,25 @@ class RuntimeHostClient:
             if connection is not None:connection.close()
 
 
+class _LeaseKeeper:
+    """Renews a claimed task's lease every third of the lease until stopped or the lease is lost (best effort, never raises)."""
+
+    def __init__(self,worker,queue,task_id,fence,lease_seconds):
+        self.worker,self.queue,self.task_id,self.fence,self.lease_seconds=worker,queue,task_id,fence,lease_seconds
+        self._stop=threading.Event();self._thread=threading.Thread(target=self._run,daemon=True)
+
+    def start(self):self._thread.start()
+
+    def stop(self):
+        self._stop.set();self._thread.join(timeout=max(1.0,self.lease_seconds/3))
+
+    def _run(self):
+        while not self._stop.wait(self.lease_seconds/3):
+            try:self.worker.renew_task(queue=self.queue,task_id=self.task_id,fence=self.fence,lease_seconds=self.lease_seconds)
+            except StaleQueueLease:return  # someone else holds it now: stop; the dispatch finds out at its next lease check
+            except Exception:continue  # a slow or failing renewal is retried at the next interval
+
+
 class RuntimeDispatcher:
     def __init__(self,worker,configuration,*,queue,lease_seconds=30,total_timeout=30,request_timeout=2,poll_seconds=.05,cache_wakeup=None):
         if (type(lease_seconds) is not int or not 3<=lease_seconds<=300
@@ -205,6 +224,15 @@ class RuntimeDispatcher:
         except Exception:raise RuntimeDispatchError('runtime_queue_unavailable') from None
         if job is None:return {'claimed':False}
         if cache_queue is not None:self.cache_wakeup.publish(cache_queue,job['task_id'])
+        # 10/18 stage (Run 73fb5aec): the lease was renewed only before a Host request, so one slow step let it expire while the
+        # Run was in fact finishing, and the task was dead-lettered. A keeper renews it every third of the lease on its own while
+        # this dispatch holds the task (best effort; a lost lease is still detected by the next lease check, as before).
+        keeper=_LeaseKeeper(self.worker,self.queue,job['task_id'],job['fence'],self.lease_seconds)
+        keeper.start()
+        try:return self._run_claimed(job,started,deadline)
+        finally:keeper.stop()
+
+    def _run_claimed(self,job,started,deadline):
         task_id,fence=job['task_id'],job['fence'];renew_at=time.monotonic()+self.lease_seconds/3
         command=None
         def expired():
@@ -325,6 +353,10 @@ class RuntimeDispatcher:
             # Missing reclaimed state/conflict is terminal, never a new start.
             status='retry_wait' if code in _RETRYABLE or code.startswith('runtime_host_status_') else 'failed'
             error_classes=exception_classes(error)
+            # 10/18 stage (Run 13a9a048): a message Run that ended here, failed for good, never reached the reply settle above, so
+            # its reply guarantee waited start_after_seconds. A definite failure settles it too: when that Run submitted no reply
+            # its reply-due item is due now (0200 only moves it earlier, never creates a reply). A retry keeps the task as before.
+            if status=='failed' and command is not None:reply_settle(self.worker,command.get('run_id'))
         result={'scope':'runtime_only','business_action_success':False,'runtime_outcome':outcome}
         if command is not None:result['run_id']=command.get('run_id')
         if receipt is not None:result['runtime_receipt']=receipt

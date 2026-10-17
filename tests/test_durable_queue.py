@@ -113,6 +113,8 @@ def test_expired_final_attempt_is_deadlettered(queues,admin):
     api,scheduler,_=queues;event(api,max_attempts=1);scheduler.claim(lease_seconds=1);time.sleep(1.1)
     assert scheduler.claim() is None
     assert admin.execute('select status from runtime.jobs').fetchone()[0]=='dead_lettered'
+    # 0209 (10/18 stage, Run 73fb5aec): the dead letter names its cause instead of an empty result.
+    assert admin.execute('select result from runtime.jobs').fetchone()[0]=={'scope':'runtime_only','business_action_success':False,'code':'runtime_lease_exhausted'}
 
 def test_outbox_reclaim_and_old_fence_ack_denied(queues):
     api,scheduler,_=queues;event(api)

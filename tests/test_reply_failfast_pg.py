@@ -74,3 +74,30 @@ def test_a_message_run_that_replied_never_makes_the_reply_due_early(relay_plan, 
         assert reply_settle(worker, str(task[2])) == {'reply_run': True, 'kind': 'message', 'replied': True, 'expedited': False}
     assert admin.execute('select count(*) from runtime.nexloop_effect_submissions where run_id=%s', (task[2],)).fetchone()[0] >= 1
     assert admin.execute(due, ('reply:' + task[1],)).fetchone() in (before, None)
+
+
+def test_a_message_run_failed_for_good_before_the_host_still_makes_its_reply_due_now(relay_plan, admin, tmp_path):  # noqa: F811
+    """10/18 stage (Run 13a9a048): a message Run whose task ended in the dispatch's error path (here its credential expired while
+    queued: runtime_command_expired, terminal) never reached the reply settle, so its reply guarantee waited start_after_seconds.
+    The error path settles it too: no reply was submitted, so the reply-due item is due now."""
+    from psycopg.types.json import Jsonb
+    candidate = relay_plan
+    f = candidate['f']
+    assert invoke(candidate).returncode == 0
+    job_id, normalized = admin.execute('select job_id,normalized_input from runtime.jobs').fetchone()
+    normalized['run_command']['not_after'] = '2000-01-01T00:00:00Z'  # test data: the queued Run's lifetime is over
+    admin.execute('update runtime.jobs set normalized_input=%s where job_id=%s', (Jsonb(normalized), job_id))
+    task = admin.execute('select task_id,message_id from runtime.nexloop_message_routes').fetchone()
+    due = "select available_at>clock_timestamp() from runtime.nexloop_work_feed where feed='reply-due' and item_key=%s"
+    assert admin.execute(due, ('reply:' + task[1],)).fetchone() == (True,)
+    runtime, key = files(tmp_path)
+    guard_key = tmp_path / 'guard-key'
+    guard_key.write_text(secrets.token_hex(32))
+    guard_key.chmod(0o600)
+    with fresh_worker(f, tmp_path) as worker:
+        with guard_server(worker, tmp_path, guard_key) as port:
+            with actual_host(runtime, key, effect_configuration(tmp_path, port, guard_key)) as (_, client, headers):
+                control = HostControlConfiguration(str(client.base_url).rstrip('/'), key, tmp_path / 'host-cert.pem')
+                dispatched = RuntimeDispatcher(worker, control, queue='operations', total_timeout=15).run_once()
+                assert dispatched['status'] == 'failed' and dispatched['result']['code'] == 'runtime_command_expired', dispatched
+    assert admin.execute(due, ('reply:' + task[1],)).fetchone() == (False,)
