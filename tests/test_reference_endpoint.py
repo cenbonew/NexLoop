@@ -303,3 +303,25 @@ def test_staff_page_views_keep_conformance_tickets_apart_and_show_pending_custom
         checks = h.get('/staff?view=checks').text
         assert 'NexLoop conformance check synthetic-run' in checks and '端点一致性检查' in checks and '客户工单甲' not in checks and '客户工单乙' not in checks
         assert h.get('/staff?view=unknown').text.count('客户工单乙') == 1  # an unknown view falls back to the default
+
+
+def test_staff_page_dark_theme_and_phone_cards():
+    """Layout audit 2026-10-18 batch 3: colours are variables redefined under prefers-color-scheme: dark (badges included); at
+    800 px and below the table becomes one card per ticket, each cell naming its column (data-label), with 40 px targets."""
+    style = endpoint_module.PAGE_STYLE
+    light, dark = style.split('@media (prefers-color-scheme:dark)')[0], style.split('@media (prefers-color-scheme:dark)')[1].split('}}')[0]
+    for name in ('--bg', '--surface', '--text', '--muted', '--border', '--pending-bg', '--done-bg', '--fail-bg'):
+        assert name + ':' in light and name + ':' in dark, name
+    assert 'color:var(--text);background:var(--bg)' in style and 'background:var(--pending-bg)' in style
+    phone = style.split('@media (max-width:800px)')[1]
+    assert 'table,tbody,tr,td{display:block' in phone and 'tr:first-child{display:none}' in phone
+    assert 'content:attr(data-label)' in phone and 'min-height:40px' in phone
+
+
+def test_staff_page_cells_name_their_columns(tmp_path):
+    with running(tmp_path) as e, http(e) as h:
+        assert client(e).dispatch(**request({'summary': '客户工单'})).state == 'fulfilled'
+        page, _ = staff_session(e, h)
+        page = h.get('/staff').text
+        for label in ('请求摘要', '来源租户 / 意图 id', '收到时间（北京时间）', '处理人', '状态', '处理结果与备注'):
+            assert f'<td data-label="{label}">' in page, label

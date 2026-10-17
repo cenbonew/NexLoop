@@ -309,25 +309,38 @@ def in_view(view, state, summary):
 # readable base size, a full-width fixed-layout table whose columns share the width (long ids wrap instead of widening it), the
 # mark form stacked inside its cell. Inline only (the page's CSP allows inline style and nothing else).
 PAGE_STYLE = (
+    # Colours as variables, redefined for a dark system theme (layout audit 2026-10-18, batch 3).
+    ':root{--bg:#f6f8fa;--surface:#fff;--text:#1f2328;--muted:#57606a;--border:#d0d7de;--head:#eef1f4;--link:#0969da;'
+    '--pending-bg:#fff8c5;--pending:#7d4e00;--done-bg:#dafbe1;--done:#116329;--fail-bg:#ffebe9;--fail:#a40e26;color-scheme:light}'
+    '@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--surface:#161b22;--text:#e6edf3;--muted:#9198a1;--border:#30363d;'
+    '--head:#21262d;--link:#4493f8;--pending-bg:#3b2e00;--pending:#e3b341;--done-bg:#0f3d1f;--done:#56d364;--fail-bg:#4c1219;'
+    '--fail:#ff7b72;color-scheme:dark}}'
     'body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:24px 32px;'
-    'color:#1f2328;background:#f6f8fa}'
+    'color:var(--text);background:var(--bg)}a{color:var(--link)}'
     'h1{font-size:24px;margin:0 0 8px}p{max-width:72em}'
-    'table{width:100%;border-collapse:collapse;table-layout:fixed;background:#fff;border:1px solid #d0d7de}'
-    'th,td{padding:10px 12px;border-bottom:1px solid #d0d7de;text-align:left;vertical-align:top;overflow-wrap:anywhere}'
-    'th{background:#eef1f4;font-size:14px;font-weight:600}'
+    'table{width:100%;border-collapse:collapse;table-layout:fixed;background:var(--surface);border:1px solid var(--border)}'
+    'th,td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;overflow-wrap:anywhere}'
+    'th{background:var(--head);font-size:14px;font-weight:600;white-space:nowrap}'
     'th:nth-child(1){width:22%}th:nth-child(2){width:14%}th:nth-child(3){width:12%}th:nth-child(4){width:7%}'
     'th:nth-child(5){width:8%}th:nth-child(6){width:37%}'
-    'code{font-size:13px;word-break:break-all}small{font-size:14px;color:#57606a}'
+    'code{font-size:13px;word-break:break-all}small{font-size:14px;color:var(--muted)}'
+    'input{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px}'
     'td form input{display:block;width:100%;box-sizing:border-box;margin:0 0 6px;padding:6px 8px;font-size:15px}'
     'button{font-size:15px;padding:6px 12px;margin:0 6px 4px 0;cursor:pointer}'
-    'th{white-space:nowrap}'
-    '.views{margin:12px 0}.views a{margin-right:16px}.views a.on{font-weight:600;color:#1f2328;text-decoration:none}'
+    '.views{margin:12px 0;display:flex;flex-wrap:wrap;gap:4px 16px}.views a.on{font-weight:600;color:var(--text);text-decoration:none}'
     '.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px;white-space:nowrap}'
-    '.s-accepted{background:#fff8c5;color:#7d4e00}.s-fulfilled{background:#dafbe1;color:#116329}.s-failed{background:#ffebe9;color:#a40e26}'
+    '.s-accepted{background:var(--pending-bg);color:var(--pending)}.s-fulfilled{background:var(--done-bg);color:var(--done)}'
+    '.s-failed{background:var(--fail-bg);color:var(--fail)}'
     'form.mark{display:flex;gap:6px;align-items:center;flex-wrap:wrap}form.mark input{display:inline-block;margin:0;width:auto;min-width:3.5em;flex:1 1 4em}'
     'form.mark button{margin:0;padding:6px 10px;white-space:nowrap}'
-    'form label input{font-size:15px;padding:6px 8px}'
-    '@media (max-width:800px){body{padding:16px}table{table-layout:auto}}'
+    'form label input{font-size:15px;padding:6px 8px;max-width:100%;box-sizing:border-box}'
+    # Phone and narrow tablet: one card per ticket; each cell names its column (data-label); the mark form wraps; 40 px targets.
+    '@media (max-width:800px){body{padding:16px}table,tbody,tr,td{display:block;width:100%;box-sizing:border-box}'
+    'table{border:0;background:none}tr:first-child{display:none}'
+    'tr{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin:0 0 12px;padding:4px 0}'
+    'td{border:0;padding:6px 14px}td[data-label]::before{content:attr(data-label);display:block;font-size:13px;color:var(--muted)}'
+    'form.mark input{flex:1 1 100%;min-height:40px}form.mark button{flex:1 1 auto;min-height:40px}'
+    'form label{display:block}form label input{display:block;width:100%;min-height:40px;margin:6px 0 12px}button{min-height:40px}}'
 )
 
 
@@ -502,9 +515,10 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                 request_text = html.escape(summary) + (f'<br><small>{html.escape(details)}</small>' if details else '')
                 if consumer_ref:
                     request_text += f'<br><small>客户引用：<code>{html.escape(consumer_ref)}</code></small>'
-                rows.append(f'<tr><td>{request_text}</td><td>{html.escape(tenant_label)}<br><code>{html.escape(intent)}</code></td>'
-                            f'<td>{time_cell(created)}</td><td>{html.escape(handled_by or "")}</td>'
-                            f'<td><span class="badge s-{state}">{label}</span></td><td>{result}</td></tr>')
+                rows.append(f'<tr><td data-label="请求摘要">{request_text}</td>'
+                            f'<td data-label="来源租户 / 意图 id">{html.escape(tenant_label)}<br><code>{html.escape(intent)}</code></td>'
+                            f'<td data-label="收到时间（北京时间）">{time_cell(created)}</td><td data-label="处理人">{html.escape(handled_by or "") or "—"}</td>'
+                            f'<td data-label="状态"><span class="badge s-{state}">{label}</span></td><td data-label="处理结果与备注">{result}</td></tr>')
             links = ''.join(f'<a href="/staff?view={v}"{" class=on" if v == view else ""}>{text}（{counts[v]}）</a>' for v, text in VIEWS.items())
             body = ''.join(rows) or '<tr><td colspan="6">没有工单。</td></tr>'
             self.send_html(200, '<h1>服务工单（员工）</h1><p>这是企业侧系统的替身，不属于 NexLoop。请在工作时间内处理，并标记处理结果。'
