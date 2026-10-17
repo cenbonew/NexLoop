@@ -54,7 +54,11 @@ def test_relay_waits_during_takeover_and_routes_only_the_latest_after_handback(a
             # During the takeover the relay issues no message Run (the item stays and is retried later).
             import subprocess,sys
             refused=subprocess.run([sys.executable,'-m','nexloop_eios.message_relay_cli',*relay,'--once'],capture_output=True,text=True,timeout=30)
-            assert refused.returncode==1 and refused.stderr=='Message relay unavailable\n'  # fixed line, nothing private
+            # Fixed last line; before it only the relay's allowlisted attempt-failure records (10/17: the refusing stage named).
+            *records,last=refused.stderr.splitlines()
+            assert refused.returncode==1 and last=='Message relay unavailable'
+            assert all(json.loads(r)['logger']=='nexloop.message_relay' and set(json.loads(r)['detail'])<={'message_id','stage','reason','code'}
+                       for r in records)
             assert all(value not in refused.stdout+refused.stderr for value in hidden) and issued(admin,tenant)==[]
             ended=admin.execute('select control.nexloop_takeover_end(%s,%s,%s,%s,%s,%s)',(tenant,'real',started['takeover_id'],'handback','synthetic-staff-principal','handback-e2e')).fetchone()[0]
             assert ended['resumed_message_id']==ids[1] and ended['settled']==1
