@@ -249,7 +249,7 @@ def plan_reevaluator_port(st):
 
 
 def test_role_source_reads_only_the_objects_of_an_active_plan(planned, admin):
-    """0204: role_source derives READ on exactly the plan's objects while the plan is current and active; nothing before the plan,
+    """0205: role_source derives READ on exactly the plan's objects while the plan is current and active; nothing before the plan,
     nothing outside the plan or outside the fixed fields, nothing for another Source, nothing once the plan is invalidated."""
     st, role = planned
     source = st.out.joinpath(*SOURCE)
