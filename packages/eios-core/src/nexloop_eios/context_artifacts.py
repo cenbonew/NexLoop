@@ -31,6 +31,17 @@ def check_code(diagnostic):
     return 'python:'+name if type(name) is str and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',name) else 'unrecognized'
 
 
+def degraded_fallback_items(items):
+    """ADR-023 degraded fallback (draft): ([item lists to try, largest first], extra insufficient). Every constraint, contact
+    limit and refusal is in every list (never dropped); the customer's latest turn is in the first only; the pinned open work
+    is named by reference as mandatory_exceeds_budget instead of carried; everything else (not pinned) is left out."""
+    safety=[i for i in items if i.section=='constraints' or i.tags&{'negation','contact_limit'}]
+    latest=[i for i in items if 'latest_consumer_turn' in i.tags and i not in safety]
+    deferred=[i for i in items if i.section=='open_work' and i.pinned]
+    extra=[{'code':'mandatory_exceeds_budget','section':'open_work','refs':[i.ref for i in deferred]}] if deferred else []
+    return [safety+latest,safety],extra
+
+
 class ContextArtifactUnavailable(RuntimeError):
     def __init__(self):super().__init__('context_artifact_unavailable')
 class ContextArtifactConflict(RuntimeError):
@@ -204,6 +215,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
     def __init__(self,services,strategy_id,relationship_recipe=None,formal_refs=None):
         super().__init__(services);self.strategy_id=strategy_id
         self.last_diagnostic=None;self.last_check=None;self.run=None;self.last_mismatch=None;self._sent_items=None
+        self.degrade=False  # only the fallback reply Run may degrade (FallbackContextV6Producer)
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
         self.core=None
         if relationship_recipe is not None:
@@ -238,12 +250,29 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             current_message_id=core['user_statement']['message_id'],current_sequence=core['user_statement']['sequence'])
         goal=next(f for f in core['formal_facts'] if f['type']=='Goal')
         statement=core['user_statement']
-        body,outcome=assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role=None,
-            current_event={'kind':'consumer_message','message_id':statement['message_id'],'provenance':statement['provenance']},user_statement=statement,
-            goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
-            formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=found.items,extra_insufficient=found.insufficient,
-            relationship_context=core.get('relationship_context'),effect_supplies=core.get('effect_supplies'))
-        return body,outcome,found.items,found.proofs
+        def build(items,extra=()):
+            return assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role=None,
+                current_event={'kind':'consumer_message','message_id':statement['message_id'],'provenance':statement['provenance']},user_statement=statement,
+                goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
+                formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=items,
+                extra_insufficient=list(found.insufficient)+list(extra),relationship_context=core.get('relationship_context'),effect_supplies=core.get('effect_supplies'))
+        try:
+            body,outcome=build(found.items)
+            return body,outcome,found.items,found.proofs
+        except ValueError as error:
+            if str(error)!='context_pack_too_large' or not self.degrade:raise
+        # ADR-023 degraded fallback (draft, owner 2026-10-18): the pinned sources alone exceed the bound input size. Every
+        # contact limit and refusal stays (safety); the open work it cannot carry (unconfirmed intents and replies, plans,
+        # commitments) is named, by reference, as mandatory_exceeds_budget (SQL accepts that for a fallback Run only); the
+        # customer's latest turn stays when it fits. If the contact limits alone do not fit, no Context: the owner is escalated.
+        candidates,extra=degraded_fallback_items(found.items)
+        for items in candidates:
+            try:
+                body,outcome=build(items,extra)
+                return body,outcome,items,found.proofs
+            except ValueError as error:
+                if str(error)!='context_pack_too_large':raise
+        raise ValueError('fallback_context_unsafe')
 
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):
         """10/18 stage (refusal-2 fallback dc7ff6f3: context source content mismatch). This Run's Artifact id is fixed by its
@@ -322,6 +351,7 @@ class FallbackContextV6Producer(ContextV6ArtifactProducer):
     conversation, pinned constraints such as a contact restriction), bound over the fallback issuance (0110)."""
     def __init__(self,services,strategy_id):
         super().__init__(services,strategy_id)
+        self.degrade=True
 
     def _call(self,db,parameters,run,definition,capability,claim_binding=None):
         text,signature,body=self._envelope(parameters,run,definition,capability,claim_binding)

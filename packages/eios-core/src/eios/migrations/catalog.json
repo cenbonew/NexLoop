@@ -1055,6 +1055,11 @@
       "version": "0211",
       "name": "0211_nx032_role_source_read.sql",
       "sha256": "070343328bd4a72daef3b23e78a328a158d415ad2c9a16b75c49d266e85ef20c"
+    },
+    {
+      "version": "0212",
+      "name": "0212_context_degraded_fallback.sql",
+      "sha256": "7300dd7f857c9819178871355c0420268b80aede83505e9dee5639b84e6effd6"
     }
   ]
 }

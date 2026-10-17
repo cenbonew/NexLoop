@@ -8,9 +8,11 @@ message, server-side single-tool restriction, mutual exclusion with settlement, 
 Synthetic data; admin probes and moves due times forward (explicit time injection).
 """
 from contextlib import contextmanager
+import hashlib
 import json
 import secrets
 import time
+import uuid
 
 import pytest
 from psycopg.conninfo import make_conninfo
@@ -256,3 +258,61 @@ def test_fallback_launch_through_the_deployed_launcher_api_pool(assembled_messag
             assert g['worker']().run_once()['fallback_started']==1
             run_id=g['launcher'].last['run_id']
             assert admin.execute('select message_id from authz.nexloop_message_fallback_issuances where run_id=%s',(run_id,)).fetchone()==(consumer['id'],)
+
+
+def _pin_unknown_intents(admin,tenant,consumer,count):
+    """Test data only: pinned open work as a long unknown history leaves it (unknown service intents of this consumer)."""
+    context=admin.execute('select context_id from control.nexloop_effect_contexts where tenant_id=%s limit 1',(tenant,)).fetchone()[0]
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        for n in range(count):
+            admin.execute('''insert into runtime.nexloop_effect_intents(intent_id,receipt_id,context_id,tenant_id,world,consumer_id,goal_identity,plan_step_identity,slot_identity,
+                action_name,action_version,business_digest,provider_payload_digest,frozen_request,action_definition,capability,executor_principal,control_revision,created_at,state)
+                values(gen_random_uuid(),gen_random_uuid(),%s,%s,'real',%s,'g','s',%s,'nexloop.service.request',1,%s,%s,'{}','{}','{}','x',1,clock_timestamp()-interval '2 days','unknown')''',
+                (context,tenant,consumer,'pinned-'+str(n),'a'*64,'b'*64))
+
+
+def _contact_limits(admin,tenant,message_id,count,quote):
+    """Test data only: NX-019 contact-limit Claims (constraint, pinned) sourced on the consumer's message."""
+    from test_context_v6_pg import owner
+    from psycopg.types.json import Jsonb
+    conversation,sequence,record=admin.execute('select conversation_id,sequence,record from runtime.nexloop_conversation_messages where message_id=%s',(message_id,)).fetchone()
+    consumer=admin.execute('select consumer_id from runtime.nexloop_conversations where conversation_id=%s',(conversation,)).fetchone()[0]
+    with admin.transaction():
+        owner(admin,tenant)
+        for n in range(count):
+            claim=hashlib.sha256(('claim:fallback-limit:'+str(uuid.uuid4())).encode()).hexdigest()
+            admin.execute('''insert into ontology.nexloop_claims(tenant_id,world,claim_id,conversation_id,consumer_id,first_input_digest,topic_key,subject_kind,subject_ref,subject_text,
+                predicate,value,speaker,polarity,modality,condition_text,time_expression,valid_time,source_message_id,source_sequence,span_start,span_end,source_content_hash,quote,
+                extractor_version,confidence,epistemic_kind,resolution_state,derived_from,correlation_key,guard_flags) values
+                (%s,'real',%s,%s,%s,%s,%s,'consumer',%s,'顾客','contact_preference',%s,'consumer','affirmed','asserted','','','{}',%s,%s,0,%s,%s,%s,'nx019-extractor/2',0.8,'constraint','unresolved','[]',%s,'[]')''',
+                (tenant,claim,conversation,consumer,'a'*64,'t'+str(n),'consumer:'+consumer,Jsonb({'type':'text','value':quote}),message_id,sequence,len(quote),
+                 hashlib.sha256(record['body'].encode()).hexdigest(),quote,hashlib.sha256(claim.encode()).hexdigest()))
+
+
+def test_pinned_sources_over_the_bound_size_get_a_degraded_fallback_that_keeps_every_contact_limit(assembled_message,admin,tmp_path):
+    """ADR-023 degraded fallback (draft, owner 2026-10-18): the pinned sources alone exceed 64 KiB. The fallback Context keeps
+    every contact limit and names the open work it cannot carry as mandatory_exceeds_budget; SQL accepts that for this fallback
+    Run; the bound reply is delivered. Every message still gets a reply."""
+    f=assembled_message;token=provision(f,admin)
+    with chain(f,admin,tmp_path,body='你们的退款什么时候到账？',host_update=silent) as c:
+        c['recipe']=f['recipe'];tenant=c['tenant'];consumer=c['consumer']
+        consumer_id=admin.execute('select consumer_id from runtime.nexloop_conversations where conversation_id=%s',(c['conversation_id'],)).fetchone()[0]
+        _pin_unknown_intents(admin,tenant,consumer_id,260)
+        _contact_limits(admin,tenant,consumer['id'],3,'不要再打电话')
+        with guarantor(c,admin,tmp_path,token) as g:
+            assert g['worker']().run_once()['fallback_started']==1, g['read']().escalations()
+            text=g['launcher'].last['input'];pack=json.loads(text)
+            assert len(text.encode())<=65536
+            [degraded]=[x for x in pack['insufficient'] if x['code']=='mandatory_exceeds_budget']
+            assert degraded['section']=='open_work' and len(degraded['refs'])>=260
+            # No contact limit the Source could read is dropped. (This fixture's Source has no Conversation READ, so its Claims are
+            # declared unreadable, as for any fallback here; the contact restriction itself is enforced at dispatch. The selection
+            # is pinned by tests/test_context_degraded_fallback.py.)
+            readable=not any(x['code']=='required_source_unreadable' and x['section']=='evidence' for x in pack['insufficient'])
+            assert sum('contact_limit' in i['tags'] for i in pack['evidence'])==(3 if readable else 0)
+            assert run_fallback_on_host(c,tmp_path,g)['runtime_outcome']=='succeeded'
+            material=delivery_material(tmp_path)
+            with delivery_service(c,tmp_path,material):
+                assert 'fulfilled' in effect_worker(c,tmp_path,material['provider_config'],material['secret'])
+            assert outbound(admin,tenant)[0][1]=='delivered' and pending(admin,tenant)==[] and g['read']().escalations()==[]
