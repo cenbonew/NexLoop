@@ -64,6 +64,7 @@ python scripts/nx037/endpoint_conformance.py --origin https://<ENDPOINT_HOST_NAM
 
 浏览器打开 `https://<ENDPOINT_HOST_NAME>:<ENDPOINT_PORT>/staff`，用员工凭据登录（会话 8 小时，Cookie 为 HttpOnly、Secure、SameSite=Strict）。页面按工单列出最近 500 条请求，字段为：请求摘要（含详情与客户引用）、来源租户与意图 id、收到时间、处理人、状态（待处理 / 已处理 / 处理失败）、处理结果与备注。员工处理“待处理”工单时必须填写处理人（最多 64 字），可填备注（最多 500 字），再选“已处理”或“处理失败”；处理时间自动记录。标记一经写入不可更改。
 
+- **视图**（2026-10-17）：默认只显示**待处理的客户工单**，按收到时间倒序；“全部客户工单”和“一致性检查工单”各有自己的视图，带计数。一致性检查工单按摘要识别：`NexLoop conformance check …`（`endpoint_conformance.py` 的默认摘要），或 `端点一致性检查`（命令单中的空操作参数）。时间按北京时间显示，鼠标悬停可看 UTC；存储仍为 UTC。
 - 请求参数就是 `nexloop.enterprise.deliver:1` 的参数：`summary`（必填，最多 200 字）、`details`（可选，最多 2000 字）、`consumer_ref`（可选，NexLoop 的不透明客户引用，员工可凭它在工作台找到对应会话）。带其他键、类型或长度不对的请求一律返回 400 `parameters_invalid`，不落库。
 - “来源租户”不来自请求：一个端点只服务一个企业，取部署配置里的租户标签 `ENDPOINT_TENANT_LABEL`。
 - **效应边界**：效应是“工单已在企业系统中持久创建”。新请求落盘后 POST 即返回 `fulfilled`，GET 也始终返回 `fulfilled`（演练开关打开时除外）。员工标记的“已处理 / 处理失败”是企业内部的业务结果，不是效应状态：只保存在员工页面和端点自己的存储里，不经 GET 回传 NexLoop。
