@@ -127,7 +127,7 @@ TURN_TAMPER = {'tag_dropped': 'context v6 tags mismatch', 'tag_on_claim': 'conte
 
 
 @pytest.mark.parametrize('mode', sorted(TURN_TAMPER))
-def test_sql_requires_the_latest_consumer_turn_tag_on_exactly_that_turn(multi, monkeypatch, mode):  # noqa: F811
+def test_sql_requires_the_latest_consumer_turn_tag_on_exactly_that_turn(multi, monkeypatch, caplog, mode):  # noqa: F811
     """0202 at the bind: the tag dropped from the latest consumer turn, put on another item, or the turn reported omitted is refused."""
     from nexloop_eios.context_artifacts import ContextV6ArtifactProducer
     from nexloop_eios.run_credential_vault import RunCredentialVault
@@ -167,3 +167,6 @@ def test_sql_requires_the_latest_consumer_turn_tag_on_exactly_that_turn(multi, m
         with pytest.raises(MessageRelayUnavailable):
             relay.run_once()
     assert relay._context_diagnostic is not None and relay._context_diagnostic[1] == TURN_TAMPER[mode], relay._context_diagnostic
+    # 10/18 stage: the failed attempt leaves one log line naming the refusing check as a code.
+    [line] = [r for r in caplog.records if r.name == 'nexloop.message_relay' and r.msg.startswith('message relay attempt failed')]
+    assert line.args['stage'] == 'context_prepare' and line.args['code'] == TURN_TAMPER[mode].replace(' ', '_')

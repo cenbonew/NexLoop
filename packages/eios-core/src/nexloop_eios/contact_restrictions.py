@@ -154,9 +154,13 @@ class ReplyGuaranteeWorker:
                 elif self.launcher is None:
                     self.port.escalate(message_id,'fallback_unavailable',{'restricted':state['restricted'],'in_flight':state['in_flight']});outcome='escalated'
                 else:
+                    self.launcher.last_check=None
                     try:started=self.launcher.start(message_id=message_id,state=state)
                     except Exception as error:
-                        self.port.escalate(message_id,'fallback_failed',{'error':type(error).__name__,'restricted':state['restricted']});outcome='escalated'
+                        # 10/18 stage: name the refusing Context check (a code), so the owner's evidence says why.
+                        check=getattr(self.launcher,'last_check',None)
+                        self.port.escalate(message_id,'fallback_failed',{'error':type(error).__name__,'restricted':state['restricted'],
+                            **({'check':check} if check else {})});outcome='escalated'
                     else:
                         if started!='started':
                             self.port.escalate(message_id,'fallback_not_started',{'restricted':state['restricted']});outcome='escalated'

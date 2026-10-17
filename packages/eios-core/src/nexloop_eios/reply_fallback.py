@@ -108,8 +108,10 @@ class FallbackReplyLauncher:
             'goal_version_ref':'goal:'+goal+':revision:1:step:1:control:'+str(recipe['control_revision']),
             'context_manifest_ref':'artifact:context-bind-pending','runtime_profile':fallback['runtime_profile'],'credential_ref':'run:'+run_id,
             'budget':dict(fallback['run_budget']),'not_after':issued['expires_at'],'runtime_owner_epoch':recipe['runtime_owner_epoch']}
-        context=FallbackContextV6Producer(source,fallback['context_strategy']).prepare(message_id=message_id,run_token=token,command=command,
+        producer=FallbackContextV6Producer(source,fallback['context_strategy'])
+        try:context=producer.prepare(message_id=message_id,run_token=token,command=command,
             offering_id=recipe['offering_id'],binding_id=recipe['offering_binding_id'])
+        finally:self.last_check=producer.last_check  # 10/18: the refusing check, for the escalation evidence
         command['context_manifest_ref']=context['artifact_ref']
         route.accept_runtime_event(queue=recipe['queue'],source_id='reply-fallback',event_id=command['trigger_event_id'],run_token=token,command=command,input=context['input'])
         self.last={'run_id':run_id,'command':command,'input':context['input']}
