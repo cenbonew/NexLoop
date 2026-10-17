@@ -1,0 +1,14 @@
+{
+  "_comment": "NX-035 repo2 bucket policy: deny every request not over TLS. Shape as NEX-EIOS measured on TOS (Version 1.0, Principal list, condition key tos:securetransport in lower case with a list value; AWS spellings are refused). Replace __TOS_BUCKET__; the bucket ACL stays private.",
+  "Version": "1.0",
+  "Statement": [
+    {
+      "Sid": "DenyInsecureTransport",
+      "Effect": "Deny",
+      "Principal": ["*"],
+      "Action": "tos:*",
+      "Resource": ["trn:tos:::__TOS_BUCKET__", "trn:tos:::__TOS_BUCKET__/*"],
+      "Condition": {"Bool": {"tos:securetransport": ["false"]}}
+    }
+  ]
+}

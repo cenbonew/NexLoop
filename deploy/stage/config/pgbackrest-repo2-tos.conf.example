@@ -1,0 +1,24 @@
+# NX-035 repo2 on Volcengine TOS (docs/implementation/NX-035-repo2-tos.md; run sheet run-repo2-tos): the lines to add to the
+# [global] section of the DATA_HOST pgbackrest.conf (pgbackrest.conf.example keeps repo2 commented until then). The file stays
+# $NEXLOOP_ROOT/secrets/pgbackrest/pgbackrest.conf, 0600, uid 999. __X__ are filled in by the owner on the host; afterwards
+# `grep -c '__' pgbackrest.conf` must print 0. The access key pair is the DATA_HOST backup sub-user of the TOS account (its own,
+# prefix-scoped; never the account's root key); the cipher passphrase is repo2's own (not repo1's), kept in the password manager.
+repo2-type=s3
+# TOS S3-compatible endpoint of the bucket's region (public, TLS): tos-s3-<region>.volces.com. DATA_HOST is not on the Volcengine
+# VPC, so the internal *.ivolces.com endpoints NEX-EIOS uses are not reachable from it.
+repo2-s3-endpoint=tos-s3-__TOS_REGION__.volces.com
+repo2-s3-region=__TOS_REGION__
+repo2-s3-bucket=__TOS_BUCKET__
+# Virtual-hosted style (<bucket>.<endpoint>), pgBackRest's default, spelled out.
+repo2-s3-uri-style=host
+repo2-storage-verify-tls=y
+repo2-path=/nexloop/pgbackrest
+repo2-s3-key=__TOS_DATA_ACCESS_KEY_ID__
+repo2-s3-key-secret=__TOS_DATA_SECRET_ACCESS_KEY__
+# Client-side encryption before upload (the bucket adds SSE-TOS AES256 by default): repo2's own passphrase.
+repo2-cipher-type=aes-256-cbc
+repo2-cipher-pass=__REPO2_CIPHER_PASS__
+# Retention as repo1 (D4): pgBackRest expires its own backups and WAL; the bucket has no expiration rule on this prefix.
+repo2-retention-full-type=time
+repo2-retention-full=35
+repo2-retention-diff=14

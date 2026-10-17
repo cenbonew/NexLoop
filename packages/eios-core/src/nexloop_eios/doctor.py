@@ -107,8 +107,11 @@ def observability(metrics_database_url_file,rules_file):
 
 
 BACKUP_PLAN_KEYS={'schema','version','decision','pg','wal','files','retention','journal','limits','repos'}
+# v1: repo1 required, the offsite repo2 optional (before the object store exists); v2 (NX-035 repo2 on TOS): both required,
+# so required_repos_recent fails as soon as repo2 falls behind. Any other repository set is refused.
+BACKUP_REPOS=({'required':['repo1'],'optional':['repo2']},{'required':['repo1','repo2'],'optional':[]})
 def load_backup_plan(path):
-    """deploy/configuration/backup.v1.json with bounded validation (NX-035 §3.2); anything else is refused."""
+    """deploy/configuration/backup.v1.json or v2 (repo2 required) with bounded validation (NX-035 §3.2); anything else is refused."""
     plan=json.loads(Path(path).read_text())
     limits=plan.get('limits') if type(plan) is dict else None
     if (type(plan) is not dict or set(plan)!=BACKUP_PLAN_KEYS or plan['schema']!='nexloop-backup-plan/1' or type(plan['version']) is not int
@@ -116,7 +119,7 @@ def load_backup_plan(path):
             or not all(type(v) is int and 0<v<=60*86400 for v in limits.values())
             or not 0<plan['wal'].get('max_archive_age_seconds',0)<=3600 or not 0<plan['files'].get('max_age_seconds',0)<=86400
             or not 0<plan['journal'].get('max_lag_seconds',0)<=3600 or plan['retention'].get('max_retention_days')!=35
-            or plan['repos'].get('required')!=['repo1']):
+            or plan['repos'] not in BACKUP_REPOS):
         raise ValueError('backup plan invalid')
     return plan
 def read_backup_status(metrics_database_url_file):
