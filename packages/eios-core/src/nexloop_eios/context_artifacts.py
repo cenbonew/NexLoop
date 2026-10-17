@@ -203,7 +203,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
     """
     def __init__(self,services,strategy_id,relationship_recipe=None,formal_refs=None):
         super().__init__(services);self.strategy_id=strategy_id
-        self.last_diagnostic=None;self.last_check=None;self.run=None
+        self.last_diagnostic=None;self.last_check=None;self.run=None;self.last_mismatch=None;self._sent_items=None
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
         self.core=None
         if relationship_recipe is not None:
@@ -246,7 +246,31 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         return body,outcome,found.items,found.proofs
 
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):
+        """10/18 stage (refusal-2 fallback dc7ff6f3: context source content mismatch). This Run's Artifact id is fixed by its
+        run id and the stored pack cannot be replaced, so a refused pack is not bound again. Instead the sources are read once
+        more and the check names what changed: context_source_changed:<section>_<subsection>... (a source moved on between the
+        read and the bind) or context_source_content_mismatch_stable (the pack disagrees with unchanged sources). Codes only."""
+        import psycopg
+        self.last_mismatch=None
+        try:return self._prepare_once(message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
+        except ContextArtifactUnavailable:
+            if self.last_check!='context_source_content_mismatch' or self._sent_items is None:raise
+            sent=self._sent_items
+            try:
+                with self.backend._lock,self._scoped():
+                    self.backend._assert_open()
+                    *_,snapshot=self._snapshot(message_id=message_id,run_token=run_token,command=command,offering_id=offering_id,binding_id=binding_id)
+                    _,_,items,_=self.assemble(snapshot,command)
+                now={(i.section,i.ref):(i.revision,i.content) for i in items}
+                changed=sorted({key[0]+'_'+sub for key,sub,seen in sent if now.get(key,_GONE)!=seen})
+            except (psycopg.Error,ValueError,RuntimeError,LookupError):raise ContextArtifactUnavailable() from None
+            self.last_mismatch={'changed':changed}
+            self.last_check=(('context_source_changed:'+':'.join(changed))[:80] if changed else 'context_source_content_mismatch_stable')
+            raise ContextArtifactUnavailable() from None
+
+    def _prepare_once(self,*,message_id,run_token,command,offering_id,binding_id):
         from nexloop_eios.context_engine.pack import wire_item
+        self._sent_items=None
         try:
             with self.backend._lock,self._scoped():
                 self.backend._assert_open()
@@ -259,6 +283,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
                 else:
                     body,outcome,items,proofs=self.assemble(snapshot,command)
                     by_ref={(i.section,i.ref):i for i in items}
+                    self._sent_items=[((i.section,i.ref),i.subsection,(i.revision,i.content)) for i in items]
                     omitted=[{'section':o['section'],'reason':o['reason'],'item':wire_item(by_ref[(o['section'],o['ref'])])} for o in outcome.report['omitted']]
                 text=canonical_payload(body)
                 if run_token in text:raise ValueError()
@@ -287,6 +312,9 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             self.last_check=check_code(self.last_diagnostic)
             if isinstance(error,psycopg.Error) and error.diag.message_primary=='context artifact conflict':raise ContextArtifactConflict() from None
             raise ContextArtifactUnavailable() from None
+
+
+_GONE=object()
 
 
 class FallbackContextV6Producer(ContextV6ArtifactProducer):
