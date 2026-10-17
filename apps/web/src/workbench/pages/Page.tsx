@@ -2,14 +2,17 @@ import type {ReactNode} from 'react';
 import type {UseQueryResult} from '@tanstack/react-query';
 import {STATE_TEXT,SECTION_TEXT,kindOf,type Section} from '../api';
 
-/** Every page: one title, an `actions` slot for slice 2/3 governed Actions (empty by default), and exact states (AT-045). */
-export function Page<T>({title,lead,query,actions,empty,children}:{title:string;lead?:ReactNode;query:UseQueryResult<T>;actions?:ReactNode;empty?:(data:T)=>boolean;children:(data:T)=>ReactNode}){
+/** Every page: one title, an `actions` slot for slice 2/3 governed Actions (empty by default), and exact states (AT-045).
+ * `forbidden`: what this page says on a 403 instead of the generic text, when the refusal is the role's by design (whose page it
+ * is and how to get there); still a 403, still role="alert". */
+export function Page<T>({title,lead,query,actions,empty,forbidden,children}:{title:string;lead?:ReactNode;query:UseQueryResult<T>;actions?:ReactNode;empty?:(data:T)=>boolean;forbidden?:ReactNode;children:(data:T)=>ReactNode}){
   return <section className="workbench-page" aria-labelledby="workbench-page-title">
     <h1 id="workbench-page-title">{title}</h1>
     {lead?<p className="workbench-lead">{lead}</p>:null}
     {actions?<div className="workbench-actions" role="group" aria-label="可执行的操作">{actions}</div>:null}
     {query.isPending?<p role="status">{STATE_TEXT.loading}</p>
-      :query.isError?<Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>
+      :query.isError?(forbidden&&kindOf(query.error)==='forbidden'?<div className="workbench-state workbench-state-forbidden" role="alert">{forbidden}</div>
+        :<Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>)
       :empty&&empty(query.data)?<p className="note" role="status">{STATE_TEXT.empty}</p>
       :children(query.data)}
   </section>;

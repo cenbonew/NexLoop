@@ -6,10 +6,17 @@ import {ApiError} from '../../api';
 import {DecisionBar} from '../../Review';
 import {WORKBENCH_REVIEW,readCandidate,reviewError,type CandidateDetail} from '../../review-api';
 
+/** The 403 of the review pages for the owner and operator roles: by design (NX-028 D2, owner 2026-10-10), the review Action
+ * ontology.schema.review is the reviewer role's only; the page says so instead of the generic "no permission". */
+export const REVIEWER_ONLY_TEXT=<>
+  <p>知识工作台属于<strong>审核员（reviewer）</strong>角色。审核候选定义需要审核 Action（<code>ontology.schema.review</code>），负责人和运营角色不包含这项 Action（NX-028 D2）。</p>
+  <p>需要审核时，请用审核员账号登录工作台。成员的角色由可信配置分配（<code>workbench_roles</code>），不能在工作台内自行更改。</p>
+</>;
+
 /** Knowledge review entry: pending review items; a reviewer decides on each item's evidence page (governed review Action). */
 export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidateId:string)=>void}){
   const query=useQuery({queryKey:['workbench','review'],queryFn:readReviewQueue});
-  return <Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0}>{items=><>
+  return <Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
     <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。审核员在候选的证据页中提交决定（通过、并入已有定义、拒绝），决定写入审计。</p>
     <table><thead><tr><th>候选</th><th>类别</th><th>证据</th><th>提出时间</th></tr></thead><tbody>
       {items.map(x=><tr key={x.candidate_id}><td><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??x.candidate_id}</button></td>
@@ -20,7 +27,7 @@ export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidate
 /** The evidence messages of one pending item, read through the reviewer derivation (each read audited). */
 export function ReviewEvidencePage({candidateId,actions}:{candidateId:string;actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','review',candidateId],queryFn:()=>readReviewEvidence(candidateId)});
-  return <Page title="审核证据" query={query} actions={actions}>{v=>v.status==='ended'?<p className="note" role="status">{REVIEW_ENDED_TEXT}</p>:<>
+  return <Page title="审核证据" query={query} actions={actions} forbidden={REVIEWER_ONLY_TEXT}>{v=>v.status==='ended'?<p className="note" role="status">{REVIEW_ENDED_TEXT}</p>:<>
     <p>候选：{v.display_name??v.candidate_id}（{v.kind}，待审核）</p>
     {v.evidence.length?<ol>{v.evidence.map(e=><li key={e.claim_id}>
       <p className="meta">{e.predicate??'—'}{e.source_message_id?<> · 消息 <Short value={e.source_message_id}/></>:null}</p>
