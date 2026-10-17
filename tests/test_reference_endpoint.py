@@ -158,8 +158,8 @@ def test_staff_marks_stay_in_the_endpoint_and_get_stays_fulfilled(tmp_path):
         assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': handled['intent_id'], 'state': 'fulfilled', 'handled_by': '员工甲',
                                            'note': '已电话确认'}).status_code == 303
         assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': failed['intent_id'], 'state': 'failed', 'handled_by': '员工乙'}).status_code == 303
-        page = h.get('/staff').text
-        for text in ('请求摘要', '来源租户', '收到时间', '处理人', '员工甲', '已电话确认', '处理失败'):
+        page = h.get('/staff?view=all').text  # handled tickets are not in the default view (pending customer tickets)
+        for text in ('请求摘要', '来源租户', '收到时间（北京时间）', '处理人', '员工甲', '已电话确认', '处理失败'):
             assert text in page
         # The staff result is the enterprise's business outcome, not an effect state: GET stays fulfilled for both.
         for body in (handled, failed):
@@ -267,3 +267,39 @@ def test_the_staff_page_style_is_inline_readable_and_fits_a_desktop_window():
     assert len(widths) == 6 and sum(widths) == 100
     assert 'code{font-size:13px' in style and 'small{font-size:14px' in style
     assert not re.search(r'url\(|@import|<', style)  # nothing the CSP would block, nothing that closes the style element
+
+
+def test_staff_page_time_is_beijing_with_utc_on_hover():
+    """Owner 2026-10-17: Beijing time `YYYY-MM-DD HH:MM:SS` (fixed +08:00), the stored UTC time in the tooltip; empty stays
+    empty, an unparsable value is shown as stored."""
+    assert endpoint_module.display_time('2026-10-17T14:34:51.370+00:00') == ('2026-10-17 22:34:51', '2026-10-17T14:34:51+00:00')
+    assert endpoint_module.display_time('2026-10-17T16:30:05+00:00')[0] == '2026-10-18 00:30:05'  # across midnight
+    assert endpoint_module.display_time('2026-10-17T01:00:00')[0] == '2026-10-17 09:00:00'  # naive is UTC
+    assert endpoint_module.display_time(None) == ('', '') and endpoint_module.display_time('not a time') == ('not a time', '')
+    assert endpoint_module.time_cell('2026-10-17T14:34:51+00:00') == '<span title="UTC 2026-10-17T14:34:51+00:00">2026-10-17 22:34:51</span>'
+
+
+def test_staff_page_views_keep_conformance_tickets_apart_and_show_pending_customer_tickets_first(tmp_path):
+    """Owner 2026-10-17: the default view lists pending customer tickets only (newest first); all customer tickets and the
+    conformance check tickets have their own views with counts; status badges; the mark form keeps the view."""
+    with running(tmp_path) as e, http(e) as h:
+        first, second = request({'summary': '客户工单甲'}), request({'summary': '客户工单乙'})
+        check = request({'summary': 'NexLoop conformance check synthetic-run'})
+        noop = request({'summary': '端点一致性检查'})
+        provider = client(e)
+        for body in (first, second, check, noop):
+            assert provider.dispatch(**body).state == 'fulfilled'
+            time.sleep(0.01)  # distinct created_at, so "newest first" is observable
+        page, csrf = staff_session(e, h)
+        assert h.post('/staff/mark', data={'csrf': csrf, 'intent_id': first['intent_id'], 'state': 'fulfilled', 'handled_by': '员工甲',
+                                           'view': 'pending'}).headers['location'] == '/staff?view=pending'
+        pending = h.get('/staff').text
+        assert '客户工单乙' in pending and '客户工单甲' not in pending and 'conformance check' not in pending and '端点一致性检查' not in pending
+        assert '待处理的客户工单（1）' in pending and '全部客户工单（2）' in pending and '一致性检查工单（2）' in pending
+        assert '<span class="badge s-accepted">待处理</span>' in pending and '<form class="mark"' in pending
+        everything = h.get('/staff?view=all').text
+        assert everything.index('客户工单乙') < everything.index('客户工单甲')  # newest first
+        assert '<span class="badge s-fulfilled">已处理</span>' in everything
+        checks = h.get('/staff?view=checks').text
+        assert 'NexLoop conformance check synthetic-run' in checks and '端点一致性检查' in checks and '客户工单甲' not in checks and '客户工单乙' not in checks
+        assert h.get('/staff?view=unknown').text.count('客户工单乙') == 1  # an unknown view falls back to the default

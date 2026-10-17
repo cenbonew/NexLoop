@@ -54,10 +54,10 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 MAX_BODY = 262144
 TOKEN = re.compile(r'[A-Za-z0-9._~-]{16,4096}')
@@ -263,6 +263,48 @@ def drill(directory, *, delay_next_posts=None, delay_seconds=5.0, get_unavailabl
 
 # ---- HTTP --------------------------------------------------------------------------------------------------------------
 
+# The staff page shows times in Asia/Shanghai (fixed +08:00: no daylight saving); storage stays UTC (owner 2026-10-17).
+SHANGHAI = timezone(timedelta(hours=8))
+
+
+def display_time(value):
+    """(Beijing time `YYYY-MM-DD HH:MM:SS`, the stored UTC ISO time for a tooltip). Empty stays empty; an unparsable value is
+    shown as stored, never guessed."""
+    if not value:
+        return '', ''
+    try:
+        moment = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return value, ''
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(SHANGHAI).strftime('%Y-%m-%d %H:%M:%S'), moment.astimezone(timezone.utc).isoformat(timespec='seconds')
+
+
+def time_cell(value):
+    shown, utc = display_time(value)
+    return f'<span title="UTC {html.escape(utc)}">{html.escape(shown)}</span>' if utc else html.escape(shown)
+
+
+# Automatic tickets of the endpoint conformance check (scripts/nx037/endpoint_conformance.py: its default summary, and the no-op
+# parameters the run sheets use): kept apart from customer tickets on the staff page.
+CHECK_SUMMARIES = ('NexLoop conformance check', '端点一致性检查')
+
+
+def is_check(summary):
+    return summary.startswith(CHECK_SUMMARIES)
+
+
+# Staff page views: ?view=pending (default: customer tickets still to handle), all (every customer ticket), checks (conformance).
+VIEWS = {'pending': '待处理的客户工单', 'all': '全部客户工单', 'checks': '一致性检查工单'}
+
+
+def in_view(view, state, summary):
+    if view == 'checks':
+        return is_check(summary)
+    return not is_check(summary) and (view == 'all' or state == 'accepted')
+
+
 # The staff page on a desktop browser (2026-10-17: text too small, the table wider than the window with squeezed columns):
 # readable base size, a full-width fixed-layout table whose columns share the width (long ids wrap instead of widening it), the
 # mark form stacked inside its cell. Inline only (the page's CSP allows inline style and nothing else).
@@ -273,11 +315,17 @@ PAGE_STYLE = (
     'table{width:100%;border-collapse:collapse;table-layout:fixed;background:#fff;border:1px solid #d0d7de}'
     'th,td{padding:10px 12px;border-bottom:1px solid #d0d7de;text-align:left;vertical-align:top;overflow-wrap:anywhere}'
     'th{background:#eef1f4;font-size:14px;font-weight:600}'
-    'th:nth-child(1){width:30%}th:nth-child(2){width:19%}th:nth-child(3){width:12%}th:nth-child(4){width:9%}'
-    'th:nth-child(5){width:8%}th:nth-child(6){width:22%}'
+    'th:nth-child(1){width:22%}th:nth-child(2){width:14%}th:nth-child(3){width:12%}th:nth-child(4){width:7%}'
+    'th:nth-child(5){width:8%}th:nth-child(6){width:37%}'
     'code{font-size:13px;word-break:break-all}small{font-size:14px;color:#57606a}'
     'td form input{display:block;width:100%;box-sizing:border-box;margin:0 0 6px;padding:6px 8px;font-size:15px}'
     'button{font-size:15px;padding:6px 12px;margin:0 6px 4px 0;cursor:pointer}'
+    'th{white-space:nowrap}'
+    '.views{margin:12px 0}.views a{margin-right:16px}.views a.on{font-weight:600;color:#1f2328;text-decoration:none}'
+    '.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px;white-space:nowrap}'
+    '.s-accepted{background:#fff8c5;color:#7d4e00}.s-fulfilled{background:#dafbe1;color:#116329}.s-failed{background:#ffebe9;color:#a40e26}'
+    'form.mark{display:flex;gap:6px;align-items:center;flex-wrap:wrap}form.mark input{display:inline-block;margin:0;width:auto;min-width:3.5em;flex:1 1 4em}'
+    'form.mark button{margin:0;padding:6px 10px;white-space:nowrap}'
     'form label input{font-size:15px;padding:6px 8px}'
     '@media (max-width:800px){body{padding:16px}table{table-layout:auto}}'
 )
@@ -358,7 +406,7 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
         def do_GET(self):
             if self.path.startswith('/v1/effects/'):
                 return self.get_effect()
-            if self.path == '/staff':
+            if urlsplit(self.path).path == '/staff':
                 return self.staff_page()
             self.send_json(404, {'error': 'not_found'})
 
@@ -429,29 +477,41 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                 return self.send_html(200, '<h1>服务工单（员工）</h1><form method="post" action="/staff/login">'
                                            '<label>员工凭据 <input type="password" name="token" autocomplete="off"></label> '
                                            '<button>登录</button></form>')
+            query = parse_qs(urlsplit(self.path).query)
+            view = (query.get('view') or ['pending'])[0]
+            if view not in VIEWS:
+                view = 'pending'
+            tickets = [(t, *ticket_fields(t[2])) for t in store.listing()]  # newest first (created_at desc)
+            counts = {v: sum(1 for t, summary, *_ in tickets if in_view(v, t[1], summary)) for v in VIEWS}
             rows = []
-            for intent, state, parameters, created, handled_by, note, handled_at in store.listing():
+            for (intent, state, parameters, created, handled_by, note, handled_at), summary, details, consumer_ref in tickets:
+                if not in_view(view, state, summary):
+                    continue
                 label = {'accepted': '待处理', 'fulfilled': '已处理', 'failed': '处理失败'}[state]
-                summary, details, consumer_ref = ticket_fields(parameters)
                 if state == 'accepted':
-                    result = (f'<form method="post" action="/staff/mark">'
+                    result = (f'<form class="mark" method="post" action="/staff/mark">'
                               f'<input type="hidden" name="csrf" value="{html.escape(current["csrf"])}">'
                               f'<input type="hidden" name="intent_id" value="{html.escape(intent)}">'
-                              f'<input name="handled_by" placeholder="处理人" maxlength="64" required> '
-                              f'<input name="note" placeholder="备注（可选）" maxlength="500"> '
-                              f'<button name="state" value="fulfilled">已处理</button> '
+                              f'<input type="hidden" name="view" value="{view}">'
+                              f'<input name="handled_by" placeholder="处理人" maxlength="64" required>'
+                              f'<input name="note" placeholder="备注（可选）" maxlength="500">'
+                              f'<button name="state" value="fulfilled">已处理</button>'
                               f'<button name="state" value="failed">处理失败</button></form>')
                 else:
-                    result = f'{label}（{html.escape(handled_at or "")}）' + (f'<br>{html.escape(note)}' if note else '')
+                    result = f'处理于 {time_cell(handled_at)}' + (f'<br>{html.escape(note)}' if note else '')
                 request_text = html.escape(summary) + (f'<br><small>{html.escape(details)}</small>' if details else '')
                 if consumer_ref:
-                    request_text += f'<br>客户引用：<code>{html.escape(consumer_ref)}</code>'
+                    request_text += f'<br><small>客户引用：<code>{html.escape(consumer_ref)}</code></small>'
                 rows.append(f'<tr><td>{request_text}</td><td>{html.escape(tenant_label)}<br><code>{html.escape(intent)}</code></td>'
-                            f'<td>{html.escape(created)}</td><td>{html.escape(handled_by or "")}</td><td>{label}</td><td>{result}</td></tr>')
+                            f'<td>{time_cell(created)}</td><td>{html.escape(handled_by or "")}</td>'
+                            f'<td><span class="badge s-{state}">{label}</span></td><td>{result}</td></tr>')
+            links = ''.join(f'<a href="/staff?view={v}"{" class=on" if v == view else ""}>{text}（{counts[v]}）</a>' for v, text in VIEWS.items())
+            body = ''.join(rows) or '<tr><td colspan="6">没有工单。</td></tr>'
             self.send_html(200, '<h1>服务工单（员工）</h1><p>这是企业侧系统的替身，不属于 NexLoop。请在工作时间内处理，并标记处理结果。'
-                                '处理结果只保存在本系统，不回传 NexLoop。</p>'
-                                '<table><tr><th>请求摘要</th><th>来源租户 / 意图 id</th><th>收到时间</th><th>处理人</th><th>状态</th>'
-                                '<th>处理结果与备注</th></tr>' + ''.join(rows) + '</table>')
+                                '处理结果只保存在本系统，不回传 NexLoop。时间为北京时间，鼠标悬停可看 UTC。</p>'
+                                f'<nav class="views">{links}</nav>'
+                                '<table><tr><th>请求摘要</th><th>来源租户 / 意图 id</th><th>收到时间（北京时间）</th><th>处理人</th><th>状态</th>'
+                                '<th>处理结果与备注</th></tr>' + body + '</table>')
 
         def staff_mark(self):
             current = self.session()
@@ -469,8 +529,9 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                 store.mark(intent, state, handled_by, note)
             except ValueError:
                 return self.send_html(400, '<p>请填写处理人（最多 64 字），备注最多 500 字。</p>')
+            back = form.get('view', ['pending'])[0]
             self.send_response(303)
-            self.send_header('Location', '/staff')
+            self.send_header('Location', '/staff?view=' + (back if back in VIEWS else 'pending'))
             self.send_header('Content-Length', '0')
             self.end_headers()
 
