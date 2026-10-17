@@ -68,6 +68,19 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
     const description=(client.toolsForRun(cmd)[0] as unknown as {description:string}).description;
     expect(description).toMatch(/exactly once per Run/);
   });
+  it('in a message Run the reply tool ends the Run with its receipt; find never does; other Runs keep their loop (10/18)',async()=>{
+    type Run={execute:(args:unknown)=>Promise<{isError?:boolean;control?:{terminate?:true};content:{text:string}[]}>};
+    const {client,cmd}=await bridge({status:call=>call<=2?200:409});
+    const tools=client.toolsForRun(cmd,{replyEndsRun:true});
+    const reply=tools.find(t=>t.name==='nexloop.service.request') as unknown as Run,find=tools.find(t=>t.name==='nexloop.service.find') as unknown as Run;
+    expect((await reply.execute({message:'the reply'})).control).toEqual({terminate:true});
+    expect((await find.execute({intent_id:intent})).control).toBeUndefined();
+    const again=await reply.execute({message:'one more'});  // 409: already sent; still the end
+    expect(JSON.parse(again.content[0]!.text).code).toBe('reply_already_submitted');expect(again.control).toEqual({terminate:true});
+    const other=await bridge();
+    const plain=other.client.toolsForRun(other.cmd).find(t=>t.name==='nexloop.service.request') as unknown as Run;
+    expect((await plain.execute({message:'the reply'})).control).toBeUndefined();
+  });
   it('refuses invalid parameters and absent current activation before network',async()=>{
     const {client,cmd,bodies,setActivation}=await bridge();
     await expect(client.call(cmd,'submit',{message:'service',tenant_id:cmd.tenant_id})).rejects.toMatchObject({code:'runtime_effect_unavailable'});

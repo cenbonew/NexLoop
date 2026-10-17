@@ -17,18 +17,35 @@ export function safeProviderMessage(message:AssistantMessage):AssistantMessage{
 }
 /** settle: optional trusted outcome recorder (Context v6), awaited before the final event is
  * released; `null` when the provider failed without a message. A failed record fails the call. */
-export function safeProviderStream(stream:AssistantMessageEventStream,verify?:(message:AssistantMessage)=>void,settle?:(message:AssistantMessage|null)=>Promise<void>):AssistantMessageEventStream{
+/** 10/18 stage (Run 1fb1e35a): a provider failure became runtime_model_unavailable with nothing to say why. The failure is
+ * reported, before any payload is stripped, as fixed fields only: its kind, the HTTP status when one is found (three digits,
+ * 4xx/5xx) and an exception class name. Never a message, a body, a header or a key. */
+export type ProviderFailure={kind:'provider_error'|'aborted'|'stream_exception'|'settle_failed';http_status:number|null;exception:string|null};
+const STATUS=/\b([45][0-9]{2})\b/;
+function statusOf(value:unknown):number|null{
+  const direct=value&&typeof value==='object'?(value as {status?:unknown;statusCode?:unknown}).status??(value as {statusCode?:unknown}).statusCode:undefined;
+  if(typeof direct==='number'&&Number.isInteger(direct)&&direct>=400&&direct<=599)return direct;
+  const text=typeof value==='string'?value:value instanceof Error?value.message:typeof (value as {errorMessage?:unknown})?.errorMessage==='string'?(value as {errorMessage:string}).errorMessage:'';
+  const match=STATUS.exec(text);return match?Number(match[1]):null;
+}
+function className(value:unknown):string|null{
+  const name=value instanceof Error?value.constructor.name:null;return name&&/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name)?name:null;
+}
+export function providerFailure(kind:ProviderFailure['kind'],raw:unknown):ProviderFailure{return {kind,http_status:statusOf(raw),exception:className(raw)};}
+export function safeProviderStream(stream:AssistantMessageEventStream,verify?:(message:AssistantMessage)=>void,settle?:(message:AssistantMessage|null)=>Promise<void>,report?:(failure:ProviderFailure)=>void):AssistantMessageEventStream{
+  const tell=(kind:ProviderFailure['kind'],raw:unknown)=>{try{report?.(providerFailure(kind,raw));}catch{/* diagnostics never change the outcome */}};
+  const settled=async(message:AssistantMessage|null)=>{try{await settle?.(message);}catch(error){tell('settle_failed',error);throw error;}};
   return new Proxy(stream,{get(target,key){
     if(key===Symbol.asyncIterator)return async function*(){
       try{
         for await(const event of target){
-          if(event.type==='error'){const error=safeProviderMessage(event.error);verify?.(error);await settle?.(error);yield {...event,error};}
-          else if(event.type==='done'){const message=safeProviderMessage(event.message);verify?.(message);await settle?.(message);yield {...event,message};}
+          if(event.type==='error'){tell(event.error.stopReason==='aborted'?'aborted':'provider_error',event.error);const error=safeProviderMessage(event.error);verify?.(error);await settled(error);yield {...event,error};}
+          else if(event.type==='done'){const message=safeProviderMessage(event.message);verify?.(message);await settled(message);yield {...event,message};}
           else yield {...event,partial:safeProviderMessage(event.partial)};
         }
-      }catch(error){if(settle)await settle(null).catch(()=>{});throw safeFailure(error);}
+      }catch(error){if(!(error instanceof RuntimeError))tell('stream_exception',error);if(settle)await settle(null).catch(()=>{});throw safeFailure(error);}
     };
-    if(key==='result')return async()=>{try{const message=safeProviderMessage(await target.result());verify?.(message);await settle?.(message);return message;}catch(error){if(settle)await settle(null).catch(()=>{});throw safeFailure(error);}};
+    if(key==='result')return async()=>{try{const raw=await target.result();if(raw.stopReason==='error'||raw.stopReason==='aborted')tell(raw.stopReason==='aborted'?'aborted':'provider_error',raw);const message=safeProviderMessage(raw);verify?.(message);await settled(message);return message;}catch(error){if(!(error instanceof RuntimeError))tell('stream_exception',error);if(settle)await settle(null).catch(()=>{});throw safeFailure(error);}};
     const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
   }});
 }

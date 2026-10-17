@@ -267,7 +267,7 @@ export class RuntimeEffectClient{
       throw new RuntimeError('run_outcome_unavailable');
     }
   }
-  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;enterprise?:EffectSupply}={}):readonly ToolRegistration[]{
+  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
     const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action)))}]};}
@@ -277,14 +277,18 @@ export class RuntimeEffectClient{
     // service.request (the model adding to a reply already submitted) is a 409 conflict; it is answered as a normal result that
     // says the reply was already sent and names its intent, not as a tool error that would fail a Run whose reply went out.
     let submitted:string|undefined;
+    // 10/18 stage (Run 1fb1e35a): after a message Run's reply was accepted, a closing model turn failed and the whole Run was
+    // recorded failed. In a message Run (replyEndsRun) the reply is the last step: once the reply tool has its receipt the Run
+    // ends at that tool round (pi-durable terminates only when every call of the round asks to), with no closing model call.
+    const end=options.replyEndsRun===true?{control:{terminate:true as const}}:{};
     const invoke=async(operation:'submit'|'find',args:unknown)=>{
       try{
         const receipt=await this.call(bound,operation,args);
         if(operation==='submit')submitted=receipt.intent_id;
-        return {content:[{type:'text' as const,text:JSON.stringify(receipt)}]};
+        return {content:[{type:'text' as const,text:JSON.stringify(receipt)}],...(operation==='submit'?end:{})};
       }
       catch(error){if(error instanceof RuntimeError&&error.code==='outside_catalog_terms')return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'outside_catalog_terms',scope:catalogScope})}]};
-        if(error instanceof RuntimeError&&error.code==='intent_payload_conflict'&&operation==='submit')return {content:[{type:'text' as const,text:JSON.stringify({code:'reply_already_submitted',...(submitted!==undefined?{intent_id:submitted}:{}),next:'This Run already sent its one reply; nothing more was sent. End the Run now.'})}]};
+        if(error instanceof RuntimeError&&error.code==='intent_payload_conflict'&&operation==='submit')return {content:[{type:'text' as const,text:JSON.stringify({code:'reply_already_submitted',...(submitted!==undefined?{intent_id:submitted}:{}),next:'This Run already sent its one reply; nothing more was sent. End the Run now.'})}],...end};
         if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
     const outcomeTool=options.planOutcome===true?[defineTool({name:'nexloop.plan.outcome',
