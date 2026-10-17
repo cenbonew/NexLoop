@@ -36,6 +36,22 @@ def assemble_v6(*,strategy,bindings,role,current_event,goal,formal_facts,current
     if any(i.section in MANDATORY_SECTIONS and i.section!='constraints' for i in items):
         raise ValueError('bindings/role/goal/current_event are structured sections, not items')
     outcome=apply_budget(items,strategy,estimator=estimator)
+    body=_body(strategy,bindings,role,current_event,user_statement,goal,formal_facts,current_constraints,supply,outcome,extra_insufficient,relationship_context,effect_supplies)
+    # 10/18 stage: the token budget does not bound bytes (UTF-8 text, item metadata, the omission report). Over the bound
+    # input size, the non-pinned section quotas (recent turns included) are halved until it fits; pinned items never go.
+    tight=strategy
+    while len(canonical_payload(body).encode())>MAX_PACK_BYTES and any(not i.pinned for i in outcome.kept):
+        tight={**tight,'sections':{name:{k:(v//2 if k in ('max_items','recent_turns') else v) for k,v in quota.items()} for name,quota in tight['sections'].items()}}
+        outcome=apply_budget(items,tight,estimator=estimator)
+        body=_body(strategy,bindings,role,current_event,user_statement,goal,formal_facts,current_constraints,supply,outcome,extra_insufficient,relationship_context,effect_supplies)
+        if all(q['max_items']==0 for q in tight['sections'].values()):break
+    _assert_no_float(body)
+    ContextPackV6.model_validate(body)
+    if len(canonical_payload(body).encode())>MAX_PACK_BYTES:raise ValueError('context_pack_too_large')
+    return body,outcome
+
+
+def _body(strategy,bindings,role,current_event,user_statement,goal,formal_facts,current_constraints,supply,outcome,extra_insufficient,relationship_context,effect_supplies):
     body={'schema_version':PROTOCOL,'strategy_ref':strategy_ref(strategy),'bindings':bindings,'role':role,'current_event':current_event,
         'user_statement':user_statement,'goal':goal,'formal_facts':formal_facts,'current_constraints':current_constraints,'supply':supply,
         **{name:[wire_item(i) for i in outcome.kept if i.section==name] for name in ITEM_SECTIONS},
@@ -44,7 +60,4 @@ def assemble_v6(*,strategy,bindings,role,current_event,goal,formal_facts,current
     if relationship_context is not None:body['relationship_context']=relationship_context
     # ADR-030: the enterprise slot's offering, verbatim from the v2 core (present only when the Run is bound to that slot).
     if effect_supplies is not None:body['effect_supplies']=effect_supplies
-    _assert_no_float(body)
-    ContextPackV6.model_validate(body)
-    if len(canonical_payload(body).encode())>MAX_PACK_BYTES:raise ValueError('context_pack_too_large')
-    return body,outcome
+    return body

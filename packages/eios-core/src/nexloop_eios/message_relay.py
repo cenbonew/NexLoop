@@ -202,7 +202,7 @@ class MessageRelay:
 
     def run_once(self):
         from nexloop_eios.observability import StepClock
-        claimed={}
+        claimed={};self._diagnostic_failure=None;self._context_diagnostic=None
         # Relay step timings (dispatcher 2026-10-13): numbers per step of a claimed message only; an idle tick records nothing.
         self._clock=StepClock()
         try:
@@ -211,6 +211,13 @@ class MessageRelay:
             return status
         except Exception:
             if claimed:self._clock.commit()
+            if claimed:
+                # 10/18 stage (trial e80e360c): five failed attempts left no trace. One allowlisted line per failed attempt: the
+                # stage and, for a refused Context, the refusing check as a code (never a value or a body).
+                stage,error=getattr(self,'_diagnostic_failure',None) or ('unknown','unknown')
+                from nexloop_eios.context_artifacts import check_code
+                logging.getLogger('nexloop.message_relay').warning('message relay attempt failed %s',{'message_id':claimed['message_id'],'stage':stage,
+                    'reason':error,'code':check_code(getattr(self,'_context_diagnostic',None)) if stage=='context_prepare' else None})
             # Root cause of the stuck messages: a failed attempt kept its claim until the lease ran out and was then retried with
             # a changed command. A failed attempt now gives the message back with a bounded count; when the count is used up
             # the message is handed to the reply guarantee instead of blocking the consumer (0150).

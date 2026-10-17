@@ -44,6 +44,17 @@ def _turns_view(pool,session,signer,conversation_id,proof,limit):
         return db.execute('select authz.nexloop_read_conversation_turns(%s,%s,%s,%s)',(session.token_digest,session.world,text,signature)).fetchone()[0]
 
 
+def _bounded_claims(items,strategy):
+    """10/18 stage (trial e80e360c): a consumer with ~200 extracted Claims made the pack exceed 64 KiB, mostly through the
+    omission report (one entry per Claim not kept). Pinned Claims (negations, contact limits) all stay; of the others only the
+    most relevant, most recent 2 x evidence quota are candidates. The rest are not read into this Context at all (SQL requires
+    only the pinned ones), so they are neither kept nor reported as omitted."""
+    quota=((strategy.get('sections') or {}).get('evidence') or {}).get('max_items',12)
+    loose=[i for i in items if not i.pinned]
+    keep={id(i) for i in sorted(loose,key=lambda i:(i.relevance,i.at,i.ref),reverse=True)[:max(0,2*int(quota))]}
+    return [i for i in items if i.pinned or id(i) in keep]
+
+
 def _turn_limit(strategy):
     """Twice the strategy's protected recent turns (consumer and Agent), at least 2, at most 64."""
     recent=((strategy.get('sections') or {}).get('evidence') or {}).get('recent_turns',6)
@@ -106,7 +117,7 @@ def collect(pool,session,signer,*,consumer_id,conversation_ids,strategy,current_
             inbound=[t for t in turns if t.get('direction')!='outbound']
             latest=max(inbound,key=lambda t:t['sequence'])['id'] if inbound and current_sequence is not None else None
             out.items+=conversation_items(turns,decision=decision,latest_consumer=latest)
-            out.items+=claim_items(view,strategy,decision=decision)
+            out.items+=_bounded_claims(claim_items(view,strategy,decision=decision),strategy)
         except Exception as error:
             if not isinstance(error,(ContextDenied,psycopg.errors.InsufficientPrivilege)) and type(error).__name__ not in ('ActionAuthorizationDenied','AuthorizationFactDenied','AuthorizationUnavailable'):raise
             unreadable.append('eios:object:Conversation/'+conversation_id)

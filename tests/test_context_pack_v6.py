@@ -146,3 +146,26 @@ def test_supply_stays_the_reply_export_offering_and_constraints_name_an_effect_a
     assert not VALID.is_valid({**EXAMPLE,'supply':{k:v for k,v in enterprise_item().items() if k!='action'}})
     assert VALID.is_valid({**EXAMPLE,'current_constraints':{**EXAMPLE['current_constraints'],'action':ENTERPRISE}})
     assert not VALID.is_valid({**EXAMPLE,'current_constraints':{**EXAMPLE['current_constraints'],'action':'nexloop.other:1'}})
+
+
+def test_a_pack_over_the_bound_input_size_is_trimmed_by_quota_not_refused():
+    """10/18 stage (trial e80e360c): the token budget does not bound bytes. A Context whose items fit the token budget but not
+    the 64 KiB bound input is trimmed (non-pinned items by section quota, reported) instead of refused; pinned items stay."""
+    from nexloop_eios.context_engine.pack import MAX_PACK_BYTES
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    big=inputs();big['strategy']['input_token_budget']=200000;big['strategy']['framing_reserve']=0
+    big['strategy']['sections']['evidence'].update(max_items=64,recent_turns=64)
+    for n in range(48):
+        big['items'].append(Item('evidence','conversation','eios:object:Message/'+f'{n+10:064x}',str(n+10),{'speaker':'agent','body':'很长的回复'*300,'sequence':n+10,
+            'accepted_at':f'2026-10-09T03:{n:02d}:00Z'},'conversation',D,relevance=0.5,at=f'2026-10-09T03:{n:02d}:00Z'))
+    pinned=Item('evidence','conversation','eios:object:Message/'+'7'*64,'99',{'speaker':'consumer','body':'我要导出本月数据','sequence':99,
+        'accepted_at':'2026-10-09T04:00:00Z'},'conversation',D,relevance=0.5,at='2026-10-09T04:00:00Z',tags={'latest_consumer_turn'})
+    big['items'].append(pinned)
+    body,outcome=assemble_v6(**big)
+    assert len(canonical_payload(body).encode())<=MAX_PACK_BYTES and body['insufficient']==[]
+    assert pinned.ref in [i['ref'] for i in body['evidence']] and body['open_work'][0]['tags']==['unconfirmed']
+    assert {o['reason'] for o in body['budget_report']['omitted']}=={'section_quota'} and len(body['budget_report']['omitted'])>0
+    VALID.validate(body)
+    # Pinned items alone over the bound are still refused, by name (never silently cut).
+    huge=inputs();huge['items'].append(Item('constraints','policy','eios:action:nexloop.service.request:1','1',{'text':'限'*30000},'policy',D))
+    with pytest.raises(ValueError,match='context_pack_too_large'):assemble_v6(**huge)

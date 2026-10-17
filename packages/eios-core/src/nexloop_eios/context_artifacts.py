@@ -1,4 +1,5 @@
 """Server-only real governed ContextArtifact producer. No credential reaches pack."""
+import re
 from datetime import UTC,datetime,timedelta
 import hashlib,hmac
 from eios.actions import models as M
@@ -19,6 +20,16 @@ MEDIA='application/vnd.nexloop.context+json'
 
 def context_binding_schema():
     return {'type':'object','properties':{'message_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'run_id':{'type':'string','format':'uuid'}},'required':['message_id','run_id'],'additionalProperties':False}
+
+def check_code(diagnostic):
+    """10/18 stage (trial e80e360c stopped): which check refused a Context, as a code fit for logs and escalation evidence:
+    the refusing SQL check's own fixed text with spaces as underscores (e.g. context_v6_pinned_source_missing), else the
+    Python error class. Never a value, a body or a statement."""
+    if not diagnostic:return None
+    name,message=diagnostic
+    if type(message) is str and re.fullmatch(r'[a-z0-9][a-z0-9 _.:-]{0,79}',message):return message.replace(' ','_')
+    return 'python:'+name if type(name) is str and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',name) else 'unrecognized'
+
 
 class ContextArtifactUnavailable(RuntimeError):
     def __init__(self):super().__init__('context_artifact_unavailable')
@@ -192,7 +203,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
     """
     def __init__(self,services,strategy_id,relationship_recipe=None,formal_refs=None):
         super().__init__(services);self.strategy_id=strategy_id
-        self.last_diagnostic=None;self.run=None
+        self.last_diagnostic=None;self.last_check=None;self.run=None
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
         self.core=None
         if relationship_recipe is not None:
@@ -271,7 +282,9 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         except Exception as error:
             import psycopg
             # Operator-only: which SQL check refused (never returned to the Run or Host).
-            self.last_diagnostic=(type(error).__name__,getattr(getattr(error,'diag',None),'message_primary',None))
+            self.last_diagnostic=(type(error).__name__,getattr(getattr(error,'diag',None),'message_primary',None)
+                or (str(error) if isinstance(error,ValueError) and re.fullmatch(r'[a-z][a-z0-9_]{0,63}',str(error)) else None))
+            self.last_check=check_code(self.last_diagnostic)
             if isinstance(error,psycopg.Error) and error.diag.message_primary=='context artifact conflict':raise ContextArtifactConflict() from None
             raise ContextArtifactUnavailable() from None
 
