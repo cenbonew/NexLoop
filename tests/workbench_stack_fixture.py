@@ -21,8 +21,10 @@ def private(path, content):
     return path
 
 
-def workbench_stack(conversations, admin, pg, tmp_path, *, port, web):
-    """Returns (ApiConfiguration, certificate, key, credentials) for https://127.0.0.1:<port> serving `web`."""
+def workbench_stack(conversations, admin, pg, tmp_path, *, port, web, seed=None):
+    """Returns (ApiConfiguration, certificate, key, credentials) for https://127.0.0.1:<port> serving `web`. `seed`: optional
+    synthetic records (tests/smoke_seed.large_records) loaded through tests/load_template.load: more customers, conversations and
+    messages for layout checks; credentials then carry `seed` counts (no seeded passwords)."""
     from nexloop_eios.browser_http import BrowserConfiguration
     from nexloop_eios.http_api import ApiConfiguration
     from nexloop_eios.workbench_roles import apply_members, compile_members
@@ -35,6 +37,11 @@ def workbench_stack(conversations, admin, pg, tmp_path, *, port, web):
     f['port'].accept_message(conversation_id=conversation['id'], idempotency_key='dev-smoke-inbound-0001',
                              body='你好，我的订单一直没有发货，能帮我查一下吗？')
     consumer = admin.execute('select consumer_id from runtime.nexloop_conversations where conversation_id=%s', (conversation['id'],)).fetchone()[0]
+    seeded = None
+    if seed:
+        # Before the workbench configuration (load_template's ordering: identities, consumers, grants, messages, then members).
+        from load_template import load
+        seeded = load(f, admin, seed)['counts']
     # Tenant Actions the workbench writes need (slices 2/3), compiled from the versioned manifests.
     publish_request_actions(admin)
     publish_request_actions(admin, names=TAKEOVER_ACTIONS)
@@ -68,5 +75,5 @@ def workbench_stack(conversations, admin, pg, tmp_path, *, port, web):
                    'owner': {'username': owner['username'], 'password': owner['password']},
                    'operator': {'username': operator['username'], 'password': operator['password']},
                    'customer': {'username': customer[3].username, 'password': customer[-1]},
-                   'consumer_id': consumer, 'conversation_id': conversation['id']}
+                   'consumer_id': consumer, 'conversation_id': conversation['id'], **({'seed': seeded} if seeded else {})}
     return config, certificate, key, credentials

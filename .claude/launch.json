@@ -4,9 +4,21 @@
     {
       "name": "workbench-smoke",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["scripts/dev/workbench_smoke.sh"],
+      "runtimeArgs": [
+        "scripts/dev/workbench_smoke.sh"
+      ],
       "port": 8744,
       "url": "http://127.0.0.1:8744"
+    },
+    {
+      "name": "workbench-smoke-large",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NEXLOOP_DEV_SMOKE_SEED=large NEXLOOP_DEV_SMOKE_PORT=8747 NEXLOOP_DEV_SMOKE_WEB_PORT=8748 exec scripts/dev/workbench_smoke.sh"
+      ],
+      "port": 8748,
+      "url": "http://127.0.0.1:8748"
     }
   ]
 }
