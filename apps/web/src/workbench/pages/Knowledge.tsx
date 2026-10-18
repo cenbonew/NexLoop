@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {RESTRICTED_TEXT,REVIEW_ENDED_TEXT,readMe,readReviewEvidence,readReviewQueue,readsKnowledgeOnly,reviews} from '../api';
 import {Page,Short} from './Page';
+import {Time} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {ApiError} from '../../api';
@@ -28,7 +29,7 @@ export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidate
     <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。审核员在候选的证据页中提交决定（通过、并入已有定义、拒绝），决定写入审计。</p>
     <DataTable label="待审核候选" rows={items} rowKey={x=>x.candidate_id} columns={[
       {label:'候选',main:true,cell:x=><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??x.candidate_id}</button>},
-      {label:'类别',cell:x=>x.kind},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=>when(x.created_at)}]}/>
+      {label:'类别',cell:x=>x.kind},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=><Time value={x.created_at}/>}]}/>
   </>}</Page>;
 }
 

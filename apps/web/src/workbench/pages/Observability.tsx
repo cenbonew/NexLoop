@@ -6,6 +6,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Backup,type Process} from '../api';
 import {Page} from './Page';
+import {Time} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {IdRef,NoWrap,Operations as OpsSection} from './PageOps';
@@ -18,7 +19,7 @@ export function Alerts({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
   return <Page title="告警" query={query}>{data=><>
     {data.evaluator.stale?<p className="warning" role="alert">{EVALUATOR_STALE_TEXT}</p>
-      :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 {when(data.evaluator.last_evaluated_at)}。</p>}
+      :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 <Time value={data.evaluator.last_evaluated_at}/>。</p>}
     <h2>正在触发</h2>
     {data.firing.length?<DataTable label="正在触发的告警" rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[
       {label:'告警',main:true,cell:a=>{const info=ALERT_INFO[a.rule_id];return <><strong>{info?.name??a.rule_id}</strong> <small className="alert-code"><code>{a.rule_id}</code></small>
@@ -26,11 +27,11 @@ export function Alerts({actions}:{actions?:ReactNode}){
       {label:'级别',cell:a=><NoWrap>{SEVERITY_TEXT[a.severity]}</NoWrap>},{label:'影响对象',cell:a=><NoWrap>{a.selector??'全局'}</NoWrap>},
       {label:'当前值 / 阈值',cell:a=>{const info=ALERT_INFO[a.rule_id];const t=thresholdOf(a,data.events);
         return <>{valueText(info,a.value)}{t!==null?` / 阈值 ${valueText(info,t)}`:''}{info?.window?<small>（{info.window}）</small>:null}</>;}},
-      {label:'持续',cell:a=><NoWrap>{sinceText(a.first_fired_at)}（自 {when(a.first_fired_at)}）</NoWrap>},{label:'次数',num:true,cell:a=>a.fire_count},
-      {label:'静默',cell:a=>a.silenced_until?`已静默至 ${when(a.silenced_until)}（仍在评估和记录）`:'—'}]}/>
+      {label:'持续',cell:a=><NoWrap>{sinceText(a.first_fired_at)}（自 <Time value={a.first_fired_at}/>）</NoWrap>},{label:'次数',num:true,cell:a=>a.fire_count},
+      {label:'静默',cell:a=>a.silenced_until?<>已静默至 <Time value={a.silenced_until}/>（仍在评估和记录）</>:'—'}]}/>
       :<p className="note">当前没有触发中的告警。</p>}
     <h2>最近事件</h2>
-    {data.events.length?<ol>{data.events.map(e=><li key={e.event_id}>{when(e.recorded_at)} · {e.kind==='firing'?'触发':'恢复'} · {SEVERITY_TEXT[e.severity]} · {ALERT_INFO[e.rule_id]?.name??e.rule_id}（{e.rule_id}）{e.selector?` · ${e.selector}`:''}
+    {data.events.length?<ol>{data.events.map(e=><li key={e.event_id}><Time value={e.recorded_at}/> · {e.kind==='firing'?'触发':'恢复'} · {SEVERITY_TEXT[e.severity]} · {ALERT_INFO[e.rule_id]?.name??e.rule_id}（{e.rule_id}）{e.selector?` · ${e.selector}`:''}
       {e.value!==null?` · 值 ${valueText(ALERT_INFO[e.rule_id],e.value)}`:''}{e.threshold!==null?` / 阈值 ${valueText(ALERT_INFO[e.rule_id],e.threshold)}`:''}</li>)}</ol>:<p className="note">暂无事件。</p>}
     <OpsSection actions={actions} title="静默（可选）"/>
   </>}</Page>;
@@ -66,7 +67,7 @@ function Counts({values,labels}:{values:Record<string,number>;labels?:Record<str
 export function Operations({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','metrics'],queryFn:readMetrics});
   return <Page title="运行状态" query={query} actions={actions}>{m=><>
-    <p className="note">快照时间 {when(m.computed_at)}；只含代码、计数、年龄和比率，不含原文。</p>
+    <p className="note">快照时间 <Time value={m.computed_at}/>；只含代码、计数、年龄和比率，不含原文。</p>
     <div className="workbench-grid">
       <article className="workbench-block"><h3>派发拒绝（最近 1 小时）</h3><Counts values={m.refusals.last_hour} labels={REFUSAL_TEXT}/></article>
       <article className="workbench-block"><h3>外部动作</h3>{m.effects.unknown.count?<p><a href={routePath({page:'actions'})}>去 Action 页查询执行结果</a></p>:null}<p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>
@@ -100,7 +101,7 @@ export function Audit({actions}:{actions?:ReactNode}){
   return <Page title="审计" query={query} actions={actions} empty={d=>d.length===0}>{items=><>
     <p className="note">谁在什么时候做了哪些受治理的人类操作，以及成员读取消息原文和客户资料的记录（只有负责人可见；只含 ID、类别和时间）。</p>
     <DataTable label="审计" rows={items} rowKey={(_,i)=>String(i)} columns={[
-      {label:'时间',main:true,cell:x=><NoWrap>{when(x.occurred_at)}</NoWrap>},{label:'类别',cell:x=><NoWrap>{x.category==='read'?'读取':'操作'}</NoWrap>},{label:'操作',cell:x=><NoWrap>{x.action}</NoWrap>},
+      {label:'时间',main:true,cell:x=><NoWrap><Time value={x.occurred_at}/></NoWrap>},{label:'类别',cell:x=><NoWrap>{x.category==='read'?'读取':'操作'}</NoWrap>},{label:'操作',cell:x=><NoWrap>{x.action}</NoWrap>},
       {label:'成员',cell:x=><NoWrap>{memberAlias(x.principal_id,x.role)}</NoWrap>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdRef kind={x.target_kind} value={x.target_ref}/>:x.target_kind}]}/>
   </>}</Page>;
 }

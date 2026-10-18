@@ -32,7 +32,7 @@ test('alerts parse strictly; a stale evaluator is announced and a silenced alert
   const stale=render(client([[['workbench','alerts'],alerts(alertsBody(true))]]),h(Alerts,{}));
   expect(stale).toContain(EVALUATOR_STALE_TEXT);expect(stale).toContain('queue_dead_letter');
   const silenced=render(client([[['workbench','alerts'],alerts(alertsBody(false,'2026-10-11T09:00:00+00:00'))]]),h(Alerts,{}));
-  expect(silenced).toContain(`已静默至 ${when('2026-10-11T09:00:00+00:00')}（仍在评估和记录）`);
+  expect(silenced).toMatch(/已静默至 <time dateTime="2026-10-11T09:00:00.000Z" title="北京时间 [^"]+">[^<]+<span class="time-rel">（[^）]+）<\/span><\/time>（仍在评估和记录）/);   // batch 8: <time datetime>, Beijing + relative
 });
 
 test('operations: unavailable process sections and backups are labelled, never zero; refusals carry their meaning',()=>{

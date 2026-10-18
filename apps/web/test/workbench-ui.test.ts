@@ -1,7 +1,7 @@
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,test} from 'vitest';
-import {Empty,StatusBadge,Tabs,commitmentTone,intentTone,money,relative} from '../src/workbench/ui';
+import {Announce,Empty,StatusBadge,Tabs,commitmentTone,intentTone,money,relative} from '../src/workbench/ui';
 import {dispatchText} from '../src/workbench/pages/Actions';
 import {crumbs,NAV_GROUPS} from '../src/workbench/WorkbenchApp';
 import {PAGES} from '../src/workbench/route';
@@ -39,4 +39,10 @@ test('navigation: three groups, every page once, the next-stage pages last; deta
   expect(crumbs({page:'consumers'})).toEqual([]);
   expect(crumbs({page:'consumers',id:'x',sub:'conversation'}).map(c=>c.label)).toEqual(['消费者','会话']);
   expect(crumbs({page:'commitments',id:'x'}).map(c=>c.label)).toEqual([PAGES.commitments,'承诺详情']);
+});
+
+test('a polite live region; tabs carry one when asked to announce', ()=>{
+  expect(renderToStaticMarkup(h(Announce,{text:'失败：3 条'}))).toBe('<p class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-announce="true">失败：3 条</p>');
+  const html=renderToStaticMarkup(h(Tabs,{label:'范围',value:'a',onChange:()=>{},announce:'未结束：2 条',tabs:[{key:'a',label:'甲'},{key:'b',label:'乙'}]}));
+  expect(html).toContain('aria-live="polite"');expect(html).toContain('未结束：2 条');
 });

@@ -73,7 +73,7 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert set(pages) == expected
     failing = {k: v for k, v in pages.items() if v['hscroll'] > 0 or v['offscreen'] or v['font_min'] < 13 or v['th_max'] > 44
                or (k.split('-')[-1] == '390' or k.endswith('390-dark')) and v['scrollers']}
-    assert failing == {}, failing
+    assert failing == {}, {k: {f: v[f] for f in ('hscroll', 'offscreen', 'font_min', 'th_max', 'scrollers')} for k, v in failing.items()}
     assert observed['dark_differs'] == {f'{p}-{w}': True for p in PAGES for w in (1440, 390)}
     assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 14,
                                 'closed_after_navigation': True, 'hscroll_open': 0}
