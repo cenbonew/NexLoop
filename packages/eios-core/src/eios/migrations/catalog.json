@@ -1085,6 +1085,11 @@
       "version": "0217",
       "name": "0217_workbench_restricted_presence.sql",
       "sha256": "785397778ca27a9793cf32bc8af57469d2f3d544cedba14def2b4b2f8296c62c"
+    },
+    {
+      "version": "0218",
+      "name": "0218_export_withheld_count.sql",
+      "sha256": "8649e377e40365ca6ddd2e920062ab346f617877a91dba9137372eb77127e251"
     }
   ]
 }
