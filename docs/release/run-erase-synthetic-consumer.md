@@ -72,7 +72,7 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 - `held.data_exports` 为 0；
 - `consumer_object` 为 false。
 
-`persona` 标记仍然保留，其中不含顾客数据。
+删除完成后 persona 标记行也随之删除，`persona` 显示为 `real`；它的修改事件保留取值和时间，顾客 ID 换成假名，理由清空（0221）。
 
 数据导出文件如果已经下载到 Fileshare 或本机，不在数据库可见范围内，需要按导出记录另行清理。
 

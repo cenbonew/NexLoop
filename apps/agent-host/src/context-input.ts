@@ -60,10 +60,27 @@ export function validateOperatorPersona(value:unknown):void{
   const id=text(persona.persona_id,64,/^[a-z][a-z0-9_-]{0,63}$/);
   if(!Number.isSafeInteger(persona.version)||(persona.version as number)<1||(persona.version as number)>999999)fail();
   if(persona.persona_ref!=='operator-persona:'+id+'@'+persona.version||!['owner_assign','rule','default'].includes(String(persona.source)))fail();
+  // The document exactly as context-pack-v6.schema.json declares it (required fields, types, lengths in code points).
   const document=persona.document;
   if(!document||typeof document!=='object'||Array.isArray(document))fail();
+  const d=document as Record<string,unknown>;
   const allowed=['display_name','signature','self_intro','tone','values','expression','scenarios','not_for','ai_disclosure'];
-  if(Object.keys(document as object).some(key=>!allowed.includes(key)))fail();
+  if(Object.keys(d).some(key=>!allowed.includes(key)))fail();
+  const str=(value:unknown,min:number,max:number)=>{if(typeof value!=='string'||[...value].length<min||[...value].length>max)fail();};
+  const opt=(value:unknown,min:number,max:number)=>{if(value!==undefined)str(value,min,max);};
+  const list=(value:unknown,count:number,min:number,max:number)=>{if(value===undefined)return;if(!Array.isArray(value)||value.length>count)fail();for(const item of value as unknown[])str(item,min,max);};
+  str(d.display_name,1,40);opt(d.signature,0,40);opt(d.self_intro,0,500);str(d.tone,1,200);list(d.values,5,1,200);list(d.scenarios,10,1,60);list(d.not_for,10,1,60);
+  const expression=d.expression;
+  if(!expression||typeof expression!=='object'||Array.isArray(expression))fail();
+  const e=expression as Record<string,unknown>;
+  if(Object.keys(e).some(key=>!['max_chars','emoji','vocabulary','forbidden_phrases','language'].includes(key)))fail();
+  if(!Number.isSafeInteger(e.max_chars)||(e.max_chars as number)<20||(e.max_chars as number)>2000||!['none','few','allowed'].includes(String(e.emoji))||typeof e.emoji!=='string')fail();
+  opt(e.vocabulary,0,500);opt(e.language,0,16);list(e.forbidden_phrases,50,1,100);
+  if(d.ai_disclosure!==undefined){
+    const ad=d.ai_disclosure;
+    if(!ad||typeof ad!=='object'||Array.isArray(ad)||Object.keys(ad).some(key=>!['statement','deflect_statement'].includes(key)))fail();
+    opt((ad as Record<string,unknown>).statement,0,300);opt((ad as Record<string,unknown>).deflect_statement,0,300);
+  }
   const ai=exact(persona.ai_disclosure,['mode','when_asked','block_human_claims','content_label']);
   if(!['none','first_contact','always'].includes(String(ai.mode))||!['deflect','handoff'].includes(String(ai.when_asked))
     ||typeof ai.block_human_claims!=='boolean'||typeof ai.content_label!=='boolean')fail();
