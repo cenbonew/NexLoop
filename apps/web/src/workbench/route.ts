@@ -1,7 +1,7 @@
 /** Workbench routes live in the URL (/workbench/<page>[/<id>][?filters]) so a page, its object and its list filters can be linked,
  * reloaded and restored on Back (walkthrough F09). Only the query keys a page declares are kept, each with its own check. */
 export const PAGES={overview:'总览',goals:'目标与对齐',consumers:'消费者',plans:'计划与运行',actions:'Action / 异常',commitments:'承诺 / 交付',contact:'联系限制',
-  knowledge:'知识工作台',alerts:'告警',operations:'运行状态',audit:'审计',settings:'设置与治理',ontology:'企业世界模型',experiments:'实验空间'} as const;
+  knowledge:'知识工作台',alerts:'告警',operations:'运行状态',audit:'审计',settings:'设置与治理',capabilities:'能力目录',ontology:'企业世界模型',experiments:'实验空间'} as const;
 export type PageKey=keyof typeof PAGES;
 export type Query=Record<string,string>;
 export type Route={page:PageKey;id?:string;sub?:'conversation';query?:Query};
@@ -15,6 +15,7 @@ const QUERY:Partial<Record<PageKey,Record<string,(v:string)=>boolean>>>={
   commitments:{status:v=>['open','ended','all'].includes(v),consumer:v=>hex64.test(v),late:v=>v==='true'||v==='false',due_from:v=>day.test(v),due_to:v=>day.test(v),
     sort:v=>['due_at','registered_at','status'].includes(v),order:v=>v==='asc'||v==='desc',page:v=>offset.test(v),q:words},
   // Enterprise world model (W1): the tab, table or relation graph, and the focused type (deep links and Back walk them).
+  capabilities:{tab:v=>['capabilities','actions','channels','dispatch'].includes(v)},
   ontology:{tab:v=>['object_types','properties','relations','events','actions','functions'].includes(v),view:v=>v==='graph',focus:v=>/^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(v)},
   consumers:{restricted:v=>v==='true'||v==='false',open:v=>v==='true'||v==='false',sort:v=>['id','open_commitments','conversations','active_plans'].includes(v),
     order:v=>v==='asc'||v==='desc',page:v=>offset.test(v),q:words},

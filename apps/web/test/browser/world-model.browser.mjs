@@ -41,6 +41,19 @@ try{
   result.panel_after_back=await page.locator('aside.world-panel').count();
   await page.setViewportSize({width:390,height:844});await page.goto('/workbench/ontology?tab=properties');await page.locator('.world-summary').waitFor({timeout:20000});await page.waitForTimeout(500);
   await page.screenshot({path:`${shots}/world-390.png`,fullPage:true});result.hscroll_390=await hscroll(page);
+  // W3 capability catalog: in the 管理 group; its dispatch outcome reads exactly as the settings page (same source and wording).
+  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/capabilities');
+  await page.locator('.workbench-page h1',{hasText:'能力目录'}).waitFor({timeout:20000});await page.locator('[role=tablist][aria-label="能力目录"]').waitFor({timeout:20000});
+  result.capabilities_tabs=await page.locator('[role=tablist][aria-label="能力目录"] [role=tab]').allInnerTexts();
+  await page.locator('[role=tablist][aria-label="能力目录"] [role=tab][aria-selected=true]').focus();await page.keyboard.press('End');
+  await page.locator('.rd-outcome').waitFor({timeout:20000});
+  result.capabilities_outcome=await page.locator('.rd-outcome').innerText();result.capabilities_url=new URL(page.url()).search;
+  result.capabilities_forms=await page.locator('.workbench-page form, .workbench-page textarea').count();
+  await page.screenshot({path:`${shots}/capabilities-dispatch-1440.png`,fullPage:true});
+  await page.goto('/workbench/settings');await page.locator('.rd-outcome').waitFor({timeout:20000});
+  result.settings_outcome=await page.locator('.rd-outcome').innerText();
+  await page.setViewportSize({width:390,height:844});await page.goto('/workbench/capabilities?tab=actions');await page.locator('[role=tabpanel]').waitFor({timeout:20000});
+  await page.waitForTimeout(500);await page.screenshot({path:`${shots}/capabilities-390.png`,fullPage:true});result.capabilities_hscroll_390=await hscroll(page);
   await context.close();
 }finally{await browser.close();}
 writeFileSync(env('NEXLOOP_WORLD_E2E_RESULT_FILE'),JSON.stringify(result));

@@ -13,6 +13,7 @@ import {NotEnabled,Settings} from './pages/Settings';
 import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
 import {Alerts,Audit,Operations} from './pages/Observability';
 import {WorldModel} from './pages/WorldModel';
+import {Capabilities} from './pages/Capabilities';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -55,6 +56,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'operations':return <Operations actions={a}/>;
     case 'audit':return <Audit actions={a}/>;
     case 'ontology':return <WorldModel query={route.query} onQuery={query=>go({page:'ontology',query})}/>;  // pushed: Back walks tab, view and focus
+    case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
     case 'experiments':return <NotEnabled title={PAGES.experiments}/>;
   }
 }
@@ -64,7 +66,7 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['settings','experiments']}];
+  {title:'管理',pages:['settings','capabilities','experiments']}];
 const NOT_ENABLED:PageKey[]=['experiments'];
 
 /** Detail pages: where this page sits (F08); every step but the last goes back. With the customer known (F10) a conversation reads

@@ -558,3 +558,25 @@ export function worldModel(value:unknown):WorldModel{
       applies_to:list(o.applies_to).map(maybeText),required_scopes:texts(o.required_scopes),contract_digest:maybeText(o.contract_digest)};})};
 }
 export const readWorldModel=()=>get('/api/v1/workbench/world-model',worldModel);
+
+// ---- World model W3: the capability catalog (L6 0221; packages/contracts/workbench-capabilities.schema.json), metadata only ----
+export type CatalogCapability={capability:string;operation:string;subject_rule:'human'|'agent_or_human';source_task:string;registered_at:string};
+export type CatalogAction={resource_id:string;stable_name:string;version:number;capability:string|null;capability_version:string|null;has_side_effects:boolean;active:boolean;
+  effect_category:'customer_contact'|'non_contact_service'|null;effect_category_declared:boolean;effect_manifest_version:number|null};
+export type CatalogChannel={namespace:string;trust:'server'|'signed'|'client';skew_seconds:number};
+export type Capabilities={capabilities:CatalogCapability[];actions:CatalogAction[];channels:CatalogChannel[];routes:{delivery_action:string;active_offerings:number}[];
+  provider_routes:string;real_dispatch:unknown};
+function oneOf<T extends string>(value:unknown,allowed:readonly T[]):T{const v=text(value);if(!(allowed as readonly string[]).includes(v))throw new WorkbenchError('invalid');return v as T;}
+export function capabilities(value:unknown):Capabilities{
+  const v=object(value);
+  return {capabilities:list(v.capabilities).map(x=>{const o=object(x);return {capability:text(o.capability),operation:text(o.operation),
+      subject_rule:oneOf(o.subject_rule,['human','agent_or_human'] as const),source_task:text(o.source_task),registered_at:text(o.registered_at)};}),
+    actions:list(v.actions).map(x=>{const o=object(x);return {resource_id:text(o.resource_id),stable_name:text(o.stable_name),version:count(o.version),
+      capability:maybeText(o.capability),capability_version:maybeText(o.capability_version),has_side_effects:flag(o.has_side_effects),active:flag(o.active),
+      effect_category:o.effect_category===null?null:oneOf(o.effect_category,['customer_contact','non_contact_service'] as const),
+      effect_category_declared:flag(o.effect_category_declared),effect_manifest_version:o.effect_manifest_version===null?null:count(o.effect_manifest_version)};}),
+    channels:list(v.channels).map(x=>{const o=object(x);return {namespace:text(o.namespace),trust:oneOf(o.trust,['server','signed','client'] as const),skew_seconds:count(o.skew_seconds)};}),
+    routes:list(v.routes).map(x=>{const o=object(x);return {delivery_action:text(o.delivery_action),active_offerings:count(o.active_offerings)};}),
+    provider_routes:text(v.provider_routes),real_dispatch:object(v.real_dispatch)};
+}
+export const readCapabilities=()=>get('/api/v1/workbench/capabilities',capabilities);

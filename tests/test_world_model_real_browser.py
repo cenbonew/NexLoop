@@ -72,3 +72,7 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
     assert observed['panel'].startswith(observed['focused_node']) and 'focus=' in observed['url_graph'] and 'view=graph' in observed['url_graph']
     assert observed['back_url'] == '?view=graph' and observed['panel_after_back'] == 0
     assert observed['hscroll_1440'] <= 0 and observed['hscroll_390'] <= 0, observed
+    # W3 capability catalog (on L6's read): tabs, keyboard to the dispatch tab, the same outcome as settings, read only.
+    assert observed['capabilities_tabs'] == ['受治理能力', '业务 Action', '渠道与交付路由', '真实派发'] and observed['capabilities_url'] == '?tab=dispatch'
+    assert observed['capabilities_outcome'] == observed['settings_outcome'] and observed['capabilities_outcome'].startswith('真实交付：')
+    assert observed['capabilities_forms'] == 0 and observed['capabilities_hscroll_390'] <= 0, observed
