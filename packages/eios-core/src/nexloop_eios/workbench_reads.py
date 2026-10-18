@@ -410,8 +410,13 @@ class WorkbenchQueries:
             rows.sort(key=lambda v: (due(v) is None, _instant(due(v)) if due(v) else datetime.max.replace(tzinfo=UTC), v['commitment_id']), reverse=order == 'desc')
         elif sort == 'status':
             rows.sort(key=lambda v: (str(v['properties'].get('status')), v['commitment_id']), reverse=order == 'desc')
-        elif order == 'desc':
-            rows.reverse()  # the read's own order is prepared_at ascending
+        else:
+            # registered_at (the response's own field; preparation and registration need not happen in the same order), the id as a
+            # stable tie-breaker so page boundaries never move; a commitment not yet registered sorts last either way.
+            registered = [v for v in rows if isinstance(v.get('registered_at'), str)]
+            pending = sorted((v for v in rows if not isinstance(v.get('registered_at'), str)), key=lambda v: v['commitment_id'])
+            registered.sort(key=lambda v: (_instant(v['registered_at']), v['commitment_id']), reverse=order == 'desc')
+            rows = registered + pending
         start = int(cursor or 0)
         page = rows[start:start + limit]
         names = {}

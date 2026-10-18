@@ -3,7 +3,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {WorkbenchError,commitmentList,commitmentQueryString,consumerAlias,consumerQueryString,consumers,type CommitmentQuery} from '../src/workbench/api';
-import {Commitments,commitmentSummary,nextStep,promiser} from '../src/workbench/pages/Commitments';
+import {Commitments,commitmentSummary,dueBefore,nextStep,promiser} from '../src/workbench/pages/Commitments';
 import {ConsumerName,Consumers} from '../src/workbench/pages/Consumers';
 import {crumbs} from '../src/workbench/WorkbenchApp';
 import {parseRoute,routePath} from '../src/workbench/route';
@@ -79,4 +79,12 @@ test('F04: the same name state reads the same everywhere; restricted and missing
     order:undefined,cursor:undefined}],page);
   expect(html).toContain('（名称受限）');expect(html).toContain('共 1 条');
   expect(html).toContain('aria-label="查看 '+consumerAlias(id('a'))+'（名称受限） 的 2 条未结束承诺"');   // the count leads to the filtered commitments
+});
+
+test('PR #9 review: "到 <day>" sends the next day\'s midnight in Beijing as the exclusive bound (23:59:59.5 that day included)',()=>{
+  expect(dueBefore('2026-10-20')).toBe('2026-10-21T00:00:00+08:00');
+  expect([dueBefore('2026-10-31'),dueBefore('2026-12-31'),dueBefore('2028-02-28')]).toEqual(['2026-11-01T00:00:00+08:00','2027-01-01T00:00:00+08:00','2028-02-29T00:00:00+08:00']);
+  const due=Date.parse('2026-10-20T23:59:59.5+08:00');
+  expect(due<Date.parse(dueBefore('2026-10-20'))&&due>=Date.parse('2026-10-20T00:00:00+08:00')).toBe(true);
+  expect(Object.fromEntries(new URLSearchParams(commitmentQueryString({due_before:dueBefore('2026-10-20')}))).due_before).toBe('2026-10-21T00:00:00+08:00');
 });

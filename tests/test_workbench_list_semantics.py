@@ -121,3 +121,29 @@ def test_name_read_failure_is_failed_not_missing():
     assert WorkbenchQueries(Broken([], [])).display_state(A) == {'status': 'failed'}
     assert WorkbenchQueries(Reader([], [])).display_state(None) == {'status': 'missing'}
 
+
+
+def test_registered_order_is_by_registered_at_with_the_id_as_tie_breaker():
+    """PR #9 review: preparation and registration out of step (the read returns prepared_at order); sorting uses registered_at, ties
+    by id, unregistered last, so pages do not overlap or skip."""
+    def at(cid, registered):
+        return {**view(cid, A, 'open'), 'registered_at': registered}
+    # Read order (prepared_at): 1, 2, 3, 4, 5; registration order: 3, then 1 and 4 at the same instant, then 5; 2 not yet registered.
+    rows = [at('1' * 64, '2026-10-18T02:00:00+00:00'), at('2' * 64, None), at('3' * 64, '2026-10-18T01:00:00+00:00'),
+            at('4' * 64, '2026-10-18 02:00:00+00'), at('5' * 64, '2026-10-18T03:00:00.5+00:00')]
+    q = WorkbenchQueries(Reader(rows, [], names={A: '合成客户甲'}))
+    order = lambda **kw: [v['commitment_id'][0] for v in q.commitments(sort='registered_at', **kw)['commitments']]  # noqa: E731
+    assert order() == ['3', '1', '4', '5', '2']
+    assert order(order='desc') == ['5', '4', '1', '3', '2']
+    pages = [q.commitments(sort='registered_at', limit=2, cursor=c) for c in (None, '2', '4')]
+    assert [v['commitment_id'][0] for p in pages for v in p['commitments']] == ['3', '1', '4', '5', '2']
+
+
+def test_due_before_is_exclusive_on_the_server():
+    """PR #9 review: the page sends the next day's midnight; a commitment due at 23:59:59.5 that day is inside, midnight is not."""
+    from datetime import UTC, datetime
+    rows = [view('1' * 64, A, 'open', due='2026-10-20T15:59:59.5+00:00'), view('2' * 64, A, 'open', due='2026-10-20T16:00:00+00:00')]
+    q = WorkbenchQueries(Reader(rows, [], names={A: '合成客户甲'}))
+    bound = datetime.fromisoformat('2026-10-21T00:00:00+08:00')  # what the page sends for "到 2026-10-20"
+    assert [v['commitment_id'][0] for v in q.commitments(due_before=bound)['commitments']] == ['1']
+    assert bound.astimezone(UTC).isoformat() == '2026-10-20T16:00:00+00:00'

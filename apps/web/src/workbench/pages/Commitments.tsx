@@ -45,6 +45,12 @@ function Evidence({title,items,note}:{title:string;items:EvidenceItem[];note?:st
     {items.length?<ul>{items.map(x=><li key={x.kind+x.ref}>{x.kind} · {when(x.occurred_at)}</li>)}</ul>:<p className="note">暂无证据。</p>}</div>;
 }
 
+/** "到期到 <day>" is inclusive of that whole Beijing day: the server's bound is exclusive (due_at < due_before), so send the next day's
+ * 00:00:00+08:00 — a commitment due at 23:59:59.5 that day is included. */
+export function dueBefore(day:string):string{
+  const [y,m,d]=day.split('-').map(Number);const next=new Date(Date.UTC(y,m-1,d+1));
+  return next.toISOString().slice(0,10)+'T00:00:00+08:00';
+}
 const PAGE_SIZE=50;
 type Group='open'|'ended'|'all';
 /** F03/F05/F09/F10: the list in business words; tabs with counts; list, counts and exceptions from one server scope; filters, sort and
@@ -53,7 +59,7 @@ export function Commitments({actions,onOpen,onConsumer,query={},onQuery=()=>{}}:
   query?:Query;onQuery?:(query:Query)=>void}){
   const group=(query.status as Group)??'open';
   const q:CommitmentQuery={status_group:group,consumer_id:query.consumer,late:query.late===undefined?undefined:query.late==='true',
-    due_after:query.due_from?query.due_from+'T00:00:00+08:00':undefined,due_before:query.due_to?query.due_to+'T23:59:59+08:00':undefined,
+    due_after:query.due_from?query.due_from+'T00:00:00+08:00':undefined,due_before:query.due_to?dueBefore(query.due_to):undefined,
     sort:query.sort as CommitmentQuery['sort'],order:query.order as CommitmentQuery['order'],cursor:query.page};
   const start=Number(query.page??0);
   const data=useQuery({queryKey:['workbench','commitments',q],queryFn:()=>readCommitments(q,PAGE_SIZE),placeholderData:keepPreviousData});
