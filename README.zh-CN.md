@@ -18,12 +18,25 @@ NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期�
 
 ## 当前状态
 
-- **当前阶段：S4**，只剩 1,000 客户负载报告（NX-031）；S0–S3 已完成。
-- **数字**（main `25312f7`）：任务 39 done / 8 in_progress / 6 not_started（共 53）；验收 58 passed / 14 not_run（共 72）。v0.1 真实闭环验收（NX-037）的决定已定案，NX-037 进行中：准备工作（真实租户初始化、交互执行器与 real driver、证据包）已合入，真实试运行未执行；NX-053 已完成，NX-052 只剩整轮端到端测量。
-- **S5 本地部分先行**：部署模板（含 dry-run 与隔离探测）、本地 CI 控制器、发布工具（构建、归档、GitHub 同步门槛）、备份恢复与开源合规检查已有仓库内实现和本地证据。**尚未部署**：没有连接任何服务器，还没有发布版本或可部署镜像，部署形态的 API 与真实就绪检查尚未在部署环境运行。
-- **真实外发关闭**：真实外发渠道未开通；三层真实派发开关（部署总闸、租户、租户与 Action）默认全部关闭，只有负责人能打开。
+*截至 2026-10-19（main `71bc6a75`）；数字取自 [`planning/`](planning)。*
 
-负责人的规划活文档（阶段出口、关键路径、待决事项）见 [planning/ROADMAP.md](planning/ROADMAP.md)，任务与验收的权威状态在 [`planning/`](planning)。哪些功能已实现、哪些仍是规划，见 [架构说明](docs/ARCHITECTURE.md)（交接规格 [docs/handoff](docs/handoff/00_START_HERE.md) 是目标设计，不等于已实现）。每次合入的变化见 [CHANGELOG](CHANGELOG.md)。
+- **当前阶段：S5 收尾。** S0–S4 已完成。S5 的六个任务（NX-032 至 NX-037）都在进行中，每个任务还差什么见 [S5 收尾差距清单](docs/implementation/s5-closeout-gaps.md)。
+- **数字**：任务 41 done / 6 in_progress / 6 not_started（共 53）；验收 60 passed / 12 not_run（共 72）。12 项中 8 项属于 S5，4 项属于 S6/S7，不在 v0.1 范围内。
+- **已部署到两机 stage**：数据主机运行 PostgreSQL 与 Valkey，应用主机运行 API、各 worker 与 Agent Host。每个发布都先经本地 CI，再签名、封存，然后才部署；当前是发布 21。stage 上已经执行过 pgBackRest 备份和一次恢复演练。
+- **受控真实试运行已完成（AT-071 passed）**：36/36 次受控交互，使用真实模型与一项真实交付动作，结果经 provider 查询对账；费用合计 1.59 元，上限 100 元；未授权发送、发错对象、拒收后再联系均为 0。顾客由负责人操作的 AI 代理扮演，证据中如实标注。
+- **向量召回与候选合并已在 stage 启用**：召回索引使用 embedding 模型，每次调用都计入租户的模型预算；claim-matcher 按已发布的合并配置合并候选。
+- **真实派发开关**：外部效应要三层都打开才会派发：部署总闸、租户、租户与 Action。stage 上部署层平时保持打开；租户层与 Action 层由负责人在工作台开关，试运行结束后已重新关闭。
+- **演示**：[产品介绍与交互演示](https://www.zingnex.com/nexloop/)。
+- **v0.1 还剩**：
+  - stage 切换到本地 Git 队列与合并控制器（AT-053、AT-054，定于 2026-10-20）；
+  - 第二维护者演练（AT-072）；
+  - 带删除重放的第二次恢复演练（AT-050）；
+  - 冻结验收发布上的最终核对（AT-055 至 AT-058）；
+  - 公开发布预检与证据包。
+
+  目前还没有 tag，也没有公开发布。
+
+负责人的规划活文档（阶段出口、关键路径、待决事项）见 [planning/ROADMAP.md](planning/ROADMAP.md)，任务与验收的权威状态在 [`planning/`](planning)。哪些功能已实现、哪些仍是规划，见 [架构说明](docs/ARCHITECTURE.md)（交接规格 [docs/handoff](docs/handoff/00_START_HERE.md) 是目标设计，不等于已实现）。每次合入的变化见 [CHANGELOG](CHANGELOG.md)，v0.1 已知风险见 [known-risks-v0.1](docs/release/known-risks-v0.1.md)。
 
 ## 快速开始
 
