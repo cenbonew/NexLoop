@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nexloop:contracts:v1:commitment-view",
   "title": "commitment-view",
-  "description": "NX-028 (D8). The owner workbench's read projection of one Commitment (NX-026 runtime.nexloop_commitment_view). `status` lives only in `properties.status`; the interface never infers it. The four evidence columns are separate: a delivered message proves delivery only, never fulfilment (AT-040); `problem_resolved` is unavailable in v0.1 (NX-026 D5). `quote` is the promised words, shown only while the source Message exists AND the reader holds that Message's READ (`quote_status`: ok, restricted = withheld for lack of READ, unavailable = source deleted, none = no source message). Server-derived; grants nothing.",
+  "description": "NX-028 (D8). The owner workbench's read projection of one Commitment (NX-026 runtime.nexloop_commitment_view). `status` lives only in `properties.status`; the interface never infers it. The four evidence columns are separate: a delivered message proves delivery only, never fulfilment (AT-040); `problem_resolved` is unavailable in v0.1 (NX-026 D5). `quote` is the promised words, shown only while the source Message exists AND the reader holds that Message's READ (`quote_status`: ok, restricted = withheld for lack of READ, unavailable = source deleted, none = no source message). Server-derived; grants nothing. Optional `consumer_display` (walkthrough 2026-10-18 F03/F04, D3): the customer's name state as the workbench decides it for every page (ok with the name read through the per-property READ; restricted with reason forbidden or withheld, never saying whether a name exists; missing; failed). It grants nothing and is absent from older servers.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -246,6 +246,104 @@
           }
         }
       }
+    },
+    "consumer_display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "missing",
+            "restricted",
+            "failed"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "forbidden",
+            "withheld"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ok"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name"
+            ],
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "restricted"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "not": {
+              "required": [
+                "name"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "missing",
+                  "failed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "name"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "required": [
+                    "reason"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
     }
   },
   "required": [
