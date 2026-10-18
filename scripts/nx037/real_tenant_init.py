@@ -23,7 +23,7 @@ The real tenant is a new tenant id, never the synthetic demo tenant, and is init
   same change (`replayed: true`). A principal without the Budget.set grant (workbench owner role) is refused.
 - references only for the value catalog (file sha256) and the channel configuration (an opaque reference): the channel itself
   is connected in NX-037 B-class work, not here.
-`configure` runs only the effect categories and alert rules steps, for a tenant whose service principals and grants another
+`configure` runs only the effect categories, alert rules and merge (glue) configuration steps, for a tenant whose service principals and grants another
 trusted path already created (the stage: `stage_secrets.py register`); with --bootstrap-dsn-file it opens the configurator login
 window over the bootstrap socket (scripts/deploy/configurator_window.py, NX-032-stage-secrets.md §3b), which closes (NOLOGIN, no
 password) whatever happens.
@@ -33,7 +33,7 @@ the modes opens a real dispatch switch or reads a channel secret.
 `verify` (read-only, metrics role, authz.nexloop_nx037_tenant_state of 0161) passes only when: the tenant is active; the three
 real dispatch layers are closed (this process's REAL_DISPATCH_ENABLED is not 'true', no tenant switch open, no Action switch
 open); the model budget equals the D-g cumulative cap in the trial currency and covers the trial period; the alert rules of the
-configured version are in effect (the count of effect category declarations is reported: an undeclared Action is external
+configured version are in effect, a merge (glue) configuration is active (the count of effect category declarations is reported: an undeclared Action is external
 and closed, so it is not a readiness condition). The per-Run and monthly caps have no budget table in the
 database (one model budget per tenant and world): the controlled interaction executor enforces them (stop / pause rules).
 Output is JSON of ids, digests, numbers, codes and times; exit 0 ready / 1 not ready / 2 refused input.
@@ -53,9 +53,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 CONFIG = ROOT / 'deploy/configuration'
-TRIAL = CONFIG / 'nx037-trial.v2.json'  # v2: effect categories v3 (NX-037 gap B)
+TRIAL = CONFIG / 'nx037-trial.v4.json'  # v4: v2 (effect categories v3, NX-037 gap B) with alert rules v5
 GRANTS = ROOT / 'deploy/authorization/service-grants.v1.json'
 OWNER_RESTRICTIONS = ROOT / 'deploy/authorization/owner-property-restrictions.json'
+MERGE_CONFIG = ROOT / 'deploy/ontology/merge-config.v1.json'  # NX-045 glue configuration (claim-matcher idles without it)
 _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 _REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 
@@ -111,6 +112,7 @@ def steps(p):
          'note_code': 'creates_tenant_and_service_principals'},
         {'step': 'effect_categories', 'kind': 'trusted_configuration', 'manifest_sha256': _sha256(p['effect_categories'])},
         {'step': 'alert_rules', 'kind': 'trusted_configuration', 'version': p['alert_rules']['version']},
+        {'step': 'merge_configuration', 'kind': 'trusted_configuration', 'manifest_sha256': _sha256(MERGE_CONFIG)},
         {'step': 'model_budget', 'kind': 'owner_action', 'request': budget_request(p)},
         {'step': 'value_catalog', 'kind': 'reference', 'sha256': p['value_catalog_sha256']},
         {'step': 'channel_configuration', 'kind': 'reference', 'ref': p['channel_ref']},
@@ -163,7 +165,26 @@ def configure(p, *, configurator_dsn_file):
         done['effect_categories'].update({k: v for k, v in categories.items() if type(v) in (int, bool)})
     rules = observability.apply_rules(p['alert_rules'], p['tenant'], database_url_file=configurator_dsn_file)
     done['alert_rules'] = {k: v for k, v in rules.items() if type(v) in (int, bool)}
+    done['merge_configuration'] = merge_configuration_step(p['tenant'], configurator_dsn_file)
     return done
+
+
+def merge_configuration_step(tenant, configurator_dsn_file):
+    """Doctor, then apply the glue configuration when it is missing (idempotent; versions are immutable). The SQL publish requires
+    the tenant's active recall profile to be the calibrated embedding profile: on embedding_profile_mismatch nothing is applied and
+    the step reports blocked (the recall index must activate that profile first); other_version_active is left to the owner."""
+    from nexloop_eios import merge_configuration as MC
+    manifest = MC.load(MERGE_CONFIG)
+    before = MC.doctor(manifest, tenant, database_url_file=configurator_dsn_file)
+    kinds = {f['kind'] for f in before['findings']}
+    if before['in_sync']:
+        return {'status': 'in_sync', 'config_version': manifest['config_version']}
+    if kinds != {'no_active_configuration'}:
+        return {'status': 'blocked', 'config_version': manifest['config_version'], 'findings': sorted(kinds)}
+    MC.apply(manifest, tenant, database_url_file=configurator_dsn_file)
+    after = MC.doctor(manifest, tenant, database_url_file=configurator_dsn_file)
+    return {'status': 'applied' if after['in_sync'] else 'blocked', 'config_version': manifest['config_version'],
+            **({} if after['in_sync'] else {'findings': sorted(f['kind'] for f in after['findings'])})}
 
 
 def verify(p, connection, *, environ=None):
@@ -171,6 +192,8 @@ def verify(p, connection, *, environ=None):
     state = connection.execute("select authz.nexloop_nx037_tenant_state(%s,'real')", (p['tenant'],)).fetchone()[0]
     model = state['budgets'].get('model')
     rules = state.get('alert_rules') or {}
+    snapshot = next((s for s in connection.execute('select authz.nexloop_metrics_export()').fetchone()[0]
+                     if s['tenant_id'] == p['tenant'] and s['world'] == 'real'), {})
     checks = {
         'tenant_active': state['tenant_status'] == 'active',
         'deployment_switch_closed': not deployment_open(environ),
@@ -180,6 +203,8 @@ def verify(p, connection, *, environ=None):
             and model['unit'] == p['plan']['currency'],
         'model_budget_covers_trial': bool(model) and _time(model['period_start']) <= p['period_start'] and _time(model['period_end']) >= p['period_end'],
         'alert_rules_in_effect': rules.get('version') == p['alert_rules']['version'],
+        # Without it staged candidates never glue (claim-matcher idle, merge_configuration_missing).
+        'merge_configuration_active': (snapshot.get('candidates') or {}).get('merge_configuration_active') is True,
     }
     return {'mode': 'verify', 'ready': all(checks.values()), 'tenant': p['tenant'], 'checks': checks,
             'enforced_by_executor': {'per_run': str(p['plan']['cost_caps']['per_run']), 'tenant_monthly': str(p['plan']['cost_caps']['tenant_monthly'])},

@@ -82,7 +82,7 @@ def agent_host_concurrency(config_file):
 
 def observability(metrics_database_url_file,rules_file):
     """NX-030: the alert evaluator ran in the last five minutes for each active tenant's real world, with the rule version of
-    the file; process samples are being written. Read through the read-only nexloop_metrics role only (D4); backups are reported
+    the file; process samples are being written; no tenant has staged candidates without an active merge configuration. Read through the read-only nexloop_metrics role only (D4); backups are reported
     (unavailable until NX-035) but never fail the check."""
     from nexloop_eios.observability import load_rules,read_export
     try:
@@ -98,11 +98,14 @@ def observability(metrics_database_url_file,rules_file):
     checks={'alert_rules_file':True,'metrics_export':True,
         'alert_evaluator_recent':bool(real) and all(e.get('stale') is False for e in evaluators.values()),
         'alert_rules_current':bool(real) and all(e.get('rules_version')==version for e in evaluators.values()),
-        'process_samples_recent':any((s.get(kind) or {}).get('status')=='ok' for s in real for kind in ('guard','pool','host'))}
+        'process_samples_recent':any((s.get(kind) or {}).get('status')=='ok' for s in real for kind in ('guard','pool','host')),
+        # 0216: staged candidate definitions wait on a tenant without an active merge configuration (claim-matcher idle).
+        'candidates_glueable':all(((s.get('candidates') or {}).get('staged_without_configuration') or 0)==0 for s in real)}
     details={'observability':{'rules_file_version':version,'tenants':{t:{'rules_version':e.get('rules_version'),'last_evaluated_at':e.get('last_evaluated_at'),
         'stale':e.get('stale')} for t,e in sorted(evaluators.items())},
         'samples':{kind:sorted({(s.get(kind) or {}).get('status','unavailable') for s in real}) for kind in ('guard','pool','host')},
-        'backup':sorted({(s.get('backup') or {}).get('status','unavailable') for s in real})}}
+        'backup':sorted({(s.get('backup') or {}).get('status','unavailable') for s in real}),
+        'merge_configuration_missing':sorted(s['tenant_id'] for s in real if ((s.get('candidates') or {}).get('staged_without_configuration') or 0)>0)}}
     return {'checks':checks,'details':details}
 
 

@@ -228,7 +228,7 @@ def enrolled_customer(f, admin, api, tmp_path):
 
 
 def tenant_readiness(o, admin, tenant, trial, period):
-    """Real tenant init steps on the test database: effect categories v3 for the published Actions and alert rules v4 through
+    """Real tenant init steps on the test database: effect categories v3 for the published Actions and alert rules (v5 in trial v4) through
     trusted configuration (the configurator role); the D-g model budget (100 CNY over the period) as a test seed."""
     from nexloop_eios import effect_categories, observability
     configurator = private(o['paths']['dsn'].parent, 'five-configurator-dsn', make_conninfo(o['pg'], user='nexloop_configurator'))
@@ -239,6 +239,11 @@ def tenant_readiness(o, admin, tenant, trial, period):
     effect_categories.apply({**manifest, 'actions': declared}, tenant, database_url_file=configurator)
     rules = json.loads((R.ROOT / 'deploy/configuration' / json.loads(trial.read_text())['alert_rules']).read_text())
     observability.apply_rules(rules, tenant, database_url_file=configurator)
+    # The glue (merge) configuration step of real_tenant_init (verify: merge_configuration_active), on the calibrated recall profile.
+    from nexloop_eios import merge_configuration
+    from test_nx037_tenant_init_pg import activate_calibrated_recall_profile
+    activate_calibrated_recall_profile(admin, tenant)
+    merge_configuration.apply(merge_configuration.load(R.ROOT / 'deploy/ontology/merge-config.v1.json'), tenant, database_url_file=configurator)
     admin.execute("insert into control.nexloop_budget_limits(tenant_id,world,budget_kind,unit,limit_amount,period_start,period_end,revision) "
                   "values(%s,'real','model','CNY',100,%s,%s,1)", (tenant, *period))
 
@@ -274,7 +279,7 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
     now = datetime.now(UTC)
     period = (now - timedelta(hours=1), now + timedelta(days=2))
 
-    # The trial: v2 (CNY, caps 100/2/300, alert rules v4, effect categories v3) with one interaction of each kind.
+    # The trial: v4 = v2 (CNY, caps 100/2/300, alert rules v5, effect categories v3) with one interaction of each kind.
     trial_config = json.loads(R.TRIAL.read_text())
     trial_config['plan'] = {**trial_config['plan'], 'total': 5, 'mix': {k: 1 for k in X.KINDS}}
     trial_file = private(tmp_path, 'trial.json', json.dumps(trial_config))

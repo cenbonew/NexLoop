@@ -10,6 +10,7 @@ Synthetic data only. Admin connections only set up fixtures, inject faults and p
 """
 import uuid
 
+import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
@@ -310,3 +311,22 @@ def test_match_worker_matches_marked_conversation_then_glues_staged_candidates(e
     (row,)=candidates(admin).values()
     assert row[1]=='property' and row[2]=='pending_review' and resolution(admin,far)=='awaiting_definition'
     assert feed_rows(admin,'claim-match')==[]
+
+
+def test_recall_index_service_activates_the_profile_through_the_governed_function(env, monkeypatch):
+    # PR #7 review (P1): the production path that activates the tenant's recall profile (the merge configuration needs it).
+    from nexloop_eios import recall_index_worker as RW
+    f=env;admin=f['admin']
+    monkeypatch.setattr(RW,'_activated',set())
+    admin.execute('delete from ontology.nexloop_recall_settings where tenant_id=%s',(f['tenant'],))
+    worker=index_worker(f,suffix='-profile-indexer')
+    worker().run_once()
+    profile=admin.execute('select active_profile_id from ontology.nexloop_recall_settings where tenant_id=%s',(f['tenant'],)).fetchone()[0]
+    assert profile==f['provider'].profile_id and len(RW._activated)==1
+    worker().run_once()  # once per process and profile: no second call, nothing changes
+    assert admin.execute('select revision from ontology.nexloop_recall_settings where tenant_id=%s',(f['tenant'],)).fetchone()[0]==1
+    # Another profile already active: never a silent switch, the tick fails visibly.
+    monkeypatch.setattr(RW,'_activated',set())
+    admin.execute("insert into ontology.nexloop_embedding_profiles(tenant_id,profile_id,model,dimension) values(%s,'other-model@64','other-model',64)",(f['tenant'],))
+    admin.execute("update ontology.nexloop_recall_settings set active_profile_id='other-model@64' where tenant_id=%s",(f['tenant'],))
+    with pytest.raises(psycopg.errors.SerializationFailure,match='explicit replacement'):worker().run_once()
