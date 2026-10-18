@@ -35,7 +35,7 @@ NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
 # v2 (NX-037 gap B): only effect_categories changes (action-effect-categories.v3.json, nexloop.enterprise.deliver:1).
 # v3 (owner 2026-10-14): 36 interactions with variants and agent-played customers; caps and rules unchanged.
-SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2', 'nexloop.nx037-trial.v3')
+SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2', 'nexloop.nx037-trial.v3', 'nexloop.nx037-trial.v4')
 _VARIANT = re.compile(r'[a-z][a-z0-9_]{0,47}')
 
 

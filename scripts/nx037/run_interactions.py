@@ -60,7 +60,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # v2 (NX-037 gap B): the plan opens nexloop.enterprise.deliver:1, the trial applies effect categories v3. v1 files stay valid.
-TRIAL = ROOT / 'deploy/configuration/nx037-trial.v2.json'
+TRIAL = ROOT / 'deploy/configuration/nx037-trial.v4.json'  # v2 with alert rules v5
 PLAN = ROOT / 'deploy/configuration/nx037-interaction-plan.v2.json'
 PLAN_SCHEMAS = ('nexloop.nx037-interaction-plan.v1', 'nexloop.nx037-interaction-plan.v2', 'nexloop.nx037-interaction-plan.v3')
 PLAN_V3 = 'nexloop.nx037-interaction-plan.v3'

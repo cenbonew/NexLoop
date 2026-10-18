@@ -53,7 +53,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 CONFIG = ROOT / 'deploy/configuration'
-TRIAL = CONFIG / 'nx037-trial.v2.json'  # v2: effect categories v3 (NX-037 gap B)
+TRIAL = CONFIG / 'nx037-trial.v4.json'  # v4: v2 (effect categories v3, NX-037 gap B) with alert rules v5
 GRANTS = ROOT / 'deploy/authorization/service-grants.v1.json'
 OWNER_RESTRICTIONS = ROOT / 'deploy/authorization/owner-property-restrictions.json'
 MERGE_CONFIG = ROOT / 'deploy/ontology/merge-config.v1.json'  # NX-045 glue configuration (claim-matcher idles without it)

@@ -15,6 +15,8 @@ from nexloop_eios.recall import RecallIndexer
 from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied,retry_delay
 
 FEED='recall-instance'
+# (credential digest, world, profile) already activated by this process; the worker object is rebuilt every tick.
+_activated=set()
 
 
 class RecallInstanceIndexWorker:
@@ -23,7 +25,7 @@ class RecallInstanceIndexWorker:
         if not isinstance(types,dict) or not types:raise ValueError('instance types to index required')
         self.feed=WorkFeed(pool,session,signer,feed=FEED)
         self.indexer=RecallIndexer(pool,session,provider=provider,expected_dimension=expected_dimension)
-        self.world=session.world;self.types=dict(types)
+        self.world=session.world;self.types=dict(types);self.session=session
         self.batch,self.lease_seconds,self.max_attempts,self.retry_base_seconds=batch,lease_seconds,max_attempts,retry_base_seconds
 
     def source_key(self,type_name,object_id):return f'object:{self.world}/{type_name}/{object_id}'
@@ -42,8 +44,21 @@ class RecallInstanceIndexWorker:
                 self.indexer.remove_source(source);return 'removed'
             raise
 
+    def ensure_profile(self):
+        """The production path that activates the tenant's recall embedding profile (PR #7 review): the recall-index service
+        (nexloop_domain_worker, its own service credential; the tenant comes from that credential server side) calls the governed
+        control.nexloop_recall_activate_profile with its configured embedding. Idempotent; it never switches silently: when another
+        profile is active the call is refused (explicit replacement required) and the tick fails visibly. The merge (glue)
+        configuration can be published only on this active profile (real_tenant_init merge_configuration step)."""
+        if self.indexer.provider is None:return None
+        key=(self.session.token_digest,self.world,self.indexer.provider.profile_id)
+        if key not in _activated:
+            self.indexer.activate_profile();_activated.add(key)
+        return key[2]
+
     @authority_request_scoped
     def run_once(self):
+        self.ensure_profile()
         summary={'indexed':0,'removed':0,'skipped':0,'changed':0,'retry':0,'dead_lettered':0,'lease_lost':0}
         for item in self.feed.claim(limit=self.batch,lease_seconds=self.lease_seconds):
             try:
