@@ -212,3 +212,18 @@ def test_cli_reports_failure_without_text_and_exits_1(env, tmp_path, capsys):
                     '--repository-file', str(e['repository_file']), '--password-file', str(e['password_file']), '--restic', e['restic']])
     assert code == 1 and json.loads(capsys.readouterr().out) == {'ok': False, 'error': 'PermissionError'}
     assert os.access(e['staging'], os.W_OK)
+
+
+def test_repo2_bucket_lookup_reaches_restic_as_an_extended_option_only_when_asked(env, tmp_path, capsys):
+    # repo2 activation (2026-10-18): TOS may refuse restic's path-style default; --s3-bucket-lookup dns gives -o s3.bucket-lookup=dns.
+    e = env
+    artifact(e, b'x')
+    dsn = private(tmp_path / 'recorder.dsn', 'dbname=unused')
+    base = ['--kind', 'artifact', '--recorder-dsn-file', str(dsn), '--source-root', str(e['source']), '--staging-root', str(e['staging']),
+            '--repository-file', str(e['repository_file']), '--password-file', str(e['password_file']), '--restic', e['restic'], '--repo', 'repo2']
+    assert fb.main([*base, '--s3-bucket-lookup', 'dns']) == 0 and fb.main(base) == 0
+    calls = [json.loads(line) for line in (e['repo'] / 'calls.jsonl').read_text().splitlines()]
+    assert [c['options'] for c in calls] == [['s3.bucket-lookup=dns']] * 2 + [[]] * 2
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        fb.main([*base, '--s3-bucket-lookup', 'virtual'])

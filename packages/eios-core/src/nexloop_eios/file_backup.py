@@ -24,6 +24,10 @@ read from these files, nor restic's own output, is printed; the result line hold
 
     nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root D --staging-root D
         --repository-file F --password-file F [--environment-file F] [--repo repo1|repo2] [--key-ref LABEL] [--restic BIN]
+        [--s3-bucket-lookup auto|dns|path]
+
+``--s3-bucket-lookup`` (repo2 on TOS, activation run sheet 2026-10-18): restic's ``-o s3.bucket-lookup=`` for an S3 store that
+answers path-style requests with an error; ``dns`` is virtual-hosted addressing (<bucket>.<endpoint>). Omitted: restic's default.
 """
 import argparse
 import hashlib
@@ -197,8 +201,11 @@ def _environment(environment_file):
     return environment
 
 
-def _restic(restic, arguments, *, repository_file, password_file, environment, cwd=None, timeout=3600):
-    return subprocess.run([restic, '--no-cache', '--repository-file', str(repository_file), '--password-file', str(password_file), *arguments],
+BUCKET_LOOKUPS = ('auto', 'dns', 'path')
+
+
+def _restic(restic, arguments, *, repository_file, password_file, environment, cwd=None, timeout=3600, options=()):
+    return subprocess.run([restic, '--no-cache', *options, '--repository-file', str(repository_file), '--password-file', str(password_file), *arguments],
                           cwd=cwd, env=environment, capture_output=True, text=True, timeout=timeout)
 
 
@@ -215,8 +222,9 @@ def _snapshot_id(stdout):
 
 
 def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repository_file, password_file, environment_file=None,
-                    repo='repo1', key_ref=None, restic='restic'):
-    if kind not in KINDS or repo not in ('repo1', 'repo2') or (key_ref is not None and not _LABEL.fullmatch(key_ref)):
+                    repo='repo1', key_ref=None, restic='restic', s3_bucket_lookup=None):
+    if kind not in KINDS or repo not in ('repo1', 'repo2') or (key_ref is not None and not _LABEL.fullmatch(key_ref)) \
+            or (s3_bucket_lookup is not None and s3_bucket_lookup not in BUCKET_LOOKUPS):
         raise BackupUnavailable('file backup arguments invalid')
     manifest_kind = KINDS[kind]
     # The repository location and the password stay in their files; reading them here only proves they are private.
@@ -241,7 +249,8 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
             stream.write(body)
             stream.flush()
             os.fsync(stream.fileno())
-        common = {'repository_file': repository_file, 'password_file': password_file, 'environment': environment}
+        common = {'repository_file': repository_file, 'password_file': password_file, 'environment': environment,
+                  'options': ('-o', 's3.bucket-lookup=' + s3_bucket_lookup) if s3_bucket_lookup else ()}
         saved = _restic(restic, ['backup', '--json', '--tag', manifest_kind, '--host', 'nexloop', '.'], cwd=staging, **common)
         snapshot = _snapshot_id(saved.stdout) if saved.returncode == 0 else None
         checked = snapshot is not None and _restic(restic, ['check'], **common).returncode == 0
@@ -274,12 +283,13 @@ def main(argv=None):
     parser.add_argument('--repo', choices=('repo1', 'repo2'), default='repo1')
     parser.add_argument('--key-ref')
     parser.add_argument('--restic', default='restic')
+    parser.add_argument('--s3-bucket-lookup', choices=BUCKET_LOOKUPS)
     args = parser.parse_args(argv)
     try:
         result = run_file_backup(kind=args.kind, recorder_conninfo=read_private_text(args.recorder_dsn_file, maximum=4096),
                                  source_root=args.source_root, staging_root=args.staging_root, repository_file=args.repository_file,
                                  password_file=args.password_file, environment_file=args.environment_file, repo=args.repo,
-                                 key_ref=args.key_ref, restic=args.restic)
+                                 key_ref=args.key_ref, restic=args.restic, s3_bucket_lookup=args.s3_bucket_lookup)
     except Exception as error:
         print(json.dumps({'ok': False, 'error': type(error).__name__}))
         return 1
