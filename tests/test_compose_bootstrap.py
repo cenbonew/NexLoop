@@ -66,3 +66,35 @@ def test_cli_errors_are_sanitized_and_do_not_read_model_env(tmp_path):
         capture_output=True,text=True,timeout=10,env=os.environ|{'MODEL_API_KEY':sentinel})
     assert child.returncode==1 and sentinel not in child.stdout+child.stderr
     assert not json.loads(child.stdout)['passed'] and not (tmp_path/'config').exists()
+
+
+def _cli(pg,tmp_path,dsn_text,**overrides):
+    fields=conninfo_to_dict(pg);dsn=tmp_path/'cli-dsn'
+    if not dsn.exists():dsn.write_text(dsn_text);dsn.chmod(0o600)
+    args={'--postgres-host':fields['host'],'--postgres-port':fields['port'],'--postgres-db':fields['dbname']}|overrides
+    child=subprocess.run([sys.executable,'-I','-m','nexloop_eios.compose_bootstrap','--mode','test','--database-url-file',str(dsn),
+        '--config-root',str(tmp_path/'config'),'--artifact-root',str(tmp_path/'artifacts'),*[x for kv in args.items() for x in kv]],
+        capture_output=True,text=True,timeout=60,env=os.environ|{'PYTHONPATH':os.pathsep.join(sys.path)})
+    return child.returncode,json.loads(child.stdout)
+
+
+def test_cli_names_the_refusal_reason_with_a_hint(admin,pg,tmp_path):
+    # AT-072 desk drill: an already bootstrapped database said only "refused or unavailable"; now it says which check refused.
+    bootstrap(admin)
+    code,out=_cli(pg,tmp_path,pg)
+    assert code==1 and out['reason']=='existing_catalog_without_profile' and 'fresh empty database' in out['hint']
+    assert not (tmp_path/'config').exists() and admin.execute('select count(*) from control.nexloop_tenants').fetchone()[0]==0
+    code,out=_cli(pg,tmp_path,pg,**{'--postgres-port':'1'})
+    assert code==1 and out['reason']=='endpoint_mismatch' and '--postgres-port' in out['hint']
+
+
+def test_cli_refuses_a_non_empty_database_by_reason(admin,pg,tmp_path):
+    admin.execute('create table public.synthetic_existing_configuration(value integer)')
+    code,out=_cli(pg,tmp_path,pg)
+    assert code==1 and out['reason']=='database_or_volumes_not_empty' and 'hint' in out
+
+
+def test_cli_database_failures_name_only_a_fixed_code(tmp_path):
+    sentinel='synthetic-not-a-real-secret'
+    code,out=_cli('host=/nonexistent port=1 dbname=x',tmp_path,f'host=/nonexistent-{sentinel} port=1 dbname=x user=nexloop_bootstrap')
+    assert code==1 and out['reason']=='database_unavailable' and sentinel not in json.dumps(out)

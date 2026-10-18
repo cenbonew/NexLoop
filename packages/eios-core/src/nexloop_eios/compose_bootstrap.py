@@ -20,12 +20,26 @@ KEY_ID='compose-test-v1'
 FILES={'api_dsn','service_credential','artifact_key','profile.json'}
 
 
+class ProfileRefused(PermissionError):
+    """A refusal with a fixed reason code (printed by the CLI; never a value, path or credential)."""
+    def __init__(self,code,message):
+        super().__init__(message);self.code=code
+
+
+# What the operator does next, by reason code (CLI output only).
+HINTS={'database_or_volumes_not_empty':'run it on a fresh empty database with empty config and artifact roots',
+    'existing_catalog_without_profile':'this database was bootstrapped without this test profile: start again from a fresh empty database',
+    'endpoint_mismatch':'--postgres-host/--postgres-port/--postgres-db must name the database the DSN file connects to',
+    'bootstrap_session_mismatch':'the DSN file must connect as nexloop_bootstrap to --postgres-db',
+    'test_configuration_incomplete':'the config root holds other files: use the config root of this profile, or a fresh database and empty roots'}
+
+
 def _private_read(path,*,uid,maximum):
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
     with os.fdopen(fd,'rb') as stream:
         info=os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_uid!=uid or info.st_mode&0o077:
-            raise PermissionError('test profile files must remain private and service-owned')
+            raise ProfileRefused('test_profile_files_not_private','test profile files must remain private and service-owned')
         value=stream.read(maximum+1)
     if not value or len(value)>maximum:raise ValueError('invalid test profile file')
     return value
@@ -40,55 +54,57 @@ def _write(path,value,uid):
 
 
 def _verify_profile(connection,config,artifacts,uid):
+    if not config.is_dir() or not any(config.iterdir()):
+        raise ProfileRefused('existing_catalog_without_profile','database already bootstrapped without this test profile')
     if set(p.name for p in config.iterdir())!=FILES:
-        raise PermissionError('incomplete or foreign test configuration')
+        raise ProfileRefused('test_configuration_incomplete','incomplete or foreign test configuration')
     profile=json.loads(_private_read(config/'profile.json',uid=uid,maximum=8192))
     if profile['mode']!='test' or profile['world']!='test' or profile['catalog']!=verify(connection) or profile['service_uid']!=uid:
-        raise PermissionError('existing test profile is incompatible')
+        raise ProfileRefused('test_profile_incompatible','existing test profile is incompatible')
     values={name:_private_read(config/name,uid=uid,maximum=8192 if name=='api_dsn' else 512 if name=='service_credential' else 32) for name in ('api_dsn','service_credential','artifact_key')}
     if any(hashlib.sha256(value).hexdigest()!=profile['sha256'][name] for name,value in values.items()):
-        raise PermissionError('existing test profile was changed')
+        raise ProfileRefused('test_profile_changed','existing test profile was changed')
     dsn=conninfo_to_dict(values['api_dsn'].decode())
     if dsn['user']!='nexloop_api' or not dsn.get('password') or (dsn.get('host'),int(dsn.get('port',0)),dsn.get('dbname'))!=(connection.info.host,connection.info.port,connection.info.dbname):
-        raise PermissionError('restricted test DSN unavailable')
+        raise ProfileRefused('test_dsn_mismatch','restricted test DSN unavailable')
     credential=connection.execute("select count(*) from authz.nexloop_service_credentials where token_digest=%s and tenant_id=%s and worlds=array['test'] and status='active' and expires_at>clock_timestamp()",(hashlib.sha256(values['service_credential']).hexdigest(),SANDBOX_TENANT)).fetchone()[0]
     key=connection.execute("select encode(sha256(key_material),'hex') from authz.nexloop_authority_signing_keys where key_id=%s and active",(KEY_ID,)).fetchone()
     if credential!=1 or not key or key[0]!=hashlib.sha256(values['artifact_key']).hexdigest():
-        raise PermissionError('test credential or signer requires controlled renewal')
+        raise ProfileRefused('test_credential_renewal_required','test credential or signer requires controlled renewal')
     for root in (config,artifacts):
         info=root.stat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid!=uid or info.st_mode&0o077:
-            raise PermissionError('test volumes must remain private and service-owned')
+            raise ProfileRefused('test_volumes_not_private','test volumes must remain private and service-owned')
     return {'passed':True,'mode':'test','world':'test','catalog':profile['catalog'],'already_initialized':True,'product_ready':False}
 
 
 def initialize_test_profile(connection,*,config_root,artifact_root,host,port,dbname,service_uid=None):
     uid=os.geteuid() if service_uid is None else service_uid
     if type(uid) is not int or uid<0 or (uid!=os.geteuid() and os.geteuid()!=0):
-        raise PermissionError('test service owner invalid')
+        raise ProfileRefused('service_owner_invalid','test service owner invalid')
     identity=connection.execute('select current_user,session_user,current_database()').fetchone()
     if identity!=('nexloop_bootstrap','nexloop_bootstrap',dbname):
-        raise PermissionError('test bootstrap requires exact owner session/database')
+        raise ProfileRefused('bootstrap_session_mismatch','test bootstrap requires exact owner session/database')
     if (host,int(port),dbname)!=(connection.info.host,connection.info.port,connection.info.dbname):
-        raise PermissionError('test connection endpoints must match')
+        raise ProfileRefused('endpoint_mismatch','test connection endpoints must match')
     config=Path(config_root).absolute();artifacts=Path(artifact_root).absolute()
     if config==artifacts or config.is_symlink() or artifacts.is_symlink():
-        raise PermissionError('independent private test volumes required')
+        raise ProfileRefused('test_volumes_not_independent','independent private test volumes required')
     present=connection.execute("select to_regclass('control.schema_migrations')").fetchone()[0]
     if present:
         verify(connection)  # Exact head only: no existing/persistent migration, even in test mode.
         return _verify_profile(connection,config,artifacts,uid)
     existing=connection.execute("select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where c.relkind in ('r','p','v','m','S') and n.nspname not in ('pg_catalog','information_schema') and n.nspname not like 'pg_toast%'").fetchone()[0]
     if existing or any(root.exists() and any(root.iterdir()) for root in (config,artifacts)):
-        raise PermissionError('fresh empty database and test volumes required')
+        raise ProfileRefused('database_or_volumes_not_empty','fresh empty database and test volumes required')
     for root in (config,artifacts):
         root.mkdir(mode=0o700,parents=True,exist_ok=True)
-        if root.stat().st_uid!=os.geteuid():raise PermissionError('new test volume owner invalid')
+        if root.stat().st_uid!=os.geteuid():raise ProfileRefused('test_volume_owner_invalid','new test volume owner invalid')
         root.chmod(0o700)
     fd=os.open(config,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
     try:
         fcntl.flock(fd,fcntl.LOCK_EX)
-        if any(config.iterdir()):raise PermissionError('test configuration already initialized')
+        if any(config.iterdir()):raise ProfileRefused('test_configuration_already_initialized','test configuration already initialized')
         with connection.transaction():
             connection.execute("select pg_advisory_xact_lock(hashtextextended('nexloop-compose-test-init-v1',0))")
             # Suppress literal/password statement/error logging in this privileged session.
@@ -130,8 +146,14 @@ def main():
         with psycopg.connect(dsn,autocommit=True) as connection:
             result=initialize_test_profile(connection,config_root=args.config_root,artifact_root=args.artifact_root,
                 host=args.postgres_host,port=args.postgres_port,dbname=args.postgres_db,service_uid=args.service_uid)
-    except Exception:
-        result={'passed':False,'mode':'test','world':'test','product_ready':False,'error':'test initialization refused or unavailable'}
+    except ProfileRefused as refused:
+        result={'passed':False,'mode':'test','world':'test','product_ready':False,'error':'test initialization refused','reason':refused.code}
+        if refused.code in HINTS:result['hint']=HINTS[refused.code]
+    except psycopg.Error:
+        # The driver's message can carry connection parameters: only a fixed code.
+        result={'passed':False,'mode':'test','world':'test','product_ready':False,'error':'test initialization unavailable','reason':'database_unavailable'}
+    except Exception as failure:
+        result={'passed':False,'mode':'test','world':'test','product_ready':False,'error':'test initialization refused or unavailable','reason':type(failure).__name__}
     print(json.dumps(result,indent=2));return 0 if result['passed'] else 1
 
 
