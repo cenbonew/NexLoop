@@ -154,13 +154,17 @@ def test_build_refuses_without_a_passed_result_the_containerd_store_or_a_consist
 
 
 def test_an_upstream_image_is_retagged_by_digest_never_pulled(tmp_path, ci_result, monkeypatch):
+    # No release image is 'upstream' since the gateway is rebuilt (NX-036); the kind stays supported: a synthetic entry.
     lock = json.loads((ROOT / 'versions.lock.json').read_text())
-    lock['images']['gateway'] = {'reference': 'docker.io/library/caddy:2.10.0-alpine', 'digest': 'sha256:' + 'c' * 64}
+    lock['images']['proxy'] = {'reference': 'docker.io/library/caddy:2.10.0-alpine', 'digest': 'sha256:' + 'c' * 64}
+    config = json.loads((ROOT / 'deploy/release/images.v1.json').read_text())
+    config['images']['proxy'] = {'kind': 'upstream', 'lock': 'proxy'}
     real = Path.read_text
-    monkeypatch.setattr(Path, 'read_text', lambda self, *a, **k: json.dumps(lock) if self == ROOT / 'versions.lock.json' else real(self, *a, **k))
+    replaced = {ROOT / 'versions.lock.json': lock, ROOT / 'deploy/release/images.v1.json': config}
+    monkeypatch.setattr(Path, 'read_text', lambda self, *a, **k: json.dumps(replaced[self]) if self in replaced else real(self, *a, **k))
     docker = Docker()
-    build(tmp_path, ci_result, docker, 109, only=['gateway'])
-    assert ['tag', 'docker.io/library/caddy@sha256:' + 'c' * 64, f'nexloop/gateway:20261011-{head_sha()[:12]}-109'] in docker.calls
+    build(tmp_path, ci_result, docker, 109, only=['proxy'])
+    assert ['tag', 'docker.io/library/caddy@sha256:' + 'c' * 64, f'nexloop/proxy:20261011-{head_sha()[:12]}-109'] in docker.calls
     assert not any(c[0] == 'pull' for c in docker.calls)
 
 
@@ -417,29 +421,33 @@ def test_release_builds_only_on_linux_amd64_and_never_with_attestations(tmp_path
         assert call[1:6] == ['--pull=false', '--platform', 'linux/amd64', '--provenance=false', '--sbom=false']
 
 
-def test_pin_upstream_backfills_the_gateway_digest_only_for_a_local_linux_amd64_image(tmp_path):
+def test_pin_upstream_backfills_an_upstream_digest_only_for_a_local_linux_amd64_image(tmp_path):
+    # No release image is 'upstream' since the gateway is rebuilt (NX-036, test_gateway_image); a synthetic 'proxy' entry.
     repo = tmp_path / 'repo'
     (repo / 'deploy/release').mkdir(parents=True)
-    (repo / 'deploy/release/images.v1.json').write_text((ROOT / 'deploy/release/images.v1.json').read_text())
+    config = json.loads((ROOT / 'deploy/release/images.v1.json').read_text())
+    config['images']['proxy'] = {'kind': 'upstream', 'lock': 'proxy'}
+    (repo / 'deploy/release/images.v1.json').write_text(json.dumps(config))
     original = json.loads((ROOT / 'versions.lock.json').read_text())
+    original['images']['proxy'] = {'reference': 'docker.io/library/caddy:2.9', 'digest': 'sha256:' + 'd' * 64, 'platform': 'linux/amd64', 'status': 'pinned'}
     (repo / 'versions.lock.json').write_text(json.dumps(original, indent=2, ensure_ascii=False) + '\n')
     digest = 'sha256:' + 'c' * 64
     with pytest.raises(release.InputError, match='upstream image'):
-        release.pin_upstream('backend', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker())
+        release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker())
     with pytest.raises(release.InputError, match='digest'):
-        release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', 'latest', root=repo, docker=Docker())
+        release.pin_upstream('proxy', 'docker.io/library/caddy:2.10', 'latest', root=repo, docker=Docker())
     with pytest.raises(release.Refused, match='only on the CI host'):
-        release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(daemon='linux/aarch64'))
+        release.pin_upstream('proxy', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(daemon='linux/aarch64'))
     with pytest.raises(release.Refused, match='not present locally'):
-        release.pin_upstream('gateway', 'mirror.invalid/caddy:2.10', digest, root=repo, docker=Docker())
+        release.pin_upstream('proxy', 'mirror.invalid/caddy:2.10', digest, root=repo, docker=Docker())
     with pytest.raises(release.Refused, match='platform'):
-        release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(image_platform=('linux', 'arm64')))
+        release.pin_upstream('proxy', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(image_platform=('linux', 'arm64')))
     assert json.loads((repo / 'versions.lock.json').read_text()) == original  # nothing written on refusal
-    out = release.pin_upstream('gateway', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(),
+    out = release.pin_upstream('proxy', 'docker.io/library/caddy:2.10', digest, root=repo, docker=Docker(),
                                now=datetime(2026, 10, 12, tzinfo=UTC))
-    assert out == {'lock': 'gateway', 'reference': 'docker.io/library/caddy@' + digest, 'platform': 'linux/amd64'}
+    assert out == {'lock': 'proxy', 'reference': 'docker.io/library/caddy@' + digest, 'platform': 'linux/amd64'}
     written = json.loads((repo / 'versions.lock.json').read_text())
-    assert written['images']['gateway'] == {'reference': 'docker.io/library/caddy:2.10', 'digest': digest, 'platform': 'linux/amd64',
+    assert written['images']['proxy'] == {'reference': 'docker.io/library/caddy:2.10', 'digest': digest, 'platform': 'linux/amd64',
                                             'status': 'pinned', 'pinned_at': '2026-10-12'}
-    assert {k: v for k, v in written['images'].items() if k != 'gateway'} == {k: v for k, v in original['images'].items() if k != 'gateway'}
-    assert release.pinned_image_problems(repo) == [] and release.pinned_reference(written, 'gateway') == 'docker.io/library/caddy@' + digest
+    assert {k: v for k, v in written['images'].items() if k != 'proxy'} == {k: v for k, v in original['images'].items() if k != 'proxy'}
+    assert release.pinned_image_problems(repo) == [] and release.pinned_reference(written, 'proxy') == 'docker.io/library/caddy@' + digest
