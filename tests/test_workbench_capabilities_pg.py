@@ -38,7 +38,7 @@ def seed(admin):
     for tenant, delivery in ((TENANT, 'nexloop.service.request:1'), (TENANT_B, 'nexloop.other_only:1')):
         admin.execute("""insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
             values(%s,'real','ServiceOffering',%s,1,%s,'synthetic',%s,clock_timestamp(),clock_timestamp())""",
-                      (tenant, uuid.uuid4().hex * 2, Jsonb({'active': True, 'delivery_action': delivery, 'title': 'synthetic'}), 'capabilities-' + tenant))
+                      (tenant, uuid.uuid4().hex * 2, Jsonb({'active': True, 'delivery_action': delivery, 'title': 'synthetic', 'valid_until': '2099-01-01T00:00:00Z'}), 'capabilities-' + tenant))
     set_switch(admin, TENANT, 'tenant', '*', True, 'test')
     set_switch(admin, TENANT, 'action_type', SEND, True)
     set_switch(admin, TENANT_B, 'tenant', '*', True, 'real')
@@ -100,3 +100,26 @@ def test_non_members_and_the_customer_are_refused(workbench):
             assert workbench_login(client, human).status_code == 200
             denied = client.get('/api/v1/workbench/capabilities')
             assert denied.status_code == 403 and 'capabilities' not in denied.text
+
+
+def test_routes_count_only_offerings_the_catalog_would_admit(workbench):
+    """PR #12 review: an offering counts as a route only while authz.nexloop_assert_service_offering would admit it (active and
+    valid_until strictly in the future): expired, expiring exactly now, without valid_until or inactive offerings are not routes."""
+    w = workbench
+    provision(w)
+    admin = w['admin']
+
+    def offering(label, **props):
+        admin.execute("""insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
+            values(%s,'real','ServiceOffering',%s,1,%s,'synthetic',%s,clock_timestamp(),clock_timestamp())""",
+                      (TENANT, uuid.uuid4().hex * 2, Jsonb({'active': True, 'delivery_action': 'nexloop.' + label + ':1', 'title': 'synthetic', **props}), 'route-' + label))
+    offering('future', valid_until='2099-01-01T00:00:00Z')
+    offering('expired', valid_until='2020-01-01T00:00:00Z')
+    now = admin.execute('select clock_timestamp()').fetchone()[0]
+    offering('expires_now', valid_until=now.isoformat())  # the boundary: valid_until <= clock_timestamp() is refused
+    offering('no_validity')
+    offering('inactive', active=False, valid_until='2099-01-01T00:00:00Z')
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        routes = client.get('/api/v1/workbench/capabilities').json()['routes']
+    assert routes == [{'delivery_action': 'nexloop.future:1', 'active_offerings': 1}], routes

@@ -195,11 +195,13 @@ begin
      where d.tenant_id=v_tenant and d.world=p_world),'[]'::jsonb),
    'channels',coalesce((select jsonb_agg(jsonb_build_object('namespace',n.namespace,'trust',n.trust,'skew_seconds',n.skew_seconds) order by n.namespace)
      from control.nexloop_provider_namespaces n),'[]'::jsonb),
-   -- Which effect Action the tenant's active catalog offerings deliver through (counts only); the provider endpoint behind each
+   -- Which effect Action the tenant's usable catalog offerings deliver through (counts only); the provider endpoint behind each
    -- Action is deployment configuration (the action worker's provider routes file), not in the database: reported as such.
    'routes',coalesce((select jsonb_agg(jsonb_build_object('delivery_action',r.delivery_action,'active_offerings',r.n) order by r.delivery_action)
      from (select o.properties->>'delivery_action' delivery_action,count(*) n from ontology.objects o where o.tenant_id=v_tenant and o.world=p_world
-       and o.type_name='ServiceOffering' and o.properties->'active'='true'::jsonb and o.properties ? 'delivery_action' group by 1) r),'[]'::jsonb),
+       and o.type_name='ServiceOffering' and o.properties->'active'='true'::jsonb and o.properties ? 'delivery_action'
+       -- Usable as authz.nexloop_assert_service_offering (0053) admits it: active and valid_until strictly in the future.
+       and o.properties->>'valid_until' is not null and (o.properties->>'valid_until')::timestamptz>clock_timestamp() group by 1) r),'[]'::jsonb),
    'provider_routes','deployment_configuration',
    'real_dispatch',runtime.nexloop_real_dispatch_switches_read(v_tenant,p_world));
  end if;
