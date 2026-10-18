@@ -178,24 +178,44 @@ def run(probe, role, *, write=False):
 _PROBE_KEY = re.compile(r'<Key>([^<]{1,1024})</Key>')
 
 
-def cleanup(probe, role):
-    """Delete leftover probe objects under the role's own prefixes: only keys <prefix>.nexloop-probe-<32 hex> (what --write puts)."""
+_TRUNCATED = re.compile(r'<IsTruncated>\s*true\s*</IsTruncated>', re.I)
+_TOKEN = re.compile(r'<NextContinuationToken>([^<]{1,4096})</NextContinuationToken>')
+
+
+def cleanup(probe, role, *, max_pages=100):
+    """Delete leftover probe objects under the role's own prefixes: only keys <prefix>.nexloop-probe-<32 hex> (what --write puts).
+    Every page of ListObjectsV2 is read (IsTruncated / NextContinuationToken); a listing that stays truncated past max_pages, or
+    a truncated page without a token, is reported as not complete (ok false), never as done."""
     out = []
     for prefix in PREFIXES[role]:
-        entry = {'prefix': prefix, 'found': 0, 'deleted': 0, 'failed': 0}
+        entry = {'prefix': prefix, 'found': 0, 'deleted': 0, 'failed': 0, 'pages': 0, 'complete': False}
+        token = None
         try:
-            status, body = probe.fetch('GET', '', [('list-type', '2'), ('max-keys', '1000'), ('prefix', prefix + '.nexloop-probe-')])
+            while entry['pages'] < max_pages:
+                query = [('list-type', '2'), ('max-keys', '1000'), ('prefix', prefix + '.nexloop-probe-')] + ([('continuation-token', token)] if token else [])
+                status, body = probe.fetch('GET', '', query)
+                entry['list_status'], entry['pages'] = status, entry['pages'] + 1
+                if status != 200:
+                    break
+                text = body.decode('utf-8', 'replace')
+                keys = [k for k in _PROBE_KEY.findall(text) if re.fullmatch(re.escape(prefix) + r'\.nexloop-probe-[0-9a-f]{32}', k)]
+                entry['found'] += len(keys)
+                for key in keys:
+                    try:
+                        ok = probe.call('DELETE', key) == 204
+                    except ProbeFailed:
+                        ok = False
+                    entry['deleted' if ok else 'failed'] += 1
+                if not _TRUNCATED.search(text):
+                    entry['complete'] = True
+                    break
+                match = _TOKEN.search(text)
+                if not match:
+                    break  # truncated but no token: cannot go on, reported incomplete
+                token = match.group(1)
         except ProbeFailed as failed:
-            out.append({**entry, 'list_status': None, 'stage': failed.stage, 'error': failed.error});continue
-        entry['list_status'] = status
-        keys = [k for k in _PROBE_KEY.findall(body.decode('utf-8', 'replace')) if re.fullmatch(re.escape(prefix) + r'\.nexloop-probe-[0-9a-f]{32}', k)] if status == 200 else []
-        entry['found'] = len(keys)
-        for key in keys:
-            try:
-                ok = probe.call('DELETE', key) == 204
-            except ProbeFailed:
-                ok = False
-            entry['deleted' if ok else 'failed'] += 1
+            entry.update({'stage': failed.stage, 'error': failed.error})
+            entry.setdefault('list_status', None)
         out.append(entry)
     return out
 
@@ -252,7 +272,7 @@ def main(argv=None, *, stdin=None, transport=None, runner=subprocess.run):
     probe = Probe(transport or HttpsTransport(args.timeout), bucket=args.bucket, region=args.region, endpoint=endpoint, access_key=access, secret_key=secret)
     if args.cleanup_probes:
         prefixes = cleanup(probe, args.role)
-        ok = all(p['list_status'] == 200 and p['failed'] == 0 for p in prefixes)
+        ok = all(p.get('list_status') == 200 and p['complete'] and p['failed'] == 0 for p in prefixes)
         return emit({'ok': ok, 'role': args.role, 'region': args.region, 'cleanup': prefixes}, 0 if ok else 1)
     checks = run(probe, args.role, write=args.write)  # every request failure is a check of its own (stage, error)
     ok = all(c['ok'] for c in checks)

@@ -55,16 +55,18 @@ pgbackrest)
   [ -f "$CONF" ] || fail "$CONF missing (repo1 first)"
   grep -qx '\[global\]' "$CONF" || fail "$CONF has no [global] section"
   if holds_repo2 "$CONF" '^repo2-'; then [ "${REPLACE:-}" = 1 ] || fail "$CONF already has repo2 lines (REPLACE=1 to rewrite them)"; fi
-  # The template's settings, comments dropped, placeholders filled; values never pass through sed (awk reads them from ENVIRON).
+  # The template's settings, comments dropped, placeholders filled literally; values never pass through sed or argv (awk reads ENVIRON).
   grep -Ev '^[[:space:]]*(#|$)' "$HERE/deploy/stage/config/pgbackrest-repo2-tos.conf.example" \
-    | R_REGION=$TOS_REGION R_BUCKET=$TOS_BUCKET R_AK=$AK R_SK=$SK R_PASS=$PASS awk '{
-        gsub(/__TOS_REGION__/,ENVIRON["R_REGION"]);gsub(/__TOS_BUCKET__/,ENVIRON["R_BUCKET"]);
-        sub(/__TOS_DATA_ACCESS_KEY_ID__/,ENVIRON["R_AK"]);sub(/__TOS_DATA_SECRET_ACCESS_KEY__/,ENVIRON["R_SK"]);
-        sub(/__REPO2_CIPHER_PASS__/,ENVIRON["R_PASS"]);print}' > "$T/block"
-  ! grep -q '__' "$T/block" || fail 'a placeholder is left in the repo2 block'
+    | R_REGION=$TOS_REGION R_BUCKET=$TOS_BUCKET R_AK=$AK R_SK=$SK R_PASS=$PASS awk '
+        # Literal replacement (index/substr): sub()/gsub() would read & and \ in a value as metacharacters.
+        function put(line, ph, v,   i, out) { out=""; while ((i=index(line, ph)) > 0) { out=out substr(line, 1, i-1) v; line=substr(line, i+length(ph)) } return out line }
+        { $0=put($0,"__TOS_REGION__",ENVIRON["R_REGION"]); $0=put($0,"__TOS_BUCKET__",ENVIRON["R_BUCKET"]);
+          $0=put($0,"__TOS_DATA_ACCESS_KEY_ID__",ENVIRON["R_AK"]); $0=put($0,"__TOS_DATA_SECRET_ACCESS_KEY__",ENVIRON["R_SK"]);
+          $0=put($0,"__REPO2_CIPHER_PASS__",ENVIRON["R_PASS"]); print }' > "$T/block"
+  ! grep -Eq '__[A-Z0-9_]+__' "$T/block" || fail 'a placeholder is left in the repo2 block'
   # Existing repo2 lines out, the new block right after [global].
   grep -v '^repo2-' "$CONF" | awk -v block="$T/block" '{print} $0=="[global]"{while((getline l < block)>0)print l}' > "$T/pgbackrest.conf"
-  [ "$(grep -c '__' "$T/pgbackrest.conf")" = 0 ] || fail 'placeholders left in pgbackrest.conf'
+  ! grep -Eq '__[A-Z0-9_]+__' "$T/pgbackrest.conf" || fail 'placeholders left in pgbackrest.conf'
   OWNER=$(stat -c '%u' "$CONF")
   keep "$CONF"; put "$CONF" "$OWNER" "$(stat -c '%g' "$CONF")" 0600
   ;;

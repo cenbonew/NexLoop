@@ -82,3 +82,17 @@ def test_refused_input_writes_nothing(tmp_path):
         done = run(tmp_path, 'journal', stdin, **env)
         assert done.returncode == 2 and why in done.stderr, (why, done.stderr)
     assert not (tmp_path / 'etc').exists()
+
+
+def test_values_with_awk_and_sed_metacharacters_are_written_literally_and_never_printed(tmp_path):
+    # PR #10 review: awk sub() reads & and \ in the replacement; a value with them must land as is.
+    conf = tmp_path / 'root/secrets/pgbackrest/pgbackrest.conf'
+    conf.parent.mkdir(parents=True)
+    conf.write_text('[global]\nrepo1-path=/var/lib/pgbackrest\n')
+    ak, sk, passphrase = 'SYNTH&ID\\1', 'sec&ret/\\&value__x', 'pass&\\/' + 'z' * 32 + '&'
+    done = run(tmp_path, 'pgbackrest', f'{ak}\n{sk}\n{passphrase}\n')
+    assert done.returncode == 0, done.stderr
+    text = conf.read_text()
+    assert f'repo2-s3-key={ak}\n' in text and f'repo2-s3-key-secret={sk}\n' in text and f'repo2-cipher-pass={passphrase}\n' in text
+    for value in (ak, sk, passphrase):
+        assert value not in done.stdout + done.stderr

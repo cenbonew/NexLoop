@@ -163,6 +163,42 @@ def test_cleanup_deletes_only_leftover_probe_objects_and_prints_counts(capsys):
     code = P.main(['--bucket', 'synthetic-bucket', '--role', 'app', '--credentials-stdin', '--cleanup-probes'], stdin=io.StringIO('a\nb\n'), transport=Store(()))
     out = json.loads(capsys.readouterr().out)
     assert code == 0 and deleted == leftover
-    assert out['cleanup'] == [{'prefix': 'nexloop/restic-files/', 'found': 2, 'deleted': 2, 'failed': 0, 'list_status': 200}]
+    assert out['cleanup'] == [{'prefix': 'nexloop/restic-files/', 'found': 2, 'deleted': 2, 'failed': 0, 'list_status': 200, 'pages': 1, 'complete': True}]
     assert '.nexloop-probe-' + 'a' * 32 not in json.dumps(out)
     assert P.main(['--bucket', 'synthetic-bucket', '--role', 'app', '--write', '--cleanup-probes', '--credentials-stdin'], stdin=io.StringIO('a\nb\n')) == 2
+
+
+def test_cleanup_follows_every_page_and_a_truncated_listing_is_never_ok(capsys):
+    # PR #10 review: more than one ListObjectsV2 page (IsTruncated + NextContinuationToken).
+    pages = {None: ([f'nexloop/restic-files/.nexloop-probe-{c * 32}' for c in 'ab'], 'tok/1+='),
+             'tok/1+=': ([f'nexloop/restic-files/.nexloop-probe-{c * 32}' for c in 'cd'], None)}
+    deleted, tokens = [], []
+
+    def body(keys, token):
+        return (''.join(f'<Contents><Key>{k}</Key></Contents>' for k in keys)
+                + f'<IsTruncated>{"true" if token else "false"}</IsTruncated>' + (f'<NextContinuationToken>{token}</NextContinuationToken>' if token else '')).encode()
+
+    class Paged(Fake):
+        def __init__(self, broken=False):
+            super().__init__(())
+            self.broken = broken
+
+        def fetch(self, method, host, path, query, headers):
+            token = dict(query).get('continuation-token')
+            tokens.append(token)
+            keys, following = pages[token]
+            return 200, body(keys, following) if not (self.broken and following) else body(keys, None).replace(b'false', b'true')
+
+        def request(self, method, host, path, query, headers, body=b''):
+            deleted.append(path.lstrip('/'))
+            return 204
+    args = ['--bucket', 'synthetic-bucket', '--role', 'app', '--credentials-stdin', '--cleanup-probes']
+    assert P.main(args, stdin=io.StringIO('a\nb\n'), transport=Paged()) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert tokens == [None, 'tok/1+='] and len(deleted) == 4
+    assert out['ok'] and out['cleanup'][0] | {} == {'prefix': 'nexloop/restic-files/', 'found': 4, 'deleted': 4, 'failed': 0, 'list_status': 200, 'pages': 2, 'complete': True}
+    # Truncated without a continuation token: the first page is deleted, the run is not ok.
+    tokens.clear()
+    assert P.main(args, stdin=io.StringIO('a\nb\n'), transport=Paged(broken=True)) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out['ok'] is False and out['cleanup'][0]['complete'] is False and out['cleanup'][0]['pages'] == 1
