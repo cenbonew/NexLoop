@@ -1,0 +1,8 @@
+{
+  "schema": "nexloop-consumer-persona/1",
+  "confirmation_ref": "persona-mark:20261018-1",
+  "reason": "Trial test accounts are AI-played customers (NX-037 participants); marked simulated_agent per ADR-034.",
+  "consumers": [
+    {"consumer_id": "0000000000000000000000000000000000000000000000000000000000000001", "principal_id": "synthetic-webchat-customer-1"}
+  ]
+}

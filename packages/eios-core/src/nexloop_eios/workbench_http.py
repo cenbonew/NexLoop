@@ -234,6 +234,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'effect_determination', intent_id=intent_id)
 
+    @routes.get('/erasure-precheck/{consumer_id}')
+    async def erasure_precheck(consumer_id: str, request: Request):
+        # 0217: the owner's read-only precheck before and after erasing a synthetic Consumer (persona, erasure state, counts).
+        if request.query_params or not _ID.fullmatch(consumer_id):
+            return error('invalid_request', 422)
+        return await invoke(request, 'erasure_precheck', consumer_id=consumer_id)
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.

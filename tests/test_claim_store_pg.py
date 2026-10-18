@@ -275,7 +275,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # latest_consumer_turn tag on a conversation-turn Message; no Claim value is read or projected.
         # Degraded fallback 0212 copies the 0202 v6 section check verbatim (its pinned-Claim requirement unchanged) and accepts named
         # open work as mandatory_exceeds_budget for a fallback Run only; no Claim value is read or projected.
-        '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback')) for name in migrations)
+        # Consumer persona 0217 counts an erasing Consumer's Claims (all, and those whose value is not yet erased) for the owner's
+        # erasure precheck; it returns two numbers, no Claim value is read or projected.
+        '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback','_consumer_persona')) for name in migrations)
 
 
 def correction_window(conversations):

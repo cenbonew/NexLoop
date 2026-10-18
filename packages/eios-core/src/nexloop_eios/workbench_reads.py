@@ -409,5 +409,9 @@ class WorkbenchQueries:
         # 0210: the owner's read-only precheck before confirming an unknown effect did not happen (codes and times only).
         return self.reader.observe('effect_determination', intent_id=intent_id)
 
+    def erasure_precheck(self, consumer_id):
+        # 0217: the owner's read-only erasure precheck (persona, erasure state, what is still held; counts only).
+        return self.reader.observe('erasure_precheck', consumer_id=consumer_id)
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)
