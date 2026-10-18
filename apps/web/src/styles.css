@@ -317,14 +317,14 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 .list-pager{display:flex;align-items:center;gap:10px;margin-top:10px}.list-total{font-size:13px;color:var(--muted)}
 .filter-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 10px;border-radius:999px;background:var(--hover);border:1px solid var(--border-strong);font-size:13px}
 .workbench .filter-chip button{margin:0;padding:0 6px;min-height:0;background:transparent;color:var(--text-2);border:0;font-size:15px;line-height:1}
-.copy-id{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.workbench .copy-button{margin:0;padding:0 6px;min-height:0;font-size:12px;background:var(--surface);color:var(--accent);border:1px solid var(--border)}
+.copy-id{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.workbench .copy-button{margin:0;padding:0 6px;min-height:0;font-size:13px;background:var(--surface);color:var(--accent);border:1px solid var(--border)}
 .consumer-header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin:0 0 12px}
 .consumer-header .consumer-name{font-size:18px}.consumer-header .counts{display:flex;gap:12px;font-size:14px}
 .workbench .link-count{margin:0;padding:0;min-height:0;background:none;border:0;color:var(--accent);text-decoration:underline;cursor:pointer;font:inherit}
 .commitment-summary{display:block}.commitment-condition{color:var(--muted);font-size:13px}
 .consumer-failed small{color:var(--danger,#b3261e)}
 .side-tabs{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:0 0 14px;background:var(--surface)}
-.history-snippet{margin:2px 0 0;font-size:14px}.workbench .history-expand{margin:0 0 0 6px;padding:0 6px;min-height:0;font-size:12px;background:none;border:0;color:var(--accent)}
+.history-snippet{margin:2px 0 0;font-size:14px}.workbench .history-expand{margin:0 0 0 6px;padding:0 6px;min-height:0;font-size:13px;background:none;border:0;color:var(--accent)}
 .exceptions-all{margin-top:12px}.exceptions-all summary{cursor:pointer;color:var(--text-2)}
 .conversation-layout{display:grid;gap:16px;align-items:start}
 @media (min-width:1024px){.conversation-layout{grid-template-columns:minmax(0,1fr) minmax(18rem,26rem)}.conversation-layout>.side-tabs{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto}}
