@@ -227,6 +227,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'settings')
 
+    @routes.get('/world-model')
+    async def world_model(request: Request):
+        # Enterprise world model W1 (0450): the tenant's published model metadata; no instance content, no edit path.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'world_model')
+
     @routes.get('/metrics')
     async def metrics(request: Request):
         # NX-030: the SQL metrics snapshot of this tenant and world (codes, counts, ages; no raw text).

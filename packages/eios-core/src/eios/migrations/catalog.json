@@ -1100,6 +1100,11 @@
       "version": "0220",
       "name": "0220_consumer_persona.sql",
       "sha256": "0fb717aa8cbdb0ba350841f6610a8ad5ffbb4aff8f124d8e38290255e4d5dc59"
+    },
+    {
+      "version": "0450",
+      "name": "0450_world_model_read.sql",
+      "sha256": "4cc5787ba9da07250b94d0f191321bde18e9c3f3e97a57582de8cffde9f55cc1"
     }
   ]
 }
