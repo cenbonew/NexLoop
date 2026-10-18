@@ -8,7 +8,8 @@
 # Instance = repo1 (DATA_HOST file repository, every 5 minutes) or repo2 (S3-compatible offsite, every 15 minutes).
 # /etc/nexloop/restic-<instance>.env (0600, root:nexloop-backup) holds JOURNAL_DIR, RESTIC_REPOSITORY_FILE and
 # RESTIC_PASSWORD_FILE (paths: restic reads both itself, so no location or password is on the command line), and for repo2
-# also AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
+# also AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, and optionally RESTIC_EXTRA_OPTIONS="-o s3.bucket-lookup=dns" when TOS refuses
+# path-style requests (unset or empty adds nothing).
 [Unit]
 Description=NexLoop restore journal to restic (%i)
 After=network-online.target nexloop-journal.service
@@ -20,7 +21,7 @@ Type=oneshot
 User=nexloop-backup
 Group=nexloop-backup
 EnvironmentFile=/etc/nexloop/restic-%i.env
-ExecStart=/usr/local/bin/restic --no-cache backup --tag journal --host nexloop ${JOURNAL_DIR}
+ExecStart=/usr/local/bin/restic --no-cache $RESTIC_EXTRA_OPTIONS backup --tag journal --host nexloop ${JOURNAL_DIR}
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

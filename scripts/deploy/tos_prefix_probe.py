@@ -12,8 +12,10 @@ Requests go to the TOS S3-compatible endpoint (AWS Signature Version 4, service 
   with --write:
   put_own / delete_own  a 0-byte probe object nexloop/.../.nexloop-probe-<uuid> expect 200 / 204
   put_other             the same under the other role's prefix              expect 403
+  with --cleanup-probes (instead of the checks):
+  leftover probe objects <own prefix>.nexloop-probe-<32 hex> are listed and deleted (nothing else matches); counts only
 
-    tos_prefix_probe.py --bucket <TOS_BUCKET> --role data|app [--region cn-shanghai] [--write]
+    tos_prefix_probe.py --bucket <TOS_BUCKET> --role data|app [--region cn-shanghai] [--write | --cleanup-probes]
         [--access-key-item nexloop/backup/tos-data-access-key --secret-key-item nexloop/backup/tos-data-secret-key]
 
 Output: one JSON object of check names, prefixes, expected and actual HTTP status codes (no keys, no object names, no bodies). A
@@ -84,6 +86,24 @@ class HttpsTransport:
         # Tests pass a plain-HTTP factory to a local server; the probe itself always speaks TLS to port 443.
         self._connection = connection_factory or (lambda host, timeout: http.client.HTTPSConnection(host, 443, timeout=timeout, context=self.context))
 
+    def fetch(self, method, host, path, query, headers):
+        """Status and body (at most 1 MiB) of one request: only for the listing of --cleanup-probes, never printed."""
+        target = path + ('?' + '&'.join(f'{quote(k, safe="-_.~")}={quote(v, safe="-_.~")}' for k, v in query) if query else '')
+        connection = self._connection(host, self.timeout)
+        stage = 'connect'
+        try:
+            connection.connect()
+            stage = 'send'
+            connection.request(method, target, headers=headers)
+            stage = 'response_headers'
+            response = connection.getresponse()
+            stage = 'response_body'
+            return response.status, response.read(1 << 20)
+        except (OSError, ssl.SSLError, http.client.HTTPException) as error:
+            raise ProbeFailed(stage, type(error).__name__) from None
+        finally:
+            connection.close()
+
     def request(self, method, host, path, query, headers, body=b''):
         target = path + ('?' + '&'.join(f'{quote(k, safe="-_.~")}={quote(v, safe="-_.~")}' for k, v in query) if query else '')
         connection = self._connection(host, self.timeout)
@@ -120,6 +140,11 @@ class Probe:
                        access_key=self._access, secret_key=self._secret, region=self.region)
         return self.transport.request(method, host, path, list(query), headers, body)
 
+    def fetch(self, method, key='', query=()):
+        host, path = f'{self.bucket}.{self.endpoint}', '/' + key
+        headers = sign(method, host, path, list(query), {}, EMPTY_SHA256, access_key=self._access, secret_key=self._secret, region=self.region)
+        return self.transport.fetch(method, host, path, list(query), headers)
+
     def list(self, prefix, **kw):
         return self.call('GET', '', [('list-type', '2'), ('max-keys', '1'), ('prefix', prefix)], **kw)
 
@@ -150,6 +175,31 @@ def run(probe, role, *, write=False):
     return checks
 
 
+_PROBE_KEY = re.compile(r'<Key>([^<]{1,1024})</Key>')
+
+
+def cleanup(probe, role):
+    """Delete leftover probe objects under the role's own prefixes: only keys <prefix>.nexloop-probe-<32 hex> (what --write puts)."""
+    out = []
+    for prefix in PREFIXES[role]:
+        entry = {'prefix': prefix, 'found': 0, 'deleted': 0, 'failed': 0}
+        try:
+            status, body = probe.fetch('GET', '', [('list-type', '2'), ('max-keys', '1000'), ('prefix', prefix + '.nexloop-probe-')])
+        except ProbeFailed as failed:
+            out.append({**entry, 'list_status': None, 'stage': failed.stage, 'error': failed.error});continue
+        entry['list_status'] = status
+        keys = [k for k in _PROBE_KEY.findall(body.decode('utf-8', 'replace')) if re.fullmatch(re.escape(prefix) + r'\.nexloop-probe-[0-9a-f]{32}', k)] if status == 200 else []
+        entry['found'] = len(keys)
+        for key in keys:
+            try:
+                ok = probe.call('DELETE', key) == 204
+            except ProbeFailed:
+                ok = False
+            entry['deleted' if ok else 'failed'] += 1
+        out.append(entry)
+    return out
+
+
 def keychain(item, runner=subprocess.run):
     done = runner(['security', 'find-generic-password', '-s', item, '-w'], capture_output=True, text=True, timeout=30)
     value = done.stdout.strip() if done.returncode == 0 else ''
@@ -167,7 +217,9 @@ def main(argv=None, *, stdin=None, transport=None, runner=subprocess.run):
     parser.add_argument('--access-key-item')
     parser.add_argument('--secret-key-item')
     parser.add_argument('--credentials-stdin', action='store_true', help='two lines on stdin: access key id, secret access key')
-    parser.add_argument('--write', action='store_true', help='also put and delete one 0-byte probe object under the own prefix')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--write', action='store_true', help='also put and delete one 0-byte probe object under the own prefix')
+    mode.add_argument('--cleanup-probes', action='store_true', help='delete leftover probe objects under the own prefixes (counts only)')
     parser.add_argument('--timeout', type=float, default=15.0, help='seconds per request (connect, send and response headers)')
     try:
         args = parser.parse_args(argv)
@@ -198,6 +250,10 @@ def main(argv=None, *, stdin=None, transport=None, runner=subprocess.run):
     if not 1 <= args.timeout <= 120:
         return emit({'ok': False, 'detail': 'timeout out of range (1-120 s)'}, 2)
     probe = Probe(transport or HttpsTransport(args.timeout), bucket=args.bucket, region=args.region, endpoint=endpoint, access_key=access, secret_key=secret)
+    if args.cleanup_probes:
+        prefixes = cleanup(probe, args.role)
+        ok = all(p['list_status'] == 200 and p['failed'] == 0 for p in prefixes)
+        return emit({'ok': ok, 'role': args.role, 'region': args.region, 'cleanup': prefixes}, 0 if ok else 1)
     checks = run(probe, args.role, write=args.write)  # every request failure is a check of its own (stage, error)
     ok = all(c['ok'] for c in checks)
     return emit({'ok': ok, 'role': args.role, 'region': args.region, 'checks': checks}, 0 if ok else 1)

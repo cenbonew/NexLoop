@@ -143,3 +143,26 @@ def test_a_request_without_an_answer_is_its_own_failed_check_with_its_stage_and_
     assert by['delete_own:nexloop/restic-files/']['status'] == 403 and by['list_bucket_root'] == {'check': 'list_bucket_root', 'expected': 403, 'status': 403, 'ok': True}
     assert by['put_other:nexloop/pgbackrest/']['stage'] == 'response_headers'
     listener.close()
+
+
+def test_cleanup_deletes_only_leftover_probe_objects_and_prints_counts(capsys):
+    # Activation run sheet (2026-10-18): probe objects left under nexloop/restic-files/ by earlier --write runs.
+    leftover = [f'nexloop/restic-files/.nexloop-probe-{c * 32}' for c in 'ab']
+    listed = leftover + ['nexloop/restic-files/.nexloop-probe-not-hex', 'nexloop/restic-files/data/keep-me']
+    deleted = []
+
+    class Store(Fake):
+        def fetch(self, method, host, path, query, headers):
+            assert method == 'GET' and dict(query)['prefix'] == 'nexloop/restic-files/.nexloop-probe-' and host.startswith('synthetic-bucket.')
+            return 200, ''.join(f'<Contents><Key>{k}</Key></Contents>' for k in listed).encode()
+
+        def request(self, method, host, path, query, headers, body=b''):
+            assert method == 'DELETE'
+            deleted.append(path.lstrip('/'))
+            return 204
+    code = P.main(['--bucket', 'synthetic-bucket', '--role', 'app', '--credentials-stdin', '--cleanup-probes'], stdin=io.StringIO('a\nb\n'), transport=Store(()))
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and deleted == leftover
+    assert out['cleanup'] == [{'prefix': 'nexloop/restic-files/', 'found': 2, 'deleted': 2, 'failed': 0, 'list_status': 200}]
+    assert '.nexloop-probe-' + 'a' * 32 not in json.dumps(out)
+    assert P.main(['--bucket', 'synthetic-bucket', '--role', 'app', '--write', '--cleanup-probes', '--credentials-stdin'], stdin=io.StringIO('a\nb\n')) == 2
