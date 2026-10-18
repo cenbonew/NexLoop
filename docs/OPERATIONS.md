@@ -77,15 +77,16 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 | 操作 | 入口 |
 |---|---|
-| 真实派发开关 | 只有负责人，工作台写入口 `set_real_dispatch`；部署总闸 `REAL_DISPATCH_ENABLED`、租户、（租户，Action）三层都打开才派发外部效应（[实现说明](implementation/real-dispatch-switch-implementation.md)） |
+| 真实派发开关 | 只有负责人，工作台写入口 `set_real_dispatch`；部署总闸 `REAL_DISPATCH_ENABLED`、租户、（租户，Action）三层都打开才派发外部效应（[实现说明](implementation/real-dispatch-switch-implementation.md)）。发布 16 起，工作台“设置与治理”页有开关按钮：负责人一键开启或关闭租户层与交付 Action 层，必须填写原因，走同一个受治理 Action；部署层只读显示。stage 上部署层平时保持打开（`REAL_DISPATCH_ENABLED=true`），日常收放只在工作台做；要整体停止外部效应时才关部署层，并重建读它的服务 |
 | 就绪检查 | `nexloop-api --mode stage` 的 `/health/ready`：只返回状态与原因代码（[实现说明](implementation/api-stage-ready-implementation.md)） |
 | 暂停 / 恢复（租户、角色、客户、策略、Action 类型） | 工作台写入口（负责人），受治理 Action `Control.set`；恢复不回放旧任务，只登记复评 |
 | 结果不明的效应 | 工作台“查询执行结果”（只把对账提前，不重发） |
-| 确认结果不明的效应未发生 | 只有负责人，查询结果为 not_found 且等待期满后，用配置文件加一条命令 `scripts/deploy/confirm_not_delivered.py`（工作台写入口 `confirm_effect_not_delivered`，0210；[运行手册](release/run-confirm-not-delivered.md)）；不发送任何东西 |
+| 确认结果不明的效应未发生 | 只有负责人，按顺序：① 先确认 provider 的记录保留期覆盖这次投递的时间——覆盖不到时 not_found 只说明记录不在了，不能判定，改为人工联系顾客；② 用重查订单让 provider 回答一次（[重查手册](release/run-stale-unknown-requery.md)；0214 起 provider 回答 not_found 会记为观测）；③ 首次 unknown 满 24 小时、not_found 观测满 10 分钟后，用配置文件加一条命令 `scripts/deploy/confirm_not_delivered.py`，先 `--dry-run` 预查，全部 `eligible` 后再判定（工作台写入口 `confirm_effect_not_delivered`，0210；配置中 `provider_retention_checked` 必须为 true；[运行手册](release/run-confirm-not-delivered.md)）。判定不发送任何东西，也不可撤回 |
 | 解除联系限制 | 只有负责人（ADR-023） |
 | 撤销删除后联系键的拦截 | 只有负责人，写明理由，工作台写入口 `revoke_contact_key`（NX-053） |
 | 人工接管 / 交还 | 工作台（负责人、运营），默认 2 小时、上限 24 小时 |
 | 删除客户或消息、保留例外、数据导出 | 只有负责人，经工作台受治理 Action（NX-029） |
+| 知识工作台 | 审核员审核候选与证据；发布 17 起负责人可只读查看（`nexloop.knowledge.read`，0213，角色清单 v13），审核决定仍只归审核员。无权限时页面说明需要的角色 |
 | 服务授权清单 | `python -m nexloop_eios.service_grants --check|--doctor|--apply`（configurator 连接；`--doctor` 只读报告漂移）。服务凭据的 worlds 只要含 `real` 就只能是 `real`，不能同时含 real 与其他 world（AT-046，写入时拒绝） |
 | 服务进程的 `--world` | runtime worker 与 guard 只接受 `real` 或 `test`；effect worker、出站记录、优惠执行者只接受 `real`；其他值在读取凭据之前退出（码 2） |
 | Runtime Worker 的进程形态与回退 | [deploy/stage/README.md](../deploy/stage/README.md)（`--guard-workers 4`、`--dispatch-loops 4`，回退改回 1 并重启） |
@@ -325,6 +326,32 @@ docker compose -p nexloop-app -f $NEXLOOP_ROOT/compose.app.yaml --env-file $NEXL
 ```
 
 **核对**：重建后，对每个引用方执行 `docker inspect -f '{{.HostConfig.NetworkMode}}' <容器>`。它应指向 X 的**当前**容器 ID（与 `docker compose ps -q X` 一致）。
+
+### 8a.11 例行发布部署的固定步骤（发布 16–18 起）
+
+每次在 stage 部署一个新发布，部署单都包含以下步骤；某一步本次没有变化时，照样执行并记录“无变化”。
+
+1. **备份核验与迁移门槛**：先核验最近一次 pgBackRest 备份，迁移前做一次差异备份，迁移只经 `nexloop-migrate` 的门槛（[NX-035 部署运行手册](implementation/NX-035-deploy-runbook.md) §2.6）。迁移号以 catalog 为准，不看文档里的旧编号。
+2. **Action 发布预演**（发布 17 起固定加入）：
+
+   ```bash
+   python scripts/deploy/stage_secrets.py publish --out <管理机秘密树> --tenant <TENANT_ID> --bootstrap-dsn-file <BOOTSTRAP_DSN_FILE> --signing-key-id <SIGNING_KEY_ID> --dry-run
+   ```
+
+   带连接文件的 `--dry-run` 只把编译出的业务对象类型与 Action 目录和库中已发布的状态比较，什么都不写；不带连接文件时只输出编译计数（`compared: false`），不能代替预演。比较结果里有变化时，再去掉 `--dry-run` 正式发布；发布前后各记录一次计数。
+3. **角色清单升版本时应用工作台角色**：`deploy/authorization/workbench-roles.v1.json` 的 `manifest_version` 比 stage 上已应用的版本高时（例如发布 17 的 v13），用 `scripts/deploy/workbench_roles.py --roles deploy/authorization/workbench-roles.v1.json --members <私有成员文件> --apply --bootstrap-dsn-file <BOOTSTRAP_DSN_FILE> --signing-key-id <SIGNING_KEY_ID> --signing-key-file <SIGNING_KEY_FILE>` 应用。它在 configurator 登录窗口内先写成员，再写成员授权，窗口随后关闭。只发布 Action、不应用角色时，新 Action 没有任何人持有授权。
+4. **镜像与重建**：镜像只按已签名清单中的 digest 载入；重建时遵守 [§8a.10](#8a10-共用网络命名空间的服务一起重建1016-踩坑)。
+5. **租户配置随版本下发**（在新镜像运行之后）：告警规则或试运行配置升版本时（发布 18：告警规则 v5、试运行配置 v4），用 `real_tenant_init.py configure` 下发（[§9.2](#92-真实租户初始化scriptsnx037real_tenant_initpy)）。发布 18 起，`configure` 还包含候选合并配置这一步：先只读核对，缺失时才应用（幂等），并报告 `in_sync`、`applied` 或 `blocked`。
+   - 合并配置要求租户当前生效的召回 profile 就是校准过的 embedding profile，所以要等新的召回索引服务运行过一次（§8a.12）。在此之前执行，会得到 `blocked`（`embedding_profile_mismatch`），什么都不写；等服务运行后重跑即可。
+   - 也可以单独核对：`python -m nexloop_eios.merge_configuration --manifest deploy/ontology/merge-config.v1.json --tenant <TENANT_ID> --doctor --database-url-file <CONFIGURATOR_DSN_FILE>`。
+6. **部署后核对**：`nexloop-doctor` 全部通过（含 §8a.12 的检查项）；工作台“告警”页没有新的 firing。
+
+### 8a.12 后台服务的故障判读（发布 17–18）
+
+- **循环失败有日志**（发布 17）：后台服务（告警评估、回复保证、claim-matcher 等）的某次循环失败时，第一次失败和此后每连续 30 次失败，各写一条结构化警告 `background tick failed`，只含异常类名、SQLSTATE 和连续失败次数，不含消息或数据；恢复后写一条 `background tick recovered`，带失败次数。以前失败被静默吞掉，容器照常运行，日志为空。
+- **告警评估不再随数据增长超时**（0215）：观测样本改为增量汇总。判断告警评估是否停摆，看 `control.nexloop_alert_state` 的 `last_evaluated_at`：正常时每分钟前进。
+- **claim-matcher 缺合并配置时空闲**（0216，告警规则 v5）：租户没有生效的候选合并配置时，claim-matcher 进入明确的空闲状态，不再每次循环都失败。有候选在等待合并超过 10 分钟时，告警 `candidates_without_merge_configuration` 触发（warning），`nexloop-doctor` 的 `candidates_glueable` 不通过，并列出缺配置的租户。处理方法：按 §8a.11 第 5 步下发合并配置。
+- **召回 profile 激活**（发布 18）：召回索引服务在每个进程首次运行时，经受治理入口激活租户配置的召回 embedding profile。这一步是幂等的；租户已有另一个生效的 profile 时，服务报错，不会静默切换。
 
 ## 9. NX-037 受控真实闭环操作说明（负责人本人执行）
 
