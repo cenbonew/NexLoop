@@ -662,6 +662,27 @@ class WorkbenchCapabilitiesRealDispatch(BaseModel):
     tenant: None | WorkbenchCapabilitiesRealDispatchTenant1
     actions: list[WorkbenchCapabilitiesRealDispatchActionsItem]
 
+class WorkbenchObjectNeighborsGroupsItemItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type_name: str
+    object_id: str
+
+class WorkbenchObjectNeighborsGroupsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    direction: Literal['outgoing', 'incoming']
+    via: str
+    type_name: str
+    items: list[WorkbenchObjectNeighborsGroupsItemItemsItem]
+    invisible: int
+    collapsed: int
+
+class WorkbenchObjectPageItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    object_id: str
+    schema_version: int
+    revision: int
+    updated_at: str
+
 class ActionIntent(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:action-intent","title":"action-intent","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"intent_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"action_name":{"type":"string","pattern":"^nexloop\\\\.[a-z][a-z0-9_.]+$"},"contract_version":{"type":"string","minLength":1},"actor_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"consumer_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"plan_step_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"idempotency_key":{"type":"string","minLength":16,"maxLength":200},"payload_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"expected_versions":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"resource_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"integer","minimum":1}},"required":["resource_ref","revision"]},"minItems":1,"maxItems":256},"requested_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"not_after":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"evidence_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"minItems":1,"maxItems":256},"parameters":{"type":"object"},"decision_rationale":{"type":"string","minLength":1,"maxLength":2000}},"required":["schema_version","intent_id","tenant_id","world_id","mode","run_id","action_name","contract_version","actor_ref","consumer_ref","goal_version_ref","plan_step_ref","idempotency_key","payload_digest","expected_versions","requested_at","not_after","evidence_refs","parameters","decision_rationale"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
     schema_version: Literal['1.0']
@@ -929,3 +950,19 @@ class WorkbenchCapabilities(_Contract):
     routes: list[WorkbenchCapabilitiesRoutesItem]
     provider_routes: Literal['deployment_configuration']
     real_dispatch: WorkbenchCapabilitiesRealDispatch
+
+class WorkbenchObjectNeighbors(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-object-neighbors","title":"workbench-object-neighbors","description":"Enterprise world model W2 (owner 2026-10-19, D3): the depth-1 neighbourhood of one object, GET /api/v1/workbench/objects/{type}/{id}/neighbors (workbench read verb `object_neighbors`). Groups by direction, edge (a governed relation name, or `property:<name>` for a reference property) and neighbour type. At most 25 candidates a group are checked: a neighbour is listed only when its ADR-025 READ holds and, for a property edge, the READ of the referencing property; the other checked candidates are `invisible`, those beyond 25 are `collapsed` (not checked, not shown). Identifiers only. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["type_name","object_id","depth","group_limit","groups"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"depth":{"const":1},"group_limit":{"const":25},"groups":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["direction","via","type_name","items","invisible","collapsed"],"properties":{"direction":{"enum":["outgoing","incoming"]},"via":{"type":"string","pattern":"^(property:[A-Za-z][A-Za-z0-9_]{0,63}|[A-Za-z][A-Za-z0-9_.:-]{0,127})$"},"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["type_name","object_id"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}}}},"invisible":{"type":"integer","minimum":0,"maximum":25},"collapsed":{"type":"integer","minimum":0}}}}}}')
+    type_name: str
+    object_id: str
+    depth: Literal[1]
+    group_limit: Literal[25]
+    groups: list[WorkbenchObjectNeighborsGroupsItem]
+
+class WorkbenchObjectPage(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-object-page","title":"workbench-object-page","description":"Enterprise world model W2 (owner 2026-10-19): one page of a type\'s instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times only, never a property. Each object is listed only when the member\'s ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type\'s instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["type_name","items","invisible","total","next_after"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"items":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["object_id","schema_version","revision","updated_at"],"properties":{"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"schema_version":{"type":"integer","minimum":1},"revision":{"type":"integer","minimum":1},"updated_at":{"type":"string","format":"date-time"}}}},"invisible":{"type":"integer","minimum":0,"maximum":100},"total":{"type":"integer","minimum":0},"next_after":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}]}}}')
+    type_name: str
+    items: list[WorkbenchObjectPageItemsItem]
+    invisible: int
+    total: int
+    next_after: None | str
