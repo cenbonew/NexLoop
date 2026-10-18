@@ -78,3 +78,27 @@ L2 的 pgBackRest 备份（`l2/nx035-pgbackrest`）在本分支切出时还没�
 - **真实 pgBackRest 的端到端执行**：本机没有安装，只用替身验证了调用参数；需要在 CI 主机或演练环境中按运行手册第 4 步实测。
 - 口令轮换、按 configurator 成员文件重新应用工作台成员：仍留到部署切片，属于开放之前的人工步骤。
 - 意图重建（`reconstructed`）：仍留到切片三。
+
+## 7. 本机一次性环境：逐条命令（AT-072 演练用，2026-10-18 在开发机实测）
+
+只用合成数据，全部放在一个新建的临时目录里，用完整个删除。不连接任何主机，不使用任何真实凭据。`$W` 是工作目录，`$K`、`$K2` 是两个短路径的 socket 目录，`$PG_BIN` 是 PostgreSQL 18 的 bin 目录。命令在仓库根目录执行，依赖环境为 `uv sync --frozen` 建好的 `.venv`。
+
+**macOS 的两个前提**（实测，不满足时 PG 直接起不来）：
+- 先 `export LC_ALL=en_US.UTF-8`。否则 `pg_ctl start` 失败，日志为 `postmaster became multithreaded during startup`。
+- socket 目录的完整路径要短：`<目录>/.s.PGSQL.<端口>` 总长不超过 103 字节，否则日志为 `Unix-domain socket path ... is too long`。用 `K=$(mktemp -d /tmp/nxs.XXXX)` 这样的短路径；数据目录可以放在别处。
+
+| # | 命令 | 预期 |
+|---|---|---|
+| 1 | `"$PG_BIN/initdb" -D "$W/data" -U nexloop_bootstrap --auth=trust --no-locale -E UTF8`，然后在 `$W/data/postgresql.conf` 末尾追加 `wal_level = replica`、`archive_mode = on`、`max_wal_senders = 4` 与 `archive_command = 'test ! -f "<W>/archive/%f" && cp "%p" "<W>/archive/%f"'`（先 `mkdir "$W/archive"`） | 退出码 0 |
+| 2 | `"$PG_BIN/pg_ctl" -D "$W/data" -l "$W/pg.log" -o "-k $K -p <源端口> -c listen_addresses=''" -w start` | `server started` |
+| 3 | `umask 077`，写三个连接串文件（各一行，无口令）：`admin.dsn` 的 user 为 `nexloop_bootstrap`，`recorder.dsn` 为 `nexloop_backup_recorder`，`repl.dsn` 为 `nexloop_backup`，都写 `host=$K port=<源端口> dbname=postgres` | 三个 0600 文件 |
+| 4 | 初始化测试 profile（建库结构与一个 `world=test` 的合成租户）：`.venv/bin/nexloop-compose-bootstrap --mode test --database-url-file "$W/admin.dsn" --config-root "$W/cfg" --artifact-root "$W/art" --postgres-host "$K" --postgres-port <源端口> --postgres-db postgres`（`cfg`、`art` 先 `mkdir -m 700`） | `"passed": true`。**只能对全新的空库执行**：库已经 bootstrap 过时它只输出 `test initialization refused or unavailable`，没有更具体的原因，这时从第 1 步重来 |
+| 5 | 备份：`.venv/bin/nexloop-backup pg --tool pg_basebackup --recorder-dsn-file "$W/recorder.dsn" --replication-dsn-file "$W/repl.dsn" --pg-bin "$PG_BIN" --target "$W/base"` | `"ok": true`、`"verify_status": "verified"` |
+| 6 | 导出恢复日志：`mkdir -m 700 "$W/journal"`，`.venv/bin/nexloop-backup journal --recorder-dsn-file "$W/recorder.dsn" --journal-dir "$W/journal"` | `"ok": true` |
+| 7 | 打恢复点：`.venv/bin/nexloop-backup drill-mark --recorder-dsn-file "$W/recorder.dsn" --drill-id <id> --out "$W/mark.json"` | `"restore_point": "drill-<id>"` |
+| 8 | 让恢复点所在的 WAL 段归档：`"$PG_BIN/psql" "$(cat "$W/admin.dsn")" -c 'select pg_switch_wal()'`，等 `$W/archive` 中出现新文件 | 归档目录多一个段 |
+| 9 | 恢复到新实例：`.venv/bin/nexloop-restore --source basebackup --base-backup "$W/base" --wal-archive "$W/archive" --target-name drill-<id> --drill-mark-file "$W/mark.json" --pg-bin "$PG_BIN" --pg-path "$W/restored" --port <新端口> --socket-dir "$K2" --owner-user nexloop_bootstrap --hba-method trust --restore-ref drill-<id> --journal-dir "$W/journal" --running-port <源端口> --old-primary-fenced --report-file "$W/restore.json"`。按时间点恢复（PITR）时，把 `--target-name` 换成 `--target-time <带时区的时间>`，此时目标时间之后必须至少还有一次已归档的提交 | `"passed": true`、`"state": "verified_readonly"`；`checks.controls` 五项全为 true；`drill_compare.count_mismatches` 为 0 |
+| 10 | 停止并删除：`pg_ctl -D "$W/restored" -m fast -w stop`、`pg_ctl -D "$W/data" -m fast -w stop`，然后删除 `$W`、`$K`、`$K2` | — |
+
+- 第 9 步不加 `--stop` 时实例保持运行，可以在 `verified_readonly` 状态下只读核对。
+- **开放**不在本节：`nexloop.restore.open_scope` 只经工作台的受治理 Action（HTTP 操作 `open_restore_scope`），由负责人登录工作台执行。一次性环境里需要先有运行中的 API 与负责人的工作台身份，本节的测试 profile 不提供这两样。
