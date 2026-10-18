@@ -55,7 +55,8 @@ create table control.nexloop_operator_persona_current (
  primary key(tenant_id,world,consumer_id),foreign key(tenant_id) references control.nexloop_tenants(tenant_id)
 );
 create table control.nexloop_operator_persona_assignment_events (
- event_id bigint generated always as identity primary key,tenant_id text not null,world text not null,consumer_id text not null check(consumer_id~'^[a-f0-9]{64}$'),
+ event_id bigint generated always as identity primary key,tenant_id text not null,world text not null,
+ consumer_id text not null check(consumer_id~'^([a-f0-9]{64}|pseudonym:[0-9a-f]{32})$'),  -- pseudonym after the Consumer's erasure
  previous text,persona_id text not null,source text not null check(source in ('initial','owner_assign','owner_clear','rule_change','persona_retired')),
  rules_version integer,set_by text not null,request_intent text,reason text check(reason is null or char_length(reason) between 1 and 500),
  recorded_at timestamptz not null default clock_timestamp(),foreign key(tenant_id) references control.nexloop_tenants(tenant_id)
@@ -71,8 +72,15 @@ create table control.nexloop_ai_disclosure_events (
  set_by text not null,request_intent text not null,reason text not null check(char_length(reason) between 1 and 500),
  recorded_at timestamptz not null default clock_timestamp(),unique(tenant_id,revision),foreign key(tenant_id) references control.nexloop_tenants(tenant_id)
 );
+-- Append-only, except what a registered Consumer erasure may change (NX-029 scope: pseudonym, cleared text).
 create function control.nexloop_operator_persona_append_only() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
-begin raise exception 'operator persona records are append-only' using errcode='42501';end $$;
+begin
+ if runtime.nexloop_erasure_permits(current_user::text,tg_table_schema||'.'||tg_table_name,tg_op,to_jsonb(old),case when tg_op='UPDATE' then to_jsonb(new) end) then
+  if tg_op='DELETE' then return old;end if;
+  return new;
+ end if;
+ raise exception 'operator persona records are append-only' using errcode='42501';
+end $$;
 alter function control.nexloop_operator_persona_append_only() owner to nexloop_owner;
 do $tables$
 declare t text;
@@ -94,7 +102,8 @@ end $tables$;
 -- 2. Validation, resolution -------------------------------------------------------------------------------------------------
 create function control.nexloop_operator_persona_document_ok(d jsonb) returns boolean
  language sql immutable set search_path=pg_catalog,pg_temp as $$
- select jsonb_typeof(d)='object' and octet_length(d::text)<=8192
+ -- coalesce: a missing field makes the conjunction NULL; NULL is invalid (callers also test IS NOT TRUE).
+ select coalesce(jsonb_typeof(d)='object' and octet_length(d::text)<=8192
   and not exists(select 1 from jsonb_object_keys(d) k where k not in ('display_name','signature','self_intro','tone','values','expression','scenarios','not_for','ai_disclosure'))
   and jsonb_typeof(d->'display_name')='string' and char_length(d->>'display_name') between 1 and 40
   and coalesce(jsonb_typeof(d->'signature'),'string')='string' and char_length(coalesce(d->>'signature','')) <= 40
@@ -116,15 +125,17 @@ create function control.nexloop_operator_persona_document_ok(d jsonb) returns bo
   and coalesce(jsonb_typeof(d->'ai_disclosure'),'object')='object'
   and not exists(select 1 from jsonb_object_keys(coalesce(d->'ai_disclosure','{}')) k where k not in ('statement','deflect_statement'))
   and char_length(coalesce(d->'ai_disclosure'->>'statement',''))<=300 and char_length(coalesce(d->'ai_disclosure'->>'deflect_statement',''))<=300
+  and coalesce(jsonb_typeof(d->'ai_disclosure'->'statement'),'string')='string' and coalesce(jsonb_typeof(d->'ai_disclosure'->'deflect_statement'),'string')='string'
+  and coalesce(jsonb_typeof(d->'expression'->'vocabulary'),'string')='string' and coalesce(jsonb_typeof(d->'expression'->'language'),'string')='string',false)
 $$;
 create function control.nexloop_operator_persona_rules_ok(r jsonb) returns boolean
  language sql immutable set search_path=pg_catalog,pg_temp as $$
- select jsonb_typeof(r)='array' and jsonb_array_length(r)<=50 and not exists(select 1 from jsonb_array_elements(r) x where not (
+ select coalesce(jsonb_typeof(r)='array' and jsonb_array_length(r)<=50 and not exists(select 1 from jsonb_array_elements(r) x where not (
   jsonb_typeof(x)='object' and (select array_agg(k order by k) from jsonb_object_keys(x) k)=array['persona_id','when']
   and coalesce(x->>'persona_id','')~'^[a-z][a-z0-9_-]{0,63}$' and jsonb_typeof(x->'when')='object'
   and (((select array_agg(k order by k) from jsonb_object_keys(x->'when') k)=array['role_id'] and coalesce(x->'when'->>'role_id','')~'^[a-f0-9]{64}$')
    or ((select array_agg(k order by k) from jsonb_object_keys(x->'when') k)=array['equals','property'] and coalesce(x->'when'->>'property','')~'^[a-z][a-z0-9_]{0,63}$'
-     and jsonb_typeof(x->'when'->'equals')='string' and char_length(x->'when'->>'equals') between 1 and 200))))
+     and jsonb_typeof(x->'when'->'equals')='string' and char_length(x->'when'->>'equals') between 1 and 200)))),false)
 $$;
 -- The highest version whose latest status is published.
 create function runtime.nexloop_operator_persona_usable(p_tenant text,p_persona text) returns integer
@@ -173,15 +184,23 @@ begin
   'document',doc,'ai_disclosure',runtime.nexloop_ai_disclosure_setting(p_tenant)-'revision');
 end $$;
 -- Settle a Consumer's assignment on the desired persona; an assignment event for every change (the first one too).
+-- Serializes everything that changes one Consumer's assignment (the owner's Action, a Context bind's settle): taken first, so the
+-- desired persona is computed after any concurrent change has committed (Codex review, PR 13).
+create function runtime.nexloop_operator_persona_lock(p_tenant text,p_world text,p_consumer text) returns void
+ language sql set search_path=pg_catalog,pg_temp as $$
+ select pg_advisory_xact_lock(hashtextextended('nexloop-operator-persona:'||p_tenant||'/'||p_world||'/'||p_consumer,0))
+$$;
 create function runtime.nexloop_operator_persona_settle(p_tenant text,p_world text,p_consumer text,p_by text,p_intent text,p_reason text,p_owner_source text default null) returns bigint
  language plpgsql set search_path=pg_catalog,pg_temp as $$
-declare d record;cur control.nexloop_operator_persona_current;v_source text;v_event bigint;
+declare d record;cur control.nexloop_operator_persona_current;v_source text;v_event bigint;v_settled boolean;
 begin
- select * into d from runtime.nexloop_operator_persona_desired(p_tenant,p_world,p_consumer);
+ perform runtime.nexloop_operator_persona_lock(p_tenant,p_world,p_consumer);
  select * into cur from control.nexloop_operator_persona_current where tenant_id=p_tenant and world=p_world and consumer_id=p_consumer for update;
+ v_settled:=found;
+ select * into d from runtime.nexloop_operator_persona_desired(p_tenant,p_world,p_consumer);
  if d.persona_id is null then return null;end if;
- if found and cur.persona_id=d.persona_id and cur.source=d.source then return cur.event_id;end if;
- v_source:=case when p_owner_source is not null then p_owner_source when not found then 'initial'
+ if v_settled and cur.persona_id=d.persona_id and cur.source=d.source then return cur.event_id;end if;
+ v_source:=case when p_owner_source is not null then p_owner_source when not v_settled then 'initial'
   when runtime.nexloop_operator_persona_usable(p_tenant,cur.persona_id) is null then 'persona_retired' else 'rule_change' end;
  insert into control.nexloop_operator_persona_assignment_events(tenant_id,world,consumer_id,previous,persona_id,source,rules_version,set_by,request_intent,reason)
   values(p_tenant,p_world,p_consumer,cur.persona_id,d.persona_id,v_source,d.rules_version,p_by,p_intent,p_reason) returning event_id into v_event;
@@ -204,7 +223,7 @@ begin
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into cur from control.nexloop_operator_personas where tenant_id=p_tenant and persona_id=v_id and version=v_version for update;
  if v_status='published' then
-  if not control.nexloop_operator_persona_document_ok(body->'document') then raise exception 'operator persona: document_invalid' using errcode='22023';end if;
+  if control.nexloop_operator_persona_document_ok(body->'document') is not true then raise exception 'operator persona: document_invalid' using errcode='22023';end if;
   v_hash:=encode(sha256(convert_to(runtime.nexloop_canonical_json(body->'document'),'UTF8')),'hex');
   if found and cur.document_hash<>v_hash then raise exception 'operator persona: version_exists' using errcode='22023';end if;
   if not found then
@@ -238,6 +257,7 @@ begin
   raise exception 'consumer unavailable' using errcode='42501';end if;
  if v_persona is not null and runtime.nexloop_operator_persona_usable(p_tenant,v_persona) is null then
   raise exception 'operator persona: not_published' using errcode='22023';end if;
+ perform runtime.nexloop_operator_persona_lock(p_tenant,p_world,v_consumer);
  select * into cur from control.nexloop_operator_persona_assignments where tenant_id=p_tenant and world=p_world and consumer_id=v_consumer for update;
  if found and cur.persona_id is not distinct from v_persona then
   return jsonb_build_object('consumer_id',v_consumer,'persona_id',v_persona,'revision',cur.revision,'changed',false);end if;
@@ -257,7 +277,7 @@ create function control.nexloop_governed_publish_persona_rules(p_tenant text,p_w
 declare v_version integer;v_default text:=body->>'default_persona_id';cur control.nexloop_operator_persona_rules;x jsonb;
 begin
  if exists(select 1 from jsonb_object_keys(body) k where k not in ('operation','request_id','version','default_persona_id','rules','reason'))
-  or not body ? 'default_persona_id' or jsonb_typeof(body->'version') is distinct from 'number' or not control.nexloop_operator_persona_rules_ok(body->'rules')
+  or not body ? 'default_persona_id' or jsonb_typeof(body->'version') is distinct from 'number' or control.nexloop_operator_persona_rules_ok(body->'rules') is not true
   or (v_default is not null and v_default!~'^[a-z][a-z0-9_-]{0,63}$') or length(coalesce(body->>'reason','')) not between 1 and 500 then
   raise exception 'operator persona: invalid' using errcode='22023';end if;
  v_version:=(body->>'version')::integer;
@@ -305,6 +325,7 @@ begin
  foreach f in array array['control.nexloop_operator_persona_document_ok(jsonb)','control.nexloop_operator_persona_rules_ok(jsonb)',
    'runtime.nexloop_operator_persona_usable(text,text)','runtime.nexloop_operator_persona_desired(text,text,text)','runtime.nexloop_ai_disclosure_setting(text)',
    'runtime.nexloop_operator_persona_section(text,text,text)','runtime.nexloop_operator_persona_settle(text,text,text,text,text,text,text)',
+   'runtime.nexloop_operator_persona_lock(text,text,text)',
    'control.nexloop_governed_publish_operator_persona(text,text,text,text,text,jsonb)','control.nexloop_governed_assign_operator_persona(text,text,text,text,text,jsonb)',
    'control.nexloop_governed_publish_persona_rules(text,text,text,text,text,jsonb)','control.nexloop_governed_set_ai_disclosure(text,text,text,text,text,jsonb)'] loop
   execute 'alter function '||f||' owner to nexloop_owner';execute 'revoke all on function '||f||' from public';
@@ -487,3 +508,231 @@ end $$;
 alter function authz.nexloop_workbench_observe_read(text,text,text,text,text) owner to nexloop_owner;
 revoke all on function authz.nexloop_workbench_observe_read(text,text,text,text,text) from public;
 grant execute on function authz.nexloop_workbench_observe_read(text,text,text,text,text) to nexloop_api;
+
+
+-- 7. Consumer erasure reaches the persona tables (Codex review, PR 13) -------------------------------------------------------
+-- ADR-034's persona events (0220) take a pseudonym and empty request/reason under a registered erasure; nothing else may change.
+alter table control.nexloop_consumer_persona_events drop constraint nexloop_consumer_persona_events_consumer_id_check,
+ add constraint nexloop_consumer_persona_events_consumer_id_check check(consumer_id~'^([a-f0-9]{64}|pseudonym:[0-9a-f]{32})$');
+alter table control.nexloop_consumer_persona_events drop constraint nexloop_consumer_persona_events_reason_check,
+ add constraint nexloop_consumer_persona_events_reason_check check(char_length(reason) between 1 and 500 or (reason='' and consumer_id like 'pseudonym:%'));
+create or replace function control.nexloop_consumer_persona_events_append_only() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
+begin
+ if runtime.nexloop_erasure_permits(current_user::text,tg_table_schema||'.'||tg_table_name,tg_op,to_jsonb(old),case when tg_op='UPDATE' then to_jsonb(new) end) then
+  if tg_op='DELETE' then return old;end if;
+  return new;
+ end if;
+ raise exception 'consumer persona events are append-only' using errcode='42501';
+end $$;
+-- Source of the body below: 0145_at043_incentives.sql (the latest runtime.nexloop_erasure_step), copied unchanged except the
+-- marked 0230 block in the consumer phase and its two counts (operator_persona_events, persona_events).
+create or replace function runtime.nexloop_erasure_step(p_tenant text,p_world text,p_request text,p_batch integer,p_by text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare e control.nexloop_consumer_erasures;n2 integer:=0;n3 integer:=0;v_ref text;n integer:=0;m integer:=0;x record;v_phases text[]:=array['messages','claims','runs_text','effects','commercial',
+ 'commitments','incentives','plans','references','relay','runs_files','artifacts','consumer'];v_next text;v_pseudonym text;v_counts jsonb:='{}'::jsonb;k bytea;v_held boolean;
+begin
+ perform set_config('eios.tenant_id',p_tenant,true);
+ select * into e from control.nexloop_consumer_erasures where tenant_id=p_tenant and world=p_world and request_id=p_request for update skip locked;
+ if not found or e.state in ('pending_confirmation','completed','completed_with_holds') then return jsonb_build_object('request_id',p_request,'state',e.state,'progress',false);end if;
+ v_ref:='erasure:'||e.request_id;
+ v_held:=runtime.nexloop_retention_held(p_tenant,p_world,'consumer',e.consumer_id);
+ if e.state in ('blocking','settling','waiting_unknown_effects') then
+  -- Unknown external results are reconciled first (0065); never resent blindly.
+  if exists(select 1 from runtime.nexloop_effect_intents i where i.tenant_id=p_tenant and i.world=p_world and i.consumer_id=e.consumer_id
+    and i.state in ('dispatching','unknown')) then
+   update control.nexloop_consumer_erasures set state='waiting_unknown_effects',updated_at=clock_timestamp() where tenant_id=p_tenant and world=p_world and request_id=p_request;
+   return jsonb_build_object('request_id',p_request,'state','waiting_unknown_effects','progress',false);
+  end if;
+  update control.nexloop_consumer_erasures set state='purging',phase='messages',updated_at=clock_timestamp() where tenant_id=p_tenant and world=p_world and request_id=p_request
+   returning * into e;
+ end if;
+ if v_held then
+  -- A Consumer hold keeps everything; the request completes with the hold recorded and nothing purged.
+  perform runtime.nexloop_erasure_tombstone(p_tenant,p_world,'consumer_erasure',v_ref,'consumer','consumer',e.consumer_id,'skipped_hold','{}'::jsonb,p_by);
+  update control.nexloop_consumer_erasures set state='completed_with_holds',phase=null,completed_at=clock_timestamp(),updated_at=clock_timestamp()
+   where tenant_id=p_tenant and world=p_world and request_id=p_request;
+  return jsonb_build_object('request_id',p_request,'state','completed_with_holds','progress',true);
+ end if;
+ if e.phase='messages' then
+  for x in select m.message_id from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations c on c.tenant_id=m.tenant_id and c.world=m.world
+    and c.conversation_id=m.conversation_id where m.tenant_id=p_tenant and m.world=p_world and c.consumer_id=e.consumer_id
+    and (m.record->>'body'<>'' or exists(select 1 from ontology.objects o where o.tenant_id=m.tenant_id and o.world=m.world and o.type_name='Message' and o.object_id=m.message_id))
+    order by m.conversation_id,m.sequence limit p_batch loop
+   perform runtime.nexloop_erase_message(p_tenant,p_world,x.message_id,v_ref,'consumer_erasure',p_by);n:=n+1;
+  end loop;
+  v_counts:=jsonb_build_object('messages',n);
+ elsif e.phase='claims' then
+  with due as (select claim_id from ontology.nexloop_claims where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id
+    and not (value ? 'erased') limit p_batch for update skip locked)
+  update ontology.nexloop_claims c set quote='',subject_text='',condition_text='',time_expression='',value='{"type":"erased","value":null,"erased":true}'::jsonb
+   from due where c.tenant_id=p_tenant and c.world=p_world and c.claim_id=due.claim_id;
+  get diagnostics n=row_count;v_counts:=jsonb_build_object('claims',n);
+ elsif e.phase='runs_text' then
+  perform runtime.nexloop_erasure_open('runtime.nexloop_model_request_prompts',array['request_text'],false,v_ref);
+  update runtime.nexloop_model_request_prompts set request_text='' where tenant_id=p_tenant and world=p_world and request_text<>''
+   and run_id in (select runtime.nexloop_consumer_runs(p_tenant,p_world,e.consumer_id));
+  get diagnostics n=row_count;
+  update runtime.jobs j set normalized_input=j.normalized_input||'{"input":"","input_erased":true}'::jsonb from authz.nexloop_runtime_run_bindings b
+   where b.tenant_id=p_tenant and b.world=p_world and j.tenant_id=b.tenant_id and j.job_id=b.task_id and coalesce(j.normalized_input->>'input','')<>''
+    and b.run_id in (select runtime.nexloop_consumer_runs(p_tenant,p_world,e.consumer_id));
+  get diagnostics m=row_count;
+  perform runtime.nexloop_erasure_close();
+  v_counts:=jsonb_build_object('prompts',n,'jobs',m);n:=0;
+ elsif e.phase='effects' then
+  -- Frozen requests carry the text sent or requested; dispatching/unknown were reconciled before purging began.
+  update runtime.nexloop_effect_intents set frozen_request='{"erased":true}'::jsonb where tenant_id=p_tenant and world=p_world
+   and consumer_id=e.consumer_id and state not in ('dispatching','unknown') and not (frozen_request ? 'erased');
+  get diagnostics m=row_count;v_counts:=jsonb_build_object('effect_requests',m);
+ elsif e.phase='plans' then
+  perform runtime.nexloop_erasure_open('runtime.nexloop_strategies',array['content'],false,v_ref);
+  perform runtime.nexloop_erasure_open('runtime.nexloop_plan_steps',array['expected_result','prerequisites'],false,v_ref);
+  perform runtime.nexloop_erasure_open('runtime.nexloop_plan_events',array['reason'],false,v_ref);
+  perform runtime.nexloop_erasure_open('runtime.nexloop_plan_outcomes',array['outcome'],false,v_ref);
+  update runtime.nexloop_strategies set content='' where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id and content<>'';
+  get diagnostics m=row_count;
+  update runtime.nexloop_plan_steps s set expected_result='',prerequisites='[]'::jsonb from runtime.nexloop_plans p
+   where p.tenant_id=p_tenant and p.world=p_world and p.consumer_id=e.consumer_id and s.tenant_id=p.tenant_id and s.world=p.world
+    and s.plan_id=p.plan_id and s.version=p.version and (s.expected_result<>'' or s.prerequisites<>'[]'::jsonb);
+  get diagnostics n2=row_count;
+  -- Reason codes (snake_case) stay: they are the status chain; free text goes.
+  update runtime.nexloop_plan_events v set reason='' where v.tenant_id=p_tenant and v.world=p_world and v.reason<>'' and v.reason!~'^[a-z][a-z0-9_]{0,63}$'
+   and exists(select 1 from runtime.nexloop_plans p where p.tenant_id=v.tenant_id and p.world=v.world and p.plan_id=v.plan_id and p.consumer_id=e.consumer_id);
+  get diagnostics n3=row_count;
+  update runtime.nexloop_plan_outcomes o set outcome='{"erased":true}'::jsonb where o.tenant_id=p_tenant and o.world=p_world and not (o.outcome ? 'erased')
+   and exists(select 1 from runtime.nexloop_plans p where p.tenant_id=o.tenant_id and p.world=o.world and p.plan_id=o.plan_id and p.consumer_id=e.consumer_id);
+  get diagnostics n=row_count;
+  perform runtime.nexloop_erasure_close();
+  v_counts:=jsonb_build_object('strategies',m,'plan_steps',n2,'plan_reasons',n3,'plan_outcomes',n);n:=0;
+ elsif e.phase='references' then
+  -- Formal objects that name the Consumer: deleted with their events, relations and (assessments) revisions.
+  perform runtime.nexloop_erasure_open('ontology.objects',null,true,v_ref);
+  perform runtime.nexloop_erasure_open('ontology.nexloop_assessment_revisions',null,true,v_ref);
+  for x in select o.type_name,o.object_id from ontology.objects o where o.tenant_id=p_tenant and o.world=p_world
+    and o.type_name not in ('Consumer','Commitment','CommercialRecord','Message')
+    and (o.properties->>'consumer_id'=e.consumer_id
+     or (o.type_name='RelationshipAssessment' and (e.consumer_id in (o.properties->>'source_id',o.properties->>'target_id')
+      or exists(select 1 from runtime.nexloop_conversation_messages cm join runtime.nexloop_conversations cv on cv.tenant_id=cm.tenant_id and cv.world=cm.world
+        and cv.conversation_id=cm.conversation_id where cm.tenant_id=p_tenant and cm.world=p_world and cm.message_id=o.properties->>'evidence_message_id'
+        and cv.consumer_id=e.consumer_id))))
+    order by o.type_name,o.object_id limit p_batch loop
+   delete from ontology.events where tenant_id=p_tenant and object_type=x.type_name and object_id=x.object_id;
+   delete from ontology.relations where tenant_id=p_tenant and ((source_type=x.type_name and source_object_id=x.object_id) or (target_type=x.type_name and target_object_id=x.object_id));
+   if x.type_name='RelationshipAssessment' then
+    delete from ontology.nexloop_assessment_revisions where tenant_id=p_tenant and world=p_world and assessment_id=x.object_id;
+   end if;
+   delete from ontology.objects where tenant_id=p_tenant and world=p_world and type_name=x.type_name and object_id=x.object_id;
+   perform runtime.nexloop_erasure_tombstone(p_tenant,p_world,'consumer_erasure',v_ref,'formal_object','object',x.type_name||'/'||x.object_id,'deleted','{}'::jsonb,p_by);
+   n:=n+1;v_counts:=v_counts||jsonb_build_object('objects:'||x.type_name,coalesce((v_counts->>('objects:'||x.type_name))::integer,0)+1);
+  end loop;
+  perform runtime.nexloop_erasure_close();
+ elsif e.phase='relay' then
+  -- Relay multi-consumer (0160–0163): the consumer's relay enrollments (withdrawn by the erasure itself: the relay already
+  -- skipped it while erasing) are cleared with its rotation cursor and claim records; one tombstone, counts only.
+  perform runtime.nexloop_erasure_open('control.nexloop_relay_enrollments',null,true,v_ref);
+  delete from control.nexloop_relay_enrollments where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  get diagnostics n2=row_count;
+  perform runtime.nexloop_erasure_close();
+  delete from runtime.nexloop_relay_consumer_cursors where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  get diagnostics n3=row_count;
+  delete from runtime.nexloop_relay_claims where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  get diagnostics m=row_count;
+  perform runtime.nexloop_erasure_tombstone(p_tenant,p_world,'consumer_erasure',v_ref,'relay_enrollment','control.nexloop_relay_enrollments',e.consumer_id,'deleted',
+   jsonb_build_object('relay_enrollments',n2,'relay_cursors',n3,'relay_claims',m),p_by);
+  v_counts:=jsonb_build_object('relay_enrollments',n2,'relay_cursors',n3,'relay_claims',m);n2:=0;n3:=0;m:=0;
+ elsif e.phase='commercial' then
+  v_counts:=runtime.nexloop_commercial_pseudonymize_consumer(p_tenant,p_world,e.consumer_id);
+  perform set_config('eios.tenant_id',p_tenant,true);
+  v_pseudonym:='pseudonym:'||encode(extensions.gen_random_bytes(16),'hex');
+  perform runtime.nexloop_erasure_open('runtime.nexloop_cost_entries',array['consumer_ref'],false,v_ref);
+  perform runtime.nexloop_erasure_open('control.nexloop_metric_cohorts',array['member_ref'],false,v_ref);
+  update runtime.nexloop_cost_entries set consumer_ref=null where tenant_id=p_tenant and world=p_world and consumer_ref=e.consumer_id;
+  get diagnostics n=row_count;
+  update control.nexloop_metric_cohorts set member_ref=v_pseudonym where tenant_id=p_tenant and world=p_world and member_ref=e.consumer_id;
+  get diagnostics m=row_count;
+  perform runtime.nexloop_erasure_close();
+  v_counts:=v_counts||jsonb_build_object('cost_entries',n,'cohort_members',m);n:=0;
+ elsif e.phase='incentives' then
+  -- AT-043: an issue whose provider answer is outstanding is settled first (queried, never re-sent); an accepted one is
+  -- refused; then the rows keep amounts, states and ids but not the person: a random pseudonym for the Consumer, no
+  -- notification text, no reply binding, no control snapshot (it names the Consumer).
+  if exists(select 1 from runtime.nexloop_incentive_issues where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id
+    and state in ('dispatching','unknown')) then
+   return jsonb_build_object('request_id',p_request,'state','purging','phase','incentives','progress',false,'waiting','incentive_results');
+  end if;
+  update runtime.nexloop_incentive_issues set state='refused',refusal_code='consumer_erasing',finished_at=clock_timestamp(),updated_at=clock_timestamp()
+   where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id and state='accepted';
+  get diagnostics m=row_count;
+  perform runtime.nexloop_erasure_open('runtime.nexloop_incentive_issues',array['consumer_id','notification_text','reply_to_message_id','control_snapshot'],false,v_ref);
+  update runtime.nexloop_incentive_issues set consumer_id='pseudonym:'||encode(extensions.gen_random_bytes(16),'hex'),notification_text='',
+   reply_to_message_id=null,control_snapshot='{"erased":true}'::jsonb where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  get diagnostics n2=row_count;
+  perform runtime.nexloop_erasure_close();
+  v_counts:=jsonb_build_object('incentive_issues',n2,'incentive_refused',m);
+ elsif e.phase='commitments' then
+  perform runtime.nexloop_erasure_open('ontology.objects',array['commitment_erasure'],false,v_ref);
+  update ontology.objects set properties=properties||jsonb_build_object('made_to','erasure:'||e.request_id,'condition',null),updated_at=clock_timestamp()
+   where tenant_id=p_tenant and world=p_world and type_name='Commitment' and properties->>'made_to'=e.consumer_id;
+  get diagnostics n=row_count;
+  perform runtime.nexloop_erasure_close();
+  v_counts:=jsonb_build_object('commitments',n);n:=0;
+ elsif e.phase='runs_files' then
+  insert into runtime.nexloop_run_purge_items(tenant_id,world,run_id,request_ref,reason)
+   select p_tenant,p_world,r,v_ref,'consumer_erasure' from runtime.nexloop_consumer_runs(p_tenant,p_world,e.consumer_id) r on conflict do nothing;
+  get diagnostics m=row_count;v_counts:=jsonb_build_object('run_purges_queued',m);
+ elsif e.phase='artifacts' then
+  insert into runtime.nexloop_erasure_artifacts(tenant_id,world,artifact_id,request_id)
+   select p_tenant,p_world,k2.artifact_id,e.request_id from runtime.nexloop_context_packs k2 where k2.tenant_id=p_tenant and k2.world=p_world
+    and k2.run_id in (select runtime.nexloop_consumer_runs(p_tenant,p_world,e.consumer_id))
+   union select p_tenant,p_world,q.prompt_artifact_id,e.request_id from runtime.nexloop_model_requests q where q.tenant_id=p_tenant and q.world=p_world
+    and q.run_id in (select runtime.nexloop_consumer_runs(p_tenant,p_world,e.consumer_id))
+   on conflict do nothing;
+  get diagnostics m=row_count;v_counts:=jsonb_build_object('artifacts_queued',m);
+ elsif e.phase='consumer' then
+  -- Files first: the request completes only when its Run files and Artifacts are gone (a failed purge keeps it open).
+  if exists(select 1 from runtime.nexloop_run_purge_items where tenant_id=p_tenant and world=p_world and request_ref=v_ref and state='pending')
+   or exists(select 1 from runtime.nexloop_erasure_artifacts a join runtime.nexloop_local_artifacts l on l.tenant_id=a.tenant_id and l.world=a.world
+     and l.artifact_id=a.artifact_id where a.tenant_id=p_tenant and a.world=p_world and a.request_id=e.request_id and l.status<>'deleted') then
+   return jsonb_build_object('request_id',p_request,'state','purging','phase','consumer','progress',false,'waiting','files');
+  end if;
+  -- D5: an identity-free key per external reference (salted per tenant, owner side) keeps a re-imported identity uncontacted.
+  insert into control.nexloop_erasure_salts(tenant_id,salt) values(p_tenant,extensions.gen_random_bytes(32)) on conflict do nothing;
+  select salt into k from control.nexloop_erasure_salts where tenant_id=p_tenant;
+  insert into control.nexloop_erased_contact_keys(tenant_id,world,key_digest,request_id)
+   select p_tenant,p_world,encode(extensions.hmac(convert_to(ref.value#>>'{}','UTF8'),k,'sha256'),'hex'),e.request_id
+   from ontology.objects o,jsonb_array_elements(case when jsonb_typeof(o.properties->'external_id_refs')='array' then o.properties->'external_id_refs' else '[]'::jsonb end) ref
+   where o.tenant_id=p_tenant and o.world=p_world and o.type_name='Consumer' and o.object_id=e.consumer_id on conflict do nothing;
+  get diagnostics m=row_count;
+  -- 0230 (Codex review, PR 13): the operator persona assignment leaves with the Consumer: the per-Consumer rows are deleted, the
+  -- append-only assignment events keep persona ids and times under a random pseudonym, without request or reason. ADR-034's
+  -- persona marker (0220) likewise: the row goes, its events keep values and times under the same pseudonym, reason cleared.
+  v_pseudonym:='pseudonym:'||encode(extensions.gen_random_bytes(16),'hex');
+  delete from control.nexloop_operator_persona_assignments where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  delete from control.nexloop_operator_persona_current where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  perform runtime.nexloop_erasure_open('control.nexloop_operator_persona_assignment_events',array['consumer_id','request_intent','reason'],false,v_ref);
+  update control.nexloop_operator_persona_assignment_events set consumer_id=v_pseudonym,request_intent=null,reason=null
+   where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  get diagnostics n2=row_count;
+  perform runtime.nexloop_erasure_close();
+  delete from control.nexloop_consumer_personas where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  perform runtime.nexloop_erasure_open('control.nexloop_consumer_persona_events',array['consumer_id','request_intent','reason'],false,v_ref);
+  update control.nexloop_consumer_persona_events set consumer_id=v_pseudonym,request_intent='',reason=''
+   where tenant_id=p_tenant and world=p_world and consumer_id=e.consumer_id;
+  get diagnostics n3=row_count;
+  perform runtime.nexloop_erasure_close();
+  delete from ontology.events where tenant_id=p_tenant and object_type='Consumer' and object_id=e.consumer_id;
+  delete from ontology.relations where tenant_id=p_tenant and ((source_type='Consumer' and source_object_id=e.consumer_id) or (target_type='Consumer' and target_object_id=e.consumer_id));
+  delete from ontology.objects where tenant_id=p_tenant and world=p_world and type_name='Consumer' and object_id=e.consumer_id;
+  get diagnostics n=row_count;
+  perform runtime.nexloop_erasure_tombstone(p_tenant,p_world,'consumer_erasure',v_ref,'consumer','consumer',e.consumer_id,'deleted',
+   e.counts||jsonb_build_object('consumer_object',n,'contact_keys',m,'operator_persona_events',n2,'persona_events',n3),p_by);
+  update control.nexloop_consumer_erasures set state='completed',phase=null,completed_at=clock_timestamp(),updated_at=clock_timestamp(),
+   counts=counts||jsonb_build_object('consumer_object',n,'contact_keys',m,'operator_persona_events',n2,'persona_events',n3) where tenant_id=p_tenant and world=p_world and request_id=p_request;
+  return jsonb_build_object('request_id',p_request,'state','completed','progress',true);
+ end if;
+ -- A phase is done when its batch was not full; then the next phase.
+ v_next:=case when n>=p_batch then e.phase else v_phases[array_position(v_phases,e.phase)+1] end;
+ update control.nexloop_consumer_erasures set phase=v_next,updated_at=clock_timestamp(),
+  counts=counts||(select coalesce(jsonb_object_agg(key,coalesce((counts->>key)::bigint,0)+(value#>>'{}')::bigint),'{}'::jsonb) from jsonb_each(v_counts))
+  where tenant_id=p_tenant and world=p_world and request_id=p_request;
+ return jsonb_build_object('request_id',p_request,'state','purging','phase',v_next,'progress',true,'counts',v_counts);
+end $$;

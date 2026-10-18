@@ -110,12 +110,17 @@ describe('0230 operator persona: optional section on a v6 Message Run pack',()=>
   const f=declaration();const {input,proof}=v6(f,p=>{p.operator_persona=persona();});
   expect(validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[]});
  });
- it.each(['bad_ref','source','extra_document_key','when_asked','extra_key','not_boolean'])('rejects %s',kind=>{
+ it.each(['bad_ref','source','extra_document_key','when_asked','extra_key','not_boolean','empty_document','no_display_name','no_tone','no_expression','no_max_chars','no_emoji',
+   'max_chars_too_small','long_name','values_not_strings','extra_expression_key'])('rejects %s',kind=>{
   const f=declaration();
   const {input,proof}=v6(f,p=>{const one:any=persona();
    if(kind==='bad_ref')one.persona_ref='operator-persona:lan@2';if(kind==='source')one.source='experiment_arm';
    if(kind==='extra_document_key')one.document.price_rule='八折';if(kind==='when_asked')one.ai_disclosure.when_asked='truthful';
    if(kind==='extra_key')one.tenant_id='x';if(kind==='not_boolean')one.ai_disclosure.block_human_claims='no';
+   if(kind==='empty_document')one.document={};if(kind==='no_display_name')delete one.document.display_name;if(kind==='no_tone')delete one.document.tone;
+   if(kind==='no_expression')delete one.document.expression;if(kind==='no_max_chars')delete one.document.expression.max_chars;if(kind==='no_emoji')delete one.document.expression.emoji;
+   if(kind==='max_chars_too_small')one.document.expression.max_chars=19;if(kind==='long_name')one.document.display_name='名'.repeat(41);
+   if(kind==='values_not_strings')one.document.values=[1];if(kind==='extra_expression_key')one.document.expression.discount='10%';
    p.operator_persona=one;});
   expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
  });
