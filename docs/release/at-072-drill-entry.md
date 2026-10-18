@@ -3,7 +3,7 @@
 - **验收项**：AT-072（第二维护者演练）。负责人本人执行，只读本仓库的公开文档。
 - **时间**：2026-10-19（周一）17:00 之后。
 - **本单的作用**：给出从哪份文档开始、按什么顺序读；说明一次性环境的边界；提供偏差记录模板，以及演练期间的沟通规则。本单不替代任何手册，手册里写不清的地方照实记成偏差。
-- **桌面推演**：L5 于 2026-10-18 按本单顺序走了一遍。恢复链路的第 1–9 步在开发机上用一次性 PG 18 实测通过；发布链路只做了文档推演，加上 `render.py --check` 一项实测。发现的断点和处理见 §5。
+- **桌面推演**：L5 于 2026-10-18 按本单顺序走了一遍。恢复链路（备份 → 恢复 → 重放 → 校验 → 开放）在开发机上按 [本机恢复演练手册](at-072-local-restore-drill.md) 实测通过；发布链路只做了文档推演，加上 `render.py --check` 一项实测。发现的断点和处理见 §5。
 
 ## 1. 演练期间的规则
 
@@ -16,7 +16,7 @@
 
 | 部分 | 环境 | 允许 | 不允许 |
 |---|---|---|---|
-| 恢复 | **Mac 本地临时 PG 18**：一个新建的临时目录，里面放源集群、归档、备份和恢复出来的实例 | 合成数据，即测试 profile 的 `world=test` 租户；本机 socket；用完删除整个目录 | 连接 stage 的 DATA_HOST 或 APP_HOST；使用 pgBackRest 仓库或 restic 仓库的真实口令 |
+| 恢复 | **Mac 本地临时 PG 18**：`scripts/dev/restore_drill.sh` 建的归档集群与回环 API，加上 `.dev-drill/` 里的备份、日志和恢复出来的实例 | 合成租户、合成账号；本机 socket 与 127.0.0.1；在恢复出来的一次性实例上轮换 API 角色的口令并开放；用完删除 | 连接 stage 的 DATA_HOST 或 APP_HOST；使用 pgBackRest 仓库或 restic 仓库的真实口令 |
 | 发布 | **CI 主机上 `nexloop-ci` 的可用范围**：它自己的构建工作区（`$CI_BUILD_ROOT`）、rootless docker（containerd 存储，linux/amd64）、syft/grype，以及 NX-033 的 CI 队列 | 在构建工作区里新建一个演练目录，放一次性的发布根和临时签名密钥；演练结束后删除 | 使用 `nexloop-release` 用户、`/srv/nexloop/releases` 或正式发布签名私钥；`deploy.py promote`；任何 `docker compose up`；向 stage 拷贝产物 |
 | 部署 dry-run | 同上，`nexloop-ci` 账户 | `deploy.py dry-run` 只渲染、只核对，`executed: false` | 读取真实的 stage.env；连接 stage |
 
@@ -51,8 +51,10 @@
 |---|---|---|---|
 | 1 | [OPERATIONS.md](../OPERATIONS.md) §5 | 恢复状态机 `restored → replayed → verified_readonly → open` | 只读 |
 | 2 | [NX-035 恢复命令行](../implementation/NX-035-restore-cli.md) §1–§3 | 恢复做什么、开放前核对、参数与凭据 | 只读 |
-| 3 | 同上 **§7** | 本机一次性环境的逐条命令（第 1–10 步） | 照做。第 9 步做两次：一次 `--target-name`，一次 `--target-time`（PITR），各用新的 `--pg-path` 与端口 |
-| 4 | [NX-035 本地部分实现说明](../implementation/NX-035-local-implementation.md) “开放”一节 | `open_scope` 的条件 | 见 §5 断点 B6 |
+| 3 | [AT-072 本机恢复演练](at-072-local-restore-drill.md) §0–§9 | 源端（归档 PG + 工作台 API）→ 备份 → 恢复点 → 经工作台合成删除 → 命名点恢复 → 在恢复实例上起 API → 校验 → 负责人开放 → PITR → 清理 | **照做**，这是恢复部分的主手册。§10 是出错时的对照表 |
+| 4 | [NX-035 本地部分实现说明](../implementation/NX-035-local-implementation.md) “开放”一节 | `open_scope` 的条件 | 只读，用来理解第 3 行 §6 的结果 |
+
+[NX-035 恢复命令行](../implementation/NX-035-restore-cli.md) §7 是不带工作台的最小命令序列，只覆盖到 `verified_readonly`，本次不用。
 
 背景资料：[NX-035 部署运行手册](../implementation/NX-035-deploy-runbook.md) §4，这是 stage 上的真实演练，本次**不执行**，只用来对照。
 
@@ -90,7 +92,8 @@
 | B2 | OPERATIONS §6 没有链接首个签名发布运行手册，也没有说明开发机构建会被拒绝 | 已修：补上链接与说明 |
 | B3 | 公开文档里没有本机一次性恢复的逐条命令；本机路径此前只存在于测试代码 | 已修：恢复命令行文档新增 §7，第 1–10 步已在开发机实测 |
 | B4 | macOS 上 PG 起不来的两个原因手册没写：`LC_ALL` 未设置；socket 路径超过 103 字节 | 已写入 §7 的前提 |
-| B5 | `nexloop-compose-bootstrap` 只能用于全新空库，失败时只输出笼统的错误 | 已写入 §7 第 4 步；改进报错属于代码改动，列为后续 |
-| B6 | **开放**（`open_scope`）在一次性环境里没有公开路径：它只经工作台的受治理 Action 执行，需要运行中的 API 和负责人的工作台身份，而测试 profile 两样都不提供 | **未解决**。演练中恢复部分预计停在 `verified_readonly`，开放一项会记为“阻断”。需要调度员决定：补一份“一次性环境起 API 并以负责人身份开放”的手册，或者接受由 stage 演练的开放证据替代 |
+| B5 | `nexloop-compose-bootstrap` 只能用于全新空库，失败时只输出笼统的错误 | 已写入恢复命令行 §7 第 4 步；代码修正见 B9 |
+| B6 | **开放**（`open_scope`）在一次性环境里没有公开路径：它只经工作台的受治理 Action 执行，需要运行中的 API 和负责人的工作台身份 | 已修（负责人 2026-10-18 选 A）：新增 [AT-072 本机恢复演练](at-072-local-restore-drill.md)，以及三个开发机脚本 `scripts/dev/restore_drill.sh`、`restore_drill_serve.py`、`drill_workbench.py`。负责人经工作台开放，operator 被拒；2026-10-18 已按手册实测到 `open` |
 | B7 | 首个签名发布运行手册按 `nexloop-release` 与正式密钥编写，与“只在 nexloop-ci 范围内”的边界不一致 | 已在 §3.3 给出替换表；手册本身不改，那是正式发布的流程 |
-| B8 | 本机路径中“重放”只覆盖空日志：§7 的命令无法在恢复点之后造一次合成删除，删除要经工作台；所以 AT-059 意义上的重放不会真正发生 | 未解决，与 B6 同源；演练中照实记录 |
+| B8 | 本机路径中“重放”只覆盖空日志：恢复点之后的合成删除要经工作台，而工作台的 HTTP 入口没有 `erase_consumer` | 已修：工作台 HTTP 入口补上 `erase_consumer` 的参数校验（注册表 0132 已登记为人类操作，owner 专属，授权路径不变；测试 `tests/test_workbench_erase_consumer_pg.py`）。命名点恢复与 PITR 都实测重放了 1 条删除和 1 条联系限制 |
+| B9 | `nexloop-compose-bootstrap` 失败时只输出笼统错误（B5） | 另开分支修代码，给出具体的拒绝原因 |

@@ -87,6 +87,8 @@ OPERATIONS={
     # NX-030 (0150): owner-only; selector null silences every selector of the rule; at most 7 days (SQL).
     'silence_alert':{'rule_id':_id(re.compile(r'[a-z][a-z0-9_]{0,63}')),'selector':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9_.:-]{1,64}',v)) else (_ for _ in ()).throw(ValueError('selector')),
         'until':_utc,'reason':_reason},
+    # NX-029 (0142): owner-only; erase one Consumer (blocking at once, purge by the keeper), with a reason.
+    'erase_consumer':{'consumer_id':_id(_HEX),'reason':_reason},
     # NX-035 (0147): owner-only; the restore reference names the restore being opened.
     'open_restore_scope':{'restore_ref':_id(re.compile(r'[A-Za-z0-9._:-]{1,64}'))},
     # NX-053 (0154): owner-only; one of the key digest or the erasure request (the other null), with a reason.

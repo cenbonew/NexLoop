@@ -101,4 +101,5 @@ L2 的 pgBackRest 备份（`l2/nx035-pgbackrest`）在本分支切出时还没�
 | 10 | 停止并删除：`pg_ctl -D "$W/restored" -m fast -w stop`、`pg_ctl -D "$W/data" -m fast -w stop`，然后删除 `$W`、`$K`、`$K2` | — |
 
 - 第 9 步不加 `--stop` 时实例保持运行，可以在 `verified_readonly` 状态下只读核对。
-- **开放**不在本节：`nexloop.restore.open_scope` 只经工作台的受治理 Action（HTTP 操作 `open_restore_scope`），由负责人登录工作台执行。一次性环境里需要先有运行中的 API 与负责人的工作台身份，本节的测试 profile 不提供这两样。
+- 带工作台的完整演练（恢复点之后经工作台合成删除、在恢复实例上开放）见 [AT-072 本机恢复演练](../release/at-072-local-restore-drill.md)。
+- **开放**不在本节：`nexloop.restore.open_scope` 只经工作台的受治理 Action（HTTP 操作 `open_restore_scope`），由负责人登录工作台执行。一次性环境里需要先有运行中的 API 与负责人的工作台身份，本节的测试 profile 不提供这两样，带开放的完整流程见上面的链接。
