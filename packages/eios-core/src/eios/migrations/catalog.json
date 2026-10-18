@@ -1070,6 +1070,11 @@
       "version": "0214",
       "name": "0214_effect_not_found_observation.sql",
       "sha256": "dfe8cdb50dbfc0f9c16296d10dfec349117a5bf81cdd30e8b6f3a62befa6162d"
+    },
+    {
+      "version": "0215",
+      "name": "0215_observability_rollup_incremental.sql",
+      "sha256": "492b4dfb77e777f4fe5872dc7ffb52d8b04a6a826284582aaea521630b412cac"
     }
   ]
 }

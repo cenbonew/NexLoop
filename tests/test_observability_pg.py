@@ -223,3 +223,25 @@ def test_doctor_observability_gate(observed, tmp_path):
     assert result.returncode == 0 and _json.loads(result.stdout)['foundation_checks_passed'] is True and 'password' not in result.stdout
     wrong = private(tmp_path, 'api-dsn', make_conninfo(o['pg'], user='nexloop_api'))
     assert observability(wrong, RULES)['checks']['metrics_export'] is False  # only the read-only metrics role is accepted
+
+
+def test_maintain_rolls_only_recent_hours_in_one_pass(observed):
+    # Alert-evaluate timeout (2026-10-18): maintain re-rolls from the newest stored hour minus one, not all 7 days, and its
+    # rollup matches the per-key max/sum of the samples.
+    admin = observed['admin']
+    admin.execute('delete from runtime.nexloop_process_sample_hours')
+    admin.execute('delete from runtime.nexloop_process_samples')
+    insert = ("insert into runtime.nexloop_process_samples(kind,service,instance,window_start,window_seconds,sample) "
+              "values('relay_step','claim','i1',date_trunc('hour',clock_timestamp())-%s::interval+interval '5 minutes',60,%s)")
+    for ago, sample in [('3 hours', {'calls': 2, 'max_ms': 5}), ('3 hours', {'calls': 3, 'max_ms': 9, 'h_4': 1}), ('1 hour', {'calls': 7, 'ok': True})]:
+        admin.execute(insert, (ago, Jsonb(sample)))
+    admin.execute("insert into runtime.nexloop_process_samples(kind,service,instance,window_start,window_seconds,sample) "
+                  "values('relay_step','claim','i1',date_trunc('hour',clock_timestamp())+interval '1 second',60,'{\"calls\":1}')")
+    assert admin.execute('select runtime.nexloop_observability_maintain()').fetchone()[0]['rolled'] == 2
+    rows = admin.execute("select clock_timestamp()-hour>interval '2 hours',samples,summary from runtime.nexloop_process_sample_hours order by hour").fetchall()
+    assert rows == [(True, 2, {'max': {'calls': 5 - 2, 'max_ms': 9, 'h_4': 1}, 'sum': {'calls': 5, 'max_ms': 14, 'h_4': 1}}),
+                    (False, 1, {'max': {'calls': 7}, 'sum': {'calls': 7}})]
+    # The 3-hour-old rollup is older than newest-minus-one-hour: a second pass leaves it alone.
+    admin.execute("update runtime.nexloop_process_sample_hours set samples=99 where clock_timestamp()-hour>interval '2 hours'")
+    assert admin.execute('select runtime.nexloop_observability_maintain()').fetchone()[0]['rolled'] == 1
+    assert admin.execute('select array_agg(samples order by hour) from runtime.nexloop_process_sample_hours').fetchone()[0] == [99, 1]
