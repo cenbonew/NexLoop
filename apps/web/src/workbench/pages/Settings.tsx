@@ -2,7 +2,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readAudit,readSettings} from '../api';
 import {Failure,Page} from './Page';
-import {Empty} from '../ui';
+import {Empty,Time} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {RealDispatchPanel} from '../RealDispatchPanel';
@@ -28,7 +28,7 @@ export function ReadAudit(){
   return <section aria-labelledby="workbench-audit-title"><h2 id="workbench-audit-title">成员读取审计</h2>
     {query.isPending?<p role="status">{STATE_TEXT.loading}</p>:query.isError?<Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>
       :!query.data.length?<p className="note">{STATE_TEXT.empty}</p>:<DataTable label="成员读取审计" rows={query.data} rowKey={r=>String(r.audit_id)} columns={[
-      {label:'时间',main:true,cell:r=><NoWrap>{when(r.read_at)}</NoWrap>},{label:'成员',cell:r=><NoWrap>{memberAlias(r.principal_id,r.role)}</NoWrap>},
+      {label:'时间',main:true,cell:r=><NoWrap><Time value={r.read_at}/></NoWrap>},{label:'成员',cell:r=><NoWrap>{memberAlias(r.principal_id,r.role)}</NoWrap>},
       {label:'对象',wide:true,cell:r=><IdRef kind={r.object_kind==='message'?'消息':'客户'} value={r.target_resource}/>},{label:'用途',cell:r=><NoWrap>{r.read_purpose}</NoWrap>}]}/>}</section>;
 }
 

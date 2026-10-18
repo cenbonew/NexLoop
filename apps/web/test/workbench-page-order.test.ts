@@ -70,5 +70,5 @@ test('F11: audit objects as type + short ID (full value in the title, copy butto
   const items=[{category:'read',action:'read.contact',principal_id:'synthetic-staff-owner-0123456789',role:'owner',target_kind:'consumer',target_ref:id('a'),intent_id:null,occurred_at:'2026-10-18T09:00:00+00:00'}];
   const html=page([[['workbench','human-actions'],items]],{page:'audit'});
   expect(html).toContain('consumer </span>');expect(html).toContain(`title="${id('a')}"`);expect(html).toContain('aaaaaaaa…');expect(html).not.toContain(`>${id('a')}<`);
-  expect(html).toContain('复制');expect(html).toContain('负责人 · synthe…6789');expect(html).toMatch(/white-space:nowrap[^>]*>2026/);
+  expect(html).toContain('复制');expect(html).toContain('负责人 · synthe…6789');expect(html).toMatch(/white-space:nowrap[^>]*><time dateTime="[^"]+" title="北京时间 [^"]+">2026/);
 });

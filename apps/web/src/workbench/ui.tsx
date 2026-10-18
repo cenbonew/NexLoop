@@ -35,9 +35,13 @@ export const intentTone=(state:string):Tone=>state==='fulfilled'||state==='confi
 /** Commitment statuses as tones: kept, broken, open or waiting, cancelled. */
 export const commitmentTone=(status:string):Tone=>/fulfill|kept|satisf|confirm|done/.test(status)?'ok':/breach|fail|violat/.test(status)?'fail':/cancel|withdraw|void/.test(status)?'neutral':'pending';
 
+/** A polite live region (always mounted, visually hidden): screen readers hear `text` when it changes, e.g. the number of
+ * results after a tab or filter switch (batch 8). */
+export function Announce({text}:{text:string}){return <p className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-announce>{text}</p>;}
+
 // ---- F14: tabs ----
 /** Tabs with aria-selected, roving tabindex, ←/→/Home/End to move and select, Enter/Space to select; focus follows the selection. */
-export function Tabs<K extends string>({label,tabs,value,onChange}:{label:string;tabs:{key:K;label:ReactNode}[];value:K;onChange:(key:K)=>void}){
+export function Tabs<K extends string>({label,tabs,value,onChange,announce}:{label:string;tabs:{key:K;label:ReactNode}[];value:K;onChange:(key:K)=>void;announce?:string}){
   const refs=useRef<(HTMLButtonElement|null)[]>([]);
   const index=Math.max(0,tabs.findIndex(t=>t.key===value));
   function select(i:number){const t=tabs[(i+tabs.length)%tabs.length];onChange(t.key);refs.current[(i+tabs.length)%tabs.length]?.focus();}
@@ -46,8 +50,9 @@ export function Tabs<K extends string>({label,tabs,value,onChange}:{label:string
     if(to!==undefined){event.preventDefault();select(to);}
     else if(event.key==='Enter'||event.key===' '){event.preventDefault();select(i);}
   }
-  return <div role="tablist" aria-label={label} className="tabs">{tabs.map((t,i)=><button key={t.key} ref={e=>{refs.current[i]=e;}} type="button" role="tab"
-    aria-selected={i===index} tabIndex={i===index?0:-1} className={i===index?'tab tab-selected':'tab'} onClick={()=>select(i)} onKeyDown={e=>key(e,i)}>{t.label}</button>)}</div>;
+  return <><div role="tablist" aria-label={label} className="tabs">{tabs.map((t,i)=><button key={t.key} ref={e=>{refs.current[i]=e;}} type="button" role="tab"
+    aria-selected={i===index} tabIndex={i===index?0:-1} className={i===index?'tab tab-selected':'tab'} onClick={()=>select(i)} onKeyDown={e=>key(e,i)}>{t.label}</button>)}</div>
+    {announce!==undefined?<Announce text={announce}/>:null}</>;
 }
 
 // ---- F15: numbers and time ----
@@ -71,7 +76,8 @@ export function Time({value,now}:{value:string|null;now?:number}){
   if(!value)return <>—</>;
   const d=parse(value);if(Number.isNaN(d.getTime()))return <>{value}</>;
   const abs=d.toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'});
-  return <time dateTime={d.toISOString()} title={`北京时间 ${abs}`}>{abs}<span className="time-rel">（{relative(value,now)}）</span></time>;
+  const rel=relative(value,now);
+  return <time dateTime={d.toISOString()} title={`北京时间 ${abs}`}>{abs}{rel?<span className="time-rel">（{rel}）</span>:null}</time>;
 }
 
 // ---- Walkthrough F09 (batch 7): list tools ----

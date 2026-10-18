@@ -328,3 +328,5 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 .exceptions-all{margin-top:12px}.exceptions-all summary{cursor:pointer;color:var(--text-2)}
 .conversation-layout{display:grid;gap:16px;align-items:start}
 @media (min-width:1024px){.conversation-layout{grid-template-columns:minmax(0,1fr) minmax(18rem,26rem)}.conversation-layout>.side-tabs{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto}}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.time-rel{font-size:inherit}.data-table .time-rel{display:block}
