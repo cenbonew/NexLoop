@@ -23,7 +23,7 @@ test('a status badge has words and a symbol; the technical code only in the titl
 test('a finished intent needs no further dispatch; a failed one is not applicable', ()=>{
   const blocked={status:'ok' as const,prediction:{dispatchable:false,reason:'not_queued'}};
   expect(dispatchText(blocked,'fulfilled')).toBe('无需再次派发');expect(dispatchText(blocked,'confirmed')).toBe('无需再次派发');
-  expect(dispatchText(blocked,'failed')).toContain('不适用');expect(dispatchText(blocked,'unknown')).toContain('not_queued');
+  expect(dispatchText(blocked,'failed')).toContain('不适用');expect(dispatchText(blocked,'unknown')).toContain('不在派发队列');
 });
 test('each empty kind says what it is and what next', ()=>{
   for(const kind of ['none','filtered','not_enabled','forbidden','unavailable'] as const){
