@@ -228,3 +228,22 @@ button:disabled{cursor:wait;opacity:.7}
 .chat .message-receipt button{margin-top:0;height:36px;padding:0 14px;font-size:14px}
 .message-receipt p{margin:0;font-size:14px}.message-receipt small{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
 @media (max-height:600px){.chat .chat-composer textarea{min-height:2.75rem}.chat .chat-composer label{margin-bottom:4px}.chat .chat-composer .note{margin:4px 0 6px;font-size:13px}}
+
+/* Web layout batch 3 (details). Overview and operations: cards keep their own height (no stretched empty blocks), two columns at
+   1024, the action button at the foot of the card; empty and unavailable states look the same everywhere; conversation bubbles use
+   the width of the main area (inbound left, outbound right) and long words or URLs wrap; count columns get an even width on desktop;
+   table headers read in the secondary text colour. */
+.workbench-grid{grid-template-columns:repeat(auto-fill,minmax(18rem,1fr));align-items:start;gap:16px}
+.workbench-block{display:flex;flex-direction:column;gap:6px;border-radius:var(--radius);background:var(--surface)}
+.workbench-block>h2,.workbench-block>h3{margin:0 0 4px}.workbench-block>button{align-self:flex-start;margin-top:6px}
+.workbench-block ul{margin:0;padding-left:1.2em}.workbench-block p{margin:0}
+.workbench .workbench-empty{margin:8px 0;padding:10px 12px;border:1px dashed var(--border-strong);border-radius:var(--radius);background:var(--surface-2);color:var(--muted);font-size:14px;line-height:20px}
+.workbench .workbench-block .workbench-empty{margin:0;padding:0;border:0;background:none}
+.workbench-messages li{max-width:min(80%,56rem);overflow-wrap:anywhere}
+.workbench-messages li>p:last-child{white-space:pre-wrap}
+.workbench-messages .message-inbound{margin-right:auto}
+@media (max-width:639px){.workbench-messages li{max-width:92%}}
+.messages li p{overflow-wrap:anywhere}
+@media (min-width:640px){.data-table th.cell-num,.data-table td.cell-num{width:7rem}}
+.workbench th{color:var(--text-2)}
+.workspace code{font-size:inherit}

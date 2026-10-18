@@ -13,7 +13,7 @@ export function Page<T>({title,lead,query,actions,empty,forbidden,children}:{tit
     {query.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :query.isError?(forbidden&&kindOf(query.error)==='forbidden'?<div className="workbench-state workbench-state-forbidden" role="alert">{forbidden}</div>
         :<Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>)
-      :empty&&empty(query.data)?<p className="note" role="status">{STATE_TEXT.empty}</p>
+      :empty&&empty(query.data)?<p className="note workbench-empty" role="status">{STATE_TEXT.empty}</p>
       :children(query.data)}
   </section>;
 }
@@ -29,7 +29,7 @@ export function Failure({kind,onRetry}:{kind:ReturnType<typeof kindOf>;onRetry?:
 export function Block<T>({title,section,children}:{title:string;section:Section<T>;children:(data:T)=>ReactNode}){
   return <article className={'workbench-block workbench-block-'+section.status} aria-label={title}>
     <h2>{title}</h2>
-    {section.status==='ok'?children(section.data):<p className="note" role="status">{SECTION_TEXT[section.status]}</p>}
+    {section.status==='ok'?children(section.data):<p className="note workbench-empty" role="status">{SECTION_TEXT[section.status]}</p>}
   </article>;
 }
 
