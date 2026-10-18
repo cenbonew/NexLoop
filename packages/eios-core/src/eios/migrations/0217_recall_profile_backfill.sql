@@ -15,7 +15,9 @@ create table ontology.nexloop_recall_backfills(
  tenant_id text not null,world text not null,profile_id text not null,
  first_at timestamptz not null default clock_timestamp(),last_at timestamptz not null default clock_timestamp(),
  runs integer not null default 1 check(runs>=1),last_queued integer not null check(last_queued>=0),
- last_definition_types integer not null check(last_definition_types>=0),primary key(tenant_id,world,profile_id)
+ last_definition_types integer not null check(last_definition_types>=0),primary key(tenant_id,world,profile_id),
+ -- NX-052: every tenant_id has its tenant path.
+ constraint nexloop_recall_backfills_tenant_fk foreign key(tenant_id) references control.nexloop_tenants(tenant_id)
 );
 alter table ontology.nexloop_recall_backfills owner to nexloop_owner;
 alter table ontology.nexloop_recall_backfills enable row level security;
