@@ -1105,6 +1105,11 @@
       "version": "0221",
       "name": "0221_recall_quality_metric.sql",
       "sha256": "c5a4f776440a83dbc131dd83eb8c48c2fa316e189956f9c128d11d96c84dce7f"
+    },
+    {
+      "version": "0230",
+      "name": "0230_operator_persona.sql",
+      "sha256": "4b46882b80930a5195b99831e81dc7cb3ffc2e91fa3a8e2a930b6806086389ec"
     }
   ]
 }

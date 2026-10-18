@@ -504,6 +504,7 @@ class Backend:
             'commitments', 'commitment', 'contact', 'audit', 'review_queue', 'review_evidence', 'me', 'metrics', 'alerts', 'human_actions',
             'effect_determination',  # 0210: the owner's precheck before confirming an unknown effect did not happen
             'erasure_precheck',  # 0220: the owner's precheck before and after erasing a synthetic Consumer
+            'operator_personas',  # 0230: the owner's operator persona overview
             'consumer_history'}  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
         with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
