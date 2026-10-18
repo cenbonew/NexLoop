@@ -101,7 +101,7 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert all(f['w'] < f['parent'] for w in (1440, 1024) for f in pages[f'wb-goals-{w}']['fieldsets']), {w: pages[f'wb-goals-{w}']['fieldsets'] for w in (1440, 1024)}
     # Batch 5 (walkthrough F08, F12–F15): groups, next-stage pages last and marked; breadcrumbs on detail pages; the time zone note;
     # empty states with a kind and a next step (not enabled on experiments); badges in words; the page title near the top.
-    assert observed['shell'] == {'groups': ['运营', '监控', '管理'], 'last': ['本体 / 演进未启用', '实验空间未启用']}, observed['shell']
+    assert observed['shell'] == {'groups': ['运营', '模型与资产', '监控', '管理'], 'last': ['设置与治理', '实验空间未启用']}, observed['shell']
     # Batch 7 (F10): a conversation's breadcrumb also names its customer (alias or name) and leads back to them.
     assert all(pages[f'wb-consumer-{w}']['crumbs'] == ['消费者', '客户详情'] for w in (1440, 1024, 390))
     assert all(len(c := pages[f'wb-conversation-{w}']['crumbs']) == 3 and c[0] == '消费者' and c[1].startswith('客户') and c[2] == '会话' for w in (1440, 1024, 390)), \
