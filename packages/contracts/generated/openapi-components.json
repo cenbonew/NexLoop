@@ -4080,6 +4080,57 @@
                     "type": "boolean"
                   }
                 }
+              },
+              "preferences": {
+                "description": "0222: the consumer's own communication preferences (from their Claims, not dismissed by the owner); data for the model; quiet hours, frequency, channel and topic are also enforced at dispatch.",
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "claim_id",
+                    "dimension",
+                    "polarity",
+                    "value"
+                  ],
+                  "properties": {
+                    "claim_id": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "dimension": {
+                      "enum": [
+                        "quiet_hours",
+                        "frequency",
+                        "channel",
+                        "topic",
+                        "tone"
+                      ]
+                    },
+                    "polarity": {
+                      "enum": [
+                        "affirmed",
+                        "negated"
+                      ]
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        }
+                      ]
+                    }
+                  }
+                }
               }
             }
           }
@@ -5553,7 +5604,7 @@
     "commitment-view.schema.json": "e0f9f5acc84268282e036e265d70393a95bebc8edf45982e13dab048a4ec9e82",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-v6.schema.json": "75d963de9fafe3b0afba94f8c26d5262e369ab4c2c36fc6636c91f05c130592c",
+    "context-pack-v6.schema.json": "bc7d0c388e5cae8dd50c988fdee54beee21ee075f7e656a72233e0ffacaa4b62",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",

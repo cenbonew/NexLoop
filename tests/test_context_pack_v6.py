@@ -186,3 +186,12 @@ def test_operator_persona_is_an_optional_exact_section():
                 {'document':{**OPERATOR_PERSONA['document'],'discount':'10%'}},{'ai_disclosure':{**OPERATOR_PERSONA['ai_disclosure'],'when_asked':'truthful'}},
                 {'document':{**OPERATOR_PERSONA['document'],'expression':{'max_chars':5,'emoji':'few'}}}):
         assert not VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,**bad}}),bad
+
+
+def test_operator_persona_may_carry_the_consumers_preferences():
+    """0222: optional, at least one item when present; claim id, dimension, polarity and a short value only."""
+    good=[{'claim_id':'a'*64,'dimension':'tone','polarity':'affirmed','value':'简短'},{'claim_id':'b'*64,'dimension':'frequency','polarity':'affirmed','value':1}]
+    assert VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':good}})
+    ContextPackV6.model_validate({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':good}})
+    for bad in ([],[{**good[0],'quote':'原话'}],[{**good[0],'dimension':'price'}],[{**good[0],'claim_id':'x'}],[{**good[0],'value':'x'*65}]):
+        assert not VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':bad}}),bad
