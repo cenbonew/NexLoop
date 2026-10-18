@@ -1065,6 +1065,11 @@
       "version": "0213",
       "name": "0213_nx046_owner_knowledge_read.sql",
       "sha256": "8ecd491fba2a9dc66d6edac3848bb1f3e744580d27ae81e00641199db679ef8b"
+    },
+    {
+      "version": "0214",
+      "name": "0214_effect_not_found_observation.sql",
+      "sha256": "dfe8cdb50dbfc0f9c16296d10dfec349117a5bf81cdd30e8b6f3a62befa6162d"
     }
   ]
 }

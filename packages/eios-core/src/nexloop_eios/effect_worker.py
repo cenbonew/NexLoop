@@ -90,7 +90,9 @@ class _FreshExecutor:
         if name not in {'claim_effect','prepare_effect_dispatch','authorize_effect_query','record_effect_observation','record_effect_query_observation','record_effect_unknown','record_unrouted',
                         # 0174: without these the dispatcher's getattr found nothing, so the unknown back-off and the expired-origin stop never
                         # ran in the worker (10/16 stage: an unknown intent re-queried about once a second, one event each time).
-                        'back_off_unknown','settle_expired_origin'}:
+                        'back_off_unknown','settle_expired_origin',
+                        # 0214: a not_found answer is recorded as evidence, then the intent is an unknown again.
+                        'settle_not_found'}:
             raise AttributeError(name)
         def invoke(**arguments):return getattr(self.service(),name)(**arguments)
         return invoke

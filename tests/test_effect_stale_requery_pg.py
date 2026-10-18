@@ -140,3 +140,51 @@ def test_dispatch_controls_never_refuse_an_order_a_query_sends_nothing(governed_
     with fixture.current_executor() as executor:
         assert executor.requery_stale_unknown(intent_id=intent, confirmation_ref='owner:1') == {'intent_id': intent, 'armed': True, 'orders': 1}
     assert admin.execute("select available_at<='now'::timestamptz+interval '1 second' from runtime.nexloop_effect_outbox where intent_id=%s", (intent,)).fetchone() == (True,)
+
+
+def test_a_requery_the_provider_answers_not_found_is_recorded_as_evidence_and_stops_again(assembled_message, admin, tmp_path):  # noqa: F811
+    """0214 (10/18 stage, release 16): two owner orders armed and queried, and left no observation, because the worker turned
+    the provider's not_found into a plain unknown. The provider has no record of the reply (its records start later): the
+    query is recorded as a not_found observation of the current attempt, the intent stays unknown and is stopped again by the
+    0199 window, nothing is sent; the owner's confirm-not-delivered check (0210) then has its evidence."""
+    import threading
+    f = assembled_message
+    with chain(f, admin, tmp_path) as c:
+        tenant = c['tenant'];intent = c['receipts'][0]['intent_id']
+        material = delivery_material(tmp_path, timeout=1);config, secret = material['provider_config'], material['secret']
+        barrier = {'fsynced': threading.Event(), 'release': threading.Event()}
+        with delivery_service(c, tmp_path, material, barrier=barrier):
+            assert '"status":"unknown"' in effect_worker(c, tmp_path, config, secret, lease=3) and barrier['fsynced'].is_set()
+        # The provider keeps records from a later date only: this reply's export and manifest are gone.
+        for path in list(material['root'].glob(intent + '*')):
+            path.unlink()
+        deadline = time.monotonic() + 10
+        while not admin.execute('select lease_until is null or lease_until<=clock_timestamp() from runtime.nexloop_effect_outbox where intent_id=%s', (intent,)).fetchone()[0]:
+            assert time.monotonic() < deadline;time.sleep(.05)
+        assert '"status":"unknown"' in effect_worker(c, tmp_path, config, secret, lease=3)  # the provider unreachable then: unknown
+        assert outbound(admin, tenant)[0][1] == 'unknown'
+        admin.execute("update authz.nexloop_run_credentials set issued_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '2 days'+interval '2 minutes' "
+                      "where run_id=(select origin_run_id from runtime.nexloop_effect_intents where intent_id=%s)", (intent,))
+        admin.execute("update runtime.nexloop_effect_events set created_at=created_at-interval '2 days' where intent_id=%s", (intent,))
+        admin.execute("update runtime.nexloop_effect_intents set created_at=created_at-interval '2 days' where intent_id=%s", (intent,))
+        with open_backend(database_url=make_conninfo(c['o']['pg'], user='nexloop_action_worker'), artifact_root=tmp_path / 'settle-artifacts',
+                          signing_key_file=c['p']['backend_signing'], signing_key_id='explicit-configuration') as backend:
+            executor = backend.authenticate(c['credentials']['assembly-executor'].read_text().strip(), world='real')
+            assert executor.settle_expired_origin(intent_id=intent) == 'stopped'
+        posts = admin.execute('select count(*),max(attempt_revision) from runtime.nexloop_effect_attempts where intent_id=%s', (intent,)).fetchone()
+        events = admin.execute("select count(*) from runtime.nexloop_effect_events where intent_id=%s and event_kind='unknown'", (intent,)).fetchone()[0]
+        code, lines = requery(c, tmp_path, [intent], 'owner-requery:nf')
+        assert code == 0 and lines[0]['armed'] is True, lines
+        with delivery_service(c, tmp_path, material):
+            assert '"status":"unknown"' in effect_worker(c, tmp_path, config, secret, lease=3)
+        observations = admin.execute("select provider_state,attempt_revision from runtime.nexloop_effect_observations where intent_id=%s", (intent,)).fetchall()
+        assert observations == [('not_found', posts[1])]  # the current attempt's not_found, recorded
+        assert stopped(admin, intent) == ('unknown', True)  # unknown again and stopped by the 0199 window
+        assert admin.execute("select count(*) from runtime.nexloop_effect_events where intent_id=%s and event_kind='unknown'", (intent,)).fetchone()[0] == events + 1
+        assert admin.execute('select count(*) from runtime.nexloop_effect_attempts where intent_id=%s', (intent,)).fetchone()[0] == posts[0] == 1  # nothing sent
+        assert outbound(admin, tenant)[0][1] == 'unknown' and list(material['root'].glob(intent + '*.export.json')) == []
+        # The owner's check: the evidence is there; only the 10 minute wait remains.
+        assert admin.execute("select runtime.nexloop_effect_determination_check(%s,'real',%s)->>'code'", (tenant, intent)).fetchone()[0] == 'wait_period'
+        admin.execute("update runtime.nexloop_effect_observations set observed_at=observed_at-interval '11 minutes' where intent_id=%s", (intent,))
+        admin.execute("update runtime.nexloop_effect_attempts set dispatched_at=dispatched_at-interval '2 days' where intent_id=%s", (intent,))  # as on stage
+        assert admin.execute("select runtime.nexloop_effect_determination_check(%s,'real',%s)->>'code'", (tenant, intent)).fetchone()[0] == 'eligible'
