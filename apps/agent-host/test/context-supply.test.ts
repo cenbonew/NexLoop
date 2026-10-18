@@ -93,3 +93,31 @@ describe('ADR-030: optional effect_supplies on a v6 Message Run pack (the v2 cor
   expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
  });
 });
+
+describe('0221 operator persona: optional section on a v6 Message Run pack',()=>{
+ const persona=()=>({persona_ref:'operator-persona:xiaohe@2',persona_id:'xiaohe',version:2,source:'default',
+  document:{display_name:'小禾',tone:'亲切、简洁',expression:{max_chars:200,emoji:'few'},ai_disclosure:{deflect_statement:'我是本店的服务助手。'}},
+  ai_disclosure:{mode:'none',when_asked:'deflect',block_human_claims:false,content_label:false}});
+ const v6=(f:ReturnType<typeof declaration>,change?:(p:any)=>void)=>f.check(p=>{
+  const goal=p.formal_facts.find((row:any)=>row.type==='Goal'),statement=p.user_statement;
+  Object.assign(p,{schema_version:CONTEXT_PROTOCOL_V6,strategy_ref:'context-strategy:recent_plus_required@1',role:null,
+   current_event:{kind:'consumer_message',message_id:statement.message_id,provenance:statement.provenance},
+   goal:{goal_version_refs:['goal:'+goal.id+'@'+goal.revision],control_snapshot:{control_revision:0,scopes:[],goals:[],objects:[],budgets:[]}},
+   constraints:[],consumer_state:[],open_work:[],evidence:[],semantics:[],experience:[],
+   budget_report:{estimator:'synthetic',input_token_budget:2048,output_reserve:128,framing_reserve:0,available:1920,used:0,sections:{},omitted:[]},insufficient:[]});
+  change?.(p);});
+ it('accepts the section and leaves the result unchanged',()=>{
+  const f=declaration();const {input,proof}=v6(f,p=>{p.operator_persona=persona();});
+  expect(validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[]});
+ });
+ it.each(['bad_ref','source','extra_document_key','when_asked','extra_key','not_boolean'])('rejects %s',kind=>{
+  const f=declaration();
+  const {input,proof}=v6(f,p=>{const one:any=persona();
+   if(kind==='bad_ref')one.persona_ref='operator-persona:lan@2';if(kind==='source')one.source='experiment_arm';
+   if(kind==='extra_document_key')one.document.price_rule='八折';if(kind==='when_asked')one.ai_disclosure.when_asked='truthful';
+   if(kind==='extra_key')one.tenant_id='x';if(kind==='not_boolean')one.ai_disclosure.block_human_claims='no';
+   p.operator_persona=one;});
+  expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
+ });
+});
+

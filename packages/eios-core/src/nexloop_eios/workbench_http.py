@@ -267,6 +267,17 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'erasure_precheck', consumer_id=consumer_id)
 
+    @routes.get('/operator-personas')
+    async def operator_personas(request: Request):
+        # 0221: the owner's operator persona overview; ?consumer_id= adds that Consumer's desired and settled persona.
+        try:
+            q = query(request, ('consumer_id',))
+            if 'consumer_id' in q and not _ID.fullmatch(q['consumer_id']):
+                raise ValueError()
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'operator_personas', consumer_id=q.get('consumer_id'))
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.

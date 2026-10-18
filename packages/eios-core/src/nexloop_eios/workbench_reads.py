@@ -505,5 +505,9 @@ class WorkbenchQueries:
         # 0220: the owner's read-only erasure precheck (persona, erasure state, what is still held; counts only).
         return self.reader.observe('erasure_precheck', consumer_id=consumer_id)
 
+    def operator_personas(self, consumer_id=None):
+        # 0221: the owner's persona overview (versions and statuses, current rules, AI disclosure; one Consumer's assignment).
+        return self.reader.observe('operator_personas', **({'consumer_id': consumer_id} if consumer_id else {}))
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

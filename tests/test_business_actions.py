@@ -42,7 +42,9 @@ NX030_SILENCE={'nexloop.alert.silence':'alert.silence','nexloop.restore.open_sco
 AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}
 RDS_SWITCH={'nexloop.real_dispatch.set':'real_dispatch.set'}  # 0153 real dispatch switch, owner only
 NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.confirm_not_delivered':'service.confirm_not_delivered',
-    'nexloop.consumer.set_persona':'consumer.set_persona','nexloop.consumer.erase_synthetic':'consumer.erase_synthetic'}  # NX-053 (0154), 0210, 0220; owner only
+    'nexloop.consumer.set_persona':'consumer.set_persona','nexloop.consumer.erase_synthetic':'consumer.erase_synthetic',
+    'nexloop.operator_persona.publish':'operator_persona.publish','nexloop.operator_persona.assign':'operator_persona.assign',
+    'nexloop.operator_persona.rules_publish':'operator_persona.rules_publish','nexloop.ai_disclosure.set':'ai_disclosure.set'}  # NX-053 (0154), 0210, 0220, 0221; owner only
 
 
 def object_types():
