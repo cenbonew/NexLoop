@@ -136,6 +136,10 @@ def classify(host, service, name):
     if stem in MANUAL or name in MANUAL:
         phase, note = MANUAL.get(stem) or MANUAL[name]
         return 'config', phase, note
+    if name in ('embedding.env', 'embedding-tariff.json'):
+        # Owner 2026-10-18 (option B): empty = embedding disabled (FTS + n-gram); scripts/deploy/install_embedding_key.sh writes the
+        # profile with the key from a pipe and the owner's tariff (phase C).
+        return 'empty_placeholder', 'C', 'empty until install_embedding_key.sh (embedding disabled while empty)'
     if name in CA_FILES:
         return 'ca_bundle', 'A', 'the intermediate CA bundle (intermediate + root)'
     if name.endswith(('.crt', '.key')) and (service, stem) in CLIENT_CERTS:
@@ -296,6 +300,8 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
                                'MODEL_CREDENTIALS_FILE': '/run/secrets/host_model_key', 'stage': True}, indent=1) + '\n'
         elif kind == 'host_model_tariff':
             data = TARIFF.read_bytes()
+        elif kind == 'empty_placeholder':
+            data = ''
         elif kind == 'password':
             data = secrets.token_urlsafe(32)
         elif kind == 'valkey_acl':

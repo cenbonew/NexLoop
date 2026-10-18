@@ -1080,6 +1080,11 @@
       "version": "0216",
       "name": "0216_candidates_merge_configuration_metric.sql",
       "sha256": "afabbfc4a9fafb976a019d48c61a9e4ddb8634220252a4e9fd047681e0fca8f0"
+    },
+    {
+      "version": "0217",
+      "name": "0217_recall_profile_backfill.sql",
+      "sha256": "7bbbca8c8f9bd8600a81fb46a336c60155c46f573bf0758b933217ac38ef4cdd"
     }
   ]
 }

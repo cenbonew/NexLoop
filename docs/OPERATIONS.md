@@ -257,7 +257,7 @@ Compose 的绑定挂载（`volumes:` 中 `<主机路径>:<容器路径>`）在�
 
 ### 8a.8 Claim worker 的出口网络与故障判读（G-CLAIM-EGRESS）
 
-claim-extraction-worker 与 claim-matcher 在自己的网络 `claim_egress` 上（子网 `CLAIM_EGRESS_CIDR`，compose 固定）。nft 对这个网段只放行三类目标：
+claim-extraction-worker、claim-matcher 与 recall-indexer（2026-10-18 起，调用 embedding）在自己的网络 `claim_egress` 上（子网 `CLAIM_EGRESS_CIDR`，compose 固定）。nft 对这个网段只放行三类目标：
 
 1. 模型 allowlist 的 443；
 2. DATA_HOST 的 PG；
@@ -306,10 +306,10 @@ compose 里用 `network_mode: service:<X>` 的服务，共用 X 容器的网络�
 **规则**：重建（`up -d --force-recreate`，或让配置变化生效的 `up -d`）或重启（`restart`；X 重启后网络命名空间也会重新建立）任何被引用的服务 X 时，必须在同一条命令里同时处理所有引用它的服务。
 
 目前的依赖关系（`compose.app.example.yaml`，由 `tests/test_compose_network_mode_rebuild.py` 守护）：
-- `app-net` 被 18 个服务引用：
+- `app-net` 被 17 个服务引用：
   - app-link-relay、gateway、api-1、api-2；
   - domain-worker、runtime-worker、message-relay、message-relay-2、outbound-recorder；
-  - claim-extraction-scheduler、recall-indexer、plan-reevaluator、reply-guarantor；
+  - claim-extraction-scheduler、plan-reevaluator、reply-guarantor；
   - commitment-keeper、commercial-recorder、retention-keeper、alert-evaluator、incentive-issuer。
 
   重建 app-net 实际上等于重启整个项目，在维护窗口内进行。

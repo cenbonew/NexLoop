@@ -41,13 +41,13 @@ class DeterministicTestEmbeddingProvider:
     def __init__(self,dimension=64,*,model='nexloop-test-ngram-v1'):
         if type(dimension) is not int or not 8<=dimension<=4096:raise ValueError('test dimension invalid')
         self.model,self.dimension=model,dimension
-        self.calls=0
+        self.calls=0;self.usage_tokens=0
 
     @property
     def profile_id(self):return f'{self.model}@{self.dimension}'
 
     def embed(self,text):
-        text=_text(text).lower();self.calls+=1
+        text=_text(text).lower();self.calls+=1;self.usage_tokens+=len(text)
         features=[w for w in _WORD.findall(_CJK.sub(' ',text))]
         for run in _CJK.findall(text):
             features+=[run] if len(run)==1 else [run[i:i+2] for i in range(len(run)-1)]
@@ -89,6 +89,8 @@ class ArkMultimodalEmbeddingProvider:
         self.model,self.dimension=profile.model,profile.dimension
         self._timeout,self._attempts=timeout,attempts
         self.transport_failures=0
+        # 0217 budget: provider-reported input tokens and calls of this process (read and reset by EmbeddingBudget).
+        self.usage_tokens=0;self.calls=0
 
     @property
     def profile_id(self):return f'{self.model}@{self.dimension}'
@@ -110,6 +112,11 @@ class ArkMultimodalEmbeddingProvider:
             code=payload.get('error',{}).get('code') if isinstance(payload,dict) and isinstance(payload.get('error'),dict) else None
             code=code if isinstance(code,str) and re.fullmatch(r'[A-Za-z0-9_.]{1,80}',code) else 'unknown'
             raise EmbeddingUnavailable(f'embedding provider HTTP {status} {code}')
+        self.calls+=1
+        usage=payload.get('usage') if isinstance(payload,dict) else None
+        tokens=usage.get('prompt_tokens',usage.get('total_tokens')) if isinstance(usage,dict) else None
+        # A response without usage is counted at one token per character (an upper bound for the budget, never zero).
+        self.usage_tokens+=tokens if type(tokens) is int and 0<=tokens<=1_000_000 else len(text)
         data=payload.get('data') if isinstance(payload,dict) else None
         if not isinstance(data,dict) or 'embedding' not in data:
             raise EmbeddingUnavailable('embedding response shape unexpected')

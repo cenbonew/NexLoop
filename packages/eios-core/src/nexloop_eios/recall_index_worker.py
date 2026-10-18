@@ -53,7 +53,10 @@ class RecallInstanceIndexWorker:
         if self.indexer.provider is None:return None
         key=(self.session.token_digest,self.world,self.indexer.provider.profile_id)
         if key not in _activated:
-            self.indexer.activate_profile();_activated.add(key)
+            self.indexer.activate_profile()
+            # 0217: objects that existed before this profile have no vectors yet; re-queued once per profile (idempotent).
+            self.indexer.backfill_profile(self.types)
+            _activated.add(key)
         return key[2]
 
     @authority_request_scoped

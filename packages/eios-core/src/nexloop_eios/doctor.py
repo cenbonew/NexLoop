@@ -198,6 +198,34 @@ def relay_source(metrics_database_url_file):
     return {'checks':checks,'details':{'relay_source':{'expected_principal':RELAY_SOURCE_PRINCIPAL,'tenants':dict(sorted(tenants.items()))}}}
 
 
+def embedding(env_file,tariff_file,merge_config=None):
+    """Owner 2026-10-18 (option B): the embedding profile of recall-indexer / claim-matcher, its tariff and the profile the merge
+    configuration was calibrated on. Files only: no provider call, never the key."""
+    from nexloop_eios.embedding_budget import load_tariff
+    from nexloop_eios.embedding_profile import load_embedding_profile
+    checks,details={},{}
+    try:
+        profile=load_embedding_profile({},env_file=env_file)  # as the services read it (background_services.load_embedding)
+        checks['embedding_configuration']=True
+        details['embedding']={k:v for k,v in profile.public_configuration().items() if k!='credential_source'}
+    except Exception:
+        profile=None;checks['embedding_configuration']=False
+    checks['embedding_enabled']=profile is not None and profile.validation_mode=='real_validation_pending'
+    profile_id=f'{profile.model}@{profile.dimension}' if checks['embedding_enabled'] else None
+    details['embedding_profile']=profile_id
+    if merge_config is not None:
+        try:
+            wanted=json.loads(Path(merge_config).read_text())['embedding_profile'];wanted=f"{wanted['model']}@{wanted['dimension']}"
+        except Exception:wanted=None
+        checks['embedding_profile_matches_merge_configuration']=profile_id is not None and profile_id==wanted
+        details['merge_configuration_profile']=wanted
+    try:
+        tariff=load_tariff(tariff_file,model=profile.model if profile_id else None)
+        checks['embedding_tariff']=True;details['embedding_tariff']={'currency':tariff.currency,'per_million_tokens':str(tariff.per_million_tokens)}
+    except Exception:checks['embedding_tariff']=False
+    return {'checks':checks,'details':details}
+
+
 def main():
     parser=argparse.ArgumentParser(description='Read-only NexLoop foundation doctor')
     parser.add_argument('--artifact-root')
@@ -216,7 +244,16 @@ def main():
     parser.add_argument('--backup',action='store_true',help='NX-035: backups against deploy/configuration/backup.v1.json, restore state (read-only metrics role)')
     parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
     parser.add_argument('--real-dispatch',action='store_true',help='0153: real dispatch switch states and counts (read-only metrics role)')
+    parser.add_argument('--embedding-env-file',type=Path,help='2026-10-18: private embedding env of recall-indexer/claim-matcher (files only, no provider call)')
+    parser.add_argument('--embedding-tariff-file',type=Path,help='the owner\'s embedding tariff (nexloop-embedding-tariff/1)')
+    parser.add_argument('--merge-config',type=Path,help='deploy/ontology/merge-config.v<N>.json (its calibrated embedding profile)')
     args=parser.parse_args()
+    if args.embedding_env_file:
+        if not args.embedding_tariff_file:parser.error('--embedding-env-file requires --embedding-tariff-file')
+        result=embedding(args.embedding_env_file,args.embedding_tariff_file,args.merge_config)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.real_dispatch:
         if not args.metrics_database_url_file:parser.error('--real-dispatch requires --metrics-database-url-file')
         result=real_dispatch(args.metrics_database_url_file)
