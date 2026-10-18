@@ -1,6 +1,6 @@
 # NX-038 设计稿：Evo 轨迹诊断与候选任务
 
-- **状态**：设计稿，只有文档。本稿不写代码、不加迁移。D 项待负责人决定。
+- **状态**：设计稿，只有文档，不写代码、不加迁移。D1–D9 已由负责人 2026-10-12 定案。2026-10-18 修订（§11，分支 `l6/nx038-design`，从 main `9d1223ee` 切出）：补入 10-12 之后才有的轨迹输入（NX-037 证据包结构、0204/0208 的失败码与已纠正的工具错误、收据与对账），只新增 D10–D14，不改已定案的 D1–D9。
 - **分支**：`nx038-design`，从 main `917d8ca` 切出。
 - **依据**：
   - planning/tasks.json NX-038：S6，依赖 NX-037，模块 M12/M14/M22，交付物为“冻结输入、归因、预算、候选隔离”；
@@ -242,3 +242,86 @@ NX-038 产出候选时，需要一并冻结评估条件，NX-039 不得临时更
 - 正式 Schema 的自动发布：v0.2b，见 08 §6。
 - 模拟世界与实验：v0.3。
 - 修改 `packages/contracts/*.schema.json`：如需改动，按 D4 另提提案。
+
+## 11. 修订（2026-10-18）：NX-037 轨迹作为输入
+
+本节只补充 10-12 定稿之后才出现的输入，不改变 §1–§10 和已定案的 D1–D9。
+
+**样本**：NX-037 试运行 `4f5d795c`（发布 10）的轨迹。本节只使用它的**证据包结构**（`scripts/nx037/evidence_pack.py`，schema `nexloop.nx037-evidence.v1`）和 SQL 证据函数的**字段定义**。真实记录留在 CI 主机的私有证据目录，本稿不读取、不引用任何值。
+
+### 11.1 新增的轨迹字段
+
+| 来源 | 字段（全部是 ID、代码、计数、时间或 digest） | 诊断用途 |
+|---|---|---|
+| `runtime.nexloop_nx037_run_evidence`（当前定义在 0208；0204 加入 `failure`） | `model{calls,ms,cost,unfinished,failed,unknown}`、`tool{calls,ms,max_ms}`、`costs`、`intents`（按状态计数）、`intent_ids`、`refusals`（按拒绝码计数）、`failure{code,failure_code,failure_detail,failure_tool}`、`recovered_tool_errors[{tool,code}]` | Run 结局、失败落在哪个工具、模型自行纠正过哪些工具错误、派发被拒的原因 |
+| 试运行记录（`interactions.jsonl` → 证据包 `interactions/records.json`） | `kind`（五类场景）、`outcome`、`error_code`、`time_ms{end_to_end,model,tool,platform}`、`model`、`tool_calls`、`cost`、`intents`、`intent_ids`、`refusals`、`failures`、`recovered_tool_errors`、`receipts`、`reconciliation`、`facts`、`persona`、`driver`、`test_stack`；作废记录另在 `voided` | 把 Run 证据放回“交互”语境：场景是什么、期望行为是否发生、收据与对账是否了结 |
+| 收据与对账 | `receipts`（交付收据 ID）、`reconciliation`（`effect_reconciliation` 的了结状态） | 区分“工具没调对”和“外部结果未知或待核对” |
+
+- 这些字段在写入时已经只允许 ID、代码、数字、时间和固定词表（`evidence_pack.check`），所以可以直接作为诊断输入，不需要额外脱敏。
+- §6 的隐私规则不变：诊断仍然不读消息原文和 Claim 值。
+
+### 11.2 两条输入路线（D10）
+
+| 路线 | 做法 | 适用 |
+|---|---|---|
+| 在库路线 | 诊断角色（D1，`nexloop_evo_reader`）调用新的只读函数，按 Run 返回与 `nexloop_nx037_run_evidence` 相同的字段。不复用 `nexloop_metrics` 的授权，每次读取都按租户和 world 限定 | 正式诊断 |
+| 证据包路线 | 导入一个证据包的 `records.json`：先用 `evidence_pack.check` 复查只含允许值，以证据包的 sha256 作为 `input_snapshot_digest`，然后按 §2.3 冻结 | 设计期与回归用例，例如用 NX-037 证据包的**结构**生成合成样本，做确定性归因回归 |
+
+- 两条路线输出同一种 `TraceSource` 记录（§4.3），归因规则只写一套。
+- 证据包路线不连库，也拿不到任何凭据。
+
+### 11.3 归因规则的补充（接 §3.1）
+
+在 §3.1 的排除顺序之前，先过滤以下记录（只计数，不归因）：
+
+- `test_stack=true`；
+- 已作废的记录；
+- `driver` 不是 `real`、且由负责人标为演练的试运行。
+- `persona=simulated_agent`（负责人操作的 AI 顾客）不过滤，但单独标注，按 D12 处理。
+
+各信号的归因：
+
+| 信号 | 归因 |
+|---|---|
+| `refusals` 中的 NXC（控制或暂停）、NXB（预算）码；真实派发开关关闭；`interaction_timeout`；`reconciliation` 未了结、意图状态为 unknown | `not_semantic` |
+| 场景 `restricted_after_refusal` 或 `human_takeover` 中**没有发送** | 这是期望行为，不算失败 |
+| 同一场景里**发送了**（`intents` 出现 accepted 及之后的状态） | 严重的行为回退，交给安全回归，不进演进候选 |
+| `failure.failure_tool` 指向同一工具，`failure_code` 为 `invalid_effect_request` 一类参数错误，且排除了权限、开关、预算 | `tool_misuse` → `semantic_tool`（工具描述或参数说明） |
+| `recovered_tool_errors`：Run 成功，但模型先犯错再自行纠正 | 弱信号。只在达到 D13 的阈值后，才对同一 `tool` 形成 `semantic_tool` 候选 |
+| `failure_tool=unregistered_tool` | 模型调用了不存在的工具。按 `semantic_tool` 计入，假设方向是“工具清单或说明不清”，不是增加工具 |
+
+每次归因附带的证据链（§3.1）补充：`interaction_id`、`kind`、`failure_tool`、`failure_code`、`recovered_tool_errors` 的序号。
+
+### 11.4 候选不是业务事实；工具类候选的审核
+
+- §3.2、§5 不变：候选是隔离工件，只进候选存储；审核结论由受治理的人类 Action 记录；不写 active 定义、别名表或业务对象。
+- **新增的工具类候选**：`semantic_tool` 维度的产出，可能落在 Agent Host 工具清单的描述或参数说明上。
+  - 工具清单属于代码与配置，所以这类候选通过 NX-039 后，只生成一份**变更提案**：附评估报告 digest 和门槛结果，进入审核队列，再按正常的代码评审和发布流程改动。
+  - 候选本身从不修改工具清单、提示词或 Agent Host 配置。
+  - 同一个工具的工具调用授权、效应上限和联系约束都不在候选可改的范围内：`allowed_change_scope` 只允许描述文字和参数说明，提权内容按 AT-024 一律拒绝。
+
+### 11.5 与 EvoOntology 的边界（补充 §1、§4）
+
+- 轨迹诊断的归因、候选状态机与评估对比，按 D3 选择性移植。Evo 的存储不保存任何轨迹副本：快照只存 ID 与 digest（§2.3、§2.4），轨迹本身留在 PostgreSQL 或私有证据目录。
+- Evo 的 Term、Mapping 只作为语义视图，不能用来记录消费者事实，也不能作为工具调用的依据。
+- 候选的任何结论，都要经过 EIOS 受治理发布（语义版本、别名与映射发布）或代码评审，才会生效。
+
+### 11.6 契约与迁移（汇总，实现时用临时编号）
+
+| 项 | 内容 | 来源 |
+|---|---|---|
+| 迁移 1 | 角色 `nexloop_evo_reader` 与只读轨迹函数（§11.2 在库路线），只返回 §11.1 的字段 | D1、D10 |
+| 迁移 2 | 语义访问逐次记录表（§2.2），纳入 NX-029 保留期 | D2 |
+| 迁移 3 | 演进候选表与事件表（`evolution-candidate` 契约的落库），以及审核关联表（decision_id ↔ candidate_id、报告 digest） | §3.2、D4 |
+| 契约 | `evolution-candidate.schema.json` 不改。新增 `trajectory-sample.schema.json`：把证据包的记录结构（`nexloop.nx037-evidence.v1` 的 records 部分）收为正式契约，`TraceSource` 两条路线共用；单独 PR | D11 |
+| 费用 | 沿用 `runtime.nexloop_cost_entries`，cost_kind `model`，source_ref 为 `evolution-candidate:<id>`（§3.2） | 不需要迁移 |
+
+### 11.7 新增的负责人决定项
+
+| 编号 | 问题 | 推荐 | 代价 |
+|---|---|---|---|
+| D10 | 轨迹输入路线 | 正式诊断只走在库路线；证据包路线只用于设计期与确定性回归用例，并且只用结构生成合成样本 | 用不上已有证据包里的真实分布，要等库内积累 |
+| D11 | 是否把证据包的记录结构收为正式契约 | 是：新增 `trajectory-sample.schema.json`，单独 PR；`evidence_pack.check` 与 `TraceSource` 都按它校验 | 多维护一个契约，记录字段变更要走契约流程 |
+| D12 | 负责人操作的 AI 顾客（`persona=simulated_agent`）的轨迹 | 可用于语义和工具诊断（系统本身是真实运行的），但打上标注，不进入用于证明“真实效果改善”的留出集；`test_stack` 的轨迹一律排除 | 早期真实顾客少，留出集更小 |
+| D13 | `recovered_tool_errors` 形成候选的阈值 | 同一工具、同一错误码，在冻结窗口内至少出现 3 次，且涉及至少 2 个不同消费者 | 少见的问题要等更久 |
+| D14 | 试运行 `4f5d795c` 的真实轨迹何时可以进入正式诊断 | 本稿只用结构。首次用真实轨迹做正式诊断，需要负责人届时单独批准：确认删除传播、保留期和 D12 的标注都已就位 | 多一次审批 |
