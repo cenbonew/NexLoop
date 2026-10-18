@@ -244,10 +244,30 @@ def main():
     parser.add_argument('--backup',action='store_true',help='NX-035: backups against deploy/configuration/backup.v1.json, restore state (read-only metrics role)')
     parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
     parser.add_argument('--real-dispatch',action='store_true',help='0153: real dispatch switch states and counts (read-only metrics role)')
+    parser.add_argument('--provider-drift',action='store_true',help='2026-10-19: model provider hosts resolved now vs MODEL_PROVIDER_ALLOWLIST and the rendered egress rules (read only)')
+    parser.add_argument('--stage-env',type=Path,help='the private stage env (its MODEL_PROVIDER_ALLOWLIST)')
+    parser.add_argument('--nft-rules',type=Path,help='the rendered app-host rules (config/firewall/app-host.rules.nft)')
+    parser.add_argument('--provider-host',action='append',help='a model endpoint host (default: the DeepSeek and Ark embedding hosts)')
+    parser.add_argument('--samples',type=int,default=5,help='resolution rounds (CDN answers rotate)')
+    parser.add_argument('--interval',type=float,default=2.0,help='seconds between rounds')
     parser.add_argument('--embedding-env-file',type=Path,help='2026-10-18: private embedding env of recall-indexer/claim-matcher (files only, no provider call)')
     parser.add_argument('--embedding-tariff-file',type=Path,help='the owner\'s embedding tariff (nexloop-embedding-tariff/1)')
     parser.add_argument('--merge-config',type=Path,help='deploy/ontology/merge-config.v<N>.json (its calibrated embedding profile)')
     args=parser.parse_args()
+    if args.provider_drift:
+        if not args.stage_env:parser.error('--provider-drift requires --stage-env')
+        from nexloop_eios import provider_drift
+        from nexloop_eios.stage_render import load_env
+        try:
+            allowlist=provider_drift.parse_allowlist(load_env(args.stage_env).get('MODEL_PROVIDER_ALLOWLIST',''))
+            nft=Path(args.nft_rules).read_text() if args.nft_rules else None
+            result=provider_drift.check(allowlist,tuple(args.provider_host or provider_drift.DEFAULT_HOSTS),samples=args.samples,
+                interval=args.interval,nft_text=nft)
+        except (OSError,ValueError):
+            result={'checks':{'provider_drift_input':False},'details':{'provider_drift_error':'stage env, rules file or hosts unreadable or invalid'}}
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.embedding_env_file:
         if not args.embedding_tariff_file:parser.error('--embedding-env-file requires --embedding-tariff-file')
         result=embedding(args.embedding_env_file,args.embedding_tariff_file,args.merge_config)

@@ -271,6 +271,7 @@ claim-extraction-worker、claim-matcher 与 recall-indexer（2026-10-18 起，�
 |---|---|---|
 | Claim 提取或匹配一直不前进，日志里是连接超时或 provider 不可用 | `sudo docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' nexloop-app_claim_egress` 是否等于 `CLAIM_EGRESS_CIDR`；`sudo nft list table inet nexloop_stage \| grep -c "ip saddr <CLAIM_EGRESS_CIDR>"` 是否为 3 | 子网不符：compose 与 env 不一致，按 run-42 §8 重建这两个服务。规则不足 3 条：重新渲染后 `reload nexloop-nft` |
 | 子网和规则都对，仍然连不上模型 | 模型域名当前解析到的地址，是否都在私有 env 的 `MODEL_PROVIDER_ALLOWLIST` 里 | 供应商地址变了：由负责人重新解析、更新 allowlist、重新渲染并 reload（B 类）。不要临时放开整段网段 |
+| 模型供应商地址漂移（只读，2026-10-19） | `nexloop-doctor --provider-drift --stage-env <私有 stage env> --nft-rules <root>/config/firewall/app-host.rules.nft`：报告供应商域名当前解析到、但不在 `MODEL_PROVIDER_ALLOWLIST` 的地址，以及渲染规则与 env 不一致；定时示例 `deploy/stage/systemd/nexloop-provider-drift.{service,timer}.example`（漂移时 `journalctl -t nexloop-provider-drift` 一行，单元失败） | 不自动改防火墙：负责人确认后改 env、重新渲染并 `reload nexloop-nft` |
 | 能连模型，但模型返回鉴权错误 | 两个 worker 各自的 `model.env` 与模型凭据文件（只看是否存在、权限和属主，不看内容） | 凭据问题，按 deploy-days 执行单的“模型凭据写入”重新写入 |
 | 连不上 PG | 部署闸门；DATA_HOST 防火墙对 APP_HOST 的放行 | 与其他 worker 的 PG 故障相同 |
 | 想确认隔离是否完好 | 按 run-42 §3d 用一次性容器探测：模型与 PG 应通，Valkey、SSH、未列出的外网、API 都应不通 | 不通的变通了：最高优先级报负责人 |
