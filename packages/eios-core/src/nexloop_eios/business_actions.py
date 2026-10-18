@@ -46,7 +46,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-053 (0154): the owner revokes an erased contact key.
     'contact_key.revoke':'human_owner',
     # 0210: the owner confirms an unknown effect did not happen.
-    'service.confirm_not_delivered':'human_owner'}
+    'service.confirm_not_delivered':'human_owner',
+    # 0220 (ADR-034 first step): the owner marks a Consumer's persona and erases a synthetic Consumer.
+    'consumer.set_persona':'human_owner','consumer.erase_synthetic':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

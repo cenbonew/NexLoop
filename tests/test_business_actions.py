@@ -41,7 +41,8 @@ NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase'
 NX030_SILENCE={'nexloop.alert.silence':'alert.silence','nexloop.restore.open_scope':'restore.open_scope'}  # + NX-035 (0147), owner only
 AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}
 RDS_SWITCH={'nexloop.real_dispatch.set':'real_dispatch.set'}  # 0153 real dispatch switch, owner only
-NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.confirm_not_delivered':'service.confirm_not_delivered'}  # NX-053 (0154), 0210; owner only
+NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.confirm_not_delivered':'service.confirm_not_delivered',
+    'nexloop.consumer.set_persona':'consumer.set_persona','nexloop.consumer.erase_synthetic':'consumer.erase_synthetic'}  # NX-053 (0154), 0210, 0220; owner only
 
 
 def object_types():

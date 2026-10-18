@@ -644,6 +644,16 @@
    "stable_name": "nexloop.effect.confirm_not_delivered",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.consumer.set_persona",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.consumer.erase_synthetic",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [

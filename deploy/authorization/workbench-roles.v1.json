@@ -1,6 +1,6 @@
 {
   "schema_version": "nexloop-workbench-roles/1",
-  "manifest_version": 13,
+  "manifest_version": 14,
   "decision": "NX-028 D1/D2 (owner 2026-10-10, all as recommended): the owner workbench is its own browser business application; enterprise members are existing browser Humans written by trusted configuration only (no self-registration); a customer principal never holds a workbench grant. A role is a set of Action grants, compiled per member by nexloop_eios.workbench_roles and applied through trusted configuration (0050); the member list is private deployment data and never part of this file. Releasing a contact restriction (ADR-023 §2.4), cancelling a commitment, marking a communication commitment and goals/metrics/budget/pause stay owner-only. Actions marked slice 2/3 are declared by those slices; holding a grant before the Action is published grants nothing. v2: slice 3 Action names as published by L4 (nexloop.conversation.takeover/handback, nexloop.message.staff_send), owner and operator. v3 (NX-027, registry 0140): nexloop.commitment.bind_commercial for owner and operator — like attest and condition_met it supplies fulfilment grounds for a commitment, and it cannot fabricate evidence (only verified signed events of the bound reference count, and only for the commitment's own Consumer); nexloop.cost.record owner only — entered costs feed cost metrics and key results, which like goals, metrics and budgets stay with the owner. v4 (NX-029 slice 2, registry 0142): erasing a Consumer or a Message and registering or releasing a retention hold are owner only (irreversible deletion and legal holds stay with the owner, like goals, budgets and contact release). v5: NX-030 alert silencing (nexloop.alert.silence) is owner only. v6 (NX-029 slice 3, 0141): exporting a Consumer is owner only (personal data leaves the system). v7 (NX-035, 0147): opening real dispatch for a scope of a restored database (nexloop.restore.open_scope) is owner only (D8). v8 (AT-043; v7 is NX-035's restore.open_scope, merged first): issuing a catalog incentive (nexloop.incentive.issue) is owner only — it spends the tenant incentive budget, which like goals, metrics and budgets stays with the owner; the budget, the catalog and the per-Consumer limit are still checked at dispatch. v9 (0153, NX-037 prerequisite, dispatcher 2026-10-11): nexloop.real_dispatch.set (open or close real dispatch for the tenant or one of its Actions) is granted to the owner only and is in the owner-only set. v10 (NX-053, 0154): nexloop.contact_key.revoke (revoke an erased contact key, with a reason) is granted to the owner only and is in the owner-only set. v11 (G-CONTEXT-STRATEGY, dispatcher 2026-10-15): nexloop.context.strategy.publish (publish a version of how Context is assembled; SQL already refuses every non-human principal) is granted to the owner only and is in the owner-only set; the stage assembly publishes the relay's strategy with it (nexloop_eios.context_strategy_setup). v13 (NX-028 D2 revision, owner 2026-10-18: the owner may see the knowledge workbench): nexloop.knowledge.read:1 is a read-only Action for the pending-review queue and one pending candidate (0213; the same reads as ontology.schema.review, nothing else); it is granted to the owner only and is in the owner-only set. The review decisions stay ontology.schema.review, the reviewer's: the owner reads and never decides; the operator gets neither.",
   "roles": {
     "owner": [
@@ -37,7 +37,9 @@
       "eios:action:nexloop.effect.confirm_not_delivered:1",
       "eios:action:nexloop.incentive.issue:1",
       "eios:action:nexloop.context.strategy.publish:1",
-      "eios:action:nexloop.knowledge.read:1"
+      "eios:action:nexloop.knowledge.read:1",
+      "eios:action:nexloop.consumer.set_persona:1",
+      "eios:action:nexloop.consumer.erase_synthetic:1"
     ],
     "operator": [
       "eios:action:nexloop.workbench.read:1",
@@ -116,6 +118,10 @@
     ],
     "effect_determination": [
       "nexloop.effect.confirm_not_delivered"
+    ],
+    "consumer_persona": [
+      "nexloop.consumer.set_persona",
+      "nexloop.consumer.erase_synthetic"
     ]
   }
 }

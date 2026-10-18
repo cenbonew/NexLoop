@@ -82,6 +82,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 | 暂停 / 恢复（租户、角色、客户、策略、Action 类型） | 工作台写入口（负责人），受治理 Action `Control.set`；恢复不回放旧任务，只登记复评 |
 | 结果不明的效应 | 工作台“查询执行结果”（只把对账提前，不重发） |
 | 确认结果不明的效应未发生 | 只有负责人，按顺序：① 先确认 provider 的记录保留期覆盖这次投递的时间——覆盖不到时 not_found 只说明记录不在了，不能判定，改为人工联系顾客；② 用重查订单让 provider 回答一次（[重查手册](release/run-stale-unknown-requery.md)；0214 起 provider 回答 not_found 会记为观测）；③ 首次 unknown 满 24 小时、not_found 观测满 10 分钟后，用配置文件加一条命令 `scripts/deploy/confirm_not_delivered.py`，先 `--dry-run` 预查，全部 `eligible` 后再判定（工作台写入口 `confirm_effect_not_delivered`，0210；配置中 `provider_retention_checked` 必须为 true；[运行手册](release/run-confirm-not-delivered.md)）。判定不发送任何东西，也不可撤回 |
+| 标记测试人设、删除合成顾客 | 只有负责人：先用 `scripts/deploy/erase_synthetic_consumer.py mark` 按私有配方把测试账号标为 simulated_agent，再用 `erase` 删除（先 --dry-run）；真实顾客（persona real）一律拒绝，真实顾客的删除请求仍走 NX-029。见 [run-erase-synthetic-consumer.md](release/run-erase-synthetic-consumer.md) |
 | 解除联系限制 | 只有负责人（ADR-023） |
 | 撤销删除后联系键的拦截 | 只有负责人，写明理由，工作台写入口 `revoke_contact_key`（NX-053） |
 | 人工接管 / 交还 | 工作台（负责人、运营），默认 2 小时、上限 24 小时 |

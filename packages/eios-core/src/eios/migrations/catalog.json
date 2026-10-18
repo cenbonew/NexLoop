@@ -1095,6 +1095,11 @@
       "version": "0219",
       "name": "0219_recall_profile_backfill.sql",
       "sha256": "2a1704f30ec988461e89be6675f67e86ad36e5929dada48c1235b3b355637015"
+    },
+    {
+      "version": "0220",
+      "name": "0220_consumer_persona.sql",
+      "sha256": "b246e2c8731f5df465f4099c39a29d3ceb4ee9d236924b357f7092d991b032b6"
     }
   ]
 }

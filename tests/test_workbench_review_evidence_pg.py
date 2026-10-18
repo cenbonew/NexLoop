@@ -99,7 +99,7 @@ def test_the_knowledge_read_action_is_the_owners_only_and_opens_reads_only(workb
     import pytest
     from nexloop_eios.workbench_roles import WorkbenchRolesRejected, validate_roles
     roles = copy.deepcopy(ROLES)
-    assert 'eios:action:nexloop.knowledge.read:1' in roles['roles']['owner'] and roles['manifest_version'] == 13
+    assert 'eios:action:nexloop.knowledge.read:1' in roles['roles']['owner'] and roles['manifest_version'] >= 13
     for other in ('operator', 'reviewer'):
         bad = copy.deepcopy(roles)
         bad['roles'][other].append('eios:action:nexloop.knowledge.read:1')

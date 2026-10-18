@@ -95,6 +95,9 @@ OPERATIONS={
     'revoke_contact_key':{'key_digest':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[0-9a-f]{64}',v)) else (_ for _ in ()).throw(ValueError('key')),
         'erasure_request_id':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9._:-]{1,190}',v)) else (_ for _ in ()).throw(ValueError('request')),
         'reason':lambda v:v if type(v) is str and 1<=len(v.strip())<=500 else (_ for _ in ()).throw(ValueError('reason'))},
+    # 0220 (ADR-034 first step): owner-only persona marking, and the erasure of a Consumer whose persona is not real.
+    'set_consumer_persona':{'consumer_id':_id(_HEX),'persona':lambda v:v if v in ('real','simulated_agent','synthetic') else (_ for _ in ()).throw(ValueError('persona')),'reason':_reason},
+    'erase_synthetic_consumer':{'consumer_id':_id(_HEX),'reason':_reason},
     # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
     'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,
         'provider_retention_checked':_bool,'reply_followup':lambda v:v if v in ('owner_follow_up','fallback_reply') else (_ for _ in ()).throw(ValueError('follow-up'))},
@@ -188,7 +191,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'effect determination: ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

@@ -56,7 +56,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-053 (0154): the owner revokes an erased contact key (by key digest or by erasure request), with a reason.
     'revoke_contact_key':'contact_key.revoke',
     # 0210: the owner confirms an unknown effect did not happen (evidence and wait checked in SQL; nothing is sent).
-    'confirm_effect_not_delivered':'service.confirm_not_delivered'}
+    'confirm_effect_not_delivered':'service.confirm_not_delivered',
+    # 0220 (ADR-034 first step): persona marking and the erasure of a synthetic Consumer (persona checked in SQL).
+    'set_consumer_persona':'consumer.set_persona','erase_synthetic_consumer':'consumer.erase_synthetic'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -279,6 +281,18 @@ class GoalGovernedActions:
             raise ValueError('intent, confirmation reference, reason, retention confirmation and reply follow-up required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'confirm_effect_not_delivered','intent_id':str(intent_id),
             'confirmation_ref':confirmation_ref,'reason':reason,'provider_retention_checked':provider_retention_checked,'reply_followup':reply_followup})
+
+    # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
+    def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or persona not in ('real','simulated_agent','synthetic') or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer, persona and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_consumer_persona','consumer_id':consumer_id,'persona':persona,'reason':reason})
+
+    # 0220: owner only; SQL refuses a Consumer whose persona is real, then runs the NX-029 erasure.
+    def erase_synthetic_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_synthetic_consumer','consumer_id':consumer_id,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

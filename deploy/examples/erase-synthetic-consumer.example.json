@@ -1,0 +1,6 @@
+{
+  "schema": "nexloop-erase-synthetic-consumer/1",
+  "confirmation_ref": "at050-erase:20261018-1",
+  "reason": "AT-050 second restore drill: erase one synthetic customer after the recovery point; the replay after restore must show it.",
+  "consumers": ["0000000000000000000000000000000000000000000000000000000000000001"]
+}
