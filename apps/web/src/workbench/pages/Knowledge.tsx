@@ -42,8 +42,12 @@ export function ReviewEvidencePage({candidateId,actions}:{candidateId:string;act
       <p className="meta">{e.predicate??'—'}{e.source_message_id?<> · 消息 <Short value={e.source_message_id}/></>:null}</p>
       {e.content.status==='ok'?<blockquote>{e.content.body}</blockquote>:<p className="note">{e.source_message_id?RESTRICTED_TEXT:'无来源消息'}</p>}
     </li>)}</ol>:<p className="note">暂无证据。</p>}
-    {member.data&&!reviews(member.data)?(readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null)
-      :<ReviewDecisions candidateId={v.candidate_id}/>}
+    {/* PR #6 review: the decisions mount only once /me has answered with the review Action; while it loads or fails nothing is
+        requested from the reviewer's detail endpoint. */}
+    {member.isPending?<p className="note" role="status">正在确认当前账号的角色…</p>
+      :member.isError?<p className="note" role="alert">读取当前账号的角色失败，审核决定暂不显示。</p>
+      :reviews(member.data)?<ReviewDecisions candidateId={v.candidate_id}/>
+      :readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
   </>}</Page>;
 }
 
