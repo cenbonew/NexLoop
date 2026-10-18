@@ -10,7 +10,7 @@ export type GraphEdge={id:string;from:string;to:string;label?:string};
 export type Placed={id:string;x:number;y:number};
 export type Layout={nodes:Placed[];width:number;height:number};
 
-export const NODE_W=168,NODE_H=48,MARGIN=48;
+export const NODE_W=168,NODE_H=48,MARGIN=80;  // the margin keeps a self-loop (reach 56) and its label inside the box
 const ITERATIONS=200;
 
 function ring(ids:string[],radius:number):Map<string,{x:number;y:number}>{
@@ -73,3 +73,10 @@ export function border(x:number,y:number,tx:number,ty:number):{x:number;y:number
 
 /** One of 8 hues per type name (stable across sessions): a small string hash. */
 export function hue(name:string):number{let h=0;for(const c of name)h=(h*31+c.charCodeAt(0))>>>0;return h%8;}
+
+/** A relation from a type to itself: a loop out of the box's right border and back into it, both ends on the border (outside
+ * the rectangle by a pixel), drawn with the same arrowhead as any other edge (PR #11 review). Centre (x,y). */
+export function selfLoop(x:number,y:number):{d:string;start:{x:number;y:number};end:{x:number;y:number};label:{x:number;y:number}}{
+  const right=x+NODE_W/2+1,start={x:right,y:y-NODE_H/4},end={x:right,y:y+NODE_H/4},reach=56;
+  return {d:`M${start.x},${start.y} C${right+reach},${start.y-28} ${right+reach},${end.y+28} ${end.x},${end.y}`,start,end,label:{x:right+reach-8,y}};
+}
