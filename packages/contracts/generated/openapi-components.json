@@ -5362,6 +5362,355 @@
             }
           }
         ]
+      },
+      "WorkbenchWorldModel": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:workbench-world-model",
+        "title": "workbench-world-model",
+        "description": "Enterprise world model W1 (docs/design/workbench-world-model-design.md; owner 2026-10-19 D1-D7). GET /api/v1/workbench/world-model: a read-only snapshot of the tenant's published model metadata for a workbench member holding nexloop.workbench.read (SQL authz.nexloop_workbench_read verb world_model). The current version of each object type (with its properties), relation type and event type; the active Actions and Functions of the read world; instance counts per type. Metadata only: no instance content. A property in an owner-restricted group is listed by name with withheld=true and nothing else (AT-003). Server-derived from the authenticated session; grants nothing; there is no write counterpart (schema changes stay candidate review and trusted configuration).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "world",
+          "computed_at",
+          "object_types",
+          "relation_types",
+          "event_types",
+          "actions",
+          "functions"
+        ],
+        "properties": {
+          "world": {
+            "const": "real"
+          },
+          "computed_at": {
+            "type": "string"
+          },
+          "object_types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "version",
+                "display_name",
+                "description",
+                "title_property",
+                "primary_key",
+                "objects",
+                "properties"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "title_property": {
+                  "type": "string"
+                },
+                "primary_key": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "objects": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "properties": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "name",
+                          "withheld",
+                          "value_type",
+                          "required",
+                          "nullable",
+                          "group",
+                          "visibility",
+                          "description"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                          },
+                          "withheld": {
+                            "const": false
+                          },
+                          "value_type": {
+                            "type": "string"
+                          },
+                          "required": {
+                            "type": "boolean"
+                          },
+                          "nullable": {
+                            "type": "boolean"
+                          },
+                          "group": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "visibility": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "name",
+                          "withheld"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                          },
+                          "withheld": {
+                            "const": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "relation_types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "version",
+                "source_type",
+                "target_type",
+                "cardinality",
+                "inverse_name",
+                "description",
+                "property_count"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "source_type": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "target_type": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "cardinality": {
+                  "enum": [
+                    "one_to_one",
+                    "one_to_many",
+                    "many_to_one",
+                    "many_to_many"
+                  ]
+                },
+                "inverse_name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "property_count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "event_types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "version",
+                "object_type",
+                "description",
+                "payload_property_count"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "object_type": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "payload_property_count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "resource_id",
+                "name",
+                "version",
+                "risk_level",
+                "approval_mode",
+                "change_scope",
+                "has_side_effects",
+                "object_types",
+                "required_scopes",
+                "contract_digest"
+              ],
+              "properties": {
+                "resource_id": {
+                  "type": "string",
+                  "pattern": "^eios:action:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"
+                },
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "risk_level": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "approval_mode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "change_scope": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "has_side_effects": {
+                  "type": "boolean"
+                },
+                "object_types": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required_scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "contract_digest": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "resource_id",
+                "name",
+                "version",
+                "applies_to",
+                "required_scopes",
+                "contract_digest"
+              ],
+              "properties": {
+                "resource_id": {
+                  "type": "string",
+                  "pattern": "^eios:function:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"
+                },
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "applies_to": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required_scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "contract_digest": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -5379,6 +5728,7 @@
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "review-decision.schema.json": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57",
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",
-    "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d"
+    "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",
+    "workbench-world-model.schema.json": "8d95753382700b3653874220642e3f427b430d305e3d83832b190dc497752f12"
   }
 }

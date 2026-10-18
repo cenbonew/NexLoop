@@ -612,6 +612,74 @@ class RunOutcomePlanUpdate1(BaseModel):
     strategy: None | str
     steps: list[RunOutcomePlanUpdate1StepsItem]
 
+class WorkbenchWorldModelObjectTypesItemPropertiesItem0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    withheld: Literal[False]
+    value_type: str
+    required: bool
+    nullable: bool
+    group: str | None
+    visibility: str
+    description: str
+
+class WorkbenchWorldModelObjectTypesItemPropertiesItem1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    withheld: Literal[True]
+
+class WorkbenchWorldModelObjectTypesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    version: int
+    display_name: str
+    description: str
+    title_property: str
+    primary_key: list[str]
+    objects: int
+    properties: list[WorkbenchWorldModelObjectTypesItemPropertiesItem0 | WorkbenchWorldModelObjectTypesItemPropertiesItem1]
+
+class WorkbenchWorldModelRelationTypesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    version: int
+    source_type: str
+    target_type: str
+    cardinality: Literal['one_to_one', 'one_to_many', 'many_to_one', 'many_to_many']
+    inverse_name: str
+    description: str
+    property_count: int
+
+class WorkbenchWorldModelEventTypesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    version: int
+    object_type: str
+    description: str
+    payload_property_count: int
+
+class WorkbenchWorldModelActionsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    resource_id: str
+    name: str
+    version: int
+    risk_level: str | None
+    approval_mode: str | None
+    change_scope: str | None
+    has_side_effects: bool
+    object_types: list[str]
+    required_scopes: list[str]
+    contract_digest: str | None
+
+class WorkbenchWorldModelFunctionsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    resource_id: str
+    name: str
+    version: int
+    applies_to: list[str | None]
+    required_scopes: list[str]
+    contract_digest: str | None
+
 class ActionIntent(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:action-intent","title":"action-intent","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"intent_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"action_name":{"type":"string","pattern":"^nexloop\\\\.[a-z][a-z0-9_.]+$"},"contract_version":{"type":"string","minLength":1},"actor_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"consumer_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"plan_step_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"idempotency_key":{"type":"string","minLength":16,"maxLength":200},"payload_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"expected_versions":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"resource_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"integer","minimum":1}},"required":["resource_ref","revision"]},"minItems":1,"maxItems":256},"requested_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"not_after":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"evidence_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"minItems":1,"maxItems":256},"parameters":{"type":"object"},"decision_rationale":{"type":"string","minLength":1,"maxLength":2000}},"required":["schema_version","intent_id","tenant_id","world_id","mode","run_id","action_name","contract_version","actor_ref","consumer_ref","goal_version_ref","plan_step_ref","idempotency_key","payload_digest","expected_versions","requested_at","not_after","evidence_refs","parameters","decision_rationale"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
     schema_version: Literal['1.0']
@@ -870,3 +938,13 @@ class RunOutcome(_Contract):
     evidence_refs: list[str]
     intent_ref: None | str
     plan_update: None | RunOutcomePlanUpdate1
+
+class WorkbenchWorldModel(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-world-model","title":"workbench-world-model","description":"Enterprise world model W1 (docs/design/workbench-world-model-design.md; owner 2026-10-19 D1-D7). GET /api/v1/workbench/world-model: a read-only snapshot of the tenant\'s published model metadata for a workbench member holding nexloop.workbench.read (SQL authz.nexloop_workbench_read verb world_model). The current version of each object type (with its properties), relation type and event type; the active Actions and Functions of the read world; instance counts per type. Metadata only: no instance content. A property in an owner-restricted group is listed by name with withheld=true and nothing else (AT-003). Server-derived from the authenticated session; grants nothing; there is no write counterpart (schema changes stay candidate review and trusted configuration).","type":"object","additionalProperties":false,"required":["world","computed_at","object_types","relation_types","event_types","actions","functions"],"properties":{"world":{"const":"real"},"computed_at":{"type":"string"},"object_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","display_name","description","title_property","primary_key","objects","properties"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"display_name":{"type":"string"},"description":{"type":"string"},"title_property":{"type":"string"},"primary_key":{"type":"array","items":{"type":"string"}},"objects":{"type":"integer","minimum":0},"properties":{"type":"array","items":{"anyOf":[{"type":"object","additionalProperties":false,"required":["name","withheld","value_type","required","nullable","group","visibility","description"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"withheld":{"const":false},"value_type":{"type":"string"},"required":{"type":"boolean"},"nullable":{"type":"boolean"},"group":{"type":["string","null"]},"visibility":{"type":"string"},"description":{"type":"string"}}},{"type":"object","additionalProperties":false,"required":["name","withheld"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"withheld":{"const":true}}}]}}}}},"relation_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","source_type","target_type","cardinality","inverse_name","description","property_count"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"source_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"target_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"cardinality":{"enum":["one_to_one","one_to_many","many_to_one","many_to_many"]},"inverse_name":{"type":"string"},"description":{"type":"string"},"property_count":{"type":"integer","minimum":0}}}},"event_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","object_type","description","payload_property_count"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"object_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"description":{"type":"string"},"payload_property_count":{"type":"integer","minimum":0}}}},"actions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["resource_id","name","version","risk_level","approval_mode","change_scope","has_side_effects","object_types","required_scopes","contract_digest"],"properties":{"resource_id":{"type":"string","pattern":"^eios:action:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"},"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"risk_level":{"type":["string","null"]},"approval_mode":{"type":["string","null"]},"change_scope":{"type":["string","null"]},"has_side_effects":{"type":"boolean"},"object_types":{"type":"array","items":{"type":"string"}},"required_scopes":{"type":"array","items":{"type":"string"}},"contract_digest":{"type":["string","null"]}}}},"functions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["resource_id","name","version","applies_to","required_scopes","contract_digest"],"properties":{"resource_id":{"type":"string","pattern":"^eios:function:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"},"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"applies_to":{"type":"array","items":{"type":["string","null"]}},"required_scopes":{"type":"array","items":{"type":"string"}},"contract_digest":{"type":["string","null"]}}}}}}')
+    world: Literal['real']
+    computed_at: str
+    object_types: list[WorkbenchWorldModelObjectTypesItem]
+    relation_types: list[WorkbenchWorldModelRelationTypesItem]
+    event_types: list[WorkbenchWorldModelEventTypesItem]
+    actions: list[WorkbenchWorldModelActionsItem]
+    functions: list[WorkbenchWorldModelFunctionsItem]
