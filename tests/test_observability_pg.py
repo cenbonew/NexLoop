@@ -248,7 +248,7 @@ def test_maintain_rolls_only_recent_hours_in_one_pass(observed):
 
 
 def test_staged_candidates_without_merge_configuration_block_and_rule_v5(observed, tmp_path):
-    # Claim-matcher idle (2026-10-18): the 0441 candidates block, alert-rules v5 and the doctor check.
+    # Claim-matcher idle (2026-10-18): the 0216 candidates block, alert-rules v5 and the doctor check.
     from nexloop_eios.doctor import observability
     o, v5 = observed, RULES.parent / 'alert-rules.v5.json'
     rule = next(r for r in load_rules(v5)['rules'] if r['rule_id'] == 'candidates_without_merge_configuration')

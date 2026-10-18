@@ -1077,9 +1077,9 @@
       "sha256": "492b4dfb77e777f4fe5872dc7ffb52d8b04a6a826284582aaea521630b412cac"
     },
     {
-      "version": "0441",
-      "name": "0441_candidates_merge_configuration_metric.sql",
-      "sha256": "a2c1d445a2ff911cc9235ba632d4943e8aeb07209509f624762644152a850028"
+      "version": "0216",
+      "name": "0216_candidates_merge_configuration_metric.sql",
+      "sha256": "afabbfc4a9fafb976a019d48c61a9e4ddb8634220252a4e9fd047681e0fca8f0"
     }
   ]
 }

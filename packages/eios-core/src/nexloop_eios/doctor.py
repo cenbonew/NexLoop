@@ -99,7 +99,7 @@ def observability(metrics_database_url_file,rules_file):
         'alert_evaluator_recent':bool(real) and all(e.get('stale') is False for e in evaluators.values()),
         'alert_rules_current':bool(real) and all(e.get('rules_version')==version for e in evaluators.values()),
         'process_samples_recent':any((s.get(kind) or {}).get('status')=='ok' for s in real for kind in ('guard','pool','host')),
-        # 0441: staged candidate definitions wait on a tenant without an active merge configuration (claim-matcher idle).
+        # 0216: staged candidate definitions wait on a tenant without an active merge configuration (claim-matcher idle).
         'candidates_glueable':all(((s.get('candidates') or {}).get('staged_without_configuration') or 0)==0 for s in real)}
     details={'observability':{'rules_file_version':version,'tenants':{t:{'rules_version':e.get('rules_version'),'last_evaluated_at':e.get('last_evaluated_at'),
         'stale':e.get('stale')} for t,e in sorted(evaluators.items())},
