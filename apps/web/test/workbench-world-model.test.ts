@@ -5,7 +5,8 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {WorkbenchError,worldModel} from '../src/workbench/api';
-import {NODE_H,NODE_W,hue,layout} from '../src/workbench/graph/layout';
+import {NODE_H,NODE_W,hue,layout,selfLoop} from '../src/workbench/graph/layout';
+import {SchemaGraph} from '../src/workbench/graph/SchemaGraph';
 import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath,PAGES} from '../src/workbench/route';
 
@@ -67,4 +68,14 @@ test('the graph view: one focusable button per type, labelled edges, the focused
   expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(2);
   expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer 详情"');expect(html).toContain('→ Conversation：consumer_conversation（1:N）');
   expect(html).toContain('aria-selected="true" tabindex="0" class="tab tab-selected">关系图');
+});
+
+test('a relation from a type to itself: both ends on the node border (outside the box) and an arrowhead like any edge',()=>{
+  const loop=selfLoop(200,100);
+  for(const p of [loop.start,loop.end]){const inside=Math.abs(p.x-200)<NODE_W/2&&Math.abs(p.y-100)<NODE_H/2;expect(inside).toBe(false);expect(p.x).toBeGreaterThanOrEqual(200+NODE_W/2);}
+  expect(loop.start.y).toBeLessThan(loop.end.y);expect(loop.d.startsWith(`M${loop.start.x},${loop.start.y} `)&&loop.d.endsWith(` ${loop.end.x},${loop.end.y}`)).toBe(true);
+  const html=renderToStaticMarkup(h(SchemaGraph,{nodes:[{id:'Consumer',label:'Consumer'}],edges:[{id:'referred_by',from:'Consumer',to:'Consumer',label:'referred_by N:1'}],
+    focus:null,onFocus:()=>{},label:'g'}));
+  expect(html).toMatch(/data-self-loop="referred_by"><path d="M[^"]+" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url\(#schema-arrow\)"/);
+  expect(html).toContain('referred_by N:1');
 });

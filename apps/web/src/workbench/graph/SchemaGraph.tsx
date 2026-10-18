@@ -6,7 +6,7 @@
  * a text summary.
  */
 import {useMemo,useState,type KeyboardEvent} from 'react';
-import {NODE_H,NODE_W,border,hue,layout,type GraphEdge,type GraphNode} from './layout';
+import {NODE_H,NODE_W,border,hue,layout,selfLoop,type GraphEdge,type GraphNode} from './layout';
 
 export const CARDINALITY_TEXT:Record<string,string>={one_to_one:'1:1',one_to_many:'1:N',many_to_one:'N:1',many_to_many:'N:N'};
 const HUES=['#2563eb','#0f766e','#7c3aed','#b45309','#be185d','#15803d','#4338ca','#0369a1'];
@@ -41,8 +41,9 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label}:{nodes:GraphNode[]
       <g className="schema-edges" style={{color:'var(--muted, #57606a)'}}>
         {edges.map(e=>{const a=at.get(e.from),b=at.get(e.to);if(!a||!b)return null;
           const dim=near&&!(near.has(e.from)&&near.has(e.to)&&(e.from===focus||e.to===focus));
-          if(e.from===e.to){const x=a.x+NODE_W/2,y=a.y;return <g key={e.id} opacity={dim?0.25:1}><path d={`M${x},${y-8} c40,-40 40,56 0,16`} fill="none" stroke="currentColor"/>
-            {e.label?<text x={x+36} y={y} fontSize={11} fill="currentColor">{e.label}</text>:null}</g>;}
+          if(e.from===e.to){const loop=selfLoop(a.x,a.y);return <g key={e.id} opacity={dim?0.25:1} data-self-loop={e.id}>
+            <path d={loop.d} fill="none" stroke="currentColor" strokeWidth={1.4} markerEnd="url(#schema-arrow)"/>
+            {e.label?<text x={loop.label.x} y={loop.label.y} fontSize={11} fill="currentColor" style={{paintOrder:'stroke',stroke:'var(--surface, #fff)',strokeWidth:3}}>{e.label}</text>:null}</g>;}
           const s=border(a.x,a.y,b.x,b.y),t=border(b.x,b.y,a.x,a.y);
           return <g key={e.id} opacity={dim?0.25:1}><line x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke="currentColor" strokeWidth={1.4} markerEnd="url(#schema-arrow)"/>
             {e.label?<text x={(s.x+t.x)/2} y={(s.y+t.y)/2-4} fontSize={11} textAnchor="middle" fill="currentColor" style={{paintOrder:'stroke',stroke:'var(--surface, #fff)',strokeWidth:3}}>{e.label}</text>:null}</g>;})}
