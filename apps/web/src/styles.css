@@ -20,7 +20,7 @@ main{width:100%;max-width:var(--page-max);margin:72px 0 0}
 footer{margin-top:auto;padding-top:48px;color:var(--muted);font-size:14px;line-height:22px}
 h1{font-size:44px;line-height:55px;margin:0;font-weight:650;letter-spacing:-.6px}.subtitle{font-size:18px;line-height:27px;color:var(--muted);margin:8px 0 0}
 form{margin-top:48px}.field{margin-bottom:28px}label{display:block;font-size:16px;font-weight:600;line-height:24px;margin-bottom:8px}
-input{width:100%;height:var(--control-h);border:1px solid var(--border);border-radius:var(--radius);background:var(--input-bg);font:inherit;font-size:16px;padding:0 16px;color:inherit}
+input:not([type=radio]):not([type=checkbox]){width:100%;height:var(--control-h);border:1px solid var(--border);border-radius:var(--radius);background:var(--input-bg);font:inherit;font-size:16px;padding:0 16px;color:inherit}
 select,textarea{background:var(--input-bg);color:inherit}input::placeholder,textarea::placeholder{color:var(--muted)}input:focus-visible,button:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
 /* Buttons size to their label; only the primary action (a form's submit) carries the accent colour. */
 button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:var(--control-h);padding:0 20px;border:1px solid var(--border);border-radius:9px;
@@ -97,7 +97,7 @@ button:disabled{cursor:wait;opacity:.7}
 .workbench form{margin-top:0}
 .workbench .field{margin-bottom:12px}
 .workbench label{font-size:13px;line-height:20px;margin-bottom:4px}
-.workbench input,.workbench select,.workbench textarea{height:auto;min-height:36px;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;width:100%;max-width:32rem;background:var(--input-bg);color:inherit}
+.workbench input:not([type=radio]):not([type=checkbox]),.workbench select,.workbench textarea{height:auto;min-height:36px;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;width:100%;max-width:32rem;background:var(--input-bg);color:inherit}
 .workbench button{width:auto;height:auto;min-height:36px;padding:6px 14px;font-size:14px;border-radius:8px;margin-top:4px}
 .workbench .link{min-height:0;margin:0;font-size:inherit;color:var(--accent);text-decoration:none}
 .workbench .link:hover{background:none;text-decoration:underline}
@@ -145,7 +145,7 @@ button:disabled{cursor:wait;opacity:.7}
   .workbench-layout nav{position:static;display:none;padding:8px}.workbench-layout nav.open{display:block}
   .workbench-layout nav ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:4px}
   .workbench-layout nav a{padding:10px 12px}
-  .workbench input,.workbench select,.workbench textarea{max-width:none}
+  .workbench input:not([type=radio]):not([type=checkbox]),.workbench select,.workbench textarea{max-width:none}
   .workbench-page{padding:14px}.workbench .takeover-form .field,.workbench .takeover-form .field:has(input[type=number]){flex-basis:100%}.takeover-bar{position:static}}
 @media (max-width:639px){.workbench .brand-header .brand-logo{width:150px}.workbench .brand-context{font-size:15px}}
 /* Workbench login: a centred card. */
@@ -247,3 +247,20 @@ button:disabled{cursor:wait;opacity:.7}
 @media (min-width:640px){.data-table th.cell-num,.data-table td.cell-num{width:7rem}}
 .workbench th{color:var(--text-2)}
 .workspace code{font-size:inherit}
+
+/* Web layout batch 4 (form controls). Radio buttons and checkboxes keep their native size (18 px) and are left out of the text-input
+   rules; the text follows the control on the same line, vertically centred; a group is a fieldset as wide as its content, options
+   side by side (wrapping on phones). One look for every form: 13–16 px labels, 12 px between fields, a visible focus ring, a
+   muted disabled state and red errors. */
+input[type=radio],input[type=checkbox]{width:18px;height:18px;margin:0;flex:none;accent-color:var(--primary-bg);cursor:pointer}
+label.choice{display:inline-flex;align-items:center;gap:8px;margin:0;font-weight:500;cursor:pointer;min-height:32px}
+fieldset.choices{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 20px;border:1px solid var(--border);border-radius:var(--radius);
+  padding:6px 14px 8px;margin:0 0 12px;max-width:100%;min-width:0}
+fieldset.choices legend{padding:0 4px;font-size:13px;font-weight:600;color:var(--text-2)}
+.workbench label.choice{font-size:14px;margin:0 0 8px}
+.workbench .field{margin-bottom:12px}
+input:disabled,select:disabled,textarea:disabled{opacity:.6;cursor:not-allowed}
+button:disabled{cursor:not-allowed;opacity:.55}
+input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.workbench .error{font-size:14px;margin:8px 0}
+.workbench fieldset.choices label.choice{margin:0}

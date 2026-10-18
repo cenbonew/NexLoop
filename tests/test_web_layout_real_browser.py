@@ -31,7 +31,7 @@ from workbench_stack_fixture import private, workbench_stack
 
 pytestmark = pytest.mark.real_browser
 PAGES = ('customer-login', 'customer-webchat', 'wb-login', 'wb-overview', 'wb-consumers', 'wb-consumer', 'wb-conversation', 'wb-settings',
-         'wb-actions', 'wb-commitments', 'wb-operations', 'wb-goals', 'wb-audit')
+         'wb-actions', 'wb-commitments', 'wb-operations', 'wb-goals', 'wb-contact', 'wb-audit')
 
 
 def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, tmp_path, monkeypatch):  # noqa: F811
@@ -92,3 +92,10 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert all(pages[f'{p}-{w}']['grid']['heights'] > 1 for p in ('wb-overview', 'wb-operations') for w in (1440, 1024))
     assert all(0 < pages[f'wb-conversation-{w}']['bubble_ratio'] <= 0.81 for w in (1440, 1024)) and pages['wb-conversation-390']['bubble_ratio'] <= 0.93
     assert [k for k, v in pages.items() if not v['empty_styled']] == []
+    # Batch 4: radios/checkboxes at native size next to their text (pause/resume radios on goals, the checkbox on contact).
+    choices = {k: v['choices'] for k, v in pages.items() if v['choices']}
+    assert {k.rsplit('-', 1)[0] if not k.endswith('dark') else k.rsplit('-', 2)[0] for k in choices} >= {'wb-goals', 'wb-contact'}, sorted(choices)
+    assert all(len(pages[f'wb-goals-{w}']['choices']) == 2 for w in (1440, 1024, 390))
+    bad = {k: c for k, v in choices.items() for c in v if not (c['w'] <= 24 and c['h'] <= 24 and c['gap'] is not None and 0 <= c['gap'] <= 12 and c['dy'] <= 4)}
+    assert bad == {}, bad
+    assert all(f['w'] < f['parent'] for w in (1440, 1024) for f in pages[f'wb-goals-{w}']['fieldsets']), {w: pages[f'wb-goals-{w}']['fieldsets'] for w in (1440, 1024)}

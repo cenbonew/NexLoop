@@ -102,8 +102,8 @@ export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeK
       <div className="field"><label htmlFor="control-scope">范围</label><select id="control-scope" value={kind} onChange={e=>{const k=e.target.value as keyof typeof SCOPES;setKind(k);setRef(k==='tenant'?'*':'');}}>
         {Object.entries(SCOPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
       {kind!=='tenant'?<div className="field"><label htmlFor="control-ref">对象</label><input id="control-ref" value={ref} onChange={e=>setRef(e.target.value)} required maxLength={255}/></div>:null}
-      <fieldset><legend>操作</legend><label><input type="radio" name="control-paused" checked={pause} onChange={()=>setPause(true)}/> 暂停</label>
-        <label><input type="radio" name="control-paused" checked={!pause} onChange={()=>setPause(false)}/> 恢复</label></fieldset></>}
+      <fieldset className="choices"><legend>操作</legend><label className="choice"><input type="radio" name="control-paused" checked={pause} onChange={()=>setPause(true)}/>暂停</label>
+        <label className="choice"><input type="radio" name="control-paused" checked={!pause} onChange={()=>setPause(false)}/>恢复</label></fieldset></>}
     <Reason id="control-reason" value={reason} onChange={setReason}/>
   </Form>;
 }
@@ -248,7 +248,7 @@ export function SilenceForm({member}:{member:Me}){
     {options.length?<div className="field"><label htmlFor="silence-alert">告警</label><select id="silence-alert" value={chosen?.dedupe_key} onChange={e=>setKey(e.target.value)}>
       {options.map(a=><option key={a.dedupe_key} value={a.dedupe_key}>{a.rule_id}{a.selector?` · ${a.selector}`:''}</option>)}</select></div>
       :<p className="note">当前没有可静默的触发中告警。</p>}
-    {chosen?.selector?<label><input type="checkbox" checked={onlySelector} onChange={e=>setOnlySelector(e.target.checked)}/> 只静默这一对象（{chosen.selector}）</label>:null}
+    {chosen?.selector?<label className="choice"><input type="checkbox" checked={onlySelector} onChange={e=>setOnlySelector(e.target.checked)}/>只静默这一对象（{chosen.selector}）</label>:null}
     <div className="field"><label htmlFor="silence-hours">时长（小时，最多 168）</label><input id="silence-hours" type="number" min={1} max={168} value={hours} onChange={e=>setHours(Number(e.target.value))}/></div>
     <Reason id="silence-reason" value={reason} onChange={setReason}/>
     <p className="note">静默期间仍会评估和记录；“告警系统不可用”不能静默。</p>

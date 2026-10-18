@@ -36,6 +36,12 @@ const measure=()=>{const vw=innerWidth;
     grid:(g=>g?{cols:new Set([...g.children].map(c=>Math.round(c.getBoundingClientRect().left))).size,
       heights:new Set([...g.children].map(c=>Math.round(c.getBoundingClientRect().height))).size}:null)(document.querySelector('.workbench-grid')),
     bubble_ratio:(m=>m.length?Math.max(...m.map(li=>li.getBoundingClientRect().width/li.parentElement.getBoundingClientRect().width)):null)([...document.querySelectorAll('.workbench-messages li')]),
+    // Batch 4: every visible radio/checkbox — its box, and the gap to its own text (first text after it inside the label).
+    choices:[...document.querySelectorAll('input[type=radio],input[type=checkbox]')].filter(i=>i.getBoundingClientRect().width>0).map(i=>{
+      const r=i.getBoundingClientRect();const t=[...i.parentElement.childNodes].find(n=>n.nodeType===3&&n.textContent.trim());
+      const range=document.createRange();if(t)range.selectNodeContents(t);const tr=t?range.getBoundingClientRect():null;
+      return {w:Math.round(r.width),h:Math.round(r.height),gap:tr?Math.round(tr.left-r.right):null,dy:tr?Math.round(Math.abs((tr.top+tr.bottom)/2-(r.top+r.bottom)/2)):null};}),
+    fieldsets:[...document.querySelectorAll('fieldset')].map(f=>({w:Math.round(f.getBoundingClientRect().width),parent:Math.round(f.parentElement.getBoundingClientRect().width)})),
     empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')};};
 const result={pages:{},dark_differs:{},menu:{},chat:{}};
 const browser=await chromium.launch({headless:true});
@@ -72,7 +78,7 @@ try{
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
   for(const [name,path] of [['wb-overview','/workbench/overview'],['wb-consumers','/workbench/consumers'],['wb-consumer',`/workbench/consumers/${session.consumer_id}`],
     ['wb-conversation',`/workbench/consumers/conversations/${session.conversation_id}`],['wb-settings','/workbench/settings'],
-    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-audit','/workbench/audit']]){
+    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-contact','/workbench/contact'],['wb-audit','/workbench/audit']]){
     await page.goto(path);await page.locator('.workbench-page h1').waitFor({timeout:20000});await page.waitForTimeout(800);await shoot(page,name);}
   // The menu below 1024 px: a visible button; the navigation hidden until it is opened; a click on an entry navigates and closes it.
   await page.setViewportSize({width:390,height:844});await page.goto('/workbench/overview');await page.locator('.workbench-page h1').waitFor({timeout:20000});
