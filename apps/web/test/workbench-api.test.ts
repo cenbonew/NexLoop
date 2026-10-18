@@ -1,6 +1,7 @@
 import {afterEach,expect,test,vi} from 'vitest';
 import {INTENT_STATE_TEXT,STATE_TEXT,SECTION_TEXT,WorkbenchError,commitmentView,contact,failureOf,matchedText,overview,readContact,readOverview,readWorkbenchSession,section} from '../src/workbench/api';
 import {dueText,quoteText} from '../src/workbench/pages/Commitments';
+import {when} from '../src/workbench/pages/Consumers';
 import {dispatchText} from '../src/workbench/pages/Actions';
 import {parseRoute,routePath} from '../src/workbench/route';
 
@@ -10,7 +11,7 @@ const okOverview={goals:{status:'ok',data:{goals:[{goal_id:'grow',goal_kind:'lon
   contact:{status:'forbidden',data:null},takeovers:{status:'unavailable',data:null},backlog:{status:'unavailable',data:null},commercial:{status:'unavailable',data:null}};
 const restricted={message_id:id('4'),rule_version:1,rule_id:'stop-contact',certainty:'refuse',matched_text:null,matched_text_status:'restricted',recorded_at:'2026-10-10T09:00:00+00:00'};
 const restriction={...restricted,consumer_id:id('2'),active:true,control_revision:7,conversation_id:id('5'),restricted_at:'2026-10-10T09:00:00+00:00',released_at:null,released_by:null,release_reason:null,hits:[restricted]};
-const view={commitment_id:id('1'),consumer_id:id('2'),revision:2,properties:{status:'open',due_at:'2026-10-11T10:00:00+08:00',precision:'latest_bound'},quote:null,quote_status:'restricted',
+const view={commitment_id:id('1'),consumer_id:id('2'),revision:2,properties:{status:'open',due_at:'2026-10-11T10:00:00+08:00',due_precision:'latest_bound'},quote:null,quote_status:'restricted',
   source_available:true,origin:'claim',registered_at:'2026-10-10T09:00:00+00:00',evidence:{requested:[],delivered:[],customer_confirmed:[],problem_resolved:'unavailable'},events:[],exceptions:[]};
 afterEach(()=>vi.unstubAllGlobals());
 function respond(status:number,body:unknown){vi.stubGlobal('fetch',vi.fn(async()=>new Response(typeof body==='string'?body:JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}})));}
@@ -49,7 +50,7 @@ test('AT-003 interface: restricted matched text stays hidden and labelled; a lea
 
 test('commitment view: status only from the object, latest bound is a derived value, problem column is unavailable (AT-040/041)',()=>{
   const value=commitmentView(view);
-  expect(value.status).toBe('open');expect(dueText(value)).toBe('最晚界 2026-10-11T10:00:00+08:00（推导值）');
+  expect(value.status).toBe('open');expect(dueText(value)).toBe('最晚界 '+when('2026-10-11T10:00:00+08:00')+'（推导值）');   // the object's due_precision (walkthrough F03)
   expect(quoteText(value)).toContain('原文需授权');
   expect(quoteText(commitmentView({...view,quote:'我们明天下午前给您反馈',quote_status:'ok'}))).toBe('我们明天下午前给您反馈');
   expect(quoteText(commitmentView({...view,quote_status:'unavailable'}))).toBe('来源消息已删除，原文不可用');
@@ -106,11 +107,16 @@ test('desktop usability: readable names, a non-identifying alias otherwise, and 
   const {when}=await import('../src/workbench/pages/Consumers');
   const row={consumer_id:id('2'),restricted:false,open_commitments:0,active_plans:0,conversations:1};
   expect(consumers({items:[{...row,display:{status:'ok',name:'合成客户甲'}}],next_cursor:null}).items[0].display).toEqual({status:'ok',name:'合成客户甲'});
-  expect(consumers({items:[{...row,display:{status:'withheld'}}],next_cursor:null}).items[0].display).toEqual({status:'withheld'});
-  expect(consumers({items:[row],next_cursor:null}).items[0].display).toEqual({status:'absent'});   // an older server
+  // F04: one vocabulary; older servers' withheld / forbidden / absent map onto it.
+  expect(consumers({items:[{...row,display:{status:'restricted',reason:'withheld'}}],next_cursor:null}).items[0].display).toEqual({status:'restricted',reason:'withheld'});
+  expect(consumers({items:[{...row,display:{status:'withheld'}}],next_cursor:null}).items[0].display).toEqual({status:'restricted',reason:'withheld'});
+  expect(consumers({items:[{...row,display:{status:'forbidden'}}],next_cursor:null}).items[0].display).toEqual({status:'restricted',reason:'forbidden'});
+  expect(consumers({items:[row],next_cursor:null}).items[0].display).toEqual({status:'missing'});   // an older server
+  expect(consumers({items:[{...row,display:{status:'failed'}}],next_cursor:null}).items[0].display).toEqual({status:'failed'});
+  expect(()=>consumers({items:[{...row,display:{status:'restricted',reason:'guess'}}],next_cursor:null})).toThrow(WorkbenchError);
   expect(()=>consumers({items:[{...row,display:{status:'guess',name:'x'}}],next_cursor:null})).toThrow(WorkbenchError);
   const alias=consumerAlias(id('2'));expect(alias).toMatch(/^客户 \S{4}·\S{3}$/);expect(alias.length).toBeLessThan(id('2').length);
-  expect(DISPLAY_NOTE.withheld).toBe('名称受限');
+  expect([DISPLAY_NOTE.restricted,DISPLAY_NOTE.missing,DISPLAY_NOTE.failed]).toEqual(['名称受限','未登记名称','名称加载失败']);
   const detail=consumer({consumer_id:id('2'),paused:false,restriction:null,display:{status:'withheld'},commitments:[],properties:{status:'ok',values:{},withheld:['display_name']},
     conversations:[{conversation_id:id('3'),last_sequence:4,last_message_at:'2026-10-17 13:13:54.071455+00'},{conversation_id:id('4'),last_sequence:0,last_message_at:null}]});
   expect(detail.conversations.map(c=>c.last_message_at)).toEqual(['2026-10-17 13:13:54.071455+00',null]);

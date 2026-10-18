@@ -132,27 +132,45 @@ export function goals(value:unknown):Goals{
 export const readGoals=()=>get('/api/v1/workbench/goals',goals);
 
 // ---- consumers ----
-/** A readable name through the per-property READ (ADR-025): 'withheld' (owner-restricted), 'forbidden' (no property read) and 'absent'
- * are shown as a non-identifying alias, never as a guess. Older servers send no `display`: treated as absent. */
-export type DisplayName={status:'ok';name:string}|{status:'withheld'|'forbidden'|'absent'};
-function displayName(value:unknown):DisplayName{
-  if(value===undefined)return {status:'absent'};
+/** The customer's name state (walkthrough F04): one vocabulary on every page. `restricted` (no Consumer read, or the owner restricted the
+ * name) and `missing` (readable, not recorded) show the stable alias; `failed` says the read failed and may be retried. A restriction
+ * never says whether a name exists. Older servers' withheld / forbidden / absent map to the same states. */
+export type DisplayName={status:'ok';name:string}|{status:'restricted';reason:'forbidden'|'withheld'}|{status:'missing'}|{status:'failed'};
+export function displayName(value:unknown):DisplayName{
+  if(value===undefined)return {status:'missing'};
   const o=object(value);
   if(o.status==='ok')return {status:'ok',name:text(o.name)};
-  if(o.status==='withheld'||o.status==='forbidden'||o.status==='absent')return {status:o.status};
+  if(o.status==='restricted'&&(o.reason==='forbidden'||o.reason==='withheld'))return {status:'restricted',reason:o.reason};
+  if(o.status==='missing'||o.status==='failed')return {status:o.status};
+  if(o.status==='withheld'||o.status==='forbidden')return {status:'restricted',reason:o.status};
+  if(o.status==='absent')return {status:'missing'};
   throw new WorkbenchError('invalid');
 }
 /** A short alias derived from the opaque id: stable, not personal data, and not the full id. */
 export function consumerAlias(consumerId:string):string{return `客户 ${consumerId.slice(0,4)}·${consumerId.slice(-3)}`;}
-export const DISPLAY_NOTE:Record<Exclude<DisplayName['status'],'ok'>,string>={withheld:'名称受限',forbidden:'无名称读取权限',absent:'未登记名称'};
+export const DISPLAY_NOTE:Record<'restricted'|'missing'|'failed',string>={restricted:'名称受限',missing:'未登记名称',failed:'名称加载失败'};
+/** The readable label of a customer: the name, or the alias with its state (for titles, filters and plain text). */
+export function consumerLabel(consumerId:string,display:DisplayName):string{
+  return display.status==='ok'?display.name:`${consumerAlias(consumerId)}（${DISPLAY_NOTE[display.status]}）`;
+}
 export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName};
-export type ConsumerPage={items:ConsumerRow[];next_cursor:string|null};
+export type ConsumerPage={items:ConsumerRow[];next_cursor:string|null;total:number|null;tenant_total:number|null};
+const total=(value:unknown)=>value===undefined||value===null?null:count(value);
 export function consumers(value:unknown):ConsumerPage{
   const v=object(value);
   return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display)};}),
-    next_cursor:v.next_cursor===null?null:id(v.next_cursor)};
+    next_cursor:v.next_cursor===null||v.next_cursor===undefined?null:/^\d+$/.test(String(v.next_cursor))?String(v.next_cursor):id(v.next_cursor),total:total(v.total),tenant_total:total(v.tenant_total)};
 }
-export const readConsumers=(after?:string)=>get('/api/v1/workbench/consumers'+(after?'?after='+encodeURIComponent(after):''),consumers);
+/** F09: list filters and sort (server side, on the list's own counts); `cursor` is the server's offset or, for the plain list, the id cursor. */
+export type ConsumerQuery={restricted?:boolean;has_open_commitments?:boolean;sort?:'id'|'open_commitments'|'conversations'|'active_plans';order?:'asc'|'desc';cursor?:string};
+export function consumerQueryString(q:ConsumerQuery,limit=50):string{
+  const p=new URLSearchParams();
+  if(q.restricted!==undefined)p.set('restricted',String(q.restricted));
+  if(q.has_open_commitments!==undefined)p.set('has_open_commitments',String(q.has_open_commitments));
+  p.set('sort',q.sort??'id');if(q.order)p.set('order',q.order);if(q.cursor)p.set('cursor',q.cursor);p.set('limit',String(limit));
+  return p.toString();
+}
+export const readConsumers=(q:ConsumerQuery={},limit=50)=>get('/api/v1/workbench/consumers?'+consumerQueryString(q,limit),consumers);
 export type ConsumerDetail={consumer_id:string;paused:boolean;restriction:{active:boolean;control_revision:number;rule_id:string;restricted_at:string;released_at:string|null}|null;
   display:DisplayName;conversations:{conversation_id:string;last_sequence:number;last_message_at:string|null}[];commitments:string[];properties:{status:'ok';values:Record<string,unknown>;withheld:string[]}|{status:'forbidden';values:null;withheld:string[]}};
 export function consumer(value:unknown):ConsumerDetail{
@@ -229,7 +247,7 @@ export const readConsumerActions=(consumerId:string,limit=5)=>get('/api/v1/workb
 export type EvidenceItem={kind:string;ref:string;occurred_at:string};
 export type CommitmentView={commitment_id:string;consumer_id:string;revision:number;status:string;properties:Record<string,unknown>;quote:string|null;
   quote_status:'ok'|'restricted'|'unavailable'|'none';origin:string;evidence:{requested:EvidenceItem[];delivered:EvidenceItem[];customer_confirmed:EvidenceItem[];problem_resolved:'unavailable'};
-  events:{kind:string;recorded_at:string;principal_id:string|null}[];exceptions:{reason:string;raised_at:string}[]};
+  events:{kind:string;recorded_at:string;principal_id:string|null}[];exceptions:{reason:string;raised_at:string}[];consumer_display:DisplayName|null};
 const QUOTE_STATUS=['ok','restricted','unavailable','none'];
 function evidence(value:unknown):EvidenceItem[]{return list(value).map(x=>{const o=object(x);return {kind:text(o.kind),ref:text(o.ref),occurred_at:text(o.occurred_at)};});}
 export function commitmentView(value:unknown):CommitmentView{
@@ -239,15 +257,31 @@ export function commitmentView(value:unknown):CommitmentView{
     quote_status:v.quote_status as CommitmentView['quote_status'],origin:text(v.origin),
     evidence:{requested:evidence(e.requested),delivered:evidence(e.delivered),customer_confirmed:evidence(e.customer_confirmed),problem_resolved:'unavailable'},
     events:list(v.events).map(x=>{const o=object(x);return {kind:text(o.kind),recorded_at:text(o.recorded_at),principal_id:maybeText(o.principal_id)};}),
-    exceptions:list(v.exceptions).map(x=>{const o=object(x);return {reason:text(o.reason),raised_at:text(o.raised_at)};})};
+    exceptions:list(v.exceptions).map(x=>{const o=object(x);return {reason:text(o.reason),raised_at:text(o.raised_at)};}),
+    // D3 (optional in commitment-view): absent from older servers, then the page shows the alias without a state.
+    consumer_display:v.consumer_display===undefined?null:displayName(v.consumer_display)};
 }
-export type Commitments={commitments:CommitmentView[];exceptions:{subject_ref:string;reason:string;raised_at:string}[]};
+export type CommitmentCounts={open:number;ended:number;exceptions_in_scope:number;exceptions_all:number};
+export type CommitmentException={subject_ref:string;consumer_id:string|null;reason:string;raised_at:string};
+export type Commitments={commitments:CommitmentView[];exceptions:CommitmentException[];counts:CommitmentCounts|null;total:number|null;next_cursor:string|null};
 export function commitmentList(value:unknown):Commitments{
-  const v=object(value);
-  return {commitments:list(v.commitments).map(commitmentView),exceptions:list(v.exceptions).map(x=>{const o=object(x);return {subject_ref:text(o.subject_ref),reason:text(o.reason),raised_at:text(o.raised_at)};})};
+  const v=object(value);const c=v.counts===undefined?null:object(v.counts);
+  return {commitments:list(v.commitments).map(commitmentView),
+    exceptions:list(v.exceptions).map(x=>{const o=object(x);return {subject_ref:text(o.subject_ref),consumer_id:o.consumer_id===undefined||o.consumer_id===null?null:id(o.consumer_id),reason:text(o.reason),raised_at:text(o.raised_at)};}),
+    counts:c?{open:count(c.open),ended:count(c.ended),exceptions_in_scope:count(c.exceptions_in_scope),exceptions_all:count(c.exceptions_all)}:null,
+    total:total(v.total),next_cursor:v.next_cursor===null||v.next_cursor===undefined?null:/^\d+$/.test(String(v.next_cursor))?String(v.next_cursor):(()=>{throw new WorkbenchError('invalid');})()};
 }
-export const readCommitments=(all=false)=>get('/api/v1/workbench/commitments'+(all?'?all=true':''),commitmentList);
-export const readConsumerCommitments=(consumerId:string)=>get('/api/v1/workbench/commitments?consumer_id='+consumerId+'&all=true',commitmentList);
+/** F05/F09: the scope of the commitment list; list, counts and exceptions always come from the same scope (server side). */
+export type CommitmentQuery={status_group?:'open'|'ended'|'all';consumer_id?:string;late?:boolean;due_after?:string;due_before?:string;
+  sort?:'due_at'|'registered_at'|'status';order?:'asc'|'desc';cursor?:string};
+export function commitmentQueryString(q:CommitmentQuery,limit=50):string{
+  const p=new URLSearchParams();p.set('status_group',q.status_group??'open');
+  for(const k of ['consumer_id','due_after','due_before','sort','order','cursor'] as const){const x=q[k];if(x)p.set(k,x);}
+  if(q.late!==undefined)p.set('late',String(q.late));p.set('limit',String(limit));
+  return p.toString();
+}
+export const readCommitments=(q:CommitmentQuery={},limit=50)=>get('/api/v1/workbench/commitments?'+commitmentQueryString(q,limit),commitmentList);
+export const readConsumerCommitments=(consumerId:string)=>get('/api/v1/workbench/commitments?'+commitmentQueryString({status_group:'all',consumer_id:consumerId},200),commitmentList);
 export const readCommitment=(commitmentId:string)=>get('/api/v1/workbench/commitments/'+commitmentId,commitmentView);
 /** Open vs ended (design §6). Status comes only from the object; the interface never infers it. */
 export const OPEN_STATUSES=['conditional','open','in_progress','breached'];

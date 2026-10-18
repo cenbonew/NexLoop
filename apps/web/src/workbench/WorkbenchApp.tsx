@@ -28,17 +28,25 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
     <button type="submit" disabled={mutation.isPending}>{mutation.isPending?'正在登录…':'登录'}</button></form></section>;
 }
 
-export function WorkbenchPage({route,go,slots={}}:{route:Route;go:(route:Route)=>void;slots?:ActionSlots}){
+/** What the shown object belongs to (F10): a detail page names its customer so the breadcrumb can lead back to that customer. */
+export type Context={consumerId:string;label:string}|null;
+
+export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;go:(route:Route,options?:{replace?:boolean})=>void;slots?:ActionSlots;onContext?:(context:Context)=>void}){
   const slot=slots[route.page];const a=typeof slot==='function'?slot(route):slot;
+  const setQuery=(query:Route['query'])=>go({page:route.page,query},{replace:true});
   switch(route.page){
     case 'overview':return <Overview actions={a} onOpen={page=>go({page:page as PageKey})}/>;
     case 'goals':return <Goals actions={a}/>;
     case 'consumers':
-      if(route.sub==='conversation'&&route.id)return <Conversation conversationId={route.id} actions={a}/>;
-      return route.id?<ConsumerDetail consumerId={route.id} actions={a} onConversation={id=>go({page:'consumers',id,sub:'conversation'})}/>:<Consumers actions={a} onOpen={id=>go({page:'consumers',id})}/>;
+      if(route.sub==='conversation'&&route.id)return <Conversation conversationId={route.id} actions={a} onContext={onContext}/>;
+      return route.id?<ConsumerDetail consumerId={route.id} actions={a} onConversation={id=>go({page:'consumers',id,sub:'conversation'})}
+          onCommitments={consumer=>go({page:'commitments',query:{consumer,status:'open'}})} onContext={onContext}/>
+        :<Consumers actions={a} query={route.query??{}} onQuery={setQuery} onOpen={id=>go({page:'consumers',id})}
+          onCommitments={consumer=>go({page:'commitments',query:{consumer,status:'open'}})}/>;
     case 'plans':return <Plans actions={a}/>;
     case 'actions':return <Actions actions={a}/>;
-    case 'commitments':return route.id?<CommitmentDetail commitmentId={route.id} actions={a}/>:<Commitments actions={a} onOpen={id=>go({page:'commitments',id})}/>;
+    case 'commitments':return route.id?<CommitmentDetail commitmentId={route.id} actions={a} onContext={onContext} onConsumer={id=>go({page:'consumers',id})}/>
+      :<Commitments actions={a} query={route.query??{}} onQuery={setQuery} onOpen={id=>go({page:'commitments',id})} onConsumer={id=>go({page:'consumers',id})}/>;
     case 'contact':return <Contact actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
@@ -57,22 +65,40 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'管理',pages:['knowledge','settings','ontology','experiments']}];
 const NOT_ENABLED:PageKey[]=['ontology','experiments'];
 
-/** Detail pages: where this page sits (F08); every step but the last goes back. */
-export function crumbs(route:Route):{label:string;to?:Route}[]{
+/** Detail pages: where this page sits (F08); every step but the last goes back. With the customer known (F10) a conversation reads
+ * 消费者 › <客户> › 会话 and a commitment 承诺 / 交付 › <客户的承诺> › 承诺详情. */
+export function crumbs(route:Route,context:Context=null):{label:string;to?:Route}[]{
   if(!route.id)return [];
   const list={page:route.page} as Route;
-  if(route.page==='consumers'&&route.sub==='conversation')return [{label:PAGES.consumers,to:list},{label:'会话'}];
+  if(route.page==='consumers'&&route.sub==='conversation')return [{label:PAGES.consumers,to:list},
+    ...(context?[{label:context.label,to:{page:'consumers',id:context.consumerId} as Route}]:[]),{label:'会话'}];
+  if(route.page==='commitments'&&context)return [{label:PAGES.commitments,to:list},
+    {label:context.label+' 的承诺',to:{page:'commitments',query:{consumer:context.consumerId,status:'all'}}},{label:'承诺详情'}];
   const leaf={consumers:'客户详情',commitments:'承诺详情',knowledge:'审核证据'}[route.page as string]??'详情';
   return [{label:PAGES[route.page],to:list},{label:leaf}];
 }
 
+/** F09: the scroll position of each history entry, restored on Back once the page has rendered (data may still be loading). */
+function restoreScroll(y:number){
+  const until=Date.now()+3000;
+  const step=()=>{if(document.documentElement.scrollHeight-innerHeight>=y||Date.now()>until){window.scrollTo(0,y);return;}requestAnimationFrame(step);};
+  requestAnimationFrame(step);
+}
+const here=()=>parseRoute(window.location.pathname,window.location.search);
+
 export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   const cache=useQueryClient();
   const session=useQuery({queryKey:['workbench','session'],queryFn:readWorkbenchSession,refetchOnWindowFocus:false});
-  const [route,setRoute]=useState<Route>(()=>parseRoute(window.location.pathname));
+  const [route,setRoute]=useState<Route>(here);
+  const [context,setContext]=useState<Context>(null);
   const [menu,setMenu]=useState(false);
-  useEffect(()=>{const back=()=>setRoute(parseRoute(window.location.pathname));window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
-  function go(next:Route){window.history.pushState(null,'',routePath(next));setRoute(next);}
+  useEffect(()=>{const back=(event:PopStateEvent)=>{setContext(null);setRoute(here());restoreScroll(Number(event.state?.scroll)||0);};
+    window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
+  function go(next:Route,options:{replace?:boolean}={}){
+    if(options.replace){window.history.replaceState({...window.history.state,scroll:window.scrollY},'',routePath(next));setRoute(next);return;}
+    window.history.replaceState({...window.history.state,scroll:window.scrollY},'');  // where to come back to
+    window.history.pushState({scroll:0},'',routePath(next));setContext(null);setRoute(next);window.scrollTo(0,0);
+  }
   const logout=useMutation({mutationFn:workbenchLogout,onSettled:()=>{cache.removeQueries({queryKey:['workbench']});void session.refetch();}});
   return <div className="shell workbench"><header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span><span className="brand-tz">时间均为北京时间</span></header><main>
     {session.isPending?<p role="status">{STATE_TEXT.loading}</p>
@@ -88,9 +114,9 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
             onClick={event=>{event.preventDefault();setMenu(false);go({page});}}>{PAGES[page]}{NOT_ENABLED.includes(page)?<span className="nav-badge">未启用</span>:null}</a></li>)}</ul></div>)}
           <button type="button" onClick={()=>logout.mutate()} disabled={logout.isPending}>退出</button></nav>
         <div className="workbench-main">
-          {crumbs(route).length?<nav className="breadcrumbs" aria-label="面包屑"><ol>{crumbs(route).map((c,i)=><li key={i}>{c.to?<a href={routePath(c.to)}
+          {crumbs(route,context).length?<nav className="breadcrumbs" aria-label="面包屑"><ol>{crumbs(route,context).map((c,i)=><li key={i}>{c.to?<a href={routePath(c.to)}
             onClick={event=>{event.preventDefault();go(c.to!);}}>{c.label}</a>:<span aria-current="page">{c.label}</span>}</li>)}</ol></nav>:null}
-          <WorkbenchPage route={route} go={go} slots={slots}/></div>
+          <WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></div>
       </div>}
   </main><footer>NexLoop · 持续运营</footer></div>;
 }

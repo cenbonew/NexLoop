@@ -73,3 +73,25 @@ export function Time({value,now}:{value:string|null;now?:number}){
   const abs=d.toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'});
   return <time dateTime={d.toISOString()} title={`北京时间 ${abs}`}>{abs}<span className="time-rel">（{relative(value,now)}）</span></time>;
 }
+
+// ---- Walkthrough F09 (batch 7): list tools ----
+/** "共 N 条 · 第 a–b 条" and previous/next for an offset page of `size`; nothing when the server sent no total (older server). */
+export function Pager({total,start,size,shown,onPage}:{total:number|null;start:number;size:number;shown:number;onPage:(start:number)=>void}){
+  if(total===null)return null;
+  return <div className="pager list-pager" role="navigation" aria-label="分页"><span className="list-total" role="status">共 {total} 条{shown?` · 第 ${start+1}–${start+shown} 条`:''}</span>
+    {start>0?<button type="button" onClick={()=>onPage(Math.max(0,start-size))}>上一页</button>:null}
+    {start+shown<total?<button type="button" onClick={()=>onPage(start+size)}>下一页</button>:null}</div>;
+}
+/** Keyword over the rows already on this page (D5: names and promised words are never searched server side); says so. */
+export function Keyword({value,onChange,label}:{value:string;onChange:(value:string)=>void;label:string}){
+  return <label className="list-keyword"><span>{label}</span><input type="search" value={value} maxLength={80} onChange={e=>onChange(e.target.value)} placeholder="仅在当前页内查找"/></label>;
+}
+/** A removable filter in words (e.g. the customer a list is narrowed to). */
+export function FilterChip({label,onClear}:{label:ReactNode;onClear:()=>void}){
+  return <span className="filter-chip" data-filter="active">{label}<button type="button" aria-label="清除此筛选" onClick={onClear}>×</button></span>;
+}
+/** Copy a full identifier (the short form stays visible; the value is in the title). */
+export function CopyId({value,label='复制 ID'}:{value:string;label?:string}){
+  return <span className="copy-id"><code title={value}>{value.slice(0,12)}…</code><button type="button" className="copy-button" aria-label={label}
+    onClick={()=>void navigator.clipboard?.writeText(value).catch(()=>undefined)}>复制</button></span>;
+}
