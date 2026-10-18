@@ -365,25 +365,27 @@ class WorkbenchQueries:
         return self.reader.audit(limit=limit, before=before)
 
     # NX-028 known limitation closed: the reviewer's evidence page. The queue and the candidate come from the NX-046 review
-    # reads (ontology.schema.review EXECUTE; a decided candidate is no longer returned); the evidence Message bodies are read
-    # through the ADR-025 reviewer derivation (pending_review evidence only, audited with purpose review_evidence).
-    def _review(self):
-        from nexloop_eios.candidate_merge import ReviewQueueReader
-        return ReviewQueueReader(self.reader.pool, self.reader.session, self.reader.signer)
+    # reads (ontology.schema.review EXECUTE, or the owner's read-only nexloop.knowledge.read since the D2 revision of
+    # 2026-10-18; a decided candidate is no longer returned); the evidence Message bodies are read through the ADR-025
+    # derivation (the reviewer: pending_review evidence only; the owner: as any Message), audited with purpose review_evidence.
+    def _review_read(self, read):
+        """read(reader) with the member's own grant: the reviewer's ontology.schema.review, else the owner's read-only
+        nexloop.knowledge.read (0213, NX-028 D2 revision); neither is a 403. The SQL read accepts exactly these two."""
+        from nexloop_eios.candidate_merge import KNOWLEDGE_READ_ACTION, REVIEW_ACTION, ReviewQueueReader
+        for action in (REVIEW_ACTION, KNOWLEDGE_READ_ACTION):
+            try:
+                return read(ReviewQueueReader(self.reader.pool, self.reader.session, self.reader.signer, action=action))
+            except PermissionError:
+                continue
+        raise WorkbenchForbidden('review')
 
     def review_queue(self, *, limit=50):
-        try:
-            items = self._review().pending(limit=limit)
-        except PermissionError:
-            raise WorkbenchForbidden('review') from None
+        items = self._review_read(lambda reader: reader.pending(limit=limit))
         return {'items': [{'candidate_id': x['candidate_id'], 'kind': x['kind'], 'display_name': (x.get('candidate') or {}).get('proposed', {}).get('display_name'),
                            'created_at': x['created_at'], 'evidence_count': x['dependent_claim_count']} for x in items]}
 
     def review_evidence(self, *, candidate_id):
-        try:
-            detail = self._review().candidate(candidate_id)
-        except PermissionError:
-            raise WorkbenchForbidden('review') from None
+        detail = self._review_read(lambda reader: reader.candidate(candidate_id))
         if detail is None:
             # Decided, superseded or unknown: the review is over and its evidence is no longer readable for the reviewer.
             return {'candidate_id': candidate_id, 'status': 'ended', 'evidence': []}

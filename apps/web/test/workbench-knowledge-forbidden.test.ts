@@ -10,12 +10,12 @@ vi.mock('@tanstack/react-query',async original=>({...(await original<typeof impo
 const {Knowledge,ReviewEvidencePage}=await import('../src/workbench/pages/Knowledge');
 const {Goals}=await import('../src/workbench/pages/Goals');
 
-test('the owner or operator opening the knowledge workbench is told it is the reviewer role\'s page, not a bare 403',()=>{
-  // NX-028 D2 (owner 2026-10-10): ontology.schema.review is the reviewer role's only; the 403 is by design.
+test('a role without access (the operator) is told which Actions the knowledge pages need, not a bare 403, and the owner is not named',()=>{
+  // NX-028 D2 and its 2026-10-18 revision: a role with neither ontology.schema.review nor nexloop.knowledge.read (the operator) gets 403 by design.
   failure=new WorkbenchError('forbidden');
   for(const html of [renderToStaticMarkup(h(Knowledge,{onOpen:()=>{}})),renderToStaticMarkup(h(ReviewEvidencePage,{candidateId:'c1'}))]){
     expect(html).toContain('审核员（reviewer）');expect(html).toContain('ontology.schema.review');expect(html).toContain('role="alert"');
-    expect(html).not.toContain(STATE_TEXT.forbidden);
+    expect(html).not.toContain(STATE_TEXT.forbidden);expect(html).toContain('nexloop.knowledge.read');expect(html).not.toContain('负责人');
   }
 });
 

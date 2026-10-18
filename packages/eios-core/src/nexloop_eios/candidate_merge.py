@@ -39,6 +39,7 @@ from nexloop_eios.recall import vocabulary_ref
 
 FEATURES=('lexical_similarity','core_term_containment','vector_cluster','rule_whitelist')
 REVIEW_ACTION='ontology.schema.review'
+KNOWLEDGE_READ_ACTION='nexloop.knowledge.read'  # 0213: the owner's read-only access to the review queue and one candidate
 _CJK=re.compile('[㐀-䶿一-鿿豈-﫿]+')
 _WORD=re.compile(r'[a-z0-9]+')
 # Generic affixes that do not carry the concept (synthetic, versioned with the feature code).
@@ -368,13 +369,17 @@ class ReviewQueueReader:
     so the workbench shows "no review permission" rather than an empty queue.
     """
 
-    def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
+    def __init__(self,pool,session,signer,*,action=None):
+        # action: the Action whose EXECUTE authorizes the read: ontology.schema.review (the reviewer, default) or, for the queue
+        # and one candidate only, the read-only nexloop.knowledge.read (the owner, 0213; NX-028 D2 revision). SQL checks the claim.
+        if action not in (None,REVIEW_ACTION,KNOWLEDGE_READ_ACTION):raise ValueError('review read action')
+        self.pool,self.session,self.signer,self.action=pool,session,signer,action or REVIEW_ACTION
 
     PROTOCOL='nexloop-review-queue-v1'
 
     def _claims(self,body,protocol=None):
         protocol=protocol or self.PROTOCOL
-        target=resource_id(ResourceType.ACTION,REVIEW_ACTION,1);entries=[]
+        target=resource_id(ResourceType.ACTION,self.action,1);entries=[]
         try:
             query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
             decision=AuthorizationDecisionService().decide_resolved(resolve_authority(self.pool,self.session,query,entries))

@@ -358,6 +358,12 @@ export const OPERATION_ACTION={
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
+/** The knowledge pages (NX-028 D2 revision 2026-10-18): the reviewer decides (ontology.schema.review); the owner reads only
+ * (nexloop.knowledge.read, 0213). The server decides every read and decision; this only chooses what to offer. */
+export const REVIEW_ACTION='eios:action:ontology.schema.review:1';
+export const KNOWLEDGE_READ_ACTION='eios:action:nexloop.knowledge.read:1';
+export function reviews(member:Me|undefined):boolean{return !!member&&member.actions.includes(REVIEW_ACTION);}
+export function readsKnowledgeOnly(member:Me|undefined):boolean{return !!member&&!reviews(member)&&member.actions.includes(KNOWLEDGE_READ_ACTION);}
 
 export type WriteFailure=FailureKind|'not_allowed_in_state'|'conflict'|'request_timeout'|'not_sent';
 export class WorkbenchWriteError extends Error{constructor(readonly kind:WriteFailure){super(kind);}}

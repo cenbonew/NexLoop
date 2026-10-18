@@ -61,19 +61,53 @@ def test_reviewer_page_shows_pending_evidence_and_ends_with_the_review(workbench
         assert client.get('/api/v1/workbench/review').json()['items'] == []
 
 
-def test_review_queue_needs_the_review_grant(workbench):
+def test_the_owner_reads_the_knowledge_pages_and_the_operator_does_not(workbench):
+    """NX-028 D2 revision (owner 2026-10-18): the owner role carries the read-only nexloop.knowledge.read (roles v13, 0213) and
+    reads the queue and the evidence (audited as the owner); it still holds no ontology.schema.review, so it cannot decide. The
+    operator and a customer get no queue."""
     w = workbench
     admin = w['admin']
-    configure(w, (w['owner'], 'owner'), (w['outsider'], 'reviewer'))
-    write_facts(admin, compile_members(ROLES, members_file((w['owner'], 'owner'))))  # the owner's role has no ontology.schema.review
+    members = ((w['owner'], 'owner'), (w['operator'], 'operator'), (w['outsider'], 'reviewer'))
+    configure(w, *members)
+    write_facts(admin, compile_members(ROLES, members_file(*members)))
     candidate = pending_item(w)
     with w['client']() as client:
         assert client.get('/api/v1/workbench/review').status_code == 401
         assert workbench_login(client, w['owner']).status_code == 200
-        assert client.get('/api/v1/workbench/review').status_code == 403
-        denied = client.get('/api/v1/workbench/review/' + candidate)
-        assert denied.status_code == 403 and BODY not in denied.text
-    with w['client']() as client:
-        assert workbench_login(client, w['customer']).status_code == 200
-        assert client.get('/api/v1/workbench/review').status_code == 403
-    assert audit_rows(admin) == []
+        queue = client.get('/api/v1/workbench/review')
+        assert queue.status_code == 200 and [(x['candidate_id'], x['evidence_count']) for x in queue.json()['items']] == [(candidate, 1)]
+        page = client.get('/api/v1/workbench/review/' + candidate)
+        assert page.status_code == 200 and page.json()['evidence'][0]['content'] == {'status': 'ok', 'body': BODY}
+        assert audit_rows(admin)[-1][1:] == ('owner', 'message', 'eios:object:Message/' + w['refusal']['id'], 'review_evidence')
+        # Read only: the review decision routes still need ontology.schema.review.
+        assert client.get(f'/api/v1/workbench/review-decisions/candidates/{candidate}').status_code == 403
+    before = len(audit_rows(admin))
+    for member in (w['operator'], w['customer']):
+        with w['client']() as client:
+            assert workbench_login(client, member).status_code == 200
+            assert client.get('/api/v1/workbench/review').status_code == 403
+            denied = client.get('/api/v1/workbench/review/' + candidate)
+            assert denied.status_code == 403 and BODY not in denied.text
+    assert len(audit_rows(admin)) == before
+    assert admin.execute('select count(*) from ontology.nexloop_review_decisions').fetchone()[0] == 0
+
+
+def test_the_knowledge_read_action_is_the_owners_only_and_opens_reads_only(workbench):
+    """The roles manifest refuses nexloop.knowledge.read in another role; the 0213 read functions accept it, and the review
+    reads the decisions use (authz.nexloop_assert_review_read) still accept ontology.schema.review only."""
+    import copy
+    import pytest
+    from nexloop_eios.workbench_roles import WorkbenchRolesRejected, validate_roles
+    roles = copy.deepcopy(ROLES)
+    assert 'eios:action:nexloop.knowledge.read:1' in roles['roles']['owner'] and roles['manifest_version'] == 13
+    for other in ('operator', 'reviewer'):
+        bad = copy.deepcopy(roles)
+        bad['roles'][other].append('eios:action:nexloop.knowledge.read:1')
+        with pytest.raises(WorkbenchRolesRejected):
+            validate_roles(bad)
+    admin = workbench['admin']
+    source = lambda name: admin.execute("select prosrc from pg_proc where oid=%s::regprocedure", (name,)).fetchone()[0]  # noqa: E731
+    for name in ('authz.nexloop_read_review_queue(text,text,text,text,text)', 'authz.nexloop_assert_knowledge_read(text,text,text,text,text)'):
+        assert 'nexloop.knowledge.read:1' in source(name), name
+    assert 'nexloop_assert_knowledge_read' in source('authz.nexloop_read_review_candidate(text,text,text,text,text)')
+    assert 'nexloop.knowledge.read' not in source('authz.nexloop_assert_review_read(text,text,text,text,text)')
