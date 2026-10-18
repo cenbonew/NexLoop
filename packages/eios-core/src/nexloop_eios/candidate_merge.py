@@ -160,6 +160,14 @@ def calibrate(pairs,provider,*,step=0.1,thresholds=None):
 
 # ------------------------------------------------------------------- service
 
+class MergeConfigurationMissing(LookupError):
+    """The tenant has no active merge configuration (deploy/ontology/merge-config.v1.json not applied through
+    nexloop_eios.merge_configuration --apply): staged candidates wait; a deployment state, not a failing tick."""
+    code='merge_configuration_missing'
+
+    def __init__(self):super().__init__('no active merge configuration')
+
+
 @dataclass(frozen=True)
 class GlueOutcome:
     candidate_id:str
@@ -186,7 +194,9 @@ class CandidateGluer:
 
     def process_staged(self):
         """Oldest first, so a later similar candidate folds into an earlier one; then re-point late Claims of merged ones."""
-        outcomes=[self.process(c['candidate_id']) for c in self._read({'verb':'candidates','status':['staged']})]
+        staged=self._read({'verb':'candidates','status':['staged']})
+        if staged and not self._read({'verb':'configuration'}):raise MergeConfigurationMissing()
+        outcomes=[self.process(c['candidate_id']) for c in staged]
         return outcomes+self.repoint_merged()
 
     def repoint_merged(self):
@@ -245,7 +255,7 @@ class CandidateGluer:
     @authority_request_scoped
     def process(self,candidate_id):
         config=self._read({'verb':'configuration'})
-        if not config:raise LookupError('no active merge configuration')
+        if not config:raise MergeConfigurationMissing()
         config['weights']={k:float(v) for k,v in config['weights'].items()}
         candidates={c['candidate_id']:c for c in self._read({'verb':'candidates','status':['staged','pending_review']})}
         candidate=candidates.get(candidate_id)

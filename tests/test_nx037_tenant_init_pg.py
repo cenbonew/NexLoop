@@ -51,8 +51,8 @@ def test_dry_run_lists_the_governed_steps_and_refuses_the_demo_tenant(catalog, c
     assert out['executed'] is False and out['cost_caps'] == {'cumulative': '100', 'per_run': '2', 'tenant_monthly': '300'}
     assert [(s['step'], s['kind']) for s in out['steps']] == [
         ('service_grants', 'trusted_configuration'), ('effect_categories', 'trusted_configuration'), ('alert_rules', 'trusted_configuration'),
-        ('model_budget', 'owner_action'), ('value_catalog', 'reference'), ('channel_configuration', 'reference'), ('verify', 'check')]
-    budget = out['steps'][3]['request']
+        ('merge_configuration', 'trusted_configuration'), ('model_budget', 'owner_action'), ('value_catalog', 'reference'), ('channel_configuration', 'reference'), ('verify', 'check')]
+    budget = out['steps'][4]['request']
     assert budget['action_name'] == 'Budget.set' and budget['budget_kind'] == 'model' and budget['unit'] == 'CNY' and budget['limit_amount'] == '100'
     assert I.budget_request(params(catalog))['request_id'] == budget['request_id']  # a stable business-intent id
     assert I.plan(params(catalog, cumulative='50', per_run='1', monthly='200'))['cost_caps'] == {'cumulative': '50', 'per_run': '1', 'tenant_monthly': '200'}
@@ -65,6 +65,16 @@ def test_dry_run_lists_the_governed_steps_and_refuses_the_demo_tenant(catalog, c
     capsys.readouterr()
     assert I.main(['--tenant', TENANT_A, *base]) == 0
     assert json.loads(capsys.readouterr().out)['mode'] == 'dry_run'
+
+
+def activate_calibrated_recall_profile(admin, tenant):
+    # Fixture: what the recall index worker does on the stage (RecallIndexer.activate_profile with the production embedding).
+    profile = json.loads(I.MERGE_CONFIG.read_text())['embedding_profile']
+    pid = f"{profile['model']}@{profile['dimension']}"
+    admin.execute('insert into ontology.nexloop_embedding_profiles(tenant_id,profile_id,model,dimension) values(%s,%s,%s,%s) on conflict do nothing',
+                  (tenant, pid, profile['model'], profile['dimension']))
+    admin.execute('insert into ontology.nexloop_recall_settings(tenant_id,active_profile_id) values(%s,%s) on conflict (tenant_id) do update set active_profile_id=excluded.active_profile_id',
+                  (tenant, pid))
 
 
 def test_execute_through_trusted_configuration_and_the_owner_action_then_verify(pg, admin, catalog, tmp_path, published_action, identity, uow, monkeypatch):  # noqa: F811
@@ -88,12 +98,19 @@ def test_execute_through_trusted_configuration_and_the_owner_action_then_verify(
         assert categories['externality_written'] == 1
         pending = I.verify(p, metrics, environ={})
         assert pending['ready'] is False
-        assert {k for k, v in pending['checks'].items() if not v} == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial'}
+        # The glue configuration needs the tenant's active recall profile to be the calibrated one: without it the step is
+        # blocked (nothing applied) and verify reports merge_configuration_active false (claim-matcher would idle).
+        assert out['steps']['merge_configuration'] == {'status': 'blocked', 'config_version': json.loads(I.MERGE_CONFIG.read_text())['config_version'],
+                                                       'findings': ['embedding_profile_mismatch', 'no_active_configuration']}
+        assert {k for k, v in pending['checks'].items() if not v} == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'merge_configuration_active'}
+        activate_calibrated_recall_profile(admin, p['tenant'])
         # The owner submits Budget.set from their own session (the workbench): the governed path, not a table write.
         register_goal_actions(admin, base, capability)
         browser = seed_human_owner(admin, reader.pool, list(ACTIONS), identity, uow)
         owner = GoalGovernedActions(reader.pool, authenticate_human(reader.pool, browser), reader.signer)
         again = I.execute(p, **files, owner_actions=owner)  # trusted configuration is idempotent
+        assert again['steps']['merge_configuration']['status'] == 'applied'
+        assert I.execute(p, **files)['steps']['merge_configuration']['status'] == 'in_sync'
         assert again['steps']['model_budget']['status'] == 'submitted'
         ready = I.verify(p, metrics, environ={})
         assert ready['ready'] is True, ready
@@ -178,10 +195,11 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
 
     code, out = attempt({})
     assert code == 3 and 'reply_fallback_currency_differs' not in out['refused']  # reply-guarantee.v3.json is CNY
-    assert code == 3 and set(out['refused']) == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'switch_deployment_differs',
+    assert code == 3 and set(out['refused']) == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'merge_configuration_active', 'switch_deployment_differs',
                                                  'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
     register_goal_actions(admin, base, capability)
     owner = GoalGovernedActions(reader.pool, authenticate_human(reader.pool, seed_human_owner(admin, reader.pool, list(ACTIONS), identity, uow)), reader.signer)
+    activate_calibrated_recall_profile(admin, p['tenant'])
     I.execute(p, **files, owner_actions=owner)
     code, out = attempt({'REAL_DISPATCH_ENABLED': 'true'})
     assert code == 3 and set(out['refused']) == {'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}

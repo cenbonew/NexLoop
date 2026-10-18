@@ -245,3 +245,22 @@ def test_maintain_rolls_only_recent_hours_in_one_pass(observed):
     admin.execute("update runtime.nexloop_process_sample_hours set samples=99 where clock_timestamp()-hour>interval '2 hours'")
     assert admin.execute('select runtime.nexloop_observability_maintain()').fetchone()[0]['rolled'] == 1
     assert admin.execute('select array_agg(samples order by hour) from runtime.nexloop_process_sample_hours').fetchone()[0] == [99, 1]
+
+
+def test_staged_candidates_without_merge_configuration_block_and_rule_v5(observed, tmp_path):
+    # Claim-matcher idle (2026-10-18): the 0441 candidates block, alert-rules v5 and the doctor check.
+    from nexloop_eios.doctor import observability
+    o, v5 = observed, RULES.parent / 'alert-rules.v5.json'
+    rule = next(r for r in load_rules(v5)['rules'] if r['rule_id'] == 'candidates_without_merge_configuration')
+    assert (rule['metric'], rule['severity'], rule['for_seconds']) == ('candidates.staged_without_configuration', 'warning', 600)
+    assert apply_rules(load_rules(v5), TENANT, database_url_file=o['w']['configurator'])['configured'] is True
+    snapshot = lambda: o['admin'].execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'candidates'", (TENANT,)).fetchone()[0]
+    o['admin'].execute('delete from ontology.nexloop_merge_configurations where tenant_id=%s', (TENANT,))
+    assert snapshot() == {'staged': 0, 'merge_configuration_active': False, 'staged_without_configuration': 0}
+    o['admin'].execute("""insert into ontology.nexloop_candidate_definitions(tenant_id,world,candidate_id,kind,dedupe_key,candidate,dependent_claims)
+        values(%s,'real',%s,'vocabulary_value',%s,'{}',array['claim-1'])""", (TENANT, str(uuid.uuid4()), 'f' * 64))
+    assert snapshot() == {'staged': 1, 'merge_configuration_active': False, 'staged_without_configuration': 1}
+    dsn = private(tmp_path, 'metrics-dsn', make_conninfo(o['pg'], user='nexloop_metrics'))
+    report = observability(dsn, v5)
+    assert report['checks']['candidates_glueable'] is False and report['details']['observability']['merge_configuration_missing'] == [TENANT]
+    assert o['evaluate']()['rules_version'] == 5

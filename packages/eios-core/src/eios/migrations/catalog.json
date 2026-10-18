@@ -1075,6 +1075,11 @@
       "version": "0215",
       "name": "0215_observability_rollup_incremental.sql",
       "sha256": "492b4dfb77e777f4fe5872dc7ffb52d8b04a6a826284582aaea521630b412cac"
+    },
+    {
+      "version": "0441",
+      "name": "0441_candidates_merge_configuration_metric.sql",
+      "sha256": "a2c1d445a2ff911cc9235ba632d4943e8aeb07209509f624762644152a850028"
     }
   ]
 }

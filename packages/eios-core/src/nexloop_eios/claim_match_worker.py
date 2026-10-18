@@ -8,13 +8,29 @@ glues newly staged candidate definitions (NX-045). Matching is idempotent per
 (Claim, matcher version), so a replayed or re-marked Conversation never duplicates
 proposals or candidates.
 """
+import logging
+import time
+
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
 from nexloop_eios.authorization import authority_request_scoped
+from nexloop_eios.candidate_merge import MergeConfigurationMissing
 from nexloop_eios.claim_matching import MatchProviderUnavailable,MatchRejected
 from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied,retry_delay
 
 FEED='claim-match'
+log=logging.getLogger(__name__)
+# Missing merge configuration: one log line per interval per process (the worker object is rebuilt every tick).
+MISSING_LOG_SECONDS=600
+_missing_logged_at=None
+
+
+def _note_missing():
+    global _missing_logged_at
+    now=time.monotonic()
+    if _missing_logged_at is None or now-_missing_logged_at>=MISSING_LOG_SECONDS:
+        _missing_logged_at=now
+        log.warning('claim-matcher idle %s',{'code':MergeConfigurationMissing.code,'stage':'glue'})
 
 
 class ClaimMatchWorker:
@@ -56,5 +72,10 @@ class ClaimMatchWorker:
             summary['matched']+=len(result['matches']);summary['applied']+=sum(1 for s in result['applied'].values() if s=='applied')
             status=self.feed.complete(item_key=item['item_key'],fence=item['fence'])
             summary['conversations' if status=='completed' else status]+=1
-        if self.gluer is not None:summary['glued']=len(self.gluer.process_staged())
+        if self.gluer is not None:
+            # Staged candidates without an active merge configuration: an explicit idle state (alert rule
+            # candidates_without_merge_configuration, merge_configuration --doctor), not a failed tick every 2 s.
+            try:summary['glued']=len(self.gluer.process_staged())
+            except MergeConfigurationMissing:
+                summary['glue']=MergeConfigurationMissing.code;_note_missing()
         return summary
