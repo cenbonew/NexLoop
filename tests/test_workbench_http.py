@@ -24,7 +24,15 @@ def test_malformed_requests_are_422_and_dependency_down_is_503(tmp_path):
         for path in ['/api/v1/workbench/consumers?limit=0', '/api/v1/workbench/consumers?limit=201', '/api/v1/workbench/consumers?after=xyz',
                      '/api/v1/workbench/consumers/ABC', '/api/v1/workbench/actions?state=sideways', '/api/v1/workbench/commitments?all=yes',
                      '/api/v1/workbench/overview?tenant_id=other', '/api/v1/workbench/contact?consumer_id=' + 'a' * 64 + '&consumer_id=' + 'b' * 64,
-                     '/api/v1/workbench/conversations/' + 'a' * 63, '/api/v1/workbench/settings?world=simulation']:
+                     '/api/v1/workbench/conversations/' + 'a' * 63, '/api/v1/workbench/settings?world=simulation',
+                     # Batch 7 (F05/F09): closed vocabularies, offset cursors, aware times, no mixing of the legacy flag with the group.
+                     '/api/v1/workbench/commitments?status_group=closed', '/api/v1/workbench/commitments?all=true&status_group=open',
+                     '/api/v1/workbench/commitments?sort=quote', '/api/v1/workbench/commitments?order=up', '/api/v1/workbench/commitments?cursor=-1',
+                     '/api/v1/workbench/commitments?due_before=2026-10-20', '/api/v1/workbench/commitments?due_after=2026-10-20T00:00:00',
+                     '/api/v1/workbench/commitments?late=1', '/api/v1/workbench/commitments?q=寄出',
+                     '/api/v1/workbench/consumers?sort=display_name', '/api/v1/workbench/consumers?restricted=yes',
+                     '/api/v1/workbench/consumers?after=' + 'a' * 64 + '&sort=id', '/api/v1/workbench/consumers?cursor=x',
+                     '/api/v1/workbench/consumers?sort=id&limit=150']:
             assert client.get(path).status_code == 422, path
         down = client.get('/api/v1/workbench/overview')
         assert down.status_code == 503 and down.json()['code'] == 'dependency_unavailable' and down.json()['retryable'] is True

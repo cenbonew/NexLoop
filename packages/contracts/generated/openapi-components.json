@@ -1446,7 +1446,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:commitment-view",
         "title": "commitment-view",
-        "description": "NX-028 (D8). The owner workbench's read projection of one Commitment (NX-026 runtime.nexloop_commitment_view). `status` lives only in `properties.status`; the interface never infers it. The four evidence columns are separate: a delivered message proves delivery only, never fulfilment (AT-040); `problem_resolved` is unavailable in v0.1 (NX-026 D5). `quote` is the promised words, shown only while the source Message exists AND the reader holds that Message's READ (`quote_status`: ok, restricted = withheld for lack of READ, unavailable = source deleted, none = no source message). Server-derived; grants nothing.",
+        "description": "NX-028 (D8). The owner workbench's read projection of one Commitment (NX-026 runtime.nexloop_commitment_view). `status` lives only in `properties.status`; the interface never infers it. The four evidence columns are separate: a delivered message proves delivery only, never fulfilment (AT-040); `problem_resolved` is unavailable in v0.1 (NX-026 D5). `quote` is the promised words, shown only while the source Message exists AND the reader holds that Message's READ (`quote_status`: ok, restricted = withheld for lack of READ, unavailable = source deleted, none = no source message). Server-derived; grants nothing. Optional `consumer_display` (walkthrough 2026-10-18 F03/F04, D3): the customer's name state as the workbench decides it for every page (ok with the name read through the per-property READ; restricted with reason forbidden or withheld, never saying whether a name exists; missing; failed). It grants nothing and is absent from older servers.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -1690,6 +1690,104 @@
                 }
               }
             }
+          },
+          "consumer_display": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "ok",
+                  "missing",
+                  "restricted",
+                  "failed"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "forbidden",
+                  "withheld"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "ok"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "name"
+                  ],
+                  "not": {
+                    "required": [
+                      "reason"
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "restricted"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "reason"
+                  ],
+                  "not": {
+                    "required": [
+                      "name"
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "missing",
+                        "failed"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "allOf": [
+                    {
+                      "not": {
+                        "required": [
+                          "name"
+                        ]
+                      }
+                    },
+                    {
+                      "not": {
+                        "required": [
+                          "reason"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         "required": [
@@ -5271,7 +5369,7 @@
     "action-intent.schema.json": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90",
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
     "claim.schema.json": "80bd9df31049ea74bab2187156b3c6e0297e00025153446edc91ab6cdbc85d48",
-    "commitment-view.schema.json": "f7c8290bacf1bbc70d23ba8da3a8cf4125ac8ac3d1d2b37f85c967c392909502",
+    "commitment-view.schema.json": "e0f9f5acc84268282e036e265d70393a95bebc8edf45982e13dab048a4ec9e82",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
     "context-pack-v6.schema.json": "692551a02a92033a0066bdb4c0eb92e320a27590b425ec3e071a8073df3f9d8d",

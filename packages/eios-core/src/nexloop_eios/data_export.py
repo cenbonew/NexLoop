@@ -51,7 +51,9 @@ class DataExporter:
         except WorkbenchForbidden:
             fields=[]
         readable=[f['name'] for f in fields if f['readable'] and f['present']]
-        withheld['properties']=sum(1 for f in fields if f['present'] and not f['readable'])
+        # Owner decision 2026-10-18 (D2 export exception): the number of recorded properties withheld comes from the export's own
+        # path (0218 `withheld_present`); the workbench field list no longer says whether a restricted property is recorded.
+        withheld['properties']=int(opened['withheld_present'])
         properties=(reader.read_object('Consumer',consumer,readable,'export') or {}) if readable else {}
         if readable and not properties:withheld['properties']+=len(readable)
         messages=[]
