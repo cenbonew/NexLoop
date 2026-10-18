@@ -6,6 +6,8 @@ import {Empty} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {RealDispatchPanel} from '../RealDispatchPanel';
+import {IdRef,NoWrap} from './PageOps';
+import {memberAlias} from './Observability';
 
 const ROLE_TEXT:Record<string,string>={owner:'负责人',operator:'运营',reviewer:'审核人'};
 export function Settings({actions}:{actions?:ReactNode}){
@@ -13,7 +15,7 @@ export function Settings({actions}:{actions?:ReactNode}){
   return <Page title="设置与治理" query={query} actions={actions}>{data=><>
     <p>工作台应用 {data.application_id} · 配置版本 {data.manifest_version} · 角色清单 v{data.roles_version}</p>
     <h2>成员与角色（只读）</h2>
-    <DataTable label="成员与角色" rows={data.members} rowKey={m=>m.principal_id} columns={[{label:'成员',main:true,cell:m=>m.principal_id},{label:'角色',cell:m=>ROLE_TEXT[m.role]??m.role}]}/>
+    <DataTable label="成员与角色" rows={data.members} rowKey={m=>m.principal_id} columns={[{label:'成员',main:true,cell:m=><IdRef value={m.principal_id} size={14} ends/>},{label:'角色',cell:m=><NoWrap>{ROLE_TEXT[m.role]??m.role}</NoWrap>}]}/>
     <p className="note">成员与角色只能经可信配置变更，工作台内不能自助注册或改角色。</p>
     <RealDispatchPanel/>
     <ReadAudit/>
@@ -26,7 +28,8 @@ export function ReadAudit(){
   return <section aria-labelledby="workbench-audit-title"><h2 id="workbench-audit-title">成员读取审计</h2>
     {query.isPending?<p role="status">{STATE_TEXT.loading}</p>:query.isError?<Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>
       :!query.data.length?<p className="note">{STATE_TEXT.empty}</p>:<DataTable label="成员读取审计" rows={query.data} rowKey={r=>String(r.audit_id)} columns={[
-      {label:'时间',main:true,cell:r=>when(r.read_at)},{label:'成员',cell:r=>r.principal_id},{label:'角色',cell:r=>r.role},{label:'对象',wide:true,cell:r=>r.target_resource},{label:'用途',cell:r=>r.read_purpose}]}/>}</section>;
+      {label:'时间',main:true,cell:r=><NoWrap>{when(r.read_at)}</NoWrap>},{label:'成员',cell:r=><NoWrap>{memberAlias(r.principal_id,r.role)}</NoWrap>},
+      {label:'对象',wide:true,cell:r=><IdRef kind={r.object_kind==='message'?'消息':'客户'} value={r.target_resource}/>},{label:'用途',cell:r=><NoWrap>{r.read_purpose}</NoWrap>}]}/>}</section>;
 }
 
 export function NotEnabled({title}:{title:string}){

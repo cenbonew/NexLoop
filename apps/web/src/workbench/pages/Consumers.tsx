@@ -5,6 +5,7 @@ import {COMMITMENT_STATUS_TEXT,DISPLAY_NOTE,STATE_TEXT,consumerAlias,kindOf,read
 import {Page,Short} from './Page';
 import {relative} from '../ui';
 import {DataTable} from '../DataTable';
+import {Operations} from './PageOps';
 
 /** The customer's readable name, or a non-identifying alias with the reason no name is shown (ADR-025). */
 export function ConsumerName({consumerId,display}:{consumerId:string;display:DisplayName}){
@@ -77,7 +78,7 @@ export function Consumers({actions,onOpen}:{actions?:ReactNode;onOpen:(consumerI
 export function ConsumerDetail({consumerId,actions,onConversation}:{consumerId:string;actions?:ReactNode;onConversation:(conversationId:string)=>void}){
   const query=useQuery({queryKey:['workbench','consumer',consumerId],queryFn:()=>readConsumer(consumerId)});
   const d=query.data;
-  return <Page title="消费者详情" query={query} actions={actions}
+  return <Page title="消费者详情" query={query}
     lead={d?<><ConsumerName consumerId={d.consumer_id} display={d.display}/> <Short value={d.consumer_id}/>{d.paused?' · 主动联系已暂停':''}</>:null}>{data=><>
     <h2>联系限制</h2>
     {data.restriction?<p className={data.restriction.active?'warning':'note'}>{data.restriction.active?'受限':'已解除'} · 规则 {data.restriction.rule_id} · 控制 revision {data.restriction.control_revision} · {when(data.restriction.restricted_at)}</p>:<p className="note">没有联系限制。</p>}
@@ -92,6 +93,7 @@ export function ConsumerDetail({consumerId,actions,onConversation}:{consumerId:s
         <span className="conversation-meta">会话 <Short value={c.conversation_id}/> · {c.last_sequence} 条消息</span></button></li>)}</ul>:<p className="note">暂无会话。</p>}
     <h2>承诺</h2>
     {data.commitments.length?<p>{data.commitments.length} 条，见“承诺 / 交付”。</p>:<p className="note">暂无承诺。</p>}
+    <Operations actions={actions} title="对这位客户的操作"/>
   </>}</Page>;
 }
 

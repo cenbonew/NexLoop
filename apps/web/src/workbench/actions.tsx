@@ -7,7 +7,7 @@
  */
 import {useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
-import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,readContact,
+import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
 import {Short} from './pages/Page';
@@ -81,7 +81,7 @@ function Form({operation,title,member,children,body,disabled,onDone,className}:{
 }
 
 /** The member's role decides which controls are offered; without it nothing is guessed. */
-function WithMember({children}:{children:(member:Me)=>ReactNode}){
+export function WithMember({children}:{children:(member:Me)=>ReactNode}){
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
   if(member.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
   if(member.isError)return <p className="note" role="status">操作区暂不可用：{STATE_TEXT[kindOf(member.error)]}</p>;
@@ -92,31 +92,37 @@ function utc(local:string):string|null{const d=new Date(local);return Number.isN
 
 // ---- pause / resume (owner, Control.set) ----
 const SCOPES={tenant:'整个租户',consumer:'客户',role:'角色',strategy:'策略',action_type:'Action 类型'} as const;
+/** What a pause/resume changes, said before it is submitted (F06): the scope is never assumed. */
+export function controlImpact(kind:keyof typeof SCOPES|'',ref:string,pause:boolean|null):string|null{
+  if(!kind||pause===null||(kind!=='tenant'&&!ref.trim()))return null;
+  const target=kind==='tenant'?'整个租户（所有客户）':`${SCOPES[kind]} ${ref.length>16?ref.slice(0,12)+'…':ref}`;
+  return pause?`将暂停 ${target} 的主动联系：之后的派发会被拒绝，来信必回不受影响。`:`将恢复 ${target} 的主动联系：暂停期间被拒的意图不会重放，计划将重新评估。`;
+}
 export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeKind?:keyof typeof SCOPES;scopeRef?:string;paused?:boolean}){
-  const [kind,setKind]=useState<keyof typeof SCOPES>(scopeKind??'tenant');const [ref,setRef]=useState(scopeRef??'*');
-  const [pause,setPause]=useState(!paused);const [reason,setReason]=useState('');
   const fixed=scopeKind!==undefined;
-  return <Form operation="set_control" title={fixed?(paused?'恢复主动联系':'暂停主动联系'):'暂停 / 恢复'} member={member}
-    body={()=>({scope_kind:kind,scope_ref:ref,paused:fixed?!paused:pause,reason})}>
-    {fixed?<p>范围：{SCOPES[kind]} {kind==='consumer'?<Short value={ref}/>:ref}</p>:<>
-      <div className="field"><label htmlFor="control-scope">范围</label><select id="control-scope" value={kind} onChange={e=>{const k=e.target.value as keyof typeof SCOPES;setKind(k);setRef(k==='tenant'?'*':'');}}>
-        {Object.entries(SCOPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
-      {kind!=='tenant'?<div className="field"><label htmlFor="control-ref">对象</label><input id="control-ref" value={ref} onChange={e=>setRef(e.target.value)} required maxLength={255}/></div>:null}
-      <fieldset className="choices"><legend>操作</legend><label className="choice"><input type="radio" name="control-paused" checked={pause} onChange={()=>setPause(true)}/>暂停</label>
-        <label className="choice"><input type="radio" name="control-paused" checked={!pause} onChange={()=>setPause(false)}/>恢复</label></fieldset></>}
+  const [kind,setKind]=useState<keyof typeof SCOPES|''>(scopeKind??'');const [ref,setRef]=useState(scopeRef??'');
+  const [pause,setPause]=useState<boolean|null>(fixed?!paused:null);const [reason,setReason]=useState('');
+  const impact=controlImpact(kind,kind==='tenant'?'*':ref,pause);
+  return <Form operation="set_control" title={fixed?(paused?'恢复主动联系':'暂停主动联系'):pause===null?'暂停 / 恢复':pause?'暂停主动联系':'恢复主动联系'} member={member}
+    disabled={!impact} body={()=>impact&&kind?({scope_kind:kind,scope_ref:kind==='tenant'?'*':ref,paused:pause,reason}):null}>
+    {fixed?<p>范围：{SCOPES[scopeKind]} {scopeKind==='consumer'?<Short value={ref}/>:ref}</p>:<>
+      <div className="field"><label htmlFor="control-scope">范围</label><select id="control-scope" value={kind} required onChange={e=>{setKind(e.target.value as keyof typeof SCOPES|'');setRef('');}}>
+        <option value="">请选择范围</option>{Object.entries(SCOPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
+      {kind&&kind!=='tenant'?<div className="field"><label htmlFor="control-ref">对象</label><input id="control-ref" value={ref} onChange={e=>setRef(e.target.value)} required maxLength={255}/></div>:null}
+      <fieldset className="choices"><legend>操作</legend><label className="choice"><input type="radio" name="control-paused" checked={pause===true} onChange={()=>setPause(true)}/>暂停</label>
+        <label className="choice"><input type="radio" name="control-paused" checked={pause===false} onChange={()=>setPause(false)}/>恢复</label></fieldset></>}
+    {impact?<p className="impact-summary" role="note">影响：{impact}</p>:<p className="note">请先选择范围{fixed?'':'和操作'}。</p>}
     <Reason id="control-reason" value={reason} onChange={setReason}/>
   </Form>;
 }
 
 // ---- contact restriction release (owner only, ADR-023 §2.4) ----
-export function ReleaseForm({member,consumerId}:{member:Me;consumerId?:string}){
-  const contact=useQuery({queryKey:['workbench','contact',false],queryFn:()=>readContact(false),enabled:!consumerId&&offers(member,'release_contact_restriction')});
-  const active=consumerId?[consumerId]:(contact.data?.restrictions.filter(r=>r.active).map(r=>r.consumer_id)??[]);
-  const [chosen,setChosen]=useState('');const [reason,setReason]=useState('');
-  const target=consumerId??(chosen||active[0]||'');
-  return <Form operation="release_contact_restriction" title="解除联系限制" member={member} disabled={!target} body={()=>target?{consumer_id:target,reason}:null}>
-    {consumerId?null:active.length?<div className="field"><label htmlFor="release-consumer">客户</label><select id="release-consumer" value={target} onChange={e=>setChosen(e.target.value)}>
-      {active.map(c=><option key={c} value={c}>{c.slice(0,12)}…</option>)}</select></div>:<p className="note">没有受限客户。</p>}
+/** Release one customer's restriction: entered from that customer's record (F06), never a preselected customer. */
+export function ReleaseForm({member,consumerId,context}:{member:Me;consumerId:string;context?:ReactNode}){
+  const [reason,setReason]=useState('');
+  return <Form operation="release_contact_restriction" title="解除联系限制" member={member} body={()=>({consumer_id:consumerId,reason})}>
+    <p>客户：<Short value={consumerId}/></p>{context}
+    <p className="impact-summary" role="note">影响：只解除这位客户的联系限制；之前被拒的意图不会重放，计划将重新评估。</p>
     <Reason id="release-reason" value={reason} onChange={setReason} label="解除原因（例如客户已确认可以联系）"/>
   </Form>;
 }
@@ -134,30 +140,42 @@ export function ConsumerControls({consumerId}:{consumerId:string}){
 // ---- commitments (NX-026 human Actions) ----
 export function CommitmentControls({commitmentId}:{commitmentId:string}){
   const view=useQuery({queryKey:['workbench','commitment',commitmentId],queryFn:()=>readCommitment(commitmentId)});
-  const [reason,setReason]=useState('');const [due,setDue]=useState('');const [occurred,setOccurred]=useState('');
   return <WithMember>{member=>{
     if(!view.data)return null;
     if(!OPEN_STATUSES.includes(view.data.status))return <p className="note">承诺已结束（{COMMITMENT_STATUS_TEXT[view.data.status]??view.data.status}），不能再执行操作。</p>;
-    const base={commitment_id:commitmentId};
-    return <>
-      <Reason id="commitment-reason" value={reason} onChange={setReason} label="原因（各项操作共用）"/>
-      {view.data.status==='conditional'?<Form operation="commitment_condition_met" title="条件已满足" member={member} body={()=>({...base,reason})}>{null}</Form>:null}
-      <Form operation="attest_commitment" title="人工证明已兑现" member={member} body={()=>{const at=utc(occurred);return at?{...base,occurred_at:at,reason}:null;}}>
-        <div className="field"><label htmlFor="attest-at">兑现时间</label><input id="attest-at" type="datetime-local" value={occurred} onChange={e=>setOccurred(e.target.value)} required/></div></Form>
-      <Form operation="extend_commitment" title="延期" member={member} body={()=>{const at=utc(due);return at?{...base,due_at:at,reason}:null;}}>
-        <div className="field"><label htmlFor="extend-due">新期限</label><input id="extend-due" type="datetime-local" value={due} onChange={e=>setDue(e.target.value)} required/></div></Form>
-      <Form operation="mark_commitment_communication" title="标记为沟通类承诺" member={member} body={()=>({...base,reason})}>{null}</Form>
-      <Form operation="cancel_commitment" title="取消承诺" member={member} body={()=>({...base,reason})}>{null}</Form>
-    </>;}}</WithMember>;
+    const subject=typeof view.data.properties.predicate==='string'?view.data.properties.predicate:null;
+    const op=(operation:Operation,title:string,effect:string,extra?:{id:string;label:string;key:'occurred_at'|'due_at'})=>offers(member,operation)
+      ?<CommitmentOperation key={operation} member={member} operation={operation} title={title} effect={effect} commitmentId={commitmentId} subject={subject} extra={extra}/>:null;
+    return <div className="commitment-operations">
+      {view.data.status==='conditional'?op('commitment_condition_met','条件已满足','记录条件已满足，承诺转为待兑现。'):null}
+      {op('attest_commitment','人工证明已兑现','以人工证明记录兑现时间，承诺结束为已兑现。',{id:'attest-at',label:'兑现时间',key:'occurred_at'})}
+      {op('extend_commitment','延期','原承诺被一条新期限的承诺取代。',{id:'extend-due',label:'新期限',key:'due_at'})}
+      {op('mark_commitment_communication','标记为沟通类承诺','承诺改为沟通类，不再按交付追踪。')}
+      {op('cancel_commitment','取消承诺','承诺结束为已取消。')}
+    </div>;}}</WithMember>;
+}
+
+/** One commitment operation, closed until chosen: its own object, effect and reason (F02). */
+function CommitmentOperation({member,operation,title,effect,commitmentId,subject,extra}:{member:Me;operation:Operation;title:string;effect:string;commitmentId:string;subject:string|null;
+  extra?:{id:string;label:string;key:'occurred_at'|'due_at'}}){
+  const [reason,setReason]=useState('');const [at,setAt]=useState('');
+  return <details className="workbench-op"><summary>{title}</summary>
+    <Form operation={operation} title={title} member={member} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
+      <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
+      <p className="impact-summary" role="note">影响：{effect}</p>
+      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
+      <Reason id={`${operation}-reason`} value={reason} onChange={setReason}/>
+    </Form></details>;
 }
 
 // ---- manual plan reevaluation / effect result query (D7) ----
 export function ReevaluateForm({member}:{member:Me}){
   const plans=useQuery({queryKey:['workbench','plans',''],queryFn:()=>readPlans(),enabled:offers(member,'request_plan_reevaluation')});
   const [chosen,setChosen]=useState('');const [reason,setReason]=useState('');
-  const ids=plans.data?.map(p=>p.plan_id)??[];const target=chosen||ids[0]||'';
+  const ids=plans.data?.map(p=>p.plan_id)??[];const target=ids.includes(chosen)?chosen:'';
+  if(plans.data&&!ids.length)return null;
   return <Form operation="request_plan_reevaluation" title="手动复评" member={member} disabled={!target} body={()=>target?{plan_id:target,reason}:null}>
-    {ids.length?<div className="field"><label htmlFor="reevaluate-plan">计划</label><select id="reevaluate-plan" value={target} onChange={e=>setChosen(e.target.value)}>
+    {ids.length?<div className="field"><label htmlFor="reevaluate-plan">计划</label><select id="reevaluate-plan" value={target} required onChange={e=>setChosen(e.target.value)}><option value="">请选择计划</option>
       {plans.data!.map(p=><option key={p.plan_id} value={p.plan_id}>{p.plan_id.slice(0,8)}… v{p.version}（{p.status}）</option>)}</select></div>:<p className="note">暂无计划。</p>}
     <Reason id="reevaluate-reason" value={reason} onChange={setReason}/>
   </Form>;
@@ -166,10 +184,11 @@ export function ReevaluateForm({member}:{member:Me}){
 export function EffectQueryForm({member}:{member:Me}){
   const unknown=useQuery({queryKey:['workbench','actions','unknown'],queryFn:()=>readActions('unknown'),enabled:offers(member,'request_effect_query')});
   const [chosen,setChosen]=useState('');const [reason,setReason]=useState('');
-  const ids=unknown.data?.intents.map(i=>i.intent_id)??[];const target=chosen||ids[0]||'';
+  const ids=unknown.data?.intents.map(i=>i.intent_id)??[];const target=ids.includes(chosen)?chosen:'';
+  if(unknown.data&&!ids.length)return null;
   return <Form operation="request_effect_query" title="查询执行结果" member={member} disabled={!target} body={()=>target?{intent_id:target,reason}:null}>
     <p className="note">对“待核对”的意图向渠道查询结果；不是重发。</p>
-    {ids.length?<div className="field"><label htmlFor="query-intent">意图</label><select id="query-intent" value={target} onChange={e=>setChosen(e.target.value)}>
+    {ids.length?<div className="field"><label htmlFor="query-intent">意图</label><select id="query-intent" value={target} required onChange={e=>setChosen(e.target.value)}><option value="">请选择待核对的意图</option>
       {unknown.data!.intents.map(i=><option key={i.intent_id} value={i.intent_id}>{i.intent_id.slice(0,8)}… {i.action_name}</option>)}</select></div>:<p className="note">没有待核对的意图。</p>}
     <Reason id="query-reason" value={reason} onChange={setReason}/>
   </Form>;
@@ -243,6 +262,7 @@ export function SilenceForm({member}:{member:Me}){
   const firing=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
   const [key,setKey]=useState('');const [onlySelector,setOnlySelector]=useState(true);const [hours,setHours]=useState(24);const [reason,setReason]=useState('');
   const options=firing.data?.firing??[];const chosen=options.find(a=>a.dedupe_key===key)??options[0];
+  if(firing.data&&!options.length)return null;
   return <Form operation="silence_alert" title="静默告警" member={member} disabled={!chosen||!reason.trim()}
     body={()=>chosen?{rule_id:chosen.rule_id,selector:onlySelector?chosen.selector:null,until:silenceUntil(hours),reason}:null}>
     {options.length?<div className="field"><label htmlFor="silence-alert">告警</label><select id="silence-alert" value={chosen?.dedupe_key} onChange={e=>setKey(e.target.value)}>
@@ -262,5 +282,5 @@ export const GOVERNED_SLOTS:Slots={
   plans:()=><WithMember>{member=><ReevaluateForm member={member}/>}</WithMember>,
   actions:()=><WithMember>{member=><EffectQueryForm member={member}/>}</WithMember>,
   commitments:route=>route.id?<CommitmentControls commitmentId={route.id}/>:null,
-  contact:()=><WithMember>{member=><ReleaseForm member={member}/>}</WithMember>,
+  // contact: release is entered from one restricted customer's row on the page itself (F06), no page-level form.
 };

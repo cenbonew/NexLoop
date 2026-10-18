@@ -5,6 +5,7 @@ import {Page,Short} from './Page';
 import {Empty,StatusBadge,Tabs,commitmentTone} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
+import {Operations} from './PageOps';
 
 /** The promised words: shown only with the source Message's READ while it exists. */
 export function quoteText(view:CommitmentView):string{
@@ -41,9 +42,13 @@ export function Commitments({actions,onOpen}:{actions?:ReactNode;onOpen:(commitm
 
 export function CommitmentDetail({commitmentId,actions}:{commitmentId:string;actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','commitment',commitmentId],queryFn:()=>readCommitment(commitmentId)});
-  return <Page title="承诺详情" query={query} actions={actions}>{c=><>
-    <p>状态：{COMMITMENT_STATUS_TEXT[c.status]??c.status}（来自承诺对象，界面不推断） · 期限：{dueText(c)}</p>
+  return <Page title="承诺详情" query={query}>{c=><>
+    <h2>承诺正文</h2>
     <blockquote>{quoteText(c)}</blockquote>
+    <h2>当前状态</h2>
+    <p className="workbench-summary" role="status">{COMMITMENT_STATUS_TEXT[c.status]??c.status}（来自承诺对象，界面不推断） · 期限：{dueText(c)}
+      {c.exceptions.length?` · 异常：${c.exceptions.map(e=>e.reason).join('、')}`:''}</p>
+    <h2>证据</h2>
     <div className="evidence-grid">
       <Evidence title="请求创建" items={c.evidence.requested}/>
       <Evidence title="已交付" items={c.evidence.delivered} note="消息已送达不代表承诺已兑现。"/>
@@ -52,5 +57,6 @@ export function CommitmentDetail({commitmentId,actions}:{commitmentId:string;act
     </div>
     <h2>事件</h2><ol>{c.events.map((e,i)=><li key={i}>{e.kind} · {when(e.recorded_at)}{e.principal_id?` · ${e.principal_id}`:''}</li>)}</ol>
     {c.exceptions.length?<><h2>异常</h2><ul>{c.exceptions.map(e=><li key={e.reason}>{e.reason} · {when(e.raised_at)}</li>)}</ul></>:null}
+    <Operations actions={actions} title="对这条承诺的操作"/>
   </>}</Page>;
 }
