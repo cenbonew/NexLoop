@@ -65,3 +65,4 @@ htmlcov/
 scripts/perf/out/
 # Dev-machine workbench smoke environment (scripts/dev/workbench_smoke.sh): credentials and temp data
 .dev-smoke/
+.dev-drill/

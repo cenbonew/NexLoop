@@ -56,7 +56,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 |---|---|---|
 | PG 备份与恢复日志导出 | `nexloop-backup pg|journal`（非超级用户 `nexloop_backup`，凭据只经 0600 文件传入） | 本地用 `pg_basebackup` + `pg_verifybackup`；部署时换成 pgBackRest 与 restic（依赖 NX-032） |
 | 迁移 | `nexloop-migrate --database-url-file <私有文件>`：先过迁移门槛（无已校验备份、备份过旧或来自别的集群、WAL 归档异常、恢复日志导出滞后、处于恢复围栏中都拒绝），**没有任何豁免** | 已实现 |
-| 恢复 | `restored → replayed → verified_readonly → open`：恢复后派发全部关闭（NXR01），先重放删除、联系限制与吊销，再对账外部效应窗口并暂停无法核实的渠道，最后由负责人逐个 scope 执行 `open_scope` | 恢复工具目前是库函数，只在本机演练过；命令行恢复工具留到部署切片 |
+| 恢复 | `restored → replayed → verified_readonly → open`：恢复后派发全部关闭（NXR01），先重放删除、联系限制与吊销，再对账外部效应窗口并暂停无法核实的渠道，最后由负责人逐个 scope 执行 `open_scope` | 命令行 `nexloop-restore`（basebackup 与 pgBackRest 两种来源）已实现，见 [恢复命令行](implementation/NX-035-restore-cli.md)；本机一次性环境的逐条命令见其 §7。开放（`open_scope`）只经工作台的受治理 Action，由负责人执行 |
 
 详细流程与限制见 [NX-035 本地部分实现说明](implementation/NX-035-local-implementation.md)、[NX-035 设计](implementation/NX-035-design.md) 与 [架构说明 §3.11](ARCHITECTURE.md#311-备份与恢复nx-035-本地部分)。
 
@@ -64,6 +64,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 - 本地发布工具 `scripts/release/release.py`：`manifest`（发布清单）→ `sbom`（锁定版本的 syft/grype）→ `sign` → `verify`（部署的 SHA 与镜像 digest 必须等于测过的清单）；`rollback-check` 拒绝跨越未声明 expand-only 的迁移或降级运行时格式的盲目回滚，提示向前修复。只在本机运行，不推送、不打 tag、不连接服务器。见 [NX-034 本地部分实现说明](implementation/NX-034-local-implementation.md)。
 - 构建、归档与同步（NX-034 第二部分）：`make build-release SHA=`（build → sbom → stage 预检 → sign → 封存）、`release.py load-check`、`scripts/release/archive.py seal|check|prune|record-deployment`、`make sync-github`（只快进 main 与负责人签名的 tag）。见 [NX-034 第二部分实现说明](implementation/NX-034-part2-implementation.md)。
+- 首个签名发布与部署 dry-run 的逐条命令（CI 主机，方案 A）：[NX-034 首个签名发布运行手册](implementation/NX-034-first-release-runbook.md)。开发机（arm64）上 `release.py build` 会被平台检查拒绝，构建只能在 CI 主机进行。
 - 公开发布：`release.py public-preflight` 九步门槛加负责人确认，见 [公开发布检查清单](release/public-release-checklist.md)。
 - 部署侧回滚（重新渲染上一份已知可用的发布清单、防火墙与证书回退、整体撤下但保留数据）见 [NX-032 部署运行手册](implementation/NX-032-deploy-runbook.md) §8。
 
