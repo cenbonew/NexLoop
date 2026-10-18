@@ -239,6 +239,11 @@ def tenant_readiness(o, admin, tenant, trial, period):
     effect_categories.apply({**manifest, 'actions': declared}, tenant, database_url_file=configurator)
     rules = json.loads((R.ROOT / 'deploy/configuration' / json.loads(trial.read_text())['alert_rules']).read_text())
     observability.apply_rules(rules, tenant, database_url_file=configurator)
+    # The glue (merge) configuration step of real_tenant_init (verify: merge_configuration_active), on the calibrated recall profile.
+    from nexloop_eios import merge_configuration
+    from test_nx037_tenant_init_pg import activate_calibrated_recall_profile
+    activate_calibrated_recall_profile(admin, tenant)
+    merge_configuration.apply(merge_configuration.load(R.ROOT / 'deploy/ontology/merge-config.v1.json'), tenant, database_url_file=configurator)
     admin.execute("insert into control.nexloop_budget_limits(tenant_id,world,budget_kind,unit,limit_amount,period_start,period_end,revision) "
                   "values(%s,'real','model','CNY',100,%s,%s,1)", (tenant, *period))
 

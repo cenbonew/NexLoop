@@ -39,6 +39,6 @@
     "cost_ratio_at_least": "0.80",
     "unresolved_unknown_effect": true
   },
-  "alert_rules": "alert-rules.v5.json",
+  "alert_rules": "alert-rules.v4.json",
   "effect_categories": "action-effect-categories.v3.json"
 }
