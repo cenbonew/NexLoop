@@ -31,7 +31,12 @@ const measure=()=>{const vw=innerWidth;
       return {rows:rows.length,cards:rows.length>0&&getComputedStyle(rows[0]).display!=='table-row',
         head_hidden:t.querySelector('thead').getBoundingClientRect().height<=1,
         labelled:plain.length===0||plain.every(td=>getComputedStyle(td,'::before').content===JSON.stringify(td.dataset.label)),
-        row_max:Math.max(0,...rows.map(r=>Math.round(r.getBoundingClientRect().height)))};})};};
+        row_max:Math.max(0,...rows.map(r=>Math.round(r.getBoundingClientRect().height)))};}),
+    // Batch 3: overview/operations cards — columns in use and whether cards keep their own height; bubbles — widest share of main.
+    grid:(g=>g?{cols:new Set([...g.children].map(c=>Math.round(c.getBoundingClientRect().left))).size,
+      heights:new Set([...g.children].map(c=>Math.round(c.getBoundingClientRect().height))).size}:null)(document.querySelector('.workbench-grid')),
+    bubble_ratio:(m=>m.length?Math.max(...m.map(li=>li.getBoundingClientRect().width/li.parentElement.getBoundingClientRect().width)):null)([...document.querySelectorAll('.workbench-messages li')]),
+    empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')};};
 const result={pages:{},dark_differs:{},menu:{},chat:{}};
 const browser=await chromium.launch({headless:true});
 async function shoot(page,name){
@@ -67,7 +72,7 @@ try{
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
   for(const [name,path] of [['wb-overview','/workbench/overview'],['wb-consumers','/workbench/consumers'],['wb-consumer',`/workbench/consumers/${session.consumer_id}`],
     ['wb-conversation',`/workbench/consumers/conversations/${session.conversation_id}`],['wb-settings','/workbench/settings'],
-    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-audit','/workbench/audit']]){
+    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-audit','/workbench/audit']]){
     await page.goto(path);await page.locator('.workbench-page h1').waitFor({timeout:20000});await page.waitForTimeout(800);await shoot(page,name);}
   // The menu below 1024 px: a visible button; the navigation hidden until it is opened; a click on an entry navigates and closes it.
   await page.setViewportSize({width:390,height:844});await page.goto('/workbench/overview');await page.locator('.workbench-page h1').waitFor({timeout:20000});

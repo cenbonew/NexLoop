@@ -31,7 +31,7 @@ from workbench_stack_fixture import private, workbench_stack
 
 pytestmark = pytest.mark.real_browser
 PAGES = ('customer-login', 'customer-webchat', 'wb-login', 'wb-overview', 'wb-consumers', 'wb-consumer', 'wb-conversation', 'wb-settings',
-         'wb-actions', 'wb-commitments', 'wb-operations', 'wb-audit')
+         'wb-actions', 'wb-commitments', 'wb-operations', 'wb-goals', 'wb-audit')
 
 
 def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, tmp_path, monkeypatch):  # noqa: F811
@@ -86,3 +86,9 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     narrow = [t for k, v in pages.items() if k.endswith(('-390', '-390-dark')) for t in v['tables'] if t['rows']]
     assert narrow and all(t['cards'] and t['head_hidden'] and t['labelled'] for t in narrow), narrow
     assert observed['chat'] == {'option_texts_without_ids': True, 'meta_in_bar': True, 'sent_through_composer': True, 'composer_pinned': True}
+    # Batch 3: overview cards in 3+/2/1 columns and of their own height; operations likewise; bubbles within 80 % of the list (92 % on
+    # phones); every empty/unavailable state in the one dashed style.
+    assert [pages[f'wb-overview-{w}']['grid']['cols'] for w in (1440, 1024, 390)] == [3, 2, 1], {w: pages[f'wb-overview-{w}']['grid'] for w in (1440, 1024, 390)}
+    assert all(pages[f'{p}-{w}']['grid']['heights'] > 1 for p in ('wb-overview', 'wb-operations') for w in (1440, 1024))
+    assert all(0 < pages[f'wb-conversation-{w}']['bubble_ratio'] <= 0.81 for w in (1440, 1024)) and pages['wb-conversation-390']['bubble_ratio'] <= 0.93
+    assert [k for k, v in pages.items() if not v['empty_styled']] == []
