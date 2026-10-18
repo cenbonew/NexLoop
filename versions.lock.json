@@ -167,7 +167,21 @@
       "digest": "sha256:173b26306d711395accaeba8b67afcaad2a085ccb1e6bf26010bfe8c095a5229",
       "platform": "linux/amd64",
       "status": "pinned",
-      "pinned_at": "2026-10-14"
+      "pinned_at": "2026-10-14",
+      "caddy_version": "2.11.7",
+      "rebuild": {
+        "reason": "NX-036 (docs/release/run-gateway-rebuild-20261018.md): the upstream caddy 2.11.7 release binary is built with go1.26.8 and golang.org/x/net v0.59.0 (fixed Critical GO-2026-6604, GO-2026-6612); no newer Caddy release. deploy/gateway rebuilds Caddy 2.11.7 with go1.26.9 and x/net v0.60.0 (go.sum in deploy/gateway/caddy).",
+        "module": "deploy/gateway/caddy",
+        "golang.org/x/net": "v0.60.0"
+      }
+    },
+    "go-build-base": {
+      "reference": "docker.io/library/golang:1.26.9-alpine3.23",
+      "digest": "sha256:6750308561953d451210ed1a8086d36c8c8bdcbf672d38d9d0d424b8a7a0216c",
+      "go_version": "1.26.9",
+      "status": "resolved_index_only_build_stage",
+      "resolved_at": "2026-10-18",
+      "purpose": "build stage of nexloop/gateway only (not shipped)"
     },
     "python-build-base": {
       "reference": "docker.io/library/python:3.12.15-slim-bookworm",

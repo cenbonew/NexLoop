@@ -581,7 +581,7 @@ def _clean_checkout(sha, out, run, root, record):
 
 def pinned_image_problems(root=ROOT):
     """Every image of deploy/release/images.v1.json comes from versions.lock.json by digest: the build arguments of 'build'
-    images and the 'upstream' images themselves (the gateway). One problem per lock entry that has no reference and digest."""
+    images and the 'upstream' images themselves (none since the gateway is rebuilt, NX-036). One problem per lock entry that has no reference and digest."""
     config = json.loads((Path(root) / 'deploy/release/images.v1.json').read_text())
     lock = json.loads((Path(root) / 'versions.lock.json').read_text())['images']
     names = set()
@@ -859,6 +859,9 @@ def _prepare(context, target):
     elif context == 'postgres':
         from prepare_postgres_build import prepare_postgres
         prepare_postgres(target)
+    elif context == 'gateway':
+        from prepare_gateway_build import prepare_gateway
+        prepare_gateway(target)
     else:
         raise InputError('unknown build context ' + context)
     return target
@@ -939,7 +942,7 @@ def build(sha, ci_result, release_root, *, sequence=1, only=None, root=ROOT, doc
 
 
 def pin_upstream(lock_name, reference, digest, *, root=ROOT, docker=None, now=None):
-    """Back-fill an upstream image's digest in versions.lock.json (the gateway; on the CI host, after `docker pull
+    """Back-fill an upstream image's digest in versions.lock.json (an 'upstream' release image; on the CI host, after `docker pull
     <repository>@<digest>` by digest). The digest is that of the linux/amd64 image manifest, not of a multi-platform index:
     the release then holds one platform image without attestations, like the built ones (require_release_image). Written only
     when the image is present locally by that digest and is linux/amd64; the lock change is committed by review."""
