@@ -77,7 +77,10 @@ test('an unknown result is retried with the same Idempotency-Key; a definite out
 });
 
 test('D2: an operator is not offered owner-only controls; the owner is',()=>{
-  const seeds=(role:'owner'|'operator'):[unknown[],unknown][]=>[[['workbench','me'],member(role)],[['workbench','contact',false],{restrictions:[],escalations:[]}],
+  const seeds=(role:'owner'|'operator'):[unknown[],unknown][]=>[[['workbench','me'],member(role)],[['workbench','contact',false],{restrictions:[{message_id:id('4'),rule_id:'stop-contact',certainty:'refuse',matched_text:null,matched_text_status:'restricted',
+      recorded_at:'2026-10-10T09:00:00+00:00',consumer_id:id('2'),active:true,control_revision:7,conversation_id:id('5'),restricted_at:'2026-10-10T09:00:00+00:00',released_at:null,
+      release_reason:null,hits:[]}],escalations:[]}],
+    [['workbench','goals'],{goals:[],control:{revision:3,scopes:[],events:[]},budgets:[]}],
     [['workbench','consumer',id('2')],consumer(consumerView(false))],[['workbench','takeovers'],{...takeovers(takeover(false)),takeovers:[]}],
     [['workbench','commitment',id('1')],{commitment_id:id('1'),consumer_id:id('2'),revision:1,status:'open',properties:{status:'open'},quote:null,quote_status:'none',origin:'claim',
       evidence:{requested:[],delivered:[],customer_confirmed:[],problem_resolved:'unavailable'},events:[],exceptions:[]}]];
@@ -87,7 +90,9 @@ test('D2: an operator is not offered owner-only controls; the owner is',()=>{
     const commitment=render(client(seeds(role)),h(CommitmentControls,{commitmentId:id('1')}));
     const owner=role==='owner';
     const form=(html:string,title:string)=>html.includes(`aria-label="${title}"`);
-    expect(form(goals,'暂停 / 恢复')).toBe(owner);expect(form(contact,'解除联系限制')).toBe(owner);expect(form(detail,'暂停主动联系')).toBe(owner);
+    expect(form(goals,'暂停 / 恢复')).toBe(owner);expect(form(detail,'暂停主动联系')).toBe(owner);
+    // F06: release is entered from the restricted customer's row (no page-level form, no preselected customer).
+    expect(form(contact,'解除联系限制')).toBe(false);expect(contact.includes('解除…')).toBe(owner);
     expect(form(commitment,'取消承诺')).toBe(owner);expect(form(commitment,'标记为沟通类承诺')).toBe(owner);
     // Both roles: extend / attest a commitment, take a consumer over.
     expect(form(commitment,'延期')).toBe(true);expect(form(commitment,'人工证明已兑现')).toBe(true);expect(form(detail,'接管整个客户')).toBe(true);

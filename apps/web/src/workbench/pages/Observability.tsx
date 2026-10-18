@@ -8,23 +8,31 @@ import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT
 import {Page} from './Page';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
+import {IdRef,NoWrap,Operations as OpsSection} from './PageOps';
+import {ALERT_INFO,sinceText,thresholdOf,valueText} from './alertInfo';
+import {routePath} from '../route';
 
 const age=ageText;
 
 export function Alerts({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
-  return <Page title="告警" query={query} actions={actions}>{data=><>
+  return <Page title="告警" query={query}>{data=><>
     {data.evaluator.stale?<p className="warning" role="alert">{EVALUATOR_STALE_TEXT}</p>
       :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 {when(data.evaluator.last_evaluated_at)}。</p>}
     <h2>正在触发</h2>
     {data.firing.length?<DataTable label="正在触发的告警" rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[
-      {label:'规则',main:true,cell:a=>a.rule_id},{label:'级别',cell:a=>SEVERITY_TEXT[a.severity]},{label:'对象',cell:a=>a.selector??'—'},{label:'当前值',num:true,cell:a=>a.value??'—'},
-      {label:'首次触发',cell:a=>when(a.first_fired_at)},{label:'次数',num:true,cell:a=>a.fire_count},
+      {label:'告警',main:true,cell:a=>{const info=ALERT_INFO[a.rule_id];return <><strong>{info?.name??a.rule_id}</strong> <small className="alert-code"><code>{a.rule_id}</code></small>
+        {info?<span className="alert-help"> · {info.help} <a href={routePath({page:info.page})}>去处理</a></span>:null}</>;}},
+      {label:'级别',cell:a=><NoWrap>{SEVERITY_TEXT[a.severity]}</NoWrap>},{label:'影响对象',cell:a=><NoWrap>{a.selector??'全局'}</NoWrap>},
+      {label:'当前值 / 阈值',cell:a=>{const info=ALERT_INFO[a.rule_id];const t=thresholdOf(a,data.events);
+        return <>{valueText(info,a.value)}{t!==null?` / 阈值 ${valueText(info,t)}`:''}{info?.window?<small>（{info.window}）</small>:null}</>;}},
+      {label:'持续',cell:a=><NoWrap>{sinceText(a.first_fired_at)}（自 {when(a.first_fired_at)}）</NoWrap>},{label:'次数',num:true,cell:a=>a.fire_count},
       {label:'静默',cell:a=>a.silenced_until?`已静默至 ${when(a.silenced_until)}（仍在评估和记录）`:'—'}]}/>
       :<p className="note">当前没有触发中的告警。</p>}
     <h2>最近事件</h2>
-    {data.events.length?<ol>{data.events.map(e=><li key={e.event_id}>{when(e.recorded_at)} · {e.kind==='firing'?'触发':'恢复'} · {SEVERITY_TEXT[e.severity]} · {e.rule_id}{e.selector?`（${e.selector}）`:''}
-      {e.value!==null?` · 值 ${e.value}`:''}{e.threshold!==null?` / 阈值 ${e.threshold}`:''}</li>)}</ol>:<p className="note">暂无事件。</p>}
+    {data.events.length?<ol>{data.events.map(e=><li key={e.event_id}>{when(e.recorded_at)} · {e.kind==='firing'?'触发':'恢复'} · {SEVERITY_TEXT[e.severity]} · {ALERT_INFO[e.rule_id]?.name??e.rule_id}（{e.rule_id}）{e.selector?` · ${e.selector}`:''}
+      {e.value!==null?` · 值 ${valueText(ALERT_INFO[e.rule_id],e.value)}`:''}{e.threshold!==null?` / 阈值 ${valueText(ALERT_INFO[e.rule_id],e.threshold)}`:''}</li>)}</ol>:<p className="note">暂无事件。</p>}
+    <OpsSection actions={actions} title="静默（可选）"/>
   </>}</Page>;
 }
 
@@ -61,15 +69,15 @@ export function Operations({actions}:{actions?:ReactNode}){
     <p className="note">快照时间 {when(m.computed_at)}；只含代码、计数、年龄和比率，不含原文。</p>
     <div className="workbench-grid">
       <article className="workbench-block"><h3>派发拒绝（最近 1 小时）</h3><Counts values={m.refusals.last_hour} labels={REFUSAL_TEXT}/></article>
-      <article className="workbench-block"><h3>外部动作</h3><p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>
+      <article className="workbench-block"><h3>外部动作</h3>{m.effects.unknown.count?<p><a href={routePath({page:'actions'})}>去 Action 页查询执行结果</a></p>:null}<p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>
         <Counts values={m.effects.by_state}/></article>
       <article className="workbench-block"><h3>来信必回</h3><p>待回复 {m.replies.pending.count} 条，最久 {age(m.replies.pending.oldest_age_seconds)}；兜底升级累计 {m.replies.escalations_total} 条</p>
         <Counts values={m.replies.escalations_last_hour}/></article>
-      <article className="workbench-block"><h3>承诺异常</h3><Counts values={m.commitments.exceptions}/></article>
-      <article className="workbench-block"><h3>队列</h3>{Object.keys(m.queues).length?<ul>{Object.entries(m.queues).map(([q,v])=><li key={q}>{q}：待处理 {v.pending??0}，重试 {v.retry_wait??0}，
-        死信 {v.dead_lettered??0}，最久 {age(v.oldest_pending_seconds??null)}</li>)}</ul>:<p className="note">无队列任务。</p>}</article>
-      <article className="workbench-block"><h3>后台 feed 与提取</h3>{Object.keys(m.feeds).length?<ul>{Object.entries(m.feeds).map(([f,v])=><li key={f}>{f}：待处理 {v.pending??0}，
-        死信 {v.dead_lettered??0}，最久 {age(v.oldest_pending_seconds??null)}</li>)}</ul>:<p className="note">无 feed 积压。</p>}
+      <article className="workbench-block"><h3>承诺异常</h3>{Object.keys(m.commitments.exceptions).length?<p><a href={routePath({page:'commitments'})}>查看承诺</a></p>:null}<Counts values={m.commitments.exceptions}/></article>
+      <article className="workbench-block"><h3>队列</h3>{Object.keys(m.queues).length?<ul>{Object.entries(m.queues).map(([q,v])=><li key={q}>{q}：待处理 {v.pending??0} 个，重试 {v.retry_wait??0} 个，
+        <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}</li>)}</ul>:<p className="note">无队列任务。</p>}</article>
+      <article className="workbench-block"><h3>后台 feed 与提取</h3>{Object.keys(m.feeds).length?<ul>{Object.entries(m.feeds).map(([f,v])=><li key={f}>{f}：待处理 {v.pending??0} 个，
+        <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}{(v.oldest_pending_seconds??0)>600?<span className="warning">（超过告警阈值 10 分钟）</span>:null}</li>)}</ul>:<p className="note">无 feed 积压。</p>}
         <p>待提取消息 {m.extraction.pending_messages} 条，最久 {age(m.extraction.oldest_pending_seconds)}</p></article>
       <ProcessBlock title={`守卫时延（2 秒截止）${m.guard.status==='ok'&&m.guard.timeout_rate!==undefined?` · 超时率 ${(m.guard.timeout_rate*100).toFixed(2)}%`:''}`} section={m.guard}
         fields={[['calls','调用'],['timeouts','超时'],['p95_ms','p95 毫秒'],['max_ms','最大毫秒']]}/>
@@ -81,12 +89,18 @@ export function Operations({actions}:{actions?:ReactNode}){
   </>}</Page>;
 }
 
+const ROLE_NAME:Record<string,string>={owner:'负责人',operator:'运营',reviewer:'审核人'};
+/** F11: a member as role + stable short alias (the read model carries no display name yet); the full id is in the title. */
+export function memberAlias(principal:string,role?:string):ReactNode{
+  return <span title={principal}>{role?`${ROLE_NAME[role]??role} · `:''}{principal.length>14?principal.slice(0,6)+'…'+principal.slice(-4):principal}</span>;
+}
+
 export function Audit({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','human-actions'],queryFn:readHumanActions});
   return <Page title="审计" query={query} actions={actions} empty={d=>d.length===0}>{items=><>
     <p className="note">谁在什么时候做了哪些受治理的人类操作，以及成员读取消息原文和客户资料的记录（只有负责人可见；只含 ID、类别和时间）。</p>
     <DataTable label="审计" rows={items} rowKey={(_,i)=>String(i)} columns={[
-      {label:'时间',main:true,cell:x=>when(x.occurred_at)},{label:'类别',cell:x=>x.category==='read'?'读取':'操作'},{label:'操作',cell:x=>x.action},
-      {label:'成员',cell:x=>`${x.principal_id}${x.role?`（${x.role}）`:''}`},{label:'对象',wide:true,cell:x=>`${x.target_kind}${x.target_ref?` · ${x.target_ref}`:''}`}]}/>
+      {label:'时间',main:true,cell:x=><NoWrap>{when(x.occurred_at)}</NoWrap>},{label:'类别',cell:x=><NoWrap>{x.category==='read'?'读取':'操作'}</NoWrap>},{label:'操作',cell:x=><NoWrap>{x.action}</NoWrap>},
+      {label:'成员',cell:x=><NoWrap>{memberAlias(x.principal_id,x.role)}</NoWrap>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdRef kind={x.target_kind} value={x.target_ref}/>:x.target_kind}]}/>
   </>}</Page>;
 }

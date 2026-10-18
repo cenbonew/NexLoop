@@ -56,9 +56,9 @@ test('only a member whose role carries nexloop.real_dispatch.set gets the button
     cache.setQueryData(['workbench','real-dispatch'],closed);
     return renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(RealDispatchPanel)));};
   const owner=render(['eios:action:nexloop.real_dispatch.set:1']);
-  expect(owner).toContain('一键开启');expect(owner).toContain('一键关闭');
+  expect(owner).toContain('开启租户层与交付 Action 两层');expect(owner).toContain('关闭租户层与全部 Action 层');
   expect(owner).toContain('部署层 REAL_DISPATCH_ENABLED');expect(owner).toContain('未知');expect(owner).toContain('需在 APP_HOST 部署层开启');
   expect(owner).toContain('版本 7');expect(owner).toContain('enterprise.deliver:1');
   const operator=render(['eios:action:Control.set:1']);
-  expect(operator).not.toContain('一键开启');expect(operator).toContain('只读：只有负责人（owner）可以开关。');expect(operator).toContain('租户层');
+  expect(operator).not.toContain('开启租户层与交付 Action 两层');expect(operator).toContain('只读：只有负责人（owner）可以开关。');expect(operator).toContain('租户层');
 });

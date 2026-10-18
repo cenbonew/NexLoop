@@ -16,9 +16,22 @@ export function RealDispatchPanel(){
     {state.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :state.isError?<p className="note" role="status">开关状态暂不可读：{STATE_TEXT[kindOf(state.error)]}</p>
       :<Layers state={state.data}/>}
+    {state.data?<Outcome state={state.data}/>:null}
     {state.data&&member.data&&offers(member.data,'set_real_dispatch')?<Controls state={state.data} member={member.data} onRead={()=>state.refetch()}/>
       :member.data?<p className="note">只读：只有负责人（owner）可以开关。</p>:null}
   </section>;
+}
+
+/** F06: the end result in one line. The deployment layer is not readable here, so "all open" is never claimed. */
+export function outcomeText(state:RealDispatch):{dispatchable:'unconfirmed'|'no';text:string}{
+  const deliver=state.actions.find(a=>a.action_type===DELIVER);
+  const tenant=!!state.tenant?.enabled&&state.tenant.data_mode==='real';
+  if(tenant&&deliver?.enabled)return {dispatchable:'unconfirmed',text:'真实交付：无法确认。租户层与交付 Action 层已开启；部署层工作台读不到，部署层也开启时才会派发。'};
+  return {dispatchable:'no',text:`真实交付：不可派发（${[!tenant?'租户层未开启':'',!deliver?.enabled?'交付 Action 层未开启':''].filter(Boolean).join('，')}）。`};
+}
+function Outcome({state}:{state:RealDispatch}){
+  const o=outcomeText(state);
+  return <p className={'rd-outcome '+(o.dispatchable==='no'?'note':'warning')} role="status" data-dispatchable={o.dispatchable}>{o.text}</p>;
 }
 
 function Layers({state}:{state:RealDispatch}){
@@ -49,12 +62,13 @@ function Controls({state,onRead}:{state:RealDispatch;member:Me;onRead:()=>Promis
   }
   return <div className="real-dispatch-controls">
     <div className="rd-buttons">
-      <button type="button" onClick={()=>{setMode('open');setResults(null);}} disabled={busy}>一键开启</button>
-      <button type="button" className="rd-close" onClick={()=>{setMode('close');setResults(null);}} disabled={busy}>一键关闭</button>
+      <button type="button" onClick={()=>{setMode('open');setResults(null);}} disabled={busy}>开启租户层与交付 Action 两层</button>
+      <button type="button" className="rd-close" onClick={()=>{setMode('close');setResults(null);}} disabled={busy}>关闭租户层与全部 Action 层</button>
     </div>
     {mode?<div className="rd-confirm" role="dialog" aria-modal="false" aria-labelledby="rd-confirm-title">
-      <h3 id="rd-confirm-title">{mode==='open'?'确认开启真实派发':'确认关闭全部真实派发开关'}</h3>
+      <h3 id="rd-confirm-title">{mode==='open'?'确认开启租户层与交付 Action 两层':'确认关闭租户层与全部 Action 层'}</h3>
       {changes.length?<><p>将依次执行：</p><ol>{changes.map((c,i)=><li key={i}>{describe(c)}</li>)}</ol></>:<p className="note">当前状态已经是目标状态，不需要变更。</p>}
+      <p className="impact-summary" role="note">影响：只改变上面列出的{changes.length}个开关；部署层不在此变更。完成后{mode==='open'?'真实交付状态为“无法确认”：部署层也开启时才会派发':'真实交付不可派发'}。</p>
       {mode==='open'?<p className="rd-warning" role="note">部署层 REAL_DISPATCH_ENABLED 的状态工作台读不到：它平时保持打开；若部署层关闭，开启后也不会真实派发。</p>:null}
       <div className="field"><label htmlFor="rd-reason">原因（必填）</label>
         <textarea id="rd-reason" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} rows={2} required/></div>
