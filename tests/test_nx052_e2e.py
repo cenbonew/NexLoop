@@ -284,8 +284,8 @@ def test_the_template_census_reads_a_copy_and_counts_the_nx052_keys(admin, pg, t
     assert result['superuser'] == result['bootstrap_role'] == 'nexloop_bootstrap'
     db = result['databases']['postgres']
     # The keys referencing the tenant table: the 134 NX-052 batch keys plus those later migrations create with their tables
-    # (e.g. 0217 ontology.nexloop_recall_backfills_tenant_fk), so the expectation is read from the catalog database the copy was
-    # taken from, never a fixed number (it was 142 before 0217 and became 143).
+    # (e.g. 0219 ontology.nexloop_recall_backfills_tenant_fk), so the expectation is read from the catalog database the copy was
+    # taken from, never a fixed number (it was 142 before 0219 and became 143).
     referencing = admin.execute("select count(*) from pg_constraint where contype='f' and confrelid=to_regclass('control.nexloop_tenants')").fetchone()[0]
     assert referencing > 134 and admin.execute("select count(*) from pg_constraint where conname='nexloop_recall_backfills_tenant_fk'").fetchone()[0] == 1
     assert db['nx052_listed'] == db['nx052_present'] == 134 and db['referencing_tenants'] == referencing and db['named_tenant_fk'] >= 134
