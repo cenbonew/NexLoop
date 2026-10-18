@@ -114,9 +114,18 @@ class ArkMultimodalEmbeddingProvider:
             raise EmbeddingUnavailable(f'embedding provider HTTP {status} {code}')
         self.calls+=1
         usage=payload.get('usage') if isinstance(payload,dict) else None
-        tokens=usage.get('prompt_tokens',usage.get('total_tokens')) if isinstance(usage,dict) else None
-        # A response without usage is counted at one token per character (an upper bound for the budget, never zero).
+        details=usage.get('prompt_tokens_details') if isinstance(usage,dict) else None
+        # Ark prices text and image input tokens separately (owner 2026-10-18: text 0.70 CNY, image 1.80 CNY per million). Only
+        # text is sent, so the text tokens are counted; a response without usage is counted at one token per character (an upper
+        # bound for the budget, never zero).
+        tokens=details.get('text_tokens') if isinstance(details,dict) and 'text_tokens' in details else (
+            usage.get('prompt_tokens',usage.get('total_tokens')) if isinstance(usage,dict) else None)
         self.usage_tokens+=tokens if type(tokens) is int and 0<=tokens<=1_000_000 else len(text)
+        image=details.get('image_tokens',0) if isinstance(details,dict) else 0
+        if image not in (0,None):
+            # A text-only request billed as image input: counted (at least) and refused, never used silently.
+            self.usage_tokens+=image if type(image) is int and 0<image<=1_000_000 else len(text)
+            raise EmbeddingUnavailable('embedding provider reported image tokens for a text input')
         data=payload.get('data') if isinstance(payload,dict) else None
         if not isinstance(data,dict) or 'embedding' not in data:
             raise EmbeddingUnavailable('embedding response shape unexpected')

@@ -163,3 +163,17 @@ def test_the_install_script_reads_the_key_from_a_pipe_only_and_asks_for_the_pric
     assert 'EMBEDDING_PRICE_PER_MILLION:?' in text and "[ ! -t 0 ]" in text and 'shred -u' in text
     assert 'echo "$KEY' not in text and 'set +x' in text
     assert MODEL in text and '1024' in text and LOCATION in text
+
+
+def test_text_tokens_are_counted_and_image_tokens_for_a_text_input_are_refused(tmp_path):
+    """Ark bills text and image input tokens separately; only text is sent: image tokens must be 0."""
+    from nexloop_eios.embedding_provider import EmbeddingUnavailable
+    profile = load_embedding_profile({}, env_file=env_file(tmp_path, dimension='4'))
+    vector = [0.1, 0.2, 0.3, 0.4]
+    answers = [{'data': {'embedding': vector}, 'usage': {'prompt_tokens': 9, 'prompt_tokens_details': {'text_tokens': 6, 'image_tokens': 0}, 'total_tokens': 9}},
+               {'data': {'embedding': vector}, 'usage': {'prompt_tokens': 30, 'prompt_tokens_details': {'text_tokens': 5, 'image_tokens': 25}, 'total_tokens': 30}}]
+    provider = ArkMultimodalEmbeddingProvider(profile, transport=lambda url, headers, body, timeout: (200, json.dumps(answers.pop(0)).encode()))
+    assert provider.embed('防水登山鞋') and provider.usage_tokens == 6
+    with pytest.raises(EmbeddingUnavailable, match='image tokens'):
+        provider.embed('SKU-1001')
+    assert provider.usage_tokens == 6 + 5 + 25  # counted, never hidden
