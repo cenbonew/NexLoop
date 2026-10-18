@@ -1,6 +1,6 @@
 # ADR-034｜测试人设在系统内标记（persona）
 
-状态：**proposed**（提议，待批准）。来源：负责人 2026-10-17 对消费者通道 API 第 2 期的拍板，D5 =“系统内 persona 标记”。按 D6，实施放在 v0.1 之后，排入 S6。编号为临时编号，合入时由调度员确认。
+状态：**采用**（负责人 2026-10-18 批准，原话“1 批准”；编号 033/034 确定）。来源：负责人 2026-10-17 对消费者通道 API 第 2 期的拍板，D1–D7 全部按推荐，其中 D5 =“系统内 persona 标记”。按 D6，实施放在 v0.1 之后，排入 S6。
 
 关联：[消费者通道 API 设计稿](../docs/design/consumer-channel-api.md)；[拍板单](../docs/design/consumer-channel-api-decisions.md)；ADR-033（渠道代表消费者执行）；NX-037 参与者变更（负责人 2026-10-14：客户由 AI 代理扮演，证据中标为 `persona: simulated_agent`）。
 

@@ -1,6 +1,6 @@
-# v0.1 已知风险（草稿，待负责人定稿）
+# v0.1 已知风险（定稿，负责人 2026-10-18“按草稿”）
 
-NX-037 证据项 `known_risks`（`docs/release/at-015-evidence-pack.md` §1）。只用角色名。本稿由 L2 根据 10/16–10/18 的试运行、发布 11–15 的修复与遗留整理；**定稿前请负责人逐条确认措辞、等级与处置**，定稿后放入证据目录的 `known-risks.md`，再由 `evidence_pack.py --item known_risks=<路径>` 记录 sha256。
+NX-037 证据项 `known_risks`（`docs/release/at-015-evidence-pack.md` §1）。只用角色名。本稿由 L2 根据 10/16–10/18 的试运行、发布 11–15 的修复与遗留整理，负责人 2026-10-18 按草稿定稿；放入证据目录的 `known-risks.md`，再由 `evidence_pack.py --item known_risks=<路径>` 记录 sha256。
 
 等级：**高** 可能造成对外错误或数据错误；**中** 影响回复及时性或需要人工处理；**低** 运维负担或观测缺口。
 
