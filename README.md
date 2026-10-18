@@ -6,6 +6,8 @@
 
 English | [简体中文](README.zh-CN.md)
 
+**Product page and interactive demo:** <https://www.zingnex.com/nexloop/>
+
 NexLoop is an open-source **continuous-operations system** for enterprises. An owner sets long-term and stage goals (objectives and key results); Agents work inside governed Action boundaries defined by the ontology to keep understanding consumers, fulfil commitments, deliver value, and adjust plans based on real outcomes.
 
 - Goals, ontology, relationships, memory and commitments persist in PostgreSQL; each piece of work is a short-lived, event-driven Run with a budget.

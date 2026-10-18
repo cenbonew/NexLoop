@@ -6,6 +6,8 @@
 
 [English](README.md) | 简体中文
 
+**产品介绍与交互演示：** <https://www.zingnex.com/nexloop/>
+
 NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期与阶段目标（O / KR），Agent 在本体限定的受治理 Action 边界内，持续理解消费者、履行承诺、交付价值，并根据真实结果调整计划。
 
 - 目标、本体、关系、记忆与承诺长期保存在 PostgreSQL；每次处理是一个短生命周期、事件驱动、有预算的 Run。
