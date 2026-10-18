@@ -21,14 +21,16 @@ create table control.nexloop_consumer_personas (
  tenant_id text not null,world text not null,consumer_id text not null check(consumer_id~'^[a-f0-9]{64}$'),
  persona text not null check(persona in ('real','simulated_agent','synthetic')),revision bigint not null check(revision>0),
  updated_by text not null,updated_at timestamptz not null default clock_timestamp(),
- primary key(tenant_id,world,consumer_id)
+ primary key(tenant_id,world,consumer_id),
+ foreign key(tenant_id) references control.nexloop_tenants(tenant_id)
 );
 create table control.nexloop_consumer_persona_events (
  event_id bigint generated always as identity primary key,
  tenant_id text not null,world text not null,consumer_id text not null check(consumer_id~'^[a-f0-9]{64}$'),
  previous text not null check(previous in ('real','simulated_agent','synthetic')),persona text not null check(persona in ('real','simulated_agent','synthetic')),
  revision bigint not null check(revision>0),set_by text not null,request_intent text not null,reason text not null check(char_length(reason) between 1 and 500),
- recorded_at timestamptz not null default clock_timestamp(),unique(tenant_id,world,consumer_id,revision)
+ recorded_at timestamptz not null default clock_timestamp(),unique(tenant_id,world,consumer_id,revision),
+ foreign key(tenant_id) references control.nexloop_tenants(tenant_id)
 );
 do $tables$
 declare t text;
