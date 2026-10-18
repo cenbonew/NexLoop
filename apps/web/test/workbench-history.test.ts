@@ -18,7 +18,7 @@ test('the history response is parsed strictly',()=>{
 });
 
 test('Beijing time whatever the machine is set to',()=>{
-  expect(beijing('2026-10-17 16:30:00+00')).toBe(new Date('2026-10-17T16:30:00Z').toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'}));
+  expect(beijing('2026-10-17 16:30:00+00')).toMatch(new RegExp('^'+new Date('2026-10-17T16:30:00Z').toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'})+'（\\d+ (分钟|小时|天)前）$'));
   expect(beijing('2026-10-17 16:30:00+00')).toContain('2026/10/18');   // past midnight in Beijing
 });
 

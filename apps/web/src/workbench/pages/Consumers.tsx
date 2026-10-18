@@ -3,6 +3,7 @@ import {useInfiniteQuery,useQuery} from '@tanstack/react-query';
 import {COMMITMENT_STATUS_TEXT,DISPLAY_NOTE,STATE_TEXT,consumerAlias,kindOf,readConsumer,readConsumerActions,readConsumerCommitments,readConsumerHistory,readConsumers,readConversation,RESTRICTED_TEXT,
   type DisplayName,type HistoryItem} from '../api';
 import {Page,Short} from './Page';
+import {relative} from '../ui';
 import {DataTable} from '../DataTable';
 
 /** The customer's readable name, or a non-identifying alias with the reason no name is shown (ADR-025). */
@@ -10,11 +11,14 @@ export function ConsumerName({consumerId,display}:{consumerId:string;display:Dis
   return display.status==='ok'?<span className="consumer-name">{display.name}</span>
     :<span className="consumer-name consumer-alias">{consumerAlias(consumerId)}<small>（{DISPLAY_NOTE[display.status]}）</small></span>;
 }
-/** A PostgreSQL or ISO timestamp as local date and time; anything unparsable is shown as given (never hidden). */
-export function when(value:string|null,timeZone?:string):string{
+/** A PostgreSQL or ISO timestamp as Beijing date and time plus the relative value (walkthrough F15: one time zone everywhere, labelled
+ * once in the workbench header); anything unparsable is shown as given (never hidden). */
+export function when(value:string|null,timeZone='Asia/Shanghai'):string{
   if(!value)return '—';
   const iso=value.replace(' ','T').replace(/(\.\d{3})\d+/,'$1').replace(/([+-]\d{2})$/,'$1:00');
-  const d=new Date(iso);return Number.isNaN(d.getTime())?value:d.toLocaleString('zh-CN',{hour12:false,...(timeZone?{timeZone}:{})});
+  const d=new Date(iso);if(Number.isNaN(d.getTime()))return value;
+  const rel=relative(value);
+  return d.toLocaleString('zh-CN',{hour12:false,timeZone})+(rel?`（${rel}）`:'');
 }
 /** Beijing time, as the owner reads it whatever the member's machine is set to. */
 export const beijing=(value:string|null)=>when(value,'Asia/Shanghai');

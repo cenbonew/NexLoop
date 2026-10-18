@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readAudit,readSettings} from '../api';
 import {Failure,Page} from './Page';
+import {Empty} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {RealDispatchPanel} from '../RealDispatchPanel';
@@ -29,5 +30,5 @@ export function ReadAudit(){
 }
 
 export function NotEnabled({title}:{title:string}){
-  return <section className="workbench-page"><h1>{title}</h1><p className="note" role="status">未启用：属于下一阶段，当前不提供任何发布或操作。</p></section>;
+  return <section className="workbench-page"><h1>{title}</h1><Empty kind="not_enabled"/></section>;
 }

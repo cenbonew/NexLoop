@@ -2,7 +2,7 @@
    the customer pages and the workbench; media queries cannot read variables, so use exactly these widths:
    sm <640 · md 640–1023 · lg 1024–1439 · xl ≥1440. Colours, spacing and type are variables; dark mode redefines the colours. */
 :root{color-scheme:light dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-synthesis:none;
-  --bg:#f6f8fb;--surface:#ffffff;--surface-2:#fbfcfe;--hover:#f2f6ff;--text:#12233b;--text-2:#334155;--muted:#5f6f85;--border:#e2e8f0;--border-strong:var(--border-strong);
+  --bg:#f6f8fb;--surface:#ffffff;--surface-2:#fbfcfe;--hover:#f2f6ff;--text:#12233b;--text-2:#334155;--muted:#5f6f85;--border:#e2e8f0;--border-strong:#b8c4d6;
   --accent:#2463eb;--accent-soft:#e9f0ff;--primary-bg:#2463eb;--primary-hover:#1c51cb;--primary-text:#ffffff;--danger:#b42318;--focus:#93b4ff;--input-bg:#ffffff;
   --ok-soft:#eef7f1;--ok-text:#2f6f4f;--warn-soft:#fffaeb;--warn-text:#7a2e0e;--violet-soft:#f8f4ff;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--radius-sm:6px;--radius:10px;--radius-lg:12px;
@@ -264,3 +264,47 @@ button:disabled{cursor:not-allowed;opacity:.55}
 input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 .workbench .error{font-size:14px;margin:8px 0}
 .workbench fieldset.choices label.choice{margin:0}
+
+/* Web layout batch 5 (walkthrough 2026-10-18, F08 shell, F12 empty states, F13 status badges, F14 tabs, F15 reading width). */
+.shell.workbench{padding-top:16px}
+.workbench .brand-header{gap:12px 16px;margin-bottom:16px}.workbench .brand-header .brand-logo{width:150px}
+.workbench .brand-context{font-size:16px}.brand-tz{margin-left:auto;font-size:13px;color:var(--muted)}
+.workbench-layout{gap:16px}.workbench-page{padding:16px 20px}.workbench-page h1{margin-bottom:8px}
+.workbench-main{min-width:0;display:flex;flex-direction:column;gap:8px}
+.nav-group+.nav-group{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.nav-group-title{margin:4px 12px 4px;font-size:13px;line-height:16px;font-weight:600;color:var(--muted);letter-spacing:.04em}
+.workbench-layout nav a.nav-off{color:var(--muted)}
+.nav-badge{margin-left:6px;padding:0 6px;border:1px solid var(--border-strong);border-radius:999px;font-size:13px;line-height:16px;color:var(--muted)}
+.workbench-layout nav.breadcrumbs{position:static;display:block;background:none;border:0;padding:0}
+.breadcrumbs ol{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px;font-size:13px;color:var(--muted)}
+.breadcrumbs li+li::before{content:'›';margin-right:4px}
+.workbench-layout nav.breadcrumbs a{display:inline;padding:0;font-size:13px;color:var(--accent);text-decoration:underline}
+@media (max-width:1023px){.workbench-layout nav .nav-group ul{grid-template-columns:repeat(auto-fill,minmax(9rem,1fr))}.brand-tz{margin-left:0;flex-basis:100%}}
+/* F12 */
+.workbench .workbench-empty{display:flex;flex-direction:column;gap:2px}.workbench-empty p{margin:0}
+.workbench-empty .empty-title{color:var(--text-2);font-weight:600}.workbench-empty .empty-next{font-size:13px}
+.workbench-empty button{align-self:flex-start;margin-top:6px}
+.workbench-empty.empty-forbidden,.workbench-empty.empty-unavailable{border-color:var(--warn-text)}
+.workbench-state{border:0;padding:0}
+.workbench-toolbar{margin-bottom:12px}
+.workbench-data[aria-busy=true]{opacity:.6;transition:opacity .15s}
+/* F13 */
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;border:1px solid;font-size:13px;line-height:20px;white-space:nowrap}
+.status-mark{font-weight:700}
+.tone-ok{color:var(--ok-text);background:var(--ok-soft);border-color:currentColor}
+.tone-fail{color:var(--danger);background:transparent;border-color:currentColor}
+.tone-pending{color:var(--warn-text);background:var(--warn-soft);border-color:currentColor}
+.tone-limited{color:var(--warn-text);background:transparent;border-style:dashed}
+.tone-neutral{color:var(--muted);border-color:var(--border-strong)}
+/* F14 */
+.tabs{display:inline-flex;gap:0;border-bottom:1px solid var(--border)}
+.tabs .tab{height:36px;border:0;border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--muted);padding:0 14px;font-size:14px}
+.tabs .tab:hover{background:var(--hover)}
+.tabs .tab-selected{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.tabs .tab:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
+/* F15 */
+.workbench-page p,.workbench-page blockquote,.workbench-page li,.history-body,.workbench-messages li>p{max-width:72ch}
+.workbench .num{font-variant-numeric:tabular-nums}
+.time-rel{color:var(--muted);font-size:.92em}
+.workbench-page .workbench-messages li{max-width:min(80%,56rem,72ch)}
+@media (max-width:639px){.workbench-page .workbench-messages li{max-width:min(92%,72ch)}}

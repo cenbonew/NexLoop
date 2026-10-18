@@ -1,7 +1,8 @@
 import {useState,type ReactNode} from 'react';
-import {useQuery} from '@tanstack/react-query';
+import {keepPreviousData,useQuery} from '@tanstack/react-query';
 import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,RESTRICTED_TEXT,readCommitment,readCommitments,type CommitmentView,type EvidenceItem} from '../api';
 import {Page,Short} from './Page';
+import {Empty,StatusBadge,Tabs,commitmentTone} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 
@@ -23,17 +24,17 @@ function Evidence({title,items,note}:{title:string;items:EvidenceItem[];note?:st
 
 export function Commitments({actions,onOpen}:{actions?:ReactNode;onOpen:(commitmentId:string)=>void}){
   const [ended,setEnded]=useState(false);
-  const query=useQuery({queryKey:['workbench','commitments',ended],queryFn:()=>readCommitments(ended)});
-  return <Page title="承诺 / 交付" query={query} actions={actions}>{data=>{
+  const query=useQuery({queryKey:['workbench','commitments',ended],queryFn:()=>readCommitments(ended),placeholderData:keepPreviousData});
+  // The tabs stay mounted (and focused) while the other list loads; the old rows stay, marked busy (F12, F14).
+  return <Page title="承诺 / 交付" query={query} actions={actions} toolbar={<Tabs label="承诺范围" value={ended?'ended':'open'} onChange={k=>setEnded(k==='ended')}
+    tabs={[{key:'open',label:'未结束'},{key:'ended',label:'已结束'}]}/>}>{data=>{
     const rows=data.commitments.filter(c=>OPEN_STATUSES.includes(c.status)!==ended);
     return <>
-      <div role="tablist"><button type="button" role="tab" aria-selected={!ended} onClick={()=>setEnded(false)}>未结束</button>
-        <button type="button" role="tab" aria-selected={ended} onClick={()=>setEnded(true)}>已结束</button></div>
       {rows.length?<DataTable label="承诺" rows={rows} rowKey={c=>c.commitment_id} columns={[
         {label:'承诺',main:true,cell:c=><button type="button" className="link" onClick={()=>onOpen(c.commitment_id)}>{typeof c.properties.predicate==='string'?c.properties.predicate:<Short value={c.commitment_id}/>}</button>},
-        {label:'状态',cell:c=>COMMITMENT_STATUS_TEXT[c.status]??c.status},{label:'期限',cell:dueText},
+        {label:'状态',cell:c=><StatusBadge text={COMMITMENT_STATUS_TEXT[c.status]??'未知状态'} tone={commitmentTone(c.status)} code={c.status}/>},{label:'期限',cell:dueText},
         {label:'条件',wide:true,cell:c=>typeof c.properties.condition==='string'&&c.properties.condition?c.properties.condition:'—'},
-        {label:'异常',cell:c=>c.exceptions.map(e=>e.reason).join('、')||'—'}]}/>:<p className="note">暂无记录。</p>}
+        {label:'异常',cell:c=>c.exceptions.map(e=>e.reason).join('、')||'—'}]}/>:<Empty kind="filtered" title={ended?'没有已结束的承诺':'没有未结束的承诺'} next={ended?'切换到“未结束”查看进行中的承诺。':'切换到“已结束”查看历史承诺。'}/>}
       {data.exceptions.length?<><h2>异常</h2><ul>{data.exceptions.map(e=><li key={e.subject_ref+e.reason}>{e.reason} · {e.subject_ref} · {when(e.raised_at)}</li>)}</ul></>:null}
     </>;}}</Page>;
 }
