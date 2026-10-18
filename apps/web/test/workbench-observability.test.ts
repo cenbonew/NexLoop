@@ -112,7 +112,8 @@ test('overview commercial block: unavailable today is labelled; when served, bud
     last_24h:[{cost_kind:'model',data_mode:'real',currency:'CNY',amount:'12.50',entries:3,unpriced:1}]}};
   const on=render(client([[['workbench','overview'],overview({...base,commercial:served})]]),h(Overview,{onOpen:()=>{}}));
   const block=on.slice(on.indexOf('aria-label="商业事件与费用"'));
-  expect(block).toContain('model_tokens：已用 12.5 / 100 CNY（12.5%）');expect(block).toContain('model（real）：12.50 CNY，3 条');expect(block).toContain('其中 1 条未定价');
+  expect(block).toContain('model_tokens：已用 <span class="num" title="12.5">12.50</span> / <span class="num" title="100">100.00</span> CNY（12.5%）');   // two decimals, full value in the title (F15)
+  expect(block).toContain('<span class="num" title="12.50">12.50</span> CNY，3 条');expect(block).toContain('其中 1 条未定价');
   const empty=render(client([[['workbench','overview'],overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[]}}})]]),h(Overview,{onOpen:()=>{}}));
   expect(empty).toContain('无（没有设置预算）。');expect(empty).toContain('无（最近 24 小时没有费用记录）。');
   expect(()=>overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[{...served.data.last_24h[0],amount:'12,5'}]}}})).toThrow(WorkbenchError);

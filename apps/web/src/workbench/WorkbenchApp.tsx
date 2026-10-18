@@ -50,6 +50,22 @@ export function WorkbenchPage({route,go,slots={}}:{route:Route;go:(route:Route)=
   }
 }
 
+/** Navigation in three groups (walkthrough F08); the pages of the next stage last, marked "未启用". */
+export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
+  {title:'运营',pages:['overview','consumers','commitments','actions','plans','goals','contact']},
+  {title:'监控',pages:['alerts','operations','audit']},
+  {title:'管理',pages:['knowledge','settings','ontology','experiments']}];
+const NOT_ENABLED:PageKey[]=['ontology','experiments'];
+
+/** Detail pages: where this page sits (F08); every step but the last goes back. */
+export function crumbs(route:Route):{label:string;to?:Route}[]{
+  if(!route.id)return [];
+  const list={page:route.page} as Route;
+  if(route.page==='consumers'&&route.sub==='conversation')return [{label:PAGES.consumers,to:list},{label:'会话'}];
+  const leaf={consumers:'客户详情',commitments:'承诺详情',knowledge:'审核证据'}[route.page as string]??'详情';
+  return [{label:PAGES[route.page],to:list},{label:leaf}];
+}
+
 export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   const cache=useQueryClient();
   const session=useQuery({queryKey:['workbench','session'],queryFn:readWorkbenchSession,refetchOnWindowFocus:false});
@@ -58,7 +74,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   useEffect(()=>{const back=()=>setRoute(parseRoute(window.location.pathname));window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
   function go(next:Route){window.history.pushState(null,'',routePath(next));setRoute(next);}
   const logout=useMutation({mutationFn:workbenchLogout,onSettled:()=>{cache.removeQueries({queryKey:['workbench']});void session.refetch();}});
-  return <div className="shell workbench"><header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span></header><main>
+  return <div className="shell workbench"><header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span><span className="brand-tz">时间均为北京时间</span></header><main>
     {session.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :session.isError?<section><h1>暂时无法连接</h1><p role="alert">{STATE_TEXT[kindOf(session.error)]}</p><button type="button" onClick={()=>void session.refetch()}>重试</button></section>
       :!session.data?<WorkbenchLogin onLogin={()=>void session.refetch()}/>
@@ -66,10 +82,15 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
         {/* md/sm (<1024): the navigation sits behind this visible menu button instead of a horizontal strip (web layout batch 1). */}
         <button type="button" className="workbench-menu-toggle" aria-expanded={menu} aria-controls="workbench-nav" onClick={()=>setMenu(!menu)}>
           <span>{menu?'收起菜单':'菜单'}</span><span className="menu-current">{PAGES[route.page]}</span></button>
-        <nav id="workbench-nav" className={menu?'open':undefined} aria-label="工作台导航"><ul>{(Object.keys(PAGES) as PageKey[]).map(page=><li key={page}>
-          <a href={routePath({page})} aria-current={route.page===page?'page':undefined} onClick={event=>{event.preventDefault();setMenu(false);go({page});}}>{PAGES[page]}</a></li>)}</ul>
+        <nav id="workbench-nav" className={menu?'open':undefined} aria-label="工作台导航">{NAV_GROUPS.map(g=><div key={g.title} className="nav-group">
+          <h2 className="nav-group-title" id={'nav-'+g.title}>{g.title}</h2><ul aria-labelledby={'nav-'+g.title}>{g.pages.map(page=><li key={page}>
+          <a href={routePath({page})} aria-current={route.page===page?'page':undefined} className={NOT_ENABLED.includes(page)?'nav-off':undefined}
+            onClick={event=>{event.preventDefault();setMenu(false);go({page});}}>{PAGES[page]}{NOT_ENABLED.includes(page)?<span className="nav-badge">未启用</span>:null}</a></li>)}</ul></div>)}
           <button type="button" onClick={()=>logout.mutate()} disabled={logout.isPending}>退出</button></nav>
-        <WorkbenchPage route={route} go={go} slots={slots}/>
+        <div className="workbench-main">
+          {crumbs(route).length?<nav className="breadcrumbs" aria-label="面包屑"><ol>{crumbs(route).map((c,i)=><li key={i}>{c.to?<a href={routePath(c.to)}
+            onClick={event=>{event.preventDefault();go(c.to!);}}>{c.label}</a>:<span aria-current="page">{c.label}</span>}</li>)}</ol></nav>:null}
+          <WorkbenchPage route={route} go={go} slots={slots}/></div>
       </div>}
   </main><footer>NexLoop · 持续运营</footer></div>;
 }

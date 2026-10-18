@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {ageText,readOverview,type Backlog,type Commercial} from '../api';
 import {Block,Page} from './Page';
+import {Money} from '../ui';
 import {takeoverText} from '../actions';
 
 export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:string)=>void}){
@@ -46,10 +47,10 @@ export function CommercialView({commercial}:{commercial:Commercial}){
   const budgets=Object.entries(commercial.budgets);
   return <>
     <h3>预算</h3>
-    {budgets.length?<ul>{budgets.map(([k,b])=><li key={k}>{k}：已用 {b.consumed} / {b.limit} {b.unit}{b.ratio!==null?`（${(b.ratio*100).toFixed(1)}%）`:''}</li>)}</ul>
+    {budgets.length?<ul>{budgets.map(([k,b])=><li key={k}>{k}：已用 <Money value={b.consumed}/> / <Money value={b.limit}/> {b.unit}{b.ratio!==null?`（${(b.ratio*100).toFixed(1)}%）`:''}</li>)}</ul>
       :<p className="note">无（没有设置预算）。</p>}
     <h3>最近 24 小时费用</h3>
-    {commercial.last_24h.length?<ul>{commercial.last_24h.map(x=><li key={`${x.cost_kind}:${x.data_mode}:${x.currency}`}>{x.cost_kind}（{x.data_mode}）：{x.amount} {x.currency}，{x.entries} 条
+    {commercial.last_24h.length?<ul>{commercial.last_24h.map(x=><li key={`${x.cost_kind}:${x.data_mode}:${x.currency}`}>{x.cost_kind}（{x.data_mode}）：<Money value={x.amount}/> {x.currency}，{x.entries} 条
       {x.unpriced?`，其中 ${x.unpriced} 条未定价`:''}</li>)}</ul>:<p className="note">无（最近 24 小时没有费用记录）。</p>}
   </>;
 }

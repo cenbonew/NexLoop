@@ -114,6 +114,6 @@ test('desktop usability: readable names, a non-identifying alias otherwise, and 
   const detail=consumer({consumer_id:id('2'),paused:false,restriction:null,display:{status:'withheld'},commitments:[],properties:{status:'ok',values:{},withheld:['display_name']},
     conversations:[{conversation_id:id('3'),last_sequence:4,last_message_at:'2026-10-17 13:13:54.071455+00'},{conversation_id:id('4'),last_sequence:0,last_message_at:null}]});
   expect(detail.conversations.map(c=>c.last_message_at)).toEqual(['2026-10-17 13:13:54.071455+00',null]);
-  expect(when('2026-10-17 13:13:54.071455+00')).toBe(new Date('2026-10-17T13:13:54.071Z').toLocaleString('zh-CN',{hour12:false}));
+  expect(when('2026-10-17 13:13:54.071455+00').startsWith(new Date('2026-10-17T13:13:54.071Z').toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'})+'（')).toBe(true);   // Beijing + relative (F15)
   expect(when(null)).toBe('—');expect(when('not a time')).toBe('not a time');
 });

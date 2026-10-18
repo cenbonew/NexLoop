@@ -42,8 +42,14 @@ const measure=()=>{const vw=innerWidth;
       const range=document.createRange();if(t)range.selectNodeContents(t);const tr=t?range.getBoundingClientRect():null;
       return {w:Math.round(r.width),h:Math.round(r.height),gap:tr?Math.round(tr.left-r.right):null,dy:tr?Math.round(Math.abs((tr.top+tr.bottom)/2-(r.top+r.bottom)/2)):null};}),
     fieldsets:[...document.querySelectorAll('fieldset')].map(f=>({w:Math.round(f.getBoundingClientRect().width),parent:Math.round(f.parentElement.getBoundingClientRect().width)})),
+    // Batch 5: breadcrumbs, the time zone note, empty states with a kind and a next step, badges with words, the title's top.
+    crumbs:[...document.querySelectorAll('nav.breadcrumbs li')].map(l=>l.textContent.trim()),
+    tz:document.querySelector('.brand-tz')?.textContent??null,
+    empties:[...document.querySelectorAll('.workbench-empty')].map(e=>({kind:e.dataset.empty??null,next:!!e.querySelector('.empty-next')?.textContent.trim()})),
+    badges_worded:[...document.querySelectorAll('.status-badge')].every(b=>b.textContent.replace(/[✓✕…!–]/g,'').trim().length>0&&!/^[a-z_]+$/.test(b.textContent.replace(/[✓✕…!–]/g,'').trim())),
+    h1_top:(h=>h?Math.round(h.getBoundingClientRect().top):null)(document.querySelector('.workbench-page h1')),
     empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')};};
-const result={pages:{},dark_differs:{},menu:{},chat:{}};
+const result={pages:{},dark_differs:{},menu:{},chat:{},shell:{},tabs:{}};
 const browser=await chromium.launch({headless:true});
 async function shoot(page,name){
   for(const [w,h] of SIZES){await page.setViewportSize({width:w,height:h});await page.emulateMedia({colorScheme:'light'});await page.waitForTimeout(300);
@@ -78,8 +84,26 @@ try{
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
   for(const [name,path] of [['wb-overview','/workbench/overview'],['wb-consumers','/workbench/consumers'],['wb-consumer',`/workbench/consumers/${session.consumer_id}`],
     ['wb-conversation',`/workbench/consumers/conversations/${session.conversation_id}`],['wb-settings','/workbench/settings'],
-    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-contact','/workbench/contact'],['wb-audit','/workbench/audit']]){
+    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-contact','/workbench/contact'],['wb-experiments','/workbench/experiments'],['wb-audit','/workbench/audit']]){
     await page.goto(path);await page.locator('.workbench-page h1').waitFor({timeout:20000});await page.waitForTimeout(800);await shoot(page,name);}
+  // Batch 5 shell at 1440: three navigation groups, the next-stage pages last and marked; tabs on commitments: arrow keys,
+  // Home/End and Enter/Space move the selection, aria-selected and the roving tabindex follow, focus stays on the selected tab,
+  // and the tab list is the same element (not re-mounted) after the other list loads.
+  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/overview');await page.locator('.workbench-page h1').waitFor({timeout:20000});
+  result.shell={groups:await page.locator('#workbench-nav .nav-group-title').allTextContents(),
+    last:await page.locator('#workbench-nav a').evaluateAll(a=>a.slice(-2).map(x=>x.textContent))};
+  await page.goto('/workbench/commitments');await page.locator('.workbench-toolbar [role=tab]').first().waitFor({timeout:20000});
+  const tabState=()=>page.locator('.workbench-toolbar [role=tab]').evaluateAll(t=>t.map(x=>[x.textContent,x.getAttribute('aria-selected'),x.tabIndex,document.activeElement===x]));
+  await page.evaluate(()=>{document.querySelector('.workbench-toolbar [role=tablist]').dataset.mark='1';});
+  await page.locator('.workbench-toolbar [role=tab][aria-selected=true]').focus();
+  const tabs={start:await tabState()};
+  await page.keyboard.press('ArrowRight');await page.waitForTimeout(600);tabs.right=await tabState();
+  tabs.same_list=await page.evaluate(()=>document.querySelector('.workbench-toolbar [role=tablist]')?.dataset.mark==='1');
+  await page.keyboard.press('Home');await page.waitForTimeout(400);tabs.home=await tabState();
+  await page.keyboard.press('End');await page.waitForTimeout(400);tabs.end=await tabState();
+  await page.keyboard.press('ArrowLeft');await page.keyboard.press('Enter');await page.waitForTimeout(400);tabs.enter=await tabState();
+  await page.keyboard.press('ArrowRight');await page.keyboard.press('Space');await page.waitForTimeout(400);tabs.space=await tabState();
+  result.tabs=tabs;
   // The menu below 1024 px: a visible button; the navigation hidden until it is opened; a click on an entry navigates and closes it.
   await page.setViewportSize({width:390,height:844});await page.goto('/workbench/overview');await page.locator('.workbench-page h1').waitFor({timeout:20000});
   const toggle=page.locator('.workbench-menu-toggle');

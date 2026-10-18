@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {readGoals,readPlans} from '../api';
 import {Page,Short} from './Page';
+import {Money} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 
@@ -15,7 +16,7 @@ export function Goals({actions}:{actions?:ReactNode}){
     <h2>控制（revision {data.control.revision}）</h2>
     {data.control.scopes.length?<ul>{data.control.scopes.map(s=><li key={s.scope_kind+s.scope_ref}>{s.scope_kind}:{s.scope_ref} — {s.paused?'已暂停':'运行中'}（{s.reason}）</li>)}</ul>:<p className="note">没有暂停或恢复记录。</p>}
     <h2>预算</h2>
-    {data.budgets.length?<ul>{data.budgets.map(b=><li key={b.budget_kind}>{b.budget_kind}：已用 {b.consumed} / {b.limit_amount} {b.unit}</li>)}</ul>:<p className="note">未设置预算。</p>}
+    {data.budgets.length?<ul>{data.budgets.map(b=><li key={b.budget_kind}>{b.budget_kind}：已用 <Money value={b.consumed}/> / <Money value={b.limit_amount}/> {b.unit}</li>)}</ul>:<p className="note">未设置预算。</p>}
     <h2>控制事件</h2>
     {data.control.events.length?<ol>{data.control.events.map(e=><li key={e.revision}>#{e.revision} {e.event_kind} {e.scope_kind}:{e.scope_ref} · {when(e.recorded_at)}</li>)}</ol>:<p className="note">暂无控制事件。</p>}
   </>}</Page>;

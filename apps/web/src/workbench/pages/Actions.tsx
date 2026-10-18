@@ -2,11 +2,15 @@ import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {INTENT_STATE_TEXT,readActions,type Dispatch} from '../api';
 import {Page,Short} from './Page';
+import {StatusBadge,intentTone} from '../ui';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 
 /** Dispatch prediction comes from SQL (the same checks as dispatch); without it the page says so instead of guessing. */
-export function dispatchText(dispatch:Dispatch):string{
+export function dispatchText(dispatch:Dispatch,state?:string):string{
+  // A finished intent is not dispatched again: say so instead of "不可派发（not_queued）" (walkthrough F13); a failure is its own state.
+  if(state==='fulfilled'||state==='confirmed')return '无需再次派发';
+  if(state==='failed')return '不适用（已失败，不会自动重发）';
   if(dispatch.status==='unavailable')return '派发预判暂不可用';
   const p=dispatch.prediction;
   if(p.dispatchable)return '可派发';
@@ -24,7 +28,7 @@ export function Actions({actions}:{actions?:ReactNode}){
     <p>待核对 {data.unknown.count} 个{data.unknown.oldest_age_seconds!==null?`，最久 ${Math.round(data.unknown.oldest_age_seconds/60)} 分钟`:''}。默认动作是“查询执行结果”，不是重发。</p>
     {data.intents.length?<DataTable label="Action 意图" rows={data.intents} rowKey={i=>i.intent_id} columns={[
       {label:'Action',main:true,cell:i=>`${i.action_name}@${i.action_version}`},{label:'意图',cell:i=><Short value={i.intent_id}/>},
-      {label:'状态',cell:i=><span className={i.state==='unknown'?'pending':undefined}>{INTENT_STATE_TEXT[i.state]??i.state}</span>},{label:'尝试',num:true,cell:i=>i.attempts},
-      {label:'最近观察',cell:i=>i.observation?`${i.observation.provider_state} · ${when(i.observation.observed_at)}`:'—'},{label:'派发预判',cell:i=>dispatchText(i.dispatch)}]}/>:<p className="note">暂无记录。</p>}
+      {label:'状态',cell:i=><StatusBadge text={INTENT_STATE_TEXT[i.state]??'未知状态'} tone={intentTone(i.state)} code={i.state}/>},{label:'尝试',num:true,cell:i=>i.attempts},
+      {label:'最近观察',cell:i=>i.observation?`${i.observation.provider_state} · ${when(i.observation.observed_at)}`:'—'},{label:'派发预判',cell:i=>dispatchText(i.dispatch,i.state)}]}/>:<p className="note">暂无记录。</p>}
   </>}</Page>;
 }
