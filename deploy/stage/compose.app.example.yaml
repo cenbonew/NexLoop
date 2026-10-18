@@ -8,7 +8,7 @@
 # internal network without any route outside, where two loopback relays (nexloop_eios.loopback_relay) carry exactly the two needed
 # links with their loopback endpoints unchanged: API/Runtime Worker -> Host control (127.0.0.1:HOST_INTERNAL_PORT) and Host -> guard
 # (127.0.0.1:GUARD_PORT). TLS stays end to end between the original peers. Two more own namespaces: the action worker and the NexLoop delivery service on `effect_egress`
-# (NX-037 provider routing), and the claim workers, the other model credential holders, on `claim_egress` (G-CLAIM-EGRESS). Only the Gateway ports are published, on APP_HOST_ADDR. Every service mounts its own secret files one by
+# (NX-037 provider routing), and the claim workers and the recall indexer, the other model credential holders, on `claim_egress` (G-CLAIM-EGRESS). Only the Gateway ports are published, on APP_HOST_ADDR. Every service mounts its own secret files one by
 # one (never a directory) and nothing else's; the Agent Host gets no DSN, service credential, signing key, channel credential or
 # Artifact directory (design §4.2); no service gets a secret through its environment (only REAL_DISPATCH_ENABLED, from the compose env, default false, D9).
 #
@@ -311,23 +311,37 @@ services:
     command: [--database-url-file, /run/secrets/claim_matcher_dsn, --service-credential-file, /run/secrets/claim_matcher_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
               /var/lib/nexloop/artifacts, --world, real, --model-env-file, /run/secrets/claim_matcher_model, --match-config-file,
-              /etc/nexloop/claim-match.json]
+              /etc/nexloop/claim-match.json, --embedding-env-file, /run/secrets/claim_matcher_embedding, --embedding-tariff-file,
+              /run/secrets/embedding_tariff]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/config/claim-match.json:/etc/nexloop/claim-match.json:ro
-    secrets: [claim_matcher_dsn, claim_matcher_pg_client_cert, claim_matcher_pg_client_key, claim_matcher_credential, signing_key, pg_ca, claim_matcher_model]
+    secrets: [claim_matcher_dsn, claim_matcher_pg_client_cert, claim_matcher_pg_client_key, claim_matcher_credential, signing_key, pg_ca, claim_matcher_model,
+              claim_matcher_embedding, embedding_tariff]
     labels:
       nexloop.budget-service: claim-matcher
   recall-indexer:
-    <<: *service
+    # Owner 2026-10-18 (option B, vector recall): it calls the embedding provider, a model address, so it runs with the claim
+    # workers on `claim_egress` (DATA_HOST's PostgreSQL and the model provider allowlist on 443 only), never on app-net. An empty
+    # embedding env file is the FTS + n-gram mode (no provider, no model address used).
+    image: ${BACKEND_IMAGE:?backend image by digest}
+    restart: unless-stopped
+    networks: [claim_egress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: *environment
     entrypoint: [nexloop-recall-indexer]
     command: [--database-url-file, /run/secrets/recall_indexer_dsn, --service-credential-file, /run/secrets/recall_indexer_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
-              /var/lib/nexloop/artifacts, --world, real, --types-file, /etc/nexloop/recall-types.json]
+              /var/lib/nexloop/artifacts, --world, real, --types-file, /etc/nexloop/recall-types.json, --embedding-env-file,
+              /run/secrets/recall_indexer_embedding, --embedding-tariff-file, /run/secrets/embedding_tariff]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/config/recall-types.json:/etc/nexloop/recall-types.json:ro
-    secrets: [recall_indexer_dsn, recall_indexer_pg_client_cert, recall_indexer_pg_client_key, recall_indexer_credential, signing_key, pg_ca]
+    secrets: [recall_indexer_dsn, recall_indexer_pg_client_cert, recall_indexer_pg_client_key, recall_indexer_credential, signing_key, pg_ca,
+              recall_indexer_embedding, embedding_tariff]
     labels:
       nexloop.budget-service: recall-indexer
   plan-reevaluator:
@@ -530,6 +544,10 @@ secrets:
   claim_matcher_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/pg-client.key"}
   claim_matcher_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/service-credential"}
   claim_matcher_model: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/model.env"}
+  # Owner 2026-10-18 (option B): the embedding profile and key (empty file = disabled) and the owner's embedding tariff (budget).
+  claim_matcher_embedding: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/embedding.env"}
+  recall_indexer_embedding: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/embedding.env"}
+  embedding_tariff: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/embedding-tariff.json"}
   recall_indexer_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/dsn"}
   recall_indexer_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/pg-client.crt"}
   recall_indexer_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/recall-indexer/pg-client.key"}

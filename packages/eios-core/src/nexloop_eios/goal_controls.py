@@ -417,6 +417,10 @@ class ControlPlane:
     def budget_status(self,budget_kind):
         return self._call('select authz.nexloop_budget_status(%s,%s,%s)',(budget_kind,))
 
+    def budget_open(self,budget_kind):
+        """0219: configured, and open now (inside its period, not used up)."""
+        return self._call('select authz.nexloop_budget_open(%s,%s,%s)',(budget_kind,))
+
     def record_observation(self,*,metric_id,metric_version,observation_id,numerator,occurred_at,data_mode,source_ref,evidence_refs=(),denominator=None):
         if data_mode not in ('real','test','simulation'):raise ValueError('data mode required')
         body={'metric_id':metric_id,'metric_version':metric_version,'observation_id':observation_id,'numerator':_decimal(numerator),

@@ -116,7 +116,7 @@ def main():
             read_private_text(root/'signing_key_id',maximum=64).strip(),'--service-credential-file',str(root/'service_credential'),
             '--artifact-root','/var/lib/nexloop/artifacts','--world',
             read_private_text(root/'world',maximum=16).strip() if args.job=='commercial-recorder' and (root/'world').exists() else 'real']
-        for option,name in (('--model-env-file','model.env'),('--embedding-env-file','embedding.env'),('--match-config-file','match-config.json'),('--types-file','types.json'),
+        for option,name in (('--model-env-file','model.env'),('--embedding-env-file','embedding.env'),('--embedding-tariff-file','embedding-tariff.json'),('--match-config-file','match-config.json'),('--types-file','types.json'),
                 ('--settings-file','plan-reevaluation.json'),('--api-database-url-file','api_database_url'),('--source-credential-file','source_credential'),
                 ('--planner-credential-file','planner_credential'),('--queue-credential-file','queue_credential'),('--executor-credential-file','executor_credential'),
                 ('--policy-file','reply-guarantee.json'),('--recipe-file','relay-recipe.json'),('--run-profile-file','relay-run-profile.json'),('--route-credential-file','route_credential'),

@@ -1090,6 +1090,11 @@
       "version": "0218",
       "name": "0218_export_withheld_count.sql",
       "sha256": "8649e377e40365ca6ddd2e920062ab346f617877a91dba9137372eb77127e251"
+    },
+    {
+      "version": "0219",
+      "name": "0219_recall_profile_backfill.sql",
+      "sha256": "2a1704f30ec988461e89be6675f67e86ad36e5929dada48c1235b3b355637015"
     }
   ]
 }

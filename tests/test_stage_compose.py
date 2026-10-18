@@ -20,7 +20,7 @@ from test_deploy_render import ROOT, STAGE, interpolate
 sys.path.insert(0, str(ROOT / "scripts/deploy"))
 
 BUDGET = json.loads((STAGE / 'connection-budget.v1.json').read_text())
-SHARED = {'signing_key', 'pg_ca', 'host_ca', 'host_control_key'}
+SHARED = {'signing_key', 'pg_ca', 'host_ca', 'host_control_key', 'embedding_tariff'}  # + the owner's embedding tariff (2026-10-18)
 FORBIDDEN_ENV = re.compile(r'^(MODEL_API_KEY|EMBEDDING_API_KEY|NEXLOOP_DATABASE_URL|MODEL_PROVIDER|NEXLOOP_TEST_.*|.*PASSWORD.*|.*_DSN|DATABASE_URL)$')
 
 
@@ -61,10 +61,11 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     owners = {}
     for name, spec in services.items():
         if name not in ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker',
-                        'claim-matcher'):
+                        'claim-matcher', 'recall-indexer'):
             assert spec['network_mode'] == 'service:app-net', name
-        if name in ('claim-extraction-worker', 'claim-matcher'):
-            # G-CLAIM-EGRESS: their own egress network (PG and the model allowlist only), never the application namespace.
+        if name in ('claim-extraction-worker', 'claim-matcher', 'recall-indexer'):
+            # G-CLAIM-EGRESS: their own egress network (PG and the model allowlist only), never the application namespace; the
+            # recall indexer joins them when it calls the embedding provider (owner 2026-10-18, option B).
             assert 'network_mode' not in spec and list(spec['networks']) == ['claim_egress'], name
         if name != 'app-net':
             assert spec['read_only'] is True and spec['cap_drop'] == ['ALL'], name
@@ -80,6 +81,9 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca', 'host_guard_key', 'host_runtime_config', 'host_model_configuration', 'host_model_tariff', 'host_model_key'}
     # Model credentials only where a model is called; channel provider configuration only in the action worker.
     assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker'} and owners['claim_matcher_model'] == {'claim-matcher'}
+    # The embedding key only where embeddings are made; the tariff (no secret value) shared by those two.
+    assert owners['recall_indexer_embedding'] == {'recall-indexer'} and owners['claim_matcher_embedding'] == {'claim-matcher'}
+    assert owners['embedding_tariff'] == {'recall-indexer', 'claim-matcher'}
     # NX-037: every provider route's configuration, credential and CA only in the action worker (the enterprise credential
     # exists nowhere else); the delivery service holds its own files.
     assert {s for s, o in owners.items() if s.startswith('action_worker_') and 'provider' in s and o == {'action-worker'}} == {

@@ -92,12 +92,12 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
     published = {name: s.get('ports') for name, s in app['services'].items() if s.get('ports')}
     assert list(published) == ['app-net'] and all(p.startswith('${APP_HOST_ADDR') for p in published['app-net'])
     for name, s in app['services'].items():
-        own = ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher')
+        own = ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher', 'recall-indexer')
         if name not in own:  # NX-037 / G-CLAIM-EGRESS: own namespaces
             assert s['network_mode'] == 'service:app-net' and s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == '${REAL_DISPATCH_ENABLED:-false}', name
-        if name in ('action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher'):
+        if name in ('action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher', 'recall-indexer'):
             assert s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == '${REAL_DISPATCH_ENABLED:-false}', name
-        if name in ('claim-extraction-worker', 'claim-matcher'):
+        if name in ('claim-extraction-worker', 'claim-matcher', 'recall-indexer'):
             assert s['networks'] == ['claim_egress'] and 'network_mode' not in s and s.get('cap_drop') == ['ALL'], name
         image = s['image']
         assert image.startswith('${') and 'by digest' in image, name

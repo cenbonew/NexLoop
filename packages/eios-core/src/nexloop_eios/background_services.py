@@ -90,9 +90,10 @@ def _parser(service):
         parser.add_argument('--mode',choices=['stage','test'],default='stage')
     if service=='claim-matcher':
         parser.add_argument('--model-env-file',type=Path,required=True);parser.add_argument('--match-config-file',type=Path,required=True)
-        parser.add_argument('--embedding-env-file',type=Path)
+        parser.add_argument('--embedding-env-file',type=Path);parser.add_argument('--embedding-tariff-file',type=Path)
     if service=='recall-indexer':
         parser.add_argument('--types-file',type=Path,required=True);parser.add_argument('--embedding-env-file',type=Path)
+        parser.add_argument('--embedding-tariff-file',type=Path)
     if service=='plan-reevaluator':
         parser.add_argument('--settings-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         for name in LAUNCH_CREDENTIALS:parser.add_argument(f'--{name}-credential-file',type=Path,required=True)
@@ -164,6 +165,14 @@ def load_embedding(path):
     if profile.validation_mode=='disabled':return None,None
     provider=ArkMultimodalEmbeddingProvider(profile)
     return provider,provider.dimension
+
+
+def embedding_budget(pool,session,arguments,embedding,service):
+    """0219: the tenant model budget for this service's embedding calls; None without embedding (FTS + trgm mode)."""
+    if embedding is None:return None
+    from nexloop_eios.embedding_budget import EmbeddingBudget,load_tariff
+    if arguments.embedding_tariff_file is None:raise ValueError('embedding requires --embedding-tariff-file')
+    return EmbeddingBudget(pool,session,tariff=load_tariff(arguments.embedding_tariff_file,model=embedding.model),service=service)
 
 
 class LazyModelProvider:
@@ -245,6 +254,10 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
         from nexloop_eios.claim_matching import ClaimMatcher,MatchProviderUnavailable
         from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall,RecallIndexer
         embedding,dimension=load_embedding(arguments.embedding_env_file)
+        budget=embedding_budget(pool,session,arguments,embedding,'claim-matcher')
+        if budget is not None:
+            if not budget.allowed():return {'status':'embedding_budget_closed'}
+            embedding=budget.wrap(embedding)
         recall=OntologyRecall(pool,session,authorizer=EiosRecallAuthorizer(pool,session),provider=embedding,expected_dimension=dimension)
         matcher=ClaimMatcher(pool,session,signer,recall=recall,provider=LazyModelProvider(arguments.model_env_file,MatchProviderUnavailable),
             configuration=load_match_configuration(arguments.match_config_file))
@@ -253,6 +266,11 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
         return ClaimMatchWorker(pool,session,signer,matcher=matcher,gluer=gluer).run_once()
     from nexloop_eios.recall_index_worker import RecallInstanceIndexWorker
     embedding,dimension=load_embedding(arguments.embedding_env_file)
+    budget=embedding_budget(pool,session,arguments,embedding,'recall-indexer')
+    if budget is not None:
+        # PR #8 review: a model budget outside its period or used up claims no work at all (no item is consumed).
+        if not budget.allowed():return {'status':'embedding_budget_closed'}
+        embedding=budget.wrap(embedding)
     return RecallInstanceIndexWorker(pool,session,signer,types=load_types(arguments.types_file),provider=embedding,expected_dimension=dimension).run_once()
 
 
@@ -293,6 +311,13 @@ def run(service,arguments,stop):
     dsn=read_private_text(arguments.database_url_file,maximum=16384)
     read_private_text(arguments.service_credential_file,maximum=16384)
     if service=='recall-indexer':load_types(arguments.types_file)
+    if service in ('recall-indexer','claim-matcher') and getattr(arguments,'embedding_env_file',None) is not None:
+        # 0219: an enabled embedding needs its tariff (budget) before the first tick; an empty (disabled) env file needs none.
+        embedding,_=load_embedding(arguments.embedding_env_file)
+        if embedding is not None:
+            from nexloop_eios.embedding_budget import load_tariff
+            if arguments.embedding_tariff_file is None:raise ValueError('embedding requires --embedding-tariff-file')
+            load_tariff(arguments.embedding_tariff_file,model=embedding.model)
     if service=='claim-matcher':load_match_configuration(arguments.match_config_file)
     if service=='commitment-keeper':
         from nexloop_eios.commitments import load_settings

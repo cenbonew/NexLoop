@@ -253,6 +253,12 @@ class RecallIndexer:
         if self.provider is None:raise ValueError('no embedding provider configured')
         return self._db.call('nexloop_recall_activate_profile',self.provider.model,self.dimension,replacing)
 
+    def backfill_profile(self,type_names):
+        """0219: re-queue the objects of these types that lack a vector of the active profile (all never indexed ones on the first
+        call); returns {queued, definition_types (published types whose definitions lack vectors), first}."""
+        if self.provider is None:raise ValueError('no embedding provider configured')
+        return self._db.call('nexloop_recall_backfill_profile',self.provider.profile_id,sorted(type_names))
+
     def _vectors(self,rows):
         if self.provider is None:return None,Jsonb([])
         cache={};vectors=[]
