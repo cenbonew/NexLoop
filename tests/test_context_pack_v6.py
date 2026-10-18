@@ -169,3 +169,20 @@ def test_a_pack_over_the_bound_input_size_is_trimmed_by_quota_not_refused():
     # Pinned items alone over the bound are still refused, by name (never silently cut).
     huge=inputs();huge['items'].append(Item('constraints','policy','eios:action:nexloop.service.request:1','1',{'text':'限'*30000},'policy',D))
     with pytest.raises(ValueError,match='context_pack_too_large'):assemble_v6(**huge)
+
+
+OPERATOR_PERSONA={'persona_ref':'operator-persona:xiaohe@2','persona_id':'xiaohe','version':2,'source':'default',
+    'document':{'display_name':'小禾','signature':'小禾｜服务助理','tone':'亲切、简洁','values':['先解决问题再解释'],
+        'expression':{'max_chars':200,'emoji':'few','forbidden_phrases':['亲爱的']},'scenarios':['售后'],'ai_disclosure':{'deflect_statement':'我是本店的服务助手。'}},
+    'ai_disclosure':{'mode':'none','when_asked':'deflect','block_human_claims':False,'content_label':False}}
+
+
+def test_operator_persona_is_an_optional_exact_section():
+    """0221 operator persona slice 1: optional (packs without it stay valid); exact shape; persona_ref names id@version."""
+    assert 'operator_persona' not in V6['required']
+    assert VALID.is_valid(EXAMPLE) and VALID.is_valid({**EXAMPLE,'operator_persona':OPERATOR_PERSONA})
+    ContextPackV6.model_validate({**EXAMPLE,'operator_persona':OPERATOR_PERSONA})
+    for bad in ({'price_rule':'八折'},{'persona_ref':'operator-persona:xiaohe'},{'source':'experiment_arm'},
+                {'document':{**OPERATOR_PERSONA['document'],'discount':'10%'}},{'ai_disclosure':{**OPERATOR_PERSONA['ai_disclosure'],'when_asked':'truthful'}},
+                {'document':{**OPERATOR_PERSONA['document'],'expression':{'max_chars':5,'emoji':'few'}}}):
+        assert not VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,**bad}}),bad
