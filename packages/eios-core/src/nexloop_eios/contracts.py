@@ -612,6 +612,56 @@ class RunOutcomePlanUpdate1(BaseModel):
     strategy: None | str
     steps: list[RunOutcomePlanUpdate1StepsItem]
 
+class WorkbenchCapabilitiesCapabilitiesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    capability: str
+    operation: str
+    subject_rule: Literal['human', 'agent_or_human']
+    source_task: str
+    registered_at: str
+
+class WorkbenchCapabilitiesActionsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    resource_id: str
+    stable_name: str
+    version: int
+    capability: str | None
+    capability_version: str | None
+    has_side_effects: bool
+    active: bool
+    effect_category: Literal['customer_contact', 'non_contact_service', None]
+    effect_category_declared: bool
+    effect_manifest_version: int | None
+
+class WorkbenchCapabilitiesChannelsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    namespace: str
+    trust: Literal['server', 'signed', 'client']
+    skew_seconds: int
+
+class WorkbenchCapabilitiesRoutesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    delivery_action: str
+    active_offerings: int
+
+class WorkbenchCapabilitiesRealDispatchTenant1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool
+    data_mode: Literal['real', 'test', None]
+    revision: int
+
+class WorkbenchCapabilitiesRealDispatchActionsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    action_type: str
+    enabled: bool
+    revision: int
+
+class WorkbenchCapabilitiesRealDispatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    world: Literal['real']
+    tenant: None | WorkbenchCapabilitiesRealDispatchTenant1
+    actions: list[WorkbenchCapabilitiesRealDispatchActionsItem]
+
 class ActionIntent(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:action-intent","title":"action-intent","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"intent_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"run_id":{"type":"string","format":"uuid"},"action_name":{"type":"string","pattern":"^nexloop\\\\.[a-z][a-z0-9_.]+$"},"contract_version":{"type":"string","minLength":1},"actor_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"consumer_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"goal_version_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"plan_step_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"idempotency_key":{"type":"string","minLength":16,"maxLength":200},"payload_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"expected_versions":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"resource_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"revision":{"type":"integer","minimum":1}},"required":["resource_ref","revision"]},"minItems":1,"maxItems":256},"requested_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"not_after":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"evidence_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"minItems":1,"maxItems":256},"parameters":{"type":"object"},"decision_rationale":{"type":"string","minLength":1,"maxLength":2000}},"required":["schema_version","intent_id","tenant_id","world_id","mode","run_id","action_name","contract_version","actor_ref","consumer_ref","goal_version_ref","plan_step_ref","idempotency_key","payload_digest","expected_versions","requested_at","not_after","evidence_refs","parameters","decision_rationale"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
     schema_version: Literal['1.0']
@@ -870,3 +920,12 @@ class RunOutcome(_Contract):
     evidence_refs: list[str]
     intent_ref: None | str
     plan_update: None | RunOutcomePlanUpdate1
+
+class WorkbenchCapabilities(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-capabilities","title":"workbench-capabilities","description":"Enterprise world model W3 (owner 2026-10-19): the owner workbench\'s read-only capability catalog of one tenant, GET /api/v1/workbench/capabilities (workbench read verb `capabilities`). Metadata only: the governed capability registry, the tenant\'s business Action definitions with their effect categories (undeclared means closed, customer contact by default), inbound channel namespaces, the effect Actions active catalog offerings deliver through (counts), and the real dispatch switches from the same SQL source as the metrics read. No consumer, message, intent or credential data. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["capabilities","actions","channels","routes","provider_routes","real_dispatch"],"properties":{"capabilities":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["capability","operation","subject_rule","source_task","registered_at"],"properties":{"capability":{"type":"string","pattern":"^[a-z][a-z0-9_]*(\\\\.[a-z][a-z0-9_]*)+$"},"operation":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"subject_rule":{"enum":["human","agent_or_human"]},"source_task":{"type":"string","pattern":"^NX-[0-9]{3}$"},"registered_at":{"type":"string","format":"date-time"}}}},"actions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["resource_id","stable_name","version","capability","capability_version","has_side_effects","active","effect_category","effect_category_declared","effect_manifest_version"],"properties":{"resource_id":{"type":"string","pattern":"^eios:action:[A-Za-z0-9][A-Za-z0-9._-]{0,159}:[1-9][0-9]{0,8}$"},"stable_name":{"type":"string","minLength":1},"version":{"type":"integer","minimum":1},"capability":{"type":["string","null"]},"capability_version":{"type":["string","null"]},"has_side_effects":{"type":"boolean"},"active":{"type":"boolean"},"effect_category":{"enum":["customer_contact","non_contact_service",null]},"effect_category_declared":{"type":"boolean"},"effect_manifest_version":{"type":["integer","null"],"minimum":1}}}},"channels":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["namespace","trust","skew_seconds"],"properties":{"namespace":{"type":"string","pattern":"^[a-z][a-z0-9.-]{1,63}$"},"trust":{"enum":["server","signed","client"]},"skew_seconds":{"type":"integer","minimum":0,"maximum":86400}}}},"routes":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["delivery_action","active_offerings"],"properties":{"delivery_action":{"type":"string","minLength":1,"maxLength":200},"active_offerings":{"type":"integer","minimum":1}}}},"provider_routes":{"const":"deployment_configuration"},"real_dispatch":{"type":"object","additionalProperties":false,"required":["world","tenant","actions"],"properties":{"world":{"const":"real"},"tenant":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["enabled","data_mode","revision"],"properties":{"enabled":{"type":"boolean"},"data_mode":{"enum":["real","test",null]},"revision":{"type":"integer","minimum":0}}}]},"actions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["action_type","enabled","revision"],"properties":{"action_type":{"type":"string","pattern":"^eios:action:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"},"enabled":{"type":"boolean"},"revision":{"type":"integer","minimum":0}}}}}}}}')
+    capabilities: list[WorkbenchCapabilitiesCapabilitiesItem]
+    actions: list[WorkbenchCapabilitiesActionsItem]
+    channels: list[WorkbenchCapabilitiesChannelsItem]
+    routes: list[WorkbenchCapabilitiesRoutesItem]
+    provider_routes: Literal['deployment_configuration']
+    real_dispatch: WorkbenchCapabilitiesRealDispatch
