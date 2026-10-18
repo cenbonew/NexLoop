@@ -86,7 +86,7 @@ def unknown_intent(c, admin, *, unknown_hours=48):
     admin.execute("update runtime.nexloop_effect_outbox set state='unknown',available_at='infinity' where intent_id=%s", (intent,))
     admin.execute("insert into runtime.nexloop_effect_attempts(intent_id,attempt_id,tenant_id,world,provider_key,provider_payload_digest,executor_principal,origin_run_id,"
                   "action_claim_revision,action_fencing_token,effect_fence,attempt_revision,state,dispatched_at,updated_at) "
-                  "values(%s,gen_random_uuid(),%s,'real',%s,%s,%s,%s,1,%s,1,1,'unknown',clock_timestamp()-make_interval(hours=>%s),clock_timestamp()-make_interval(hours=>%s))",
+                  "values(%s,gen_random_uuid(),%s,'real',%s,%s,%s,%s,1,%s,1,2,'unknown',clock_timestamp()-make_interval(hours=>%s),clock_timestamp()-make_interval(hours=>%s))",
                   (intent, tenant, str(intent), 'c' * 64, executor, origin, 'd' * 48, unknown_hours, unknown_hours))
     admin.execute("insert into runtime.nexloop_effect_events values(gen_random_uuid(),%s,%s,'real','unknown',1,clock_timestamp()-make_interval(hours=>%s),'{}')",
                   (intent, tenant, unknown_hours))

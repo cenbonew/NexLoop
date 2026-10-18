@@ -163,10 +163,24 @@ class EffectDispatcher:
             # This minimal policy deliberately has no automatic resend. A future
             # governed retry must prove provider's safe-to-retry protocol and all
             # current origin/executor/controls/budget again under the same key.
-            try: self.ledger.record_effect_unknown(**identity)
-            except Exception: pass
+            # 0213 (10/18): the provider's answer is evidence (the owner's confirm-not-delivered, 0210, needs it): it is recorded
+            # as a not_found observation of a reconcile query, then the intent is an unknown again (back-off, 0199 window).
+            # Recording failed or not a reconcile query: the earlier plain unknown.
+            recorded = False
+            settle = getattr(self.ledger, 'settle_not_found', None)
+            if job['stage'] == 'reconcile' and settle is not None and 'query_id' in admitted:
+                try:
+                    self.ledger.record_effect_query_observation(**identity, query_id=admitted['query_id'], provider_profile_digest=provider.profile_digest,
+                        provider_payload_digest=None, provider_state='not_found', provider_reference=None)
+                    recorded = True
+                    settle(intent_id=identity['intent_id'])
+                except Exception:
+                    pass
+            if not recorded:
+                try: self.ledger.record_effect_unknown(**identity)
+                except Exception: pass
             self._back_off(identity)
-            return {'claimed': True, 'status': 'unknown', 'business_action_success': False}
+            return {'claimed': True, 'status': 'unknown', **({'provider_state': 'not_found'} if recorded else {}), 'business_action_success': False}
         try:
             record = self.ledger.record_effect_query_observation if job['stage'] == 'reconcile' else self.ledger.record_effect_observation
             query_args = {'query_id': admitted['query_id']} if job['stage'] == 'reconcile' else {}

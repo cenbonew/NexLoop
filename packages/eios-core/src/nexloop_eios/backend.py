@@ -243,6 +243,10 @@ class AuthenticatedServices:
         # 0174: offer an unknown intent again only after min(60, 2^n) s.
         return self._backend._invoke(self._session, 'back_off_unknown', intent_id=intent_id)
 
+    def settle_not_found(self, *, intent_id):
+        # 0213: after the provider's not_found was recorded as an observation, the intent is an unknown again (back-off, 0199).
+        return self._backend._invoke(self._session, 'settle_not_found', intent_id=intent_id)
+
     def requery_stale_unknown(self, *, intent_id, confirmation_ref):
         # 0205: the owner's one more query of a stopped unknown intent whose origin Run expired (the effect worker queries it).
         return self._backend._invoke(self._session, 'requery_stale_unknown', intent_id=intent_id, confirmation_ref=confirmation_ref)
@@ -616,7 +620,7 @@ class Backend:
                     queue=arguments.pop('queue'))
                 return getattr(queue, queue_operations[operation])(**arguments)
             if operation in ('claim_effect','prepare_effect_dispatch','authorize_effect_query',
-                              'record_effect_unknown','settle_expired_origin','back_off_unknown','requery_stale_unknown','record_unrouted','record_effect_observation','record_effect_query_observation','reconcile_effect_receipt','read_effect_receipt'):
+                              'record_effect_unknown','settle_expired_origin','back_off_unknown','settle_not_found','requery_stale_unknown','record_unrouted','record_effect_observation','record_effect_query_observation','reconcile_effect_receipt','read_effect_receipt'):
                 from nexloop_eios.effect_execution import EffectExecutionPort
                 return getattr(EffectExecutionPort(self._pool,session,self._signer),operation)(**arguments)
             if operation=='bind_effect_contexts':

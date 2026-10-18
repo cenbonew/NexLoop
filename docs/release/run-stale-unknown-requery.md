@@ -81,7 +81,7 @@ select intent_id,delivery_state from runtime.nexloop_outbound_messages where int
 
 2. 按结果分两种情况：
    - **fulfilled**：意图变为 `fulfilled`（或 `observed_fulfilled`），outbound 变为 `delivered`，有一条 `provider_state=fulfilled` 的观测；effect_attempts 仍只有 1 行（没有二次 POST）。这条回复就此收敛。
-   - **not_found 或不可用**：意图仍是 `unknown`，`stopped=true`，有一条新的 unknown 事件或 not_found 观测；不会有任何新的投递。这条按 ADR 只能由负责人处理，例如人工联系顾客。可以在 provider 恢复后用新的确认引用再下一次订单，最多 3 次。
+   - **not_found 或不可用**：意图仍是 `unknown`，`stopped=true`，有一条新的 unknown 事件；provider 回答 not_found 时还有一条 `provider_state=not_found` 的观测（0213 起；此前 not_found 不留观测，负责人的“确认未送达”因此缺依据）。不会有任何新的投递。这条按 ADR 只能由负责人处理，例如人工联系顾客。可以在 provider 恢复后用新的确认引用再下一次订单，最多 3 次。
 3. 不要手工改表，也不要删除事件或订单记录。
 
 ### 4.1 `unknown_over_24h` 告警

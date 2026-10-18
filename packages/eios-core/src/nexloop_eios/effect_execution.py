@@ -363,6 +363,12 @@ class EffectExecutionPort:
                 return db.execute('select authz.nexloop_effect_query_backoff(%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)))).fetchone()[0]
         except Exception:return None
 
+    def settle_not_found(self,*,intent_id):
+        """0213: after this executor recorded the provider's not_found, the intent is an unknown again (back-off and the 0199
+        window apply); False when the state moved on. Best effort is the caller's."""
+        with self.pool.connection() as db,db.transaction():
+            return db.execute('select authz.nexloop_effect_not_found_unknown(%s,%s,%s)',(self.session.token_digest,self.session.world,uuid.UUID(str(intent_id)))).fetchone()[0] is True
+
     def record_effect_unknown(self,*,intent_id,fence):
         try:
             identity=_identity_arguments(intent_id,fence);metadata=self._resolve(identity)
