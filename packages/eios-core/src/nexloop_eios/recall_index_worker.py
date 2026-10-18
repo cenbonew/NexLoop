@@ -54,22 +54,36 @@ class RecallInstanceIndexWorker:
         key=(self.session.token_digest,self.world,self.indexer.provider.profile_id)
         if key not in _activated:
             self.indexer.activate_profile()
-            # 0217: objects that existed before this profile have no vectors yet; re-queued once per profile (idempotent).
-            self.indexer.backfill_profile(self.types)
+            # 0217 (PR #8 review): at every start, what still lacks a vector of the profile is queued again (objects, a dead-
+            # lettered backfill item included) and the published definitions without vectors are re-indexed here. A failure
+            # leaves the process unmarked, so the next tick tries again; nothing is recorded as done for good.
+            result=self.indexer.backfill_profile(self.types)
+            for type_name in result['definition_types']:
+                self.indexer.index_object_type(type_name)
             _activated.add(key)
         return key[2]
 
     @authority_request_scoped
     def run_once(self):
         self.ensure_profile()
+        from nexloop_eios.embedding_budget import EmbeddingBudgetDenied
         summary={'indexed':0,'removed':0,'skipped':0,'changed':0,'retry':0,'dead_lettered':0,'lease_lost':0}
+        denied=False
         for item in self.feed.claim(limit=self.batch,lease_seconds=self.lease_seconds):
+            if denied:
+                # The model budget closed during this tick: the rest goes back unprocessed (no provider call).
+                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='embedding_budget',delay_seconds=300,max_attempts=20)
+                summary['retry' if status=='pending' else status]+=1;continue
             try:
                 outcome=self._index(item['payload'])
             except WorkFeedDenied:raise
             except psycopg.errors.SerializationFailure:
                 # The object moved on during indexing; its newer change re-marks the item.
                 status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='revision_stale',delay_seconds=0,max_attempts=self.max_attempts)
+                summary['retry' if status=='pending' else status]+=1;continue
+            except EmbeddingBudgetDenied:
+                denied=True
+                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='embedding_budget',delay_seconds=300,max_attempts=20)
                 summary['retry' if status=='pending' else status]+=1;continue
             except Exception as error:
                 code='embedding_unavailable' if type(error).__name__.startswith('Embedding') else 'index_failed'

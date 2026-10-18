@@ -255,22 +255,23 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
         from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall,RecallIndexer
         embedding,dimension=load_embedding(arguments.embedding_env_file)
         budget=embedding_budget(pool,session,arguments,embedding,'claim-matcher')
-        if budget is not None and not budget.allowed():return {'status':'embedding_budget_exhausted'}
+        if budget is not None:
+            if not budget.allowed():return {'status':'embedding_budget_closed'}
+            embedding=budget.wrap(embedding)
         recall=OntologyRecall(pool,session,authorizer=EiosRecallAuthorizer(pool,session),provider=embedding,expected_dimension=dimension)
         matcher=ClaimMatcher(pool,session,signer,recall=recall,provider=LazyModelProvider(arguments.model_env_file,MatchProviderUnavailable),
             configuration=load_match_configuration(arguments.match_config_file))
         gluer=CandidateGluer(pool,session,signer,indexer=RecallIndexer(pool,session,provider=embedding,expected_dimension=dimension),
             matcher=matcher,provider=embedding)
-        try:return ClaimMatchWorker(pool,session,signer,matcher=matcher,gluer=gluer).run_once()
-        finally:
-            if budget is not None:budget.record(embedding)
+        return ClaimMatchWorker(pool,session,signer,matcher=matcher,gluer=gluer).run_once()
     from nexloop_eios.recall_index_worker import RecallInstanceIndexWorker
     embedding,dimension=load_embedding(arguments.embedding_env_file)
     budget=embedding_budget(pool,session,arguments,embedding,'recall-indexer')
-    if budget is not None and not budget.allowed():return {'status':'embedding_budget_exhausted'}
-    try:return RecallInstanceIndexWorker(pool,session,signer,types=load_types(arguments.types_file),provider=embedding,expected_dimension=dimension).run_once()
-    finally:
-        if budget is not None:budget.record(embedding)
+    if budget is not None:
+        # PR #8 review: a model budget outside its period or used up claims no work at all (no item is consumed).
+        if not budget.allowed():return {'status':'embedding_budget_closed'}
+        embedding=budget.wrap(embedding)
+    return RecallInstanceIndexWorker(pool,session,signer,types=load_types(arguments.types_file),provider=embedding,expected_dimension=dimension).run_once()
 
 
 class TickFailures:

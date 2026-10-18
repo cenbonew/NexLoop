@@ -51,16 +51,19 @@ def test_the_tariff_is_checked_and_costs_round_up(tmp_path):
 
 
 class Controls:
-    def __init__(self, configured=True, limit='0.000010', used='0'):
-        self.limit, self.used, self.configured, self.reserved = Decimal(limit), Decimal(used), configured, []
+    def __init__(self, configured=True, limit='0.000010', used='0', in_period=True):
+        self.limit, self.used, self.configured, self.in_period, self.reserved = Decimal(limit), Decimal(used), configured, in_period, []
 
-    def budget_status(self, kind):
+    def budget_open(self, kind):
         assert kind == 'model'
         if not self.configured:
-            return {'configured': False, 'exhausted': True}
-        return {'configured': True, 'limit_amount': str(self.limit), 'used': str(self.used), 'exhausted': self.used >= self.limit}
+            return {'configured': False, 'open': False}
+        return {'configured': True, 'open': self.in_period and self.used < self.limit, 'used': str(self.used), 'limit_amount': str(self.limit)}
 
     def reserve_budget(self, **kw):
+        # As authz.nexloop_reserve_budget: the period and the limit are checked atomically.
+        if not self.in_period or self.used + Decimal(kw['amount']) > self.limit:
+            raise RuntimeError('NXB01')
         self.reserved.append(kw)
         self.used += Decimal(kw['amount'])
         return {'consumption_id': kw['consumption_id']}
@@ -69,29 +72,48 @@ class Controls:
 class Provider:
     profile_id = MODEL + '@1024'
     model = MODEL
+    dimension = 1024
 
-    def __init__(self, tokens):
-        self.usage_tokens = tokens
+    def __init__(self, tokens_per_call=None):
+        self.usage_tokens, self.calls, self.per_call = 0, 0, tokens_per_call
+
+    def embed(self, text):
+        self.calls += 1
+        self.usage_tokens += self.per_call if self.per_call is not None else len(text)
+        return (1.0,)
 
 
-def test_the_budget_records_the_tokens_caps_at_the_limit_and_then_refuses(tmp_path):
+def test_each_call_is_reserved_before_the_provider_and_refused_without_calling_it(tmp_path):
+    from nexloop_eios.embedding_budget import EmbeddingBudgetDenied
     tariff = load_tariff(tariff_file(tmp_path, per_million_tokens='1'))
     controls = Controls()
     budget = EmbeddingBudget(None, None, tariff=tariff, service='recall-indexer', controls=controls)
     assert budget.allowed() is True
-    assert budget.record(Provider(4))['consumption_id'].startswith('embedding:recall-indexer:')
-    assert controls.reserved[0]['amount'] == '0.000004' and controls.reserved[0]['unit'] == 'CNY' and controls.reserved[0]['budget_kind'] == 'model'
-    assert controls.reserved[0]['source_ref'] == f'embedding:{MODEL}@1024:4'
-    provider = Provider(10)
-    budget.record(provider)
-    assert controls.reserved[1]['amount'] == '0.000006' and provider.usage_tokens == 0  # the rest of the limit, then reset
-    assert budget.allowed() is False  # exhausted: the next tick makes no embedding call
-    assert budget.record(Provider(0)) is None
-    # No model budget configured: nothing reserved and never refused (as for Runs).
+    provider = Provider()
+    wrapped = budget.wrap(provider)
+    assert wrapped.profile_id == MODEL + '@1024' and wrapped.dimension == 1024
+    wrapped.embed('四个汉字')  # 4 characters: 0.000004 reserved before the call
+    assert controls.reserved[0]['amount'] == '0.000004' and controls.reserved[0]['budget_kind'] == 'model' and controls.reserved[0]['unit'] == 'CNY'
+    assert controls.reserved[0]['consumption_id'].startswith('embedding:recall-indexer:') and provider.calls == 1
+    with pytest.raises(EmbeddingBudgetDenied):
+        wrapped.embed('七个字的一段文本')  # 8 > the 6 left: refused before any provider call
+    assert provider.calls == 1 and len(controls.reserved) == 1
+    # More tokens than estimated: the difference is reserved after the call (capped at what is left).
+    more = Provider(tokens_per_call=5)
+    wrapped = EmbeddingBudget(None, None, tariff=tariff, service='claim-matcher', controls=Controls(limit='0.000010')).wrap(more)
+    wrapped.embed('ab')
+    assert [r['amount'] for r in wrapped._budget.controls.reserved] == ['0.000002', '0.000003']
+
+
+def test_a_budget_outside_its_period_or_used_up_claims_nothing_and_no_budget_is_free(tmp_path):
+    tariff = load_tariff(tariff_file(tmp_path, per_million_tokens='1'))
+    assert EmbeddingBudget(None, None, tariff=tariff, service='recall-indexer', controls=Controls(in_period=False)).allowed() is False
+    assert EmbeddingBudget(None, None, tariff=tariff, service='recall-indexer', controls=Controls(used='0.000010')).allowed() is False
     free = EmbeddingBudget(None, None, tariff=tariff, service='claim-matcher', controls=Controls(configured=False))
-    assert free.allowed() is True and free.record(Provider(100)) is None
+    provider = Provider()
+    assert free.allowed() is True and free.wrap(provider).embed('x') == (1.0,) and free.controls.reserved == []
     with pytest.raises(ValueError):
-        EmbeddingBudget(None, None, tariff=tariff, service='other', controls=controls)
+        EmbeddingBudget(None, None, tariff=tariff, service='other', controls=Controls())
 
 
 def test_the_ark_provider_counts_reported_tokens_or_bounds_them_by_characters(tmp_path):

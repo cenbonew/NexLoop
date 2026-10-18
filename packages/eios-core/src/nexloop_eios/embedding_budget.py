@@ -1,12 +1,18 @@
-"""Embedding calls in the tenant's model budget (owner 2026-10-18, option B: vector recall and candidate merge on stage).
+"""Embedding calls in the tenant's model budget (owner 2026-10-18, option B: vector recall and candidate merge on stage; PR #8
+review).
 
 Background model calls (extraction, matching) have no budget of their own; embeddings of the recall-index service and the
-claim matcher are counted in the tenant's `model` budget (NX-022, the same budget Runs reserve): after each tick the tokens the
-provider reported are priced by a private tariff (`nexloop-embedding-tariff/1`: model, currency, price per million input tokens;
-the owner supplies the price, nothing here invents one) and reserved once (consumption id embedding:<service>:<tick id>). When
-the tenant has no model budget, nothing is reserved (as for Runs: no configured budget means no budget gate). When it is
-exhausted, a tick makes no embedding call at all; a tick whose cost goes past the limit reserves the rest of the limit, so the
-next tick sees the budget exhausted. Amounts are rounded up to 0.000001."""
+claim matcher are counted in the tenant's `model` budget (NX-022, the same budget Runs reserve), priced by a private tariff
+(`nexloop-embedding-tariff/1`: model, currency, price per million input tokens; the owner supplies the price, nothing here invents
+one). When the tenant has a model budget:
+- before a tick claims any work, the budget must be open now (authz.nexloop_budget_open: inside its period, not used up);
+  otherwise the tick claims nothing;
+- before each provider call, the estimated cost (one token per character, an upper bound for these short texts) is reserved
+  atomically (authz.nexloop_reserve_budget checks the period and the limit); a refusal raises EmbeddingBudgetDenied and no call
+  is made;
+- after the call, if the provider reported more tokens than estimated, the difference is reserved too (capped at what is left).
+When the tenant has no model budget nothing is reserved (as for Runs: no configured budget means no budget gate). Amounts are
+rounded up to 0.000001."""
 import json
 import uuid
 from dataclasses import dataclass
@@ -20,6 +26,10 @@ QUANTUM = Decimal('0.000001')
 
 class EmbeddingTariffError(ValueError):
     pass
+
+
+class EmbeddingBudgetDenied(RuntimeError):
+    """The tenant model budget refused the reservation before the provider call (period closed or used up)."""
 
 
 @dataclass(frozen=True)
@@ -55,29 +65,64 @@ class EmbeddingBudget:
             raise ValueError('embedding service')
         self.tariff, self.service = tariff, service
         self.controls = controls or ControlPlane(pool, session)
+        self._configured = None
+
+    def _open(self):
+        state = self.controls.budget_open('model')
+        self._configured = state.get('configured') is True
+        return state
 
     def allowed(self):
-        """False only when the tenant's model budget is configured and exhausted."""
-        status = self.controls.budget_status('model')
-        return not (status.get('configured') and status.get('exhausted'))
+        """Before a tick claims work: False when the tenant's model budget is configured and not open now."""
+        state = self._open()
+        return not state.get('configured') or state.get('open') is True
 
-    def record(self, provider):
-        """Reserve the cost of the tokens the provider reported since the last record; returns the reservation (None: nothing)."""
-        tokens = getattr(provider, 'usage_tokens', 0) or 0
-        provider.usage_tokens = 0
-        if tokens <= 0:
-            return None
-        status = self.controls.budget_status('model')
-        if not status.get('configured'):
-            return None
-        amount = self.tariff.cost(tokens)
-        if amount <= 0:
-            return None
-        remaining = Decimal(status['limit_amount']) - Decimal(status['used'])
-        if amount > remaining:
-            amount = remaining  # past the limit: the rest of it, so the budget reads exhausted from now on
-        if amount <= 0:
-            return None
-        tick = str(uuid.uuid4())
-        return self.controls.reserve_budget(budget_kind='model', consumption_id=f'embedding:{self.service}:{tick}', amount=str(amount),
-                                            unit=self.tariff.currency, source_ref=f'embedding:{provider.profile_id}:{tokens}')
+    def _reserve(self, amount, tokens, profile_id):
+        return self.controls.reserve_budget(budget_kind='model', consumption_id=f'embedding:{self.service}:{uuid.uuid4()}', amount=str(amount),
+                                            unit=self.tariff.currency, source_ref=f'embedding:{profile_id}:{tokens}')
+
+    def wrap(self, provider):
+        return BudgetedEmbedding(provider, self)
+
+
+class BudgetedEmbedding:
+    """The provider as the indexer and the gluer see it: every call reserved in the model budget first (when configured)."""
+
+    def __init__(self, provider, budget):
+        self._provider, self._budget = provider, budget
+        self.model, self.dimension = provider.model, provider.dimension
+
+    @property
+    def profile_id(self):
+        return self._provider.profile_id
+
+    def __getattr__(self, name):
+        return getattr(self._provider, name)
+
+    def embed(self, text):
+        budget = self._budget
+        if budget._configured is None:
+            budget._open()
+        if not budget._configured:
+            return self._provider.embed(text)
+        estimate = max(1, len(text) if type(text) is str else 1)
+        reserved = budget.tariff.cost(estimate)
+        try:
+            if reserved > 0:
+                budget._reserve(reserved, estimate, self.profile_id)
+        except Exception:
+            raise EmbeddingBudgetDenied('embedding budget refused') from None
+        before = getattr(self._provider, 'usage_tokens', 0) or 0
+        vector = self._provider.embed(text)
+        used = (getattr(self._provider, 'usage_tokens', 0) or 0) - before
+        extra = budget.tariff.cost(used) - reserved
+        if extra > 0:
+            state = budget._open()
+            remaining = Decimal(state.get('limit_amount', '0')) - Decimal(state.get('used', '0'))
+            amount = min(extra, remaining)
+            if amount > 0:
+                try:
+                    budget._reserve(amount, used - estimate, self.profile_id)
+                except Exception:
+                    pass  # the period closed meanwhile: the next tick sees it closed and claims nothing
+        return vector
