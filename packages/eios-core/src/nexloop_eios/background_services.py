@@ -256,6 +256,28 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
     return RecallInstanceIndexWorker(pool,session,signer,types=load_types(arguments.types_file),provider=embedding,expected_dimension=dimension).run_once()
 
 
+class TickFailures:
+    """A failed tick used to be swallowed without a trace: a service whose every tick failed (authentication, authority, SQL)
+    stayed `running` with nothing in its log (2026-10-18 stage: the alert evaluator's state stopped at 2026-10-17 14:33Z). Now
+    the first failure, every `every`-th consecutive one and the recovery are one structured line each: the exception class
+    and SQLSTATE (structured_log.failure_detail) and the count, never a message or a value (AT-049)."""
+
+    def __init__(self,service,*,every=30,logger=None):
+        self.service,self.every,self.count=service,every,0
+        self.logger=logger or logging.getLogger('nexloop.background')
+
+    def failed(self,error):
+        from nexloop_eios.structured_log import failure_detail
+        self.count+=1
+        if self.count==1 or self.count%self.every==0:
+            self.logger.warning('background tick failed %s',{**failure_detail(error),'stage':'tick','count':self.count})
+
+    def succeeded(self):
+        if self.count:
+            self.logger.warning('background tick recovered %s',{'stage':'tick','count':self.count})
+        self.count=0
+
+
 def run(service,arguments,stop):
     from nexloop_eios.assembly import verify_application_role
     from nexloop_eios.backend import open_backend
@@ -296,15 +318,18 @@ def run(service,arguments,stop):
             return current._backend._pool,current._session,current._backend._signer
         services()
         print(label+' ready',flush=True)
+        failures=TickFailures(service)
         while not stop.is_set():
             try:
                 summary=_tick(service,arguments,*services(),launcher=launcher)
+                failures.succeeded()
                 if arguments.once:
                     print(json.dumps({k:v for k,v in summary.items() if type(v) in (int,str)},separators=(',',':'),sort_keys=True),flush=True)
                     return 0
-            except Exception:
+            except Exception as error:
                 if arguments.once:
                     print(label+' unavailable',file=sys.stderr,flush=True);return 1
+                failures.failed(error)
             stop.wait(arguments.tick_seconds)
         return 0
 
