@@ -368,6 +368,8 @@ class ReviewQueueReader:
     A review authorization that cannot be granted is reported as PermissionError,
     so the workbench shows "no review permission" rather than an empty queue.
     """
+    # Class default: subclasses (ReviewDecisionPort) and instances built without __init__ keep the review Action.
+    action=REVIEW_ACTION
 
     def __init__(self,pool,session,signer,*,action=None):
         # action: the Action whose EXECUTE authorizes the read: ontology.schema.review (the reviewer, default) or, for the queue
