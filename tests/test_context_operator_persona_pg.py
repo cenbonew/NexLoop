@@ -80,3 +80,26 @@ def test_sql_refuses_a_pack_whose_persona_section_differs(v6, admin, monkeypatch
     with pytest.raises(MessageRelayUnavailable):
         f['v6_relay']().run_once()
     assert admin.execute('select count(*) from runtime.nexloop_context_artifact_bindings').fetchone() == (0,)
+
+
+def test_the_persona_section_carries_the_consumers_preferences(v6, admin):
+    """0231: the consumer's own communication preference (a Claim of their message) rides in the section, re-derived at bind."""
+    import hashlib
+    import secrets
+    f = v6
+    tenant, consumer, message = f['original']['tenant'], f['f']['recipe']['consumer_id'], f['message']
+    seed_persona(admin, tenant)
+    claim_id = secrets.token_hex(32)
+    with admin.transaction():
+        owner(admin, tenant)
+        admin.execute('''insert into ontology.nexloop_claims(tenant_id,world,claim_id,conversation_id,consumer_id,first_input_digest,topic_key,subject_kind,subject_ref,subject_text,
+            predicate,value,speaker,polarity,modality,condition_text,time_expression,valid_time,source_message_id,source_sequence,span_start,span_end,source_content_hash,quote,
+            extractor_version,confidence,epistemic_kind,resolution_state,derived_from,correlation_key,guard_flags) values
+            (%s,'real',%s,%s,%s,%s,'tone','consumer',%s,'顾客','communication_tone',%s,'consumer','affirmed','requested','','','{}',%s,%s,0,1,%s,%s,'nx019-extractor/2',0.8,
+             'preference','unresolved','[]',%s,'[]')''',
+            (tenant, claim_id, message['conversation_id'], consumer, 'a' * 64, 'consumer:' + consumer, Jsonb({'type': 'string', 'value': '说简单点'}), message['id'],
+             message['sequence'], hashlib.sha256(message['body'].encode()).hexdigest(), message['body'][:1], hashlib.sha256(claim_id.encode()).hexdigest()))
+    assert f['v6_relay']().run_once() == 'queued'
+    pack, _ = bound(admin)
+    ContextPackV6.model_validate(pack)
+    assert pack['operator_persona']['preferences'] == [{'claim_id': claim_id, 'dimension': 'tone', 'polarity': 'affirmed', 'value': '说简单点'}]

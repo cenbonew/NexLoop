@@ -674,6 +674,11 @@
    "stable_name": "nexloop.ai_disclosure.set",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.contact_preference.dismiss",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [

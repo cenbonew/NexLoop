@@ -56,7 +56,18 @@ export const ENTERPRISE_ACTION='nexloop.enterprise.deliver:1';
 export type EffectSupply={action:typeof ENTERPRISE_ACTION;offering_id:string;offering_revision:number;service_code:string;title:string;price_amount:string};
 /** 0230: the operator persona section's exact shape (the contract's; SQL re-derives the values). */
 export function validateOperatorPersona(value:unknown):void{
-  const persona=exact(value,['persona_ref','persona_id','version','source','document','ai_disclosure']);
+  const withPreferences=!!value&&typeof value==='object'&&Object.hasOwn(value as object,'preferences');
+  const persona=exact(value,['persona_ref','persona_id','version','source','document','ai_disclosure',...(withPreferences?['preferences']:[])]);
+  // 0231: the consumer's own communication preferences (data only; quiet hours, frequency, channel, topic are enforced in SQL).
+  if(withPreferences){
+    const rows=persona.preferences;
+    if(!Array.isArray(rows)||rows.length<1||rows.length>32)fail();
+    for(const row of rows as unknown[]){
+      const item=exact(row,['claim_id','dimension','polarity','value']);text(item.claim_id,64,/^[0-9a-f]{64}$/);
+      if(!['quiet_hours','frequency','channel','topic','tone'].includes(String(item.dimension))||!['affirmed','negated'].includes(String(item.polarity)))fail();
+      if(!(typeof item.value==='string'&&[...item.value].length>=1&&[...item.value].length<=64)&&!(Number.isSafeInteger(item.value)&&(item.value as number)>=0&&(item.value as number)<=1000))fail();
+    }
+  }
   const id=text(persona.persona_id,64,/^[a-z][a-z0-9_-]{0,63}$/);
   if(!Number.isSafeInteger(persona.version)||(persona.version as number)<1||(persona.version as number)>999999)fail();
   if(persona.persona_ref!=='operator-persona:'+id+'@'+persona.version||!['owner_assign','rule','default'].includes(String(persona.source)))fail();

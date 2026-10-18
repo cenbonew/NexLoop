@@ -186,11 +186,14 @@ def test_consumer_erasure_removes_the_assignment_and_pseudonymizes_its_events(re
     from nexloop_eios.authorization import authenticate_service
     from test_erasure_pg import KEEPER
     c = restoring
-    publish_registry_actions(admin, ACTIONS + ('nexloop.consumer.erase', 'nexloop.consumer.set_persona'))
+    from test_contact_preferences_pg import statement
+    publish_registry_actions(admin, ACTIONS + ('nexloop.consumer.erase', 'nexloop.consumer.set_persona', 'nexloop.contact_preference.dismiss'))
     consumer = c['consumer']
+    preference = statement(c, 'communication_tone', '说简单点')  # 0231: the owner's dismissal names the Consumer and has a reason
     with c['app']() as client:
         csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
         seed_two_personas(client, csrf, consumer)
+        assert act(client, csrf, 'dismiss_contact_preference', {'claim_id': preference, 'dismissed': True, 'reason': '王先生说不用'}).status_code == 200
         assert act(client, csrf, 'assign_operator_persona', {'consumer_id': consumer, 'persona_id': 'lan', 'reason': '顾客王先生要求换人'}).status_code == 200
         assert act(client, csrf, 'set_consumer_persona', {'consumer_id': consumer, 'persona': 'synthetic', 'reason': '王先生是测试账号'}).status_code == 200
         assert act(client, csrf, 'erase_consumer', {'consumer_id': consumer, 'reason': '删除'}).status_code == 200
@@ -202,7 +205,7 @@ def test_consumer_erasure_removes_the_assignment_and_pseudonymizes_its_events(re
     state, counts = admin.execute('select state,counts from control.nexloop_consumer_erasures where consumer_id=%s', (consumer,)).fetchone()
     assert state == 'completed' and counts['operator_persona_events'] == 1 and counts['persona_events'] == 1, counts
     for table in ('nexloop_operator_persona_assignments', 'nexloop_operator_persona_current', 'nexloop_operator_persona_assignment_events',
-                  'nexloop_consumer_personas', 'nexloop_consumer_persona_events'):
+                  'nexloop_consumer_personas', 'nexloop_consumer_persona_events', 'nexloop_contact_preference_dismissals'):
         assert admin.execute(f'select count(*) from control.{table} where consumer_id=%s', (consumer,)).fetchone() == (0,), table
     rows = admin.execute('select consumer_id,persona_id,source,request_intent,reason from control.nexloop_operator_persona_assignment_events').fetchall()
     assert len(rows) == 1 and rows[0][0].startswith('pseudonym:') and rows[0][1:] == ('lan', 'owner_assign', None, None)

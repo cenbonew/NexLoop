@@ -61,7 +61,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'set_consumer_persona':'consumer.set_persona','erase_synthetic_consumer':'consumer.erase_synthetic',
     # 0230 operator persona slice 1 (document, rules and settings checked in SQL).
     'publish_operator_persona':'operator_persona.publish','assign_operator_persona':'operator_persona.assign',
-    'publish_persona_rules':'operator_persona.rules_publish','set_ai_disclosure':'ai_disclosure.set'}
+    'publish_persona_rules':'operator_persona.rules_publish','set_ai_disclosure':'ai_disclosure.set',
+    # 0231: the owner declines or reinstates a consumer's communication preference (a Claim of the consumer).
+    'dismiss_contact_preference':'contact_preference.dismiss'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -324,6 +326,12 @@ class GoalGovernedActions:
             raise ValueError('mode, when_asked, block_human_claims, content_label and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_ai_disclosure','mode':mode,'when_asked':when_asked,
             'block_human_claims':block_human_claims,'content_label':content_label,'reason':reason})
+
+    # 0231: owner only; SQL accepts only a preference Claim the consumer stated.
+    def dismiss_contact_preference(self,*,action_name,action_version,request_id,claim_id,dismissed,reason):
+        if not re.fullmatch(r'[0-9a-f]{64}',str(claim_id)) or type(dismissed) is not bool or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('claim, dismissed and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'dismiss_contact_preference','claim_id':claim_id,'dismissed':dismissed,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

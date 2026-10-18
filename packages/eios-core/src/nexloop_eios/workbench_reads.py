@@ -509,5 +509,9 @@ class WorkbenchQueries:
         # 0230: the owner's persona overview (versions and statuses, current rules, AI disclosure; one Consumer's assignment).
         return self.reader.observe('operator_personas', **({'consumer_id': consumer_id} if consumer_id else {}))
 
+    def contact_preferences(self, consumer_id):
+        # 0231: the owner's view of a consumer's communication preferences (from their Claims; no quote) and dismissals.
+        return self.reader.observe('contact_preferences', consumer_id=consumer_id)
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

@@ -278,6 +278,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'operator_personas', consumer_id=q.get('consumer_id'))
 
+    @routes.get('/consumers/{consumer_id}/contact-preferences')
+    async def contact_preferences(consumer_id: str, request: Request):
+        # 0231: the owner's view of a consumer's communication preferences and the owner's dismissals.
+        if request.query_params or not _ID.fullmatch(consumer_id):
+            return error('invalid_request', 422)
+        return await invoke(request, 'contact_preferences', consumer_id=consumer_id)
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.

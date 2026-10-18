@@ -110,6 +110,8 @@ OPERATIONS={
     'set_ai_disclosure':{'mode':lambda v:v if v in ('none','first_contact','always') else (_ for _ in ()).throw(ValueError('mode')),
         'when_asked':lambda v:v if v in ('deflect','handoff') else (_ for _ in ()).throw(ValueError('when_asked')),
         'block_human_claims':_bool,'content_label':_bool,'reason':_reason},
+    # 0231 (owner only): decline or reinstate one of a consumer's communication preferences.
+    'dismiss_contact_preference':{'claim_id':_id(re.compile(r'[0-9a-f]{64}')),'dismissed':_bool,'reason':_reason},
     # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
     'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,
         'provider_retention_checked':_bool,'reply_followup':lambda v:v if v in ('owner_follow_up','fallback_reply') else (_ for _ in ()).throw(ValueError('follow-up'))},
@@ -203,7 +205,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

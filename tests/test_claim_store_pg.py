@@ -279,7 +279,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # erasure precheck; it returns two numbers, no Claim value is read or projected.
         # Operator persona 0230 copies the latest erasure step (0145, Claim erasure unchanged) to add the persona tables to the
         # consumer phase; no Claim value is read or projected.
-        '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback','_consumer_persona','_operator_persona')) for name in migrations)
+        '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback','_consumer_persona','_operator_persona',
+        # Contact preferences 0231 read the consumer's own preference Claims (predicate vocabulary, polarity, short value) to refuse
+        # a contact at dispatch and to show them to the model; never a formal value, nothing projected into business state.
+        '_contact_preferences')) for name in migrations)
 
 
 def correction_window(conversations):
