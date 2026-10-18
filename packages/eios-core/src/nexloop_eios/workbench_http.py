@@ -22,6 +22,9 @@ from nexloop_eios.browser_http import WORKBENCH_COOKIE
 _ID = re.compile(r'[a-f0-9]{64}')
 _CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{64}')
 _STATES = ('accepted', 'dispatching', 'unknown', 'fulfilled', 'failed', 'confirmed')
+_OFFSET = re.compile(r'0|[1-9][0-9]{0,5}')
+_INSTANT = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})')
+_CONSUMER_SORTS = ('id', 'open_commitments', 'conversations', 'active_plans')
 HEADERS = {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'}
 
 
@@ -69,6 +72,15 @@ def router(config, *, ports_for_workbench):
             raise ValueError()
         return int(raw)
 
+    def instant(raw):
+        if not _INSTANT.fullmatch(raw):
+            raise ValueError()
+        from datetime import datetime
+        value = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        if value.tzinfo is None:
+            raise ValueError()
+        return value
+
     def flag(raw):
         if raw not in ('true', 'false'):
             raise ValueError()
@@ -98,11 +110,18 @@ def router(config, *, ports_for_workbench):
 
     @routes.get('/consumers')
     async def consumers(request: Request):
+        # F09: filters on the list's own counts, sort, total and an offset cursor; `after` (id cursor) stays for the plain list.
         try:
-            q = query(request, ('after', 'limit'))
-            if 'after' in q and not _ID.fullmatch(q['after']):
+            q = query(request, ('after', 'limit', 'restricted', 'has_open_commitments', 'sort', 'order', 'cursor'))
+            if 'after' in q and not _ID.fullmatch(q['after']) or 'sort' in q and q['sort'] not in _CONSUMER_SORTS or 'order' in q and q['order'] not in ('asc', 'desc') \
+                    or 'cursor' in q and not _OFFSET.fullmatch(q['cursor']) or 'after' in q and len(set(q) & {'restricted', 'has_open_commitments', 'sort', 'cursor'}):
                 raise ValueError()
-            arguments = {'after': q.get('after'), 'limit': limit_of(q['limit']) if 'limit' in q else 50}
+            limit = limit_of(q['limit']) if 'limit' in q else 50
+            if limit > 100 and set(q) & {'restricted', 'has_open_commitments', 'sort', 'cursor'}:
+                raise ValueError()
+            arguments = {'after': q.get('after'), 'limit': limit,
+                         **{k: flag(q[k]) for k in ('restricted', 'has_open_commitments') if k in q},
+                         **{k: q[k] for k in ('sort', 'order', 'cursor') if k in q}}
         except ValueError:
             return error('invalid_request', 422)
         return await invoke(request, 'consumers', **arguments)
@@ -156,11 +175,18 @@ def router(config, *, ports_for_workbench):
 
     @routes.get('/commitments')
     async def commitments(request: Request):
+        # F05/F09: status group (open / ended / all; `all=true` is the legacy group all), late flag, due window, sort, offset cursor.
         try:
-            q = query(request, ('consumer_id', 'all'))
-            if 'consumer_id' in q and not _ID.fullmatch(q['consumer_id']):
+            q = query(request, ('consumer_id', 'all', 'status_group', 'late', 'due_before', 'due_after', 'sort', 'order', 'cursor', 'limit'))
+            if 'consumer_id' in q and not _ID.fullmatch(q['consumer_id']) or 'status_group' in q and q['status_group'] not in ('open', 'ended', 'all') \
+                    or 'all' in q and 'status_group' in q or 'sort' in q and q['sort'] not in ('due_at', 'registered_at', 'status') \
+                    or 'order' in q and q['order'] not in ('asc', 'desc') or 'cursor' in q and not _OFFSET.fullmatch(q['cursor']):
                 raise ValueError()
-            arguments = {'consumer_id': q.get('consumer_id'), 'include_closed': flag(q['all']) if 'all' in q else False}
+            limit = limit_of(q['limit']) if 'limit' in q else 200
+            arguments = {'consumer_id': q.get('consumer_id'), 'include_closed': flag(q['all']) if 'all' in q else False,
+                         'limit': limit, **({'late': flag(q['late'])} if 'late' in q else {}),
+                         **{k: instant(q[k]) for k in ('due_before', 'due_after') if k in q},
+                         **{k: q[k] for k in ('status_group', 'sort', 'order', 'cursor') if k in q}}
         except ValueError:
             return error('invalid_request', 422)
         return await invoke(request, 'commitments', **arguments)

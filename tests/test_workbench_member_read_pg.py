@@ -295,9 +295,44 @@ def test_consumer_list_shows_the_readable_name_and_never_a_restricted_one(workbe
     with w['client']() as client:
         assert workbench_login(client, w['owner']).status_code == 200
         listed = client.get('/api/v1/workbench/consumers')
-        assert [i['display'] for i in listed.json()['items'] if i['consumer_id'] == consumer] == [{'status': 'withheld'}] and '合成客户甲' not in listed.text
+        assert [i['display'] for i in listed.json()['items'] if i['consumer_id'] == consumer] == [{'status': 'restricted', 'reason': 'withheld'}] and '合成客户甲' not in listed.text
         detail = client.get('/api/v1/workbench/consumers/' + consumer)
-        assert detail.json()['display'] == {'status': 'withheld'} and '合成客户甲' not in detail.text
+        assert detail.json()['display'] == {'status': 'restricted', 'reason': 'withheld'} and '合成客户甲' not in detail.text
+
+
+def test_name_states_agree_between_list_and_detail_and_a_restriction_hides_presence(workbench):
+    """Walkthrough F04 / D2: one name state on every page (missing / restricted / failed). A Consumer whose display_name is not
+    recorded is 'missing' on the list and the detail while the name is readable; once the owner restricts the group, both say
+    'restricted' (withheld) whether or not a name exists, and the field list no longer tells the member whether it is recorded."""
+    w = workbench
+    provision(w)
+    admin, consumer = w['admin'], w['f']['consumer']
+    definition = {'type_name': 'Consumer', 'version': 97, 'properties': [{'property_name': 'display_name', 'value_type': 'string'},
+        {'property_name': 'favorite_sport', 'value_type': 'string'}],
+        'property_groups': [{'group_name': 'identity', 'property_names': ['display_name']}, {'group_name': 'preference', 'property_names': ['favorite_sport']}]}
+    admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,97,%s)', (TENANT, 'Consumer', Jsonb(definition)))
+    admin.execute("update ontology.objects set schema_version=97,properties=%s where tenant_id=%s and type_name='Consumer' and object_id=%s",
+        (Jsonb({'favorite_sport': '网球'}), TENANT, consumer))  # no display_name recorded
+
+    def states(client):
+        listed = client.get('/api/v1/workbench/consumers').json()['items']
+        return [i['display'] for i in listed if i['consumer_id'] == consumer][0], client.get('/api/v1/workbench/consumers/' + consumer).json()['display']
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        assert states(client) == ({'status': 'missing'}, {'status': 'missing'})
+    admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)',
+        (TENANT, 'property_group_restriction', ['Consumer'], Jsonb({'tenant_id': TENANT, 'type_name': 'Consumer', 'restricted_groups': ['identity'], 'decision': 'owner 2026-10-18 (synthetic)'})))
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        assert states(client) == ({'status': 'restricted', 'reason': 'withheld'}, {'status': 'restricted', 'reason': 'withheld'})
+    # D2: the field list of a restricted property carries no presence; a readable one still does.
+    client, inspected = staff_session(w, w['owner'])
+    try:
+        fields = {f['name']: f for f in reader_for(w, inspected).consumer_fields(consumer)}
+    finally:
+        client.__exit__(None, None, None)
+    assert fields['display_name'] == {'name': 'display_name', 'present': None, 'readable': False}
+    assert fields['favorite_sport'] == {'name': 'favorite_sport', 'present': True, 'readable': True}
 
 
 def test_customer_history_pages_across_conversations_newest_first_with_governed_bodies(workbench):

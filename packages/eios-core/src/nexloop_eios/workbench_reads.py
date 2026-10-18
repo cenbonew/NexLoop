@@ -22,9 +22,16 @@ PROTOCOL = 'nexloop-workbench-read-v1'
 WORKBENCH_READ = 'nexloop.workbench.read'
 COMMITMENT_READ = 'nexloop.commitment.read'
 CONTACT_READ = 'nexloop.contact.read'
+OPEN_STATUSES = ('conditional', 'open', 'in_progress', 'breached')
 VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKBENCH_READ, 'conversation': WORKBENCH_READ,
          'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
+
+
+def _instant(value):
+    """An aware datetime from an ISO / PostgreSQL timestamp text (commitment due times are UTC)."""
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00').replace(' ', 'T'))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 class WorkbenchForbidden(PermissionError):
@@ -211,44 +218,87 @@ class WorkbenchQueries:
     def goals(self, *, limit=50):
         return self.reader.call('goals', limit=limit)
 
-    def consumers(self, *, after=None, limit=50):
-        payload = {'limit': limit, **({'after': after} if after else {})}
-        items = self.reader.call('consumers', **payload)['consumers']
-        for item in items:
-            item['display'] = self._display_name(item['consumer_id'])
-        return {'items': items, 'next_cursor': items[-1]['consumer_id'] if len(items) == limit else None}
+    def _all_consumers(self):
+        """Every Consumer row of the tenant (ids and counts only, no content read), in pages of the SQL maximum."""
+        rows, after = [], None
+        while True:
+            page = self.reader.call('consumers', limit=200, **({'after': after} if after else {}))['consumers']
+            rows += page
+            if len(page) < 200:
+                return rows
+            after = page[-1]['consumer_id']
 
-    def _display_name(self, consumer_id):
-        # Desktop usability (2026-10-17): a readable name in the list through the same per-property READ as the detail view
-        # (ADR-025 / AT-003). No new grant: an owner-restricted display_name is 'withheld' (never read), a member without the
-        # property read gets 'forbidden', a Consumer without the property 'absent'; the page then shows a non-identifying alias.
+    def consumers(self, *, after=None, limit=50, restricted=None, has_open_commitments=None, sort=None, order='asc', cursor=None):
+        """Walkthrough F09: filters on the counts the list already carries (contact restriction, open commitments), sorting, a total
+        and an offset cursor; names (one per-property READ each, F04) only for the rows of the page. Without filters or sort the
+        original id-cursor page (after) is served unchanged."""
+        if restricted is None and has_open_commitments is None and sort is None and cursor is None:
+            payload = {'limit': limit, **({'after': after} if after else {})}
+            items = self.reader.call('consumers', **payload)['consumers']
+            for item in items:
+                item['display'] = self.display_state(item['consumer_id'])
+            return {'items': items, 'next_cursor': items[-1]['consumer_id'] if len(items) == limit else None}
+        rows = self._all_consumers()
+        tenant_total = len(rows)
+        if restricted is not None:
+            rows = [r for r in rows if bool(r['restricted']) == restricted]
+        if has_open_commitments is not None:
+            rows = [r for r in rows if (r['open_commitments'] > 0) == has_open_commitments]
+        key = sort or 'id'
+        rows.sort(key=lambda r: (r['consumer_id'],) if key == 'id' else (r[key], r['consumer_id']), reverse=order == 'desc')
+        start = int(cursor or 0)
+        items = rows[start:start + limit]
+        for item in items:
+            item['display'] = self.display_state(item['consumer_id'])
+        return {'items': items, 'total': len(rows), 'tenant_total': tenant_total,
+                'next_cursor': str(start + limit) if start + limit < len(rows) else None}
+
+    def display_state(self, consumer_id, fields=None, values=None):
+        """Walkthrough F04: one name state for every page, decided in this order: failed (the read itself failed), restricted (no
+        Consumer read for this member: reason forbidden; or display_name owner-restricted: reason withheld, whether or not the
+        Consumer has one, so a restriction never tells whether a name exists), missing (readable but not recorded), ok. ADR-025 /
+        AT-003: no new grant; the name comes through the per-property READ (one audit row), or from `values` already read."""
+        if not consumer_id:
+            return {'status': 'missing'}
         try:
-            fields = self.reader.consumer_fields(consumer_id) or []
+            fields = self.reader.consumer_fields(consumer_id) if fields is None else fields
         except WorkbenchForbidden:
-            return {'status': 'forbidden'}
+            return {'status': 'restricted', 'reason': 'forbidden'}
+        except Exception:
+            return {'status': 'failed'}
+        if fields is None:
+            return {'status': 'failed'}
         field = next((f for f in fields if f['name'] == 'display_name'), None)
-        if field is None or not field['present']:
-            return {'status': 'absent'}
-        if not field['readable']:
-            return {'status': 'withheld'}
-        values = self.reader.read_object('Consumer', consumer_id, ['display_name'], 'consumer')
-        name = (values or {}).get('display_name')
+        if field is not None and not field['readable']:
+            return {'status': 'restricted', 'reason': 'withheld'}
+        if field is None or field.get('present') is False:
+            return {'status': 'missing'}
+        if values is None:
+            try:
+                values = self.reader.read_object('Consumer', consumer_id, ['display_name'], 'consumer')
+            except Exception:
+                return {'status': 'failed'}
+            if values is None:
+                return {'status': 'restricted', 'reason': 'forbidden'}
+        name = values.get('display_name')
         if not isinstance(name, str) or not name.strip():
-            return {'status': 'forbidden' if values is None else 'absent'}
+            return {'status': 'missing'}
         return {'status': 'ok', 'name': name.strip()[:80]}
 
     def consumer(self, *, consumer_id):
         value = self.reader.call('consumer', consumer_id=consumer_id)
         if value is None:
             return None
-        # AT-003: Consumer properties only through per-property READ; withheld ones are listed, never shown.
-        value['properties'] = self._consumer_properties(consumer_id)
-        # The name comes from the properties just read (no second read, no second audit row).
+        # AT-003: Consumer properties only through per-property READ; withheld ones are listed, never shown. The name state is
+        # decided from the same field list and the values just read (no second read, no second audit row; F04).
+        try:
+            fields = self.reader.consumer_fields(consumer_id) or []
+        except WorkbenchForbidden:
+            fields = None
+        value['properties'] = self._consumer_properties(consumer_id, fields)
         props = value['properties']
-        name = (props['values'] or {}).get('display_name') if props['status'] == 'ok' else None
-        value['display'] = ({'status': 'ok', 'name': name.strip()[:80]} if isinstance(name, str) and name.strip()
-                            else {'status': 'forbidden'} if props['status'] != 'ok'
-                            else {'status': 'withheld'} if 'display_name' in props['withheld'] else {'status': 'absent'})
+        value['display'] = ({'status': 'restricted', 'reason': 'forbidden'} if fields is None or props['status'] != 'ok'
+                            else self.display_state(consumer_id, fields, props['values']))
         # Desktop usability: each conversation's last message time through the conversation read (same WORKBENCH_READ),
         # newest first; a conversation without messages sorts last.
         for item in value['conversations']:
@@ -259,11 +309,9 @@ class WorkbenchQueries:
         value['conversations'].sort(key=lambda c: (c['last_message_at'] is not None, c['last_message_at'] or '', c['conversation_id']), reverse=True)
         return value
 
-    def _consumer_properties(self, consumer_id):
+    def _consumer_properties(self, consumer_id, fields):
         # ADR-025: owner-restricted groups are listed as withheld, never read; SQL re-checks every field it returns.
-        try:
-            fields = self.reader.consumer_fields(consumer_id) or []
-        except WorkbenchForbidden:
+        if fields is None:
             return {'status': 'forbidden', 'values': None, 'withheld': []}
         readable = [f['name'] for f in fields if f['readable'] and f['present']]
         values = self.reader.read_object('Consumer', consumer_id, readable, 'consumer')
@@ -333,14 +381,53 @@ class WorkbenchQueries:
             view['quote_status'] = 'ok' if view.get('quote') is not None else ('unavailable' if not view.get('source_available') else 'none')
         return view
 
-    def commitments(self, *, consumer_id=None, include_closed=False):
-        value = self.reader.call('commitments', **({'consumer_id': consumer_id} if consumer_id else {}), **({'all': True} if include_closed else {}))
-        value['commitments'] = [self._commitment(v) for v in value['commitments']]
-        return value
+    def commitments(self, *, consumer_id=None, include_closed=False, status_group=None, sort='registered_at', order='asc', late=None,
+                    due_before=None, due_after=None, cursor=None, limit=200):
+        """Walkthrough F03/F05/F09. One governed read of the tenant's (or one customer's) commitments, all statuses; then, here, the
+        status group (open / ended / all; the legacy `all` flag is group all), the late flag and due window, sorting and an offset
+        page. The list, its counts and its exceptions come from that one result, so they always describe the same scope: exceptions
+        of the commitments in scope, plus pre-registration ones (subject not a commitment) in the open and all groups. The promised
+        words (one Message READ each) and the customer names (one per distinct customer, F04/D3) are read for the page only."""
+        group = status_group or ('all' if include_closed else 'open')
+        value = self.reader.call('commitments', all=True, **({'consumer_id': consumer_id} if consumer_id else {}))
+        rows = value['commitments']
+        is_open = lambda v: v['properties'].get('status') in OPEN_STATUSES  # noqa: E731
+        counts = {'open': sum(1 for v in rows if is_open(v)), 'ended': sum(1 for v in rows if not is_open(v))}
+        if group != 'all':
+            rows = [v for v in rows if is_open(v) == (group == 'open')]
+        if late is not None:
+            rows = [v for v in rows if bool(v['properties'].get('late')) == late]
+        due = lambda v: v['properties'].get('due_at') if isinstance(v['properties'].get('due_at'), str) else None  # noqa: E731
+        if due_before is not None:
+            rows = [v for v in rows if due(v) is not None and _instant(due(v)) < due_before]
+        if due_after is not None:
+            rows = [v for v in rows if due(v) is not None and _instant(due(v)) >= due_after]
+        scope = {'commitment:' + v['commitment_id'] for v in rows}
+        exceptions = [e for e in value['exceptions'] if e['subject_ref'] in scope
+                      or (group != 'ended' and not e['subject_ref'].startswith('commitment:') and late is None and due_before is None and due_after is None)]
+        counts.update(exceptions_in_scope=len(exceptions), exceptions_all=len(value['exceptions']))
+        if sort == 'due_at':
+            rows.sort(key=lambda v: (due(v) is None, _instant(due(v)) if due(v) else datetime.max.replace(tzinfo=UTC), v['commitment_id']), reverse=order == 'desc')
+        elif sort == 'status':
+            rows.sort(key=lambda v: (str(v['properties'].get('status')), v['commitment_id']), reverse=order == 'desc')
+        elif order == 'desc':
+            rows.reverse()  # the read's own order is prepared_at ascending
+        start = int(cursor or 0)
+        page = rows[start:start + limit]
+        names = {}
+        for view in page:
+            consumer = view.get('consumer_id')
+            if consumer not in names:
+                names[consumer] = self.display_state(consumer)
+        page = [{**self._commitment(v), 'consumer_display': names[v.get('consumer_id')]} for v in page]
+        return {'commitments': page, 'exceptions': exceptions, 'counts': counts, 'total': len(rows), 'status_group': group,
+                'next_cursor': str(start + limit) if start + limit < len(rows) else None}
 
     def commitment(self, *, commitment_id):
         value = self.reader.call('commitment', commitment_id=commitment_id)
-        return None if value is None else self._commitment(value)
+        if value is None:
+            return None
+        return {**self._commitment(value), 'consumer_display': self.display_state(value.get('consumer_id'))}
 
     def contact(self, *, consumer_id=None, include_released=False):
         value = self.reader.call('contact', **({'consumer_id': consumer_id} if consumer_id else {}), **({'all': True} if include_released else {}))

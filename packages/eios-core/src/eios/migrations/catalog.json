@@ -1080,6 +1080,11 @@
       "version": "0216",
       "name": "0216_candidates_merge_configuration_metric.sql",
       "sha256": "afabbfc4a9fafb976a019d48c61a9e4ddb8634220252a4e9fd047681e0fca8f0"
+    },
+    {
+      "version": "0217",
+      "name": "0217_workbench_restricted_presence.sql",
+      "sha256": "785397778ca27a9793cf32bc8af57469d2f3d544cedba14def2b4b2f8296c62c"
     }
   ]
 }
