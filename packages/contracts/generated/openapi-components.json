@@ -957,6 +957,129 @@
                 "format": "date-time",
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$",
                 "description": "server acceptance time of the cited Message"
+              },
+              "normalization": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source",
+                  "verdict"
+                ],
+                "description": "Owner 2026-10-17: how the time was read. Present when the extraction model proposed an absolute reading: source (rule: the proposal was refused or not used; llm: the rules could not read it and the checked proposal stands; llm+rule: both agree; conflict: both read it differently, neither chosen), verdict (accepted, agreed, conflict, or the refusal code), both readings and the model's stated assumptions. Absent on Claims extracted before it.",
+                "properties": {
+                  "source": {
+                    "enum": [
+                      "rule",
+                      "llm",
+                      "llm+rule",
+                      "conflict"
+                    ]
+                  },
+                  "verdict": {
+                    "type": "string",
+                    "pattern": "^[a-z_]{1,64}$"
+                  },
+                  "llm": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "start",
+                          "end"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "point",
+                              "interval",
+                              "deadline"
+                            ]
+                          },
+                          "start": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                          },
+                          "end": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                          },
+                          "granularity": {
+                            "enum": [
+                              "minute",
+                              "hour",
+                              "day",
+                              "part_of_day",
+                              "am_pm_unspecified",
+                              "period",
+                              "month"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rule": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "start",
+                          "end"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "point",
+                              "interval",
+                              "deadline"
+                            ]
+                          },
+                          "start": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                          },
+                          "end": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                          },
+                          "granularity": {
+                            "enum": [
+                              "minute",
+                              "hour",
+                              "day",
+                              "part_of_day",
+                              "am_pm_unspecified",
+                              "period",
+                              "month"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "assumptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "maxItems": 8
+                  }
+                }
               }
             },
             "allOf": [
@@ -5147,7 +5270,7 @@
   "x-canonical-source-sha256": {
     "action-intent.schema.json": "6f47127f8847c6c6055212d7f08cc7dc7f64398bc9a3e16562bb3a76df1f0a90",
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
-    "claim.schema.json": "aacf6d63c7e9a2f051fe8b08f8004b913557281604170fbb3f219b0d0da80282",
+    "claim.schema.json": "80bd9df31049ea74bab2187156b3c6e0297e00025153446edc91ab6cdbc85d48",
     "commitment-view.schema.json": "f7c8290bacf1bbc70d23ba8da3a8cf4125ac8ac3d1d2b37f85c967c392909502",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",

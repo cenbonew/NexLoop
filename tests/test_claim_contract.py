@@ -87,6 +87,22 @@ def test_positive_variants():
     assert valid(mutate(mode='simulation',world_id='simulation')) and valid(mutate(mode='test',world_id='sim-1'))
 
 
+def test_valid_time_normalization_is_optional_and_strict():
+    """Owner 2026-10-17: valid_time.normalization records how the time was read; a Claim without it (every Claim before) stays valid."""
+    assert 'normalization' not in EXAMPLE['valid_time'] and valid(EXAMPLE)
+    reading={'kind':'deadline','start':'2026-10-14T10:00:00+08:00','end':'2026-10-17T00:00:00+08:00','granularity':'day'}
+    normalization={'source':'llm','verdict':'accepted','llm':reading,'rule':None,'assumptions':['周五指本周五']}
+    assert valid(mutate(valid_time=dict(EXAMPLE['valid_time'],normalization=normalization)))
+    assert Claim.model_validate(mutate(valid_time=dict(EXAMPLE['valid_time'],normalization=normalization))).valid_time.normalization.source=='llm'
+    assert valid(mutate(valid_time=dict(EXAMPLE['valid_time'],normalization={'source':'rule','verdict':'time_llm_weekday'})))
+    for bad in ({'source':'model','verdict':'accepted'},{'source':'llm'},{'source':'llm','verdict':'Free text'},
+                {'source':'llm','verdict':'accepted','note':'x'},{'source':'llm','verdict':'accepted','llm':dict(reading,start='2026-10-14')},
+                {'source':'llm','verdict':'accepted','llm':dict(reading,kind='none')},{'source':'llm','verdict':'accepted','assumptions':['x']*9}):
+        forged=mutate(valid_time=dict(EXAMPLE['valid_time'],normalization=bad))
+        assert not valid(forged),bad
+        with pytest.raises(ValueError):Claim.model_validate(forged)
+
+
 def test_every_frozen_dataset_extraction_conforms():
     from test_conversation_extraction import CASES,materialize
     from nexloop_eios.conversation_extraction import extract

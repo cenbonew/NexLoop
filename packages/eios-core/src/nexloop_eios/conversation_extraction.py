@@ -14,8 +14,10 @@ import json
 import re
 from zoneinfo import ZoneInfo
 
+from nexloop_eios.time_normalization import merge as merge_time
+
 EXTRACTOR_VERSION='nx019-extractor/2'
-PROMPT_VERSION='nx019-conversation-extraction-prompt/2'
+PROMPT_VERSION='nx019-conversation-extraction-prompt/3'
 EPISTEMIC_KINDS=('user_statement','preference','constraint','intent','need_problem','commitment','hypothesis','correction')
 FORBIDDEN_KINDS=('verified_fact',)
 MODALITIES=('asserted','conditional','tentative','requested')
@@ -40,7 +42,12 @@ SYSTEM_PROMPT="""<prompt>
        并用 derived_from 列出所依据的显性 Claim 下标。
     5. 条件与否定：如"解决后再考虑续费"是带条件(condition="解决后")的不确定意向，modality=conditional，不得写成确定续费，也不得写成不续费；
        "暂不续费"是 tentative 的否定(polarity=negated)，不是永久偏好。否定必须在原文中有否定词。
-    6. 时间：time_expression 只抄写原文中的时间短语(如"明天下午前""未来两周")，不要自行换算成具体时刻。
+    6. 时间：time_expression 只抄写原文中的时间短语(如"明天下午前""未来两周""周五前")。另在 time 中给出它的绝对时间：
+       以被引用消息的 time(受理时间，已是租户时区)和 weekday(当天星期)为锚点，换算成 ISO 8601 带时区偏移的 start、end。
+       kind：point(某一时刻或某一天)、interval(一段时间)、deadline("前/之前/以前/截止/最晚"，end 是截止边界)。
+       granularity：没说具体时刻(几点)时只能是 day(start 当天 00:00，end 次日 00:00)、part_of_day(如下午 12:00-18:00)、period(如月底)或 month，
+       绝不编造分钟或小时；说了几点才可用 hour/minute。"周五"不带"下/本/这"时指锚点当天或之后最近的周五。
+       timezone 写输入中的 timezone；assumptions 用简短中文写出换算时的假设(如"周五指本周五")。没有时间表达时 time 为 null。
     7. 同一问题在不同消息中重复出现时，每次都单独提取，不要合并。
     8. 代词(它/这个/那款)指代的对象写在 subject.text 中，且必须是该话题内某条消息里出现过的原词；无法确定就留空。
        顾客提到的人名不等于顾客身份，subject.kind=consumer 只指当前对话的顾客本人。
@@ -51,6 +58,7 @@ SYSTEM_PROMPT="""<prompt>
      "claims":[{"topic_index":0,"message_ref":1,"quote":"","kind":"intent","explicit":true,
        "subject":{"kind":"consumer|enterprise|entity","text":""},"predicate":"","value":{"type":"string|number|boolean|money|none","value":null},
        "polarity":"affirmed|negated","modality":"asserted|conditional|tentative|requested","condition":"","time_expression":"",
+       "time":{"kind":"point|interval|deadline","start":"","end":"","granularity":"minute|hour|day|part_of_day|period|month","timezone":"","assumptions":[]},
        "confidence":0.0,"derived_from":[],"corrects":null}]}
   </output_format>
   <note>只输出一个 JSON 对象，不要输出其它文字或字段。</note>
@@ -200,8 +208,9 @@ def build_user_payload(messages,context):
     by_id={m.message_id:m.sequence for m in messages}
     rows=[]
     for m in sorted(messages,key=lambda m:rank[m.sequence]):
+        local=anchor_time(m).astimezone(zone)
         row={'ref':m.sequence,'speaker':'顾客' if m.speaker=='consumer' else '客服',
-             'time':anchor_time(m).astimezone(zone).isoformat(timespec='minutes'),'text':m.body}
+             'time':local.isoformat(timespec='minutes'),'weekday':'周'+'一二三四五六日'[local.weekday()],'text':m.body}
         evidence=_provider_evidence(m)
         if evidence is not None:
             # NX-051: channel evidence. A signed channel's order arranges the rows; a client's statement is shown as such only.
@@ -419,7 +428,7 @@ def _string(value,limit,*,allow_empty=False):
 
 TOP_KEYS={'topics','claims'}
 TOPIC_KEYS={'topic','conversation_summary','user_valid_reply','message_refs'}
-CLAIM_KEYS={'topic_index','message_ref','quote','kind','explicit','subject','predicate','value','polarity','modality','condition','time_expression','confidence','derived_from','corrects'}
+CLAIM_KEYS={'topic_index','message_ref','quote','kind','explicit','subject','predicate','value','polarity','modality','condition','time_expression','time','confidence','derived_from','corrects'}
 SELF_WORDS=('','我','本人','自己')
 CORRECTION_MARKER=re.compile(r'(说错|写错|搞错|弄错|记错|更正|纠正|不对|改成|改为|撤回|收回|作废|不算|取消|其实|不是.{0,12}是|是.{0,12}不是)')
 
@@ -607,6 +616,9 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     anchor=anchor_time(source or message)
     if anchor is not (source or message).accepted_at:flags.append('anchor_signed_channel_time')
     valid_time=resolve_time(time_expression,anchor,context.timezone)
+    # Owner 2026-10-17: the model's absolute reading, checked and merged with the rule reading (time_normalization).
+    valid_time,time_flags=merge_time(valid_time,item.get('time'),expression=time_expression,anchor=anchor,timezone=context.timezone)
+    flags+=time_flags
     if kind=='hypothesis':confidence=min(confidence,0.6)
     subject_ref=context.consumer_id if subject['kind']=='consumer' else ''
     claim={'subject_kind':subject['kind'],'subject_ref':subject_ref,'subject_text':subject_text,'corrects_claim_id':corrects_id,

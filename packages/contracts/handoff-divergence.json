@@ -1,7 +1,7 @@
 {
   "description": "Registered divergences of the live contracts (packages/contracts) from the frozen handoff copies (docs/handoff/contracts). packages/contracts is the only live copy; an unregistered divergence fails tests/test_claim_contract.py.",
   "divergences": [
-    {"file": "claim.schema.json", "reason": "tenant_id format uuid; required mode (derived from world, never shadow) with the mode/world condition", "task": "NX-052", "date": "2026-10-11"},
+    {"file": "claim.schema.json", "reason": "tenant_id format uuid; required mode (derived from world, never shadow) with the mode/world condition; optional valid_time.normalization (owner 2026-10-17: how the time was read, model and rule readings)", "task": "NX-052", "date": "2026-10-11"},
     {"file": "examples/claim.valid.json", "reason": "uuid tenant_id and mode follow the NX-052 claim schema", "task": "NX-052", "date": "2026-10-11"}
   ]
 }
