@@ -28,64 +28,90 @@ def resolver(answers):
     return resolve
 
 
-def rules(*address_sets):
-    lines = [f'    ip saddr 192.0.2.{96 + 32 * n}/27 ip daddr {{ {",".join(sorted(s))} }} tcp dport 443 accept' for n, s in enumerate(address_sets)]
+AGENT, CLAIM = '192.0.2.32/27', '192.0.2.96/27'
+CIDRS = {'agent': AGENT, 'claim': CLAIM}
+STAGE = {'agent': (HOSTS[0],), 'claim': HOSTS}  # stage: the Agent Host calls DeepSeek only; the claim namespace also Ark
+
+
+def nft(**per_cidr):
+    lines = [f'    ip saddr {cidr} ip daddr {{ {",".join(sorted(s))} }} tcp dport 443 accept' for cidr, s in per_cidr.items()]
     return 'table inet nexloop_stage {\n  chain forward {\n' + '\n'.join(lines) + '\n  }\n}\n'
 
 
-def test_no_drift_when_every_resolved_address_is_allowed_and_the_rules_match():
-    result = provider_drift.check({A, B, C}, HOSTS, resolver=resolver({HOSTS[0]: [{A}], HOSTS[1]: [{B, C}]}), nft_text=rules({A, B, C}, {A, B, C}))
-    assert all(result['checks'].values()) and result['details']['missing'] == [] and result['details']['extra'] == []
-    assert result['details']['nft_rules'] == {'egress_rules': 2, 'stale': {}}
+def run(allowlist, answers, text=None, **kw):
+    return provider_drift.check(allowlist, STAGE, cidrs=CIDRS, resolver=resolver(answers), nft_text=text, **kw)
+
+
+def test_no_drift_when_each_namespace_has_its_one_rule_with_its_own_providers():
+    """Stage today: Ark only in the claim egress rule, the agent rule DeepSeek only."""
+    result = run({A, B, C}, {HOSTS[0]: [{A}], HOSTS[1]: [{B, C}]}, nft(**{AGENT: {A}, CLAIM: {A, B, C}}))
+    assert all(result['checks'].values()), result
+    assert result['details']['nft_rules']['agent'] == {'cidr': AGENT, 'rules': 1, 'providers': [HOSTS[0]], 'missing': [], 'extra': [], 'outside_allowlist': []}
+    assert result['details']['nft_rules']['claim']['missing'] == []
+
+
+def test_a_namespace_rule_lost_or_short_of_its_providers_is_a_drift_even_when_another_rule_equals_the_allowlist():
+    lost = run({A, B}, {HOSTS[0]: [{A}], HOSTS[1]: [{B}]}, nft(**{CLAIM: {A, B}}))  # the agent rule is gone
+    assert lost['checks']['nft_rules_complete'] is False and lost['details']['nft_rules']['agent']['rules'] == 0
+    short = run({A, B}, {HOSTS[0]: [{A}], HOSTS[1]: [{B}]}, nft(**{AGENT: {A}, CLAIM: {A}}))  # Ark missing from the claim rule
+    assert short['checks']['nft_rules_complete'] is False and short['details']['nft_rules']['claim']['missing'] == [B]
+    twice = run({A}, {HOSTS[0]: [{A}], HOSTS[1]: [{A}]}, nft(**{AGENT: {A}}) + nft(**{AGENT: {A}, CLAIM: {A}}))
+    assert twice['details']['nft_rules']['agent']['rules'] == 2 and twice['checks']['nft_rules_complete'] is False
+    outside = run({A}, {HOSTS[0]: [{A}], HOSTS[1]: [{A}]}, nft(**{AGENT: {A, D}, CLAIM: {A}}))
+    assert outside['details']['nft_rules']['agent']['outside_allowlist'] == [D] and outside['checks']['nft_rules_complete'] is False
 
 
 def test_an_address_outside_the_allowlist_is_reported_missing_across_rotating_samples():
     slept = []
-    result = provider_drift.check({A, B}, HOSTS, resolver=resolver({HOSTS[0]: [{A}, {A}, {C}], HOSTS[1]: [{B}]}), samples=3, interval=1.5,
-                                  sleep=slept.append)
+    result = run({A, B}, {HOSTS[0]: [{A}, {A}, {C}], HOSTS[1]: [{B}]}, samples=3, interval=1.5, sleep=slept.append)
     assert result['checks'] == {'provider_hosts_resolve': True, 'provider_addresses_allowed': False}
     assert result['details']['missing'] == [C] and result['details']['hosts'][HOSTS[0]] == {'resolved': [A, C], 'missing': [C]}
     assert slept == [1.5, 1.5]  # only between rounds
 
 
 def test_extra_addresses_are_informational_and_an_unresolved_host_fails():
-    result = provider_drift.check({A, B, D}, HOSTS, resolver=resolver({HOSTS[0]: [{A}], HOSTS[1]: [set()]}))
+    result = run({A, B, D}, {HOSTS[0]: [{A}], HOSTS[1]: [set()]})
     assert result['details']['extra'] == [B, D] and result['details']['unresolved_hosts'] == [HOSTS[1]]
     assert result['checks']['provider_hosts_resolve'] is False and result['checks']['provider_addresses_allowed'] is True
-
-
-def test_rules_rendered_from_an_older_env_are_stale():
-    result = provider_drift.check({A, B, C}, HOSTS, resolver=resolver({HOSTS[0]: [{A}], HOSTS[1]: [{B}]}), nft_text=rules({A, B}, {A, B, C}))
-    assert result['checks']['nft_rules_match_allowlist'] is False
-    (stale,) = result['details']['nft_rules']['stale'].values()
-    assert stale == {'missing': [C], 'extra': []}
-    assert provider_drift.check({A}, HOSTS, resolver=resolver({HOSTS[0]: [{A}], HOSTS[1]: [{A}]}), nft_text='')['checks']['nft_rules_match_allowlist'] is False
+    rotated = run({A, B, C}, {HOSTS[0]: [{A}], HOSTS[1]: [{B}]}, nft(**{AGENT: {A}, CLAIM: {A, B, C}}))
+    assert rotated['details']['nft_rules']['claim']['extra'] == [C] and rotated['checks']['nft_rules_complete'] is True
 
 
 def test_input_is_refused():
-    for bad in (dict(hosts=('not a host',)), dict(hosts=()), dict(samples=0), dict(samples=21), dict(interval=-1)):
+    for bad in (dict(namespaces={'other': HOSTS}), dict(namespaces={}), dict(namespaces={'agent': ('not a host',)}), dict(samples=0),
+                dict(samples=21), dict(interval=-1), dict(cidrs={'agent': AGENT})):
         with pytest.raises(ValueError):
-            provider_drift.check({A}, **{'hosts': HOSTS, **bad}, resolver=lambda h: {A})
+            provider_drift.check({A}, **{'namespaces': STAGE, 'cidrs': CIDRS, **bad}, resolver=lambda h: {A})
     with pytest.raises(ValueError):
         provider_drift.parse_allowlist('198.51.100.10,not-an-address')
     assert provider_drift.parse_allowlist(f'{A},{B}') == {A, B} and provider_drift.parse_allowlist('') == set()
+    assert provider_drift.parse_namespace('agent=api.deepseek.com') == ('agent', ('api.deepseek.com',))
+    for bad in ('agent', 'other=api.deepseek.com', 'claim=', 'claim=bad host'):
+        with pytest.raises(ValueError):
+            provider_drift.parse_namespace(bad)
 
 
 def test_doctor_reports_the_drift_from_the_private_env_and_rules(tmp_path, monkeypatch, capsys):
     env = (ROOT / 'deploy/stage/stage.env.example').read_text().replace('MODEL_PROVIDER_ALLOWLIST=203.0.113.5', f'MODEL_PROVIDER_ALLOWLIST={A},{B}')
+    values = dict(line.split('=', 1) for line in env.splitlines() if line and not line.startswith('#'))
     stage = tmp_path / 'stage.env';stage.write_text(env);os.chmod(stage, 0o600)
-    nft = tmp_path / 'app-host.rules.nft';nft.write_text(rules({A, B}, {A, B}))
-    monkeypatch.setattr(provider_drift, 'system_resolver', resolver({HOSTS[0]: [{A}], HOSTS[1]: [{B}]}))
-    argv = ['nexloop-doctor', '--provider-drift', '--stage-env', str(stage), '--nft-rules', str(nft), '--samples', '1', '--interval', '0']
-    monkeypatch.setattr(sys, 'argv', argv)
-    # The resolver default is bound at definition time: route the doctor's call through the stub.
+    rules_file = tmp_path / 'app-host.rules.nft'
+    rules_file.write_text(nft(**{values['AGENT_EGRESS_CIDR']: {A}, values['CLAIM_EGRESS_CIDR']: {A, B}}))
     real = provider_drift.check
-    monkeypatch.setattr(provider_drift, 'check', lambda allowlist, hosts, **kw: real(allowlist, hosts, resolver=provider_drift.system_resolver, **kw))
+    answers = {'now': {HOSTS[0]: [{A}], HOSTS[1]: [{B}]}}
+    # The resolver default is bound at definition time: route the doctor's call through the stub.
+    monkeypatch.setattr(provider_drift, 'check', lambda allowlist, namespaces, **kw: real(allowlist, namespaces, resolver=resolver(answers['now']), **kw))
+    argv = ['nexloop-doctor', '--provider-drift', '--stage-env', str(stage), '--nft-rules', str(rules_file), '--samples', '1', '--interval', '0']
+    monkeypatch.setattr(sys, 'argv', argv)
     assert doctor.main() == 0 and json.loads(capsys.readouterr().out)['foundation_checks_passed'] is True
-    monkeypatch.setattr(provider_drift, 'system_resolver', resolver({HOSTS[0]: [{A, C}], HOSTS[1]: [{B}]}))
+    answers['now'] = {HOSTS[0]: [{A, C}], HOSTS[1]: [{B}]}
     assert doctor.main() == 1
     out = json.loads(capsys.readouterr().out)
-    assert out['details']['missing'] == [C] and out['checks']['provider_addresses_allowed'] is False
+    assert out['details']['missing'] == [C] and out['details']['nft_rules']['agent']['missing'] == [C]
+    # A namespace configured to call Ark too: the agent rule lacks its address.
+    answers['now'] = {HOSTS[0]: [{A}], HOSTS[1]: [{B}]}
+    monkeypatch.setattr(sys, 'argv', argv + ['--namespace', 'agent=api.deepseek.com,ark.cn-beijing.volces.com'])
+    assert doctor.main() == 1 and json.loads(capsys.readouterr().out)['details']['nft_rules']['agent']['missing'] == [B]
     monkeypatch.setattr(sys, 'argv', argv[:3] + [str(tmp_path / 'absent.env')])
     assert doctor.main() == 1 and json.loads(capsys.readouterr().out)['checks'] == {'provider_drift_input': False}
 
