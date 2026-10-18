@@ -96,7 +96,7 @@ select intent_id,delivery_state from runtime.nexloop_outbound_messages where int
 
   期望第一条返回 0，第二条最新一行的 kind 为 `resolved`。
 - **查到 not_found**：意图按 ADR 继续保持 unknown（不重发），告警不会恢复。这时需要负责人决定后续处理，例如联系顾客。
-  - 目前没有受治理的“确认这条效应已失败”的 Action。如果要让告警在 not_found 时也能收敛，需要另开任务设计。
+  - 0210 起有受治理的“确认效应未送达”：负责人先确认 provider 的记录保留期覆盖投递时间，再在等待期满后按 [确认未送达手册](run-confirm-not-delivered.md) 判定。判定后意图变为 failed，告警随之恢复。
   - 不要为了消告警去改表。
 
 ## 5. 限制

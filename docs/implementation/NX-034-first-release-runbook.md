@@ -82,7 +82,7 @@
 | 3 | nexloop-ci | `git -C "$TRUSTED_REPO" worktree add --detach "$CI_BUILD_ROOT/checkout-$SHA" "$SHA"`，或 `git clone --no-hardlinks` 后 `checkout $SHA` | 干净检出 | 已存在就换一个新目录；不复用旧检出 |
 | 4 | nexloop-ci | 在检出中：`uv sync --frozen` 和 `pnpm install --frozen-lockfile`（离线，只用依赖缓存） | 退出码 0 | `dependency_unavailable`：缓存未命中，按 NX-033 处理缓存，不降级 |
 | 5 | nexloop-ci | `docker info --format '{{.OSType}}/{{.Architecture}} {{json .DriverStatus}}'` | `linux/x86_64` 加 `io.containerd.snapshotter.v1` | 不是 containerd 存储：**[主机配置变更]** 在 `nexloop-ci` 的 rootless daemon 配置中启用 containerd snapshotter，需负责人确认 |
-| 6 | nexloop-ci | 按 digest 核对基础镜像都在本地：`docker image inspect --format '{{.Id}}' <repo>@<digest>`，逐项对照 `versions.lock.json` 的 `python-build-base`、`node-host-base` 和 `gateway` | 每项输出该 digest | 缺失就按 digest 预取（`docker pull <repo>@<digest>`）。`nexloop-ci` 的出站受 NX-033 防火墙限制，预取可能需要**[主机配置变更]**：临时放行镜像仓库，或由负责人用其他账户 `docker save` 后交给 `nexloop-ci` 执行 `docker load`。从不按标签拉取 |
+| 6 | nexloop-ci | 按 digest 核对基础镜像都在本地：`docker image inspect --format '{{.Id}}' <repo>@<digest>`，逐项对照 `versions.lock.json` 的 `python-build-base`、`node-host-base`、`go-build-base` 和 `gateway`（发布 17 起 gateway 从源码重编，`go-build-base` 是它的构建阶段镜像） | 每项输出该 digest | 缺失就按 digest 预取（`docker pull <repo>@<digest>`）。`nexloop-ci` 的出站受 NX-033 防火墙限制，预取可能需要**[主机配置变更]**：临时放行镜像仓库，或由负责人用其他账户 `docker save` 后交给 `nexloop-ci` 执行 `docker load`。从不按标签拉取 |
 | 7 | nexloop-ci | `ci_result=$(ls -d "$CI_QUEUE/results/$SHA"/attempt-* \| sort -t- -k2 -n \| tail -1)/result.json`，然后在检出中执行 `uv run --frozen python scripts/release/release.py build --sha "$SHA" --ci-result "$ci_result" --release-root "$HANDOFF_ROOT"` | `{"ok": true, "release_id": "<RID>", "images": {...三个镜像...}}` | 退出码 1：读 `refused`。平台不是 amd64、带 attestation、digest 不一致、基础镜像未固定，都要先修好再从第 3 步重来。退出码 2：输入或环境问题。发布目录已存在：用 `--sequence 2` |
 | 8 | nexloop-ci | `uv run --frozen python scripts/release/release.py sbom --release-dir "$HANDOFF_ROOT/releases/$RID"` | `{"ok": true, "scanned": true, ...}` | 退出码 3：syft 或 grype 未安装或版本不符，按 lock 重装（只在 CI 主机）。退出码 1：漏洞策略问题（stage 只列出，不阻断；无效或过期的豁免会阻断）|
 | 9 | nexloop-ci | `uv run --frozen python scripts/release/release.py preflight --release-dir "$HANDOFF_ROOT/releases/$RID" --category stage` | `{"ok": true, "category": "stage", "steps": {... "images_pinned": true}}` | `licenses` 失败：读 `preflight/preflight.json`。`images_pinned` 失败：回到 §3。预检只能做一次，失败后从第 7 步用新的 sequence 重建 |
@@ -100,6 +100,10 @@
 - **记录证据**：第 7、8、9、14、15、16 步的 JSON 输出与 `$RID`、`$SHA` 一起存入私有证据目录，然后回填 planning 证据（由调度员执行）。
 
 ## 3. gateway 固定 digest（`release.py pin-upstream`）
+
+> **发布 17 起本节只作历史记录。** gateway 改为从源码构建：最终阶段仍是锁定的 `caddy` 镜像，只把 `/usr/bin/caddy` 换成用锁定 Go 版本重编的二进制（见 [gateway 重编记录](../release/run-gateway-rebuild-20261018.md)）。以后 gateway 的 digest 与 postgres 一样，直接改 `versions.lock.json` 并经评审合入，不再用 `pin-upstream`；`pin-upstream` 只用于仍是 upstream 类型的镜像。
+>
+> **Go 模块下载**：构建 gateway 时 `go mod download` 需要访问 Go 模块代理（默认 `proxy.golang.org`）。CI 主机可以设置 `NEXLOOP_GOPROXY_MIRROR` 指向一个可达的代理镜像；发布 17 时 CI 主机配置的是公共镜像 `https://goproxy.cn`。不论用哪个代理，模块内容都按仓库里的 `go.sum` 校验，构建还会断言 Go 与 Caddy 的版本，所以换代理不改变产物。没有可达的代理时，放行出站属于 **[主机配置变更]**。
 
 在首个发布之前做一次，产生一个改动 `versions.lock.json` 的提交，经评审合入 main。
 

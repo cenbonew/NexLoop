@@ -35,6 +35,15 @@
 - gateway 中 Caddy 以 Go 1.26.9 重新构建，消除 3 个有修复的 Critical 漏洞。
 - Python/Node/pgvector 基础层安全更新，grype 升至 0.120.0，retention 读取设上限。
 
+#### 已知限制
+- **stage 部署**：发布 16、17、18 已于当天依次部署到 stage（main `f307387c`）。例行部署单的固定步骤与后台服务的故障判读见 [OPERATIONS §8a.11–§8a.12](docs/OPERATIONS.md#8a11-例行发布部署的固定步骤发布-1618-起)。
+- **发布 Action 不等于有人能执行**：`stage_secrets.py publish` 只发布 Action 目录。工作台角色清单升版本后，还要用 `workbench_roles.py --apply` 应用，新 Action 才有人持有授权。部署单因此固定包含“Action 发布预演”和“按需应用角色”两步。
+- **候选合并配置有先后顺序**：下发合并配置要求租户生效的召回 profile 是校准过的 embedding profile，而这个 profile 由新的召回索引服务在首次运行时激活。在那之前，租户初始化的合并配置步骤报告 `blocked`，claim-matcher 保持空闲；告警 `candidates_without_merge_configuration` 和 doctor 的 `candidates_glueable` 会显示这一状态。
+- **“确认未送达”**：等待期（首次 unknown 后 24 小时、not_found 观测后 10 分钟）是 SQL 中的固定值，要修改需要新迁移；判定后不可撤回。provider 只保留近期记录时，not_found 不能证明没有送达，负责人必须先确认保留期覆盖投递时间（`provider_retention_checked`），覆盖不到时不判定，改为人工核实。
+- **真实派发开关**：工作台只能收放租户层与交付 Action 层；部署层只读显示，改它需要改部署配置并重建相关服务。stage 上部署层平时保持打开。
+- **gateway 漏洞**：重编后 Critical 为 0；基础层和依赖中仍有若干有修复的 High，只列出、不阻断 stage 发布。gateway 的构建需要可达的 Go 模块代理（`NEXLOOP_GOPROXY_MIRROR`，模块内容按 `go.sum` 校验）。
+- **决策评估判断层**：还没有接入运行路径。
+
 ### 2026-10-14
 
 #### 已知限制
