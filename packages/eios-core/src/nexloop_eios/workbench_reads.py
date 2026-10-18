@@ -25,7 +25,7 @@ CONTACT_READ = 'nexloop.contact.read'
 OPEN_STATUSES = ('conditional', 'open', 'in_progress', 'breached')
 VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKBENCH_READ, 'conversation': WORKBENCH_READ,
          'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
-         'capabilities': WORKBENCH_READ,
+         'capabilities': WORKBENCH_READ, 'objects': WORKBENCH_READ, 'object_neighbors': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -375,6 +375,55 @@ class WorkbenchQueries:
     def capabilities(self):
         # World model W3: the tenant's capability catalog (metadata only; dispatch switches from the metrics source, 0153).
         return self.reader.call('capabilities')
+
+    def _readable_object(self, type_name, object_id, fields=(), cache=None):
+        """World model W2: the ADR-025 member read of one object (and fields), audited with purpose 'world_model' by SQL; False when the
+        member's role does not derive it. Nothing is shown from the values read here: they only decide visibility."""
+        key = (type_name, object_id, tuple(fields))
+        if cache is not None and key in cache:
+            return cache[key]
+        visible = self.reader.read_object(type_name, object_id, list(fields), 'world_model') is not None
+        if cache is not None:
+            cache[key] = visible
+        return visible
+
+    def objects(self, *, type_name, after=None, limit=50):
+        """World model W2: a page of a type's instances, identifiers, versions and times only; each object's READ is checked (ADR-025,
+        audited); unreadable objects are counted as invisible, never listed."""
+        value = self.reader.call('objects', type_name=type_name, limit=limit, **({'after': after} if after else {}))
+        page = value['items']
+        visible = [item for item in page if self._readable_object(type_name, item['object_id'])]
+        return {'type_name': type_name, 'items': visible, 'invisible': len(page) - len(visible), 'total': value['total'],
+                'next_after': page[-1]['object_id'] if len(page) == limit else None}
+
+    def object_neighbors(self, *, type_name, object_id):
+        """World model W2: depth 1, at most 25 neighbours a group. The centre must be readable (else 403); a neighbour is shown only
+        when its own READ holds and, for a property edge, the READ of the referencing property on whichever object holds it; the rest
+        of a group's candidates are counted as invisible, and those beyond the 25 as collapsed (not checked, not shown)."""
+        value = self.reader.call('object_neighbors', type_name=type_name, object_id=object_id)
+        if value is None:
+            return None
+        cache = {}
+        if not self._readable_object(type_name, object_id, cache=cache):
+            raise WorkbenchForbidden('object')
+        groups = []
+        for group in value['groups']:
+            prop = group['via'][len('property:'):] if group['via'].startswith('property:') else None
+            items, invisible = [], 0
+            for neighbour in group['items'] or []:
+                if prop is None:
+                    ok = self._readable_object(group['type_name'], neighbour, cache=cache)
+                elif group['property_holder'] == 'centre':
+                    ok = self._readable_object(type_name, object_id, (prop,), cache) and self._readable_object(group['type_name'], neighbour, cache=cache)
+                else:
+                    ok = self._readable_object(group['type_name'], neighbour, (prop,), cache)
+                if ok:
+                    items.append({'type_name': group['type_name'], 'object_id': neighbour})
+                else:
+                    invisible += 1
+            groups.append({'direction': group['direction'], 'via': group['via'], 'type_name': group['type_name'], 'items': items,
+                           'invisible': invisible, 'collapsed': group['total'] - len(group['items'] or [])})
+        return {'type_name': type_name, 'object_id': object_id, 'depth': 1, 'group_limit': 25, 'groups': groups}
 
     def _commitment(self, view):
         # The promised words are Message content: shown only with that Message's READ (design §6, AT-003).

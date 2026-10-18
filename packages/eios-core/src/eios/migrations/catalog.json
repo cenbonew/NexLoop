@@ -1110,6 +1110,11 @@
       "version": "0240",
       "name": "0240_workbench_capabilities.sql",
       "sha256": "15d506048040c3292a130f7dae5162f47c8aacde070031f3d77a495e9dec2e1f"
+    },
+    {
+      "version": "0241",
+      "name": "0241_workbench_objects.sql",
+      "sha256": "dd6787baf06b2890fde9b88ec6d7aa6f7f15d1ac989c8bba52717768b3b245d4"
     }
   ]
 }
