@@ -1,6 +1,7 @@
 """NX-032 slice 0: the whitelist renderer and the stage templates (Compose for DATA_HOST and APP_HOST, pg_hba, PostgreSQL, Valkey,
 firewall). Synthetic documentation-range values only; nothing connects anywhere."""
 import json
+import ipaddress
 import re
 import shutil
 import subprocess
@@ -430,4 +431,45 @@ def test_each_egress_namespace_gets_its_own_model_allowlist_and_the_default_rend
     env.write_text(re.sub(r'^CLAIM_MODEL_PROVIDER_ALLOWLIST=.*$', 'CLAIM_MODEL_PROVIDER_ALLOWLIST=ark.invalid', good, flags=re.M))
     with pytest.raises(render.Refused, match='CLAIM_MODEL_PROVIDER_ALLOWLIST'):
         render.load_env(env)
+    env.write_text(good)
+
+
+def test_the_ci_account_and_its_subordinate_uids_reach_no_internal_network(env, tmp_path):
+    """NX-033 §3.2 (cut-over 2026-10-20; PR #16 review). Every CI rule matches the CI account's UID and its whole subordinate UID
+    range (rootless containers and user namespaces entered through newuidmap open sockets as those UIDs): DATA_HOST, the business
+    loopback ports, the pgBackRest TLS port and every internal network (trusted LAN and management network as one set)."""
+    template = (STAGE / 'firewall' / 'app-host.nft.template').read_text()
+    values = render.load_env(env)
+    rules, used = render.render(template, values)
+    assert {'CI_UID', 'CI_SUBUID_RANGE', 'CI_DENY_CIDRS', 'TRUSTED_LAN_CIDR', 'MGMT_SOURCE_CIDR'} <= set(used) | {'TRUSTED_LAN_CIDR', 'MGMT_SOURCE_CIDR'}
+    who = f"meta skuid {{ {values['CI_UID']}, {values['CI_SUBUID_RANGE']} }}"
+    output = rules[rules.index('chain output'):]
+    ci = [l.strip() for l in output.splitlines() if l.strip().startswith('meta skuid')]
+    assert len(ci) == 8 and all(l.startswith(who + ' ') for l in ci)
+    deny = f"{{ {values['TRUSTED_LAN_CIDR']}, {values['MGMT_SOURCE_CIDR']} }}"
+    assert values['TRUSTED_LAN_CIDR'] != values['MGMT_SOURCE_CIDR']
+    # PR #16 2nd round: Docker's nat OUTPUT runs first, so every destination rule matches the original (before DNAT) and the current one.
+    assert ci[0] == f"{who} ct original ip daddr {values['DATA_HOST_ADDR']} drop" and ci[1] == f"{who} ip daddr {values['DATA_HOST_ADDR']} drop"
+    assert 'oifname "lo" tcp dport' in ci[2] and ci[3].startswith(f"{who} ct original ip daddr 127.0.0.0/8 ct original proto-dst {{ {values['API_INTERNAL_PORT']}, ")
+    assert ci[4] == f"{who} ct original proto-dst {values['PGBACKREST_TLS_PORT']} drop" and ci[5] == f"{who} tcp dport {values['PGBACKREST_TLS_PORT']} drop"
+    assert ci[6] == f"{who} ct original ip daddr {deny} drop" and ci[7] == f"{who} ip daddr {deny} drop"
+    assert ipaddress.ip_address(values['APP_HOST_ADDR']) in ipaddress.ip_network(values['TRUSTED_LAN_CIDR'])  # the published Gateway address is denied before DNAT
+    # Equal or nested networks are one element (an nft interval set refuses overlapping elements).
+    same = render.derived({**values, 'MGMT_SOURCE_CIDR': values['TRUSTED_LAN_CIDR']})['CI_DENY_CIDRS']
+    assert same == values['TRUSTED_LAN_CIDR']
+    nested = render.derived({**values, 'TRUSTED_LAN_CIDR': '10.20.0.0/16', 'MGMT_SOURCE_CIDR': '10.20.30.0/24'})['CI_DENY_CIDRS']
+    assert nested == '10.20.0.0/16'
+    # The range: missing, malformed, containing 0, overlapping a service UID.
+    good = env.read_text()
+    env.write_text(re.sub(r'^CI_SUBUID_RANGE=.*\n', '', good, flags=re.M))
+    with pytest.raises(render.Refused, match='CI_SUBUID_RANGE'):
+        render.render(template, render.load_env(env))
+    for bad in ('165536', '165536-', '231071-165536', '0-65535', '00-10', 'a-b', '165536-4294967295', '165536 - 231071'):
+        env.write_text(re.sub(r'^CI_SUBUID_RANGE=.*$', f'CI_SUBUID_RANGE={bad}', good, flags=re.M))
+        with pytest.raises(render.Refused, match='CI_SUBUID_RANGE'):
+            render.load_env(env)
+    for uid in ('AGENT_HOST_UID', 'CI_UID'):
+        env.write_text(re.sub(r'^CI_SUBUID_RANGE=.*$', f"CI_SUBUID_RANGE={int(values[uid]) - 5}-{int(values[uid]) + 5}", good, flags=re.M))
+        with pytest.raises(render.Refused, match='CI_SUBUID_RANGE'):
+            render.load_env(env)
     env.write_text(good)
