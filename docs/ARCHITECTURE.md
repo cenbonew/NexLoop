@@ -719,28 +719,32 @@ uv run --frozen python scripts/community_test.py run --output .ci-results/my-com
 
 任务与验收的权威状态在 [`planning/tasks.json`](../planning/tasks.json) 与 [`planning/acceptance-tests.json`](../planning/acceptance-tests.json)；阶段出口、关键路径、等负责人决定的事项见 [planning/ROADMAP.md](../planning/ROADMAP.md)。本节只给摘要，不逐任务维护。
 
-- **当前阶段：S4**（最低一个还有未完成任务的阶段）。
-- **三组数字**（截至 main `25312f7`）：任务 39 done / 8 in_progress / 6 not_started（共 53）；验收 58 passed / 14 not_run（共 72，新增 AT-071、AT-072）；阶段出口 S4 满足 4/5、S5 满足 0/5（口径见 ROADMAP §2–§3）。
+- **当前阶段：S5 收尾**（最低一个还有未完成任务的阶段）。
+- **三组数字**（截至 main `71bc6a75`，2026-10-19）：
+  - 任务：41 done / 6 in_progress / 6 not_started，共 53；
+  - 验收：60 passed / 12 not_run，共 72。12 项中 8 项属于 S5（AT-050、053–058、072），4 项属于 S6/S7；
+  - 阶段出口：S0–S4 已满足，S5 未满足。逐项差距见 [S5 收尾差距清单](implementation/s5-closeout-gaps.md)。
 - **各阶段一句话**：
   - S0–S3：完成（审计、可独立启动的内核、可靠性脊柱、知识与目标闭环）。
-  - S4：承诺、商业事件、工作台与人工接管、保留删除导出、审计指标与告警都已完成；只剩 1,000 客户负载报告（NX-031）。
-  - S5：本地部分先行——双机部署（模板、dry-run、隔离探测）、本地 CI 控制器、发布工具（构建、归档、同步门槛）、备份恢复、开源合规检查已有仓库内实现与本地证据；所有服务器操作（B 类）未开始。v0.1 受控真实闭环（NX-037）进行中：D1–D8 已定案，A 类准备（真实租户初始化、交互执行器与 real driver、证据包）已合入，真实试运行未执行；前置 NX-053 已完成，NX-052 只剩整轮端到端测量。
-  - S6 / S7：未开始。
+  - S4：完成（承诺、商业事件、工作台与人工接管、保留删除导出、审计指标与告警、负载报告 AT-060）。
+  - S5：两机 stage 已部署，发布均经本地 CI、签名、封存后上线，当前为发布 21（调度员 2026-10-19）；stage 上已执行 pgBackRest 备份与一次恢复演练；向量召回与候选合并已在 stage 启用。v0.1 受控真实试运行完成：36/36 次交互，AT-071 passed。
+    - 还剩：NX-033 主机切换（AT-053、054，定于 10/20）、第二维护者演练（AT-072）、带删除重放的第二次恢复演练（AT-050）、冻结验收发布上的最终核对（AT-055–058）、public-preflight 与证据包。还没有 tag。
+  - S6 / S7：未开始；S6 有设计与准备工作。
 
 ### 6.2 已知限制
 
-- **尚未部署。** 没有发布版本、没有 tag、没有可部署的应用镜像；`nexloop-api` 已有部署形态 `--mode stage` 与真实就绪检查，但尚未在部署环境运行。双机部署只有模板、部署门槛检查、dry-run 与隔离探测（NX-032 切片 0–4），没有连接任何服务器；发布只有本机运行的清单、签名、验签与回滚检查工具，本地 CI 控制器也只有仓库内的代码与模板，主机侧的用户、bare 仓库、防火墙与 remote 切换尚未执行（[§3.10](#310-发布与部署)）；备份与恢复只在本机演练过，pgBackRest、restic、异地备份与恢复命令行要等 NX-032，恢复日志本地未加密（[§3.11](#311-备份与恢复nx-035-本地部分)）。
-- **真实外发关闭。** 真实外发渠道未开通；三层真实派发开关默认全部关闭（部署总闸 `REAL_DISPATCH_ENABLED=false`）；服务授权清单拒绝授予真实外发 Action（ADR-020 §3）。当前外部效应只在本地 / 合成 provider 上验证过。
+- **部署与发布。** 两机 stage 已部署，发布经本地 CI、签名、封存后上线；还没有 tag 和公开发布（[§3.10](#310-发布与部署)）。stage 的 CI 结果目前由现有车道按 NX-033 队列格式产出；切换到本地 Git 队列与合并控制器定于 2026-10-20，采用方案 L：CI 测试阶段没有独立的网络命名空间，只靠 nft 拦截，列为已知风险（[known-risks-v0.1](release/known-risks-v0.1.md) §4）。异地备份 repo2 的启用工具已于 2026-10-19 合入，stage 上是否已启用以对应执行单为准（[§3.11](#311-备份与恢复nx-035-本地部分)）。
+- **真实外发。** 三层真实派发开关：部署总闸 `REAL_DISPATCH_ENABLED`、租户、（租户，Action）。stage 上部署层平时打开；租户层与 Action 层只在负责人按计划打开时生效，v0.1 试运行只开过企业交付 Action，试运行结束后已关闭。开通真实外发渠道不在服务授权清单的范围内，由负责人本人确认（ADR-020 §3）。
 - **模型。** 自动化测试使用确定性测试 provider；真实 DeepSeek 验证只在显式 opt-in 时运行，CI 不读取凭据。
 - **部署前提。** 2 s 工具时限门槛只在部署并发（Host ≤ 4、guard 4 进程）下证明；在远超部署并发的全量并行负载下相关场景仍可能超时（ADR-022 §4）。生产并发要提高时必须先重新测量。
-- **删除与恢复**：NX-029 已完成；恢复后重放删除记录已在 NX-035 本地演练中验证，部署环境的真实备份演练依赖 NX-032。
-- **可观测（NX-030）**：备份块只有本地数据，部署环境的备份年龄要等 NX-035 部署部分；连接数不按角色细分。
-- **压测容量（NX-031）**：本机 25 个客户实测，注入模型时延后每个 worker 在 4 并发下约 0.36 Run/s；持续每秒 1 条来信会过载，超出部分排队超过 Run 凭据 300 s 有效期后转为回复保障升级。低负载下派发 p95 仍超过 2 秒（排队）；claim-match 死信已修复（NX-031 切片 3，迁移 0148/0149）。压测口径：Run 时长从 Host 接受该 Run（首次激活）起算，模型与工具时间都在其内；失败 Run 按原因分列（[NX-031 结果契约](implementation/NX-031-results-contract.md)）。容量结论待 1000 客户整轮后由负责人决定（ROADMAP D-a），整轮的车道运行说明见 [NX-031 车道运行说明](implementation/NX-031-lane-runbook.md)。
+- **删除与恢复**：NX-029 已完成；恢复后重放删除记录已在本机演练中验证（[AT-072 本机恢复演练](release/at-072-local-restore-drill.md)）；stage 上的第二次真实备份演练将带一次合成顾客删除（AT-050）。
+- **可观测（NX-030）**：连接数不按角色细分。
+- **压测容量（NX-031）**：v0.1 按 200 客户、持续来信不超过 0.1 条/s 运行（ROADMAP D-a）；AT-060 正式整轮已通过（2026-10-13）。1000 客户是 v0.1 之后的目标（[NX-031 结果契约](implementation/NX-031-results-contract.md)）。
 - **压测专用 provider**：load-rules 提取 provider 与 Host 的确定性测试档案只用于压测，其提取质量与固定的模型调用轮数不作为任何验收依据（[NX-031 实现说明](implementation/NX-031-implementation.md)）。
 - **优惠发放**：部署接线已完成：执行者 `nexloop-incentive-issuer`（Compose 可选 profile `background`，独立账本卷）、服务授权清单 v17 的 `incentive_issuer` 与 `runtime_worker` 授权、工作台角色清单 v8 只给 owner 授予 `nexloop.incentive.issue`，负责人经工作台写入口 `POST /api/v1/workbench/actions/issue_incentive` 发放；Agent Host 的 `incentive_tool` 开关默认关闭。仍有的限制：只有回环（测试）发放渠道；工作台前端没有发放页面（只有 HTTP 入口）；优惠许诺识别的金额换算假定两位小数币种（[AT-043 实现说明](implementation/AT-043-implementation.md) §5–6）。
 - **Relay 部署前提**：relay 的 Source 凭据必须使用固定主体 ID `nexloop-service-relay-source-principal`，`nexloop-doctor --relay-source` 核对规则与凭据（[stage README §6](../deploy/stage/README.md)）；单客户 recipe 模式仍保留，与多客户模式互斥。
 - **员工回复**只支持 WebChat 且必须绑定一条来信，不能主动发消息；外部渠道接入时改走“接管 Run”方式。
-- **租户外键的端到端测量待做（NX-052）**：各批租户外键已全部合入，语句级测量通过；1000 客户整轮窗口下按 4 个状态的端到端测量（判据：增加不超过 5%）尚未执行，由调度员在 CI 主机执行（[NX-052 实现说明](implementation/NX-052-implementation.md) §11–§12）。
+- **租户外键（NX-052）**：已完成；配置发布期间同一租户的 ACK 会升高约 0.2 秒，负责人 2026-10-14 已接受（CHANGELOG 2026-10-14 已知限制）。
 - **模拟世界隔离（AT-046）的未覆盖面**：simulation world 中仍能记录效应意图（安全依赖派发与执行时的拒绝和凭据不能跨 world）；只读查询 Action `nexloop.service.query` 不受 world 检查；配置者若在 simulation world 把某 Action 声明为非外部效应，开关不再判定它（只有 configurator 能写）；Agent Host 的模型凭据不区分 world；Twin 本身不存在，只覆盖了服务端入口的拒绝（[AT-046 说明](implementation/AT-046-simulation-credential-guard.md) §3）。
 - **其他**：消息读取投影中的 `accepted_at` 不是严格 RFC 3339；渠道签名顺序只用合成渠道验证；WebChat 界面暂无引用按钮（API 已支持）；Agent 外发首版不含“处理中”占位与撤回（ADR-021）。
 - **EvoOntology** 尚未安装（`versions.lock.json` 中 `installed: false`），语义只读 adapter 只复用其输出形状。

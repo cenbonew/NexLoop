@@ -18,12 +18,18 @@ NexLoop is an open-source **continuous-operations system** for enterprises. An o
 
 ## Current status
 
-- **Current stage: S4** — only the 1,000-consumer load report (NX-031) remains. S0–S3 are done.
-- **Numbers** (at `main` `25312f7`): tasks 39 done / 8 in progress / 6 not started (53); acceptance tests 58 passed / 14 not run (72). The v0.1 real closed-loop acceptance (NX-037) has its decisions settled and is in progress: its preparation (real tenant initialisation, interaction runner with real driver, evidence pack) is merged and the real trial has not run; NX-053 is done and NX-052 only lacks its full-run end-to-end measurement.
-- **S5 is local-first**: deployment templates with dry-run and isolation probes, the local CI controller, the release tool (build, archive, GitHub sync gate), backup/restore and open-source compliance checks exist in the repository with local evidence only. **Nothing is deployed**: no server has been touched, there is no release or deployable image yet, and the stage-mode API with real readiness checks has not run in a deployment yet.
-- **Real outbound dispatch is off**: no real outbound channel is enabled, and the three-layer real dispatch switch (deployment master switch, tenant, tenant+Action) is closed by default; only the owner can open it.
+*As of 2026-10-19 (`main` `71bc6a75`); counts are read from [`planning/`](planning).*
 
-The owner's living plan — stage exits, critical path, pending decisions — is [planning/ROADMAP.md](planning/ROADMAP.md) (Chinese); authoritative task and acceptance status is in [`planning/`](planning). What is implemented and what is only planned is described in the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Every change merged to `main` is in the [CHANGELOG](CHANGELOG.md).
+- **Current stage: S5 close-out.** S0–S4 are done. All six S5 tasks (NX-032 to NX-037) are in progress; what each still needs is listed in the [S5 close-out gap list](docs/implementation/s5-closeout-gaps.md) (Chinese).
+- **Numbers**: tasks 41 done / 6 in progress / 6 not started (53); acceptance tests 60 passed / 12 not run (72). Of the 12, 8 are S5 items and 4 belong to S6/S7, which are outside v0.1.
+- **Deployed on a two-host stage**: a data host runs PostgreSQL and Valkey; an application host runs the API, the workers and the Agent Host. Every release is built by the local CI, signed and sealed before it is deployed; release 21 is the current one. Backups (pgBackRest) and a restore drill have run on the stage.
+- **Controlled real trial done (AT-071 passed)**: 36/36 controlled interactions with a real model and a real delivery action, reconciled through provider queries; total cost 1.59 CNY under a 100 CNY cap; zero unauthorised or wrong-recipient sends, zero contacts after refusal. The consumers were played by AI agents operated by the owner and are marked as such in the evidence.
+- **Vector recall and candidate merging are enabled on the stage**: the recall index uses an embedding model whose calls are counted in the tenant's model budget, and the claim matcher merges candidates under a published merge configuration.
+- **Real dispatch switches**: external effects need all three layers open: the deployment master switch, the tenant, and tenant+Action. On the stage the deployment layer stays on; the owner opens and closes the tenant and Action layers from the workbench, and they were closed again after the trial.
+- **Demo**: [product page and interactive demo](https://www.zingnex.com/nexloop/).
+- **Still open for v0.1**: switching the stage to the local Git queue and merge controller (AT-053, AT-054, scheduled 2026-10-20); the second-maintainer drill (AT-072); a second restore drill with a replayed erasure (AT-050); final checks on the frozen acceptance release (AT-055–058); the public pre-flight and the evidence pack. No tag or public release exists yet.
+
+The owner's living plan — stage exits, critical path, pending decisions — is [planning/ROADMAP.md](planning/ROADMAP.md) (Chinese); authoritative task and acceptance status is in [`planning/`](planning). What is implemented and what is only planned is described in the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Every change merged to `main` is in the [CHANGELOG](CHANGELOG.md). Known risks of v0.1 are in [docs/release/known-risks-v0.1.md](docs/release/known-risks-v0.1.md) (Chinese).
 
 > Most project documents (architecture guide, ADRs, implementation notes, CHANGELOG) are written in Chinese; identifiers and public API names are in English.
 

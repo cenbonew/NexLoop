@@ -33,6 +33,9 @@ def _private(path, content):
 def test_hold_restore_drill_source(conversations, admin, cluster, pg, tmp_path):
     import uvicorn
     from nexloop_eios.http_api import create_app
+    # From the start: a hang-up (terminal or pipe closed) must not kill the holder before its teardown; the script's trap
+    # stops it with SIGTERM.
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
     assert os.environ.get('REAL_DISPATCH_ENABLED') == 'false', 'the restore drill runs with REAL_DISPATCH_ENABLED=false only'
     out = Path(os.environ['NEXLOOP_DRILL_DIR'])
     port = int(os.environ['NEXLOOP_DRILL_API_PORT'])
@@ -58,5 +61,7 @@ def test_hold_restore_drill_source(conversations, admin, cluster, pg, tmp_path):
     # As in the workbench smoke: a no-op previous handler lets uvicorn.run return, so the fixtures' teardown stops PostgreSQL.
     for handled in (signal.SIGTERM, signal.SIGINT):
         signal.signal(handled, lambda *_: None)
+    # Open keep-alive connections must not hold the graceful stop (and so the PostgreSQL teardown) indefinitely.
     uvicorn.run(create_app(config), host='127.0.0.1', port=port, ssl_certfile=str(certificate), ssl_keyfile=str(key),
+                timeout_graceful_shutdown=5,
                 access_log=False, log_level='warning')

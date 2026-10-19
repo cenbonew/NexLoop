@@ -26,12 +26,37 @@ D=.dev-drill
 V=.venv/bin
 ```
 
+**进程基线**（启动前记一次，供 §9 核对）：
+
+```bash
+pgrep -fl 'postgres -D' > /tmp/nx-drill-baseline.txt; cat /tmp/nx-drill-baseline.txt
+```
+
+**跨 shell 共享变量（可选）**：后面的 `K2`、`K3`、`T` 分别在第 3、5、7 步产生，而 §6.1 要在另一个窗口使用 `K2`。手动操作时在每个窗口重新设置即可。自动化执行人每条命令都在新 shell 里运行时，可以改用一个状态文件：只存路径和时间，**不存任何凭据**。
+
+```bash
+S=/tmp/nx-drill-state.env   # 演练目录之外，因为第 1 步要求 .dev-drill 不存在
+```
+
+产生值的那一步之后，追加一行，例如 `echo "K2=$K2" >> "$S"`。每个新 shell 开头执行：
+
+```bash
+[ -f "$S" ] && . "$S"
+```
+
+**高精度时间**：外层计时和 `T` 都需要秒以下的精度。GNU date 可以用 `date -u +%FT%T.%NZ`；macOS 自带的 date 不支持 `%N`，改用：
+
+```bash
+python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds"))'
+```
+
 ## 1. 源端：归档的 PG 与工作台 API（窗口 A）
 
 ```bash
-scripts/dev/restore_drill.sh
+scripts/dev/restore_drill.sh 2>&1 | tee /tmp/nx-drill-source.log
 ```
 
+- **日志先放在演练目录之外**：脚本要求 `.dev-drill/` 事先不存在，所以源端的启动日志先 tee 到 `/tmp/nx-drill-source.log`。出现 `source ready` 之后，在窗口 B 执行 `mkdir -m 700 .dev-drill/logs && cp /tmp/nx-drill-source.log .dev-drill/logs/01-source.out`；之后各步的输出直接 tee 到 `.dev-drill/logs/`。
 - **预期**：输出 `restore drill: source ready`，以及 `API: https://127.0.0.1:8753`。
 - **它做了什么**：
   - 用测试夹具建一个 WAL 归档的临时 PG 18，执行 bootstrap，建一个 `world=test` 的合成租户；
@@ -80,7 +105,7 @@ $V/nexloop-backup drill-mark --recorder-dsn-file $D/recorder.dsn --drill-id a1 -
 预期 `"restore_point": "drill-a1"`。它在同一次调用里记录各只追加表的最大序号、计数和抽样行哈希，写入 `mark.json`。
 
 ```bash
-sleep 2; T=$(date -u +%Y-%m-%dT%H:%M:%S+00:00); echo "$T"; sleep 2
+sleep 2; T=$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds"))'); echo "$T"; sleep 2
 ```
 
 `$T` 是第 7 步 PITR 的目标时间，比恢复点晚，比第 4 步的删除早。把它记进演练记录。
@@ -161,7 +186,19 @@ $V/python scripts/dev/restore_drill_serve.py --drill-dir $D --pg-data $D/restore
 $V/python scripts/dev/drill_workbench.py --drill-dir $D --origin https://127.0.0.1:8754 --as operator open-restore-scope --restore-ref drill-a1
 ```
 
-预期 `"status": 403`，`"code": "forbidden"`。
+预期 `"status": 403`，`"code": "forbidden"`，**命令退出码为 1**：这是预期中的拒绝，不是失败。
+
+在 `set -e` 的批处理里，这条命令会让整批退出。保存这个拒绝、并核对它确实是 403 的写法：
+
+```bash
+rc=0; $V/python scripts/dev/drill_workbench.py --drill-dir $D --origin https://127.0.0.1:8754 --as operator open-restore-scope --restore-ref drill-a1 > $D/logs/06.3-operator.out || rc=$?
+```
+
+```bash
+[ "$rc" = 1 ] && grep -q '"status": 403' $D/logs/06.3-operator.out && echo operator-refused-as-expected
+```
+
+第二条输出 `operator-refused-as-expected` 才算通过；退出码不是 1、或状态不是 403，都是真正的失败。
 
 **6.4 负责人开放**：
 
@@ -224,20 +261,60 @@ $V/nexloop-restore --source basebackup --base-backup $D/base --wal-archive $ARC 
 
 ## 9. 清理
 
-1. 窗口 A 按 Ctrl-C：API 和源端 PG 停止，集群的临时目录被删除。
-2. 窗口 B 执行：
+顺序不能颠倒：**先停源端 → 核对 PG 已退出 → 复制日志与证据 → 最后删除 `.dev-drill`**。`stack.json` 和 `pg-root` 都在 `.dev-drill` 里，删早了就无法核对源端的 PG 是否已经停止。
+
+1. **停源端**：在窗口 A 按 Ctrl-C。脚本会停止 API 和源端 PG，并删除集群的临时目录。
+2. **核对 PG 已退出**（窗口 B）：
 
    ```bash
-   rm -rf $D "$K2" "$K3"
+   PGD="$(cat $D/pg-root)/data"; if [ -f "$PGD/postmaster.pid" ] && kill -0 "$(head -1 "$PGD/postmaster.pid")" 2>/dev/null; then echo source-pg-running; else echo source-pg-stopped; fi
    ```
 
-3. 核对没有残留进程：
+   预期 `source-pg-stopped`。如果输出 `source-pg-running`（例如源端是被强制结束的，没有执行清理），用下面的**显式停止命令**。它只停 `pg-root` 记录的那一个实例，只删那一个以 `nexloop-pg-` 开头的临时目录：
 
    ```bash
-   pgrep -fl 'postgres -D'
+   scripts/dev/restore_drill.sh --stop
    ```
 
-   不应输出任何本演练的实例。
+   预期输出 `restore drill: stopped`，然后再执行一遍上面的核对。
+3. **复制日志与证据**：把 `$D/logs/`、`$D/restore-a1.json`、`$D/restore-pitr.json` 复制到私有证据目录。不要复制 `credentials.json`、`*.dsn`、`authority-key`。
+4. **删除**：
+
+   ```bash
+   rm -rf $D "$K2" "$K3" /tmp/nx-drill-state.env
+   ```
+
+   执行环境不允许 `rm -rf` 时，用限定路径的 Python 替代：它断言 `.dev-drill` 直接位于仓库根目录下、不是符号链接，再删除（`$K2`、`$K3` 是 `mktemp` 建在 `/tmp` 下的空 socket 目录，可以用 `rmdir`）：
+
+   ```bash
+   python3 - "$PWD/.dev-drill" "$PWD" .dev-drill <<'PY'
+import os, shutil, stat, sys
+from pathlib import Path
+target, parent, name = Path(sys.argv[1]), Path(sys.argv[2]).resolve(), sys.argv[3]
+if target.is_symlink() or target.name != name or target.resolve().parent != parent or not target.is_dir():
+    sys.exit('refused: not the named drill directory directly under the given parent')
+for d, dirs, files in os.walk(target):
+    for n in dirs + files:
+        p = os.path.join(d, n)
+        if not os.path.islink(p):
+            os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR | (stat.S_IXUSR if os.path.isdir(p) else 0))
+os.chmod(target, os.stat(target).st_mode | stat.S_IWUSR | stat.S_IXUSR)
+shutil.rmtree(target)
+print('removed', target.name)
+PY
+   ```
+
+   ```bash
+   rmdir "$K2" "$K3"; rm -f /tmp/nx-drill-state.env
+   ```
+
+5. **核对没有残留进程**：
+
+   ```bash
+   pgrep -fl 'postgres -D' | diff /tmp/nx-drill-baseline.txt - && echo same-as-baseline
+   ```
+
+   预期 `same-as-baseline`。多出来的行如果是本演练的实例（数据目录在 `nexloop-pg-*`、`.dev-drill/restored` 或 `.dev-drill/pitr` 下），用 `pg_ctl -D <该目录> -m fast -w stop` 停掉。
 
 ## 10. 出错时
 
@@ -248,4 +325,6 @@ $V/nexloop-restore --source basebackup --base-backup $D/base --wal-archive $ARC 
 | 第 5、7 步提示端口被占用 | 换一个空闲端口；源端端口要用 `--running-port` 列出 |
 | 第 5、7 步只输出 `configuration unavailable` | 参数解析失败。在 zsh 中不要用 `set -- $变量` 来拆分参数，按 §1 的方式分别取值 |
 | 第 6.1 步 `not verified_readonly` | 第 5 步没有通过，或者实例已被停止 |
+| 窗口 A 按 Ctrl-C 后源端 PG 没有退出（2026-10-19 第二、三次演练） | 修复前的脚本在两种情况下会留下 PG：一是经 `\| tee` 运行时收到 SIGHUP，holder 被直接结束，fixture 的 teardown 没有执行；二是脚本或整个进程组被 SIGKILL，而 PG 在自己的进程组里，不会跟着结束。现在脚本会忽略 SIGPIPE，holder 会忽略 SIGHUP，并且有一个独立会话里的看门狗兜底。仍有残留时，执行 `scripts/dev/restore_drill.sh --stop`（§9 第 2 步） |
+| 第 1 步显示 `source ready`，但后面的 API 请求连不上 | 端口 8753 被别的进程占用：holder 在 API 开始监听之前就写了 ready，`.dev-drill/server.log` 中会有 `address already in use`。换一个端口（`NEXLOOP_DRILL_API_PORT`），从第 1 步重来；之后各步 `--origin` 里的端口也要改成同一个 |
 | 第 6.4 步返回 403 | 登录的不是 owner，或者 `--restore-ref` 与第 5 步不一致 |

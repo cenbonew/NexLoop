@@ -1102,6 +1102,11 @@
       "sha256": "0fb717aa8cbdb0ba350841f6610a8ad5ffbb4aff8f124d8e38290255e4d5dc59"
     },
     {
+      "version": "0221",
+      "name": "0221_recall_quality_metric.sql",
+      "sha256": "c5a4f776440a83dbc131dd83eb8c48c2fa316e189956f9c128d11d96c84dce7f"
+    },
+    {
       "version": "0450",
       "name": "0450_world_model_read.sql",
       "sha256": "4cc5787ba9da07250b94d0f191321bde18e9c3f3e97a57582de8cffde9f55cc1"

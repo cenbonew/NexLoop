@@ -1,0 +1,18 @@
+# Owner 2026-10-19: read-only model provider address drift check on APP_HOST (scripts/deploy/provider_drift_check.sh). Example only:
+# copy to /etc/systemd/system/ without the .example suffix, fill in the paths, then `systemctl daemon-reload` and
+# `systemctl enable --now nexloop-provider-drift.timer` (B class, owner confirms). It reads the private stage env and the rendered
+# rules, resolves the model provider hosts and reports; it never changes the firewall. Drift: one journal line
+# (`journalctl -t nexloop-provider-drift`) and the unit fails (`systemctl --failed`).
+[Unit]
+Description=NexLoop model provider address drift check (read only)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=NEXLOOP_ROOT=/srv/nexloop
+Environment=STAGE_ENV=/srv/nexloop/config/stage.env
+EnvironmentFile=/srv/nexloop/config/compose.images.env
+ExecStart=/srv/nexloop/release/scripts/deploy/provider_drift_check.sh
+NoNewPrivileges=true
+PrivateTmp=true

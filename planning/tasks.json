@@ -2969,6 +2969,12 @@
         "ref": "47383ae9b81e30c082d9f19f27a33d5bed295254",
         "summary": "origin/main after merging l2/context-artifact-unavailable (5d4e8f7d line) and l2/reply-final-and-provider-diag; prepush-scan PASS, ls-remote equal.",
         "recorded_at": "2026-10-17T05:00:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Stage releases 16-21 (2026-10-18/19), each from a CI-passed commit, signed and sealed, deployed with owner-confirmed backups, migrations and rebuilds: 16 20261018-dd42090f42b7-2 (0211-0212); 17 20261018-ff7b5674fcde-1 (0213-0215, roles v13); 18 20261018-0237717b9484-1 (0216); 19 20261018-1e54c5a26c82-1 (no migration); 20 built and signed but superseded before deployment; 21 20261018-7526d0dcadc3-1 (0217-0220, Actions set_persona and erase_synthetic published, roles v14, compose change: recall-indexer on claim_egress). After release 21 the owner enabled stage embedding (doubao-embedding-vision-251215@1024 profile active, tariff 0.70 CNY per million tokens, budgeted) and the merge configuration nx045-glue-v1-doubao1024 with alert rules v5. Deploy gates 19/20 each (only real_dispatch_closed: deployment layer standing open by owner policy; tenant and Action switches closed).",
+        "recorded_at": "2026-10-19T07:20:00+08:00"
       }
     ]
   },
