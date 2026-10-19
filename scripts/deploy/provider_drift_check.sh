@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
 # Owner 2026-10-19: scheduled, read-only model provider address drift check on APP_HOST (nexloop-provider-drift.timer).
 #
-#   NEXLOOP_ROOT=<root> STAGE_ENV=<private stage env> BACKEND_IMAGE=<backend image by digest> bash scripts/deploy/provider_drift_check.sh
+#   NEXLOOP_ROOT=<root> STAGE_ENV=<private stage env> BACKEND_IMAGE=<backend image by digest> [NFT_RULES=<rules file>] \
+#     bash scripts/deploy/provider_drift_check.sh
 #
 # Runs `nexloop-doctor --provider-drift` in the backend image (host network, so it resolves as the host and the containers do)
-# against the private stage env (MODEL_PROVIDER_ALLOWLIST) and the rendered rules config/firewall/app-host.rules.nft, both
-# mounted read only. No drift: exit 0, nothing logged. Drift (a provider host resolves to an address the allowlist lacks, a host
+# against the private stage env (MODEL_PROVIDER_ALLOWLIST, CLAIM_MODEL_PROVIDER_ALLOWLIST) and the rules actually loaded, both
+# mounted read only. The rules file: NFT_RULES when set; otherwise the file the boot load file config/firewall/app-host.nft
+# includes (render.py --nft-transaction writes one `include "<path>"`; stage keeps dated rules files such as
+# app-host-20261019-ark2.nft); otherwise config/firewall/app-host.rules.nft. No drift: exit 0, nothing logged. Drift (a provider host resolves to an address the allowlist lacks, a host
 # does not resolve, or the rendered egress rules differ from the env): one structured journal line (tag nexloop-provider-drift,
 # priority warning; addresses and codes only) and exit 1, so the unit fails visibly (systemctl --failed, OnFailure= if set).
 # It never changes the firewall: the owner confirms, then the env is edited and the rules re-rendered and reloaded (OPERATIONS 8a).
 set -euo pipefail
 : "${NEXLOOP_ROOT:?NEXLOOP_ROOT}" "${STAGE_ENV:?STAGE_ENV}" "${BACKEND_IMAGE:?BACKEND_IMAGE}"
-RULES=$NEXLOOP_ROOT/config/firewall/app-host.rules.nft
+LOAD=$NEXLOOP_ROOT/config/firewall/app-host.nft
+if [ -n "${NFT_RULES:-}" ]; then
+  RULES=$NFT_RULES
+elif [ -f "$LOAD" ]; then
+  RULES=$(sed -n 's/^include "\(\/[^"]*\)"$/\1/p' "$LOAD")
+  [ "$(printf '%s\n' "$RULES" | grep -c .)" = 1 ] || { echo "provider_drift_check: $LOAD must include exactly one rules file" >&2; exit 2; }
+else
+  RULES=$NEXLOOP_ROOT/config/firewall/app-host.rules.nft
+fi
 [ -f "$STAGE_ENV" ] || { echo "provider_drift_check: $STAGE_ENV missing" >&2; exit 2; }
 [ -f "$RULES" ] || { echo "provider_drift_check: $RULES missing" >&2; exit 2; }
 set +e

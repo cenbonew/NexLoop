@@ -31,7 +31,7 @@ def test_every_placeholder_is_whitelisted_and_every_template_renders_completely(
     values = render.load_env(env)
     for template in TEMPLATES:
         used = set(render.PLACEHOLDER.findall(template.read_text()))
-        assert used <= set(render.PARAMETERS), template.name
+        assert used <= set(render.PARAMETERS) | render.DERIVED_PARAMETERS, template.name
         out = tmp_path / template.name.removesuffix('.template')
         assert render.main(['--env', str(env), '--template', str(template), '--out', str(out)]) == 0
         assert not re.search(r'__[A-Z0-9_]+__', out.read_text()), template.name
@@ -168,7 +168,7 @@ def test_the_effect_worker_reaches_only_postgresql_and_the_enterprise_endpoint(e
     rules, _ = render.render((STAGE / 'firewall' / 'app-host.nft.template').read_text(), render.load_env(env))
     effect = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['EFFECT_EGRESS_CIDR'])]
     assert effect == [
-        f"ip saddr {values['EFFECT_EGRESS_CIDR']} ip daddr {{ {values['MODEL_PROVIDER_ALLOWLIST']} }} drop",
+        f"ip saddr {values['EFFECT_EGRESS_CIDR']} ip daddr {{ {render.derived(values)['MODEL_PROVIDER_ALLOWLIST_ALL']} }} drop",
         f"ip saddr {values['EFFECT_EGRESS_CIDR']} ip daddr {values['DATA_HOST_ADDR']} tcp dport {values['PG_PORT']} accept",
         f"ip saddr {values['EFFECT_EGRESS_CIDR']} ip daddr {values['ENTERPRISE_ENDPOINT_ADDR']} tcp dport {values['ENTERPRISE_ENDPOINT_PORT']} accept",
         f"ip saddr {values['EFFECT_EGRESS_CIDR']} ct state new drop"]
@@ -357,10 +357,10 @@ def test_the_claim_workers_reach_postgresql_and_the_model_allowlist_only(env, tm
     claim = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['CLAIM_EGRESS_CIDR'])]
     assert claim == [
         f"ip saddr {values['CLAIM_EGRESS_CIDR']} ip daddr {values['DATA_HOST_ADDR']} tcp dport {values['PG_PORT']} accept",
-        f"ip saddr {values['CLAIM_EGRESS_CIDR']} ip daddr {{ {values['MODEL_PROVIDER_ALLOWLIST']} }} tcp dport 443 accept",
+        f"ip saddr {values['CLAIM_EGRESS_CIDR']} ip daddr {{ {values['CLAIM_MODEL_PROVIDER_ALLOWLIST']} }} tcp dport 443 accept",
         f"ip saddr {values['CLAIM_EGRESS_CIDR']} ct state new drop"]
     app = [l.strip() for l in rules.splitlines() if l.strip().startswith('ip saddr ' + values['APP_CONTAINER_CIDR'])]
-    assert app[0] == f"ip saddr {values['APP_CONTAINER_CIDR']} ip daddr {{ {values['MODEL_PROVIDER_ALLOWLIST']} }} drop"
+    assert app[0] == f"ip saddr {values['APP_CONTAINER_CIDR']} ip daddr {{ {render.derived(values)['MODEL_PROVIDER_ALLOWLIST_ALL']} }} drop"
     assert f"CLAIM_EGRESS_CIDR={values['CLAIM_EGRESS_CIDR']}" in (STAGE / 'compose.app.env.example').read_text()
 
 
@@ -402,3 +402,32 @@ def test_the_staff_page_admits_only_the_configured_staff_networks(env, tmp_path)
         broken.chmod(0o600)
         with pytest.raises(render.Refused, match='STAFF_ALLOW_CIDRS'):
             render.load_env(broken)
+
+
+def test_each_egress_namespace_gets_its_own_model_allowlist_and_the_default_renders_as_before(env, tmp_path):
+    """2026-10-19 (provider drift on stage: the Ark embedding address had to be added by hand to the claim rule only). The claim
+    egress rule uses CLAIM_MODEL_PROVIDER_ALLOWLIST, the agent rule MODEL_PROVIDER_ALLOWLIST; the application and effect drops use
+    both. Without the new variable, the rules render exactly as the single-allowlist template did."""
+    template = (STAGE / 'firewall' / 'app-host.nft.template').read_text()
+    values = render.load_env(env)
+    deepseek, ark = values['MODEL_PROVIDER_ALLOWLIST'], values['CLAIM_MODEL_PROVIDER_ALLOWLIST'].split(',')[-1]
+    assert ark not in deepseek.split(',')  # the example's claim list adds one address (the embedding endpoint)
+    rules, _ = render.render(template, values)
+    line = lambda cidr, end: next(l.strip() for l in rules.splitlines() if l.strip().startswith(f'ip saddr {values[cidr]} ip daddr {{') and l.strip().endswith(end))
+    assert line('AGENT_EGRESS_CIDR', 'tcp dport 443 accept') == f"ip saddr {values['AGENT_EGRESS_CIDR']} ip daddr {{ {deepseek} }} tcp dport 443 accept"
+    assert ark not in line('AGENT_EGRESS_CIDR', 'tcp dport 443 accept')  # the Agent Host never reaches the embedding endpoint
+    assert ark in line('CLAIM_EGRESS_CIDR', 'tcp dport 443 accept')
+    assert line('APP_CONTAINER_CIDR', 'drop') == f"ip saddr {values['APP_CONTAINER_CIDR']} ip daddr {{ {deepseek},{ark} }} drop"
+    assert line('EFFECT_EGRESS_CIDR', 'drop').endswith(f'{{ {deepseek},{ark} }} drop')
+    # Absent (or empty) CLAIM_MODEL_PROVIDER_ALLOWLIST: every rule line equals the single-allowlist rendering.
+    single = re.sub(r'__(CLAIM_MODEL_PROVIDER_ALLOWLIST|MODEL_PROVIDER_ALLOWLIST_ALL)__', '__MODEL_PROVIDER_ALLOWLIST__', template)
+    rules_only = lambda text: [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith('#')]
+    for without in ({k: v for k, v in values.items() if k != 'CLAIM_MODEL_PROVIDER_ALLOWLIST'}, {**values, 'CLAIM_MODEL_PROVIDER_ALLOWLIST': ''}):
+        new, _ = render.render(template, without)
+        old, _ = render.render(single, without)
+        assert rules_only(new) == rules_only(old)
+    good = env.read_text()
+    env.write_text(re.sub(r'^CLAIM_MODEL_PROVIDER_ALLOWLIST=.*$', 'CLAIM_MODEL_PROVIDER_ALLOWLIST=ark.invalid', good, flags=re.M))
+    with pytest.raises(render.Refused, match='CLAIM_MODEL_PROVIDER_ALLOWLIST'):
+        render.load_env(env)
+    env.write_text(good)

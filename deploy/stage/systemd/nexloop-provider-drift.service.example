@@ -12,6 +12,8 @@ Wants=network-online.target
 Type=oneshot
 Environment=NEXLOOP_ROOT=/srv/nexloop
 Environment=STAGE_ENV=/srv/nexloop/config/stage.env
+# The rules actually loaded: by default the file config/firewall/app-host.nft includes; set NFT_RULES to name another one.
+#Environment=NFT_RULES=/srv/nexloop/config/firewall/app-host-<date>.nft
 EnvironmentFile=/srv/nexloop/config/compose.images.env
 ExecStart=/srv/nexloop/release/scripts/deploy/provider_drift_check.sh
 NoNewPrivileges=true
