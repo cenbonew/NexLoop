@@ -44,7 +44,7 @@
 | **AT-057** | 版本回滚 | not_run | 只有本地测试；stage 上已有 `current` 和 `known_good` | `deploy.py rollback-check` 两次：① 回滚到跨越未声明 expand-only 迁移的旧发布，应被拒绝并给出向前修复提示；② 回滚到 `known_good`，应允许或给出明确理由。只执行检查，不真的回滚 | 调度员（A，只读命令） | 30 分钟 |
 | **AT-058** | 端口安全 | not_run | run-42：管理机、DATA_HOST、APP_HOST 等五份 `probe_isolation.py` 报告 `passed`，含 G-APP-SUBNET 修复后的复测和 G-CLAIM-EGRESS §3d | run-42 之后网络又改过（pgBackRest TLS 端口、参考端点、claim 出口网络等），要按当前发布**重跑五份探测**，报告放进 `isolation/` | 调度员（A）；DATA_HOST 那一份需要负责人输入 sudo（B） | 1 小时 |
 | **AT-071** | 受控真实模型与真实交付 | **passed** | 试运行 `4f5d795c`：36 条交互，费用 1.59 CNY（上限 100），真实交付 6/6，安全事实全为 0 | 无。证据包里的 `interactions` 已具备 | — | — |
-| **AT-072** | 第二维护者演练 | not_run | 无（定于 10/19 17:00 后） | ① 负责人只按公开文档完成发布：CI 主机上构建、签名、验签、部署 dry-run（[入口单](../release/at-072-drill-entry.md)）；② 完成恢复：本机备份、PITR、重放、校验、开放（[本机恢复演练](../release/at-072-local-restore-drill.md)）；③ 偏差记录；④ 文档线按偏差修订并合入 | 负责人（B）演练；开发线（L5）修订文档 | 演练半天；修订 0.5–1 天 |
+| **AT-072** | 第二维护者演练 | **passed** | 负责人指定的维护者（未参与开发的 AI Agent）第四次演练完整走通：发布（构建、SBOM、预检、临时签名、封存、验签、两台主机 dry-run）与恢复（备份、命名点恢复到开放、PITR、重放、校验）；四次演练的偏差已分批修订进公开手册（main `e9fc47b5`、`a5260197`、`0c25428f`） | — | 负责人判定 passed（2026-10-19） | — |
 
 S1–S4 中与 S5 任务相关的 AT 都已 passed：AT-047、049、060 等。AT-048（S6）不属于 v0.1。
 
