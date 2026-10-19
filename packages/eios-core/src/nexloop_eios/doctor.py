@@ -226,6 +226,21 @@ def embedding(env_file,tariff_file,merge_config=None):
     return {'checks':checks,'details':details}
 
 
+def recall_quality(metrics_database_url_file,tenant,limit=10):
+    """0221: the tenant's vector recall under its active profile through the read-only metrics role: coverage (entries with and
+    without a vector) and the nearest-definition counts; samples are refs and numbers, never a text. Passes when a profile is
+    active and every entry has its vector."""
+    try:
+        with psycopg.connect(read_private_text(metrics_database_url_file,maximum=16384),connect_timeout=5) as db:
+            if db.execute('select current_user').fetchone()[0]!='nexloop_metrics':raise ValueError('read-only metrics role required')
+            quality=db.execute('select authz.nexloop_recall_quality(%s,%s)',(tenant,limit)).fetchone()[0]
+    except Exception:
+        return {'checks':{'recall_quality_status':False},'details':{'recall_quality_error':'recall quality unavailable'}}
+    coverage=quality.get('coverage') or {}
+    return {'checks':{'recall_quality_status':True,'recall_profile_active':quality.get('active_profile') is not None,
+        'recall_vectors_complete':bool(coverage) and all(v['without_vector']==0 for v in coverage.values())},'details':{'recall_quality':quality}}
+
+
 def main():
     parser=argparse.ArgumentParser(description='Read-only NexLoop foundation doctor')
     parser.add_argument('--artifact-root')
@@ -244,10 +259,41 @@ def main():
     parser.add_argument('--backup',action='store_true',help='NX-035: backups against deploy/configuration/backup.v1.json, restore state (read-only metrics role)')
     parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
     parser.add_argument('--real-dispatch',action='store_true',help='0153: real dispatch switch states and counts (read-only metrics role)')
+    parser.add_argument('--provider-drift',action='store_true',help='2026-10-19: model provider hosts resolved now vs MODEL_PROVIDER_ALLOWLIST and the rendered egress rules (read only)')
+    parser.add_argument('--stage-env',type=Path,help='the private stage env (its MODEL_PROVIDER_ALLOWLIST)')
+    parser.add_argument('--nft-rules',type=Path,help='the rendered app-host rules (config/firewall/app-host.rules.nft)')
+    parser.add_argument('--namespace',action='append',help='name=host[,host] the providers one egress namespace calls (agent, claim; default agent=DeepSeek, claim=DeepSeek+Ark)')
+    parser.add_argument('--recall-quality',action='store_true',help='2026-10-19: vector recall coverage and semantic neighbours of one tenant (read-only metrics role, 0221)')
+    parser.add_argument('--tenant',help='tenant id (--recall-quality)')
+    parser.add_argument('--samples',type=int,default=5,help='resolution rounds (CDN answers rotate)')
+    parser.add_argument('--interval',type=float,default=2.0,help='seconds between rounds')
     parser.add_argument('--embedding-env-file',type=Path,help='2026-10-18: private embedding env of recall-indexer/claim-matcher (files only, no provider call)')
     parser.add_argument('--embedding-tariff-file',type=Path,help='the owner\'s embedding tariff (nexloop-embedding-tariff/1)')
     parser.add_argument('--merge-config',type=Path,help='deploy/ontology/merge-config.v<N>.json (its calibrated embedding profile)')
     args=parser.parse_args()
+    if args.recall_quality:
+        if not args.metrics_database_url_file or not args.tenant:parser.error('--recall-quality requires --metrics-database-url-file and --tenant')
+        result=recall_quality(args.metrics_database_url_file,args.tenant)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
+    if args.provider_drift:
+        if not args.stage_env:parser.error('--provider-drift requires --stage-env')
+        from nexloop_eios import provider_drift
+        from nexloop_eios.stage_render import load_env
+        try:
+            env=load_env(args.stage_env)
+            allowlist=provider_drift.parse_allowlist(env.get('MODEL_PROVIDER_ALLOWLIST',''))
+            namespaces={name:hosts for name,(_,hosts) in provider_drift.DEFAULT_NAMESPACES.items()}
+            namespaces.update(dict(provider_drift.parse_namespace(n) for n in args.namespace or ()))
+            cidrs={name:env.get(variable,'') for name,(variable,_) in provider_drift.DEFAULT_NAMESPACES.items()}
+            nft=Path(args.nft_rules).read_text() if args.nft_rules else None
+            result=provider_drift.check(allowlist,namespaces,cidrs=cidrs,samples=args.samples,interval=args.interval,nft_text=nft)
+        except (OSError,ValueError):
+            result={'checks':{'provider_drift_input':False},'details':{'provider_drift_error':'stage env, rules file or hosts unreadable or invalid'}}
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
     if args.embedding_env_file:
         if not args.embedding_tariff_file:parser.error('--embedding-env-file requires --embedding-tariff-file')
         result=embedding(args.embedding_env_file,args.embedding_tariff_file,args.merge_config)
