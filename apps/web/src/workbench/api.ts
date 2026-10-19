@@ -625,3 +625,19 @@ export function objectNeighbors(value:unknown):ObjectNeighbors{
 }
 export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}${after?'?after='+encodeURIComponent(after):''}`,objectPage);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
+
+// ---- W4 Artifact list (L6 0225; packages/contracts/workbench-artifacts.schema.json): metadata only, newest first, audited ----
+export type ArtifactRow={artifact_id:string;purpose:'message_context'|'fallback_context'|'role_context'|'other';media_type:string;size_bytes:number;sha256_prefix:string;
+  created_at:string;retention_until:string;run_id:string|null;consumer_id:string|null};
+export type ArtifactPage={items:ArtifactRow[];total:number;hidden:number;next_before:string|null};
+const PURPOSES=['message_context','fallback_context','role_context','other'] as const;
+export function artifactPage(value:unknown):ArtifactPage{
+  const v=object(value);
+  const match=(re:RegExp,x:unknown)=>{const t=text(x);if(!re.test(t))throw new WorkbenchError('invalid');return t;};
+  return {items:list(v.items).map(x=>{const o=object(x);const p=text(o.purpose);if(!(PURPOSES as readonly string[]).includes(p))throw new WorkbenchError('invalid');
+      return {artifact_id:match(/^[a-f0-9]{32}$/,o.artifact_id),purpose:p as ArtifactRow['purpose'],media_type:text(o.media_type),size_bytes:count(o.size_bytes),
+        sha256_prefix:match(/^[a-f0-9]{12}$/,o.sha256_prefix),created_at:text(o.created_at),retention_until:text(o.retention_until),
+        run_id:o.run_id===null?null:match(/^[0-9a-f-]{36}$/,o.run_id),consumer_id:o.consumer_id===null?null:match(/^[a-f0-9]{64}$/,o.consumer_id)};}),
+    total:count(v.total),hidden:count(v.hidden),next_before:v.next_before===null?null:match(/^[0-9][0-9T:. +-]{9,39}\|[a-f0-9]{32}$/,v.next_before)};
+}
+export const readArtifacts=(before?:string)=>get('/api/v1/workbench/artifacts'+(before?'?before='+encodeURIComponent(before):''),artifactPage);

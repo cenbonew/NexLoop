@@ -82,5 +82,5 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
     assert observed['drawer_after_reload'] == 1 and observed['drawer_after_back'] == 0 and observed['back_after_drawer'] == '?tab=instances&type=Consumer'
     # W4 data assets (L6 0224): the six sections; budget and Artifact list said as not available; no form; no sideways scroll.
     assert observed['assets_sections'] == ['Artifact', 'Claim 与提取', '召回索引', 'Embedding 预算', '合并配置', '备份'], observed['assets_sections']
-    assert 'Artifact 列表不可用' in observed['assets_text'] and '不表示花费为 0' in observed['assets_text'] and '条 Claim' in observed['assets_text']
+    assert 'Artifact 列表不可用' not in observed['assets_text'] and ' 个 Artifact · 本页 ' in observed['assets_text'] and '不表示花费为 0' in observed['assets_text'] and '条 Claim' in observed['assets_text']
     assert observed['assets_forms'] == 0 and observed['assets_hscroll_390'] <= 0

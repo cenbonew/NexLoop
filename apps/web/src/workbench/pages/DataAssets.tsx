@@ -5,11 +5,11 @@
  * merge configuration. Counts, profile ids and times only: never a message, a Claim value, a recall body or an embedding. A count
  * the backend does not report is "不可用", never 0 (AT-045).
  */
-import type {ReactNode} from 'react';
+import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {readMetrics,type Metrics} from '../api';
+import {kindOf,readArtifacts,readMetrics,STATE_TEXT as LOAD_TEXT,type ArtifactRow,type Metrics} from '../api';
 import {routePath} from '../route';
-import {Page} from './Page';
+import {Failure,Page} from './Page';
 import {DataTable} from '../DataTable';
 import {Empty,StatusBadge} from '../ui';
 import {when} from './Consumers';
@@ -36,8 +36,8 @@ function Body({m}:{m:Metrics}){
   return <>
     <p className="note">快照时间 {when(m.computed_at)}。</p>
     <div className="workbench-grid">
-      <Block title="Artifact" note={<>Artifact 的文件快照见“备份”中的“最近一次文件快照”。</>}>
-        <Empty kind="unavailable" title="Artifact 列表不可用" next="工作台还没有列出 Artifact 的只读接口（只有按 ID 读取的服务接口）；这不表示没有 Artifact。"/>
+      <Block title="Artifact" note={<>只显示元数据，不显示内容；每条列出的 Artifact 都会记入读取审计。文件快照见“备份”中的“最近一次文件快照”。</>}>
+        <ArtifactList/>
       </Block>
       <Block title="Claim 与提取">
         {d?<>
@@ -76,5 +76,31 @@ function Body({m}:{m:Metrics}){
       </Block>
       <BackupBlock backup={m.backup}/>
     </div>
+  </>;
+}
+
+const PURPOSE_TEXT:Record<ArtifactRow['purpose'],string>={message_context:'消息上下文',fallback_context:'兜底上下文',role_context:'角色上下文',other:'其他'};
+export function bytes(n:number):string{return n<1024?`${n} B`:n<1024*1024?`${(n/1024).toFixed(1)} KB`:`${(n/1024/1024).toFixed(1)} MB`;}
+const short=(id:string,n=8)=>id.slice(0,n)+'…';
+
+/** The tenant's stored Artifacts, newest first, a page at a time (cursor stack: 上一页 returns to the page before). */
+export function ArtifactList(){
+  const [cursors,setCursors]=useState<string[]>([]);
+  const before=cursors[cursors.length-1];
+  const page=useQuery({queryKey:['workbench','artifacts',before??''],queryFn:()=>readArtifacts(before)});
+  if(page.isPending)return <p role="status">{LOAD_TEXT.loading}</p>;
+  if(page.isError)return kindOf(page.error)==='forbidden'?<Empty kind="forbidden"/>:<Failure kind={kindOf(page.error)} onRetry={()=>void page.refetch()}/>;
+  const p=page.data;
+  return <>
+    <p role="status">共 <strong>{p.total}</strong> 个 Artifact · 本页 {p.items.length} 个{p.hidden?<> · <StatusBadge text={`隐藏 ${p.hidden} 个（所属客户正在删除）`} tone="limited" code="hidden"/></>:null}</p>
+    {p.items.length?<DataTable label="Artifact" rows={p.items} rowKey={a=>a.artifact_id} columns={[
+      {label:'Artifact',main:true,cell:a=><code title={a.artifact_id}>{short(a.artifact_id)}</code>},{label:'用途',cell:a=>PURPOSE_TEXT[a.purpose]},
+      {label:'类型',cell:a=><code>{a.media_type}</code>},{label:'大小',num:true,cell:a=>bytes(a.size_bytes)},{label:'SHA-256',cell:a=><code>{a.sha256_prefix}</code>},
+      {label:'创建',cell:a=><span style={{whiteSpace:'nowrap'}}>{when(a.created_at)}</span>},{label:'保留至',cell:a=><span style={{whiteSpace:'nowrap'}}>{when(a.retention_until)}</span>},
+      {label:'Run',cell:a=>a.run_id?<code title={a.run_id}>{short(a.run_id)}</code>:'—'},
+      {label:'客户',cell:a=>a.consumer_id?<a href={routePath({page:'consumers',id:a.consumer_id})} title={a.consumer_id}>{short(a.consumer_id)}</a>:'—'}]}/>
+      :<Empty kind="none" title={cursors.length?'这一页没有 Artifact':'还没有 Artifact'}/>}
+    <div className="pager">{cursors.length?<button type="button" onClick={()=>setCursors(cursors.slice(0,-1))}>上一页</button>:null}
+      {p.next_before?<button type="button" onClick={()=>setCursors([...cursors,p.next_before!])}>下一页</button>:null}</div>
   </>;
 }
