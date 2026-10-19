@@ -538,26 +538,60 @@ def run_once(repo, queue, policy, identities, *, runner=None, workroot=None, gat
 
 
 # §6 GitHub sync state (AT-053) -------------------------------------------------------------------------------------------
+def _sync_push(repo, remote, sha, ref, *, timeout, env):
+    """Push one exact SHA to one remote ref, never forced: 'synced', 'refused' (the remote refuses it, e.g. not a fast-forward) or
+    'unreachable' (no answer, a transport error or a timeout)."""
+    try:
+        pushed = subprocess.run(['git', '-C', str(repo), 'push', '--porcelain', remote, f'{sha}:{ref}'],
+                                capture_output=True, text=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        return 'unreachable'
+    if pushed.returncode == 0:
+        return 'synced'
+    # --porcelain prints one line per ref the remote answered; '!' is a refusal (non-fast-forward, fetch first, hook).
+    if any(line.startswith('!') and ref in line for line in pushed.stdout.splitlines()):
+        return 'refused'
+    return 'unreachable'
+
+
 def sync(repo, queue, remote, *, timeout=30):
-    """Push main to the sync remote (fast-forward only, never force, never mirror). Unreachable: sync_pending with the backlog
-    counted; CI results and merges are not affected and nothing blocks."""
+    """Push main and every review/* branch to the sync remote: each as the exact SHA read once (a merge that lands meanwhile is
+    the next round's), fast-forward only, never force, never mirror, never a delete. Unreachable: sync_pending with the backlog
+    counted; CI results and merges are not affected and nothing blocks. A review branch the remote refuses (not a fast-forward)
+    is that branch's sync_refused; main and the other branches go on. A review branch deleted here stays on the remote
+    (local_absent). State: main at the top level (as before), every review branch under 'review'."""
     queue = queue_dirs(queue)
     state_path = queue / 'sync' / f'{remote}.json'
     state = json.loads(state_path.read_text()) if state_path.exists() else {'remote': remote, 'last_synced': None}
-    main = git(repo, 'rev-parse', 'refs/heads/main')
+    main = git(repo, 'rev-parse', 'refs/heads/main')  # the SHA pushed and recorded, never re-read after the push
     env = {**_stage_env({}), 'GIT_ALLOW_PROTOCOL': 'file:ssh:https'}
-    try:
-        pushed = subprocess.run(['git', '-C', str(repo), 'push', '--porcelain', remote, 'refs/heads/main:refs/heads/main'],
-                                capture_output=True, text=True, timeout=timeout, env=env)
-        ok = pushed.returncode == 0
-    except subprocess.TimeoutExpired:
-        ok = False
-    if ok:
+    result = _sync_push(repo, remote, main, 'refs/heads/main', timeout=timeout, env=env)
+    if result == 'synced':
         state.update(status='synced', last_synced=main, backlog=0, synced_at=now())
     else:
         since = state.get('last_synced')
         backlog = int(git(repo, 'rev-list', '--count', f'{since}..{main}' if since else main))
-        state.update(status='sync_pending', backlog=backlog, attempted_at=now(), failures=state.get('failures', 0) + 1)
+        state.update(status='sync_pending' if result == 'unreachable' else 'sync_refused', backlog=backlog, attempted_at=now(),
+                     failures=state.get('failures', 0) + 1)
+    reviews = state.get('review', {})
+    listed = git(repo, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/review/')
+    local = dict(line.split(' ', 1) for line in listed.splitlines() if line)
+    for ref, sha in sorted(local.items()):
+        name = ref.removeprefix('refs/heads/')
+        entry = reviews.get(name, {'last_synced': None})
+        # The remote unreachable for main: the same for every branch this round (no second timeout per branch).
+        outcome = 'unreachable' if result == 'unreachable' else _sync_push(repo, remote, sha, ref, timeout=timeout, env=env)
+        if outcome == 'synced':
+            entry.update(status='synced', last_synced=sha, synced_at=now())
+        else:
+            entry.update(status='sync_pending' if outcome == 'unreachable' else 'sync_refused', sha=sha, attempted_at=now(),
+                         failures=entry.get('failures', 0) + 1)
+        reviews[name] = entry
+    for name, entry in reviews.items():
+        if 'refs/heads/' + name not in local:
+            entry['status'] = 'local_absent'  # never deleted on the remote
+    if reviews:
+        state['review'] = reviews
     write_atomic(state_path, state)
     return state
 
@@ -569,7 +603,13 @@ def status(queue):
     for sha_dir in sorted((queue / 'results').iterdir()):
         r = latest_result(queue, sha_dir.name)
         if r:results[sha_dir.name] = {'status': r['status'], 'attempt': r['attempt'], 'counts': r.get('counts')}
-    sync_state = {p.stem: {k: v for k, v in json.loads(p.read_text()).items() if k in ('status', 'backlog')} for p in (queue / 'sync').glob('*.json')}
+    def summary(state):
+        out = {k: v for k, v in state.items() if k in ('status', 'backlog')}
+        refused = sorted(name for name, entry in (state.get('review') or {}).items() if entry.get('status') == 'sync_refused')
+        if refused:
+            out['review_refused'] = refused
+        return out
+    sync_state = {p.stem: summary(json.loads(p.read_text())) for p in (queue / 'sync').glob('*.json')}
     return {'pending': names('pending'), 'running': names('running'), 'results': results, 'sync': sync_state}
 
 

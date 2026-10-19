@@ -1,4 +1,6 @@
-# Example (user nexloop-git, not nexloop-ci): fast-forward push of main to the GitHub sync remote; unreachable = sync_pending.
+# Example (user nexloop-git, not nexloop-ci): fast-forward push of main and every review/* branch to the GitHub sync remote, each as
+# the exact SHA read once; never force, never mirror, never a delete. Unreachable = sync_pending; a refused review branch is its
+# own sync_refused. Started by nexloop-ci-sync.timer.
 [Unit]
 Description=NexLoop GitHub sync (never force, never mirror)
 

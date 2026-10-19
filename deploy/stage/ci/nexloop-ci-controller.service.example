@@ -1,14 +1,20 @@
-# Example systemd unit (user nexloop-ci). The program is the trusted installation (main as released), never a candidate.
+# Example systemd unit (user nexloop-ci). The program is the trusted installation (main as released) under a parent directory nexloop-ci
+# cannot write (e.g. /opt/nexloop/ci-trusted/<sha12>, root 0755), never a candidate.
+# Plan L (owner 2026-10-20): the stages run as nexloop-ci directly, without the rootless Podman runner, so there is no --runner and
+# no --facts (plan P adds them back with check-runner). The private identities file and the queue are where nexloop-git (the
+# post-receive hook) can reach them too (e.g. <GIT_ROOT>/private and <GIT_ROOT>/queue). Non-secret stage environment (paths of the
+# test PostgreSQL binaries, cache directories) comes from an EnvironmentFile; it holds no secret.
 [Unit]
 Description=NexLoop CI controller (one build at a time)
 
 [Service]
 Type=oneshot
 User=nexloop-ci
-ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/nexloop_ci.py run-once --repo <GIT_ROOT>/nexloop.git --queue <QUEUE_DIR> --policy <TRUSTED_CI_DIR>/.ci-policy --identities <PRIVATE_IDENTITIES_FILE> --runner <PRIVATE_RUNNER_FILE> --facts <PRIVATE_FACTS_FILE> --merge-gate <TRUSTED_CI_DIR>/merge-gate
+EnvironmentFile=<PRIVATE_DIR>/ci-controller.env
+ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/nexloop_ci.py run-once --repo <GIT_ROOT>/nexloop.git --queue <QUEUE_DIR> --policy <TRUSTED_CI_DIR>/.ci-policy --identities <PRIVATE_IDENTITIES_FILE> --merge-gate <TRUSTED_CI_DIR>/merge-gate
 CPUWeight=20
 MemoryMax=<CI_MEMORY_MAX>
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=<QUEUE_DIR> <CI_CACHE>
+ReadWritePaths=<QUEUE_DIR> <CI_CACHE> <GIT_ROOT>/nexloop.git
 InaccessiblePaths=<SECRET_ROOT> <RUNTIME_ROOT> <ARTIFACT_ROOT> <BACKUP_ROOT>

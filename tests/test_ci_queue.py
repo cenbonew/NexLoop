@@ -325,3 +325,79 @@ def test_a_passed_run_has_an_empty_failures_file_and_long_messages_and_lists_are
     path = lab['tmp'] / 'many.xml'
     path.write_text(body)
     assert len(ci.junit_failures(path)) == ci.FAILURES_PER_SUITE + 5  # bounded when stored (FAILURES_PER_SUITE, truncated flag)
+
+
+def _github(lab, tmp_path, reachable=True):
+    github = tmp_path / 'github.git'
+    run('git', 'init', '-q', '--bare', '-b', 'main', str(github))
+    run('git', '-C', str(lab['bare']), 'remote', 'add', 'github', str(github if reachable else tmp_path / 'unreachable' / 'nexloop.git'))
+    return github
+
+
+def _remote_ref(github, ref):
+    found = run('git', '-C', str(github), 'rev-parse', '--verify', '-q', ref, check=False).stdout.strip()
+    return found or None
+
+
+def test_review_branches_fast_forward_to_github_and_a_refused_one_affects_nothing_else(lab, tmp_path):
+    """Owner 2026-10-20 (PR flow): review/* is synced like main, fast-forward only, never forced, never deleted on the remote."""
+    c, push = lab['commit'], lab['push']
+    github = _github(lab, tmp_path)
+    one = c('review one', {'r1.txt': '1'}, parent=lab['base'])
+    two = c('review two', {'r2.txt': '2'}, parent=lab['base'])
+    assert push('maintainer-a', f'{one}:refs/heads/review/one').returncode == 0
+    assert push('maintainer-a', f'{two}:refs/heads/review/two').returncode == 0
+    assert push('line-a', f'{one}:refs/heads/review/three').returncode != 0  # review/* is the maintainer's
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    assert state['status'] == 'synced' and state['last_synced'] == lab['base']
+    assert {n: e['status'] for n, e in state['review'].items()} == {'review/one': 'synced', 'review/two': 'synced'}
+    assert _remote_ref(github, 'refs/heads/review/one') == one and _remote_ref(github, 'refs/heads/review/two') == two
+    # review/one moves forward: fast-forwarded. review/two is rewritten here (not a fast-forward of what GitHub has): refused.
+    one_next = c('review one, next', {'r1.txt': '1b'}, parent=one)
+    two_rewritten = c('review two, rewritten', {'r2.txt': '2b'}, parent=lab['base'])
+    assert push('maintainer-a', f'{one_next}:refs/heads/review/one').returncode == 0
+    assert push('maintainer-a', f'{two_rewritten}:refs/heads/review/two', force=True).returncode == 0
+    merged = c('main moves', {'m.txt': 'm'}, parent=lab['base'])
+    assert push('merge-controller', f'{merged}:refs/heads/main').returncode == 0
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    assert state['status'] == 'synced' and state['last_synced'] == merged and _remote_ref(github, 'refs/heads/main') == merged
+    assert state['review']['review/one']['status'] == 'synced' and _remote_ref(github, 'refs/heads/review/one') == one_next
+    assert state['review']['review/two']['status'] == 'sync_refused' and _remote_ref(github, 'refs/heads/review/two') == two  # never forced
+    assert state['review']['review/two']['last_synced'] == two
+    assert ci.status(lab['queue'])['sync']['github'] == {'status': 'synced', 'backlog': 0, 'review_refused': ['review/two']}
+    # A review branch deleted here stays on GitHub.
+    assert push('maintainer-a', ':refs/heads/review/one').returncode == 0
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    assert state['review']['review/one']['status'] == 'local_absent' and _remote_ref(github, 'refs/heads/review/one') == one_next
+
+
+def test_review_branches_wait_with_main_while_github_is_unreachable(lab, tmp_path):
+    c, push = lab['commit'], lab['push']
+    _github(lab, tmp_path, reachable=False)
+    one = c('review one', {'r1.txt': '1'}, parent=lab['base'])
+    assert push('maintainer-a', f'{one}:refs/heads/review/one').returncode == 0
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    assert state['status'] == 'sync_pending' and state['review']['review/one']['status'] == 'sync_pending'
+    assert state['review']['review/one']['sha'] == one and state['review']['review/one']['last_synced'] is None
+
+
+def test_a_merge_between_reading_and_pushing_main_is_the_next_rounds(lab, tmp_path, monkeypatch):
+    """2026-10-20 14:24: a merge landed between the sync's read of main and its push; the old SHA was recorded while the new one was
+    pushed. Now the SHA read once is the one pushed and recorded; the merge that lands meanwhile is synced by the next round."""
+    c, push = lab['commit'], lab['push']
+    github = _github(lab, tmp_path)
+    merged = c('merged meanwhile', {'m.txt': 'm'}, parent=lab['base'])
+    real = ci.git
+
+    def git(repo, *args, **kw):
+        out = real(repo, *args, **kw)
+        if args[:2] == ('rev-parse', 'refs/heads/main'):  # the merge controller fast-forwards main right after the read
+            assert push('merge-controller', f'{merged}:refs/heads/main').returncode == 0
+        return out
+    monkeypatch.setattr(ci, 'git', git)
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    monkeypatch.setattr(ci, 'git', real)
+    assert state['status'] == 'synced' and state['last_synced'] == lab['base'] == _remote_ref(github, 'refs/heads/main')
+    assert run('git', '-C', str(lab['bare']), 'rev-parse', 'main').stdout.strip() == merged
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    assert state['last_synced'] == merged == _remote_ref(github, 'refs/heads/main') and state['backlog'] == 0
