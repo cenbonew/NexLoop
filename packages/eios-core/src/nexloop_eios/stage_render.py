@@ -131,7 +131,29 @@ PARAMETERS = {
     # Calibration 2026-10-17: trusted staff networks that may open the reference endpoint's staff page (same port). Optional: absent
     # or empty, every line using it is left out, so the staff page stays closed like the rest of the endpoint (default deny).
     'STAFF_ALLOW_CIDRS': _cidrs_or_empty,
+    # 2026-10-19 (provider drift): the claim egress namespace's own model allowlist (the claim workers and the recall indexer also
+    # call the Ark embedding endpoint; the Agent Host must not). Optional: absent or empty, it is MODEL_PROVIDER_ALLOWLIST, so a
+    # stage env without it renders exactly as before.
+    'CLAIM_MODEL_PROVIDER_ALLOWLIST': lambda v: v if v == '' else _addresses(v),
 }
+# Derived in render() (never in an env file): every model address of any namespace, for the rules that keep the application and
+# effect namespaces away from model addresses.
+DERIVED_PARAMETERS = frozenset({'MODEL_PROVIDER_ALLOWLIST_ALL'})
+
+
+def derived(values):
+    """The env values plus the derived ones: CLAIM_MODEL_PROVIDER_ALLOWLIST defaults to MODEL_PROVIDER_ALLOWLIST; the union keeps
+    MODEL_PROVIDER_ALLOWLIST's order and appends the claim-only addresses (equal to it when the claim list adds nothing)."""
+    out = dict(values)
+    base = values.get('MODEL_PROVIDER_ALLOWLIST')
+    if base is None:
+        return out
+    if not values.get('CLAIM_MODEL_PROVIDER_ALLOWLIST'):
+        out['CLAIM_MODEL_PROVIDER_ALLOWLIST'] = base
+    parts = base.split(',')
+    parts += [a for a in out['CLAIM_MODEL_PROVIDER_ALLOWLIST'].split(',') if a not in parts]
+    out['MODEL_PROVIDER_ALLOWLIST_ALL'] = ','.join(parts)
+    return out
 # Optional parameters: a template line that uses one is rendered only when the env file gives it a non-empty value.
 OPTIONAL_LINE_PARAMETERS = frozenset({'STAFF_ALLOW_CIDRS'})
 
@@ -162,12 +184,13 @@ def load_env(path):
 
 
 def render(text, values):
+    values = derived(values)
     absent = {name for name in OPTIONAL_LINE_PARAMETERS if not values.get(name)}
     if absent:
         text = ''.join(line for line in text.splitlines(keepends=True) if not any(f'__{name}__' in line for name in absent))
     needed = set(PLACEHOLDER.findall(text))
-    unknown = sorted(needed - set(PARAMETERS))
-    missing = sorted(needed & set(PARAMETERS) - set(values))
+    unknown = sorted(needed - set(PARAMETERS) - DERIVED_PARAMETERS)
+    missing = sorted(needed & (set(PARAMETERS) | DERIVED_PARAMETERS) - set(values))
     if unknown or missing:
         raise Refused(json.dumps({'unknown_placeholders': unknown, 'missing_parameters': missing}))
     out = PLACEHOLDER.sub(lambda m: values[m.group(1)], text)

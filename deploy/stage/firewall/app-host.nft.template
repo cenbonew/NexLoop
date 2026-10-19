@@ -29,21 +29,22 @@ table inet nexloop_stage {
     # DATA_HOST's PostgreSQL and Valkey only and never a model address; the Agent Host's own namespace (__AGENT_EGRESS_CIDR__)
     # reaches the model provider allowlist on 443 only and never DATA_HOST. The agent link between them is an internal network
     # (no forwarding at all).
-    ip saddr __APP_CONTAINER_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } drop
+    ip saddr __APP_CONTAINER_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST_ALL__ } drop
     ip saddr __APP_CONTAINER_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport { __PG_PORT__, __VALKEY_PORT__ } accept
     ip saddr __APP_CONTAINER_CIDR__ ct state new drop
     # NX-037 provider routing: the effect worker's own namespace (__EFFECT_EGRESS_CIDR__; the action worker and the NexLoop delivery
     # service on its loopback) reaches DATA_HOST's PostgreSQL and the one enterprise endpoint only; never a model address, never
     # Valkey, nothing else.
-    ip saddr __EFFECT_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } drop
+    ip saddr __EFFECT_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST_ALL__ } drop
     ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport __PG_PORT__ accept
     ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __ENTERPRISE_ENDPOINT_ADDR__ tcp dport __ENTERPRISE_ENDPOINT_PORT__ accept
     ip saddr __EFFECT_EGRESS_CIDR__ ct state new drop
     # G-CLAIM-EGRESS: the claim workers' own namespace (__CLAIM_EGRESS_CIDR__; claim-extraction-worker, claim-matcher, the only
-    # model credential holders besides the Agent Host) reaches DATA_HOST's PostgreSQL and the model provider allowlist on 443 only;
+    # model credential holders besides the Agent Host, and the recall indexer calling the embedding endpoint) reaches DATA_HOST's
+    # PostgreSQL and its own model allowlist (CLAIM_MODEL_PROVIDER_ALLOWLIST, default MODEL_PROVIDER_ALLOWLIST) on 443 only;
     # never Valkey, never another DATA_HOST port, nothing else.
     ip saddr __CLAIM_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport __PG_PORT__ accept
-    ip saddr __CLAIM_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } tcp dport 443 accept
+    ip saddr __CLAIM_EGRESS_CIDR__ ip daddr { __CLAIM_MODEL_PROVIDER_ALLOWLIST__ } tcp dport 443 accept
     ip saddr __CLAIM_EGRESS_CIDR__ ct state new drop
     ip saddr __AGENT_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ drop
     ip saddr __AGENT_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } tcp dport 443 accept

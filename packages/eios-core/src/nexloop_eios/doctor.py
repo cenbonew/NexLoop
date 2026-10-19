@@ -260,7 +260,7 @@ def main():
     parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
     parser.add_argument('--real-dispatch',action='store_true',help='0153: real dispatch switch states and counts (read-only metrics role)')
     parser.add_argument('--provider-drift',action='store_true',help='2026-10-19: model provider hosts resolved now vs MODEL_PROVIDER_ALLOWLIST and the rendered egress rules (read only)')
-    parser.add_argument('--stage-env',type=Path,help='the private stage env (its MODEL_PROVIDER_ALLOWLIST)')
+    parser.add_argument('--stage-env',type=Path,help='the private stage env (MODEL_PROVIDER_ALLOWLIST, CLAIM_MODEL_PROVIDER_ALLOWLIST)')
     parser.add_argument('--nft-rules',type=Path,help='the rendered app-host rules (config/firewall/app-host.rules.nft)')
     parser.add_argument('--namespace',action='append',help='name=host[,host] the providers one egress namespace calls (agent, claim; default agent=DeepSeek, claim=DeepSeek+Ark)')
     parser.add_argument('--recall-quality',action='store_true',help='2026-10-19: vector recall coverage and semantic neighbours of one tenant (read-only metrics role, 0221)')
@@ -283,12 +283,12 @@ def main():
         from nexloop_eios.stage_render import load_env
         try:
             env=load_env(args.stage_env)
-            allowlist=provider_drift.parse_allowlist(env.get('MODEL_PROVIDER_ALLOWLIST',''))
+            allowlists=provider_drift.namespace_allowlists(env)
             namespaces={name:hosts for name,(_,hosts) in provider_drift.DEFAULT_NAMESPACES.items()}
             namespaces.update(dict(provider_drift.parse_namespace(n) for n in args.namespace or ()))
             cidrs={name:env.get(variable,'') for name,(variable,_) in provider_drift.DEFAULT_NAMESPACES.items()}
             nft=Path(args.nft_rules).read_text() if args.nft_rules else None
-            result=provider_drift.check(allowlist,namespaces,cidrs=cidrs,samples=args.samples,interval=args.interval,nft_text=nft)
+            result=provider_drift.check(allowlists,namespaces,cidrs=cidrs,samples=args.samples,interval=args.interval,nft_text=nft)
         except (OSError,ValueError):
             result={'checks':{'provider_drift_input':False},'details':{'provider_drift_error':'stage env, rules file or hosts unreadable or invalid'}}
         result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)

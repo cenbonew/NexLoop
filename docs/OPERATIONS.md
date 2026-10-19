@@ -247,6 +247,7 @@ Compose 的绑定挂载（`volumes:` 中 `<主机路径>:<容器路径>`）在�
 
 - **改规则**：
   1. 用私有 `stage.env` 与发布检出中的模板重新渲染，生成新的事务文件（旧文件先 `shred -u`）；
+     模型地址按命名空间写在 env 里（`MODEL_PROVIDER_ALLOWLIST` 给 agent，`CLAIM_MODEL_PROVIDER_ALLOWLIST` 给 claim），不要再在渲染好的规则里手工追加地址：下次重新渲染会丢；
   2. 执行 `sudo systemctl reload nexloop-nft`，原子地只替换这一张表；
   3. 核对：`sudo nft list table inet nexloop_stage` 中出现了新的规则。
 - **不要 `restart`**：`restart` 会先删表再加载，中间有一段没有隔离规则的窗口。也**不要**启用 `nftables.service`：它的默认配置以 `flush ruleset` 开头，会清掉 UFW 与 Docker 的规则。
@@ -261,7 +262,7 @@ Compose 的绑定挂载（`volumes:` 中 `<主机路径>:<容器路径>`）在�
 
 claim-extraction-worker、claim-matcher 与 recall-indexer（2026-10-18 起，调用 embedding）在自己的网络 `claim_egress` 上（子网 `CLAIM_EGRESS_CIDR`，compose 固定）。nft 对这个网段只放行三类目标：
 
-1. 模型 allowlist 的 443；
+1. 自己的模型 allowlist 的 443：`CLAIM_MODEL_PROVIDER_ALLOWLIST`（DeepSeek 与方舟 embedding；未设置时同 `MODEL_PROVIDER_ALLOWLIST`）。Agent Host 的出站规则只用 `MODEL_PROVIDER_ALLOWLIST`（只有 DeepSeek），所以方舟地址只写进前者；应用与 effect 网络对两者的并集一律 drop；
 2. DATA_HOST 的 PG；
 3. 其余一律 `ct state new drop`。
 
@@ -270,8 +271,8 @@ claim-extraction-worker、claim-matcher 与 recall-indexer（2026-10-18 起，�
 | 现象 | 先查什么 | 判读 |
 |---|---|---|
 | Claim 提取或匹配一直不前进，日志里是连接超时或 provider 不可用 | `sudo docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' nexloop-app_claim_egress` 是否等于 `CLAIM_EGRESS_CIDR`；`sudo nft list table inet nexloop_stage \| grep -c "ip saddr <CLAIM_EGRESS_CIDR>"` 是否为 3 | 子网不符：compose 与 env 不一致，按 run-42 §8 重建这两个服务。规则不足 3 条：重新渲染后 `reload nexloop-nft` |
-| 子网和规则都对，仍然连不上模型 | 模型域名当前解析到的地址，是否都在私有 env 的 `MODEL_PROVIDER_ALLOWLIST` 里 | 供应商地址变了：由负责人重新解析、更新 allowlist、重新渲染并 reload（B 类）。不要临时放开整段网段 |
-| 模型供应商地址漂移（只读，2026-10-19） | `nexloop-doctor --provider-drift --stage-env <私有 stage env> --nft-rules <root>/config/firewall/app-host.rules.nft`：报告供应商域名当前解析到、但不在 `MODEL_PROVIDER_ALLOWLIST` 的地址；并按命名空间核对渲染规则（agent 出站只调 DeepSeek，claim_egress 调 DeepSeek 与方舟，可用 `--namespace name=host,...` 调整）：每个命名空间恰好一条 443 规则、含其供应商当前的全部地址；定时示例 `deploy/stage/systemd/nexloop-provider-drift.{service,timer}.example`（漂移时 `journalctl -t nexloop-provider-drift` 一行，单元失败） | 不自动改防火墙：负责人确认后改 env、重新渲染并 `reload nexloop-nft` |
+| 子网和规则都对，仍然连不上模型 | 模型域名当前解析到的地址，是否都在私有 env 的对应白名单里（DeepSeek：`MODEL_PROVIDER_ALLOWLIST` 与 claim 的；方舟：只在 `CLAIM_MODEL_PROVIDER_ALLOWLIST`） | 供应商地址变了：由负责人重新解析、更新 allowlist、重新渲染并 reload（B 类）。不要临时放开整段网段 |
+| 模型供应商地址漂移（只读，2026-10-19） | `nexloop-doctor --provider-drift --stage-env <私有 stage env> --nft-rules <实际加载的规则文件，即 config/firewall/app-host.nft 里 include 的那个>`：报告供应商域名当前解析到、但不在 `MODEL_PROVIDER_ALLOWLIST` 的地址；并按命名空间核对渲染规则（agent 出站只调 DeepSeek，claim_egress 调 DeepSeek 与方舟，可用 `--namespace name=host,...` 调整）：每个命名空间恰好一条 443 规则、含其供应商当前的全部地址，且只用它自己的白名单（agent：`MODEL_PROVIDER_ALLOWLIST`；claim：`CLAIM_MODEL_PROVIDER_ALLOWLIST`，未设置时同前者）；定时示例 `deploy/stage/systemd/nexloop-provider-drift.{service,timer}.example`（漂移时 `journalctl -t nexloop-provider-drift` 一行，单元失败） | 不自动改防火墙：负责人确认后改 env、重新渲染并 `reload nexloop-nft` |
 | 能连模型，但模型返回鉴权错误 | 两个 worker 各自的 `model.env` 与模型凭据文件（只看是否存在、权限和属主，不看内容） | 凭据问题，按 deploy-days 执行单的“模型凭据写入”重新写入 |
 | 连不上 PG | 部署闸门；DATA_HOST 防火墙对 APP_HOST 的放行 | 与其他 worker 的 PG 故障相同 |
 | 想确认隔离是否完好 | 按 run-42 §3d 用一次性容器探测：模型与 PG 应通，Valkey、SSH、未列出的外网、API 都应不通 | 不通的变通了：最高优先级报负责人 |

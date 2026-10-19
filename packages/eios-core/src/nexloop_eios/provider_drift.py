@@ -1,11 +1,11 @@
 """Model provider address drift (owner 2026-10-19; v0.1 known risk "the model provider egress is a static IP allowlist").
 
-The model egress rules accept numeric addresses only (MODEL_PROVIDER_ALLOWLIST in the private stage env, rendered into the
-agent and claim egress rules of app-host.rules.nft). A provider host that starts resolving to an address outside that list
+The model egress rules accept numeric addresses only: MODEL_PROVIDER_ALLOWLIST in the private stage env for the agent egress
+rule and CLAIM_MODEL_PROVIDER_ALLOWLIST (default MODEL_PROVIDER_ALLOWLIST) for the claim egress rule of the rendered rules. A provider host that starts resolving to an address outside that list
 fails every connection by timeout. This check, read only, resolves each model endpoint host (IPv4, several samples: CDN answers
 rotate) and compares:
-- missing: an address a host resolves to that the allowlist lacks (connections to it time out) -> the check fails;
-- extra: an allowlisted address no host resolved to in this run (informational: it may be an earlier answer of a rotating CDN);
+- missing: an address a namespace's providers resolve to that its allowlist lacks (connections to it time out) -> the check fails;
+- extra: an allowlisted address none of the namespace's providers resolved to in this run (informational: CDN rotation);
 - the rendered rules, per namespace (agent egress: DeepSeek; claim egress: DeepSeek and the Ark embedding endpoint): exactly one
   443 egress rule from the namespace's source CIDR, carrying every address its own providers resolve to and nothing outside the
   allowlist (a missing rule, a rule rendered from an older env or for the wrong providers is a drift too); addresses a rule has
@@ -45,9 +45,17 @@ def rule_sets(nft_text):
 
 
 # PR #14 review: each model egress namespace has its own expected providers (stage: the Agent Host calls DeepSeek only; the claim
-# workers and the recall indexer also call the Ark embedding endpoint), keyed by the stage env variable of its source CIDR.
+# workers and the recall indexer also call the Ark embedding endpoint), keyed by the stage env variables of its source CIDR and
+# of its own allowlist (2026-10-19: CLAIM_MODEL_PROVIDER_ALLOWLIST, default MODEL_PROVIDER_ALLOWLIST, as render.py renders it).
 DEFAULT_NAMESPACES = {'agent': ('AGENT_EGRESS_CIDR', ('api.deepseek.com',)),
                       'claim': ('CLAIM_EGRESS_CIDR', ('api.deepseek.com', 'ark.cn-beijing.volces.com'))}
+ALLOWLIST_VARIABLES = {'agent': 'MODEL_PROVIDER_ALLOWLIST', 'claim': 'CLAIM_MODEL_PROVIDER_ALLOWLIST'}
+
+
+def namespace_allowlists(env):
+    """name -> its allowlist (set) from the stage env, as stage_render.derived renders the rules."""
+    base = parse_allowlist(env.get('MODEL_PROVIDER_ALLOWLIST', ''))
+    return {'agent': base, 'claim': parse_allowlist(env.get('CLAIM_MODEL_PROVIDER_ALLOWLIST') or env.get('MODEL_PROVIDER_ALLOWLIST', ''))}
 
 
 def parse_namespace(text):
@@ -59,14 +67,15 @@ def parse_namespace(text):
     return name, hosts
 
 
-def check(allowlist, namespaces, *, cidrs, resolver=system_resolver, samples=1, interval=0.0, sleep=time.sleep, nft_text=None):
+def check(allowlists, namespaces, *, cidrs, resolver=system_resolver, samples=1, interval=0.0, sleep=time.sleep, nft_text=None):
     """{checks, details} for doctor.
-    allowlist: the env's MODEL_PROVIDER_ALLOWLIST (set); namespaces: name -> provider hosts; cidrs: name -> its source CIDR (from
-    the stage env); nft_text: the rendered rules (optional). Every resolved address must be in the allowlist; with the rules, each
-    namespace must have exactly one 443 egress rule from its CIDR that carries every address its own hosts resolve to."""
+    allowlists: name -> that namespace's allowlist from the env (set); namespaces: name -> provider hosts; cidrs: name -> its source
+    CIDR (from the stage env); nft_text: the rendered rules (optional). Every address a namespace's providers resolve to must be in
+    its own allowlist; with the rules, each namespace must have exactly one 443 egress rule from its CIDR carrying every such address
+    and nothing outside its own allowlist."""
     hosts = tuple(sorted({h for hs in namespaces.values() for h in hs}))
     if (not namespaces or set(namespaces) - set(DEFAULT_NAMESPACES) or not hosts or any(not _HOST.fullmatch(h) for h in hosts)
-            or not 1 <= samples <= 20 or not 0 <= interval <= 300 or set(namespaces) - set(cidrs)):
+            or not 1 <= samples <= 20 or not 0 <= interval <= 300 or set(namespaces) - set(cidrs) or set(namespaces) - set(allowlists)):
         raise ValueError('provider drift input invalid')
     resolved = {h: set() for h in hosts}
     for n in range(samples):
@@ -75,11 +84,14 @@ def check(allowlist, namespaces, *, cidrs, resolver=system_resolver, samples=1, 
         for host in hosts:
             resolved[host] |= set(resolver(host))
     key = ipaddress.IPv4Address
-    seen = set().union(*resolved.values())
-    missing = sorted(seen - allowlist, key=key)
-    details = {'hosts': {h: {'resolved': sorted(a, key=key), 'missing': sorted(a - allowlist, key=key)} for h, a in resolved.items()},
-               'missing': missing, 'extra': sorted(allowlist - seen, key=key),
-               'unresolved_hosts': [h for h, a in resolved.items() if not a], 'samples': samples}
+    per_allowlist = {}
+    for name, names in sorted(namespaces.items()):
+        expected = set().union(*(resolved[h] for h in names))
+        per_allowlist[name] = {'variable': ALLOWLIST_VARIABLES[name], 'missing': sorted(expected - allowlists[name], key=key),
+                               'extra': sorted(allowlists[name] - expected, key=key)}
+    missing = sorted({a for v in per_allowlist.values() for a in v['missing']}, key=key)
+    details = {'hosts': {h: {'resolved': sorted(a, key=key)} for h, a in resolved.items()}, 'allowlists': per_allowlist,
+               'missing': missing, 'unresolved_hosts': [h for h, a in resolved.items() if not a], 'samples': samples}
     checks = {'provider_hosts_resolve': not details['unresolved_hosts'], 'provider_addresses_allowed': not missing}
     if nft_text is not None:
         found = {}
@@ -92,7 +104,7 @@ def check(allowlist, namespaces, *, cidrs, resolver=system_resolver, samples=1, 
             addresses = rules[0] if len(rules) == 1 else set()
             per[name] = {'cidr': cidrs[name], 'rules': len(rules), 'providers': list(names),
                          'missing': sorted(expected - addresses, key=key), 'extra': sorted(addresses - expected, key=key),
-                         'outside_allowlist': sorted(addresses - allowlist, key=key)}
+                         'outside_allowlist': sorted(addresses - allowlists[name], key=key)}
         details['nft_rules'] = per
         checks['nft_rules_complete'] = all(v['rules'] == 1 and not v['missing'] and not v['outside_allowlist'] for v in per.values())
     return {'checks': checks, 'details': details}
