@@ -57,6 +57,7 @@ scripts/dev/restore_drill.sh 2>&1 | tee /tmp/nx-drill-source.log
 ```
 
 - **日志先放在演练目录之外**：脚本要求 `.dev-drill/` 事先不存在，所以源端的启动日志先 tee 到 `/tmp/nx-drill-source.log`。出现 `source ready` 之后，在窗口 B 执行 `mkdir -m 700 .dev-drill/logs && cp /tmp/nx-drill-source.log .dev-drill/logs/01-source.out`；之后各步的输出直接 tee 到 `.dev-drill/logs/`。
+- **要在前台从终端启动**：如果源端是用 `nohup` 或 `… &` 后台方式启动的，SIGINT 和 SIGHUP 在进程启动时就被继承为“忽略”。非交互 shell 无法对已被忽略的信号设置 trap，所以之后的 Ctrl-C 或挂断都会被吞掉，源端不会停止。这种情况下用 `scripts/dev/restore_drill.sh --stop` 停止（§9 第 2 步）。
 - **预期**：输出 `restore drill: source ready`，以及 `API: https://127.0.0.1:8753`。
 - **它做了什么**：
   - 用测试夹具建一个 WAL 归档的临时 PG 18，执行 bootstrap，建一个 `world=test` 的合成租户；
@@ -263,7 +264,7 @@ $V/nexloop-restore --source basebackup --base-backup $D/base --wal-archive $ARC 
 
 顺序不能颠倒：**先停源端 → 核对 PG 已退出 → 复制日志与证据 → 最后删除 `.dev-drill`**。`stack.json` 和 `pg-root` 都在 `.dev-drill` 里，删早了就无法核对源端的 PG 是否已经停止。
 
-1. **停源端**：在窗口 A 按 Ctrl-C。脚本会停止 API 和源端 PG，并删除集群的临时目录。
+1. **停源端**：在窗口 A 按 Ctrl-C。脚本会停止 API 和源端 PG，并删除集群的临时目录。如果源端是用 `nohup` 或后台方式启动的，Ctrl-C 和挂断会被继承的忽略设置吞掉（§1），直接执行第 2 步的 `scripts/dev/restore_drill.sh --stop`。
 2. **核对 PG 已退出**（窗口 B）：
 
    ```bash
