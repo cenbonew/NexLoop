@@ -29,6 +29,7 @@
 ### 0.1 参数从哪里来
 
 - `$CI_BUILD_ROOT`、`$CI_QUEUE`、`$TRUSTED_REPO`、`$CI_TRUSTED` 这四个变量都不是秘密，由**环境准备**写进 `nexloop-ci` 的登录环境：以 `bash -lc` 或登录 shell 进入 `nexloop-ci` 时就会导出。执行人不需要读任何私有材料，也不需要自己设置。
+- 同一个登录环境还会加载 `nexloop-ci` 自己的工具链设置：`UV_CACHE_DIR`（uv 离线缓存）、pnpm store 的位置、`DOCKER_HOST`（rootless docker）、Node 的 `PATH` 和 `LC_ALL`。没有加载时，§2 第 4 步的离线安装会因为缓存为空而失败。只核对这些变量是否有值，不要打印它们的值。
 - `$SHA` 由环境准备方给出，例如写进演练入口单的执行记录。
 - `$RELEASE_ROOT`、`$RELEASE_SIGNING_KEY` 属于 `nexloop-release`，`nexloop-ci` 读不到；演练中按入口单的替换表改用演练目录里的临时值。
 
@@ -129,6 +130,10 @@ git -C "$TRUSTED_REPO" merge-base --is-ancestor "$SHA" refs/heads/main && echo o
 | 17 | nexloop-ci | `rm -rf "$HANDOFF_ROOT/releases/$RID"`、`git -C "$TRUSTED_REPO" worktree remove "$CI_BUILD_ROOT/checkout-$SHA"`；按标签删除本次构建的 `nexloop/*:<RID>` 镜像标签 | — | 只删本次创建的，按标签前缀判断 |
 
 **说明**：
+- **第 4 步 `pnpm install --frozen-lockfile --offline` 的预期警告**：退出码为 0 时，下面两类警告属于预期，可以继续。2026-10-19 在开发机上用同一个锁文件离线安装复现过，退出码 0，警告内容相同。
+  - `Failed to create bin at …/node_modules/.bin/pi-ai … ENOENT … vendor/pi/packages/ai/dist/cli.js`（每个依赖 pi-ai 的包一条，共 4 条）：pi-ai 的 `bin` 指向构建产物 `dist/cli.js`，安装时它还不存在；第 7 步 `release.py build` 准备 Host 构建上下文时会先执行 `pnpm build:pi`，生成它。
+  - `Ignored build scripts: @google/genai, protobufjs`：`pnpm-workspace.yaml` 的 `onlyBuiltDependencies` 只允许 `esbuild` 执行安装脚本，其他依赖的安装脚本一律不执行。这是有意的供应链策略，Host 不依赖这两个脚本的产物。
+  - 出现其他警告，或退出码不为 0，就停止，记为偏差。
 - 第 14–16 步的 `python3` 只用标准库和 `ssh-keygen`，不需要依赖环境。`nexloop-release` 不需要 uv 或 node。
 - **记录证据**：第 7、8、9、14、15、16 步的 JSON 输出与 `$RID`、`$SHA` 一起存入私有证据目录，然后回填 planning 证据（由调度员执行）。
 
