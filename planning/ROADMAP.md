@@ -47,7 +47,7 @@ v0.1 完成定义（14 §6）逐条对照：
 | 口径 | 数值 |
 |---|---|
 | 任务 | 41 done / 6 in_progress / 6 not_started，共 53。in_progress 的是 S5 的 NX-032–037；not_started 的是 S6/S7 |
-| 验收 | planning 中 67 passed / 5 not_run，共 72；AT-053 登记后为 68 passed / 4 not_run。剩下 4 项是 S6/S7 的 AT-023、024、046、048，不属于 v0.1 |
+| 验收 | planning 中 68 passed / 4 not_run，共 72（AT-053 于 2026-10-20 登记）。剩下 4 项是 S6/S7 的 AT-023、024、046、048，不属于 v0.1 |
 | 阶段出口 | S4：5 条全部满足；S5：5 条中 2 条满足、3 条部分满足（见 §3） |
 
 ## 3. 阶段出口对照
