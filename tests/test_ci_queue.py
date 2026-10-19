@@ -401,3 +401,108 @@ def test_a_merge_between_reading_and_pushing_main_is_the_next_rounds(lab, tmp_pa
     assert run('git', '-C', str(lab['bare']), 'rev-parse', 'main').stdout.strip() == merged
     state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
     assert state['last_synced'] == merged == _remote_ref(github, 'refs/heads/main') and state['backlog'] == 0
+
+
+# Owner 2026-10-20 (v0.1.0): the owner signs the release tag on their own machine and pushes it to the LAN repository as the
+# maintainer; the sync pushes it to GitHub. pre-receive and sync both check it against the owner's allowed signers file.
+def _owner_key(tmp_path):
+    key = tmp_path / 'owner-key'
+    run('ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', 'synthetic-owner', '-f', str(key))
+    signers = tmp_path / 'allowed_signers'
+    signers.write_text('synthetic@example.invalid ' + (tmp_path / 'owner-key.pub').read_text())
+    return key, signers
+
+
+def _with_signers(lab, signers):
+    """The lab's pre-receive hook with --tag-signers, as deploy/stage/ci/pre-receive.example installs it."""
+    hook = lab['bare'] / 'hooks' / 'pre-receive'
+    hook.write_text(hook.read_text().rstrip('\n') + f' --tag-signers {signers}\n')
+
+
+def _tag(lab, name, sha, key=None, annotated=True, message='release'):
+    work = lab['work']
+    signing = ['-c', 'gpg.format=ssh', '-c', f'user.signingkey={key}'] if key else []
+    flags = ['-s'] if key else (['-a'] if annotated else [])
+    run('git', *signing, 'tag', '-f', *flags, *(['-m', message] if (key or annotated) else []), name, sha, cwd=work)
+    return run('git', 'rev-parse', f'refs/tags/{name}', cwd=work).stdout.strip()
+
+
+def test_the_owner_creates_a_signed_release_tag_and_nothing_else_passes(lab, tmp_path):
+    c, push = lab['commit'], lab['push']
+    key, signers = _owner_key(tmp_path)
+    _with_signers(lab, signers)
+    (tmp_path / 'other').mkdir()
+    other_key, _ = _owner_key(tmp_path / 'other')
+    side = c('not merged', {'side.txt': 's'}, parent=lab['base'])
+    refused = {
+        'developer': ('line-a', _tag(lab, 'v0.1.0', lab['base'], key), 'refs/tags/v0.1.0'),
+        'integrator': ('integrator-a', _tag(lab, 'v0.1.0', lab['base'], key), 'refs/tags/v0.1.0'),
+        'lightweight': ('maintainer-a', _tag(lab, 'v0.1.0', lab['base'], annotated=False), 'refs/tags/v0.1.0'),
+        'unsigned': ('maintainer-a', _tag(lab, 'v0.1.0', lab['base']), 'refs/tags/v0.1.0'),
+        'another signer': ('maintainer-a', _tag(lab, 'v0.1.0', lab['base'], other_key), 'refs/tags/v0.1.0'),
+        'not on main': ('maintainer-a', _tag(lab, 'v0.1.0', side, key), 'refs/tags/v0.1.0'),
+        'name mismatch': ('maintainer-a', _tag(lab, 'v0.0.9', lab['base'], key), 'refs/tags/v0.1.0'),
+        'not a version': ('maintainer-a', _tag(lab, 'v0.1', lab['base'], key), 'refs/tags/v0.1'),
+    }
+    for case, (identity, obj, ref) in refused.items():
+        result = push(identity, f'{obj}:{ref}')
+        assert result.returncode != 0, case
+    assert run('git', '-C', str(lab['bare']), 'tag', '-l', cwd=None).stdout == ''
+    signed = _tag(lab, 'v0.1.0', lab['base'], key)
+    accepted = push('maintainer-a', f'{signed}:refs/tags/v0.1.0')
+    assert accepted.returncode == 0, accepted.stderr
+    assert run('git', '-C', str(lab['bare']), 'rev-parse', 'refs/tags/v0.1.0').stdout.strip() == signed
+    # Never moved, never deleted (even signed, even by the owner); an rc tag is a version too.
+    moved = _tag(lab, 'v0.1.0', lab['base'], key, message='again')
+    assert push('maintainer-a', f'{moved}:refs/tags/v0.1.0', force=True).returncode != 0
+    assert push('maintainer-a', ':refs/tags/v0.1.0').returncode != 0
+    assert push('maintainer-a', f"{_tag(lab, 'v0.1.1-rc.1', lab['base'], key)}:refs/tags/v0.1.1-rc.1").returncode == 0
+    # Without the allowed signers file, no maintainer tag (fail closed).
+    hook = lab['bare'] / 'hooks' / 'pre-receive'
+    hook.write_text(hook.read_text().replace(f' --tag-signers {signers}', ''))
+    assert push('maintainer-a', f"{_tag(lab, 'v0.1.2', lab['base'], key)}:refs/tags/v0.1.2").returncode != 0
+    assert ci.version_tag_problem(lab['bare'], signed, 'v0.1.0', None) == 'tag_signers_missing'
+
+
+def test_the_sync_pushes_each_verified_release_tag_by_its_own_refspec_create_only(lab, tmp_path, monkeypatch):
+    c, push = lab['commit'], lab['push']
+    key, signers = _owner_key(tmp_path)
+    _with_signers(lab, signers)
+    github = _github(lab, tmp_path)
+    signed = _tag(lab, 'v0.1.0', lab['base'], key)
+    assert push('maintainer-a', f'{signed}:refs/tags/v0.1.0').returncode == 0
+    commands = []
+    real = ci.subprocess.run
+
+    def spy(argv, *a, **kw):
+        if 'push' in argv:
+            commands.append(list(argv))
+        return real(argv, *a, **kw)
+    monkeypatch.setattr(ci.subprocess, 'run', spy)
+    # Without --tag-signers the sync pushes no tag (as before).
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    assert 'tags' not in state and _remote_ref(github, 'refs/tags/v0.1.0') is None
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=signers)
+    assert state['tags'] == {'v0.1.0': {'status': 'synced', 'object': signed, 'synced_at': state['tags']['v0.1.0']['synced_at']}}
+    assert _remote_ref(github, 'refs/tags/v0.1.0') == signed
+    # Explicit refspecs only: never --tags, --force, --mirror, --all, never a deletion.
+    flat = [a for cmd in commands for a in cmd]
+    assert not {'--tags', '--force', '-f', '--mirror', '--all', '--delete', '--prune'} & set(flat)
+    assert f'{signed}:refs/tags/v0.1.0' in flat and all(not a.startswith('+') and not a.startswith(':') for a in flat if ':' in a and 'refs/' in a)
+    # Already synced: not pushed again. A GitHub tag with another object: that tag's sync_refused, never forced.
+    before = len(commands)
+    ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=signers)
+    assert not any('refs/tags/v0.1.0' in ' '.join(cmd) for cmd in commands[before:])
+    rc = _tag(lab, 'v0.2.0-rc.1', lab['base'], key)
+    assert push('maintainer-a', f'{rc}:refs/tags/v0.2.0-rc.1').returncode == 0
+    run('git', '-C', str(github), 'tag', '-a', '-m', 'someone else', 'v0.2.0-rc.1', lab['base'])
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=signers)
+    assert state['tags']['v0.2.0-rc.1']['status'] == 'sync_refused' and _remote_ref(github, 'refs/tags/v0.2.0-rc.1') != rc
+    assert ci.status(lab['queue'])['sync']['github']['tags_not_synced'] == ['v0.2.0-rc.1']
+    # A tag in the LAN repository that does not verify (e.g. the signers file was replaced) is held, not pushed.
+    (tmp_path / 'third').mkdir()
+    _, third = _owner_key(tmp_path / 'third')
+    run('git', '-C', str(github), 'tag', '-d', 'v0.2.0-rc.1')
+    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=third)
+    assert state['tags']['v0.2.0-rc.1'] == {'status': 'tag_unverified', 'reason': 'tag_signature_invalid', 'object': rc}
+    assert _remote_ref(github, 'refs/tags/v0.2.0-rc.1') is None

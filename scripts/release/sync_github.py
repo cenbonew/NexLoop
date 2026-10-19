@@ -10,7 +10,7 @@ refused. Before anything is pushed, all gates run on the outgoing range <last sy
   3. scripts/check_publication.py --tree main: no private path, private address, private key or credential in the tree;
   4. scripts/ci/prepush-scan.sh main <last synced> in a temporary worktree of main, with the private restricted-identifier
      list (a missing list fails closed);
-  5. each tag: vMAJOR.MINOR.PATCH, annotated, points into main, and its SSH signature verifies against the owner's allowed
+  5. each tag: vMAJOR.MINOR.PATCH (optionally -rc.N), annotated, points into main, and its SSH signature verifies against the owner's allowed
      signers file (`git verify-tag`).
 
 A failed gate is `sync_blocked` with a code only (never scan content) and nothing is pushed; it is not retried until a
@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/ci'))
 import nexloop_ci as ci  # noqa: E402
 
-_TAG = re.compile(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)')
+_TAG = ci._VERSION_TAG  # vMAJOR.MINOR.PATCH, optionally -rc.N (owner 2026-10-20: the same rule as the LAN pre-receive)
 _SHA = re.compile(r'[0-9a-f]{40}')
 _REMOTE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
 
