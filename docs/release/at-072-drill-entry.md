@@ -1,7 +1,9 @@
 # AT-072 演练入口单：只按公开文档完成一次“发布 + 恢复”
 
 - **验收项**：AT-072（第二维护者演练）。负责人本人执行，只读本仓库的公开文档。
-- **时间**：2026-10-19（周一）17:00 之后。
+- **时间**：
+  - 历史预约：2026-10-19（周一）17:00 之后（负责人 2026-10-18 的安排）；
+  - 实际执行窗口：由负责人另行指定，以演练记录中的开始与结束时间为准。
 - **本单的作用**：给出从哪份文档开始、按什么顺序读；说明一次性环境的边界；提供偏差记录模板，以及演练期间的沟通规则。本单不替代任何手册，手册里写不清的地方照实记成偏差。
 - **桌面推演**：L5 于 2026-10-18 按本单顺序走了一遍。恢复链路（备份 → 恢复 → 重放 → 校验 → 开放）在开发机上按 [本机恢复演练手册](at-072-local-restore-drill.md) 实测通过；发布链路只做了文档推演，加上 `render.py --check` 一项实测。发现的断点和处理见 §5。
 
@@ -17,7 +19,7 @@
 | 部分 | 环境 | 允许 | 不允许 |
 |---|---|---|---|
 | 恢复 | **Mac 本地临时 PG 18**：`scripts/dev/restore_drill.sh` 建的归档集群与回环 API，加上 `.dev-drill/` 里的备份、日志和恢复出来的实例 | 合成租户、合成账号；本机 socket 与 127.0.0.1；在恢复出来的一次性实例上轮换 API 角色的口令并开放；用完删除 | 连接 stage 的 DATA_HOST 或 APP_HOST；使用 pgBackRest 仓库或 restic 仓库的真实口令 |
-| 发布 | **CI 主机上 `nexloop-ci` 的可用范围**：它自己的构建工作区（`$CI_BUILD_ROOT`）、rootless docker（containerd 存储，linux/amd64）、syft/grype，以及 NX-033 的 CI 队列 | 在构建工作区里新建一个演练目录，放一次性的发布根和临时签名密钥；演练结束后删除 | 使用 `nexloop-release` 用户、`/srv/nexloop/releases` 或正式发布签名私钥；`deploy.py promote`；任何 `docker compose up`；向 stage 拷贝产物 |
+| 发布 | **CI 主机上 `nexloop-ci` 的可用范围**：它自己的构建工作区（`$CI_BUILD_ROOT`）、rootless docker（containerd 存储，linux/amd64）、syft/grype，以及 NX-033 的 CI 队列 | 在构建工作区里新建一个演练目录，放一次性的发布根和临时签名密钥；演练结束后删除 | 使用 `nexloop-release` 用户、正式发布归档根或正式发布签名私钥；`deploy.py promote`；任何 `docker compose up`；向 stage 拷贝产物 |
 | 部署 dry-run | 同上，`nexloop-ci` 账户 | `deploy.py dry-run` 只渲染、只核对，`executed: false` | 读取真实的 stage.env；连接 stage |
 
 - **不碰 stage**：演练中的任何一步都不连接 APP_HOST 或 DATA_HOST，也不读取它们的私有文件。
@@ -25,7 +27,8 @@
 
 ### 2.1 演练前由调度员准备（属于环境准备，不属于口头补充）
 
-- 确认 `$SHA`：选 main 上一个已经通过 CI 的提交，也就是 `nexloop_ci.py result` 返回 `passed`，并写进本单的执行记录。
+- 在 `nexloop-ci` 的登录环境（`bash -lc` 或登录 shell）里导出四个非秘密变量：`CI_BUILD_ROOT`、`CI_QUEUE`、`TRUSTED_REPO`、`CI_TRUSTED`。CI 工具的入口是 `python3 "$CI_TRUSTED/scripts/ci/nexloop_ci.py"`。演练前用 [运行手册 §0.1](../implementation/NX-034-first-release-runbook.md#01-参数从哪里来) 的只读核对命令验证。**这属于环境准备**：执行人只读取这些变量，不需要读任何私有材料。
+- 确认 `$SHA`：选 main 上一个已经通过 CI 的提交，也就是 `python3 "$CI_TRUSTED/scripts/ci/nexloop_ci.py" result --queue "$CI_QUEUE" --sha <SHA>` 返回 `passed`，并写进本单的执行记录。
 - 确认 `nexloop-ci` 能读到受信仓库 `$TRUSTED_REPO`，并且基础镜像已经按 digest 预载（first-release 运行手册 §2 第 6 步）。
   - 这两项如果需要主机配置变更，要在演练开始之前由负责人完成；演练开始后不再处理。
 - Mac 上已有 PostgreSQL 18 与仓库的 `.venv`（`uv sync --frozen`）。
@@ -37,10 +40,10 @@
 | 顺序 | 文档 | 读什么 | 演练中的做法 |
 |---|---|---|---|
 | 1 | [OPERATIONS.md](../OPERATIONS.md) §6 | 发布工具的全貌与各文档入口 | 只读 |
-| 2 | [NX-034 首个签名发布运行手册](../implementation/NX-034-first-release-runbook.md) §0、§1 | 参数表与方案 A | 按 §3.3 的替换表理解参数 |
-| 3 | 同上 §2 第 1–9 步 | 核对 CI、干净检出、离线依赖、平台、基础镜像、`build`、`sbom`、`preflight --category stage` | `--release-root` 用演练发布根 |
+| 2 | [NX-034 首个签名发布运行手册](../implementation/NX-034-first-release-runbook.md) §0、§0.1、§1 | 参数表、参数来源与开工前核对、方案 A | 先执行 §0.1 的只读核对，任一项不符就记“阻断”并停止；再按 §3.3 的替换表设好 `DRILL_ROOT` 等参数 |
+| 3 | 同上 §2 第 1–9 步 | 核对 CI、干净检出、离线依赖、平台、基础镜像、`build`、`sbom`、`preflight --category stage` | 第 3 步的检出放在 `$DRILL_ROOT/checkout`；`--release-root` 用 `$DRILL_ROOT/releases-root` |
 | 4 | 同上 §2 第 12–16 步 | 独立核对、签名、封存、`archive.py check`（验签） | 由 `nexloop-ci` 执行，密钥与 allowed_signers 用临时的；第 10、11 步的移交与拷贝不做 |
-| 5 | 同上 §4 | dry-run 所需的私有文件与命令 | 只做第 1、2、4 步；第 5 步 `load-check` 可选 |
+| 5 | 同上 §4 与 §4.1 | dry-run 所需的文件与命令 | 第 1、2 步：`--out` 用 `$DRILL_ROOT/plans/app`、`$DRILL_ROOT/plans/data`；第 3、4 步按 §4.1 从公开示例构造非秘密 env 后执行，账户上没有 `docker compose` 时第 4 步记 `not_run`；第 5 步 `load-check` 可选。**演练自己从公开示例生成的文件可以读写，禁止读取的只是事先存在的私有 env** |
 | 6 | 同上 §2 第 17 步 | 清理 | 另外删除演练目录 |
 
 背景资料（遇到问题时查阅）：[NX-034 第二部分实现说明](../implementation/NX-034-part2-implementation.md)、[NX-034 本地演练](../implementation/NX-034-local-dry-run.md)（其中有临时测试密钥的生成方式）。
@@ -60,16 +63,31 @@
 
 ### 3.3 发布手册参数在演练中的替换
 
-| 手册参数 | 演练取值 |
+先定一个演练目录，之后所有演练文件都放在它下面：
+
+```bash
+DRILL_ROOT="$CI_BUILD_ROOT/<演练目录名>"   # 目录名由执行人自定，例如带日期；不能已存在
+```
+
+```bash
+install -d -m 700 "$DRILL_ROOT" "$DRILL_ROOT/plans" "$DRILL_ROOT/logs"
+```
+
+| 手册参数 | 演练取值（都是 `$DRILL_ROOT` 下的相对路径） |
 |---|---|
-| `$RELEASE_ROOT` | `$CI_BUILD_ROOT/at072/releases-root`，由 `nexloop-ci` 新建，0700 |
+| 检出（§2 第 3 步） | `$DRILL_ROOT/checkout` |
+| `$RELEASE_ROOT` | `$DRILL_ROOT/releases-root`，由 `nexloop-ci` 新建，0700 |
 | `$HANDOFF_ROOT` | 不用。`build` 直接写入演练发布根 |
-| `$RELEASE_SIGNING_KEY` | 在演练目录内新生成的 ed25519 临时密钥：`ssh-keygen -t ed25519 -N '' -C at072-drill -f <演练目录>/drill-key` |
-| `$ALLOWED_SIGNERS` | 由临时公钥生成的一行：`nexloop-release namespaces="nexloop-release" <公钥类型> <公钥>` |
-| `$PRIVATE_STAGE_ENV` | `install -m 600 deploy/stage/stage.env.example <演练目录>/stage.env`，即示例中的文档值（2026-10-18 实测 `render.py --check` 结果为 `valid: true`） |
+| `$RELEASE_SIGNING_KEY` | `$DRILL_ROOT/drill-key`，新生成的 ed25519 临时密钥：`ssh-keygen -t ed25519 -N '' -C drill-release -f "$DRILL_ROOT/drill-key"` |
+| `$ALLOWED_SIGNERS` | `$DRILL_ROOT/allowed_signers`，由临时公钥生成一行：`nexloop-release namespaces="nexloop-release" <公钥类型> <公钥>` |
+| `$PRIVATE_STAGE_ENV` | `$DRILL_ROOT/stage.env`：`install -m 600 deploy/stage/stage.env.example "$DRILL_ROOT/stage.env"`，即示例中的文档值（2026-10-18 实测 `render.py --check` 结果为 `valid: true`） |
+| `$PLAN_DIR_APP` / `$PLAN_DIR_DATA` | `$DRILL_ROOT/plans/app`、`$DRILL_ROOT/plans/data`（不能已存在，由 dry-run 新建） |
+| `$PRIVATE_COMPOSE_APP_ENV` / `$PRIVATE_COMPOSE_DATA_ENV` | `$DRILL_ROOT/compose.app.env`、`$DRILL_ROOT/compose.data.env`，按运行手册 §4.1 从公开示例构造 |
 | `$RELEASE_COMMIT` | 演练发布的 `manifest.json` 中的 `commit` |
 
 ## 4. 偏差记录模板
+
+**原始输出**：每一步的原始 stdout 都用 `tee` 存成演练目录里的文件，例如 `<命令> 2>&1 | tee "$DRILL_ROOT/logs/<步号>-<短名>.out"`；恢复部分存在 `.dev-drill/logs/` 下（先 `mkdir -m 700 .dev-drill/logs`）。报告与偏差表只引用这些文件名，不靠事后回忆或终端回滚。2026-10-19 的演练中，有一段输出因为执行工具故障丢失了。
 
 每发现一处就记一行，当场记。“实际怎么做的”要写到能复现的程度，包括命令和输出的关键字段；不要写口令、地址或主机名。
 
@@ -81,7 +99,8 @@
 
 - 演练开始与结束时间；
 - 发布部分用到的 `$SHA` 与 `$RID`；
-- 恢复的 RTO，即从第 9 步开始到出现 `verified_readonly`；
+- 恢复的 RTO：从 [本机恢复演练手册](at-072-local-restore-drill.md) §5 的恢复命令开始执行，到它输出 `verified_readonly` 为止，用外层墙钟计时（例如在命令前后各记一次 `date -u +%FT%TZ`，或用 `time`）。
+  - 工具报告里的 `rto_seconds` 是恢复工具自己记录的，从它开始恢复算到 `verified_readonly`，不含命令启动前的准备和工具外的等待，所以通常比外层墙钟时间短。两者都记，标明各自的来源；
 - 每份 JSON 输出的关键字段：`ok`、`passed`、`state`、`ready`、`refused`。
 
 ## 5. 桌面推演发现的断点（2026-10-18，L5）

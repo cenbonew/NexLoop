@@ -17,6 +17,13 @@ make build-release SHA=<sha>    # build → sbom → preflight stage → sign �
   - Docker 使用 containerd 镜像存储（见 §2）。
   - 任一不满足都拒绝。
 - **镜像清单** `deploy/release/images.v1.json`：
+  > **历史记录**：下面三行是本节写作时（2026-10-11）的清单。**现行清单以 `deploy/release/images.v1.json` 和 `release.py` 为准**，共 4 个产物镜像，全部是 `build` 类：
+  > - `backend`：基础镜像 `python-build-base`；
+  > - `agent-host`：基础镜像 `python-build-base`、`node-host-base`；
+  > - `gateway`：发布 17 起从源码重编，最终阶段 `gateway`（锁定的 caddy 镜像），构建阶段 `go-build-base`；
+  > - `postgres`：基础镜像 `postgres`（pgvector 与 pgBackRest，NX-035）。
+  >
+  > 基础镜像都在 `versions.lock.json` 的 `images` 中按 digest 锁定；`valkey` 不进发布，按 lock 中的 digest 直接使用。
   - `backend`：API、后台、Web 静态资源，构建上下文由 `prepare_community_build.py` 准备；
   - `agent-host`：构建上下文由 `prepare_host_build.py` 准备；
   - `gateway`：`upstream` 类，按 digest 固定的第三方镜像，本地已有时重新打标签，从不按标签拉取。
@@ -30,7 +37,7 @@ make build-release SHA=<sha>    # build → sbom → preflight stage → sign �
   - 发布目录 `<RELEASE_ROOT>/releases/<release_id>/`，清单 `manifest_version` 为 2；
   - `images[]` 新增 `reference = nexloop/<name>@<digest>`，与 NX-032 dry-run 渲染的引用一致；
   - 构建暂存目录在 `.ci-results/release-build/` 下（已被 git 忽略），结束后删除。
-- **当前状态**：`versions.lock.json` 中 `gateway` 尚无 digest，构建 gateway 会拒绝（`gateway: not pinned`）。在固定 digest 之前，可用 `--only backend --only agent-host` 构建另外两个镜像；但 NX-032 dry-run 默认需要 gateway 镜像。之后的处置：stage 预检 `images_pinned` 在 gateway 未固定时失败；在 CI 主机上用 `release.py pin-upstream` 回填 linux/amd64 镜像 digest；发布构建只在 linux/amd64 daemon 上进行，并且不带 attestation（见 `NX-034-local-dry-run.md` §6）。
+- **当时的状态（历史记录，已过时；gateway 已固定，现为 build 类）**：`versions.lock.json` 中 `gateway` 尚无 digest，构建 gateway 会拒绝（`gateway: not pinned`）。在固定 digest 之前，可用 `--only backend --only agent-host` 构建另外两个镜像；但 NX-032 dry-run 默认需要 gateway 镜像。之后的处置：stage 预检 `images_pinned` 在 gateway 未固定时失败；在 CI 主机上用 `release.py pin-upstream` 回填 linux/amd64 镜像 digest；发布构建只在 linux/amd64 daemon 上进行，并且不带 attestation（见 `NX-034-local-dry-run.md` §6）。
 
 ## 2. `docker load` 之后的引用与标签规则
 
@@ -132,7 +139,7 @@ make build-release SHA=<sha>    # build → sbom → preflight stage → sign �
 ## 7. 未做与待确认
 
 - 真实镜像构建，以及 containerd 存储下 save/load 的实际行为，由调度员在 CI 主机上首次构建时核对（见 §2）。
-- `versions.lock.json` 中 gateway 的 digest（以及 backend、agent-host、web 的“unresolved”状态说明），在首次真实构建后更新。
+- （历史记录，已完成）`versions.lock.json` 中 gateway 的 digest（以及 backend、agent-host、web 的“unresolved”状态说明），在首次真实构建后更新。现行镜像清单见 §1 的说明。
 - 部署工具（NX-032）切换 `current` 和调用 `record-deployment`、`load-check` 的接线，在 NX-032 合入后进行。
 - 同步积压告警（NX-030）、合并后自动触发同步（D4）、负责人签名公钥文件入库：都属于部署或负责人事项。
 
