@@ -1120,6 +1120,11 @@
       "version": "0242",
       "name": "0242_workbench_member_read_operations.sql",
       "sha256": "d1883eb203ef38feb2551e63e462e9054bf9522c7561b240a82029fb4795480e"
+    },
+    {
+      "version": "0243",
+      "name": "0243_data_assets_metrics.sql",
+      "sha256": "e2a25a27c6691547bef0d4871b11b11ae1f5b0ee077c91a074139fbd333ecc8e"
     }
   ]
 }
