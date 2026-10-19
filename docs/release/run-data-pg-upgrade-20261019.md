@@ -13,6 +13,20 @@
 | `PG_DB` | 业务数据库名 |
 | `PG_ARCHIVE` | 清单中 postgres 镜像的归档文件名（`images[].archive`） |
 | `NEW_DIGEST` / `OLD_DIGEST` | 新旧 postgres 镜像的 digest（新的取自发布 22 清单，旧的取自当前 `compose.data.env`） |
+| `RUN`、`BACKEND_IMAGE` | 发布 22 在 DATA_HOST 的运行目录（含 `src/` 与 `boot.dsn`）和 backend 镜像，同 run-assembly §0.3 |
+
+**数据库查询一律走 bootstrap 一次性容器窗口**：在 DATA_HOST 上用 `postgres` 角色直连 psql 会被 pg_hba 拒绝，这是预期行为。`$COMMON` 和 `$WINDOW` 的定义见 run-assembly §0.3，`--user` 与 `boot.dsn` 的属主一致。本文的 `Q` 是只读查询（每条 SQL 输出一行），写法同 run-release7 §1.2：
+
+```
+Q() { docker run $COMMON $WINDOW -i "$BACKEND_IMAGE" - "$@" <<'PY'
+import sys, psycopg
+with psycopg.connect(open('/run/bootstrap-dsn').read().strip()) as c:
+    c.execute('set transaction read only')
+    for q in sys.argv[1:]:
+        print(q, '=>', c.execute(q).fetchall())
+PY
+}
+```
 
 compose 命令统一写作：
 
@@ -41,13 +55,32 @@ DC="docker compose -p nexloop-data -f $COMPOSE_DIR/compose.data.yaml --env-file 
 2. 记录升级前的状态，保存到证据目录：
    ```
    docker exec -u postgres nexloop-data-postgres-1 pgbackrest --stanza=nexloop info
-   docker exec -u postgres nexloop-data-postgres-1 psql -qtAX -d "$PG_DB" -c "show server_version" \
-     -c "select system_identifier from pg_control_system()" -c "show data_directory" \
-     -c "select extname||' '||extversion||' owner='||extowner::regrole from pg_extension order by 1"
+   Q "show server_version" "select system_identifier from pg_control_system()" "show data_directory" \
+     "select extname, extversion, extowner::regrole::text from pg_extension order by 1"
    ```
-   预期：`18.4`；`vector 0.8.5`。记下 `system_identifier`、`data_directory` 和 vector 扩展的属主，第 4 步要逐项比对。
+   预期：
+   - `18.4`；
+   - 扩展为 `vector 0.8.5`、`pg_trgm 1.6`、`pgcrypto 1.4`（调度员 2026-10-19 已用只读窗口核对过一次）。
+   - 记下 `system_identifier`、`data_directory` 和 vector 扩展的属主，第 4、5 步要逐项比对。
 
-## 2. 载入新镜像（B）
+## 2. 新镜像：核对已载入（A；stage 上已完成载入）
+
+调度员 2026-10-19 已完成以下事项，**未切换**：
+- 把发布 22 的 postgres 归档传到 DATA_HOST，sha256 与清单一致（`c948f3cd…`）；
+- `docker load` 后按 digest 解析为 `nexloop/postgres@sha256:647fb7d1…`；
+- 核对镜像内容：PostgreSQL 18.6（Debian 18.6-1.pgdg12+2）；扩展目录有 `vector--0.8.5--0.8.6.sql`、`vector--0.8.6--0.8.7.sql`，`vector.control` 的 `default_version = '0.8.7'`；pgBackRest 2.59.3，与 stage 备份记录的 `tool_version` 一致。
+
+执行前只需再核对一次：
+
+```
+docker image inspect --format '{{json .RepoDigests}}' "nexloop/postgres@$NEW_DIGEST"
+docker run --rm --network none --entrypoint postgres "nexloop/postgres@$NEW_DIGEST" --version
+docker run --rm --network none --entrypoint pgbackrest "nexloop/postgres@$NEW_DIGEST" version
+```
+
+预期：`RepoDigests` 中包含 `nexloop/postgres@$NEW_DIGEST`；`postgres (PostgreSQL) 18.6`；`pgBackRest 2.59.3`。
+
+在其他环境首次载入时（stage 上不需要），按以下步骤：
 
 1. 从签名发布取 postgres 归档，先验签（与发布 22 部署单相同，`deploy.py verify` 或 `release.py` 的验签步骤），再核对归档哈希：
    ```
@@ -82,10 +115,9 @@ $DC up -d --no-deps postgres
 
 ```
 $DC ps postgres
-docker exec -u postgres nexloop-data-postgres-1 psql -qtAX -d "$PG_DB" -c "show server_version" \
-  -c "select system_identifier from pg_control_system()" -c "show data_directory" \
-  -c "select extname||' '||extversion from pg_extension order by 1" \
-  -c "select last_archived_wal, last_archived_time, failed_count, last_failed_time from pg_stat_archiver"
+Q "show server_version" "select system_identifier from pg_control_system()" "show data_directory" \
+  "select extname, extversion from pg_extension order by 1" \
+  "select last_archived_wal, last_archived_time, failed_count, last_failed_time from pg_stat_archiver"
 docker exec -u postgres nexloop-data-postgres-1 pgbackrest --stanza=nexloop check
 docker exec -u postgres nexloop-data-postgres-1 pgbackrest --stanza=nexloop info
 ```
@@ -119,21 +151,27 @@ docker exec -u postgres nexloop-data-postgres-1 pgbackrest --stanza=nexloop info
 3. **不会改成直接写业务表。** 这是数据库扩展维护，与 pgBackRest 的 stanza 操作同属 DATA_HOST 运维，不经过业务路径，也不写业务表。
 4. **迁移号冲突。** main 末尾是 0221，并行分支上还有一串临时号，在 v0.1.0 之后由调度员统一重编号。为一个只改注释的更新插入迁移，只会增加集成风险。
 
-执行：先看第 1 步记下的扩展属主，再以该属主或库内超级用户执行。在容器内经本地 socket 用 `postgres` 角色执行，与 pgBackRest 的 stanza 操作相同：
+执行：经 bootstrap 窗口执行，它是建立扩展的那条迁移所用的身份；在 DATA_HOST 上用 `postgres` 角色直连会被 pg_hba 拒绝。第 1 步记下的属主应当就是 bootstrap DSN 的角色；不是的话，停下来报调度员，不要换用其他身份。这是本单唯一一次写入，只有这一条语句，在它自己的事务里执行：
 
 ```
-docker exec -u postgres nexloop-data-postgres-1 psql -v ON_ERROR_STOP=1 -qtAX -d "$PG_DB" \
-  -c "select extversion from pg_extension where extname='vector'" \
-  -c "alter extension vector update" \
-  -c "select extversion from pg_extension where extname='vector'" \
-  -c "select default_version, installed_version from pg_available_extensions where name='vector'"
+docker run $COMMON $WINDOW -i "$BACKEND_IMAGE" - <<'PY'
+import psycopg
+with psycopg.connect(open('/run/bootstrap-dsn').read().strip()) as c:
+    owner = c.execute("select extowner::regrole::text = current_user from pg_extension where extname='vector'").fetchone()[0]
+    before = c.execute("select extversion from pg_extension where extname='vector'").fetchone()[0]
+    if not owner or before != '0.8.5':
+        raise SystemExit(f'stop: owner_is_bootstrap={owner} extversion={before}')
+    c.execute('alter extension vector update')
+    print(before, '->', c.execute("select extversion from pg_extension where extname='vector'").fetchone()[0],
+          c.execute("select default_version, installed_version from pg_available_extensions where name='vector'").fetchone())
+PY
 ```
 
-预期：依次输出 `0.8.5`、`0.8.7`、`0.8.7|0.8.7`。
+预期：`0.8.5 -> 0.8.7 ('0.8.7', '0.8.7')`。输出 `stop:` 时什么都不会改，按提示处理。
 
 核对：
 - 再做一次 §4.2 的召回质量检查，结果应不变；
-- `select count(*) from pg_proc p join pg_depend d on d.objid=p.oid and d.deptype='e' join pg_extension e on e.oid=d.refobjid where e.extname='vector'` 的结果与更新前相同（函数数目不变）。
+- 用 `Q` 执行 `select count(*) from pg_proc p join pg_depend d on d.objid=p.oid and d.deptype='e' join pg_extension e on e.oid=d.refobjid where e.extname='vector'` 的结果与更新前相同（函数数目不变）。
 
 以后全新部署的 bootstrap 装的就是 0.8.7，不需要这一步。
 
