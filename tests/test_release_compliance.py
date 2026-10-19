@@ -235,3 +235,102 @@ def test_the_approved_waivers_cover_exactly_the_wont_fix_criticals():
     backend_sqlite = next(w for w in committed['waivers'] if w['package'] == 'libsqlite3-0' and w['scope'] == 'image:backend')
     assert 'file_backup' in backend_sqlite['reason'] and 'fixed' in backend_sqlite['reason']  # the corrected reason (review §1.2)
 
+
+
+# ---- 2026-10-20 public-preflight false positive: packages locked only for a foreign platform (uv.lock markers) ----------------
+LOCK = '''version = 1
+[[package]]
+name = "nexloop-eios-core"
+version = "0.1.0"
+source = { editable = "packages/eios-core" }
+dependencies = [
+    { name = "psycopg" },
+    { name = "cffi", marker = "implementation_name != 'PyPy'" },
+    { name = "shared", marker = "sys_platform == 'win32'" },
+    { name = "compound", marker = "sys_platform == 'win32' and python_version < '3.13'" },
+]
+[package.dev-dependencies]
+dev = [{ name = "pytest" }]
+[[package]]
+name = "psycopg"
+version = "3.3.6"
+dependencies = [{ name = "tzdata", marker = "sys_platform == 'win32'" }, { name = "shared" }]
+[[package]]
+name = "pytest"
+version = "8.4.2"
+dependencies = [{ name = "colorama", marker = "sys_platform == 'win32'" }, { name = "appnope", marker = "platform_system == 'Darwin'" }]
+[[package]]
+name = "colorama"
+version = "0.4.6"
+dependencies = [{ name = "winonly-child" }]
+[[package]]
+name = "winonly-child"
+version = "1.0"
+[[package]]
+name = "tzdata"
+version = "2026.5"
+[[package]]
+name = "appnope"
+version = "0.1.4"
+[[package]]
+name = "shared"
+version = "1.0"
+[[package]]
+name = "compound"
+version = "1.0"
+[[package]]
+name = "cffi"
+version = "2.0.0"
+'''
+
+
+def test_only_packages_locked_for_a_foreign_platform_alone_are_platform_only(tmp_path):
+    (tmp_path / 'uv.lock').write_text(LOCK)
+    # win32/darwin edges only (and what only they pull in); an unconditional edge elsewhere, a compound marker or an implementation
+    # marker keeps a package installed.
+    assert release.platform_only_python(tmp_path) == {'colorama', 'winonly-child', 'tzdata', 'appnope'}
+    assert release.platform_only_python(tmp_path / 'absent') == frozenset()
+    # The repository's own lock: exactly the two win32-only packages of the 2026-10-20 preflight.
+    assert release.platform_only_python(Path(release.ROOT)) == {'colorama', 'tzdata'}
+
+
+def test_cross_check_lets_platform_only_packages_miss_the_sbom_and_nothing_else():
+    inventory = [{'ecosystem': 'python', 'name': 'colorama', 'version': '0.4.6'}, {'ecosystem': 'python', 'name': 'liba', 'version': '1.0'},
+                 {'ecosystem': 'node', 'name': 'colorama', 'version': '0.4.6'}]
+    sbom = spdx('pkg:pypi/liba@1.0', 'pkg:npm/colorama@0.4.6')
+    assert release.cross_check(sbom, inventory, set(), frozenset({'colorama'})) == []
+    assert release.cross_check(sbom, inventory, set()) == ['in the license inventory but not in the SBOM: python colorama@0.4.6']
+    # An ordinary package missing from the SBOM is still a problem; the node package of the same name is not exempted.
+    assert release.cross_check(spdx('pkg:pypi/colorama@0.4.6'), inventory, set(), frozenset({'colorama'})) == [
+        'in the license inventory but not in the SBOM: node colorama@0.4.6', 'in the license inventory but not in the SBOM: python liba@1.0']
+    # The other direction is never relaxed, even for a platform-only name or another version of it.
+    extra = spdx('pkg:pypi/liba@1.0', 'pkg:npm/colorama@0.4.6', 'pkg:pypi/colorama@9.9', 'pkg:pypi/tzdata@2026.5')
+    assert release.cross_check(extra, inventory, set(), frozenset({'colorama', 'tzdata'})) == [
+        'in the SBOM but not in the license inventory: python colorama@9.9', 'in the SBOM but not in the license inventory: python tzdata@2026.5']
+
+
+class WinOnlyRunner(Runner):
+    """The license inventory also lists the win32-only colorama of the repository's uv.lock, as check_licenses does."""
+
+    def __call__(self, command, cwd):
+        code, out = super().__call__(command, cwd)
+        if 'check_licenses.py' in ' '.join(command):
+            path = Path(command[command.index('--report') + 1])
+            path.write_text(json.dumps(json.loads(path.read_text()) + [
+                {'ecosystem': 'python', 'name': 'colorama', 'version': '0.4.6', 'scope': 'dev', 'license': 'BSD-3-Clause', 'category': 'allowed', 'source': 'x'}]))
+        return code, out
+
+
+def test_public_and_stage_preflight_agree_on_a_win32_only_package_and_on_a_real_difference(tmp_path):
+    public = preflight(tmp_path / 'p', WinOnlyRunner())
+    assert public['steps']['source_sbom']['ok'] is True and public['steps']['source_sbom']['detail']['problems'] == []
+    assert public['steps']['source_sbom']['detail']['platform_only'] == ['colorama', 'tzdata']
+    stage = release.stage_preflight('HEAD', tmp_path / 's', runner=WinOnlyRunner(), sbom_maker=sbom_ok, pinned_checker=lambda: [])
+    assert stage['steps']['source_sbom']['detail']['listed'] == [] and stage['steps']['source_sbom']['detail']['platform_only'] == ['colorama', 'tzdata']
+    # A package really missing from the SBOM: the public gate fails, the stage gate lists the same line.
+    missing = lambda: (spdx(), [], '2026-10-10')  # noqa: E731
+    public = preflight(tmp_path / 'p2', WinOnlyRunner(), maker=missing)
+    stage = release.stage_preflight('HEAD', tmp_path / 's2', runner=WinOnlyRunner(), sbom_maker=missing, pinned_checker=lambda: [])
+    assert public['steps']['source_sbom']['ok'] is False
+    assert public['steps']['source_sbom']['detail']['problems'] == stage['steps']['source_sbom']['detail']['listed'] == [
+        'in the license inventory but not in the SBOM: python liba@1.0']

@@ -440,11 +440,49 @@ def _purls(spdx):
     return found
 
 
-def cross_check(spdx, inventory, own):
-    """Every locked third-party package in the license inventory appears in the source SBOM and vice versa."""
+# A dependency edge of uv.lock whose marker selects only a platform the release never runs on (the images and hosts are Linux):
+# exactly one comparison of sys_platform / platform_system with such a platform. Anything else (no marker, implementation_name,
+# python_version, a compound marker) counts as installed, so an unknown marker never hides a package.
+_FOREIGN_PLATFORM = re.compile(r"""\s*(sys_platform\s*==\s*['"](win32|cygwin|darwin)['"]|platform_system\s*==\s*['"](Windows|Darwin)['"])\s*""")
+
+
+def platform_only_python(root):
+    """Locked Python packages reachable from the workspace only through edges of a foreign platform (uv.lock markers), e.g.
+    pytest -> colorama and psycopg -> tzdata, both `sys_platform == 'win32'`. The license inventory lists every locked package;
+    a Linux source SBOM (syft) leaves these out. Names lower-cased; empty when there is no uv.lock."""
+    import tomllib
+    try:
+        lock = tomllib.loads((Path(root) / 'uv.lock').read_text())
+    except (OSError, ValueError):
+        return frozenset()
+    packages = {p['name'].lower(): p for p in lock.get('package', [])}
+
+    def edges(package):
+        groups = [package.get('dependencies', [])] + list(package.get('optional-dependencies', {}).values()) + list(package.get('dev-dependencies', {}).values())
+        return [d for group in groups for d in group]
+
+    def reach(follow):
+        roots = [n for n, p in packages.items() if 'editable' in p.get('source', {}) or 'virtual' in p.get('source', {})]
+        seen, stack = set(), roots
+        while stack:
+            name = stack.pop()
+            if name in seen or name not in packages:
+                continue
+            seen.add(name)
+            stack.extend(d['name'].lower() for d in edges(packages[name]) if follow(d))
+        return seen
+    everywhere = reach(lambda d: True)
+    here = reach(lambda d: not _FOREIGN_PLATFORM.fullmatch(d.get('marker', '')))
+    return frozenset(everywhere - here)
+
+
+def cross_check(spdx, inventory, own, platform_only=frozenset()):
+    """Every locked third-party package in the license inventory appears in the source SBOM and vice versa. A Python package in
+    `platform_only` (platform_only_python) may be listed without being in the SBOM; the other direction is never relaxed."""
     listed = {(r['ecosystem'], r['name'].lower() if r['ecosystem'] == 'python' else r['name'], r['version']) for r in inventory}
     sbom_set = {item for item in _purls(spdx) if item[1] not in own}
-    problems = [f'in the license inventory but not in the SBOM: {e} {n}@{v}' for e, n, v in sorted(listed - sbom_set)]
+    missing = {item for item in listed - sbom_set if not (item[0] == 'python' and item[1] in platform_only)}
+    problems = [f'in the license inventory but not in the SBOM: {e} {n}@{v}' for e, n, v in sorted(missing)]
     problems += [f'in the SBOM but not in the license inventory: {e} {n}@{v}' for e, n, v in sorted(sbom_set - listed)]
     return problems
 
@@ -510,8 +548,9 @@ def public_preflight(ref, out, *, previous_public=None, release_dir=None, root=R
     try:
         spdx, rows, db = (sbom_maker or (lambda: source_sbom(checkout, out, root)))()
         inventory = json.loads(inventory_path.read_text()) if inventory_path.is_file() else None
-        problems = ['license inventory missing'] if inventory is None else cross_check(spdx, inventory, _own_names(checkout))
-        record('source_sbom', not problems, {'problems': problems[:50], 'packages': len(_purls(spdx))})
+        foreign = platform_only_python(checkout)
+        problems = ['license inventory missing'] if inventory is None else cross_check(spdx, inventory, _own_names(checkout), foreign)
+        record('source_sbom', not problems, {'problems': problems[:50], 'packages': len(_purls(spdx)), 'platform_only': sorted(foreign)})
         state.update(findings=rows, db=db, inventory=inventory or [])
     except NotInstalled as error:
         record('source_sbom', False, {'not_installed': str(error)})
@@ -617,8 +656,10 @@ def stage_preflight(ref, out, *, root=ROOT, runner=None, sbom_maker=None, today=
     try:
         spdx, rows, db = (sbom_maker or (lambda: source_sbom(checkout, out, root)))()
         inventory = json.loads(inventory_path.read_text()) if inventory_path.is_file() else None
-        listed = ['license inventory missing'] if inventory is None else cross_check(spdx, inventory, _own_names(checkout))
-        record('source_sbom', inventory is not None, {'listed': listed[:50], 'listed_count': len(listed), 'packages': len(_purls(spdx))})
+        foreign = platform_only_python(checkout)
+        listed = ['license inventory missing'] if inventory is None else cross_check(spdx, inventory, _own_names(checkout), foreign)
+        record('source_sbom', inventory is not None, {'listed': listed[:50], 'listed_count': len(listed), 'packages': len(_purls(spdx)),
+                                                      'platform_only': sorted(foreign)})
         state.update(findings=rows, db=db)
     except NotInstalled as error:
         record('source_sbom', False, {'not_installed': str(error)})
