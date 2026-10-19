@@ -18,6 +18,7 @@ NX-037 证据项 `known_risks`（`docs/release/at-015-evidence-pack.md` §1）�
 |---|---|---|---|
 | 上游偶发 TLS 握手无响应（APP_HOST 实测约 3–8%） | 中 | 发布 15：TCP+TLS 4 秒上限，请求发出前最多换新连接重试 2 次；请求发出后不重试（避免重复计费） | 最坏 12 秒才判定失败，计入 Run 预算；握手中被重置的情况不重试 |
 | 模型供应商出网是静态 IP 白名单 | 中 | 私有 env 的 `MODEL_PROVIDER_ALLOWLIST`；地址变化时由负责人重新解析并加载 nft | 供应商 CDN 地址变化会导致连接超时，目前没有自动刷新或失配告警 |
+| 模型 provider 的地址会漂移（2026-10-19 stage 上，Ark embedding 域名就发生过一次） | 中 | 出站规则按地址放行，地址变了调用就会被拦下。`nexloop-doctor --provider-drift` 只读比对各 provider 域名当前解析出的地址，与白名单和已渲染的出站规则是否一致；claim 出站网络有独立的白名单 `CLAIM_MODEL_PROVIDER_ALLOWLIST`（PR #15）。发现漂移后，改防火墙需要负责人确认 | 目前靠手动执行发现：定时检查的示例已有（`deploy/stage/systemd/nexloop-provider-drift.timer.example`），但 stage 尚未安装；漂移到下一次检查之间的模型调用会失败 |
 | 模型不按要求调用工具或给出时间换算 | 中 | 工具错误码可纠正（0208 recovered_tool_errors）；时间换算有确定性校验，冲突时保留两种解读 | 依赖提示词与模型行为，发布后需持续观察 |
 
 ## 3. 回复保证与 Context

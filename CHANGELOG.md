@@ -14,9 +14,18 @@
 - 负责人可将测试账号标记为合成人设，并只对合成顾客执行删除（服务端拒绝删除真实顾客；迁移 0220，用于恢复演练）。
 - repo2 异地备份启用工具：密钥经标准输入写入，restic 支持 TOS 的桶查找方式，可分页清理探测残留。
 - S5 收尾差距清单、NX-033 主机切换运行单（方案 L）、AT-046 test world 负例、EvoOntology 冻结版本核对。
+- **发布 22 = `20261019-47aa87b898f2-1`（main `47aa87b8`，seal 21）已部署到 stage，是 v0.1 的最终验收发布（冻结点）**。此后到 v0.1.0 只收修复。
+- 只读召回质量函数（迁移 0221），只授予 metrics 角色。
+- `nexloop-doctor --provider-drift`：只读比对模型 provider 域名当前解析出的地址，与 `MODEL_PROVIDER_ALLOWLIST` 和已渲染的出站规则是否一致；`--recall-quality`：一个租户的向量召回覆盖率与语义近邻（PR #14）。
+- AT-072 第二维护者演练 passed：第四次演练完整走通发布（构建、SBOM、预检、临时签名、封存、验签、两台主机 dry-run）与恢复（命名点恢复到开放、PITR）。四次演练记录的偏差已分批修订进公开手册。
 
 #### 修复
 - 工作台时间显示改为语义化时间标签并统一标注北京时间；标签切换结果有读屏播报；Actions 页状态徽标经真实意图验证。
+- 演练脚本 `scripts/dev/restore_drill.sh`：源端经 `| tee` 运行时，被挂断、SIGPIPE 或强制结束后，源端 PostgreSQL 不再残留（独立会话里的看门狗兜底）；新增 `--stop`，只停记录的那个实例。测试改为按终端的信号默认值启动脚本，修复在 CI 的 nohup 后台方式下因继承 SIG_IGN 而失败的问题。
+- （冻结期修复，已合入 main，尚未部署，PR #15）claim 出站网络有了独立的模型白名单 `CLAIM_MODEL_PROVIDER_ALLOWLIST`（默认取 `MODEL_PROVIDER_ALLOWLIST`），embedding 地址不会因此向 Agent Host 开放；地址漂移检查改为读取实际被 include 的规则文件。
+
+#### 运维事件
+- stage：`--provider-drift` 发现 Ark embedding 域名的地址漂移。负责人确认后，已在 claim 出站规则中放行新地址。
 
 ### 2026-10-18
 
