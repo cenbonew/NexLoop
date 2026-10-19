@@ -50,13 +50,18 @@ table inet nexloop_stage {
     ip saddr __AGENT_EGRESS_CIDR__ ip daddr { __MODEL_PROVIDER_ALLOWLIST__ } tcp dport 443 accept
     ip saddr __AGENT_EGRESS_CIDR__ ct state new drop
   }
+  # NX-033 §3.2 (PR #16 review): the CI rules match the CI account's UID and its whole subordinate UID range (CI_SUBUID_RANGE):
+  # rootless containers and any process that enters a user namespace through the setuid newuidmap open sockets as those UIDs, which a
+  # rule on the account's UID alone would miss. (A cgroupv2 match is not used: nft resolves the cgroup path when the table loads,
+  # at boot before the CI user's slice exists, so the load would fail.)
   chain output {
     type filter hook output priority filter - 1; policy accept;
-    meta skuid __CI_UID__ ip daddr __DATA_HOST_ADDR__ drop
-    meta skuid __CI_UID__ oifname "lo" tcp dport { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } drop
-    meta skuid __CI_UID__ tcp dport __PGBACKREST_TLS_PORT__ drop
-    # NX-033 §3.2: the CI account reaches no LAN address (its dependency stages reach the public package mirrors directly, plan L;
-    # DNS goes through the local resolver stub, whose forwarding is not the CI account's traffic).
-    meta skuid __CI_UID__ ip daddr __TRUSTED_LAN_CIDR__ drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ip daddr __DATA_HOST_ADDR__ drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } oifname "lo" tcp dport { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } tcp dport __PGBACKREST_TLS_PORT__ drop
+    # NX-033 §3.2: the CI account reaches no internal network (the trusted LAN and the management network, one set without
+    # duplicates). Its dependency stages reach the public package mirrors directly (plan L); DNS goes through the local resolver
+    # stub, whose forwarding is not the CI account's traffic.
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ip daddr { __CI_DENY_CIDRS__ } drop
   }
 }

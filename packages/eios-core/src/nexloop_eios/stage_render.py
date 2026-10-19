@@ -112,6 +112,14 @@ def _uid(v):
     return v
 
 
+def _uid_range(v):
+    """A subordinate UID range `first-last` (/etc/subuid of the CI account), never 0, at most 2^32-2."""
+    m = re.fullmatch(r'([1-9][0-9]{0,9})-([1-9][0-9]{0,9})', v)
+    if not m or not int(m.group(1)) <= int(m.group(2)) <= 4294967294:
+        raise ValueError()
+    return v
+
+
 # The whitelist: parameter → kind. A template may use only these.
 PARAMETERS = {
     'APP_HOST_ADDR': _addr, 'DATA_HOST_ADDR': _addr, 'APP_HOST_NAME': _hostname_or_addr, 'DATA_HOST_NAME': _hostname_or_addr,
@@ -135,16 +143,26 @@ PARAMETERS = {
     # call the Ark embedding endpoint; the Agent Host must not). Optional: absent or empty, it is MODEL_PROVIDER_ALLOWLIST, so a
     # stage env without it renders exactly as before.
     'CLAIM_MODEL_PROVIDER_ALLOWLIST': lambda v: v if v == '' else _addresses(v),
+    # NX-033 §3.2 (PR #16 review): the CI account's subordinate UIDs (/etc/subuid, e.g. 165536-231071). Rootless containers and
+    # anything that enters a user namespace through newuidmap open sockets as these UIDs, so every CI rule matches the account's
+    # UID and this whole range. Must not contain a service UID (AGENT_HOST_UID, CI_UID).
+    'CI_SUBUID_RANGE': _uid_range,
 }
 # Derived in render() (never in an env file): every model address of any namespace, for the rules that keep the application and
 # effect namespaces away from model addresses.
-DERIVED_PARAMETERS = frozenset({'MODEL_PROVIDER_ALLOWLIST_ALL'})
+DERIVED_PARAMETERS = frozenset({'MODEL_PROVIDER_ALLOWLIST_ALL', 'CI_DENY_CIDRS'})
 
 
 def derived(values):
     """The env values plus the derived ones: CLAIM_MODEL_PROVIDER_ALLOWLIST defaults to MODEL_PROVIDER_ALLOWLIST; the union keeps
     MODEL_PROVIDER_ALLOWLIST's order and appends the claim-only addresses (equal to it when the claim list adds nothing)."""
     out = dict(values)
+    # NX-033 §3.2 (PR #16 review): every internal network the CI account must not reach, as one nft set: the trusted LAN and the
+    # management source network; equal or nested networks are kept once (an nft interval set refuses overlapping elements).
+    networks = [ipaddress.ip_network(values[k]) for k in ('TRUSTED_LAN_CIDR', 'MGMT_SOURCE_CIDR') if values.get(k)]
+    kept = [n for n in networks if not any(o != n and n.subnet_of(o) for o in networks)]
+    if kept:
+        out['CI_DENY_CIDRS'] = ', '.join(dict.fromkeys(str(n) for n in kept))
     base = values.get('MODEL_PROVIDER_ALLOWLIST')
     if base is None:
         return out
@@ -178,6 +196,10 @@ def load_env(path):
             values[key] = PARAMETERS[key](value)
         except ValueError:
             invalid.append(key)
+    if 'CI_SUBUID_RANGE' in values and 'CI_SUBUID_RANGE' not in invalid:
+        first, last = (int(x) for x in values['CI_SUBUID_RANGE'].split('-'))
+        if any(first <= int(values[k]) <= last for k in ('AGENT_HOST_UID', 'CI_UID') if k in values):
+            invalid.append('CI_SUBUID_RANGE')
     if unknown or invalid:
         raise Refused(json.dumps({'unknown': sorted(unknown), 'invalid': sorted(invalid)}))
     return values

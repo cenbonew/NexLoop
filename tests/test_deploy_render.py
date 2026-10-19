@@ -433,21 +433,38 @@ def test_each_egress_namespace_gets_its_own_model_allowlist_and_the_default_rend
     env.write_text(good)
 
 
-def test_the_ci_account_reaches_no_lan_address(env, tmp_path):
-    """NX-033 §3.2 (cut-over 2026-10-20): besides DATA_HOST, the business loopback ports and the pgBackRest TLS port, the CI account
-    is denied the LAN; the rule sits with the other CI rules in the output chain and changes no other rule."""
+def test_the_ci_account_and_its_subordinate_uids_reach_no_internal_network(env, tmp_path):
+    """NX-033 §3.2 (cut-over 2026-10-20; PR #16 review). Every CI rule matches the CI account's UID and its whole subordinate UID
+    range (rootless containers and user namespaces entered through newuidmap open sockets as those UIDs): DATA_HOST, the business
+    loopback ports, the pgBackRest TLS port and every internal network (trusted LAN and management network as one set)."""
     template = (STAGE / 'firewall' / 'app-host.nft.template').read_text()
     values = render.load_env(env)
     rules, used = render.render(template, values)
-    assert {'CI_UID', 'TRUSTED_LAN_CIDR'} <= set(used)
+    assert {'CI_UID', 'CI_SUBUID_RANGE', 'CI_DENY_CIDRS', 'TRUSTED_LAN_CIDR', 'MGMT_SOURCE_CIDR'} <= set(used) | {'TRUSTED_LAN_CIDR', 'MGMT_SOURCE_CIDR'}
+    who = f"meta skuid {{ {values['CI_UID']}, {values['CI_SUBUID_RANGE']} }}"
     output = rules[rules.index('chain output'):]
-    ci = [l.strip() for l in output.splitlines() if l.strip().startswith(f"meta skuid {values['CI_UID']} ")]
-    assert ci[-1] == f"meta skuid {values['CI_UID']} ip daddr {values['TRUSTED_LAN_CIDR']} drop" and len(ci) == 4
-    assert ci[0] == f"meta skuid {values['CI_UID']} ip daddr {values['DATA_HOST_ADDR']} drop"
-    # Every other line renders as without the new rule.
-    without = template.replace('    meta skuid __CI_UID__ ip daddr __TRUSTED_LAN_CIDR__ drop\n', '')
-    old, _ = render.render(without, values)
-    strip = lambda text: [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith('#')]
-    new = strip(rules)
-    new.remove(f"    meta skuid {values['CI_UID']} ip daddr {values['TRUSTED_LAN_CIDR']} drop")
-    assert new == strip(old)
+    ci = [l.strip() for l in output.splitlines() if l.strip().startswith('meta skuid')]
+    assert len(ci) == 4 and all(l.startswith(who + ' ') for l in ci)
+    assert ci[0] == f"{who} ip daddr {values['DATA_HOST_ADDR']} drop"
+    assert 'oifname "lo" tcp dport' in ci[1] and ci[2] == f"{who} tcp dport {values['PGBACKREST_TLS_PORT']} drop"
+    assert values['TRUSTED_LAN_CIDR'] != values['MGMT_SOURCE_CIDR']
+    assert ci[3] == f"{who} ip daddr {{ {values['TRUSTED_LAN_CIDR']}, {values['MGMT_SOURCE_CIDR']} }} drop"
+    # Equal or nested networks are one element (an nft interval set refuses overlapping elements).
+    same = render.derived({**values, 'MGMT_SOURCE_CIDR': values['TRUSTED_LAN_CIDR']})['CI_DENY_CIDRS']
+    assert same == values['TRUSTED_LAN_CIDR']
+    nested = render.derived({**values, 'TRUSTED_LAN_CIDR': '10.20.0.0/16', 'MGMT_SOURCE_CIDR': '10.20.30.0/24'})['CI_DENY_CIDRS']
+    assert nested == '10.20.0.0/16'
+    # The range: missing, malformed, containing 0, overlapping a service UID.
+    good = env.read_text()
+    env.write_text(re.sub(r'^CI_SUBUID_RANGE=.*\n', '', good, flags=re.M))
+    with pytest.raises(render.Refused, match='CI_SUBUID_RANGE'):
+        render.render(template, render.load_env(env))
+    for bad in ('165536', '165536-', '231071-165536', '0-65535', '00-10', 'a-b', '165536-4294967295', '165536 - 231071'):
+        env.write_text(re.sub(r'^CI_SUBUID_RANGE=.*$', f'CI_SUBUID_RANGE={bad}', good, flags=re.M))
+        with pytest.raises(render.Refused, match='CI_SUBUID_RANGE'):
+            render.load_env(env)
+    for uid in ('AGENT_HOST_UID', 'CI_UID'):
+        env.write_text(re.sub(r'^CI_SUBUID_RANGE=.*$', f"CI_SUBUID_RANGE={int(values[uid]) - 5}-{int(values[uid]) + 5}", good, flags=re.M))
+        with pytest.raises(render.Refused, match='CI_SUBUID_RANGE'):
+            render.load_env(env)
+    env.write_text(good)
