@@ -1051,6 +1051,12 @@
         "ref": "ci:lane/runs/20261011T075522Z-5d8d756e6d68",
         "summary": "NX-033 本地部分（f760e92）：tests/test_ci_queue.py 中同步 remote 不可达时状态为 sync_pending、积压递增，期间 CI 与合并照常；恢复后补推一次、积压清零。只是本地证据，部署链路未执行，状态保持 not_run。",
         "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx033-switch-20261020.md",
+        "summary": "2026-10-19 切换后自然出现一次：首次合并后一轮同步推送 GitHub 超时（30 s），状态记为 sync_pending，合并与 CI 不受影响，下一轮自动恢复为 synced。正式断连演练（临时拦截同步账户到 GitHub 的出站，同时让 main 前进一次）随下一次合并进行；状态保持 not_run。",
+        "recorded_at": "2026-10-19T22:50:02+08:00"
       }
     ]
   },
@@ -1061,13 +1067,19 @@
     "name": "CI隔离",
     "given": "CI尝试访问stage secret/数据端口",
     "expected": "不能访问，公开PR不自动执行",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "test_report",
         "ref": "ci:lane/runs/20261011T075522Z-5d8d756e6d68",
         "summary": "NX-033 本地部分（f760e92）：tests/test_ci_isolation.py 中运行器启动检查拒绝 15 种注入（受保护目录挂载含符号链接、secret 环境变量、指向数据主机的值、发布端口、测试阶段联网、非 rootless、特权、容器 socket、越界可写挂载、缺 cgroup 限制等），以 root 或 docker 组运行也拒绝；隔离探测发现可读 secret 或可连端口即失败；外部贡献 review/* 不入队、refs/pull/* 被拒。只是本地证据，真实主机上的隔离探测待 NX-032 后执行，状态保持 not_run。",
         "recorded_at": "2026-10-11T08:44:58.275108+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "scripts/deploy/probe_isolation.py",
+        "summary": "stage 真实证据（2026-10-19，NX-033 方案 L 切换，执行单 docs/release/run-nx033-switch-20261020.md §6.1）。① 以 CI 账户（uid 1001）运行 probe_isolation，10 个目标全部 unreachable：DATA_HOST 的 PG、Valkey、SSH，本机 loopback 上的 API×2、Agent Host、guard、Gateway，APP_HOST 地址上的 Gateway，pgBackRest TLS。② 切换中发现真实缺口：CI 账户经 rootlesskit --net=host 再用 setpriv 切到 subordinate UID（宿主看到的 uid 166535）时，修复前能连上 DATA_HOST 的 PG 端口和 22 端口（非特权 unshare 被 kernel.apparmor_restrict_unprivileged_userns=1 拦住，但 rootlesskit 有 AppArmor 例外）。Codex 在 PR #16 指出该问题；修复后的规则覆盖 CI_SUBUID_RANGE，以及内部网段集合与 DNAT 前的原始目的地址（PR #16，eed373ef），经负责人确认加载。之后同一组 10 个目标以 subordinate UID 运行全部 unreachable，DNAT 场景 APP_HOST:8443/9643 也被拦截。③ 推 review/* 被接受但不入队；推 refs/pull/1/head 被 pre-receive 拒绝（ref_namespace_refused）；开发线和 integrator 推 main 被拒（main_is_controller_only）；推他线 incoming 被拒（not_own_incoming）。④ nexloop_ci.py status 只输出 SHA、状态和计数。依赖镜像源在新规则下可达（npm、PyPI、goproxy 均为 200）。",
+        "recorded_at": "2026-10-19T22:50:02+08:00"
       }
     ]
   },
@@ -1078,13 +1090,19 @@
     "name": "镜像发布一致",
     "given": "构建SHA与部署SHA不同",
     "expected": "发布拒绝；release manifest校验",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "commit",
         "ref": "87101e9",
         "summary": "本地发布工具 verify：部署 SHA/镜像 digest 与已签名清单不一致即拒绝（tests/test_release_local.py，s4r 全量通过）。只是本地证据，未在部署链路上执行，状态保持 not_run，待 NX-032/033 部署后验收。",
         "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "scripts/release/archive.py check",
+        "summary": "stage 真实证据（2026-10-19，最终验收发布 22 = 20261019-47aa87b898f2-1）。① 运行中镜像与签名清单逐项一致：APP_HOST 25 个容器（backend 23、agent-host 1、gateway 1），以及 DATA_HOST 的 postgres（当晚已从首发镜像升级到发布 22 的镜像），valkey 按 versions.lock 的 digest。② 发布拒绝路径（nexloop-release 身份，在一次性目录中对发布 22 的封存副本操作，正式归档未改动）：重新封存后的原样副本 check 通过；篡改签名清单中 backend 的 digest，被拒（manifest signature invalid）；恢复清单后在 gateway 归档末尾追加一个字节，被拒（archive_changed:gateway）。③ 当晚的独立核对命令也在发布 22 的封存副本上通过（4 个镜像的归档与 SBOM 哈希一致）。",
+        "recorded_at": "2026-10-19T22:50:02+08:00"
       }
     ]
   },
@@ -1095,13 +1113,19 @@
     "name": "迁移无备份",
     "given": "没有可验证备份请求迁移",
     "expected": "拒绝，不以开发方便跳过",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "test_report",
         "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
         "summary": "NX-035 迁移门槛 authz.nexloop_migration_gate（0147）与 nexloop-migrate：没有 PG 备份清单、最近备份未校验或校验失败时拒绝迁移；不提供任何豁免，测试用 pg_basebackup 真实备份并用 pg_verifybackup 校验；全新空库走 bootstrap，不在门槛范围内。只是本地证据，部署链路未执行，状态保持 not_run。",
         "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "authz.nexloop_migration_gate",
+        "summary": "stage 真实证据（2026-10-19）。先放后拒：15:37 负责人完成迁移前差异备份（20261019-073443-808873-D，verified）后，门槛预检为 allowed true，引用该备份，随后 migrate_main 应用 0221（0220→0221），迁移后再次备份（20261019-074018-474395-D）。22:39 再次只读预检时，最近一次已验证备份（17:01，20261019-090157-557694-D）已超过 60 分钟，门槛返回 allowed false，原因 backup_too_old。门槛没有豁免开关，migrate_main 只在 allowed 时执行（run-release7 §2.3）。这次拒绝只用了只读预检，没有为演示而调用迁移命令。",
+        "recorded_at": "2026-10-19T22:50:02+08:00"
       }
     ]
   },
@@ -1135,13 +1159,19 @@
     "name": "端口安全",
     "given": "非APP_HOST访问DB/Valkey",
     "expected": "TLS/ACL/网络拒绝，有外部验证证据",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "test_report",
         "ref": "ci:lane/runs/20261011T091023Z-c20f8a524024",
         "summary": "NX-032 切片 1 本地证据：一次性 PG 18 开启 TLS 1.3、SCRAM 与 clientcert=verify-full 后，错误 CA、SAN 不匹配、他方 CA 客户端证书、无客户端证书、他角色客户端证书、明文连接、错误密码 7 种情况全部被拒（tests/test_deploy_tls.py）。只是本地 TLS/ACL 证据；非 APP_HOST 来源的网络拒绝与外部验证要在切片 4 模拟与切片 5 真实部署中取得，状态保持 not_run。",
         "recorded_at": "2026-10-11T09:59:17.890187+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "scripts/deploy/probe_isolation.py",
+        "summary": "stage 真实证据（2026-10-19，当晚两次防火墙变更之后，按 run-42 的方法重跑）：六份报告全部 passed。management 9 项：Gateway 与参考端点可达，DATA_HOST 的 PG/Valkey、pgBackRest TLS、API、Host 控制、guard 不可达。DATA_HOST 5 项：pgBackRest TLS、Gateway 可达，内部端口不可达。CI 用户 10 项（含 subordinate UID）。应用网络 7 项：PG 以 TLS、verify-full、客户端证书加 SCRAM 认证成功；明文、无客户端证书被服务端拒绝；错误口令认证失败；访问 DATA_HOST 其他端口、模型地址、未登记的公网地址都不可达。Agent Host 7 项：白名单内的模型地址×2 与 guard 中继可达，DATA_HOST 的 PG/Valkey、未登记目标、API 不可达。claim 出站 8 项：模型地址×2 与 PG 可达，Valkey、SSH、API（主机与应用网络）、未登记目标不可达。说明：应用网络的三项 Valkey TLS/ACL 探测这次没有重跑，因为当前应用栈不使用 Valkey，APP_HOST 上没有它的客户端凭据；DATA_HOST 的 Valkey 配置自 run-42 以来没有变化，沿用 run-42 的证据。未登记的公网地址改用本机可达的地址（原地址从 APP_HOST 本机已不可达，不能作阳性对照）。复制的凭据已 shred，探测目录已删除。",
+        "recorded_at": "2026-10-19T22:50:02+08:00"
       }
     ]
   },

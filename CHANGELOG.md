@@ -26,6 +26,14 @@
 
 #### 运维事件
 - stage：`--provider-drift` 发现 Ark embedding 域名的地址漂移。负责人确认后，已在 claim 出站规则中放行新地址。
+- DATA_HOST 的 PostgreSQL 升级为发布 22 的镜像（PostgreSQL 18.4 → 18.6，pgvector 0.8.5 → 0.8.7），停机约 11 秒。升级后 API 的连接池里留有已断开的连接，逐个重启 API 实例后恢复（见 known-risks）。
+- 防火墙改为按网络命名空间分别使用模型白名单（PR #15 已部署）。当晚两家模型 provider 各发生一次地址漂移，都经 `--provider-drift` 发现，负责人确认后放行。
+- **NX-033 主机切换完成（方案 L）**：stage 改用本地 Git 队列与合并控制器。main 只由控制器在 CI 通过后快进，GitHub 只由同步任务推进；首次经控制器合并的是 PR #16。
+
+#### 验收
+- **AT-057 passed**：stage 此前的部署从未执行 `promote`，归档里没有 `current` 和 `known_good`。负责人确认后补登记了发布 21、22 的部署历史，然后执行 `rollback-check`：回滚到 known_good（发布 21）被拒绝（`schema_not_backward_compatible:0221`，提示向前修复）；回滚到更早的发布也被拒绝。只做了检查，没有执行任何回滚。
+- **AT-050 passed**：stage 第二次恢复演练（`d20261019b`）。恢复在发布 22 的 postgres 镜像里进行，容器无网络；恢复点之后由负责人删除的 1 个合成顾客，在恢复时被重放删除；五项开放控制全部成立，与恢复点比对零差异；RTO 27.7 秒，RPO 18.7 秒。
+- **AT-054（证据已取得，待登记）**：切换后的 CI 隔离探测通过。切换过程中发现并修复了一个真实漏洞：CI 账户可以经 rootlesskit 切换到 subordinate UID，从而绕过按 UID 的防火墙规则（Codex 在 PR #16 的评审中指出）。修复后规则覆盖整个 subordinate UID 范围，并改为按 DNAT 之前的原始目的地址匹配。
 
 ### 2026-10-18
 

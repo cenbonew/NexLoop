@@ -449,10 +449,11 @@ def test_the_ci_account_and_its_subordinate_uids_reach_no_internal_network(env, 
     deny = f"{{ {values['TRUSTED_LAN_CIDR']}, {values['MGMT_SOURCE_CIDR']} }}"
     assert values['TRUSTED_LAN_CIDR'] != values['MGMT_SOURCE_CIDR']
     # PR #16 2nd round: Docker's nat OUTPUT runs first, so every destination rule matches the original (before DNAT) and the current one.
-    assert ci[0] == f"{who} ct original ip daddr {values['DATA_HOST_ADDR']} drop" and ci[1] == f"{who} ip daddr {values['DATA_HOST_ADDR']} drop"
+    assert all(l.endswith(' counter drop') for l in ci)  # every CI rule counts its drops (which rule refused a probe)
+    assert ci[0] == f"{who} ct original ip daddr {values['DATA_HOST_ADDR']} counter drop" and ci[1] == f"{who} ip daddr {values['DATA_HOST_ADDR']} counter drop"
     assert 'oifname "lo" tcp dport' in ci[2] and ci[3].startswith(f"{who} ct original ip daddr 127.0.0.0/8 ct original proto-dst {{ {values['API_INTERNAL_PORT']}, ")
-    assert ci[4] == f"{who} ct original proto-dst {values['PGBACKREST_TLS_PORT']} drop" and ci[5] == f"{who} tcp dport {values['PGBACKREST_TLS_PORT']} drop"
-    assert ci[6] == f"{who} ct original ip daddr {deny} drop" and ci[7] == f"{who} ip daddr {deny} drop"
+    assert ci[4] == f"{who} ct original proto-dst {values['PGBACKREST_TLS_PORT']} counter drop" and ci[5] == f"{who} tcp dport {values['PGBACKREST_TLS_PORT']} counter drop"
+    assert ci[6] == f"{who} ct original ip daddr {deny} counter drop" and ci[7] == f"{who} ip daddr {deny} counter drop"
     assert ipaddress.ip_address(values['APP_HOST_ADDR']) in ipaddress.ip_network(values['TRUSTED_LAN_CIDR'])  # the published Gateway address is denied before DNAT
     # Equal or nested networks are one element (an nft interval set refuses overlapping elements).
     same = render.derived({**values, 'MGMT_SOURCE_CIDR': values['TRUSTED_LAN_CIDR']})['CI_DENY_CIDRS']

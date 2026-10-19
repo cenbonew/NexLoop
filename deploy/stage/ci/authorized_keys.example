@@ -1,2 +1,4 @@
-# Example: one key per push identity; git-shell only, the identity is fixed by the forced command.
-command="NEXLOOP_PUSH_IDENTITY=<identity> exec git-shell -c \"$SSH_ORIGINAL_COMMAND\"",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty <public key of identity>
+# Example: one key per push identity in ~nexloop-git/.ssh/authorized_keys. The login shell of nexloop-git is git-shell, which runs no
+# arbitrary forced command (an `exec git-shell -c ...` command line is refused), so the forced command names the git-shell command
+# `push-as` (~nexloop-git/git-shell-commands/push-as, push-as.example) with the key's identity; the client cannot choose it.
+command="push-as <identity>",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty <public key of identity>

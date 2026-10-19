@@ -56,21 +56,22 @@ table inet nexloop_stage {
   # at boot before the CI user's slice exists, so the load would fail.)
   chain output {
     type filter hook output priority filter - 1; policy accept;
+    # Each CI rule counts what it drops (`nft list chain inet nexloop_stage output`), so a probe shows which rule refused it.
     # PR #16 review (2nd round): this chain runs after Docker's nat OUTPUT (priority -100), so `ip daddr` / `tcp dport` are the
     # addresses after DNAT (a connection to APP_HOST_ADDR:GATEWAY_HTTPS_PORT already reads as a container address, not lo). Each
     # destination rule therefore matches the conntrack original destination (`ct original ...`, before DNAT) AND the current one
     # (after DNAT: a connection rewritten into a denied address or port).
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original ip daddr __DATA_HOST_ADDR__ drop
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ip daddr __DATA_HOST_ADDR__ drop
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } oifname "lo" tcp dport { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } drop
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original ip daddr 127.0.0.0/8 ct original proto-dst { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } drop
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original proto-dst __PGBACKREST_TLS_PORT__ drop
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } tcp dport __PGBACKREST_TLS_PORT__ drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original ip daddr __DATA_HOST_ADDR__ counter drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ip daddr __DATA_HOST_ADDR__ counter drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } oifname "lo" tcp dport { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } counter drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original ip daddr 127.0.0.0/8 ct original proto-dst { __API_INTERNAL_PORT__, __API_INTERNAL_PORT_2__, __HOST_INTERNAL_PORT__, __GUARD_PORT__, __GATEWAY_HTTPS_PORT__ } counter drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original proto-dst __PGBACKREST_TLS_PORT__ counter drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } tcp dport __PGBACKREST_TLS_PORT__ counter drop
     # NX-033 §3.2: the CI account reaches no internal network (the trusted LAN and the management network, one set without
     # duplicates; APP_HOST_ADDR is in it, so the Gateway and reference endpoint ports Docker publishes there are denied before
     # DNAT). Its dependency stages reach the public package mirrors directly (plan L); DNS goes through the local resolver stub,
     # whose forwarding is not the CI account's traffic.
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original ip daddr { __CI_DENY_CIDRS__ } drop
-    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ip daddr { __CI_DENY_CIDRS__ } drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ct original ip daddr { __CI_DENY_CIDRS__ } counter drop
+    meta skuid { __CI_UID__, __CI_SUBUID_RANGE__ } ip daddr { __CI_DENY_CIDRS__ } counter drop
   }
 }

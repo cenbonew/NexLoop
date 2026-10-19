@@ -140,9 +140,26 @@ def test_trusted_policy_matches_the_suite_and_keeps_tests_offline():
 
 
 def test_templates_are_parameters_only():
-    for path in (ROOT / 'deploy/stage/ci').iterdir():
+    for path in (p for p in (ROOT / 'deploy/stage/ci').rglob('*') if p.is_file()):  # git-shell-commands/ included
         text = path.read_text()
         assert not re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', text), path.name
         assert not re.search(r'/(Users|home)/', text), path.name
     roles = ci.load_identities(ROOT / 'deploy/stage/ci/identities.example.json')
     assert sorted(set(roles.values())) == sorted(ci.ROLES)
+
+
+def test_the_push_as_command_fixes_one_identity_and_hands_the_git_command_to_git_shell(tmp_path):
+    """deploy/stage/ci/git-shell-commands/push-as.example (2026-10-20 cut-over: git-shell runs no `exec git-shell -c` forced
+    command): exactly one [a-z0-9-]+ identity, exported for pre-receive, and the client's command handed to git-shell."""
+    import subprocess
+    script = ROOT / 'deploy/stage/ci/git-shell-commands/push-as.example'
+    fake = tmp_path / 'bin';fake.mkdir()
+    (fake / 'git-shell').write_text('#!/bin/sh\necho "identity=$NEXLOOP_PUSH_IDENTITY args=$*"\n');(fake / 'git-shell').chmod(0o755)
+    env = {'PATH': f'{fake}:/usr/bin:/bin', 'SSH_ORIGINAL_COMMAND': "git-receive-pack '/srv/nexloop/vcs/nexloop.git'"}
+    ok = subprocess.run(['sh', str(script), 'line-l2'], env=env, capture_output=True, text=True)
+    assert ok.returncode == 0 and ok.stdout.strip() == "identity=line-l2 args=-c git-receive-pack '/srv/nexloop/vcs/nexloop.git'"
+    for bad in ([], ['line-l2', 'extra'], ['Line'], ['a;b'], ['']):
+        assert subprocess.run(['sh', str(script), *bad], env=env, capture_output=True, text=True).returncode != 0
+    assert subprocess.run(['sh', str(script), 'line-l2'], env={'PATH': env['PATH']}, capture_output=True, text=True).returncode != 0
+    keys = (ROOT / 'deploy/stage/ci/authorized_keys.example').read_text()
+    assert 'command="push-as <identity>"' in keys and 'exec git-shell' not in keys.split('\n', 3)[-1]
