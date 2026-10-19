@@ -21,7 +21,8 @@
 **工具形态**：
 - 库：`nexloop_eios/backup.py`；
 - 命令：`nexloop-backup pg|journal`、`nexloop-migrate`；
-- `restore()` 是库函数，由演练测试调用。命令行的 `nexloop-restore` 留到部署切片，届时与 pgBackRest 的恢复一起做；
+- `restore()` 是库函数，由演练测试调用；
+- **命令行已实现**（本节其余内容写于 2026-10-11，为历史记录）：`nexloop-restore` 支持 basebackup 与 pgBackRest 两种来源，见 [恢复命令行](NX-035-restore-cli.md)；
 - 所有凭据都通过 0600 文件传入（`read_private_text`），不经命令行参数或环境变量。
 
 ## 2. 迁移 0146（临时号 0180）：清单、恢复日志、演练、M12
@@ -169,7 +170,9 @@
 2. 复制基础备份，写入 `recovery.signal`、`restore_command`、恢复目标（名称或时间）和 `promote`；只监听本机 socket；pg_hba 只放行 owner 通过本机 socket 连接；关闭归档。
 3. 启动实例，等它完成 promote。随后把所有以 `nexloop_` 开头、可登录的应用角色设为 NOLOGIN。
 4. 依次执行：`restore_begin` → 校验日志哈希链（断链时停止，抛出 `JournalBroken`）→ 重放 → `replayed` → 窗口对账 → `bootstrap.verify()` → 确认没有可登录的应用角色 → `verified_readonly`。
-5. 返回仍在运行的实例，以及一份只有数字的报告。演练永远停在 `verified_readonly`。
+5. 返回仍在运行的实例，以及一份只有数字的报告。恢复工具自己永远停在 `verified_readonly`，不开放。
+   - **stage 演练**（[NX-035 部署运行手册](NX-035-deploy-runbook.md) §4）：停在 `verified_readonly`，从不开放。
+   - **一次性本机演练**（[AT-072 本机恢复演练](../release/at-072-local-restore-drill.md)）：实例是一次性的，恢复后由负责人经工作台的受治理 Action `open_scope` 开放，用来验证开放这一步。
 
 ## 5. 测试（都在临时目录中的一次性 PG 18 集群上运行）
 
