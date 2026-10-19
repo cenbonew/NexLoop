@@ -987,13 +987,19 @@
     "name": "恢复演练",
     "given": "从备份恢复隔离实例",
     "expected": "删除水位、版本、权限与外部效应窗口核验",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "test_report",
         "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
         "summary": "NX-035 本地部分（迁移 0146/0147）：tests/test_restore_drill_pg.py 在一次性本地 PG 上用 pg_basebackup + WAL 归档做 PITR，恢复到隔离实例，核验删除水位（恢复点早于删除时由恢复日志再次删除）、迁移 catalog、权限（恢复后会话清空、Run 凭据吊销）、外部效应窗口（无法核实的渠道保持暂停），并记录实测 RPO/RTO。只是本地证据：部署环境用 pgBackRest 的演练要在 NX-032 之后完成，状态保持 not_run。",
         "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "docs/release/run-at050-drill-2-20261020.md",
+        "summary": "stage 真实证据，第二次恢复演练 d20261019b（2026-10-19，执行单 docs/release/run-at050-drill-2-20261020.md）。恢复在发布 22 的 postgres 镜像（PostgreSQL 18.6，pgvector 0.8.7，glibc 与生产相同）的 --network none 容器中进行，nexloop-restore 用发布 22 backend 镜像的代码（catalog 0221），repo1 只读挂载。流程：负责人先将 4 个合成顾客标为 simulated_agent；drill-mark 于 10:58:18Z 记录恢复点 drill-d20261019b；之后负责人用 erase_synthetic 删除 1 个合成顾客（受理，state settling）；删除进入恢复日志（分段 3–4），并保存到 restic 快照；按负责人中转导出 3 个分段到演练目录。恢复结果：passed true，状态 verified_readonly，lineage 0221；journal_entries 2，replay.deletions 1；五项开放控制全部为 true；drill_compare 中 catalog_equal 为 true、6 表与 12 个抽样零差异；恢复实例 server 18.6、vector 0.8.7、archive_mode off、listen_addresses 为空，被删除的顾客在恢复实例中仍处于删除状态（nexloop_consumer_erasing = true）。RTO 27.74 s（门槛 7200），RPO 18.7 s（门槛 300）。结果已由 recorder 写入 runtime.nexloop_restore_drill_results，result_id 2，outcome passed，synthetic_erasure_replayed true。生产库的 restore_state 仍为 never_restored，未受影响。演练目录、含 cipher 口令的配置和中转目录均已销毁。第一次演练（d20261015a，result_id 1）没有合成删除；“开放”一步由 AT-072 的本机演练覆盖。",
+        "recorded_at": "2026-10-19T19:21:42+08:00"
       }
     ]
   },
@@ -1159,6 +1165,12 @@
         "ref": "ci:lane/runs/20261011T064724Z-5d09b854991b",
         "summary": "NX-035 恢复日志重放与 NX-029 replay_deletions 对接：PITR 恢复到删除之前后，重放使已删除的消费者（含 AT-043 优惠意图的识别信息）再次删除，不恢复可联系状态（test_restore_drill_pg、test_restore_fence_pg）。",
         "recorded_at": "2026-10-11T07:43:32.187118+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "docs/release/run-at050-drill-2-20261020.md",
+        "summary": "stage 真实备份版本（2026-10-19，演练 d20261019b）：恢复点之后由负责人删除 1 个合成顾客，删除通过恢复日志随 restic 快照进入演练；恢复后 replay.deletions 为 1，被删除的顾客在恢复实例中 nexloop_consumer_erasing = true，不可联系。结果行 result_id 2 中 synthetic_erasure_replayed 为 true。详见 AT-050 同日证据。",
+        "recorded_at": "2026-10-19T19:21:42+08:00"
       }
     ]
   },
