@@ -1416,6 +1416,12 @@
         "ref": "docs/release/at-072-drill-entry.md",
         "summary": "2026-10-19 09:41–09:45（UTC+8）第一次演练，执行人为负责人指定的 Codex 新会话（负责人 2026-10-19 决定由 Agent 担任第二维护者，人只参与控制台使用），只读公开文档，无口头补充。恢复：本机一次性环境，命名点恢复与 PITR 均 passed（verified_readonly，重放恢复点之后的合成删除 1 条、联系限制 1 条，五项控制全 true，比对零差异），命名点恢复后经 owner 开放到 open（RTO 0.806 s，PITR 1.266 s，RPO 12.783 s）；其中开放步骤的原始 HTTP 输出因执行工具故障未保留，仅有开放后的只读查询补证。发布：在运行手册 §0 停止，CI 身份的会话里 $CI_BUILD_ROOT/$CI_QUEUE/$TRUSTED_REPO 为空，公开文档没有说明获取方法，nexloop_ci.py 不在 PATH；构建、SBOM、预检、签名、封存、验签和两台主机的 dry-run 均未运行。偏差 D1–D8 已交文档线修订；环境准备已在 CI 身份的登录环境中导出四个非秘密参数（新增 $CI_TRUSTED）。整体判为未通过，文档修订后由新的维护者会话重新完整演练。stage 未触碰，临时环境已清理。私有报告：local-only/audit/at072-codex/report.md。",
         "recorded_at": "2026-10-19T09:50:07+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-034-first-release-runbook.md",
+        "summary": "2026-10-19 09:57–10:00（UTC+8）第二次演练，执行人为新的 Codex 会话，按修订后的文档（main e9fc47b5）执行。恢复：命名点恢复走到 open，PITR passed，两次都重放了恢复点之后的合成删除与联系限制，比对零差异；工具 RTO 1.282 s / 1.161 s，RPO 9.067 s。发布：运行手册 §0.1 核对通过，停在 §2 第 4 步。根因在环境准备：CI 身份的登录 shell 没有加载 CI 工具链环境（依赖缓存、rootless docker 地址），uv 离线安装在默认缓存里找不到 psycopg-binary。调度员已修复：登录 shell 改为加载该环境，并按登录 shell 重放第 3–6 步，uv 与 pnpm 离线安装均 rc 0，containerd 存储，五个基础镜像按 digest 都在（两个为补拉）。另有清理缺口：源端 PG 在 Ctrl-C 后没有退出，调度员核对启动时间与归属后已停止并删除临时目录；脚本信号处理与清理顺序已交文档线调查。偏差 #1–#5 交文档线修订。状态保持 failed，第三次演练待执行。",
+        "recorded_at": "2026-10-19T10:04:22+08:00"
       }
     ]
   }
