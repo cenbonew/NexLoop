@@ -53,6 +53,13 @@ try{
   await page.screenshot({path:`${shots}/world-instance-1440.png`,fullPage:true});
   await page.reload();await page.locator('aside.world-object').waitFor({timeout:20000});result.drawer_after_reload=await page.locator('aside.world-object').count();
   await page.goBack();await page.waitForTimeout(500);result.drawer_after_back=await page.locator('aside.world-object').count();result.back_after_drawer=new URL(page.url()).search;
+  // W4 data assets: the owner's metrics read; every section present, nothing to fill in, no sideways scroll on a phone.
+  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/data_assets');
+  await page.locator('.workbench-page h1',{hasText:'数据资产'}).waitFor({timeout:20000});await page.locator('article[aria-label="召回索引"]').waitFor({timeout:20000});
+  result.assets_sections=await page.locator('.workbench-grid > article').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')));
+  result.assets_text=await page.locator('.workbench-page').innerText();result.assets_forms=await page.locator('.workbench-page form, .workbench-page textarea').count();
+  await page.screenshot({path:`${shots}/data-assets-1440.png`,fullPage:true});
+  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(400);result.assets_hscroll_390=await hscroll(page);
   // W3 capability catalog: in the 管理 group; its dispatch outcome reads exactly as the settings page (same source and wording).
   await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/capabilities');
   await page.locator('.workbench-page h1',{hasText:'能力目录'}).waitFor({timeout:20000});await page.locator('[role=tablist][aria-label="能力目录"]').waitFor({timeout:20000});

@@ -472,7 +472,9 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
   replies:{pending:{count:number;oldest_age_seconds:number|null};escalations_last_hour:Record<string,number>;escalations_total:number};
   commitments:{exceptions:Record<string,number>;exceptions_last_hour:Record<string,number>};
   queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
-  guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string};
+  guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string;
+  /** 0216 (absent from an older backend: null, shown as 不可用) */ candidates:Candidates|null;
+  /** W4 0224 (absent: null) */ data_assets:DataAssets|null};
 /** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
  * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
 export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
@@ -501,6 +503,25 @@ function processSection(value:unknown):Process{
       return [k,{sum:nums(s.sum),max:nums(s.max)}];})),
     ...(typeof o.timeout_rate==='number'?{timeout_rate:o.timeout_rate}:{}),...(typeof o.p95_ms_max==='number'?{p95_ms_max:o.p95_ms_max}:{})};
 }
+// ---- W4 data assets (L6 0224) and the merge configuration state (0216): counts, profile ids and times only ----
+export type Candidates={staged:number;merge_configuration_active:boolean;staged_without_configuration:number};
+export type DataAssets={claims:{total:number;by_epistemic_kind:Record<string,number>;by_resolution_state:Record<string,number>};
+  extraction_runs:{total:number;last_at:string|null};extraction_jobs:Record<string,number>;
+  recall:{entries:Record<string,number>;profiles:{profile_id:string;dimension:number;created_at:string;vectors:number}[];
+    backfills:{profile_id:string;runs:number;first_at:string|null;last_at:string|null;last_queued:number|null;last_definition_types:number|null}[]};
+  embedding_budget:{status:'unavailable';reason:string}|{status:'ok';[key:string]:unknown}};
+function candidates(value:unknown):Candidates{const o=object(value);
+  return {staged:count(o.staged),merge_configuration_active:flag(o.merge_configuration_active),staged_without_configuration:count(o.staged_without_configuration)};}
+function dataAssets(value:unknown):DataAssets{
+  const o=object(value);const c=object(o.claims);const r=object(o.extraction_runs);const rc=object(o.recall);const b=object(o.embedding_budget);
+  if(b.status!=='unavailable'&&b.status!=='ok')throw new WorkbenchError('invalid');
+  return {claims:{total:count(c.total),by_epistemic_kind:counts(c.by_epistemic_kind),by_resolution_state:counts(c.by_resolution_state)},
+    extraction_runs:{total:count(r.total),last_at:maybeText(r.last_at)},extraction_jobs:counts(o.extraction_jobs),
+    recall:{entries:counts(rc.entries),profiles:list(rc.profiles).map(x=>{const p=object(x);return {profile_id:text(p.profile_id),dimension:count(p.dimension),created_at:text(p.created_at),vectors:count(p.vectors)};}),
+      backfills:list(rc.backfills).map(x=>{const p=object(x);return {profile_id:text(p.profile_id),runs:count(p.runs),first_at:maybeText(p.first_at),last_at:maybeText(p.last_at),
+        last_queued:maybeCount(p.last_queued),last_definition_types:maybeCount(p.last_definition_types)};})},
+    embedding_budget:b.status==='unavailable'?{status:'unavailable',reason:text(b.reason)}:{...b,status:'ok'}};
+}
 export function metrics(value:unknown):Metrics{
   const v=object(value);const r=object(v.refusals);const ef=object(v.effects);const u=object(ef.unknown);const rp=object(v.replies);const pend=object(rp.pending);
   const cm=object(v.commitments);const ex=object(v.extraction);const cn=object(v.connections);
@@ -509,7 +530,8 @@ export function metrics(value:unknown):Metrics{
     replies:{pending:{count:count(pend.count),oldest_age_seconds:maybeCount(pend.oldest_age_seconds)},escalations_last_hour:counts(rp.escalations_last_hour),escalations_total:count(rp.escalations_total)},
     commitments:{exceptions:counts(cm.exceptions),exceptions_last_hour:counts(cm.exceptions_last_hour)},
     queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
-    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at)};
+    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at),
+    candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets)};
 }
 export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
 /** The real dispatch switches from the same metrics read (states and revisions only, 0153). */

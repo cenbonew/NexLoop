@@ -14,6 +14,7 @@ import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
 import {Alerts,Audit,Operations} from './pages/Observability';
 import {WorldModel} from './pages/WorldModel';
 import {Capabilities} from './pages/Capabilities';
+import {DataAssets} from './pages/DataAssets';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -56,6 +57,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'operations':return <Operations actions={a}/>;
     case 'audit':return <Audit actions={a}/>;
     case 'ontology':return <WorldModel query={route.query} onQuery={query=>go({page:'ontology',query})}/>;  // pushed: Back walks tab, view and focus
+    case 'data_assets':return <DataAssets/>;
     case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
     case 'experiments':return <NotEnabled title={PAGES.experiments}/>;
   }
@@ -64,7 +66,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
 /** Navigation in four groups (walkthrough F08; world model design §5: 模型与资产 next to 运营); the next-stage page last, marked "未启用". */
 export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','plans','goals','contact']},
-  {title:'模型与资产',pages:['ontology','knowledge']},
+  {title:'模型与资产',pages:['ontology','data_assets','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
   {title:'管理',pages:['settings','capabilities','experiments']}];
 const NOT_ENABLED:PageKey[]=['experiments'];

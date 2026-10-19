@@ -75,7 +75,7 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
                or (k.split('-')[-1] == '390' or k.endswith('390-dark')) and v['scrollers']}
     assert failing == {}, {k: {f: v[f] for f in ('hscroll', 'offscreen', 'font_min', 'th_max', 'scrollers')} for k, v in failing.items()}
     assert observed['dark_differs'] == {f'{p}-{w}': True for p in PAGES for w in (1440, 390)}
-    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 15,
+    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 16,
                                 'closed_after_navigation': True, 'hscroll_open': 0}
     # Batch 2: the consumers table lists the fixture's customer and the 12 seeded ones; cards below 640 px, a table above.
     consumers = {w: pages[f'wb-consumers-{w}']['tables'] for w in (1440, 1024, 390)}

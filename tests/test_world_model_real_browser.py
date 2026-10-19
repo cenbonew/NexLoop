@@ -64,7 +64,7 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
     finally:
         server.should_exit = True
         thread.join(timeout=15)
-    assert {'title': '模型与资产', 'pages': ['企业世界模型', '知识工作台']} in observed['nav'], observed['nav']
+    assert {'title': '模型与资产', 'pages': ['企业世界模型', '数据资产', '知识工作台']} in observed['nav'], observed['nav']
     assert any(s.startswith('Object Type') for s in observed['summary']) and observed['table_rows'] >= 2
     assert observed['url_property'] == '?tab=properties'
     assert 'spending_band' in observed['withheld'] and '受限' in observed['withheld'] and 'synthetic restricted' not in observed['withheld']
@@ -80,3 +80,7 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
     assert observed['instances_summary'].startswith('Consumer 共 ') and observed['instance_url'].startswith('?tab=instances&type=Consumer&object=')
     assert '邻域（深度 1）' in observed['drawer'] and '完整标识' in observed['drawer'] and observed['drawer_link'] == 1
     assert observed['drawer_after_reload'] == 1 and observed['drawer_after_back'] == 0 and observed['back_after_drawer'] == '?tab=instances&type=Consumer'
+    # W4 data assets (L6 0224): the six sections; budget and Artifact list said as not available; no form; no sideways scroll.
+    assert observed['assets_sections'] == ['Artifact', 'Claim 与提取', '召回索引', 'Embedding 预算', '合并配置', '备份'], observed['assets_sections']
+    assert 'Artifact 列表不可用' in observed['assets_text'] and '不表示花费为 0' in observed['assets_text'] and '条 Claim' in observed['assets_text']
+    assert observed['assets_forms'] == 0 and observed['assets_hscroll_390'] <= 0
