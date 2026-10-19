@@ -18,6 +18,11 @@ export type Slots=Partial<Record<PageKey,SlotValue>>;
 
 /** Success text per operation: what happened, and what it does not mean. */
 export const DONE_TEXT:Record<Operation,string>={
+  publish_operator_persona:'已提交；人设版本状态已刷新。版本一经发布不可修改，改动请发布新版本。',
+  assign_operator_persona:'已提交；这位客户下次对话起使用新的人设（进行中的对话不切换）。',
+  publish_persona_rules:'已发布新的分群规则；受影响的客户在下次对话时更换人设并留下记录。',
+  set_ai_disclosure:'已保存 AI 身份披露配置；合规责任由使用方承担。',
+  dismiss_contact_preference:'已提交；这条偏好的采纳状态已更新，派发与上下文按新状态执行。',
   set_control:'已提交；派发预判与计划状态已刷新。恢复不会重放暂停期间被拒的意图。',
   release_contact_restriction:'已解除；之前被拒的意图不会重放，计划将重新评估。',
   cancel_commitment:'已取消承诺。',extend_commitment:'已延期：原承诺已被新承诺取代。',attest_commitment:'已记录人工证明。',
@@ -70,7 +75,7 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
 }
 
 /** A form for one operation: shown only when the role carries it. */
-function Form({operation,title,member,children,body,disabled,onDone,className}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+export function Form({operation,title,member,children,body,disabled,onDone,className}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
   disabled?:boolean;onDone?:()=>void;className?:string}){
   const write=useWrite(operation,onDone);
   if(!offers(member,operation))return null;

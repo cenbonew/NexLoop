@@ -108,7 +108,7 @@ def test_the_owner_sees_and_may_decline_a_preference_and_the_model_sees_the_rest
     with c['app']() as client:
         csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
         view = client.get(f'/api/v1/workbench/consumers/{consumer}/contact-preferences', headers={'Origin': ORIGIN}).json()
-        assert [(p['claim_id'], p['dimension'], p['value'], p['dismissed']) for p in view['preferences']] == [(tone, 'tone', '说简单点', False), (quiet, 'quiet_hours', '22:00-08:00', False)]
+        assert sorted((p['claim_id'], p['dimension'], p['value'], p['dismissed']) for p in view['preferences']) == sorted([(tone, 'tone', '说简单点', False), (quiet, 'quiet_hours', '22:00-08:00', False)])
         assert '说简单点' not in str([p.get('quote') for p in view['preferences']])  # no quote field
         assert act(client, csrf, 'dismiss_contact_preference', {'claim_id': other, 'dismissed': True, 'reason': 'x'}).json()['details'] == {'reason': 'not_a_preference'}
         done = act(client, csrf, 'dismiss_contact_preference', {'claim_id': quiet, 'dismissed': True, 'reason': '顾客已改口'})

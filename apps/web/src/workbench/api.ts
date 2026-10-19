@@ -389,6 +389,10 @@ export const OPERATION_ACTION={
   silence_alert:'eios:action:nexloop.alert.silence:1',
   // 0220: owner only; the real dispatch switches (tenant and Action layers).
   set_real_dispatch:'eios:action:nexloop.real_dispatch.set:1',
+  // 0230/0231: operator persona and communication preferences (owner only).
+  publish_operator_persona:'eios:action:nexloop.operator_persona.publish:1',assign_operator_persona:'eios:action:nexloop.operator_persona.assign:1',
+  publish_persona_rules:'eios:action:nexloop.operator_persona.rules_publish:1',set_ai_disclosure:'eios:action:nexloop.ai_disclosure.set:1',
+  dismiss_contact_preference:'eios:action:nexloop.contact_preference.dismiss:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -526,3 +530,65 @@ export function humanActions(value:unknown):AuditItem[]{
       target_ref:maybeText(o.target_ref),intent_id:maybeText(o.intent_id),occurred_at:text(o.occurred_at)};});
 }
 export const readHumanActions=()=>get('/api/v1/workbench/human-actions',humanActions);
+
+
+// ---- operator persona (0230/0232: every member reads; writes are owner Actions) and preferences (0231: owner only) ----
+export type PersonaDocument={display_name:string;signature?:string;self_intro?:string;tone:string;values?:string[];
+  expression:{max_chars:number;emoji:'none'|'few'|'allowed';vocabulary?:string;forbidden_phrases?:string[];language?:string};
+  scenarios?:string[];not_for?:string[];ai_disclosure?:{statement?:string;deflect_statement?:string}};
+export type PersonaVersion={persona_id:string;version:number;status:'published'|'retired';display_name:string;created_at:string;document:PersonaDocument};
+export type PersonaRule={when:{role_id:string}|{property:string;equals:string};persona_id:string};
+export type PersonaRules={version:number;default_persona_id:string|null;rules:PersonaRule[];published_at:string};
+export type AiDisclosure={mode:'none'|'first_contact'|'always';when_asked:'deflect'|'handoff';block_human_claims:boolean;content_label:boolean;revision:number};
+export type PersonaSource='owner_assign'|'rule'|'default';
+export type ConsumerPersona={desired:{persona_id:string|null;source:PersonaSource|null;rules_version:number|null}|null;
+  settled:{persona_id:string;source:PersonaSource;updated_at:string}|null};
+export type PersonaOverview={personas:PersonaVersion[];rules:PersonaRules|null;ai_disclosure:AiDisclosure;consumer:ConsumerPersona|null};
+export const PERSONA_SOURCE_TEXT:Record<PersonaSource,string>={owner_assign:'负责人指定',rule:'分群规则',default:'租户默认'};
+const PERSONA_ID=/^[a-z][a-z0-9_-]{0,63}$/;
+function personaId(value:unknown):string{const v=text(value);if(!PERSONA_ID.test(v))throw new WorkbenchError('invalid');return v;}
+function oneOf<T extends string>(value:unknown,options:readonly T[]):T{if(!options.includes(value as T))throw new WorkbenchError('invalid');return value as T;}
+function strings(value:unknown):string[]{return list(value).map(text);}
+export function personaDocument(value:unknown):PersonaDocument{
+  const v=object(value),e=object(v.expression);
+  const doc:PersonaDocument={display_name:text(v.display_name),tone:text(v.tone),expression:{max_chars:count(e.max_chars),emoji:oneOf(e.emoji,['none','few','allowed'] as const)}};
+  if(v.signature!==undefined)doc.signature=text(v.signature);if(v.self_intro!==undefined)doc.self_intro=text(v.self_intro);
+  if(v.values!==undefined)doc.values=strings(v.values);if(v.scenarios!==undefined)doc.scenarios=strings(v.scenarios);if(v.not_for!==undefined)doc.not_for=strings(v.not_for);
+  if(e.vocabulary!==undefined)doc.expression.vocabulary=text(e.vocabulary);if(e.language!==undefined)doc.expression.language=text(e.language);
+  if(e.forbidden_phrases!==undefined)doc.expression.forbidden_phrases=strings(e.forbidden_phrases);
+  if(v.ai_disclosure!==undefined){const a=object(v.ai_disclosure);doc.ai_disclosure={};
+    if(a.statement!==undefined)doc.ai_disclosure.statement=text(a.statement);if(a.deflect_statement!==undefined)doc.ai_disclosure.deflect_statement=text(a.deflect_statement);}
+  return doc;
+}
+function personaRule(value:unknown):PersonaRule{
+  const v=object(value),w=object(v.when);
+  return {when:'role_id' in w?{role_id:id(w.role_id)}:{property:text(w.property),equals:text(w.equals)},persona_id:personaId(v.persona_id)};
+}
+export function personaOverview(value:unknown):PersonaOverview{
+  const v=object(value),a=object(v.ai_disclosure);
+  const personas=list(v.personas).map(x=>{const p=object(x);return {persona_id:personaId(p.persona_id),version:count(p.version),status:oneOf(p.status,['published','retired'] as const),
+    display_name:text(p.display_name),created_at:text(p.created_at),document:personaDocument(p.document)};});
+  const rules=v.rules===null?null:(()=>{const r=object(v.rules);return {version:count(r.version),default_persona_id:r.default_persona_id===null?null:personaId(r.default_persona_id),
+    rules:list(r.rules).map(personaRule),published_at:text(r.published_at)};})();
+  const sources=['owner_assign','rule','default'] as const;
+  const consumer=v.consumer===null||v.consumer===undefined?null:(()=>{const c=object(v.consumer);
+    const d=c.desired===null?null:object(c.desired),st=c.settled===null?null:object(c.settled);
+    return {desired:d&&{persona_id:d.persona_id===null?null:personaId(d.persona_id),source:d.source===null?null:oneOf(d.source,sources),rules_version:d.rules_version===null?null:count(d.rules_version)},
+      settled:st&&{persona_id:personaId(st.persona_id),source:oneOf(st.source,sources),updated_at:text(st.updated_at)}};})();
+  return {personas,rules,consumer,ai_disclosure:{mode:oneOf(a.mode,['none','first_contact','always'] as const),when_asked:oneOf(a.when_asked,['deflect','handoff'] as const),
+    block_human_claims:flag(a.block_human_claims),content_label:flag(a.content_label),revision:count(a.revision)}};
+}
+export function readOperatorPersonas(consumerId?:string):Promise<PersonaOverview>{
+  return get('/api/v1/workbench/operator-personas'+(consumerId?'?consumer_id='+encodeURIComponent(consumerId):''),personaOverview);
+}
+export type ContactPreference={claim_id:string;dimension:'quiet_hours'|'frequency'|'channel'|'topic'|'tone';polarity:'affirmed'|'negated';value:string|number;dismissed:boolean};
+export const PREFERENCE_TEXT:Record<ContactPreference['dimension'],string>={quiet_hours:'勿扰时段',frequency:'每 7 天最多联系次数',channel:'联系渠道',topic:'联系主题',tone:'沟通语气'};
+export function contactPreferences(value:unknown):ContactPreference[]{
+  return list(object(value).preferences).map(x=>{const p=object(x);const v=p.value;
+    if(typeof v!=='string'&&!Number.isSafeInteger(v))throw new WorkbenchError('invalid');
+    return {claim_id:text(p.claim_id),dimension:oneOf(p.dimension,['quiet_hours','frequency','channel','topic','tone'] as const),polarity:oneOf(p.polarity,['affirmed','negated'] as const),
+      value:v as string|number,dismissed:flag(p.dismissed)};});
+}
+export function readContactPreferences(consumerId:string):Promise<ContactPreference[]>{
+  return get('/api/v1/workbench/consumers/'+encodeURIComponent(consumerId)+'/contact-preferences',contactPreferences);
+}

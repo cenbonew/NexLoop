@@ -1115,6 +1115,11 @@
       "version": "0231",
       "name": "0231_contact_preferences.sql",
       "sha256": "6ed192a38ff21f4cf0c6eb7d7a03b0b50d2d15276b15fd2e1e6bb91a29bb0281"
+    },
+    {
+      "version": "0232",
+      "name": "0232_operator_persona_pages.sql",
+      "sha256": "9143d5251821ecfdbee650f6921d5040ad7bbdae196b439a3229fd410dbd6fee"
     }
   ]
 }

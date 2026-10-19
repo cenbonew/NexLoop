@@ -49,7 +49,7 @@ const measure=()=>{const vw=innerWidth;
     badges_worded:[...document.querySelectorAll('.status-badge')].every(b=>b.textContent.replace(/[✓✕…!–]/g,'').trim().length>0&&!/^[a-z_]+$/.test(b.textContent.replace(/[✓✕…!–]/g,'').trim())),
     h1_top:(h=>h?Math.round(h.getBoundingClientRect().top):null)(document.querySelector('.workbench-page h1')),
     empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')};};
-const result={pages:{},dark_differs:{},menu:{},chat:{},shell:{},tabs:{}};
+const result={pages:{},dark_differs:{},menu:{},chat:{},shell:{},tabs:{},persona:{}};
 const browser=await chromium.launch({headless:true});
 async function shoot(page,name){
   for(const [w,h] of SIZES){await page.setViewportSize({width:w,height:h});await page.emulateMedia({colorScheme:'light'});await page.waitForTimeout(300);
@@ -84,7 +84,7 @@ try{
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
   for(const [name,path] of [['wb-overview','/workbench/overview'],['wb-consumers','/workbench/consumers'],['wb-consumer',`/workbench/consumers/${session.consumer_id}`],
     ['wb-conversation',`/workbench/consumers/conversations/${session.conversation_id}`],['wb-settings','/workbench/settings'],
-    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-contact','/workbench/contact'],['wb-experiments','/workbench/experiments'],['wb-audit','/workbench/audit']]){
+    ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-contact','/workbench/contact'],['wb-experiments','/workbench/experiments'],['wb-personas','/workbench/personas'],['wb-audit','/workbench/audit']]){
     await page.goto(path);await page.locator('.workbench-page h1').waitFor({timeout:20000});await page.waitForTimeout(800);await shoot(page,name);}
   // Batch 5 shell at 1440: three navigation groups, the next-stage pages last and marked; tabs on commitments: arrow keys,
   // Home/End and Enter/Space move the selection, aria-selected and the roving tabindex follow, focus stays on the selected tab,
@@ -104,6 +104,24 @@ try{
   await page.keyboard.press('ArrowLeft');await page.keyboard.press('Enter');await page.waitForTimeout(400);tabs.enter=await tabState();
   await page.keyboard.press('ArrowRight');await page.keyboard.press('Space');await page.waitForTimeout(400);tabs.space=await tabState();
   result.tabs=tabs;
+  // Operator persona pages: the owner fills a draft and publishes xiaohe@1, publishes rules with it as the default, then the
+  // consumer detail shows persona@version and its source (the governed writes through the page's own forms).
+  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/personas');await page.locator('#persona-display_name').waitFor({timeout:20000});
+  await page.fill('#persona-persona_id','xiaohe');await page.fill('#persona-display_name','小禾');await page.fill('#persona-tone','亲切、简洁');
+  await page.fill('#persona-deflect','我是本店的服务助手，有什么可以帮您？');await page.fill('#persona-reason','首个人设');
+  await page.locator('form.persona-editor button[type=submit]').click();
+  await page.locator('.data-table code',{hasText:'xiaohe@1'}).waitFor({timeout:20000});
+  result.persona={published:await page.locator('.data-table code',{hasText:'xiaohe@1'}).count()};
+  await page.locator('[role=tab]',{hasText:'分配'}).click();await page.locator('#rules-default').waitFor({timeout:20000});
+  await page.selectOption('#rules-default','xiaohe');await page.fill('#rules-reason','默认人设');
+  await page.locator('form[aria-label^="发布分配规则"] button[type=submit]').click();
+  await page.getByText('规则版本 v1').waitFor({timeout:20000});
+  await page.goto(`/workbench/consumers/${session.consumer_id}`);await page.locator('#consumer-persona-title').waitFor({timeout:20000});
+  await page.getByText('下次对话起').waitFor({timeout:20000});
+  result.persona.consumer=await page.locator('section[aria-labelledby=consumer-persona-title] dl.facts').innerText();
+  await page.screenshot({path:`${shots}/wb-consumer-persona-1440.png`,fullPage:true});
+  await page.goto('/workbench/personas');await page.locator('[role=tab]',{hasText:'AI 身份披露'}).click();
+  await page.locator('#ai-mode').waitFor({timeout:20000});await page.screenshot({path:`${shots}/wb-personas-disclosure-1440.png`,fullPage:true});
   // The menu below 1024 px: a visible button; the navigation hidden until it is opened; a click on an entry navigates and closes it.
   await page.setViewportSize({width:390,height:844});await page.goto('/workbench/overview');await page.locator('.workbench-page h1').waitFor({timeout:20000});
   const toggle=page.locator('.workbench-menu-toggle');
