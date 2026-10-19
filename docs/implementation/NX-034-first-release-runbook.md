@@ -122,14 +122,92 @@ git -C "$TRUSTED_REPO" merge-base --is-ancestor "$SHA" refs/heads/main && echo o
 | 9 | nexloop-ci | `uv run --frozen python scripts/release/release.py preflight --release-dir "$HANDOFF_ROOT/releases/$RID" --category stage` | `{"ok": true, "category": "stage", "steps": {... "images_pinned": true}}` | `licenses` 失败：读 `preflight/preflight.json`。`images_pinned` 失败：回到 §3。预检只能做一次，失败后从第 7 步用新的 sequence 重建 |
 | 10 | nexloop-ci | `chmod -R g+rX,o-rwx "$HANDOFF_ROOT/releases/$RID"` | 无输出 | — |
 | 11 | nexloop-release | `cp -R "$HANDOFF_ROOT/releases/$RID" "$RELEASE_ROOT/releases/$RID"` | 无输出 | 目标已存在就停止；发布不可覆盖 |
-| 12 | nexloop-release | 独立核对 CI 记录：`sha256sum "$ci_result"` 等于清单的 `ci_result_digest`；清单 `commit` 等于 `$SHA`；重复第 2 步 | 三项一致 | 任一不符就删除第 11 步的副本并停止 |
+| 12 | nexloop-release | 独立核对 CI 记录：`sha256sum "$ci_result"` 等于清单的 `ci_result_digest`；清单 `commit` 等于 `$SHA`；重复第 2 步。第 12、13 步可以合并用下面“说明”中的**独立核对命令**完成 | 三项一致 | 任一不符就删除第 11 步的副本并停止 |
 | 13 | nexloop-release | 签名前核对产物：对清单中每个 `images[].archive` 计算 sha256，与 `archive_sha256` 比对；对每份 SBOM 与 `sbom_sha256` 比对 | 全部一致 | 不一致就删除副本并停止，不签名 |
 | 14 | nexloop-release | `python3 scripts/release/release.py sign --release-dir "$RELEASE_ROOT/releases/$RID" --key "$RELEASE_SIGNING_KEY"`。脚本来自第 3 步的同一 SHA 检出，用只读拷贝或该提交的 `git archive`，不用候选代码 | `{"ok": true, "signed": true, "signature_sha256": "..."}` | `already signed`：这个副本已签过，不要重签 |
 | 15 | nexloop-release | `python3 scripts/release/archive.py seal --root "$RELEASE_ROOT" --release-id "$RID" --allowed-signers "$ALLOWED_SIGNERS"` | `{"ok": true, ...}`；文件 0444、目录 0555 | `preflight_not_passed` 等：不封存，查第 9 步的结果 |
 | 16 | nexloop-release | `python3 scripts/release/archive.py check --root "$RELEASE_ROOT" --release-id "$RID" --allowed-signers "$ALLOWED_SIGNERS"` | `{"ok": true}` | 失败就保留现场，交给负责人 |
-| 17 | nexloop-ci | `rm -rf "$HANDOFF_ROOT/releases/$RID"`、`git -C "$TRUSTED_REPO" worktree remove "$CI_BUILD_ROOT/checkout-$SHA"`；按标签删除本次构建的 `nexloop/*:<RID>` 镜像标签 | — | 只删本次创建的，按标签前缀判断 |
+| 17 | nexloop-ci | 演练：按下面“说明”中的演练目录清理命令删除整个 `$DRILL_ROOT`（封存后的目录为 0555，直接 `rm -rf` 会失败）。正式发布：`rm -rf "$HANDOFF_ROOT/releases/$RID"`（移交目录没有封存）、`git -C "$TRUSTED_REPO" worktree remove "$CI_BUILD_ROOT/checkout-$SHA"`；按标签删除本次构建的 `nexloop/*:<RID>` 镜像标签 | — | 只删本次创建的，按标签前缀判断 |
 
 **说明**：
+- **第 7 步的耗时与进度观察**：
+  - **参考耗时**：2026-10-19 第四次演练中，4 个镜像的构建用了 15 分 23 秒。这期间命令没有任何中间输出，属于正常现象。
+  - **只读进度观察**：在另一个 `nexloop-ci` 登录 shell 里执行，只读，不影响构建。
+
+    ```bash
+    ls -la "$DRILL_ROOT/releases-root/releases/" 2>/dev/null; ls -la "$DRILL_ROOT/releases-root/releases/"*/images 2>/dev/null
+    ```
+
+    发布目录和 `images/*.tar` 会逐个出现；正式发布时把路径换成 `--release-root` 指向的目录。
+
+    ```bash
+    ps -u "$(id -un)" -o pid,etime,command | grep -E '[r]elease.py|[d]ocker|[b]uildkit|[p]npm|[g]o build'
+    ```
+
+    能看到 `release.py build` 和当前正在构建的那一步。
+
+    ```bash
+    docker ps --format '{{.ID}} {{.Image}} {{.Status}}'; docker images 'nexloop/*' --format '{{.Repository}}:{{.Tag}} {{.CreatedSince}}'
+    ```
+
+    能看到本次 `<RID>` 标签的镜像逐个出现。
+  - **什么算异常**：超过 45 分钟（约参考耗时的 3 倍），并且连续 15 分钟以上上面三项都没有任何变化（没有新文件，也没有新进程或新镜像），才算异常。只是慢、但进度还在变化，就继续等。
+  - **异常时怎么处理**：
+    1. 先把上面三条命令的输出存进日志；
+    2. 在构建所在的 shell 按 Ctrl-C，不要去 kill 别的用户或别的服务的进程；
+    3. 在偏差表记一行；
+    4. 已经生成一半的发布目录不要改，从第 7 步加 `--sequence 2` 重新构建。演练中，这个残留目录在第 17 步随演练目录一起清理。
+- **第 12、13 步的独立核对命令**（只用标准库；在 `--release-root` 下的 `releases/$RID` 上执行，`$ci_result` 即第 7 步用的结果文件）：
+
+  ```bash
+python3 - "$RELEASE_ROOT/releases/$RID" "$ci_result" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+release, ci = Path(sys.argv[1]), Path(sys.argv[2])
+sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+m = json.loads((release / 'manifest.json').read_text())
+bad = []
+if sha(ci) != m['ci_result_digest']: bad.append('ci_result_digest')
+for image in m['images']:
+    if sha(release / image['archive']) != image['archive_sha256']: bad.append('archive:' + image['name'])
+    sbom = release / 'sbom' / (image['name'].replace('/', '_') + '.spdx.json')
+    if not sbom.is_file() or sha(sbom) != image['sbom_sha256']: bad.append('sbom:' + image['name'])
+print(json.dumps({'checked_images': len(m['images']), 'mismatches': bad}))
+sys.exit(1 if bad else 0)
+PY
+  ```
+
+  - 预期输出 `{"checked_images": 4, "mismatches": []}`，退出码为 0。有任何不一致时，退出码为 1，`mismatches` 中列出不符的项（`ci_result_digest`、`archive:<name>`、`sbom:<name>`）。
+  - **SBOM 的文件命名**：`sbom/<name>.spdx.json`，其中 `<name>` 是清单 `images[].name`，名字里的 `/` 换成 `_`；同一目录下还有 `<name>.findings.json`（漏洞扫描结果）。
+  - 清单的每个镜像只记 `sbom_sha256`，**不记 SBOM 的路径**，所以核对时按上面的命名规则找文件。镜像归档则不同：清单里记了相对路径 `images[].archive` 和 `archive_sha256`。
+- **第 17 步：一次性演练目录的清理**。封存之后，发布目录是 0555、文件是 0444，直接 `rm -rf` 会失败。下面这条命令**只用于一次性演练目录**：它先断言路径就在 `$CI_BUILD_ROOT` 下、目录名就是你定的演练目录名、不是符号链接，然后把权限恢复为可写，再删除：
+
+  ```bash
+  DRILL_NAME=<演练目录名>; case "$DRILL_ROOT" in "$CI_BUILD_ROOT"/*) ;; *) echo refuse; exit 1;; esac; [ ! -L "$DRILL_ROOT" ] && [ "$(basename "$DRILL_ROOT")" = "$DRILL_NAME" ] && [ "$(cd "$DRILL_ROOT/.." && pwd -P)" = "$(cd "$CI_BUILD_ROOT" && pwd -P)" ] && chmod -R u+w "$DRILL_ROOT" && rm -rf "$DRILL_ROOT" && echo removed
+  ```
+
+  - **绝不能用于正式归档**。正式归档的清理只用 `make prune-releases`，即 `archive.py prune`：默认 dry-run，加 `APPLY=1` 才执行，并且永远不删 `current` 和 `known_good`。
+  - 执行环境不允许 `rm -rf` 时，用下面限定路径的 Python 替代（标准库 `shutil.rmtree`）。它先断言路径、拒绝符号链接，再恢复写权限后删除。参数依次是：目标目录、它必须直接位于的父目录、它必须叫的名字。
+
+    ```bash
+    python3 - "$DRILL_ROOT" "$CI_BUILD_ROOT" "$DRILL_NAME" <<'PY'
+import os, shutil, stat, sys
+from pathlib import Path
+target, parent, name = Path(sys.argv[1]), Path(sys.argv[2]).resolve(), sys.argv[3]
+if target.is_symlink() or target.name != name or target.resolve().parent != parent or not target.is_dir():
+    sys.exit('refused: not the named drill directory directly under the given parent')
+for d, dirs, files in os.walk(target):
+    for n in dirs + files:
+        p = os.path.join(d, n)
+        if not os.path.islink(p):
+            os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR | (stat.S_IXUSR if os.path.isdir(p) else 0))
+os.chmod(target, os.stat(target).st_mode | stat.S_IWUSR | stat.S_IXUSR)
+shutil.rmtree(target)
+print('removed', target.name)
+PY
+    ```
+
+    预期输出 `removed <演练目录名>`；路径不符时输出 `refused: …`，退出码为 1，并且什么都不删。2026-10-19 在开发机上用合成目录核对过：符号链接、名字不对、父目录不对都被拒绝；封存过的 0555/0444 目录可以删除。
 - **第 4 步 `pnpm install --frozen-lockfile --offline` 的预期警告**：退出码为 0 时，下面两类警告属于预期，可以继续。2026-10-19 在开发机上用同一个锁文件离线安装复现过，退出码 0，警告内容相同。
   - `Failed to create bin at …/node_modules/.bin/pi-ai … ENOENT … vendor/pi/packages/ai/dist/cli.js`（每个依赖 pi-ai 的包一条，共 4 条）：pi-ai 的 `bin` 指向构建产物 `dist/cli.js`，安装时它还不存在；第 7 步 `release.py build` 准备 Host 构建上下文时会先执行 `pnpm build:pi`，生成它。
   - `Ignored build scripts: @google/genai, protobufjs`：`pnpm-workspace.yaml` 的 `onlyBuiltDependencies` 只允许 `esbuild` 执行安装脚本，其他依赖的安装脚本一律不执行。这是有意的供应链策略，Host 不依赖这两个脚本的产物。

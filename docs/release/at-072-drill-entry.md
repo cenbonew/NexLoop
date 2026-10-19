@@ -50,7 +50,7 @@
 | 3 | 同上 §2 第 1–9 步 | 核对 CI、干净检出、离线依赖、平台、基础镜像、`build`、`sbom`、`preflight --category stage` | 第 3 步的检出放在 `$DRILL_ROOT/checkout`；`--release-root` 用 `$DRILL_ROOT/releases-root` |
 | 4 | 同上 §2 第 12–16 步 | 独立核对、签名、封存、`archive.py check`（验签） | 由 `nexloop-ci` 执行，密钥与 allowed_signers 用临时的；第 10、11 步的移交与拷贝不做 |
 | 5 | 同上 §4 与 §4.1 | dry-run 所需的文件与命令 | 第 1、2 步：`--out` 用 `$DRILL_ROOT/plans/app`、`$DRILL_ROOT/plans/data`；第 3、4 步按 §4.1 从公开示例构造非秘密 env 后执行，账户上没有 `docker compose` 时第 4 步记 `not_run`；第 5 步 `load-check` 可选。**演练自己从公开示例生成的文件可以读写，禁止读取的只是事先存在的私有 env** |
-| 6 | 同上 §2 第 17 步 | 清理 | 另外删除演练目录 |
+| 6 | 同上 §2 第 17 步 | 清理 | 用运行手册 §2“说明”中的**演练目录清理命令**删除整个 `$DRILL_ROOT`：它先断言路径在 `$CI_BUILD_ROOT` 下、目录名是演练目录名，再恢复写权限后删除。不允许 `rm -rf` 时用同处的 Python 替代。这条命令绝不能用于正式归档，正式归档用 `make prune-releases` |
 
 背景资料（遇到问题时查阅）：[NX-034 第二部分实现说明](../implementation/NX-034-part2-implementation.md)、[NX-034 本地演练](../implementation/NX-034-local-dry-run.md)（其中有临时测试密钥的生成方式）。
 
