@@ -1,7 +1,8 @@
 # Example (user nexloop-git, not nexloop-ci): fast-forward push of main and every review/* branch to the GitHub sync remote, each as
 # the exact SHA read once; never force, never mirror, never a delete. Unreachable or slow = sync_pending, a normal state the next
 # run heals (the timer runs again 60 s after this one ends); a refused review branch is its own sync_refused. As used at the
-# cut-over, with placeholders; --timeout 60 because a slow GitHub SSH handshake once exceeded 30 s.
+# cut-over, with placeholders; --timeout 60 because a slow GitHub SSH handshake once exceeded 30 s. --tag-signers (the owner's
+# allowed signers file, as in pre-receive): each v* release tag is re-verified and pushed by its own refspec, create only.
 [Unit]
 Description=NexLoop GitHub sync (never force, never mirror)
 
@@ -9,7 +10,7 @@ Description=NexLoop GitHub sync (never force, never mirror)
 Type=oneshot
 User=nexloop-git
 WorkingDirectory=/tmp
-ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py sync --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --remote github --timeout 60
+ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py sync --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --remote github --timeout 60 --tag-signers <GIT_ROOT>/private/allowed_signers
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=<GIT_ROOT>/nexloop.git <GIT_ROOT>/queue <NEXLOOP_GIT_HOME>

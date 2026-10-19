@@ -26,7 +26,7 @@
 |---|---|---|---|
 | 1.1 | B | 准备 tag 签名用的 SSH 密钥（建议单独一把 ed25519，只用于签 tag），把**公钥**交给调度员 | 公钥一行 |
 | 1.2 | A（需负责人确认） | 在 CI 主机上写 `<GIT_ROOT>/private/allowed_signers`，内容一行：`<负责人邮箱> namespaces="git" <公钥>`；属主 root、组 `nexloop-git`、权限 0640（pre-receive 与同步都以 `nexloop-git` 读取它，`nexloop-ci` 不需要） | `sudo -u nexloop-git cat <GIT_ROOT>/private/allowed_signers` 能读；其他用户不能写 |
-| 1.3 | A（需负责人确认） | 受信安装先更新到包含本改动的 main（`<TRUSTED_CI_DIR>` 换成新的 `<sha12>` 目录）。pre-receive hook 的 exec 行加 `--tag-signers <GIT_ROOT>/private/allowed_signers`（例如 `exec python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py pre-receive --repo "$PWD" --identities <GIT_ROOT>/private/identities.json --tag-signers <GIT_ROOT>/private/allowed_signers`）；同步 unit 的 `ExecStart` 末尾加同样的 `--tag-signers <GIT_ROOT>/private/allowed_signers`，然后 `daemon-reload`。（`deploy/stage/ci/` 的公开示例本次未改，留待下一批示例更正时同步。） | hook 与 unit 都带 `--tag-signers`；`systemctl cat nexloop-ci-sync.service` 能看到 |
+| 1.3 | A（需负责人确认） | 受信安装先更新到包含本改动的 main（`<TRUSTED_CI_DIR>` 换成新的 `<sha12>` 目录）。pre-receive hook 的 exec 行加 `--tag-signers <GIT_ROOT>/private/allowed_signers`（例如 `exec python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py pre-receive --repo "$PWD" --identities <GIT_ROOT>/private/identities.json --tag-signers <GIT_ROOT>/private/allowed_signers`）；同步 unit 的 `ExecStart` 末尾加同样的 `--tag-signers <GIT_ROOT>/private/allowed_signers`，然后 `daemon-reload`。`deploy/stage/ci/pre-receive.example` 与 `nexloop-ci-sync.service.example` 已是这一形态。 | hook 与 unit 都带 `--tag-signers`；`systemctl cat nexloop-ci-sync.service` 能看到 |
 | 1.4 | B | 负责人自己的检出：`git config gpg.format ssh`，`git config user.signingkey <私钥路径或公钥>`，远端 `origin` 为 LAN 仓库，推送身份为 maintainer | `git config --get gpg.format` 为 `ssh` |
 
 ## 2. 签名并推送（B，负责人本人）

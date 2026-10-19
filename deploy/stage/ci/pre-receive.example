@@ -1,3 +1,6 @@
 #!/bin/sh
-# Example hook for <GIT_ROOT>/nexloop.git (owner nexloop-git). The identity comes from the SSH forced command, never from the client.
-exec python3 <TRUSTED_CI_DIR>/nexloop_ci.py pre-receive --repo "$PWD" --identities <PRIVATE_IDENTITIES_FILE>
+# Example hook for <GIT_ROOT>/nexloop.git/hooks/pre-receive (owner root, 0755; the repository belongs to nexloop-git), as installed at
+# the NX-033 cut-over. The identity comes from the SSH forced command (push-as), never from the client. --tag-signers is the owner's
+# SSH allowed signers file (root:nexloop-git 0640): a maintainer creates a v* release tag only when it is annotated, in main and
+# signed by a key listed there (docs/release/run-release-tag.md); without the option every maintainer tag is refused.
+exec python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py pre-receive --repo "$PWD" --identities <GIT_ROOT>/private/identities.json --tag-signers <GIT_ROOT>/private/allowed_signers

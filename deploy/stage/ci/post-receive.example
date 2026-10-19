@@ -1,3 +1,4 @@
 #!/bin/sh
-# Example hook: only validates the ref namespace, resolves the SHA and writes one queue file; it never builds or runs candidate code.
-exec python3 <TRUSTED_CI_DIR>/nexloop_ci.py post-receive --repo "$PWD" --queue <QUEUE_DIR>
+# Example hook for <GIT_ROOT>/nexloop.git/hooks/post-receive (owner root, 0755), as installed at the NX-033 cut-over: only validates
+# the ref namespace, resolves the SHA and writes one queue file; it never builds or runs candidate code.
+exec python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py post-receive --repo "$PWD" --queue <GIT_ROOT>/queue
