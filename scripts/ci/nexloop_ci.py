@@ -84,8 +84,33 @@ def write_atomic(path, value):
 
 
 # §2.1 ref rules (pre-receive) ---------------------------------------------------------------------------------------------
-def check_update(repo, identities, identity, old, new, ref):
-    """None when the update is allowed, else the reason. Deleting a ref is refused except an own incoming branch and review/*."""
+# Release tags (owner 2026-10-20, v0.1.0): vMAJOR.MINOR.PATCH, optionally -rc.N (whether rc tags are used is the owner's decision).
+_VERSION_TAG = re.compile(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?')
+
+
+def version_tag_problem(repo, obj, name, signers):
+    """None when `obj` is a release tag the owner signed, else the reason: the name is a version, the object is an annotated tag
+    carrying that same name, it points at a commit already in main, and its SSH signature verifies against the owner's allowed
+    signers file. Works on a pushed object still in the receive quarantine (the hook's environment carries it)."""
+    if not _VERSION_TAG.fullmatch(name or ''):
+        return 'tag_name_invalid'
+    if git(repo, 'cat-file', '-t', obj, check=False).stdout.strip() != 'tag':
+        return 'tag_not_annotated'
+    header = git(repo, 'cat-file', 'tag', obj, check=False).stdout.split('\n\n', 1)[0].splitlines()
+    if f'tag {name}' not in header:
+        return 'tag_name_mismatch'
+    target = git(repo, 'rev-parse', '--verify', '-q', obj + '^{commit}', check=False).stdout.strip()
+    if not target or git(repo, 'merge-base', '--is-ancestor', target, 'refs/heads/main', check=False).returncode != 0:
+        return 'tag_not_on_main'
+    if not signers or not Path(signers).is_file():
+        return 'tag_signers_missing'
+    verified = git(repo, '-c', 'gpg.format=ssh', '-c', f'gpg.ssh.allowedSignersFile={signers}', 'verify-tag', obj, check=False)
+    return None if verified.returncode == 0 else 'tag_signature_invalid'
+
+
+def check_update(repo, identities, identity, old, new, ref, tag_signers=None):
+    """None when the update is allowed, else the reason. Deleting a ref is refused except an own incoming branch and review/*.
+    tag_signers: the owner's allowed signers file; a maintainer creates a release tag only when it verifies (version_tag_problem)."""
     role = identities.get(identity)
     if role is None:
         return 'unknown_identity'
@@ -108,19 +133,24 @@ def check_update(repo, identities, identity, old, new, ref):
             return 'main_fast_forward_only'
         return None
     if ref.startswith('refs/tags/v'):
-        if role != 'release':
-            return 'tag_is_release_only'
-        return None if old == ZERO and not deleting else 'tag_immutable'
+        if role not in ('release', 'maintainer'):
+            return 'tag_requires_maintainer_or_release'
+        if old != ZERO or deleting:
+            return 'tag_immutable'  # never moved, never deleted
+        if role == 'maintainer':
+            # Owner 2026-10-20 (v0.1.0): the owner signs the tag on their own machine and pushes it here as the maintainer.
+            return version_tag_problem(repo, new, ref[len('refs/tags/'):], tag_signers)
+        return None
     if ref.startswith('refs/heads/review/'):
         return None if role == 'maintainer' else 'review_is_maintainer_only'
     return 'ref_namespace_refused'
 
 
-def pre_receive(repo, identities, identity, lines):
+def pre_receive(repo, identities, identity, lines, tag_signers=None):
     refused = []
     for line in lines:
         old, new, ref = line.split()
-        reason = check_update(repo, identities, identity, old, new, ref)
+        reason = check_update(repo, identities, identity, old, new, ref, tag_signers)
         if reason:
             refused.append({'ref': ref, 'reason': reason})
     return refused
@@ -554,7 +584,7 @@ def _sync_push(repo, remote, sha, ref, *, timeout, env):
     return 'unreachable'
 
 
-def sync(repo, queue, remote, *, timeout=30):
+def sync(repo, queue, remote, *, timeout=30, tag_signers=None):
     """Push main and every review/* branch to the sync remote: each as the exact SHA read once (a merge that lands meanwhile is
     the next round's), fast-forward only, never force, never mirror, never a delete. Unreachable: sync_pending with the backlog
     counted; CI results and merges are not affected and nothing blocks. A review branch the remote refuses (not a fast-forward)
@@ -592,6 +622,26 @@ def sync(repo, queue, remote, *, timeout=30):
             entry['status'] = 'local_absent'  # never deleted on the remote
     if reviews:
         state['review'] = reviews
+    if tag_signers is not None:
+        # Owner 2026-10-20 (v0.1.0): release tags, each re-verified (signed by the owner, annotated, in main) and pushed by its
+        # own explicit refspec, create only: never --tags, never forced, never moved or deleted. A tag already synced with the
+        # same object is not pushed again; a remote tag with another object is that tag's sync_refused.
+        tags = state.get('tags', {})
+        listed = git(repo, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/tags/')  # a pattern matches whole components
+        for ref, obj in sorted(line.split(' ', 1) for line in listed.splitlines() if line.startswith('refs/tags/v')):
+            name = ref.removeprefix('refs/tags/')
+            entry = tags.get(name, {})
+            if entry.get('status') == 'synced' and entry.get('object') == obj:
+                continue
+            problem = version_tag_problem(repo, obj, name, tag_signers)
+            if problem:
+                tags[name] = {'status': 'tag_unverified', 'reason': problem, 'object': obj}
+                continue
+            outcome = 'unreachable' if result == 'unreachable' else _sync_push(repo, remote, obj, ref, timeout=timeout, env=env)
+            tags[name] = {'status': {'synced': 'synced', 'refused': 'sync_refused'}.get(outcome, 'sync_pending'), 'object': obj,
+                          **({'synced_at': now()} if outcome == 'synced' else {'attempted_at': now()})}
+        if tags:
+            state['tags'] = tags
     write_atomic(state_path, state)
     return state
 
@@ -608,6 +658,9 @@ def status(queue):
         refused = sorted(name for name, entry in (state.get('review') or {}).items() if entry.get('status') == 'sync_refused')
         if refused:
             out['review_refused'] = refused
+        held = sorted(name for name, entry in (state.get('tags') or {}).items() if entry.get('status') != 'synced')
+        if held:
+            out['tags_not_synced'] = held
         return out
     sync_state = {p.stem: summary(json.loads(p.read_text())) for p in (queue / 'sync').glob('*.json')}
     return {'pending': names('pending'), 'running': names('running'), 'results': results, 'sync': sync_state}
@@ -676,6 +729,8 @@ def main(argv=None):
         if name == 'sync':
             p.add_argument('--remote', required=True)
             p.add_argument('--timeout', type=float, default=30)
+        if name in ('pre-receive', 'sync'):
+            p.add_argument('--tag-signers', type=Path, help="the owner's SSH allowed signers file (release tags)")
         if name == 'check-runner':
             p.add_argument('--runner', type=Path, required=True)
             p.add_argument('--facts', type=Path, required=True)
@@ -685,7 +740,7 @@ def main(argv=None):
     try:
         if args.command == 'pre-receive':
             identity = os.environ.get('NEXLOOP_PUSH_IDENTITY', '')
-            refused = pre_receive(args.repo, load_identities(args.identities), identity, sys.stdin.read().splitlines())
+            refused = pre_receive(args.repo, load_identities(args.identities), identity, sys.stdin.read().splitlines(), args.tag_signers)
             out, code = {'accepted': not refused, 'refused': refused}, 1 if refused else 0
         elif args.command == 'post-receive':
             out, code = {'enqueued': post_receive(args.repo, args.queue, os.environ.get('NEXLOOP_PUSH_IDENTITY', ''), sys.stdin.read().splitlines())}, 0
@@ -708,7 +763,7 @@ def main(argv=None):
             out = ack_policy(args.queue, args.sha, args.identity, load_identities(args.identities))
             code = 0 if out['acknowledged'] else 1
         elif args.command == 'sync':
-            out, code = sync(args.repo, args.queue, args.remote, timeout=args.timeout), 0
+            out, code = sync(args.repo, args.queue, args.remote, timeout=args.timeout, tag_signers=args.tag_signers), 0
         elif args.command == 'status':
             out, code = status(args.queue), 0
         elif args.command == 'result':
