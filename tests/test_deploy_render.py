@@ -1,6 +1,7 @@
 """NX-032 slice 0: the whitelist renderer and the stage templates (Compose for DATA_HOST and APP_HOST, pg_hba, PostgreSQL, Valkey,
 firewall). Synthetic documentation-range values only; nothing connects anywhere."""
 import json
+import ipaddress
 import re
 import shutil
 import subprocess
@@ -444,11 +445,15 @@ def test_the_ci_account_and_its_subordinate_uids_reach_no_internal_network(env, 
     who = f"meta skuid {{ {values['CI_UID']}, {values['CI_SUBUID_RANGE']} }}"
     output = rules[rules.index('chain output'):]
     ci = [l.strip() for l in output.splitlines() if l.strip().startswith('meta skuid')]
-    assert len(ci) == 4 and all(l.startswith(who + ' ') for l in ci)
-    assert ci[0] == f"{who} ip daddr {values['DATA_HOST_ADDR']} drop"
-    assert 'oifname "lo" tcp dport' in ci[1] and ci[2] == f"{who} tcp dport {values['PGBACKREST_TLS_PORT']} drop"
+    assert len(ci) == 8 and all(l.startswith(who + ' ') for l in ci)
+    deny = f"{{ {values['TRUSTED_LAN_CIDR']}, {values['MGMT_SOURCE_CIDR']} }}"
     assert values['TRUSTED_LAN_CIDR'] != values['MGMT_SOURCE_CIDR']
-    assert ci[3] == f"{who} ip daddr {{ {values['TRUSTED_LAN_CIDR']}, {values['MGMT_SOURCE_CIDR']} }} drop"
+    # PR #16 2nd round: Docker's nat OUTPUT runs first, so every destination rule matches the original (before DNAT) and the current one.
+    assert ci[0] == f"{who} ct original ip daddr {values['DATA_HOST_ADDR']} drop" and ci[1] == f"{who} ip daddr {values['DATA_HOST_ADDR']} drop"
+    assert 'oifname "lo" tcp dport' in ci[2] and ci[3].startswith(f"{who} ct original ip daddr 127.0.0.0/8 ct original proto-dst {{ {values['API_INTERNAL_PORT']}, ")
+    assert ci[4] == f"{who} ct original proto-dst {values['PGBACKREST_TLS_PORT']} drop" and ci[5] == f"{who} tcp dport {values['PGBACKREST_TLS_PORT']} drop"
+    assert ci[6] == f"{who} ct original ip daddr {deny} drop" and ci[7] == f"{who} ip daddr {deny} drop"
+    assert ipaddress.ip_address(values['APP_HOST_ADDR']) in ipaddress.ip_network(values['TRUSTED_LAN_CIDR'])  # the published Gateway address is denied before DNAT
     # Equal or nested networks are one element (an nft interval set refuses overlapping elements).
     same = render.derived({**values, 'MGMT_SOURCE_CIDR': values['TRUSTED_LAN_CIDR']})['CI_DENY_CIDRS']
     assert same == values['TRUSTED_LAN_CIDR']
