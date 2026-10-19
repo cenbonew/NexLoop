@@ -1106,13 +1106,19 @@
     "name": "版本回滚",
     "given": "不兼容schema/runtime镜像回滚",
     "expected": "阻止盲回滚，走向前修复/恢复流程",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "commit",
         "ref": "87101e9",
         "summary": "本地 rollback-check：不兼容 schema/runtime 格式拒绝盲回滚并给出向前修复提示（tests/test_release_local.py，s4r 全量通过）。只是本地证据，未在部署链路上执行，状态保持 not_run，待 NX-032/033 部署后验收。",
         "recorded_at": "2026-10-11T04:29:47.003231+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "scripts/deploy/deploy.py rollback-check",
+        "summary": "stage 真实证据（2026-10-19，发布主机，nexloop-release 身份，工具取自发布 22 的提交 47aa87b8）。stage 此前的手动部署从未执行 deploy.py promote，归档里 current 和 known_good 都为空，rollback-check 一律以 no_current_or_known_good 拒绝。负责人确认后补登记实际部署历史：先 promote 发布 21（20261018-7526d0dcadc3-1），再 promote 发布 22（20261019-47aa87b898f2-1），两次均验签通过；结果 current = 发布 22，known_good = 发布 21。deployments.json 的 deployed_at 是补登记时间（09:40Z），不是当时实际的部署时间。rollback-check（database head 0221）：① 目标为 known_good 的发布 21，拒绝，schema_not_backward_compatible:0221，提示 fix forward 并禁止运行 down 迁移；② 目标为 10/16 的发布，拒绝，跨越 0199–0221 共 23 个未声明 expand-only 的迁移；③ 目标为 current，拒绝，target_newer_than_known_good。盲目回滚被阻止，并给出向前修复或恢复的路径。本次只做了检查，没有执行任何回滚。后续：部署单模板补上 promote 一步。",
+        "recorded_at": "2026-10-19T17:40:34+08:00"
       }
     ]
   },
