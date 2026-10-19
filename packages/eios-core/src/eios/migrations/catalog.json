@@ -1115,6 +1115,11 @@
       "version": "0241",
       "name": "0241_workbench_objects.sql",
       "sha256": "dd6787baf06b2890fde9b88ec6d7aa6f7f15d1ac989c8bba52717768b3b245d4"
+    },
+    {
+      "version": "0242",
+      "name": "0242_workbench_member_read_operations.sql",
+      "sha256": "d1883eb203ef38feb2551e63e462e9054bf9522c7561b240a82029fb4795480e"
     }
   ]
 }

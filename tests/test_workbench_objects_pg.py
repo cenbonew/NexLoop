@@ -35,7 +35,7 @@ def obj(admin, type_name, object_id, props, tenant=TENANT, version=1):
 
 def seed(w):
     """The fixture's Consumer as the centre (type version 96: referrer in group 'preference'); three Consumers referring to it, one
-    Consumer it is related to, 30 Goals referring to it (a type no member derives), and a Consumer of another tenant referring to it."""
+    Consumer it is related to, 30 MessageAssignments referring to it (a type no member derives), and a Consumer of another tenant referring to it."""
     admin, centre = w['admin'], w['f']['consumer']
     definition = {'type_name': 'Consumer', 'version': 96, 'properties': [{'property_name': 'referrer', 'value_type': 'string'},
         {'property_name': 'favorite_sport', 'value_type': 'string'}],
@@ -52,7 +52,7 @@ def seed(w):
         values('w2-relation',%s,'real','knows',1,'Consumer',%s,'Consumer',%s,clock_timestamp())""", (TENANT, centre, related))
     goals = [hexid(f'w2-goal-{n}') for n in range(30)]
     for g in goals:
-        obj(admin, 'Goal', g, {'consumer_id': centre, 'state': 'active'})
+        obj(admin, 'MessageAssignment', g, {'consumer_id': centre, 'state': 'active'})
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (TENANT_B,))
     obj(admin, 'Consumer', hexid('w2-other-tenant'), {'referrer': centre}, tenant=TENANT_B)
     return centre, referrers, related, goals
@@ -82,8 +82,8 @@ def test_neighbourhood_checks_every_neighbour_counts_the_rest_and_caps_groups(wo
         # The governed relation.
         g = groups[('outgoing', 'knows', 'Consumer')]
         assert [x['object_id'] for x in g['items']] == [related] and g['invisible'] == 0
-        # 30 Goals: at most 25 candidates checked (none readable for a member), 5 collapsed; no Goal id leaks.
-        g = groups[('incoming', 'property:consumer_id', 'Goal')]
+        # 30 MessageAssignments (a type no member derives, ADR-035 §4): at most 25 checked, 5 collapsed; no id leaks.
+        g = groups[('incoming', 'property:consumer_id', 'MessageAssignment')]
         assert (g['items'], g['invisible'], g['collapsed']) == ([], 25, 5)
         assert not any(goal in got.text for goal in goals)
         # Another tenant's object referring to the same id never appears.
@@ -99,7 +99,7 @@ def test_neighbourhood_checks_every_neighbour_counts_the_rest_and_caps_groups(wo
         assert g[('incoming', 'property:referrer', 'Consumer')]['items'] == [] and g[('incoming', 'property:referrer', 'Consumer')]['invisible'] == 3
         assert [x['object_id'] for x in g[('outgoing', 'knows', 'Consumer')]['items']] == [related]  # object READ only: still visible
         # A centre the member may not read is refused; an unknown one is 404; malformed input 422.
-        assert client.get(f'/api/v1/workbench/objects/Goal/{goals[0]}/neighbors').status_code == 403
+        assert client.get(f'/api/v1/workbench/objects/MessageAssignment/{goals[0]}/neighbors').status_code == 403
         assert client.get(f'/api/v1/workbench/objects/Consumer/{hexid("missing")}/neighbors').status_code == 404
         assert client.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors?depth=2').status_code == 422
         assert client.get('/api/v1/workbench/objects/consumer/' + centre + '/neighbors').status_code == 422
@@ -123,7 +123,7 @@ def test_instance_pages_list_readable_ids_only_and_count_the_rest(workbench):
         assert len(rest['items']) == 3 and rest['next_after'] is None
         assert {x['object_id'] for x in page['items'] + rest['items']} == {centre, related, *referrers}  # never the other tenant's
         assert audit(admin) - before == 5
-        listed = client.get('/api/v1/workbench/objects/Goal').json()
+        listed = client.get('/api/v1/workbench/objects/MessageAssignment').json()
         assert (listed['items'], listed['invisible'], listed['total']) == ([], 30, 30) and not any(g in str(listed) for g in goals)
         assert client.get('/api/v1/workbench/objects/Consumer?limit=101').status_code == 422
         assert client.get('/api/v1/workbench/objects/Consumer?tenant_id=' + TENANT_B).status_code == 422
