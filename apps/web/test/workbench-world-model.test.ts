@@ -39,8 +39,8 @@ test('URL state: tab, graph view and focus round-trip; graph only for Object Typ
   const r=parseRoute('/workbench/ontology','?tab=relations&view=graph&focus=Consumer&x=1');
   expect(r.query).toEqual({tab:'relations',view:'graph',focus:'Consumer'});
   expect(routePath(r)).toBe('/workbench/ontology?tab=relations&view=graph&focus=Consumer');
-  expect(worldQuery({tab:'actions',view:'graph'})).toEqual({tab:'actions',graph:false,focus:null});
-  expect(worldQuery(undefined)).toEqual({tab:'object_types',graph:false,focus:null});
+  expect(worldQuery({tab:'actions',view:'graph'})).toEqual({tab:'actions',graph:false,focus:null,type:null,after:null,object:null});
+  expect(worldQuery(undefined)).toEqual({tab:'object_types',graph:false,focus:null,type:null,after:null,object:null});
 });
 
 function render(query?:Record<string,string>){

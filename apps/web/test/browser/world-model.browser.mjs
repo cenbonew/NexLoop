@@ -41,6 +41,18 @@ try{
   result.panel_after_back=await page.locator('aside.world-panel').count();
   await page.setViewportSize({width:390,height:844});await page.goto('/workbench/ontology?tab=properties');await page.locator('.world-summary').waitFor({timeout:20000});await page.waitForTimeout(500);
   await page.screenshot({path:`${shots}/world-390.png`,fullPage:true});result.hscroll_390=await hscroll(page);
+  // W2 instances: choose Consumer, open the first instance, its drawer and neighbourhood; reload the deep link; Back closes it.
+  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/ontology?tab=instances');await page.locator('#world-instance-type').waitFor({timeout:20000});
+  await page.selectOption('#world-instance-type','Consumer');await page.locator('table[aria-label="Consumer 实例"]').waitFor({timeout:20000});
+  result.instances_summary=await page.locator('.world-instances .workbench-summary').innerText();
+  await page.locator('table[aria-label="Consumer 实例"] tbody tr button').first().click();
+  await page.locator('aside.world-object').waitFor({timeout:20000});await page.locator('aside.world-object h3',{hasText:'邻域'}).waitFor({timeout:20000});
+  await page.locator('aside.world-object .world-neighbors, aside.world-object [data-empty]').first().waitFor({timeout:20000});
+  result.instance_url=new URL(page.url()).search;result.drawer=await page.locator('aside.world-object').innerText();
+  result.drawer_link=await page.locator('aside.world-object a[href^="/workbench/consumers/"]').count();
+  await page.screenshot({path:`${shots}/world-instance-1440.png`,fullPage:true});
+  await page.reload();await page.locator('aside.world-object').waitFor({timeout:20000});result.drawer_after_reload=await page.locator('aside.world-object').count();
+  await page.goBack();await page.waitForTimeout(500);result.drawer_after_back=await page.locator('aside.world-object').count();result.back_after_drawer=new URL(page.url()).search;
   // W3 capability catalog: in the 管理 group; its dispatch outcome reads exactly as the settings page (same source and wording).
   await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/capabilities');
   await page.locator('.workbench-page h1',{hasText:'能力目录'}).waitFor({timeout:20000});await page.locator('[role=tablist][aria-label="能力目录"]').waitFor({timeout:20000});

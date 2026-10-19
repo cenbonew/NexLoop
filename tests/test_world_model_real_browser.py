@@ -76,3 +76,7 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
     assert observed['capabilities_tabs'] == ['受治理能力', '业务 Action', '渠道与交付路由', '真实派发'] and observed['capabilities_url'] == '?tab=dispatch'
     assert observed['capabilities_outcome'] == observed['settings_outcome'] and observed['capabilities_outcome'].startswith('真实交付：')
     assert observed['capabilities_forms'] == 0 and observed['capabilities_hscroll_390'] <= 0, observed
+    # W2 instances (L6 0222/0223): the fixture's Consumer listed by id, its drawer with the neighbourhood, a deep link that reloads, Back.
+    assert observed['instances_summary'].startswith('Consumer 共 ') and observed['instance_url'].startswith('?tab=instances&type=Consumer&object=')
+    assert '邻域（深度 1）' in observed['drawer'] and '完整标识' in observed['drawer'] and observed['drawer_link'] == 1
+    assert observed['drawer_after_reload'] == 1 and observed['drawer_after_back'] == 0 and observed['back_after_drawer'] == '?tab=instances&type=Consumer'

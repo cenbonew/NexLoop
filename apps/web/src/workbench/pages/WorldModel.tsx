@@ -14,21 +14,25 @@ import {DataTable} from '../DataTable';
 import {Empty,StatusBadge,Tabs} from '../ui';
 import {when} from './Consumers';
 import {CARDINALITY_TEXT,SchemaGraph} from '../graph/SchemaGraph';
+import {Instances,type InstanceState} from './WorldInstances';
 
-type Tab='object_types'|'properties'|'relations'|'events'|'actions'|'functions';
+type Tab='object_types'|'properties'|'relations'|'events'|'actions'|'functions'|'instances';
 const TABS:{key:Tab;label:string}[]=[{key:'object_types',label:'Object Type'},{key:'properties',label:'Property'},{key:'relations',label:'Link'},
-  {key:'events',label:'事件类型'},{key:'actions',label:'Action'},{key:'functions',label:'Function'}];
+  {key:'events',label:'事件类型'},{key:'actions',label:'Action'},{key:'functions',label:'Function'},{key:'instances',label:'实例'}];
 const GRAPH_TABS:Tab[]=['object_types','relations'];
 const RISK_TEXT:Record<string,string>={low:'低',medium:'中',high:'高',critical:'极高'};
 const APPROVAL_TEXT:Record<string,string>={none:'无需审批',human:'人工审批',human_review:'人工审批',dual:'双人审批'};
 
-export type WorldModelQuery={tab:Tab;graph:boolean;focus:string|null};
+export type WorldModelQuery={tab:Tab;graph:boolean;focus:string|null}&InstanceState;
 export function worldQuery(query:Query|undefined):WorldModelQuery{
   const tab=(TABS.some(t=>t.key===query?.tab)?query!.tab:'object_types') as Tab;
-  return {tab,graph:query?.view==='graph'&&GRAPH_TABS.includes(tab),focus:query?.focus??null};
+  const instances=tab==='instances';
+  return {tab,graph:query?.view==='graph'&&GRAPH_TABS.includes(tab),focus:query?.focus??null,
+    type:instances?query?.type??null:null,after:instances&&query?.type?query?.after??null:null,object:instances&&query?.type?query?.object??null:null};
 }
 function toQuery(q:WorldModelQuery):Query{
-  return {...(q.tab!=='object_types'?{tab:q.tab}:{}),...(q.graph?{view:'graph'}:{}),...(q.focus?{focus:q.focus}:{})};
+  return {...(q.tab!=='object_types'?{tab:q.tab}:{}),...(q.graph?{view:'graph'}:{}),...(q.focus?{focus:q.focus}:{}),
+    ...(q.tab==='instances'&&q.type?{type:q.type,...(q.after?{after:q.after}:{}),...(q.object?{object:q.object}:{})}:{})};
 }
 
 type PropertyRow={type:string;property:WorldProperty};
@@ -56,11 +60,12 @@ function Body({model:m,q,set}:{model:Model;q:WorldModelQuery;set:(change:Partial
     <ul className="world-summary" aria-label="模型计数" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8,margin:'8px 0 16px',padding:0,listStyle:'none'}}>
       {counts.map(([key,label,n])=><li key={key}><button type="button" className="workbench-block world-count" aria-label={`${label} ${n} 个，查看`}
         onClick={()=>set({tab:key,graph:false,focus:null})} style={{textAlign:'left',width:'100%'}}><span className="note">{label}</span><strong style={{display:'block',fontSize:22}}>{n}</strong></button></li>)}
-      <li className="workbench-block world-count"><span className="note">实例（real）</span><strong style={{display:'block',fontSize:22}}>{instances}</strong></li>
+      <li><button type="button" className="workbench-block world-count" aria-label={`实例 ${instances} 个，查看`} onClick={()=>set({tab:'instances',graph:false,focus:null})}
+        style={{textAlign:'left',width:'100%'}}><span className="note">实例（real）</span><strong style={{display:'block',fontSize:22}}>{instances}</strong></button></li>
     </ul>
     <p className="note">计算时间 {when(m.computed_at)}{withheld?` · ${withheld} 个属性属于负责人限制的属性组，只显示名称`:''}。</p>
     <Tabs label="模型概念" tabs={TABS} value={q.tab} onChange={tab=>set({tab,graph:q.graph&&GRAPH_TABS.includes(tab),focus:null})}
-      announce={`${TABS.find(t=>t.key===q.tab)!.label}：${counts.find(c=>c[0]===q.tab)![2]} 项`}/>
+      announce={`${TABS.find(t=>t.key===q.tab)!.label}：${counts.find(c=>c[0]===q.tab)?.[2]??instances} 项`}/>
     {GRAPH_TABS.includes(q.tab)?<Tabs label="视图" tabs={[{key:'table',label:'表格'},{key:'graph',label:'关系图'}]} value={q.graph?'graph':'table'}
       onChange={v=>set({graph:v==='graph'})}/>:null}
     <div role="tabpanel" aria-label={TABS.find(t=>t.key===q.tab)!.label}>
@@ -69,7 +74,9 @@ function Body({model:m,q,set}:{model:Model;q:WorldModelQuery;set:(change:Partial
             label={`对象类型关系图：${graphNodes.length} 个类型，${graphEdges.length} 条关系`}/>:<Empty kind="none" title="还没有已发布的对象类型"/>}
           {focused?<TypePanel type={focused} model={m} onClose={()=>set({focus:null})}/>:null}
         </div>
-        :<Table tab={q.tab} model={m} properties={properties} onType={name=>set({tab:'object_types',graph:true,focus:name})}/>}
+        :q.tab==='instances'?<Instances types={m.object_types} state={q} onState={change=>set(change)}/>
+        :<Table tab={q.tab} model={m} properties={properties} onType={name=>set({tab:'object_types',graph:true,focus:name})}
+          onInstances={name=>set({tab:'instances',graph:false,focus:null,type:name,after:null,object:null})}/>}
     </div>
   </>;
 }
@@ -90,12 +97,12 @@ function TypePanel({type,model,onClose}:{type:WorldObjectType;model:Model;onClos
   </aside>;
 }
 
-function Table({tab,model:m,properties,onType}:{tab:Tab;model:Model;properties:PropertyRow[];onType:(name:string)=>void}){
+function Table({tab,model:m,properties,onType,onInstances}:{tab:Tab;model:Model;properties:PropertyRow[];onType:(name:string)=>void;onInstances:(name:string)=>void}){
   const typeLink=(name:string)=><button type="button" className="link" onClick={()=>onType(name)}>{name}</button>;
   switch(tab){
     case 'object_types':return m.object_types.length?<DataTable label="Object Type" rows={m.object_types} rowKey={t=>t.name} columns={[
       {label:'名称',main:true,cell:t=>typeLink(t.name)},{label:'版本',num:true,cell:t=>`v${t.version}`},{label:'Property',num:true,cell:t=>t.properties.length},
-      {label:'主键',cell:t=>t.primary_key.join('、')||'—'},{label:'标题属性',cell:t=>t.title_property||'—'},{label:'实例',num:true,cell:t=>t.objects},
+      {label:'主键',cell:t=>t.primary_key.join('、')||'—'},{label:'标题属性',cell:t=>t.title_property||'—'},{label:'实例',num:true,cell:t=>t.objects?<button type="button" className="link" aria-label={`查看 ${t.name} 的 ${t.objects} 个实例`} onClick={()=>onInstances(t.name)}>{t.objects}</button>:0},
       {label:'说明',wide:true,cell:t=>t.description||'—'}]}/>:<Empty kind="none" title="还没有已发布的对象类型"/>;
     case 'properties':return properties.length?<DataTable label="Property" rows={properties} rowKey={r=>r.type+'/'+r.property.name} columns={[
       {label:'Property',main:true,cell:r=><Mono>{r.property.name}</Mono>},{label:'所属类型',cell:r=>typeLink(r.type)},
@@ -117,6 +124,7 @@ function Table({tab,model:m,properties,onType}:{tab:Tab;model:Model;properties:P
       {label:'副作用',cell:a=><StatusBadge text={a.has_side_effects?'有':'无'} tone={a.has_side_effects?'limited':'neutral'} code={a.change_scope}/>},
       {label:'对象类型',wide:true,cell:a=>a.object_types.join('、')||'—'},{label:'Scope',cell:a=>a.required_scopes.join('、')||'—'}]}/>
       :<Empty kind="none" title="还没有生效的 Action"/>;
+    case 'instances':return null;
     case 'functions':return m.functions.length?<DataTable label="Function" rows={m.functions} rowKey={f=>f.resource_id} columns={[
       {label:'Function',main:true,cell:f=><Mono>{f.name}</Mono>},{label:'版本',num:true,cell:f=>`v${f.version}`},
       {label:'作用于',wide:true,cell:f=>f.applies_to.filter(Boolean).join('、')||'—'},{label:'Scope',cell:f=>f.required_scopes.join('、')||'—'}]}/>

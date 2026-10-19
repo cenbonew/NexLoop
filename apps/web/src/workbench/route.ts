@@ -16,7 +16,9 @@ const QUERY:Partial<Record<PageKey,Record<string,(v:string)=>boolean>>>={
     sort:v=>['due_at','registered_at','status'].includes(v),order:v=>v==='asc'||v==='desc',page:v=>offset.test(v),q:words},
   // Enterprise world model (W1): the tab, table or relation graph, and the focused type (deep links and Back walk them).
   capabilities:{tab:v=>['capabilities','actions','channels','dispatch'].includes(v)},
-  ontology:{tab:v=>['object_types','properties','relations','events','actions','functions'].includes(v),view:v=>v==='graph',focus:v=>/^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(v)},
+  ontology:{tab:v=>['object_types','properties','relations','events','actions','functions','instances'].includes(v),view:v=>v==='graph',focus:v=>/^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(v),
+    // W2 instances: the type, the page cursor (after) and the open object.
+    type:v=>/^[A-Z][A-Za-z0-9_]{0,63}$/.test(v),after:v=>/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(v),object:v=>/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(v)},
   consumers:{restricted:v=>v==='true'||v==='false',open:v=>v==='true'||v==='false',sort:v=>['id','open_commitments','conversations','active_plans'].includes(v),
     order:v=>v==='asc'||v==='desc',page:v=>offset.test(v),q:words},
 };
