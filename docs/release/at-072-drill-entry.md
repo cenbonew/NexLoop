@@ -28,12 +28,18 @@
 ### 2.1 演练前由调度员准备（属于环境准备，不属于口头补充）
 
 - 在 `nexloop-ci` 的登录环境（`bash -lc` 或登录 shell）里导出四个非秘密变量：`CI_BUILD_ROOT`、`CI_QUEUE`、`TRUSTED_REPO`、`CI_TRUSTED`。CI 工具的入口是 `python3 "$CI_TRUSTED/scripts/ci/nexloop_ci.py"`。演练前用 [运行手册 §0.1](../implementation/NX-034-first-release-runbook.md#01-参数从哪里来) 的只读核对命令验证。**这属于环境准备**：执行人只读取这些变量，不需要读任何私有材料。
+- **工具链与镜像的验收**（属于环境准备，**必须在演练开始前完成**；演练中发现缺失时记“阻断”，不现场补）：
+  1. 以 `nexloop-ci` 的登录 shell（`bash -lc`），在一个临时检出（`git -C "$TRUSTED_REPO" worktree add --detach <临时目录> "$SHA"`）里执行 `uv sync --frozen --offline` 和 `pnpm install --frozen-lockfile --offline`，两条的退出码都是 0。退出码不为 0，通常是登录环境没有加载 CI 自己的缓存设置，uv 或 pnpm 用了空的默认缓存。
+  2. 按 [运行手册 §2 第 6 步](../implementation/NX-034-first-release-runbook.md#2-首个签名发布逐条命令方案-a) 核对五个基础镜像都已按 digest 在本地：`python-build-base`、`node-host-base`、`go-build-base`、`gateway`、`postgres`。缺失的按 digest 预取，从不按标签拉取。
+  3. 核对完删除临时检出（`git -C "$TRUSTED_REPO" worktree remove <临时目录>`）。
 - 确认 `$SHA`：选 main 上一个已经通过 CI 的提交，也就是 `python3 "$CI_TRUSTED/scripts/ci/nexloop_ci.py" result --queue "$CI_QUEUE" --sha <SHA>` 返回 `passed`，并写进本单的执行记录。
 - 确认 `nexloop-ci` 能读到受信仓库 `$TRUSTED_REPO`，并且基础镜像已经按 digest 预载（first-release 运行手册 §2 第 6 步）。
   - 这两项如果需要主机配置变更，要在演练开始之前由负责人完成；演练开始后不再处理。
 - Mac 上已有 PostgreSQL 18 与仓库的 `.venv`（`uv sync --frozen`）。
 
 ## 3. 文档起点与顺序
+
+**两部分按顺序做，不要并行**：先做恢复（§3.2），恢复部分全部完成，并按 [本机恢复演练](at-072-local-restore-drill.md) §9 清理、核对没有残留之后，再开始发布（§3.1）。第三次演练中两部分并行进行，恢复的清理和发布构建交错在一起，日志难以对应。
 
 ### 3.1 发布：构建、签名、验签、部署 dry-run（CI 主机，`nexloop-ci`）
 
@@ -87,7 +93,15 @@ install -d -m 700 "$DRILL_ROOT" "$DRILL_ROOT/plans" "$DRILL_ROOT/logs"
 
 ## 4. 偏差记录模板
 
-**原始输出**：每一步的原始 stdout 都用 `tee` 存成演练目录里的文件，例如 `<命令> 2>&1 | tee "$DRILL_ROOT/logs/<步号>-<短名>.out"`；恢复部分存在 `.dev-drill/logs/` 下（先 `mkdir -m 700 .dev-drill/logs`）。报告与偏差表只引用这些文件名，不靠事后回忆或终端回滚。2026-10-19 的演练中，有一段输出因为执行工具故障丢失了。
+**计时与 tee 包装（开工前先准备好）**：每条命令都经同一个包装执行，同时记录起止时间（UTC，微秒）、退出码和原始输出。在每个 shell 里定义一次：
+
+```bash
+run() { local name=$1; shift; local log="$LOGDIR/$name.out"; local now='import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds"))'; { echo "# start $(python3 -c "$now")"; echo "# cmd $*"; } >> "$log"; "$@" 2>&1 | tee -a "$log"; local rc=${PIPESTATUS[0]}; { echo "# end $(python3 -c "$now") rc=$rc"; } >> "$log"; return "$rc"; }
+```
+
+用法：先设 `LOGDIR`（发布用 `$DRILL_ROOT/logs`，恢复用 `.dev-drill/logs`，见下文），然后执行 `run 07-build uv run --frozen python scripts/release/release.py build …`。退出码取命令本身的退出码，不是 tee 的。这个函数用了 bash 的 `PIPESTATUS`，要在 bash 里定义和使用（zsh 的写法是小写的 `pipestatus`）；2026-10-19 在 bash 下核对过：命令以 3 退出时 `run` 也返回 3，日志首尾有 start/end 两行。预期返回非 0 的命令（例如恢复手册 §6.3）按该节的写法处理。
+
+**原始输出**：每一步的原始 stdout 都用 `tee` 存成演练目录里的文件，例如 `<命令> 2>&1 | tee "$DRILL_ROOT/logs/<步号>-<短名>.out"`；恢复部分存在 `.dev-drill/logs/` 下。源端脚本要求 `.dev-drill` 事先不存在，所以源端的启动日志先 tee 到演练目录之外，等出现 ready 之后再建 `.dev-drill/logs` 并把日志搬进去（[本机恢复演练](at-072-local-restore-drill.md) §1）。报告与偏差表只引用这些文件名，不靠事后回忆或终端回滚。2026-10-19 的演练中，有一段输出因为执行工具故障丢失了。
 
 每发现一处就记一行，当场记。“实际怎么做的”要写到能复现的程度，包括命令和输出的关键字段；不要写口令、地址或主机名。
 
