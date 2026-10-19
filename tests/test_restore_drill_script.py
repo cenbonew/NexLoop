@@ -55,6 +55,21 @@ rm -f "$data/postmaster.pid"
 '''
 
 
+def terminal_signals():
+    """The source side is started from a terminal, where SIGINT, SIGHUP and SIGQUIT have their default action. A
+    non-interactive shell cannot trap or reset a signal that was already ignored when it started (POSIX), and a runner
+    started with `nohup … &` passes SIGHUP/SIGINT/SIGQUIT down ignored (release CI 38: SigIgn 0x7), so the script's traps
+    would never fire. Reset them in the child before exec, as a terminal would have them."""
+    for handled in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(handled, signal.SIG_DFL)
+
+
+def inherited_ignore():
+    """The opposite case: started in the background or under nohup, the signals arrive ignored."""
+    for handled in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(handled, signal.SIG_IGN)
+
+
 @pytest.fixture
 def standin(tmp_path):
     holder = tmp_path / 'holder.py'
@@ -69,8 +84,8 @@ def standin(tmp_path):
            'NEXLOOP_DRILL_WATCH_GRACE': '2'}
     started = []
 
-    def start(command, **extra):
-        p = subprocess.Popen(['bash', '-c', command], cwd=ROOT, env={**env, **extra}, start_new_session=True,
+    def start(command, preexec=terminal_signals, **extra):
+        p = subprocess.Popen(['bash', '-c', command], cwd=ROOT, env={**env, **extra}, start_new_session=True, preexec_fn=preexec,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         started.append(p)
         for _ in range(240):
@@ -162,6 +177,20 @@ def test_stop_command_stops_only_the_recorded_cluster(standin):
     assert not alive(pg) and not root.exists()
     again = subprocess.run([str(SCRIPT), '--stop'], cwd=ROOT, env=standin['env'], capture_output=True, text=True, timeout=120)
     assert again.returncode == 0 and '"already_gone"' in again.stdout
+
+
+def test_stop_still_works_when_the_source_side_was_started_with_signals_ignored(standin):
+    # Started with `nohup … &` or in the background, Ctrl-C and SIGHUP are swallowed by the inherited SIG_IGN (the traps cannot
+    # be set); `restore_drill.sh --stop` is the documented way out and must not depend on any signal reaching the script.
+    p, root, pg = standin['start'](f'{SCRIPT} 2>&1 | tee {standin["drill"].parent}/source.log', preexec=inherited_ignore,
+                                   STANDIN_TEARDOWN='1')
+    os.killpg(p.pid, signal.SIGINT)
+    time.sleep(2)
+    assert alive(pg) and root.exists()  # swallowed, as in release CI 38
+    out = subprocess.run([str(SCRIPT), '--stop'], cwd=ROOT, env=standin['env'], capture_output=True, text=True, timeout=120,
+                         preexec_fn=inherited_ignore)
+    assert out.returncode == 0 and 'restore drill: stopped' in out.stdout
+    assert not alive(pg) and not root.exists()
 
 
 def test_stop_refuses_a_recorded_path_that_is_not_a_drill_cluster(tmp_path):
