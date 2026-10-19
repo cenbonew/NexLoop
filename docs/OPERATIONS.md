@@ -94,6 +94,62 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 - **GitHub 同步**：同步任务以 `nexloop-git` 身份只快进推送 main，不 force，也不 mirror。GitHub 不可达时，状态记为 `sync_pending`，积压等于上次同步之后 main 新增的提交数；不影响 CI 和合并，下一次同步成功后自动补推、积压清零，不需要人工处理。查看状态：`nexloop_ci.py status --queue <QUEUE_DIR>` 的 `sync` 字段。
 - **旧车道仓库**：切换后不再接受推送 main，只保留 `refs/ci/*`，作为过渡期发布 CI 结果的来源（[NX-034-release-ci-queue](implementation/NX-034-release-ci-queue.md)）。之后的发布直接取控制器结果目录中的 `result.json`。
 
+### 7.2 升级 CI 受信安装
+
+控制器、两个 hook 和同步服务都运行受信安装中的程序，从不运行候选代码中的副本（[NX-033 设计](implementation/NX-033-design.md) §4.3）。改动了 `scripts/ci/` 或 `.ci-policy/` 的提交合入 main 之后，要按下面的步骤升级受信安装。这些都是 B 类步骤，要负责人确认。占位符：`<TRUSTED_BASE>` 是受信安装的父目录，`<NEW>` 和 `<OLD>` 是按 SHA 命名的子目录，`<GIT_ROOT>` 是 bare 仓库的父目录。
+
+1. **展开新版本**：取已合入 main 的 SHA，用 `git archive` 展开到一个新的、root 所有、按 SHA 命名的目录。只展开受信安装需要的路径，展开后对 CI 账户和 Git 托管账户都只读：
+
+   ```bash
+   sudo install -d -o root -g root -m 0755 "<TRUSTED_BASE>/<SHA>"
+   ```
+
+   ```bash
+   git -C "<GIT_ROOT>/nexloop.git" archive "<SHA>" scripts/ci .ci-policy deploy/stage/ci scripts/deploy/probe_isolation.py | sudo tar -x -C "<TRUSTED_BASE>/<SHA>"
+   ```
+
+2. **重新派生车道策略**，然后和旧版比较：
+
+   ```bash
+   python3 "<TRUSTED_BASE>/<NEW>/scripts/ci/lane_policy.py" --source "<TRUSTED_BASE>/<NEW>/.ci-policy" --stages-version 4 --without isolation-probe --stage-env <PRIVATE_LANE_ENV_FILE> --out <NEW_LANE_POLICY_DIR>
+   ```
+
+   ```bash
+   diff -r <OLD_LANE_POLICY_DIR> <NEW_LANE_POLICY_DIR>
+   ```
+
+   差异只应来自这次合入的策略改动。有意料之外的差异就停止，保留旧版。
+3. **备份**两个 hook（`<GIT_ROOT>/nexloop.git/hooks/pre-receive`、`post-receive`）和两个 unit（控制器与同步服务），复制成带日期后缀的文件。
+4. **替换路径**：把 hook 和 unit 中的 `<TRUSTED_BASE>/<OLD>` 换成 `<TRUSTED_BASE>/<NEW>`，然后执行 `sudo systemctl daemon-reload`。不要在旧目录里原地覆盖：旧目录保留，作为回退目标。
+5. **验证**：
+   - pre-receive：用一次必然被拒的推送测试，例如开发线身份推 `refs/heads/main`，预期被拒，并且输出来自新版本；
+   - 控制器：`sudo systemctl start nexloop-ci-controller.service`，跑一轮，`journalctl` 中没有错误；
+   - 同步：`sudo systemctl start nexloop-ci-sync.service`，跑一轮，`status` 的 `sync` 为 `synced`（暂时连不上 GitHub 时为 `sync_pending`，属于正常的自愈状态）。
+6. **回退**：把 hook 和 unit 中的路径改回 `<TRUSTED_BASE>/<OLD>`，再执行 `daemon-reload`，或者直接用第 3 步的备份覆盖回去。旧目录在下一次升级成功之前不要删除。
+
+2026-10-20 的升级把受信安装升到了 main `7537c5b8`：同步的超时改为 60 秒，`review/*` 的同步随之生效；车道策略重新派生后与旧版一致。
+
+### 7.3 防火墙：带计数重新渲染，以及用 CI 账户做阳性对照
+
+CI 账户的出站规则（模板 `deploy/stage/firewall/app-host.nft.template`）同时匹配 CI 账户本身的 UID 和它的整个 subordinate UID 范围（`CI_SUBUID_RANGE`）。目的地址按 DNAT 之前的原始地址匹配（`ct original`），并且每条规则都带 `counter`。
+
+1. **重新渲染与加载**：按 §8a.7，用私有 `stage.env` 和发布检出中的模板重新渲染，然后 `sudo systemctl reload nexloop-nft`。不要 `restart`。
+2. **记下计数**：
+
+   ```bash
+   sudo nft list table inet nexloop_stage | grep -E 'skuid.*counter'
+   ```
+
+   记下每条 CI 规则当前的 `packets` 值。
+3. **阳性对照**：以 CI 账户的身份连一个必须被拦截的本机业务端口，预期超时或被拒：
+
+   ```bash
+   sudo -u <CI_USER> python3 -c "import socket; socket.create_connection(('127.0.0.1', <API_INTERNAL_PORT>), timeout=3)"
+   ```
+
+4. **再看计数**：重复第 2 步，对应那条规则的 `packets` 应当增加，例如 2026-10-20 的对照增加了 5 个包。计数没有变化，说明连接没有经过这条规则，隔离可能失效：立即停止，按 [run-42](release/run-42-20261015.md) 的方法重跑完整的隔离探测。
+5. 新增了 subordinate UID 范围，或者主机升级改变了 AppArmor 对用户命名空间的限制时，都要重新做第 2–4 步，并重跑隔离探测（见 [known-risks-v0.1](release/known-risks-v0.1.md) §4）。
+
 ## 8. 常见运维操作的入口
 
 | 操作 | 入口 |
