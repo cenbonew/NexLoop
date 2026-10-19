@@ -1,0 +1,12 @@
+#!/bin/sh
+# Example: ~nexloop-git/git-shell-commands/push-as (owner root, mode 0755; the directory owner root, 0755). git-shell runs it for the
+# forced command `push-as <identity>` of authorized_keys: it takes exactly one identity ([a-z0-9-]+), fixes it in
+# NEXLOOP_PUSH_IDENTITY for the pre-receive hook, and hands the client's git command to git-shell (which allows only
+# git-receive-pack, git-upload-pack and git-upload-archive). Anything else is refused.
+set -eu
+[ "$#" -eq 1 ] || { echo 'push-as: one identity' >&2; exit 1; }
+case "$1" in ''|*[!a-z0-9-]*) echo 'push-as: identity must be [a-z0-9-]+' >&2; exit 1 ;; esac
+[ -n "${SSH_ORIGINAL_COMMAND:-}" ] || { echo 'push-as: no git command' >&2; exit 1; }
+NEXLOOP_PUSH_IDENTITY=$1
+export NEXLOOP_PUSH_IDENTITY
+exec git-shell -c "$SSH_ORIGINAL_COMMAND"

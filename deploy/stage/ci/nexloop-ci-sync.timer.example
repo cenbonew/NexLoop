@@ -1,0 +1,10 @@
+# Example: run the GitHub sync again one minute after the previous run ended (a run that times out never overlaps the next).
+[Unit]
+Description=NexLoop GitHub sync, every minute after the previous run
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+
+[Install]
+WantedBy=timers.target

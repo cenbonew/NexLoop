@@ -1,14 +1,23 @@
-# Example systemd unit (user nexloop-ci). The program is the trusted installation (main as released), never a candidate.
+# Example systemd unit (user nexloop-ci), plan L (owner 2026-10-20: the stages run as nexloop-ci directly, without the rootless Podman
+# runner, so there is no --runner/--facts; plan P adds them back with check-runner). As used at the cut-over (control CI 4710/4710,
+# first merge and sync), with placeholders. The program is the trusted installation (main as released) under a parent directory
+# nexloop-ci cannot write (<TRUSTED_CI_DIR>, e.g. /opt/nexloop/ci-trusted/<sha12>), never a candidate; the lane policy likewise.
+# The queue and the identities file are under <GIT_ROOT>, where the post-receive hook (nexloop-git) reaches them too. The
+# EnvironmentFile holds the lane's non-secret stage environment (release-lane.env.example), never a secret.
 [Unit]
 Description=NexLoop CI controller (one build at a time)
 
 [Service]
 Type=oneshot
 User=nexloop-ci
-ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/nexloop_ci.py run-once --repo <GIT_ROOT>/nexloop.git --queue <QUEUE_DIR> --policy <TRUSTED_CI_DIR>/.ci-policy --identities <PRIVATE_IDENTITIES_FILE> --runner <PRIVATE_RUNNER_FILE> --facts <PRIVATE_FACTS_FILE> --merge-gate <TRUSTED_CI_DIR>/merge-gate
+WorkingDirectory=/tmp
+EnvironmentFile=<CI_ROOT>/private/release-lane.env
+Environment=PATH=<CI_HOME>/.local/opt/node/bin:<CI_HOME>/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LC_ALL=C.UTF-8 LANG=C.UTF-8
+ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py run-once --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --policy <CI_ROOT>/lane-policy/<sha12> --identities <GIT_ROOT>/private/identities.json --stages-version 4
 CPUWeight=20
 MemoryMax=<CI_MEMORY_MAX>
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=<QUEUE_DIR> <CI_CACHE>
-InaccessiblePaths=<SECRET_ROOT> <RUNTIME_ROOT> <ARTIFACT_ROOT> <BACKUP_ROOT>
+ReadWritePaths=<GIT_ROOT>/queue <GIT_ROOT>/nexloop.git <CI_ROOT>/cache <CI_ROOT>/build <CI_ROOT>/runs <CI_HOME> /run/user/<CI_UID> /tmp
+InaccessiblePaths=<NEXLOOP_ROOT>/secrets <NEXLOOP_ROOT>/data <NEXLOOP_ROOT>/backups <NEXLOOP_ROOT>/releases <NEXLOOP_ROOT>/release-signing <NEXLOOP_ROOT>/config <NEXLOOP_ROOT>/ops
