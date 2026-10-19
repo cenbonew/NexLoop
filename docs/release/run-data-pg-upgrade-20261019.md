@@ -129,9 +129,15 @@ docker exec -u postgres nexloop-data-postgres-1 pgbackrest --stanza=nexloop info
 - `pgbackrest check` 通过：WAL 能归档到 repo1 和 repo2。新旧镜像的 pgBackRest 都是 2.59.3。
 - `pg_stat_archiver` 的 `last_archived_time` 在切换之后，且 `failed_count` 没有增加。
 
-### 4.2 APP_HOST（A）
+### 4.2 APP_HOST（A，重启一步为 B）
 
-- `docker ps` 仍是 25 个运行、0 个异常（25/0），没有容器重启。
+- **先逐个重启 API 实例（B）**。PG 重启后，API 连接池里会留下已断开的连接：池子要等到下一次取用失败才丢弃它们，所以每个这样的连接会让一个请求返回 503（`dependency_unavailable`，日志为 `psycopg.pool … discarding closed connection`）。2026-10-19 在 stage 执行时，负责人的第一次登录和第一次 erasure-precheck 都是这样返回 503 的；依次重启 api-1、api-2 后恢复。所以 §4.1 核对通过后，立即逐个重启（同时只重启一个，另一个继续服务）：
+  ```
+  docker compose -p nexloop-app <APP_HOST 的 compose 参数> restart api-1   # 等它 healthy
+  docker compose -p nexloop-app <APP_HOST 的 compose 参数> restart api-2
+  ```
+  不重启也会自愈：每个旧连接只造成一次 503，但会零星出现在负责人的操作上。worker 的每个 tick 会重新取连接，失败的那个 tick 记一次 `background tick failed` 后自动恢复，所以 worker 不需要重启。v0.1 之后给连接池加上取出前检查，见 known-risks-v0.1 §4。
+- `docker ps` 仍是 25 个运行、0 个异常（25/0）；除了上面的 API 重启，没有其他容器重启。
 - 后台服务没有持续的 tick 失败：
   - 各服务日志中 `background tick failed` 只在窗口内出现，之后有 `background tick recovered`；
   - 窗口结束后不再出现 `background tick failed`。

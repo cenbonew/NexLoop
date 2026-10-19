@@ -37,3 +37,4 @@ NX-037 证据项 `known_risks`（`docs/release/at-015-evidence-pack.md` §1）�
 | 等待期（24 小时 / 10 分钟）写死在 SQL | 低 | 与负责人 10/18 的决定一致 | 修改需要新迁移 |
 | 证据包部分条目仍缺 | 低 | 本稿与 `effect_reconciliation` 生成器补上两项 | inventories、load_report、public_preflight 需按手册另行生成 |
 | CI 测试阶段没有独立的网络命名空间，隔离只靠 nft 拦截（NX-033 方案 L，负责人 2026-10-18） | 中 | 三层隔离：① 用户隔离：`nexloop-ci` 是非 root 用户，不在 docker、sudo 和任何运行服务的组里；② 目录权限：stage secret、运行数据、备份和发布归档对它不可读；③ nft 按 UID 拒绝它连 DATA_HOST 的任意端口、业务 loopback 端口和 LAN 网段。每次切换或改动规则后，以 `nexloop-ci` 身份运行主机层探测 `probe_isolation.py`（AT-054 的证据）；只运行已评审的代码，外部 PR 不入队（D3）；控制器来自受信安装 | 进程与主机共享网络栈：nft 规则一旦缺失或被改，测试进程就能到达本机端口。方案 P（每个 job 一个 rootless Podman 容器，网络只有 loopback）作为 v0.1 之后的主机配置任务补上，前提是先有 CI 镜像 |
+| PG 重启后，API 连接池里留有已断开的连接（2026-10-19 PG 18.6 升级时实测） | 低 | 池子在下一次取用失败时才丢弃旧连接，所以每个旧连接会让一个请求返回 503（`dependency_unavailable`）；worker 下一个 tick 自动恢复。PG 升级执行单 §4.2 要求逐个重启 API 实例 | v0.1 之后给 psycopg_pool 加上取出前检查（`ConnectionPool(check=ConnectionPool.check_connection)`），重启或故障切换后不再出现 503 |
