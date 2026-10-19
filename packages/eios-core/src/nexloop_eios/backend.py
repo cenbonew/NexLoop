@@ -506,7 +506,7 @@ class Backend:
             'erasure_precheck',  # 0220: the owner's precheck before and after erasing a synthetic Consumer
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)
-            'objects', 'object_neighbors'}  # world model W2: instances and depth-1 neighbourhood, per-object READ (ADR-025)
+            'objects', 'object_neighbors', 'artifacts'}  # world model W2: instances and depth-1 neighbourhood, per-object READ (ADR-025)
         with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
             if operation not in allowed:
