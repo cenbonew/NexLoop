@@ -19,6 +19,7 @@ NX-037 证据项 `known_risks`（`docs/release/at-015-evidence-pack.md` §1）�
 | 上游偶发 TLS 握手无响应（APP_HOST 实测约 3–8%） | 中 | 发布 15：TCP+TLS 4 秒上限，请求发出前最多换新连接重试 2 次；请求发出后不重试（避免重复计费） | 最坏 12 秒才判定失败，计入 Run 预算；握手中被重置的情况不重试 |
 | 模型供应商出网是静态 IP 白名单 | 中 | 私有 env 的 `MODEL_PROVIDER_ALLOWLIST`；地址变化时由负责人重新解析并加载 nft | 供应商 CDN 地址变化会导致连接超时，目前没有自动刷新或失配告警 |
 | 模型 provider 的地址会漂移（2026-10-19 stage 上，Ark embedding 域名就发生过一次） | 中 | 出站规则按地址放行，地址变了调用就会被拦下。`nexloop-doctor --provider-drift` 只读比对各 provider 域名当前解析出的地址，与白名单和已渲染的出站规则是否一致；claim 出站网络有独立的白名单 `CLAIM_MODEL_PROVIDER_ALLOWLIST`（PR #15）。发现漂移后，改防火墙需要负责人确认 | 目前靠手动执行发现：定时检查的示例已有（`deploy/stage/systemd/nexloop-provider-drift.timer.example`），但 stage 尚未安装；漂移到下一次检查之间的模型调用会失败 |
+| 模型 provider 的地址轮换频繁（2026-10-19 一个晚上，两家 provider 各变了一次地址） | 中 | 每次都由 `--provider-drift` 发现，负责人确认后放行新地址。各网络命名空间分别使用自己的白名单（PR #15），放行不会扩大到不需要的服务 | 变化频率高于原先预期；在定时检查安装之前，漂移到被发现之间的调用会失败。是否改为按域名放行（例如经出站代理），列为 v0.1 之后评估 |
 | 模型不按要求调用工具或给出时间换算 | 中 | 工具错误码可纠正（0208 recovered_tool_errors）；时间换算有确定性校验，冲突时保留两种解读 | 依赖提示词与模型行为，发布后需持续观察 |
 
 ## 3. 回复保证与 Context
@@ -37,4 +38,5 @@ NX-037 证据项 `known_risks`（`docs/release/at-015-evidence-pack.md` §1）�
 | 等待期（24 小时 / 10 分钟）写死在 SQL | 低 | 与负责人 10/18 的决定一致 | 修改需要新迁移 |
 | 证据包部分条目仍缺 | 低 | 本稿与 `effect_reconciliation` 生成器补上两项 | inventories、load_report、public_preflight 需按手册另行生成 |
 | CI 测试阶段没有独立的网络命名空间，隔离只靠 nft 拦截（NX-033 方案 L，负责人 2026-10-18） | 中 | 三层隔离：① 用户隔离：`nexloop-ci` 是非 root 用户，不在 docker、sudo 和任何运行服务的组里；② 目录权限：stage secret、运行数据、备份和发布归档对它不可读；③ nft 按 UID 拒绝它连 DATA_HOST 的任意端口、业务 loopback 端口和 LAN 网段。每次切换或改动规则后，以 `nexloop-ci` 身份运行主机层探测 `probe_isolation.py`（AT-054 的证据）；只运行已评审的代码，外部 PR 不入队（D3）；控制器来自受信安装 | 进程与主机共享网络栈：nft 规则一旦缺失或被改，测试进程就能到达本机端口。方案 P（每个 job 一个 rootless Podman 容器，网络只有 loopback）作为 v0.1 之后的主机配置任务补上，前提是先有 CI 镜像 |
+| CI 隔离依赖按 UID 的 nft 规则，必须覆盖 CI 账户的 subordinate UID 范围（2026-10-19 切换中发现） | 中 | CI 账户可以经 rootlesskit 进入用户命名空间，以 subordinate UID 发起连接。规则如果只匹配 CI 账户本身的 UID，就会被绕过（Codex 在 PR #16 评审中指出）。Ubuntu 的 AppArmor 限制了非特权用户命名空间，但 rootlesskit 在例外名单里。已修复：规则覆盖整个 subordinate UID 范围，并按 DNAT 之前的原始目的地址匹配；修复后隔离探测通过（AT-054） | 新增 subordinate UID 范围、或主机升级改变了 AppArmor 例外时，必须重新运行隔离探测 |
 | PG 重启后，API 连接池里留有已断开的连接（2026-10-19 PG 18.6 升级时实测） | 低 | 池子在下一次取用失败时才丢弃旧连接，所以每个旧连接会让一个请求返回 503（`dependency_unavailable`）；worker 下一个 tick 自动恢复。PG 升级执行单 §4.2 要求逐个重启 API 实例 | v0.1 之后给 psycopg_pool 加上取出前检查（`ConnectionPool(check=ConnectionPool.check_connection)`），重启或故障切换后不再出现 503 |

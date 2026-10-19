@@ -68,10 +68,31 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 - 公开发布：`release.py public-preflight` 九步门槛加负责人确认，见 [公开发布检查清单](release/public-release-checklist.md)。
 - 部署侧回滚（重新渲染上一份已知可用的发布清单、防火墙与证书回退、整体撤下但保留数据）见 [NX-032 部署运行手册](implementation/NX-032-deploy-runbook.md) §8。
 
-## 7. 本地 CI（NX-033，本地部分）
+## 7. 本地 CI（NX-033）
 
 - 权威入口 `bash scripts/ci/check`（已拆成 `scripts/ci/stages/` 下可单独调用的阶段；前置阶段失败即停，测试阶段一律跑完，每阶段输出一行 `NEXLOOP-STAGE` 结果）；控制器 `scripts/ci/nexloop_ci.py`（ref 规则、按 SHA 入队、全新检出、受信判定、只快进合并、GitHub 同步）与 `Makefile` 命令契约。
-- 主机侧（服务用户、bare 仓库与 hook、防火墙、remote 切换）属于 B 类，尚未执行。见 [deploy/stage/ci/README.md](../deploy/stage/ci/README.md) 与 [NX-033 本地部分实现说明](implementation/NX-033-local-implementation.md)。
+- 主机侧已于 2026-10-19 晚切换（方案 L，[执行单](release/run-nx033-switch-20261020.md)）。模板见 [deploy/stage/ci/README.md](../deploy/stage/ci/README.md)。
+
+### 7.1 切换后的合并与同步
+
+- **ref 命名空间**（bare 仓库的 pre-receive hook 强制，见 [NX-033 设计](implementation/NX-033-design.md) §2.1）：
+
+  | ref | 谁写 | 用途 |
+  |---|---|---|
+  | `refs/heads/incoming/<identity>/<topic>` | 对应的推送身份（每条开发线一个） | 交付；推送后自动入队 CI `check` |
+  | `refs/heads/integration/<name>` | 集成者（调度员） | 组装要合并的提交；先 `check`，通过后再入队 `merge` |
+  | `refs/heads/review/*` | 维护者 | 外部 PR 的评审副本，**永不入队** |
+  | `refs/heads/main` | 只有合并控制器 | 任何推送身份直接推 main 都会被拒绝 |
+  | `refs/pull/*`、别人的 `incoming/` | 无 | 拒绝 |
+
+- **开发线**：提交后执行 `git push origin HEAD:refs/heads/incoming/<identity>/<topic>`，把 commit 哈希交给集成者。`origin` 指向 LAN 上的 bare 仓库，pre-push 扫描只放行推送到 `origin`；**不要推 GitHub，也不要用 `--no-verify`**。
+- **合并**：集成者对 `integration/<name>` 入队 `merge`，合并控制器检查以下条件，全部满足才快进 main：
+  1. 这个 SHA 有一份 `passed` 的 CI 结果（一轮约 70 分钟）；
+  2. 它的第一父提交等于当前的 main，否则要在新的 main 上重新组装并重跑 CI；
+  3. 合并门槛通过（publication 扫描、prepush 扫描）。
+- **受保护路径**：改动涉及 `scripts/ci/`、`.ci-policy/`、`deploy/`、`.githooks/` 时，结果会带 `policy_change` 标记。这时必须由维护者执行 `python3 "$CI_TRUSTED/scripts/ci/nexloop_ci.py" ack-policy --queue <QUEUE_DIR> --identities <IDENTITIES_FILE> --sha <SHA> --identity <maintainer>` 确认，否则合并被拒绝（`policy_change_not_acknowledged`）。
+- **GitHub 同步**：同步任务以 `nexloop-git` 身份只快进推送 main，不 force，也不 mirror。GitHub 不可达时，状态记为 `sync_pending`，积压等于上次同步之后 main 新增的提交数；不影响 CI 和合并，下一次同步成功后自动补推、积压清零，不需要人工处理。查看状态：`nexloop_ci.py status --queue <QUEUE_DIR>` 的 `sync` 字段。
+- **旧车道仓库**：切换后不再接受推送 main，只保留 `refs/ci/*`，作为过渡期发布 CI 结果的来源（[NX-034-release-ci-queue](implementation/NX-034-release-ci-queue.md)）。之后的发布直接取控制器结果目录中的 `result.json`。
 
 ## 8. 常见运维操作的入口
 
