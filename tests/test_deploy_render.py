@@ -431,3 +431,23 @@ def test_each_egress_namespace_gets_its_own_model_allowlist_and_the_default_rend
     with pytest.raises(render.Refused, match='CLAIM_MODEL_PROVIDER_ALLOWLIST'):
         render.load_env(env)
     env.write_text(good)
+
+
+def test_the_ci_account_reaches_no_lan_address(env, tmp_path):
+    """NX-033 §3.2 (cut-over 2026-10-20): besides DATA_HOST, the business loopback ports and the pgBackRest TLS port, the CI account
+    is denied the LAN; the rule sits with the other CI rules in the output chain and changes no other rule."""
+    template = (STAGE / 'firewall' / 'app-host.nft.template').read_text()
+    values = render.load_env(env)
+    rules, used = render.render(template, values)
+    assert {'CI_UID', 'TRUSTED_LAN_CIDR'} <= set(used)
+    output = rules[rules.index('chain output'):]
+    ci = [l.strip() for l in output.splitlines() if l.strip().startswith(f"meta skuid {values['CI_UID']} ")]
+    assert ci[-1] == f"meta skuid {values['CI_UID']} ip daddr {values['TRUSTED_LAN_CIDR']} drop" and len(ci) == 4
+    assert ci[0] == f"meta skuid {values['CI_UID']} ip daddr {values['DATA_HOST_ADDR']} drop"
+    # Every other line renders as without the new rule.
+    without = template.replace('    meta skuid __CI_UID__ ip daddr __TRUSTED_LAN_CIDR__ drop\n', '')
+    old, _ = render.render(without, values)
+    strip = lambda text: [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith('#')]
+    new = strip(rules)
+    new.remove(f"    meta skuid {values['CI_UID']} ip daddr {values['TRUSTED_LAN_CIDR']} drop")
+    assert new == strip(old)
