@@ -3,8 +3,8 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,test} from 'vitest';
 import {Announce,Empty,StatusBadge,Tabs,commitmentTone,intentTone,money,relative} from '../src/workbench/ui';
 import {dispatchText} from '../src/workbench/pages/Actions';
-import {crumbs,NAV_GROUPS} from '../src/workbench/WorkbenchApp';
-import {PAGES} from '../src/workbench/route';
+import {crumbs,NAV_CHILDREN,NAV_GROUPS} from '../src/workbench/WorkbenchApp';
+import {PAGES,routePath} from '../src/workbench/route';
 
 test('money reads with two decimals; the stored precision stays available', ()=>{
   expect(money('12.34567891')).toBe('12.35');expect(money(100)).toBe('100.00');expect(money('n/a')).toBe('n/a');
@@ -45,4 +45,13 @@ test('a polite live region; tabs carry one when asked to announce', ()=>{
   expect(renderToStaticMarkup(h(Announce,{text:'失败：3 条'}))).toBe('<p class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-announce="true">失败：3 条</p>');
   const html=renderToStaticMarkup(h(Tabs,{label:'范围',value:'a',onChange:()=>{},announce:'未结束：2 条',tabs:[{key:'a',label:'甲'},{key:'b',label:'乙'}]}));
   expect(html).toContain('aria-live="polite"');expect(html).toContain('未结束：2 条');
+});
+
+test('企业世界模型 is an expandable sidebar entry: one page per EIOS concept with its own path; the breadcrumb leads back to the summary',()=>{
+  expect(NAV_CHILDREN.ontology!.map(c=>c.label)).toEqual(['Object Type','Object','Property','Link','Function','Action']);
+  expect(NAV_CHILDREN.ontology!.map(c=>routePath(c.route))).toEqual(['/workbench/ontology/object-types','/workbench/ontology/objects','/workbench/ontology/properties',
+    '/workbench/ontology/links','/workbench/ontology/functions','/workbench/ontology/actions']);
+  expect(Object.keys(NAV_CHILDREN)).toEqual(['ontology']);
+  expect(crumbs({page:'ontology',section:'links'})).toEqual([{label:'企业世界模型',to:{page:'ontology'}},{label:'Link'}]);
+  expect(crumbs({page:'ontology'})).toEqual([]);
 });

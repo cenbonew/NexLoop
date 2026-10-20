@@ -1,5 +1,5 @@
 /**
- * Enterprise world model W2 (docs/design/workbench-world-model-design.md §2/§5; owner 2026-10-19 D3; ADR-035): a type's instances
+ * Enterprise world model W2 (the Object page) (docs/design/workbench-world-model-design.md §2/§5; owner 2026-10-19 D3; ADR-035): a type's instances
  * and one object's depth-1 neighbourhood, on L6's reads (0223/0224). Identifiers, versions and times only: no property is shown
  * here. Every object and neighbour is listed only when the member's READ holds (audited server side); the rest are counted and
  * said as they are: "本页不可见 N 个" for unreadable objects of a page, per group "不可见 N 个" (checked, unreadable) and
@@ -21,18 +21,18 @@ export function objectPage(type:string,id:string):Route|null{
   if(!/^[a-f0-9]{64}$/.test(id))return null;
   return type==='Consumer'?{page:'consumers',id}:type==='Commitment'?{page:'commitments',id}:null;
 }
-const viaText=(via:string)=>via.startsWith('property:')?`属性 ${via.slice(9)}`:`关系 ${via}`;
+const viaText=(via:string)=>via.startsWith('property:')?`Property ${via.slice(9)}`:`Link ${via}`;
 
 export type InstanceState={type:string|null;after:string|null;object:string|null};
 
 export function Instances({types,state,onState}:{types:WorldObjectType[];state:InstanceState;onState:(change:Partial<InstanceState>)=>void}){
   const type=state.type&&types.some(t=>t.name===state.type)?state.type:null;
   return <div className="world-instances">
-    <div className="field" style={{maxWidth:420}}><label htmlFor="world-instance-type">对象类型</label>
+    <div className="field" style={{maxWidth:420}}><label htmlFor="world-instance-type">Object Type</label>
       <select id="world-instance-type" value={type??''} onChange={e=>onState({type:e.target.value||null,after:null,object:null})}>
-        <option value="">请选择对象类型</option>
+        <option value="">请选择 Object Type</option>
         {types.map(t=><option key={t.name} value={t.name}>{t.name}（{t.objects} 个）</option>)}</select></div>
-    {type?<InstanceList type={type} state={state} onState={onState}/>:<Empty kind="none" title="选择一个对象类型查看实例" next="只列出标识、版本和更新时间；你没有读取权限的对象只计数，不显示。"/>}
+    {type?<InstanceList type={type} state={state} onState={onState}/>:<Empty kind="none" title="选择一个 Object Type 查看 Object" next="只列出标识、版本和更新时间；你没有读取权限的 Object 只计数，不显示。"/>}
   </div>;
 }
 
@@ -43,13 +43,13 @@ function InstanceList({type,state,onState}:{type:string;state:InstanceState;onSt
   const p=page.data;
   return <div className="world-instance-grid" style={{display:'grid',gridTemplateColumns:state.object?'minmax(0,1fr) minmax(280px,420px)':'minmax(0,1fr)',gap:16}}>
     <div>
-      <p className="workbench-summary" role="status">{type} 共 {p.total} 个实例 · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
-      {p.items.length?<DataTable label={`${type} 实例`} rows={p.items} rowKey={r=>r.object_id} rowClass={r=>r.object_id===state.object?'row-selected':undefined} columns={[
-        {label:'对象',main:true,cell:r=><button type="button" className="link" aria-pressed={r.object_id===state.object} title={r.object_id}
+      <p className="workbench-summary" role="status">{type} 共 {p.total} 个 Object · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
+      {p.items.length?<DataTable label={`${type} Object`} rows={p.items} rowKey={r=>r.object_id} rowClass={r=>r.object_id===state.object?'row-selected':undefined} columns={[
+        {label:'Object',main:true,cell:r=><button type="button" className="link" aria-pressed={r.object_id===state.object} title={r.object_id}
           onClick={()=>onState({object:r.object_id===state.object?null:r.object_id})}><code>{shortId(r.object_id)}</code></button>},
         {label:'Schema 版本',num:true,cell:r=>`v${r.schema_version}`},{label:'修订',num:true,cell:r=>r.revision},
         {label:'更新时间',cell:r=><span style={{whiteSpace:'nowrap'}}>{when(r.updated_at)}</span>}]}/>
-        :<Empty kind={p.invisible?'forbidden':'none'} title={p.invisible?`本页 ${p.invisible} 个实例你没有读取权限`:'这一页没有实例'}/>}
+        :<Empty kind={p.invisible?'forbidden':'none'} title={p.invisible?`本页 ${p.invisible} 个 Object 你没有读取权限`:'这一页没有 Object'}/>}
       <div className="pager">{state.after?<button type="button" onClick={()=>window.history.back()}>上一页</button>:null}
         {p.next_after?<button type="button" onClick={()=>onState({after:p.next_after,object:null})}>下一页</button>:null}</div>
     </div>
@@ -66,10 +66,10 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
     <h2 style={{marginTop:0}}>{type} <code title={id}>{shortId(id)}</code></h2>
     <dl><div><dt>完整标识</dt><dd><code style={{wordBreak:'break-all'}}>{id}</code></dd></div>
       {row?<><div><dt>Schema 版本</dt><dd>v{row.schema_version}</dd></div><div><dt>修订</dt><dd>{row.revision}</dd></div><div><dt>更新时间</dt><dd>{when(row.updated_at)}</dd></div></>:null}</dl>
-    {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:<p className="note">这里只显示标识与关系；属性内容不在此页显示。</p>}
+    {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:<p className="note">这里只显示标识与 Link；Property 内容不在此页显示。</p>}
     <h3>邻域（深度 1）</h3>
     {neighbors.isPending?<p role="status">{STATE_TEXT.loading}</p>
-      :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<Empty kind="forbidden"/>:kindOf(neighbors.error)==='not_found'?<Empty kind="none" title="对象已不存在"/>
+      :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<Empty kind="forbidden"/>:kindOf(neighbors.error)==='not_found'?<Empty kind="none" title="Object 已不存在"/>
         :<Failure kind={kindOf(neighbors.error)} onRetry={()=>void neighbors.refetch()}/>)
       :<Neighborhood value={neighbors.data} onOpen={onOpen}/>}
     <button type="button" onClick={onClose}>关闭</button>
@@ -79,7 +79,7 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
 /** Nodes of the neighbourhood graph: the centre, every listed neighbour, and one counted node per group for invisible/collapsed. */
 export function neighborhoodGraph(v:ObjectNeighbors){
   const centre=`${v.type_name}/${v.object_id}`;
-  const nodes=new Map<string,{id:string;label:string;sub?:string}>([[centre,{id:centre,label:`${v.type_name} ${shortId(v.object_id)}`,sub:'当前对象'}]]);
+  const nodes=new Map<string,{id:string;label:string;sub?:string}>([[centre,{id:centre,label:`${v.type_name} ${shortId(v.object_id)}`,sub:'当前 Object'}]]);
   const edges:{id:string;from:string;to:string;label?:string}[]=[];
   v.groups.forEach((g,i)=>{
     const link=(other:string)=>edges.push({id:`${i}:${other}`,from:g.direction==='outgoing'?centre:other,to:g.direction==='outgoing'?other:centre,label:g.via.replace(/^property:/,'')});
@@ -91,7 +91,7 @@ export function neighborhoodGraph(v:ObjectNeighbors){
 }
 
 function Neighborhood({value,onOpen}:{value:ObjectNeighbors;onOpen:(type:string,id:string)=>void}){
-  if(!value.groups.length)return <Empty kind="none" title="没有关联对象"/>;
+  if(!value.groups.length)return <Empty kind="none" title="没有关联的 Object"/>;
   const graph=neighborhoodGraph(value);
   return <>
     <ul className="world-neighbors">{value.groups.map((g:NeighborGroup,i)=><li key={i}>
