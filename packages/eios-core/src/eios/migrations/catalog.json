@@ -1165,6 +1165,11 @@
       "version": "0233",
       "name": "0233_nx038_trace_reader.sql",
       "sha256": "8715a5606be43491976603a8219ebafbcfe5b51dbdfee63a0bea16c70e543524"
+    },
+    {
+      "version": "0234",
+      "name": "0234_nx038_semantic_access.sql",
+      "sha256": "f1a5f5ae9e1590faf633844d0999e0a80ac359331c2cf37b709c9764e0e20315"
     }
   ]
 }
