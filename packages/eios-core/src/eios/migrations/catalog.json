@@ -1237,18 +1237,18 @@
       "sha256": "2cfab276c0594f169e12a71bfad8e2a61ca2a2ff9e89ad49ac53548c5d821bfd"
     },
     {
-      "version": "0248",
-      "name": "0248_nx040_schema_proposals.sql",
+      "version": "0252",
+      "name": "0252_nx040_schema_proposals.sql",
       "sha256": "de25b48ad3865ca7049c0416710a09c5d8590628ea812faa49d3d52190ed1c08"
     },
     {
-      "version": "0249",
-      "name": "0249_nx040_ontology_schema_input.sql",
+      "version": "0253",
+      "name": "0253_nx040_ontology_schema_input.sql",
       "sha256": "2f8306d0b973ec42f69b297b75621b0c0553992f9af65f0586589388183874f0"
     },
     {
-      "version": "0250",
-      "name": "0250_nx040_schema_publication.sql",
+      "version": "0254",
+      "name": "0254_nx040_schema_publication.sql",
       "sha256": "94a9bb3843dd3edb8af07a3d27bd1f023f6207f9acee6dfc8c441cab34362fed"
     }
   ]
