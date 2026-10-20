@@ -66,12 +66,24 @@ STAFF = 'synthetic-staff-principal'
 
 class Pump:
     """The background services, one --once tick each in turn, until stopped. While `quiet` is set (a takeover holds the
-    conversation) the relay's fixed refusal exit (1) is expected and not a failure."""
+    conversation) the relay's fixed refusal exit (1) is expected and not a failure.
+
+    `cycles` counts completed rounds of all services, and `clock` returns it: the test's waits (the run entry's interaction
+    deadline, the operator's reply wait) are measured in rounds of the system's own progress, not in wall seconds. Under CI load a
+    round takes longer, so a wall-clock deadline fired before the system had made the progress it needed (2026-10-20, CI seq 19:
+    interaction 3, the unknown-result drill, paused on interaction_timeout instead of calibration); in rounds the deadline means the
+    same at any load, and a run that makes no progress still times out."""
 
     def __init__(self, commands, hidden, environ):
         self.commands, self.hidden, self.environ = commands, hidden, environ
         self.stop, self.quiet, self.failures = threading.Event(), threading.Event(), []
+        self.cycles = 0
         self.thread = threading.Thread(target=self.loop, daemon=True)
+
+    def clock(self):
+        if not self.thread.is_alive():
+            raise AssertionError(('the service pump stopped', self.failures))
+        return float(self.cycles)
 
     def loop(self):
         while not self.stop.is_set():
@@ -81,6 +93,7 @@ class Pump:
                     self.failures.append(('secret_in_output', module))
                 if run.returncode != 0 and not (self.quiet.is_set() and module == 'nexloop_eios.message_relay_cli' and run.returncode == 1):
                     self.failures.append((module, run.returncode, run.stderr[-300:] if not any(h in run.stderr for h in self.hidden) else 'hidden'))
+            self.cycles += 1
             self.stop.wait(.3)
 
 
@@ -100,8 +113,9 @@ class Operator:
         return self.client.get(f'/api/v1/conversations/{self.conversation}/messages').json()['items']
 
     def wait_reply(self, inbound, deadline=60):
-        end = time.monotonic() + deadline
-        while time.monotonic() < end:
+        """The reply to one operator message within `deadline` rounds of the service pump (Pump.clock), not wall seconds."""
+        end = self.pump.clock() + deadline
+        while self.pump.clock() < end:
             replies = [m for m in self.messages() if m.get('direction') == 'outbound' and m.get('reply_to_message_id') == inbound]
             if replies:
                 return replies
@@ -263,7 +277,7 @@ def refused_codes(capsys):
     return json.loads(capsys.readouterr().out.strip().splitlines()[-1]).get('refused', [])
 
 
-def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, tmp_path, capsys):  # noqa: F811
+def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, tmp_path, capsys, monkeypatch):  # noqa: F811
     f = assembled_message
     o = f['original']
     p = o['paths']
@@ -392,6 +406,14 @@ def test_five_interaction_kinds_through_the_run_entry(assembled_message, admin, 
         stack.callback(lambda: (pump.stop.set(), pump.thread.join(timeout=180)))
 
         operator = Operator(client, headers, conversation, admin, tenant, drill_command(endpoint['data']), pump)
+        # The run entry's interaction deadline (--interaction-timeout 40) in pump rounds (Pump.clock): the same driver, the same
+        # timeout rule and pause, only the clock it is measured on (the driver's own monotonic parameter).
+        from nexloop_eios import interaction_drivers
+
+        class RoundsDriver(interaction_drivers.RealDriver):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, monotonic=pump.clock, **kwargs)
+        monkeypatch.setattr(interaction_drivers, 'RealDriver', RoundsDriver)
         catalog = private(tmp_path, 'value-catalog.json', json.dumps({'offerings': ['enterprise.synthetic-visit']}))
         owner_session = private(tmp_path, 'owner-session', 'synthetic-owner-session')
         out = tmp_path / 'trial'
