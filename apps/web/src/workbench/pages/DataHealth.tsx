@@ -10,6 +10,7 @@ import {useQuery} from '@tanstack/react-query';
 import {ageText,readDataHealth,type DataHealth as Health,type HealthStatus} from '../api';
 import {Page} from './Page';
 import {StatusBadge} from '../ui';
+import {Card as KitCard} from '../kit';
 import {when} from './Consumers';
 
 export const REASON_TEXT:Record<string,string>={
@@ -30,16 +31,15 @@ function Badge({s}:{s:HealthStatus}){
 }
 /** One card per flow: title row with its badge, key figures, the reasons in words (code in the title). */
 function Card({title,s,children}:{title:string;s:HealthStatus;children:ReactNode}){
-  return <article className="workbench-block health-card" aria-label={title} data-status={s.status}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}><h2 style={{margin:0}}>{title}</h2><Badge s={s}/></div>
+  return <div className="health-card" data-status={s.status}><KitCard title={title} label={title} badge={<Badge s={s}/>}>
     <dl className="kv">{children}</dl>
     {s.reasons.length?<ul className="health-reasons">{s.reasons.map(r=><li key={r} title={r}>{REASON_TEXT[r]??'未知状态'}</li>)}</ul>:null}
-  </article>;
+  </KitCard></div>;
 }
 const Row=({k,v}:{k:string;v:ReactNode})=><><dt>{k}</dt><dd>{v}</dd></>;
 function Counts({values,labels}:{values:Record<string,number>;labels:Record<string,string>}){
   const keys=Object.keys(values).sort();
-  return keys.length?<>{keys.map(k=><span key={k} title={k} style={{marginRight:12}}>{labels[k]??'未知状态'} {values[k]}</span>)}</>:<>无记录</>;
+  return keys.length?<>{keys.map(k=><span key={k} title={k} className="count-item">{labels[k]??'未知状态'} {values[k]}</span>)}</>:<>无记录</>;
 }
 
 export function DataHealth(){

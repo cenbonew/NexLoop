@@ -478,3 +478,4 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 .workbench .value-short{white-space:nowrap}
 .workbench .value-full{white-space:pre-wrap;overflow-wrap:anywhere;max-width:40rem}
 .workbench .name-main{display:block;font-weight:600}
+.workbench .count-item{margin-right:var(--space-3)}

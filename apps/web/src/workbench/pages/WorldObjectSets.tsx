@@ -10,7 +10,6 @@ import {kindOf,readObjectSetMembers,readObjectSets,type ObjectSetFilter,type Obj
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
 import {Card,EmptyState,KeyValue} from '../kit';
-import {Failure} from './Page';
 
 export type ObjectSetState={set:string|null;offset:number};
 const OPERATOR_TEXT:Record<ObjectSetFilter['operator'],string>={eq:'等于',ne:'不等于',gt:'大于',gte:'不小于',lt:'小于',lte:'不大于',in:'属于',not_in:'不属于'};
@@ -22,7 +21,7 @@ const shown=(v:unknown)=>v===null||v===undefined?'—':typeof v==='object'?JSON.
 export function ObjectSets({state,onState}:{state:ObjectSetState;onState:(change:Partial<ObjectSetState>)=>void}){
   const sets=useQuery({queryKey:['workbench','object-sets'],queryFn:readObjectSets});
   if(sets.isPending)return <EmptyState kind="loading" subject="Object Set"/>;
-  if(sets.isError)return kindOf(sets.error)==='forbidden'?<EmptyState kind="forbidden" subject="Object Set"/>:<Failure kind={kindOf(sets.error)} onRetry={()=>void sets.refetch()}/>;
+  if(sets.isError)return kindOf(sets.error)==='forbidden'?<EmptyState kind="forbidden" subject="Object Set"/>:<EmptyState kind="unavailable" subject="Object Set" onRetry={()=>void sets.refetch()}/>;
   const all=sets.data;
   if(!all.length)return <EmptyState kind="empty" subject="Object Set" next="负责人发布 Object Set 后会出现在这里。"/>;
   const selected=all.find(s=>s.stable_name===state.set)??null;
@@ -47,7 +46,7 @@ function Preview({set,offset,onOffset}:{set:ObjectSetSummary;offset:number;onOff
       {key:'显示的 Property',value:set.projection.join('、')},{key:'发布原因',value:set.reason}]}/>
     {page.isPending?<EmptyState kind="loading" subject="预览"/>
       :page.isError?(kindOf(page.error)==='forbidden'?<EmptyState kind="forbidden" subject="这个预览"/>:kindOf(page.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object Set" reason="已不存在"/>
-        :<Failure kind={kindOf(page.error)} onRetry={()=>void page.refetch()}/>)
+        :<EmptyState kind="unavailable" subject="预览" onRetry={()=>void page.refetch()}/>)
       :page.data.status==='withheld'?<EmptyState kind="forbidden" subject="这个 Object Set 的预览" next="它的条件或排序用到的 Property 已被负责人限制，求值结果会泄露受限内容，因此不求值。"/>
       :<>
         <p className="workbench-summary" role="status">符合条件 {page.data.total} 个 · 本页显示 {page.data.items.length} 个

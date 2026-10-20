@@ -9,9 +9,9 @@ import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {kindOf,readOutreachEvidence,readOutreachEvidenceList,readOutreachMetrics,STATE_TEXT,type OutreachEvidence,type OutreachMetrics} from '../api';
 import {DataTable} from '../DataTable';
-import {Empty,StatusBadge,Tabs,Time,type Tone} from '../ui';
+import {StatusBadge,Tabs,Time,type Tone} from '../ui';
+import {Card,EmptyState} from '../kit';
 import {labelOf,OUTREACH_GATE,OUTREACH_GATE_RESULT,OUTREACH_PURPOSE,type LabelMap} from '../labels';
-import {Failure} from './Page';
 
 export const SEND_STATE:LabelMap={pending_approval:'待审批',accepted:'已受理',dispatching:'派发中',unknown:'结果未知',fulfilled:'已送达（回环）',failed:'失败',refused:'已拒绝'};
 export const REFUSAL:LabelMap={contact_restricted:'客户联系受限',control_paused:'已暂停',control_revision_stale:'控制已变更',object_revision_stale:'对象已变更',
@@ -36,13 +36,10 @@ const toneOf=(state:string):Tone=>state==='fulfilled'?'ok':state==='refused'||st
 /** A code as its Chinese label, the raw code in the title (unknown codes: 未知状态). */
 export function L({map,value}:{map:LabelMap;value:string|null|undefined}){const l=labelOf(map,value);return <span title={l.code}>{l.text}</span>;}
 const pct=(v:number|null)=>v===null?'—':`${(v*100).toFixed(1)}%`;
-function Card({title,children}:{title:string;children:ReactNode}){
-  return <article className="workbench-block" aria-label={title}><h2 style={{marginTop:0}}>{title}</h2>{children}</article>;
-}
 const Row=({k,v}:{k:string;v:ReactNode})=><><dt>{k}</dt><dd>{v}</dd></>;
 function CodeCounts({values,map}:{values:Record<string,number>;map:LabelMap}){
   const keys=Object.keys(values).sort();
-  return keys.length?<ul className="plain">{keys.map(k=><li key={k}><L map={map} value={k}/>：{values[k]}</li>)}</ul>:<Empty kind="none" title="近 7 天没有记录"/>;
+  return keys.length?<ul className="plain">{keys.map(k=><li key={k}><L map={map} value={k}/>：{values[k]}</li>)}</ul>:<EmptyState kind="empty" subject="近 7 天的记录" compact/>;
 }
 
 export function OutreachInsights(){
@@ -55,8 +52,8 @@ export function OutreachInsights(){
 
 function Metrics(){
   const query=useQuery({queryKey:['workbench','outreach-metrics'],queryFn:readOutreachMetrics});
-  if(query.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
-  if(query.isError)return <Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>;
+  if(query.isPending)return <EmptyState kind="loading" subject="外联数据"/>;
+  if(query.isError)return <EmptyState kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'} subject="外联数据" onRetry={()=>void query.refetch()}/>;
   const m:OutreachMetrics=query.data;
   return <>
     <p className="note">近 {m.window_days} 天，快照时间 <Time value={m.computed_at}/>。只有计数、比例和原因，不含消息正文。</p>
@@ -78,7 +75,7 @@ function Metrics(){
         <Row k="当前同意的客户" v={`${m.consent.consumers_consented} / ${m.consent.consumers_with_record}`}/><Row k="同意率" v={pct(m.consent.consent_rate)}/></dl></Card>
       <Card title="按目的">{Object.keys(m.by_purpose_7d).length?<DataTable label="按目的" rows={Object.entries(m.by_purpose_7d)} rowKey={([p])=>p} columns={[
         {label:'目的',main:true,cell:([p])=><L map={PURPOSE} value={p}/>},{label:'受理',num:true,cell:([,x])=>x.accepted},{label:'派发',num:true,cell:([,x])=>x.sent},
-        {label:'拒绝',num:true,cell:([,x])=>x.refused}]}/>:<Empty kind="none" title="近 7 天没有外发"/>}</Card>
+        {label:'拒绝',num:true,cell:([,x])=>x.refused}]}/>:<EmptyState kind="empty" subject="近 7 天的外发" compact/>}</Card>
     </div>
   </>;
 }
@@ -86,8 +83,8 @@ function Metrics(){
 function Evidence({syntheticOnly}:{syntheticOnly:boolean}){
   const [open,setOpen]=useState<string|null>(null);
   const query=useQuery({queryKey:['workbench','outreach-evidence',syntheticOnly],queryFn:()=>readOutreachEvidenceList(syntheticOnly)});
-  if(query.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
-  if(query.isError)return <Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>;
+  if(query.isPending)return <EmptyState kind="loading" subject="外联数据"/>;
+  if(query.isError)return <EmptyState kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'} subject="外联数据" onRetry={()=>void query.refetch()}/>;
   const items=query.data.items;
   return <>
     {syntheticOnly?<p className="note" data-demo>演示视图：只列合成或测试客户的外发，便于在合成数据上演示完整链路。合成客户在派发时一律被拒（非真实客户），不会触达任何渠道；真实派发开关不受影响。</p>:null}
@@ -98,22 +95,22 @@ function Evidence({syntheticOnly}:{syntheticOnly:boolean}){
       {label:'状态',cell:i=>{const l=labelOf(SEND_STATE,i.state);return <StatusBadge text={l.text} tone={toneOf(i.state)} code={i.state}/>;}},
       {label:'拒绝原因',cell:i=>i.refusal_code?<L map={REFUSAL} value={i.refusal_code}/>:'—'},
       {label:'',cell:i=><button type="button" onClick={()=>setOpen(open===i.intent_id?null:i.intent_id)} aria-expanded={open===i.intent_id}>{open===i.intent_id?'收起':'证据链'}</button>}]}/>
-      :<Empty kind="none" title={syntheticOnly?'暂无合成客户的外发':'暂无外发'}/>}
+      :<EmptyState kind="empty" subject={syntheticOnly?'合成客户的外发':'外发'}/>}
     {open?<Chain intentId={open}/>:null}
   </>;
 }
 
 export function Chain({intentId}:{intentId:string}){
   const query=useQuery({queryKey:['workbench','outreach-evidence',intentId],queryFn:()=>readOutreachEvidence(intentId)});
-  if(query.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
-  if(query.isError)return <Failure kind={kindOf(query.error)} onRetry={()=>void query.refetch()}/>;
+  if(query.isPending)return <EmptyState kind="loading" subject="外联数据"/>;
+  if(query.isError)return <EmptyState kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'} subject="外联数据" onRetry={()=>void query.refetch()}/>;
   return <ChainBody e={query.data}/>;
 }
 
 export function ChainBody({e}:{e:OutreachEvidence}){
-  if(!e.found)return <Empty kind="none" title="找不到这条外发"/>;
+  if(!e.found)return <EmptyState kind="empty" subject="匹配的外发" next="找不到这条外发：意图 ID 不存在，或不属于本租户。"/>;
   const {trigger:t,request:q,approval:a,gates:g,dispatch:d,responses:r}=e;
-  return <section className="workbench-block" aria-label="证据链"><h2 style={{marginTop:0}}>证据链</h2>
+  return <Card title="证据链">
     <ol className="evidence-chain">
       <li><h3>触发</h3><dl className="kv"><Row k="来源" v={<L map={ORIGIN} value={t.origin}/>}/><Row k="引用" v={<code>{t.origin_ref}</code>}/>
         <Row k="发起" v={<L map={INITIATOR} value={t.initiator}/>}/>{t.run_id?<Row k="Run" v={<code>{t.run_id}</code>}/>:null}</dl></li>
@@ -133,5 +130,5 @@ export function ChainBody({e}:{e:OutreachEvidence}){
           {r.consents.map(k=><li key={'c'+k.at+k.kind}><Time value={k.at}/> <L map={CONSENT} value={k.kind}/>（<L map={SOURCE} value={k.source}/>）</li>)}</ul>:<p>没有退订或同意记录。</p>}
         {r.contact_restricted?<StatusBadge text="客户联系受限" tone="fail" code="contact_restricted"/>:null}</li>
     </ol>
-  </section>;
+  </Card>;
 }

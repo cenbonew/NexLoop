@@ -2,8 +2,8 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {kindOf,readAudit,readSettings} from '../api';
 import {Page} from './Page';
-import {Empty,StatusBadge,Time} from '../ui';
-import {EmptyState,IdText,KeyValue} from '../kit';
+import {StatusBadge,Time} from '../ui';
+import {EmptyState,IdText,KeyValue,PageHeader} from '../kit';
 import {DataTable} from '../DataTable';
 import {statusLabel} from '../status-labels';
 import {RealDispatchPanel} from '../RealDispatchPanel';
@@ -34,5 +34,5 @@ export function ReadAudit(){
 }
 
 export function NotEnabled({title}:{title:string}){
-  return <section className="workbench-page"><h1>{title}</h1><Empty kind="not_enabled"/></section>;
+  return <section className="workbench-page"><PageHeader title={title}/><EmptyState kind="not_enabled" subject={title}/></section>;
 }

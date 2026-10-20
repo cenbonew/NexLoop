@@ -13,7 +13,6 @@ import {routePath,type Route} from '../route';
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
 import {Card,EmptyState,IdText,KeyValue} from '../kit';
-import {Failure} from './Page';
 import {kindOf} from '../api';
 import {SchemaGraph} from '../graph/SchemaGraph';
 
@@ -58,7 +57,7 @@ export function Instances({types,state,onState}:{types:WorldObjectType[];state:I
 function InstanceList({type,state,onState}:{type:string;state:InstanceState;onState:(change:Partial<InstanceState>)=>void}){
   const page=useQuery({queryKey:['workbench','objects',type,state.after??''],queryFn:()=>readObjects(type,state.after??undefined)});
   if(page.isPending)return <EmptyState kind="loading" subject="Object"/>;
-  if(page.isError)return kindOf(page.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些 Object"/>:<Failure kind={kindOf(page.error)} onRetry={()=>void page.refetch()}/>;
+  if(page.isError)return kindOf(page.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些 Object"/>:<EmptyState kind="unavailable" subject="这些 Object" onRetry={()=>void page.refetch()}/>;
   const p=page.data;
   return <div className={'world-instance-grid object-view'+(state.object?' object-view-detail':'')}>
     <div>
@@ -90,14 +89,14 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
       <h3>属性</h3>
       {values.isPending?<EmptyState kind="loading" subject="属性" compact/>
         :values.isError?(kindOf(values.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些属性" compact/>:kindOf(values.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>
-          :<Failure kind={kindOf(values.error)} onRetry={()=>void values.refetch()}/>)
+          :<EmptyState kind="unavailable" subject="Property 值" onRetry={()=>void values.refetch()}/>)
         :values.data.properties.length?<div className="object-properties"><KeyValue label="属性值" items={values.data.properties.map(v=>({key:v.name,value:<PropertyCell p={v} expanded/>}))}/></div>
         :<EmptyState kind="empty" subject="Property" compact/>}
       {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:null}
       <h3>邻域（深度 1）</h3>
       {neighbors.isPending?<EmptyState kind="loading" subject="邻域" compact/>
         :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<EmptyState kind="forbidden" subject="邻域" compact/>:kindOf(neighbors.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>
-          :<Failure kind={kindOf(neighbors.error)} onRetry={()=>void neighbors.refetch()}/>)
+          :<EmptyState kind="unavailable" subject="邻域" onRetry={()=>void neighbors.refetch()}/>)
         :<Neighborhood value={neighbors.data} onOpen={onOpen}/>}
     </Card>
   </aside>;
