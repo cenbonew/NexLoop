@@ -18,21 +18,26 @@ NexLoop is an open-source **continuous-operations system** for enterprises. An o
 
 ## Current status
 
-*As of 2026-10-20 (`main` `eed373ef`); counts are read from [`planning/`](planning).*
+*As of 2026-10-20 (`main` `7a153a29`); counts are read from [`planning/`](planning). Items marked "in integration" are not deployed yet.*
 
-- **Current stage: S5 close-out.** S0–S4 are done. All six S5 tasks (NX-032 to NX-037) are in progress; what each still needs is listed in the [S5 close-out gap list](docs/implementation/s5-closeout-gaps.md) (Chinese).
-- **Numbers**: tasks 47 done / 2 in progress / 4 not started (53); acceptance tests 68 passed / 4 not run (72). All nine S5 items have passed (AT-053, the GitHub disconnection drill, on 2026-10-20); the 4 not run belong to S6/S7, which are outside v0.1.
-- **Deployed on a two-host stage**: a data host runs PostgreSQL and Valkey; an application host runs the API, the workers and the Agent Host. Every release is built by the local CI, signed and sealed before it is deployed. **The v0.1 final acceptance release (release 22, `47aa87b8`) is deployed**; until v0.1.0 only fixes are accepted. Backups (pgBackRest) and a restore drill have run on the stage.
-- **Controlled real trial done (AT-071 passed)**: 36/36 controlled interactions with a real model and a real delivery action, reconciled through provider queries; total cost 1.59 CNY under a 100 CNY cap; zero unauthorised or wrong-recipient sends, zero contacts after refusal. The consumers were played by AI agents operated by the owner and are marked as such in the evidence.
-- **Vector recall and candidate merging are enabled on the stage**: the recall index uses an embedding model whose calls are counted in the tenant's model budget, and the claim matcher merges candidates under a published merge configuration.
-- **Real dispatch switches**: external effects need all three layers open: the deployment master switch, the tenant, and tenant+Action. On the stage the deployment layer stays on; the owner opens and closes the tenant and Action layers from the workbench, and they were closed again after the trial.
+- **v0.1.0 released (2026-10-20)**: a tag signed by the owner, and a GitHub Release with the source archive, the public release manifest, image and source SBOMs, the allowed signers and `SHA256SUMS`. v0.1 is the controlled real closed loop: all 68 S1–S5 acceptance tests passed, including a controlled trial on a two-host stage with 36/36 real-model interactions and real deliveries (AT-071), and a release-and-restore drill by a maintainer who had not taken part in development (AT-072). See the [v0.1.0 release notes](docs/release/v0.1.0-release-notes.md) and the [known risks](docs/release/known-risks-v0.1.md) (Chinese).
+- **Current stage: S6** (controlled evolution of semantics and compatible schema). Numbers: tasks 47 done / 2 in progress / 4 not started (53); acceptance tests 68 passed / 4 not run (72); the 4 not run belong to S6/S7.
+- **Deployed on the stage (release 23)**:
+  - the **enterprise world model** pages in the workbench. Their final structure follows EIOS: a sidebar with expandable groups for Object Type, Object, Property, Link, Function and Action, with Table and Graph as secondary views inside the Object Type page; this structure ships with release 24;
+  - the capability catalog and data assets pages;
+  - **operator personas and contact preferences**: persona versions and assignment, AI-identity disclosure switches; contact preferences stated by the consumer are enforced at dispatch;
+  - **proactive outreach slices 1–2**: outreach candidates with a dispatch dry run that gives a verdict for each gate, and tenant-level outreach controls. **Nothing is sent for real**;
+  - **NX-038 E1–E3**: a port of EvoOntology's evaluation logic with provenance, trajectory reads, and per-access semantic records;
+  - **connection pool fix**: the first request after a PostgreSQL restart no longer returns 503.
+- **In integration (second batch, planned for release 24)**:
+  - NX-038 E4–E5: attribution and candidates, isolation and hand-over;
+  - proactive outreach slices 3–6: a purpose list, the send Action (real dispatch switch closed by default), re-evaluation Runs, and optional approval (owner only; the approver cannot be the requester);
+  - NX-039 V1: an independent evaluator role and evaluation runs.
+- **S6 progress**: NX-038 is in progress; the NX-039 and NX-040 designs and their decisions are settled (owner 2026-10-20: "all of S6 as recommended").
+- **Contribution flow**: changes are pushed to the local Git queue on the LAN and merged by the merge controller after CI; the GitHub repository is a mirror advanced by the sync job.
 - **Demo**: [product page and interactive demo](https://www.zingnex.com/nexloop/).
-- **Second-maintainer drill passed (AT-072)**: a maintainer designated by the owner (an AI agent that had not taken part in development) completed a release and a restore using the public documentation only.
-- **Checks on the final acceptance release passed**: AT-050 (a stage restore drill with a replayed erasure), AT-054 (CI isolation, including a gap found and closed during the switch), AT-055 (images match the signed manifest; tampered releases refused), AT-056 (migrations refused without a recent verified backup), AT-057 (blind rollback refused) and AT-058 (network isolation re-probed from six vantage points).
-- **Switched to the local Git queue (NX-033, evening of 2026-10-19)**: contributions are pushed to the queue on the LAN and merged by the merge controller after CI; the GitHub repository is a mirror advanced only by the sync job.
-- **Still open for v0.1**: AT-053 (GitHub disconnection drill, with the next merge); the before/after inventories, the public pre-flight, the evidence pack and the tag. No tag or public release exists yet.
 
-The owner's living plan — stage exits, critical path, pending decisions — is [planning/ROADMAP.md](planning/ROADMAP.md) (Chinese); authoritative task and acceptance status is in [`planning/`](planning). What is implemented and what is only planned is described in the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Every change merged to `main` is in the [CHANGELOG](CHANGELOG.md). Known risks of v0.1 are in [docs/release/known-risks-v0.1.md](docs/release/known-risks-v0.1.md) (Chinese).
+The owner's living plan — stage exits, critical path, pending decisions — is [planning/ROADMAP.md](planning/ROADMAP.md) (Chinese); authoritative task and acceptance status is in [`planning/`](planning). What is implemented and what is only planned is described in the [architecture guide](docs/ARCHITECTURE.md) (the frozen [handoff specification](docs/handoff/00_START_HERE.md) is the target design, not the implementation). Every change merged to `main` is in the [CHANGELOG](CHANGELOG.md).
 
 > Most project documents (architecture guide, ADRs, implementation notes, CHANGELOG) are written in Chinese; identifiers and public API names are in English.
 

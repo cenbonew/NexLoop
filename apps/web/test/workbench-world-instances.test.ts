@@ -4,8 +4,8 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {WorkbenchError,objectNeighbors,objectPage,worldModel} from '../src/workbench/api';
-import {neighborhoodGraph,objectPage as pageFor} from '../src/workbench/pages/WorldInstances';
+import {WorkbenchError,objectNeighbors,objectPage,objectValues,worldModel} from '../src/workbench/api';
+import {neighborhoodGraph,objectPage as pageFor,propertyColumns} from '../src/workbench/pages/WorldInstances';
 import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath} from '../src/workbench/route';
 
@@ -30,7 +30,7 @@ test('deep links: type, cursor and open object round-trip on the Object page; th
   const r=parseRoute('/workbench/ontology/objects',`?type=Consumer&after=${A}&object=${A}`);
   expect(r.section).toBe('objects');
   expect(routePath(r)).toBe(`/workbench/ontology/objects?type=Consumer&after=${A}&object=${A}`);
-  expect(worldQuery(r.section,r.query)).toEqual({graph:false,focus:null,type:'Consumer',after:A,object:A});
+  expect(worldQuery(r.section,r.query)).toEqual({graph:false,focus:null,type:'Consumer',after:A,object:A,set:null,offset:0});
   expect(worldQuery('actions',{type:'Consumer',object:A})).toMatchObject({type:null,object:null});
   // A link of the earlier single page opens the same content in its section.
   const legacy=parseRoute('/workbench/ontology',`?tab=instances&type=Consumer&object=${A}`);
@@ -38,7 +38,7 @@ test('deep links: type, cursor and open object round-trip on the Object page; th
 });
 
 test('instances: a chosen type lists ids with versions and times, counts the invisible ones, pages by cursor; no property shown',()=>{
-  expect(render({})).toContain('选择一个 Object Type 查看 Object');
+  expect(render({})).toContain('暂无选中的 Object Type');
   const html=render({type:'Consumer'},[[['workbench','objects','Consumer',''],objectPage(page)]]);
   expect(html).toContain('Consumer 共 7 个 Object · 本页显示 1 个');expect(html).toContain('本页不可见 1 个');expect(html).toContain('data-code="invisible"');
   expect(html).toContain('aaaaaaaa…aaaa');expect(html).toContain('>下一页</button>');expect(html).not.toContain('>上一页</button>');
@@ -59,4 +59,25 @@ test('the neighbourhood graph: the centre, each listed neighbour, one counted no
   expect(g.nodes.map(n=>n.label)).toEqual(['Consumer aaaaaaaa…aaaa','Goal 另 30 个','Consumer bbbbbbbb…bbbb']);
   expect(g.nodes[1].sub).toBe('不可见 25 · 折叠 5');
   expect(g.edges.map(e=>[e.from.slice(0,9),e.to.slice(0,9),e.label])).toEqual([['~0','Consumer/','consumer_id'],['Consumer/','Consumer/','knows']]);
+});
+
+test('D-G1 (owner 2026-10-20): property values in the table and the drawer; withheld named with one badge; long values cut and expandable',()=>{
+  const long='长'.repeat(80);
+  const withValues=structuredClone(page);withValues.items[0].properties=[{name:'display_name',status:'ok',value:'示例客户',value_type:'text'},
+    {name:'monthly_income',status:'withheld',reason:'restricted'},{name:'note',status:'ok',value:long,value_type:'text'},{name:'nickname',status:'missing'},
+    {name:'referrer',status:'withheld',reason:'erasing'}];
+  const parsed=objectPage(withValues);
+  expect(propertyColumns(parsed.items)).toEqual(['display_name','monthly_income','note','nickname','referrer']);
+  const html=render({type:'Consumer'},[[['workbench','objects','Consumer',''],parsed]]);
+  expect(html).toContain('class="table-scroll"');expect(html).toContain('示例客户');
+  expect(html.match(/data-code="withheld"/g)?.length).toBe(2);expect(html).toContain('>'+long.slice(0,48)+'…</summary>');
+  expect(html).toContain('<details class="property-value">');expect(html).toContain('title="负责人已限制这一属性组"');
+  // A value the server never sent cannot be shown: a withheld entry carries no value field even if one is forged.
+  const forged=structuredClone(withValues);forged.items[0].properties[1].value='20000';expect(objectPage(forged).items[0].properties[1]).toEqual({name:'monthly_income',status:'withheld',reason:'restricted'});
+  const bad=structuredClone(withValues);bad.items[0].properties[0].status='shown';expect(()=>objectPage(bad)).toThrow(WorkbenchError);
+  // The drawer reads the object's values and lists every property, expanded.
+  const values=objectValues(json('workbench-object-values'));
+  const drawer=render({type:'Consumer',object:A},[[['workbench','objects','Consumer',''],parsed],[['workbench','object-neighbors','Consumer',A],objectNeighbors(neighbors)],
+    [['workbench','object-values','Consumer',A],values]]);
+  expect(drawer).toContain('<h3>属性</h3>');expect(drawer).toContain('<dt>display_name</dt>');expect(drawer).toContain('示例客户');expect(drawer).toContain('<dt>monthly_income</dt>');
 });

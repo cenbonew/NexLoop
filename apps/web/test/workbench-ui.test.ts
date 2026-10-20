@@ -35,7 +35,7 @@ test('tabs: one tab in the tab order, the selected one', ()=>{
 });
 test('navigation: four groups, every page once, the next-stage page last; detail pages have breadcrumbs', ()=>{
   expect(NAV_GROUPS.map(g=>g.title)).toEqual(['运营','模型与资产','监控','管理']);
-  const all=NAV_GROUPS.flatMap(g=>g.pages);expect([...all].sort()).toEqual(Object.keys(PAGES).sort());expect(all.slice(-1)).toEqual(['experiments']);expect(NAV_GROUPS[1].pages).toEqual(['ontology','data_assets','knowledge']);expect(NAV_GROUPS[3].pages).toEqual(['settings','personas','capabilities','experiments']);
+  const all=NAV_GROUPS.flatMap(g=>g.pages);expect([...all].sort()).toEqual(Object.keys(PAGES).sort());expect(all.slice(-1)).toEqual(['experiments']);expect(NAV_GROUPS[1].pages).toEqual(['ontology','data_assets','data_health','knowledge']);expect(NAV_GROUPS[3].pages).toEqual(['settings','personas','capabilities','experiments']);
   expect(crumbs({page:'consumers'})).toEqual([]);
   expect(crumbs({page:'consumers',id:'x',sub:'conversation'}).map(c=>c.label)).toEqual(['消费者','会话']);
   expect(crumbs({page:'commitments',id:'x'}).map(c=>c.label)).toEqual([PAGES.commitments,'承诺详情']);
@@ -48,9 +48,9 @@ test('a polite live region; tabs carry one when asked to announce', ()=>{
 });
 
 test('企业世界模型 is an expandable sidebar entry: one page per EIOS concept with its own path; the breadcrumb leads back to the summary',()=>{
-  expect(NAV_CHILDREN.ontology!.map(c=>c.label)).toEqual(['Object Type','Object','Property','Link','Function','Action']);
+  expect(NAV_CHILDREN.ontology!.map(c=>c.label)).toEqual(['Object Type','Object','Property','Link','Function','Action','Object Set']);
   expect(NAV_CHILDREN.ontology!.map(c=>routePath(c.route))).toEqual(['/workbench/ontology/object-types','/workbench/ontology/objects','/workbench/ontology/properties',
-    '/workbench/ontology/links','/workbench/ontology/functions','/workbench/ontology/actions']);
+    '/workbench/ontology/links','/workbench/ontology/functions','/workbench/ontology/actions','/workbench/ontology/object-sets']);
   expect(Object.keys(NAV_CHILDREN)).toEqual(['ontology']);
   expect(crumbs({page:'ontology',section:'links'})).toEqual([{label:'企业世界模型',to:{page:'ontology'}},{label:'Link'}]);
   expect(crumbs({page:'ontology'})).toEqual([]);

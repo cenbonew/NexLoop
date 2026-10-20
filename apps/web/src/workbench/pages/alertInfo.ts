@@ -1,6 +1,6 @@
 /**
  * F07 (owner walkthrough 2026-10-18): a firing alert in business words. Rule ids, metrics and thresholds are those of
- * deploy/configuration/alert-rules.v5.json; the raw rule id stays visible as secondary text. Thresholds come from the alert's own
+ * deploy/configuration/alert-rules.v6.json; the raw rule id stays visible as secondary text. Thresholds come from the alert's own
  * firing event (the read model has no per-rule threshold yet); where to look is a workbench page.
  */
 import {ageText,type AlertEvent,type FiringAlert} from '../api';
@@ -10,6 +10,17 @@ type Unit='seconds'|'count'|'ratio'|'ms';
 export type AlertInfo={name:string;unit:Unit;window?:string;page:PageKey;help:string};
 const I=(name:string,unit:Unit,page:PageKey,help:string,window?:string):AlertInfo=>({name,unit,page,help,window});
 export const ALERT_INFO:Record<string,AlertInfo>={
+  // v6 (D-G5): NexLoop's own data flows; details on the data health page.
+  data_health_extraction_dead_letters:I('提取任务进入死信','count','data_health','在数据健康页查看 Claim 提取；这些消息在处理前不会产生 Claim。'),
+  data_health_extraction_backlog:I('消息等待提取超过 1 小时','seconds','data_health','查看提取服务是否在运行。'),
+  data_health_recall_missing_embeddings:I('召回条目缺少 embedding','count','data_health','运行一次回填；缺少向量的条目召回不到。'),
+  data_health_recall_profile_drift:I('存在旧 profile 的向量','count','data_health','profile 变更后尚未完成回填或清理。'),
+  data_health_reflow_stale:I('审核决定等待重流','seconds','data_health','查看知识工作台的审核重流状态。'),
+  data_health_signature_rejections:I('商业事件签名被拒','count','data_health','核对连接器的签名密钥是否轮换，或是否有伪造的发送方。','最近 24 小时'),
+  data_health_artifact_orphans:I('存在无引用的 Artifact','count','data_health','核对这些 Artifact 是否应当清理。'),
+  data_health_artifacts_stuck_deleting:I('Artifact 删除卡住','count','data_health','查看 Artifact 清理服务。'),
+  data_health_erasure_stalled:I('客户删除超过 1 天未完成','seconds','data_health','查看删除流程卡在哪个阶段。'),
+  data_health_purge_retrying:I('清理项多次重试','count','data_health','查看清理失败的原因码。'),
   refusal_budget_exhausted:I('预算用尽，新工作被拒','count','goals','检查模型或激励预算的上限与消耗。','最近 5 分钟'),
   refusal_control_stale:I('控制已变更导致派发被拒','count','actions','复评未跟上控制变更；查看等待复评的意图。','最近 1 小时'),
   refusal_goal_stale:I('目标改版导致派发被拒','count','actions','查看等待复评的意图与计划。','最近 1 小时'),

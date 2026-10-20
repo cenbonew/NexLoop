@@ -1,15 +1,15 @@
 /** Workbench routes live in the URL (/workbench/<page>[/<id>][?filters]) so a page, its object and its list filters can be linked,
  * reloaded and restored on Back (walkthrough F09). Only the query keys a page declares are kept, each with its own check. */
 export const PAGES={overview:'总览',goals:'目标与对齐',consumers:'消费者',plans:'计划与运行',actions:'Action / 异常',commitments:'承诺 / 交付',contact:'联系限制',
-  knowledge:'知识工作台',alerts:'告警',operations:'运行状态',audit:'审计',settings:'设置与治理',personas:'运营人设',capabilities:'能力目录',ontology:'企业世界模型',data_assets:'数据资产',experiments:'实验空间'} as const;
+  knowledge:'知识工作台',alerts:'告警',operations:'运行状态',audit:'审计',settings:'设置与治理',personas:'运营人设',capabilities:'能力目录',ontology:'企业世界模型',data_assets:'数据资产',data_health:'数据健康',experiments:'实验空间'} as const;
 export type PageKey=keyof typeof PAGES;
 export type Query=Record<string,string>;
 /** Enterprise world model sections (EIOS navigation: Object Type, Object, Property, Link, Function, Action), one page each under
- * /workbench/ontology/<path>; the group's own page (/workbench/ontology) is the summary. Object Set, Object View and Interface have
- * no NexLoop data and no page. */
+ * /workbench/ontology/<path>; the group's own page (/workbench/ontology) is the summary. Object Set (ADR-036) follows Action; Object
+ * View and Interface have no NexLoop data and no page (capability gap D-G2/P2). */
 export const WORLD_SECTIONS=[{key:'object_types',path:'object-types',label:'Object Type'},{key:'objects',path:'objects',label:'Object'},
   {key:'properties',path:'properties',label:'Property'},{key:'links',path:'links',label:'Link'},{key:'functions',path:'functions',label:'Function'},
-  {key:'actions',path:'actions',label:'Action'}] as const;
+  {key:'actions',path:'actions',label:'Action'},{key:'object_sets',path:'object-sets',label:'Object Set'}] as const;
 export type WorldSection=typeof WORLD_SECTIONS[number]['key'];
 export type Route={page:PageKey;id?:string;sub?:'conversation';section?:WorldSection;query?:Query};
 const hex64=/^[a-f0-9]{64}$/;
@@ -30,7 +30,8 @@ const typeName=(v:string)=>/^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(v),ref=(v:strin
  * object (W2). Deep links and Back walk them. */
 const WORLD_QUERY:Partial<Record<WorldSection,Record<string,(v:string)=>boolean>>>={
   object_types:{view:v=>v==='graph',focus:typeName},
-  objects:{type:v=>/^[A-Z][A-Za-z0-9_]{0,63}$/.test(v),after:ref,object:ref}};
+  objects:{type:v=>/^[A-Z][A-Za-z0-9_]{0,63}$/.test(v),after:ref,object:ref},
+  object_sets:{set:v=>/^[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}$/.test(v),offset:v=>/^(0|[1-9]\d{0,3})$/.test(v)&&Number(v)<=1000}};
 /** Links of the earlier single page (?tab=...) open the same content in its section. */
 const LEGACY_TAB:Record<string,WorldSection>={object_types:'object_types',properties:'properties',relations:'links',actions:'actions',functions:'functions',instances:'objects'};
 function allowedFor(route:{page:PageKey;section?:WorldSection}){return route.page==='ontology'?(route.section?WORLD_QUERY[route.section]:undefined):QUERY[route.page];}

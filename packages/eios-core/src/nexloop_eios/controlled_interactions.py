@@ -35,8 +35,20 @@ NAMESPACE = uuid.UUID('6f1d3c2e-37a0-4c37-9b37-000000000037')
 SCHEMA = 'nexloop.nx037-trial.v1'
 # v2 (NX-037 gap B): only effect_categories changes (action-effect-categories.v3.json, nexloop.enterprise.deliver:1).
 # v3 (owner 2026-10-14): 36 interactions with variants and agent-played customers; caps and rules unchanged.
-SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2', 'nexloop.nx037-trial.v3', 'nexloop.nx037-trial.v4')
+# v5 (owner 2026-10-20, release 25): v4 with alert rules v6 (data health).
+# v6 (owner 2026-10-21, release 25 with batches 3 and 4): v5 with alert rules v8 (evolution regression, outreach unsubscribe and approvals).
+SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2', 'nexloop.nx037-trial.v3', 'nexloop.nx037-trial.v4', 'nexloop.nx037-trial.v5',
+           'nexloop.nx037-trial.v6')
 _VARIANT = re.compile(r'[a-z][a-z0-9_]{0,47}')
+
+
+def latest_trial(config_dir):
+    """The newest trial configuration in `config_dir` (nx037-trial.v<N>.json with the highest N): versions are only added, so the
+    init and the driver follow the newest without a code change."""
+    found = [(int(m.group(1)), p) for p in Path(config_dir).glob('nx037-trial.v*.json') if (m := re.fullmatch(r'nx037-trial\.v([1-9][0-9]*)\.json', p.name))]
+    if not found:
+        raise PlanInvalid('no trial configuration')
+    return max(found)[1]
 
 
 class PlanInvalid(ValueError):

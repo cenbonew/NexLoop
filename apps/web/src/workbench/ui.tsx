@@ -3,6 +3,8 @@
  * status badges with words (never colour alone; the technical code in the title), keyboard-complete tabs, money and Beijing time.
  */
 import {useRef,type KeyboardEvent,type ReactNode} from 'react';
+import {statusLabel,statusTone,type Domain,type Tone} from './status-labels';
+export type {Tone} from './status-labels';
 
 // ---- F12: empty states ----
 export type EmptyKind='none'|'filtered'|'not_enabled'|'forbidden'|'unavailable';
@@ -22,11 +24,15 @@ export function Empty({kind,title,reason,next,action}:{kind:EmptyKind;title?:str
 }
 
 // ---- F13: status badges ----
-export type Tone='ok'|'fail'|'pending'|'limited'|'neutral';
 const MARK:Record<Tone,string>={ok:'✓',fail:'✕',pending:'…',limited:'!',neutral:'–'};
-/** Chinese status text with a symbol and a tone; the technical code goes into the title, never shown as the label. */
-export function StatusBadge({text,tone,code}:{text:string;tone:Tone;code?:string|null}){
-  return <span className={'status-badge tone-'+tone} title={code??undefined} data-code={code??undefined}><span aria-hidden="true" className="status-mark">{MARK[tone]}</span>{text}</span>;
+/** UI spec §7: `{domain, code}` takes the Chinese label and the tone from status-labels (an unlisted code reads 未知状态, the code
+ * only in the title); `{text, tone}` stays for wording that is not a code. The technical code is never the visible label. */
+export type StatusBadgeProps={domain:Domain;code:string|null|undefined;tone?:Tone}|{text:string;tone:Tone;code?:string|null;domain?:undefined};
+export function StatusBadge(props:StatusBadgeProps){
+  const text=props.domain?statusLabel(props.domain,props.code):props.text;
+  const tone=props.tone??(props.domain?statusTone(props.domain,props.code):'neutral');
+  const code=props.code??undefined;
+  return <span className={'status-badge tone-'+tone} title={code} data-code={code}><span aria-hidden="true" className="status-mark">{MARK[tone]}</span>{text}</span>;
 }
 
 /** Intent states (accepted … confirmed) as tones: done, failed, still open. */
@@ -41,7 +47,9 @@ export function Announce({text}:{text:string}){return <p className="sr-only" rol
 
 // ---- F14: tabs ----
 /** Tabs with aria-selected, roving tabindex, ←/→/Home/End to move and select, Enter/Space to select; focus follows the selection. */
-export function Tabs<K extends string>({label,tabs,value,onChange,announce}:{label:string;tabs:{key:K;label:ReactNode}[];value:K;onChange:(key:K)=>void;announce?:string}){
+/** With `id` (UI spec appendix B) each tab gets `${id}-tab-${key}` and aria-controls `${id}-panel`; wrap the content in
+ * <TabPanel id value> so the panel is labelled by the selected tab. */
+export function Tabs<K extends string>({label,tabs,value,onChange,announce,id}:{label:string;tabs:{key:K;label:ReactNode}[];value:K;onChange:(key:K)=>void;announce?:string;id?:string}){
   const refs=useRef<(HTMLButtonElement|null)[]>([]);
   const index=Math.max(0,tabs.findIndex(t=>t.key===value));
   function select(i:number){const t=tabs[(i+tabs.length)%tabs.length];onChange(t.key);refs.current[(i+tabs.length)%tabs.length]?.focus();}
@@ -51,8 +59,13 @@ export function Tabs<K extends string>({label,tabs,value,onChange,announce}:{lab
     else if(event.key==='Enter'||event.key===' '){event.preventDefault();select(i);}
   }
   return <><div role="tablist" aria-label={label} className="tabs">{tabs.map((t,i)=><button key={t.key} ref={e=>{refs.current[i]=e;}} type="button" role="tab"
-    aria-selected={i===index} tabIndex={i===index?0:-1} className={i===index?'tab tab-selected':'tab'} onClick={()=>select(i)} onKeyDown={e=>key(e,i)}>{t.label}</button>)}</div>
+    aria-selected={i===index} tabIndex={i===index?0:-1} id={id?`${id}-tab-${t.key}`:undefined} aria-controls={id?`${id}-panel`:undefined} className={i===index?'tab tab-selected':'tab'} onClick={()=>select(i)} onKeyDown={e=>key(e,i)}>{t.label}</button>)}</div>
     {announce!==undefined?<Announce text={announce}/>:null}</>;
+}
+
+/** The panel of a Tabs with the same `id`: role tabpanel, labelled by the selected tab, focusable. */
+export function TabPanel({id,value,children}:{id:string;value:string;children:ReactNode}){
+  return <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${value}`} tabIndex={0} className="tab-panel">{children}</div>;
 }
 
 // ---- F15: numbers and time ----

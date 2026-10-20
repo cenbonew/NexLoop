@@ -64,9 +64,9 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
     finally:
         server.should_exit = True
         thread.join(timeout=15)
-    assert {'title': '模型与资产', 'pages': ['企业世界模型', '数据资产', '知识工作台']} in observed['nav'], observed['nav']
+    assert {'title': '模型与资产', 'pages': ['企业世界模型', '数据资产', '数据健康', '知识工作台']} in observed['nav'], observed['nav']
     # EIOS navigation (owner review of release 23): one sidebar entry per concept, the summary counts, Table / Graph inside Object Type.
-    assert observed['nav_children'] == ['Object Type', 'Object', 'Property', 'Link', 'Function', 'Action'], observed['nav_children']
+    assert observed['nav_children'] == ['Object Type', 'Object', 'Property', 'Link', 'Function', 'Action', 'Object Set'], observed['nav_children']
     assert [s.split('\n')[0] for s in observed['summary']][:6] == ['Object Type', 'Object（real）', 'Property', 'Link', 'Function', 'Action'], observed['summary']
     assert observed['table_rows'] >= 2 and observed['switch'] == ['Table', 'Graph']
     assert observed['url_property'] == '/workbench/ontology/properties' and observed['title_property'] == 'Property'

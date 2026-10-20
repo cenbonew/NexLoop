@@ -38,7 +38,7 @@ test('F02: no task, no form: zero pending Actions, no plans, nothing firing',()=
   expect(plans).toContain('计划在目标发布后');expect(plans).not.toContain('<textarea');expect(plans).not.toContain('aria-label="手动复评"');
   const alerts:AlertsData={firing:[],events:[],silences:[],evaluator:{last_evaluated_at:null,rules_version:5,stale:false}};
   const html=page([[['workbench','alerts'],alerts]],{page:'alerts'});
-  expect(html).toContain('当前没有触发中的告警');expect(html).not.toContain('<textarea');
+  expect(html).toContain('暂无触发中的告警');expect(html).not.toContain('<textarea');
 });
 
 test('F06: pause/resume has no default scope or operation and says its impact; dispatch buttons name their layers',()=>{
@@ -61,7 +61,7 @@ test('F07: a firing alert in business words, with unit, threshold, duration and 
     events:[{event_id:9,rule_id:'feed_backlog_age',severity:'warning',kind:'firing',selector:'commitment-monitor',value:'171178',threshold:'600',recorded_at:'2026-10-18T09:59:00+00:00'}],
     silences:[],evaluator:{last_evaluated_at:'2026-10-18T09:59:00+00:00',rules_version:5,stale:false}};
   const html=page([[['workbench','alerts'],alerts]],{page:'alerts'});
-  expect(html).toContain('后台 feed 积压');expect(html).toContain('<code>feed_backlog_age</code>');expect(html).toContain('48 小时（171178 秒）');
+  expect(html).toContain('后台 feed 积压');expect(html).toContain('<code class="tech-name alert-code">feed_backlog_age</code>');expect(html).toContain('48 小时（171178 秒）');
   expect(html).toContain('阈值 10 分钟（600 秒）');expect(html).toContain('href="/workbench/operations"');expect(html).toContain('commitment-monitor');
   expect(before(html,'正在触发的告警','静默告警')).toBe(true);
 });
@@ -70,5 +70,5 @@ test('F11: audit objects as type + short ID (full value in the title, copy butto
   const items=[{category:'read',action:'read.contact',principal_id:'synthetic-staff-owner-0123456789',role:'owner',target_kind:'consumer',target_ref:id('a'),intent_id:null,occurred_at:'2026-10-18T09:00:00+00:00'}];
   const html=page([[['workbench','human-actions'],items]],{page:'audit'});
   expect(html).toContain('consumer </span>');expect(html).toContain(`title="${id('a')}"`);expect(html).toContain('aaaaaaaa…');expect(html).not.toContain(`>${id('a')}<`);
-  expect(html).toContain('复制');expect(html).toContain('负责人 · synthe…6789');expect(html).toMatch(/white-space:nowrap[^>]*><time dateTime="[^"]+" title="北京时间 [^"]+">2026/);
+  expect(html).toContain('复制');expect(html).toContain('负责人 · synthe…6789');expect(html).toMatch(/<time dateTime="[^"]+" title="北京时间 [^"]+">2026/);expect(html).toMatch(/title="read" data-code="read">.*?读取<\/span>/);
 });

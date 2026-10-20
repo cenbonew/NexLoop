@@ -177,7 +177,11 @@ def test_the_evolution_package_is_pure_logic_without_storage_network_or_effects(
     allowed = {'__future__', 'dataclasses', 'typing', 'math', 'random', 'nexloop_eios.contracts', 'nexloop_eios.evolution.candidate',
                'nexloop_eios.evolution.gate',
                # E4 attribution (pure rules over E2/E3 values; the store port is nexloop_eios.evolution_store, outside the package)
-               'hashlib', 'json', 'uuid', 'collections', 'nexloop_eios.evolution_traces'}
+               'hashlib', 'json', 'uuid', 'collections', 'nexloop_eios.evolution_traces',
+               # NX-039 V2 evaluation (pure gates and metrics over the E5 replay's bundle check)
+               'nexloop_eios.evolution.replay',
+               # NX-039 V3 L1 (pure orchestration; runner, clock and budget injected)
+               'statistics', 'decimal', 'nexloop_eios.evolution.evaluation'}
     for path in PACKAGE.glob('*.py'):
         tree = ast.parse(path.read_text())
         imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}

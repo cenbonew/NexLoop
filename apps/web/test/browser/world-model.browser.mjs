@@ -22,8 +22,8 @@ try{
   await page.locator('#workbench-nav button[aria-controls="nav-sub-ontology"]').click();
   result.nav_children=await page.locator('#nav-sub-ontology a').allTextContents();
   await page.locator('#workbench-nav a',{hasText:'企业世界模型'}).click();
-  await page.locator('.workbench-page h1',{hasText:'企业世界模型'}).waitFor({timeout:20000});await page.locator('.world-summary').waitFor({timeout:20000});
-  result.summary=await page.locator('.world-summary li').allInnerTexts();
+  await page.locator('.workbench-page h1',{hasText:'企业世界模型'}).waitFor({timeout:20000});await page.locator('.card-grid[aria-label="模型计数"]').waitFor({timeout:20000});
+  result.summary=await page.locator('.card-grid[aria-label="模型计数"] .metric-card').allInnerTexts();
   await page.screenshot({path:`${shots}/world-1440.png`,fullPage:true});result.hscroll_1440=await hscroll(page);
   // Property from the sidebar: its own page and path.
   await page.locator('#nav-sub-ontology a',{hasText:'Property'}).click();await page.locator('table[aria-label="Property"]').waitFor({timeout:20000});
@@ -55,7 +55,7 @@ try{
   result.instances_summary=await page.locator('.world-instances .workbench-summary').innerText();
   await page.locator('table[aria-label="Consumer Object"] tbody tr button').first().click();
   await page.locator('aside.world-object').waitFor({timeout:20000});await page.locator('aside.world-object h3',{hasText:'邻域'}).waitFor({timeout:20000});
-  await page.locator('aside.world-object .world-neighbors, aside.world-object [data-empty]').first().waitFor({timeout:20000});
+  await page.locator('aside.world-object .world-neighbors, aside.world-object [data-empty], aside.world-object [data-state="empty"]').first().waitFor({timeout:20000});
   result.instance_url=new URL(page.url()).pathname+new URL(page.url()).search;result.drawer=await page.locator('aside.world-object').innerText();
   result.drawer_link=await page.locator('aside.world-object a[href^="/workbench/consumers/"]').count();
   await page.screenshot({path:`${shots}/world-instance-1440.png`,fullPage:true});
@@ -64,7 +64,7 @@ try{
   // W4 data assets: the owner's metrics read; every section present, nothing to fill in, no sideways scroll on a phone.
   await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/data_assets');
   await page.locator('.workbench-page h1',{hasText:'数据资产'}).waitFor({timeout:20000});await page.locator('article[aria-label="召回索引"]').waitFor({timeout:20000});
-  result.assets_sections=await page.locator('.workbench-grid > article').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')));
+  result.assets_sections=await page.locator('.card-grid > article').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')));
   result.assets_text=await page.locator('.workbench-page').innerText();result.assets_forms=await page.locator('.workbench-page form, .workbench-page textarea').count();
   await page.screenshot({path:`${shots}/data-assets-1440.png`,fullPage:true});
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(400);result.assets_hscroll_390=await hscroll(page);

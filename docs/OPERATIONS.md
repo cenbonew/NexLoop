@@ -166,7 +166,7 @@ CI 账户的出站规则（模板 `deploy/stage/firewall/app-host.nft.template`�
 | 撤销删除后联系键的拦截 | 只有负责人，写明理由，工作台写入口 `revoke_contact_key`（NX-053） |
 | 人工接管 / 交还 | 工作台（负责人、运营），默认 2 小时、上限 24 小时 |
 | 删除客户或消息、保留例外、数据导出 | 只有负责人，经工作台受治理 Action（NX-029） |
-| 知识工作台 | 审核员审核候选与证据；发布 17 起负责人可只读查看（`nexloop.knowledge.read`，0213，角色清单 v13），审核决定仍只归审核员。无权限时页面说明需要的角色 |
+| 知识工作台 | 审核员审核候选与证据；发布 17 起负责人可只读查看（`nexloop.knowledge.read`，0213，角色清单 v13）。角色清单 v18 起（NX-028 D2 修订 2，负责人 2026-10-20）负责人也持有 `ontology.schema.review`，可以直接做审核决定（理由必填，审计记录负责人本人）；以后有审核员时可以重新分离。无权限时页面说明需要的角色 |
 | 服务授权清单 | `python -m nexloop_eios.service_grants --check|--doctor|--apply`（configurator 连接；`--doctor` 只读报告漂移）。服务凭据的 worlds 只要含 `real` 就只能是 `real`，不能同时含 real 与其他 world（AT-046，写入时拒绝） |
 | 服务进程的 `--world` | runtime worker 与 guard 只接受 `real` 或 `test`；effect worker、出站记录、优惠执行者只接受 `real`；其他值在读取凭据之前退出（码 2） |
 | Runtime Worker 的进程形态与回退 | [deploy/stage/README.md](../deploy/stage/README.md)（`--guard-workers 4`、`--dispatch-loops 4`，回退改回 1 并重启） |

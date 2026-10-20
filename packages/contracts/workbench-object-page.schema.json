@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nexloop:contracts:v1:workbench-object-page",
   "title": "workbench-object-page",
-  "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times only, never a property. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times; since D-G1 (owner 2026-10-20) each listed object also carries `properties`: per schema property its value when the member's per-property READ holds (read through the same audited object read), or its name only (withheld: an owner-restricted group, or a property the member's role does not derive), or missing. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -45,6 +45,51 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "properties": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "status"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                },
+                "status": {
+                  "enum": [
+                    "ok",
+                    "withheld",
+                    "missing"
+                  ]
+                },
+                "reason": {
+                  "enum": [
+                    "restricted",
+                    "not_permitted",
+                    "erasing"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "value_type": {
+                  "enum": [
+                    "text",
+                    "json"
+                  ]
+                },
+                "truncated": {
+                  "const": true
+                }
+              }
+            }
           }
         }
       }

@@ -56,16 +56,25 @@ def row(admin, intent_id):
     return admin.execute('select state,refusal_code,fence from runtime.nexloop_outreach_sends where intent_id=%s', (intent_id,)).fetchone()
 
 
-def quiet_now(zone='Asia/Shanghai', minutes=90):
+def midday_zone(now=None):
+    """A fixed-offset time zone (Etc/GMT±N) in which `now` is around local noon. The outreach business intent id holds the day in the
+    tenant's time zone, computed by the server at acceptance; with the test tenant in this zone, local midnight is about 12 hours away
+    from any test, so two sends of one test always fall on the same day (CI also runs around 00:00 Beijing)."""
+    now = now or datetime.now(UTC)
+    offset = 12 - now.hour  # -11 .. +12 hours: local time is between 12:00 and 12:59
+    return 'Etc/GMT' + ('-' if offset > 0 else '+') + str(abs(offset)) if offset else 'Etc/GMT'
+
+
+def quiet_now(zone=None, minutes=90):
     """A quiet-hours window around the current minute in the tenant's zone: refuses whenever the test runs (an all-day 00:00-23:59
     window misses the minute 23:59)."""
     from zoneinfo import ZoneInfo
-    now = datetime.now(ZoneInfo(zone))
+    now = datetime.now(ZoneInfo(zone or midday_zone()))
     return (now - timedelta(minutes=minutes)).strftime('%H:%M') + '-' + (now + timedelta(minutes=minutes)).strftime('%H:%M')
 
 
 def controls(admin, **change):
-    settings = {**OPEN, **change}
+    settings = {**OPEN, 'time_zone': midday_zone(), **change}
     with admin.transaction():
         admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
         admin.execute('''insert into control.nexloop_outreach_controls(tenant_id,settings,revision,updated_by,request_intent) values(%s,%s,1,'synthetic-owner','synthetic')

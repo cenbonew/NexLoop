@@ -1,21 +1,26 @@
 import type {ReactNode} from 'react';
+import {EmptyState} from './kit';
 
-/** One column: the header text, the cell, and how it lays out. `main` is the row's title in the narrow card view; `num` is a
- * right-aligned narrow count; `wide` takes the spare width at desktop sizes (long text such as KR or conditions). */
+/** One column: the header text, the cell, and how it lays out. `main` is the row's title in the narrow card view (and the column
+ * kept in view while the table scrolls sideways); `num` is a right-aligned number (counts, amounts, milliseconds - not versions);
+ * `wide` takes the spare width at desktop sizes (long text such as KR or conditions). */
 export type Column<T>={label:string;cell:(row:T)=>ReactNode;main?:boolean;num?:boolean;wide?:boolean};
 
 /**
- * The workbench's one responsive table (web layout audit §4.2 batch 2). At 640 px and wider it is an ordinary table; below
- * 640 px each row becomes a card: the `main` column is the card title and every other cell is a "label: value" line, so no
- * column is cut off or hidden in a horizontal scroller. Same markup at every width (CSS only), so screen readers keep the
- * table semantics.
+ * The workbench's one responsive table (web layout audit §4.2 batch 2; UI spec §5). From 640 px it is a table inside its own
+ * horizontal scroller (the page title and toolbar never move with it), the `main` column stays in view, and the header sticks
+ * when the list is long (more than 20 rows, or `stickyHeader`). Below 640 px each row becomes a card. No rows: the state instead
+ * of a table with only a header (`empty`, default "暂无数据").
  */
-export function DataTable<T>({rows,columns,rowKey,rowClass,label,className}:{rows:T[];columns:Column<T>[];rowKey:(row:T,index:number)=>string;
-  rowClass?:(row:T)=>string|undefined;label?:string;className?:string}){
+export function DataTable<T>({rows,columns,rowKey,rowClass,label,className,stickyHeader,empty}:{rows:T[];columns:Column<T>[];rowKey:(row:T,index:number)=>string;
+  rowClass?:(row:T)=>string|undefined;label?:string;className?:string;stickyHeader?:boolean;empty?:{subject?:string;filtered?:boolean}}){
+  if(!rows.length&&empty)return <EmptyState kind={empty.filtered?'filtered':'empty'} subject={empty.subject??label}/>;
   const kind=(c:Column<T>)=>[c.main?'cell-main':'',c.num?'cell-num':'',c.wide?'cell-wide':''].filter(Boolean).join(' ')||undefined;
-  return <table className={'data-table'+(className?' '+className:'')} aria-label={label}>
+  const sticky=stickyHeader??rows.length>20;
+  return <div className="table-scroll" role="region" aria-label={label?label+'（可横向滚动）':undefined} tabIndex={0}>
+    <table className={'data-table'+(sticky?' table-sticky':'')+(className?' '+className:'')} aria-label={label}>
     <thead><tr>{columns.map(c=><th key={c.label} scope="col" className={kind(c)}>{c.label}</th>)}</tr></thead>
     <tbody>{rows.map((row,i)=><tr key={rowKey(row,i)} className={rowClass?.(row)}>
       {columns.map(c=><td key={c.label} data-label={c.label} className={kind(c)}>{c.cell(row)}</td>)}</tr>)}</tbody>
-  </table>;
+  </table></div>;
 }

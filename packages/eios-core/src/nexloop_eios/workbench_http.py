@@ -23,6 +23,7 @@ _ID = re.compile(r'[a-f0-9]{64}')
 _CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{64}')
 _STATES = ('accepted', 'dispatching', 'unknown', 'fulfilled', 'failed', 'confirmed')
 _TYPE = re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')
+_OBJECT_SET = re.compile(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}')  # ADR-036
 _OBJECT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ARTIFACT_CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{32}')
 _OFFSET = re.compile(r'0|[1-9][0-9]{0,5}')
@@ -246,6 +247,43 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'objects', type_name=type_name, after=q.get('after'), limit=limit)
 
+    @routes.get('/objects/{type_name}/{object_id}')
+    async def object_values(type_name: str, object_id: str, request: Request):
+        # D-G1 (owner 2026-10-20): one object's property values; restricted ones named only (withheld); each read audited.
+        if not _TYPE.fullmatch(type_name) or not _OBJECT.fullmatch(object_id) or request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_values', type_name=type_name, object_id=object_id)
+
+    @routes.get('/semantic-releases')
+    async def semantic_releases(request: Request):
+        # NX-039 V4: the owner's semantic release view (current version, history, publishable candidates); no parameters.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'semantic_releases')
+
+    @routes.get('/object-sets')
+    async def object_sets(request: Request):
+        # ADR-036: the tenant's Object Sets (latest version of each, conditions and projection); every member, read only.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_sets')
+
+    @routes.get('/object-sets/{stable_name}/members')
+    async def object_set_members(stable_name: str, request: Request):
+        # ADR-036: one preview page evaluated at read time; each object's READ and each projected property's READ checked.
+        try:
+            q = query(request, ('version', 'offset', 'limit'))
+            if not _OBJECT_SET.fullmatch(stable_name):
+                raise ValueError()
+            version = limit_of(q['version']) if 'version' in q else None
+            offset = int(q['offset']) if 'offset' in q and q['offset'].isdigit() and len(q['offset']) <= 4 else (0 if 'offset' not in q else None)
+            limit = limit_of(q['limit']) if 'limit' in q else 25
+            if offset is None or offset > 1000 or limit > 50:
+                raise ValueError()
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_set_members', stable_name=stable_name, version=version, offset=offset, limit=limit)
+
     @routes.get('/objects/{type_name}/{object_id}/neighbors')
     async def object_neighbors(type_name: str, object_id: str, request: Request):
         # World model W2: depth 1, 25 a group; every neighbour's READ checked.
@@ -365,6 +403,45 @@ def router(config, *, ports_for_workbench):
         if request.query_params:
             return error('invalid_request', 422)
         return await invoke(request, 'outreach_approvals')
+
+    @routes.get('/data-health')
+    async def data_health(request: Request):
+        # D-G5: the health of NexLoop's own data flows (counts, ratios, ages, codes; owner only).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'data_health')
+
+    @routes.get('/outreach-metrics')
+    async def outreach_metrics(request: Request):
+        # Outreach slice 8: the owner's outreach metrics.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'outreach_metrics')
+
+    @routes.get('/outreach-evidence')
+    async def outreach_evidence(request: Request):
+        # Outreach slice 8: one send's evidence chain (?intent_id=) or a list (?consumer_id=&synthetic_only=true&limit=).
+        params = request.query_params
+        query = {}
+        if set(params) - {'intent_id', 'consumer_id', 'synthetic_only', 'limit'} or any(len(params.getlist(k)) != 1 for k in params):
+            return error('invalid_request', 422)
+        if 'intent_id' in params:
+            if set(params) != {'intent_id'} or not re.fullmatch(r'outreach:[0-9a-f]{64}', params['intent_id']):
+                return error('invalid_request', 422)
+            query['intent_id'] = params['intent_id']
+        if 'consumer_id' in params:
+            if not re.fullmatch(r'[a-f0-9]{64}', params['consumer_id']):
+                return error('invalid_request', 422)
+            query['consumer_id'] = params['consumer_id']
+        if 'synthetic_only' in params:
+            if params['synthetic_only'] not in ('true', 'false'):
+                return error('invalid_request', 422)
+            query['synthetic_only'] = params['synthetic_only'] == 'true'
+        if 'limit' in params:
+            if not re.fullmatch(r'[1-9][0-9]{0,2}', params['limit']) or int(params['limit']) > 200:
+                return error('invalid_request', 422)
+            query['limit'] = int(params['limit'])
+        return await invoke(request, 'outreach_evidence', **query)
 
     @routes.get('/review')
     async def review_queue(request: Request):
