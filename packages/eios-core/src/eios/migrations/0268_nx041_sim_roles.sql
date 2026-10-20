@@ -17,21 +17,36 @@
 -- role's process samples go to their own table runtime.nexloop_sim_process_samples, which no real snapshot, rollup or alert reads
 -- (1.5); nexloop_sim_api holds only the common entries until the simulation event intake needs more (1.3).
 
-do $$declare r text;m text;s text;begin
+do $$declare r text;m text;s text;cur pg_roles;begin
  foreach r in array array['nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api'] loop
   if not exists(select 1 from pg_roles where rolname=r) then
    execute format('create role %I login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls',r);
   end if;
   -- Review 1.2 (as S4 N2): a role of that name made before (by hand, another lineage) is brought to exactly this shape - its
   -- attributes, no role membership, no privilege granted before; the grants below are then its only ones (password left to deployment).
-  execute format('alter role %I login noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls',r);
+  -- Each attribute is changed only when it is wrong (re-verify F1, as S4 N2): changing SUPERUSER, REPLICATION or BYPASSRLS needs a
+  -- superuser - migrations run as the deployment's bootstrap role, the image's superuser - but a role already in shape needs nothing,
+  -- so a CREATEROLE-only migration role passes too; a wrong elevated attribute it cannot clear fails the migration (fail closed).
+  select * into cur from pg_roles where rolname=r;
+  if not cur.rolcanlogin or cur.rolinherit or cur.rolcreatedb or cur.rolcreaterole then
+   execute format('alter role %I login noinherit nocreatedb nocreaterole',r);end if;
+  if cur.rolsuper or cur.rolreplication or cur.rolbypassrls then
+   execute format('alter role %I nosuperuser noreplication nobypassrls',r);end if;
   for m in select g.rolname from pg_auth_members a join pg_roles g on g.oid=a.roleid join pg_roles x on x.oid=a.member where x.rolname=r loop
    execute format('revoke %I from %I',m,r);
   end loop;
-  for s in select nspname from pg_namespace where nspname in ('authz','control','ontology','runtime','extensions','public','eios') loop
-   execute format('revoke all on all tables in schema %I from %I',s,r);
-   execute format('revoke all on all sequences in schema %I from %I',s,r);
-   execute format('revoke all on all functions in schema %I from %I',s,r);
+  -- Only what was actually granted to the role is revoked (its own ACL entries), so objects it holds nothing on - an extension's,
+  -- owned by the superuser - are never touched by a non-superuser migration role (re-verify F1).
+  for s in select c.oid::regclass::text from pg_class c join pg_namespace n on n.oid=c.relnamespace cross join aclexplode(c.relacl) a
+    where n.nspname in ('authz','control','ontology','runtime','extensions','public','eios') and a.grantee=cur.oid group by 1 loop
+   execute format('revoke all on %s from %I',s,r);
+  end loop;
+  for s in select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace cross join aclexplode(p.proacl) a
+    where n.nspname in ('authz','control','ontology','runtime','extensions','public','eios') and a.grantee=cur.oid group by 1 loop
+   execute format('revoke all on function %s from %I',s,r);
+  end loop;
+  for s in select n.nspname from pg_namespace n cross join aclexplode(n.nspacl) a
+    where n.nspname in ('authz','control','ontology','runtime','extensions','public','eios') and a.grantee=cur.oid group by 1 loop
    execute format('revoke all on schema %I from %I',s,r);
   end loop;
   execute format('grant usage on schema authz to %I',r);

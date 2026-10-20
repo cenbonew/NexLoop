@@ -115,8 +115,65 @@ def test_each_simulation_dsn_logs_in_as_its_own_simulation_role(pg, admin):
     assert out['pass'] is True and {v['role'] for v in out['dsns'].values()} == set(P.SIM_DSN_ROLES.values())
     for wrong in ('nexloop_domain_worker', 'nexloop_api', 'nexloop_sim_guard'):
         out = P.check_sim_roles({**good, 'sim_worker_dsn': make_conninfo(pg, user=wrong)})
-        assert out['pass'] is False and out['dsns']['sim_worker_dsn'] == {'pass': False, 'role': wrong, 'expected_role': 'nexloop_sim_worker'}
+        assert out['pass'] is False and out['dsns']['sim_worker_dsn'] == {'pass': False, 'role': wrong, 'expected_role': 'nexloop_sim_worker', 'reason': 'wrong_role'}
     assert P.check_sim_roles({**good, 'sim_other_dsn': good['sim_api_dsn']})['pass'] is False
     broken = P.check_sim_roles({'sim_guard_dsn': make_conninfo(pg, user='nexloop_sim_guard', port=1)})
-    assert broken['pass'] is False and 'port=1' not in json.dumps(broken)
+    assert broken['pass'] is False and broken['dsns']['sim_guard_dsn']['reason'] == 'unreachable' and 'port=1' not in json.dumps(broken)
     assert P.check_sim_roles({})['pass'] is False
+
+
+def test_a_missing_or_unknown_simulation_dsn_file_fails(pg, admin):
+    """L6 re-verify: the simulation project's DSN secrets must all be present and every *_dsn file must be a known one."""
+    from psycopg.conninfo import make_conninfo
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    required = P.required_sim_dsns()
+    assert required == ['sim_files_dsn', 'sim_guard_dsn', 'sim_stand_in_worker_dsn', 'sim_worker_dsn'] and set(required) <= set(P.SIM_DSN_ROLES)
+    good = {name: make_conninfo(pg, user=P.SIM_DSN_ROLES[name]) for name in required}
+    assert P.check_sim_roles(good, required)['pass'] is True
+    missing = P.check_sim_roles({k: v for k, v in good.items() if k != 'sim_guard_dsn'}, required)
+    assert missing['pass'] is False and missing['dsns']['sim_guard_dsn'] == {'pass': False, 'reason': 'missing', 'expected_role': 'nexloop_sim_guard'}
+    extra = P.check_sim_roles({**good, 'old_worker_dsn': good['sim_worker_dsn']}, required)
+    assert extra['pass'] is False and extra['dsns']['old_worker_dsn']['reason'] == 'unknown simulation DSN file'
+    assert P.check_sim_roles({}, required)['pass'] is False
+
+
+def test_every_dsn_file_of_the_simulation_secret_directory_is_checked(tmp_path, monkeypatch):
+    secrets = tmp_path / 'sim'
+    secrets.mkdir(mode=0o700)
+    for name in ('sim_worker_dsn', 'stray_dsn', 'sim_host_cert'):
+        (secrets / name).write_text('host=127.0.0.1 user=x\n')
+        (secrets / name).chmod(0o600)
+    assert P.sim_dsn_files(secrets) == {'sim_worker_dsn': 'host=127.0.0.1 user=x', 'stray_dsn': 'host=127.0.0.1 user=x'}  # not the certificate
+    seen = {}
+    monkeypatch.setattr(P, 'check_sim_roles', lambda dsns, required=None: seen.update(dsns=dsns, required=required) or {'pass': False})
+    out = run(capture(), sim_dsns={'a': 'b'}, sim_required=['c'])
+    assert out['pass'] is False and 'sim_roles' in out['failed'] and seen == {'dsns': {'a': 'b'}, 'required': ['c']}
+
+
+@pytest.mark.parametrize('failure,reason', [
+    ('auth', 'authentication_failed'), ('hba', 'authentication_failed'), ('refused', 'unreachable'),
+    ('read_only', 'read_only_transaction_failed'), ('query', 'role_query_failed'), ('malformed', 'unreachable')])
+def test_a_failure_is_classified_and_never_echoes_the_dsn(monkeypatch, failure, reason):
+    import psycopg
+    secret = 'password=SYNTHETIC_SECRET_SENTINEL host=private.invalid'
+
+    class Fake:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, *a):
+            if failure == 'read_only' and sql.startswith('begin'): raise psycopg.errors.ReadOnlySqlTransaction('SYNTHETIC_SECRET_SENTINEL')
+            if failure == 'query' and sql.startswith('select'): raise psycopg.errors.UndefinedFunction('SYNTHETIC_SECRET_SENTINEL')
+            return self
+        def fetchone(self): return ('nexloop_sim_worker', 'nexloop_sim_worker', False, False, False)
+
+    def connect(dsn, **kw):
+        if failure == 'auth': raise psycopg.OperationalError('FATAL:  password authentication failed for user "x" SYNTHETIC_SECRET_SENTINEL')
+        if failure == 'hba': raise psycopg.OperationalError('FATAL:  no pg_hba.conf entry for host SYNTHETIC_SECRET_SENTINEL')
+        if failure == 'refused': raise psycopg.OperationalError('connection refused SYNTHETIC_SECRET_SENTINEL')
+        if failure == 'malformed': raise psycopg.ProgrammingError('invalid dsn SYNTHETIC_SECRET_SENTINEL')
+        return Fake()
+    monkeypatch.setattr(psycopg, 'connect', connect)
+    out = P.check_sim_roles({'sim_worker_dsn': secret})
+    assert out['pass'] is False and out['dsns']['sim_worker_dsn'] == {'pass': False, 'reason': reason, 'expected_role': 'nexloop_sim_worker'}
+    assert 'SYNTHETIC_SECRET_SENTINEL' not in json.dumps(out)

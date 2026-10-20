@@ -239,3 +239,35 @@ def test_a_null_world_is_never_a_simulation_world_and_simulation_samples_stay_ap
     assert real == [('1',)] and sim == [('nexloop_sim_worker', 'simulation', '7')]  # the sim value never masks or joins the real one
     assert admin.execute("select prosrc not like '%app_role(null)%' and prosrc like '%app_role_unscoped()%' from pg_proc where oid="
                          "'authz.nexloop_record_process_sample(text,text,text,timestamptz,integer,jsonb)'::regprocedure").fetchone()[0]
+
+
+def _role_block():
+    migration = next((ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx041_sim_roles.sql')).read_text()
+    start = migration.index('do $$declare r text;m text;s text;cur pg_roles;begin')
+    return migration[start:migration.index('end $$;', start) + len('end $$;')]
+
+
+def test_a_createrole_only_migration_role_runs_the_role_block_and_fails_closed_on_what_it_cannot_clear(db):
+    """Re-verify F1: the stage migrates as the image's superuser, but the role block changes an attribute only when it is wrong, so
+    a non-superuser migration role (CREATEROLE, acting as the objects' owner) passes when the roles are in shape; a wrong elevated
+    attribute it cannot clear stops the migration instead of being left in place."""
+    admin, pg = db
+    admin.execute('drop role if exists synthetic_createrole_migrator')
+    admin.execute('create role synthetic_createrole_migrator login createrole nosuperuser')
+    for role in WHITELIST:
+        admin.execute(f'grant {role} to synthetic_createrole_migrator with admin option')  # PG 16+: CREATEROLE manages roles it administers
+        admin.execute(f'revoke {role} from synthetic_createrole_migrator')
+        admin.execute(f'grant {role} to synthetic_createrole_migrator with admin option, inherit false, set false')
+    # A migration role that is not a superuser still acts as the objects' owner (it creates and alters them as nexloop_owner), so
+    # it may revoke what was granted on them; what it lacks is the superuser's power over elevated role attributes.
+    admin.execute('grant nexloop_owner to synthetic_createrole_migrator with inherit true')
+    block = _role_block()
+    with connect(pg, 'synthetic_createrole_migrator') as c:
+        assert c.execute('select rolsuper from pg_roles where rolname=current_user').fetchone()[0] is False
+        c.execute(block)  # the roles are in shape: no alter needs a superuser, nothing fails
+    for role in WHITELIST:
+        assert admin.execute('select rolcanlogin,rolinherit,rolsuper,rolbypassrls from pg_roles where rolname=%s', (role,)).fetchone() == (True, False, False, False)
+    admin.execute('alter role nexloop_sim_worker bypassrls')
+    with connect(pg, 'synthetic_createrole_migrator') as c, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        c.execute(block)
+    admin.execute('alter role nexloop_sim_worker nobypassrls')

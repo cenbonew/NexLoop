@@ -165,36 +165,80 @@ SIM_DSN_ROLES = {'sim_worker_dsn': 'nexloop_sim_worker', 'sim_guard_dsn': 'nexlo
                  'sim_stand_in_worker_dsn': 'nexloop_stand_in_worker', 'sim_files_dsn': 'nexloop_sim_files'}
 
 
-def check_sim_roles(dsns):
-    """{simulation DSN file name: DSN} -> every DSN logs in as exactly its simulation role: current_user = session_user = the role
-    of SIM_DSN_ROLES, no elevated attribute or role membership, and no execute right on the real dispatch summary. Read only; a
-    failure names the file and the role it got, never the DSN."""
+SIM_COMPOSE = Path(__file__).resolve().parents[2] / 'deploy/stage/compose.simulation.example.yaml'
+
+
+def required_sim_dsns(compose_path=SIM_COMPOSE):
+    """The simulation DSN files the simulation project mounts (its *_dsn secrets): each must be present."""
+    import yaml
+    secrets = yaml.safe_load(Path(compose_path).read_text()).get('secrets') or {}
+    return sorted(name for name in secrets if name.endswith('_dsn'))
+
+
+def sim_dsn_files(directory):
+    """Every *_dsn file of the simulation secret directory (an unknown one then fails the check), read privately."""
+    from nexloop_eios.private_configuration import read_private_text
+    return {p.name: read_private_text(p, maximum=4096).strip() for p in sorted(Path(directory).iterdir()) if p.name.endswith('_dsn')}
+
+
+def _sim_role(dsn):
+    """(role row, None) or (None, reason): unreachable, authentication_failed, read_only_transaction_failed or role_query_failed -
+    a class of failure, never the DSN or a server message."""
     import psycopg
-    if not dsns:
+    try:
+        db = psycopg.connect(dsn, connect_timeout=5, autocommit=True)  # the read-only transaction below is explicit
+    except psycopg.OperationalError as error:
+        state = getattr(error, 'sqlstate', None) or getattr(getattr(error, 'diag', None), 'sqlstate', None)
+        text = str(error)
+        auth = state in ('28P01', '28000') or 'password authentication failed' in text or 'no pg_hba.conf entry' in text
+        return None, 'authentication_failed' if auth else 'unreachable'
+    except Exception:  # noqa: BLE001 - a malformed DSN and the like: nothing of it is echoed
+        return None, 'unreachable'
+    with db:
+        try:
+            db.execute('begin read only')
+        except Exception:  # noqa: BLE001
+            return None, 'read_only_transaction_failed'
+        try:
+            row = db.execute('''select current_user::text,session_user::text,r.rolsuper or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolbypassrls,
+                exists(select 1 from pg_auth_members m where m.member=r.oid),
+                has_function_privilege(current_user,'authz.nexloop_real_dispatch_summary()','execute')
+                from pg_roles r where r.rolname=current_user''').fetchone()
+            db.execute('rollback')
+            return row, None
+        except Exception:  # noqa: BLE001
+            return None, 'role_query_failed'
+
+
+def check_sim_roles(dsns, required=None):
+    """{simulation DSN file name: DSN} -> every DSN logs in as exactly its simulation role: current_user = session_user = the role
+    of SIM_DSN_ROLES, no elevated attribute or role membership, and no execute right on the real dispatch summary. A required file
+    (the simulation project's DSN secrets) that is missing, and any *_dsn file that is not a known simulation DSN, fail the check.
+    Read only; a failure names the file, the role it got and a class of reason, never the DSN."""
+    if not dsns and not required:
         return {'pass': False, 'reason': 'no simulation DSN given'}
     out, ok = {}, True
+    for name in sorted(set(required or ()) - set(dsns)):
+        out[name], ok = {'pass': False, 'reason': 'missing', 'expected_role': SIM_DSN_ROLES.get(name)}, False
     for name in sorted(dsns):
         expected = SIM_DSN_ROLES.get(name)
         if expected is None:
             out[name], ok = {'pass': False, 'reason': 'unknown simulation DSN file'}, False
             continue
-        try:
-            with psycopg.connect(dsns[name], connect_timeout=5) as db, db.transaction():
-                db.execute('set transaction read only')
-                row = db.execute('''select current_user::text,session_user::text,r.rolsuper or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolbypassrls,
-                    exists(select 1 from pg_auth_members m where m.member=r.oid),
-                    has_function_privilege(current_user,'authz.nexloop_real_dispatch_summary()','execute')
-                    from pg_roles r where r.rolname=current_user''').fetchone()
-        except Exception as error:  # noqa: BLE001 - the class name only, never the message (it may hold a connection detail)
-            out[name], ok = {'pass': False, 'reason': type(error).__name__, 'expected_role': expected}, False
+        row, reason = _sim_role(dsns[name])
+        if reason is not None:
+            out[name], ok = {'pass': False, 'reason': reason, 'expected_role': expected}, False
             continue
         good = row is not None and row[0] == row[1] == expected and not row[2] and not row[3] and not row[4]
         out[name] = {'pass': good, 'role': row[0] if row else None, 'expected_role': expected}
+        if not good:
+            out[name]['reason'] = 'wrong_role' if row and row[0] != expected else 'elevated_or_real_access'
         ok = ok and good
     return {'pass': ok, 'dsns': out}
 
 
-def run_checks(run, *, project, compose, https_base, http_base, routes, control, minutes, database_url=None, expected_revision=None, sim_dsns=None):
+def run_checks(run, *, project, compose, https_base, http_base, routes, control, minutes, database_url=None, expected_revision=None, sim_dsns=None,
+               sim_required=None):
     results = {}
     try:
         rows = containers(run, project)
@@ -212,7 +256,7 @@ def run_checks(run, *, project, compose, https_base, http_base, routes, control,
     if database_url is not None:
         results['database'] = check_database(database_url, expected_revision)
     if sim_dsns is not None:
-        results['sim_roles'] = check_sim_roles(sim_dsns)
+        results['sim_roles'] = check_sim_roles(sim_dsns, sim_required)
     failed = sorted(k for k, v in results.items() if not v['pass'])
     return {'schema': 'nexloop-post-deploy-check/1', 'project': project, 'pass': not failed, 'failed': failed, 'checks': results}
 
@@ -260,11 +304,9 @@ def main(argv=None):
             from nexloop_eios.private_configuration import read_private_text
             database_url = read_private_text(args.database_url_file, maximum=4096).strip()
             expected = args.expected_revision or catalog()[-1].version
-        sim_dsns = None
+        sim_dsns = sim_required = None
         if args.sim_secret_dir:
-            from nexloop_eios.private_configuration import read_private_text
-            sim_dsns = {name: read_private_text(Path(args.sim_secret_dir) / name, maximum=4096).strip()
-                        for name in SIM_DSN_ROLES if (Path(args.sim_secret_dir) / name).exists()}
+            sim_dsns, sim_required = sim_dsn_files(args.sim_secret_dir), required_sim_dsns()
         runner = Capture(json.loads(Path(args.capture).read_text())) if args.capture else Live(args.cacert)
     except (InputError, OSError, ValueError) as error:
         print(json.dumps({'schema': 'nexloop-post-deploy-check/1', 'pass': False, 'error': type(error).__name__,
@@ -272,7 +314,7 @@ def main(argv=None):
         return 2
     out = run_checks(runner, project=project, compose=args.compose, https_base=f'https://{host}:{https_port}', http_base=f'http://{host}:{http_port}',
                      routes=routes, control=args.control_route, minutes=args.log_minutes, database_url=database_url, expected_revision=expected,
-                     sim_dsns=sim_dsns)
+                     sim_dsns=sim_dsns, sim_required=sim_required)
     print(json.dumps(out, ensure_ascii=False, sort_keys=True))
     return 0 if out['pass'] else 1
 

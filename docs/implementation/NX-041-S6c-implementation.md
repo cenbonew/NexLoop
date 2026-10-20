@@ -46,3 +46,11 @@
 | 1.5 进程样本 | sim 角色写的进程样本改写到单独的表 `runtime.nexloop_sim_process_samples`，带 `world_group='simulation'` 和写入角色，保留 7 天。real 的快照、小时汇总和告警只读 `runtime.nexloop_process_samples`，因此 sim 样本既不会混进 real 的统计，也不会掩盖 real 的告警。测试：sim 和 real 用同一个 instance 名各写一条，两边互不影响 |
 | 2.3 NULL world | `authz.nexloop_app_role(p_world)` 在 `p_world` 为 NULL 时，sim 角色一律视为 world 之外，所有带 world 的角色检查都会拒绝。唯一不带 world 的进程样本改为调用单独的 `authz.nexloop_app_role_unscoped()`。测试覆盖 sim worker 和 sim guard 传 NULL world 时被拒 |
 | 4.2 部署后检查 | `scripts/deploy/post_deploy_check.py` 新增 `check_sim_roles` 和 `--sim-secret-dir` 参数：sim secret 目录里的每个 `sim_*_dsn` 都必须以对应的 sim 角色登录（`current_user = session_user = 预期角色`），没有特权和成员关系，也没有 real dispatch 摘要的执行权；结果只给出文件名和角色名，不输出 DSN。对应关系是 `SIM_DSN_ROLES`：worker、guard、api、stand_in_worker、files。新增测试覆盖：错误的角色、未知的文件名、连不上、空目录 |
+
+## L6 复核修复（`nx041-s6c-s7-fix-verify.md`）
+
+| 条目 | 处理 |
+| --- | --- |
+| F1 非超级用户执行迁移 | 先查清了执行角色：stage 用 `MIGRATION_PG_ROLE=nexloop_bootstrap` 执行迁移，它就是数据镜像的 `POSTGRES_USER`，即超级用户；测试里的 admin 连接也用这个角色。S4 N2 的写法是按属性判断后再改。现在 S6c 的角色校正也改成两点：<br>· 属性只在确实不对时才 `alter`。`SUPERUSER`、`REPLICATION`、`BYPASSRLS` 这三项只有超级用户能改，所以单独成一条，只在这几项为真时执行；<br>· 撤权只针对该角色确实持有的授权（用 `aclexplode` 找出它在表、序列、函数、schema 上的 ACL 条目）。这样它没有任何授权的对象（例如扩展里归超级用户所有的函数）完全不会被碰到。<br>新增测试：一个只有 `CREATEROLE`、并以对象 owner 身份操作的非超级用户执行这段代码，在角色形态正确时顺利通过；遇到它清除不了的提权属性（`bypassrls`）时直接报错，失败关闭，不会留下错误的属性 |
+| `check_sim_roles` 漏报 | `--sim-secret-dir` 下所有 `*_dsn` 文件都会检查：不认识的文件名判为失败；sim compose 项目挂载的 DSN secret（`required_sim_dsns()`，目前是 worker、guard、stand_in_worker、files 四个）缺任何一个也判为失败（`missing`） |
+| `check_sim_roles` 误报 | 失败原因分类输出：`unreachable`（连不上、DSN 格式错误）、`authentication_failed`（口令错误、pg_hba 不放行）、`read_only_transaction_failed`、`role_query_failed`、`wrong_role`、`elevated_or_real_access`。连接使用 autocommit，然后显式开一个只读事务，查询后回滚。输出里不会有 DSN 或服务端消息；测试用一个哨兵串确认六种失败情况都不会把它带出来 |
