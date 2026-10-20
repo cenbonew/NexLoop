@@ -57,7 +57,8 @@ def simulation_world(world: str) -> str:
 
 
 class StandInExecutor:
-    """One simulation world, one credential (D10). connection_factory gives a connection as nexloop_action_worker."""
+    """One simulation world, one credential (D10). connection_factory gives a connection as nexloop_stand_in_worker, the executor's
+    own role (it executes the stand-in entries only; never the real executor's role)."""
 
     def __init__(self, connection_factory, token: str, world: str):
         self.world = simulation_world(world)

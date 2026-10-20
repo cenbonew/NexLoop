@@ -13,8 +13,12 @@
 --    receipt and counts the repeat), authz.nexloop_sim_effect_query (by intent, as GET /v1/effects/<intent_id>) and
 --    authz.nexloop_sim_effect_pending. Real and test are refused; the real dispatch switch is never consulted (it is closed for any
 --    world but real, 0153).
--- 5. The real effect path refuses a simulation world at its first write: effect intents, outbox, attempts, observations, incentive
---    issues, outreach sends, outbound messages and dispatch switches never hold a sim:/shadow: row, so no real executor can lease one.
+-- 5. The real effect path never holds a sim:/shadow: row (a CHECK on every declared external effect table, review 1.1/1.3), so no
+--    real executor can lease one. control.nexloop_real_effect_tables declares each table with a world column on an outbound path and
+--    whether it is guarded (a guard test fails for an undeclared one).
+-- 6. Review fixes: the receipt outcome is drawn from the world's clock (S5 runtime.nexloop_world_now, never the client) and a
+--    server-generated salt kept with the intent (review 4.1/4.2); the stand-in executor connects as its own role
+--    nexloop_stand_in_worker (review 3.1), which executes the stand-in entries only.
 
 -- 1. The catalog ----------------------------------------------------------------------------------------------------------------
 create table control.nexloop_stand_ins (
@@ -48,7 +52,8 @@ create table runtime.nexloop_sim_effect_intents (
  intent_id uuid not null,stand_in_id text not null references control.nexloop_stand_ins(stand_in_id),
  business_digest text not null check(business_digest~'^[0-9a-f]{64}$'),request_digest text not null check(request_digest~'^[0-9a-f]{64}$'),
  origin text not null check(origin in ('twin','replay','injected')),data_mode text not null default 'simulation' check(data_mode='simulation'),
- sim_clock timestamptz not null,submitted_by text not null check(char_length(submitted_by) between 1 and 200),
+ sim_clock timestamptz not null,outcome_salt text not null check(outcome_salt~'^[0-9a-f]{64}$'),
+ submitted_by text not null check(char_length(submitted_by) between 1 and 200),
  submitted_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,world,intent_id));
 create table runtime.nexloop_sim_effect_receipts (
@@ -153,20 +158,22 @@ begin
  if session_user not in ('nexloop_api','nexloop_domain_worker') then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
  if jsonb_typeof(p_payload) is distinct from 'object' or exists(select 1 from jsonb_object_keys(p_payload) k where k not in
-   ('intent_id','action_name','action_version','provider_kind','business_digest','request_digest','origin','sim_clock'))
+   ('intent_id','action_name','action_version','provider_kind','business_digest','request_digest','origin'))
   or coalesce(p_payload->>'intent_id','')!~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   or coalesce(p_payload->>'business_digest','')!~'^[0-9a-f]{64}$' or coalesce(p_payload->>'request_digest','')!~'^[0-9a-f]{64}$'
-  or coalesce(p_payload->>'origin','') not in ('twin','replay','injected') or jsonb_typeof(p_payload->'action_version') is distinct from 'number'
-  or jsonb_typeof(p_payload->'sim_clock') is distinct from 'string' then
+  or coalesce(p_payload->>'origin','') not in ('twin','replay','injected') or jsonb_typeof(p_payload->'action_version') is distinct from 'number' then
   raise exception 'stand-in: invalid' using errcode='22023';end if;
  -- D11: no stand-in, no effect in a simulation world.
  select * into s from control.nexloop_stand_ins where action_name=p_payload->>'action_name' and action_version=(p_payload->>'action_version')::integer
   and provider_kind=p_payload->>'provider_kind';
  if not found then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_principal:=authz.nexloop_service_identity(p_digest,p_world)->'binding'->>'principal_id';
- insert into runtime.nexloop_sim_effect_intents(tenant_id,world,intent_id,stand_in_id,business_digest,request_digest,origin,sim_clock,submitted_by)
+ insert into runtime.nexloop_sim_effect_intents(tenant_id,world,intent_id,stand_in_id,business_digest,request_digest,origin,sim_clock,outcome_salt,submitted_by)
+  -- The simulated clock is the world's (S5), the salt the server's: the submitter can predict neither, so it cannot pick an outcome
+  -- by choosing its intent id or a clock (review 4.1/4.2). Both stay with the intent, so a repeat gives the same receipt.
   values(v_tenant,p_world,(p_payload->>'intent_id')::uuid,s.stand_in_id,p_payload->>'business_digest',p_payload->>'request_digest',p_payload->>'origin',
-   (p_payload->>'sim_clock')::timestamptz,coalesce(v_principal,'service'))
+   runtime.nexloop_world_now(v_tenant,p_world),encode(sha256(convert_to(gen_random_uuid()::text||gen_random_uuid()::text||clock_timestamp()::text,'UTF8')),'hex'),
+   coalesce(v_principal,'service'))
   on conflict(tenant_id,world,intent_id) do nothing;
  select * into x from runtime.nexloop_sim_effect_intents where tenant_id=v_tenant and world=p_world and intent_id=(p_payload->>'intent_id')::uuid;
  if x.stand_in_id<>s.stand_in_id or x.business_digest<>p_payload->>'business_digest' or x.request_digest<>p_payload->>'request_digest' then
@@ -175,13 +182,13 @@ begin
 end $$;
 
 -- The stand-in executor (D4: no provider, no network; it only calls this). Deterministic in (stand-in version, world, intent, simulated
--- clock) and the world's configuration (D12, default all fulfilled, zero latency).
+-- clock, the intent's server salt) and the world's configuration (D12, default all fulfilled, zero latency).
 create function authz.nexloop_sim_effect_execute(p_digest text,p_world text,p_intent uuid) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text;x runtime.nexloop_sim_effect_intents;s control.nexloop_stand_ins;cfg control.nexloop_stand_in_configs;r runtime.nexloop_sim_effect_receipts;
  h text;u numeric;f numeric;un numeric;lo integer;hi integer;v_status text;v_code text;codes jsonb;
 begin
- if session_user is distinct from 'nexloop_action_worker' then raise exception 'stand-in: unavailable' using errcode='42501';end if;
+ if session_user is distinct from 'nexloop_stand_in_worker' then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
  select * into x from runtime.nexloop_sim_effect_intents where tenant_id=v_tenant and world=p_world and intent_id=p_intent;
  if not found then raise exception 'stand-in: intent_unavailable' using errcode='42501';end if;
@@ -193,7 +200,7 @@ begin
  end if;
  select * into s from control.nexloop_stand_ins where stand_in_id=x.stand_in_id;
  select * into cfg from control.nexloop_stand_in_configs where world=p_world and tenant_id=v_tenant;
- h:=encode(sha256(convert_to(s.stand_in_version||'|'||p_world||'|'||p_intent::text||'|'||to_char(x.sim_clock at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US'),'UTF8')),'hex');
+ h:=encode(sha256(convert_to(s.stand_in_version||'|'||p_world||'|'||p_intent::text||'|'||to_char(x.sim_clock at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US')||'|'||x.outcome_salt,'UTF8')),'hex');
  u:=('x'||substr(h,1,8))::bit(32)::bigint::numeric/4294967296;
  f:=coalesce((cfg.config->>'fail_rate')::numeric,0);un:=coalesce((cfg.config->>'unknown_rate')::numeric,0);
  lo:=coalesce((cfg.config->'latency_ms'->>'min')::numeric,0)::integer;hi:=coalesce((cfg.config->'latency_ms'->>'max')::numeric,0)::integer;
@@ -212,7 +219,7 @@ create function authz.nexloop_sim_effect_query(p_digest text,p_world text,p_inte
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text;r runtime.nexloop_sim_effect_receipts;
 begin
- if session_user not in ('nexloop_api','nexloop_domain_worker','nexloop_action_worker') then raise exception 'stand-in: unavailable' using errcode='42501';end if;
+ if session_user not in ('nexloop_api','nexloop_domain_worker','nexloop_stand_in_worker') then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
  select * into r from runtime.nexloop_sim_effect_receipts where tenant_id=v_tenant and world=p_world and intent_id=p_intent;
  if not found then return null;end if;
@@ -223,7 +230,7 @@ create function authz.nexloop_sim_effect_pending(p_digest text,p_world text,p_li
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text;
 begin
- if session_user is distinct from 'nexloop_action_worker' then raise exception 'stand-in: unavailable' using errcode='42501';end if;
+ if session_user is distinct from 'nexloop_stand_in_worker' then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
  return query select i.intent_id from runtime.nexloop_sim_effect_intents i where i.tenant_id=v_tenant and i.world=p_world
   and not exists(select 1 from runtime.nexloop_sim_effect_receipts r where r.tenant_id=i.tenant_id and r.world=i.world and r.intent_id=i.intent_id)
@@ -237,25 +244,57 @@ do $$declare f text;begin
   execute 'revoke all on function '||f||' from public';
  end loop;
 end $$;
+-- The stand-in executor's own role (review 3.1): it executes the three stand-in entries and nothing else - no real executor
+-- function, no dispatch summary, no readiness, no table. Its connection (password or pg_hba line) is deployment configuration,
+-- described in the implementation document; nothing here holds a credential.
+do $$begin
+ if not exists(select 1 from pg_roles where rolname='nexloop_stand_in_worker') then
+  create role nexloop_stand_in_worker login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
+ end if;
+end $$;
+grant usage on schema authz to nexloop_stand_in_worker;
 grant execute on function authz.nexloop_sim_effect_submit(text,text,jsonb) to nexloop_api,nexloop_domain_worker;
-grant execute on function authz.nexloop_sim_effect_execute(text,text,uuid) to nexloop_action_worker;
-grant execute on function authz.nexloop_sim_effect_pending(text,text,integer) to nexloop_action_worker;
-grant execute on function authz.nexloop_sim_effect_query(text,text,uuid) to nexloop_api,nexloop_domain_worker,nexloop_action_worker;
+grant execute on function authz.nexloop_sim_effect_execute(text,text,uuid) to nexloop_stand_in_worker;
+grant execute on function authz.nexloop_sim_effect_pending(text,text,integer) to nexloop_stand_in_worker;
+grant execute on function authz.nexloop_sim_effect_query(text,text,uuid) to nexloop_api,nexloop_domain_worker,nexloop_stand_in_worker;
 
 -- 5. The real effect path never holds a simulation world row ------------------------------------------------------------------
--- Named aa_ so it fires before every other row trigger of these tables (PostgreSQL fires triggers in name order).
-create function runtime.nexloop_real_effect_world_guard() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
-begin
- if coalesce(runtime.nexloop_world_kind(new.world),'') in ('simulation','shadow') then
-  raise exception 'real effect path refused in a simulation world (%): only the stand-in executes',tg_table_name using errcode='42501';end if;
- return new;
-end $$;
-alter function runtime.nexloop_real_effect_world_guard() owner to nexloop_owner;
-revoke all on function runtime.nexloop_real_effect_world_guard() from public;
-do $$declare t text;begin
- foreach t in array array['runtime.nexloop_effect_intents','runtime.nexloop_effect_outbox','runtime.nexloop_effect_attempts','runtime.nexloop_effect_observations',
-   'runtime.nexloop_incentive_issues','runtime.nexloop_outreach_sends','runtime.nexloop_outbound_messages','control.nexloop_real_dispatch_switches',
-   'control.nexloop_effect_contexts'] loop
-  execute format('create trigger aa_nx041_real_effect_world before insert or update of world on %s for each row execute function runtime.nexloop_real_effect_world_guard()',t);
+-- A CHECK, not a trigger (review 1.1): it holds the row as finally written, after every BEFORE trigger, and only DDL removes it.
+-- control.nexloop_real_effect_tables declares every table with a world column on an outbound path (review 1.3): guarded, or not
+-- with the reason.
+create table control.nexloop_real_effect_tables (
+ table_name regclass primary key,guarded boolean not null,reason text not null check(char_length(reason) between 1 and 300));
+alter table control.nexloop_real_effect_tables owner to nexloop_owner;
+revoke all on control.nexloop_real_effect_tables from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,
+ nexloop_identity,nexloop_configurator,nexloop_metrics,nexloop_stand_in_worker;
+insert into control.nexloop_real_effect_tables(table_name,guarded,reason) values
+ ('runtime.nexloop_effect_intents',true,'governed external effect intent (S4)'),
+ ('runtime.nexloop_effect_outbox',true,'the effect executor leases from it'),
+ ('runtime.nexloop_effect_attempts',true,'a provider call'),
+ ('runtime.nexloop_effect_observations',true,'a provider receipt'),
+ ('runtime.nexloop_incentive_issues',true,'value issued to a Consumer'),
+ ('runtime.nexloop_outreach_sends',true,'a proactive message'),
+ ('runtime.nexloop_outbound_messages',true,'a message to a channel'),
+ ('control.nexloop_real_dispatch_switches',true,'the real dispatch switch'),
+ ('control.nexloop_effect_contexts',true,'effect context of the real executor'),
+ ('runtime.nexloop_message_outbox',true,'webchat delivery and the relay read it (review 1.3)'),
+ ('runtime.nexloop_relay_handoffs',true,'relay delivery (review 1.3)'),
+ ('runtime.nexloop_relay_claims',true,'relay delivery (review 1.3)'),
+ ('runtime.nexloop_relay_attempts',true,'relay delivery (review 1.3)'),
+ ('control.nexloop_data_exports',true,'a file of personal data leaves the system (review 1.3)'),
+ ('runtime.nexloop_outbound_delivery_events',true,'delivery events of an outbound message (derived; guarded as well)'),
+ ('runtime.nexloop_local_delivery_recoveries',true,'local JSON delivery recovery (derived; guarded as well)'),
+ ('control.nexloop_relay_enrollments',true,'relay registration of a delivery channel (guard test)'),
+ ('runtime.nexloop_relay_consumer_cursors',true,'relay delivery position (guard test)'),
+ ('runtime.nexloop_message_relay_leases',true,'relay delivery lease (guard test)'),
+ ('runtime.nexloop_effect_dispatch_controls',true,'dispatch control of a real effect intent (guard test)'),
+ ('runtime.nexloop_dispatch_refusals',false,'a record that a dispatch was refused; nothing leaves the system through it'),
+ ('runtime.nexloop_task_dispatch_controls',false,'internal job dispatch lease control (0035 queue), no external request'),
+ ('runtime.nexloop_outbox',false,'the durable job queue outbox (0035): internal job hand-off to workers, no external request; a job reaches outside only through a governed effect intent, which is guarded'),
+ ('runtime.nexloop_sim_effect_intents',false,'the simulated ledger itself (simulation worlds only)');
+do $$declare t regclass;begin
+ for t in select table_name from control.nexloop_real_effect_tables where guarded loop
+  execute format('alter table %s add constraint nx041_real_effect_world check(coalesce(runtime.nexloop_world_kind(world),'''') not in (''simulation'',''shadow'')) not valid',t);
+  execute format('alter table %s validate constraint nx041_real_effect_world',t);
  end loop;
 end $$;

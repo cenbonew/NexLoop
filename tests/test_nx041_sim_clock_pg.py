@@ -185,7 +185,7 @@ def test_advancing_thirty_days_expires_the_windows_of_the_simulation_world_but_n
     assert target(db, world, sim_due) == {} and target(db, 'real', real_due) == {}
     # Outreach in real: an approval pending (24 h window), an admitted marketing send (frequency and the 7-day windows). A simulation
     # world holds no outreach send at all (S4: the real effect path refuses a simulation world; only the stand-in executes).
-    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='real effect path refused'), db.transaction():
+    with pytest.raises(psycopg.errors.CheckViolation, match='nx041_real_effect_world'), db.transaction():  # S4 review 1.1: a CHECK
         send(db, world)
     real_pending = send(db, 'real')
     approval(db, 'real', real_pending)
