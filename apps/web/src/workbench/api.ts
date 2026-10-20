@@ -758,3 +758,39 @@ export function outreachApprovals(value:unknown):{window_seconds:number;pending:
     return {intent_id:text(p.intent_id),purpose_id:text(p.purpose_id),requested_at:text(p.requested_at),expires_at:text(p.expires_at),requested_by:text(p.requested_by)};})};
 }
 export function readOutreachApprovals(){return get('/api/v1/workbench/outreach-approvals',outreachApprovals);}
+
+
+// ---- data health (D-G5: NexLoop's own data flows; owner only; counts, ratios, ages and codes, never a body) ----
+export type HealthStatus={status:'ok'|'attention';reasons:string[]};
+const ratio=(v:unknown):number|null=>{if(v===null||v===undefined)return null;if(typeof v!=='number'||!Number.isFinite(v)||v<0||v>1)throw new WorkbenchError('invalid');return v;};
+function healthStatus(o:Record<string,unknown>):HealthStatus{
+  const s=o.status;if(s!=='ok'&&s!=='attention')throw new WorkbenchError('invalid');
+  const reasons=list(o.reasons).map(text);if(reasons.some(r=>!/^[a-z_]{1,64}$/.test(r))||(s==='ok')!==(reasons.length===0))throw new WorkbenchError('invalid');
+  return {status:s,reasons};
+}
+export type DataHealth={computed_at:string;attention:number;
+  extraction:HealthStatus&{feed_pending:number;oldest_pending_seconds:number;jobs:Record<string,number>;dead_lettered:number;failed_24h:number;finished_24h:number;failure_ratio_24h:number|null};
+  recall:HealthStatus&{active_profile:string|null;entries:number;missing_embeddings:number;other_profile_vectors:number;coverage_ratio:number|null;last_backfill_at:string|null};
+  reflow:HealthStatus&{pending:number;waiting:number;oldest_seconds:number};
+  ingestion:HealthStatus&{outbox_pending:number;commercial_receipts_24h:Record<string,number>;commercial_rejected_24h:number;commercial_rejected_ratio_24h:number|null;
+    commercial_late_24h:number;commercial_max_latency_seconds_24h:number};
+  artifacts:HealthStatus&{orphans:number;retention_passed:number;stuck_deleting:number};
+  erasure:HealthStatus&{open:number;oldest_open_seconds:number;waiting_unknown_effects:number;purge_items_retrying:number;completed_with_holds:number}};
+export function dataHealth(value:unknown):DataHealth{
+  const v=object(value);
+  if(Object.keys(v).sort().join()!=='artifacts,attention,computed_at,erasure,extraction,ingestion,recall,reflow')throw new WorkbenchError('invalid');
+  const x=object(v.extraction),r=object(v.recall),f=object(v.reflow),i=object(v.ingestion),a=object(v.artifacts),e=object(v.erasure);
+  return {computed_at:text(v.computed_at),attention:count(v.attention),
+    extraction:{...healthStatus(x),feed_pending:count(x.feed_pending),oldest_pending_seconds:count(x.oldest_pending_seconds),jobs:counts(x.jobs),dead_lettered:count(x.dead_lettered),
+      failed_24h:count(x.failed_24h),finished_24h:count(x.finished_24h),failure_ratio_24h:ratio(x.failure_ratio_24h)},
+    recall:{...healthStatus(r),active_profile:maybeText(r.active_profile),entries:count(r.entries),missing_embeddings:count(r.missing_embeddings),
+      other_profile_vectors:count(r.other_profile_vectors),coverage_ratio:ratio(r.coverage_ratio),last_backfill_at:maybeText(r.last_backfill_at)},
+    reflow:{...healthStatus(f),pending:count(f.pending),waiting:count(f.waiting),oldest_seconds:count(f.oldest_seconds)},
+    ingestion:{...healthStatus(i),outbox_pending:count(i.outbox_pending),commercial_receipts_24h:counts(i.commercial_receipts_24h),commercial_rejected_24h:count(i.commercial_rejected_24h),
+      commercial_rejected_ratio_24h:ratio(i.commercial_rejected_ratio_24h),commercial_late_24h:count(i.commercial_late_24h),
+      commercial_max_latency_seconds_24h:count(i.commercial_max_latency_seconds_24h)},
+    artifacts:{...healthStatus(a),orphans:count(a.orphans),retention_passed:count(a.retention_passed),stuck_deleting:count(a.stuck_deleting)},
+    erasure:{...healthStatus(e),open:count(e.open),oldest_open_seconds:count(e.oldest_open_seconds),waiting_unknown_effects:count(e.waiting_unknown_effects),
+      purge_items_retrying:count(e.purge_items_retrying),completed_with_holds:count(e.completed_with_holds)}};
+}
+export function readDataHealth(){return get('/api/v1/workbench/data-health',dataHealth);}
