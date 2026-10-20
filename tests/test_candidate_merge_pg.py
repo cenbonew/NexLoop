@@ -4,6 +4,7 @@ Reuses the NX-020 fixture (uuid tenant, governed Consumer.edit/Product.create,
 recall index). The merge configuration is published by the trusted
 configuration identity. Synthetic data only.
 """
+from support.tenants import SIM_WORLD
 import json
 from pathlib import Path
 
@@ -161,16 +162,16 @@ def test_review_queue_scoped_to_tenant_world_and_review_permission(env):
     m.process_conversation(f['conversation']);gluer.process_staged()
     # A simulation-world candidate (fixture row) must not reach the real queue.
     real=f['admin'].execute("select candidate,dependent_claims from ontology.nexloop_candidate_definitions").fetchone()
-    sim=dict(real[0],candidate_id='00000000-0000-5000-8000-000000000045',world_id='simulation',mode='simulation')
+    sim=dict(real[0],candidate_id='00000000-0000-5000-8000-000000000045',world_id=SIM_WORLD,mode='simulation')
     f['admin'].execute("""insert into ontology.nexloop_candidate_definitions(tenant_id,world,candidate_id,kind,dedupe_key,status,candidate,dependent_claims,merge_scores,config_version)
-        values(%s,'simulation',%s,'property',%s,'pending_review',%s,%s,'{}','x')""",(f['tenant'],sim['candidate_id'],'5'*64,Jsonb(sim),real[1]))
+        values(%s,%s,%s,'property',%s,'pending_review',%s,%s,'{}','x')""",(f['tenant'],SIM_WORLD,sim['candidate_id'],'5'*64,Jsonb(sim),real[1]))
     queue=reviewer(f).pending()
     assert [item['candidate']['candidate_id'] for item in queue]==[real[0]['candidate_id']]
     item=queue[0]
     assert item['status']=='pending_review' and item['dependent_claim_count']==1 and item['merge_scores']['config_version']==CONFIG['config_version']
     assert item['evidence'][0]['quote']=='我一般用花呗付款' and item['evidence'][0]['resolution_state']=='awaiting_definition'
     with pytest.raises(Exception):reviewer(f,suffix='-no-review',grant=False).pending()
-    sim_queue=reviewer(f,world='simulation',suffix='-sim-reviewer').pending()
+    sim_queue=reviewer(f,world=SIM_WORLD,suffix='-sim-reviewer').pending()
     assert [i['candidate_id'] for i in sim_queue]==[sim['candidate_id']]
 
 

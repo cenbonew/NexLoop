@@ -7,6 +7,7 @@ from eios.authz.applications import ResourceRestriction,OperationRestriction
 from authority_fixture import authority_records
 from nexloop_eios.authorization import authenticate_service
 from support.tenants import TENANT_A
+from support.sim_worlds import register_sim_world
 
 
 def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra_scopes=(),tenant=TENANT_A):
@@ -33,6 +34,7 @@ def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra
         raw=fact.model_dump(mode='json');raw.pop('snapshot_digest',None)
         fact=type(fact).model_validate_json(__import__("json").dumps(raw))
         records[mapkey]=(kind,key,fact)
+    register_sim_world(admin,tenant,world)
     token=secrets.token_urlsafe(48)
     admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
         (hashlib.sha256(token.encode()).hexdigest(),tenant,auth.credential_id,Jsonb(auth.model_dump(mode='json')),[world],'nexloop-core','active',expiry))

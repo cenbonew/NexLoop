@@ -1290,6 +1290,66 @@
       "version": "0258",
       "name": "0258_nx040_open_ontology_schema.sql",
       "sha256": "3dd821c2b80e6b2e4d048df390ce83df257efc9034289d9293dc1536c1bab8c7"
+    },
+    {
+      "version": "0259",
+      "name": "0259_nx041_world_check.sql",
+      "sha256": "0ffcd3598e35a3f5ce13fbc6e52eabf6b1a5b9f994da5debd62ad4d65b1d4b6e"
+    },
+    {
+      "version": "0260",
+      "name": "0260_nx041_sim_worlds.sql",
+      "sha256": "5090abc5efb051e3bf30164eed7e296785bf3c34b1e9f6285cc4fc9e75bf7bed"
+    },
+    {
+      "version": "0261",
+      "name": "0261_nx041_sim_generation.sql",
+      "sha256": "8f462b522c2394ff52e06e381b442e5d09ddeaf31cc78a73e00e3b2c5a867258"
+    },
+    {
+      "version": "0262",
+      "name": "0262_nx041_stand_ins.sql",
+      "sha256": "4f408a0d808ef89313874b3b66a44ac35aa7a9c4711bab580425ee807f86b21e"
+    },
+    {
+      "version": "0263",
+      "name": "0263_nx041_sim_clock.sql",
+      "sha256": "ccebcbb701f0892a6dd2c65984728ba573f88b027fea60e7fcddf9bbf8079115"
+    },
+    {
+      "version": "0264",
+      "name": "0264_nx041_sim_process_group.sql",
+      "sha256": "64d4cc968e216e406b8f1a1b0da34866dc9aab637a4ad159810ead1ae4d4b2ae"
+    },
+    {
+      "version": "0265",
+      "name": "0265_nx041_sim_files_review.sql",
+      "sha256": "ed9b2d0031d64a2867d7517b22e1514e3120d8790310bb2a2d8a8085d7374931"
+    },
+    {
+      "version": "0266",
+      "name": "0266_nx041_consumer_port.sql",
+      "sha256": "d7b252969a6dd606cc0f000117bd6234094b17eb0428c117964b95d02b75dae8"
+    },
+    {
+      "version": "0267",
+      "name": "0267_nx041_sim_context.sql",
+      "sha256": "b655fca37b72a684d89f0fa4d1d8d0dd9d8581b7a4090331629b754eaf139751"
+    },
+    {
+      "version": "0268",
+      "name": "0268_nx041_sim_roles.sql",
+      "sha256": "244ff11f8bdeeb9d5bb9cd01283664781b5135d57471dcc484fafd3c79f1e362"
+    },
+    {
+      "version": "0269",
+      "name": "0269_nx041_host_sim_context.sql",
+      "sha256": "178d4af39d02973b2701c3f01aa443868bcf430f7821fdfa57b7174833117ab1"
+    },
+    {
+      "version": "0270",
+      "name": "0270_nx041_sim_context_ref.sql",
+      "sha256": "1139aa3c1fa0dd0d7f4f9883d0fbc285d1a6bdab6fd6532d02ee1af1dfd65826"
     }
   ]
 }

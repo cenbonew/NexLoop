@@ -54,7 +54,18 @@ export function runOutcome(value:unknown):RunOutcome{
   }catch{throw new RuntimeError('invalid_run_outcome');}
 }
 export type EffectReceipt={intent_id:string;receipt_id:string;state:string;payload_digest:string;provider_payload_digest:string;scope:'effect_intent';business_action_success:boolean};
-type Configuration={guardURL:URL;caPath:string;keyPath:string;privateMaterial:Material;activationForRun:(runId:string)=>string|undefined};
+type Configuration={guardURL:URL;caPath:string;keyPath:string;privateMaterial:Material;activationForRun:(runId:string)=>string|undefined;
+  /** NX-041 S6b: a simulation Host (world_group simulation): every effect tool records a stand-in intent instead. */
+  simulation?:boolean};
+/** NX-041 S6b: a stand-in's answer as the guard returns it - a simulated outcome, never a fact. */
+export type SimulatedReceipt={intent_id:string;world:string;state:string;stand_in_id:string;stand_in_version:string;simulated:true;output_kind:'simulated_output'};
+const STAND_IN_ACTIONS=['nexloop.service.request','nexloop.incentive.issue','nexloop.outreach.send'] as const;
+type StandInAction=typeof STAND_IN_ACTIONS[number];
+const SIMULATED_NOTE='Simulated: a stand-in recorded this request in a simulation world. Nothing was sent, issued or delivered to anyone, and this is not a fact about any real customer; treat it only as the simulated outcome of this request.';
+/** What the model reads for a stand-in receipt: the simulated marker first, no digest or internal field. */
+export function presentSimulated(receipt:SimulatedReceipt){
+  return {simulated:true as const,output_kind:'simulated_output' as const,request_id:receipt.intent_id,status:receipt.state,stand_in_version:receipt.stand_in_version,note:SIMULATED_NOTE};
+}
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha=/^[a-f0-9]{64}$/;
 const catalogScope={service_code:'local.json-export',deliverable:'固定私有目录内可核验的 JSON 文本导出文件',price_amount:'0',currency:'CNY',guarantees:[],discounts:[],limitations:['不提供目录外保证或折扣','不代表第三方渠道送达、付款或问题解决'],evidence_kind:'fsynced_json_export'} as const;
@@ -193,6 +204,74 @@ export class RuntimeEffectClient{
         request.setTimeout(EFFECT_TIMEOUT_MS,()=>request.destroy());request.on('error',ambiguous);request.end(body);
       });
     }
+  }
+  /** NX-041 S6b: a simulation Run's effect tool through the guard's stand-in route; a real Host never calls this. */
+  async standIn(command:RunCommand,request:{action:StandInAction;parameters:Record<string,unknown>}|{intent_id:string}):Promise<SimulatedReceipt>{
+    if(this.configuration.simulation!==true)throw new RuntimeError('runtime_effect_unavailable');
+    const valid=validateRunCommand(command);
+    const find='intent_id' in request;
+    try{
+      if(find?typeof request.intent_id!=='string'||!uuid.test(request.intent_id):!STAND_IN_ACTIONS.includes(request.action))throw new RuntimeError('invalid_effect_request');
+      const ref=this.configuration.activationForRun(valid.run_id);
+      if(!ref||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(ref)||Date.parse(valid.not_after)<=Date.now())throw new Error();
+      const key=this.configuration.privateMaterial(this.configuration.keyPath,64).toString('utf8');
+      if(!/^[0-9a-f]{64}$/.test(key))throw new Error();
+      const ca=this.configuration.privateMaterial(this.configuration.caPath,32768);
+      const body=Buffer.from(JSON.stringify(find?{activation_ref:ref,command:valid,intent_id:request.intent_id.toLowerCase()}:{activation_ref:ref,command:valid,action:request.action,parameters:request.parameters}));
+      if(body.length>65536)throw new Error();
+      const url=new URL('/internal/v1/runtime/stand-ins/'+(find?'find':'submit'),this.origin);
+      return await new Promise<SimulatedReceipt>((resolve,reject)=>{
+        const fail=(code='runtime_effect_unavailable')=>reject(new RuntimeError(code));
+        const request_=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(EFFECT_TIMEOUT_MS),
+          headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':body.length}},response=>{
+          let size=0;const chunks:Buffer[]=[];
+          if(response.headers['content-type']!=='application/json'||response.headers['content-encoding']!==undefined){response.destroy();fail();return;}
+          response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>8192){response.destroy();request_.destroy();fail();}else chunks.push(chunk);});
+          response.on('error',()=>fail());
+          response.on('end',()=>{try{
+            const result=JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+            if(response.statusCode!==200){const denied=exact(result,['code']);
+              if(typeof denied.code==='string'&&['invalid_effect_request','effect_intent_unavailable','intent_payload_conflict'].includes(denied.code)){fail(denied.code);return;}
+              throw new Error();}
+            const envelope=exact(result,['run_id','receipt']);
+            const receipt=exact(envelope.receipt,['intent_id','world','state','stand_in_id','stand_in_version','simulated','output_kind']);
+            if(envelope.run_id!==valid.run_id||receipt.world!==valid.world_id||receipt.simulated!==true||receipt.output_kind!=='simulated_output'
+              ||typeof receipt.intent_id!=='string'||!uuid.test(receipt.intent_id)||typeof receipt.state!=='string'||!['accepted','fulfilled','failed','unknown'].includes(receipt.state)
+              ||typeof receipt.stand_in_id!=='string'||typeof receipt.stand_in_version!=='string'||find&&receipt.intent_id!==(request as {intent_id:string}).intent_id.toLowerCase())throw new Error();
+            resolve(receipt as SimulatedReceipt);
+          }catch{fail();}});
+        });
+        request_.setTimeout(EFFECT_TIMEOUT_MS,()=>request_.destroy());request_.on('error',()=>fail());request_.end(body);
+      });
+    }catch(error){
+      if(error instanceof RuntimeError&&['invalid_effect_request','effect_intent_unavailable','intent_payload_conflict'].includes(error.code))throw error;
+      throw new RuntimeError('runtime_effect_unavailable');
+    }
+  }
+  /** NX-041 S6b: the simulation Run's tools - same names and parameters as the real ones, each answered by a stand-in. */
+  private simulatedTools(bound:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;outreach?:boolean},outcomeTool:readonly ToolRegistration[]):readonly ToolRegistration[]{
+    const answer=async(request:Parameters<RuntimeEffectClient['standIn']>[1])=>{
+      try{return {content:[{type:'text' as const,text:JSON.stringify(presentSimulated(await this.standIn(bound,request)))}]};}
+      catch(error){if(error instanceof RuntimeError&&['invalid_effect_request','effect_intent_unavailable','intent_payload_conflict'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code,simulated:true})}]};throw new RuntimeError('runtime_effect_unavailable');}
+    };
+    const parametersOf=(args:unknown)=>{if(!args||typeof args!=='object'||Array.isArray(args))throw new RuntimeError('invalid_effect_request');return args as Record<string,unknown>;};
+    return [
+      ...outcomeTool,
+      ...(options.incentive===true?[defineTool({name:'nexloop.incentive.issue',description:'Simulation world: ask for one incentive from the customer\'s catalog. A stand-in records it; nothing is issued. The answer is a simulated outcome, not a fact.',
+        parameters:Type.Object({incentive_offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),
+          binding_id:Type.String({pattern:'^[a-f0-9]{64}$'}),amount_minor:Type.String({pattern:'^[1-9][0-9]{0,15}$'}),currency:Type.String({pattern:'^[A-Z]{3}$'}),
+          notification_text:Type.String({maxLength:2000})},{additionalProperties:false}),
+        replay:'safe',execute:async args=>answer({action:'nexloop.incentive.issue',parameters:parametersOf(args)})})]:[]),
+      ...(options.outreach===true&&options.planOutcome===true?[defineTool({name:'nexloop.outreach.send',description:'Simulation world: ask for one proactive message to this customer (purpose from the outreach section, body the exact text). A stand-in records it; nothing is sent. The answer is a simulated outcome, not a fact. Then record the outcome with nexloop.plan.outcome.',
+        parameters:Type.Object({purpose:Type.String({pattern:'^[a-z][a-z0-9_.]{0,63}$'}),body:Type.String({minLength:1,maxLength:2000})},{additionalProperties:false}),
+        replay:'safe',execute:async args=>answer({action:'nexloop.outreach.send',parameters:parametersOf(args)})})]:[]),
+      defineTool({name:'nexloop.service.request',description:'Simulation world: your reply to the customer (message is the exact text, in the customer\'s language). Call it exactly once per Run, then end. A stand-in records it; it reaches no real customer. The answer is a simulated outcome, not a fact.',
+        parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192})},{additionalProperties:false}),replay:'safe',
+        execute:async args=>answer({action:'nexloop.service.request',parameters:parametersOf(args)})}),
+      defineTool({name:'nexloop.service.find',description:'Simulation world: read the simulated outcome of the reply this Run sent (its request_id). Does not send anything.',
+        parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',
+        execute:async args=>answer({intent_id:String(parametersOf(args).intent_id)})}),
+    ];
   }
   /** AT-043: issue a catalog incentive inside this Run; accepted is not issued (the executor admits it at dispatch under the budget). */
   async issueIncentive(command:RunCommand,arguments_:unknown):Promise<IncentiveReceipt>{
@@ -393,6 +472,8 @@ export class RuntimeEffectClient{
         parameters:Type.Object({request_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),
         replay:'safe',execute:async args=>invokeAction('find',args!==null&&typeof args==='object'&&!Array.isArray(args)&&Object.keys(args).length===1&&Object.hasOwn(args,'request_id')
           ?{intent_id:(args as {request_id:unknown}).request_id}:args,ENTERPRISE)})]:[];
+    // NX-041 S6b: in a simulation Host every effect tool is its stand-in (the enterprise delivery has none and is not offered).
+    if(this.configuration.simulation===true)return this.simulatedTools(bound,options,outcomeTool);
     return [
       ...outcomeTool,
       ...incentiveTool,
