@@ -1,9 +1,11 @@
 /**
  * Enterprise world model W1 (design §4, D2: hand-written SVG, no library): a deterministic layout of the schema graph. The same
  * types and relations always give the same picture (stable screenshots, stable tests). Pure: no DOM, no randomness, no clock.
- *  - up to 8 nodes: one ring (2 or fewer: one row);
- *  - more: start from a ring in name order, then a fixed number of force iterations (repulsion between all nodes, springs along
- *    the edges, a weak pull to the centre), node rectangles kept apart; the result is translated into a positive box.
+ *  - no edges: a grid in name order whose columns follow the canvas aspect (the box fills the canvas instead of a ring of tiny
+ *    boxes; owner review of release 23, 2026-10-20);
+ *  - with edges, the connected types: up to 8 one ring (2 or fewer: one row); more start from a ring in name order, then a fixed
+ *    number of force iterations (repulsion between all nodes, springs along the edges, a weak pull to the centre), node
+ *    rectangles kept apart; types without any edge go to a grid below them; the result is translated into a positive box.
  */
 export type GraphNode={id:string;label:string;sub?:string};
 export type GraphEdge={id:string;from:string;to:string;label?:string};
@@ -19,9 +21,27 @@ function ring(ids:string[],radius:number):Map<string,{x:number;y:number}>{
   return out;
 }
 
-export function layout(nodes:GraphNode[],edges:GraphEdge[]):Layout{
-  const ids=[...new Set(nodes.map(n=>n.id))].sort();
-  if(!ids.length)return {nodes:[],width:2*MARGIN,height:2*MARGIN};
+export const GAP_X=48,GAP_Y=40;
+
+/** Columns of a grid of n node boxes whose overall shape is closest to the canvas aspect (width / height). */
+export function gridColumns(n:number,aspect:number):number{
+  let best=1,score=Infinity;
+  for(let c=1;c<=n;c++){const r=Math.ceil(n/c);const w=c*(NODE_W+GAP_X),h=r*(NODE_H+GAP_Y);const d=Math.abs(Math.log((w/h)/aspect));if(d<score-1e-9){score=d;best=c;}}
+  return best;
+}
+
+function grid(ids:string[],cols:number,top=0):Map<string,{x:number;y:number}>{
+  return new Map(ids.map((id,i)=>[id,{x:(i%cols)*(NODE_W+GAP_X),y:top+Math.floor(i/cols)*(NODE_H+GAP_Y)}]));
+}
+
+/** aspect: the canvas width / height the picture should fill (the grid follows it; the default is a wide canvas). */
+export function layout(nodes:GraphNode[],edges:GraphEdge[],aspect=16/9):Layout{
+  const all=[...new Set(nodes.map(n=>n.id))].sort();
+  if(!all.length)return {nodes:[],width:2*MARGIN,height:2*MARGIN};
+  const known=new Set(all);
+  const linked=new Set(edges.filter(e=>known.has(e.from)&&known.has(e.to)).flatMap(e=>[e.from,e.to]));
+  if(!linked.size)return place(grid(all,gridColumns(all.length,aspect)),all);
+  const ids=all.filter(id=>linked.has(id)),alone=all.filter(id=>!linked.has(id));
   let pos:Map<string,{x:number;y:number}>;
   if(ids.length<=2)pos=new Map(ids.map((id,i)=>[id,{x:i*(NODE_W+80),y:0}]));
   else{
@@ -58,6 +78,18 @@ export function layout(nodes:GraphNode[],edges:GraphEdge[]):Layout{
         }
         if(!moved)break;}
   }
+  if(alone.length){
+    // Types without an edge: a grid under the connected part, from its left edge, about as wide as it.
+    const xs=ids.map(id=>pos.get(id)!.x),ys=ids.map(id=>pos.get(id)!.y);
+    const minX=Math.min(...xs),bottom=Math.max(...ys)+NODE_H+GAP_Y*2;
+    const cols=Math.min(alone.length,Math.max(gridColumns(alone.length,aspect),Math.round((Math.max(...xs)-minX+NODE_W+GAP_X)/(NODE_W+GAP_X))));
+    for(const [id,p] of grid(alone,cols,bottom))pos.set(id,{x:p.x+minX,y:p.y});
+  }
+  return place(pos,all);
+}
+
+/** Translates the positions into a positive box with the margin. */
+function place(pos:Map<string,{x:number;y:number}>,ids:string[]):Layout{
   const xs=ids.map(id=>pos.get(id)!.x),ys=ids.map(id=>pos.get(id)!.y);
   const minX=Math.min(...xs),minY=Math.min(...ys);
   const placed=ids.map(id=>({id,x:Math.round(pos.get(id)!.x-minX+MARGIN+NODE_W/2),y:Math.round(pos.get(id)!.y-minY+MARGIN+NODE_H/2)}));
