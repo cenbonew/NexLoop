@@ -397,6 +397,8 @@ export const OPERATION_ACTION={
   set_outreach_controls:'eios:action:nexloop.outreach_controls.set:1',
   // Outreach slice 3: enable or disable a purpose of the purpose list (owner only).
   set_outreach_purpose:'eios:action:nexloop.outreach_purposes.set:1',
+  // Outreach slice 6: approve or reject a proactive send waiting for approval (never the requester's own).
+  decide_outreach_approval:'eios:action:nexloop.outreach.approve:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -745,3 +747,14 @@ export function outreachPurposes(value:unknown):{list_version:number;purposes:Ou
       requires_consent:flag(d.requires_consent),requires_approval:flag(d.requires_approval),max_chars:count(r.max_chars),unsubscribe_notice_required:flag(r.unsubscribe_notice_required)};})};
 }
 export function readOutreachPurposes(){return get('/api/v1/workbench/outreach-purposes',outreachPurposes);}
+
+
+// ---- outreach approvals (outreach slice 6: owner only; ids, purpose, times and requester, never the body) ----
+export type OutreachApproval={intent_id:string;purpose_id:string;requested_at:string;expires_at:string;requested_by:string};
+export function outreachApprovals(value:unknown):{window_seconds:number;pending:OutreachApproval[]}{
+  const v=object(value);
+  return {window_seconds:count(v.window_seconds),pending:list(v.pending).map(x=>{const p=object(x);
+    if(Object.keys(p).sort().join()!=='expires_at,intent_id,purpose_id,requested_at,requested_by'||!/^outreach:[0-9a-f]{64}$/.test(text(p.intent_id)))throw new WorkbenchError('invalid');
+    return {intent_id:text(p.intent_id),purpose_id:text(p.purpose_id),requested_at:text(p.requested_at),expires_at:text(p.expires_at),requested_by:text(p.requested_by)};})};
+}
+export function readOutreachApprovals(){return get('/api/v1/workbench/outreach-approvals',outreachApprovals);}

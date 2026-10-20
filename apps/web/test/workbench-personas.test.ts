@@ -2,8 +2,8 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
-import {contactPreferences,me,outreachControls,outreachPurposes,personaOverview} from '../src/workbench/api';
-import {ConsumerPersona,OutreachControlsTab,OutreachPurposes,Personas,documentOf,outreachReady,outreachSettingsOf,usableVersions} from '../src/workbench/pages/Personas';
+import {contactPreferences,me,outreachApprovals,outreachControls,outreachPurposes,personaOverview} from '../src/workbench/api';
+import {ConsumerPersona,OutreachApprovals,OutreachControlsTab,OutreachPurposes,Personas,documentOf,outreachReady,outreachSettingsOf,usableVersions} from '../src/workbench/pages/Personas';
 
 const doc={display_name:'小禾',tone:'亲切、简洁',expression:{max_chars:200,emoji:'few'},ai_disclosure:{deflect_statement:'我是本店的服务助手。'}};
 const raw={personas:[{persona_id:'xiaohe',version:1,status:'retired',display_name:'小禾',created_at:'2026-10-19T01:00:00+00:00',document:doc},
@@ -96,5 +96,23 @@ test('outreach slice 3: the purpose list parses strictly and the owner switches 
   expect(html).toContain('目的清单 v1');expect(html).toContain('承诺跟进');expect(html).toContain('已启用');expect(html).toContain('已停用');
   expect(html).toContain('末尾附退订话术');expect(html).toContain('跟随租户同意模式');expect(html).toContain('停用');expect(html).toContain('启用');
   const asOperator=render(client([[['workbench','outreach-purposes'],parsed],[['workbench','me'],operator]]),h(OutreachPurposes,{}));
+  expect(asOperator).not.toContain('<form');
+});
+
+
+test('outreach slice 6: pending approvals parse strictly (ids, purpose, times, requester; never a body) and offer approve and reject', ()=>{
+  const id='outreach:'+'a'.repeat(64);
+  const raw={window_seconds:86400,pending:[{intent_id:id,purpose_id:'approved_followup',requested_at:'2026-10-20T01:00:00+00:00',expires_at:'2026-10-21T01:00:00+00:00',requested_by:'synthetic-owner'}]};
+  const parsed=outreachApprovals(raw);
+  expect(parsed.pending.map(p=>p.intent_id)).toEqual([id]);
+  expect(()=>outreachApprovals({...raw,pending:[{...raw.pending[0],body:'您好'}]})).toThrow();
+  expect(()=>outreachApprovals({...raw,pending:[{...raw.pending[0],intent_id:'x'}]})).toThrow();
+  const approver=me({principal_id:'synthetic-owner-2',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.outreach.approve:1']});
+  const html=render(client([[['workbench','outreach-approvals'],parsed],[['workbench','me'],approver]]),h(OutreachApprovals,{}));
+  expect(html).toContain('待审批外联');expect(html).toContain('审批时限 24 小时');expect(html).toContain('approved_followup');expect(html).toContain('synthetic-owner');
+  expect(html).toContain('批准');expect(html).toContain('拒绝');expect(html).toContain('<form');
+  const empty=render(client([[['workbench','outreach-approvals'],{window_seconds:86400,pending:[]}],[['workbench','me'],approver]]),h(OutreachApprovals,{}));
+  expect(empty).toContain('没有待审批的外联');
+  const asOperator=render(client([[['workbench','outreach-approvals'],parsed],[['workbench','me'],operator]]),h(OutreachApprovals,{}));
   expect(asOperator).not.toContain('<form');
 });

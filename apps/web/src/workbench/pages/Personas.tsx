@@ -7,7 +7,7 @@
  */
 import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readMe,readOperatorPersonas,readOutreachControls,readOutreachPurposes,type ConsentMode,type OutreachSettings,type AiDisclosure,type ContactPreference,type PersonaDocument,
+import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readMe,readOperatorPersonas,readOutreachControls,readOutreachApprovals,readOutreachPurposes,type ConsentMode,type OutreachSettings,type AiDisclosure,type ContactPreference,type PersonaDocument,
   type PersonaOverview,type PersonaRule,type PersonaVersion} from '../api';
 import {DataTable} from '../DataTable';
 import {Empty,StatusBadge,Tabs,Time} from '../ui';
@@ -250,6 +250,7 @@ export function OutreachControlsTab(){
     <p className="note">营销的合规要求（同意、退订、发送时段、发送方标识）因法域而异，由使用方负责；opt-out 在部分法域不被允许。</p>
     <WithMember>{member=><OutreachControlsForm member={member} current={s}/>}</WithMember>
     <OutreachPurposes/>
+    <OutreachApprovals/>
   </>;
 }
 /** The settings the Action takes, from the form state (empty quiet hours means none). */
@@ -308,8 +309,29 @@ export function OutreachPurposes(){
         {label:'频率',cell:p=>p.frequency_class==='marketing'?'营销额度':'服务额度'},
         {label:'同意',cell:p=>p.kind!=='marketing'?'—':p.requires_consent?'只发给已同意的客户（opt-in）':'跟随租户同意模式'},
         {label:'内容',wide:true,cell:p=>`最多 ${p.max_chars} 字${p.unsubscribe_notice_required?'，末尾附退订话术':''}`},
-        {label:'审批',cell:p=>p.requires_approval?'需要（切片 6）':'不需要'},
+        {label:'审批',cell:p=>p.requires_approval?'需要':'不需要'},
         {label:'操作',cell:p=><WithMember>{member=><Form operation="set_outreach_purpose" member={member} className="inline-action" title={p.enabled?'停用':'启用'}
           body={()=>({purpose_id:p.purpose_id,enabled:!p.enabled,reason:p.enabled?'负责人停用':'负责人启用'})}><span/></Form>}</WithMember>}]}/></>}
+  </section>;
+}
+
+
+// ---- outreach approvals (outreach slice 6, owner only): sends of a purpose that needs approval wait here ----
+export function OutreachApprovals(){
+  const query=useQuery({queryKey:['workbench','outreach-approvals'],queryFn:readOutreachApprovals});
+  return <section aria-labelledby="outreach-approvals-title"><h2 id="outreach-approvals-title">待审批外联</h2>
+    <p className="note">目的配置为“需要审批”的外联在这里等待；发起人不能审批自己的请求。批准后派发时仍要通过全部闸门（联系限制最先），拒绝或超时即终止。</p>
+    {query.isPending?<p role="status">正在加载…</p>:query.isError?<Empty kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'}/>
+      :<><p className="note">审批时限 {Math.round(query.data.window_seconds/3600)} 小时</p>
+      {query.data.pending.length===0?<Empty kind="none" title="没有待审批的外联"/>:<DataTable label="待审批外联" rows={query.data.pending} rowKey={p=>p.intent_id} columns={[
+        {label:'外联',main:true,cell:p=><code>{p.intent_id.slice(0,21)}…</code>},
+        {label:'目的',cell:p=><code>{p.purpose_id}</code>},
+        {label:'发起时间',cell:p=><Time value={p.requested_at}/>},
+        {label:'截止',cell:p=><Time value={p.expires_at}/>},
+        {label:'发起人',cell:p=><code>{p.requested_by}</code>},
+        {label:'操作',cell:p=><WithMember>{member=><>
+          <Form operation="decide_outreach_approval" member={member} className="inline-action" title="批准" body={()=>({intent_id:p.intent_id,decision:'approve',reason:'负责人批准'})}><span/></Form>
+          <Form operation="decide_outreach_approval" member={member} className="inline-action" title="拒绝" body={()=>({intent_id:p.intent_id,decision:'reject',reason:'负责人拒绝'})}><span/></Form>
+        </>}</WithMember>}]}/>}</>}
   </section>;
 }

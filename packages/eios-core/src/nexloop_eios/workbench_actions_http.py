@@ -122,6 +122,9 @@ OPERATIONS={
         'origin_ref':_id(re.compile(r'(?:commitment|intent|plan|owner):[A-Za-z0-9._:-]{1,190}')),
         'body':lambda v:v if type(v) is str and 1<=len(v)<=2000 else (_ for _ in ()).throw(ValueError('body')),
         'channel':lambda v:v if v=='native.webchat' else (_ for _ in ()).throw(ValueError('channel'))},
+    # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
+    'decide_outreach_approval':{'intent_id':_id(re.compile(r'outreach:[0-9a-f]{64}')),
+        'decision':lambda v:v if v in ('approve','reject') else (_ for _ in ()).throw(ValueError('decision')),'reason':_reason},
     # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
     'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,
         'provider_retention_checked':_bool,'reply_followup':lambda v:v if v in ('owner_follow_up','fallback_reply') else (_ for _ in ()).throw(ValueError('follow-up'))},
@@ -215,7 +218,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)
