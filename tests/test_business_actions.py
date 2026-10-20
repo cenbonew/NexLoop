@@ -49,7 +49,7 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.outreach_controls.set':'outreach_controls.set','nexloop.outreach_purposes.set':'outreach_purposes.set',
     'nexloop.outreach.send':'outreach.send','nexloop.outreach.approve':'outreach.approve','nexloop.marketing_consent.record':'marketing_consent.record','nexloop.object_set.publish':'object_set.publish',
     'nexloop.semantic_release.publish':'semantic_release.publish','nexloop.semantic_release.rollback':'semantic_release.rollback','nexloop.semantic_release.stop':'semantic_release.stop','nexloop.object_view.publish':'object_view.publish',
-    'nexloop.sim_world.create':'sim_world.create','nexloop.sim_world.delete':'sim_world.delete','nexloop.sim_world.generate':'sim_world.generate','nexloop.sim_clock.control':'sim_clock.control'}  # NX-053 (0154), 0210, 0220, 0227, 0228; owner only
+    'nexloop.sim_world.create':'sim_world.create','nexloop.sim_world.delete':'sim_world.delete','nexloop.sim_world.generate':'sim_world.generate','nexloop.sim_clock.control':'sim_clock.control','nexloop.consumer_twin.publish':'consumer_twin.publish','nexloop.consumer_twin.retire':'consumer_twin.retire'}  # NX-053 (0154), 0210, 0220, 0227, 0228; owner only
 
 
 def object_types():
