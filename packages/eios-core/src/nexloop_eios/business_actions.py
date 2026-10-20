@@ -66,7 +66,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # ADR-036: the owner publishes the next version of a read-only Object Set.
     'object_set.publish':'human_owner',
     # NX-039 V4 (D39-8): the owner publishes a semantic release version or rolls it back (scope ontology.semantic.release).
-    'semantic_release.publish':'human_owner','semantic_release.rollback':'human_owner'}
+    'semantic_release.publish':'human_owner','semantic_release.rollback':'human_owner',
+    # NX-039 V6: the release scope's stop switch for one evolution dimension.
+    'semantic_release.stop':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

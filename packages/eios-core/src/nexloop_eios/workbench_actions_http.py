@@ -135,6 +135,9 @@ OPERATIONS={
     'publish_semantic_release':{'candidate_id':_id(_UUID),
         'items':lambda v:v if type(v) is list and 1<=len(v)<=20 and all(type(x) is dict for x in v) else (_ for _ in ()).throw(ValueError('items')),'reason':_reason},
     'rollback_semantic_release':{'target_version':_id(re.compile(r'[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}')),'reason':_reason},
+    # NX-039 V6 (owner only): stop or resume evolution for one dimension.
+    'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
+        'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
     'publish_object_set':{'stable_name':_id(re.compile(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}')),'object_type':_id(re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')),
         'filters':lambda v:v if type(v) is list and len(v)<=8 and all(type(x) is dict for x in v) else (_ for _ in ()).throw(ValueError('filters')),
@@ -234,7 +237,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

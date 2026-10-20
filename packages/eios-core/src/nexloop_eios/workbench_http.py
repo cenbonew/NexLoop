@@ -254,6 +254,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'object_values', type_name=type_name, object_id=object_id)
 
+    @routes.get('/semantic-review')
+    async def semantic_review(request: Request):
+        # NX-039 V6: the review queue's evaluation reports, the stops and the release watch (owner only).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'semantic_review')
+
     @routes.get('/semantic-releases')
     async def semantic_releases(request: Request):
         # NX-039 V4: the owner's semantic release view (current version, history, publishable candidates); no parameters.
