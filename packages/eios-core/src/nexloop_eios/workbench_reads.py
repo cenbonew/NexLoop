@@ -463,10 +463,20 @@ class WorkbenchQueries:
         return {'type_name': type_name, 'object_id': object_id, 'schema_version': fields['schema_version'], 'revision': fields['revision'],
                 'properties': props}
 
+    def semantic_review(self):
+        """NX-039 V6: per candidate the latest report (gates pass/fail, L0/L1 scores, non-inferiority rule, change class, digests and
+        case counts only - D39-11), the dimension stops and the 7-day release watch (D39-10). Owner only."""
+        return self.reader.observe('semantic_review')
+
     def semantic_releases(self):
         """NX-039 V4: the current semantic release version, the last 20 releases (with rollback reports) and the candidates the owner
         may publish (ids, class, report digest, refs and term-hash counts; never a message). Owner only (SQL)."""
         return self.reader.observe('semantic_releases')
+
+    def object_view(self, *, type_name):
+        """Capability gap P2: {'view': the Object View an object detail of this type uses (layout only: sections, title property, Links)
+        or None when the type has none}. The values keep their own reads (object_fields and the audited object read); a View never widens them."""
+        return {'view': self.reader.observe('object_view', type_name=type_name)['view']}
 
     def object_sets(self):
         """ADR-036: the latest version of each Object Set with its conditions and projection (definitions only, no object)."""
