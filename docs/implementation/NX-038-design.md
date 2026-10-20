@@ -1,6 +1,6 @@
 # NX-038 设计稿：Evo 轨迹诊断与候选任务
 
-- **状态**：设计稿，只有文档，不写代码、不加迁移。D1–D9 已由负责人 2026-10-12 定案。2026-10-18 修订（§11，分支 `l6/nx038-design`，从 main `9d1223ee` 切出）：补入 10-12 之后才有的轨迹输入（NX-037 证据包结构、0204/0208 的失败码与已纠正的工具错误、收据与对账），只新增 D10–D14，不改已定案的 D1–D9。
+- **状态**：设计稿，只有文档，不写代码、不加迁移。D1–D9 已由负责人 2026-10-12 定案。2026-10-20 修订（§12，L4，分支 `l4/nx038-design`）：S6 起步前补齐预算、隔离、NX-039 接口、权限与删除、实施切片，新增 D15–D20，不改 D1–D14。2026-10-18 修订（§11，分支 `l6/nx038-design`，从 main `9d1223ee` 切出）：补入 10-12 之后才有的轨迹输入（NX-037 证据包结构、0204/0208 的失败码与已纠正的工具错误、收据与对账），只新增 D10–D14，不改已定案的 D1–D9。
 - **分支**：`nx038-design`，从 main `917d8ca` 切出。
 - **依据**：
   - planning/tasks.json NX-038：S6，依赖 NX-037，模块 M12/M14/M22，交付物为“冻结输入、归因、预算、候选隔离”；
@@ -325,3 +325,151 @@ NX-038 产出候选时，需要一并冻结评估条件，NX-039 不得临时更
 | D12 | 负责人操作的 AI 顾客（`persona=simulated_agent`）的轨迹 | 可用于语义和工具诊断（系统本身是真实运行的），但打上标注，不进入用于证明“真实效果改善”的留出集；`test_stack` 的轨迹一律排除 | 早期真实顾客少，留出集更小 |
 | D13 | `recovered_tool_errors` 形成候选的阈值 | 同一工具、同一错误码，在冻结窗口内至少出现 3 次，且涉及至少 2 个不同消费者 | 少见的问题要等更久 |
 | D14 | 试运行 `4f5d795c` 的真实轨迹何时可以进入正式诊断 | 本稿只用结构。首次用真实轨迹做正式诊断，需要负责人届时单独批准：确认删除传播、保留期和 D12 的标注都已就位 | 多一次审批 |
+
+## 12. 修订（2026-10-20）：S6 起步
+
+本节由 L4 在 v0.1.0 之前补写，起点是 `origin/integration/v010-docs-20261020`（15f071c0），分支 `l4/nx038-design`。不改 §1–§11，也不改已定案的 D1–D14。补的是 S6 开工前还缺的五块：
+
+- 预算与成本上限的落地方式；
+- 候选评估的隔离：影子运行与模拟世界；
+- 与 NX-039 的接口；
+- 权限与删除的补充；
+- 实施切片与工作量。
+
+### 12.1 10-18 之后出现的新事实
+
+| 事实 | 位置 | 对本设计的影响 |
+|---|---|---|
+| 召回质量函数与 doctor 检查 | 0221 `authz.nexloop_recall_quality`；`nexloop-doctor --recall-quality` | 按类型给出向量覆盖（没有向量的条目数）和语义近邻。`retrieval_miss` 在 D2 的逐次记录落地之前，可以先用它作为聚合输入（只用计数与 ID） |
+| 测试人设标记 | 0220 `control.nexloop_consumer_personas`（ADR-034），stage 已把 4 个合成顾客标为 `simulated_agent` | D12 可以在库内执行：在库路线（§11.2）按人设标记筛选，不必只依赖证据包字段 |
+| 模拟凭据隔离 | 0165 与 AT-046 前置（`docs/implementation/AT-046-simulation-credential-guard.md`） | 凭据只要含 `real` 就只能含 `real`；runtime worker 和 guard 只接受 `real` 或 `test`，`simulation` 和 `shadow` 在参数阶段就被拒绝。所以候选评估若要真的跑 Run，只能在 `test` world，见 §12.3 |
+| EvoOntology 冻结核对与来源审计 | `docs/implementation/evo-ontology-frozen-check.md`、`evo-ontology-source-audit.md` | §4.2 的第 1、2、4 步已经完成。结论：语义访问不移植代码；状态机只移植规则，用 PG 重写；`EvaluationGate` 原样移植，外层加门槛。还剩第 3、5、6 步，在实现切片 E1 中完成 |
+| 世界模型 W1–W4（冻结链，v0.1.0 之后集成） | 工作台“企业世界模型 / 能力目录 / 数据资产” | 演进候选可以在知识工作台和企业世界模型页展示（只读）。这不在 NX-038 范围，列为 NX-039 之后的界面项 |
+
+### 12.2 预算与成本上限
+
+**三层上限**，任一层用尽，候选或诊断就转为 `incomplete`，原因 `budget_exhausted`（移植的状态机规则：预算冻结后不能在途追加，只能另起一轮并经负责人批准 `extend_budget`）：
+
+| 层 | 上限（推荐值） | 计量 | 检查时机 |
+|---|---|---|---|
+| 每次诊断 | 模型费用 ¥20（D8）；墙钟 30 分钟；参与 Run 不超过 2000 个 | `runtime.nexloop_cost_entries`，cost_kind `model`，source_ref 为 `evolution-diagnosis:<id>` | 每次模型调用前 |
+| 每个候选 | 最多 3 轮（D8）；模型费用 ¥10；设计用例和留出用例各不超过 256 个（契约上限） | source_ref `evolution-candidate:<id>` | 每轮开始前，以及每次模型调用前 |
+| 每个租户每月 | 演进总费用 ¥100（D15） | 演进类 source_ref 的月度合计 | 每次模型调用前，在 SQL 中判定 |
+
+- **为什么单独设月上限**：运营 Run 用的模型预算（`control.nexloop_budget_limits` 的 `model` 类，D-g 的累计上限）不能被演进消耗。演进花多了，会让真实顾客的回复先被预算拒绝（NXB01）。
+- **推荐实现（D15）**：在 `budget_kind` 增加 `evolution`。负责人仍通过现有的受治理 `Budget.set` 设置；演进的模型调用只计入并检查这一类，不计入 `model`。这需要一个迁移，放宽 0068 的 check 约束。
+- **确定性层（§12.3 的 L0）没有模型调用**，只受用例数与墙钟限制。
+- **不允许伪造**：预算耗尽时保留 Parent，不给评分，不把未完成的评估当作“未劣化”（08 §5）。
+
+### 12.3 候选评估的隔离：影子运行与模拟世界
+
+**原则**：候选内容永远不写入 active 定义、别名表、工具清单或业务对象（AT-023）。评估时，候选只以“叠加层”的方式被读到，而且只能在非 real 的评估会话中读到。
+
+**叠加层（overlay）**：
+
+- 候选补丁（`patch_artifact_ref`，本地 Artifact）只在评估会话中加载。
+- Context Engine 的语义读取接受一个 `evaluation_overlay`：候选 ID 加补丁 digest。SQL 侧核对：会话 world 不是 `real`，且候选状态为 `evaluating`、属于同一租户。任一不符就拒绝，读取回到 active。
+- real world 的会话永远不能带叠加层，在函数入口就拒绝。这一条是 AT-023 的第二道防线：即使代码误传，real 的 Run 也看不到候选。
+
+**三个评估层级**：
+
+| 层级 | 做法 | 用到 Run 或模型吗 | 适用维度 | 在 NX-038 中 |
+|---|---|---|---|---|
+| L0 确定性回放 | 冻结用例的语义访问回放：同一批 browse/resolve 查询分别对 Parent 和“Parent + 叠加层”求覆盖率、歧义与命中 ref。D2 的逐次记录正好提供查询词项哈希与期望 ref | 都不用 | `semantic_content` | 实现 |
+| L1 测试 world 模型回放 | 在 `test` world 用专用评估凭据（只含 `test`，没有任何效应授权）跑 Run，Context 带叠加层，用例是合成或由结构生成的（D16） | 用模型；Run 在 test world | `semantic_tool`、需要模型的 `semantic_content` | 只定接口与隔离，执行归 NX-039 |
+| L2 真实流量影子 | 对真实 Run 并行生成“候选版本会怎么做”，只记录，不派发 | 用模型；需要 shadow 运行时 | 全部 | **不做**：runtime worker 不接受 `shadow`（0165）。按 14 §6，影子只记录拟采取的动作；它属于 NX-043（S7） |
+
+**不调用真实效应**（AT-046 负例在 S6 的部分）：
+
+- L1 的 Run 在 test world 中：效应执行入口只认 real；外部效应开关对非 real world 关闭（0153 `closed_layer` 返回 `world`）；凭据又不能跨 world（0165）。即使模型伪造参数，也到不了任何外部渠道。
+- 模拟世界（Twin）与 AT-046 全文属于 S7。NX-038 不使用 `simulation` world。
+
+**不复制真实内容**：L1 不把真实消息复制进 test world。用例只来自合成样本，或由真实轨迹的**结构**生成（§11.2 证据包路线）。用真实内容做 L1，需要 D5 白名单、脱敏，以及负责人的单独批准（D16）。
+
+### 12.4 与 NX-039 的接口
+
+**交接点**：NX-038 产出状态为 `proposed` 的候选，加一份冻结的**评估包**；NX-039 接手 `proposed → evaluating → accepted_for_release | rejected | incomplete` 之后的全部转移。NX-038 自己不写 `evaluating` 之后的任何状态。
+
+**评估包（提案契约 `evolution-evaluation-bundle.schema.json`）**：只含 ID、digest、版本与数字：
+
+| 字段 | 含义 |
+|---|---|
+| `candidate_id`、`parent_revision`、`candidate_revision`、`patch_digest` | 比较对象 |
+| `input_snapshot_digest` | §2.3 的冻结快照 |
+| `design_case_ids`、`validation_case_ids`、`case_groups` | 用例与分组：每个用例所属的消费者簇或会话簇 ID，供 AT-048 检查 |
+| `hard_gates_version`、`hard_gates` | §7 的硬门槛清单（引用、结构、零越权、零跨租户、零事实污染、无禁止的行为回退、索引与迁移影响） |
+| `metrics`、`non_inferiority` | 指标定义与非劣标准（D7：差值 ≥ −1 个百分点，相等不接受） |
+| `levels` | 允许的评估层级（L0，或 L0 加 L1） |
+| `budget_remaining` | §12.2 三层上限的剩余额度 |
+| `evaluator_version`、`model_profile`、`anonymize_seed` | 可复现：A/B 匿名化的种子，或逐条记录 swap 结果（frozen-check §2.3 指出上游用 `random.random()`） |
+
+**评估报告（提案契约 `evolution-evaluation-report.schema.json`）**：
+
+- 逐条硬门槛：pass 或 fail，附证据 ID；
+- 设计集与留出集上 Parent 和候选的分数；
+- swap 记录、费用、耗时；
+- 结论：accept、reject、incomplete 及原因。
+
+报告的 digest 写入候选事件。审核关联（D4 关联表）引用这个 digest。
+
+**NX-039 不得改动**评估包里冻结的任何条件（08 §5）。条件需要变化时，NX-038 重新冻结，得到一个新候选。
+
+### 12.5 权限、数据与删除（补充 §2.3、§2.4、§6）
+
+- **角色**：
+  - `nexloop_evo_reader`（D1）：只读轨迹函数；
+  - 候选的写入只能通过 security definer 函数：以服务凭据认证，world `real`，用途 `evolution`。函数只能写候选表与事件表，不能写定义、别名、授权或业务对象。
+  - 两者都不持有模型、渠道或效应凭据之外的东西。L1 的模型调用走 test world 的 runtime 路径（§12.3）。
+- **可见性**：候选表按租户启用 RLS。工作台只读：负责人可见；审核人通过审核队列可见（ADR-025 的成员读取派生）；运营不可见。
+- **补丁可能带顾客措辞**：`retrieval_miss` 的别名候选可能来自顾客的说法。因此补丁 Artifact 要登记来源 Consumer 的引用（只存 ID）。来源 Consumer 被删除时（`control.nexloop_deletion_ledger`）：
+  - 删除对应补丁 Artifact；
+  - 候选转为 `incomplete`，原因 `missing_data`（移植的合法原因之一）；
+  - 已经 `accepted_for_release` 但还没发布的候选同样处理。
+  - 已经发布的别名，走现有的别名删除与 reflow（NX-029、NX-045），不在演进内处理（D17）。
+- **快照失效**：删除日志新增条目时，涉及该主体的冻结快照和留出集全部标为 `incomplete`，不在旧快照上继续评估（§2.4）。
+
+### 12.6 S6 验收覆盖
+
+S6 的验收是 AT-023、AT-024、AT-048（AT-046 在 S7，这里只覆盖它在服务端的负例）。
+
+| 验收 | 怎么覆盖 | 测试形态 |
+|---|---|---|
+| AT-023 候选隔离 | 候选只进候选表和 Artifact；叠加层只在非 real 评估会话中生效（§12.3）；未通过的候选不改变 active | PG：生成候选并跑完 L0 评估后，active 定义、别名表、`ontology.object_type_versions` 和业务对象的 digest 都不变；real 会话带叠加层被拒绝 |
+| AT-024 结构权限 | `ontology_schema` 和 `semantic_tool` 候选的 `allowed_change_scope` 只允许描述、别名和可选属性等内容；出现 Action 定义、授权事实、service grant 或工具授权就拒绝；定义发布与权限发布分开 | PG：构造“新增类型并附带提权 Action”的候选，写入函数拒绝；即使候选通过评估，生成的 Schema proposal 里也没有任何授权内容 |
+| AT-048 验证泄漏 | 冻结时按消费者簇和会话簇（同一消费者的相关会话为一簇）分配设计集与留出集；评估包携带 `case_groups`，NX-039 开始前复查 | 单元与 PG：构造同一消费者的相关对话分落在两边，冻结函数检测到后重新分组，并在报告中记录重分组次数；留出集冻结后不可修改 |
+| AT-046（S7，负例部分） | 诊断与评估没有真实效应凭据；L1 只在 test world 运行 | 复用 `tests/test_at046_simulation_isolation_pg.py` 的断言，加上评估凭据只含 `test` 的断言 |
+
+### 12.7 实施切片与工作量
+
+| 切片 | 内容 | 迁移与契约 | 估计 |
+|---|---|---|---|
+| E1 移植与契约测试 | §4.2 第 3、5、6 步：移植状态机规则与 `EvaluationGate`，逐文件登记 provenance 和 THIRD_PARTY_NOTICES，做 `evolution-candidate` 往返测试 | lock 变更（走 PR）；不改契约 | 1.5 天 |
+| E2 轨迹读取 | `nexloop_evo_reader` 加只读轨迹函数（§11.2 在库路线），证据包路线，`TraceSource`，人设标记筛选（§12.1） | 迁移 1；契约 `trajectory-sample`（D11） | 2 天 |
+| E3 语义访问逐次记录 | D2：Context Engine 只追加写入，纳入 NX-029 保留 | 迁移 2 | 1.5 天 |
+| E4 归因与候选 | §3.1、§11.3 的确定性规则；候选表与事件表；三层预算（§12.2）；冻结与 AT-048 分组；删除失效（§12.5） | 迁移 3；`budget_kind evolution`（D15） | 3 天 |
+| E5 隔离与交接 | 叠加层（§12.3）；L0 确定性回放；评估包与报告契约；审核关联表（D4） | 迁移 4；契约 bundle 与 report | 2.5 天 |
+
+- 合计约 **10.5 个开发日**，大约 5 轮 CI。
+- 顺序：E1 → E2 → E4 → E3 → E5。E3 可以与 E4 并行；E5 依赖 E4。
+- 每个切片单独交付，迁移用临时编号。
+
+### 12.8 契约与迁移（更新 §11.6）
+
+| 项 | 内容 | 状态 |
+|---|---|---|
+| 迁移 1 | `nexloop_evo_reader` 与只读轨迹函数 | 同 §11.6 |
+| 迁移 2 | 语义访问逐次记录表 | 同 §11.6 |
+| 迁移 3 | 候选表与事件表、审核关联表；`budget_kind` 增加 `evolution`（D15） | §11.6 加预算 |
+| 迁移 4 | 叠加层读取：Context Engine 语义读取函数增加 `evaluation_overlay` 参数，并在入口拒绝 real world | 新增 |
+| 契约 | `trajectory-sample.schema.json`（D11）；`evolution-evaluation-bundle.schema.json`、`evolution-evaluation-report.schema.json`（§12.4）；`evolution-candidate.schema.json` 不改 | 只是提案，每个契约单独 PR，本稿不改 `packages/contracts/` |
+
+### 12.9 新增的负责人决定项
+
+| 编号 | 问题 | 推荐 | 理由 | 代价 |
+|---|---|---|---|---|
+| D15 | 演进费用的预算口径 | 新增 `budget_kind evolution`，每个租户每月 ¥100，由负责人经 `Budget.set` 设置；演进的模型调用只计入这一类 | 运营模型预算不被演进挤占，避免真实回复先被 NXB01 拒绝；沿用已有的受治理设置与派发时检查 | 一个迁移；负责人多管一项预算 |
+| D16 | L1 模型回放能不能用真实轨迹内容 | 不能。L1 只用合成样本或由结构生成的用例；用真实内容需要 D5 白名单、脱敏和负责人的单独批准 | 不把真实消息复制进 test world；与 §6、D14 一致 | 早期语义工具类候选的评估代表性有限 |
+| D17 | 补丁中可能带顾客措辞，删除如何传播 | 补丁登记来源 Consumer 引用；删除时连带删除补丁，候选转为 `incomplete/missing_data`；已发布的别名走现有删除与 reflow | 候选不能成为删除的漏网之处 | 多一张引用表 |
+| D18 | 评估在哪个 world 运行 | `test` world 加专用评估凭据（只含 `test`）。不为 NX-038 增加 `shadow` 运行时；影子留给 NX-043 | 现有隔离（0165、0153）已覆盖 test world，不必扩大 runtime 接受的 world | 不能在真实流量上比较 |
+| D19 | 首批开放的演进维度 | 先只开 `semantic_content`（L0 即可评估）；`semantic_tool` 等 L1 和 D16 就绪后再开；`ontology_schema` 只产出 EIOS Schema proposal 的输入 | 从风险最低、可以确定性评估的维度开始 | 工具描述类的改进要晚一些 |
+| D20 | 三层预算的推荐值 | 每次诊断 ¥20 / 30 分钟 / 2000 个 Run；每个候选 3 轮 / ¥10；每个租户每月 ¥100 | 与 D8 一致；按 NX-037 试运行的单次调用费用量级估算，上限足够跑 L0 加少量 L1 | 数值保守，可按实际用量调整 |
