@@ -395,6 +395,10 @@ export const OPERATION_ACTION={
   dismiss_contact_preference:'eios:action:nexloop.contact_preference.dismiss:1',
   // 0232: the tenant's outreach controls (owner only).
   set_outreach_controls:'eios:action:nexloop.outreach_controls.set:1',
+  // Outreach slice 3: enable or disable a purpose of the purpose list (owner only).
+  set_outreach_purpose:'eios:action:nexloop.outreach_purposes.set:1',
+  // Outreach slice 6: approve or reject a proactive send waiting for approval (never the requester's own).
+  decide_outreach_approval:'eios:action:nexloop.outreach.approve:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -728,3 +732,29 @@ export function outreachControls(value:unknown):OutreachControls{
       marketing_enabled:flag(e.marketing_enabled),recorded_at:text(e.recorded_at)};})};
 }
 export function readOutreachControls():Promise<OutreachControls>{return get('/api/v1/workbench/outreach-controls',outreachControls);}
+
+
+// ---- outreach purposes (outreach slice 3: owner only) ----
+export type OutreachPurpose={purpose_id:string;enabled:boolean;revision:number;kind:'commitment_followup'|'service_followup'|'plan_defined'|'marketing';
+  trigger:string;topic:string;frequency_class:'service'|'marketing';requires_consent:boolean;requires_approval:boolean;max_chars:number;unsubscribe_notice_required:boolean};
+export function outreachPurposes(value:unknown):{list_version:number;purposes:OutreachPurpose[]}{
+  const v=object(value);
+  return {list_version:count(v.list_version),purposes:list(v.purposes).map(x=>{const p=object(x),d=object(p.definition),r=object(d.content_rules);
+    if(p.listed!==true||d.purpose_id!==p.purpose_id)throw new WorkbenchError('invalid');
+    const kind=d.kind;if(kind!=='commitment_followup'&&kind!=='service_followup'&&kind!=='plan_defined'&&kind!=='marketing')throw new WorkbenchError('invalid');
+    const fc=d.frequency_class;if(fc!=='service'&&fc!=='marketing')throw new WorkbenchError('invalid');
+    return {purpose_id:text(p.purpose_id),enabled:flag(p.enabled),revision:count(p.revision),kind,trigger:text(d.trigger),topic:text(d.topic),frequency_class:fc,
+      requires_consent:flag(d.requires_consent),requires_approval:flag(d.requires_approval),max_chars:count(r.max_chars),unsubscribe_notice_required:flag(r.unsubscribe_notice_required)};})};
+}
+export function readOutreachPurposes(){return get('/api/v1/workbench/outreach-purposes',outreachPurposes);}
+
+
+// ---- outreach approvals (outreach slice 6: owner only; ids, purpose, times and requester, never the body) ----
+export type OutreachApproval={intent_id:string;purpose_id:string;requested_at:string;expires_at:string;requested_by:string};
+export function outreachApprovals(value:unknown):{window_seconds:number;pending:OutreachApproval[]}{
+  const v=object(value);
+  return {window_seconds:count(v.window_seconds),pending:list(v.pending).map(x=>{const p=object(x);
+    if(Object.keys(p).sort().join()!=='expires_at,intent_id,purpose_id,requested_at,requested_by'||!/^outreach:[0-9a-f]{64}$/.test(text(p.intent_id)))throw new WorkbenchError('invalid');
+    return {intent_id:text(p.intent_id),purpose_id:text(p.purpose_id),requested_at:text(p.requested_at),expires_at:text(p.expires_at),requested_by:text(p.requested_by)};})};
+}
+export function readOutreachApprovals(){return get('/api/v1/workbench/outreach-approvals',outreachApprovals);}

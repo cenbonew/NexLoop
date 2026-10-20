@@ -65,10 +65,16 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
         server.should_exit = True
         thread.join(timeout=15)
     assert {'title': '模型与资产', 'pages': ['企业世界模型', '数据资产', '知识工作台']} in observed['nav'], observed['nav']
-    assert any(s.startswith('Object Type') for s in observed['summary']) and observed['table_rows'] >= 2
-    assert observed['url_property'] == '?tab=properties'
+    # EIOS navigation (owner review of release 23): one sidebar entry per concept, the summary counts, Table / Graph inside Object Type.
+    assert observed['nav_children'] == ['Object Type', 'Object', 'Property', 'Link', 'Function', 'Action'], observed['nav_children']
+    assert [s.split('\n')[0] for s in observed['summary']][:6] == ['Object Type', 'Object（real）', 'Property', 'Link', 'Function', 'Action'], observed['summary']
+    assert observed['table_rows'] >= 2 and observed['switch'] == ['Table', 'Graph']
+    assert observed['url_property'] == '/workbench/ontology/properties' and observed['title_property'] == 'Property'
     assert 'spending_band' in observed['withheld'] and '受限' in observed['withheld'] and 'synthetic restricted' not in observed['withheld']
-    assert observed['graph_label'].startswith('对象类型关系图：') and observed['focused_node']
+    assert observed['graph_label'].startswith('Object Type 关系图：') and observed['focused_node']
+    # Fitted and legible: the canvas is used, the node label renders at least at the floor, the one seeded Link is drawn.
+    g = observed['graph']
+    assert g['layout'] == 'graph' and g['edges'] >= 1 and g['label_px'] >= 12 and g['node_text_px'] >= 11 and g['box']['w'] >= 600 and g['box']['h'] >= 240, g
     assert observed['panel'].startswith(observed['focused_node']) and 'focus=' in observed['url_graph'] and 'view=graph' in observed['url_graph']
     assert observed['back_url'] == '?view=graph' and observed['panel_after_back'] == 0
     assert observed['hscroll_1440'] <= 0 and observed['hscroll_390'] <= 0, observed
@@ -77,9 +83,9 @@ def test_real_chromium_world_model_w1(conversations, admin, pg, tmp_path, monkey
     assert observed['capabilities_outcome'] == observed['settings_outcome'] and observed['capabilities_outcome'].startswith('真实交付：')
     assert observed['capabilities_forms'] == 0 and observed['capabilities_hscroll_390'] <= 0, observed
     # W2 instances (L6 0223/0224): the fixture's Consumer listed by id, its drawer with the neighbourhood, a deep link that reloads, Back.
-    assert observed['instances_summary'].startswith('Consumer 共 ') and observed['instance_url'].startswith('?tab=instances&type=Consumer&object=')
+    assert observed['instances_summary'].startswith('Consumer 共 ') and observed['instance_url'].startswith('/workbench/ontology/objects?type=Consumer&object=')
     assert '邻域（深度 1）' in observed['drawer'] and '完整标识' in observed['drawer'] and observed['drawer_link'] == 1
-    assert observed['drawer_after_reload'] == 1 and observed['drawer_after_back'] == 0 and observed['back_after_drawer'] == '?tab=instances&type=Consumer'
+    assert observed['drawer_after_reload'] == 1 and observed['drawer_after_back'] == 0 and observed['back_after_drawer'] == '/workbench/ontology/objects?type=Consumer'
     # W4 data assets (L6 0225): the six sections; budget and Artifact list said as not available; no form; no sideways scroll.
     assert observed['assets_sections'] == ['Artifact', 'Claim 与提取', '召回索引', 'Embedding 预算', '合并配置', '备份'], observed['assets_sections']
     assert 'Artifact 列表不可用' not in observed['assets_text'] and ' 个 Artifact · 本页 ' in observed['assets_text'] and '不表示花费为 0' in observed['assets_text'] and '条 Claim' in observed['assets_text']

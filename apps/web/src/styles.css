@@ -339,3 +339,15 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 .workbench dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:8px 0}.workbench dl.facts div{display:contents}
 .workbench dl.facts dt{color:var(--muted);font-size:13px}.workbench dl.facts dd{margin:0}
 @media (max-width:639px){.workbench dl.facts{grid-template-columns:1fr}.workbench dl.facts dd{margin-bottom:6px}}
+/* A view switch inside one page (world model: Table / Graph under the Object Type title), not a sibling of the page's entities. */
+.segmented{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:4px 0 12px}
+.segmented button{height:32px;border:0;border-radius:0;background:none;color:var(--muted);padding:0 14px;font-size:13px}
+.segmented button+button{border-left:1px solid var(--border)}
+.segmented button[aria-pressed="true"]{background:var(--accent);color:var(--surface);font-weight:700}
+.segmented button:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
+/* The sidebar group 企业世界模型: the summary link and its section links under a disclosure. */
+.nav-entry{display:flex;align-items:center;gap:4px}
+.nav-entry>a{flex:1}
+.nav-expand{height:28px;min-width:28px;padding:0 6px;border:0;background:none;color:var(--muted)}
+.nav-sub{list-style:none;margin:2px 0 4px 14px;padding:0 0 0 8px;border-left:1px solid var(--border)}
+.nav-sub a{font-size:13px}

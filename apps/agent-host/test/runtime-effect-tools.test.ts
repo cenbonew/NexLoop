@@ -115,6 +115,28 @@ describe('fixed HTTPS Run-bound effect transport, no authorization stub',()=>{
   });
 });
 
+describe('outreach slice 5: the proactive message tool',()=>{
+  const ask={purpose:'commitment_followup',body:'您好，您预约的服务明天上午开始。'};
+  const accepted=(body:Record<string,unknown>)=>({run_id:body.run_id,intent_id:'outreach:'+'f'.repeat(64),state:'accepted',replayed:false,business_action_success:false});
+  it('is offered only to a plan reevaluation Run when asked, sends exactly purpose and body, accepts only a fixed receipt',async()=>{
+    const {client,cmd,bodies}=await bridge({change:accepted});
+    expect(client.toolsForRun(cmd).map(tool=>tool.name)).not.toContain('nexloop.outreach.send');
+    expect(client.toolsForRun(cmd,{outreach:true}).map(tool=>tool.name)).not.toContain('nexloop.outreach.send');  // not without the plan outcome tool
+    expect(client.toolsForRun(cmd,{outreach:true,planOutcome:true}).map(tool=>tool.name)).toContain('nexloop.outreach.send');
+    const out=await client.sendOutreach(cmd,ask);
+    expect(out.state).toBe('accepted');expect(out.intent_id).toBe('outreach:'+'f'.repeat(64));
+    expect(Object.keys(bodies[0]!).sort()).toEqual(['activation_ref','command','parameters']);expect(bodies[0]!.parameters).toEqual(ask);
+    // The model never chooses the consumer, the origin, the channel or the topic; malformed arguments never reach the network.
+    for(const bad of [{...ask,consumer_id:'a'.repeat(64)},{...ask,origin_ref:'owner:x'},{...ask,channel:'sms'},{...ask,body:''},{...ask,purpose:'Bad Purpose'}])
+      await expect(client.sendOutreach(cmd,bad)).rejects.toMatchObject({code:'invalid_outreach_request'});
+    expect(bodies).toHaveLength(1);
+    const forged=await bridge({change:body=>({...accepted(body),business_action_success:true})});
+    await expect(forged.client.sendOutreach(forged.cmd,ask)).rejects.toMatchObject({code:'outreach_unavailable'});
+    const unlisted=await bridge({status:403,change:()=>({code:'purpose_not_allowed'})});
+    await expect(unlisted.client.sendOutreach(unlisted.cmd,ask)).rejects.toMatchObject({code:'purpose_not_allowed'});
+  });
+});
+
 describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
   const supply={action:'nexloop.enterprise.deliver:1' as const,offering_id:'d'.repeat(64),offering_revision:1,service_code:'enterprise.synthetic-delivery',title:'合成企业交付',price_amount:'12.50'};
   it('is offered only for a Run whose context names the enterprise offering',async()=>{

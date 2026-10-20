@@ -21,7 +21,7 @@ NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期�
 *截至 2026-10-20（main `eed373ef`）；数字取自 [`planning/`](planning)。*
 
 - **当前阶段：S5 收尾。** S0–S4 已完成。S5 的六个任务（NX-032 至 NX-037）都在进行中，每个任务还差什么见 [S5 收尾差距清单](docs/implementation/s5-closeout-gaps.md)。
-- **数字**：任务 47 done / 1 in_progress / 5 not_started（共 53）；验收 68 passed / 4 not_run（共 72）。S5 九项全部通过（AT-053 GitHub 断连演练于 2026-10-20 完成）；未运行的 4 项属于 S6/S7，不在 v0.1 范围内。
+- **数字**：任务 47 done / 2 in_progress / 4 not_started（共 53）；验收 68 passed / 4 not_run（共 72）。S5 九项全部通过（AT-053 GitHub 断连演练于 2026-10-20 完成）；未运行的 4 项属于 S6/S7，不在 v0.1 范围内。
 - **已部署到两机 stage**：数据主机运行 PostgreSQL 与 Valkey，应用主机运行 API、各 worker 与 Agent Host。每个发布都先经本地 CI，再签名、封存，然后才部署。**v0.1 的最终验收发布（发布 22，`47aa87b8`）已部署**，此后到 v0.1.0 只收修复。stage 上已经执行过 pgBackRest 备份和一次恢复演练。
 - **受控真实试运行已完成（AT-071 passed）**：36/36 次受控交互，使用真实模型与一项真实交付动作，结果经 provider 查询对账；费用合计 1.59 元，上限 100 元；未授权发送、发错对象、拒收后再联系均为 0。顾客由负责人操作的 AI 代理扮演，证据中如实标注。
 - **向量召回与候选合并已在 stage 启用**：召回索引使用 embedding 模型，每次调用都计入租户的模型预算；claim-matcher 按已发布的合并配置合并候选。

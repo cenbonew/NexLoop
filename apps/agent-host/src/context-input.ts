@@ -55,6 +55,23 @@ export const ENTERPRISE_ACTION='nexloop.enterprise.deliver:1';
 /** ADR-030: an additional effect offering of a Message Run (today only the enterprise delivery). Not an authorization. */
 export type EffectSupply={action:typeof ENTERPRISE_ACTION;offering_id:string;offering_revision:number;service_code:string;title:string;price_amount:string};
 /** 0227: the operator persona section's exact shape (the contract's; SQL re-derives the values). */
+/** Outreach slice 5: the purposes a plan reevaluation Run may use and the marketing state (data only; every gate is SQL's at dispatch). */
+export function validateOutreach(value:unknown):void{
+  const outreach=exact(value,['schema','list_version','purposes','marketing']);
+  if(outreach.schema!=='nexloop-outreach-context/1'||!Number.isSafeInteger(outreach.list_version)||(outreach.list_version as number)<1||(outreach.list_version as number)>999999)fail();
+  const marketing=exact(outreach.marketing,['enabled','consent_mode']);
+  if(typeof marketing.enabled!=='boolean'||!['opt_out','opt_in'].includes(String(marketing.consent_mode)))fail();
+  if(!Array.isArray(outreach.purposes)||outreach.purposes.length>64)fail();
+  for(const row of outreach.purposes as unknown[]){
+    const purpose=exact(row,['purpose_id','kind','topic','frequency_class','requires_approval','content_rules']);
+    text(purpose.purpose_id,64,/^[a-z][a-z0-9_.]{0,63}$/);text(purpose.topic,64,/^[a-z][a-z0-9_.]{0,63}$/);
+    if(!['commitment_followup','service_followup','plan_defined','marketing'].includes(String(purpose.kind))||!['service','marketing'].includes(String(purpose.frequency_class))
+      ||typeof purpose.requires_approval!=='boolean')fail();
+    const rules=exact(purpose.content_rules,['max_chars','unsubscribe_notice_required']);
+    if(!Number.isSafeInteger(rules.max_chars)||(rules.max_chars as number)<20||(rules.max_chars as number)>2000||typeof rules.unsubscribe_notice_required!=='boolean')fail();
+  }
+}
+
 export function validateOperatorPersona(value:unknown):void{
   const withPreferences=!!value&&typeof value==='object'&&Object.hasOwn(value as object,'preferences');
   const persona=exact(value,['persona_ref','persona_id','version','source','document','ai_disclosure',...(withPreferences?['preferences']:[])]);
@@ -142,16 +159,20 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     // 0227 operator persona slice 1: how the operator speaks (message Runs only; re-derived and checked by SQL at bind). Data
     // for the model, never authority.
     const withOperatorPersona=Object.hasOwn(parsed as Record<string,unknown>,'operator_persona');
+    // Outreach slice 5: a plan reevaluation Run may carry the persona and the outreach section (Role Runs only for outreach).
+    const withOutreach=Object.hasOwn(parsed as Record<string,unknown>,'outreach');
     const pack=exact(parsed,['schema_version','strategy_ref','bindings','role','current_event','user_statement','goal','formal_facts','current_constraints','supply',
       'constraints','consumer_state','open_work','evidence','semantics','experience','budget_report','insufficient',...(withRelationships?['relationship_context']:[]),...(withEffectSupplies?['effect_supplies']:[]),
-      ...(withOperatorPersona?['operator_persona']:[])]);
+      ...(withOperatorPersona?['operator_persona']:[]),...(withOutreach?['outreach']:[])]);
     const attestation=validateContextAttestation(command,untrustedAttestation);
     if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
     text(pack.strategy_ref,96,/^context-strategy:[a-z][a-z0-9_]{0,63}@[1-9][0-9]{0,6}$/);
     // Message Run: v2 core + pointer event. Role Run: v3/v5 core (role section, service trigger).
     const roleRun=pack.role!==null;
-    if(roleRun&&(withRelationships||withEffectSupplies||withOperatorPersona))return fail();
+    if(roleRun&&(withRelationships||withEffectSupplies))return fail();
+    if(!roleRun&&withOutreach)return fail();
     if(withOperatorPersona)validateOperatorPersona(pack.operator_persona);
+    if(withOutreach)validateOutreach(pack.outreach);
     if(roleRun){
       const role=exact(pack.role,['role_binding','role_policy']);
       if(pack.user_statement!==null||exact(pack.current_event,['kind','event_id','source_principal','body','provenance']).kind!=='service_trigger'||role.role_binding===null)return fail();

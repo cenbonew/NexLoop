@@ -54,6 +54,10 @@ class _FreshGuard:
         # AT-043: the Agent's incentive tool, under a fresh current service session.
         return self.service().issue_run_incentive(**arguments)
 
+    def send_run_outreach(self,**arguments):
+        # Outreach slice 5: the reevaluation Run's proactive message, under a fresh current service session.
+        return self.service().send_run_outreach(**arguments)
+
     def record_tool_timing(self,*,run_id,elapsed_ms):
         # NX-031 D6: one tool request's time added to its Run (the Run must belong to this guard's tenant; numbers only).
         # Reuses the session this same request just authenticated (no second credential read and authentication, ~1 ms);

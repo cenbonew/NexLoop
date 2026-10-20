@@ -5,8 +5,8 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {WorkbenchError,worldModel} from '../src/workbench/api';
-import {NODE_H,NODE_W,hue,layout,selfLoop} from '../src/workbench/graph/layout';
-import {SchemaGraph} from '../src/workbench/graph/SchemaGraph';
+import {GAP_X,NODE_H,NODE_W,gridColumns,hue,layout,selfLoop} from '../src/workbench/graph/layout';
+import {LABEL_PX,MIN_LABEL_PX,MIN_SCALE,SchemaGraph,fitScale} from '../src/workbench/graph/SchemaGraph';
 import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath,PAGES} from '../src/workbench/route';
 
@@ -34,40 +34,62 @@ test('layout: deterministic, every node inside the box, no two node boxes overla
   expect(hue('Consumer')).toBe(hue('Consumer'));expect(hue('Consumer')).toBeGreaterThanOrEqual(0);expect(hue('Consumer')).toBeLessThan(8);
 });
 
-test('URL state: tab, graph view and focus round-trip; graph only for Object Type and Link; renamed page',()=>{
+test('URL state: one path per concept, the Graph view and focus round-trip on Object Type only; the group keeps its name',()=>{
   expect(PAGES.ontology).toBe('企业世界模型');
-  const r=parseRoute('/workbench/ontology','?tab=relations&view=graph&focus=Consumer&x=1');
-  expect(r.query).toEqual({tab:'relations',view:'graph',focus:'Consumer'});
-  expect(routePath(r)).toBe('/workbench/ontology?tab=relations&view=graph&focus=Consumer');
-  expect(worldQuery({tab:'actions',view:'graph'})).toEqual({tab:'actions',graph:false,focus:null,type:null,after:null,object:null});
-  expect(worldQuery(undefined)).toEqual({tab:'object_types',graph:false,focus:null,type:null,after:null,object:null});
+  const r=parseRoute('/workbench/ontology/object-types','?view=graph&focus=Consumer&x=1');
+  expect(r).toEqual({page:'ontology',section:'object_types',query:{view:'graph',focus:'Consumer'}});
+  expect(routePath(r)).toBe('/workbench/ontology/object-types?view=graph&focus=Consumer');
+  for(const [path,section] of [['object-types','object_types'],['objects','objects'],['properties','properties'],['links','links'],['functions','functions'],['actions','actions']])
+    expect(parseRoute('/workbench/ontology/'+path).section).toBe(section);
+  expect(parseRoute('/workbench/ontology')).toEqual({page:'ontology'});
+  expect(parseRoute('/workbench/ontology/links','?view=graph').query).toBeUndefined();  // the view belongs to Object Type
+  expect(parseRoute('/workbench/ontology/object-sets')).toEqual({page:'ontology'});  // no page without NexLoop data
+  expect(worldQuery('actions',{view:'graph'})).toEqual({graph:false,focus:null,type:null,after:null,object:null});
+  expect(worldQuery('object_types',undefined)).toEqual({graph:false,focus:null,type:null,after:null,object:null});
+  // Links of the earlier single page land on the concept they showed.
+  expect(routePath(parseRoute('/workbench/ontology','?tab=relations&view=graph&focus=Consumer'))).toBe('/workbench/ontology/links');
+  expect(routePath(parseRoute('/workbench/ontology','?view=graph&focus=Consumer'))).toBe('/workbench/ontology/object-types?view=graph&focus=Consumer');
 });
 
-function render(query?:Record<string,string>){
+function render(query?:Record<string,string>,section?:string){
   const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
   c.setQueryData(['workbench','world-model'],worldModel(example));
-  return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(WorldModel,{query,onQuery:()=>{}})));
+  return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(WorldModel,{section:section as never,query,go:()=>{}})));
 }
 
-test('the page: counts, six tabs, tables by default, the restricted property by name only, no edit control',()=>{
+test('the summary: one card per concept in EIOS order with its count, the Event Types, EIOS terms, no edit control',()=>{
   const html=render();
   expect(html).toContain('企业世界模型');expect(html).toContain('只读');
-  for(const tab of ['Object Type','Property','Link','事件类型','Action','Function'])expect(html).toContain(`>${tab}</button>`);
+  const cards=[...html.matchAll(/aria-label="([A-Za-z ]+) (\d+) 个，查看"/g)].map(m=>m[1]);
+  expect(cards).toEqual(['Object Type','Object','Property','Link','Function','Action']);
   expect(html).toContain('aria-label="Object Type 2 个，查看"');expect(html).toContain('<strong style="display:block;font-size:22px">42</strong>');
-  expect(html).toContain('aria-label="Object Type"');expect(html).not.toContain('<svg');
+  expect(html).toContain('>Event Type</h2>');expect(html).toContain('aria-label="Event Type 0 个"');expect(html).toContain('还没有已发布的 Event Type');expect(html).not.toContain('<svg');
   expect(html).not.toMatch(/新建|编辑|删除/);
-  const props=render({tab:'properties'});
+  // Entities are EIOS English everywhere; the view switch is not on this page.
+  for(const page of [html,render(undefined,'object_types'),render(undefined,'properties'),render(undefined,'links'),render(undefined,'actions'),render(undefined,'functions')]){
+    expect(page).not.toMatch(/事件类型|实例|对象类型|关系类型|>表格<|>关系图</);}
+  expect(html).not.toContain('aria-label="查看方式"');
+});
+
+test('each concept page: its EIOS title, its own table; Table / Graph only under the Object Type title',()=>{
+  const types=render(undefined,'object_types');
+  expect(types).toContain('<h1 id="workbench-page-title">Object Type</h1>');
+  expect(types).toMatch(/<\/h1><p class="workbench-lead">[^<]+<\/p><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式"><button type="button" aria-pressed="true">Table<\/button><button type="button" aria-pressed="false">Graph<\/button><\/div>/);
+  expect(types).toContain('aria-label="Object Type"');expect(types).not.toContain('<svg');
+  const props=render(undefined,'properties');
+  expect(props).toContain('<h1 id="workbench-page-title">Property</h1>');expect(props).not.toContain('查看方式');
   expect(props).toContain('spending_power');expect(props).toContain('data-code="withheld"');expect(props).toContain('负责人限制的属性组：只显示名称');
-  const actions=render({tab:'actions'});
-  expect(actions).toContain('nexloop.service.request');expect(actions).toContain('>有</span>');expect(actions).not.toContain('>表格</button>');
+  const actions=render(undefined,'actions');
+  expect(actions).toContain('nexloop.service.request');expect(actions).toContain('>有</span>');expect(actions).not.toContain('查看方式');
+  expect(render(undefined,'links')).toContain('consumer_conversation');
 });
 
 test('the graph view: one focusable button per type, labelled edges, the focused type panel beside it',()=>{
-  const html=render({view:'graph',focus:'Consumer'});
-  expect(html).toContain('<svg');expect(html).toContain('aria-label="对象类型关系图：2 个类型，1 条关系"');
+  const html=render({view:'graph',focus:'Consumer'},'object_types');
+  expect(html).toContain('<svg');expect(html).toContain('aria-label="Object Type 关系图：2 个 Object Type，1 条 Link"');
   expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(2);
   expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer 详情"');expect(html).toContain('→ Conversation：consumer_conversation（1:N）');
-  expect(html).toContain('aria-selected="true" tabindex="0" class="tab tab-selected">关系图');
+  expect(html).toContain('<button type="button" aria-pressed="true">Graph</button>');expect(html).not.toContain('data-empty-edges');
 });
 
 test('a relation from a type to itself: both ends on the node border (outside the box) and an arrowhead like any edge',()=>{
@@ -76,6 +98,37 @@ test('a relation from a type to itself: both ends on the node border (outside th
   expect(loop.start.y).toBeLessThan(loop.end.y);expect(loop.d.startsWith(`M${loop.start.x},${loop.start.y} `)&&loop.d.endsWith(` ${loop.end.x},${loop.end.y}`)).toBe(true);
   const html=renderToStaticMarkup(h(SchemaGraph,{nodes:[{id:'Consumer',label:'Consumer'}],edges:[{id:'referred_by',from:'Consumer',to:'Consumer',label:'referred_by N:1'}],
     focus:null,onFocus:()=>{},label:'g'}));
-  expect(html).toMatch(/data-self-loop="referred_by"><path d="M[^"]+" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url\(#schema-arrow\)"/);
+  expect(html).toMatch(/data-self-loop="referred_by"><path d="M[^"]+" fill="none" stroke="currentColor" stroke-width="2" marker-end="url\(#schema-arrow\)"/);
   expect(html).toContain('referred_by N:1');
+});
+
+
+const types=(n:number)=>Array.from({length:n},(_,i)=>({id:`Type${String(i).padStart(2,'0')}`,label:`Type${i}`,sub:'v1 · 3 Property · 0 Object'}));
+
+test('the graph without any Link: a grid filling the canvas (not a ring), and it says so',()=>{
+  const nodes=types(20);
+  const l=layout(nodes,[],960/560);
+  const rows=new Set(l.nodes.map(p=>p.y)),cols=new Set(l.nodes.map(p=>p.x));
+  expect(cols.size).toBe(gridColumns(20,960/560));expect(rows.size).toBe(Math.ceil(20/cols.size));
+  expect(Math.abs(Math.log((l.width/l.height)/(960/560)))).toBeLessThan(0.35);  // the picture has the canvas's shape
+  expect([...cols].sort((a,b)=>a-b)[1]-[...cols].sort((a,b)=>a-b)[0]).toBe(NODE_W+GAP_X);
+  const html=renderToStaticMarkup(h(SchemaGraph,{nodes,edges:[],focus:null,onFocus:()=>{},label:'g',emptyEdgesText:'暂无已发布的 Link'}));
+  expect(html).toContain('data-layout="grid"');expect(html).toContain('暂无已发布的 Link');expect(html).toContain('data-edges="0"');
+  expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(20);  // every node still a keyboard button
+  expect(Number(/data-label-px="([\d.]+)"/.exec(html)![1])).toBeGreaterThanOrEqual(MIN_LABEL_PX);
+});
+
+test('the graph with Links: fitted to the canvas, node labels never below the floor, edges drawn and visible',()=>{
+  for(const n of [3,12,40]){
+    const nodes=types(n);const edges=nodes.slice(1).map((x,i)=>({id:'l'+i,from:nodes[Math.floor(i/2)].id,to:x.id,label:'link N:1'}));
+    const html=renderToStaticMarkup(h(SchemaGraph,{nodes,edges,focus:null,onFocus:()=>{},label:'g',emptyEdgesText:'暂无已发布的 Link'}));
+    expect(html).toContain('data-layout="graph"');expect(html).not.toContain('暂无已发布的 Link');
+    expect(html).toContain(`data-edges="${edges.length}"`);expect(html.match(/data-edge="/g)?.length).toBe(edges.length);
+    const px=Number(/data-label-px="([\d.]+)"/.exec(html)![1]),scale=Number(/data-scale="([\d.]+)"/.exec(html)![1]);
+    expect(px).toBeGreaterThanOrEqual(MIN_LABEL_PX);expect(scale).toBeGreaterThanOrEqual(MIN_SCALE-1e-3);
+    expect(html).toContain(`font-size="${LABEL_PX}"`);
+    const l=layout(nodes,edges,960/560);expect(scale).toBeCloseTo(fitScale(l.width,l.height,960),3);  // opens fitted
+  }
+  // Fit: a small picture is enlarged to the canvas, a large one stops at the label floor (and pans instead).
+  expect(fitScale(400,200,960)).toBeGreaterThan(1);expect(fitScale(20000,8000,960)).toBe(MIN_SCALE);
 });

@@ -1,0 +1,19 @@
+{
+  "schema": "nexloop-outreach-send/1",
+  "parameters": {
+    "consumer_id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "purpose": "commitment_followup",
+    "origin_ref": "commitment:synthetic-commitment-1",
+    "body": "您好，您预约的服务明天上午十点开始，如需调整请直接回复。",
+    "channel": "native.webchat",
+    "conversation_id": null
+  },
+  "frozen": {
+    "intent_id": "outreach:2222222222222222222222222222222222222222222222222222222222222222",
+    "origin_kind": "proactive",
+    "topic": "commitment_followup",
+    "purpose_version": 1,
+    "frequency_class": "service",
+    "body_digest": "3333333333333333333333333333333333333333333333333333333333333333"
+  }
+}

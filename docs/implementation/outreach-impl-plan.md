@@ -91,6 +91,79 @@
 
 **不做**：不写表、不建意图、不发送、不调用模型，不新增业务 Action，不改 `packages/contracts/`。
 
+## 4. 切片 4 的落地方式
+
+**路径**：沿用激励发放（AT-043）已有的受治理效应模式：自有意图台账、受理时取控制快照、执行端口在派发时准入、只有回环 provider。没有新增派发路径，也没有新凭据。
+
+**受理**：负责人通过受治理入口提交 `outreach.send` / `send_outreach`（只限人类负责人）。
+- 参数：`consumer_id`、`purpose`、`origin_ref`、`body`、`channel`（固定为 `native.webchat`），以及可选的 `conversation_id`。
+- 服务端从当前目的清单冻结 `topic`、`purpose_version`、`frequency_class`。
+- 业务意图 ID = `outreach:sha256(租户, 消费者, 目的, origin_ref, 租户时区的日期)`。同一天的重试或重复请求返回原意图；正文不同则拒绝（`intent_exists`）。
+- 受理不发送，也不预留任何额度。
+
+**派发**：执行端口 `nexloop.outreach.execute:1` 只授予领域 worker 服务。它在意图行锁和消费者级锁内依次检查：
+1. 消费者不在删除中；
+2. **联系限制最先检查**；
+3. 请求人当前仍是有效成员，且角色仍含该 Action；
+4. 负责人控制快照（NXC01/02/04）；
+5. 闸门：目的（需要审批的目的在切片 6 之前一律拒绝）、营销资格、测试人设、租户勿扰、租户频率（含营销额度）、消费者偏好（主题前缀匹配）、三层真实派发开关（受理后开关有变更也算关闭）、模型预算。
+
+任何一项拒绝都是终态，记录拒绝码和闸门结果，provider 收到的请求为零。结果未知时，先按意图 ID 查询，不重发。
+
+**开关**：`nexloop.outreach.send:1` 的 Action 开关默认没有记录，即关闭。本片不打开开关。
+
+**留给后续**：
+- 执行服务主体及其授权、后台 worker 接入，属于打开真实外发的前置工作，须负责人作 B 类决定；
+- 真实 WebChat 投递，以及物化为 Message、写入 `nexloop_outbound_messages`（P1 的 `origin_kind` 列，随投递一起做）；
+- 拒绝写入统一的派发拒绝表（该表以效应意图为键；本片的拒绝留在台账和审计事件里）；
+- 复评 Run 入口（切片 5）、审批（切片 6）、退订与同意记录（切片 7）。
+
+## 5. 切片 5 的落地方式
+
+**Run 入口**：`nexloop.outreach.run_submit:1`，只授予 runtime worker（`service-grants` v18）。Host 工具 `nexloop.outreach.send` 默认不提供，只有部署配置同时打开 `outreach_tool` 和 `plan_outcome_tool` 时，才提供给计划复评 Run。
+
+SQL 依次复核：
+1. 活动激活、任务租约和命令原文；
+2. 必须是计划复评 Run，兜底回复 Run 一律拒绝（ADR-023 §2.7）；
+3. Run 凭据含 `nexloop.outreach.send:1`，Role 执行上限也含它；
+4. 消费者取 Run 自己的。
+
+模型只给 `purpose` 和 `body`。来源固定为 `plan:<plan_id>`，业务意图 ID 与切片 4 同一公式，受理统一走 `runtime.nexloop_outreach_accept`。受理后照样经切片 4 的执行端口，在派发时检查全部闸门。Agent 发起的请求，派发时还要求 Role 执行上限仍含该 Action。
+
+**上下文（v6 增量）**：可选节 `outreach` 只出现在 Role 执行上限含发送权限的计划复评 Run 里。内容是当前目的清单版本、租户已启用的目的、营销状态，不含闸门结论、正文或价格。
+
+计划复评 Run 也开始带人设节（`operator_persona`，含 AI 身份披露配置），与消息 Run 相同。Role 绑定时，SQL 重新推导这两节，与 pack 不一致即拒绝，并把它们记为 role 来源。
+
+**AI 身份披露**：
+- 工具说明要求不自称人类，并遵循人设的披露设置；
+- 披露配置本身来自租户开关（人设节里的 `ai_disclosure`），Run 不能改；
+- 营销退订话术仍由服务端在派发时追加。
+
+**不在本片**：
+- `opening_outreach`：要等主动消息真实投递并物化为 Message 之后才有内容可钉住；
+- 触发源写入目的、计划自定义目的的复评预检（`purpose_unregistered`）；
+- 出站前的人设机器检查（人设稿 §3.5）；
+- 复评 Role 的文案规则配置（`plan-reevaluation` 设置）；
+- 部署 Host 时打开 `outreach_tool`。
+
+## 6. 切片 6 的落地方式
+
+**受理**：目的清单中 `requires_approval=true` 的目的，外发请求受理后进入 `pending_approval` 状态，同时写入一条审批记录（`runtime.nexloop_outreach_approvals`）。审批时限为 24 小时，只在 `runtime.nexloop_outreach_approval_window()` 一处定义。待审批期间执行端口不会准入。
+
+**审批 Action**：`nexloop.outreach.approve:1` / `decide_outreach_approval`，只限人类。
+- 参数：intent_id、decision（approve 或 reject）、reason。
+- 授权：审批人当前的工作台角色必须持有该 Action。v20 只授予 owner 角色；本计划没有写明审核员授权，给其他角色授权需负责人另行决定。
+- 审批人不能是请求人（四眼原则）；时限已过的不能审批。
+- 结论只记录一次：同一审批人重复提交同一结论视为重放，返回原结果，其他情况一律拒绝。
+
+**结果**：
+- 批准：转为 `accepted`。执行端口仍按切片 4 的顺序检查全部闸门，联系限制最先；目的闸门只对已批准的意图放行。
+- 拒绝：终态 `refused/approval_rejected`。
+- 超时：终态 `refused/approval_expired`，在审批提交时或执行端口列出待办（due）时判定。
+- 以上任何一种情况，provider 收到的请求都为零。真实派发开关保持关闭。
+
+**读取**：工作台 observe 动词 `outreach_approvals`，只对 owner 开放，路由为 `GET /api/v1/workbench/outreach-approvals`，只返回 ID、目的、发起与截止时间和请求人，不返回正文。“外联控制”页新增“待审批外联”一节，提供批准和拒绝。
+
 ## 附录 A：退订词表 v1（已审定，负责人 2026-10-20）
 
 用途：外联稿 §4.4。只在**最近一条主动消息是营销目的**、且时间在窗口内（默认 30 天）时使用。命中后写入营销主题拒绝（`marketing`）；如果最近一条主动消息不是营销，按联系限制兜底。一般性的“别联系我”由现有拒绝规则（`contact-refusal-rules`）处理，这里不重复收录。

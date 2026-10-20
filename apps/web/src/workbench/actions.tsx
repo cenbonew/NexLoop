@@ -24,6 +24,8 @@ export const DONE_TEXT:Record<Operation,string>={
   set_ai_disclosure:'已保存 AI 身份披露配置；合规责任由使用方承担。',
   dismiss_contact_preference:'已提交；这条偏好的采纳状态已更新，派发与上下文按新状态执行。',
   set_outreach_controls:'已保存外联控制；新设置的修订号已刷新。合规责任由使用方承担。',
+  set_outreach_purpose:'已更新这个外联目的的启用状态；派发预演按新状态判定。',
+  decide_outreach_approval:'已记录审批结论；批准的外联仍要在派发时通过全部闸门，拒绝即终止。',
   set_control:'已提交；派发预判与计划状态已刷新。恢复不会重放暂停期间被拒的意图。',
   release_contact_restriction:'已解除；之前被拒的意图不会重放，计划将重新评估。',
   cancel_commitment:'已取消承诺。',extend_commitment:'已延期：原承诺已被新承诺取代。',attest_commitment:'已记录人工证明。',

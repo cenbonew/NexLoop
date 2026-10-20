@@ -13,11 +13,11 @@ const json=(name:string)=>JSON.parse(readFileSync(new URL(`../../../packages/con
 const model=json('workbench-world-model'),page=json('workbench-object-page'),neighbors=json('workbench-object-neighbors');
 const A='a'.repeat(64);
 
-function render(query:Record<string,string>,seed:[unknown[],unknown][]=[]){
+function render(query:Record<string,string>,seed:[unknown[],unknown][]=[]){  // the Object page (section objects)
   const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
   c.setQueryData(['workbench','world-model'],worldModel(model));
   for(const [k,v] of seed)c.setQueryData(k,v);
-  return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(WorldModel,{query,onQuery:()=>{}})));
+  return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(WorldModel,{section:'objects',query,go:()=>{}})));
 }
 
 test('parsers follow the contracts: identifiers only, depth 1, bad ids refused',()=>{
@@ -26,27 +26,31 @@ test('parsers follow the contracts: identifiers only, depth 1, bad ids refused',
   const deep=structuredClone(neighbors);deep.depth=2;expect(()=>objectNeighbors(deep)).toThrow(WorkbenchError);
 });
 
-test('deep links: type, cursor and open object round-trip; they only count on the instances tab',()=>{
-  const r=parseRoute('/workbench/ontology',`?tab=instances&type=Consumer&after=${A}&object=${A}`);
-  expect(routePath(r)).toBe(`/workbench/ontology?tab=instances&type=Consumer&after=${A}&object=${A}`);
-  expect(worldQuery(r.query)).toEqual({tab:'instances',graph:false,focus:null,type:'Consumer',after:A,object:A});
-  expect(worldQuery({tab:'actions',type:'Consumer',object:A})).toMatchObject({type:null,object:null});
+test('deep links: type, cursor and open object round-trip on the Object page; they only count there',()=>{
+  const r=parseRoute('/workbench/ontology/objects',`?type=Consumer&after=${A}&object=${A}`);
+  expect(r.section).toBe('objects');
+  expect(routePath(r)).toBe(`/workbench/ontology/objects?type=Consumer&after=${A}&object=${A}`);
+  expect(worldQuery(r.section,r.query)).toEqual({graph:false,focus:null,type:'Consumer',after:A,object:A});
+  expect(worldQuery('actions',{type:'Consumer',object:A})).toMatchObject({type:null,object:null});
+  // A link of the earlier single page opens the same content in its section.
+  const legacy=parseRoute('/workbench/ontology',`?tab=instances&type=Consumer&object=${A}`);
+  expect(routePath(legacy)).toBe(`/workbench/ontology/objects?type=Consumer&object=${A}`);
 });
 
 test('instances: a chosen type lists ids with versions and times, counts the invisible ones, pages by cursor; no property shown',()=>{
-  expect(render({tab:'instances'})).toContain('选择一个对象类型查看实例');
-  const html=render({tab:'instances',type:'Consumer'},[[['workbench','objects','Consumer',''],objectPage(page)]]);
-  expect(html).toContain('Consumer 共 7 个实例 · 本页显示 1 个');expect(html).toContain('本页不可见 1 个');expect(html).toContain('data-code="invisible"');
+  expect(render({})).toContain('选择一个 Object Type 查看 Object');
+  const html=render({type:'Consumer'},[[['workbench','objects','Consumer',''],objectPage(page)]]);
+  expect(html).toContain('Consumer 共 7 个 Object · 本页显示 1 个');expect(html).toContain('本页不可见 1 个');expect(html).toContain('data-code="invisible"');
   expect(html).toContain('aaaaaaaa…aaaa');expect(html).toContain('>下一页</button>');expect(html).not.toContain('>上一页</button>');
   expect(html).toContain('<option value="Consumer" selected="">Consumer（12 个）</option>');
 });
 
 test('the drawer: full id, versions, a link to the content page where one exists, groups with invisible and collapsed said as they are',()=>{
-  const html=render({tab:'instances',type:'Consumer',object:A},[[['workbench','objects','Consumer',''],objectPage(page)],
+  const html=render({type:'Consumer',object:A},[[['workbench','objects','Consumer',''],objectPage(page)],
     [['workbench','object-neighbors','Consumer',A],objectNeighbors(neighbors)]]);
   expect(html).toContain(`aria-label="Consumer aaaaaaaa…aaaa 详情"`);expect(html).toContain(A);expect(html).toContain('href="/workbench/consumers/'+A+'"');
-  expect(html).toContain('← Goal · 属性 consumer_id');expect(html).toContain('不可见 25 个');expect(html).toContain('折叠 5 个');
-  expect(html).toContain('→ Consumer · 关系 knows');expect(html).toContain('邻域图：');
+  expect(html).toContain('← Goal · Property consumer_id');expect(html).toContain('不可见 25 个');expect(html).toContain('折叠 5 个');
+  expect(html).toContain('→ Consumer · Link knows');expect(html).toContain('邻域图：');
   expect(pageFor('Goal',A)).toBeNull();expect(pageFor('Commitment',A)).toEqual({page:'commitments',id:A});
 });
 
