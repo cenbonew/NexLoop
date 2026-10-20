@@ -1,6 +1,6 @@
 # NX-041 Host 的 sim 上下文输入协议
 
-依据：S7b 契约 `nexloop.context-pack.sim.v1`，L6 `nx041-s7b-review` 第 3.4 节。起点 bbea551a。迁移 `0268_nx041_host_sim_context.sql`（编号是临时的，只出现在文件名和 catalog 里）。
+依据：S7b 契约 `nexloop.context-pack.sim.v1`，L6 `nx041-s7b-review` 第 3.4 节。起点 bbea551a。迁移 `0269_nx041_host_sim_context.sql`（编号是临时的，只出现在文件名和 catalog 里）。
 
 ## 实现
 
@@ -13,7 +13,7 @@
 | **缺 goal、supply、relationship 段：选择“渲染为空段”**。sim 契约本来就没有这三段。渲染时各写一行“空：模拟包不含…段（不从真实…补全）”，明确告诉模型这些内容不存在，也不会被补上。另一个选项是报 insufficient，但这三段是契约层面就没有的，并不是“数据不足”，所以没有选。包自带的 insufficient 代码（`no_simulated_events`、`older_events_omitted`）照常列出 | `sim-context.ts` |
 | **4. 不回退 v6**：<br>· sim 组配置成 v6、v2 或不配置协议，都会在启动时被拒；<br>· sim 包不合法时直接拒绝，没有任何代码路径会改用 v6；<br>· v6 的校验函数也拒收 sim 包 | 同上 |
 | **装配调用**：`nexloop_eios.sim_context.assemble_sim_context` 和 `sim_run_input` 用该 world 自己的凭据调用 S7b 的 `authz.nexloop_sim_context_command`，结果作为 sim Run 登记时的输入。传入 real 或 test 世界时，在调用数据库之前就拒绝。real 组的装配路径一字未改 | Python |
-| **sim 角色**：这个分支的基线 bbea551a 还没有 S6c，所以 0268 只有一个条件块。存在 `authz.nexloop_app_role` 时（即集成后，S6c 先执行），它把 S7b 入口的角色判断改为 `app_role(p_world)`，并授权 `nexloop_sim_api`。在这个分支上该块不会执行，入口保持 S7b 原样 | 0268 |
+| **sim 角色**：这个分支的基线 bbea551a 还没有 S6c，所以 0269 只有一个条件块。存在 `authz.nexloop_app_role` 时（即集成后，S6c 先执行），它把 S7b 入口的角色判断改为 `app_role(p_world)`，并授权 `nexloop_sim_api`。在这个分支上该块不会执行，入口保持 S7b 原样 | 0269 |
 
 ## 完整性
 
