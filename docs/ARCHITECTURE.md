@@ -544,7 +544,7 @@ stateDiagram-v2
 - **公开文件与发布对象**：`scripts/check_public_files.py`（`--public` 为公开门槛）；`check_publication.py --tree` / `--archive` 扫描整棵树与源码归档。
 - **公开发布门槛**：`release.py public-preflight` 九步，清单见 [公开发布检查清单](release/public-release-checklist.md)。
 
-**仍差负责人事项**：安全联系渠道（`security_contact` 为空时公开门槛失败）与首次公开发布前的全历史审计。首个公开版本先发 `v0.1.0-rc`，真实闭环验收（NX-037）完成后再打 `v0.1.0`（NX-037 D6）。
+**负责人事项**：安全联系渠道与首次公开发布前的全历史审计都已完成（2026-10-12）。首个公开版本直接打 `v0.1.0`，不打 rc（D-tag-1，负责人 2026-10-20，取代 NX-037 D6 的“先发 rc”）；见 [v0.1.0 发布说明](release/v0.1.0-release-notes.md)。
 
 ---
 

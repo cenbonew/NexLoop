@@ -30,7 +30,13 @@
 - 防火墙改为按网络命名空间分别使用模型白名单（PR #15 已部署）。当晚两家模型 provider 各发生一次地址漂移，都经 `--provider-drift` 发现，负责人确认后放行。
 - **NX-033 主机切换完成（方案 L）**：stage 改用本地 Git 队列与合并控制器。main 只由控制器在 CI 通过后快进，GitHub 只由同步任务推进；首次经控制器合并的是 PR #16。
 
+#### 发布
+- 负责人决定直接发布 `v0.1.0`，不打 rc（D-tag-1，2026-10-20）。发布说明改名为 [v0.1.0-release-notes](docs/release/v0.1.0-release-notes.md)，并新增 [GitHub Release 正文草稿](docs/release/v0.1.0-github-release.md)。
+- NX-037 证据项：部署后清点（DATA_HOST 与 10/16 基线一致）与效应对账（试运行 `4f5d795c` 的 88 个效应意图全部 fulfilled，未了结 0）已完成；证据包等正式 public-preflight 之后生成。
+
 #### 验收
+- **AT-053 passed**（2026-10-20 06:03–06:05；执行：调度员，负责人确认演练）：断开 GitHub 期间，控制器照常合并；同步记为 `sync_pending`，积压 6 个提交；恢复后约 1 分钟以快进追上，没有 force 或 mirror。至此 S5 九项验收都有通过证据。
+- CI 受信安装升级到 main `7537c5b8`（负责人确认）：同步超时改为 60 秒，`review/*` 的同步生效；防火墙按新模板重新渲染，CI 账户的规则带计数，并做了阳性对照。
 - **AT-057 passed**：stage 此前的部署从未执行 `promote`，归档里没有 `current` 和 `known_good`。负责人确认后补登记了发布 21、22 的部署历史，然后执行 `rollback-check`：回滚到 known_good（发布 21）被拒绝（`schema_not_backward_compatible:0221`，提示向前修复）；回滚到更早的发布也被拒绝。只做了检查，没有执行任何回滚。
 - **AT-050 passed**：stage 第二次恢复演练（`d20261019b`）。恢复在发布 22 的 postgres 镜像里进行，容器无网络；恢复点之后由负责人删除的 1 个合成顾客，在恢复时被重放删除；五项开放控制全部成立，与恢复点比对零差异；RTO 27.7 秒，RPO 18.7 秒。
 - **AT-054（证据已取得，待登记）**：切换后的 CI 隔离探测通过。切换过程中发现并修复了一个真实漏洞：CI 账户可以经 rootlesskit 切换到 subordinate UID，从而绕过按 UID 的防火墙规则（Codex 在 PR #16 的评审中指出）。修复后规则覆盖整个 subordinate UID 范围，并改为按 DNAT 之前的原始目的地址匹配。

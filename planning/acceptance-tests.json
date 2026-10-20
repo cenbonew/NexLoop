@@ -1044,7 +1044,7 @@
     "name": "GitHub断连",
     "given": "阻断GitHub访问",
     "expected": "本地CI/已有依赖构建可用；同步标pending",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "test_report",
@@ -1057,6 +1057,12 @@
         "ref": "docs/release/run-nx033-switch-20261020.md",
         "summary": "2026-10-19 切换后自然出现一次：首次合并后一轮同步推送 GitHub 超时（30 s），状态记为 sync_pending，合并与 CI 不受影响，下一轮自动恢复为 synced。正式断连演练（临时拦截同步账户到 GitHub 的出站，同时让 main 前进一次）随下一次合并进行；状态保持 not_run。",
         "recorded_at": "2026-10-19T22:50:02+08:00"
+      },
+      {
+        "type": "command",
+        "ref": "docs/release/run-nx033-switch-20261020.md",
+        "summary": "stage 正式断连演练（2026-10-20，负责人确认；执行：调度员；判定：调度员按 14 §AT-053 预期）。06:03 CST 在 APP_HOST 的 NexLoop 表 output 链临时加规则：同步账户（nexloop-git）除 loopback 外的新连接一律丢弃，GitHub 不可达。06:03:58 合并控制器照常合并 seq 11（复用 7537c5b8 已通过的 CI 结果 4714/4714，负责人 ack-policy），LAN main 由 eed373ef 前进到 7537c5b8。06:04:35 同步记为 sync_pending、backlog 6，GitHub main 仍为 eed373ef，无 force、无 mirror。06:04:48 删除规则（核对规则已不在），06:05:42 同步以快进追上：synced、backlog 0，开发机 ls-remote 读回 GitHub main = 7537c5b8。本地 CI 与合并全程不受影响。私有证据 local-only/evidence/v0.1-evidence/at053-drill.txt。",
+        "recorded_at": "2026-10-20T06:06:00+08:00"
       }
     ]
   },
