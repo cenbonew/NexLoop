@@ -1245,6 +1245,11 @@
       "version": "0249",
       "name": "0249_nx040_ontology_schema_input.sql",
       "sha256": "2f8306d0b973ec42f69b297b75621b0c0553992f9af65f0586589388183874f0"
+    },
+    {
+      "version": "0250",
+      "name": "0250_nx040_schema_publication.sql",
+      "sha256": "94a9bb3843dd3edb8af07a3d27bd1f023f6207f9acee6dfc8c441cab34362fed"
     }
   ]
 }

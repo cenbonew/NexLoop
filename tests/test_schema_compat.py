@@ -114,6 +114,8 @@ CLOSED = [
     ('tool_required_parameter', lambda: add_property(successor_actions=[{**SUCCESSOR, 'required_parameters': ['preferred_store']}]), None),
     ('successor_not_one_to_one', lambda: add_property(successor_actions=[]), None),
     ('contract_changed', lambda: add_property(contracts=['ontology-mutation.schema.json']), None),
+    ('property_security_bypass', lambda: add_type(definition={'properties': [{'property_name': 'monthly_income', 'value_type': 'number', 'nullable': True}]}),
+     parent(restricted_names=['monthly_income'])),
 ]
 
 

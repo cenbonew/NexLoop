@@ -32,9 +32,10 @@ CODES = BREAKING + (
     'no_default_not_nullable', 'vocabulary_on_new_property', 'not_closed_vocabulary', 'vocabulary_value_exists',
     'vocabulary_alias_conflict', 'edit_mode_open', 'definition_invalid', 'parent_incompatible',
     'migration_over_limit', 'embedding_dimension_changed', 'reflow_over_budget', 'semantic_ref_missing',
-    'tool_signature_changed', 'tool_required_parameter', 'successor_not_one_to_one', 'contract_changed')
+    'tool_signature_changed', 'tool_required_parameter', 'successor_not_one_to_one', 'contract_changed',
+    'property_security_bypass')
 # Codes that make a change major (closed) rather than merely failing one dimension of an otherwise additive change.
-_MAJOR = set(BREAKING) | {'operation_not_whitelisted', 'edit_mode_open', 'parent_incompatible'}
+_MAJOR = set(BREAKING) | {'operation_not_whitelisted', 'edit_mode_open', 'parent_incompatible', 'property_security_bypass'}
 
 
 def _vocabulary(definition: PropertyDefinition) -> tuple:
@@ -77,6 +78,12 @@ def _candidate_types(change: dict, parent_types: dict[str, ObjectTypeDefinition]
 
 def _whitelist_rules(change: dict, parent_types: dict[str, ObjectTypeDefinition], parent: dict, codes: list[str]) -> None:
     op, name = change.get('op'), change.get('type_name')
+    # AT-024: a property name the owner restricted on any type is never re-exposed through a new property or a new type.
+    restricted = set(parent.get('restricted_names') or ())
+    added = [((change.get('property') or {}).get('property_name'))] if op == 'add_optional_property' else \
+        [p.get('property_name') for p in (change.get('definition') or {}).get('properties') or ()] if op == 'add_object_type' else []
+    if restricted & set(added):
+        codes.append('property_security_bypass')
     if op == 'add_object_type':
         if name in parent_types:
             codes.append('type_exists')
@@ -236,7 +243,8 @@ def judge(change: dict, parent: dict) -> dict:
 
     `parent`: {'types': {name: definition dict}, 'object_counts': {name: n}, 'vocabulary_aliases': {'Type/prop': [alias]},
     'actions': [{stable_name, version, object_types:[{stable_name,version}], input_schema_hash, capability_schema_hash, risk_level,
-    effect_categories}], 'semantic_refs': ['Type' | 'Type/prop'], 'embedding_dimension': n, 'reflow_cap': {vectors, cost}}."""
+    effect_categories}], 'semantic_refs': ['Type' | 'Type/prop'], 'embedding_dimension': n, 'reflow_cap': {vectors, cost},
+    'restricted_names': [property names in owner-restricted groups]}."""
     op = change.get('op') if isinstance(change, dict) else None
     out = {'op': op, 'change_class': 'major', 'allowed': False, 'reason': 'breaking_change', 'codes': [], 'dimensions': {}, 'auto_publish_eligible': False,
            'candidate_definition': None}
