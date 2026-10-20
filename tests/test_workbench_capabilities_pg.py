@@ -14,6 +14,7 @@ from pathlib import Path
 from psycopg.types.json import Jsonb
 
 from support.tenants import TENANT_B
+from system_catalog_fixture import publish_system_catalog
 from test_real_dispatch_switch_pg import owner_sql, set_switch
 from test_workbench_read_pg import (TENANT, browser_business, conversations, identity, provision, published_action, uow,  # noqa: F401
     workbench, workbench_login)
@@ -28,13 +29,14 @@ def seed(admin):
     action = admin.execute("select resource_id,definition,capability from control.nexloop_action_definitions where tenant_id=%s and world='real' order by resource_id limit 1",
                            (TENANT,)).fetchone()
     assert action, 'the fixture publishes tenant Actions'
-    resource, definition, capability = action
+    resource, definition, _ = action
     admin.execute("""insert into control.nexloop_action_effect_categories(tenant_id,world,resource_id,definition_digest,category,notification_parameters,manifest_version)
         values(%s,'real',%s,%s,'non_contact_service','{}',3)""", (TENANT, resource, 'a' * 64))
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (TENANT_B,))
     other = 'eios:action:Other.tenant_only:1'
-    admin.execute("insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,'real',%s,%s,%s)",
-                  (TENANT_B, other, Jsonb({**definition, 'stable_name': 'Other.tenant_only', 'tenant_id': TENANT_B}), Jsonb(capability)))
+    # The other tenant's Action: the catalog's definition of the same Action, renamed so it is told apart (system_catalog_fixture).
+    publish_system_catalog(admin, TENANT_B, (), (definition['stable_name'],), variants={definition['stable_name']: lambda d: d.update(stable_name='Other.tenant_only')})
+    assert admin.execute("select 1 from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s", (TENANT_B, other)).fetchone()
     for tenant, delivery in ((TENANT, 'nexloop.service.request:1'), (TENANT_B, 'nexloop.other_only:1')):
         admin.execute("""insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
             values(%s,'real','ServiceOffering',%s,1,%s,'synthetic',%s,clock_timestamp(),clock_timestamp())""",
