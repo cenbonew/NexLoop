@@ -1,17 +1,17 @@
 # NX-041 S4：Action 替身、模拟台账与不出网的执行器
 
-依据：`NX-041-design.md` §3、D4、D11、D12、§11 S4；AT-046。迁移 `0261_nx041_stand_ins.sql`（编号是临时的，只出现在文件名和 catalog 里）。
+依据：`NX-041-design.md` §3、D4、D11、D12、§11 S4；AT-046。迁移 `0262_nx041_stand_ins.sql`（编号是临时的，只出现在文件名和 catalog 里）。
 
 ## 实现
 
 | 内容 | 位置 |
 | --- | --- |
-| 替身目录 `control.nexloop_stand_ins`（D11）：服务请求走 HTTP provider、服务请求走本地 JSON 投递、优惠发放、外联发送，各一个替身，版本 1.0.0。没有替身的效应在模拟世界中不可用（fail closed）。目录只能追加 | 0261 §1 |
-| 行为配置 `control.nexloop_stand_in_configs`（D12）：没有配置时默认全部成功、零延迟；失败率、结果不明比例、延迟区间和失败码必须显式写入，写入后不能修改。写入函数 `runtime.nexloop_stand_in_configure` 不授予任何角色，由可信配置或 S3 的实验冻结输入调用 | 0261 §2 |
-| 模拟台账与 real 台账在物理上分开：`runtime.nexloop_sim_effect_intents`、`runtime.nexloop_sim_effect_receipts`。world 只能是 `sim:`/`shadow:`，`data_mode='simulation'`；回执要求 `simulated=true`、`output_kind='simulated_output'`，并带替身版本。只允许追加，回执上只能更新重复执行次数；整体删除（S2）通过 erasure scope 清掉这个 world 的行 | 0261 §3 |
-| 入口：`authz.nexloop_sim_effect_submit`（api/domain_worker 调用）、`_execute`、`_pending`（action_worker 调用）、`_query`（按意图查询，语义同 `GET /v1/effects/<intent_id>`）。只接受已登记且 active 的 sim/shadow 世界，凭据必须是这个世界的那一个凭据（S2 D10）；real、test 在查凭据之前就被拒绝（`real_world_refused`） | 0261 §4 |
-| 确定性：回执由（替身版本, world, intent_id, 模拟时钟）和该世界的配置唯一决定；对同一意图重复执行，返回同一张回执，`executions` 加一，`repeated=true` | 0261 §4 |
-| real 效应路径拒绝模拟世界：effect intents、outbox、attempts、observations、incentive issues、outreach sends、outbound messages、real dispatch switches、effect contexts 上加了 `aa_nx041_real_effect_world` 触发器，按名字排序最先触发。sim/shadow 世界的行在第一次写入时就被拒绝，所以真实执行器永远领不到模拟世界的意图 | 0261 §5 |
+| 替身目录 `control.nexloop_stand_ins`（D11）：服务请求走 HTTP provider、服务请求走本地 JSON 投递、优惠发放、外联发送，各一个替身，版本 1.0.0。没有替身的效应在模拟世界中不可用（fail closed）。目录只能追加 | 0262 §1 |
+| 行为配置 `control.nexloop_stand_in_configs`（D12）：没有配置时默认全部成功、零延迟；失败率、结果不明比例、延迟区间和失败码必须显式写入，写入后不能修改。写入函数 `runtime.nexloop_stand_in_configure` 不授予任何角色，由可信配置或 S3 的实验冻结输入调用 | 0262 §2 |
+| 模拟台账与 real 台账在物理上分开：`runtime.nexloop_sim_effect_intents`、`runtime.nexloop_sim_effect_receipts`。world 只能是 `sim:`/`shadow:`，`data_mode='simulation'`；回执要求 `simulated=true`、`output_kind='simulated_output'`，并带替身版本。只允许追加，回执上只能更新重复执行次数；整体删除（S2）通过 erasure scope 清掉这个 world 的行 | 0262 §3 |
+| 入口：`authz.nexloop_sim_effect_submit`（api/domain_worker 调用）、`_execute`、`_pending`（action_worker 调用）、`_query`（按意图查询，语义同 `GET /v1/effects/<intent_id>`）。只接受已登记且 active 的 sim/shadow 世界，凭据必须是这个世界的那一个凭据（S2 D10）；real、test 在查凭据之前就被拒绝（`real_world_refused`） | 0262 §4 |
+| 确定性：回执由（替身版本, world, intent_id, 模拟时钟）和该世界的配置唯一决定；对同一意图重复执行，返回同一张回执，`executions` 加一，`repeated=true` | 0262 §4 |
+| real 效应路径拒绝模拟世界：effect intents、outbox、attempts、observations、incentive issues、outreach sends、outbound messages、real dispatch switches、effect contexts 上加了 `aa_nx041_real_effect_world` 触发器，按名字排序最先触发。sim/shadow 世界的行在第一次写入时就被拒绝，所以真实执行器永远领不到模拟世界的意图 | 0262 §5 |
 | 执行器 `nexloop_eios/stand_in_executor.py`（D4）：只接收数据库 URL 文件、该世界的服务凭据文件和一个 sim/shadow world；没有 provider 配置，没有路由文件，没有通道凭据，也不导入任何网络库；只调用上面的 SQL 入口。`StandInReceipt` 与 `EffectProviderReceipt` 同形，另带显式的 `simulated`、`stand_in_version`、`output_kind` | Python |
 
 ## 与设计稿的差异
