@@ -399,6 +399,8 @@ export const OPERATION_ACTION={
   set_outreach_purpose:'eios:action:nexloop.outreach_purposes.set:1',
   // Outreach slice 6: approve or reject a proactive send waiting for approval (never the requester's own).
   decide_outreach_approval:'eios:action:nexloop.outreach.approve:1',
+  // NX-039 V4 (D39-8): publish a semantic release from an evaluated candidate, or roll back to an earlier version (owner only).
+  publish_semantic_release:'eios:action:nexloop.semantic_release.publish:1',rollback_semantic_release:'eios:action:nexloop.semantic_release.rollback:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -653,6 +655,30 @@ export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/obj
 export const readObjectValues=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,objectValues);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
 
+// ---- NX-039 V4 semantic release (owner only): the current version, the history with rollback reports, the publishable candidates ----
+export type ReleaseItem={kind:'alias'|'semantic_note';ref:string;body:string};
+export type RollbackReport={from_version:string;to_version:string;removed_aliases:number;claim_count:number;claim_ids:string[];dropped_erased_items:number};
+export type SemanticRelease={version:string;reason:'publish'|'rollback';candidate_id:string|null;change_class:'patch'|'minor'|null;rolled_back_to:string|null;
+  rollback_report:RollbackReport|null;owner_reason:string;recorded_at:string;items:ReleaseItem[]};
+export type PublishableCandidate={candidate_id:string;change_class:'patch'|'minor';change_kind:'alias'|'description';target_refs:string[];term_hashes:number;parent_ok:boolean};
+export type SemanticReleases={current:string|null;releases:SemanticRelease[];publishable:PublishableCandidate[]};
+const VERSION=/^\d{1,4}\.\d{1,4}\.\d{1,6}$/;
+function releaseVersion(value:unknown):string{const v=text(value);if(!VERSION.test(v))throw new WorkbenchError('invalid');return v;}
+export function semanticReleases(value:unknown):SemanticReleases{
+  const o=object(value);
+  return {current:o.current===null?null:releaseVersion(o.current),
+    releases:list(o.releases).map(x=>{const r=object(x);const report=r.rollback_report===null||r.rollback_report===undefined?null:object(r.rollback_report);
+      return {version:releaseVersion(r.version),reason:oneOfText(r.reason,['publish','rollback'] as const),candidate_id:maybeText(r.candidate_id),
+        change_class:r.change_class===null?null:oneOfText(r.change_class,['patch','minor'] as const),rolled_back_to:r.rolled_back_to===null?null:releaseVersion(r.rolled_back_to),
+        rollback_report:report?{from_version:releaseVersion(report.from_version),to_version:releaseVersion(report.to_version),removed_aliases:count(report.removed_aliases),
+          claim_count:count(report.claim_count),claim_ids:list(report.claim_ids).map(id),dropped_erased_items:count(report.dropped_erased_items)}:null,
+        owner_reason:text(r.owner_reason),recorded_at:text(r.recorded_at),
+        items:list(r.items).map(i=>{const v=object(i);return {kind:oneOfText(v.kind,['alias','semantic_note'] as const),ref:text(v.ref),body:text(v.body)};})};}),
+    publishable:list(o.publishable).map(x=>{const c=object(x);return {candidate_id:text(c.candidate_id),change_class:oneOfText(c.change_class,['patch','minor'] as const),
+      change_kind:oneOfText(c.change_kind,['alias','description'] as const),target_refs:list(c.target_refs).map(text),term_hashes:count(c.term_hashes),parent_ok:flag(c.parent_ok)};})};
+}
+export const readSemanticReleases=()=>get('/api/v1/workbench/semantic-releases',semanticReleases);
+
 // ---- Object Set (ADR-036): definitions and a preview page evaluated at read time; each object READ-checked, restricted properties withheld ----
 export const OBJECT_SET_OPERATORS=['eq','ne','gt','gte','lt','lte','in','not_in'] as const;
 export type ObjectSetValue=string|number|boolean;
@@ -841,3 +867,66 @@ export function dataHealth(value:unknown):DataHealth{
       purge_items_retrying:count(e.purge_items_retrying),completed_with_holds:count(e.completed_with_holds)}};
 }
 export function readDataHealth(){return get('/api/v1/workbench/data-health',dataHealth);}
+
+
+// ---- outreach metrics and evidence (outreach slice 8: owner only; counts, ratios, ids, digests and codes, never the body) ----
+const share=(v:unknown):number|null=>{if(v===null||v===undefined)return null;if(typeof v!=='number'||!Number.isFinite(v)||v<0||v>1)throw new WorkbenchError('invalid');return v;};
+const code=(v:unknown):string=>{const t=text(v);if(!/^[a-z][a-z0-9_.]{0,63}$/.test(t))throw new WorkbenchError('invalid');return t;};
+const maybeCode=(v:unknown):string|null=>v===null||v===undefined?null:code(v);
+const codeCounts=(v:unknown):Record<string,number>=>{const o=counts(v);for(const k of Object.keys(o))code(k);return o;};
+export type OutreachMetrics={computed_at:string;window_days:number;candidates:number;accepted_7d:number;pending_approval:number;approvals_7d:Record<string,number>;
+  sent_7d:number;fulfilled_7d:number;refused_7d:Record<string,number>;by_purpose_7d:Record<string,{accepted:number;sent:number;refused:number}>;frequency_capped_7d:number;
+  marketing:{enabled:boolean;consent_mode:string;sent_7d:number;unsubscribes_7d:number;min_volume:number;unsubscribe_rate_7d:number|null;allowance_per_7d:number;consumers_at_allowance:number};
+  consent:{granted_7d:number;withdrawn_7d:number;consumers_with_record:number;consumers_consented:number;consent_rate:number|null}};
+export function outreachMetrics(value:unknown):OutreachMetrics{
+  const v=object(value),m=object(v.marketing),k=object(v.consent),p=object(v.by_purpose_7d);
+  return {computed_at:text(v.computed_at),window_days:count(v.window_days),candidates:count(v.candidates),accepted_7d:count(v.accepted_7d),pending_approval:count(v.pending_approval),
+    approvals_7d:codeCounts(v.approvals_7d),sent_7d:count(v.sent_7d),fulfilled_7d:count(v.fulfilled_7d),refused_7d:codeCounts(v.refused_7d),
+    by_purpose_7d:Object.fromEntries(Object.entries(p).map(([key,x])=>{const o=object(x);return [code(key),{accepted:count(o.accepted),sent:count(o.sent),refused:count(o.refused)}];})),
+    frequency_capped_7d:count(v.frequency_capped_7d),
+    marketing:{enabled:flag(m.enabled),consent_mode:code(m.consent_mode),sent_7d:count(m.sent_7d),unsubscribes_7d:count(m.unsubscribes_7d),min_volume:count(m.min_volume),
+      unsubscribe_rate_7d:share(m.unsubscribe_rate_7d),allowance_per_7d:count(m.allowance_per_7d),consumers_at_allowance:count(m.consumers_at_allowance)},
+    consent:{granted_7d:count(k.granted_7d),withdrawn_7d:count(k.withdrawn_7d),consumers_with_record:count(k.consumers_with_record),consumers_consented:count(k.consumers_consented),
+      consent_rate:share(k.consent_rate)}};
+}
+export function readOutreachMetrics(){return get('/api/v1/workbench/outreach-metrics',outreachMetrics);}
+
+export type OutreachEvidenceItem={intent_id:string;consumer_id:string;persona:string;purpose_id:string;initiator:string;origin:string;state:string;refusal_code:string|null;
+  requested_at:string;finished_at:string|null};
+export function outreachEvidenceList(value:unknown):{synthetic_only:boolean;items:OutreachEvidenceItem[]}{
+  const v=object(value);
+  return {synthetic_only:flag(v.synthetic_only),items:list(v.items).map(x=>{const o=object(x);
+    if(!/^outreach:[0-9a-f]{64}$/.test(text(o.intent_id)))throw new WorkbenchError('invalid');
+    return {intent_id:text(o.intent_id),consumer_id:text(o.consumer_id),persona:code(o.persona),purpose_id:code(o.purpose_id),initiator:code(o.initiator),origin:code(o.origin),
+      state:code(o.state),refusal_code:maybeCode(o.refusal_code),requested_at:text(o.requested_at),finished_at:maybeText(o.finished_at)};})};
+}
+export function readOutreachEvidenceList(syntheticOnly:boolean){
+  return get('/api/v1/workbench/outreach-evidence'+(syntheticOnly?'?synthetic_only=true':''),outreachEvidenceList);}
+
+export type OutreachGateRow={gate:string;result:string;detail:unknown};
+export type OutreachEvidence={found:true;trigger:{origin_kind:string;origin:string;origin_ref:string;initiator:string;run_id:string|null};
+  request:{intent_id:string;consumer_id:string;persona:string;purpose_id:string;purpose_version:number;topic:string;frequency_class:string;channel:string;body_digest:string;body_chars:number;requested_at:string};
+  approval:{requested_at:string;expires_at:string;decision:string|null;decided_at:string|null;decided_by:string|null;requested_by:string}|null;
+  gates:{stage:'refused'|'admitted'|'not_yet';code:string|null;at:string|null;gates:OutreachGateRow[]|'all_passed'};
+  dispatch:{state:string;admitted_at:string|null;finished_at:string|null;provider_reference:string|null;provider:string};
+  events:{action:string;at:string}[];
+  responses:{optouts:{kind:string;source:string;answers_this_send:boolean;at:string}[];consents:{kind:string;source:string;at:string}[];contact_restricted:boolean}}|{found:false};
+export function outreachEvidence(value:unknown):OutreachEvidence{
+  const v=object(value);if(v.found===false)return {found:false};if(v.found!==true)throw new WorkbenchError('invalid');
+  const t=object(v.trigger),q=object(v.request),g=object(v.gates),d=object(v.dispatch),r=object(v.responses);
+  if('body' in q||'text' in q)throw new WorkbenchError('invalid');
+  const stage=g.stage;if(stage!=='refused'&&stage!=='admitted'&&stage!=='not_yet')throw new WorkbenchError('invalid');
+  const a=v.approval===null?null:object(v.approval);
+  return {found:true,
+    trigger:{origin_kind:code(t.origin_kind),origin:code(t.origin),origin_ref:text(t.origin_ref),initiator:code(t.initiator),run_id:maybeText(t.run_id)},
+    request:{intent_id:text(q.intent_id),consumer_id:text(q.consumer_id),persona:code(q.persona),purpose_id:code(q.purpose_id),purpose_version:count(q.purpose_version),topic:code(q.topic),
+      frequency_class:code(q.frequency_class),channel:code(q.channel),body_digest:text(q.body_digest),body_chars:count(q.body_chars),requested_at:text(q.requested_at)},
+    approval:a&&{requested_at:text(a.requested_at),expires_at:text(a.expires_at),decision:maybeCode(a.decision),decided_at:maybeText(a.decided_at),decided_by:maybeText(a.decided_by),
+      requested_by:text(a.requested_by)},
+    gates:{stage,code:maybeCode(g.code),at:maybeText(g.at),gates:g.gates==='all_passed'?'all_passed':list(g.gates).map(x=>{const o=object(x);return {gate:code(o.gate),result:code(o.result),detail:o.detail};})},
+    dispatch:{state:code(d.state),admitted_at:maybeText(d.admitted_at),finished_at:maybeText(d.finished_at),provider_reference:maybeText(d.provider_reference),provider:code(d.provider)},
+    events:list(v.events).map(x=>{const o=object(x);return {action:code(o.action),at:text(o.at)};}),
+    responses:{optouts:list(r.optouts).map(x=>{const o=object(x);return {kind:code(o.kind),source:code(o.source),answers_this_send:flag(o.answers_this_send),at:text(o.at)};}),
+      consents:list(r.consents).map(x=>{const o=object(x);return {kind:code(o.kind),source:code(o.source),at:text(o.at)};}),contact_restricted:flag(r.contact_restricted)}};
+}
+export function readOutreachEvidence(intentId:string){return get('/api/v1/workbench/outreach-evidence?intent_id='+encodeURIComponent(intentId),outreachEvidence);}

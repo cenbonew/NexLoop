@@ -273,7 +273,8 @@
         "budget_exhausted",
         "validation_leak",
         "not_reproducible",
-        "breaking_change"
+        "breaking_change",
+        "evaluator_timeout"
       ]
     },
     "created_at": {

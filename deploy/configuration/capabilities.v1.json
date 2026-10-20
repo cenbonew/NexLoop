@@ -1484,6 +1484,52 @@
       },
       "schema_hash": "26dfe9ca1ee7ff95397e2b30bd1b8029fb9a9c435a5b86f28822326d38539e7c",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "semantic_release.publish",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "publish_semantic_release",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5641840fe68ee4bdf4991350069a9ef7d59dda9551d738678d7f300dbbcd6809",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "semantic_release.rollback",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "rollback_semantic_release",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "74009984685b48edd9fb600852d9656687a3a4770c8b43ab3c69506e70ea7929",
+      "side_effects_reason": null
     }
   ]
 }

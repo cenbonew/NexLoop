@@ -12,7 +12,7 @@ import {useEffect,useMemo,useRef,useState,type KeyboardEvent} from 'react';
 import {NODE_H,NODE_W,border,hue,layout,selfLoop,type GraphEdge,type GraphNode} from './layout';
 
 export const CARDINALITY_TEXT:Record<string,string>={one_to_one:'1:1',one_to_many:'1:N',many_to_one:'N:1',many_to_many:'N:N'};
-const HUES=['#2563eb','#0f766e','#7c3aed','#b45309','#be185d','#15803d','#4338ca','#0369a1'];
+const HUES=Array.from({length:8},(_,i)=>`var(--hue-${i+1})`);  // UI spec §1: the graph hues are tokens (light and dark)
 const short=(s:string,n=18)=>s.length>n?s.slice(0,n-1)+'…':s;
 
 /** Label sizes in layout units; on screen they are multiplied by the scale, which never goes below MIN_SCALE. */
@@ -64,12 +64,12 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
     </div>
     {grid&&emptyEdgesText?<p className="note" role="status" data-empty-edges="">{emptyEdgesText}</p>:null}
     <svg role="group" aria-label={label} tabIndex={0} onKeyDown={keys} width="100%" height={canvasH}
-      style={{border:'1px solid var(--border, #d0d7de)',borderRadius:8,display:'block'}}
+      style={{border:'1px solid var(--border)',borderRadius:8,display:'block'}}
       viewBox={`${x0} ${y0} ${viewW} ${viewH}`} preserveAspectRatio="xMidYMid meet" data-nodes={placed.nodes.length} data-edges={drawn.length}
       data-layout={grid?'grid':'graph'} data-scale={scale.toFixed(3)} data-label-px={(LABEL_PX*scale).toFixed(2)}>
       <defs><marker id="schema-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
-      <g className="schema-edges" style={{color:'var(--text, #1f2328)'}}>
+      <g className="schema-edges" style={{color:'var(--text)'}}>
         {drawn.map(e=>{const a=at.get(e.from)!,b=at.get(e.to)!;
           const dim=near&&!(near.has(e.from)&&near.has(e.to)&&(e.from===focus||e.to===focus));
           if(e.from===e.to){const loop=selfLoop(a.x,a.y);return <g key={e.id} opacity={dim?0.25:0.85} data-self-loop={e.id}>
@@ -86,8 +86,8 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
             onClick={()=>onFocus(selected?null:n.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onFocus(selected?null:n.id);}}}>
             <rect x={p.x-NODE_W/2} y={p.y-NODE_H/2} width={NODE_W} height={NODE_H} rx={12} fill="var(--surface, #fff)" stroke={color} strokeWidth={selected?3:1.5}/>
             <rect x={p.x-NODE_W/2} y={p.y-NODE_H/2} width={6} height={NODE_H} rx={3} fill={color}/>
-            <text x={p.x} y={p.y-(n.sub?3:-5)} fontSize={LABEL_PX} fontWeight={600} textAnchor="middle" fill="var(--text, #1f2328)">{short(n.label)}</text>
-            {n.sub?<text x={p.x} y={p.y+15} fontSize={SUB_PX} textAnchor="middle" fill="var(--muted, #57606a)">{short(n.sub,24)}</text>:null}
+            <text x={p.x} y={p.y-(n.sub?3:-5)} fontSize={LABEL_PX} fontWeight={600} textAnchor="middle" fill="var(--text)">{short(n.label)}</text>
+            {n.sub?<text x={p.x} y={p.y+15} fontSize={SUB_PX} textAnchor="middle" fill="var(--muted)">{short(n.sub,24)}</text>:null}
             <title>{n.label}{n.sub?` · ${n.sub}`:''}</title></g>;})}
       </g>
     </svg>

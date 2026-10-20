@@ -75,7 +75,7 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
                or (k.split('-')[-1] == '390' or k.endswith('390-dark')) and v['scrollers']}
     assert failing == {}, {k: {f: v[f] for f in ('hscroll', 'offscreen', 'font_min', 'th_max', 'scrollers')} for k, v in failing.items()}
     assert observed['dark_differs'] == {f'{p}-{w}': True for p in PAGES for w in (1440, 390)}
-    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 17,
+    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 18,
                                 'closed_after_navigation': True, 'hscroll_open': 0}
     # Batch 2: the consumers table lists the fixture's customer and the 12 seeded ones; cards below 640 px, a table above.
     consumers = {w: pages[f'wb-consumers-{w}']['tables'] for w in (1440, 1024, 390)}
@@ -89,7 +89,8 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     # Batch 3: overview cards in 3+/2/1 columns and of their own height; operations likewise; bubbles within 80 % of the list (92 % on
     # phones); every empty/unavailable state in the one dashed style.
     assert [pages[f'wb-overview-{w}']['grid']['cols'] for w in (1440, 1024, 390)] == [3, 2, 1], {w: pages[f'wb-overview-{w}']['grid'] for w in (1440, 1024, 390)}
-    assert all(pages[f'{p}-{w}']['grid']['heights'] > 1 for p in ('wb-overview', 'wb-operations') for w in (1440, 1024))
+    # UI spec §3 (owner 2026-10-20, replacing batch 3's "cards keep their own height"): the cards of one row are equally tall.
+    assert all(pages[f'{p}-{w}']['grid']['rows_equal'] for p in ('wb-overview', 'wb-operations') for w in (1440, 1024)), {p: pages[f'{p}-1440']['grid'] for p in ('wb-overview', 'wb-operations')}
     assert all(0 < pages[f'wb-conversation-{w}']['bubble_ratio'] <= 0.81 for w in (1440, 1024)) and pages['wb-conversation-390']['bubble_ratio'] <= 0.93, {w: pages[f'wb-conversation-{w}']['bubble_ratio'] for w in (1440, 1024, 390)}
     assert [k for k, v in pages.items() if not v['empty_styled']] == []
     # Batch 4: radios/checkboxes at native size next to their text (pause/resume radios on goals, the checkbox on contact).

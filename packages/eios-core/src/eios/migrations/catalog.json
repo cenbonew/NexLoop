@@ -1235,6 +1235,26 @@
       "version": "0247",
       "name": "0247_object_sets.sql",
       "sha256": "2cfab276c0594f169e12a71bfad8e2a61ca2a2ff9e89ad49ac53548c5d821bfd"
+    },
+    {
+      "version": "0248",
+      "name": "0248_nx039_l1_test_world.sql",
+      "sha256": "74adfb5f43c669ebc1ec22313772e184dcc49887738e88df0c61207d30a740db"
+    },
+    {
+      "version": "0249",
+      "name": "0249_semantic_release.sql",
+      "sha256": "c4a61d9a122b508e8acf0c7dedf6dde022821b7d9fc23e9aafe62f759c764ba0"
+    },
+    {
+      "version": "0250",
+      "name": "0250_nx039_erasure_watch.sql",
+      "sha256": "f86b38a2b3af2c38e4eea1dd58d744feefd6bbdbad8794067fb2916f001d8159"
+    },
+    {
+      "version": "0251",
+      "name": "0251_outreach_metrics_evidence.sql",
+      "sha256": "ef169ad1f4214c90cb5ee7c6e70e940717d4910974c9de045536aea2b27bb3e5"
     }
   ]
 }

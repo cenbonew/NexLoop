@@ -462,6 +462,11 @@ class WorkbenchQueries:
         return {'type_name': type_name, 'object_id': object_id, 'schema_version': fields['schema_version'], 'revision': fields['revision'],
                 'properties': props}
 
+    def semantic_releases(self):
+        """NX-039 V4: the current semantic release version, the last 20 releases (with rollback reports) and the candidates the owner
+        may publish (ids, class, report digest, refs and term-hash counts; never a message). Owner only (SQL)."""
+        return self.reader.observe('semantic_releases')
+
     def object_sets(self):
         """ADR-036: the latest version of each Object Set with its conditions and projection (definitions only, no object)."""
         return self.reader.observe('object_sets')
@@ -684,6 +689,14 @@ class WorkbenchQueries:
     def data_health(self):
         # D-G5: extraction, recall index, review reflow, ingestion, Artifact orphans and erasure propagation (owner, read only).
         return self.reader.observe('data_health')
+
+    def outreach_metrics(self):
+        # Outreach slice 8: proactive outreach metrics of the last 7 days (counts, ratios, codes; owner, read only).
+        return self.reader.observe('outreach_metrics')
+
+    def outreach_evidence(self, **query):
+        # Outreach slice 8: one send's evidence chain (intent_id) or a list (consumer_id, synthetic_only, limit); never the body.
+        return self.reader.observe('outreach_evidence', **query)
 
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

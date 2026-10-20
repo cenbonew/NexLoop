@@ -75,7 +75,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
     'record_marketing_consent':'marketing_consent.record',
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
-    'publish_object_set':'object_set.publish'}
+    'publish_object_set':'object_set.publish',
+    # NX-039 V4: publish the next semantic release from one evaluated candidate, or roll back to an earlier version (checked in SQL).
+    'publish_semantic_release':'semantic_release.publish','rollback_semantic_release':'semantic_release.rollback'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -390,6 +392,20 @@ class GoalGovernedActions:
             raise ValueError('name, object type, filters, projection and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_object_set','stable_name':stable_name,'object_type':object_type,
             'filters':[dict(f) for f in filters],'sort':[dict(s) for s in sort],'projection':list(projection),'reason':reason})
+
+    # NX-039 V4 (D39-7/8/14): owner only; the change class comes from the evaluator's report, never from here.
+    def publish_semantic_release(self,*,action_name,action_version,request_id,candidate_id,items,reason):
+        if (not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(candidate_id)) or type(items) not in (list,tuple)
+                or not 1<=len(items)<=20 or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('candidate, items and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_semantic_release','candidate_id':candidate_id,
+            'items':[dict(i) for i in items],'reason':reason})
+
+    # NX-039 V4 (D39-9/10): owner only; a new, higher version with the target's items; Claims are reported, never changed.
+    def rollback_semantic_release(self,*,action_name,action_version,request_id,target_version,reason):
+        if not re.fullmatch(r'[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}',str(target_version)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('target version and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'rollback_semantic_release','target_version':target_version,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
