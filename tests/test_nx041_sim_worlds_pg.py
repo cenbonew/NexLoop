@@ -421,9 +421,12 @@ def test_the_snapshot_is_taken_in_bounded_steps(db):
     while not db.execute('select runtime.nexloop_sim_world_snapshot(%s,%s,1)', (TENANT_A, a)).fetchone()[0]:
         steps += 1
         assert steps < 10
-    assert steps == 3  # three non-empty tables, one per call, the last call writes the summary
+    # Five non-empty tables (S5: the world's clock and its creation event besides the three seeded), one per call; the call that
+    # reads the last of them also writes the summary.
+    assert steps == 4
     assert db.execute('select counts from control.nexloop_sim_world_summaries where world=%s', (a,)).fetchone()[0] == {
-        'runtime.nexloop_read_audit_daily': 2, 'runtime.nexloop_semantic_accesses': 2, 'runtime.nexloop_work_feed': 2}
+        'runtime.nexloop_read_audit_daily': 2, 'runtime.nexloop_semantic_accesses': 2, 'runtime.nexloop_work_feed': 2,
+        'control.nexloop_sim_clocks': 1, 'control.nexloop_sim_clock_events': 1}
     assert db.execute('select count(*) from control.nexloop_sim_world_snapshot_parts where world=%s', (a,)).fetchone()[0] == 0
 
 
