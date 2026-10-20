@@ -88,6 +88,8 @@ class AlertEvaluator:
                   'parameters_digest': hashlib.sha256(body.encode()).hexdigest()}
         text = canonical_payload(claims)
         signature = hmac.new(self.signer.material, (EVALUATE_PROTOCOL + ':' + text).encode(), 'sha256').hexdigest()
+        # The skew between this host's clock and the database clock is sampled first, so this evaluation already sees it (rule clock_skew).
+        record_clock_sample(self.pool, 'alert-evaluator')
         with self.pool.connection() as db, db.transaction():
             verify_application_role(db)
             result = db.execute('select authz.nexloop_alert_evaluate(%s,%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature, body)).fetchone()[0]
@@ -128,6 +130,38 @@ def record_pool_sample(pool, service):
         sample = pool_sample(pool)
         if sample is not None:
             record_sample(pool, 'pool', service, sample)
+    except Exception:
+        pass
+
+
+# The host clock the skew sample reads (a test moves it; production keeps time.time).
+CLOCK = time.time
+
+
+def clock_skew(pool, samples=3, clock=None):
+    """The database clock minus this host's clock, in seconds, at the midpoint of the shortest of `samples` round trips (as
+    scripts/deploy/post_deploy_check.py); returns (skew, round_trip)."""
+    clock = clock or CLOCK
+    best = None
+    with pool.connection() as db:
+        for _ in range(samples):
+            sent = clock()
+            database = db.execute('select extract(epoch from clock_timestamp())::float8').fetchone()[0]
+            received = clock()
+            measured = (database - (sent + received) / 2, received - sent)
+            if best is None or measured[1] < best[1]:
+                best = measured
+    return best
+
+
+def clock_sample(skew, round_trip):
+    return {'skew_ms': round(skew * 1000), 'skew_abs_ms': round(abs(skew) * 1000), 'round_trip_ms': round(round_trip * 1000)}
+
+
+def record_clock_sample(pool, service, clock=None):
+    """Best effort, as the pool sample: the skew metric never breaks the process that measures it."""
+    try:
+        record_sample(pool, 'clock', service, clock_sample(*clock_skew(pool, clock=clock)))
     except Exception:
         pass
 

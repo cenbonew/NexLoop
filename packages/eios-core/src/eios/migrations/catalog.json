@@ -1355,6 +1355,11 @@
       "version": "0271",
       "name": "0271_nx041_sim_budget_backfill.sql",
       "sha256": "48e6e61d85df600104470817acd7913ce348c827894b300d9aac6e76d5e79bbe"
+    },
+    {
+      "version": "0290",
+      "name": "0290_clock_skew_metric.sql",
+      "sha256": "3ceb3fdc9632e18d65c6293057a548eefc3839f9c50eca4f52d4e0478ca687fc"
     }
   ]
 }
