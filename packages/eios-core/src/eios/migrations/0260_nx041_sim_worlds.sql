@@ -155,8 +155,11 @@ create unique index nexloop_service_credentials_one_active_sim on authz.nexloop_
 -- declared here. Data outside the database (local Artifact object files, Pi Run directories) is out of scope; see the
 -- implementation document (S6).
 create table control.nexloop_sim_world_dependents (
- child regclass not null,constraint_name text not null,mode text not null check(mode in ('delete','cascade')),position integer not null,
- primary key(child,constraint_name));
+ child regclass not null,constraint_name text not null,mode text not null check(mode in ('delete','cascade','not_applicable')),position integer not null,
+ reason text not null default '' check(char_length(reason)<=300),
+ primary key(child,constraint_name),
+ -- not_applicable (a run_id or similar column that is not a link to a world's rows) always says why (review 1.1, recursive).
+ check((mode='not_applicable')=(reason<>'')));
 alter table control.nexloop_sim_world_dependents owner to nexloop_owner;
 revoke all on control.nexloop_sim_world_dependents from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,
  nexloop_identity,nexloop_configurator,nexloop_metrics;
@@ -204,7 +207,9 @@ alter function runtime.nexloop_sim_world_has_tenant(regclass) owner to nexloop_o
 revoke all on function runtime.nexloop_sim_world_has_tenant(regclass) from public;
 
 -- Every target in deletion order with the condition (on alias x; $1 world, $2 tenant) selecting the world's rows. Dependents
--- first (by position; one row per table, the conditions of its declared constraints joined by or), then the world tables.
+-- first (by position; one row per table, the conditions of its declared constraints joined by or), then the world tables in
+-- dependency order (review N1): a table comes after every world table whose foreign key references it (its height: the longest
+-- chain of referencing world tables, bounded at 40 so a cycle ends), so one pass deletes children before parents.
 create function runtime.nexloop_sim_world_targets() returns table(target regclass,scope text,ord integer)
  language sql stable security definer set search_path=pg_catalog,pg_temp as $$
  select d.child,string_agg(format('exists(select 1 from %s p where p.world=$1%s and (%s)=(%s))',c.confrelid::regclass,
@@ -215,7 +220,12 @@ create function runtime.nexloop_sim_world_targets() returns table(target regclas
  from control.nexloop_sim_world_dependents d join pg_constraint c on c.conrelid=d.child and c.conname=d.constraint_name
  where d.mode='delete' group by d.child
  union all
- select t,'x.world=$1'||case when runtime.nexloop_sim_world_has_tenant(t) then ' and x.tenant_id=$2' else '' end,100000 from runtime.nexloop_sim_world_tables() t
+ select h.t,'x.world=$1'||case when runtime.nexloop_sim_world_has_tenant(h.t) then ' and x.tenant_id=$2' else '' end,100000+h.height from (
+  with recursive w as (select t from runtime.nexloop_sim_world_tables() t),
+   e as (select distinct c.conrelid child,c.confrelid parent from pg_constraint c
+     where c.contype='f' and c.conrelid<>c.confrelid and c.conrelid in (select t from w) and c.confrelid in (select t from w)),
+   d(t,n) as (select w.t::oid,0 from w union select e.parent,d.n+1 from d join e on e.child=d.t where d.n<40)
+  select d.t::regclass t,max(d.n) height from d group by d.t) h
  order by 3,1
 $$;
 alter function runtime.nexloop_sim_world_targets() owner to nexloop_owner;

@@ -350,17 +350,48 @@ def test_deleting_the_world_refuses_its_run_credential(db):
 
 
 def test_every_foreign_key_into_a_world_table_is_covered(db):
-    """Review 1.1 guard: a table without a world column whose foreign key points at a table with one must be declared (deleted
-    before the world tables, or marked cascade). A new table that is not declared fails here."""
-    found = set(db.execute("""select c.conrelid::regclass::text,c.conname from pg_constraint c where c.contype='f'
-        and c.confrelid in (select * from runtime.nexloop_sim_world_tables())
-        and not exists(select 1 from pg_attribute a where a.attrelid=c.conrelid and a.attname='world' and not a.attisdropped)""").fetchall())
+    """Review 1.1 guard, recursive: a table without a world column whose foreign key points at a table with one, or at a declared
+    dependent (a grandchild, any depth), must be declared; so must every table without a world column holding a run id (a Run
+    belongs to a world), unless declared not_applicable with its reason. A new table that is not declared fails here."""
+    found = set(db.execute("""with recursive reach(t) as (
+            select t from runtime.nexloop_sim_world_tables() t
+            union select c.conrelid::regclass from pg_constraint c join reach r on c.confrelid=r.t
+             where c.contype='f' and c.conrelid<>c.confrelid
+             and not exists(select 1 from pg_attribute a where a.attrelid=c.conrelid and a.attname='world' and not a.attisdropped))
+        select c.conrelid::regclass::text,c.conname from pg_constraint c where c.contype='f' and c.conrelid<>c.confrelid and c.confrelid in (select t from reach)
+         and not exists(select 1 from pg_attribute a where a.attrelid=c.conrelid and a.attname='world' and not a.attisdropped)""").fetchall())
     declared = set(db.execute('select child::text,constraint_name from control.nexloop_sim_world_dependents').fetchall())
     assert found == declared and len(declared) == 9
+    run_holders = {r[0] for r in db.execute("""select distinct r.oid::regclass::text from pg_class r join pg_namespace n on n.oid=r.relnamespace
+        join pg_attribute a on a.attrelid=r.oid and not a.attisdropped and a.attname ~ '(^|_)run_id$'
+        where r.relkind in ('r','p') and not r.relispartition and n.nspname in ('authz','control','ontology','runtime')
+        and not exists(select 1 from pg_attribute w where w.attrelid=r.oid and w.attname='world' and not w.attisdropped)""").fetchall()}
+    assert run_holders and run_holders <= {c for c, _ in declared}, run_holders - {c for c, _ in declared}
+    assert db.execute("select count(*) from control.nexloop_sim_world_dependents where mode='not_applicable' and reason=''").fetchone()[0] == 0
     # Every declared delete target has a condition, ordered before the world tables.
     targets = db.execute('select target::text,ord from runtime.nexloop_sim_world_targets()').fetchall()
     deps = [t for t, o in targets if o < 100000]
-    assert set(deps) == {c for c, _ in declared} - {'ontology.nexloop_recall_embeddings'} and [o for _, o in targets] == sorted(o for _, o in targets)
+    assert set(deps) == {c for c, _ in declared if c != 'ontology.nexloop_recall_embeddings'} and [o for _, o in targets] == sorted(o for _, o in targets)
+    # Dependency order (review N1): every world table comes after each world table whose foreign key references it.
+    pos = {t: i for i, (t, _) in enumerate(targets)}
+    edges = db.execute("""select distinct c.conrelid::regclass::text,c.confrelid::regclass::text from pg_constraint c where c.contype='f'
+        and c.conrelid<>c.confrelid and c.conrelid in (select * from runtime.nexloop_sim_world_tables()) and c.confrelid in (select * from runtime.nexloop_sim_world_tables())""").fetchall()
+    cyclic = {(a, b) for a, b in edges if (b, a) in {(x, y) for x, y in edges}}
+    late = [(child, parent) for child, parent in edges if (child, parent) not in cyclic and pos[child] > pos[parent]]
+    assert edges and late == [], late
+
+
+def test_append_only_tables_the_erasure_scope_cannot_name_hold_no_simulation_rows(db):
+    """Review N2: the 0129 erasure scope names only ^[a-z_]+\\.[a-z_]+$; a target whose name it cannot hold and that refuses deletes
+    with a trigger (evo_l1_definitions, evo_l1_sessions) would block a world forever, so it must refuse simulation rows (a real-only
+    world CHECK). A new such table without that CHECK fails here."""
+    rows = db.execute("""select t.target::text,
+        exists(select 1 from pg_trigger g where g.tgrelid=t.target and not g.tgisinternal and (g.tgtype & 8)<>0),
+        exists(select 1 from pg_constraint c where c.conrelid=t.target and c.contype='c' and pg_get_constraintdef(c.oid) like '%world = ''real''%')
+        from runtime.nexloop_sim_world_targets() t where t.target::text !~ '^[a-z_]+\\.[a-z_]+$'""").fetchall()
+    guarded_by_trigger = {t for t, deletes_refused, _ in rows if deletes_refused}
+    assert {'runtime.nexloop_evo_l1_definitions'} <= guarded_by_trigger
+    assert [t for t, deletes_refused, real_only in rows if deletes_refused and not real_only] == []
 
 
 def seed_event_rows(admin, tenant, world, tag):
@@ -421,9 +452,10 @@ def test_the_snapshot_is_taken_in_bounded_steps(db):
     while not db.execute('select runtime.nexloop_sim_world_snapshot(%s,%s,1)', (TENANT_A, a)).fetchone()[0]:
         steps += 1
         assert steps < 10
-    # Five non-empty tables (S5: the world's clock and its creation event besides the three seeded), one per call; the call that
-    # reads the last of them also writes the summary.
-    assert steps == 4
+    # Five non-empty tables (S5: the world's clock and its creation event besides the three seeded), one per call. The summary is
+    # written by the call that reads the last non-empty table when no target follows it, else by one more call over the empty rest
+    # (the dependency order of review N1 decides which).
+    assert steps in (4, 5)
     assert db.execute('select counts from control.nexloop_sim_world_summaries where world=%s', (a,)).fetchone()[0] == {
         'runtime.nexloop_read_audit_daily': 2, 'runtime.nexloop_semantic_accesses': 2, 'runtime.nexloop_work_feed': 2,
         'control.nexloop_sim_clocks': 1, 'control.nexloop_sim_clock_events': 1}

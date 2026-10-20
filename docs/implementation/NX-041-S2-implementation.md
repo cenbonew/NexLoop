@@ -60,3 +60,12 @@
   如果要做，需要在 keeper 中加一个到期转 deleting 的步骤，并设置租户级上限。
 - **分区父表**：分区父表整表删除，不受 limit 约束，已在代码注释中写明。
 - **world id 可推导**：world id 由 tenant 和 request_id 推导而来。它只是一个标识，不是凭据，能推导出来没有安全问题。
+
+## 完整性补齐（L6 复核 1.1 余项、N1、N2、N5）
+
+| 编号 | 处理 |
+| --- | --- |
+| 1.1 递归 | 守护测试改成递归检查：从有 world 列的表出发，沿外键往下逐层找所有没有 world 列的表，不限层数；其中每个外键都必须登记在依赖声明里。另外，凡是有 `run_id` 列（包括 `xxx_run_id`）、但没有 world 列的表，都必须登记，或者标记为 `not_applicable`。声明表新增了 `not_applicable` 模式和 `reason` 列，这个模式必须写明理由。目前没有孙表；有 run_id 列的两张表（effect_run_contexts、effect_submissions）已通过外键声明，不需要 `not_applicable`。 |
+| N1 | world 表的删除顺序改为按依赖拓扑排序：如果某张 world 表被其他 world 表的外键引用，它一定排在那些表之后（链长上限 40，用来终止环）。这样一轮就能先删子表、后删父表。测试断言除环上的边以外，所有外键边都满足这个顺序。S2 和 S3 的联合测试：同一个 world 里先做 synthetic 生成、再做 structural 生成，owner 的删除 Action 一轮删完，没有 blocked，也没有残留。外键环（goals 和 goal_versions 互相引用）不受这个保证，仍然靠多轮删除。 |
+| N2 | 已确认：`evo_l1_definitions` 和 `evo_l1_sessions` 都有 `CHECK (world = 'real')`，sim 行写不进去，所以不会卡住删除。新增守护测试：表名带数字、不能被 erasure scope 登记，又有拒绝删除触发器的删除目标，必须带只允许 real 的 world 约束。以后新加这类表而没有这个约束，测试就会失败。 |
+| N5 | key 的形式一致，0261 不需要改。生产路径 `service_grants.compile_owner_restrictions` 生成的 key 是 `[type_name]`，`configure_manifest`（0084:134）也强制 key 等于 type_name，与 0261 中 `entity_key=array[type_name]` 的匹配方式相同。新增测试：用 owner 的限制配置文件，经 `validate_owner_restrictions` 和 `compile_owner_restrictions` 生成事实，验证受限组的属性不会进入 sim world。 |
