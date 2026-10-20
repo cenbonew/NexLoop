@@ -63,8 +63,9 @@ def test_reviewer_page_shows_pending_evidence_and_ends_with_the_review(workbench
 
 def test_the_owner_reads_the_knowledge_pages_and_the_operator_does_not(workbench):
     """NX-028 D2 revision (owner 2026-10-18): the owner role carries the read-only nexloop.knowledge.read (roles v13, 0213) and
-    reads the queue and the evidence (audited as the owner); it still holds no ontology.schema.review, so it cannot decide. The
-    operator and a customer get no queue."""
+    reads the queue and the evidence (audited as the owner). Since revision 2 (owner 2026-10-20, roles v18) the owner also holds
+    ontology.schema.review, so the decision routes open too (tests/test_workbench_review_decisions_pg.py). The operator and a
+    customer get no queue."""
     w = workbench
     admin = w['admin']
     members = ((w['owner'], 'owner'), (w['operator'], 'operator'), (w['outsider'], 'reviewer'))
@@ -79,8 +80,8 @@ def test_the_owner_reads_the_knowledge_pages_and_the_operator_does_not(workbench
         page = client.get('/api/v1/workbench/review/' + candidate)
         assert page.status_code == 200 and page.json()['evidence'][0]['content'] == {'status': 'ok', 'body': BODY}
         assert audit_rows(admin)[-1][1:] == ('owner', 'message', 'eios:object:Message/' + w['refusal']['id'], 'review_evidence')
-        # Read only: the review decision routes still need ontology.schema.review.
-        assert client.get(f'/api/v1/workbench/review-decisions/candidates/{candidate}').status_code == 403
+        # Revision 2: the owner's role now carries ontology.schema.review, so the decision detail opens.
+        assert client.get(f'/api/v1/workbench/review-decisions/candidates/{candidate}').status_code == 200
     before = len(audit_rows(admin))
     for member in (w['operator'], w['customer']):
         with w['client']() as client:

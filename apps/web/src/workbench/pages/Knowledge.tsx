@@ -17,8 +17,10 @@ export const REVIEWER_ONLY_TEXT=<>
   <p>需要查看或审核时，请用相应角色的账号登录工作台。成员的角色由可信配置分配（<code>workbench_roles</code>），不能在工作台内自行更改。</p>
 </>;
 
-/** NX-028 D2 revision (owner 2026-10-18): the owner sees the knowledge pages read-only; decisions are the reviewer's. */
-export const READ_ONLY_TEXT='只读：你可以查看待审核的候选和证据；审核决定（通过、并入、拒绝）由审核员提交。';
+/** NX-028 D2 revision (owner 2026-10-18): a role with nexloop.knowledge.read but not ontology.schema.review sees the knowledge
+ * pages read-only. Revision 2 (owner 2026-10-20): the owner role also holds the review Action and decides; this text is for a role
+ * that reads without it. */
+export const READ_ONLY_TEXT='只读：你可以查看待审核的候选和证据；审核决定（通过、并入、拒绝）由有审核权限的成员提交。';
 
 /** Knowledge review entry: pending review items; a reviewer decides on each item's evidence page (governed review Action). */
 export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidateId:string)=>void}){
@@ -26,7 +28,7 @@ export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidate
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
   return <Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
     {readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
-    <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。审核员在候选的证据页中提交决定（通过、并入已有定义、拒绝），决定写入审计。</p>
+    <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。有审核权限的成员（负责人或审核员）在候选的证据页中提交决定（通过、并入已有定义、拒绝），理由必填，决定写入审计。</p>
     <DataTable label="待审核候选" rows={items} rowKey={x=>x.candidate_id} columns={[
       {label:'候选',main:true,cell:x=><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??x.candidate_id}</button>},
       {label:'类别',cell:x=>x.kind},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=><Time value={x.created_at}/>}]}/>
@@ -38,6 +40,8 @@ export function ReviewEvidencePage({candidateId,actions}:{candidateId:string;act
   const query=useQuery({queryKey:['workbench','review',candidateId],queryFn:()=>readReviewEvidence(candidateId)});
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
   return <Page title="审核证据" query={query} actions={actions} forbidden={REVIEWER_ONLY_TEXT}>{v=>v.status==='ended'?<p className="note" role="status">{REVIEW_ENDED_TEXT}</p>:<>
+    {/* Owner 2026-10-20: the read-only notice sits under the title, not below the evidence. */}
+    {readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
     <p>候选：{v.display_name??v.candidate_id}（{v.kind}，待审核）</p>
     {v.evidence.length?<ol>{v.evidence.map(e=><li key={e.claim_id}>
       <p className="meta">{e.predicate??'—'}{e.source_message_id?<> · 消息 <Short value={e.source_message_id}/></>:null}</p>
@@ -47,12 +51,12 @@ export function ReviewEvidencePage({candidateId,actions}:{candidateId:string;act
         requested from the reviewer's detail endpoint. */}
     {member.isPending?<p className="note" role="status">正在确认当前账号的角色…</p>
       :member.isError?<p className="note" role="alert">读取当前账号的角色失败，审核决定暂不显示。</p>
-      :reviews(member.data)?<ReviewDecisions candidateId={v.candidate_id}/>
-      :readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
+      :reviews(member.data)?<ReviewDecisions candidateId={v.candidate_id}/>:null}
   </>}</Page>;
 }
 
-/** The three governed review decisions, for a member whose current role grants ontology.schema.review (reviewer). Without
+/** The three governed review decisions, for a member whose current role grants ontology.schema.review (reviewer, and the owner
+ * since NX-028 D2 revision 2, 2026-10-20). Without
  * the grant the workbench route answers 403 and nothing is shown; other failures are labelled (AT-045). */
 export function ReviewDecisions({candidateId}:{candidateId:string}){
   const query=useQuery({queryKey:['workbench','review-decision',candidateId],queryFn:()=>readCandidate(candidateId,WORKBENCH_REVIEW),retry:false});
