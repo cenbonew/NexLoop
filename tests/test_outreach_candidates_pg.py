@@ -20,7 +20,8 @@ from test_restore_fence_pg import restoring  # noqa: F401
 from test_workbench_read_pg import workbench_login
 
 pytestmark = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)
-GATES = ['control_paused', 'contact_restricted', 'purpose', 'persona_excluded', 'quiet_hours', 'frequency', 'consumer_preference', 'real_dispatch', 'budget']
+# Outreach slice 4: the contact restriction first (ADR-023) and the marketing gate.
+GATES = ['contact_restricted', 'control_paused', 'purpose', 'marketing', 'persona_excluded', 'quiet_hours', 'frequency', 'consumer_preference', 'real_dispatch', 'budget']
 
 
 def candidates(admin):
@@ -57,13 +58,13 @@ def test_candidates_come_from_the_triggers_and_every_gate_is_evaluated_without_w
     for item in view['candidates']:
         assert [g['gate'] for g in item['gates']] == GATES and item['consumer_id'] == c['consumer']
         assert gate(item, 'purpose') == {'gate': 'purpose', 'result': 'pass', 'detail': 'list v1'}  # outreach slice 3: the purpose list
-        assert gate(item, 'budget')['result'] == 'not_wired'
+        assert gate(item, 'budget') == {'gate': 'budget', 'result': 'refuse', 'detail': 'budget_unconfigured'}  # slice 4: the model budget
         assert gate(item, 'real_dispatch')['result'] == 'refuse' and item['would_dispatch'] is False and 'real_dispatch' in item['blocked_by']
         assert gate(item, 'contact_restricted')['result'] == gate(item, 'persona_excluded')['result'] == gate(item, 'control_paused')['result'] == 'pass'
         local = datetime.now(timezone(timedelta(hours=8))).time()
         quiet = local.hour >= 21 or local.hour < 9
         assert gate(item, 'quiet_hours')['result'] == ('refuse' if quiet else 'pass')
-        assert gate(item, 'frequency') == {'gate': 'frequency', 'result': 'pass', 'detail': {'last_24h': 0, 'last_7d': 0}}  # replies and service work do not count
+        assert gate(item, 'frequency') == {'gate': 'frequency', 'result': 'pass', 'detail': {'last_24h': 0, 'last_7d': 0, 'marketing_7d': 0}}  # replies and service work do not count
 
 
 def test_each_gate_refuses_for_its_own_reason(restoring, admin, tmp_path):
@@ -75,7 +76,7 @@ def test_each_gate_refuses_for_its_own_reason(restoring, admin, tmp_path):
     with effect_provider(tmp_path / 'provider.sqlite') as provider:
         c.deliver(provider, c.submit({'service': '退款处理', 'message': '您的退款已处理'})['intent_id'])
     item = next(i for i in candidates(admin)['candidates'] if i['purpose'] == 'commitment_followup')
-    assert gate(item, 'frequency') == {'gate': 'frequency', 'result': 'refuse', 'detail': {'last_24h': 1, 'last_7d': 1}}
+    assert gate(item, 'frequency') == {'gate': 'frequency', 'result': 'refuse', 'detail': {'last_24h': 1, 'last_7d': 1, 'marketing_7d': 0}}
     # The consumer refuses the topic: the operator persona chain's check answers for the dry run.
     statement(c, 'contact_topic', 'commitment_followup', polarity='negated')
     item = next(i for i in candidates(admin)['candidates'] if i['purpose'] == 'commitment_followup')

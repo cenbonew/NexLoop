@@ -1392,6 +1392,29 @@
       },
       "schema_hash": "90b85f337e4cc9415f7f1e1c19df2ed40bba9bdfbf7968673e85ddfc92b46587",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "outreach.send",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "send_outreach",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "e2a6a919d9e20f85ecd1dfbab23f3dcbd883c977e9694029475149b5b54d18c0",
+      "side_effects_reason": null
     }
   ]
 }

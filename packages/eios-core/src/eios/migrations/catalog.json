@@ -1175,6 +1175,11 @@
       "version": "0235",
       "name": "0235_outreach_purposes.sql",
       "sha256": "155aca0677cdd0a665993e296a13f22cfb1e934c273ab282575428f76585416e"
+    },
+    {
+      "version": "0236",
+      "name": "0236_outreach_send.sql",
+      "sha256": "c09e336beb06add54adfd628aa65c9cfea0a04616903850d8cf53344cbe679ca"
     }
   ]
 }
