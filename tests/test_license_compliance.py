@@ -222,8 +222,12 @@ def test_vendored_file_tampering_is_detected(tmp_path):
     target = tmp_path / provenance['files'][0]['path']
     target.write_bytes(target.read_bytes() + b'\n')
     (tmp_path / 'packages/eios-core/NOTICE').write_text('changed\n')
+    # NX-038 E1: a file ported from EvoOntology is checked against its provenance the same way.
+    ported = tmp_path / 'packages/eios-core/src/nexloop_eios/evolution/gate.py'
+    ported.write_text(ported.read_text().replace('Copyright (c) 2026 Meiduo Chong', 'Copyright removed'))
     problems = cl.vendored_problems(tmp_path, policy)
     assert any('differs from its provenance record' in p for p in problems) and any('differs from NOTICE' in p for p in problems)
+    assert any('vendored evoontology' in p and 'evolution/gate.py' in p for p in problems)
 
 
 def test_the_policy_shape_is_strict(tmp_path):
