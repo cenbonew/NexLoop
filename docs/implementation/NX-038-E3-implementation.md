@@ -9,7 +9,7 @@
 - 调用方报告实际用到了哪些 ref 时，再追加一条 `use` 记录（`recorder.used(access_id, refs)`），原来的 `access` 记录不会被修改。
 - 不带 recorder 时，行为与之前完全相同。
 
-## 记录内容（`runtime.nexloop_semantic_accesses`，临时迁移 0231）
+## 记录内容（`runtime.nexloop_semantic_accesses`，临时迁移 0234）
 
 - 记录：tenant、world、run_id、context_id；操作（browse 或 resolve）；查询种类；每个查询词项的 sha256（**不存原文**）；coverage、ambiguity；返回的定义 ref 与 revision；返回数量和未解析数量；recorded_at。
 - 只追加：任何角色（包括 owner）都不能 UPDATE 或 TRUNCATE。只有下面「保留与删除」中的两条 owner 路径能 DELETE，而且必须在它们设置的事务内标志下进行。
@@ -49,5 +49,5 @@
 
 ## 迁移编号
 
-- 本切片只有一个迁移 `0231_nx038_semantic_access.sql`，迁移里不引用自己的编号（发布者写作 `migration:nx038-e3`）。
+- 本切片只有一个迁移 `0234_nx038_semantic_access.sql`，迁移里不引用自己的编号（发布者写作 `migration:nx038-e3`）。
 - 合并时调度员可能重新编号，只需要改文件名和 catalog 中对应的条目。
