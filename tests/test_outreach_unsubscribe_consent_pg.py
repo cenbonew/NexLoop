@@ -1,6 +1,6 @@
 """Proactive outreach slice 7 (docs/implementation/outreach-impl-plan.md; design §4.4/§4.5): unsubscribe after marketing and
 marketing consent, on clean catalog PostgreSQL with the slice 4 fixture (owner sends, loopback outbox, every gate open only in this
-disposable synthetic database). Contact refusal rules v1 are unchanged and still run first (regression below). Synthetic data only."""
+disposable synthetic database). Contact refusal rules still run first (regression below). Synthetic data only."""
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -87,20 +87,18 @@ def test_an_unsubscribe_counts_only_after_marketing_and_inside_the_window(market
     assert optouts(admin) == []  # outside window_days
     recent = sent(c, admin, origin='owner:summer')
     assert row(admin, recent)[0] == 'fulfilled'
-    c.inbound('怎么退订')  # an exclusion: a question, not an unsubscribe
+    c.inbound('这个活动什么时候结束')  # not an unsubscribe (exclusions are covered by the matching test above)
     assert optouts(admin) == []
     c.inbound(MARKETING_ONLY)
     assert [(k, s, i) for k, s, _, i in optouts(admin)] == [('unsubscribed', 'unsubscribe_rule', recent)]
 
 
-def test_contact_refusal_rules_v1_still_run_first_and_restrict_all_contact(marketing, admin):
-    """Owner decision 2026-10-20: the stricter behaviour stays until a refusal rules v2 is decided (plan §7)."""
+def test_a_full_stop_refusal_after_marketing_still_restricts_all_contact(marketing, admin):
+    """Refusal rules still run first (v2 since ADR-023 §4; the narrow marketing case is in tests/test_contact_refusal_v2_pg.py)."""
     c = marketing
     sent(c, admin)
-    c.inbound('退订')
-    assert restricted(admin, c)  # v1 entry 'unsubscribe': a contact restriction, as before
-    assert [o[:2] for o in optouts(admin)] == [('unsubscribed', 'unsubscribe_rule')]  # and the marketing record beside it
-    assert admin.execute('select rule_id from control.nexloop_contact_refusal_hits where consumer_id=%s', (c['consumer'],)).fetchone() == ('unsubscribe',)
+    c.inbound('别再给我发消息了')
+    assert restricted(admin, c) and optouts(admin) == []
     refused = sent(c, admin, purpose='commitment_followup', origin='commitment:synthetic-2')
     assert row(admin, refused)[:2] == ('refused', 'contact_restricted')  # the restriction stops everything, service included
 

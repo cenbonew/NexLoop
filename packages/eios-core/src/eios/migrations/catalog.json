@@ -1190,6 +1190,11 @@
       "version": "0239",
       "name": "0239_outreach_unsubscribe_consent.sql",
       "sha256": "9784b3370ed896367eb13ec0165dc16ebaa9795fa7858a1f1ae72da3babe07ac"
+    },
+    {
+      "version": "0240",
+      "name": "0240_contact_refusal_rules_v2.sql",
+      "sha256": "038753e8153287ac31434c259922694d0fa2a62956204bccdc4ec18d6e5b0733"
     }
   ]
 }
