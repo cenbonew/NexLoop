@@ -286,10 +286,9 @@ def complete_sim_pi_run(f, tmp_path, blockers=pi_run_blockers):
 
 
 @pytest.mark.xfail(strict=True, raises=PiRunBlocked, reason=(
-    "Blocked until: (1) D10, the owner's three-credentials-per-simulation-world decision - when it is decided, rewrite the D10 probe in "
-    "the decided credential form; (2) S6c, the simulation process group's roles nexloop_sim_worker, nexloop_sim_guard, nexloop_sim_api; "
-    "(3) the Host's simulation Context protocol (exported parseSimContextPack for nexloop.context-pack.sim.v1). Each is probed by "
-    "pi_run_blockers; when all are there the test passes, strict xfail turns that into a failure, and the end-to-end Run replaces it."))
+    "Blocked until D10, the owner's three-credentials-per-simulation-world decision - when it is decided, rewrite the D10 probe in "
+    "the decided credential form. (S6c's roles and the Host's simulation Context protocol are in.) pi_run_blockers probes all three; "
+    "when nothing blocks the test passes, strict xfail turns that into a failure, and the end-to-end Run replaces it."))
 def test_at046_a_simulation_process_group_runs_a_complete_pi_run(s7, tmp_path):
     complete_sim_pi_run(s7, tmp_path)
 

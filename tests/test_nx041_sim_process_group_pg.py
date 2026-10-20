@@ -288,3 +288,24 @@ def test_a_stand_in_intent_carries_the_world_time(db, pg):
     assert submit() == (created + __import__('datetime').timedelta(days=30), True)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='stand-in: invalid'):
         submit(sim_clock='2031-01-02T03:04:05+00:00')
+
+
+def test_the_stand_in_intent_records_the_wall_clock_and_carries_the_world_time_apart(db, pg):
+    """Integration review: S6's nx041_sim_effect_world_time trigger (0264) is dropped by its review fix (0265) and nothing brings it
+    back; submitted_at is the wall-clock audit time while sim_clock carries the world's time (S4 review fixes, S5 clock)."""
+    assert db.execute("select count(*) from pg_trigger where tgname='nx041_sim_effect_world_time'").fetchone()[0] == 0
+    assert db.execute("select to_regprocedure('runtime.nexloop_sim_effect_world_time()') is null").fetchone()[0]
+    a = create_world(db)
+    token, _ = seed_authority(db, TENANT_A, 'eios:artifact:' + 'f' * 32, world=a, identity_suffix='-s6-wall')
+    db.execute("select control.nexloop_governed_control_sim_clock(%s,'real','owner-principal','owner-subject','i-wall',%s)",
+               (TENANT_A, Jsonb({'operation': 'control_sim_clock', 'request_id': U(), 'world': a, 'action': 'advance', 'seconds': 400 * 86400,
+                                 'reason': '推进'})))
+    body = {'intent_id': U(), 'action_name': 'nexloop.outreach.send', 'action_version': 1, 'provider_kind': 'outreach_outbox',
+            'business_digest': hashlib.sha256(U().encode()).hexdigest(), 'request_digest': 'c' * 64, 'origin': 'twin'}
+    before = db.execute('select clock_timestamp()').fetchone()[0]
+    with psycopg.connect(make_conninfo(pg, user='nexloop_api'), autocommit=True) as c:
+        c.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)', (hashlib.sha256(token.encode()).hexdigest(), a, Jsonb(body)))
+    submitted, sim_clock, world_now = db.execute('select submitted_at,sim_clock,runtime.nexloop_world_now(tenant_id,world) from runtime.nexloop_sim_effect_intents where intent_id=%s',
+                                                 (body['intent_id'],)).fetchone()
+    assert before <= submitted <= db.execute('select clock_timestamp()').fetchone()[0]  # the wall, not the world 400 days ahead
+    assert sim_clock == world_now and (sim_clock - submitted).days >= 399

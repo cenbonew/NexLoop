@@ -383,7 +383,7 @@ insert into control.nexloop_real_effect_tables(table_name,guarded,reason) values
  ('ontology.nexloop_definition_aliases',false,'definition aliases written by a candidate merge; internal ontology'),
  ('runtime.nexloop_conversations',false,'conversation of an outbound message; real only by its own CHECK (world = real)'),
  ('runtime.nexloop_conversation_messages',false,'the message record of an outbound message; real only through its conversation'),
- ('runtime.nexloop_commitment_evidence',false,'commitment evidence from an outbound message (guarded); simulation commitments are allowed (S5)'),
+ ('runtime.nexloop_commitment_evidence',false,'commitment evidence from an outbound message (guarded); no simulation row (S7 0266: nx041_no_simulation_evidence)'),
  ('runtime.nexloop_human_requests',false,'a human request record (the owner asks for an effect query); no external request'),
  ('runtime.nexloop_sim_effect_receipts',false,'the simulated ledger itself (simulation worlds only)');
 do $$declare t regclass;begin
