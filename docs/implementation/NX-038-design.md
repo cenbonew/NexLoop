@@ -157,7 +157,7 @@
    - 任意 workspace 选择。
    - evolve/build Skills 改写为受限后台任务提示，不赋予修改代码或发布的权限。
 5. **建立契约测试**：以移植后的状态机对 `evolution-candidate.schema.json` 做往返测试，确认 `proposed → evaluating → accepted_for_release | rejected | incomplete` 的转移与上游语义一致，并把差异写进 provenance。
-6. **安装完成后**：把 `packages.evoontology.installed` 改为 true，并记录实际移植范围。这是 lock 的变更，走 PR，不在本稿中执行。
+6. **移植完成后**：`packages.evoontology.installed` 保持 false（只移植文件，没有安装上游包），在该条目加说明，并在 `upstream_sources.evoontology` 中登记 `provenance` 与 `ported_files`，记录实际移植范围。这是 lock 的变更，走 PR。（2026-10-20 E1 按此执行，调度员确认这一口径。）
 
 ### 4.3 adapter 接口（NexLoop 侧）
 

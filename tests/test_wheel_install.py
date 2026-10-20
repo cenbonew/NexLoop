@@ -52,6 +52,13 @@ def test_wheel_preserves_licenses_provenance_and_all_catalog_files(installed_cor
         for row in provenance['files']:
             path=row['destination'].removeprefix('packages/eios-core/src/')
             assert hashlib.sha256(archive.read(path)).hexdigest()==row['nexloop_sha256']
+        # NX-038 E1: the EvoOntology provenance ships with the ported files, and every ported file in the wheel matches it.
+        evo=json.loads(archive.read('nexloop_eios/evolution/PROVENANCE.json'))
+        assert evo==json.loads((ROOT/'packages/eios-core/src/nexloop_eios/evolution/PROVENANCE.json').read_text())
+        assert evo['commit']==json.loads((ROOT/'versions.lock.json').read_text())['upstream_sources']['evoontology']['commit']
+        for row in evo['files']:
+            ported=archive.read(row['destination'].removeprefix('packages/eios-core/src/'))
+            assert hashlib.sha256(ported).hexdigest()==row['nexloop_sha256'] and b'Copyright (c) 2026 Meiduo Chong' in ported
         catalog=json.loads(archive.read('eios/migrations/catalog.json'))
         for row in catalog['migrations']:
             assert hashlib.sha256(archive.read('eios/migrations/'+row['name'])).hexdigest()==row['sha256']
