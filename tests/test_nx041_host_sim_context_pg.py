@@ -35,10 +35,10 @@ def node_render(pack_text, command):
     return json.loads(out.stdout)
 
 
-def command(world, tenant, mode='simulation'):
+def command(world, tenant, mode='simulation', consumer='c' * 64):
     return {'schema_version': '1.0', 'run_id': '11111111-1111-4111-8111-111111111111', 'tenant_id': tenant, 'world_id': world, 'mode': mode,
             'request_id': 'synthetic-sim-context-1', 'trigger_event_id': '22222222-2222-4222-8222-222222222222', 'role_ref': 'role:sim',
-            'consumer_ref': 'consumer:sim', 'goal_version_ref': 'goal:sim-v1', 'context_manifest_ref': 'artifact:sim', 'runtime_profile': 'deterministic-test',
+            'consumer_ref': 'consumer:' + consumer, 'goal_version_ref': 'goal:sim-v1', 'context_manifest_ref': 'artifact:sim', 'runtime_profile': 'deterministic-test',
             'credential_ref': 'run_credential:sim', 'budget': {'maximum_model_turns': 8, 'maximum_tool_calls': 8, 'active_timeout_seconds': 60, 'maximum_cost': '1.0',
                                                                 'currency': 'USD'}, 'not_after': '2099-01-01T00:00:00Z', 'runtime_owner_epoch': 1}
 
@@ -53,17 +53,20 @@ def test_a_simulation_run_input_is_the_sim_pack_and_the_host_renders_it_marked_s
         text = assemble_sim_context(db, digest(f['token_a']), f['a'], c, limit=2)
     pack = json.loads(text)
     assert pack['schema_version'] == SIM_CONTEXT_PROTOCOL and pack['world'] == f['a'] and pack['data_mode'] == 'simulation'
-    rendered = node_render(text, command(f['a'], pack['tenant_id']))['ok']
+    rendered = node_render(text, command(f['a'], pack['tenant_id'], consumer=c))['ok']
     lines = rendered.split('\n')
     assert lines[0].startswith('[模拟环境 SIMULATION]') and 'source: simulated' in lines[0]
-    assert all(line.startswith('[模拟][source: simulated] ') for line in lines[1:])
+    assert all(line.startswith('[模拟][source: simulated] ') for line in lines[1:-1]) and lines[-1].startswith('[模拟环境 SIMULATION 结束]')
     for section in ('goal', 'supply', 'relationship'):
         assert any(line.startswith(f'[模拟][source: simulated] {section}: 空') for line in lines), section
     assert sum(line.startswith('[模拟][source: simulated] simulated_conversation #') for line in lines) == 2
     assert any('older_events_omitted' in line for line in lines)
     # The same parser refuses the pack for another world, for a real-mode command, and any v6 pack (no fallback).
-    assert node_render(text, command(f['b'], pack['tenant_id']))['error'] == 'runtime_context_invalid'
-    assert node_render(text, command('real', pack['tenant_id'], 'real'))['error'] == 'runtime_context_invalid'
+    assert node_render(text, command(f['b'], pack['tenant_id'], consumer=c))['error'] == 'runtime_context_invalid'
+    assert node_render(text, command('real', pack['tenant_id'], 'real', consumer=c))['error'] == 'runtime_context_invalid'
+    # L6 host-sim-context 4.1: the pack of this world given to a Run of another Consumer is refused.
+    other = consumers(f['admin'], f['a'])[1]
+    assert node_render(text, command(f['a'], pack['tenant_id'], consumer=other))['error'] == 'runtime_context_invalid'
     v6 = json.dumps({'schema_version': 'nexloop.context-pack.v6', 'bindings': {}, 'user_statement': {}})
     assert node_render(v6, command(f['a'], pack['tenant_id']))['error'] == 'runtime_context_invalid'
 

@@ -14,7 +14,7 @@ import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validate
 const MODEL_CONNECT_TIMEOUT_MS=4000,MODEL_CONNECT_RETRIES=2;
 import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
 import {worldGroupAccepts,type WorldGroup} from './worlds.js';
-import {CONTEXT_PROTOCOL_SIM,declaresSimContextPack,parseSimContextPack,renderSimContextPack} from './sim-context.js';
+import {CONTEXT_PROTOCOL_SIM,SIM_RUN_INSTRUCTIONS,declaresSimContextPack,parseSimContextPack,renderSimContextPack} from './sim-context.js';
 
 type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation};
 // ADR-022 §4: each guard call keeps its 2 s limit; an unanswered call is retried a bounded number of times.
@@ -369,7 +369,8 @@ export class RuntimeHost{
       activationForRun:runId=>this.activations.get(runId)?.ref,simulation:this.worldGroup==='simulation'}):undefined;
     this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&!messageRun(this.activations.get(command.run_id)?.input),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
-      ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:RUN_INSTRUCTIONS}:{}),
+      // NX-041 (L6 host-sim-context 3b): a simulation Host's Runs get the simulation instructions, never the real ones.
+      ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:this.simulationContext?SIM_RUN_INSTRUCTIONS:RUN_INSTRUCTIONS}:{}),
       ...(typeof config.model_request_timeout_ms==='number'?{modelRequestTimeoutMs:config.model_request_timeout_ms}:{}),
       ...(config.runtime_profile==='deepseek-flash'?{modelConnect:{timeoutMs:typeof config.model_connect_timeout_ms==='number'?config.model_connect_timeout_ms:MODEL_CONNECT_TIMEOUT_MS,retries:MODEL_CONNECT_RETRIES}}:{}),
       // v6 Runs record each actual model request (AT-027); in multi-protocol mode that is decided per Run.
