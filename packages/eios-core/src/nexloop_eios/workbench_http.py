@@ -254,6 +254,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'object_values', type_name=type_name, object_id=object_id)
 
+    @routes.get('/semantic-releases')
+    async def semantic_releases(request: Request):
+        # NX-039 V4: the owner's semantic release view (current version, history, publishable candidates); no parameters.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'semantic_releases')
+
     @routes.get('/object-sets')
     async def object_sets(request: Request):
         # ADR-036: the tenant's Object Sets (latest version of each, conditions and projection); every member, read only.

@@ -8,6 +8,7 @@ import {DataTable} from '../DataTable';
 import {ApiError} from '../../api';
 import {DecisionBar} from '../../Review';
 import {WORKBENCH_REVIEW,readCandidate,reviewError,type CandidateDetail} from '../../review-api';
+import {SemanticReleaseSection} from './SemanticReleases';
 
 /** The 403 of the knowledge pages for a role with neither the review Action nor the owner's read-only one (the operator, a
  * reviewer-less member): the page says whose page it is instead of the generic "no permission" (NX-028 D2 and its 2026-10-18
@@ -26,13 +27,14 @@ export const READ_ONLY_TEXT='只读：你可以查看待审核的候选和证据
 export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidateId:string)=>void}){
   const query=useQuery({queryKey:['workbench','review'],queryFn:readReviewQueue});
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
-  return <Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
+  // NX-039 V4: the owner's semantic release controls sit beside the review queue (shown only for a role carrying them).
+  return <><Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
     {readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
     <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。有审核权限的成员（负责人或审核员）在候选的证据页中提交决定（通过、并入已有定义、拒绝），理由必填，决定写入审计。</p>
     <DataTable label="待审核候选" rows={items} rowKey={x=>x.candidate_id} columns={[
       {label:'候选',main:true,cell:x=><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??x.candidate_id}</button>},
       {label:'类别',cell:x=>x.kind},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=><Time value={x.created_at}/>}]}/>
-  </>}</Page>;
+  </>}</Page><SemanticReleaseSection/></>;
 }
 
 /** The evidence messages of one pending item, read through the reviewer derivation (each read audited). */

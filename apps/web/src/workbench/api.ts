@@ -399,6 +399,8 @@ export const OPERATION_ACTION={
   set_outreach_purpose:'eios:action:nexloop.outreach_purposes.set:1',
   // Outreach slice 6: approve or reject a proactive send waiting for approval (never the requester's own).
   decide_outreach_approval:'eios:action:nexloop.outreach.approve:1',
+  // NX-039 V4 (D39-8): publish a semantic release from an evaluated candidate, or roll back to an earlier version (owner only).
+  publish_semantic_release:'eios:action:nexloop.semantic_release.publish:1',rollback_semantic_release:'eios:action:nexloop.semantic_release.rollback:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -652,6 +654,30 @@ export function objectNeighbors(value:unknown):ObjectNeighbors{
 export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}${after?'?after='+encodeURIComponent(after):''}`,objectPage);
 export const readObjectValues=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,objectValues);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
+
+// ---- NX-039 V4 semantic release (owner only): the current version, the history with rollback reports, the publishable candidates ----
+export type ReleaseItem={kind:'alias'|'semantic_note';ref:string;body:string};
+export type RollbackReport={from_version:string;to_version:string;removed_aliases:number;claim_count:number;claim_ids:string[];dropped_erased_items:number};
+export type SemanticRelease={version:string;reason:'publish'|'rollback';candidate_id:string|null;change_class:'patch'|'minor'|null;rolled_back_to:string|null;
+  rollback_report:RollbackReport|null;owner_reason:string;recorded_at:string;items:ReleaseItem[]};
+export type PublishableCandidate={candidate_id:string;change_class:'patch'|'minor';change_kind:'alias'|'description';target_refs:string[];term_hashes:number;parent_ok:boolean};
+export type SemanticReleases={current:string|null;releases:SemanticRelease[];publishable:PublishableCandidate[]};
+const VERSION=/^\d{1,4}\.\d{1,4}\.\d{1,6}$/;
+function releaseVersion(value:unknown):string{const v=text(value);if(!VERSION.test(v))throw new WorkbenchError('invalid');return v;}
+export function semanticReleases(value:unknown):SemanticReleases{
+  const o=object(value);
+  return {current:o.current===null?null:releaseVersion(o.current),
+    releases:list(o.releases).map(x=>{const r=object(x);const report=r.rollback_report===null||r.rollback_report===undefined?null:object(r.rollback_report);
+      return {version:releaseVersion(r.version),reason:oneOfText(r.reason,['publish','rollback'] as const),candidate_id:maybeText(r.candidate_id),
+        change_class:r.change_class===null?null:oneOfText(r.change_class,['patch','minor'] as const),rolled_back_to:r.rolled_back_to===null?null:releaseVersion(r.rolled_back_to),
+        rollback_report:report?{from_version:releaseVersion(report.from_version),to_version:releaseVersion(report.to_version),removed_aliases:count(report.removed_aliases),
+          claim_count:count(report.claim_count),claim_ids:list(report.claim_ids).map(id),dropped_erased_items:count(report.dropped_erased_items)}:null,
+        owner_reason:text(r.owner_reason),recorded_at:text(r.recorded_at),
+        items:list(r.items).map(i=>{const v=object(i);return {kind:oneOfText(v.kind,['alias','semantic_note'] as const),ref:text(v.ref),body:text(v.body)};})};}),
+    publishable:list(o.publishable).map(x=>{const c=object(x);return {candidate_id:text(c.candidate_id),change_class:oneOfText(c.change_class,['patch','minor'] as const),
+      change_kind:oneOfText(c.change_kind,['alias','description'] as const),target_refs:list(c.target_refs).map(text),term_hashes:count(c.term_hashes),parent_ok:flag(c.parent_ok)};})};
+}
+export const readSemanticReleases=()=>get('/api/v1/workbench/semantic-releases',semanticReleases);
 
 // ---- Object Set (ADR-036): definitions and a preview page evaluated at read time; each object READ-checked, restricted properties withheld ----
 export const OBJECT_SET_OPERATORS=['eq','ne','gt','gte','lt','lte','in','not_in'] as const;

@@ -462,6 +462,11 @@ class WorkbenchQueries:
         return {'type_name': type_name, 'object_id': object_id, 'schema_version': fields['schema_version'], 'revision': fields['revision'],
                 'properties': props}
 
+    def semantic_releases(self):
+        """NX-039 V4: the current semantic release version, the last 20 releases (with rollback reports) and the candidates the owner
+        may publish (ids, class, report digest, refs and term-hash counts; never a message). Owner only (SQL)."""
+        return self.reader.observe('semantic_releases')
+
     def object_sets(self):
         """ADR-036: the latest version of each Object Set with its conditions and projection (definitions only, no object)."""
         return self.reader.observe('object_sets')

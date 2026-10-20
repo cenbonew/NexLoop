@@ -26,6 +26,8 @@ export const DONE_TEXT:Record<Operation,string>={
   set_outreach_controls:'已保存外联控制；新设置的修订号已刷新。合规责任由使用方承担。',
   set_outreach_purpose:'已更新这个外联目的的启用状态；派发预演按新状态判定。',
   decide_outreach_approval:'已记录审批结论；批准的外联仍要在派发时通过全部闸门，拒绝即终止。',
+  publish_semantic_release:'已发布新的语义版本；之后的语义读取与召回使用新版本。分级来自评估报告，不能手工修改。',
+  rollback_semantic_release:'已回退：生成了一个更高的版本号，内容等于目标版本。已有 Claim 不会被改动，回退报告列出受影响的 Claim 供人工复核。',
   set_control:'已提交；派发预判与计划状态已刷新。恢复不会重放暂停期间被拒的意图。',
   release_contact_restriction:'已解除；之前被拒的意图不会重放，计划将重新评估。',
   cancel_commitment:'已取消承诺。',extend_commitment:'已延期：原承诺已被新承诺取代。',attest_commitment:'已记录人工证明。',
