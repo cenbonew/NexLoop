@@ -5,7 +5,8 @@ import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,RESTRICTED_TEXT,consumerAlias,consu
 import type {Context} from '../WorkbenchApp';
 import type {Query} from '../route';
 import {Page} from './Page';
-import {CopyId,Empty,FilterChip,Keyword,Pager,StatusBadge,Tabs,commitmentTone} from '../ui';
+import {FilterChip,Keyword,Pager,StatusBadge,Tabs,Time} from '../ui';
+import {EmptyState,IdText} from '../kit';
 import {ConsumerHeader,ConsumerName,when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {Operations} from './PageOps';
@@ -42,7 +43,7 @@ export function nextStep(view:CommitmentView):string{
 
 function Evidence({title,items,note}:{title:string;items:EvidenceItem[];note?:string}){
   return <div className="evidence-column"><h3>{title}</h3>{note?<p className="note">{note}</p>:null}
-    {items.length?<ul>{items.map(x=><li key={x.kind+x.ref}>{x.kind} · {when(x.occurred_at)}</li>)}</ul>:<p className="note">暂无证据。</p>}</div>;
+    {items.length?<ul>{items.map(x=><li key={x.kind+x.ref}><StatusBadge domain="commitment_evidence" code={x.kind}/> <Time value={x.occurred_at}/></li>)}</ul>:<EmptyState kind="empty" subject="证据" compact/>}</div>;
 }
 
 /** "到期到 <day>" is inclusive of that whole Beijing day: the server's bound is exclusive (due_at < due_before), so send the next day's
@@ -69,7 +70,7 @@ export function Commitments({actions,onOpen,onConsumer,query={},onQuery=()=>{}}:
   const tab=(key:Group,label:string)=>({key,label:<>{label}{counts&&key!=='all'?<span className="tab-count">（{counts[key]}）</span>:null}</>});
   const customer=query.consumer?data.data?.commitments.find(c=>c.consumer_id===query.consumer):undefined;
   const keyword=query.q??'';
-  return <Page title="承诺 / 交付" query={data} actions={actions} toolbar={<>
+  return <Page title="承诺 / 交付" query={data} actions={actions} lead="客户被承诺的事情、它们的期限与证据；按范围、客户和期限筛选，异常与列表同一范围。" toolbar={<>
     <Tabs label="承诺范围" value={group} onChange={k=>set({status:k==='open'?'':k})} tabs={[tab('open','未结束'),tab('ended','已结束'),tab('all','全部')]}/>
     <div className="list-tools" role="search" aria-label="筛选承诺">
       {query.consumer?<FilterChip label={<>客户：{customer?consumerLabel(query.consumer,customer.consumer_display??{status:'missing'}):consumerAlias(query.consumer)}</>} onClear={()=>set({consumer:''})}/>:null}
@@ -91,18 +92,18 @@ export function Commitments({actions,onOpen,onConsumer,query={},onQuery=()=>{}}:
         {label:'客户',cell:c=>onConsumer?<button type="button" className="link" onClick={()=>onConsumer(c.consumer_id)}><ConsumerName consumerId={c.consumer_id} display={c.consumer_display}/></button>
           :<ConsumerName consumerId={c.consumer_id} display={c.consumer_display}/>},
         {label:'期限',cell:dueText},
-        {label:'状态',cell:c=><StatusBadge text={COMMITMENT_STATUS_TEXT[c.status]??'未知状态'} tone={commitmentTone(c.status)} code={c.status}/>},
+        {label:'状态',cell:c=><StatusBadge domain="commitment_status" code={c.status}/>},
         {label:'承诺方',cell:promiser},{label:'下一步',cell:nextStep},
-        {label:'ID',cell:c=><CopyId value={c.commitment_id}/>}]}/>
-        :k&&page.commitments.length?<p className="note" role="status">当前页没有匹配的承诺；关键字只在当前页内查找。</p>
-        :<Empty kind="filtered" title={filtered?'没有符合筛选条件的承诺':group==='ended'?'没有已结束的承诺':group==='open'?'没有未结束的承诺':'没有承诺'}
+        {label:'ID',cell:c=><IdText value={c.commitment_id}/>}]}/>
+        :k&&page.commitments.length?<EmptyState kind="filtered" subject="承诺" reason="关键字只在当前页内查找"/>
+        :<EmptyState kind={filtered?'filtered':'empty'} subject={filtered?'承诺':group==='ended'?'已结束的承诺':group==='open'?'未结束的承诺':'承诺'}
           next={filtered?'清除筛选条件，或换一个范围。':group==='ended'?'切换到“未结束”查看进行中的承诺。':'切换到“已结束”查看历史承诺。'}/>}
       {k&&rows.length?<p className="note">关键字只在当前页内查找（当前页 {page.commitments.length} 条中匹配 {rows.length} 条）。</p>:null}
       <Pager total={page.total} start={start} size={PAGE_SIZE} shown={page.commitments.length} onPage={n=>set({page:n?String(n):''})}/>
       {/* F05: the exceptions of exactly this scope; the whole tenant's count separately, said as such. */}
       <h2>本范围的异常{page.counts?`（${page.counts.exceptions_in_scope}）`:''}</h2>
-      {page.exceptions.length?<ul className="exceptions-scope">{page.exceptions.map(e=><li key={e.subject_ref+e.reason}>{e.reason} · {e.subject_ref.startsWith('commitment:')?<>承诺 <code title={e.subject_ref}>{e.subject_ref.slice(11,23)}…</code></>
-        :'登记前'} · {when(e.raised_at)}</li>)}</ul>:<p className="note">当前范围内没有异常。</p>}
+      {page.exceptions.length?<ul className="exceptions-scope">{page.exceptions.map(e=><li key={e.subject_ref+e.reason}><StatusBadge domain="commitment_exception" code={e.reason}/> · {e.subject_ref.startsWith('commitment:')?<IdText kind="承诺" value={e.subject_ref.slice(11)}/>
+        :'登记前'} · <Time value={e.raised_at}/></li>)}</ul>:<EmptyState kind="empty" subject="本范围的异常" compact/>}
       {page.counts&&page.counts.exceptions_all!==page.counts.exceptions_in_scope?<details className="exceptions-all"><summary>全部承诺异常（{page.counts.exceptions_all}）</summary>
         <p className="note">包括其他范围（如已结束的承诺）的异常；切换到“全部”且不加筛选即可逐条查看。</p></details>:null}
     </>;}}</Page>;
@@ -114,21 +115,23 @@ export function CommitmentDetail({commitmentId,actions,onContext,onConsumer}:{co
   useEffect(()=>{if(d)onContext?.({consumerId:d.consumer_id,label:d.consumer_display?consumerLabel(d.consumer_id,d.consumer_display):consumerAlias(d.consumer_id)});},[d,onContext]);
   return <Page title="承诺详情" query={query} lead={d?<ConsumerHeader consumerId={d.consumer_id} display={d.consumer_display}/>:null}>{c=><>
     {onConsumer?<p><button type="button" className="link-count" onClick={()=>onConsumer(c.consumer_id)}>打开这位客户</button></p>:null}
-    <p className="workbench-summary">承诺方：{promiser(c)} · 下一步：{nextStep(c)} · <CopyId value={c.commitment_id}/></p>
+    <p className="workbench-summary">承诺方：{promiser(c)} · 下一步：{nextStep(c)} · <IdText kind="承诺" value={c.commitment_id}/></p>
     <h2>承诺正文</h2>
     <blockquote>{quoteText(c)}</blockquote>
     <h2>当前状态</h2>
-    <p className="workbench-summary" role="status">{COMMITMENT_STATUS_TEXT[c.status]??c.status}（来自承诺对象，界面不推断） · 期限：{dueText(c)}
-      {c.exceptions.length?` · 异常：${c.exceptions.map(e=>e.reason).join('、')}`:''}</p>
+    <p className="workbench-summary" role="status"><StatusBadge domain="commitment_status" code={c.status}/>（来自承诺对象，界面不推断） · 期限：{dueText(c)}
+      {c.exceptions.length?<> · 异常：{c.exceptions.map(e=><StatusBadge key={e.reason} domain="commitment_exception" code={e.reason}/>)}</>:null}</p>
     <h2>证据</h2>
     <div className="evidence-grid">
       <Evidence title="请求创建" items={c.evidence.requested}/>
       <Evidence title="已交付" items={c.evidence.delivered} note="消息已送达不代表承诺已兑现。"/>
       <Evidence title="客户确认" items={c.evidence.customer_confirmed}/>
-      <div className="evidence-column"><h3>问题解决</h3><p className="note">不可用（v0.1 不推断问题是否解决）。</p></div>
+      <div className="evidence-column"><h3>问题解决</h3><EmptyState kind="unavailable" subject="问题解决的证据" reason="当前版本不推断问题是否解决" next="不代表问题未解决。" compact/></div>
     </div>
-    <h2>事件</h2><ol>{c.events.map((e,i)=><li key={i}>{e.kind} · {when(e.recorded_at)}{e.principal_id?` · ${e.principal_id}`:''}</li>)}</ol>
-    {c.exceptions.length?<><h2>异常</h2><ul>{c.exceptions.map(e=><li key={e.reason}>{e.reason} · {when(e.raised_at)}</li>)}</ul></>:null}
+    <h2>事件</h2><DataTable label="承诺事件" empty={{subject:'事件'}} rows={c.events.map((e,i)=>({...e,i}))} rowKey={e=>String(e.i)} columns={[
+      {label:'事件',main:true,cell:e=><StatusBadge domain="commitment_event" code={e.kind}/>},{label:'时间',cell:e=><Time value={e.recorded_at}/>},
+      {label:'操作人',cell:e=>e.principal_id?<IdText kind="成员" value={e.principal_id} head={6} tail={4}/>:'—'}]}/>
+    {c.exceptions.length?<><h2>异常</h2><ul>{c.exceptions.map(e=><li key={e.reason}><StatusBadge domain="commitment_exception" code={e.reason}/> <Time value={e.raised_at}/></li>)}</ul></>:null}
     <Operations actions={actions} title="对这条承诺的操作"/>
   </>}</Page>;
 }

@@ -3,6 +3,8 @@ import {useState,type ReactNode} from 'react';
 import {DataTable} from './DataTable';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,WRITE_TEXT,WorkbenchError,kindOf,offers,readMe,readRealDispatchSwitches,writeKindOf,type Me} from './api';
+import {statusLabel} from './status-labels';
+import {EmptyState,FormField} from './kit';
 import {DELIVER,apply,checkReason,describe,plan,realDispatch,type Change,type RealDispatch,type StepResult} from './realDispatch';
 
 const onOff=(v:boolean|undefined)=>v===undefined?'未设置（关）':v?'开':'关';
@@ -14,7 +16,7 @@ export function RealDispatchPanel(){
     <h2 id="real-dispatch-title">真实派发开关</h2>
     <p className="note">外部效应（真实企业交付等）只有三层同时打开才会派发：部署层、租户层、Action 层。</p>
     {state.isPending?<p role="status">{STATE_TEXT.loading}</p>
-      :state.isError?<p className="note" role="status">开关状态暂不可读：{STATE_TEXT[kindOf(state.error)]}</p>
+      :state.isError?<EmptyState kind="unavailable" subject="开关状态" reason={STATE_TEXT[kindOf(state.error)]} onRetry={()=>void state.refetch()}/>
       :<Layers state={state.data}/>}
     {state.data?<Outcome state={state.data}/>:null}
     {state.data&&member.data&&offers(member.data,'set_real_dispatch')?<Controls state={state.data} member={member.data} onRead={()=>state.refetch()}/>
@@ -40,8 +42,8 @@ export function Layers({state}:{state:RealDispatch}){
   const others=state.actions.filter(a=>a.action_type!==DELIVER);
   const pill=(on:boolean|undefined)=><span className={'rd-pill '+(on?'rd-on':'rd-off')}>{onOff(on)}</span>;
   const rows:{layer:string;status:ReactNode;note:ReactNode}[]=[
-    {layer:'部署层 REAL_DISPATCH_ENABLED',status:<span className="rd-pill rd-unknown">未知</span>,note:'由部署层控制：APP_HOST 的 compose 环境变量，平时保持打开；需在 APP_HOST 部署层开启，工作台无法读取或修改。'},
-    {layer:'租户层',status:pill(state.tenant?.enabled),note:`数据模式 ${state.tenant?.data_mode??'—'} · 版本 ${state.tenant?.revision??0}${state.tenant?.enabled&&state.tenant.data_mode!=='real'?'（test 模式按关闭处理）':''}`},
+    {layer:'部署层 REAL_DISPATCH_ENABLED',status:<span className="rd-pill rd-unknown">未知</span>,note:<>由部署层控制（APP_HOST 的 compose 环境变量），平时保持打开；需在 APP_HOST 部署层开启，工作台无法读取或修改。</>},
+    {layer:'租户层',status:pill(state.tenant?.enabled),note:`数据模式：${state.tenant?.data_mode?statusLabel('data_mode',state.tenant.data_mode):'—'} · 版本 ${state.tenant?.revision??0}${state.tenant?.enabled&&state.tenant.data_mode!=='real'?'（测试模式按关闭处理）':''}`},
     {layer:'Action 层 · enterprise.deliver:1',status:pill(deliver?.enabled),note:`版本 ${deliver?.revision??0}`},
     ...others.map(a=>({layer:`Action 层 · ${a.action_type.replace(/^eios:action:(nexloop\.)?/,'')}`,status:pill(a.enabled),note:`版本 ${a.revision}`}))];
   return <DataTable className="real-dispatch-layers" label="真实派发三层开关" rows={rows} rowKey={r=>r.layer} columns={[
@@ -71,14 +73,13 @@ function Controls({state,onRead}:{state:RealDispatch;member:Me;onRead:()=>Promis
       {changes.length?<><p>将依次执行：</p><ol>{changes.map((c,i)=><li key={i}>{describe(c)}</li>)}</ol></>:<p className="note">当前状态已经是目标状态，不需要变更。</p>}
       <p className="impact-summary" role="note">影响：只改变上面列出的{changes.length}个开关；部署层不在此变更。完成后{mode==='open'?'真实交付状态为“无法确认”：部署层也开启时才会派发':'真实交付不可派发'}。</p>
       {mode==='open'?<p className="rd-warning" role="note">部署层 REAL_DISPATCH_ENABLED 的状态工作台读不到：它平时保持打开；若部署层关闭，开启后也不会真实派发。</p>:null}
-      <div className="field"><label htmlFor="rd-reason">原因（必填）</label>
-        <textarea id="rd-reason" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} rows={2} required/></div>
-      {reason&&problem?<p className="error">{problem}</p>:null}
+      <FormField id="rd-reason" label="原因（必填）" error={reason&&problem?problem:undefined}>
+        <textarea id="rd-reason" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} rows={2} required aria-describedby={reason&&problem?'rd-reason-error':undefined}/></FormField>
       <div className="rd-buttons"><button type="button" onClick={()=>void confirm()} disabled={busy||!!problem||!changes.length}>{busy?'正在提交…':'确认执行'}</button>
         <button type="button" className="rd-close" onClick={()=>setMode(null)} disabled={busy}>取消</button></div>
     </div>:null}
     {results?<div className="rd-results" role="status"><h3>执行结果</h3><ul>{results.map((r,i)=><li key={i} className={r.ok?'rd-ok':'rd-fail'}>
-      {describe(r.change)}：{r.ok?`完成，新版本 ${r.control_revision??'—'}`:`未完成（${r.kind}）：${WRITE_TEXT[r.kind]}`}</li>)}</ul>
+      {describe(r.change)}：{r.ok?`完成，新版本 ${r.control_revision??'—'}`:<span title={r.kind}>未完成：{WRITE_TEXT[r.kind]}</span>}</li>)}</ul>
       {results.some(r=>!r.ok)?<p className="note">已停止后续步骤，未自动重试；上方状态为重新读取后的结果。</p>:null}</div>:null}
   </div>;
 }

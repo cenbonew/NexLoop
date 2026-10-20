@@ -27,12 +27,12 @@ try{
   await page.goto('/workbench/commitments');await settle(page,'semantics-commitments-open');
   const rows=async()=>page.evaluate(()=>[...document.querySelectorAll('table.data-table tbody tr')].map(tr=>Object.fromEntries([...tr.querySelectorAll('td')].map(td=>[td.dataset.label,td.textContent.trim()]))));
   const scope=async()=>({tabs:await text(page,'[role=tab]'),selected:(await text(page,'[role=tab][aria-selected=true]'))[0],rows:(await rows()).length,
-    scope:(await text(page,'.workbench-page h2')).find(t=>t.startsWith('本范围的异常')),exceptions:(await text(page,'.exceptions-scope li')).map(t=>t.split(' · ')[0]),
+    scope:(await text(page,'.workbench-page h2')).find(t=>t.startsWith('本范围的异常')),exceptions:await page.locator('.exceptions-scope li [data-code]').evaluateAll(b=>b.map(x=>x.getAttribute('data-code'))),  // UI spec §7: the code is in the badge, the text is its label
     all_exceptions:(await text(page,'.exceptions-all summary'))[0]??null});
   const open=await rows();
   const late=open.find(r=>r['期限'].includes('已逾期'));
   result.f03={late_row:{summary:late?.['承诺'],customer:late?.['客户'],due:late?.['期限'],status:late?.['状态'],next:late?.['下一步']},
-    headers:await text(page,'table.data-table thead th'),id_short:open.every(r=>/^[0-9a-f]{12}…/.test(r['ID'])),copy_buttons:await page.locator('.copy-button').count()};
+    headers:await text(page,'table.data-table thead th'),id_short:open.every(r=>/^[0-9a-f]{8}…[0-9a-f]{4}/.test(r['ID'])),copy_buttons:await page.locator('button.id-copy').count()};  // UI spec §6: IdText head…tail and its copy button
   result.f05={open:await scope()};
   await page.getByRole('tab',{name:/已结束/}).click();await settle(page,'semantics-commitments-ended');
   result.f05.ended=await scope();
@@ -40,7 +40,7 @@ try{
   // F04: the same customer's name state on the commitment list, the consumer list and the consumer detail.
   const commitmentName=(await rows())[0]?.['客户']?.replace(/\s+/g,'');
   await page.goto('/workbench/consumers?sort=open_commitments&order=desc');await settle(page,'semantics-consumers');
-  const listName=await page.evaluate(id=>{const row=[...document.querySelectorAll('table.data-table tbody tr')].find(tr=>tr.textContent.includes(id.slice(0,12)));
+  const listName=await page.evaluate(id=>{const row=[...document.querySelectorAll('table.data-table tbody tr')].find(tr=>tr.querySelector(`[data-id="${id}"]`));
     return row?row.querySelector('.consumer-name').textContent.replace(/\s+/g,''):null;},session.consumer_id);
   result.f09={consumers_total:(await text(page,'.list-total'))[0]};
   await page.goto(`/workbench/consumers/${session.consumer_id}`);await settle(page,'semantics-consumer');

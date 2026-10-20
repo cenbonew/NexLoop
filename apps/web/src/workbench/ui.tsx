@@ -47,7 +47,9 @@ export function Announce({text}:{text:string}){return <p className="sr-only" rol
 
 // ---- F14: tabs ----
 /** Tabs with aria-selected, roving tabindex, ←/→/Home/End to move and select, Enter/Space to select; focus follows the selection. */
-export function Tabs<K extends string>({label,tabs,value,onChange,announce}:{label:string;tabs:{key:K;label:ReactNode}[];value:K;onChange:(key:K)=>void;announce?:string}){
+/** With `id` (UI spec appendix B) each tab gets `${id}-tab-${key}` and aria-controls `${id}-panel`; wrap the content in
+ * <TabPanel id value> so the panel is labelled by the selected tab. */
+export function Tabs<K extends string>({label,tabs,value,onChange,announce,id}:{label:string;tabs:{key:K;label:ReactNode}[];value:K;onChange:(key:K)=>void;announce?:string;id?:string}){
   const refs=useRef<(HTMLButtonElement|null)[]>([]);
   const index=Math.max(0,tabs.findIndex(t=>t.key===value));
   function select(i:number){const t=tabs[(i+tabs.length)%tabs.length];onChange(t.key);refs.current[(i+tabs.length)%tabs.length]?.focus();}
@@ -57,8 +59,13 @@ export function Tabs<K extends string>({label,tabs,value,onChange,announce}:{lab
     else if(event.key==='Enter'||event.key===' '){event.preventDefault();select(i);}
   }
   return <><div role="tablist" aria-label={label} className="tabs">{tabs.map((t,i)=><button key={t.key} ref={e=>{refs.current[i]=e;}} type="button" role="tab"
-    aria-selected={i===index} tabIndex={i===index?0:-1} className={i===index?'tab tab-selected':'tab'} onClick={()=>select(i)} onKeyDown={e=>key(e,i)}>{t.label}</button>)}</div>
+    aria-selected={i===index} tabIndex={i===index?0:-1} id={id?`${id}-tab-${t.key}`:undefined} aria-controls={id?`${id}-panel`:undefined} className={i===index?'tab tab-selected':'tab'} onClick={()=>select(i)} onKeyDown={e=>key(e,i)}>{t.label}</button>)}</div>
     {announce!==undefined?<Announce text={announce}/>:null}</>;
+}
+
+/** The panel of a Tabs with the same `id`: role tabpanel, labelled by the selected tab, focusable. */
+export function TabPanel({id,value,children}:{id:string;value:string;children:ReactNode}){
+  return <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${value}`} tabIndex={0} className="tab-panel">{children}</div>;
 }
 
 // ---- F15: numbers and time ----

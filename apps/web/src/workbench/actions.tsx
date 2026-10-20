@@ -5,6 +5,8 @@
  * read shows the result. A 503 or unreadable response means the result is unknown: it is said so, and a retry reuses the same
  * Idempotency-Key (the governed entry answers a replay from its terminal outcome, nothing runs twice).
  */
+import {statusLabel} from './status-labels';
+import {shorten} from './kit';
 import {useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
 import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
@@ -150,7 +152,7 @@ export function CommitmentControls({commitmentId}:{commitmentId:string}){
   const view=useQuery({queryKey:['workbench','commitment',commitmentId],queryFn:()=>readCommitment(commitmentId)});
   return <WithMember>{member=>{
     if(!view.data)return null;
-    if(!OPEN_STATUSES.includes(view.data.status))return <p className="note">承诺已结束（{COMMITMENT_STATUS_TEXT[view.data.status]??view.data.status}），不能再执行操作。</p>;
+    if(!OPEN_STATUSES.includes(view.data.status))return <p className="note">承诺已结束（{statusLabel('commitment_status',view.data.status)}），不能再执行操作。</p>;
     const subject=typeof view.data.properties.predicate==='string'?view.data.properties.predicate:null;
     const op=(operation:Operation,title:string,effect:string,extra?:{id:string;label:string;key:'occurred_at'|'due_at'})=>offers(member,operation)
       ?<CommitmentOperation key={operation} member={member} operation={operation} title={title} effect={effect} commitmentId={commitmentId} subject={subject} extra={extra}/>:null;
@@ -184,7 +186,7 @@ export function ReevaluateForm({member}:{member:Me}){
   if(plans.data&&!ids.length)return null;
   return <Form operation="request_plan_reevaluation" title="手动复评" member={member} disabled={!target} body={()=>target?{plan_id:target,reason}:null}>
     {ids.length?<div className="field"><label htmlFor="reevaluate-plan">计划</label><select id="reevaluate-plan" value={target} required onChange={e=>setChosen(e.target.value)}><option value="">请选择计划</option>
-      {plans.data!.map(p=><option key={p.plan_id} value={p.plan_id}>{p.plan_id.slice(0,8)}… v{p.version}（{p.status}）</option>)}</select></div>:<p className="note">暂无计划。</p>}
+      {plans.data!.map(p=><option key={p.plan_id} value={p.plan_id}>{shorten(p.plan_id)} v{p.version}（{statusLabel('plan_status',p.status)}）</option>)}</select></div>:<p className="note">暂无计划。</p>}
     <Reason id="reevaluate-reason" value={reason} onChange={setReason}/>
   </Form>;
 }
