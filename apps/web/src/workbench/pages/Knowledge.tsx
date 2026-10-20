@@ -1,8 +1,9 @@
-import type {ReactNode} from 'react';
+import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {RESTRICTED_TEXT,REVIEW_ENDED_TEXT,readMe,readReviewEvidence,readReviewQueue,readsKnowledgeOnly,reviews} from '../api';
-import {Page,Short} from './Page';
-import {Time} from '../ui';
+import {RESTRICTED_TEXT,REVIEW_ENDED_TEXT,readMe,readReviewEvidence,readReviewQueue,readsKnowledgeOnly,reviews,type ReviewEvidence} from '../api';
+import {Page} from './Page';
+import {StatusBadge,Time} from '../ui';
+import {EmptyState,IdText,shorten} from '../kit';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {ApiError} from '../../api';
@@ -32,8 +33,8 @@ export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidate
     {readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
     <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。有审核权限的成员（负责人或审核员）在候选的证据页中提交决定（通过、并入已有定义、拒绝），理由必填，决定写入审计。</p>
     <DataTable label="待审核候选" rows={items} rowKey={x=>x.candidate_id} columns={[
-      {label:'候选',main:true,cell:x=><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??x.candidate_id}</button>},
-      {label:'类别',cell:x=>x.kind},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=><Time value={x.created_at}/>}]}/>
+      {label:'候选',main:true,cell:x=><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??shorten(x.candidate_id)}</button>},
+      {label:'类别',cell:x=><StatusBadge domain="candidate_kind" code={x.kind}/>},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=><Time value={x.created_at}/>}]}/>
   </>}</Page><SemanticReleaseSection/></>;
 }
 
@@ -44,17 +45,42 @@ export function ReviewEvidencePage({candidateId,actions}:{candidateId:string;act
   return <Page title="审核证据" query={query} actions={actions} forbidden={REVIEWER_ONLY_TEXT}>{v=>v.status==='ended'?<p className="note" role="status">{REVIEW_ENDED_TEXT}</p>:<>
     {/* Owner 2026-10-20: the read-only notice sits under the title, not below the evidence. */}
     {readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
-    <p>候选：{v.display_name??v.candidate_id}（{v.kind}，待审核）</p>
-    {v.evidence.length?<ol>{v.evidence.map(e=><li key={e.claim_id}>
-      <p className="meta">{e.predicate??'—'}{e.source_message_id?<> · 消息 <Short value={e.source_message_id}/></>:null}</p>
-      {e.content.status==='ok'?<blockquote>{e.content.body}</blockquote>:<p className="note">{e.source_message_id?RESTRICTED_TEXT:'无来源消息'}</p>}
-    </li>)}</ol>:<p className="note">暂无证据。</p>}
+    <p>候选：{v.display_name??<IdText value={v.candidate_id}/>} <StatusBadge domain="candidate_kind" code={v.kind}/> <StatusBadge text="待审核" tone="pending"/></p>
+    <EvidenceByMessage evidence={v.evidence}/>
     {/* PR #6 review: the decisions mount only once /me has answered with the review Action; while it loads or fails nothing is
         requested from the reviewer's detail endpoint. */}
     {member.isPending?<p className="note" role="status">正在确认当前账号的角色…</p>
       :member.isError?<p className="note" role="alert">读取当前账号的角色失败，审核决定暂不显示。</p>
       :reviews(member.data)?<ReviewDecisions candidateId={v.candidate_id}/>:null}
   </>}</Page>;
+}
+
+type Evidence=Extract<ReviewEvidence,{status:'pending_review'}>['evidence'][number];
+/** Evidence grouped by its source message (owner 2026-10-20: one message gave several Claims and its text repeated once per Claim):
+ * each message's text once (six lines, expandable), then the Claims taken from it; Claims without a source message stay apart. */
+export function groupEvidence(evidence:Evidence[]):{message:string|null;content:Evidence['content']|null;claims:Evidence[]}[]{
+  const groups=new Map<string,{message:string|null;content:Evidence['content']|null;claims:Evidence[]}>();
+  for(const e of evidence){
+    const key=e.source_message_id?'m:'+e.source_message_id:'c:'+e.claim_id;
+    const g=groups.get(key)??{message:e.source_message_id,content:e.source_message_id?e.content:null,claims:[]};
+    if(g.content?.status!=='ok'&&e.content.status==='ok'&&e.source_message_id)g.content=e.content;
+    g.claims.push(e);groups.set(key,g);
+  }
+  return [...groups.values()];
+}
+function MessageExcerpt({body}:{body:string}){
+  const [open,setOpen]=useState(false);const long=body.split('\n').length>6||body.length>360;
+  return <><blockquote className={long&&!open?'clamped':undefined}>{body}</blockquote>
+    {long?<button type="button" className="link" aria-expanded={open} onClick={()=>setOpen(!open)}>{open?'收起':'展开全文'}</button>:null}</>;
+}
+export function EvidenceByMessage({evidence}:{evidence:Evidence[]}){
+  if(!evidence.length)return <EmptyState kind="empty" subject="证据"/>;
+  const groups=groupEvidence(evidence);
+  return <ol className="evidence-list" aria-label={`证据：${groups.length} 条消息，${evidence.length} 条 Claim`}>{groups.map(g=><li key={g.message??g.claims[0].claim_id} className="evidence-message">
+    <p className="meta">{g.message?<IdText kind="消息" value={g.message}/>:'无来源消息'} · {g.claims.length} 条 Claim</p>
+    {g.message?(g.content?.status==='ok'&&g.content.body!=null?<MessageExcerpt body={g.content.body}/>:<p className="note">{RESTRICTED_TEXT}</p>):null}
+    <ul className="evidence-claims">{g.claims.map(e=><li key={e.claim_id}>{e.predicate?<code className="id-code" title="谓词">{e.predicate}</code>:'—'} <IdText kind="Claim" value={e.claim_id}/></li>)}</ul>
+  </li>)}</ol>;
 }
 
 /** The three governed review decisions, for a member whose current role grants ontology.schema.review (reviewer, and the owner

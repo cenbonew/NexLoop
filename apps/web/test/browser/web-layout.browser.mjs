@@ -32,9 +32,11 @@ const measure=()=>{const vw=innerWidth;
         head_hidden:t.querySelector('thead').getBoundingClientRect().height<=1,
         labelled:plain.length===0||plain.every(td=>getComputedStyle(td,'::before').content===JSON.stringify(td.dataset.label)),
         row_max:Math.max(0,...rows.map(r=>Math.round(r.getBoundingClientRect().height)))};}),
-    // Batch 3: overview/operations cards — columns in use and whether cards keep their own height; bubbles — widest share of main.
-    grid:(g=>g?{cols:new Set([...g.children].map(c=>Math.round(c.getBoundingClientRect().left))).size,
-      heights:new Set([...g.children].map(c=>Math.round(c.getBoundingClientRect().height))).size}:null)(document.querySelector('.workbench-grid')),
+    // Batch 3: overview/operations cards — columns in use; UI spec §3 (owner 2026-10-20): the cards of one row are equally tall
+    // (rows_equal), the footer at the bottom. Bubbles — widest share of main.
+    grid:(g=>{if(!g)return null;const cs=[...g.children].map(c=>c.getBoundingClientRect());const rows=new Map();
+      for(const r of cs){const k=Math.round(r.top);rows.set(k,[...(rows.get(k)??[]),Math.round(r.height)]);}
+      return {cols:new Set(cs.map(r=>Math.round(r.left))).size,rows_equal:[...rows.values()].every(hs=>Math.max(...hs)-Math.min(...hs)<=1)};})(document.querySelector('.card-grid,.workbench-grid')),
     bubble_ratio:(m=>m.length?Math.max(...m.map(li=>li.getBoundingClientRect().width/li.parentElement.getBoundingClientRect().width)):null)([...document.querySelectorAll('.workbench-messages li')]),
     // Batch 4: every visible radio/checkbox — its box, and the gap to its own text (first text after it inside the label).
     choices:[...document.querySelectorAll('input[type=radio],input[type=checkbox]')].filter(i=>i.getBoundingClientRect().width>0).map(i=>{
@@ -48,7 +50,10 @@ const measure=()=>{const vw=innerWidth;
     empties:[...document.querySelectorAll('.workbench-empty')].map(e=>({kind:e.dataset.empty??null,next:!!e.querySelector('.empty-next')?.textContent.trim()})),
     badges_worded:[...document.querySelectorAll('.status-badge')].every(b=>b.textContent.replace(/[✓✕…!–]/g,'').trim().length>0&&!/^[a-z_]+$/.test(b.textContent.replace(/[✓✕…!–]/g,'').trim())),
     h1_top:(h=>h?Math.round(h.getBoundingClientRect().top):null)(document.querySelector('.workbench-page h1')),
-    empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')};};
+    empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')
+      // UI spec §8: an unavailable state (not compact) is dashed, an empty one solid.
+      &&[...document.querySelectorAll('.state-unavailable:not(.state-compact)')].every(e=>getComputedStyle(e).borderTopStyle==='dashed')
+      &&[...document.querySelectorAll('.state-empty:not(.state-compact)')].every(e=>getComputedStyle(e).borderTopStyle==='solid')};};
 const result={pages:{},dark_differs:{},menu:{},chat:{},shell:{},tabs:{},persona:{}};
 const browser=await chromium.launch({headless:true});
 async function shoot(page,name){

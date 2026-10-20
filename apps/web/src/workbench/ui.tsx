@@ -3,6 +3,8 @@
  * status badges with words (never colour alone; the technical code in the title), keyboard-complete tabs, money and Beijing time.
  */
 import {useRef,type KeyboardEvent,type ReactNode} from 'react';
+import {statusLabel,statusTone,type Domain,type Tone} from './status-labels';
+export type {Tone} from './status-labels';
 
 // ---- F12: empty states ----
 export type EmptyKind='none'|'filtered'|'not_enabled'|'forbidden'|'unavailable';
@@ -22,11 +24,15 @@ export function Empty({kind,title,reason,next,action}:{kind:EmptyKind;title?:str
 }
 
 // ---- F13: status badges ----
-export type Tone='ok'|'fail'|'pending'|'limited'|'neutral';
 const MARK:Record<Tone,string>={ok:'✓',fail:'✕',pending:'…',limited:'!',neutral:'–'};
-/** Chinese status text with a symbol and a tone; the technical code goes into the title, never shown as the label. */
-export function StatusBadge({text,tone,code}:{text:string;tone:Tone;code?:string|null}){
-  return <span className={'status-badge tone-'+tone} title={code??undefined} data-code={code??undefined}><span aria-hidden="true" className="status-mark">{MARK[tone]}</span>{text}</span>;
+/** UI spec §7: `{domain, code}` takes the Chinese label and the tone from status-labels (an unlisted code reads 未知状态, the code
+ * only in the title); `{text, tone}` stays for wording that is not a code. The technical code is never the visible label. */
+export type StatusBadgeProps={domain:Domain;code:string|null|undefined;tone?:Tone}|{text:string;tone:Tone;code?:string|null;domain?:undefined};
+export function StatusBadge(props:StatusBadgeProps){
+  const text=props.domain?statusLabel(props.domain,props.code):props.text;
+  const tone=props.tone??(props.domain?statusTone(props.domain,props.code):'neutral');
+  const code=props.code??undefined;
+  return <span className={'status-badge tone-'+tone} title={code} data-code={code}><span aria-hidden="true" className="status-mark">{MARK[tone]}</span>{text}</span>;
 }
 
 /** Intent states (accepted … confirmed) as tones: done, failed, still open. */

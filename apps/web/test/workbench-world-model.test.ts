@@ -75,7 +75,7 @@ test('the summary: one card per concept in EIOS order with its count, the Event 
 test('each concept page: its EIOS title, its own table; Table / Graph only under the Object Type title',()=>{
   const types=render(undefined,'object_types');
   expect(types).toContain('<h1 id="workbench-page-title">Object Type</h1>');
-  expect(types).toMatch(/<\/h1><p class="workbench-lead">[^<]+<\/p><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式"><button type="button" aria-pressed="true">Table<\/button><button type="button" aria-pressed="false">Graph<\/button><\/div>/);
+  expect(types).toMatch(/<\/h1><p class="workbench-lead">[^<]+<\/p><\/div><\/header><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式"><button type="button" aria-pressed="true">Table<\/button><button type="button" aria-pressed="false">Graph<\/button><\/div>/);
   expect(types).toContain('aria-label="Object Type"');expect(types).not.toContain('<svg');
   const props=render(undefined,'properties');
   expect(props).toContain('<h1 id="workbench-page-title">Property</h1>');expect(props).not.toContain('查看方式');

@@ -39,8 +39,8 @@ test('operations: unavailable process sections and backups are labelled, never z
   const m=metrics(metricsBody);
   expect(m.host).toEqual({status:'unavailable'});expect(m.guard.status==='ok'&&m.guard.timeout_rate).toBe(0.03);
   const html=render(client([[['workbench','metrics'],m]]),h(Operations,{}));
-  expect(html).toContain(PROCESS_UNAVAILABLE_TEXT);expect(html).toContain('超时率 3.00%');expect(html).toContain('已暂停（NXC01）：2');
-  expect(html).toContain(BACKUP_UNAVAILABLE_TEXT);expect(html).not.toContain('运行中</th></tr></thead><tbody><tr><td>');
+  expect(html).toContain('样本暂不可用：最近 5 分钟没有样本');expect(html).toContain('未加载，不代表数量为零。');expect(html).toContain('超时率 3.00%');expect(html).toContain('<span title="NXC01">已暂停</span>：<span class="num">2</span>');
+  expect(html).toContain('备份记录暂不可用：还没有任何已记录的数据库备份');expect(html).toContain('这不代表没有备份。');void PROCESS_UNAVAILABLE_TEXT;void BACKUP_UNAVAILABLE_TEXT;expect(html).not.toContain('运行中</th></tr></thead><tbody><tr><td>');
   expect(()=>metrics({...metricsBody,guard:{status:'ok',by_service:{x:{sum:{calls:'many'},max:{}}}}})).toThrow(WorkbenchError);
 });
 
@@ -50,10 +50,11 @@ test('operations: the backup block shows numbers and states, “无” for a met
   const m=metrics({...metricsBody,backup});
   expect(m.backup.status==='ok'&&m.backup.file_backup_age_seconds).toBe(null);
   const html=render(client([[['workbench','metrics'],m]]),h(Operations,{}));
-  expect(html).toContain('<th>最近一次已校验的数据库备份</th><td>30 分钟</td>');expect(html).toContain('<th>最近一次文件快照</th><td>无</td>');
-  expect(html).toContain('<th>最近一次演练的 RPO</th><td>无</td>');expect(html).toContain('<th>恢复日志导出延迟</th><td>0 秒</td>');
-  expect(html).toContain('<th>最近一次备份校验</th><td>通过</td>');expect(html).toContain('<th>WAL 归档</th><td>出现失败</td>');expect(html).toContain('repo1 30 分钟');
-  expect(html).not.toContain(BACKUP_UNAVAILABLE_TEXT);
+  expect(html).toContain('<div class="kv-row"><dt>最近一次已校验的数据库备份</dt><dd>30 分钟</dd></div>');expect(html).toContain('<div class="kv-row"><dt>最近一次文件快照</dt><dd>无</dd></div>');
+  expect(html).toContain('<div class="kv-row"><dt>最近一次演练的 RPO</dt><dd>无</dd></div>');expect(html).toContain('<div class="kv-row"><dt>恢复日志导出延迟</dt><dd>0 秒</dd></div>');
+  expect(html).toMatch(/<dt>最近一次备份校验<\/dt><dd><span class="status-badge tone-ok"[^>]*>.*?通过<\/span><\/dd>/);expect(html).toMatch(/<dt>WAL 归档<\/dt><dd><span class="status-badge tone-fail"[^>]*>.*?出现失败<\/span><\/dd>/);
+  expect(html).toContain('主仓库 30 分钟');expect(html).toContain('需要处理');
+  expect(html).not.toContain('备份记录暂不可用');
   for(const bad of [{...backup,age_seconds:'1800'},{...backup,age_seconds:-1},{...backup,status:'stale'},{...backup,repo_backup_age_seconds:{repo1:null}}])
     expect(()=>metrics({...metricsBody,backup:bad})).toThrow(WorkbenchError);
 });
@@ -94,8 +95,8 @@ test('overview backlog block renders the NX-030 shape: feed name, pending count 
       extraction:{pending_messages:2,oldest_pending_seconds:12578}}}};
   const html=render(client([[['workbench','overview'],overview(body)]]),h(Overview,{onOpen:()=>{}}));
   const block=html.slice(html.indexOf('aria-label="队列积压"'));
-  expect(block).toContain('recall-instance：待处理 5，死信 0，最久等待 3 小时');
-  expect(block).toContain('队列</h3><p class="note">无（没有排队中的任务）。');
+  expect(block).toContain('实例召回：待处理 5，死信 0，最久等待 3 小时');expect(block).not.toContain('recall-instance');
+  expect(block).toContain('队列</h3><div class="state state-empty state-compact" role="status" data-state="empty"><p class="state-title"><span class="state-mark" aria-hidden="true">○</span>暂无排队中的任务</p>');
   expect(block).toContain('待提取消息 2 条，最久等待 3 小时');
   // A malformed backlog is refused, never rendered as an empty success.
   expect(()=>overview({...body,backlog:{status:'ok',data:{queues:{},feeds:{x:{pending:-1}},extraction:{pending_messages:0,oldest_pending_seconds:null}}}})).toThrow(WorkbenchError);
@@ -107,14 +108,15 @@ test('overview commercial block: unavailable today is labelled; when served, bud
   const unavailable={status:'unavailable',data:null};
   const base={goals:unavailable,commitments:unavailable,actions:unavailable,contact:unavailable,takeovers:unavailable,backlog:unavailable};
   const off=render(client([[['workbench','overview'],overview({...base,commercial:unavailable})]]),h(Overview,{onOpen:()=>{}}));
-  expect(off.slice(off.indexOf('aria-label="商业事件与费用"'))).toContain('role="status"');
+  const offBlock=off.slice(off.indexOf('aria-label="商业事件与费用"'));
+  expect(offBlock).toContain('data-state="unavailable"');expect(offBlock).toContain('商业事件与费用暂不可用');expect(offBlock).toContain('未加载，不代表数量为零。');
   const served={status:'ok',data:{budgets:{model_tokens:{limit:'100',unit:'CNY',consumed:'12.5',ratio:0.125}},
     last_24h:[{cost_kind:'model',data_mode:'real',currency:'CNY',amount:'12.50',entries:3,unpriced:1}]}};
   const on=render(client([[['workbench','overview'],overview({...base,commercial:served})]]),h(Overview,{onOpen:()=>{}}));
   const block=on.slice(on.indexOf('aria-label="商业事件与费用"'));
-  expect(block).toContain('model_tokens：已用 <span class="num" title="12.5">12.50</span> / <span class="num" title="100">100.00</span> CNY（12.5%）');   // two decimals, full value in the title (F15)
+  expect(block).toContain('未知状态：已用 <span class="num" title="12.5">12.50</span> / <span class="num" title="100">100.00</span> CNY（12.5%）');   // two decimals, full value in the title (F15)
   expect(block).toContain('<span class="num" title="12.50">12.50</span> CNY，3 条');expect(block).toContain('其中 1 条未定价');
   const empty=render(client([[['workbench','overview'],overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[]}}})]]),h(Overview,{onOpen:()=>{}}));
-  expect(empty).toContain('无（没有设置预算）。');expect(empty).toContain('无（最近 24 小时没有费用记录）。');
+  expect(empty).toContain('暂无预算：还没有设置');expect(empty).toContain('暂无费用记录：最近 24 小时');
   expect(()=>overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[{...served.data.last_24h[0],amount:'12,5'}]}}})).toThrow(WorkbenchError);
 });

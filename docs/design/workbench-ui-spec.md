@@ -261,3 +261,50 @@ H1 标题                                   [页面操作区：按钮]
 
 - **前置条件**：L5 的术语表定稿，状态码的中文标签以它为准。第 1 批可以先搭好 `status-labels.ts` 的结构；术语表没定之前，标签暂取 api.ts 现有的中文，缺的标为 TODO，页面上显示“未知状态”。
 - **不在本规范范围**：顾客端 WebChat 的排版、品牌色调整、暗色模式开关（继续跟随系统设置）。
+
+## 附录 A：第 1 批组件接口（2026-10-20 冻结，第 2、3 批按此套用）
+
+- **位置**：代码在 `apps/web/src/workbench/kit.tsx`、`status-labels.ts`、`DataTable.tsx` 和 `ui.tsx`（StatusBadge），单测在 `apps/web/test/workbench-kit.test.ts`。
+- **接口变更规则**：
+  - 冻结之后只允许新增可选属性。
+  - 要改名、删除或改变默认值，须先改本附录，并通知各线。
+- **样式**：只用 class 和 token，组件不接受 `style`。
+
+| 组件 | 签名 | 约定 |
+|---|---|---|
+| `PageHeader` | `{title, lead?, actions?, toolbar?, titleId?='workbench-page-title'}` | `Page` 已经内置，页面通常不直接用；`lead` 每页必填（§2） |
+| `Page` | 不变：`{title, lead?, query, actions?, toolbar?, empty?, emptyKind?, forbidden?, announce?, children}` | 头部改为 PageHeader；加载、出错时的状态沿用原有的 `Failure`/`Empty`，第 3 批统一改为 EmptyState |
+| `EmptyState` | `{kind: 'loading'\|'empty'\|'filtered'\|'unavailable'\|'forbidden'\|'not_enabled', subject?, reason?, next?, onRetry?, details?, compact?}` | 标题固定为：正在加载 X / 暂无 X / 没有符合筛选条件的 X / X 暂不可用 / 无权查看 X / X 尚未启用。X 以拉丁字母开头或结尾时自动加空格。unavailable 和 forbidden 用 `role=alert`，其他用 `role=status`。只有 unavailable 显示重试按钮。`details` 收在“技术细节”里。`data-state` 属性等于 kind |
+| `Card` | `{title, badge?, footer?, compact?, state?: 'unavailable'\|'forbidden', subject?, label?, children}` | 输出 `<article class="card">`。footer 贴底。有 `state` 时卡片位置不变，内容换成紧凑的 EmptyState，footer 隐藏 |
+| `SectionCard<T>` | `{title, section: Section<T>, footer?, children: (data: T) => ReactNode}` | 部分响应的区块（api 的 `Section`）用它，取代 `Block` |
+| `CardGrid` | `{children, min?: '14rem'\|'18rem'\|'24rem', label?}` | 等高（`align-items: stretch`），默认最小列宽 18rem |
+| `MetricCard` | `{label, value, hint?, onOpen?, href?, tone?: 'ok'\|'limited'\|'fail'}` | 有 `onOpen` 或 `href` 时整卡是 `<a>`，`aria-label` 为“label value，查看”；否则是 `<div>`。不要再用按钮套卡片 |
+| `KeyValue` | `{items: {key, value, hint?}[], label?}` | 输出 `<dl class="key-value">`；窄屏时改为竖排；value 里放 StatusBadge、IdText 或 Time，不放原始代码 |
+| `DataTable<T>` | `{rows, columns: Column<T>[], rowKey, rowClass?, label?, className?, stickyHeader?, empty?: {subject?, filtered?}}`，其中 `Column = {label, cell, main?, num?, wide?}` | 外层有 `.table-scroll` 容器，可横向滚动、可获得焦点；main 列固定在左边；超过 20 行（或 `stickyHeader`）时表头固定；`num` 列右对齐，用于计数、金额、毫秒，版本号不算。传了 `empty` 且没有行时输出 EmptyState；不传时保留旧的空表结构（兼容） |
+| `IdText` | `{value, kind?, name?, head?=8, tail?=4, copy?=true, expandable?}` | 显示为 head…tail，等宽字体；`title` 和 `aria-label` 是“kind 全称”；复制按钮的 `aria-label` 为“复制{kind} ID”，点击后图标变 ✓ 并朗读“已复制”。有 `name` 时名称作为主文字，哈希退为次要文字。可见文字中不出现 64 位全称 |
+| `shorten(value, head?, tail?)` | `string → string` | 与 IdText 截断规则相同，用于不需要复制的纯文本 |
+| `ScopeText` | `{kind, value}` | 先显示范围的中文标签（`scope_kind` 域），后接引用：`consumer:<hex>` 或 64 位哈希用 IdText，`*` 不显示，`eios:action:` 前缀去掉后用等宽字体 |
+| `StatusBadge` | `{domain, code, tone?}` 或 `{text, tone, code?}` | 状态码一律用前一种：中文标签和 tone 取自 status-labels，原码只放在 `title` 和 `data-code` 里。后一种只用于不是状态码的说明文字 |
+| `status-labels.ts` | `DOMAINS`、`statusLabel(domain, code)`、`statusTone(domain, code)`、`known(domain, code)`、`unknownCodes()`、`UNKNOWN_LABEL`、`type Domain`、`type Tone` | 每个域对应 L5 `labels.ts` 中的一张表（以术语表为准）。新增状态码时补 `labels.ts`；新增域时在 `DOMAINS` 里登记，页面里不再自建映射表。没有标签的码显示“未知状态”：开发构建打印警告，`unknownCodes()` 可以列出这些码 |
+| `Counts`（pages/Observability） | `{values, domain?, subject?, labels?}` | 新代码一律传 `domain`：每项显示中文标签加数字，原码只放在 `title` 里；没有数据时显示紧凑的空状态。`labels` 是旧写法，第 2、3 批迁移完成后删除 |
+
+**已有域（DOMAINS）**：
+
+| 类别 | 域 |
+|---|---|
+| 承诺 | commitment_status、commitment_event、commitment_evidence、commitment_exception |
+| Claim、召回与候选 | claim_kind、claim_resolution、recall_index、candidate_kind、candidate_status、merge_configuration、artifact_purpose |
+| 任务、队列与进程 | job_status、queue、feed、process_sample |
+| 意图与投递 | intent_state、outbox_state、provider_state、delivery_state |
+| 控制与派发 | scope_kind、control_event、escalation_reason、data_mode、refusal_code |
+| 计划、目标与预算 | plan_status、plan_outcome、goal_kind、budget_kind、cost_kind |
+| 告警与备份 | alert_severity、backup_repo |
+| 审核、审计与成员 | review_decision、review_outcome、audit_target、member_role |
+
+**第 2、3 批套用顺序**：
+1. 页面的状态码改用 `StatusBadge({domain, code})` 或 `statusLabel`；
+2. 长 ID 改用 IdText，删除页面内自写的截断；
+3. 卡片改用 CardGrid、Card、SectionCard，加上 MetricCard；
+4. 表格传入 `empty`，删除页面里手写的 `<table>`；
+5. 空状态改用 EmptyState；
+6. 删除页面里的内联样式。
