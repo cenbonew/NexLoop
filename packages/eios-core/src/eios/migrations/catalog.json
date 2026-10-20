@@ -1255,6 +1255,31 @@
       "version": "0251",
       "name": "0251_outreach_metrics_evidence.sql",
       "sha256": "ef169ad1f4214c90cb5ee7c6e70e940717d4910974c9de045536aea2b27bb3e5"
+    },
+    {
+      "version": "0252",
+      "name": "0252_nx040_schema_proposals.sql",
+      "sha256": "de25b48ad3865ca7049c0416710a09c5d8590628ea812faa49d3d52190ed1c08"
+    },
+    {
+      "version": "0253",
+      "name": "0253_nx040_ontology_schema_input.sql",
+      "sha256": "2f8306d0b973ec42f69b297b75621b0c0553992f9af65f0586589388183874f0"
+    },
+    {
+      "version": "0254",
+      "name": "0254_nx040_schema_publication.sql",
+      "sha256": "94a9bb3843dd3edb8af07a3d27bd1f023f6207f9acee6dfc8c441cab34362fed"
+    },
+    {
+      "version": "0255",
+      "name": "0255_nx039_workbench.sql",
+      "sha256": "6fe4fa136824918c5f53e4f72424d6dbebbb3398f74f2b3c49c9c79b72517eed"
+    },
+    {
+      "version": "0256",
+      "name": "0256_object_views.sql",
+      "sha256": "3a38ab3a4c3e403b769a87524d034fb5e94df49a5487f39028c5a3e13734bc28"
     }
   ]
 }

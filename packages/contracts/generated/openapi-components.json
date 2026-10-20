@@ -6524,6 +6524,137 @@
           }
         ]
       },
+      "SchemaProposal": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:schema-proposal",
+        "title": "schema-proposal",
+        "description": "NX-040 F2 (docs/implementation/NX-040-design.md §3, §9; D21-D27, owner 2026-10-20): the frozen content of one Schema proposal, the input of the EIOS Schema review. Built from one ontology_schema evolution candidate; it changes no Schema, publishes nothing and grants nothing. Frozen at creation: a changed change is a new proposal. Ids, digests, codes and counts only; the structured change itself is held by the server and named here by its digest. Evaluation state lives on the candidate; the proposal records only frozen, published or withdrawn.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "proposal_id",
+          "tenant_id",
+          "candidate_id",
+          "operation",
+          "target_ref",
+          "parent_schema_version",
+          "parent_schema_digest",
+          "change_digest",
+          "source",
+          "compatibility_report_digest",
+          "permission_proof_digest",
+          "status",
+          "permit_ref",
+          "frozen_at"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          },
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "candidate_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The ontology_schema evolution candidate this proposal was frozen from."
+          },
+          "operation": {
+            "enum": [
+              "add_optional_property",
+              "add_vocabulary_value",
+              "add_object_type"
+            ],
+            "description": "§4.1 whitelist; anything else is refused (add_relation_type is out of scope, D24)."
+          },
+          "target_ref": {
+            "type": "string",
+            "pattern": "^eios:(object_type|property):[A-Za-z][A-Za-z0-9_.]{0,200}$",
+            "maxLength": 512
+          },
+          "parent_schema_version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The Object Type version the change applies to, fixed at freeze; 0 for a new Object Type."
+          },
+          "parent_schema_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Digest of the parent definition, computed by the server at freeze."
+          },
+          "change_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input_snapshot_digest",
+              "candidate_definition_ids",
+              "claim_ids"
+            ],
+            "properties": {
+              "input_snapshot_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "The NX-038 diagnosis snapshot of the candidate."
+              },
+              "candidate_definition_ids": {
+                "type": "array",
+                "maxItems": 64,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f-]{36}$"
+                }
+              },
+              "claim_ids": {
+                "type": "array",
+                "maxItems": 256,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "compatibility_report_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "permission_proof_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "frozen",
+              "published",
+              "withdrawn"
+            ]
+          },
+          "permit_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The NX-039 release permit used when published; null until then."
+          },
+          "frozen_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "TrajectorySample": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:trajectory-sample",
@@ -7806,6 +7937,7 @@
     "review-decision.schema.json": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57",
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",
     "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",
+    "schema-proposal.schema.json": "034fa3bf47735e115ef2ffbf86d281332790b9ccd5f43a927bd080187f1836df",
     "trajectory-sample.schema.json": "0edf634efeb3811dbf267b4874ded44ccc2b35ad7bb8d8a7cc5dbb0f2a130d5c",
     "workbench-artifacts.schema.json": "ee3e94da47800e7fea52d7dd58a7353382f8e46c4e5f6b5797fc4074e9d3d760",
     "workbench-capabilities.schema.json": "2e7777e030fa0ee2c1a1ddff13b1705522d099e73db2c8309dd99444b3ebfe60",
