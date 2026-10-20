@@ -89,3 +89,17 @@ git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=<负责人公开的 allowed 
   - 验收已在发布 22 的 stage 部署上完成，再加一轮 rc 不会带来新的证据；
   - 推到 GitHub 的 tag 不可删除，rc tag 会永久留在公开仓库里；
   - 如果 `v0.1.0` 之后需要修复，按语义版本发 `v0.1.1` 即可。
+
+## 附录：v0.1.0 实录中的两点（2026-10-20）
+
+1. **验证命令不能用进程替换 `<(...)`**。例如 `gpg.ssh.allowedSignersFile=<(echo …)` 写法验证不通过，要先把 allowed signers 写进一个临时文件，再把文件路径传给它，用完删除：
+
+   ```bash
+   f=$(mktemp); printf '%s\n' '<负责人邮箱> namespaces="git" <公钥>' > "$f"
+   ```
+
+   ```bash
+   git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$f" verify-tag v0.1.0; rm -f "$f"
+   ```
+
+2. **GitHub Release 的附件必须平铺**：GitHub Release 不支持目录，SBOM 等文件要用不带路径的文件名逐个上传，例如把 `sbom/<name>.spdx.json` 改名为 `sbom-<name>.spdx.json`。**`SHA256SUMS` 不能把自己也算进去**：先对其他附件生成，例如 `sha256sum <其他附件…> > SHA256SUMS`，再上传；下载方用 `sha256sum -c SHA256SUMS` 核对。
