@@ -1,5 +1,7 @@
 # NX-041 S7b：sim world 中 Run 的上下文来源
 
+> **D10 状态（2026-10-21 更新）**：D10 已定案（负责人 2026-10-21 放宽为三凭据：api、worker、agent，每个只绑定这一个模拟世界，删除世界时一并吊销），实现中。下文中“D10 待定”“等 D10 定下来”“D10 定案时”等说法，均指这一定案。
+
 迁移 `0267_nx041_sim_context.sql`（临时编号，集成时由调度员重排）。契约 `packages/contracts/context-pack-sim.schema.json`。
 
 ## 方案与选择
