@@ -116,7 +116,9 @@ HELPERS = {'runtime.nexloop_sim_consumer_known': 'runtime.nexloop_sim_consumer_k
            'runtime.nexloop_consumer_persona': 'runtime.nexloop_consumer_persona(text,text,text)',
            'authz.nexloop_sim_effect_tenant': 'authz.nexloop_sim_effect_tenant(text,text)',
            'runtime.nexloop_world_now': 'runtime.nexloop_world_now(text,text)',
-           'runtime.nexloop_commercial_ts': 'runtime.nexloop_commercial_ts(timestamptz)'}
+           'runtime.nexloop_commercial_ts': 'runtime.nexloop_commercial_ts(timestamptz)',
+           # Integration: the Host's sim context (after S6c) checks the caller with S6c's role helper.
+           'authz.nexloop_app_role': 'authz.nexloop_app_role(text)'}
 # What the identity helpers read: the credential tables and the registry (never business data).
 IDENTITY = {'authz.nexloop_service_identity', 'control.nexloop_sim_world_status', 'runtime.nexloop_world_kind', 'runtime.nexloop_world_clock',
             'runtime.nexloop_sim_clock_at'}

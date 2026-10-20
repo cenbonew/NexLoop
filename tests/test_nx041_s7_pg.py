@@ -258,7 +258,7 @@ def pi_run_blockers(f):
         blockers.append('D10: three credentials per simulation world not decided')
     if admin.execute("select count(*) from pg_roles where rolname in ('nexloop_sim_api','nexloop_sim_worker')").fetchone()[0] < 2:
         blockers.append('S6c: simulation process group roles absent')
-    if not any('nexloop.context-pack.sim.v1' in p.read_text() for p in (ROOT / 'apps/agent-host/src').glob('*.ts')):
+    if not any('parseSimContextPack' in p.read_text() for p in (ROOT / 'apps/agent-host/src').glob('*.ts')):  # L2's Host protocol
         blockers.append('Host: simulation Context input protocol absent')
     return blockers
 
@@ -291,7 +291,7 @@ def test_the_pi_run_xfail_flips_once_its_prerequisites_are_there(s7, tmp_path):
     """Local proof of S7 review 4: today the probes report the open blockers (S6c's roles are in); with the probes stubbed as satisfied the same body
     returns, so the strict xfail above would XPASS and fail CI."""
     found = pi_run_blockers(s7)
-    assert [b.split(':')[0] for b in found] == ['D10', 'Host'], found  # S6c's roles are in at integration (0268)
+    assert [b.split(':')[0] for b in found] == ['D10'], found  # S6c's roles (0268) and the Host's sim context protocol are in
     with pytest.raises(PiRunBlocked):
         complete_sim_pi_run(s7, tmp_path)
     assert complete_sim_pi_run(s7, tmp_path, blockers=lambda f: []) is None

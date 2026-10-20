@@ -5,7 +5,7 @@
 -- authz.nexloop_app_role(p_world); this branch's base does not have them yet, so the change below runs only when S6c is present
 -- (at integration S6c comes first): the entry's role check then reads authz.nexloop_app_role(p_world) - a simulation role counts as
 -- its real counterpart for a sim:/shadow: world only, real roles exactly as before - and nexloop_sim_api may execute it. The body
--- is 0267_nx041_sim_context.sql's, otherwise unchanged. Without S6c nothing changes.
+-- is 0267_nx041_sim_context.sql's (as of S7b's review fixes; re-copied at integration), otherwise unchanged. Without S6c nothing changes.
 do $outer$
 begin
  if to_regprocedure('authz.nexloop_app_role(text)') is null then return;end if;
@@ -16,9 +16,10 @@ declare v_tenant text;v_limit integer;v_now text;v_total integer;v_profile jsonb
  v_latest runtime.nexloop_sim_consumer_events;v_insufficient jsonb:='[]';
 begin
  if authz.nexloop_app_role(p_world) not in ('nexloop_api','nexloop_domain_worker') then raise exception 'sim context: unavailable' using errcode='42501';end if;
- v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ -- Parameters first (review 2.2): a malformed request gets the same answer whatever the credential.
  if coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_limit is null or p_limit not between 1 and 256 then
   raise exception 'sim context: invalid' using errcode='22023';end if;
+ v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
  perform set_config('eios.tenant_id',v_tenant,true);
  if not runtime.nexloop_sim_consumer_known(v_tenant,p_world,p_consumer) then raise exception 'sim context: consumer_unknown' using errcode='22023';end if;
  v_limit:=p_limit;
@@ -38,7 +39,9 @@ begin
  select * into v_latest from runtime.nexloop_sim_consumer_events e where e.tenant_id=v_tenant and e.world=p_world and e.consumer_id=p_consumer
   order by e.sequence desc limit 1;
  select coalesce(jsonb_agg(jsonb_build_object('subsection','simulated_conversation','ref','sim:event:'||x.event_id,'revision',x.sequence::text,
-   'content',jsonb_build_object('event_kind',x.event_kind)||x.content,'content_hash',x.content_digest,'evidence_kind','simulated_input',
+   -- content_hash is the sha256 of the content given here (its jsonb text), as for consumer_state (review 3.3).
+   'content',jsonb_build_object('event_kind',x.event_kind)||x.content,
+   'content_hash',encode(sha256(convert_to((jsonb_build_object('event_kind',x.event_kind)||x.content)::text,'UTF8')),'hex'),'evidence_kind','simulated_input',
    'source','simulated','at',runtime.nexloop_commercial_ts(x.sim_time),
    'tags',(case when x.sequence=v_latest.sequence then '["latest_consumer_turn"]'::jsonb else '[]'::jsonb end)
      ||(case when x.event_kind='refuse_contact' then '["contact_limit"]'::jsonb else '[]'::jsonb end)) order by x.sequence),'[]'::jsonb)
@@ -54,7 +57,7 @@ begin
   'budget_report',jsonb_build_object('event_limit',v_limit,'events_total',v_total,'events_included',jsonb_array_length(v_evidence),
     'omitted',greatest(v_total-jsonb_array_length(v_evidence),0)),
   'insufficient',v_insufficient);
-end $$;
+end $$
 $q$;
  execute 'grant execute on function authz.nexloop_sim_context_command(text,text,text,integer) to nexloop_sim_api';
 end $outer$;

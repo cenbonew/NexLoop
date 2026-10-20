@@ -31,7 +31,8 @@ WHITELIST = {
                                    'authz.nexloop_record_run_tool_timing(text,text,uuid,numeric)', 'authz.nexloop_sim_effect_submit(text,text,jsonb)',
                                    'authz.nexloop_sim_effect_query(text,text,uuid)'},
     'nexloop_sim_api': COMMON | {'authz.nexloop_queue_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)',
-                                 'authz.nexloop_issue_run_credential(text,text,text,text)'},
+                                 'authz.nexloop_issue_run_credential(text,text,text,text)',
+                                 'authz.nexloop_sim_context_command(text,text,text,integer)'},  # the Host's simulation context (after S6c)
 }
 SIM = 'sim:' + str(uuid.uuid4())
 SAMPLE = ('host', 'agent-host', 'sim-1', {'active_runs': 0})
@@ -189,3 +190,9 @@ def test_the_role_checked_functions_differ_from_their_latest_earlier_definition_
         for m in (m for m in migrations if m.name > own.name):
             for again in defines(name).finditer(m.read_text()):
                 assert 'nexloop_app_role' in body(m.read_text(), again.end()), (name, m.name)
+    # The Host's simulation context (after S6c): S7b's entry with the same single change, from S7b's latest body.
+    host = next(m for m in migrations if m.name.endswith('_nx041_host_sim_context.sql'))
+    name = 'authz.nexloop_sim_context_command'
+    redefined = body(host.read_text(), defines(name).search(host.read_text()).end())
+    assert 'nexloop_app_role' in redefined
+    assert re.sub(r'authz\.nexloop_app_role\(p_world\)', 'session_user', redefined) == latest(name, host.name), name
