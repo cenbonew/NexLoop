@@ -1365,6 +1365,11 @@
       "version": "0273",
       "name": "0273_nx041_d10_credentials.sql",
       "sha256": "c42c6ffb55f3aaa1237f7f03db7fe9e97446df177465d3db11dc1f34eccda65b"
+    },
+    {
+      "version": "0274",
+      "name": "0274_nx041_d10_manifest.sql",
+      "sha256": "bbf58437baa5ab6213a13bfb32bd51f487ac5929353b2424d5a0ff8a376ca299"
     }
   ]
 }
