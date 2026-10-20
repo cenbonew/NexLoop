@@ -1175,6 +1175,11 @@
       "version": "0235",
       "name": "0235_nx038_attribution_candidates.sql",
       "sha256": "d85213ae9098d1b4a9b078c47742ee9db9315b9b26302b3368bba2f97748b332"
+    },
+    {
+      "version": "0236",
+      "name": "0236_nx038_isolation_handoff.sql",
+      "sha256": "86ba69dd36b32c1a9a8a2948d2470c7bc7a4fa1e86df059add36b783fd7cf980"
     }
   ]
 }

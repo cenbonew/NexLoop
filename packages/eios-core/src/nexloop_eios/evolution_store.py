@@ -69,3 +69,16 @@ class CandidateStore:
 
     def reserve(self, scope: str, record_id: str, consumption_id: str, amount: str, unit: str) -> dict:
         return self._call('select authz.nexloop_evo_reserve(%s,%s,%s,%s,%s,%s)', (scope, record_id, consumption_id, amount, unit))
+
+    # --- E5 hand-over to NX-039 (design §12.4; migration nx038_isolation_handoff) -------------------------------------------------
+    def freeze_bundle(self, candidate_id: str, *, levels: tuple[str, ...] = ('L0',), seed: str) -> dict:
+        """Freezes the evaluation bundle of a proposed candidate; SQL builds it from the stored candidate, the fixed hard gates and
+        the server-side budget remaining. The same call replays; a changed condition is refused (a new candidate)."""
+        return self._call('select authz.nexloop_evo_bundle_freeze(%s,%s,%s,%s)', (candidate_id, list(levels), seed))
+
+    def record_report(self, report: dict) -> dict:
+        return self._call('select authz.nexloop_evo_report_record(%s,%s)', (Jsonb(report),))
+
+    def link_review(self, decision_id: str, candidate_id: str, report_digest: str) -> dict:
+        """D4: ties an S3 review decision to the candidate and the report digest it relied on."""
+        return self._call('select authz.nexloop_evo_review_link(%s,%s,%s,%s)', (decision_id, candidate_id, report_digest))
