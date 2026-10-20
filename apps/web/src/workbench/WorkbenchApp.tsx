@@ -4,6 +4,7 @@ import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
 import {PAGES,parseRoute,routePath,type PageKey,type Route} from './route';
 import {Overview} from './pages/Overview';
+import {Personas} from './pages/Personas';
 import {Goals,Plans} from './pages/Goals';
 import {ConsumerDetail,Consumers,Conversation} from './pages/Consumers';
 import {Actions} from './pages/Actions';
@@ -51,6 +52,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'commitments':return route.id?<CommitmentDetail commitmentId={route.id} actions={a} onContext={onContext} onConsumer={id=>go({page:'consumers',id})}/>
       :<Commitments actions={a} query={route.query??{}} onQuery={setQuery} onOpen={id=>go({page:'commitments',id})} onConsumer={id=>go({page:'consumers',id})}/>;
     case 'contact':return <Contact actions={a}/>;
+    case 'personas':return <Personas actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
     case 'alerts':return <Alerts actions={a}/>;
@@ -68,7 +70,7 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['settings','capabilities','experiments']}];
+  {title:'管理',pages:['settings','personas','capabilities','experiments']}];
 const NOT_ENABLED:PageKey[]=['experiments'];
 
 /** Detail pages: where this page sits (F08); every step but the last goes back. With the customer known (F10) a conversation reads

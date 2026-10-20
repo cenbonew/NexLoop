@@ -61,6 +61,11 @@ def validate_roles(value):
                   'eios:action:nexloop.effect.confirm_not_delivered:1',  # 0210: closing an unknown effect as not delivered is the owner's
                   'eios:action:nexloop.consumer.set_persona:1',  # 0220: who counts as a test persona is the owner's (ADR-034)
                   'eios:action:nexloop.consumer.erase_synthetic:1',  # 0220: erasing a synthetic Consumer is the owner's
+                  'eios:action:nexloop.operator_persona.publish:1',  # 0230: how the operator speaks is the owner's
+                  'eios:action:nexloop.operator_persona.assign:1',
+                  'eios:action:nexloop.operator_persona.rules_publish:1',
+                  'eios:action:nexloop.ai_disclosure.set:1',  # 0230: AI disclosure is the tenant owner's choice
+                  'eios:action:nexloop.contact_preference.dismiss:1',  # 0231: declining a consumer's own preference is the owner's
                   'eios:action:nexloop.context.strategy.publish:1',  # how Context is assembled is the owner's
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):

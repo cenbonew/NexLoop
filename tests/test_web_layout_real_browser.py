@@ -31,7 +31,7 @@ from workbench_stack_fixture import private, workbench_stack
 
 pytestmark = pytest.mark.real_browser
 PAGES = ('customer-login', 'customer-webchat', 'wb-login', 'wb-overview', 'wb-consumers', 'wb-consumer', 'wb-conversation', 'wb-settings',
-         'wb-actions', 'wb-commitments', 'wb-operations', 'wb-goals', 'wb-contact', 'wb-experiments', 'wb-audit')
+         'wb-actions', 'wb-commitments', 'wb-operations', 'wb-goals', 'wb-contact', 'wb-experiments', 'wb-personas', 'wb-audit')
 
 
 def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, tmp_path, monkeypatch):  # noqa: F811
@@ -75,7 +75,7 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
                or (k.split('-')[-1] == '390' or k.endswith('390-dark')) and v['scrollers']}
     assert failing == {}, {k: {f: v[f] for f in ('hscroll', 'offscreen', 'font_min', 'th_max', 'scrollers')} for k, v in failing.items()}
     assert observed['dark_differs'] == {f'{p}-{w}': True for p in PAGES for w in (1440, 390)}
-    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 16,
+    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 17,
                                 'closed_after_navigation': True, 'hscroll_open': 0}
     # Batch 2: the consumers table lists the fixture's customer and the 12 seeded ones; cards below 640 px, a table above.
     consumers = {w: pages[f'wb-consumers-{w}']['tables'] for w in (1440, 1024, 390)}
@@ -121,3 +121,6 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert sel(tabs['right']) == second and tabs['same_list']
     assert sel(tabs['home']) == first and sel(tabs['end']) == third
     assert sel(tabs['enter']) == second and sel(tabs['space']) == third   # End, ← then Enter; → then Space
+    # Operator persona pages: published through the page's own form; the consumer detail names persona@version and its source.
+    assert observed['persona']['published'] == 1
+    assert 'xiaohe@1' in observed['persona']['consumer'] and '租户默认' in observed['persona']['consumer'], observed['persona']

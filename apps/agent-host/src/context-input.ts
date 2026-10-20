@@ -54,6 +54,49 @@ export function validateContextAttestation(command:RunCommand,value:unknown):Con
 export const ENTERPRISE_ACTION='nexloop.enterprise.deliver:1';
 /** ADR-030: an additional effect offering of a Message Run (today only the enterprise delivery). Not an authorization. */
 export type EffectSupply={action:typeof ENTERPRISE_ACTION;offering_id:string;offering_revision:number;service_code:string;title:string;price_amount:string};
+/** 0230: the operator persona section's exact shape (the contract's; SQL re-derives the values). */
+export function validateOperatorPersona(value:unknown):void{
+  const withPreferences=!!value&&typeof value==='object'&&Object.hasOwn(value as object,'preferences');
+  const persona=exact(value,['persona_ref','persona_id','version','source','document','ai_disclosure',...(withPreferences?['preferences']:[])]);
+  // 0231: the consumer's own communication preferences (data only; quiet hours, frequency, channel, topic are enforced in SQL).
+  if(withPreferences){
+    const rows=persona.preferences;
+    if(!Array.isArray(rows)||rows.length<1||rows.length>32)fail();
+    for(const row of rows as unknown[]){
+      const item=exact(row,['claim_id','dimension','polarity','value']);text(item.claim_id,64,/^[0-9a-f]{64}$/);
+      if(!['quiet_hours','frequency','channel','topic','tone'].includes(String(item.dimension))||!['affirmed','negated'].includes(String(item.polarity)))fail();
+      if(!(typeof item.value==='string'&&[...item.value].length>=1&&[...item.value].length<=64)&&!(Number.isSafeInteger(item.value)&&(item.value as number)>=0&&(item.value as number)<=1000))fail();
+    }
+  }
+  const id=text(persona.persona_id,64,/^[a-z][a-z0-9_-]{0,63}$/);
+  if(!Number.isSafeInteger(persona.version)||(persona.version as number)<1||(persona.version as number)>999999)fail();
+  if(persona.persona_ref!=='operator-persona:'+id+'@'+persona.version||!['owner_assign','rule','default'].includes(String(persona.source)))fail();
+  // The document exactly as context-pack-v6.schema.json declares it (required fields, types, lengths in code points).
+  const document=persona.document;
+  if(!document||typeof document!=='object'||Array.isArray(document))fail();
+  const d=document as Record<string,unknown>;
+  const allowed=['display_name','signature','self_intro','tone','values','expression','scenarios','not_for','ai_disclosure'];
+  if(Object.keys(d).some(key=>!allowed.includes(key)))fail();
+  const str=(value:unknown,min:number,max:number)=>{if(typeof value!=='string'||[...value].length<min||[...value].length>max)fail();};
+  const opt=(value:unknown,min:number,max:number)=>{if(value!==undefined)str(value,min,max);};
+  const list=(value:unknown,count:number,min:number,max:number)=>{if(value===undefined)return;if(!Array.isArray(value)||value.length>count)fail();for(const item of value as unknown[])str(item,min,max);};
+  str(d.display_name,1,40);opt(d.signature,0,40);opt(d.self_intro,0,500);str(d.tone,1,200);list(d.values,5,1,200);list(d.scenarios,10,1,60);list(d.not_for,10,1,60);
+  const expression=d.expression;
+  if(!expression||typeof expression!=='object'||Array.isArray(expression))fail();
+  const e=expression as Record<string,unknown>;
+  if(Object.keys(e).some(key=>!['max_chars','emoji','vocabulary','forbidden_phrases','language'].includes(key)))fail();
+  if(!Number.isSafeInteger(e.max_chars)||(e.max_chars as number)<20||(e.max_chars as number)>2000||!['none','few','allowed'].includes(String(e.emoji))||typeof e.emoji!=='string')fail();
+  opt(e.vocabulary,0,500);opt(e.language,0,16);list(e.forbidden_phrases,50,1,100);
+  if(d.ai_disclosure!==undefined){
+    const ad=d.ai_disclosure;
+    if(!ad||typeof ad!=='object'||Array.isArray(ad)||Object.keys(ad).some(key=>!['statement','deflect_statement'].includes(key)))fail();
+    opt((ad as Record<string,unknown>).statement,0,300);opt((ad as Record<string,unknown>).deflect_statement,0,300);
+  }
+  const ai=exact(persona.ai_disclosure,['mode','when_asked','block_human_claims','content_label']);
+  if(!['none','first_contact','always'].includes(String(ai.mode))||!['deflect','handoff'].includes(String(ai.when_asked))
+    ||typeof ai.block_human_claims!=='boolean'||typeof ai.content_label!=='boolean')fail();
+}
+
 export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone;plans?:Array<{ref:string;plan_ref:string}>;effect_supplies?:EffectSupply[]}{
   const command=validateRunCommand(untrustedCommand);
   if(typeof input!=='string'||Buffer.byteLength(input,'utf8')>65536)return fail();
@@ -96,14 +139,19 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     // ADR-030: the enterprise slot's offering (message Runs on the v2 core only), validated by the v2 rules below.
     const withEffectSupplies=Object.hasOwn(parsed as Record<string,unknown>,'effect_supplies');
     if(withEffectSupplies&&withRelationships)return fail();
+    // 0230 operator persona slice 1: how the operator speaks (message Runs only; re-derived and checked by SQL at bind). Data
+    // for the model, never authority.
+    const withOperatorPersona=Object.hasOwn(parsed as Record<string,unknown>,'operator_persona');
     const pack=exact(parsed,['schema_version','strategy_ref','bindings','role','current_event','user_statement','goal','formal_facts','current_constraints','supply',
-      'constraints','consumer_state','open_work','evidence','semantics','experience','budget_report','insufficient',...(withRelationships?['relationship_context']:[]),...(withEffectSupplies?['effect_supplies']:[])]);
+      'constraints','consumer_state','open_work','evidence','semantics','experience','budget_report','insufficient',...(withRelationships?['relationship_context']:[]),...(withEffectSupplies?['effect_supplies']:[]),
+      ...(withOperatorPersona?['operator_persona']:[])]);
     const attestation=validateContextAttestation(command,untrustedAttestation);
     if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
     text(pack.strategy_ref,96,/^context-strategy:[a-z][a-z0-9_]{0,63}@[1-9][0-9]{0,6}$/);
     // Message Run: v2 core + pointer event. Role Run: v3/v5 core (role section, service trigger).
     const roleRun=pack.role!==null;
-    if(roleRun&&(withRelationships||withEffectSupplies))return fail();
+    if(roleRun&&(withRelationships||withEffectSupplies||withOperatorPersona))return fail();
+    if(withOperatorPersona)validateOperatorPersona(pack.operator_persona);
     if(roleRun){
       const role=exact(pack.role,['role_binding','role_policy']);
       if(pack.user_statement!==null||exact(pack.current_event,['kind','event_id','source_principal','body','provenance']).kind!=='service_trigger'||role.role_binding===null)return fail();

@@ -504,6 +504,8 @@ class Backend:
             'commitments', 'commitment', 'contact', 'audit', 'review_queue', 'review_evidence', 'me', 'metrics', 'alerts', 'human_actions',
             'effect_determination',  # 0210: the owner's precheck before confirming an unknown effect did not happen
             'erasure_precheck',  # 0220: the owner's precheck before and after erasing a synthetic Consumer
+            'operator_personas',  # 0230: the owner's operator persona overview
+            'contact_preferences',  # 0231: a consumer's communication preferences (owner)
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'world_model',  # enterprise world model W1 (0260): published model metadata, read only
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)

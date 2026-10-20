@@ -1107,6 +1107,21 @@
       "sha256": "c5a4f776440a83dbc131dd83eb8c48c2fa316e189956f9c128d11d96c84dce7f"
     },
     {
+      "version": "0230",
+      "name": "0230_operator_persona.sql",
+      "sha256": "001a25fcec71e1010c1f4493b30a091aba40afd0a2cc807117b1c16272a04842"
+    },
+    {
+      "version": "0231",
+      "name": "0231_contact_preferences.sql",
+      "sha256": "6ed192a38ff21f4cf0c6eb7d7a03b0b50d2d15276b15fd2e1e6bb91a29bb0281"
+    },
+    {
+      "version": "0232",
+      "name": "0232_operator_persona_pages.sql",
+      "sha256": "9143d5251821ecfdbee650f6921d5040ad7bbdae196b439a3229fd410dbd6fee"
+    },
+    {
       "version": "0240",
       "name": "0240_workbench_capabilities.sql",
       "sha256": "15d506048040c3292a130f7dae5162f47c8aacde070031f3d77a495e9dec2e1f"

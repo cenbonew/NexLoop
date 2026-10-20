@@ -93,3 +93,45 @@ describe('ADR-030: optional effect_supplies on a v6 Message Run pack (the v2 cor
   expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
  });
 });
+
+describe('0230 operator persona: optional section on a v6 Message Run pack',()=>{
+ const persona=()=>({persona_ref:'operator-persona:xiaohe@2',persona_id:'xiaohe',version:2,source:'default',
+  document:{display_name:'小禾',tone:'亲切、简洁',expression:{max_chars:200,emoji:'few'},ai_disclosure:{deflect_statement:'我是本店的服务助手。'}},
+  ai_disclosure:{mode:'none',when_asked:'deflect',block_human_claims:false,content_label:false}});
+ const v6=(f:ReturnType<typeof declaration>,change?:(p:any)=>void)=>f.check(p=>{
+  const goal=p.formal_facts.find((row:any)=>row.type==='Goal'),statement=p.user_statement;
+  Object.assign(p,{schema_version:CONTEXT_PROTOCOL_V6,strategy_ref:'context-strategy:recent_plus_required@1',role:null,
+   current_event:{kind:'consumer_message',message_id:statement.message_id,provenance:statement.provenance},
+   goal:{goal_version_refs:['goal:'+goal.id+'@'+goal.revision],control_snapshot:{control_revision:0,scopes:[],goals:[],objects:[],budgets:[]}},
+   constraints:[],consumer_state:[],open_work:[],evidence:[],semantics:[],experience:[],
+   budget_report:{estimator:'synthetic',input_token_budget:2048,output_reserve:128,framing_reserve:0,available:1920,used:0,sections:{},omitted:[]},insufficient:[]});
+  change?.(p);});
+ it('accepts the consumer\'s preferences (0231) and refuses a malformed one',()=>{
+  const f=declaration();const prefs=[{claim_id:'a'.repeat(64),dimension:'tone',polarity:'affirmed',value:'简短'},{claim_id:'b'.repeat(64),dimension:'frequency',polarity:'affirmed',value:1}];
+  const ok=v6(f,p=>{p.operator_persona={...persona(),preferences:prefs};});
+  expect(validateContextInput(ok.input,f.cmd,ok.proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[]});
+  for(const bad of [[],[{...prefs[0],quote:'原话'}],[{...prefs[0],dimension:'price'}],[{...prefs[0],value:'x'.repeat(65)}]]){
+   const {input,proof}=v6(f,p=>{p.operator_persona={...persona(),preferences:bad};});
+   expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
+  }
+ });
+ it('accepts the section and leaves the result unchanged',()=>{
+  const f=declaration();const {input,proof}=v6(f,p=>{p.operator_persona=persona();});
+  expect(validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[]});
+ });
+ it.each(['bad_ref','source','extra_document_key','when_asked','extra_key','not_boolean','empty_document','no_display_name','no_tone','no_expression','no_max_chars','no_emoji',
+   'max_chars_too_small','long_name','values_not_strings','extra_expression_key'])('rejects %s',kind=>{
+  const f=declaration();
+  const {input,proof}=v6(f,p=>{const one:any=persona();
+   if(kind==='bad_ref')one.persona_ref='operator-persona:lan@2';if(kind==='source')one.source='experiment_arm';
+   if(kind==='extra_document_key')one.document.price_rule='八折';if(kind==='when_asked')one.ai_disclosure.when_asked='truthful';
+   if(kind==='extra_key')one.tenant_id='x';if(kind==='not_boolean')one.ai_disclosure.block_human_claims='no';
+   if(kind==='empty_document')one.document={};if(kind==='no_display_name')delete one.document.display_name;if(kind==='no_tone')delete one.document.tone;
+   if(kind==='no_expression')delete one.document.expression;if(kind==='no_max_chars')delete one.document.expression.max_chars;if(kind==='no_emoji')delete one.document.expression.emoji;
+   if(kind==='max_chars_too_small')one.document.expression.max_chars=19;if(kind==='long_name')one.document.display_name='名'.repeat(41);
+   if(kind==='values_not_strings')one.document.values=[1];if(kind==='extra_expression_key')one.document.expression.discount='10%';
+   p.operator_persona=one;});
+  expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
+ });
+});
+
