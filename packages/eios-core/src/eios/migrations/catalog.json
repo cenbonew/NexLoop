@@ -1357,8 +1357,8 @@
       "sha256": "48e6e61d85df600104470817acd7913ce348c827894b300d9aac6e76d5e79bbe"
     },
     {
-      "version": "0273",
-      "name": "0273_nx041_sim_world_limits.sql",
+      "version": "0272",
+      "name": "0272_nx041_sim_world_limits.sql",
       "sha256": "cd0a012f90ae09975ac5d5ce975f4b1ccfbed7aff11473ecd324f5b0b219e0b8"
     }
   ]

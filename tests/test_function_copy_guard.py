@@ -81,7 +81,7 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
-    # Sim world limits (0273, owner 2026-10-21): at most 20 active worlds per tenant, expiry at most 30 days, expired worlds deleted.
+    # Sim world limits (0272, owner 2026-10-21): at most 20 active worlds per tenant, expiry at most 30 days, expired worlds deleted.
     Allowed('nx041_sim_world_limits', 'control.nexloop_governed_create_sim_world', 'limits: expiry optional (default 30), at most 30; 20 active worlds per tenant under a lock',
             ((r"coalesce\(body->'expires_in_days','30'::jsonb\)", "body->'expires_in_days'"),
              (r"coalesce\(body->>'expires_in_days','30'\)", "(body->>'expires_in_days')"),
