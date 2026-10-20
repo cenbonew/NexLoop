@@ -277,7 +277,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # open work as mandatory_exceeds_budget for a fallback Run only; no Claim value is read or projected.
         # Consumer persona 0220 counts an erasing Consumer's Claims (all, and those whose value is not yet erased) for the owner's
         # erasure precheck; it returns two numbers, no Claim value is read or projected.
-        '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback','_consumer_persona')) for name in migrations)
+        # World model W4 data assets 0224 counts a tenant's Claims by epistemic kind and resolution state for the metrics snapshot;
+        # it returns counts only, no Claim value, quote or subject is read or projected.
+        '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback','_consumer_persona','_data_assets_metrics')) for name in migrations)
 
 
 def correction_window(conversations):

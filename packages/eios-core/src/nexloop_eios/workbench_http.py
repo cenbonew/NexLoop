@@ -24,6 +24,7 @@ _CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{64}')
 _STATES = ('accepted', 'dispatching', 'unknown', 'fulfilled', 'failed', 'confirmed')
 _TYPE = re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')
 _OBJECT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
+_ARTIFACT_CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{32}')
 _OFFSET = re.compile(r'0|[1-9][0-9]{0,5}')
 _INSTANT = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})')
 _CONSUMER_SORTS = ('id', 'open_commitments', 'conversations', 'active_plans')
@@ -251,6 +252,20 @@ def router(config, *, ports_for_workbench):
         if not _TYPE.fullmatch(type_name) or not _OBJECT.fullmatch(object_id) or request.query_params:
             return error('invalid_request', 422)
         return await invoke(request, 'object_neighbors', type_name=type_name, object_id=object_id)
+
+    @routes.get('/artifacts')
+    async def artifacts(request: Request):
+        # World model W4: Artifact metadata (never content), newest first; cursor '<created_at>|<artifact id>'.
+        try:
+            q = query(request, ('before', 'limit'))
+            if 'before' in q and not _ARTIFACT_CURSOR.fullmatch(q['before']):
+                raise ValueError()
+            limit = limit_of(q['limit']) if 'limit' in q else 50
+            if limit > 100:
+                raise ValueError()
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'artifacts', before=q.get('before'), limit=limit)
 
     @routes.get('/settings')
     async def settings(request: Request):

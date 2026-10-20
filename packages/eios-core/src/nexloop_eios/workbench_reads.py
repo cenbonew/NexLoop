@@ -26,7 +26,7 @@ OPEN_STATUSES = ('conditional', 'open', 'in_progress', 'breached')
 VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKBENCH_READ, 'conversation': WORKBENCH_READ,
          'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
          'world_model': WORKBENCH_READ,
-         'capabilities': WORKBENCH_READ, 'objects': WORKBENCH_READ, 'object_neighbors': WORKBENCH_READ,
+         'capabilities': WORKBENCH_READ, 'objects': WORKBENCH_READ, 'object_neighbors': WORKBENCH_READ, 'artifacts': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -380,6 +380,13 @@ class WorkbenchQueries:
     def capabilities(self):
         # World model W3: the tenant's capability catalog (metadata only; dispatch switches from the metrics source, 0153).
         return self.reader.call('capabilities')
+
+    def artifacts(self, *, before=None, limit=50):
+        """World model W4: stored Artifacts as metadata, newest first (SQL lists, hides those of a Consumer being erased and audits
+        each listed Artifact in the same transaction; owner and operator only)."""
+        value = self.reader.call('artifacts', limit=limit, **({'before': before} if before else {}))
+        value.pop('audited', None)
+        return value
 
     def _readable_object(self, type_name, object_id, fields=(), cache=None):
         """World model W2: the ADR-025 member read of one object (and fields), audited with purpose 'world_model' by SQL; False when the

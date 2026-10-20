@@ -1122,6 +1122,16 @@
       "sha256": "d1883eb203ef38feb2551e63e462e9054bf9522c7561b240a82029fb4795480e"
     },
     {
+      "version": "0243",
+      "name": "0243_data_assets_metrics.sql",
+      "sha256": "e2a25a27c6691547bef0d4871b11b11ae1f5b0ee077c91a074139fbd333ecc8e"
+    },
+    {
+      "version": "0244",
+      "name": "0244_workbench_artifacts.sql",
+      "sha256": "4de59aa7f6974269130e2454d0af587c3d915330dd38ed762beaf2ad2b074128"
+    },
+    {
       "version": "0260",
       "name": "0260_world_model_read.sql",
       "sha256": "35fd729e554af6691ecc279a2d879c95ab746a51d021e18ad9be1891eb39a306"
