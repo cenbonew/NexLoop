@@ -1370,6 +1370,11 @@
       "version": "0274",
       "name": "0274_nx041_d10_manifest.sql",
       "sha256": "bbf58437baa5ab6213a13bfb32bd51f487ac5929353b2424d5a0ff8a376ca299"
+    },
+    {
+      "version": "0285",
+      "name": "0285_nx042_twin_calibration_read.sql",
+      "sha256": "f84a55d704e64a0b26779094c3c2a3c578b52130148ebe99709adfabda3c47fc"
     }
   ]
 }
