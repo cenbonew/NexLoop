@@ -148,6 +148,11 @@ OPERATIONS={
         'events_per_consumer':lambda v:v if type(v) is dict and set(v)=={'min','max'} and all(type(x) is int and 0<=x<=50 for x in v.values()) else (_ for _ in ()).throw(ValueError('events')),
         'segments':lambda v:v if v is None or (type(v) is dict and 1<=len(v)<=10) else (_ for _ in ()).throw(ValueError('segments')),
         'max_objects':lambda v:v if v is None or (type(v) is int and 0<=v<=10000) else (_ for _ in ()).throw(ValueError('max_objects'))},
+    # NX-041 S5 (owner only): move a simulation world's clock forward; seconds and rate are null unless their action uses them.
+    'control_sim_clock':{'world':_id(re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),
+        'action':lambda v:v if v in ('advance','pause','resume','set_rate') else (_ for _ in ()).throw(ValueError('action')),
+        'seconds':lambda v:v if v is None or (type(v) is int and 1<=v<=315360000) else (_ for _ in ()).throw(ValueError('seconds')),
+        'rate':lambda v:v if v is None or (type(v) in (int,float) and 0<v<=100000) else (_ for _ in ()).throw(ValueError('rate')),'reason':_reason},
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
@@ -255,7 +260,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

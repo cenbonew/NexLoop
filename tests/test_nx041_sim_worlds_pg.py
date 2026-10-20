@@ -93,7 +93,7 @@ def test_the_owner_creates_a_world_once_per_request_and_real_or_test_are_never_r
 
 
 def test_both_actions_are_owner_only_governed_human_actions(db):
-    rows = dict(db.execute("select capability,subject_rule from control.nexloop_governed_capabilities where source_task='NX-041'").fetchall())
+    rows = dict(db.execute("select capability,subject_rule from control.nexloop_governed_capabilities where source_task='NX-041' and capability like 'sim_world.%'").fetchall())
     assert rows == {'sim_world.create': 'human', 'sim_world.delete': 'human', 'sim_world.generate': 'human'}
     roles = json.loads((ROOT / 'deploy/authorization/workbench-roles.v1.json').read_text())['roles']
     for name in ('nexloop.sim_world.create', 'nexloop.sim_world.delete'):
@@ -180,7 +180,7 @@ def test_whole_deletion_keeps_a_summary_is_resumable_and_never_touches_real_or_t
         seed_rows(db, tenant, world, 3, 'keep')
     seed_rows(db, TENANT_A, a, 5, 'gone')
     before_kept = totals(db, ['real', 'test', b, other])
-    assert sum(totals(db, [a]).values()) == 15
+    assert sum(totals(db, [a]).values()) == 17  # S5: and the world's clock with its creation event
     # Another tenant cannot delete A's world; real and test are not simulation worlds.
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='not_registered'), db.transaction():
         delete(db, a, tenant=TENANT_B)
@@ -201,14 +201,15 @@ def test_whole_deletion_keeps_a_summary_is_resumable_and_never_touches_real_or_t
         if r['status'] == 'deleted':
             break
         assert r['deleted'] <= 4 and len(passes) < 20, passes
-    assert len(passes) >= 4 and passes[-1]['remaining'] == 0 and sum(p['deleted'] for p in passes) == 15
+    assert len(passes) >= 4 and passes[-1]['remaining'] == 0 and sum(p['deleted'] for p in passes) == 17
     assert sum(totals(db, [a]).values()) == 0 and world_row(db, a)[1:] == ('deleted', True)
     # Idempotent: the Action and the pass on a deleted world change nothing.
     assert delete(db, a)['status'] == 'deleted'
     assert db.execute('select runtime.nexloop_sim_world_purge(%s,%s,4)', (TENANT_A, a)).fetchone()[0]['deleted'] == 0
     # The summary: counts per table and digests only, no row content.
     counts, digests, done = db.execute('select counts,digests,completed_at is not null from control.nexloop_sim_world_summaries where world=%s', (a,)).fetchone()
-    assert counts == {'runtime.nexloop_read_audit_daily': 5, 'runtime.nexloop_semantic_accesses': 5, 'runtime.nexloop_work_feed': 5} and done
+    assert counts == {'runtime.nexloop_read_audit_daily': 5, 'runtime.nexloop_semantic_accesses': 5, 'runtime.nexloop_work_feed': 5,
+                      'control.nexloop_sim_clocks': 1, 'control.nexloop_sim_clock_events': 1} and done
     assert set(digests) == set(counts) and all(len(d) == 64 for d in digests.values())
     row_text = db.execute('select s::text from control.nexloop_sim_world_summaries s where world=%s', (a,)).fetchone()[0]
     assert MARK not in row_text and 'gone-' not in row_text
@@ -225,7 +226,7 @@ def test_the_delete_action_runs_a_pass_and_retention_resumes_then_removes_the_su
     seed_rows(db, TENANT_A, 'real', 2, 'keep')
     kept = totals(db, ['real'])
     result = delete(db, a)
-    assert (result['status'], result['remaining'], result['deleted']) == ('deleted', 0, 6) and totals(db, ['real']) == kept
+    assert (result['status'], result['remaining'], result['deleted']) == ('deleted', 0, 8) and totals(db, ['real']) == kept
     # Retention: within 30 days the summary stays; after, the sweep removes it (the registry row stays 'deleted').
     sweep = lambda: db.execute("select runtime.nexloop_retention_sweep(%s,'real','sim_world_summary',100,'sweep:t','service:retention_keeper')",  # noqa: E731
                                (TENANT_A,)).fetchone()[0]

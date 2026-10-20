@@ -86,7 +86,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-041 S2 (D2, D10): create a simulation or shadow world, or delete one as a whole (checked in SQL).
     'create_sim_world':'sim_world.create','delete_sim_world':'sim_world.delete',
     # NX-041 S3 (D8): synthetic or structural data in a simulation world (checked in SQL).
-    'generate_sim_world_data':'sim_world.generate'}
+    'generate_sim_world_data':'sim_world.generate',
+    # NX-041 S5 (D5): advance, pause, resume or set the rate of a simulation world's clock (forward only, checked in SQL).
+    'control_sim_clock':'sim_clock.control'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -447,6 +449,19 @@ class GoalGovernedActions:
         if kind=='synthetic': body['segments']=segments
         else: body['max_objects']=max_objects
         return self._submit(action_name,action_version,body)
+
+    # NX-041 S5 (D5): seconds only with advance, rate only with set_rate; real and test have no clock.
+    def control_sim_clock(self,*,action_name,action_version,request_id,world,action,seconds,rate,reason):
+        if (not valid_world(world) or world_kind(world) not in ('simulation','shadow') or action not in ('advance','pause','resume','set_rate')
+                or (action=='advance')!=(seconds is not None) or (action=='set_rate')!=(rate is not None)
+                or (seconds is not None and (type(seconds) is not int or not 1<=seconds<=315360000))
+                or (rate is not None and (type(rate) not in (int,float) or not 0<rate<=100000))
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('simulation world, clock action and reason required')
+        payload={'request_id':request_id,'operation':'control_sim_clock','world':world,'action':action,'reason':reason}
+        if seconds is not None:payload['seconds']=seconds
+        if rate is not None:payload['rate']=rate
+        return self._submit(action_name,action_version,payload)
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

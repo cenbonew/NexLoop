@@ -74,7 +74,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-041 S2 (D2, D10): the owner creates or deletes a simulation or shadow world.
     'sim_world.create':'human_owner','sim_world.delete':'human_owner',
     # NX-041 S3 (D8): the owner fills a simulation world with synthetic or structural data.
-    'sim_world.generate':'human_owner'}
+    'sim_world.generate':'human_owner',
+    # NX-041 S5 (D5): the owner moves a simulation world's clock forward.
+    'sim_clock.control':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

@@ -75,6 +75,7 @@ def validate_roles(value):
                   'eios:action:nexloop.sim_world.create:1',  # NX-041 D10: which simulation worlds exist is the owner's
                   'eios:action:nexloop.sim_world.delete:1',  # NX-041 D2: and so is deleting one as a whole
                   'eios:action:nexloop.sim_world.generate:1',  # NX-041 D8: and filling one with generated data
+                  'eios:action:nexloop.sim_clock.control:1',  # NX-041 D5: and so is moving a simulation world's clock
                   'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record

@@ -1310,6 +1310,11 @@
       "version": "0262",
       "name": "0262_nx041_stand_ins.sql",
       "sha256": "1005044cbf339c6dd7356e486785df73eef4dd6db03a8ebe25351b79aa78b763"
+    },
+    {
+      "version": "0263",
+      "name": "0263_nx041_sim_clock.sql",
+      "sha256": "fc137ef02db61b083aa69618314dfa25145a54a43c009d7bc36bfef84071c107"
     }
   ]
 }
