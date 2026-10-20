@@ -393,6 +393,8 @@ export const OPERATION_ACTION={
   publish_operator_persona:'eios:action:nexloop.operator_persona.publish:1',assign_operator_persona:'eios:action:nexloop.operator_persona.assign:1',
   publish_persona_rules:'eios:action:nexloop.operator_persona.rules_publish:1',set_ai_disclosure:'eios:action:nexloop.ai_disclosure.set:1',
   dismiss_contact_preference:'eios:action:nexloop.contact_preference.dismiss:1',
+  // 0232: the tenant's outreach controls (owner only).
+  set_outreach_controls:'eios:action:nexloop.outreach_controls.set:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -706,3 +708,23 @@ export function contactPreferences(value:unknown):ContactPreference[]{
 export function readContactPreferences(consumerId:string):Promise<ContactPreference[]>{
   return get('/api/v1/workbench/consumers/'+encodeURIComponent(consumerId)+'/contact-preferences',contactPreferences);
 }
+
+
+// ---- outreach controls (0232: owner only) ----
+export type ConsentMode='opt_out'|'opt_in';
+export type OutreachSettings={time_zone:string;quiet_hours:string|null;per_24h:number;per_7d:number;
+  marketing:{enabled:boolean;consent_mode:ConsentMode;unsubscribe_notice:string;per_7d:number;sender_label:string}};
+export type OutreachControls={settings:OutreachSettings&{revision:number;source:'tenant'|'default'};
+  events:{revision:number;consent_mode_confirmed:ConsentMode|null;marketing_enabled:boolean;recorded_at:string}[]};
+const QUIET=/^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$/;
+export function outreachControls(value:unknown):OutreachControls{
+  const v=object(value),s=object(v.settings),m=object(s.marketing);
+  const consent=(x:unknown):ConsentMode=>{if(x!=='opt_out'&&x!=='opt_in')throw new WorkbenchError('invalid');return x;};
+  const quiet=s.quiet_hours===null?null:text(s.quiet_hours);if(quiet!==null&&!QUIET.test(quiet))throw new WorkbenchError('invalid');
+  const source=s.source==='tenant'||s.source==='default'?s.source:(()=>{throw new WorkbenchError('invalid');})();
+  return {settings:{time_zone:text(s.time_zone),quiet_hours:quiet,per_24h:count(s.per_24h),per_7d:count(s.per_7d),revision:count(s.revision),source,
+    marketing:{enabled:flag(m.enabled),consent_mode:consent(m.consent_mode),unsubscribe_notice:text(m.unsubscribe_notice),per_7d:count(m.per_7d),sender_label:text(m.sender_label)}},
+    events:list(v.events).map(x=>{const e=object(x);return {revision:count(e.revision),consent_mode_confirmed:e.consent_mode_confirmed===null?null:consent(e.consent_mode_confirmed),
+      marketing_enabled:flag(e.marketing_enabled),recorded_at:text(e.recorded_at)};})};
+}
+export function readOutreachControls():Promise<OutreachControls>{return get('/api/v1/workbench/outreach-controls',outreachControls);}

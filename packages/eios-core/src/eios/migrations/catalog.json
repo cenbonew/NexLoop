@@ -1150,6 +1150,16 @@
       "version": "0230",
       "name": "0230_world_model_read.sql",
       "sha256": "8b2fe94368334d51d209850f98b1af11ad3f9e40bfc870e84b7b3b906b579f6a"
+    },
+    {
+      "version": "0231",
+      "name": "0231_outreach_candidates.sql",
+      "sha256": "42489231835aa1ae3794fb81e62c2ba69512e4f1452109090678dc5de0e43f48"
+    },
+    {
+      "version": "0232",
+      "name": "0232_outreach_controls.sql",
+      "sha256": "fb0b246eedb8b93be7ae057e2969470b7749f5164837252b743de02d7b94edc8"
     }
   ]
 }

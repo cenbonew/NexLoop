@@ -52,7 +52,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # 0227 operator persona slice 1: persona versions, assignment, segment rules and the tenant's AI disclosure.
     'operator_persona.publish':'human_owner','operator_persona.assign':'human_owner','operator_persona.rules_publish':'human_owner','ai_disclosure.set':'human_owner',
     # 0228: the owner declines (or reinstates) a consumer's communication preference; never adds one.
-    'contact_preference.dismiss':'human_owner'}
+    'contact_preference.dismiss':'human_owner',
+    # 0232 (outreach slice 2): the owner's tenant outreach controls (time zone, quiet hours, frequency, marketing and consent mode).
+    'outreach_controls.set':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

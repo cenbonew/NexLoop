@@ -66,6 +66,7 @@ def validate_roles(value):
                   'eios:action:nexloop.operator_persona.rules_publish:1',
                   'eios:action:nexloop.ai_disclosure.set:1',  # 0227: AI disclosure is the tenant owner's choice
                   'eios:action:nexloop.contact_preference.dismiss:1',  # 0228: declining a consumer's own preference is the owner's
+                  'eios:action:nexloop.outreach_controls.set:1',  # 0232: when and how often the tenant reaches out is the owner's
                   'eios:action:nexloop.context.strategy.publish:1',  # how Context is assembled is the owner's
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
