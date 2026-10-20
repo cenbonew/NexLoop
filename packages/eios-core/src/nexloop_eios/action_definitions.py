@@ -1,5 +1,6 @@
 """Published EIOS Action contract reader with live signed service authority."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 from eios.authz import facts as F
 from eios.authz.resources import ResourceType,resource_id
@@ -34,7 +35,7 @@ class PostgresActionDefinitionReader:
           'tenant_id':self.session.authentication.tenant_id,'principal_id':self.session.authentication.subject_principal_id,
           'credential_id':self.session.authentication.credential_id,'world':self.session.world,
           'directory_hash':self.session.directory_hash,'resource_id':target,'action_resource':target,'operation':'execute',
-          'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,('nexloop-action-definition-v1:'+text).encode(),'sha256').hexdigest()

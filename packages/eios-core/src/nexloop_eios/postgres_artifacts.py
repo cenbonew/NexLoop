@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass,field
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import json
@@ -83,7 +84,7 @@ class PostgresArtifactRepository:
         decision=AuthorizationDecisionService().decide_resolved(resolved)
         if not decision.allowed or not decision.authoritative or decision.obligations:
             raise ArtifactAccessDenied('artifact authorization denied')
-        expiry=min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25))
+        expiry=min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL)
         claims={'protocol':'nexloop-artifact-permit-v1','key_id':self.signer.key_id,
                 'permit_id':decision.decision_id,'tenant_id':query.tenant_id,
                 'principal_id':query.authentication.subject_principal_id,

@@ -6,6 +6,7 @@ here. Source and executor are real independently authenticated EIOS identities.
 No public reserve is called before an independent effect transaction.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import json
@@ -115,7 +116,7 @@ class EffectExecutionPort:
         return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,
             'credential_id':session.authentication.credential_id,'directory_hash':session.directory_hash,
             'world':session.world,'resource_id':target,'action_resource':target,'operation':'execute',
-            'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))},decision
 
     def _signed(self,verb,*,target,**parameters):

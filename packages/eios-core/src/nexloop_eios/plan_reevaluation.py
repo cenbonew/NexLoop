@@ -12,6 +12,7 @@ deployment configuration (deploy/configuration/plan-reevaluation.v1.json), never
 """
 from dataclasses import dataclass
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import json
@@ -94,7 +95,7 @@ class _SignedPort:
         body=canonical_payload(payload);auth=self.session.authentication
         claims={'protocol':self.PROTOCOL,'key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
             'credential_id':auth.credential_id,'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':self.ACTION,
-            'action_resource':self.ACTION,'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'action_resource':self.ACTION,'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,(self.PROTOCOL+':'+text).encode(),'sha256').hexdigest()

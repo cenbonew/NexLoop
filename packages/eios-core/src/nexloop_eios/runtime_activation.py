@@ -5,6 +5,7 @@ Workers can only activate/recover enrolled Runs for their own current lease.
 No raw credential, DSN or prompt is persisted or returned to Host.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib,hmac,re,time,uuid
 from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
@@ -98,7 +99,7 @@ class RuntimeActivationPort:
         if not decision.allowed or not decision.authoritative or decision.obligations:raise AuthorizationUnavailable('runtime activation unavailable')
         return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,'credential_id':session.authentication.credential_id,
             'directory_hash':session.directory_hash,'world':session.world,'resource_id':target,'action_resource':target,'operation':'execute',
-            'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),'facts':sorted(entries,key=lambda r:(r['kind'],r['key']))}
+            'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),'facts':sorted(entries,key=lambda r:(r['kind'],r['key']))}
 
     def _run_proofs(self,run):
         from nexloop_eios.action_definitions import PostgresActionDefinitionReader

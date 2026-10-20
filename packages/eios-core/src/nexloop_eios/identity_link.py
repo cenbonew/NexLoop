@@ -1,5 +1,6 @@
 """Genuine Human local-account association through current EIOS Action authority."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 import re
 from eios.actions import models as M
@@ -52,7 +53,7 @@ class GovernedBrowserIdentityEditor:
         claims={'protocol':'nexloop-object-edit-v1','key_id':self.signer.key_id,'tenant_id':self.session.authentication.tenant_id,
           'principal_id':self.session.authentication.subject_principal_id,'credential_id':self.session.authentication.credential_id,
           'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,'operation':'execute',
-          'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),
           'permit':permit.model_dump(mode='json'),'definition':definition.model_dump(mode='json'),'schema':schema.model_dump(mode='json')}
         claims['object_authority']=object_authority
@@ -77,7 +78,7 @@ class BrowserConsumerIdentityLink:
         query=self.session.query(resource_id=target,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
         decision=AuthorizationDecisionService().decide_resolved(F.AuthorizationFactsResolver(PostgresAuthorityProvider(self.pool,self.session,entries)).resolve(query))
         if not decision.allowed or not decision.authoritative or decision.obligations:raise ActionAuthorizationDenied('identity link Action denied')
-        proof={'tenant_id':self.session.authentication.tenant_id,'principal_id':self.session.authentication.subject_principal_id,'credential_id':self.session.authentication.credential_id,'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
+        proof={'tenant_id':self.session.authentication.tenant_id,'principal_id':self.session.authentication.subject_principal_id,'credential_id':self.session.authentication.credential_id,'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
         proof.update(protocol='nexloop-identity-link-prepare-v1',key_id=self.signer.key_id,action_resource=proof['resource_id'])
         text=canonical_payload(proof);signature=hmac.new(self.signer.material,('nexloop-identity-link-prepare-v1:'+text).encode(),'sha256').hexdigest()
         with self.pool.connection() as connection,connection.transaction():

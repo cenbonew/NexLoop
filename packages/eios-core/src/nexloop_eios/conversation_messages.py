@@ -4,6 +4,7 @@ This private port accepts actual authenticated server sessions. It never accepts
 browser-provided principal/tenant/Consumer selection or an authority callback.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import re
@@ -83,7 +84,7 @@ class _ConversationPort:
         auth=self.session.authentication
         return {'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
             'world':self.session.world,'directory_hash':self.session.directory_hash,'resource_id':target,'action_resource':target,
-            'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))},decision
 
     def _signed(self,protocol,action,payload,**extra):

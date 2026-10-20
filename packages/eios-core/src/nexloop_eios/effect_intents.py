@@ -6,6 +6,7 @@ The existing Action claim principal check remains unchanged; an independently
 registered real executor will own that later claim, not the submitting Run.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import json
@@ -116,7 +117,7 @@ class EffectIntentPort:
             claims={'protocol':'nexloop-effect-intent-v1','key_id':self.signer.key_id,'tenant_id':session.authentication.tenant_id,
                 'principal_id':session.authentication.subject_principal_id,'credential_id':session.authentication.credential_id,
                 'directory_hash':session.directory_hash,'world':session.world,'resource_id':target,'action_resource':target,'operation':'execute',
-                'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+                'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
                 'parameters_digest':hashlib.sha256(payload.encode()).hexdigest(),'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),
                 'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json')}
             text=canonical_payload(claims);signature=hmac.new(self.signer.material,('nexloop-effect-intent-v1:'+text).encode(),'sha256').hexdigest()

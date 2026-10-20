@@ -5,6 +5,7 @@ Run authentication MUST occur through Backend.authenticate_run, never lookup of
 an arbitrary Run ID. Formal Goal/Step/Control writes use existing object Actions.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import re
@@ -77,7 +78,7 @@ class EffectContextRegistrar:
         return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,
             'credential_id':session.authentication.credential_id,'directory_hash':session.directory_hash,'world':session.world,
             'resource_id':target,'action_resource':target,'operation':'execute',
-            'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),'_decision_id':decision.decision_id}
 
     def _sign(self,protocol,claims):

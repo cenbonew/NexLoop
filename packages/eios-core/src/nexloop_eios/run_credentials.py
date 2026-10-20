@@ -1,6 +1,7 @@
 """Trusted server Run issuance; opaque credentials never confer new authority."""
 from dataclasses import dataclass,field
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 import uuid
 from eios.authz import facts as F
@@ -41,7 +42,7 @@ def _prepare_run_credential(pool,session,signer,*,action_resources,ttl_seconds=3
         proofs.append({'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,
             'credential_id':session.authentication.credential_id,'directory_hash':session.directory_hash,'world':session.world,
             'resource_id':target,'action_resource':target,'operation':'execute',
-            'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'facts':sorted(entries,key=lambda item:(item['kind'],item['key']))})
     run_id=str(uuid.uuid4())
     claims={'protocol':'nexloop-run-credential-v1','key_id':signer.key_id,'run_id':run_id,'audience':AUDIENCE,

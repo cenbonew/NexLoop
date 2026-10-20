@@ -1,5 +1,6 @@
 """Governed create adapter; restricted SQL function is the only business writer."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 import re
 from nexloop_eios.object_reads import AuthorizedObjectReader
@@ -45,7 +46,7 @@ class GovernedAssessmentCreator:
         claims={'protocol':'nexloop-assessment-create-v1','key_id':self.signer.key_id,'tenant_id':self.session.authentication.tenant_id,
           'principal_id':self.session.authentication.subject_principal_id,'credential_id':self.session.authentication.credential_id,
           'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,'operation':'execute',
-          'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),
           'permit':permit.model_dump(mode='json'),'definition':definition.model_dump(mode='json'),'schema':schema.model_dump(mode='json')}
         claims['assessment_authorities']=provenance
@@ -141,7 +142,7 @@ class GovernedAssessmentCorrector:
         claims={'protocol':'nexloop-assessment-correct-v1','key_id':self.signer.key_id,'tenant_id':self.session.authentication.tenant_id,
           'principal_id':self.session.authentication.subject_principal_id,'credential_id':self.session.authentication.credential_id,
           'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,'operation':'execute',
-          'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),
           'permit':permit.model_dump(mode='json'),'definition':definition.model_dump(mode='json'),'schema':schema.model_dump(mode='json')}
         claims['object_authority']=object_authority

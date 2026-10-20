@@ -17,6 +17,7 @@ for one authority request scope (one unit of work) at most.
 """
 import hmac
 from datetime import UTC, datetime, timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import re
 from typing import Literal
 
@@ -94,7 +95,7 @@ def derived_message_read_envelope(pool, session, signer, message_id, basis, fiel
     consumer_text = canonical_payload(consumer)
     consumer_read = {'text': consumer_text, 'signature': _sign(signer, consumer_text)}
     expires = min(datetime.fromisoformat(consumer['expires_at']), datetime.fromisoformat(basis['rule_valid_until']),
-                  datetime.now(UTC) + timedelta(seconds=25)).isoformat()
+                  datetime.now(UTC) + SIGNED_COMMAND_TTL).isoformat()
     authentication = session.authentication
     derivation_basis = {'rule_hash': basis['rule_hash'], 'consumer_id': basis['consumer_id'],
                         'conversation_id': basis['conversation_id'], 'consumer_read': consumer_read}
@@ -178,7 +179,7 @@ class DerivedEvidenceReads:
 
     def _purpose(self, target, basis):
         session = self.reader.session
-        limits = [datetime.fromisoformat(basis['rule_valid_until']), datetime.now(UTC) + timedelta(seconds=25)]
+        limits = [datetime.fromisoformat(basis['rule_valid_until']), datetime.now(UTC) + SIGNED_COMMAND_TTL]
         if basis.get('lease_until'):
             limits.append(datetime.fromisoformat(basis['lease_until']))
         authentication = session.authentication
@@ -200,7 +201,7 @@ class DerivedEvidenceReads:
             self._consumer[consumer_id] = (consumer, {'text': text, 'signature': _sign(signer, text)})
         consumer, consumer_read = self._consumer[consumer_id]
         expires = min(datetime.fromisoformat(consumer['expires_at']), datetime.fromisoformat(basis['rule_valid_until']),
-                      datetime.now(UTC) + timedelta(seconds=25)).isoformat()
+                      datetime.now(UTC) + SIGNED_COMMAND_TTL).isoformat()
         authentication = session.authentication
         return {'tenant_id': authentication.tenant_id, 'principal_id': authentication.subject_principal_id,
                 'credential_id': authentication.credential_id, 'directory_hash': session.directory_hash,
