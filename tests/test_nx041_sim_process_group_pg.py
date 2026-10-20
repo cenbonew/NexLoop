@@ -273,7 +273,7 @@ def test_a_stand_in_intent_carries_the_world_time(db, pg):
 
     def submit(**extra):
         body = {'intent_id': U(), 'action_name': 'nexloop.outreach.send', 'action_version': 1, 'provider_kind': 'outreach_outbox',
-                'business_digest': 'b' * 64, 'request_digest': 'c' * 64, 'origin': 'twin', **extra}
+                'business_digest': hashlib.sha256(U().encode()).hexdigest(), 'request_digest': 'c' * 64, 'origin': 'twin', **extra}  # one business intent each (L6)
         with psycopg.connect(make_conninfo(pg, user='nexloop_api'), autocommit=True) as c:
             c.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)', (digest, a, Jsonb(body)))
         return db.execute("select sim_clock,submitted_at>now()-interval '1 minute' from runtime.nexloop_sim_effect_intents where intent_id=%s",
