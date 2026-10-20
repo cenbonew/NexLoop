@@ -138,7 +138,7 @@ OPERATIONS={
     # NX-039 V6 (owner only): stop or resume evolution for one dimension.
     # NX-041 S2 (owner only): create a simulation or shadow world, or delete one as a whole.
     'create_sim_world':{'kind':lambda v:v if v in ('simulation','shadow') else (_ for _ in ()).throw(ValueError('kind')),'purpose':_reason,
-        'expires_in_days':lambda v:v if type(v) is int and 1<=v<=365 else (_ for _ in ()).throw(ValueError('expires_in_days'))},
+        'expires_in_days':lambda v:v if type(v) is int and 1<=v<=30 else (_ for _ in ()).throw(ValueError('expires_in_days'))},
     'delete_sim_world':{'world':_id(re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'reason':_reason},
     # NX-041 S3 (owner only): synthetic (segments) or structural (max_objects) data in a simulation world; the other field is null.
     'generate_sim_world_data':{'world':_id(re.compile(r'sim:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),

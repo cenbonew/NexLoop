@@ -81,6 +81,19 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
+    # Sim world limits (0272, owner 2026-10-21): at most 20 active worlds per tenant, expiry at most 30 days, expired worlds deleted.
+    Allowed('nx041_sim_world_limits', 'control.nexloop_governed_create_sim_world', 'limits: expiry optional (default 30), at most 30; 20 active worlds per tenant under a lock',
+            ((r"coalesce\(body->'expires_in_days','30'::jsonb\)", "body->'expires_in_days'"),
+             (r"coalesce\(body->>'expires_in_days','30'\)", "(body->>'expires_in_days')"),
+             (r"\s*if v_days>30 then raise exception 'sim world: expiry_over_30_days' using errcode='22023';end if;", ''),
+             (r"\s*-- At most 20 active worlds.*?'sim world: limit_reached' using errcode='22023';end if;", ''))),
+    Allowed('nx041_sim_world_limits', 'runtime.nexloop_retention_sweep_sim_worlds', 'limits: expired worlds deleted first; a failing or blocked world skipped, least recently continued first',
+            ((r'n_expired integer:=0;n_failed integer:=0;', ''),
+             (r"\s*-- Expired active worlds.*?n_failed:=n_failed\+1;\s*end;\s*perform set_config\('eios\.tenant_id',p_tenant,true\);\s*end loop;", ''),
+             (r"\s*-- Worlds still deleting.*?limit 10 loop\s*begin\s*(perform runtime\.nexloop_sim_world_purge\(p_tenant,x\.world,p_batch\);n_resumed:=n_resumed\+1;)"
+              r"\s*exception when others then n_failed:=n_failed\+1;\s*end;",
+              r" for x in select world from control.nexloop_sim_worlds where tenant_id=p_tenant and status='deleting' order by created_at limit 10 loop \1"),
+             (r",'worlds_expired',n_expired,'worlds_failed',n_failed", ''))),
 ]
 
 

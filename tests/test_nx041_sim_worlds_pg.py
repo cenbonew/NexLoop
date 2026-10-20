@@ -275,7 +275,7 @@ def test_python_validators_mirror_the_sql_bodies():
     from nexloop_eios.workbench_actions_http import OPERATIONS
     ops = OPERATIONS['create_sim_world']
     assert ops['kind']('shadow') == 'shadow' and ops['expires_in_days'](30) == 30
-    for bad in (lambda: ops['kind']('real'), lambda: ops['expires_in_days'](0), lambda: ops['expires_in_days'](366),
+    for bad in (lambda: ops['kind']('real'), lambda: ops['expires_in_days'](0), lambda: ops['expires_in_days'](366), lambda: ops['expires_in_days'](31),
                 lambda: OPERATIONS['delete_sim_world']['world']('real'), lambda: OPERATIONS['delete_sim_world']['world']('sim:1')):
         with pytest.raises(ValueError):
             bad()
