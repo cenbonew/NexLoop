@@ -33,7 +33,7 @@ WHITELIST = {
     # review 1.3: the shared entries only, plus the Host's simulation context (its migration grants it after S6c).
     # sim context by reference (0270): register only; the assembler is no longer granted directly (least privilege).
     'nexloop_sim_api': COMMON | {'authz.nexloop_sim_context_register(text,text,uuid,text,integer)',
-                                 # D10 wiring (0272): the simulation intake issues, accepts and registers its world's Runs.
+                                 # D10 wiring (0273): the simulation intake issues, accepts and registers its world's Runs.
                                  'authz.nexloop_issue_run_credential(text,text,text,text)', 'authz.nexloop_queue_command(text,text,text,text,text)',
                                  'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_role_run_hint(text,text)',
                                  'authz.nexloop_runtime_activation_command(text,text,text,text,text)'},
@@ -63,7 +63,7 @@ def test_the_simulation_roles_hold_no_privilege_membership_or_real_grant_and_exa
                                                   (role,)).fetchall()}
         assert executable == expected, (role, sorted(executable ^ expected))
         # No table, sequence or view of the application schemas is directly readable or writable - except the migration revision list
-        # (versions and checksums), which every backend reads when it opens (D10 wiring, 0272; as the real roles, 0002).
+        # (versions and checksums), which every backend reads when it opens (D10 wiring, 0273; as the real roles, 0002).
         assert admin.execute("""select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('authz','control','runtime','ontology')
             and c.relkind in ('r','p','v','m','S') and (has_table_privilege(%s,c.oid,'select') or has_table_privilege(%s,c.oid,'insert'))
             and c.oid<>'control.schema_migrations'::regclass""",
