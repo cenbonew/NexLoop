@@ -172,21 +172,23 @@ def test_a_deleted_world_directory_is_queued_purged_on_the_simulation_host_and_c
 
 # 4. The stand-in intent's time is the world's time -----------------------------------------------------------------------------
 def test_a_stand_in_intent_carries_the_world_time(db, pg):
+    """Integration (S4 review fixes): the server takes the world's time (S5 clock); a payload carrying sim_clock is refused."""
     a = create_world(db)
     token, _ = seed_authority(db, TENANT_A, 'eios:artifact:' + 'a' * 32, world=a, identity_suffix='-s6-time')
     digest = hashlib.sha256(token.encode()).hexdigest()
 
-    def submit():
+    def submit(**extra):
         body = {'intent_id': U(), 'action_name': 'nexloop.outreach.send', 'action_version': 1, 'provider_kind': 'outreach_outbox',
-                'business_digest': 'b' * 64, 'request_digest': 'c' * 64, 'origin': 'twin', 'sim_clock': '2026-10-21T08:00:00+00:00'}
+                'business_digest': 'b' * 64, 'request_digest': 'c' * 64, 'origin': 'twin', **extra}
         with psycopg.connect(make_conninfo(pg, user='nexloop_api'), autocommit=True) as c:
             c.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)', (digest, a, Jsonb(body)))
-        return db.execute('select submitted_at,submitted_at>now()-interval \'1 minute\' from runtime.nexloop_sim_effect_intents where intent_id=%s',
+        return db.execute("select sim_clock,submitted_at>now()-interval '1 minute' from runtime.nexloop_sim_effect_intents where intent_id=%s",
                           (body['intent_id'],)).fetchone()
-    assert submit()[1] is True  # before S5: the wall clock
-    exists = db.execute("select to_regprocedure('runtime.nexloop_world_now(text,text)') is not null").fetchone()[0]
-    if not exists:  # the S5 interface: a stand-in so the call is observable (integration brings the real one)
-        db.execute("""create function runtime.nexloop_world_now(p_tenant text,p_world text) returns timestamptz language sql
-            set search_path=pg_catalog,pg_temp as $$ select timestamptz '2031-01-02 03:04:05+00' $$""")
-        db.execute('alter function runtime.nexloop_world_now(text,text) owner to nexloop_owner')
-        assert submit()[0] == datetime(2031, 1, 2, 3, 4, 5, tzinfo=UTC)
+    created = db.execute('select created_at from control.nexloop_sim_worlds where world=%s', (a,)).fetchone()[0]
+    assert submit() == (created, True)  # the world's clock (paused at creation); the record time is the wall
+    db.execute("select control.nexloop_governed_control_sim_clock(%s,'real','owner-principal','owner-subject','i-clock',%s)",
+               (TENANT_A, Jsonb({'operation': 'control_sim_clock', 'request_id': U(), 'world': a, 'action': 'advance', 'seconds': 30 * 86400,
+                                 'reason': '推进'})))
+    assert submit() == (created + __import__('datetime').timedelta(days=30), True)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='stand-in: invalid'):
+        submit(sim_clock='2031-01-02T03:04:05+00:00')

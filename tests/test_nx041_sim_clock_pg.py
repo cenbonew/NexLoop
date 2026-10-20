@@ -258,7 +258,7 @@ def test_only_the_time_expressions_changed_and_a_deleted_world_takes_its_clock(d
     assert db.execute('select count(*) from control.nexloop_sim_clocks where world=%s', (world,)).fetchone()[0] == 0
     assert db.execute('select count(*) from control.nexloop_sim_clock_events where world=%s', (world,)).fetchone()[0] == 0
     counts = db.execute('select counts from control.nexloop_sim_world_summaries where world=%s', (world,)).fetchone()[0]
-    assert counts == {'control.nexloop_sim_clock_events': 2, 'control.nexloop_sim_clocks': 1}
+    assert counts == {'control.nexloop_sim_clock_events': 2, 'control.nexloop_sim_clocks': 1, 'control.nexloop_budget_limits': 1}  # S6: the world's model budget
     assert refused(db, 'world_unavailable', world, 'resume')
 
 

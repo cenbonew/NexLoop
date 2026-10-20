@@ -193,7 +193,7 @@ def test_the_simulation_guard_records_stand_in_intents_only(sim_guard):
         f['sim'].find_run_stand_in(activation_ref=activation, command=cmd, intent_id=str(uuid.uuid4()))
     with pytest.raises(PermissionError):
         f['sim'].find_run_stand_in(activation_ref=activation, command=cmd, intent_id=receipt['intent_id'])
-    with psycopg.connect(make_conninfo(admin.info.dsn, user='nexloop_action_worker'), autocommit=True) as worker:
+    with psycopg.connect(make_conninfo(admin.info.dsn, user='nexloop_stand_in_worker'), autocommit=True) as worker:
         worker.execute('select authz.nexloop_sim_effect_execute(%s,%s,%s)', (f['digest'], world, receipt['intent_id']))
     found = f['sim'].find_run_stand_in(activation_ref=activation, command=cmd, intent_id=receipt['intent_id'])['receipt']
     assert (found['state'], found['simulated'], found['output_kind']) == ('fulfilled', True, 'simulated_output')

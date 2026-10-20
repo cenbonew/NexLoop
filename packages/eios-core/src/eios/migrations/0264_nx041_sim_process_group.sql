@@ -160,3 +160,25 @@ end $$;
 alter function runtime.nexloop_sim_effect_world_time() owner to nexloop_owner;
 revoke all on function runtime.nexloop_sim_effect_world_time() from public;
 create trigger nx041_sim_effect_world_time before insert on runtime.nexloop_sim_effect_intents for each row execute function runtime.nexloop_sim_effect_world_time();
+
+-- Integration (int/nx041-s1s5): this slice puts simulation rows into control.nexloop_budget_limits, which
+-- control.nexloop_budget_consumption references by foreign key, both world tables. S2's targets (0260) order world tables by
+-- relation only, so one deletion pass met the limits before their consumption and left the world deleting. The world tables are
+-- now ordered so that a table referenced by another world table's foreign key comes after it (0260 body otherwise unchanged).
+create or replace function runtime.nexloop_sim_world_targets() returns table(target regclass,scope text,ord integer)
+ language sql stable security definer set search_path=pg_catalog,pg_temp as $$
+ select d.child,string_agg(format('exists(select 1 from %s p where p.world=$1%s and (%s)=(%s))',c.confrelid::regclass,
+   case when runtime.nexloop_sim_world_has_tenant(c.confrelid) then ' and p.tenant_id=$2' else '' end,
+   (select string_agg('p.'||quote_ident(a.attname),',' order by k.i) from unnest(c.confkey) with ordinality k(n,i) join pg_attribute a on a.attrelid=c.confrelid and a.attnum=k.n),
+   (select string_agg('x.'||quote_ident(a.attname),',' order by k.i) from unnest(c.conkey) with ordinality k(n,i) join pg_attribute a on a.attrelid=c.conrelid and a.attnum=k.n)),
+   ' or ' order by d.position),min(d.position)
+ from control.nexloop_sim_world_dependents d join pg_constraint c on c.conrelid=d.child and c.conname=d.constraint_name
+ where d.mode='delete' group by d.child
+ union all
+ select t,'x.world=$1'||case when runtime.nexloop_sim_world_has_tenant(t) then ' and x.tenant_id=$2' else '' end,
+  -- A world table referenced by another world table's foreign key comes after it (e.g. budget limits after their consumption).
+  100000+case when exists(select 1 from pg_constraint c join runtime.nexloop_sim_world_tables() r(child) on r.child=c.conrelid
+   where c.contype='f' and c.confrelid=t and c.conrelid<>t) then 1 else 0 end
+ from runtime.nexloop_sim_world_tables() t
+ order by 3,1
+$$;

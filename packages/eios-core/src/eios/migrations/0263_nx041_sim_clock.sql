@@ -69,8 +69,9 @@ end $$;
 create function runtime.nexloop_sim_clock_at(c control.nexloop_sim_clocks,p_wall timestamptz) returns timestamptz
  language sql immutable set search_path=pg_catalog,pg_temp as $$
  select case when c.paused or p_wall<=c.anchor_at then c.sim_at
-  else least(c.sim_at+make_interval(secs=>least(extract(epoch from (p_wall-c.anchor_at))::double precision*(c.rate::double precision),
-   extract(epoch from ('9999-01-01 00:00:00+00'::timestamptz-c.sim_at))::double precision)),'9999-01-01 00:00:00+00'::timestamptz) end
+  when extract(epoch from (p_wall-c.anchor_at))::double precision*(c.rate::double precision)
+   >=extract(epoch from ('9999-01-01 00:00:00+00'::timestamptz-c.sim_at))::double precision then '9999-01-01 00:00:00+00'::timestamptz
+  else c.sim_at+make_interval(secs=>extract(epoch from (p_wall-c.anchor_at))::double precision*(c.rate::double precision)) end
 $$;
 alter function runtime.nexloop_sim_clock_at(control.nexloop_sim_clocks,timestamptz) owner to nexloop_owner;
 revoke all on function runtime.nexloop_sim_clock_at(control.nexloop_sim_clocks,timestamptz) from public;
