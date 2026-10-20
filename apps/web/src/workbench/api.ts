@@ -614,17 +614,33 @@ export function capabilities(value:unknown):Capabilities{
 export const readCapabilities=()=>get('/api/v1/workbench/capabilities',capabilities);
 
 // ---- World model W2 (L6 0223/0224, ADR-035): instances and the depth-1 neighbourhood; identifiers only, each READ checked ----
-export type ObjectRow={object_id:string;schema_version:number;revision:number;updated_at:string};
+/** D-G1 (owner 2026-10-20): one schema property of an object as the member may see it. `withheld`: named only (an owner-restricted
+ * group, a property the role does not derive, or a value naming a Consumer being erased); the value never reaches the client. */
+export type PropertyValue={name:string;status:'ok'|'withheld'|'missing';reason?:'restricted'|'not_permitted'|'erasing';value?:string;valueType?:'text'|'json';truncated?:boolean};
+export type ObjectRow={object_id:string;schema_version:number;revision:number;updated_at:string;properties:PropertyValue[]};
+export type ObjectValues={type_name:string;object_id:string;schema_version:number;revision:number;properties:PropertyValue[]};
 export type ObjectPage={type_name:string;items:ObjectRow[];invisible:number;total:number;next_after:string|null};
 export type NeighborGroup={direction:'outgoing'|'incoming';via:string;type_name:string;items:{type_name:string;object_id:string}[];invisible:number;collapsed:number};
 export type ObjectNeighbors={type_name:string;object_id:string;depth:1;group_limit:number;groups:NeighborGroup[]};
 const TYPE_NAME=/^[A-Z][A-Za-z0-9_]{0,63}$/,OBJECT_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const typeName=(v:unknown)=>{const t=text(v);if(!TYPE_NAME.test(t))throw new WorkbenchError('invalid');return t;};
 const objectId=(v:unknown)=>{const t=text(v);if(!OBJECT_ID.test(t))throw new WorkbenchError('invalid');return t;};
+const PROPERTY_NAME=/^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+export function propertyValues(value:unknown):PropertyValue[]{
+  return (value===undefined?[]:list(value)).map(x=>{const o=object(x);const name=text(o.name);if(!PROPERTY_NAME.test(name))throw new WorkbenchError('invalid');
+    const status=oneOfText(o.status,['ok','withheld','missing'] as const);
+    if(status==='withheld')return {name,status,reason:oneOfText(o.reason,['restricted','not_permitted','erasing'] as const)};
+    if(status==='missing')return {name,status};
+    return {name,status,value:text(o.value),valueType:oneOfText(o.value_type,['text','json'] as const),...(o.truncated===true?{truncated:true}:{})};});
+}
 export function objectPage(value:unknown):ObjectPage{
   const v=object(value);
   return {type_name:typeName(v.type_name),items:list(v.items).map(x=>{const o=object(x);return {object_id:objectId(o.object_id),schema_version:count(o.schema_version),
-    revision:count(o.revision),updated_at:text(o.updated_at)};}),invisible:count(v.invisible),total:count(v.total),next_after:v.next_after===null?null:objectId(v.next_after)};
+    revision:count(o.revision),updated_at:text(o.updated_at),properties:propertyValues(o.properties)};}),invisible:count(v.invisible),total:count(v.total),next_after:v.next_after===null?null:objectId(v.next_after)};
+}
+export function objectValues(value:unknown):ObjectValues{
+  const v=object(value);
+  return {type_name:typeName(v.type_name),object_id:objectId(v.object_id),schema_version:count(v.schema_version),revision:count(v.revision),properties:propertyValues(v.properties)};
 }
 export function objectNeighbors(value:unknown):ObjectNeighbors{
   const v=object(value);if(v.depth!==1)throw new WorkbenchError('invalid');
@@ -634,7 +650,38 @@ export function objectNeighbors(value:unknown):ObjectNeighbors{
         invisible:count(o.invisible),collapsed:count(o.collapsed)};})};
 }
 export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}${after?'?after='+encodeURIComponent(after):''}`,objectPage);
+export const readObjectValues=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,objectValues);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
+
+// ---- Object Set (ADR-036): definitions and a preview page evaluated at read time; each object READ-checked, restricted properties withheld ----
+export const OBJECT_SET_OPERATORS=['eq','ne','gt','gte','lt','lte','in','not_in'] as const;
+export type ObjectSetValue=string|number|boolean;
+export type ObjectSetFilter={property:string;operator:typeof OBJECT_SET_OPERATORS[number];value:ObjectSetValue|ObjectSetValue[]};
+export type ObjectSetSummary={stable_name:string;version:number;versions:number;object_type:string;object_type_version:number;filters:ObjectSetFilter[];
+  sort:{property:string;direction:'asc'|'desc'}[];projection:string[];published_at:string;reason:string};
+export type ObjectSetMember={object_id:string;values:Record<string,unknown>;withheld:string[]};
+export type ObjectSetPage={stable_name:string;version:number;object_type:string;status:'ok'|'withheld';items:ObjectSetMember[];total:number|null;
+  invisible:number;projection:string[];next_offset:number|null};
+function scalar(value:unknown):ObjectSetValue{if(typeof value==='string'||typeof value==='boolean'||(typeof value==='number'&&Number.isFinite(value)))return value;throw new WorkbenchError('invalid');}
+export function objectSets(value:unknown):ObjectSetSummary[]{
+  return list(object(value).object_sets).map(x=>{const o=object(x);
+    return {stable_name:text(o.stable_name),version:count(o.version),versions:count(o.versions),object_type:text(o.object_type),object_type_version:count(o.object_type_version),
+      filters:list(o.filters).map(f=>{const v=object(f);const operator=text(v.operator);
+        if(!(OBJECT_SET_OPERATORS as readonly string[]).includes(operator))throw new WorkbenchError('invalid');
+        return {property:text(v.property),operator:operator as ObjectSetFilter['operator'],value:Array.isArray(v.value)?v.value.map(scalar):scalar(v.value)};}),
+      sort:list(o.sort).map(s=>{const v=object(s);const direction=text(v.direction);if(direction!=='asc'&&direction!=='desc')throw new WorkbenchError('invalid');
+        return {property:text(v.property),direction};}),
+      projection:list(o.projection).map(text),published_at:text(o.published_at),reason:text(o.reason)};});
+}
+export function objectSetPage(value:unknown):ObjectSetPage{
+  const o=object(value);const status=text(o.status);if(status!=='ok'&&status!=='withheld')throw new WorkbenchError('invalid');
+  return {stable_name:text(o.stable_name),version:count(o.version),object_type:text(o.object_type),status,
+    items:status==='ok'?list(o.items).map(x=>{const v=object(x);return {object_id:text(v.object_id),values:object(v.values),withheld:list(v.withheld).map(text)};}):[],
+    total:o.total===null?null:count(o.total),invisible:status==='ok'?count(o.invisible):0,projection:status==='ok'?list(o.projection).map(text):[],
+    next_offset:o.next_offset===null||o.next_offset===undefined?null:count(o.next_offset)};
+}
+export const readObjectSets=()=>get('/api/v1/workbench/object-sets',objectSets);
+export const readObjectSetMembers=(name:string,offset=0)=>get(`/api/v1/workbench/object-sets/${encodeURIComponent(name)}/members?offset=${offset}&limit=25`,objectSetPage);
 
 // ---- W4 Artifact list (L6 0226; packages/contracts/workbench-artifacts.schema.json): metadata only, newest first, audited ----
 export type ArtifactRow={artifact_id:string;purpose:'message_context'|'fallback_context'|'role_context'|'other';media_type:string;size_bytes:number;sha256_prefix:string;
@@ -758,3 +805,39 @@ export function outreachApprovals(value:unknown):{window_seconds:number;pending:
     return {intent_id:text(p.intent_id),purpose_id:text(p.purpose_id),requested_at:text(p.requested_at),expires_at:text(p.expires_at),requested_by:text(p.requested_by)};})};
 }
 export function readOutreachApprovals(){return get('/api/v1/workbench/outreach-approvals',outreachApprovals);}
+
+
+// ---- data health (D-G5: NexLoop's own data flows; owner only; counts, ratios, ages and codes, never a body) ----
+export type HealthStatus={status:'ok'|'attention';reasons:string[]};
+const ratio=(v:unknown):number|null=>{if(v===null||v===undefined)return null;if(typeof v!=='number'||!Number.isFinite(v)||v<0||v>1)throw new WorkbenchError('invalid');return v;};
+function healthStatus(o:Record<string,unknown>):HealthStatus{
+  const s=o.status;if(s!=='ok'&&s!=='attention')throw new WorkbenchError('invalid');
+  const reasons=list(o.reasons).map(text);if(reasons.some(r=>!/^[a-z_]{1,64}$/.test(r))||(s==='ok')!==(reasons.length===0))throw new WorkbenchError('invalid');
+  return {status:s,reasons};
+}
+export type DataHealth={computed_at:string;attention:number;
+  extraction:HealthStatus&{feed_pending:number;oldest_pending_seconds:number;jobs:Record<string,number>;dead_lettered:number;failed_24h:number;finished_24h:number;failure_ratio_24h:number|null};
+  recall:HealthStatus&{active_profile:string|null;entries:number;missing_embeddings:number;other_profile_vectors:number;coverage_ratio:number|null;last_backfill_at:string|null};
+  reflow:HealthStatus&{pending:number;waiting:number;oldest_seconds:number};
+  ingestion:HealthStatus&{outbox_pending:number;commercial_receipts_24h:Record<string,number>;commercial_rejected_24h:number;commercial_rejected_ratio_24h:number|null;
+    commercial_late_24h:number;commercial_max_latency_seconds_24h:number};
+  artifacts:HealthStatus&{orphans:number;retention_passed:number;stuck_deleting:number};
+  erasure:HealthStatus&{open:number;oldest_open_seconds:number;waiting_unknown_effects:number;purge_items_retrying:number;completed_with_holds:number}};
+export function dataHealth(value:unknown):DataHealth{
+  const v=object(value);
+  if(Object.keys(v).sort().join()!=='artifacts,attention,computed_at,erasure,extraction,ingestion,recall,reflow')throw new WorkbenchError('invalid');
+  const x=object(v.extraction),r=object(v.recall),f=object(v.reflow),i=object(v.ingestion),a=object(v.artifacts),e=object(v.erasure);
+  return {computed_at:text(v.computed_at),attention:count(v.attention),
+    extraction:{...healthStatus(x),feed_pending:count(x.feed_pending),oldest_pending_seconds:count(x.oldest_pending_seconds),jobs:counts(x.jobs),dead_lettered:count(x.dead_lettered),
+      failed_24h:count(x.failed_24h),finished_24h:count(x.finished_24h),failure_ratio_24h:ratio(x.failure_ratio_24h)},
+    recall:{...healthStatus(r),active_profile:maybeText(r.active_profile),entries:count(r.entries),missing_embeddings:count(r.missing_embeddings),
+      other_profile_vectors:count(r.other_profile_vectors),coverage_ratio:ratio(r.coverage_ratio),last_backfill_at:maybeText(r.last_backfill_at)},
+    reflow:{...healthStatus(f),pending:count(f.pending),waiting:count(f.waiting),oldest_seconds:count(f.oldest_seconds)},
+    ingestion:{...healthStatus(i),outbox_pending:count(i.outbox_pending),commercial_receipts_24h:counts(i.commercial_receipts_24h),commercial_rejected_24h:count(i.commercial_rejected_24h),
+      commercial_rejected_ratio_24h:ratio(i.commercial_rejected_ratio_24h),commercial_late_24h:count(i.commercial_late_24h),
+      commercial_max_latency_seconds_24h:count(i.commercial_max_latency_seconds_24h)},
+    artifacts:{...healthStatus(a),orphans:count(a.orphans),retention_passed:count(a.retention_passed),stuck_deleting:count(a.stuck_deleting)},
+    erasure:{...healthStatus(e),open:count(e.open),oldest_open_seconds:count(e.oldest_open_seconds),waiting_unknown_effects:count(e.waiting_unknown_effects),
+      purge_items_retrying:count(e.purge_items_retrying),completed_with_holds:count(e.completed_with_holds)}};
+}
+export function readDataHealth(){return get('/api/v1/workbench/data-health',dataHealth);}

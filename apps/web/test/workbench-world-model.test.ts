@@ -43,9 +43,10 @@ test('URL state: one path per concept, the Graph view and focus round-trip on Ob
     expect(parseRoute('/workbench/ontology/'+path).section).toBe(section);
   expect(parseRoute('/workbench/ontology')).toEqual({page:'ontology'});
   expect(parseRoute('/workbench/ontology/links','?view=graph').query).toBeUndefined();  // the view belongs to Object Type
-  expect(parseRoute('/workbench/ontology/object-sets')).toEqual({page:'ontology'});  // no page without NexLoop data
-  expect(worldQuery('actions',{view:'graph'})).toEqual({graph:false,focus:null,type:null,after:null,object:null});
-  expect(worldQuery('object_types',undefined)).toEqual({graph:false,focus:null,type:null,after:null,object:null});
+  expect(parseRoute('/workbench/ontology/object-sets')).toEqual({page:'ontology',section:'object_sets'});  // ADR-036
+  expect(parseRoute('/workbench/ontology/object-views')).toEqual({page:'ontology'});  // no page without NexLoop data
+  expect(worldQuery('actions',{view:'graph'})).toEqual({graph:false,focus:null,type:null,after:null,object:null,set:null,offset:0});
+  expect(worldQuery('object_types',undefined)).toEqual({graph:false,focus:null,type:null,after:null,object:null,set:null,offset:0});
   // Links of the earlier single page land on the concept they showed.
   expect(routePath(parseRoute('/workbench/ontology','?tab=relations&view=graph&focus=Consumer'))).toBe('/workbench/ontology/links');
   expect(routePath(parseRoute('/workbench/ontology','?view=graph&focus=Consumer'))).toBe('/workbench/ontology/object-types?view=graph&focus=Consumer');

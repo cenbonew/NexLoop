@@ -11,6 +11,7 @@ pending review items only) and appends an audit row with the read's purpose. Any
 """
 from datetime import UTC, datetime, timedelta
 import hashlib
+import json
 import hmac
 
 import psycopg
@@ -27,6 +28,7 @@ VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKB
          'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
          'world_model': WORKBENCH_READ,
          'capabilities': WORKBENCH_READ, 'objects': WORKBENCH_READ, 'object_neighbors': WORKBENCH_READ, 'artifacts': WORKBENCH_READ,
+         'object_fields': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -399,14 +401,98 @@ class WorkbenchQueries:
             cache[key] = visible
         return visible
 
+    VALUE_LIMIT = 2000  # characters of one shown value (JSON text); a longer one is cut and marked truncated
+
+    def _object_values(self, type_name, object_id):
+        """D-G1 (owner 2026-10-20): (fields, values) of one object for this member, or None when the object is absent, or False when
+        the member may not read it. `object_fields` (0246) lists the schema properties with presence, the member derivation and the
+        owner's group restriction, and returns no value; the values come through the one audited object read (ADR-025,
+        purpose 'world_model'), which checks the object and every requested property again. Restricted and underived properties
+        are named only (withheld); a Consumer being erased is refused by that read (NX-029) and shows nothing."""
+        fields = self.reader.call('object_fields', type_name=type_name, object_id=object_id)
+        if fields is None:
+            return None
+        if not fields['readable']:
+            return False
+        names = [f['name'] for f in fields['fields'] if f['readable'] and f['present']]
+        values = self.reader.read_object(type_name, object_id, names, 'world_model')
+        if values is None:
+            return False
+        out = []
+        for f in fields['fields']:
+            if f['restricted']:
+                out.append({'name': f['name'], 'status': 'withheld', 'reason': 'restricted'})
+            elif f.get('erasing'):
+                out.append({'name': f['name'], 'status': 'withheld', 'reason': 'erasing'})
+            elif not f['readable']:
+                out.append({'name': f['name'], 'status': 'withheld', 'reason': 'not_permitted'})
+            elif not f['present'] or f['name'] not in values or values[f['name']] is None:
+                out.append({'name': f['name'], 'status': 'missing'})
+            else:
+                value = values[f['name']]
+                text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+                entry = {'name': f['name'], 'status': 'ok', 'value': text[:self.VALUE_LIMIT], 'value_type': 'text' if isinstance(value, str) else 'json'}
+                if len(text) > self.VALUE_LIMIT:
+                    entry['truncated'] = True
+                out.append(entry)
+        return fields, out
+
     def objects(self, *, type_name, after=None, limit=50):
-        """World model W2: a page of a type's instances, identifiers, versions and times only; each object's READ is checked (ADR-025,
-        audited); unreadable objects are counted as invisible, never listed."""
+        """World model W2: a page of a type's instances; each object's READ is checked (ADR-025, audited, one row per object);
+        unreadable objects are counted as invisible, never listed. D-G1: a listed object carries its property values through the same
+        audited read (restricted and underived properties named only, withheld)."""
         value = self.reader.call('objects', type_name=type_name, limit=limit, **({'after': after} if after else {}))
         page = value['items']
-        visible = [item for item in page if self._readable_object(type_name, item['object_id'])]
+        visible = []
+        for item in page:
+            got = self._object_values(type_name, item['object_id'])
+            if got:
+                visible.append({**item, 'properties': got[1]})
         return {'type_name': type_name, 'items': visible, 'invisible': len(page) - len(visible), 'total': value['total'],
                 'next_after': page[-1]['object_id'] if len(page) == limit else None}
+
+    def object_values(self, *, type_name, object_id):
+        """D-G1: one object's property values for the drawer (None when absent; 403 when the member may not read it)."""
+        got = self._object_values(type_name, object_id)
+        if got is None:
+            return None
+        if got is False:
+            raise WorkbenchForbidden('object')
+        fields, props = got
+        return {'type_name': type_name, 'object_id': object_id, 'schema_version': fields['schema_version'], 'revision': fields['revision'],
+                'properties': props}
+
+    def object_sets(self):
+        """ADR-036: the latest version of each Object Set with its conditions and projection (definitions only, no object)."""
+        return self.reader.observe('object_sets')
+
+    def object_set_members(self, *, stable_name, version=None, offset=0, limit=25):
+        """ADR-036: one preview page of an Object Set, evaluated in SQL at read time (candidates only). Each object is shown only when its
+        READ holds (ADR-025/ADR-035, audited with purpose 'object_set'); the rest are counted as invisible. Each projected property is shown
+        only with its own property READ, otherwise listed as withheld. A set whose filter or sort property became restricted is withheld
+        as a whole."""
+        value = self.reader.observe('object_set_members', stable_name=stable_name, offset=offset, limit=limit,
+                                    **({'version': version} if version is not None else {}))
+        if value is None or value['status'] != 'ok':
+            return value
+        type_name, projection = value['object_type'], value['projection']
+        items, invisible = [], 0
+        for object_id in value['items']:
+            if self.reader.read_object(type_name, object_id, [], 'object_set') is None:
+                invisible += 1
+                continue
+            values = self.reader.read_object(type_name, object_id, projection, 'object_set') if projection else {}
+            withheld = []
+            if values is None:  # one projected property is not readable: read each on its own, show only those that are
+                values = {}
+                for prop in projection:
+                    single = self.reader.read_object(type_name, object_id, [prop], 'object_set')
+                    if single is None:
+                        withheld.append(prop)
+                    else:
+                        values[prop] = single.get(prop)
+            items.append({'object_id': object_id, 'values': {k: values.get(k) for k in projection if k not in withheld}, 'withheld': withheld})
+        return {**value, 'items': items, 'invisible': invisible}
 
     def object_neighbors(self, *, type_name, object_id):
         """World model W2: depth 1, at most 25 neighbours a group. The centre must be readable (else 403); a neighbour is shown only
@@ -594,6 +680,10 @@ class WorkbenchQueries:
     def outreach_approvals(self):
         # Outreach slice 6: pending approvals (intent id, purpose, times, requester; never the body) for the owner.
         return self.reader.observe('outreach_approvals')
+
+    def data_health(self):
+        # D-G5: extraction, recall index, review reflow, ingestion, Artifact orphans and erasure propagation (owner, read only).
+        return self.reader.observe('data_health')
 
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

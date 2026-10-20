@@ -71,7 +71,11 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Outreach slice 4: one proactive message for a listed purpose (accepted here, admitted at dispatch).
     'send_outreach':'outreach.send',
     # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
-    'decide_outreach_approval':'outreach.approve'}
+    'decide_outreach_approval':'outreach.approve',
+    # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
+    'record_marketing_consent':'marketing_consent.record',
+    # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
+    'publish_object_set':'object_set.publish'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -368,6 +372,24 @@ class GoalGovernedActions:
         if not re.fullmatch(r'outreach:[0-9a-f]{64}',str(intent_id)) or decision not in ('approve','reject') or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('intent, decision and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_outreach_approval','intent_id':intent_id,'decision':decision,'reason':reason})
+
+    # Outreach slice 7: owner only; evidence is the consumer's own inbound message or an offline reference (checked in SQL).
+    def record_marketing_consent(self,*,action_name,action_version,request_id,consumer_id,kind,source,reason,message_id=None,evidence_ref=None):
+        if (not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or kind not in ('consent_granted','consent_withdrawn','marketing_resumed')
+            or source not in ('consumer_message','offline') or (source=='consumer_message')!=(message_id is not None) or (source=='offline')!=(evidence_ref is not None)
+            or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('consumer, kind, source with its evidence and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'record_marketing_consent','consumer_id':consumer_id,'kind':kind,
+            'source':source,'reason':reason,**({'message_id':message_id} if message_id is not None else {}),**({'evidence_ref':evidence_ref} if evidence_ref is not None else {})})
+
+    # ADR-036: owner only; SQL checks the type, the properties, the operators and that filter and sort properties are not restricted.
+    def publish_object_set(self,*,action_name,action_version,request_id,stable_name,object_type,filters,projection,reason,sort=()):
+        if (not re.fullmatch(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}',str(stable_name)) or not re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}',str(object_type))
+                or type(filters) not in (list,tuple) or type(projection) not in (list,tuple) or type(sort) not in (list,tuple)
+                or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('name, object type, filters, projection and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_object_set','stable_name':stable_name,'object_type':object_type,
+            'filters':[dict(f) for f in filters],'sort':[dict(s) for s in sort],'projection':list(projection),'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

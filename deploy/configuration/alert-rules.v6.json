@@ -1,0 +1,393 @@
+{
+  "schema_version": "nexloop-alert-rules/1",
+  "version": 6,
+  "decision": "NX-030 D3 (owner 2026-10-10, all as recommended): default thresholds of design §2. Evaluated once a minute on the SQL snapshot, world 'real' only (D6); one alert per rule and selector, resolved when the condition clears; shown to the owner in the workbench (D2). metric is a dotted path into runtime.nexloop_metrics_snapshot; one '*' segment iterates its children (the child key becomes the selector); selector picks one key of a map. A new version is a new file. v2 (relay multi-consumer, 0160): relay_unenrolled_pending — inbound messages of a consumer that no relay is enrolled to serve would never get a message Run (critical after 5 minutes, so an enrollment in progress does not fire); relay_backlog_age — the oldest inbound message still waiting for a relay (warning, same 10 minutes as the queue backlog). v3 (NX-035 local part, 0146): the M12 backup block is wired to the backup manifest — backup_age reads backup.age_seconds (the latest verified PG backup, unchanged rule); new: wal_archive_lag and wal_archive_failing (RPO ≤ 5 minutes, D2), offsite_backup_age (repo2, once enabled, D3), file_backup_age (D2 file RPO 15 minutes, alert at 1 hour), restore_journal_lag (§6.2), restore_drill_overdue (35 days, D6; counted from the first verified backup while no drill has passed) and backup_verify_failed (§3.2). A metric without an observation is absent, never zero. v4 (NX-037 provider routing): effect_route_unconfigured, a warning when an effect intent of an Action without a provider route was refused (NXE01). v5 (dispatcher 2026-10-18, claim-matcher idle): candidates_without_merge_configuration, a warning when staged candidate definitions wait for 10 minutes while the tenant has no active merge configuration (0216 candidates block; apply deploy/ontology/merge-config.v1.json through nexloop_eios.merge_configuration --apply). v6 (data health, D-G5): thresholds on the snapshot block data_health (NexLoop's own data flows: extraction, recall index, review reflow, ingestion, Artifacts, erasure propagation); counts and ages only.",
+  "rules": [
+    {
+      "rule_id": "refusal_budget_exhausted",
+      "metric": "refusals.last_5m",
+      "selector": "NXB01",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M01: model or incentive budget exhausted; new work is being refused."
+    },
+    {
+      "rule_id": "refusal_control_stale",
+      "metric": "refusals.last_hour",
+      "selector": "NXC02",
+      "condition": "gt",
+      "threshold": 20,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M01: many dispatches refused for a stale control revision; reevaluation is not keeping up."
+    },
+    {
+      "rule_id": "refusal_goal_stale",
+      "metric": "refusals.last_hour",
+      "selector": "NXC03",
+      "condition": "gt",
+      "threshold": 20,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M01: many dispatches refused for a superseded goal version."
+    },
+    {
+      "rule_id": "unknown_oldest",
+      "metric": "effects.unknown.oldest_age_seconds",
+      "condition": "gt",
+      "threshold": 900,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M02: an external result has been unknown for more than 15 minutes; query, never resend."
+    },
+    {
+      "rule_id": "unknown_oldest_escalated",
+      "metric": "effects.unknown.oldest_age_seconds",
+      "condition": "gt",
+      "threshold": 7200,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M02: an external result has been unknown for more than 2 hours."
+    },
+    {
+      "rule_id": "unknown_over_24h",
+      "metric": "effects.unknown.over_24h",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M03: reconciliation left an effect unknown for more than 24 hours."
+    },
+    {
+      "rule_id": "reply_escalated",
+      "metric": "replies.escalations_last_hour",
+      "selector": "*",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M04: a fallback reply failed or did not start (ADR-023: every inbound message gets a reply)."
+    },
+    {
+      "rule_id": "commitment_breached",
+      "metric": "commitments.exceptions_last_hour",
+      "selector": "breached",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M05: a commitment passed its due date unfulfilled."
+    },
+    {
+      "rule_id": "commitment_under_restriction",
+      "metric": "commitments.exceptions_last_hour",
+      "selector": "made_under_contact_restriction",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M05: a commitment was made to a contact-restricted customer."
+    },
+    {
+      "rule_id": "queue_dead_letter",
+      "metric": "queues.*.dead_lettered_last_hour",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M06: a queued task was dead-lettered."
+    },
+    {
+      "rule_id": "queue_backlog_age",
+      "metric": "queues.*.oldest_pending_seconds",
+      "condition": "gt",
+      "threshold": 600,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M06: the oldest due task has waited more than 10 minutes."
+    },
+    {
+      "rule_id": "feed_dead_letter",
+      "metric": "feeds.*.dead_lettered_last_hour",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M06: a work feed item was dead-lettered."
+    },
+    {
+      "rule_id": "feed_backlog_age",
+      "metric": "feeds.*.oldest_pending_seconds",
+      "condition": "gt",
+      "threshold": 600,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M06/M07: a work feed has waited more than 10 minutes."
+    },
+    {
+      "rule_id": "extraction_lag",
+      "metric": "extraction.oldest_pending_seconds",
+      "condition": "gt",
+      "threshold": 1800,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M07: an accepted message has waited more than 30 minutes for extraction."
+    },
+    {
+      "rule_id": "guard_timeout_rate",
+      "metric": "guard.timeout_rate",
+      "condition": "gt",
+      "threshold": 0.01,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M08: more than 1% of guard calls hit the 2 s deadline in the last 5 minutes."
+    },
+    {
+      "rule_id": "guard_latency_p95",
+      "metric": "guard.p95_ms_max",
+      "condition": "gt",
+      "threshold": 1500,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M08: guard p95 above 1500 ms, close to the 2 s deadline."
+    },
+    {
+      "rule_id": "host_admission_timeout",
+      "metric": "host.by_service.*.sum.admission_timeouts",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M09: a Run waited past the Agent Host admission window (runtime_capacity_exhausted)."
+    },
+    {
+      "rule_id": "pool_waiting",
+      "metric": "pool.by_service.*.max.requests_waiting",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 300,
+      "severity": "warning",
+      "purpose": "M10: connection pool requests have been waiting for 5 minutes."
+    },
+    {
+      "rule_id": "connections_high",
+      "metric": "connections.total",
+      "condition": "gt",
+      "threshold": 50,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M10: more than 50 database connections (deployment limit 60)."
+    },
+    {
+      "rule_id": "budget_near_limit",
+      "metric": "cost.budgets.*.ratio",
+      "condition": "gt",
+      "threshold": 0.8,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M11: more than 80% of a budget used (the limit itself is enforced by NX-022)."
+    },
+    {
+      "rule_id": "backup_age",
+      "metric": "backup.age_seconds",
+      "condition": "gt",
+      "threshold": 93600,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M12: last backup older than 26 hours (wired when NX-035 provides the backup manifest; unavailable until then)."
+    },
+    {
+      "rule_id": "relay_unenrolled_pending",
+      "metric": "relay.unenrolled_consumers_pending",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 300,
+      "severity": "critical",
+      "purpose": "Relay multi-consumer: pending inbound messages of consumers without an active relay enrollment; no relay will serve them."
+    },
+    {
+      "rule_id": "relay_backlog_age",
+      "metric": "relay.oldest_pending_seconds",
+      "condition": "gt",
+      "threshold": 600,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "Relay multi-consumer: the oldest inbound message still waiting for a relay."
+    },
+    {
+      "rule_id": "wal_archive_lag",
+      "metric": "backup.wal_last_archived_age_seconds",
+      "condition": "gt",
+      "threshold": 300,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M12: no WAL segment archived for more than 5 minutes; the database RPO of 5 minutes (D2) is at risk."
+    },
+    {
+      "rule_id": "wal_archive_failing",
+      "metric": "backup.wal_archive_failing",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M12: the latest WAL archive attempt failed after the latest success."
+    },
+    {
+      "rule_id": "offsite_backup_age",
+      "metric": "backup.repo_backup_age_seconds",
+      "selector": "repo2",
+      "condition": "gt",
+      "threshold": 93600,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M12: the latest verified backup in the offsite repository (repo2) is older than 26 hours (D3; evaluated once repo2 holds a backup)."
+    },
+    {
+      "rule_id": "file_backup_age",
+      "metric": "backup.file_backup_age_seconds",
+      "condition": "gt",
+      "threshold": 3600,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M12: the latest verified file snapshot (Artifacts, finished Runs) is older than 1 hour (file RPO 15 minutes, D2)."
+    },
+    {
+      "rule_id": "restore_journal_lag",
+      "metric": "backup.journal_export_lag_seconds",
+      "condition": "gt",
+      "threshold": 300,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M12: a restore-journal entry (deletion, contact restriction, revocation) has waited more than 5 minutes for export; a restore could lose it (design §6.2)."
+    },
+    {
+      "rule_id": "restore_drill_overdue",
+      "metric": "backup.drill_age_seconds",
+      "condition": "gt",
+      "threshold": 3024000,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "M12: no passed restore drill for more than 35 days (D6)."
+    },
+    {
+      "rule_id": "backup_verify_failed",
+      "metric": "backup.verify_failed",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "M12: the latest PG backup failed its verification."
+    },
+    {
+      "rule_id": "effect_route_unconfigured",
+      "metric": "refusals.last_5m",
+      "selector": "NXE01",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "NX-037: an effect intent's Action has no provider route in the effect worker; it is not dispatched until the route is configured."
+    },
+    {
+      "rule_id": "candidates_without_merge_configuration",
+      "metric": "candidates.staged_without_configuration",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 600,
+      "severity": "warning",
+      "purpose": "NX-045: staged candidate definitions cannot be glued because the tenant has no active merge configuration; the claim-matcher stays idle (merge_configuration_missing)."
+    },
+    {
+      "rule_id": "data_health_extraction_dead_letters",
+      "metric": "data_health.extraction.dead_lettered",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "D-G5: claim-extraction jobs ended in the dead letter state; their messages have no Claims until the owner retries or reviews them."
+    },
+    {
+      "rule_id": "data_health_extraction_backlog",
+      "metric": "data_health.extraction.oldest_pending_seconds",
+      "condition": "gt",
+      "threshold": 3600,
+      "for_seconds": 600,
+      "severity": "warning",
+      "purpose": "D-G5: an inbound message has waited more than an hour for claim extraction (feed not enqueued)."
+    },
+    {
+      "rule_id": "data_health_recall_missing_embeddings",
+      "metric": "data_health.recall.missing_embeddings",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 3600,
+      "severity": "warning",
+      "purpose": "D-G5: recall entries without an embedding under the active profile for an hour; recall misses them until a backfill runs."
+    },
+    {
+      "rule_id": "data_health_recall_profile_drift",
+      "metric": "data_health.recall.other_profile_vectors",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 86400,
+      "severity": "warning",
+      "purpose": "D-G5: vectors under a profile other than the active one remain for a day (profile change not yet backfilled or cleaned)."
+    },
+    {
+      "rule_id": "data_health_reflow_stale",
+      "metric": "data_health.reflow.oldest_seconds",
+      "condition": "gt",
+      "threshold": 3600,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "D-G5: a review decision has waited more than an hour for its Claims to reflow."
+    },
+    {
+      "rule_id": "data_health_signature_rejections",
+      "metric": "data_health.ingestion.commercial_receipts_24h.rejected_signature",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "D-G5: signed commercial events rejected for their signature in the last 24 hours (key rotation or a forged sender)."
+    },
+    {
+      "rule_id": "data_health_artifact_orphans",
+      "metric": "data_health.artifacts.orphans",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 3600,
+      "severity": "warning",
+      "purpose": "D-G5: available Artifacts older than a day that no Context binding, Role Context or erasure record references."
+    },
+    {
+      "rule_id": "data_health_artifacts_stuck_deleting",
+      "metric": "data_health.artifacts.stuck_deleting",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "D-G5: Artifacts in the deleting state for more than an hour."
+    },
+    {
+      "rule_id": "data_health_erasure_stalled",
+      "metric": "data_health.erasure.oldest_open_seconds",
+      "condition": "gt",
+      "threshold": 86400,
+      "for_seconds": 0,
+      "severity": "critical",
+      "purpose": "D-G5: a Consumer erasure has not finished within a day."
+    },
+    {
+      "rule_id": "data_health_purge_retrying",
+      "metric": "data_health.erasure.purge_items_retrying",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "D-G5: Run purge items of an erasure or retention expiry retried three times or more."
+    }
+  ]
+}

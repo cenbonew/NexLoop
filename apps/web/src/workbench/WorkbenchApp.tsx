@@ -16,6 +16,7 @@ import {Alerts,Audit,Operations} from './pages/Observability';
 import {WorldModel} from './pages/WorldModel';
 import {Capabilities} from './pages/Capabilities';
 import {DataAssets} from './pages/DataAssets';
+import {DataHealth} from './pages/DataHealth';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -62,6 +63,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'ontology':return <WorldModel section={route.section} query={route.query}
       go={(section,query,options)=>go({page:'ontology',...(section?{section}:{}),...(query&&Object.keys(query).length?{query}:{})},options)}/>;
     case 'data_assets':return <DataAssets/>;
+    case 'data_health':return <DataHealth/>;
     case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
     case 'experiments':return <NotEnabled title={PAGES.experiments}/>;
   }
@@ -71,7 +73,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
  * 企业世界模型 is an expandable entry (EIOS navigation, owner review 2026-10-20): its summary page and one page per concept. */
 export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','plans','goals','contact']},
-  {title:'模型与资产',pages:['ontology','data_assets','knowledge']},
+  {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
   {title:'管理',pages:['settings','personas','capabilities','experiments']}];
 const NOT_ENABLED:PageKey[]=['experiments'];
