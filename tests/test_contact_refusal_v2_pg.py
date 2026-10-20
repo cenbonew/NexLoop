@@ -1,4 +1,4 @@
-"""Contact refusal rules v2 (ADR-023 §4; owner decision 2026-10-20, option B; migration 0240), on clean catalog PostgreSQL with the
+"""Contact refusal rules v2 (ADR-023 §4; owner decision 2026-10-20, option B; migration 0244), on clean catalog PostgreSQL with the
 outreach fixture (owner sends, loopback outbox, gates open only in this disposable synthetic database). Right after marketing (latest
 dispatched proactive message is marketing, within 30 days) 退订 / TD / stop stop marketing only; everything else, and the same words
 outside that condition, restrict all contact as in v1. Synthetic data only."""
