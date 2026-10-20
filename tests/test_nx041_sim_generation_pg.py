@@ -51,11 +51,15 @@ def seed_real(admin, tenant=TENANT_A):
     """A published type with three properties and real objects carrying recognisable content (Consumers too)."""
     definition = {'type_name': 'ServiceTicket', 'properties': [
         {'property_name': 'title', 'value_type': 'string'}, {'property_name': 'priority', 'value_type': 'integer'},
-        {'property_name': 'urgent', 'value_type': 'boolean'}]}
+        {'property_name': 'urgent', 'value_type': 'boolean'}, {'property_name': 'zz_hidden_field', 'value_type': 'string', 'visibility': 'hidden'},
+        {'property_name': 'zz_restricted_field', 'value_type': 'integer'}],
+        'property_groups': [{'group_name': 'zz_restricted_group', 'property_names': ['zz_restricted_field']}]}
     ids = []
     with admin.transaction():
         admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'ServiceTicket',1,%s)",
                       (tenant, Jsonb(definition)))
+        admin.execute("insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,'property_group_restriction',%s,%s)",
+                      (tenant, ['ServiceTicket'], Jsonb({'tenant_id': tenant, 'type_name': 'ServiceTicket', 'restricted_groups': ['zz_restricted_group']})))
         admin.execute('set local session_replication_role=replica')
         for type_name, n in (('ServiceTicket', 6), ('Consumer', 4)):
             for _ in range(n):
@@ -77,7 +81,7 @@ def content(admin, world):
 def test_synthetic_generation_is_reproducible_marked_and_recorded(db):
     a, b = create(db)['world'], create(db)['world']
     first = generate(db, synthetic(a))
-    assert first['created'] is True and first['generator_version'] == 'nexloop-sim-generator/1' and first['definitions_digest'] is None
+    assert first['created'] is True and first['generator_version'] == 'nexloop-sim-generator/2' and first['definitions_digest'] is None
     assert first['counts']['Consumer'] == 12 and first['counts']['session_events'] >= 0
     # The same seed and parameters give the same output in another world; another seed does not.
     assert generate(db, synthetic(b))['output_digest'] == first['output_digest']
@@ -92,7 +96,7 @@ def test_synthetic_generation_is_reproducible_marked_and_recorded(db):
     # The frozen input record: version, seed, parameters and their digest.
     rec = db.execute('select generator_version,seed,params,params_digest,created_by from control.nexloop_sim_generations where world=%s and generation_id=%s',
                      (a, first['generation_id'])).fetchone()
-    assert rec[0] == 'nexloop-sim-generator/1' and rec[1] == 's1' and rec[2]['segments'] == {'loyal': 3, 'new': 1} and rec[3] == first['params_digest']
+    assert rec[0] == 'nexloop-sim-generator/2' and rec[1] == 's1' and rec[2]['segments'] == {'loyal': 3, 'new': 1} and rec[3] == first['params_digest']
     assert rec[4] == 'owner-principal'
 
 
@@ -126,7 +130,7 @@ def test_only_a_registered_active_simulation_world_of_the_tenant_receives_data(d
                 counts,output_digest,created_by) values(%s,%s,%s,'r','synthetic','v','s','{}',%s,'{}',%s,'x')""", (TENANT_A, world, 'a' * 64, 'a' * 64, 'a' * 64))
     # A deleting world receives nothing new.
     delete(db, a)
-    with pytest.raises(psycopg.errors.InvalidParameterValue, match='not_registered|world_not_active'), db.transaction():
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='world_not_active'), db.transaction():
         generate(db, synthetic(a))
 
 
@@ -135,10 +139,13 @@ def test_structural_generation_copies_structure_and_counts_never_real_content(db
     real_before = db.execute("select md5(string_agg(md5(x::text),',' order by object_id)) from ontology.objects x where world='real'").fetchone()[0]
     a, b = create(db)['world'], create(db)['world']
     out = generate(db, structural(a))
-    # Scaled to at most max_objects: 10 real objects, max 8 -> 0.8; 6 tickets -> 5, 4 Consumers -> 3.
-    assert out['counts']['ServiceTicket'] == 5 and out['counts']['Consumer'] == 3 and len(out['definitions_digest']) == 64
+    # 4 Consumers count as 5 (a small count is never copied exactly); 11 scaled to max 8 by largest remainder: tickets 4.36 -> 4,
+    # Consumers 3.64 -> 4; the total is exactly max_objects.
+    assert out['counts']['ServiceTicket'] == 4 and out['counts']['Consumer'] == 4 and len(out['definitions_digest']) == 64
     props = [r[0] for r in db.execute("select properties from runtime.nexloop_sim_objects where world=%s and type_name='ServiceTicket'", (a,))]
+    # Hidden (NX-040) and restricted-group properties never reach the sim world, not even their names.
     assert all(set(p) == {'title', 'priority', 'urgent'} and p['title'].startswith('syn-') and type(p['urgent']) is bool for p in props)
+    assert 'zz_hidden_field' not in content(db, a) and 'zz_restricted_field' not in content(db, a)
     text = content(db, a)
     assert MARK not in text and not any(i in text for i in real_ids)
     # Reproducible while the published definitions and the real counts stay the same.
@@ -176,3 +183,72 @@ def test_the_action_is_owner_only_and_python_mirrors_sql(db):
                       ('events_per_consumer', {'min': 0}), ('max_objects', 10001)):
         with pytest.raises(ValueError):
             ops[name](bad)
+
+
+def test_both_kinds_may_use_the_same_seed_in_one_world(db):
+    """Review 3.3: ids are qualified by the kind, so synthetic and structural with one seed do not collide."""
+    seed_real(db)
+    a = create(db)['world']
+    one, two = generate(db, synthetic(a, seed='same')), generate(db, structural(a, seed='same'))
+    assert one['created'] and two['created'] and one['output_digest'] != two['output_digest']
+    assert db.execute("select count(distinct object_id)=count(*) from runtime.nexloop_sim_objects where world=%s and type_name='Consumer'", (a,)).fetchone()[0]
+
+
+def test_structural_totals_never_exceed_max_objects_and_small_counts_are_bucketed(db):
+    """Review 5.3 and 1.2: seven types of 3 real objects each (each counted as 5) under max_objects 10: per-type rounding would
+    give 7 x round(1.43)=7 or more per bucket; largest remainder keeps the total at 10."""
+    with db.transaction():
+        for k in range(7):
+            name = f'Kind{k}'
+            db.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)",
+                       (TENANT_A, name, Jsonb({'type_name': name, 'properties': [{'property_name': 'x', 'value_type': 'integer'}]})))
+        db.execute('set local session_replication_role=replica')
+        for k in range(7):
+            for _ in range(3):
+                db.execute('''insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
+                    values(%s,'real',%s,%s,1,'{}','test','synthetic',now(),now())''', (TENANT_A, f'Kind{k}', uuid.uuid4().hex))
+    a, b = create(db)['world'], create(db)['world']
+    counts = generate(db, structural(a, max_objects=10))['counts']
+    kinds = {k: v for k, v in counts.items() if k.startswith('Kind')}
+    assert sum(kinds.values()) + counts['Consumer'] <= 10 and sum(kinds.values()) == 10 and set(kinds.values()) <= {1, 2}
+    # Max_objects above the bucketed total: every type of 3 real objects gives 5, never 3.
+    assert set(v for k, v in generate(db, structural(b, max_objects=1000))['counts'].items() if k.startswith('Kind')) == {5}
+
+
+def test_a_world_takes_at_most_ten_generations(db):
+    """Review 5.2."""
+    a = create(db)['world']
+    for i in range(10):
+        generate(db, {**synthetic(a, seed=f's{i}'), 'consumers': 1})
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='quota_exceeded'), db.transaction():
+        generate(db, {**synthetic(a, seed='s10'), 'consumers': 1})
+
+
+def test_a_concurrent_duplicate_request_waits_and_replays(db, pg):
+    """Review 3.2: the second of two identical requests waits for the first and then replays it (no unique violation)."""
+    a = create(db)['world']
+    body = synthetic(a)
+    first, second = psycopg.connect(pg), psycopg.connect(pg)
+    try:
+        out1 = generate(first, body)  # uncommitted
+        result = {}
+
+        def race():
+            try:
+                result['out'] = generate(second, body); second.commit()
+            except psycopg.Error as e:
+                second.rollback(); result['error'] = e
+        thread = __import__('threading').Thread(target=race)
+        thread.start(); thread.join(1.0)
+        assert thread.is_alive()
+        first.commit(); thread.join(10)
+        assert 'error' not in result and result['out']['created'] is False and result['out']['generation_id'] == out1['generation_id']
+    finally:
+        first.close(); second.close()
+
+
+def test_personas_accept_only_valid_worlds(db):
+    """Review 2.2: the persona table joins the one world check."""
+    with pytest.raises(psycopg.errors.CheckViolation), db.transaction():
+        db.execute("insert into control.nexloop_consumer_personas(tenant_id,world,consumer_id,persona,revision,updated_by) values(%s,'simulation',%s,'synthetic',1,'x')",
+                   (TENANT_A, 'a' * 64))
