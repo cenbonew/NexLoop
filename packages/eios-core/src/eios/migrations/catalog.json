@@ -1300,6 +1300,11 @@
       "version": "0260",
       "name": "0260_nx041_sim_worlds.sql",
       "sha256": "fd11078ac4077287fb65da14e3ab351ef7a732ab8b253fb67bb2bd8c29a4ba29"
+    },
+    {
+      "version": "0261",
+      "name": "0261_nx041_stand_ins.sql",
+      "sha256": "1005044cbf339c6dd7356e486785df73eef4dd6db03a8ebe25351b79aa78b763"
     }
   ]
 }
