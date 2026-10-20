@@ -26,7 +26,7 @@ alter table runtime.nexloop_evo_candidate_events add constraint nexloop_evo_cand
 -- 1. Evaluation credentials (D18) ------------------------------------------------------------------------------------------------
 create table authz.nexloop_evo_evaluation_credentials (
  token_digest text primary key references authz.nexloop_service_credentials(token_digest),
- tenant_id text not null,registered_by text not null check(char_length(registered_by) between 1 and 200),
+ tenant_id text not null references control.nexloop_tenants(tenant_id),registered_by text not null check(char_length(registered_by) between 1 and 200),
  registered_at timestamptz not null default clock_timestamp());
 alter table authz.nexloop_evo_evaluation_credentials owner to nexloop_owner;
 revoke all on authz.nexloop_evo_evaluation_credentials from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,

@@ -78,7 +78,7 @@ create table runtime.nexloop_evo_candidates (
  check(not (design_case_ids && validation_case_ids)));
 
 create table runtime.nexloop_evo_patches (
- tenant_id text not null,world text not null check(world='real'),patch_id uuid not null,candidate_id uuid not null,
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null check(world='real'),patch_id uuid not null,candidate_id uuid not null,
  body jsonb not null check(jsonb_typeof(body)='object' and octet_length(body::text)<=65536),body_digest text not null check(body_digest~'^[0-9a-f]{64}$'),
  created_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,world,patch_id),unique(tenant_id,world,candidate_id));
@@ -90,7 +90,7 @@ create table runtime.nexloop_evo_patch_sources (
 create index nexloop_evo_patch_sources_consumer on runtime.nexloop_evo_patch_sources(tenant_id,world,consumer_id);
 
 create table runtime.nexloop_evo_candidate_events (
- tenant_id text not null,world text not null,event_id bigint generated always as identity,
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,event_id bigint generated always as identity,
  diagnosis_id uuid not null,candidate_id uuid,
  event_kind text not null check(event_kind in ('diagnosis_opened','diagnosis_closed','proposed','status_changed','budget_reserved','invalidated')),
  from_status text,to_status text,reason text check(reason is null or reason~'^[a-z_]{1,64}$'),
