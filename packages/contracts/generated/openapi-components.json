@@ -4133,6 +4133,107 @@
                 }
               }
             }
+          },
+          "outreach": {
+            "description": "Outreach slice 5 (docs/design/proactive-outreach.md §3.3): only in a plan reevaluation Run whose Role execution ceiling holds nexloop.outreach.send:1; the purposes this tenant has enabled in the current purpose list and the tenant's marketing state, re-derived and checked by SQL at bind. Whether to contact the customer at all is the Run's judgement (no_action is normal); every gate is rechecked at dispatch.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schema",
+              "list_version",
+              "purposes",
+              "marketing"
+            ],
+            "properties": {
+              "schema": {
+                "const": "nexloop-outreach-context/1"
+              },
+              "list_version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 999999
+              },
+              "purposes": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "purpose_id",
+                    "kind",
+                    "topic",
+                    "frequency_class",
+                    "requires_approval",
+                    "content_rules"
+                  ],
+                  "properties": {
+                    "purpose_id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                    },
+                    "kind": {
+                      "enum": [
+                        "commitment_followup",
+                        "service_followup",
+                        "plan_defined",
+                        "marketing"
+                      ]
+                    },
+                    "topic": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                    },
+                    "frequency_class": {
+                      "enum": [
+                        "service",
+                        "marketing"
+                      ]
+                    },
+                    "requires_approval": {
+                      "type": "boolean"
+                    },
+                    "content_rules": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "max_chars",
+                        "unsubscribe_notice_required"
+                      ],
+                      "properties": {
+                        "max_chars": {
+                          "type": "integer",
+                          "minimum": 20,
+                          "maximum": 2000
+                        },
+                        "unsubscribe_notice_required": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "marketing": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "enabled",
+                  "consent_mode"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "consent_mode": {
+                    "enum": [
+                      "opt_out",
+                      "opt_in"
+                    ]
+                  }
+                }
+              }
+            }
           }
         },
         "required": [
@@ -7533,7 +7634,7 @@
     "commitment-view.schema.json": "e0f9f5acc84268282e036e265d70393a95bebc8edf45982e13dab048a4ec9e82",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-v6.schema.json": "5ee59f3d9ed075dc879fbbf4ef734430d7cb6697edb9adbdbbea9cca29bef4d4",
+    "context-pack-v6.schema.json": "9f50b585d8d5eb7d6e3a7fee9d7b273cd990aac5dc6e86080680f0cf2b354e0a",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",

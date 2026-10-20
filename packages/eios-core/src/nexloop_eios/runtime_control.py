@@ -45,6 +45,7 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
     def _operation_label(path,body):
         if path=='/internal/v1/runtime/outcomes/record':return 'outcome'
         if path=='/internal/v1/runtime/incentives/issue':return 'incentive'
+        if path=='/internal/v1/runtime/outreach/send':return 'outreach'
         if path in ('/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find'):return 'effect_'+path.rsplit('/',1)[1]
         operation=body.get('operation') if type(body) is dict else None
         if operation=='model' and 'model_result' in body:return 'model_result'
@@ -87,7 +88,8 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     or not hmac.compare_digest(header,'Bearer '+key())):
                     self.send(401,{'authorized':False});return
                 if self.path not in ('/internal/v1/runtime/authorize','/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find',
-                                     '/internal/v1/runtime/outcomes/record','/internal/v1/runtime/incentives/issue'):self.send(404,{'authorized':False});return
+                                     '/internal/v1/runtime/outcomes/record','/internal/v1/runtime/incentives/issue',
+                                     '/internal/v1/runtime/outreach/send'):self.send(404,{'authorized':False});return
                 if (self.headers.get('Content-Type')!='application/json'
                     or self.headers.get('Transfer-Encoding') is not None
                     or self.headers.get('Content-Encoding') is not None
@@ -132,6 +134,23 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                         self.send(503,{'code':'incentive_unavailable'});return
                     self.send(200,{'run_id':result['run_id'],'intent_id':result['intent_id'],'state':result['state'],'replayed':result['replayed'] is True,
                         'origin':result['origin'],'business_action_success':False});return
+                if self.path=='/internal/v1/runtime/outreach/send':
+                    # Outreach slice 5: a plan reevaluation Run asks for one proactive message (accepted is not sent; every gate at dispatch).
+                    if (type(body) is not dict or set(body)!={'activation_ref','command','parameters'} or type(body['command']) is not dict
+                        or type(body['activation_ref']) is not str or type(body['parameters']) is not dict):
+                        self.send(400,{'code':'invalid_outreach_request'});return
+                    import psycopg
+                    try:result=worker.send_run_outreach(activation_ref=body['activation_ref'],command=body['command'],parameters=body['parameters'])
+                    except ValueError:self.send(400,{'code':'invalid_outreach_request'});return
+                    except psycopg.errors.InvalidParameterValue as refused:
+                        reason=re.fullmatch(r'outreach send: ([a-z_]{1,40})',refused.diag.message_primary or '')
+                        code=reason.group(1) if reason and reason.group(1) in ('purpose_not_allowed','body_too_long','intent_exists','consumer_unavailable') else 'invalid_outreach_request'
+                        self.send(409 if code!='invalid_outreach_request' else 400,{'code':code});return
+                    except Exception:self.send(403,{'code':'outreach_unavailable'});return
+                    if type(result) is not dict or result.get('run_id')!=body['command'].get('run_id') or result.get('state') not in ('accepted','dispatching','unknown','fulfilled','failed','refused'):
+                        self.send(503,{'code':'outreach_unavailable'});return
+                    self.send(200,{'run_id':result['run_id'],'intent_id':result['intent_id'],'state':result['state'],'replayed':result['replayed'] is True,
+                        'business_action_success':False});return
                 if self.path.startswith('/internal/v1/runtime/effects/'):
                     operation=self.path.rsplit('/',1)[1]
                     field='parameters' if operation=='submit' else 'intent_id'

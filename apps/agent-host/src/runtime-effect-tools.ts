@@ -6,6 +6,8 @@ import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter
 import {ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
 const ENTERPRISE=ENTERPRISE_ACTION;
 
+export type OutreachReceipt={run_id:string;intent_id:string;state:'accepted'|'dispatching'|'unknown'|'fulfilled'|'failed'|'refused';replayed:boolean;business_action_success:false};
+const OUTREACH_CODES=['purpose_not_allowed','body_too_long','intent_exists','consumer_unavailable','invalid_outreach_request'];
 export type IncentiveReceipt={run_id:string;intent_id:string;state:'accepted'|'dispatching'|'unknown'|'fulfilled'|'failed'|'refused';replayed:boolean;origin:'reply'|'plan'|'agent';business_action_success:false};
 export type EffectRequestScope={offering_id:string;offering_revision:number;requested_guarantees:readonly string[];requested_discounts:readonly string[]};
 export function requestScope(value:unknown):EffectRequestScope{
@@ -236,6 +238,48 @@ export class RuntimeEffectClient{
       throw new RuntimeError('incentive_unavailable');
     }
   }
+  /** Outreach slice 5: a plan reevaluation Run asks for one proactive message; accepted is not sent (every gate is SQL's at dispatch). */
+  async sendOutreach(command:RunCommand,arguments_:unknown):Promise<OutreachReceipt>{
+    const valid=validateRunCommand(command);
+    try{
+      // Anything but exactly purpose and body is the model's to correct (it never names the consumer, origin, channel or topic).
+      let row:Record<string,unknown>;try{row=exact(arguments_,['purpose','body']);}catch{throw new RuntimeError('invalid_outreach_request');}
+      if(typeof row.purpose!=='string'||!/^[a-z][a-z0-9_.]{0,63}$/.test(row.purpose)||typeof row.body!=='string'||[...row.body].length<1||[...row.body].length>2000)
+        throw new RuntimeError('invalid_outreach_request');
+      const ref=this.configuration.activationForRun(valid.run_id);
+      if(!ref||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(ref)||Date.parse(valid.not_after)<=Date.now())throw new Error();
+      const key=this.configuration.privateMaterial(this.configuration.keyPath,64).toString('utf8');
+      if(!/^[0-9a-f]{64}$/.test(key))throw new Error();
+      const ca=this.configuration.privateMaterial(this.configuration.caPath,32768);
+      const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,parameters:row}));
+      if(body.length>65536)throw new Error();
+      const url=new URL('/internal/v1/runtime/outreach/send',this.origin);
+      return await new Promise<OutreachReceipt>((resolve,reject)=>{
+        const fail=(code='outreach_unavailable')=>reject(new RuntimeError(code));
+        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(2000),
+          headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':body.length}},response=>{
+          let size=0;const chunks:Buffer[]=[];
+          if(response.headers['content-type']!=='application/json'||response.headers['content-encoding']!==undefined){response.destroy();fail();return;}
+          response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>8192){response.destroy();request.destroy();fail();}else chunks.push(chunk);});
+          response.on('error',()=>fail());
+          response.on('end',()=>{try{
+            const result=JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+            if(response.statusCode!==200){const denied=exact(result,['code']);
+              if(typeof denied.code==='string'&&OUTREACH_CODES.includes(denied.code)){fail(denied.code);return;}
+              throw new Error();}
+            const out=exact(result,['run_id','intent_id','state','replayed','business_action_success']);
+            if(out.run_id!==valid.run_id||typeof out.intent_id!=='string'||!/^outreach:[0-9a-f]{64}$/.test(out.intent_id)||typeof out.state!=='string'
+              ||!['accepted','dispatching','unknown','fulfilled','failed','refused'].includes(out.state)||typeof out.replayed!=='boolean'||out.business_action_success!==false)throw new Error();
+            resolve(out as OutreachReceipt);
+          }catch{fail();}});
+        });
+        request.setTimeout(2000,()=>request.destroy());request.on('error',()=>fail());request.end(body);
+      });
+    }catch(error){
+      if(error instanceof RuntimeError&&OUTREACH_CODES.includes(error.code))throw error;
+      throw new RuntimeError('outreach_unavailable');
+    }
+  }
   /** NX-024: the reevaluation Run's outcome; the guard re-authorizes the live activation and SQL binds it to the plan. */
   async recordOutcome(command:RunCommand,outcome:unknown):Promise<RecordedOutcome>{
     const valid=validateRunCommand(command);const body_=runOutcome(outcome);
@@ -274,7 +318,7 @@ export class RuntimeEffectClient{
       throw new RuntimeError('run_outcome_unavailable');
     }
   }
-  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
+  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;outreach?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
     const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action)))}]};}
@@ -328,6 +372,15 @@ export class RuntimeEffectClient{
         try{return {content:[{type:'text' as const,text:JSON.stringify(await this.issueIncentive(bound,args))}]};}
         catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','incentive_payload_conflict','invalid_incentive_request'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('incentive_unavailable');}
       }})]:[];
+    // Outreach slice 5: offered only to a plan reevaluation Run (with its outcome tool) when the deployment turns it on; SQL still
+    // requires a plan Run, the Run's credential and Role ceiling naming nexloop.outreach.send:1, and a listed purpose.
+    const outreachTool=options.outreach===true&&options.planOutcome===true?[defineTool({name:'nexloop.outreach.send',
+      description:'Ask for one proactive message to this customer, only when the plan and its evidence call for it; deciding not to contact (no_action) is a normal result. purpose must be one of the purposes in the context\'s outreach section; body is the exact text, within that purpose\'s max_chars, in the customer\'s language, written in the operator persona\'s voice, only about that purpose, promising no new service, price or benefit. Never claim to be human; follow the persona\'s AI disclosure settings. Do not add an unsubscribe line: the server appends it to marketing messages. accepted is not sent: every check (contact restriction, quiet hours, frequency, preferences, switches) runs again at dispatch and may refuse it. At most one per purpose per day; retries return the original receipt. Then record the outcome with nexloop.plan.outcome.',
+      parameters:Type.Object({purpose:Type.String({pattern:'^[a-z][a-z0-9_.]{0,63}$'}),body:Type.String({minLength:1,maxLength:2000})},{additionalProperties:false}),
+      replay:'safe',execute:async args=>{
+        try{return {content:[{type:'text' as const,text:JSON.stringify(await this.sendOutreach(bound,args))}]};}
+        catch(error){if(error instanceof RuntimeError&&OUTREACH_CODES.includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('outreach_unavailable');}
+      }})]:[];
     // ADR-030: offered only when this Run has the enterprise slot (its context names the enterprise offering, which it has
     // only when the Run credential grants nexloop.enterprise.deliver:1). Availability, not authority: the guard rechecks.
     const enterprise=options.enterprise;
@@ -343,6 +396,7 @@ export class RuntimeEffectClient{
     return [
       ...outcomeTool,
       ...incentiveTool,
+      ...outreachTool,
       ...enterpriseTools,
       defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key. request_scope is optional and only for this reply\'s own catalog service when the customer asked for a guarantee or discount: omit it otherwise, and never put the enterprise offering or a request_id in it.',
         parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),

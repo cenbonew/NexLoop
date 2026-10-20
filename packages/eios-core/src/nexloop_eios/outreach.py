@@ -16,6 +16,7 @@ from nexloop_eios.plan_reevaluation import _SignedPort
 
 SEND_ACTION='eios:action:nexloop.outreach.send:1'
 EXECUTE_ACTION='eios:action:nexloop.outreach.execute:1'
+RUN_SUBMIT_ACTION='eios:action:nexloop.outreach.run_submit:1'
 
 
 class OutreachPort(_SignedPort):
@@ -29,6 +30,23 @@ class OutreachPort(_SignedPort):
         if provider_reference is not None:payload['provider_reference']=str(provider_reference)
         return self._signed(payload)
     def status(self,intent_id):return self._signed({'verb':'status','intent_id':str(intent_id)})
+
+
+class RunOutreachPort(_SignedPort):
+    """Runtime worker side of the reevaluation Run's outreach tool (eios:action:nexloop.outreach.run_submit:1, outreach slice 5).
+    The guard has already re-authorized the Run's live activation; SQL checks the lease, the exact command, that it is a plan
+    reevaluation Run (never a reply fallback Run), the Run's resources and Role ceiling, and derives the Consumer, the origin
+    (the plan) and the business intent id itself. The Run gives only the purpose and the body."""
+    PROTOCOL='nexloop-run-outreach-v1';ACTION=RUN_SUBMIT_ACTION;FUNCTION='nexloop_run_outreach_command'
+
+    def submit(self,*,activation_ref,command,parameters):
+        import re
+        from nexloop_eios.postgres_artifacts import canonical_payload
+        if not isinstance(activation_ref,str) or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError('activation reference')
+        if (type(parameters) is not dict or set(parameters)!={'purpose','body'} or type(parameters['purpose']) is not str
+            or re.fullmatch(r'[a-z][a-z0-9_.]{0,63}',parameters['purpose']) is None or type(parameters['body']) is not str or not 1<=len(parameters['body'])<=2000):
+            raise ValueError('outreach parameters')
+        return self._signed({'activation_ref':activation_ref,'command_text':canonical_payload(command),'parameters':parameters})
 
 
 class ProviderUnknown(Exception):
@@ -100,4 +118,4 @@ class OutreachSender:
         return summary
 
 
-__all__=['OutreachSender','OutreachPort','LocalOutreachOutbox','ProviderUnknown','SEND_ACTION','EXECUTE_ACTION']
+__all__=['OutreachSender','OutreachPort','RunOutreachPort','RUN_SUBMIT_ACTION','LocalOutreachOutbox','ProviderUnknown','SEND_ACTION','EXECUTE_ACTION']
