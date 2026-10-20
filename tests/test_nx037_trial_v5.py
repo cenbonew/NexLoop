@@ -26,9 +26,10 @@ def test_v5_is_v4_with_alert_rules_v6_and_v4_is_unchanged():
 
 
 def test_init_and_driver_follow_the_newest_trial_configuration():
-    assert latest_trial(CONFIG) == V5 and I.TRIAL == V5 and R.TRIAL == V5
+    # v6 is the newest since batches 3 and 4 (test_nx037_trial_v6); v5 is named explicitly here and stays valid.
+    assert latest_trial(CONFIG) != V5 and I.TRIAL == R.TRIAL == latest_trial(CONFIG)
     p = I.parameters(tenant='11111111-1111-4111-8111-111111111111', owner_principal='synthetic-owner', value_catalog=V5, channel_ref='synthetic-channel',
-                     period_start='2026-10-21T00:00:00+08:00', period_end='2026-10-23T00:00:00+08:00')
+                     period_start='2026-10-21T00:00:00+08:00', period_end='2026-10-23T00:00:00+08:00', trial=V5)
     rules = p['alert_rules']
     assert rules['version'] == 6 and load_rules(CONFIG / 'alert-rules.v6.json') == rules
     assert {'data_health_extraction_dead_letters', 'data_health_erasure_stalled'} <= {r['rule_id'] for r in rules['rules']}
@@ -41,7 +42,8 @@ def test_init_and_driver_follow_the_newest_trial_configuration():
 
 def test_the_dry_run_plan_names_alert_rules_v6(capsys):
     code = I.main(['plan', '--tenant', '11111111-1111-4111-8111-111111111111', '--owner-principal', 'synthetic-owner', '--value-catalog', str(V5),
-                   '--channel-ref', 'synthetic-channel', '--period-start', '2026-10-21T00:00:00+08:00', '--period-end', '2026-10-23T00:00:00+08:00'])
+                   '--channel-ref', 'synthetic-channel', '--period-start', '2026-10-21T00:00:00+08:00', '--period-end', '2026-10-23T00:00:00+08:00',
+                   '--trial-config', str(V5)])
     out = capsys.readouterr().out
     assert code == 0 and '"alert_rules"' in out and '"version": 6' in out.replace('"version":6', '"version": 6')
     code = I.main(['plan', '--tenant', '11111111-1111-4111-8111-111111111111', '--owner-principal', 'synthetic-owner', '--value-catalog', str(V5),

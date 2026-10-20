@@ -61,7 +61,7 @@ sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # v2 (NX-037 gap B): the plan opens nexloop.enterprise.deliver:1, the trial applies effect categories v3. v1 files stay valid.
 from nexloop_eios.controlled_interactions import latest_trial  # noqa: E402
-TRIAL = latest_trial(ROOT / 'deploy/configuration')  # the newest nx037-trial.v<N>.json (v5 since release 25: alert rules v6)
+TRIAL = latest_trial(ROOT / 'deploy/configuration')  # the newest nx037-trial.v<N>.json (v6 since release 25 with batches 3 and 4: alert rules v8)
 PLAN = ROOT / 'deploy/configuration/nx037-interaction-plan.v2.json'
 PLAN_SCHEMAS = ('nexloop.nx037-interaction-plan.v1', 'nexloop.nx037-interaction-plan.v2', 'nexloop.nx037-interaction-plan.v3')
 PLAN_V3 = 'nexloop.nx037-interaction-plan.v3'
