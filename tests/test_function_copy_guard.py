@@ -28,6 +28,15 @@ def clock(name, *reverts):
     return Allowed('nx041_sim_clock', name, CLOCK, tuple(reverts))
 
 
+DENIAL = 'signature denial causes: the denial raise carries its cause (DETAIL) and the excess over the bound (HINT); nothing else'
+
+
+def denial(name, message, header=()):
+    return Allowed('signature_denial_causes', name, DENIAL + (' (and pg_temp last in search_path)' if header else ''),
+                   ((r"raise exception '" + message + r"' using errcode='42501',detail=authz\.nexloop_signed_denial_cause\(.*?\),"
+                     r"hint=(?:authz\.nexloop_signed_ahead_hint\([^)]*\)|'');", "raise exception '" + message + "' using errcode='42501';"),), header)
+
+
 REGISTRY = [
     # S1 (0259): one world check (D1, D9).
     Allowed('nx041_world_check', 'runtime.nexloop_cost_data_mode', 'S1: the data mode from runtime.nexloop_world_data_mode',
@@ -81,6 +90,12 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
+    # Signature denial causes (0274, L6): the denial raise of each signed-command gate carries its cause as DETAIL (and the excess
+    # over the bound as HINT); errcode and message unchanged; nothing else.
+    denial('authz.nexloop_queue_command_before_refusals_v0150', 'queue signature denied'),
+    denial('authz.nexloop_runtime_activation_command_v0037', 'activation denied'),
+    denial('authz.nexloop_effect_execution_command_v0052', 'effect provider authority unavailable', PG_TEMP),
+    denial('authz.nexloop_context_v6_command', 'context v6 unavailable'),
 ]
 
 
