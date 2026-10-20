@@ -189,7 +189,11 @@ GATE_VERSIONS = {
     'nx038-hard-gates-1': ('references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution',
                            'no_forbidden_regression', 'index_migration_impact'),
     'nx039-gates-1': ('references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution',
-                      'no_forbidden_regression', 'semantic_regression', 'cost_performance', 'semantic_conflict', 'index_migration_impact')}
+                      'no_forbidden_regression', 'semantic_regression', 'cost_performance', 'semantic_conflict', 'index_migration_impact'),
+    # NX-040 F4: ontology_schema bundles; answered by nexloop_eios.schema_gates.evaluate_schema (G9 enabled, G10-G13 added).
+    'nx040-gates-1': ('references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution',
+                      'no_forbidden_regression', 'semantic_regression', 'cost_performance', 'semantic_conflict', 'index_migration_impact',
+                      'migration_bounded', 'reflow_budget', 'tool_context_compatible', 'authority_unchanged')}
 
 
 def answer_gates(bundle: dict, c: _Context) -> list[dict]:
@@ -202,10 +206,16 @@ def answer_gates(bundle: dict, c: _Context) -> list[dict]:
 # --- change class (§7.2, D39-7) ------------------------------------------------------------------------------------------------------
 
 def classify_change(dimension: str, patch: dict, accesses: list[dict], *, alias_index: dict | None = None,
-                    noted_refs: set | frozenset | None = None) -> str:
-    """patch | minor | major | refused, decided from the patch and the Parent's records only. Unknown or unprovable -> major."""
+                    noted_refs: set | frozenset | None = None, schema_parent: dict | None = None) -> str:
+    """patch | minor | major | refused, decided from the patch and the Parent's records only. Unknown or unprovable -> major.
+
+    NX-040 F1: an ontology_schema change is classified by nexloop_eios.evolution.schema_compat when the Schema Parent is given
+    (minor for the three whitelisted additions, refused for relation types, major otherwise); without it, major as before."""
+    if dimension == 'ontology_schema' and schema_parent is not None:
+        from nexloop_eios.evolution.schema_compat import classify
+        return classify(patch, schema_parent)
     if dimension != 'semantic_content':
-        return 'major'  # ontology_schema belongs to NX-040; semantic_tool is a code change proposal; neither is a semantic release
+        return 'major'  # ontology_schema without its Parent, and semantic_tool (a code change proposal): never a semantic release
     if not isinstance(patch, dict) or sorted(patch) != list(PATCH_KEYS):
         return 'refused'
     targets = patch.get('target_refs')
