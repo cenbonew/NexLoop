@@ -1,6 +1,6 @@
 # NX-041 S7b：sim world 中 Run 的上下文来源
 
-迁移 `0265_nx041_sim_context.sql`（临时编号，集成时由调度员重排）。契约 `packages/contracts/context-pack-sim.schema.json`。
+迁移 `0267_nx041_sim_context.sql`（临时编号，集成时由调度员重排）。契约 `packages/contracts/context-pack-sim.schema.json`。
 
 ## 方案与选择
 
