@@ -1,4 +1,4 @@
-"""Enterprise world model W4 "data assets": the `data_assets` block of the M12 metrics snapshot (0243), served by the workbench
+"""Enterprise world model W4 "data assets": the `data_assets` block of the M12 metrics snapshot (0225), served by the workbench
 metrics read. Counts, profile ids, dimensions and times only; never a Claim value, quote, recall body or vector; embedding spend is
 not recorded anywhere and is reported as unavailable, not 0. Another tenant's rows are never counted. Reading writes nothing.
 

@@ -1,6 +1,6 @@
 /**
  * Operator persona pages (design docs/design/operator-persona-design.md, owner decisions 2026-10-19). Every member reads the
- * configuration (0232); every change is an owner Action with a reason (0230/0231): publish or retire a persona version, the
+ * configuration (0229); every change is an owner Action with a reason (0227/0228): publish or retire a persona version, the
  * tenant's default persona and segment rules, one customer's assignment, the AI disclosure. A version is immutable once
  * published: the editor is a local draft that publishes as the next version. The consumer detail block shows the customer's
  * persona@version with its source and their own communication preferences (owner only: they come from their statements).

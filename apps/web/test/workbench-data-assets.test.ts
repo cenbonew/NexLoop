@@ -1,4 +1,4 @@
-// World model W4 (owner 2026-10-19): the data assets page on the owner's metrics read (L6 0224 data_assets, 0216 candidates).
+// World model W4 (owner 2026-10-19): the data assets page on the owner's metrics read (L6 0225 data_assets, 0216 candidates).
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
@@ -48,7 +48,7 @@ test('missing blocks are "不可用", not zero',()=>{
   expect(html).toContain('Embedding 预算不可用');expect(html).not.toContain('<strong>0</strong> 条 Claim');
 });
 
-test('the Artifact list (L6 0225): metadata only, hidden ones counted, a cursor to the next page; bad rows refused',()=>{
+test('the Artifact list (L6 0226): metadata only, hidden ones counted, a cursor to the next page; bad rows refused',()=>{
   const html=render(base);
   expect(html).toContain('共 <strong>3</strong> 个 Artifact · 本页 1 个');expect(html).toContain('隐藏 1 个（所属客户正在删除）');
   expect(html).toContain('aaaaaaaa…');expect(html).toContain('消息上下文');expect(html).toContain('1.2 KB');expect(html).toContain('bbbbbbbbbbbb');

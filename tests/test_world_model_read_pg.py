@@ -1,4 +1,4 @@
-"""Enterprise world model W1 (0260; docs/design/workbench-world-model-design.md, owner 2026-10-19 D1-D7): GET /api/v1/workbench/world-model.
+"""Enterprise world model W1 (0230; docs/design/workbench-world-model-design.md, owner 2026-10-19 D1-D7): GET /api/v1/workbench/world-model.
 
 Real PostgreSQL and real workbench login cookies (the slice 1 fixture). Covers: owner and operator read the same metadata snapshot (D1),
 it validates against packages/contracts/workbench-world-model.schema.json; the current version of each type wins; instance counts are

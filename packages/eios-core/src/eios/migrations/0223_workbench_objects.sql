@@ -1,5 +1,5 @@
 -- Enterprise world model W2 "instance browsing and neighbourhood" (docs/design/workbench-world-model-design.md §5 W2; owner 2026-10-19,
--- D1-D7 as recommended, D3: depth 1, 25 a group; temporary number 0241). authz.nexloop_workbench_read (0240 body, the latest
+-- D1-D7 as recommended, D3: depth 1, 25 a group; temporary number 0223). authz.nexloop_workbench_read (0222 body, the latest
 -- definition on this line, copied verbatim) gains two read-only verbs under nexloop.workbench.read:1 with every existing check:
 --   objects           one page of a type's instances: identifiers, schema versions, revisions, update times (no property);
 --   object_neighbors  the depth-1 neighbourhood of one object: governed relations and reference properties, grouped, at most 25

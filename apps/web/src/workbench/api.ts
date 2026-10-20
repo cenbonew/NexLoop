@@ -389,7 +389,7 @@ export const OPERATION_ACTION={
   silence_alert:'eios:action:nexloop.alert.silence:1',
   // 0220: owner only; the real dispatch switches (tenant and Action layers).
   set_real_dispatch:'eios:action:nexloop.real_dispatch.set:1',
-  // 0230/0231: operator persona and communication preferences (owner only).
+  // 0227/0228: operator persona and communication preferences (owner only).
   publish_operator_persona:'eios:action:nexloop.operator_persona.publish:1',assign_operator_persona:'eios:action:nexloop.operator_persona.assign:1',
   publish_persona_rules:'eios:action:nexloop.operator_persona.rules_publish:1',set_ai_disclosure:'eios:action:nexloop.ai_disclosure.set:1',
   dismiss_contact_preference:'eios:action:nexloop.contact_preference.dismiss:1',
@@ -507,7 +507,7 @@ function processSection(value:unknown):Process{
       return [k,{sum:nums(s.sum),max:nums(s.max)}];})),
     ...(typeof o.timeout_rate==='number'?{timeout_rate:o.timeout_rate}:{}),...(typeof o.p95_ms_max==='number'?{p95_ms_max:o.p95_ms_max}:{})};
 }
-// ---- W4 data assets (L6 0224) and the merge configuration state (0216): counts, profile ids and times only ----
+// ---- W4 data assets (L6 0225) and the merge configuration state (0216): counts, profile ids and times only ----
 export type Candidates={staged:number;merge_configuration_active:boolean;staged_without_configuration:number};
 export type DataAssets={claims:{total:number;by_epistemic_kind:Record<string,number>;by_resolution_state:Record<string,number>};
   extraction_runs:{total:number;last_at:string|null};extraction_jobs:Record<string,number>;
@@ -553,7 +553,7 @@ export function humanActions(value:unknown):AuditItem[]{
 }
 export const readHumanActions=()=>get('/api/v1/workbench/human-actions',humanActions);
 
-// ---- Enterprise world model W1 (0450; packages/contracts/workbench-world-model.schema.json): published model metadata, read only ----
+// ---- Enterprise world model W1 (0230; packages/contracts/workbench-world-model.schema.json): published model metadata, read only ----
 export type WorldProperty={name:string;withheld:true}|{name:string;withheld:false;value_type:string;required:boolean;nullable:boolean;group:string|null;visibility:string;description:string};
 export type WorldObjectType={name:string;version:number;display_name:string;description:string;title_property:string;primary_key:string[];objects:number;properties:WorldProperty[]};
 export type WorldRelation={name:string;version:number;source_type:string;target_type:string;cardinality:'one_to_one'|'one_to_many'|'many_to_one'|'many_to_many';inverse_name:string;description:string;property_count:number};
@@ -585,7 +585,7 @@ export function worldModel(value:unknown):WorldModel{
 }
 export const readWorldModel=()=>get('/api/v1/workbench/world-model',worldModel);
 
-// ---- World model W3: the capability catalog (L6 0221; packages/contracts/workbench-capabilities.schema.json), metadata only ----
+// ---- World model W3: the capability catalog (L6 0222; packages/contracts/workbench-capabilities.schema.json), metadata only ----
 export type CatalogCapability={capability:string;operation:string;subject_rule:'human'|'agent_or_human';source_task:string;registered_at:string};
 export type CatalogAction={resource_id:string;stable_name:string;version:number;capability:string|null;capability_version:string|null;has_side_effects:boolean;active:boolean;
   effect_category:'customer_contact'|'non_contact_service'|null;effect_category_declared:boolean;effect_manifest_version:number|null};
@@ -607,7 +607,7 @@ export function capabilities(value:unknown):Capabilities{
 }
 export const readCapabilities=()=>get('/api/v1/workbench/capabilities',capabilities);
 
-// ---- World model W2 (L6 0222/0223, ADR-035): instances and the depth-1 neighbourhood; identifiers only, each READ checked ----
+// ---- World model W2 (L6 0223/0224, ADR-035): instances and the depth-1 neighbourhood; identifiers only, each READ checked ----
 export type ObjectRow={object_id:string;schema_version:number;revision:number;updated_at:string};
 export type ObjectPage={type_name:string;items:ObjectRow[];invisible:number;total:number;next_after:string|null};
 export type NeighborGroup={direction:'outgoing'|'incoming';via:string;type_name:string;items:{type_name:string;object_id:string}[];invisible:number;collapsed:number};
@@ -630,7 +630,7 @@ export function objectNeighbors(value:unknown):ObjectNeighbors{
 export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}${after?'?after='+encodeURIComponent(after):''}`,objectPage);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
 
-// ---- W4 Artifact list (L6 0225; packages/contracts/workbench-artifacts.schema.json): metadata only, newest first, audited ----
+// ---- W4 Artifact list (L6 0226; packages/contracts/workbench-artifacts.schema.json): metadata only, newest first, audited ----
 export type ArtifactRow={artifact_id:string;purpose:'message_context'|'fallback_context'|'role_context'|'other';media_type:string;size_bytes:number;sha256_prefix:string;
   created_at:string;retention_until:string;run_id:string|null;consumer_id:string|null};
 export type ArtifactPage={items:ArtifactRow[];total:number;hidden:number;next_before:string|null};
@@ -646,7 +646,7 @@ export function artifactPage(value:unknown):ArtifactPage{
 }
 export const readArtifacts=(before?:string)=>get('/api/v1/workbench/artifacts'+(before?'?before='+encodeURIComponent(before):''),artifactPage);
 
-// ---- operator persona (0230/0232: every member reads; writes are owner Actions) and preferences (0231: owner only) ----
+// ---- operator persona (0227/0229: every member reads; writes are owner Actions) and preferences (0228: owner only) ----
 export type PersonaDocument={display_name:string;signature?:string;self_intro?:string;tone:string;values?:string[];
   expression:{max_chars:number;emoji:'none'|'few'|'allowed';vocabulary?:string;forbidden_phrases?:string[];language?:string};
   scenarios?:string[];not_for?:string[];ai_disclosure?:{statement?:string;deflect_statement?:string}};

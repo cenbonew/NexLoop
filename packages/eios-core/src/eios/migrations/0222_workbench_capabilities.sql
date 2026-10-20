@@ -1,22 +1,16 @@
--- Enterprise world model W4 "data assets": the Artifact list (temporary number 0244). authz.nexloop_workbench_read (0241 body, the
--- latest definition on this line, copied verbatim) gains one read-only verb `artifacts` under nexloop.workbench.read:1 with every
--- existing check, for owners and operators only (ADR-025 / ADR-035): a page of the tenant's available local Artifacts as metadata
--- (id, purpose, media type, size, sha256 prefix, created and retention times, the source Run, the owning Consumer id), never
--- content or storage keys. Purposes come from the bindings that hold an Artifact (message / fallback / role context, else other).
--- An Artifact of a Consumer being erased (NX-029), or one an erasure is deleting, is not listed and is counted as hidden. Each
--- listed Artifact leaves one read audit row (object kind artifact, purpose data_assets); the audit table accepts that kind.
-alter table runtime.nexloop_workbench_read_audit drop constraint nexloop_workbench_read_audit_object_kind_check;
-alter table runtime.nexloop_workbench_read_audit add constraint nexloop_workbench_read_audit_object_kind_check
- check(object_kind in ('message','consumer','goal','plan_step','commitment','service_offering','artifact'));
-alter table runtime.nexloop_workbench_read_audit drop constraint nexloop_workbench_read_audit_target_resource_check;
-alter table runtime.nexloop_workbench_read_audit add constraint nexloop_workbench_read_audit_target_resource_check
- check(target_resource~'^eios:object:(Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64}$' or target_resource~'^eios:artifact:[a-f0-9]{32}$');
+-- Enterprise world model W3 "capability catalog" (docs/design/workbench-world-model-design.md §5 W3; owner 2026-10-19, D1-D7 as
+-- recommended; temporary number 0222). authz.nexloop_workbench_read (0130 body, the latest definition, copied verbatim) gains one
+-- read-only verb `capabilities` under nexloop.workbench.read:1 with every existing check (workbench member of the tenant's own
+-- workbench application, role carrying the Action, never a customer principal): the governed capability registry, the tenant's
+-- business Action definitions with their effect categories, the inbound channel namespaces, the effect Actions the active catalog
+-- offerings deliver through (counts), and the real dispatch switches from the same function the metrics read uses (0153). No
+-- consumer, message, intent or credential data; nothing is written. create or replace keeps owner and grants.
 create or replace function authz.nexloop_workbench_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare a jsonb:=p_text::jsonb;c jsonb:=p_payload::jsonb;k bytea;ident jsonb;cfg control.nexloop_workbench_configurations;
- v_verb text:=c->>'verb';v_action text;v_tenant text;v_principal text;v_role text;v_limit integer;v_consumer text;v_conversation text;v_result jsonb;
+ v_verb text:=c->>'verb';v_action text;v_tenant text;v_principal text;v_role text;v_limit integer;v_consumer text;v_conversation text;
 begin
- v_action:=case when v_verb in ('goals','consumers','consumer','conversation','plans','actions','takeovers','settings','me','capabilities','objects','object_neighbors','artifacts') then 'eios:action:nexloop.workbench.read:1'
+ v_action:=case when v_verb in ('goals','consumers','consumer','conversation','plans','actions','takeovers','settings','me','capabilities') then 'eios:action:nexloop.workbench.read:1'
   when v_verb in ('commitments','commitment') then 'eios:action:nexloop.commitment.read:1'
   when v_verb='contact' then 'eios:action:nexloop.contact.read:1' end;
  if session_user is distinct from 'nexloop_api' or p_world is distinct from 'real' or v_action is null
@@ -210,90 +204,6 @@ begin
        and o.properties->>'valid_until' is not null and (o.properties->>'valid_until')::timestamptz>clock_timestamp() group by 1) r),'[]'::jsonb),
    'provider_routes','deployment_configuration',
    'real_dispatch',runtime.nexloop_real_dispatch_switches_read(v_tenant,p_world));
- elsif v_verb='objects' then
-  -- World model W2: one page of a type's instances, identifiers, versions and times only (no property). These are candidates: the
-  -- caller checks each object's READ through the ADR-025 member derivation (audited) and shows only the readable ones.
-  if coalesce(c->>'type_name','')!~'^[A-Z][A-Za-z0-9_]{0,63}$' or (c ? 'after' and coalesce(c->>'after','')!~'^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$')
-   or v_limit>100 then raise exception 'workbench read invalid' using errcode='22023';end if;
-  return jsonb_build_object('type_name',c->>'type_name','items',coalesce((select jsonb_agg(jsonb_build_object('object_id',x.object_id,'schema_version',x.schema_version,
-     'revision',x.nexloop_revision,'updated_at',x.updated_at) order by x.object_id) from (select o.object_id,o.schema_version,o.nexloop_revision,o.updated_at
-     from ontology.objects o where o.tenant_id=v_tenant and o.world=p_world and o.type_name=c->>'type_name' and (not c ? 'after' or o.object_id>c->>'after')
-     order by o.object_id limit v_limit) x),'[]'::jsonb),
-   'total',(select count(*) from ontology.objects o where o.tenant_id=v_tenant and o.world=p_world and o.type_name=c->>'type_name'));
-
- elsif v_verb='object_neighbors' then
-  -- World model W2: the depth-1 neighbourhood of one object, grouped by (direction, via, neighbour type), at most 25 candidates a group
-  -- plus the group's total. Edges are governed relations (ontology.relations) and reference properties (a property whose string value,
-  -- or array element, is the id of another object of the tenant). No property value is returned besides the matching id; the caller
-  -- checks READ on the centre, on every neighbour and, for a property edge, on the referencing property (ADR-025, audited).
-  if coalesce(c->>'type_name','')!~'^[A-Z][A-Za-z0-9_]{0,63}$' or coalesce(c->>'object_id','')!~'^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$' then
-   raise exception 'workbench read invalid' using errcode='22023';end if;
-  if not exists(select 1 from ontology.objects o where o.tenant_id=v_tenant and o.world=p_world and o.type_name=c->>'type_name' and o.object_id=c->>'object_id') then
-   return null;end if;
-  return (with edges as (
-     select r.relation_name via,'outgoing' direction,null::text holder,r.target_type type_name,r.target_object_id object_id from ontology.relations r
-      where r.tenant_id=v_tenant and r.world=p_world and r.source_type=c->>'type_name' and r.source_object_id=c->>'object_id'
-     union select r.relation_name,'incoming',null,r.source_type,r.source_object_id from ontology.relations r
-      where r.tenant_id=v_tenant and r.world=p_world and r.target_type=c->>'type_name' and r.target_object_id=c->>'object_id'
-     union select 'property:'||p.key,'outgoing','centre',n.type_name,n.object_id from ontology.objects s
-      cross join lateral jsonb_each(s.properties) p
-      cross join lateral jsonb_array_elements(case jsonb_typeof(p.value) when 'array' then p.value when 'string' then jsonb_build_array(p.value) else '[]'::jsonb end) v
-      join ontology.objects n on n.tenant_id=s.tenant_id and n.world=s.world and jsonb_typeof(v)='string' and n.object_id=v#>>'{}'
-       and not (n.type_name=s.type_name and n.object_id=s.object_id)
-      where s.tenant_id=v_tenant and s.world=p_world and s.type_name=c->>'type_name' and s.object_id=c->>'object_id'
-     union select 'property:'||p.key,'incoming','neighbour',n.type_name,n.object_id from ontology.objects n
-      cross join lateral jsonb_each(n.properties) p
-      where n.tenant_id=v_tenant and n.world=p_world and not (n.type_name=c->>'type_name' and n.object_id=c->>'object_id')
-       and (p.value=to_jsonb(c->>'object_id') or (jsonb_typeof(p.value)='array' and p.value @> jsonb_build_array(c->>'object_id'))))
-   select jsonb_build_object('type_name',c->>'type_name','object_id',c->>'object_id','groups',coalesce(jsonb_agg(jsonb_build_object('direction',g.direction,'via',g.via,
-     'property_holder',g.holder,'type_name',g.type_name,'total',g.total,'items',g.items) order by g.direction,g.via,g.type_name),'[]'::jsonb))
-   from (select e.direction,e.via,e.holder,e.type_name,count(*) total,
-     (jsonb_agg(e.object_id order by e.object_id) filter (where e.rank<=25)) items
-    from (select x.*,row_number() over (partition by x.direction,x.via,x.type_name order by x.object_id) rank from edges x) e
-    group by e.direction,e.via,e.holder,e.type_name) g);
- elsif v_verb='artifacts' then
-  -- World model W4: the tenant's stored Artifacts as metadata (never content), newest first, one audited read per listed Artifact
-  -- (ADR-025 / ADR-035: owner and operator; purpose data_assets). An Artifact that belongs to a Consumer being erased, or that an
-  -- erasure is deleting, is not listed (counted as hidden). Cursor: '<created_at>|<artifact_id>' of the last item.
-  if v_role not in ('owner','operator') then raise exception 'workbench read forbidden' using errcode='42501';end if;
-  if v_limit>100 or (c ? 'before' and coalesce(c->>'before','')!~'^[0-9][0-9T:. +-]{9,39}\|[a-f0-9]{32}$') then
-   raise exception 'workbench read invalid' using errcode='22023';end if;
-  with owned as (
-     select a.artifact_id,a.media_type,a.size_bytes,a.sha256,a.created_at,a.retention_until,
-      coalesce(mb.run_id,fb.run_id,rc.run_id) run_id,
-      case when mb.artifact_id is not null then 'message_context' when fb.artifact_id is not null then 'fallback_context'
-       when rc.artifact_id is not null then 'role_context' else 'other' end purpose,
-      coalesce(mc.consumer_id,fc.consumer_id,substring(rc.command_binding->>'consumer_ref' from '^consumer:([a-f0-9]{64})$')) consumer_id,
-      exists(select 1 from runtime.nexloop_erasure_artifacts x where x.tenant_id=a.tenant_id and x.world=a.world and x.artifact_id=a.artifact_id) erasing_artifact
-     from runtime.nexloop_local_artifacts a
-     left join runtime.nexloop_context_artifact_bindings mb on mb.tenant_id=a.tenant_id and mb.world=a.world and mb.artifact_id=a.artifact_id
-     left join lateral (select cv.consumer_id from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv
-       on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id
-       where m.tenant_id=a.tenant_id and m.world=a.world and m.message_id=mb.message_id limit 1) mc on true
-     left join runtime.nexloop_fallback_context_bindings fb on fb.tenant_id=a.tenant_id and fb.world=a.world and fb.artifact_id=a.artifact_id
-     left join lateral (select cv.consumer_id from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv
-       on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id
-       where m.tenant_id=a.tenant_id and m.world=a.world and m.message_id=fb.message_id limit 1) fc on true
-     left join runtime.nexloop_role_context_artifacts rc on rc.tenant_id=a.tenant_id and rc.world=a.world and rc.artifact_id=a.artifact_id
-     where a.tenant_id=v_tenant and a.world=p_world and a.status='available'),
-    visible as (
-     select o.* from owned o where not o.erasing_artifact and not (o.consumer_id is not null and runtime.nexloop_consumer_erasing(v_tenant,p_world,o.consumer_id))),
-    page as (
-     select v.* from visible v where not c ? 'before' or (v.created_at,v.artifact_id)<(split_part(c->>'before','|',1)::timestamptz,split_part(c->>'before','|',2))
-     order by v.created_at desc,v.artifact_id desc limit v_limit),
-    audited as (
-     insert into runtime.nexloop_workbench_read_audit(tenant_id,world,principal_id,role,session_id,object_kind,target_resource,read_purpose,read_txid)
-     select v_tenant,p_world,v_principal,v_role,ident->'binding'->>'session_id','artifact','eios:artifact:'||p.artifact_id,'data_assets',txid_current() from page p
-     on conflict(tenant_id,read_txid,principal_id,target_resource) do nothing returning 1)
-   select jsonb_build_object(
-    'items',coalesce((select jsonb_agg(jsonb_build_object('artifact_id',p.artifact_id,'purpose',p.purpose,'media_type',p.media_type,'size_bytes',p.size_bytes,
-       'sha256_prefix',left(p.sha256,12),'created_at',p.created_at,'retention_until',p.retention_until,'run_id',p.run_id,'consumer_id',p.consumer_id)
-       order by p.created_at desc,p.artifact_id desc) from page p),'[]'::jsonb),
-    'total',(select count(*) from visible),'hidden',(select count(*) from owned)-(select count(*) from visible),
-    'audited',(select count(*) from audited),
-    'next_before',(select case when (select count(*) from page)=v_limit then x.c end from (select p.created_at::text||'|'||p.artifact_id c from page p
-      order by p.created_at,p.artifact_id limit 1) x)) into v_result;
-  return v_result;
  end if;
  raise exception 'workbench read invalid' using errcode='22023';
 end $$;

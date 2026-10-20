@@ -48,7 +48,7 @@ def workbench_stack(conversations, admin, pg, tmp_path, *, port, web, seed=None)
     publish_goal_actions(admin)
     # The owner's real dispatch switch Action (0153), as the stage tenant publishes it; the switches start closed.
     publish_registry_actions(admin, ('nexloop.real_dispatch.set',))
-    # Operator persona pages (0230-0232): the owner's persona, rules, assignment, AI disclosure and preference Actions.
+    # Operator persona pages (0227-0229): the owner's persona, rules, assignment, AI disclosure and preference Actions.
     publish_registry_actions(admin, ('nexloop.operator_persona.publish', 'nexloop.operator_persona.assign', 'nexloop.operator_persona.rules_publish',
                                      'nexloop.ai_disclosure.set', 'nexloop.contact_preference.dismiss'))
     # The workbench: its own browser application; owner and operator members by trusted configuration (configurator).

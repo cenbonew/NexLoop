@@ -49,9 +49,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'service.confirm_not_delivered':'human_owner',
     # 0220 (ADR-034 first step): the owner marks a Consumer's persona and erases a synthetic Consumer.
     'consumer.set_persona':'human_owner','consumer.erase_synthetic':'human_owner',
-    # 0230 operator persona slice 1: persona versions, assignment, segment rules and the tenant's AI disclosure.
+    # 0227 operator persona slice 1: persona versions, assignment, segment rules and the tenant's AI disclosure.
     'operator_persona.publish':'human_owner','operator_persona.assign':'human_owner','operator_persona.rules_publish':'human_owner','ai_disclosure.set':'human_owner',
-    # 0231: the owner declines (or reinstates) a consumer's communication preference; never adds one.
+    # 0228: the owner declines (or reinstates) a consumer's communication preference; never adds one.
     'contact_preference.dismiss':'human_owner'}
 HUMAN_OWNER='human_owner'
 

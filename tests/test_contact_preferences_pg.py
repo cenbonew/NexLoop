@@ -1,4 +1,4 @@
-"""Consumer communication preferences (0231 temporary; docs/design/operator-persona-design.md §4, D6, D9): only the consumer's own
+"""Consumer communication preferences (0228 temporary; docs/design/operator-persona-design.md §4, D6, D9): only the consumer's own
 statements count; quiet hours, frequency, channel and topic refuse a contact at dispatch (NXC06) after the contact restriction
 (ADR-023, NXC05) and never hold back a reply bound to an inbound message; the owner may decline a preference, never add one.
 Clean catalog PostgreSQL; actual governed Run submissions and the independent effect Worker with a loopback provider (zero

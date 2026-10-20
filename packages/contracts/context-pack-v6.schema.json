@@ -1658,7 +1658,7 @@
       }
     },
     "operator_persona": {
-      "description": "0221 operator persona slice 1 (docs/design/operator-persona-design.md): how the operator speaks to this Consumer, persona@version, re-derived and checked by SQL at bind; absent when the tenant has no usable persona.",
+      "description": "0227 operator persona slice 1 (docs/design/operator-persona-design.md): how the operator speaks to this Consumer, persona@version, re-derived and checked by SQL at bind; absent when the tenant has no usable persona.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1837,7 +1837,7 @@
           }
         },
         "preferences": {
-          "description": "0222: the consumer's own communication preferences (from their Claims, not dismissed by the owner); data for the model; quiet hours, frequency, channel and topic are also enforced at dispatch.",
+          "description": "0228: the consumer's own communication preferences (from their Claims, not dismissed by the owner); data for the model; quiet hours, frequency, channel and topic are also enforced at dispatch.",
           "type": "array",
           "minItems": 1,
           "maxItems": 32,

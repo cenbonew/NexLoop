@@ -770,7 +770,7 @@
         "postgres"
       ],
       "executor_role": "human_owner",
-      "purpose": "0230 (operator persona slice 1, owner 2026-10-19): the owner publishes or retires an immutable operator persona version (identity, tone, values, expression rules, scenarios, AI disclosure wording); the agent never edits one.",
+      "purpose": "0227 (operator persona slice 1, owner 2026-10-19): the owner publishes or retires an immutable operator persona version (identity, tone, values, expression rules, scenarios, AI disclosure wording); the agent never edits one.",
       "source_task": "NX-023"
     },
     {
@@ -792,7 +792,7 @@
         "postgres"
       ],
       "executor_role": "human_owner",
-      "purpose": "0230: the owner assigns one Consumer an operator persona (or clears it back to the rules), with a reason; every change is an assignment event.",
+      "purpose": "0227: the owner assigns one Consumer an operator persona (or clears it back to the rules), with a reason; every change is an assignment event.",
       "source_task": "NX-023"
     },
     {
@@ -814,7 +814,7 @@
         "postgres"
       ],
       "executor_role": "human_owner",
-      "purpose": "0230: the owner publishes the tenant's segment rules (immutable versions; first match wins; role or Consumer property conditions) and the default persona.",
+      "purpose": "0227: the owner publishes the tenant's segment rules (immutable versions; first match wins; role or Consumer property conditions) and the default persona.",
       "source_task": "NX-023"
     },
     {
@@ -836,7 +836,7 @@
         "postgres"
       ],
       "executor_role": "human_owner",
-      "purpose": "0230 (owner D7/D8 2026-10-19): the tenant's AI disclosure: mode (default none), when_asked deflect or handoff, block_human_claims (default false), content label; compliance with the tenant.",
+      "purpose": "0227 (owner D7/D8 2026-10-19): the tenant's AI disclosure: mode (default none), when_asked deflect or handoff, block_human_claims (default false), content label; compliance with the tenant.",
       "source_task": "NX-023"
     },
     {
@@ -858,7 +858,7 @@
         "postgres"
       ],
       "executor_role": "human_owner",
-      "purpose": "0231 (operator persona slice 2, D6/D9): the owner declines or reinstates one of a consumer's communication preferences (a Claim the consumer stated), with a reason; the owner never adds a preference.",
+      "purpose": "0228 (operator persona slice 2, D6/D9): the owner declines or reinstates one of a consumer's communication preferences (a Claim the consumer stated), with a reason; the owner never adds a preference.",
       "source_task": "NX-023"
     }
   ]

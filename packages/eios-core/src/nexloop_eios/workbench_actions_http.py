@@ -98,7 +98,7 @@ OPERATIONS={
     # 0220 (ADR-034 first step): owner-only persona marking, and the erasure of a Consumer whose persona is not real.
     'set_consumer_persona':{'consumer_id':_id(_HEX),'persona':lambda v:v if v in ('real','simulated_agent','synthetic') else (_ for _ in ()).throw(ValueError('persona')),'reason':_reason},
     'erase_synthetic_consumer':{'consumer_id':_id(_HEX),'reason':_reason},
-    # 0230 operator persona slice 1 (owner only): versions, assignment (persona_id null clears it), rules, AI disclosure.
+    # 0227 operator persona slice 1 (owner only): versions, assignment (persona_id null clears it), rules, AI disclosure.
     'publish_operator_persona':{'persona_id':_id(re.compile(r'[a-z][a-z0-9_-]{0,63}')),'version':lambda v:v if type(v) is int and 1<=v<=999999 else (_ for _ in ()).throw(ValueError('version')),
         'status':lambda v:v if v in ('published','retired') else (_ for _ in ()).throw(ValueError('status')),
         'document':lambda v:v if v is None or type(v) is dict else (_ for _ in ()).throw(ValueError('document')),'reason':_reason},
@@ -110,7 +110,7 @@ OPERATIONS={
     'set_ai_disclosure':{'mode':lambda v:v if v in ('none','first_contact','always') else (_ for _ in ()).throw(ValueError('mode')),
         'when_asked':lambda v:v if v in ('deflect','handoff') else (_ for _ in ()).throw(ValueError('when_asked')),
         'block_human_claims':_bool,'content_label':_bool,'reason':_reason},
-    # 0231 (owner only): decline or reinstate one of a consumer's communication preferences.
+    # 0228 (owner only): decline or reinstate one of a consumer's communication preferences.
     'dismiss_contact_preference':{'claim_id':_id(re.compile(r'[0-9a-f]{64}')),'dismissed':_bool,'reason':_reason},
     # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
     'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,

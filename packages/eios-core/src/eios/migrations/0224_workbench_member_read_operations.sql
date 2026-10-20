@@ -1,4 +1,4 @@
--- ADR-035 (supplements ADR-025; owner 2026-10-19 option A; temporary number 0242): workbench owners and operators read the
+-- ADR-035 (supplements ADR-025; owner 2026-10-19 option A; temporary number 0224): workbench owners and operators read the
 -- operations objects Goal, PlanStep, Commitment and ServiceOffering through the same member derivation, audited.
 --   * Object READ for an existing object of the tenant and world; property READ only for each type's fixed field list (system types
 --     declare no property groups), never for a field in an owner-restricted group; reviewers get nothing new.
@@ -17,14 +17,14 @@ alter table runtime.nexloop_workbench_read_audit drop constraint nexloop_workben
 alter table runtime.nexloop_workbench_read_audit add constraint nexloop_workbench_read_audit_target_resource_check
  check(target_resource~'^eios:object:(Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64}$');
 
-alter function authz.nexloop_workbench_member_may_read(text,text,text,text) rename to nexloop_workbench_member_may_read_before_ops_v0242;
-revoke all on function authz.nexloop_workbench_member_may_read_before_ops_v0242(text,text,text,text) from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_identity,nexloop_configurator;
+alter function authz.nexloop_workbench_member_may_read(text,text,text,text) rename to nexloop_workbench_member_may_read_before_ops_v0224;
+revoke all on function authz.nexloop_workbench_member_may_read_before_ops_v0224(text,text,text,text) from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_identity,nexloop_configurator;
 create function authz.nexloop_workbench_member_may_read(p_tenant text,p_world text,p_role text,p_target text) returns boolean
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare m text[];v_type text;v_id text;v_field text;o ontology.objects;def jsonb;grp text;restriction jsonb;v_consumer text;
 begin
  m:=regexp_match(p_target,'^eios:(object|property):(Goal|PlanStep|Commitment|ServiceOffering)/([a-f0-9]{64})(?:/([A-Za-z][A-Za-z0-9_]{0,63}))?$');
- if m is null then return authz.nexloop_workbench_member_may_read_before_ops_v0242(p_tenant,p_world,p_role,p_target);end if;
+ if m is null then return authz.nexloop_workbench_member_may_read_before_ops_v0224(p_tenant,p_world,p_role,p_target);end if;
  if (m[1]='object')<>(m[4] is null) or p_role is null or p_role not in ('owner','operator') then return false;end if;
  v_type:=m[2];v_id:=m[3];v_field:=m[4];
  perform set_config('eios.tenant_id',p_tenant,true);

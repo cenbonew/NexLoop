@@ -1,4 +1,4 @@
-"""Operator persona slice 1 (0230 temporary; docs/design/operator-persona-design.md, owner decisions 2026-10-19): immutable persona
+"""Operator persona slice 1 (0227 temporary; docs/design/operator-persona-design.md, owner decisions 2026-10-19): immutable persona
 versions the owner publishes or retires, assignment (owner > segment rules > default) kept stable with an event on every change,
 the tenant's AI disclosure (default none / deflect / block_human_claims false), and the Context section persona@version. Over
 the workbench HTTP entry with real owner and operator logins; clean catalog PostgreSQL; synthetic data."""
@@ -60,7 +60,7 @@ def test_versions_rules_assignment_and_ai_disclosure_are_the_owners(restoring, a
         csrf = workbench_login(client, c['operator_member']).json()['csrf_token']
         assert publish(client, csrf, 'xiaohe', 1).status_code == 403
         assert act(client, csrf, 'set_ai_disclosure', {'mode': 'none', 'when_asked': 'handoff', 'block_human_claims': False, 'content_label': False, 'reason': 'x'}).status_code == 403
-        assert overview(client).status_code == 200  # 0232: every member reads the configuration; writes stay the owner's
+        assert overview(client).status_code == 200  # 0229: every member reads the configuration; writes stay the owner's
     assert section(admin, consumer) is None  # no persona: no section, packs unchanged
     with c['app']() as client:
         csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
@@ -131,7 +131,7 @@ def test_versions_rules_assignment_and_ai_disclosure_are_the_owners(restoring, a
         assert ai.status_code == 200 and ai.json()['revision'] == 1 and ai.json()['changed'] is True
         assert act(client, csrf, 'set_ai_disclosure', {'mode': 'sometimes', 'when_asked': 'handoff', 'block_human_claims': True, 'content_label': False, 'reason': 'x'}).status_code == 422
         view = overview(client, consumer).json()
-        assert all(p['document']['display_name'] == p['display_name'] for p in view['personas'])  # 0232: full document for the editor
+        assert all(p['document']['display_name'] == p['display_name'] for p in view['personas'])  # 0229: full document for the editor
         assert view['ai_disclosure']['when_asked'] == 'handoff' and {p['persona_id'] for p in view['personas']} == {'xiaohe', 'lan'}
         # Settled stays until the next bind; desired already names the republished assignment.
         assert view['consumer']['settled']['persona_id'] == 'xiaohe' and view['consumer']['desired'] == {'persona_id': 'lan', 'source': 'owner_assign', 'rules_version': None}
@@ -190,7 +190,7 @@ def test_consumer_erasure_removes_the_assignment_and_pseudonymizes_its_events(re
     from test_contact_preferences_pg import statement
     publish_registry_actions(admin, ACTIONS + ('nexloop.consumer.erase', 'nexloop.consumer.set_persona', 'nexloop.contact_preference.dismiss'))
     consumer = c['consumer']
-    preference = statement(c, 'communication_tone', '说简单点')  # 0231: the owner's dismissal names the Consumer and has a reason
+    preference = statement(c, 'communication_tone', '说简单点')  # 0228: the owner's dismissal names the Consumer and has a reason
     with c['app']() as client:
         csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
         seed_two_personas(client, csrf, consumer)

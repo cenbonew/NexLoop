@@ -1,5 +1,5 @@
 -- Enterprise world model W4 "data assets" counts (docs/design/workbench-world-model-design.md §5 W4; owner 2026-10-19; temporary
--- number 0243). The M12 metrics snapshot (latest wrapper 0216) gains one block, `data_assets`, read by the workbench metrics read and
+-- number 0225). The M12 metrics snapshot (latest wrapper 0216) gains one block, `data_assets`, read by the workbench metrics read and
 -- otherwise unused: counts, profile ids, dimensions and times only, never a Claim value, quote, recall body or embedding.
 --   claims           total, by epistemic kind, by resolution state (tenant and world);
 --   extraction_runs  count and the last run time;
@@ -9,11 +9,11 @@
 --   embedding_budget unavailable (no budget or cost kind records embedding spend: budget kinds are model / incentive, cost kinds
 --                    model / channel / discount / service / labour), never reported as 0.
 -- The existing blocks (candidates 0216, backup 0146) are reused, not repeated. Nothing is written.
-alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_data_assets_v0243;
-revoke all on function runtime.nexloop_metrics_snapshot_before_data_assets_v0243(text,text) from public;
+alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_data_assets_v0225;
+revoke all on function runtime.nexloop_metrics_snapshot_before_data_assets_v0225(text,text) from public;
 create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v jsonb:=runtime.nexloop_metrics_snapshot_before_data_assets_v0243(p_tenant,p_world);d jsonb;
+declare v jsonb:=runtime.nexloop_metrics_snapshot_before_data_assets_v0225(p_tenant,p_world);d jsonb;
 begin
  perform set_config('eios.tenant_id',p_tenant,true);
  select jsonb_build_object(

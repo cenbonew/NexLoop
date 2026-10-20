@@ -66,6 +66,6 @@ def _body(strategy,bindings,role,current_event,user_statement,goal,formal_facts,
     if relationship_context is not None:body['relationship_context']=relationship_context
     # ADR-030: the enterprise slot's offering, verbatim from the v2 core (present only when the Run is bound to that slot).
     if effect_supplies is not None:body['effect_supplies']=effect_supplies
-    # 0230 operator persona slice 1: persona@version for this Consumer, verbatim from SQL (re-derived and checked at bind).
+    # 0227 operator persona slice 1: persona@version for this Consumer, verbatim from SQL (re-derived and checked at bind).
     if operator_persona is not None:body['operator_persona']=operator_persona
     return body

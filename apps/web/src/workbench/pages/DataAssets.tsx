@@ -1,6 +1,6 @@
 /**
  * World model W4 (docs/design/workbench-world-model-design.md §2/§5; owner 2026-10-19 D1-D7): the tenant's data assets in
- * NexLoop's own terms, read from the owner's metrics read (L6 0224 `data_assets`, 0216 `candidates`, 0146 `backup`): Artifacts,
+ * NexLoop's own terms, read from the owner's metrics read (L6 0225 `data_assets`, 0216 `candidates`, 0146 `backup`): Artifacts,
  * Claims and extraction runs, the recall index (vectors per embedding profile, backfills), the embedding budget, backups and the
  * merge configuration. Counts, profile ids and times only: never a message, a Claim value, a recall body or an embedding. A count
  * the backend does not report is "不可用", never 0 (AT-045).

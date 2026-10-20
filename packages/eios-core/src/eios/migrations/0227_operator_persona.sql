@@ -1,4 +1,4 @@
--- Operator persona, slice 1 (temporary number 0230; design docs/design/operator-persona-design.md, owner decisions 2026-10-19:
+-- Operator persona, slice 1 (temporary number 0227; design docs/design/operator-persona-design.md, owner decisions 2026-10-19:
 -- D1-D10). The persona is how "the operator" speaks to customers; it is not ADR-034's test persona marker (Consumer persona).
 -- 1. control.nexloop_operator_personas: immutable versions (persona_id@version, document, its hash) and an append-only status
 --    history (published | retired). A version is usable while its latest status is published; a persona resolves to its
@@ -353,7 +353,7 @@ alter function authz.nexloop_context_operator_persona(text,text,text) owner to n
 revoke all on function authz.nexloop_context_operator_persona(text,text,text) from public;
 grant execute on function authz.nexloop_context_operator_persona(text,text,text) to nexloop_api;
 
--- 5. The Context v6 bind (0187 body; changes marked 0230) ------------------------------------------------------------------
+-- 5. The Context v6 bind (0187 body; changes marked 0227) ------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION authz.nexloop_context_v6_command(p_digest text, p_world text, p_text text, p_signature text, p_payload text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -423,7 +423,7 @@ begin
    ||case when rel then coalesce((select jsonb_agg(jsonb_build_object('section','evidence','ref',x->>'assessment_ref','revision',x->>'revision','hash',runtime.nexloop_context_hash(x),
      'kind',x->>'epistemic_kind','decision',runtime.nexloop_context_hash(ca->'relationship_envelopes')))
      from jsonb_array_elements((pack->'relationship_context'->'current_statements')||(pack->'relationship_context'->'evidence')) x),'[]'::jsonb) else '[]'::jsonb end;
-  -- 0230: the operator persona section is exactly the re-derived one, present only when the tenant has a usable persona for this
+  -- 0227: the operator persona section is exactly the re-derived one, present only when the tenant has a usable persona for this
   -- Consumer; it is cited as a role source (persona@version) and the Consumer's assignment is settled (an event on any change).
   opersona:=runtime.nexloop_operator_persona_section(tenant,p_world,consumer);
   if (pack ? 'operator_persona') is distinct from (opersona is not null) or (opersona is not null and pack->'operator_persona' is distinct from opersona) then
@@ -463,15 +463,15 @@ begin
 end $function$;
 
 -- 6. The owner's persona overview (workbench observe; the 0220 body kept for every other verb) ----------------------------
-alter function authz.nexloop_workbench_observe_read(text,text,text,text,text) rename to nexloop_workbench_observe_read_before_operator_persona_v0230;
-revoke all on function authz.nexloop_workbench_observe_read_before_operator_persona_v0230(text,text,text,text,text) from public,nexloop_api;
+alter function authz.nexloop_workbench_observe_read(text,text,text,text,text) rename to nexloop_workbench_observe_read_before_operator_persona_v0227;
+revoke all on function authz.nexloop_workbench_observe_read_before_operator_persona_v0227(text,text,text,text,text) from public,nexloop_api;
 create function authz.nexloop_workbench_observe_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare a jsonb:=p_text::jsonb;c jsonb:=p_payload::jsonb;k bytea;w jsonb;cfg control.nexloop_workbench_configurations;v_tenant text;
  v_action text:='eios:action:nexloop.workbench.read:1';v_consumer text;
 begin
  if c->>'verb' is distinct from 'operator_personas' then
-  return authz.nexloop_workbench_observe_read_before_operator_persona_v0230(p_digest,p_world,p_text,p_signature,p_payload);end if;
+  return authz.nexloop_workbench_observe_read_before_operator_persona_v0227(p_digest,p_world,p_text,p_signature,p_payload);end if;
  -- The 0133 verification, for this verb (as 0210/0220).
  if octet_length(p_text)>1048576 or octet_length(p_payload)>4096
   or a->>'protocol' is distinct from 'nexloop-workbench-observe-v1' or a->>'operation' is distinct from 'execute'
@@ -525,7 +525,7 @@ begin
  raise exception 'consumer persona events are append-only' using errcode='42501';
 end $$;
 -- Source of the body below: 0145_at043_incentives.sql (the latest runtime.nexloop_erasure_step), copied unchanged except the
--- marked 0230 block in the consumer phase and its two counts (operator_persona_events, persona_events).
+-- marked 0227 block in the consumer phase and its two counts (operator_persona_events, persona_events).
 create or replace function runtime.nexloop_erasure_step(p_tenant text,p_world text,p_request text,p_batch integer,p_by text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare e control.nexloop_consumer_erasures;n2 integer:=0;n3 integer:=0;v_ref text;n integer:=0;m integer:=0;x record;v_phases text[]:=array['messages','claims','runs_text','effects','commercial',
@@ -702,7 +702,7 @@ begin
    from ontology.objects o,jsonb_array_elements(case when jsonb_typeof(o.properties->'external_id_refs')='array' then o.properties->'external_id_refs' else '[]'::jsonb end) ref
    where o.tenant_id=p_tenant and o.world=p_world and o.type_name='Consumer' and o.object_id=e.consumer_id on conflict do nothing;
   get diagnostics m=row_count;
-  -- 0230 (Codex review, PR 13): the operator persona assignment leaves with the Consumer: the per-Consumer rows are deleted, the
+  -- 0227 (Codex review, PR 13): the operator persona assignment leaves with the Consumer: the per-Consumer rows are deleted, the
   -- append-only assignment events keep persona ids and times under a random pseudonym, without request or reason. ADR-034's
   -- persona marker (0220) likewise: the row goes, its events keep values and times under the same pseudonym, reason cleared.
   v_pseudonym:='pseudonym:'||encode(extensions.gen_random_bytes(16),'hex');

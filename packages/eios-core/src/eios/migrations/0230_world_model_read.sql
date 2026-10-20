@@ -1,4 +1,4 @@
--- Enterprise world model W1 (docs/design/workbench-world-model-design.md; owner 2026-10-19 D1-D7 as recommended; temporary number (0260, was 0450),
+-- Enterprise world model W1 (docs/design/workbench-world-model-design.md; owner 2026-10-19 D1-D7 as recommended; temporary number (0230, was 0450),
 -- renumbered at merge): the workbench verb `world_model`, a read-only snapshot of the tenant's published model metadata for every
 -- workbench member whose role carries nexloop.workbench.read (D1): the current version of each object type (its properties),
 -- relation type and event type, the tenant's active Actions and Functions of the read world, and instance counts per type.
@@ -8,8 +8,8 @@
 -- trusted configuration).
 -- authz.nexloop_workbench_read keeps every other verb: it is renamed and called unchanged; this wrapper verifies the same signed
 -- read claims (0130) for `world_model` only.
-alter function authz.nexloop_workbench_read(text,text,text,text,text) rename to nexloop_workbench_read_before_world_model_v0260;
-revoke all on function authz.nexloop_workbench_read_before_world_model_v0260(text,text,text,text,text) from public,nexloop_api;
+alter function authz.nexloop_workbench_read(text,text,text,text,text) rename to nexloop_workbench_read_before_world_model_v0230;
+revoke all on function authz.nexloop_workbench_read_before_world_model_v0230(text,text,text,text,text) from public,nexloop_api;
 
 create function authz.nexloop_workbench_world_model(p_tenant text,p_world text) returns jsonb
  language sql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -64,7 +64,7 @@ declare a jsonb:=p_text::jsonb;c jsonb:=p_payload::jsonb;k bytea;w jsonb;cfg con
  v_action text:='eios:action:nexloop.workbench.read:1';
 begin
  if c->>'verb' is distinct from 'world_model' then
-  return authz.nexloop_workbench_read_before_world_model_v0260(p_digest,p_world,p_text,p_signature,p_payload);end if;
+  return authz.nexloop_workbench_read_before_world_model_v0230(p_digest,p_world,p_text,p_signature,p_payload);end if;
  -- The 0130 verification, for this verb.
  if session_user is distinct from 'nexloop_api' or p_world is distinct from 'real'
   or octet_length(p_text)>1048576 or octet_length(p_payload)>8192

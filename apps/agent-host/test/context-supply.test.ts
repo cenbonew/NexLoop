@@ -94,7 +94,7 @@ describe('ADR-030: optional effect_supplies on a v6 Message Run pack (the v2 cor
  });
 });
 
-describe('0230 operator persona: optional section on a v6 Message Run pack',()=>{
+describe('0227 operator persona: optional section on a v6 Message Run pack',()=>{
  const persona=()=>({persona_ref:'operator-persona:xiaohe@2',persona_id:'xiaohe',version:2,source:'default',
   document:{display_name:'小禾',tone:'亲切、简洁',expression:{max_chars:200,emoji:'few'},ai_disclosure:{deflect_statement:'我是本店的服务助手。'}},
   ai_disclosure:{mode:'none',when_asked:'deflect',block_human_claims:false,content_label:false}});
@@ -106,7 +106,7 @@ describe('0230 operator persona: optional section on a v6 Message Run pack',()=>
    constraints:[],consumer_state:[],open_work:[],evidence:[],semantics:[],experience:[],
    budget_report:{estimator:'synthetic',input_token_budget:2048,output_reserve:128,framing_reserve:0,available:1920,used:0,sections:{},omitted:[]},insufficient:[]});
   change?.(p);});
- it('accepts the consumer\'s preferences (0231) and refuses a malformed one',()=>{
+ it('accepts the consumer\'s preferences (0228) and refuses a malformed one',()=>{
   const f=declaration();const prefs=[{claim_id:'a'.repeat(64),dimension:'tone',polarity:'affirmed',value:'简短'},{claim_id:'b'.repeat(64),dimension:'frequency',polarity:'affirmed',value:1}];
   const ok=v6(f,p=>{p.operator_persona={...persona(),preferences:prefs};});
   expect(validateContextInput(ok.input,f.cmd,ok.proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[]});

@@ -216,7 +216,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         super().__init__(services);self.strategy_id=strategy_id
         self.last_diagnostic=None;self.last_check=None;self.run=None;self.last_mismatch=None;self._sent_items=None
         self.degrade=False  # only the fallback reply Run may degrade (FallbackContextV6Producer)
-        # 0230 operator persona slice 1: the message Run bind (0230 copy of 0187) takes the section; the fallback bind does not yet.
+        # 0227 operator persona slice 1: the message Run bind (0227 copy of 0187) takes the section; the fallback bind does not yet.
         self.operator_persona=True
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
         self.core=None
@@ -279,7 +279,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         raise ValueError('fallback_context_unsafe')
 
     def _operator_persona(self,consumer):
-        """0230: the tenant's operator persona section for this Consumer (persona@version, document, AI disclosure), or None.
+        """0227: the tenant's operator persona section for this Consumer (persona@version, document, AI disclosure), or None.
         SQL re-derives it at bind and refuses a pack that differs or omits it."""
         from nexloop_eios.assembly import verify_application_role
         with self.pool.connection() as db,db.transaction():

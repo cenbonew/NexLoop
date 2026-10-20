@@ -45,7 +45,7 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.consumer.set_persona':'consumer.set_persona','nexloop.consumer.erase_synthetic':'consumer.erase_synthetic',
     'nexloop.operator_persona.publish':'operator_persona.publish','nexloop.operator_persona.assign':'operator_persona.assign',
     'nexloop.operator_persona.rules_publish':'operator_persona.rules_publish','nexloop.ai_disclosure.set':'ai_disclosure.set',
-    'nexloop.contact_preference.dismiss':'contact_preference.dismiss'}  # NX-053 (0154), 0210, 0220, 0230, 0231; owner only
+    'nexloop.contact_preference.dismiss':'contact_preference.dismiss'}  # NX-053 (0154), 0210, 0220, 0227, 0228; owner only
 
 
 def object_types():

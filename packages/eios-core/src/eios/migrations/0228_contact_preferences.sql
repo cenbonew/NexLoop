@@ -1,4 +1,4 @@
--- Consumer communication preferences, slice 2 of the operator persona design (temporary number 0231; docs/design/
+-- Consumer communication preferences, slice 2 of the operator persona design (temporary number 0228; docs/design/
 -- operator-persona-design.md §4, owner decisions D6 and D9, 2026-10-19).
 -- 1. Source: only the consumer's own statements. runtime.nexloop_contact_preferences reads the Consumer's Claims at the time of
 --    the check (no projection to go stale): speaker consumer, epistemic_kind preference or constraint, modality asserted or
@@ -23,7 +23,7 @@
 -- 4. The owner may decline a preference (not add one): governed owner Action contact_preference.dismiss /
 --    dismiss_contact_preference (claim_id, dismissed true|false, reason; revision). Rows leave when the Consumer's erasure
 --    completes.
--- 5. Context: the operator persona section (0230) carries the effective preferences (claim id, dimension, value) when there are
+-- 5. Context: the operator persona section (0227) carries the effective preferences (claim id, dimension, value) when there are
 --    any, so the reply Run sees tone and the rest as data; SQL re-derives the section at bind as before.
 -- 6. Workbench observe verb contact_preferences (owner only): a Consumer's preferences (no quote), each with its dismissal.
 
@@ -96,14 +96,14 @@ begin
  return null;
 end $$;
 
-alter function control.nexloop_contact_assert_intent(text,text,uuid) rename to nexloop_contact_assert_intent_before_preferences_v0231;
-revoke all on function control.nexloop_contact_assert_intent_before_preferences_v0231(text,text,uuid) from public;
+alter function control.nexloop_contact_assert_intent(text,text,uuid) rename to nexloop_contact_assert_intent_before_preferences_v0228;
+revoke all on function control.nexloop_contact_assert_intent_before_preferences_v0228(text,text,uuid) from public;
 create function control.nexloop_contact_assert_intent(p_tenant text,p_world text,p_intent uuid) returns void
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);i runtime.nexloop_effect_intents;cat jsonb;v_code text;
 begin
  -- ADR-023 first: contact restriction, bound replies, one reply per inbound message (0110/0126/0177).
- perform control.nexloop_contact_assert_intent_before_preferences_v0231(p_tenant,p_world,p_intent);
+ perform control.nexloop_contact_assert_intent_before_preferences_v0228(p_tenant,p_world,p_intent);
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into i from runtime.nexloop_effect_intents where tenant_id=p_tenant and world=p_world and intent_id=p_intent;
  cat:=control.nexloop_intent_effect_category(p_tenant,p_world,p_intent);
@@ -163,7 +163,7 @@ end $owners$;
 insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values
  ('contact_preference.dismiss','dismiss_contact_preference','human','control.nexloop_governed_dismiss_contact_preference(text,text,text,text,text,jsonb)','NX-023');
 
--- 5. Context: the effective preferences ride in the operator persona section (0230 body, one marked addition) --------------
+-- 5. Context: the effective preferences ride in the operator persona section (0227 body, one marked addition) --------------
 create or replace function runtime.nexloop_operator_persona_section(p_tenant text,p_world text,p_consumer text) returns jsonb
  language plpgsql stable set search_path=pg_catalog,pg_temp as $$
 declare d record;v integer;doc jsonb;prefs jsonb;
@@ -172,7 +172,7 @@ begin
  if d.persona_id is null then return null;end if;
  v:=runtime.nexloop_operator_persona_usable(p_tenant,d.persona_id);
  select document into doc from control.nexloop_operator_personas where tenant_id=p_tenant and persona_id=d.persona_id and version=v;
- -- 0231: the consumer's own, not dismissed communication preferences (claim id, dimension, polarity, value), if any.
+ -- 0228: the consumer's own, not dismissed communication preferences (claim id, dimension, polarity, value), if any.
  select coalesce(jsonb_agg(x-'dismissed'),'[]'::jsonb) into prefs from jsonb_array_elements(runtime.nexloop_contact_preferences(p_tenant,p_world,p_consumer)) x
   where not (x->>'dismissed')::boolean;
  return jsonb_build_object('persona_ref','operator-persona:'||d.persona_id||'@'||v,'persona_id',d.persona_id,'version',v,'source',d.source,
@@ -180,17 +180,17 @@ begin
   ||case when jsonb_array_length(prefs)>0 then jsonb_build_object('preferences',prefs) else '{}'::jsonb end;
 end $$;
 
--- 6. The owner's view of a Consumer's preferences (workbench observe; the 0230 body kept for every other verb) ----------
-alter function authz.nexloop_workbench_observe_read(text,text,text,text,text) rename to nexloop_workbench_observe_read_before_contact_preferences_v0231;
-revoke all on function authz.nexloop_workbench_observe_read_before_contact_preferences_v0231(text,text,text,text,text) from public,nexloop_api;
+-- 6. The owner's view of a Consumer's preferences (workbench observe; the 0227 body kept for every other verb) ----------
+alter function authz.nexloop_workbench_observe_read(text,text,text,text,text) rename to nexloop_workbench_observe_read_before_contact_preferences_v0228;
+revoke all on function authz.nexloop_workbench_observe_read_before_contact_preferences_v0228(text,text,text,text,text) from public,nexloop_api;
 create function authz.nexloop_workbench_observe_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare a jsonb:=p_text::jsonb;c jsonb:=p_payload::jsonb;k bytea;w jsonb;cfg control.nexloop_workbench_configurations;v_tenant text;
  v_action text:='eios:action:nexloop.workbench.read:1';v_consumer text;
 begin
  if c->>'verb' is distinct from 'contact_preferences' then
-  return authz.nexloop_workbench_observe_read_before_contact_preferences_v0231(p_digest,p_world,p_text,p_signature,p_payload);end if;
- -- The 0133 verification, for this verb (as 0210/0220/0230).
+  return authz.nexloop_workbench_observe_read_before_contact_preferences_v0228(p_digest,p_world,p_text,p_signature,p_payload);end if;
+ -- The 0133 verification, for this verb (as 0210/0220/0227).
  if octet_length(p_text)>1048576 or octet_length(p_payload)>4096
   or a->>'protocol' is distinct from 'nexloop-workbench-observe-v1' or a->>'operation' is distinct from 'execute'
   or a->>'action_resource' is distinct from v_action or a->>'resource_id' is distinct from v_action

@@ -1,6 +1,6 @@
 /**
  * Enterprise world model W2 (docs/design/workbench-world-model-design.md §2/§5; owner 2026-10-19 D3; ADR-035): a type's instances
- * and one object's depth-1 neighbourhood, on L6's reads (0222/0223). Identifiers, versions and times only: no property is shown
+ * and one object's depth-1 neighbourhood, on L6's reads (0223/0224). Identifiers, versions and times only: no property is shown
  * here. Every object and neighbour is listed only when the member's READ holds (audited server side); the rest are counted and
  * said as they are: "本页不可见 N 个" for unreadable objects of a page, per group "不可见 N 个" (checked, unreadable) and
  * "折叠 N 个" (beyond the 25 checked a group). Type, page cursor and the open object live in the URL (deep links; Back walks pages).

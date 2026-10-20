@@ -54,11 +54,11 @@ export function validateContextAttestation(command:RunCommand,value:unknown):Con
 export const ENTERPRISE_ACTION='nexloop.enterprise.deliver:1';
 /** ADR-030: an additional effect offering of a Message Run (today only the enterprise delivery). Not an authorization. */
 export type EffectSupply={action:typeof ENTERPRISE_ACTION;offering_id:string;offering_revision:number;service_code:string;title:string;price_amount:string};
-/** 0230: the operator persona section's exact shape (the contract's; SQL re-derives the values). */
+/** 0227: the operator persona section's exact shape (the contract's; SQL re-derives the values). */
 export function validateOperatorPersona(value:unknown):void{
   const withPreferences=!!value&&typeof value==='object'&&Object.hasOwn(value as object,'preferences');
   const persona=exact(value,['persona_ref','persona_id','version','source','document','ai_disclosure',...(withPreferences?['preferences']:[])]);
-  // 0231: the consumer's own communication preferences (data only; quiet hours, frequency, channel, topic are enforced in SQL).
+  // 0228: the consumer's own communication preferences (data only; quiet hours, frequency, channel, topic are enforced in SQL).
   if(withPreferences){
     const rows=persona.preferences;
     if(!Array.isArray(rows)||rows.length<1||rows.length>32)fail();
@@ -139,7 +139,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     // ADR-030: the enterprise slot's offering (message Runs on the v2 core only), validated by the v2 rules below.
     const withEffectSupplies=Object.hasOwn(parsed as Record<string,unknown>,'effect_supplies');
     if(withEffectSupplies&&withRelationships)return fail();
-    // 0230 operator persona slice 1: how the operator speaks (message Runs only; re-derived and checked by SQL at bind). Data
+    // 0227 operator persona slice 1: how the operator speaks (message Runs only; re-derived and checked by SQL at bind). Data
     // for the model, never authority.
     const withOperatorPersona=Object.hasOwn(parsed as Record<string,unknown>,'operator_persona');
     const pack=exact(parsed,['schema_version','strategy_ref','bindings','role','current_event','user_statement','goal','formal_facts','current_constraints','supply',

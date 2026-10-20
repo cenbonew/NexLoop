@@ -1,4 +1,4 @@
-"""0230 operator persona slice 1 at the message Run Context v6 bind: the pack carries the tenant's operator persona section
+"""0227 operator persona slice 1 at the message Run Context v6 bind: the pack carries the tenant's operator persona section
 (persona@version, re-derived by SQL) exactly when the tenant has a usable persona for the Consumer; SQL refuses a pack that
 omits, adds or rewrites it; the manifest cites operator-persona:<id>@<version> as a role source and the Consumer's assignment is
 settled with an event. Same local assembled stack as tests/test_context_v6_pg.py; synthetic data; admin seeds the persona
@@ -83,7 +83,7 @@ def test_sql_refuses_a_pack_whose_persona_section_differs(v6, admin, monkeypatch
 
 
 def test_the_persona_section_carries_the_consumers_preferences(v6, admin):
-    """0231: the consumer's own communication preference (a Claim of their message) rides in the section, re-derived at bind."""
+    """0228: the consumer's own communication preference (a Claim of their message) rides in the section, re-derived at bind."""
     import hashlib
     import secrets
     f = v6

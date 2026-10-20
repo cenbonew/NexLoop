@@ -275,7 +275,7 @@ def router(config, *, ports_for_workbench):
 
     @routes.get('/world-model')
     async def world_model(request: Request):
-        # Enterprise world model W1 (0260): the tenant's published model metadata; no instance content, no edit path.
+        # Enterprise world model W1 (0230): the tenant's published model metadata; no instance content, no edit path.
         if request.query_params:
             return error('invalid_request', 422)
         return await invoke(request, 'world_model')
@@ -322,7 +322,7 @@ def router(config, *, ports_for_workbench):
 
     @routes.get('/operator-personas')
     async def operator_personas(request: Request):
-        # 0230: the owner's operator persona overview; ?consumer_id= adds that Consumer's desired and settled persona.
+        # 0227: the owner's operator persona overview; ?consumer_id= adds that Consumer's desired and settled persona.
         try:
             q = query(request, ('consumer_id',))
             if 'consumer_id' in q and not _ID.fullmatch(q['consumer_id']):
@@ -333,7 +333,7 @@ def router(config, *, ports_for_workbench):
 
     @routes.get('/consumers/{consumer_id}/contact-preferences')
     async def contact_preferences(consumer_id: str, request: Request):
-        # 0231: the owner's view of a consumer's communication preferences and the owner's dismissals.
+        # 0228: the owner's view of a consumer's communication preferences and the owner's dismissals.
         if request.query_params or not _ID.fullmatch(consumer_id):
             return error('invalid_request', 422)
         return await invoke(request, 'contact_preferences', consumer_id=consumer_id)

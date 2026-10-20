@@ -1107,49 +1107,49 @@
       "sha256": "c5a4f776440a83dbc131dd83eb8c48c2fa316e189956f9c128d11d96c84dce7f"
     },
     {
+      "version": "0222",
+      "name": "0222_workbench_capabilities.sql",
+      "sha256": "c0ad908ef8e54ba5c793d716b3ba393e9c66edd342608389ec591bfb43450ae1"
+    },
+    {
+      "version": "0223",
+      "name": "0223_workbench_objects.sql",
+      "sha256": "086e52d37ef97cb655033e2689b11b87c2cdb96543a8587a5b08ec2e1e126438"
+    },
+    {
+      "version": "0224",
+      "name": "0224_workbench_member_read_operations.sql",
+      "sha256": "de03d2d452086d4ffdc3ea407774e1ba55e5215849b62ce17b83991095956514"
+    },
+    {
+      "version": "0225",
+      "name": "0225_data_assets_metrics.sql",
+      "sha256": "cfd87626f0ddfdb41a29a3ab5350959bd4bca2cb0d386df3fd918c51be1eebf9"
+    },
+    {
+      "version": "0226",
+      "name": "0226_workbench_artifacts.sql",
+      "sha256": "fc6af21b8a0278f20fda44bbd09575d99b49ca49bc76e7ccc7affe5929ef72ab"
+    },
+    {
+      "version": "0227",
+      "name": "0227_operator_persona.sql",
+      "sha256": "a38d979d10babd25e127094d479a6dec5adbca0e300c521f58ae14438bb1f3ae"
+    },
+    {
+      "version": "0228",
+      "name": "0228_contact_preferences.sql",
+      "sha256": "c8cf884b14645e3c17d5c616f5370c4c7e2636d8dddc5aee1143eb2e0e098338"
+    },
+    {
+      "version": "0229",
+      "name": "0229_operator_persona_pages.sql",
+      "sha256": "38eba136718fa80f7a8801ef95ed1fa7cec068baef142462e1920b25b573f90a"
+    },
+    {
       "version": "0230",
-      "name": "0230_operator_persona.sql",
-      "sha256": "001a25fcec71e1010c1f4493b30a091aba40afd0a2cc807117b1c16272a04842"
-    },
-    {
-      "version": "0231",
-      "name": "0231_contact_preferences.sql",
-      "sha256": "6ed192a38ff21f4cf0c6eb7d7a03b0b50d2d15276b15fd2e1e6bb91a29bb0281"
-    },
-    {
-      "version": "0232",
-      "name": "0232_operator_persona_pages.sql",
-      "sha256": "9143d5251821ecfdbee650f6921d5040ad7bbdae196b439a3229fd410dbd6fee"
-    },
-    {
-      "version": "0240",
-      "name": "0240_workbench_capabilities.sql",
-      "sha256": "15d506048040c3292a130f7dae5162f47c8aacde070031f3d77a495e9dec2e1f"
-    },
-    {
-      "version": "0241",
-      "name": "0241_workbench_objects.sql",
-      "sha256": "dd6787baf06b2890fde9b88ec6d7aa6f7f15d1ac989c8bba52717768b3b245d4"
-    },
-    {
-      "version": "0242",
-      "name": "0242_workbench_member_read_operations.sql",
-      "sha256": "d1883eb203ef38feb2551e63e462e9054bf9522c7561b240a82029fb4795480e"
-    },
-    {
-      "version": "0243",
-      "name": "0243_data_assets_metrics.sql",
-      "sha256": "e2a25a27c6691547bef0d4871b11b11ae1f5b0ee077c91a074139fbd333ecc8e"
-    },
-    {
-      "version": "0244",
-      "name": "0244_workbench_artifacts.sql",
-      "sha256": "4de59aa7f6974269130e2454d0af587c3d915330dd38ed762beaf2ad2b074128"
-    },
-    {
-      "version": "0260",
-      "name": "0260_world_model_read.sql",
-      "sha256": "35fd729e554af6691ecc279a2d879c95ab746a51d021e18ad9be1891eb39a306"
+      "name": "0230_world_model_read.sql",
+      "sha256": "8b2fe94368334d51d209850f98b1af11ad3f9e40bfc870e84b7b3b906b579f6a"
     }
   ]
 }
