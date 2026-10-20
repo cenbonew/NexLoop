@@ -616,6 +616,23 @@ class OntologyMutationOperationsItem(BaseModel):
     valid_to: str | None | None = None
     evidence_refs: list[str]
 
+class OutreachPurposesPurposesItemContentRules(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    max_chars: int
+    unsubscribe_notice_required: bool
+
+class OutreachPurposesPurposesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    purpose_id: str
+    kind: Literal['commitment_followup', 'service_followup', 'plan_defined', 'marketing']
+    trigger: Literal['commitment_due', 'service_receipt', 'plan_reassess', 'owner_request']
+    topic: str
+    frequency_class: Literal['service', 'marketing']
+    requires_consent: bool
+    requires_approval: bool
+    default_enabled: bool
+    content_rules: OutreachPurposesPurposesItemContentRules
+
 class ReviewDecisionPublication(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     schema_revision_before: str
@@ -1044,6 +1061,13 @@ class OntologyMutation(_Contract):
     operations: list[OntologyMutationOperationsItem]
     conflict_policy: Literal['reject_and_reassess']
     created_at: str
+
+class OutreachPurposes(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:outreach-purposes","title":"outreach-purposes","description":"Proactive outreach purpose list (docs/design/proactive-outreach.md §2, owner decisions P2/P5/P8; outreach slice 3): trusted, versioned configuration. A purpose not in the current list cannot be used; plan-defined purposes must be registered here first. The owner enables or disables a listed purpose per tenant; nobody adds one at run time.","type":"object","additionalProperties":false,"required":["schema","version","decision","purposes"],"properties":{"schema":{"const":"nexloop-outreach-purposes/1"},"version":{"type":"integer","minimum":1,"maximum":999999},"decision":{"type":"string","minLength":1,"maxLength":4000},"purposes":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["purpose_id","kind","trigger","topic","frequency_class","requires_consent","requires_approval","default_enabled","content_rules"],"properties":{"purpose_id":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$"},"kind":{"enum":["commitment_followup","service_followup","plan_defined","marketing"]},"trigger":{"enum":["commitment_due","service_receipt","plan_reassess","owner_request"]},"topic":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$"},"frequency_class":{"enum":["service","marketing"]},"requires_consent":{"type":"boolean","description":"Marketing only: true makes this purpose opt-in even when the tenant is opt-out."},"requires_approval":{"type":"boolean","description":"Owner approval before dispatch (outreach slice 6); default false (P5)."},"default_enabled":{"type":"boolean","description":"Enabled for a tenant until the owner changes it."},"content_rules":{"type":"object","additionalProperties":false,"required":["max_chars","unsubscribe_notice_required"],"properties":{"max_chars":{"type":"integer","minimum":20,"maximum":2000},"unsubscribe_notice_required":{"type":"boolean"}}}},"allOf":[{"if":{"properties":{"kind":{"const":"marketing"}}},"then":{"properties":{"topic":{"pattern":"^marketing(\\\\.[a-z0-9_]+)*$"},"frequency_class":{"const":"marketing"},"content_rules":{"properties":{"unsubscribe_notice_required":{"const":true}}}}},"else":{"properties":{"topic":{"not":{"pattern":"^marketing"}},"frequency_class":{"const":"service"},"requires_consent":{"const":false}}}},{"if":{"properties":{"kind":{"const":"commitment_followup"}}},"then":{"properties":{"trigger":{"const":"commitment_due"}}}},{"if":{"properties":{"kind":{"const":"service_followup"}}},"then":{"properties":{"trigger":{"const":"service_receipt"}}}}]}}}}')
+    schema: Literal['nexloop-outreach-purposes/1']
+    version: int
+    decision: str
+    purposes: list[OutreachPurposesPurposesItem]
 
 class ReviewDecision(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:review-decision","title":"review-decision","description":"ADR-019. A human reviewer\'s decision on a candidate-definition. Reviewer identity is server-derived from an authenticated human session; the decision itself is a governed human Action and is audited. Not an existing upstream API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"decision_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"candidate_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"reviewer_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"decision":{"enum":["approve","merge_into","reject"]},"merge_target_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"rationale":{"type":"string","minLength":1,"maxLength":2000},"expected_candidate_status":{"const":"pending_review"},"decided_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"publication":{"type":"object","additionalProperties":false,"properties":{"schema_revision_before":{"type":"string","minLength":1},"schema_revision_after":{"type":"string","minLength":1},"published_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"maxItems":64},"applied_claim_count":{"type":"integer","minimum":0},"gate_failures":{"type":"array","items":{"type":"string","minLength":1},"maxItems":64}},"required":["schema_revision_before"]}},"required":["schema_version","decision_id","tenant_id","world_id","mode","candidate_ref","reviewer_ref","decision","rationale","expected_candidate_status","decided_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}},{"if":{"properties":{"decision":{"const":"merge_into"}}},"then":{"required":["merge_target_ref"]}},{"if":{"properties":{"decision":{"const":"reject"}}},"then":{"properties":{"publication":false}}}]}')

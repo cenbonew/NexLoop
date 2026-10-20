@@ -1,0 +1,35 @@
+{
+  "schema": "nexloop-outreach-purposes/1",
+  "version": 1,
+  "decision": "Synthetic example.",
+  "purposes": [
+    {
+      "purpose_id": "commitment_followup",
+      "kind": "commitment_followup",
+      "trigger": "commitment_due",
+      "topic": "commitment_followup",
+      "frequency_class": "service",
+      "requires_consent": false,
+      "requires_approval": false,
+      "default_enabled": true,
+      "content_rules": {
+        "max_chars": 300,
+        "unsubscribe_notice_required": false
+      }
+    },
+    {
+      "purpose_id": "marketing_general",
+      "kind": "marketing",
+      "trigger": "owner_request",
+      "topic": "marketing",
+      "frequency_class": "marketing",
+      "requires_consent": false,
+      "requires_approval": false,
+      "default_enabled": false,
+      "content_rules": {
+        "max_chars": 300,
+        "unsubscribe_notice_required": true
+      }
+    }
+  ]
+}
