@@ -12,12 +12,28 @@
 --    nexloop_api, nexloop_sim_worker and nexloop_sim_guard as nexloop_domain_worker) only for a sim:/shadow: world (or for a call
 --    without a world: the numeric process samples); for real, test or any other world it counts as no application role at all, so
 --    every check refuses. A real role's result is session_user exactly as before. Each body is otherwise copied unchanged.
+-- Review fixes (L6 nx041-s6c-review): roles that exist before this migration are brought to exactly this shape (1.2); a NULL world is
+-- never a simulation world (2.3) - only the process sample, which has no world, asks authz.nexloop_app_role_unscoped(); a simulation
+-- role's process samples go to their own table runtime.nexloop_sim_process_samples, which no real snapshot, rollup or alert reads
+-- (1.5); nexloop_sim_api holds only the common entries until the simulation event intake needs more (1.3).
 
-do $$declare r text;begin
+do $$declare r text;m text;s text;begin
  foreach r in array array['nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api'] loop
   if not exists(select 1 from pg_roles where rolname=r) then
    execute format('create role %I login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls',r);
   end if;
+  -- Review 1.2 (as S4 N2): a role of that name made before (by hand, another lineage) is brought to exactly this shape - its
+  -- attributes, no role membership, no privilege granted before; the grants below are then its only ones (password left to deployment).
+  execute format('alter role %I login noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls',r);
+  for m in select g.rolname from pg_auth_members a join pg_roles g on g.oid=a.roleid join pg_roles x on x.oid=a.member where x.rolname=r loop
+   execute format('revoke %I from %I',m,r);
+  end loop;
+  for s in select nspname from pg_namespace where nspname in ('authz','control','ontology','runtime','extensions','public','eios') loop
+   execute format('revoke all on all tables in schema %I from %I',s,r);
+   execute format('revoke all on all sequences in schema %I from %I',s,r);
+   execute format('revoke all on all functions in schema %I from %I',s,r);
+   execute format('revoke all on schema %I from %I',s,r);
+  end loop;
   execute format('grant usage on schema authz to %I',r);
  end loop;
 end $$;
@@ -25,12 +41,34 @@ end $$;
 create function authz.nexloop_app_role(p_world text) returns text language sql stable set search_path=pg_catalog,pg_temp as $$
  select case
   when session_user::text not in ('nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api') then session_user::text
-  when p_world is not null and coalesce(runtime.nexloop_world_kind(p_world),'') not in ('simulation','shadow') then 'nexloop_sim_outside_its_world'
+  when coalesce(runtime.nexloop_world_kind(p_world),'') not in ('simulation','shadow') then 'nexloop_sim_outside_its_world'  -- NULL included
   when session_user::text='nexloop_sim_api' then 'nexloop_api'
   else 'nexloop_domain_worker' end
 $$;
 alter function authz.nexloop_app_role(text) owner to nexloop_owner;
 revoke all on function authz.nexloop_app_role(text) from public;
+-- The one call without a world (numeric process samples): a simulation role counts as its real counterpart there only; its
+-- samples are then kept apart (runtime.nexloop_sim_process_samples).
+create function authz.nexloop_app_role_unscoped() returns text language sql stable set search_path=pg_catalog,pg_temp as $$
+ select case session_user::text when 'nexloop_sim_api' then 'nexloop_api' when 'nexloop_sim_worker' then 'nexloop_domain_worker'
+  when 'nexloop_sim_guard' then 'nexloop_domain_worker' else session_user::text end
+$$;
+alter function authz.nexloop_app_role_unscoped() owner to nexloop_owner;
+revoke all on function authz.nexloop_app_role_unscoped() from public;
+create table runtime.nexloop_sim_process_samples (
+ sample_id bigint generated always as identity primary key,world_group text not null default 'simulation' check(world_group='simulation'),
+ role text not null check(role in ('nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api')),
+ kind text not null,service text not null check(service~'^[a-z][a-z0-9_-]{0,63}$'),instance text not null check(instance~'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
+ window_start timestamptz not null,window_seconds integer not null check(window_seconds between 1 and 3600),
+ sample jsonb not null check(jsonb_typeof(sample)='object'),recorded_at timestamptz not null default clock_timestamp());
+create index nexloop_sim_process_samples_time on runtime.nexloop_sim_process_samples(recorded_at);
+alter table runtime.nexloop_sim_process_samples owner to nexloop_owner;
+-- Deployment-level counters like the real ones (0131): forced RLS with an owner-only policy, no application privilege.
+alter table runtime.nexloop_sim_process_samples enable row level security;
+alter table runtime.nexloop_sim_process_samples force row level security;
+create policy deployment_counters on runtime.nexloop_sim_process_samples to nexloop_owner using(true) with check(true);
+revoke all on runtime.nexloop_sim_process_samples from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,
+ nexloop_identity,nexloop_configurator,nexloop_metrics;
 
 -- 2. The grants (initial list) --------------------------------------------------------------------------------------------------
 do $$declare g record;begin
@@ -44,9 +82,7 @@ do $$declare g record;begin
    ('nexloop_sim_guard','authz.nexloop_record_run_tool_timing(text,text,uuid,numeric)'),
    ('nexloop_sim_guard','authz.nexloop_sim_effect_submit(text,text,jsonb)'),
    ('nexloop_sim_guard','authz.nexloop_sim_effect_query(text,text,uuid)'),
-   ('nexloop_sim_api','authz.nexloop_queue_command(text,text,text,text,text)'),
-   ('nexloop_sim_api','authz.nexloop_runtime_activation_command(text,text,text,text,text)'),
-   ('nexloop_sim_api','authz.nexloop_issue_run_credential(text,text,text,text)')) v(r,f)
+   ('nexloop_sim_worker','authz.nexloop_service_identity_snapshot(text,text)')) v(r,f)  -- nexloop_sim_api: the common entries only (review 1.3)
   union all
   select r,f from unnest(array['nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api']) r
    cross join unnest(array['authz.nexloop_service_identity_snapshot(text,text)','authz.nexloop_load_authority_facts(text,text,jsonb)',
@@ -387,7 +423,7 @@ begin
   when 'host' then array['active_runs','waiting','max_active_runs','admission_timeouts','busy_refusals','runs_started','available']
   when 'pool' then array['pool_size','pool_available','requests_waiting','requests_num','requests_errors','requests_wait_ms','usage_ms','backend_busy','max_size']
   end;
- if allowed is null or authz.nexloop_app_role(null) not in ('nexloop_api','nexloop_domain_worker','nexloop_action_worker','nexloop_scheduler')
+ if allowed is null or authz.nexloop_app_role_unscoped() not in ('nexloop_api','nexloop_domain_worker','nexloop_action_worker','nexloop_scheduler')
   or jsonb_typeof(p_sample) is distinct from 'object' or p_window_seconds not between 1 and 3600
   or p_window_start>clock_timestamp()+interval '1 minute' or p_window_start<clock_timestamp()-interval '1 day'
   or (p_kind='guard_op' and p_service not in ('start','resume','inspect','cancel','model','model_result','tool','effect_submit','effect_find','outcome','incentive','other'))
@@ -399,6 +435,13 @@ begin
   if not (k=any(allowed) or (p_kind in ('guard','guard_op','relay_step') and k ~ '^h_(0|[1-9][0-9]?|10[0-9]|11[0-6])$' and jsonb_typeof(p_sample->k)='number'))
    or jsonb_typeof(p_sample->k) not in ('number','boolean') then raise exception 'process sample invalid' using errcode='22023';end if;
  end loop;
+ -- Review 1.5: a simulation role's samples never enter the real samples (snapshot, rollups, alerts read those only).
+ if session_user::text in ('nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api') then
+  insert into runtime.nexloop_sim_process_samples(role,kind,service,instance,window_start,window_seconds,sample)
+   values(session_user::text,p_kind,p_service,p_instance,p_window_start,p_window_seconds,p_sample);
+  delete from runtime.nexloop_sim_process_samples where recorded_at<clock_timestamp()-interval '7 days';  -- as the real minute samples (D5)
+  return;
+ end if;
  insert into runtime.nexloop_process_samples(kind,service,instance,window_start,window_seconds,sample) values(p_kind,p_service,p_instance,p_window_start,p_window_seconds,p_sample);
 end $$;
 

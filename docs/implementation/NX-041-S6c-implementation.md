@@ -35,3 +35,14 @@
 
 - 白名单是初始清单。D10（每个世界三个凭据）定了之后，要用 `track_functions` 跑一次 sim Run 端到端，实测校正。sim Run 的上下文来源由 L3 的 S7b 负责。
 - 函数体是从迁移中整段复制的，涉及 0037、0133、0188、0209、0262。如果其他线在集成前也改了这些函数，以集成时的最新函数体为准，再套用同样的角色判断替换。
+
+## L6 审查修复（`nx041-s6c-review.md` 中“可能”级的几项）
+
+| 条目 | 处理 |
+| --- | --- |
+| 1.2 已存在的同名角色 | 迁移对三个角色做法与 S4 的 N2 相同：不管角色是不是迁移前就有，都执行一遍校正——设置属性（login、noinherit，其余特权全关）、撤销所有成员关系、撤销各 schema 中原有的表、序列、函数和 schema 权限，然后只授予白名单。新增测试：迁移前先建三个属性错误、带 `pg_read_all_data` 成员关系的同名角色，迁移后它们的形态和可执行函数集合都与白名单完全一致 |
+| 1.3 `sim_api` 最小授权 | `nexloop_sim_api` 只保留共用入口（身份、授权事实、签名校验、进程样本）。队列、Run 激活和签发 Run 凭据都撤掉，等 sim 事件入队真正需要时再授予。S7b 的装配入口由 L4 在合入 Host 协议时加上 |
+| 1.4 扫描范围 | 白名单测试的扫描范围加上 `public` schema |
+| 1.5 进程样本 | sim 角色写的进程样本改写到单独的表 `runtime.nexloop_sim_process_samples`，带 `world_group='simulation'` 和写入角色，保留 7 天。real 的快照、小时汇总和告警只读 `runtime.nexloop_process_samples`，因此 sim 样本既不会混进 real 的统计，也不会掩盖 real 的告警。测试：sim 和 real 用同一个 instance 名各写一条，两边互不影响 |
+| 2.3 NULL world | `authz.nexloop_app_role(p_world)` 在 `p_world` 为 NULL 时，sim 角色一律视为 world 之外，所有带 world 的角色检查都会拒绝。唯一不带 world 的进程样本改为调用单独的 `authz.nexloop_app_role_unscoped()`。测试覆盖 sim worker 和 sim guard 传 NULL world 时被拒 |
+| 4.2 部署后检查 | `scripts/deploy/post_deploy_check.py` 新增 `check_sim_roles` 和 `--sim-secret-dir` 参数：sim secret 目录里的每个 `sim_*_dsn` 都必须以对应的 sim 角色登录（`current_user = session_user = 预期角色`），没有特权和成员关系，也没有 real dispatch 摘要的执行权；结果只给出文件名和角色名，不输出 DSN。对应关系是 `SIM_DSN_ROLES`：worker、guard、api、stand_in_worker、files。新增测试覆盖：错误的角色、未知的文件名、连不上、空目录 |

@@ -160,7 +160,41 @@ def check_database(database_url, expected_revision):
             'expected_revision': expected_revision}
 
 
-def run_checks(run, *, project, compose, https_base, http_base, routes, control, minutes, database_url=None, expected_revision=None):
+# NX-041 S6c (L6 nx041-s6c-review 4.2): each simulation DSN file and the role it must log in as (never a real role).
+SIM_DSN_ROLES = {'sim_worker_dsn': 'nexloop_sim_worker', 'sim_guard_dsn': 'nexloop_sim_guard', 'sim_api_dsn': 'nexloop_sim_api',
+                 'sim_stand_in_worker_dsn': 'nexloop_stand_in_worker', 'sim_files_dsn': 'nexloop_sim_files'}
+
+
+def check_sim_roles(dsns):
+    """{simulation DSN file name: DSN} -> every DSN logs in as exactly its simulation role: current_user = session_user = the role
+    of SIM_DSN_ROLES, no elevated attribute or role membership, and no execute right on the real dispatch summary. Read only; a
+    failure names the file and the role it got, never the DSN."""
+    import psycopg
+    if not dsns:
+        return {'pass': False, 'reason': 'no simulation DSN given'}
+    out, ok = {}, True
+    for name in sorted(dsns):
+        expected = SIM_DSN_ROLES.get(name)
+        if expected is None:
+            out[name], ok = {'pass': False, 'reason': 'unknown simulation DSN file'}, False
+            continue
+        try:
+            with psycopg.connect(dsns[name], connect_timeout=5) as db, db.transaction():
+                db.execute('set transaction read only')
+                row = db.execute('''select current_user::text,session_user::text,r.rolsuper or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolbypassrls,
+                    exists(select 1 from pg_auth_members m where m.member=r.oid),
+                    has_function_privilege(current_user,'authz.nexloop_real_dispatch_summary()','execute')
+                    from pg_roles r where r.rolname=current_user''').fetchone()
+        except Exception as error:  # noqa: BLE001 - the class name only, never the message (it may hold a connection detail)
+            out[name], ok = {'pass': False, 'reason': type(error).__name__, 'expected_role': expected}, False
+            continue
+        good = row is not None and row[0] == row[1] == expected and not row[2] and not row[3] and not row[4]
+        out[name] = {'pass': good, 'role': row[0] if row else None, 'expected_role': expected}
+        ok = ok and good
+    return {'pass': ok, 'dsns': out}
+
+
+def run_checks(run, *, project, compose, https_base, http_base, routes, control, minutes, database_url=None, expected_revision=None, sim_dsns=None):
     results = {}
     try:
         rows = containers(run, project)
@@ -177,6 +211,8 @@ def run_checks(run, *, project, compose, https_base, http_base, routes, control,
         results['logs'] = {'pass': False, 'reason': str(error)}
     if database_url is not None:
         results['database'] = check_database(database_url, expected_revision)
+    if sim_dsns is not None:
+        results['sim_roles'] = check_sim_roles(sim_dsns)
     failed = sorted(k for k, v in results.items() if not v['pass'])
     return {'schema': 'nexloop-post-deploy-check/1', 'project': project, 'pass': not failed, 'failed': failed, 'checks': results}
 
@@ -201,6 +237,7 @@ def main(argv=None):
     parser.add_argument('--log-minutes', type=int, default=30)
     parser.add_argument('--database-url-file')
     parser.add_argument('--expected-revision')
+    parser.add_argument('--sim-secret-dir', help='NX-041: the simulation secret directory; each sim_*_dsn file in it must log in as its sim role')
     parser.add_argument('--cacert')
     parser.add_argument('--capture')
     args = parser.parse_args(argv)
@@ -223,13 +260,19 @@ def main(argv=None):
             from nexloop_eios.private_configuration import read_private_text
             database_url = read_private_text(args.database_url_file, maximum=4096).strip()
             expected = args.expected_revision or catalog()[-1].version
+        sim_dsns = None
+        if args.sim_secret_dir:
+            from nexloop_eios.private_configuration import read_private_text
+            sim_dsns = {name: read_private_text(Path(args.sim_secret_dir) / name, maximum=4096).strip()
+                        for name in SIM_DSN_ROLES if (Path(args.sim_secret_dir) / name).exists()}
         runner = Capture(json.loads(Path(args.capture).read_text())) if args.capture else Live(args.cacert)
     except (InputError, OSError, ValueError) as error:
         print(json.dumps({'schema': 'nexloop-post-deploy-check/1', 'pass': False, 'error': type(error).__name__,
                           'detail': str(error) if isinstance(error, InputError) else None}))
         return 2
     out = run_checks(runner, project=project, compose=args.compose, https_base=f'https://{host}:{https_port}', http_base=f'http://{host}:{http_port}',
-                     routes=routes, control=args.control_route, minutes=args.log_minutes, database_url=database_url, expected_revision=expected)
+                     routes=routes, control=args.control_route, minutes=args.log_minutes, database_url=database_url, expected_revision=expected,
+                     sim_dsns=sim_dsns)
     print(json.dumps(out, ensure_ascii=False, sort_keys=True))
     return 0 if out['pass'] else 1
 

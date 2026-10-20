@@ -30,9 +30,8 @@ WHITELIST = {
     'nexloop_sim_guard': COMMON | {'authz.nexloop_runtime_activation_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_hint(text,text,text)',
                                    'authz.nexloop_record_run_tool_timing(text,text,uuid,numeric)', 'authz.nexloop_sim_effect_submit(text,text,jsonb)',
                                    'authz.nexloop_sim_effect_query(text,text,uuid)'},
-    'nexloop_sim_api': COMMON | {'authz.nexloop_queue_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)',
-                                 'authz.nexloop_issue_run_credential(text,text,text,text)',
-                                 'authz.nexloop_sim_context_command(text,text,text,integer)'},  # the Host's simulation context (after S6c)
+    # review 1.3: the shared entries only, plus the Host's simulation context (its migration grants it after S6c).
+    'nexloop_sim_api': COMMON | {'authz.nexloop_sim_context_command(text,text,text,integer)'},
 }
 SIM = 'sim:' + str(uuid.uuid4())
 SAMPLE = ('host', 'agent-host', 'sim-1', {'active_runs': 0})
@@ -55,7 +54,7 @@ def test_the_simulation_roles_hold_no_privilege_membership_or_real_grant_and_exa
             (select count(*) from pg_auth_members m where m.member=r.oid) from pg_roles r where rolname=%s""", (role,)).fetchone()
         assert attrs == (True, False, False, False, False, False, False, 0), role
         executable = {r[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-            where n.nspname in ('authz','control','runtime','ontology','extensions','eios') and p.prosecdef and has_function_privilege(%s,p.oid,'execute')""",
+            where n.nspname in ('authz','control','runtime','ontology','extensions','eios','public') and p.prosecdef and has_function_privilege(%s,p.oid,'execute')""",
                                                   (role,)).fetchall()}
         assert executable == expected, (role, sorted(executable ^ expected))
         # No table, sequence or view of the application schemas is directly readable or writable.
@@ -184,8 +183,13 @@ def test_the_role_checked_functions_differ_from_their_latest_earlier_definition_
     submit = body(text, defines('authz.nexloop_sim_effect_submit').search(text).end())
     assert "'stand-in: business_intent_open'" in submit and 'outcome_seed' in submit and 'v_seed' in submit
     for name in ROLE_CHECKED:
-        converted = re.sub(r'authz\.nexloop_app_role\((?:p_world|null)\)', 'session_user', body(text, defines(name).search(text).end()))
-        assert 'nexloop_app_role' in body(text, defines(name).search(text).end()), name
+        converted = re.sub(r'authz\.nexloop_app_role\((?:p_world|null)\)|authz\.nexloop_app_role_unscoped\(\)', 'session_user',
+                           body(text, defines(name).search(text).end()))
+        if name == 'authz.nexloop_record_process_sample':
+            # S6c review 1.5, the one other allowed change: a simulation role's samples go to their own table.
+            converted, n = re.subn(r"\n -- Review 1\.5: a simulation role's samples.*?\n end if;", '', converted, flags=re.S)
+            assert n == 1, name
+        assert 'nexloop_app_role' in body(text, defines(name).search(text).end()), name  # app_role(p_world) or app_role_unscoped()
         assert converted == latest(name, own.name), f'{name}: differs from its latest earlier definition beyond the role check'
         for m in (m for m in migrations if m.name > own.name):
             for again in defines(name).finditer(m.read_text()):
@@ -196,3 +200,42 @@ def test_the_role_checked_functions_differ_from_their_latest_earlier_definition_
     redefined = body(host.read_text(), defines(name).search(host.read_text()).end())
     assert 'nexloop_app_role' in redefined
     assert re.sub(r'authz\.nexloop_app_role\(p_world\)', 'session_user', redefined) == latest(name, host.name), name
+
+
+def test_roles_made_before_the_migration_are_brought_to_their_shape(admin):
+    """Review 1.2 (as S4 N2): same-named roles with other attributes, a membership and table privileges end with exactly the declared
+    shape and only their whitelist."""
+    for role in WHITELIST:
+        admin.execute(f'drop role if exists {role}')
+        admin.execute(f'create role {role} nologin inherit createdb bypassrls')
+        admin.execute(f'grant pg_read_all_data to {role}')
+    bootstrap(admin)
+    for role, expected in WHITELIST.items():
+        attrs = admin.execute("""select rolcanlogin,rolinherit,rolcreatedb,rolcreaterole,rolsuper,rolreplication,rolbypassrls,
+            (select count(*) from pg_auth_members m where m.member=r.oid) from pg_roles r where rolname=%s""", (role,)).fetchone()
+        assert attrs == (True, False, False, False, False, False, False, 0), (role, attrs)
+        executable = {r[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+            where n.nspname in ('authz','control','runtime','ontology','extensions','eios','public') and p.prosecdef and has_function_privilege(%s,p.oid,'execute')""",
+                                                  (role,)).fetchall()}
+        assert executable == expected, (role, sorted(executable ^ expected))
+        assert not admin.execute("select has_table_privilege(%s,'runtime.nexloop_process_samples','select')", (role,)).fetchone()[0]
+
+
+def test_a_null_world_is_never_a_simulation_world_and_simulation_samples_stay_apart(db):
+    """Review 2.3: with p_world NULL a simulation role is refused by every world-scoped role check. Review 1.5: a simulation role's
+    process samples land in runtime.nexloop_sim_process_samples only; real roles' samples in the real table as before."""
+    admin, pg = db
+    with connect(pg, 'nexloop_sim_worker') as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='tool timing unavailable'):
+            c.execute('select authz.nexloop_run_tool_timing(%s,%s,%s)', ('0' * 64, None, uuid.uuid4()))
+        c.execute('select authz.nexloop_record_process_sample(%s,%s,%s,now(),60,%s)', ('host', 'agent-host', 'shared-instance', psycopg.types.json.Jsonb({'active_runs': 7})))
+    with connect(pg, 'nexloop_sim_guard') as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='tool timing unavailable'):
+            c.execute('select authz.nexloop_record_run_tool_timing(%s,%s,%s,1)', ('0' * 64, None, uuid.uuid4()))
+    with connect(pg, 'nexloop_domain_worker') as c:
+        c.execute('select authz.nexloop_record_process_sample(%s,%s,%s,now(),60,%s)', ('host', 'agent-host', 'shared-instance', psycopg.types.json.Jsonb({'active_runs': 1})))
+    real = admin.execute("select sample->>'active_runs' from runtime.nexloop_process_samples where instance='shared-instance'").fetchall()
+    sim = admin.execute("select role,world_group,sample->>'active_runs' from runtime.nexloop_sim_process_samples where instance='shared-instance'").fetchall()
+    assert real == [('1',)] and sim == [('nexloop_sim_worker', 'simulation', '7')]  # the sim value never masks or joins the real one
+    assert admin.execute("select prosrc not like '%app_role(null)%' and prosrc like '%app_role_unscoped()%' from pg_proc where oid="
+                         "'authz.nexloop_record_process_sample(text,text,text,timestamptz,integer,jsonb)'::regprocedure").fetchone()[0]

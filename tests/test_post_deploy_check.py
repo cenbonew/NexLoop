@@ -102,3 +102,21 @@ def test_database_lineage_in_a_read_only_transaction(pg, admin):
     assert P.check_database(pg, tail) == {'pass': True, 'revision': tail, 'migration_count': len(catalog()), 'expected_revision': tail}
     assert P.check_database(pg, '9999')['pass'] is False
     assert P.check_database('postgresql://127.0.0.1:1/none', tail) == {'pass': False, 'reason': 'OperationalError', 'expected_revision': tail}
+
+
+def test_each_simulation_dsn_logs_in_as_its_own_simulation_role(pg, admin):
+    """NX-041 S6c (L6 review 4.2): every sim DSN must be its simulation role's; a real role's DSN, an unknown file name or an
+    unreachable DSN fails the check, naming the file and the role only."""
+    from psycopg.conninfo import make_conninfo
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    good = {name: make_conninfo(pg, user=role) for name, role in P.SIM_DSN_ROLES.items()}
+    out = P.check_sim_roles(good)
+    assert out['pass'] is True and {v['role'] for v in out['dsns'].values()} == set(P.SIM_DSN_ROLES.values())
+    for wrong in ('nexloop_domain_worker', 'nexloop_api', 'nexloop_sim_guard'):
+        out = P.check_sim_roles({**good, 'sim_worker_dsn': make_conninfo(pg, user=wrong)})
+        assert out['pass'] is False and out['dsns']['sim_worker_dsn'] == {'pass': False, 'role': wrong, 'expected_role': 'nexloop_sim_worker'}
+    assert P.check_sim_roles({**good, 'sim_other_dsn': good['sim_api_dsn']})['pass'] is False
+    broken = P.check_sim_roles({'sim_guard_dsn': make_conninfo(pg, user='nexloop_sim_guard', port=1)})
+    assert broken['pass'] is False and 'port=1' not in json.dumps(broken)
+    assert P.check_sim_roles({})['pass'] is False
