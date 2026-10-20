@@ -21,7 +21,7 @@ NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期�
 *截至 2026-10-20（main `7a153a29`）；数字取自 [`planning/`](planning)。标“在集成中”的内容还没有部署。*
 
 - **v0.1.0 已发布（2026-10-20）**：负责人签名的 tag，GitHub Release 附源码归档、公开版清单、镜像与源码的 SBOM、allowed signers 和 `SHA256SUMS`。v0.1 是受控真实闭环：S1–S5 共 68 项验收全部通过，包括在两机 stage 上进行的 36/36 次真实模型与真实交付的受控试运行（AT-071），以及由未参与开发的维护者完成的发布与恢复演练（AT-072）。见 [v0.1.0 发布说明](docs/release/v0.1.0-release-notes.zh-CN.md) 和 [已知风险](docs/release/known-risks-v0.1.md)。
-- **当前阶段：S6**（语义与兼容 Schema 的受控演进）。数字：任务 47 done / 1 in_progress / 5 not_started（共 53）；验收 68 passed / 4 not_run（共 72），未运行的 4 项属于 S6/S7。
+- **当前阶段：S6**（语义与兼容 Schema 的受控演进）。数字：任务 47 done / 2 in_progress / 4 not_started（共 53）；验收 68 passed / 4 not_run（共 72），未运行的 4 项属于 S6/S7。
 - **stage 上已部署（发布 23）**：
   - 工作台的**企业世界模型**页面。最终结构是 EIOS 式的：侧栏按可展开的分组列出 Object Type、Object、Property、Link、Function、Action；Table 与 Graph 是 Object Type 页内的次级视图。这一结构随发布 24 上线；
   - 能力目录与数据资产页；

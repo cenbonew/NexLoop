@@ -21,7 +21,7 @@ NexLoop is an open-source **continuous-operations system** for enterprises. An o
 *As of 2026-10-20 (`main` `7a153a29`); counts are read from [`planning/`](planning). Items marked "in integration" are not deployed yet.*
 
 - **v0.1.0 released (2026-10-20)**: a tag signed by the owner, and a GitHub Release with the source archive, the public release manifest, image and source SBOMs, the allowed signers and `SHA256SUMS`. v0.1 is the controlled real closed loop: all 68 S1–S5 acceptance tests passed, including a controlled trial on a two-host stage with 36/36 real-model interactions and real deliveries (AT-071), and a release-and-restore drill by a maintainer who had not taken part in development (AT-072). See the [v0.1.0 release notes](docs/release/v0.1.0-release-notes.md) and the [known risks](docs/release/known-risks-v0.1.md) (Chinese).
-- **Current stage: S6** (controlled evolution of semantics and compatible schema). Numbers: tasks 47 done / 1 in progress / 5 not started (53); acceptance tests 68 passed / 4 not run (72); the 4 not run belong to S6/S7.
+- **Current stage: S6** (controlled evolution of semantics and compatible schema). Numbers: tasks 47 done / 2 in progress / 4 not started (53); acceptance tests 68 passed / 4 not run (72); the 4 not run belong to S6/S7.
 - **Deployed on the stage (release 23)**:
   - the **enterprise world model** pages in the workbench. Their final structure follows EIOS: a sidebar with expandable groups for Object Type, Object, Property, Link, Function and Action, with Table and Graph as secondary views inside the Object Type page; this structure ships with release 24;
   - the capability catalog and data assets pages;
