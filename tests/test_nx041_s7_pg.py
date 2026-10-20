@@ -329,6 +329,9 @@ def test_at046_forged_context_resume_guard_and_activation_paths(s7):
     assert 'context v6 unavailable' not in str(real_refused.value), real_refused.value  # it got past the world and the signature
     assert 'nexloop_assert_context_assemble' in str(real_refused.value.diag.context)  # the assemble authority, after the signature
     assert 'nexloop_assert_context_assemble' not in str(sim_refused.value.diag.context)  # the sim request never got that far
+    # Test hygiene (fix verify F3): the probe key leaves with the test, whatever the fixture's database lifetime.
+    admin.execute("delete from authz.nexloop_authority_signing_keys where key_id='s7-context-probe'")
+    assert admin.execute("select count(*) from authz.nexloop_authority_signing_keys where key_id='s7-context-probe'").fetchone()[0] == 0
     v6 = Draft202012Validator(json.loads((ROOT / 'packages/contracts/context-pack-v6.schema.json').read_text()), format_checker=FormatChecker())
     example = json.loads((ROOT / 'packages/contracts/examples/context-pack-v6.valid.json').read_text())
     v6.validate(example)
@@ -539,3 +542,24 @@ def test_acceptance_a_frozen_input_reproduces_the_stand_in_receipts_byte_for_byt
                                   for r in S.StandInExecutor(f['stand_in'], token, world).run_once()))
     assert receipts[c] == receipts[d] and {json.loads(r)['status'] for r in receipts[c]} == {'failed', 'fulfilled'}
     assert all(json.loads(r)['external_ref'].startswith('stand-in:') for r in receipts[c])
+
+
+def test_the_port_counter_is_backfilled_from_existing_events(s7):
+    """Fix verify F2: events that exist before the counter (a split rollout) are counted by the backfill the migration runs; the
+    count is exact and the ceiling then holds."""
+    f = s7
+    admin = f['admin']
+    c = consumers(admin, f['a'])[0]
+    with admin.transaction():  # events written before any counter existed (triggers off: trusted seed, as a prior rollout)
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into runtime.nexloop_sim_consumer_events(tenant_id,world,event_id,consumer_id,sequence,event_kind,content,content_digest,
+            twin_version,twin_seed,twin_step,sim_time,recorded_by)
+            select %s,%s,encode(sha256(convert_to('early'||i,'UTF8')),'hex'),%s,i,'visit','{}',repeat('0',64),'twin-stub/1','early',i,now(),'seed'
+            from generate_series(1,7) i""", (TENANT_A, f['a'], c))
+        admin.execute('delete from runtime.nexloop_sim_port_counters where world=%s', (f['a'],))
+    assert admin.execute('select runtime.nexloop_sim_port_counters_backfill()').fetchone()[0] >= 1
+    count = lambda: admin.execute('select events from runtime.nexloop_sim_port_counters where world=%s', (f['a'],)).fetchone()[0]  # noqa: E731
+    assert count() == 7
+    assert admin.execute('select runtime.nexloop_sim_port_counters_backfill()').fetchone()[0] >= 1 and count() == 7  # idempotent
+    port(f).act(P.TwinStub(seed='after-backfill').act(c, 1))
+    assert count() == 8
