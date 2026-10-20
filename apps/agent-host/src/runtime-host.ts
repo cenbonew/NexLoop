@@ -14,6 +14,7 @@ import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validate
 const MODEL_CONNECT_TIMEOUT_MS=4000,MODEL_CONNECT_RETRIES=2;
 import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
 import {worldGroupAccepts,type WorldGroup} from './worlds.js';
+import {CONTEXT_PROTOCOL_SIM,declaresSimContextPack,parseSimContextPack,renderSimContextPack} from './sim-context.js';
 
 type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation};
 // ADR-022 §4: each guard call keeps its 2 s limit; an unanswered call is retried a bounded number of times.
@@ -74,6 +75,7 @@ export class RuntimeHost{
   private pending=0;
   private readonly runtimeProfile:string;
   private readonly worldGroup:WorldGroup;
+  private readonly simulationContext:boolean;
   private readonly hostId:string|undefined;
   private readonly purgeKey:Buffer|undefined;
   private readonly admission:RunAdmissionGate;
@@ -90,6 +92,13 @@ export class RuntimeHost{
     this.hostId=typeof config.host_id==='string'?config.host_id:undefined;
     this.purgeKey=typeof config.world_purge_key_file==='string'?(()=>{const key=privateMaterial(config.world_purge_key_file as string,64).toString('utf8');
       if(!/^[0-9a-f]{64}$/.test(key))throw new Error('runtime configuration refused');return Buffer.from(key,'hex');})():undefined;
+    // NX-041 Host simulation context: a simulation Host reads exactly the simulation pack (context_input_protocol must name it, no
+    // multi-protocol mode, no other protocol, no v6 fallback); a real Host may never be configured for it.
+    if(this.worldGroup==='simulation'?config.context_input_protocol!==CONTEXT_PROTOCOL_SIM||config.deterministic_protocols!==undefined
+      ||config.deterministic_message_from_input!==undefined||config.deterministic_relationship_from_context!==undefined||config.deterministic_reply_once!==undefined
+      :config.context_input_protocol===CONTEXT_PROTOCOL_SIM)throw new Error('runtime configuration refused');
+    this.simulationContext=this.worldGroup==='simulation';
+    if(this.simulationContext)delete config.context_input_protocol;  // the v1-v6 machinery below never sees the simulation protocol
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     // D-g option 2 (owner 2026-10-13): the cost currency is USD (Pi catalogue prices) or CNY (a versioned tariff file at the
@@ -377,6 +386,12 @@ export class RuntimeHost{
     // simulation Host never a real or test one.
     if(!worldGroupAccepts(this.worldGroup,command.world_id))throw new RuntimeError('invalid_run_world');
     if(command.runtime_profile!==this.runtimeProfile||((operation==='start'||operation==='resume')&&typeof body.input!=='string'))throw new RuntimeError('invalid_runtime_request');
+    // NX-041 (L6 s7b-review 3.4): a simulation Host admits only a valid simulation pack for this Run (never a v6 or other input);
+    // a real Host refuses a simulation pack whatever its context mode. Both before admission, any guard request or file.
+    if(operation==='start'||operation==='resume'){
+      try{if(this.simulationContext)parseSimContextPack(body.input,command);}catch{throw new RuntimeError('invalid_sim_context');}
+      if(!this.simulationContext&&declaresSimContextPack(body.input))throw new RuntimeError('invalid_sim_context');  // never answered as retryable
+    }
     if(this.pending>=8)throw new RuntimeError('runtime_busy');this.pending++;
     // A new Run waits for a slot before any guard request (no proof is built while waiting).
     let slot=operation==='start'||operation==='resume'?await this.admission.acquire(command.run_id,Date.parse(command.not_after)).catch(error=>{this.pending--;throw error;}):undefined;
@@ -384,7 +399,8 @@ export class RuntimeHost{
       await this.authorizeAdmission(command,operation,body.input as string|undefined,body.activation_ref);
       this.activations.set(command.run_id,{ref:body.activation_ref,input:typeof body.input==='string'?body.input:this.activations.get(command.run_id)?.input,command,context:this.activations.get(command.run_id)?.context});
       if(operation==='start'||operation==='resume'){
-        const receipt=await this.adapter[operation](command,body.input as string);
+        // NX-041: the model reads the simulation pack only as rendered with its simulation preamble and markers.
+        const receipt=await this.adapter[operation](command,this.simulationContext?renderSimContextPack(parseSimContextPack(body.input,command)):body.input as string);
         if(slot){const held=slot;slot=undefined;void this.adapter.settled(command).finally(()=>held.release());}
         return receipt;
       }

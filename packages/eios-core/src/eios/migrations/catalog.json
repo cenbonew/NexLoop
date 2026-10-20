@@ -1335,6 +1335,11 @@
       "version": "0267",
       "name": "0267_nx041_sim_context.sql",
       "sha256": "6dbc4a77b797266b92d2c5feb6d75eb91128bd4fbd7a53733b935b08cfbf1e5f"
+    },
+    {
+      "version": "0268",
+      "name": "0268_nx041_host_sim_context.sql",
+      "sha256": "7bfd4622b3ae46af4cf2da6b7d2f59813d17ea7d3515c129cea02f85603ee1d8"
     }
   ]
 }

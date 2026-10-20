@@ -1,0 +1,121 @@
+"""NX-041 Host simulation context protocol (S7b; L6 nx041-s7b-review 3.4), the Python and database side.
+
+- A simulation Run's input is S7b's pack from authz.nexloop_sim_context_command with that world's own credential; a real world
+  is refused before any call, and nothing here ever reads or falls back to v6.
+- End to end across the languages: the pack the database assembles is parsed and rendered by this checkout's built Agent Host
+  module (Node 24): every line is marked simulated, goal, supply and relationship are explicitly empty, and a v6 pack or the pack
+  of another world is refused by the same parser.
+- The database side of the simulation event intake's role: applied only where S6c's authz.nexloop_app_role exists.
+"""
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from nexloop_eios.sim_context import SIM_CONTEXT_PROTOCOL, assemble_sim_context
+from test_nx041_s7_pg import consumers, digest, port, s7  # noqa: F401
+from nexloop_eios import consumer_port as P
+
+ROOT = Path(__file__).resolve().parents[1]
+DIST = ROOT / 'apps/agent-host/dist/sim-context.js'
+
+
+def node_render(pack_text, command):
+    node = shutil.which('node')
+    assert node and subprocess.run([node, '--version'], check=True, capture_output=True, text=True).stdout.startswith('v24.'), 'Node 24 required'
+    assert DIST.exists(), 'build the Agent Host (pnpm -C apps/agent-host build) first'
+    script = ("import {parseSimContextPack,renderSimContextPack} from %s;"
+              "let input='';process.stdin.on('data',d=>input+=d).on('end',()=>{const [pack,command]=JSON.parse(input);"
+              "try{process.stdout.write(JSON.stringify({ok:renderSimContextPack(parseSimContextPack(pack,command))}));}"
+              "catch(error){process.stdout.write(JSON.stringify({error:error.code??String(error)}));}});") % json.dumps(DIST.as_uri())
+    out = subprocess.run([node, '--input-type=module', '-e', script], input=json.dumps([pack_text, command]), capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr[-400:]
+    return json.loads(out.stdout)
+
+
+def command(world, tenant, mode='simulation'):
+    return {'schema_version': '1.0', 'run_id': '11111111-1111-4111-8111-111111111111', 'tenant_id': tenant, 'world_id': world, 'mode': mode,
+            'request_id': 'synthetic-sim-context-1', 'trigger_event_id': '22222222-2222-4222-8222-222222222222', 'role_ref': 'role:sim',
+            'consumer_ref': 'consumer:sim', 'goal_version_ref': 'goal:sim-v1', 'context_manifest_ref': 'artifact:sim', 'runtime_profile': 'deterministic-test',
+            'credential_ref': 'run_credential:sim', 'budget': {'maximum_model_turns': 8, 'maximum_tool_calls': 8, 'active_timeout_seconds': 60, 'maximum_cost': '1.0',
+                                                                'currency': 'USD'}, 'not_after': '2099-01-01T00:00:00Z', 'runtime_owner_epoch': 1}
+
+
+def test_a_simulation_run_input_is_the_sim_pack_and_the_host_renders_it_marked_simulated(s7):
+    f = s7
+    c = consumers(f['admin'], f['a'])[0]
+    twin = P.TwinStub(seed='host-ctx')
+    for step in range(1, 4):
+        port(f).act(twin.act(c, step))
+    with f['api']() as db:
+        text = assemble_sim_context(db, digest(f['token_a']), f['a'], c, limit=2)
+    pack = json.loads(text)
+    assert pack['schema_version'] == SIM_CONTEXT_PROTOCOL and pack['world'] == f['a'] and pack['data_mode'] == 'simulation'
+    rendered = node_render(text, command(f['a'], pack['tenant_id']))['ok']
+    lines = rendered.split('\n')
+    assert lines[0].startswith('[模拟环境 SIMULATION]') and 'source: simulated' in lines[0]
+    assert all(line.startswith('[模拟][source: simulated] ') for line in lines[1:])
+    for section in ('goal', 'supply', 'relationship'):
+        assert any(line.startswith(f'[模拟][source: simulated] {section}: 空') for line in lines), section
+    assert sum(line.startswith('[模拟][source: simulated] simulated_conversation #') for line in lines) == 2
+    assert any('older_events_omitted' in line for line in lines)
+    # The same parser refuses the pack for another world, for a real-mode command, and any v6 pack (no fallback).
+    assert node_render(text, command(f['b'], pack['tenant_id']))['error'] == 'runtime_context_invalid'
+    assert node_render(text, command('real', pack['tenant_id'], 'real'))['error'] == 'runtime_context_invalid'
+    v6 = json.dumps({'schema_version': 'nexloop.context-pack.v6', 'bindings': {}, 'user_statement': {}})
+    assert node_render(v6, command(f['a'], pack['tenant_id']))['error'] == 'runtime_context_invalid'
+
+
+def test_the_assembler_refuses_real_and_test_before_any_call(s7):
+    f = s7
+
+    class Refuse:
+        def execute(self, *args):
+            raise AssertionError('no database call for a real or test world')
+    for world in ('real', 'test', 'simulation'):
+        with pytest.raises(ValueError, match='simulation world required'):
+            assemble_sim_context(Refuse(), digest(f['token_real']), world, '0' * 64)
+    with pytest.raises(ValueError, match='limit'):
+        assemble_sim_context(Refuse(), digest(f['token_a']), f['a'], '0' * 64, limit=0)
+
+
+def test_the_event_intake_role_change_waits_for_s6c(s7):
+    """Without S6c (no authz.nexloop_app_role) the entry is exactly S7b's; with it, its role check reads app_role and nexloop_sim_api
+    may execute it (asserted when present, so the same test holds before and after integration)."""
+    admin = s7['admin']
+    has_s6c = admin.execute("select to_regprocedure('authz.nexloop_app_role(text)') is not null").fetchone()[0]
+    src = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_sim_context_command(text,text,text,integer)'::regprocedure").fetchone()[0]
+    if has_s6c:
+        assert 'authz.nexloop_app_role(p_world)' in src and 'session_user' not in src
+        assert admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]
+    else:
+        assert "session_user not in ('nexloop_api','nexloop_domain_worker')" in src
+    migration = next((ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx041_host_sim_context.sql')).read_text()
+    assert "if to_regprocedure('authz.nexloop_app_role(text)') is null then return;end if;" in migration
+
+
+def test_the_conditional_block_applies_cleanly_once_s6c_is_there(s7):
+    """Executes this migration's block against a stand-in of S6c's interface (the role and authz.nexloop_app_role with S6c's
+    signature): the entry is replaced as described and nexloop_sim_api may execute it; real roles keep answering as before."""
+    admin = s7['admin']
+    if admin.execute("select to_regprocedure('authz.nexloop_app_role(text)') is not null").fetchone()[0]:
+        pytest.skip('S6c integrated: covered by test_the_event_intake_role_change_waits_for_s6c')
+    admin.execute("do $$begin if not exists(select 1 from pg_roles where rolname='nexloop_sim_api') then create role nexloop_sim_api login noinherit; end if; end $$")
+    admin.execute("grant usage on schema authz to nexloop_sim_api")
+    admin.execute("""create function authz.nexloop_app_role(p_world text) returns text language sql stable set search_path=pg_catalog,pg_temp as $$
+        select case when session_user::text<>'nexloop_sim_api' then session_user::text
+         when coalesce(runtime.nexloop_world_kind(p_world),'') not in ('simulation','shadow') then 'nexloop_sim_outside_its_world' else 'nexloop_api' end $$""")
+    admin.execute('alter function authz.nexloop_app_role(text) owner to nexloop_owner')
+    migration = next((ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx041_host_sim_context.sql')).read_text()
+    admin.execute(migration)
+    src = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_sim_context_command(text,text,text,integer)'::regprocedure").fetchone()[0]
+    assert 'authz.nexloop_app_role(p_world)' in src and 'session_user' not in src
+    c = consumers(admin, s7['a'])[0]
+    with s7['role']('nexloop_sim_api')() as db:
+        assert db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c)).fetchone()[0]['world'] == s7['a']
+        with pytest.raises(Exception, match='sim context: unavailable|stand-in: real_world_refused'):
+            db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_real']), 'real', c))
+    with s7['api']() as db:  # the real role still works exactly as before
+        assert db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c)).fetchone()[0]['data_mode'] == 'simulation'
