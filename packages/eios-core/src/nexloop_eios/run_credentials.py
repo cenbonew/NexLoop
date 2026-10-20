@@ -1,6 +1,7 @@
 """Trusted server Run issuance; opaque credentials never confer new authority."""
 from dataclasses import dataclass,field
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.worlds import world_kind
 import hmac
 import uuid
 from eios.authz import facts as F
@@ -54,6 +55,9 @@ def _prepare_run_credential(pool,session,signer,*,action_resources,ttl_seconds=3
 def issue_run_credential(pool,session,signer,*,action_resources,ttl_seconds=300):
     run_id,text,signature=_prepare_run_credential(pool,session,signer,action_resources=action_resources,ttl_seconds=ttl_seconds)
     with pool.connection() as connection,connection.transaction():
-        if verify_application_role(connection)!='nexloop_api':raise ActionAuthorizationDenied('trusted API issuer required')
+        # NX-041 D10: the simulation intake (nexloop_sim_api) issues Run credentials of its own simulation world only (SQL checks app_role).
+        role=verify_application_role(connection)
+        if not (role=='nexloop_api' or (role=='nexloop_sim_api' and world_kind(session.world) in ('simulation','shadow'))):
+            raise ActionAuthorizationDenied('trusted API issuer required')
         result=connection.execute('select authz.nexloop_issue_run_credential(%s,%s,%s,%s)',(session.token_digest,session.world,text,signature)).fetchone()[0]
     return RunCredential(result['run_id'],AUDIENCE,datetime.fromisoformat(result['expires_at']),result['token'])

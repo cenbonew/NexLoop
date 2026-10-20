@@ -5,6 +5,7 @@ serve a decision to another request, session, world, principal or thread, and it
 must not let a request run across shutdown. Revocation is observed by the next
 request; inside a request the SQL commit tail still re-verifies the record hashes.
 """
+from support.tenants import SIM_WORLD
 import threading,time,uuid
 import psycopg
 import pytest
@@ -102,7 +103,7 @@ def test_in_request_memo_cannot_bypass_sql_commit_tail(published_action,admin):
 def test_memo_key_separates_sessions_world_target_operation(published_action,admin,counted,variant):
     reader,_,_=published_action;pool,session=reader.pool,reader.session
     if variant in ('principal','world'):
-        world='simulation' if variant=='world' else 'real'
+        world=SIM_WORLD if variant=='world' else 'real'
         _,other_token=seed_multi_authority(admin,pool,[(TARGET,ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-memo-'+variant,world=world)
         session=_reauthenticate(admin,pool,session)
         other=authenticate_service(pool,other_token,world=world)

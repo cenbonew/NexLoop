@@ -2,6 +2,7 @@
 glue, recall) are one request scope each. Memo never crosses units, principals,
 worlds or resources; revocation is observed by the next unit.
 """
+from support.tenants import SIM_WORLD
 import hashlib,secrets
 import pytest
 from eios.authz import facts as F
@@ -77,8 +78,8 @@ def test_recall_memo_never_crosses_principal_or_world_inside_one_scope(recall_db
         _,token=seed_multi_authority(f['admin'],f['worker'],reader_targets([f['ids']['zhang']],object_props=('member_no',)),identity_suffix='-memo-partial',tenant=TENANT_A)
         world='real'
     else:
-        _,token=seed_multi_authority(f['admin'],f['worker'],reader_targets([f['ids']['sim']]),identity_suffix='-memo-sim',world='simulation',tenant=TENANT_A)
-        world='simulation'
+        _,token=seed_multi_authority(f['admin'],f['worker'],reader_targets([f['ids']['sim']]),identity_suffix='-memo-sim',world=SIM_WORLD,tenant=TENANT_A)
+        world=SIM_WORLD
     reader=rotate(f['admin'],f['worker'],f['reader']);other=authenticate_service(f['worker'],token,world=world)
     with authority_request_scope():  # one outer scope shared by both units on purpose
         assert refs(recall_for(f,reader).recall('张伟',definitions=False).instances)==['eios:object:Consumer/'+f['ids']['zhang']]

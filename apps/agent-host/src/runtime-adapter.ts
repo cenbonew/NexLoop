@@ -1,4 +1,5 @@
 /** Stable boundary. Inputs must additionally pass current backend lease/identity authorization. */
+import {worldKind} from './worlds.js';
 export type RunCommand = {
   schema_version:'1.0';run_id:string;tenant_id:string;world_id:string;
   mode:'real'|'simulation'|'shadow'|'test';request_id:string;trigger_event_id:string;
@@ -36,7 +37,8 @@ export function validateRunCommand(value:unknown):RunCommand {
   for(const key of ['run_id','tenant_id','trigger_event_id'])if(!string(row[key])||!uuid.test(row[key] as string))throw new RuntimeError('invalid_run_command');
   for(const key of ['role_ref','consumer_ref','goal_version_ref','context_manifest_ref','credential_ref'])if(!string(row[key],1,512)||!ref.test(row[key] as string))throw new RuntimeError('invalid_run_command');
   if(!string(row.world_id)||!string(row.runtime_profile)||!string(row.request_id,16,200)||!integer(row.runtime_owner_epoch,1,Number.MAX_SAFE_INTEGER))throw new RuntimeError('invalid_run_command');
-  if((row.mode==='real')!==(row.world_id==='real'))throw new RuntimeError('invalid_run_command');
+  // NX-041 S1 (D9): a valid world (worlds.ts, the same rule as nexloop_eios.worlds) whose kind is the Run's mode.
+  if(worldKind(row.world_id)!==row.mode)throw new RuntimeError('invalid_run_command');
   const date=row.not_after;
   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/.test(date)||!Number.isFinite(Date.parse(date)))throw new RuntimeError('invalid_run_command');
   // Date.parse normalizes invalid month-day combinations; reject them explicitly.

@@ -4,6 +4,7 @@ Synthetic phrases only. Fixture rows (definitions/objects) are written by the
 bootstrap identity as test setup; recall and reflow use the restricted
 application roles, server-derived tenant and authority facts.
 """
+from support.tenants import SIM_WORLD
 import hashlib
 import json
 from pathlib import Path
@@ -86,14 +87,14 @@ def recall_db(admin,pg):
     ids={
       'zhang':put_object(admin,A,'real','a-zhang',{'display_name':'张伟','member_no':'M-1001','monthly_income':20000,'nickname':'防水达人'}),
       'zhangwei2':put_object(admin,A,'real','a-zhang-2',{'display_name':'张薇','member_no':'M-1002'}),
-      'sim':put_object(admin,A,'simulation','a-sim-zhang',{'display_name':'张伟','member_no':'M-1001'}),
+      'sim':put_object(admin,A,SIM_WORLD,'a-sim-zhang',{'display_name':'张伟','member_no':'M-1001'}),
       'other':put_object(admin,B,'real','b-zhang',{'display_name':'张伟','member_no':'M-1001'}),
     }
     with open_core(make_conninfo(pg,user='nexloop_domain_worker')) as worker,open_core(make_conninfo(pg,user='nexloop_api')) as api:
         provider=DeterministicTestEmbeddingProvider(64)
         sessions={}
         # Index writers: one per tenant/world; their grants are irrelevant to indexing.
-        for tenant,world in ((A,'real'),(A,'simulation'),(B,'real')):
+        for tenant,world in ((A,'real'),(A,SIM_WORLD),(B,'real')):
             session,_=seed_multi_authority(admin,worker,[('eios:object_type:Consumer',ResourceType.OBJECT_TYPE,READ)],
                 identity_suffix=f'-indexer-{world}',world=world,tenant=tenant)
             sessions[(tenant,world)]=session
@@ -101,7 +102,7 @@ def recall_db(admin,pg):
             if world=='real':
                 assert indexer.activate_profile()=='nexloop-test-ngram-v1@64'
                 assert indexer.index_object_type('Consumer')>0
-        for key,(tenant,world) in {'zhang':(A,'real'),'zhangwei2':(A,'real'),'sim':(A,'simulation'),'other':(B,'real')}.items():
+        for key,(tenant,world) in {'zhang':(A,'real'),'zhangwei2':(A,'real'),'sim':(A,SIM_WORLD),'other':(B,'real')}.items():
             assert RecallIndexer(worker,sessions[(tenant,world)],provider=provider,expected_dimension=64).index_instance('Consumer',ids[key],spec=INSTANCE_SPEC if tenant==A else {'name_fields':['display_name']})>0
         # Reader A/real: Consumer type, non-sensitive properties, object 'zhang' only.
         reader,token=seed_multi_authority(admin,worker,reader_targets([ids['zhang']]),identity_suffix='-reader',world='real',tenant=A)
@@ -189,7 +190,7 @@ def test_cross_tenant_and_world_isolation(recall_db):
     assert verified[0].ref=='eios:object:Consumer/'+f['ids']['zhang'] and verified[0].method=='strong_id'
     assert {f['ids']['other'],f['ids']['sim']}.isdisjoint(r.rsplit('/',1)[1] for r in refs(verified))
     # Simulation world: own session sees only the simulation instance.
-    sim,_=seed_multi_authority(f['admin'],f['worker'],reader_targets([f['ids']['sim']]),identity_suffix='-sim-reader',world='simulation',tenant=A)
+    sim,_=seed_multi_authority(f['admin'],f['worker'],reader_targets([f['ids']['sim']]),identity_suffix='-sim-reader',world=SIM_WORLD,tenant=A)
     sim_hits=recall_for(f,sim).recall('张伟',strong_ids=[{'key':'member_no','value':'M-1001'}],definitions=False).instances
     assert refs(sim_hits)==['eios:object:Consumer/'+f['ids']['sim']]
     # Tenant B reader with the same names sees only tenant B.
@@ -199,7 +200,7 @@ def test_cross_tenant_and_world_isolation(recall_db):
     assert refs(b.instances)==['eios:object:Consumer/'+f['ids']['other']]
     # The credential is not valid for another world: SQL derives nothing.
     with f['worker'].connection() as c,pytest.raises(psycopg.errors.InsufficientPrivilege,match='authentication denied'):
-        c.execute("select control.nexloop_recall_gates(%s,'simulation','instance')",(f['reader'].token_digest,))
+        c.execute("select control.nexloop_recall_gates(%s,%s,'instance')",(f['reader'].token_digest,SIM_WORLD))
     # Application roles cannot read the index directly (RLS + no grants).
     with f['api'].connection() as c,pytest.raises(psycopg.errors.InsufficientPrivilege):
         c.execute('select * from ontology.nexloop_recall_entries')

@@ -1,0 +1,197 @@
+"""NX-041 AT-046 complete acceptance (D10 decided: three credentials per simulation world): a simulation process group runs one actual
+Pi Run end to end, never touching a real credential, channel or effect table.
+
+The wiring order of the S7b/sim-context-ref documents, every step under the simulation group's own role and the world's own credential:
+1. nexloop_sim_api, with the world's api credential, issues the Run credential (authz.nexloop_issue_run_credential; app_role);
+2. it fixes the Run's input by reference (authz.nexloop_sim_context_register: S7b's pack, the manifest);
+3. it accepts and registers the Run with that pack text (the Run registration accepts only the fixed pack's digest);
+4. nexloop_sim_worker, with the world's worker credential, claims the task and creates the activation;
+5. the simulation guard (nexloop_sim_guard, the worker credential, --world-group simulation, 2 guard processes) and the simulation Agent
+   Host (world_group simulation, sim context protocol, deterministic-test profile, Node 24) run the Pi Run to its end.
+track_functions records the functions the Run called; the report prints them beside the simulation roles' whitelist.
+Real PostgreSQL; synthetic data; the real group is not started.
+"""
+import json
+import secrets
+import shutil
+import subprocess
+import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import psycopg
+import pytest
+from psycopg.conninfo import make_conninfo
+from psycopg.types.json import Jsonb
+
+from nexloop_eios.backend import open_backend
+from nexloop_eios.bootstrap import bootstrap
+from nexloop_eios.effect_contexts import EFFECT
+from nexloop_eios.runtime_guard_worker import GuardFiles, GuardWorkerPool
+from nexloop_eios.sim_context import sim_run_input
+from eios.authz.operations import Operation
+from eios.authz.resources import ResourceType
+from runtime_effect_fixture import QUEUE, seed_multi_uuid
+from system_catalog_fixture import copy_catalog_to_world, publish_system_catalog
+from test_agent_host import files
+from test_runtime_host_admission import completed, host
+from test_nx041_sim_roles_pg import WHITELIST
+
+ROOT = Path(__file__).resolve().parents[1]
+REAL_TABLES = ('runtime.nexloop_effect_intents', 'runtime.nexloop_effect_outbox', 'runtime.nexloop_outbound_messages', 'runtime.nexloop_message_outbox',
+               'runtime.nexloop_incentive_issues', 'runtime.nexloop_outreach_sends', 'ontology.nexloop_claims', 'runtime.nexloop_conversation_messages')
+
+
+def targets(names):
+    return [('eios:action:' + name + ':1', ResourceType.ACTION, Operation.EXECUTE) for name in names]
+
+
+@pytest.fixture
+def sim_group(admin, pg, tmp_path):
+    bootstrap(admin)
+    tenant = str(uuid.uuid4())
+    material = secrets.token_bytes(32)
+    key = tmp_path / 'signer'
+    key.write_bytes(material)
+    key.chmod(0o600)
+    admin.execute("insert into authz.nexloop_authority_signing_keys values('sim-run',%s,true)", (material,))
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (tenant,))
+    world = admin.execute("select control.nexloop_governed_create_sim_world(%s,'real','owner-principal','owner-subject','i-world',%s)",
+                          (tenant, Jsonb({'operation': 'create_sim_world', 'request_id': uuid.uuid4().hex, 'kind': 'simulation',
+                                          'purpose': 'AT-046 complete acceptance', 'expires_in_days': 7}))).fetchone()[0]['world']
+    # The Run's Action, published for the simulation world (the catalog rows of real, copied as trusted configuration writes them).
+    publish_system_catalog(admin, tenant, ('Consumer', 'Goal', 'PlanStep', 'EffectControl'), (EFFECT,))
+    copy_catalog_to_world(admin, tenant, world)
+    # D10: the world's three credentials, one per use, each bound to it alone.
+    api_token = seed_multi_uuid(admin, tenant, targets([QUEUE, EFFECT]), suffix='-sim-api', world=world, sim_use='api')
+    worker_token = seed_multi_uuid(admin, tenant, targets([QUEUE]), suffix='-sim-worker', world=world, sim_use='worker')
+    agent_token = seed_multi_uuid(admin, tenant, targets([EFFECT]), suffix='-sim-agent', world=world, sim_use='agent')
+    admin.execute("select control.nexloop_governed_generate_sim_world_data(%s,'real','owner-principal','owner-subject','i-gen',%s)",
+                  (tenant, Jsonb({'operation': 'generate_sim_world_data', 'request_id': 'gen-at046', 'world': world, 'kind': 'synthetic', 'seed': 'at046',
+                                  'consumers': 1, 'events_per_consumer': {'min': 2, 'max': 2}, 'segments': {'trial': 1}})))
+    consumer = admin.execute("select object_id from runtime.nexloop_sim_objects where world=%s and type_name='Consumer'", (world,)).fetchone()[0]
+    return dict(tenant=tenant, world=world, key=key, api_token=api_token, worker_token=worker_token, agent_token=agent_token, consumer=consumer, pg=pg)
+
+
+def step(fn, *args, **kwargs):
+    """A step of the Run path; the Python ports hide the database's own refusal (raise ... from None) - it is still the context."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as error:
+        chain, e = [], error
+        while e is not None and len(chain) < 8:
+            chain.append(repr(e))
+            e = e.__cause__ or e.__context__
+        raise AssertionError(f'{getattr(fn, "__name__", fn)}: ' + ' <- '.join(chain)) from error
+
+
+def database_refusal(error):
+    while error is not None:
+        if isinstance(error, psycopg.Error):
+            return error.diag.message_primary
+        error = error.__context__
+    return None
+
+
+def real_counts(admin):
+    return {t: admin.execute(f'select count(*) from {t}').fetchone()[0] for t in REAL_TABLES}
+
+
+def sim_host_configuration(tmp_path, port, guard_key):
+    purge = tmp_path / 'world-purge-key'
+    purge.write_text(secrets.token_hex(32))
+    purge.chmod(0o600)
+    path = tmp_path / 'runtime-config.json'
+    path.write_text(json.dumps({'guard_url': f'https://127.0.0.1:{port}/internal/v1/runtime/authorize', 'guard_key_file': str(guard_key),
+                                'guard_ca_file': str(tmp_path / 'host-cert.pem'), 'runtime_profile': 'deterministic-test', 'world_group': 'simulation',
+                                'host_id': 'sim-host-at046', 'world_purge_key_file': str(purge), 'context_input_protocol': 'nexloop.context-pack.sim.v1',
+                                'cost_currency': 'CNY'}))
+    path.chmod(0o600)
+    return path
+
+
+def test_at046_a_simulation_process_group_runs_a_complete_pi_run(sim_group, admin, tmp_path):
+    f = sim_group
+    node = shutil.which('node')
+    assert node and subprocess.run([node, '--version'], capture_output=True, text=True, check=True).stdout.startswith('v24.'), 'Node 24 required'
+    assert (ROOT / 'apps/agent-host/dist/main.js').is_file(), 'build the Agent Host first'
+    before = real_counts(admin)
+    admin.execute("select pg_stat_reset()")
+    admin.execute("do $$begin execute format('alter database %I set track_functions=''all''',current_database());end$$")
+    config = dict(signing_key_file=f['key'], signing_key_id='sim-run')
+    with open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_api'), artifact_root=tmp_path / 'api-artifacts', **config) as api, \
+            open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_worker'), artifact_root=tmp_path / 'worker-artifacts', **config) as backend_worker:
+        source = api.authenticate(f['api_token'], world=f['world'])
+        # 1. The Run credential, issued by the simulation intake in its world.
+        run = step(source.issue_run_credential, action_resources=['eios:action:' + EFFECT + ':1'])
+        # 2. The Run's input fixed by reference.
+        pack_text = sim_run_input(source, run.run_id, f['consumer'], 8)
+        assert json.loads(pack_text)['world'] == f['world']
+        command = {'schema_version': '1.0', 'run_id': run.run_id, 'tenant_id': f['tenant'], 'world_id': f['world'], 'mode': 'simulation',
+                   'request_id': 'sim-run-' + str(uuid.uuid4()), 'trigger_event_id': str(uuid.uuid4()), 'role_ref': 'role:sim-consumer-reply',
+                   'consumer_ref': 'consumer:' + f['consumer'], 'goal_version_ref': 'goal:sim-at046', 'context_manifest_ref': 'artifact:sim-context',
+                   'runtime_profile': 'deterministic-test', 'credential_ref': 'run_credential:' + run.run_id,
+                   'budget': {'maximum_model_turns': 8, 'maximum_tool_calls': 8, 'active_timeout_seconds': 60, 'maximum_cost': '1.0', 'currency': 'CNY'},
+                   'not_after': run.expires_at.isoformat(), 'runtime_owner_epoch': 1}
+        # A pack the intake assembled itself is refused at the registration (positive control right after).
+        forged = json.loads(pack_text)
+        forged['insufficient'] = []
+        with pytest.raises(Exception) as refused:
+            source.accept_runtime_event(queue='operations', source_id='sim-intake', event_id='forged', run_token=run.token, command=command,
+                                        input=json.dumps(forged, ensure_ascii=False))
+        assert database_refusal(refused.value) == 'sim context: input_not_registered', repr(refused.value.__context__)
+        # 3. Accepted and registered with the fixed pack.
+        accepted = step(source.accept_runtime_event, queue='operations', source_id='sim-intake', event_id='event-1', run_token=run.token, command=command, input=pack_text)
+        # 4. The simulation worker claims and activates.
+        worker = backend_worker.authenticate(f['worker_token'], world=f['world'])
+        job = step(worker.claim_task, queue='operations', lease_seconds=60)
+        assert job['task_id'] == accepted['task_id']
+        activation = step(worker.create_runtime_activation, queue='operations', task_id=job['task_id'], fence=job['fence'], run_id=run.run_id, command=command,
+                                                      input=pack_text, owner_epoch=1)
+    # 5. The simulation guard (its own role, the worker credential, two processes) and the simulation Host run the Pi Run.
+    runtime, key = files(tmp_path)
+    guard_key = tmp_path / 'guard-key'
+    guard_key.write_text(secrets.token_hex(32))
+    guard_key.chmod(0o600)
+    private = tmp_path / 'guard-private'
+    private.mkdir(mode=0o700)
+    dsn = private / 'database-url'
+    dsn.write_text(make_conninfo(f['pg'], user='nexloop_sim_guard'))
+    dsn.chmod(0o600)
+    credential = private / 'service-credential'
+    credential.write_text(f['worker_token'])
+    credential.chmod(0o600)
+    pool = GuardWorkerPool(GuardFiles(dsn, f['key'], 'sim-run', credential, tmp_path / 'guard-artifacts', f['world'], guard_key, tmp_path / 'host-cert.pem',
+                                      tmp_path / 'host-key.pem', world_group='simulation'), port=0, workers=2)
+    port = pool.start()
+    try:
+        with host(runtime, key, sim_host_configuration(tmp_path, port, guard_key)) as (child, client, headers):
+            started = client.post('/internal/v1/runs/start', headers=headers,
+                                  json={'activation_ref': activation['activation_ref'], 'command': command, 'input': pack_text})
+            assert started.status_code == 202, started.text
+            done = completed(client, headers, activation['activation_ref'], command)
+    finally:
+        pool.stop()
+    assert done['runtime_outcome'] == 'succeeded', done
+    # The Run's state lives under its simulation world's directory; no credential or key reached it.
+    world_dir = runtime / f['world'].replace(':', '-') / run.run_id
+    assert (world_dir / 'runtime.sqlite').is_file()
+    stored = b''.join(p.read_bytes() for p in world_dir.rglob('*') if p.is_file())
+    for secret in (run.token, f['api_token'], f['worker_token'], f['agent_token'], guard_key.read_text()):
+        assert secret.encode() not in stored
+    # No real credential, channel or effect: every service credential the Run path used is of this world; real tables untouched.
+    used = admin.execute("select array_agg(distinct w) from authz.nexloop_service_credentials, unnest(worlds) w where tenant_id=%s", (f['tenant'],)).fetchone()[0]
+    assert used == [f['world']]
+    assert admin.execute('select world from authz.nexloop_run_credentials where run_id=%s', (run.run_id,)).fetchone()[0] == f['world']
+    assert real_counts(admin) == before
+    # track_functions: what the Run path called, beside the simulation roles' whitelist (report).
+    admin.execute("select pg_stat_force_next_flush()") if admin.execute("select to_regproc('pg_stat_force_next_flush')").fetchone()[0] else None
+    called = [r[0] for r in admin.execute("""select s.schemaname||'.'||s.funcname from pg_stat_user_functions s
+        where s.calls>0 and s.schemaname in ('authz','control','runtime','ontology') order by 1""").fetchall()]
+    entries = sorted({n.split('(')[0] for role in ('nexloop_sim_api', 'nexloop_sim_worker', 'nexloop_sim_guard') for n in WHITELIST[role]})
+    report = {'called': called, 'whitelisted_entries_called': [e for e in entries if e in called],
+              'whitelisted_entries_not_called': [e for e in entries if e not in called]}
+    (ROOT / 'build').mkdir(exist_ok=True)
+    (ROOT / 'build/nx041-d10-track-functions.json').write_text(json.dumps(report, indent=1) + '\n')
+    print('TRACK', json.dumps(report))
+    admin.execute("do $$begin execute format('alter database %I reset track_functions',current_database());end$$")

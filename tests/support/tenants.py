@@ -6,4 +6,7 @@ synthetic tenants inside disposable clusters only; none of them is a real tenant
 TENANT_A = '00000000-0000-4000-8000-00000000000a'  # formerly 'synthetic-a'
 TENANT_B = '00000000-0000-4000-8000-00000000000b'  # formerly 'synthetic-b'
 TENANT_OTHER = '00000000-0000-4000-8000-00000000000c'  # formerly 'synthetic-other' (a foreign tenant in isolation tests)
+# NX-041 S1 (D1, D9): a world is real, test, sim:<uuid> or shadow:<uuid>; 'simulation' is only a data mode. Isolation tests that
+# need a non-real experiment world use this one (formerly the literal 'simulation').
+SIM_WORLD = 'sim:00000000-0000-4000-8000-0000000000e1'
 from nexloop_eios.sandbox_profile import SANDBOX_TENANT  # noqa: E402,F401  formerly 'nexloop-sandbox'; browser_test_profile.TENANT is the same

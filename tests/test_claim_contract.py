@@ -7,7 +7,7 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from nexloop_eios.contracts import Claim
-from support.tenants import TENANT_A
+from support.tenants import SIM_WORLD, TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
 SCHEMA=json.loads((ROOT/'packages/contracts/claim.schema.json').read_text())
@@ -84,7 +84,7 @@ def test_positive_variants():
     unresolved=dict(EXAMPLE['valid_time'],expression='过两天',kind='unparsed',status='unresolved',start=None,end=None)
     assert valid(mutate(valid_time=unresolved))
     assert not valid(mutate(valid_time=dict(unresolved,start='2026-10-09T00:00:00+08:00')))
-    assert valid(mutate(mode='simulation',world_id='simulation')) and valid(mutate(mode='test',world_id='sim-1'))
+    assert valid(mutate(mode='simulation',world_id=SIM_WORLD)) and valid(mutate(mode='test',world_id='sim-1'))
 
 
 def test_valid_time_normalization_is_optional_and_strict():

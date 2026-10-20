@@ -1,6 +1,6 @@
 # 工作台使用说明（负责人）：世界模型、数据、知识审核、运营人设与外联
 
-- **适用**：v0.1.0 之后第一至第三批新增的工作台页面（集成分支 `ca578721`）。
+- **适用**：v0.1.0 之后第一至第七批新增的工作台页面与负责人操作（第七批 `935aaf62`）。
 - **写法**：只用角色名；不含截图、凭据或地址。
 - **页面文字**：引号中的文字就是页面上显示的原文。
 - **术语**：按 [工作台术语表](../design/workbench-glossary.md)：实体名用 EIOS 英文（Object Type、Object、Property、Link、Function、Action、Object Set、Artifact、Claim），状态显示中文标签，原始码只在悬停提示或详情里出现。
@@ -177,10 +177,41 @@
 - **恢复营销**：只有在客户已退订时才能恢复，而且**不会自动恢复**，必须由负责人记录。
 - **怎么记录**：经负责人专属的受治理 Action `nexloop.marketing_consent.record`，种类有“同意”“撤回同意”和“恢复营销”。**工作台目前还没有这个操作的页面**，要等后续的 UI 批次补上。
 
-## 5. 相关文档
+## 5. 模拟世界
+
+> 模拟世界只用合成或结构生成的数据，效应只经 Action 替身执行，**不会触达任何真实客户或真实 provider**；真实派发开关对模拟世界恒为关闭。总体说明见 [NX-041 总说明](../implementation/NX-041-overview.md)。
+
+负责人用到四个 Action，都只有负责人能执行，每次都要写原因：
+
+| Action | 做什么 | 配置文件里的字段 |
+|---|---|---|
+| `nexloop.sim_world.create` | 建立一个模拟世界（`sim:`）或影子世界（`shadow:`）；同一请求重试得到同一个世界；时钟建立时是暂停的 | `kind`（`simulation` 或 `shadow`）、`purpose`（目的）、`expires_in_days`（1–30，默认 30） |
+| `nexloop.sim_world.generate` | 在 `sim:` 世界中生成数据：合成（按分组）或结构生成（按已发布定义）；同一（类型、种子）只生成一次，每个世界最多 10 次 | `world`、`kind`（`synthetic` 或 `structural`）、`seed`、`consumers`（1–2000）、`events_per_consumer`（`min`、`max`，0–50）、`segments`（合成时填，否则为空）、`max_objects`（结构生成时填，0–10000，否则为空） |
+| `nexloop.sim_clock.control` | 推进、暂停、恢复时钟或设置速率 | `world`、`action`（`advance`、`pause`、`resume`、`set_rate`）、`seconds`（推进时填）、`rate`（设置速率时填）、`reason` |
+| `nexloop.sim_world.delete` | 整体删除一个世界：分批清除，可以中断后继续；只保留 30 天摘要（计数与 digest），然后彻底删除 | `world`、`reason` |
+
+**用法：配置文件加一条命令**（与“确认未送达”等负责人工具同一形态）：
+
+1. 在私有目录写一个配置文件（权限 0600，不进 git），内容是上表中对应 Action 的字段，外加一个稳定的请求 ID（重试时保持不变）。
+2. 执行一条命令，工作台口令从钥匙串经管道输入；先加 `--dry-run` 预查，结果无误后去掉 `--dry-run` 正式执行。
+3. 命令输出只含世界 ID、状态与原因码，不含口令或数据内容。
+
+> **当前状态（`935aaf62`）**：这四个 Action 已经在工作台的写入口上（`create_sim_world`、`generate_sim_world_data`、`control_sim_clock`、`delete_sim_world`），但**工作台还没有页面，负责人用的命令行工具也还没有实现**。在工具合入之前，不要用其他方式代替；需要建立模拟世界时，请先让开发线补上这个工具。
+
+**数量与期限**（负责人 2026-10-21 定）：每个租户最多同时有 20 个 active 的模拟世界；每个世界默认 30 天到期，最长 30 天，到期后自动整体删除，不需要再执行删除。需要更久的实验，到期前另建一个世界，用同样的种子重新生成。
+
+**常见问题**
+- **生成时报 `quota_exceeded`**：这个世界已经生成过 10 次，换一个新世界。
+- **同一种子再生成一次没有变化**：同一（类型、种子）只生成一次，这是有意的，保证可以复现。
+- **删除后还能看到这个世界**：删除分批进行，状态会依次显示删除中、已删除；之后 30 天内只剩摘要。
+- **建立时被拒，提示数量已满**：已经有 20 个 active 的世界，先删除不用的世界。
+- **模拟世界的费用**：每个世界的模型预算是 100 元，按租户每月合计不超过 100 元；超出时新的模型调用被拒绝。
+
+## 6. 相关文档
 
 - 设计：[世界模型工作台](../design/workbench-world-model-design.md)、[运营人设](../design/operator-persona-design.md)、[主动外联](../design/proactive-outreach.md)；
 - 实施计划：[外联实施计划](../implementation/outreach-impl-plan.md)；
 - 决定记录：[ADR-023](../../adr/ADR-023-explicit-refusal-hard-stop.md) §4（拒绝规则 v2）、[ADR-036](../../adr/ADR-036-object-set-read-only.md)（Object Set 只读）；
 - 术语：[工作台术语表](../design/workbench-glossary.md)；
+- 模拟世界：[NX-041 总说明](../implementation/NX-041-overview.md)；
 - 运维：[OPERATIONS](../OPERATIONS.md) §8（真实派发开关）。
