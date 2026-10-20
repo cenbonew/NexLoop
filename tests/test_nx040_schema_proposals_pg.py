@@ -68,10 +68,12 @@ def test_the_window_opens_ontology_schema_for_proposal_input_only(evo):
         propose_raw(f, body_of(f, candidate={'candidate_id': str(uuid.uuid4())}, patch={'change_kind': 'add_optional_property'}))
 
 
-def test_evaluation_of_ontology_schema_stays_closed(evaluation):
+def test_evaluation_of_ontology_schema_is_open_and_its_row_alone_closes_it(evaluation):
+    """NX-040 F4 opened the dimension with a migration of its own (D21); removing that one row (as a reversal would) closes it again."""
     f = evaluation
-    assert f['admin'].execute("select array_agg(dimension) from control.nexloop_evo_open_dimensions").fetchone() == (['semantic_content'],)
+    assert {r[0] for r in f['admin'].execute('select dimension from control.nexloop_evo_open_dimensions')} == {'semantic_content', 'ontology_schema'}
     suspended(f['admin'], "update runtime.nexloop_evo_candidates set dimension='ontology_schema' where candidate_id=%s", (f['candidate'],))
+    suspended(f['admin'], "delete from control.nexloop_evo_open_dimensions where dimension='ontology_schema'")
     refused(f, 'dimension_closed')
 
 

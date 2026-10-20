@@ -127,3 +127,10 @@ class EvaluatorStore:
 
     def l1_sweep(self) -> dict:
         return self._call('select authz.nexloop_evo_l1_sweep(%s)', ())
+
+    # NX-040 F4: the release permit of an accepted ontology_schema candidate, and the reflow reservation (G11, evolution budget, D26).
+    def permit_issue(self, candidate_id: str) -> dict:
+        return self._call('select authz.nexloop_evo_permit_issue(%s,%s)', (candidate_id,))
+
+    def reflow_reserve(self, candidate_id: str, consumption_id: str, amount: str, unit: str) -> dict:
+        return self._call('select authz.nexloop_evo_reflow_reserve(%s,%s,%s,%s,%s)', (candidate_id, consumption_id, amount, unit))
