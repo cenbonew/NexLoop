@@ -96,11 +96,12 @@ def test_the_event_intake_entry_reads_app_role_and_the_migration_needs_s6c(s7):
         admin.execute(migration)
     src = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_sim_context_command(text,text,text,integer)'::regprocedure").fetchone()[0]
     assert 'authz.nexloop_app_role(p_world)' in src and 'session_user' not in src
-    assert admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]
+    # Least privilege (0270, L6 sim-context-ref review): the simulation intake registers by reference only; it no longer executes
+    # the assembler directly (authz.nexloop_sim_context_register calls it as its owner, the role check still reading app_role).
+    assert not admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]
+    assert admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_register(text,text,uuid,text,integer)','execute')").fetchone()[0]
     c = consumers(admin, s7['a'])[0]
-    with s7['role']('nexloop_sim_api')() as db:
-        assert db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c)).fetchone()[0]['world'] == s7['a']
-        with pytest.raises(Exception, match='sim context: unavailable|stand-in: real_world_refused'):
-            db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_real']), 'real', c))
+    with s7['role']('nexloop_sim_api')() as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c))
     with s7['api']() as db:  # the real role still works exactly as before
         assert db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c)).fetchone()[0]['data_mode'] == 'simulation'

@@ -32,3 +32,21 @@
 
 - sim world 里的 Run 端到端（D10 等前提）仍未打通。本项只保证「一旦登记，输入来自唯一的组装方，并且可以审计」。
 - 来源可信依赖 `sim_context_command` 本身：它只读模拟来源，这一点由 S7b 的守护测试固定。
+
+## 收尾（L6 审查 `nx041-sim-context-ref-review.md`，L2、L4 意见）
+
+| 项 | 处理 |
+| --- | --- |
+| 双重保险（L2） | `sim_context_register` 除了 `app_role` 判断，还要求 `session_user='nexloop_sim_api'`。测试：临时把执行权误授给 `nexloop_api`，调用仍然报 `sim context: unavailable`。 |
+| 0037 触发器 | update 时监视的列加上 `tenant_id`：把 sim Run 的登记行改到另一个租户，按新登记处理，因为那个租户下没有固定的包，所以被拒。测试同时确认触发器是 `ENABLE ALWAYS`。 |
+| 渲染版本 | 采用「Host 导出常量 + 登记时写入」：Host 导出 `SIM_RENDER_VERSION='nexloop-sim-render/1'`（`apps/agent-host/src/sim-context.ts`，**只加了这一个常量**）；SQL 用 `runtime.nexloop_sim_render_version()` 给出同一个值，每次登记写入 binding 的 `render_version` 列。为了把版本号和实际渲染输出绑在一起，加了一份金样 `tests/support/golden/nx041-sim-render.json`，记录版本号和契约示例渲染结果的 sha256。只要渲染输出变了而版本号没升，测试就会失败。没有选「Host 回报渲染摘要」：那需要新增一条 Host 到数据库的回报路径，改动更大。 |
+| 删除回归 / 权限 | 原有的整体删除测试已经覆盖两张表（含外键），删除后零残留；新增断言确认 sources 到 bindings 的外键存在。两张表对所有 `nexloop%` 角色（owner 除外）和 PUBLIC 都没有权限。 |
+| 最小权限 | 0270 收回了 0269 授予 `nexloop_sim_api` 的 `sim_context_command` 直接执行权，只保留 register。register 以 owner 身份调用组装函数，组装函数里的角色判断仍然读 `app_role`。S6c 的白名单和 L2 的 Host 测试里相应的断言都已改成「sim_api 不能直接调用组装函数」。 |
+| 契约示例（L4） | 示例改为自洽的数据：上限 1，共 2 条事件，包含 1 条，省略 1 条，并报告 `older_events_omitted`；补了 persona 条目；各条目的 `content_hash` 按 PG jsonb 文本重新计算。测试会核对计数是否一致，并在 PG 里重算每个哈希。 |
+
+## D10 之后的接线顺序
+
+1. sim 组的 api（`nexloop_sim_api`）用该 world 的凭据签发这次 Run 的 Run 凭据（`issue_run_credential`）。
+2. 调用 `authz.nexloop_sim_context_register(digest, world, run_id, consumer, limit)`（Python 为 `nexloop_eios.sim_context.sim_run_input(session, run_id, consumer, limit)`），拿到返回的 `pack_text`。
+3. 用这段 `pack_text` **原样**作为 Run 的 input 登记 Run（`accept_runtime_event` / register）。input 摘要必须等于固定包的摘要，否则登记会被拒（`input_not_registered`）。
+4. Host 用 `parseSimContextPack` 解析、用 `renderSimContextPack` 渲染；guard 核对 input 摘要，这一步不变。
