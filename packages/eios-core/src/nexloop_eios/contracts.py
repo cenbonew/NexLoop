@@ -633,6 +633,24 @@ class OutreachPurposesPurposesItem(BaseModel):
     default_enabled: bool
     content_rules: OutreachPurposesPurposesItemContentRules
 
+class OutreachSendParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    consumer_id: str
+    purpose: str
+    origin_ref: str
+    body: str
+    channel: Literal['native.webchat']
+    conversation_id: str | None | None = None
+
+class OutreachSendFrozen(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    intent_id: str
+    origin_kind: Literal['proactive']
+    topic: str
+    purpose_version: int
+    frequency_class: Literal['service', 'marketing']
+    body_digest: str
+
 class ReviewDecisionPublication(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     schema_revision_before: str
@@ -1068,6 +1086,12 @@ class OutreachPurposes(_Contract):
     version: int
     decision: str
     purposes: list[OutreachPurposesPurposesItem]
+
+class OutreachSend(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:outreach-send","title":"outreach-send","description":"Proactive outreach send request (docs/design/proactive-outreach.md §3.1, owner decision P1; outreach slice 4): the parameters of the governed Action nexloop.outreach.send:1 and the request the server freezes from them. The caller never chooses the topic, the purpose version, the origin kind or the business intent id: the server derives them (topic and version from the current purpose list; intent id = sha256 of tenant, consumer, purpose, origin_ref and the day in the tenant time zone). Every dispatch gate is rechecked at dispatch; the Action is external and its real dispatch switch is closed by default.","type":"object","additionalProperties":false,"required":["schema","parameters"],"properties":{"schema":{"const":"nexloop-outreach-send/1"},"parameters":{"type":"object","additionalProperties":false,"required":["consumer_id","purpose","origin_ref","body","channel"],"properties":{"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"purpose":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$","description":"A purpose of the current outreach purpose list, enabled for the tenant."},"origin_ref":{"type":"string","pattern":"^(commitment|intent|plan|owner):[A-Za-z0-9._:-]{1,190}$","description":"What the send follows from: a commitment, a receipt intent, a plan or the owner\'s own request."},"body":{"type":"string","minLength":1,"maxLength":2000,"description":"The message text; the purpose\'s content_rules.max_chars also applies."},"channel":{"const":"native.webchat","description":"v1: the native WebChat channel only."},"conversation_id":{"type":["string","null"],"pattern":"^[a-f0-9]{64}$","description":"Optional (P4): continue this conversation of the consumer; otherwise the server chooses."}}},"frozen":{"type":"object","additionalProperties":false,"required":["intent_id","origin_kind","topic","purpose_version","frequency_class","body_digest"],"description":"Server-derived, never accepted from the caller.","properties":{"intent_id":{"type":"string","pattern":"^outreach:[0-9a-f]{64}$"},"origin_kind":{"const":"proactive"},"topic":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$"},"purpose_version":{"type":"integer","minimum":1},"frequency_class":{"enum":["service","marketing"]},"body_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}}')
+    schema: Literal['nexloop-outreach-send/1']
+    parameters: OutreachSendParameters
+    frozen: OutreachSendFrozen | None = None
 
 class ReviewDecision(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:review-decision","title":"review-decision","description":"ADR-019. A human reviewer\'s decision on a candidate-definition. Reviewer identity is server-derived from an authenticated human session; the decision itself is a governed human Action and is audited. Not an existing upstream API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"decision_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"candidate_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"reviewer_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"decision":{"enum":["approve","merge_into","reject"]},"merge_target_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"rationale":{"type":"string","minLength":1,"maxLength":2000},"expected_candidate_status":{"const":"pending_review"},"decided_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"publication":{"type":"object","additionalProperties":false,"properties":{"schema_revision_before":{"type":"string","minLength":1},"schema_revision_after":{"type":"string","minLength":1},"published_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"maxItems":64},"applied_claim_count":{"type":"integer","minimum":0},"gate_failures":{"type":"array","items":{"type":"string","minLength":1},"maxItems":64}},"required":["schema_revision_before"]}},"required":["schema_version","decision_id","tenant_id","world_id","mode","candidate_ref","reviewer_ref","decision","rationale","expected_candidate_status","decided_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}},{"if":{"properties":{"decision":{"const":"merge_into"}}},"then":{"required":["merge_target_ref"]}},{"if":{"properties":{"decision":{"const":"reject"}}},"then":{"properties":{"publication":false}}}]}')
