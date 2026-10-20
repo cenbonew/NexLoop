@@ -53,7 +53,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 CONFIG = ROOT / 'deploy/configuration'
-TRIAL = CONFIG / 'nx037-trial.v4.json'  # v4: v2 (effect categories v3, NX-037 gap B) with alert rules v5
+from nexloop_eios.controlled_interactions import latest_trial  # noqa: E402
+# The newest trial configuration (v5 since release 25: v4 with alert rules v6); --trial-config names another version.
+TRIAL = latest_trial(CONFIG)
 GRANTS = ROOT / 'deploy/authorization/service-grants.v1.json'
 OWNER_RESTRICTIONS = ROOT / 'deploy/authorization/owner-property-restrictions.json'
 MERGE_CONFIG = ROOT / 'deploy/ontology/merge-config.v1.json'  # NX-045 glue configuration (claim-matcher idles without it)
@@ -264,10 +266,12 @@ def main(argv=None):
                  '--recipe', '--username-file', '--password-file', '--database-url-file', '--identity-database-url-file', '--browser-rate-key-file',
                  '--artifact-root'):
         parser.add_argument(name)
+    parser.add_argument('--trial-config', default=str(TRIAL), help='trial configuration (default: the newest nx037-trial.v<N>.json)')
     args = parser.parse_args(argv)
     try:
         p = parameters(tenant=args.tenant, owner_principal=args.owner_principal, value_catalog=args.value_catalog, channel_ref=args.channel_ref,
-                       period_start=args.period_start, period_end=args.period_end, cumulative=args.cumulative, per_run=args.per_run, monthly=args.monthly)
+                       period_start=args.period_start, period_end=args.period_end, cumulative=args.cumulative, per_run=args.per_run, monthly=args.monthly,
+                       trial=Path(args.trial_config))
         if args.mode == 'plan':
             out, code = plan(p), 0
         elif args.mode == 'execute':
