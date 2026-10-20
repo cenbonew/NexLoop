@@ -7,7 +7,7 @@ from nexloop_eios.bootstrap import verify
 
 APPLICATION_ROLES = frozenset({
     'nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler',
-    # NX-041 S6c (D3): the simulation process group's own roles (0266; no real grant, no real password).
+    # NX-041 S6c (D3): the simulation process group's own roles (0268; no real grant, no real password).
     'nexloop_sim_worker', 'nexloop_sim_guard', 'nexloop_sim_api',
 })
 # The application roles each runtime process may connect as, per world group (NX-041 S6c).
