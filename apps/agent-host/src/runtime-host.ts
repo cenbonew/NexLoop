@@ -8,6 +8,7 @@ import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context
 import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-runtime-adapter.js';
 import {RuntimeEffectClient,requestScope,RUN_INSTRUCTIONS} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
+import {groupAccepts,parseWorldGroup,type WorldGroup} from './worlds.js';
 import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validateModelTariff} from './trusted-model-profile.js';
 // 10/18 (release 14): the model provider connection (TCP + TLS) bound and its retries on a new connection, before any request byte.
 const MODEL_CONNECT_TIMEOUT_MS=4000,MODEL_CONNECT_RETRIES=2;
@@ -71,11 +72,12 @@ export class RuntimeHost{
   private readonly keyPath:string;
   private pending=0;
   private readonly runtimeProfile:string;
+  private readonly worldGroup:WorldGroup;
   private readonly admission:RunAdmissionGate;
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','world_group'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     // D-g option 2 (owner 2026-10-13): the cost currency is USD (Pi catalogue prices) or CNY (a versioned tariff file at the
@@ -205,6 +207,7 @@ export class RuntimeHost{
       selection={...selected,costPolicy:selected.runtimeProfile==='deterministic-test'?{kind:'deterministic_zero',currency:costCurrency as string}:{kind:'bounded_request',currency:costCurrency as string,maximum_request_cost:config.maximum_request_cost as string}};
     }
     this.runtimeProfile=selection.runtimeProfile;
+    this.worldGroup=parseWorldGroup(config.world_group);
     // Explicit test profile only; no model secret or real-provider success claim.
     const scripted:{reply?:(context:Context)=>ReturnType<typeof fauxAssistantMessage>;plan?:(context:Context)=>ReturnType<typeof fauxAssistantMessage>;message?:(context:Context)=>ReturnType<typeof fauxAssistantMessage>}={};
     if(config.deterministic_reply_once===true||multi){
@@ -359,6 +362,8 @@ export class RuntimeHost{
     const expected=operation==='start'||operation==='resume'?['activation_ref','command','input']:['activation_ref','command'];
     if(Object.keys(body).sort().join(',')!==expected.sort().join(',')||typeof body.activation_ref!=='string'||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(body.activation_ref))throw new RuntimeError('invalid_runtime_request');
     const command=validateRunCommand(body.command);
+    // NX-041 S7 (D3): a Run of the other world group never starts here.
+    if(!groupAccepts(this.worldGroup,command.world_id))throw new RuntimeError('runtime_world_group_refused');
     if(command.runtime_profile!==this.runtimeProfile||((operation==='start'||operation==='resume')&&typeof body.input!=='string'))throw new RuntimeError('invalid_runtime_request');
     if(this.pending>=8)throw new RuntimeError('runtime_busy');this.pending++;
     // A new Run waits for a slot before any guard request (no proof is built while waiting).

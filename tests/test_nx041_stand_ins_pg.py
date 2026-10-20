@@ -244,7 +244,7 @@ def test_at046_end_to_end_a_sim_credential_reaches_dispatch_only_through_the_sta
     assert admin.execute('select worlds from authz.nexloop_service_credentials where token_digest=%s', (digest(f['token_a']),)).fetchone()[0] == [f['a']]
     # The real metrics, reconciliation and cost paths never read the simulated ledger: only S4's own functions name its tables.
     readers = {r[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-        where n.nspname in ('authz','control','runtime','ontology') and (p.prosrc like '%nexloop_sim_effect_%' or p.prosrc like '%nexloop_stand_in%')""").fetchall()}
+        where n.nspname in ('authz','control','runtime','ontology') and p.prosrc ~ '(nexloop_sim_effect_(intents|receipts)|nexloop_stand_in(s|_configs)\\M)'""").fetchall()}
     assert {r.split('(')[0] for r in readers} <= {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
                                                   'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure',
                                                   'runtime.nexloop_sim_ledger_guard'}, readers
@@ -325,10 +325,13 @@ def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_l
         where coalesce(qual,'')||coalesce(with_check,'') ~ '(nexloop_sim_effect_|nexloop_stand_in)'""").fetchall()
     assert policies == []
     own = {r[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_effect_|nexloop_stand_in)'""").fetchall()}
+        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_effect_(intents|receipts)|nexloop_stand_in(s|_configs)\\M)'""").fetchall()}
     assert {r.split('(')[0] for r in own} <= {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
                                               'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure',
                                               'runtime.nexloop_sim_ledger_guard'}, own
+    # Positive control: the pattern does find the readers (the S7 port only authenticates through nexloop_sim_effect_tenant and is
+    # not a reader).
+    assert {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'runtime.nexloop_stand_in_configure'} <= {r.split('(')[0] for r in own}
     enumerators = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_world_tables|nexloop_sim_world_targets)'""").fetchall()}
     assert enumerators <= {'runtime.nexloop_sim_world_snapshot', 'runtime.nexloop_sim_world_purge', 'runtime.nexloop_sim_world_targets'}, enumerators
