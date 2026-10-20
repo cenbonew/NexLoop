@@ -140,3 +140,48 @@ def test_the_simulation_compose_project_uses_only_simulation_roles():
     assert int(command[command.index('--guard-workers') + 1]) >= 2
     dsns = {name for service in project['services'].values() for name in service.get('secrets', []) if name.endswith('_dsn')}
     assert dsns == {'sim_worker_dsn', 'sim_guard_dsn', 'sim_stand_in_worker_dsn', 'sim_files_dsn'}
+
+
+ROLE_CHECKED = ('authz.nexloop_queue_command_before_refusals_v0150', 'authz.nexloop_runtime_activation_command_v0037', 'authz.nexloop_runtime_activation_hint',
+                'authz.nexloop_run_tool_timing', 'authz.nexloop_record_run_tool_timing', 'authz.nexloop_record_process_sample',
+                'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_query')
+
+
+def test_the_role_checked_functions_differ_from_their_latest_earlier_definition_only_in_the_role_check():
+    """Integration guard (as S5's): each of the eight bodies, authz.nexloop_app_role(...) read back as session_user, equals the latest
+    earlier definition at the integration head (a function created by a rename: the renamed function's last body). A branch that
+    changes one of them earlier (as L6's 0262 review fixes did for the stand-in submit) makes this fail until the body is re-copied;
+    later migrations that redefine one keep the role check."""
+    import re
+    from pathlib import Path
+    migrations = sorted((Path(__file__).resolve().parents[1] / 'packages/eios-core/src/eios/migrations').glob('0*.sql'))
+    own = next(m for m in migrations if m.name.endswith('_nx041_sim_roles.sql'))
+    defines = lambda name: re.compile(r'create\s+(?:or\s+replace\s+)?function\s+' + re.escape(name) + r'\s*\(', re.I)  # noqa: E731
+
+    def body(source, start):
+        m = re.compile(r'\bas\s+(\$[A-Za-z_]*\$)', re.I).search(source, start)
+        return source[m.end():source.index(m.group(1), m.end())]
+
+    def latest(name, before, position=None):
+        """The last body of name before migration `before` (and before `position` inside it, if given), following a rename back to the
+        function it was renamed from."""
+        short = name.split('.')[1]
+        for m in reversed([m for m in migrations if m.name < before or (position is not None and m.name == before)]):
+            text = m.read_text()
+            limit = position if m.name == before else len(text)
+            events = [(e.start(), 'define', e) for e in defines(name).finditer(text) if e.start() < limit]
+            events += [(e.start(), 'rename', e) for e in re.finditer(r'alter\s+function\s+(authz\.[a-z0-9_]+)\s*\([^)]*\)\s*rename\s+to\s+' + short + r'\b', text, re.I)
+                       if e.start() < limit]
+            if events:
+                _, kind, e = max(events, key=lambda x: x[0])
+                return body(text, e.end()) if kind == 'define' else latest(e.group(1).lower(), m.name, e.start())
+        raise AssertionError(f'{name}: no earlier definition')
+
+    text = own.read_text()
+    for name in ROLE_CHECKED:
+        converted = re.sub(r'authz\.nexloop_app_role\((?:p_world|null)\)', 'session_user', body(text, defines(name).search(text).end()))
+        assert 'nexloop_app_role' in body(text, defines(name).search(text).end()), name
+        assert converted == latest(name, own.name), f'{name}: differs from its latest earlier definition beyond the role check'
+        for m in (m for m in migrations if m.name > own.name):
+            for again in defines(name).finditer(m.read_text()):
+                assert 'nexloop_app_role' in body(m.read_text(), again.end()), (name, m.name)

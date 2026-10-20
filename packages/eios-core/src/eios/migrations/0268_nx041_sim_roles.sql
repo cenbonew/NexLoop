@@ -402,10 +402,11 @@ begin
  insert into runtime.nexloop_process_samples(kind,service,instance,window_start,window_seconds,sample) values(p_kind,p_service,p_instance,p_window_start,p_window_seconds,p_sample);
 end $$;
 
--- authz.nexloop_sim_effect_submit (0262_nx041_stand_ins.sql): the role checks read authz.nexloop_app_role(p_world); the body is otherwise unchanged.
+-- authz.nexloop_sim_effect_submit (0262_nx041_stand_ins.sql, as of L6's review fixes 2 with N4 and the outcome seed; re-copied at
+-- integration): the role checks read authz.nexloop_app_role(p_world); the body is otherwise unchanged.
 create or replace function authz.nexloop_sim_effect_submit(p_digest text,p_world text,p_payload jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v_tenant text;s control.nexloop_stand_ins;x runtime.nexloop_sim_effect_intents;v_principal text;
+declare v_tenant text;s control.nexloop_stand_ins;x runtime.nexloop_sim_effect_intents;v_principal text;v_seed text;
 begin
  if authz.nexloop_app_role(p_world) not in ('nexloop_api','nexloop_domain_worker') then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
@@ -420,11 +421,25 @@ begin
   and provider_kind=p_payload->>'provider_kind';
  if not found then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_principal:=authz.nexloop_service_identity(p_digest,p_world)->'binding'->>'principal_id';
- insert into runtime.nexloop_sim_effect_intents(tenant_id,world,intent_id,stand_in_id,business_digest,request_digest,origin,sim_clock,outcome_salt,submitted_by)
+ -- One open intent per business intent in a world (review N4): an intent is open until its receipt is fulfilled or failed (unknown
+ -- is not terminal: query first). A second intent id for the same business digest while one is open is refused, so a submitter
+ -- cannot resubmit under new intent ids and keep only the fulfilled receipt. Serialized per business digest.
+ perform pg_advisory_xact_lock(hashtextextended('nx041-stand-in:'||v_tenant||':'||p_world||':'||(p_payload->>'business_digest'),0));
+ if exists(select 1 from runtime.nexloop_sim_effect_intents i where i.tenant_id=v_tenant and i.world=p_world and i.business_digest=p_payload->>'business_digest'
+     and i.intent_id<>(p_payload->>'intent_id')::uuid
+     and not exists(select 1 from runtime.nexloop_sim_effect_receipts r where r.tenant_id=i.tenant_id and r.world=i.world and r.intent_id=i.intent_id
+       and r.status in ('fulfilled','failed'))) then
+  raise exception 'stand-in: business_intent_open' using errcode='22023';end if;
+ -- S7 decision A: with a frozen outcome seed the salt is sha256(seed | intent id), reproducible in a replay world; without a
+ -- configuration it stays a fresh random salt.
+ select c.outcome_seed into v_seed from control.nexloop_stand_in_configs c where c.world=p_world and c.tenant_id=v_tenant;
+ insert into runtime.nexloop_sim_effect_intents(tenant_id,world,intent_id,stand_in_id,business_digest,request_digest,origin,sim_clock,outcome_salt,outcome_seeded,submitted_by)
   -- The simulated clock is the world's (S5), the salt the server's: the submitter can predict neither, so it cannot pick an outcome
   -- by choosing its intent id or a clock (review 4.1/4.2). Both stay with the intent, so a repeat gives the same receipt.
   values(v_tenant,p_world,(p_payload->>'intent_id')::uuid,s.stand_in_id,p_payload->>'business_digest',p_payload->>'request_digest',p_payload->>'origin',
-   runtime.nexloop_world_now(v_tenant,p_world),encode(sha256(convert_to(gen_random_uuid()::text||gen_random_uuid()::text||clock_timestamp()::text,'UTF8')),'hex'),
+   runtime.nexloop_world_now(v_tenant,p_world),
+   case when v_seed is null then encode(sha256(convert_to(gen_random_uuid()::text||gen_random_uuid()::text||clock_timestamp()::text,'UTF8')),'hex')
+    else encode(sha256(convert_to(v_seed||'|'||lower(p_payload->>'intent_id'),'UTF8')),'hex') end,v_seed is not null,
    coalesce(v_principal,'service'))
   on conflict(tenant_id,world,intent_id) do nothing;
  select * into x from runtime.nexloop_sim_effect_intents where tenant_id=v_tenant and world=p_world and intent_id=(p_payload->>'intent_id')::uuid;
