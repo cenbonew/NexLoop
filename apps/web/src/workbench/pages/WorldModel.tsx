@@ -22,7 +22,7 @@ const APPROVAL_TEXT:Record<string,string>={none:'无需审批',human:'人工审�
 /** What each concept is (EIOS concept list; NexLoop wording). */
 export const SECTION_LEAD:Record<WorldSection,string>={
   object_types:'稳定命名、不可变版本与 Property 契约，是企业世界的类型定义。',
-  objects:'具体的企业对象，只列出标识、版本与更新时间；你没有读取权限的 Object 只计数。',
+  objects:'具体的企业对象：标识、版本、更新时间和你能读取的属性值；受限属性只显示名称，你没有读取权限的 Object 只计数。',
   properties:'归属于 Object Type 的字段定义，含数据类型与约束。',
   links:'Object Type 之间的关系及基数约束。',
   functions:'版本化的只读计算契约。',

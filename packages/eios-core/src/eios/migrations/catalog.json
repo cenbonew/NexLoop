@@ -1225,6 +1225,11 @@
       "version": "0245",
       "name": "0245_data_health.sql",
       "sha256": "669e359338f4f80621a87b3e1995e41b36a9b393fa41fac3dd6d94870da705d8"
+    },
+    {
+      "version": "0246",
+      "name": "0246_workbench_object_fields.sql",
+      "sha256": "cc143689e1f32703fa5519b62f48bb055e5269d051a5461b89c0f97dd1d82262"
     }
   ]
 }

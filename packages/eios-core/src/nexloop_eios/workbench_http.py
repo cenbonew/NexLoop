@@ -246,6 +246,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'objects', type_name=type_name, after=q.get('after'), limit=limit)
 
+    @routes.get('/objects/{type_name}/{object_id}')
+    async def object_values(type_name: str, object_id: str, request: Request):
+        # D-G1 (owner 2026-10-20): one object's property values; restricted ones named only (withheld); each read audited.
+        if not _TYPE.fullmatch(type_name) or not _OBJECT.fullmatch(object_id) or request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_values', type_name=type_name, object_id=object_id)
+
     @routes.get('/objects/{type_name}/{object_id}/neighbors')
     async def object_neighbors(type_name: str, object_id: str, request: Request):
         # World model W2: depth 1, 25 a group; every neighbour's READ checked.

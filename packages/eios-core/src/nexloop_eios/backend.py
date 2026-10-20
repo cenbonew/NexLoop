@@ -518,6 +518,7 @@ class Backend:
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'world_model',  # enterprise world model W1 (0230): published model metadata, read only
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)
+            'object_values',  # D-G1 (owner 2026-10-20): one object's property values, per-property READ, audited
             'objects', 'object_neighbors', 'artifacts'}  # world model W2: instances and depth-1 neighbourhood, per-object READ (ADR-025)
         with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
