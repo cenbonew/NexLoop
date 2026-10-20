@@ -178,6 +178,10 @@ def test_the_role_checked_functions_differ_from_their_latest_earlier_definition_
         raise AssertionError(f'{name}: no earlier definition')
 
     text = own.read_text()
+    # L6's 0262 review fixes stay in the stand-in submit as S6c redefines it: N4 (one open intent per business digest) and the frozen
+    # outcome seed (decision A).
+    submit = body(text, defines('authz.nexloop_sim_effect_submit').search(text).end())
+    assert "'stand-in: business_intent_open'" in submit and 'outcome_seed' in submit and 'v_seed' in submit
     for name in ROLE_CHECKED:
         converted = re.sub(r'authz\.nexloop_app_role\((?:p_world|null)\)', 'session_user', body(text, defines(name).search(text).end()))
         assert 'nexloop_app_role' in body(text, defines(name).search(text).end()), name

@@ -268,9 +268,11 @@ def complete_sim_pi_run(f, tmp_path, blockers=pi_run_blockers):
     then every prerequisite. Returns only when nothing blocks (then the end-to-end Run belongs here)."""
     from nexloop_eios import runtime_worker
     paths = {o: str(tmp_path / o) for o in ('database-url-file', 'signing-key-file', 'service-credential-file', 'artifact-root', 'host-control-key-file',
-                                           'host-ca-file', 'guard-key-file', 'guard-certificate-file', 'guard-tls-key-file')}
+                                           'host-ca-file', 'guard-key-file', 'guard-certificate-file', 'guard-tls-key-file',
+                                           'guard-database-url-file')}  # S6c: the simulation guard's own database role
     argv = [x for o, p in paths.items() for x in ('--' + o, p)] + ['--world', f['a'], '--world-group', 'simulation', '--queue', 'q',
-                                                                  '--host-origin', 'https://127.0.0.1:1', '--guard-port', '8443']
+                                                                  '--host-origin', 'https://127.0.0.1:1', '--guard-port', '8443',
+                                                                  '--guard-workers', '2']  # S6c: a simulation guard runs in child processes
     runtime_worker._arguments(argv)  # S6: the simulation group's worker exists (a SystemExit here is a regression, not a blocker)
     found = blockers(f)
     if found:
@@ -286,10 +288,10 @@ def test_at046_a_simulation_process_group_runs_a_complete_pi_run(s7, tmp_path):
 
 
 def test_the_pi_run_xfail_flips_once_its_prerequisites_are_there(s7, tmp_path):
-    """Local proof of S7 review 4: today the probes report the three blockers; with the probes stubbed as satisfied the same body
+    """Local proof of S7 review 4: today the probes report the open blockers (S6c's roles are in); with the probes stubbed as satisfied the same body
     returns, so the strict xfail above would XPASS and fail CI."""
     found = pi_run_blockers(s7)
-    assert [b.split(':')[0] for b in found] == ['D10', 'S6c', 'Host'], found
+    assert [b.split(':')[0] for b in found] == ['D10', 'Host'], found  # S6c's roles are in at integration (0268)
     with pytest.raises(PiRunBlocked):
         complete_sim_pi_run(s7, tmp_path)
     assert complete_sim_pi_run(s7, tmp_path, blockers=lambda f: []) is None
