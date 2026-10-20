@@ -74,8 +74,8 @@ export function MetricCard({label,value,hint,onOpen,href,tone}:{label:string;val
 // ---- §4 key-value ----
 export type KeyValueItem={key:string;value:ReactNode;hint?:ReactNode};
 /** A description list: keys muted on the left (on top below 640 px), values right; values are badges, ids or times, never raw JSON. */
-export function KeyValue({items,label}:{items:KeyValueItem[];label?:string}){
-  return <dl className="key-value" aria-label={label}>{items.map(i=><div key={i.key} className="kv-row"><dt>{i.key}</dt>
+export function KeyValue({items,label,className}:{items:KeyValueItem[];label?:string;className?:string}){
+  return <dl className={'key-value'+(className?' '+className:'')} aria-label={label}>{items.map(i=><div key={i.key} className="kv-row"><dt>{i.key}</dt>
     <dd>{i.value}{i.hint?<span className="kv-hint">{i.hint}</span>:null}</dd></div>)}</dl>;
 }
 
@@ -107,4 +107,41 @@ const HEX=/^(?:consumer:)?([a-f0-9]{64})$/;
 export function ScopeText({kind,value}:{kind:string;value:string}){
   const hex=HEX.exec(value);
   return <span className="scope-text">{statusLabel('scope_kind',kind)}{value==='*'||!value?null:<> {hex?<IdText value={hex[1]}/>:<code className="id-code">{value.replace(/^eios:action:/,'')}</code>}</>}</span>;
+}
+
+// ---- §9 forms (batch 2) ----
+/** One field: the label above, the control, a hint under it and an error under that (both tied to the control by
+ * aria-describedby through `describedBy`). The caller gives the control the same `id`. `width` caps text inputs and selects. */
+export function FormField({id,label,hint,error,width='md',children}:{id:string;label:ReactNode;hint?:ReactNode;error?:ReactNode;width?:'full'|'md'|'sm';children:ReactNode}){
+  return <div className={'field form-field field-'+width}><label htmlFor={id}>{label}</label>{children}
+    {hint?<p className="field-hint" id={id+'-hint'}>{hint}</p>:null}{error?<p className="field-error" id={id+'-error'} role="alert">{error}</p>:null}</div>;
+}
+/** The aria-describedby value for a FormField's control. */
+export const describedBy=(id:string,{hint,error}:{hint?:unknown;error?:unknown}={})=>[hint?id+'-hint':'',error?id+'-error':''].filter(Boolean).join(' ')||undefined;
+
+export type Choice<V extends string>={value:V;label:ReactNode;hint?:ReactNode};
+/** Radio choices in a fieldset with a legend, one per line (`stack`) or as option cards (`cards`, for > 3 options or options with
+ * hints). Never on the same line as other controls. */
+export function ChoiceGroup<V extends string>({legend,name,options,value,onChange,layout='stack',hint}:{legend:ReactNode;name:string;options:Choice<V>[];value:V;onChange:(value:V)=>void;
+  layout?:'stack'|'cards';hint?:ReactNode}){
+  return <fieldset className={'choice-group choice-'+layout}><legend>{legend}</legend>{hint?<p className="field-hint">{hint}</p>:null}
+    {options.map(o=><label key={o.value} className={'choice-option'+(o.value===value?' choice-checked':'')}>
+      <input type="radio" name={name} value={o.value} checked={o.value===value} onChange={()=>onChange(o.value)}/>
+      <span className="choice-text">{o.label}{o.hint?<span className="choice-hint">{o.hint}</span>:null}</span></label>)}
+  </fieldset>;
+}
+/** Related checkboxes in one fieldset with a legend, each on its own line, its hint indented under its text. */
+export function CheckboxGroup({legend,items,hint}:{legend:ReactNode;hint?:ReactNode;items:{key:string;label:ReactNode;hint?:ReactNode;checked:boolean;onChange:(checked:boolean)=>void}[]}){
+  return <fieldset className="choice-group choice-stack"><legend>{legend}</legend>{hint?<p className="field-hint">{hint}</p>:null}
+    {items.map(i=><label key={i.key} className={'choice-option'+(i.checked?' choice-checked':'')}>
+      <input type="checkbox" checked={i.checked} onChange={e=>i.onChange(e.target.checked)}/>
+      <span className="choice-text">{i.label}{i.hint?<span className="choice-hint">{i.hint}</span>:null}</span></label>)}
+  </fieldset>;
+}
+
+// ---- view switch ----
+/** How to look at one thing (Table / Graph, 列表 / 卡片): a segmented control under the title, never a sibling of the page's tabs. */
+export function Segmented<V extends string>({label,options,value,onChange}:{label:string;options:{value:V;label:ReactNode}[];value:V;onChange:(value:V)=>void}){
+  return <div className="segmented" role="group" aria-label={label}>{options.map(o=><button key={o.value} type="button" aria-pressed={o.value===value}
+    onClick={()=>{if(o.value!==value)onChange(o.value);}}>{o.label}</button>)}</div>;
 }

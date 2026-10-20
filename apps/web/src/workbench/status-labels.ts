@@ -19,7 +19,10 @@ export const DOMAINS={
   scope_kind:L.SCOPE_KIND,control_event:L.CONTROL_EVENT,escalation_reason:L.ESCALATION_REASON,data_mode:L.DATA_MODE,
   plan_status:L.PLAN_STATUS,plan_outcome:L.PLAN_OUTCOME,goal_kind:L.GOAL_KIND,budget_kind:L.BUDGET_KIND,cost_kind:L.COST_KIND,
   alert_severity:L.ALERT_SEVERITY,backup_repo:L.BACKUP_REPO,review_decision:L.REVIEW_DECISION,review_outcome:L.REVIEW_OUTCOME,
-  audit_target:L.AUDIT_TARGET,member_role:L.MEMBER_ROLE,
+  audit_target:L.AUDIT_TARGET,member_role:L.MEMBER_ROLE,persona_status:L.PERSONA_STATUS,
+  // Member read purposes are free-form codes; those that name a target read as it (glossary TODO: data_assets, world_model, …).
+  read_purpose:L.AUDIT_TARGET,persona_source:L.PERSONA_SOURCE,consent_mode:L.CONSENT_MODE,
+  outreach_purpose:L.OUTREACH_PURPOSE,ai_disclosure_mode:L.AI_DISCLOSURE_MODE,ai_when_asked:L.AI_WHEN_ASKED,takeover:L.TAKEOVER,human_request:L.HUMAN_REQUEST,
   // Dispatch refusal codes: the existing api labels and the glossary's three additions (NXC07, NXR01, NXE01).
   refusal_code:{...REFUSAL_TEXT,...L.REFUSAL_CODE_ADDITIONS} as L.LabelMap,
 } as const satisfies Record<string,L.LabelMap>;
@@ -37,7 +40,7 @@ const TONES:Partial<Record<Domain,Record<string,Tone>>>={
   plan_status:{active:'pending',stale:'limited',invalidated:'fail',superseded:'neutral',closed:'neutral'},
   control_event:{pause:'limited',contact_restricted:'limited',takeover:'limited',resume:'ok',contact_released:'ok',handback:'ok'},
   escalation_reason:Object.fromEntries(Object.keys(L.ESCALATION_REASON).map(k=>[k,'limited'])),
-  candidate_status:{},alert_severity:{critical:'fail',warning:'limited'},
+  candidate_status:{},persona_status:{published:'ok',retired:'neutral'},alert_severity:{critical:'fail',warning:'limited'},
   refusal_code:Object.fromEntries(Object.keys({...REFUSAL_TEXT,...L.REFUSAL_CODE_ADDITIONS}).map(k=>[k,'limited'])),
 };
 

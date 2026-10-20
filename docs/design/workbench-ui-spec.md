@@ -308,3 +308,22 @@ H1 标题                                   [页面操作区：按钮]
 4. 表格传入 `empty`，删除页面里手写的 `<table>`；
 5. 空状态改用 EmptyState；
 6. 删除页面里的内联样式。
+
+## 附录 B：第 2 批组件接口（2026-10-20 冻结，规则同附录 A）
+
+| 组件 | 签名 | 约定 |
+|---|---|---|
+| `FormField` | `{id, label, hint?, error?, width?: 'full'\|'md'\|'sm' = 'md', children}` | 标签在上，下面依次是控件、提示（`${id}-hint`）、错误（`${id}-error`，`role=alert`）。控件由调用方传入，`id` 必须一致。宽度上限：md 32rem，sm 10rem。类名中保留 `field`，旧的选择器仍然有效 |
+| `describedBy(id, {hint?, error?})` | `string \| undefined` | 生成控件的 `aria-describedby` |
+| `ChoiceGroup<V>` | `{legend, name, options: {value, label, hint?}[], value, onChange, layout?: 'stack'\|'cards' = 'stack', hint?}` | 单选：fieldset 加 legend，每项一行，提示缩进放在文字下方。选项多于 3 个或带说明时用 `cards`。不和其他控件放在同一行 |
+| `CheckboxGroup` | `{legend, hint?, items: {key, label, hint?, checked, onChange}[]}` | 相关的复选框放在同一个 fieldset 里，每项一行；单个开关也用它（一个 item），不再写裸的 `label.choice` |
+| `Segmented<V>` | `{label, options: {value, label}[], value, onChange}` | 查看方式切换（例如 Table / Graph），按钮带 `aria-pressed`；放在标题下面，不和 Tabs 并列 |
+| `Tabs` | 新增可选属性 `id` | 传了 `id` 时，每个标签的 id 为 `${id}-tab-${key}`，`aria-controls` 指向 `${id}-panel`；不传时输出不变 |
+| `TabPanel` | `{id, value, children}` | `role=tabpanel`，由当前选中的标签标注（`aria-labelledby`），可获得焦点；与同一 `id` 的 Tabs 配对使用 |
+| `KeyValue` | 新增可选属性 `className` | 兼容需要沿用旧 class 的地方，例如 `facts` |
+| `status-labels` 新增的域 | `persona_status`、`persona_source`、`consent_mode`、`outreach_purpose`、`ai_disclosure_mode`、`ai_when_asked`、`takeover`、`human_request`、`read_purpose` | `read_purpose` 暂时借用 `audit_target` 的表；`data_assets`、`world_model` 这类用途码还没有标签，会显示“未知状态”，待术语表补充 |
+
+**表单布局约定**（§9 的落地写法）：
+- 长表单用 `<section className="form-section"><h3>…</h3>…</section>` 分节。
+- 成对的控件（开始和结束、两个上限）放进 `<div className="field-pair">`，每个控件各自用 FormField，各有可见的标签。
+- 规则行用 `fieldset.rule-row`，行内每个控件也用 FormField，各有可见标签，不靠 `aria-label` 代替。

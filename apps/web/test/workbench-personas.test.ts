@@ -71,7 +71,7 @@ test('0232: the controls parse strictly and show their revision; the form maps t
   expect(html).toContain('未设置（使用默认值）');expect(html).toContain('21:00-09:00');expect(html).toContain('24 小时 1 条');expect(html).toContain('已关闭');
   expect(html).toContain('保存外联控制');expect(html).not.toContain('我确认营销同意模式');  // marketing off: no confirmation asked
   const tenant=outreachControls({...controls,settings:{...controls.settings,revision:3,source:'tenant'},events:[{revision:3,consent_mode_confirmed:'opt_out',marketing_enabled:true,recorded_at:'2026-10-20T06:00:00+00:00'}]});
-  expect(render(client([[['workbench','outreach-controls'],tenant],[['workbench','me'],owner]]),h(OutreachControlsTab,{}))).toContain('r3');
+  expect(render(client([[['workbench','outreach-controls'],tenant],[['workbench','me'],owner]]),h(OutreachControlsTab,{}))).toContain('第 3 版');
   const form={time_zone:'Asia/Shanghai',quiet:false,quiet_from:'21:00',quiet_to:'09:00',per_24h:'1',per_7d:'2',enabled:true,consent:'opt_out' as const,notice:'回复退订即可',marketing_7d:'1',sender:''};
   expect(outreachSettingsOf(form)).toEqual({time_zone:'Asia/Shanghai',quiet_hours:null,per_24h:1,per_7d:2,marketing:{enabled:true,consent_mode:'opt_out',unsubscribe_notice:'回复退订即可',per_7d:1,sender_label:''}});
   // O5: switching marketing on is not submittable until the consent mode is confirmed.
@@ -112,7 +112,7 @@ test('outreach slice 6: pending approvals parse strictly (ids, purpose, times, r
   expect(html).toContain('待审批外联');expect(html).toContain('审批时限 24 小时');expect(html).toContain('approved_followup');expect(html).toContain('synthetic-owner');
   expect(html).toContain('批准');expect(html).toContain('拒绝');expect(html).toContain('<form');
   const empty=render(client([[['workbench','outreach-approvals'],{window_seconds:86400,pending:[]}],[['workbench','me'],approver]]),h(OutreachApprovals,{}));
-  expect(empty).toContain('没有待审批的外联');
+  expect(empty).toContain('暂无待审批的外联');
   const asOperator=render(client([[['workbench','outreach-approvals'],parsed],[['workbench','me'],operator]]),h(OutreachApprovals,{}));
   expect(asOperator).not.toContain('<form');
 });

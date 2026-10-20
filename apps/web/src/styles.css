@@ -443,3 +443,25 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 .workbench .evidence-message blockquote{margin:0;padding-left:var(--space-3);border-left:3px solid var(--border-strong);white-space:pre-wrap;overflow-wrap:anywhere}
 .workbench .evidence-message blockquote.clamped{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
 .workbench .evidence-claims{margin:0;padding-left:1.2em}
+/* ==== Workbench UI kit, batch 2: forms (spec §9) ==== */
+.workbench .form-field{display:flex;flex-direction:column;gap:4px;margin:0 0 var(--space-4)}
+.workbench .form-field>label{font-size:var(--fs-small);font-weight:600;color:var(--text-2);margin:0;line-height:1.4}
+.workbench .field-md>input:not([type=checkbox]):not([type=radio]),.workbench .field-md>select,.workbench .field-md>textarea{max-width:32rem;width:100%}
+.workbench .field-sm>input,.workbench .field-sm>select{max-width:10rem;width:100%}
+.workbench .field-full>input,.workbench .field-full>select,.workbench .field-full>textarea{width:100%;max-width:none}
+.workbench .field-hint{margin:0;color:var(--muted);font-size:var(--fs-small);line-height:1.5}
+.workbench .field-error{margin:0;color:var(--danger);font-size:var(--fs-small)}
+.workbench fieldset.choice-group{display:flex;flex-direction:column;gap:var(--space-2);border:0;padding:0;margin:0 0 var(--space-4);min-width:0}
+.workbench fieldset.choice-group>legend{padding:0;margin-bottom:var(--space-1);font-size:var(--fs-small);font-weight:600;color:var(--text-2)}
+.workbench .choice-option{display:flex;align-items:flex-start;gap:var(--space-2);margin:0;font-size:var(--fs-body);font-weight:400;cursor:pointer;line-height:1.5}
+.workbench .choice-option input{margin:3px 0 0;flex:none;accent-color:var(--accent)}
+.workbench .choice-text{display:flex;flex-direction:column}
+.workbench .choice-hint{color:var(--muted);font-size:var(--fs-small)}
+.workbench fieldset.choice-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))}
+.workbench .choice-cards>legend{grid-column:1/-1}
+.workbench .choice-cards .choice-option{border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-3);background:var(--surface)}
+.workbench .choice-cards .choice-checked{box-shadow:inset 0 0 0 1px var(--accent);border-color:var(--accent)}
+.workbench .form-section{margin:var(--space-6) 0 0}.workbench .form-section h3{font-size:var(--fs-h3);margin:0 0 var(--space-3)}
+.workbench .field-pair{display:flex;flex-wrap:wrap;gap:var(--space-3)}.workbench .field-pair .form-field{margin:0}
+.workbench .rule-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:var(--space-3);align-items:end;border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-3);margin:0 0 var(--space-3)}
+.workbench .rule-row .form-field{margin:0}

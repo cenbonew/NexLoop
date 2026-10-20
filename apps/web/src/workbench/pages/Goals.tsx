@@ -3,7 +3,8 @@ import {useQuery} from '@tanstack/react-query';
 import {readGoals,readPlans} from '../api';
 import {Page,Short} from './Page';
 import {Money,StatusBadge,Time} from '../ui';
-import {ScopeText} from '../kit';
+import {EmptyState,IdText,ScopeText} from '../kit';
+import {routePath} from '../route';
 import {statusLabel} from '../status-labels';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
@@ -36,10 +37,11 @@ export function Goals({actions}:{actions?:ReactNode}){
 
 export function Plans({actions,consumerId}:{actions?:ReactNode;consumerId?:string}){
   const query=useQuery({queryKey:['workbench','plans',consumerId??''],queryFn:()=>readPlans(consumerId)});
-  return <Page title="计划与运行" query={query}>{data=>!data.length?<p className="note workbench-empty" role="status">暂无计划。计划在目标发布后由规划为有待办的客户生成；
-    生成后可在这里查看步骤和复评时间，并按需手动复评。</p>:<><DataTable label="计划" rows={data} rowKey={p=>p.plan_id} columns={[
-    {label:'计划',main:true,cell:p=><><Short value={p.plan_id}/> v{p.version}</>},{label:'客户',cell:p=><Short value={p.consumer_id}/>},{label:'目标版本',cell:p=>p.goal_version_ref},
-    {label:'状态',cell:p=>p.status},{label:'步骤',wide:true,cell:p=>p.steps.length?p.steps.map((s,i)=><span key={s.step_key}>{i?'、':''}{s.step_key}{s.reassess_at?<>（复评 <Time value={s.reassess_at}/>）</>:null}</span>):'—'},
-    {label:'最近结果',cell:p=>p.outcomes[0]?<>{p.outcomes[0].kind} · <Time value={p.outcomes[0].recorded_at}/></>:'—'}]}/>
+  return <Page title="计划与运行" query={query} lead="规划为有待办的客户生成的计划、它们的步骤与复评时间；需要时可手动复评。">{data=>!data.length?<EmptyState kind="empty" subject="计划"
+    next="计划在目标发布后由规划为有待办的客户生成；生成后可在这里查看步骤和复评时间，并按需手动复评。"/>:<><DataTable label="计划" rows={data} rowKey={p=>p.plan_id} columns={[
+    {label:'计划',main:true,cell:p=><><IdText kind="计划" value={p.plan_id}/> <span className="kv-hint">v{p.version}</span></>},{label:'客户',cell:p=><a href={routePath({page:'consumers',id:p.consumer_id})}><IdText value={p.consumer_id} copy={false}/></a>},
+    {label:'目标版本',cell:p=><code className="id-code">{p.goal_version_ref}</code>},
+    {label:'状态',cell:p=><StatusBadge domain="plan_status" code={p.status}/>},{label:'步骤',wide:true,cell:p=>p.steps.length?p.steps.map((s,i)=><span key={s.step_key}>{i?'、':''}<code className="id-code">{s.step_key}</code>{s.reassess_at?<>（复评 <Time value={s.reassess_at}/>）</>:null}</span>):'—'},
+    {label:'最近结果',cell:p=>p.outcomes[0]?<><StatusBadge domain="plan_outcome" code={p.outcomes[0].kind}/> <Time value={p.outcomes[0].recorded_at}/></>:'—'}]}/>
     <Operations actions={actions}/></>}</Page>;
 }
