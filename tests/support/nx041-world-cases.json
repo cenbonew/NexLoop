@@ -1,0 +1,102 @@
+{
+  "note": "NX-041 S1 (D1, D9): one set of world cases for every implementation of the world check (SQL runtime.nexloop_world_valid, nexloop_eios.worlds, apps/agent-host/src/worlds.ts). A valid world has its kind; an invalid value is not a world; a Run command is valid only when the world kind equals its mode.",
+  "valid": [
+    {
+      "world": "real",
+      "kind": "real"
+    },
+    {
+      "world": "test",
+      "kind": "test"
+    },
+    {
+      "world": "sim:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e",
+      "kind": "simulation"
+    },
+    {
+      "world": "shadow:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e",
+      "kind": "shadow"
+    }
+  ],
+  "invalid": [
+    "simulation",
+    "shadow",
+    "sim",
+    "sim:",
+    "sim:not-a-uuid",
+    "sim:0B8F1C1E-1D2A-4C3B-9D4E-5F6A7B8C9D0E",
+    "shadow:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0ex",
+    "Real",
+    "REAL",
+    "staging",
+    "prod",
+    "test ",
+    " real",
+    "sim:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e:extra",
+    "shadow-0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e",
+    "",
+    "sim-1",
+    null,
+    1,
+    true,
+    [],
+    {}
+  ],
+  "mode_pairs": [
+    {
+      "world": "real",
+      "mode": "real",
+      "ok": true
+    },
+    {
+      "world": "test",
+      "mode": "test",
+      "ok": true
+    },
+    {
+      "world": "sim:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e",
+      "mode": "simulation",
+      "ok": true
+    },
+    {
+      "world": "shadow:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e",
+      "mode": "shadow",
+      "ok": true
+    },
+    {
+      "world": "real",
+      "mode": "test",
+      "ok": false
+    },
+    {
+      "world": "test",
+      "mode": "real",
+      "ok": false
+    },
+    {
+      "world": "sim:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e",
+      "mode": "shadow",
+      "ok": false
+    },
+    {
+      "world": "shadow:0b8f1c1e-1d2a-4c3b-9d4e-5f6a7b8c9d0e",
+      "mode": "simulation",
+      "ok": false
+    },
+    {
+      "world": "simulation",
+      "mode": "simulation",
+      "ok": false
+    },
+    {
+      "world": "staging",
+      "mode": "test",
+      "ok": false
+    },
+    {
+      "world": null,
+      "mode": "test",
+      "ok": false
+    }
+  ]
+}
