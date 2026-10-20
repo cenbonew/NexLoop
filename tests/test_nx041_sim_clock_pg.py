@@ -260,3 +260,81 @@ def test_only_the_time_expressions_changed_and_a_deleted_world_takes_its_clock(d
     counts = db.execute('select counts from control.nexloop_sim_world_summaries where world=%s', (world,)).fetchone()[0]
     assert counts == {'control.nexloop_sim_clock_events': 2, 'control.nexloop_sim_clocks': 1}
     assert refused(db, 'world_unavailable', world, 'resume')
+
+
+MIGRATIONS = __import__('pathlib').Path(__file__).resolve().parents[1] / 'packages/eios-core/src/eios/migrations'
+CLOCK_MIGRATION = next(MIGRATIONS.glob('*_nx041_sim_clock.sql'))
+
+
+def test_worlds_registered_before_the_clock_migration_get_their_clock_from_its_backfill(db):
+    world = create(db)
+    created = db.execute('select created_at from control.nexloop_sim_worlds where world=%s', (world,)).fetchone()[0]
+    # The state before this migration: a registered world without a clock (triggers off, as trusted configuration).
+    with db.transaction():
+        db.execute('set local session_replication_role=replica')
+        db.execute('delete from control.nexloop_sim_clock_events where world=%s', (world,))
+        db.execute('delete from control.nexloop_sim_clocks where world=%s', (world,))
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match='world clock unavailable'), db.transaction():
+        now(db, world)
+    source = CLOCK_MIGRATION.read_text()
+    start = source.index('-- Worlds registered before this migration')
+    backfill = source[start:source.index('\n\n', start)]
+    db.execute(backfill)
+    db.execute(backfill)  # repeatable: nothing twice
+    assert now(db, world) == created
+    assert db.execute('select operation,revision,paused from control.nexloop_sim_clock_events where world=%s', (world,)).fetchall() == [('created', 1, True)]
+    assert clock(db, world, 'advance', seconds=60)['revision'] == 2
+
+
+def test_a_wall_that_goes_back_never_moves_the_world_back_and_a_fast_clock_stops_at_the_upper_bound(db):
+    world = create(db)
+    clock(db, world, 'resume')
+    shown = now(db, world)
+    # NTP set the wall back: the anchor is now in the wall's future (set directly, triggers off).
+    with db.transaction():
+        db.execute('set local session_replication_role=replica')
+        db.execute("update control.nexloop_sim_clocks set anchor_at=clock_timestamp()+interval '1 hour' where world=%s", (world,))
+    frozen = db.execute('select sim_at from control.nexloop_sim_clocks where world=%s', (world,)).fetchone()[0]
+    assert now(db, world) == frozen and frozen <= shown + timedelta(seconds=5)
+    assert clock(db, world, 'advance', seconds=60)['changed'] is True  # the Action keeps the anchor, it does not refuse
+    assert now(db, world) >= frozen + timedelta(seconds=60)
+    # A year of wall time at the highest rate would pass year 9999: the clock stops there instead of failing.
+    clock(db, world, 'set_rate', rate=100000)
+    with db.transaction():
+        db.execute('set local session_replication_role=replica')
+        db.execute("update control.nexloop_sim_clocks set anchor_at=clock_timestamp()-interval '400 days' where world=%s", (world,))
+    assert db.execute("select runtime.nexloop_world_now(%s,%s)='9999-01-01 00:00:00+00'::timestamptz", (TENANT_A, world)).fetchone()[0]
+    assert refused(db, 'out_of_range', world, 'advance', seconds=60)
+
+
+def _body(source, start):
+    m = __import__('re').compile(r'\bas\s+(\$[A-Za-z_]*\$)', __import__('re').I).search(source, start)
+    end = source.index(m.group(1), m.end())
+    return source[m.end():end]
+
+
+def test_the_clock_migration_changes_only_time_expressions_of_the_latest_definitions(db):
+    """Review 1.2: each function the clock migration redefines must equal its latest earlier definition except for the time expressions;
+    a branch that changes one of them earlier makes this fail (re-export the body at the integration head and reapply the rules)."""
+    import re
+    define = lambda name: re.compile(r'create\s+(?:or\s+replace\s+)?function\s+' + re.escape(name) + r'\s*\(', re.I)
+    clock_source = CLOCK_MIGRATION.read_text()
+    revert = [(re.compile(r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)'), 'clock_timestamp()'),
+              (re.compile(r'runtime\.nexloop_world_wall_at\((?:t|p_tenant),p_world,(v_next|p_at|p_due)\)'), r'\1'),
+              (re.compile(r"\n v_budget_at timestamptz:=case when runtime\.nexloop_world_kind\(p_world\) in \('simulation','shadow'\) then clock_timestamp\(\) else p_at end;"), ''),
+              (re.compile(r'\bv_budget_at\b'), 'p_at')]
+    later = sorted(f for f in MIGRATIONS.glob('0*.sql') if f.name > CLOCK_MIGRATION.name)
+    for name in CONVERTED + ('runtime.nexloop_outreach_gates',):
+        m = define(name).search(clock_source)
+        assert m, name
+        converted = _body(clock_source, m.end())
+        for rx, to in revert:
+            converted = rx.sub(to, converted)
+        earlier = [f for f in sorted(MIGRATIONS.glob('0*.sql')) if f.name < CLOCK_MIGRATION.name and define(name).search(f.read_text())]
+        source = earlier[-1].read_text()
+        baseline = _body(source, list(define(name).finditer(source))[-1].end())
+        assert converted == baseline, f'{name}: differs from {earlier[-1].name} beyond the time expressions'
+        # Nothing after the clock migration redefines it without the world time.
+        for f in later:
+            for again in define(name).finditer(f.read_text()):
+                assert 'nexloop_world_' in _body(f.read_text(), again.end()), (name, f.name)

@@ -22,7 +22,8 @@
 --                                              admitted_at, finished_at
 --      runtime.nexloop_outreach_gates          unchanged except the model budget, which is money: its period stays the wall in sim
 --      runtime.nexloop_outreach_metrics        the 7-day windows end at the world time
---    and a stamp trigger gives outreach sends (created_at) and approvals (requested_at) of a sim world their world creation time.
+--    In a simulation world the outreach tables hold no rows (S4: the real effect path refuses a simulation world; AT-046 first): the
+--    outreach conversions are inert there until NX-042 joins the stand-in ledger; for real and test they are the identity.
 --    Deliberately unchanged (wall clock in every world): leases, work-feed retries and ordering, updated_at, audit and event recording
 --    times, credential and signature expiry, the sim world's own expiry and the 30-day summary retention (D2: an experiment's real
 --    lifetime), retention sweeps (sim data leaves by whole deletion, D2), cost budgets and their periods (D6), the plan self-trigger
@@ -63,10 +64,13 @@ do $$declare t text;begin
  end loop;
 end $$;
 
--- The world time a clock row shows at a wall time.
+-- The world time a clock row shows at a wall time. A wall that went back (NTP) before the anchor shows the anchor's world time (the
+-- world never goes back); a fast clock stops at the upper bound (year 9999) instead of overflowing.
 create function runtime.nexloop_sim_clock_at(c control.nexloop_sim_clocks,p_wall timestamptz) returns timestamptz
  language sql immutable set search_path=pg_catalog,pg_temp as $$
- select case when c.paused then c.sim_at else c.sim_at+(p_wall-c.anchor_at)*(c.rate::double precision) end
+ select case when c.paused or p_wall<=c.anchor_at then c.sim_at
+  else least(c.sim_at+make_interval(secs=>least(extract(epoch from (p_wall-c.anchor_at))::double precision*(c.rate::double precision),
+   extract(epoch from ('9999-01-01 00:00:00+00'::timestamptz-c.sim_at))::double precision)),'9999-01-01 00:00:00+00'::timestamptz) end
 $$;
 alter function runtime.nexloop_sim_clock_at(control.nexloop_sim_clocks,timestamptz) owner to nexloop_owner;
 revoke all on function runtime.nexloop_sim_clock_at(control.nexloop_sim_clocks,timestamptz) from public;
@@ -109,6 +113,14 @@ end $$;
 alter function control.nexloop_sim_clock_create() owner to nexloop_owner;
 revoke all on function control.nexloop_sim_clock_create() from public;
 create trigger nx041_sim_clock_create after insert on control.nexloop_sim_worlds for each row execute function control.nexloop_sim_clock_create();
+-- Worlds registered before this migration (S2 already deployed) get the same clock: paused at their creation, revision 1.
+insert into control.nexloop_sim_clocks(world,tenant_id,sim_at,anchor_at,rate,paused,revision)
+ select w.world,w.tenant_id,w.created_at,w.created_at,1,true,1 from control.nexloop_sim_worlds w
+ where w.status in ('active','deleting') and not exists(select 1 from control.nexloop_sim_clocks c where c.world=w.world);
+insert into control.nexloop_sim_clock_events(world,tenant_id,revision,operation,from_at,to_at,rate,paused,principal_id,request_intent)
+ select c.world,c.tenant_id,1,'created',null,c.sim_at,1,true,w.created_by,w.request_id from control.nexloop_sim_clocks c
+  join control.nexloop_sim_worlds w on w.world=c.world
+ where not exists(select 1 from control.nexloop_sim_clock_events e where e.world=c.world and e.revision=1);
 
 -- 2. Reading the time of a world -------------------------------------------------------------------------------------------------
 create function runtime.nexloop_world_clock(p_tenant text,p_world text) returns control.nexloop_sim_clocks
@@ -180,10 +192,14 @@ begin
   return jsonb_build_object('world',v_target,'revision',e.revision,'action',e.operation,'world_time',runtime.nexloop_commercial_ts(e.to_at),
    'paused',e.paused,'rate',e.rate,'changed',false);
  end if;
+ -- The anchor never goes back, even when the wall did (NTP).
+ v_wall:=greatest(v_wall,c.anchor_at);
  v_from:=runtime.nexloop_sim_clock_at(c,v_wall);
  if v_op='pause' and c.paused then raise exception 'sim clock: already_paused' using errcode='22023';end if;
  if v_op='resume' and not c.paused then raise exception 'sim clock: already_running' using errcode='22023';end if;
  v_seconds:=case when v_op='advance' then (body->>'seconds')::bigint end;
+ if v_seconds is not null and v_from+make_interval(secs=>v_seconds)>'9999-01-01 00:00:00+00'::timestamptz then
+  raise exception 'sim clock: out_of_range' using errcode='22023';end if;
  v_rate:=case when v_op='set_rate' then (body->>'rate')::numeric else c.rate end;
  n:=c;n.anchor_at:=v_wall;n.sim_at:=v_from+make_interval(secs=>coalesce(v_seconds,0));n.rate:=v_rate;n.revision:=c.revision+1;
  n.paused:=case v_op when 'pause' then true when 'resume' then false else c.paused end;
@@ -208,19 +224,6 @@ revoke all on function control.nexloop_governed_control_sim_clock(text,text,text
 
 insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values
  ('sim_clock.control','control_sim_clock','human','control.nexloop_governed_control_sim_clock(text,text,text,text,text,jsonb)','NX-041');
-
--- A simulation world's outreach sends and approvals are created at the world time (the column defaults are the wall).
-create function runtime.nexloop_sim_clock_stamp() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
-begin
- if coalesce(runtime.nexloop_world_kind(new.world),'') not in ('simulation','shadow') then return new;end if;
- if tg_table_name='nexloop_outreach_sends' then new.created_at:=runtime.nexloop_world_now(new.tenant_id,new.world);
- else new.requested_at:=runtime.nexloop_world_now(new.tenant_id,new.world);end if;
- return new;
-end $$;
-alter function runtime.nexloop_sim_clock_stamp() owner to nexloop_owner;
-revoke all on function runtime.nexloop_sim_clock_stamp() from public;
-create trigger nx041_sim_clock_stamp before insert on runtime.nexloop_outreach_sends for each row execute function runtime.nexloop_sim_clock_stamp();
-create trigger nx041_sim_clock_stamp before insert on runtime.nexloop_outreach_approvals for each row execute function runtime.nexloop_sim_clock_stamp();
 
 -- 4. The time-dependent logic (current bodies; only the time expressions change) ----------------------------------------------------
 -- Commitments (D5): evaluated at the world time; the monitor item waits until the wall moment that time is reached.

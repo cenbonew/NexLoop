@@ -27,7 +27,6 @@
 | `authz.nexloop_outreach_command` | 闸门时间（勿扰时段、24 小时与 7 天频率、7 天营销额度），admitted_at、finished_at |
 | `runtime.nexloop_outreach_gates` | 只改模型预算：预算是钱，在模拟世界里它的周期仍按墙钟判断 |
 | `runtime.nexloop_outreach_metrics` | 各个 7 天窗口以世界时间为终点 |
-| 触发器 `nx041_sim_clock_stamp` | 模拟世界的外联意图 created_at、审批 requested_at 写成世界时间（列默认值是墙钟） |
 
 有意不改，所有世界都用墙钟：
 
@@ -78,4 +77,13 @@ real/test 回归：被改函数原有的套件不做修改，全部运行，包�
 - 模拟里的 effect intent 用列默认值，created_at 是墙钟（`outreach_contacts_since` 的第一部分会读到它），按计划由 S4 的替身执行器在写入时打上世界时间。
 - 工作队列按墙钟调度。时钟暂停时，未来到期的条目停在 infinity，靠下一次时钟操作重新到期；模拟驱动（S7）应在每次推进后处理条目。
 - 外联意图不可删除（0238 的守卫）。有外联意图的 sim 世界整体删除时会报告 `blocked`，属于 S2 已记录的限制。
-- 与 S4 集成后（`aa_nx041_real_effect_world`），模拟世界不能再写外联意图和 effect intent，只有替身能执行。上表中外联相关的改读与 stamp 触发器在模拟世界里目前到达不了，real/test 行为不变。等外联替身需要窗口语义时，再按世界时间接入替身账本。测试改为断言模拟世界的外联写入被拒绝，30 天窗口由 Commitment 与指标覆盖。
+- 外联：按调度员定案（AT-046 优先），模拟世界里的外联只走 S4 的替身（`aa_nx041_real_effect_world` 拒绝模拟世界写外联意图和 effect intent）。上表中外联函数的改读保留，在 real/test 下是恒等，在模拟世界里目前到达不了；原先给外联意图和审批打世界时间的 stamp 触发器已撤掉（S5 审查 4.1）。等 NX-042 接入孪生时，再按替身台账接上世界时间。
+
+## 审查修复（S5 审查报告）
+
+- 2.5：0263 为迁移前已登记、状态为 active 或 deleting 的世界补建时钟（暂停在创建时间，revision 1，并写 `created` 事件）。回填可重复执行。测试做法：先建世界并删掉它的时钟，执行迁移里的回填段，确认时钟可用。
+- 4.1：撤掉外联表上的时间戳触发器，见上文“限制”。
+- 1.2：守护测试 `test_the_clock_migration_changes_only_time_expressions_of_the_latest_definitions`。对 0263 重定义的 10 个函数，先把时间表达式还原，再与迁移目录中此前最后一次定义的函数体逐字比较；同时检查此后的迁移在重定义这些函数时仍读世界时钟。任何分支先改了这些函数，这条测试都会失败，届时在集成头重新导出函数体，再套用同样的替换规则。
+- 墙钟回拨：墙钟早于锚点时，世界时间停在锚点（不后退）；Action 的新锚点取 `greatest(墙钟, 旧锚点)`，因此不会被守卫拒绝。
+- 高倍速溢出：时钟最多走到 9999-01-01，到达后停住，不报错；advance 超过上界时拒绝（`out_of_range`）。
+
