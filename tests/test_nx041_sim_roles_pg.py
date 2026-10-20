@@ -278,3 +278,47 @@ def test_a_createrole_only_migration_role_runs_the_role_block_and_fails_closed_o
     with connect(pg, 'synthetic_createrole_migrator') as c, pytest.raises(psycopg.errors.InsufficientPrivilege):
         c.execute(block)
     admin.execute('alter role nexloop_sim_worker nobypassrls')
+
+
+def test_a_simulation_role_with_a_real_credential_digest_reads_nothing_of_real(db):
+    """D10 grants review P1 (L2): read_action_bundle and role_run_hint refuse a simulation role for a real or test world even with a
+    real credential's digest in hand (S6c's second defence, 0274); the real role with the same call passes that check (it fails only
+    later, on the unsigned request) - the refusal is the role's, not the request's."""
+    import hashlib
+    from authority_fixture import seed_authority
+    from support.tenants import TENANT_A
+    admin, pg = db
+    token, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'r' * 32, world='real', identity_suffix='-p1-real')
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    calls = (('select authz.nexloop_read_action_bundle(%s,%s,%s,%s)', (digest, '{}', '')), ('select authz.nexloop_role_run_hint(%s,%s)', (digest,)))
+    for sql, args in calls:
+        for role in ('nexloop_sim_api', 'nexloop_sim_worker', 'nexloop_sim_guard'):
+            for world in ('real', 'test'):
+                params = (args[0], world, *args[1:])
+                with connect(pg, role) as c, pytest.raises(psycopg.errors.InsufficientPrivilege, match='simulation role outside its world'):
+                    c.execute(sql, params)
+        with connect(pg, 'nexloop_api') as c, pytest.raises(psycopg.Error) as later:  # positive control: the real role passes the check
+            c.execute(sql, (args[0], 'real', *args[1:]))
+        assert 'simulation role outside its world' not in str(later.value)
+
+
+def test_no_invoker_function_is_reachable_by_a_simulation_role(db):
+    """D10 grants review P3 (L2): the whitelist compares security definer functions; this compares the rest. In every application
+    schema a simulation role can use (usage granted: authz, control since D10), no invoker (non-definer) function is executable by it
+    - a function created by the bootstrap role and left executable by PUBLIC (0003's default revoke covers only nexloop_owner's own
+    creations) would show up here. Runtime and ontology are checked too, should a usage grant ever be added."""
+    admin, _ = db
+    for role in WHITELIST:
+        reachable = admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+            where n.nspname in ('authz','control','runtime','ontology') and not p.prosecdef and has_function_privilege(%s,p.oid,'execute')
+            and has_schema_privilege(%s,n.oid,'usage') order by 1""", (role, role)).fetchall()
+        assert reachable == [], (role, reachable)
+    # Positive control: the probe sees an invoker function left executable by PUBLIC (made so for the check, then dropped).
+    # (Measured: a function the bootstrap role creates today is not PUBLIC-executable by default - the default privileges revoke it.)
+    admin.execute("create function control.zz_p3_probe() returns int language sql as 'select 1'")
+    admin.execute('grant execute on function control.zz_p3_probe() to public')  # a forgotten revoke, simulated
+    try:
+        assert admin.execute("""select count(*) from pg_proc p where p.oid='control.zz_p3_probe()'::regprocedure
+            and has_function_privilege('nexloop_sim_api',p.oid,'execute') and has_schema_privilege('nexloop_sim_api','control','usage')""").fetchone()[0] == 1
+    finally:
+        admin.execute('drop function control.zz_p3_probe()')
