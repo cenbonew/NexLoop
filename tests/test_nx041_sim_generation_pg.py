@@ -252,3 +252,43 @@ def test_personas_accept_only_valid_worlds(db):
     with pytest.raises(psycopg.errors.CheckViolation), db.transaction():
         db.execute("insert into control.nexloop_consumer_personas(tenant_id,world,consumer_id,persona,revision,updated_by) values(%s,'simulation',%s,'synthetic',1,'x')",
                    (TENANT_A, 'a' * 64))
+
+
+def test_generated_data_leaves_in_one_pass(db):
+    """Review N1 (S2 with S3): without a cascade from the generation record, the dependency order deletes children first, so the
+    owner's delete Action removes a generated world in its one pass."""
+    seed_real(db)
+    a = create(db)['world']
+    generate(db, {**synthetic(a), 'consumers': 8, 'events_per_consumer': {'min': 1, 'max': 4}})
+    generate(db, structural(a, seed='s2'))
+    assert sum(rows(db, a).values()) < 1000  # within the Action's one pass limit
+    r = delete(db, a)
+    assert (r['status'], r['remaining'], r['blocked']) == ('deleted', 0, {}), r
+    assert rows(db, a) == {t: 0 for t in GENERATED}
+
+
+def test_restricted_groups_from_the_owner_file_are_excluded(db):
+    """Review N5: the restriction is configured as the production path writes it (the owner's restriction file compiled by
+    service_grants.compile_owner_restrictions: key [type_name], the PropertyGroupRestriction payload); its properties never reach
+    the sim world."""
+    from nexloop_eios import service_grants as G
+    owner = {'schema_version': G.OWNER_SCHEMA, 'decided_by': 'owner', 'decision': 'synthetic restriction (test)',
+             'restrictions': [{'type_name': 'Ticket', 'restricted_groups': ['zz_private']}]}
+    G.validate_owner_restrictions(owner)
+    [(kind, key, fact)] = G.compile_owner_restrictions(owner, TENANT_A)
+    definition = {'type_name': 'Ticket', 'properties': [{'property_name': 'subject', 'value_type': 'string'},
+                                                         {'property_name': 'zz_income_band', 'value_type': 'integer'}],
+                  'property_groups': [{'group_name': 'zz_private', 'property_names': ['zz_income_band']}]}
+    with db.transaction():
+        db.execute("insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)",
+                   (TENANT_A, kind, key, Jsonb(fact.model_dump(mode='json'))))
+        db.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Ticket',1,%s)", (TENANT_A, Jsonb(definition)))
+        db.execute('set local session_replication_role=replica')
+        for _ in range(6):
+            db.execute('''insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
+                values(%s,'real','Ticket',%s,1,'{}','test','synthetic',now(),now())''', (TENANT_A, uuid.uuid4().hex))
+    assert key == ['Ticket']
+    a = create(db)['world']
+    generate(db, structural(a, max_objects=100))
+    props = [r[0] for r in db.execute("select properties from runtime.nexloop_sim_objects where world=%s and type_name='Ticket'", (a,))]
+    assert props and all(set(p) == {'subject'} for p in props)
