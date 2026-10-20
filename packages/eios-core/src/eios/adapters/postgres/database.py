@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from typing import Any
 
 from psycopg import Connection, OperationalError
 from psycopg.conninfo import conninfo_to_dict
@@ -41,6 +42,31 @@ def _parse_conninfo(raw_conninfo: str) -> dict[str, object] | None:
         pass
     raw_conninfo = ""
     return parsed
+
+
+def _outage_aware_check(connection_kwargs: dict[str, Any]):
+    """Pool checkout check (NexLoop 2026-10-20, CI seq 27).
+
+    A connection that passes `SELECT 1` is handed out. One that fails is discarded and replaced only while PostgreSQL
+    answers a fresh connection (a restart: the request gets a new connection instead of a 503). While PostgreSQL does not
+    answer, psycopg_pool would retry the check until the pool timeout; instead the broken connection is handed out, so
+    the request fails at its first statement exactly as without the check (503, no acceptance ACK, no dispatch). The
+    probe costs one connection attempt (bounded by connect_timeout) and only after a failed check."""
+
+    def check(conn: Any) -> None:
+        try:
+            ConnectionPool.check_connection(conn)
+            return
+        except Exception:
+            pass
+        try:
+            with _SecretSafeConnection.connect("", **connection_kwargs):
+                pass
+        except Exception:
+            return
+        raise StorageUnavailable("PostgreSQL connection was replaced")
+
+    return check
 
 
 def create_pool(
@@ -109,8 +135,8 @@ def create_pool(
             # NexLoop 2026-10-20 (known-risks v0.1 §4; run-data-pg-upgrade-20261019 §4.2): after a PostgreSQL restart the pool
             # kept the broken connections and each one cost a request a 503 (a worker its next tick). Every connection is
             # checked when it is taken out (one `SELECT 1` round trip; a broken one is discarded and replaced). All NexLoop
-            # pools (API, identity, workers) are built here.
-            check=ConnectionPool.check_connection,
+            # pools (API, identity, workers) are built here. See _outage_aware_check for an outage (CI seq 27).
+            check=_outage_aware_check(connection_kwargs),
         )
         if open_pool:
             pool.open(wait=True, timeout=connect_timeout_seconds)

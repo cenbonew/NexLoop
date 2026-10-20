@@ -67,3 +67,32 @@ def test_a_worker_tick_after_a_restart_authenticates_and_reads(admin, pg):
         assert restart_sessions(admin, 'nexloop_domain_worker') >= 1
         for _ in range(3):  # the next ticks: every pooled connection was broken, none reaches the worker
             assert authenticate_service(pool, token, world='real').authentication.tenant_id
+
+
+def test_an_outage_hands_the_broken_connection_out_at_once_and_a_restart_replaces_it(admin, pg):
+    """CI seq 27: with psycopg_pool's own retry a failed check waited for the pool timeout during an outage (client timeout,
+    no fast 503). The check replaces a broken connection only while PostgreSQL answers a fresh one."""
+    import socket
+    import time
+    from psycopg.conninfo import conninfo_to_dict
+    from eios.adapters.postgres.database import StorageUnavailable, _outage_aware_check
+    bootstrap(admin)
+    live = conninfo_to_dict(make_conninfo(pg, user='nexloop_api'))
+    with socket.socket() as s:  # a port nothing listens on: PostgreSQL "down"
+        s.bind(('localhost', 0)); dead_port = s.getsockname()[1]
+    down = {**live, 'port': dead_port, 'connect_timeout': 2}
+    for kwargs, outcome in ((down, 'handed_out'), (live, 'replaced')):
+        conn = psycopg.connect(make_conninfo(pg, user='nexloop_api'), autocommit=True)
+        try:
+            assert restart_sessions(admin, 'nexloop_api') >= 1
+            started = time.monotonic()
+            if outcome == 'handed_out':
+                assert _outage_aware_check(kwargs)(conn) is None
+                with pytest.raises(psycopg.OperationalError):
+                    conn.execute('select 1')  # the request fails at its first statement, as without the check
+            else:
+                with pytest.raises(StorageUnavailable):
+                    _outage_aware_check(kwargs)(conn)  # psycopg_pool discards it and hands out a new connection
+            assert time.monotonic() - started < 2
+        finally:
+            conn.close()
