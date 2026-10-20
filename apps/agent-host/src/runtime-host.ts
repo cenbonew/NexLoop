@@ -348,7 +348,7 @@ export class RuntimeHost{
       faux.setResponses(refillingResponses(faux,timed(route),64));
     }
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
-      activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
+      activationForRun:runId=>this.activations.get(runId)?.ref,simulation:this.worldGroup==='simulation'}):undefined;
     this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&!messageRun(this.activations.get(command.run_id)?.input),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:RUN_INSTRUCTIONS}:{}),

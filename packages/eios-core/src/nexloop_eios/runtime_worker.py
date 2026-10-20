@@ -59,6 +59,32 @@ class _FreshGuard:
         # Outreach slice 5: the reevaluation Run's proactive message, under a fresh current service session.
         return self.service().send_run_outreach(**arguments)
 
+    def submit_run_stand_in(self,*,activation_ref,command,action,parameters):
+        # NX-041 S6b: a simulation Run's effect tool records a stand-in intent (S4), never a real effect. The live activation is
+        # re-authorized first; the guard's own credential is the simulation world's (S2 D10); the server takes the world's time.
+        from psycopg.types.json import Jsonb
+        from nexloop_eios.stand_in_tools import present,stand_in_payload
+        payload=stand_in_payload(command,self.world,action,parameters)
+        current=self.service()
+        current.authorize_runtime_activation(activation_ref=activation_ref,command=command,operation='tool')
+        with current._backend._pool.connection() as db,db.transaction():
+            row=db.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)',(current._session.token_digest,self.world,Jsonb(payload))).fetchone()[0]
+        return {'run_id':command['run_id'],'receipt':present({**row,'status':row.get('state')})}
+
+    def find_run_stand_in(self,*,activation_ref,command,intent_id):
+        # NX-041 S6b: only the stand-in intent this Run's reply tool derived is readable here (a simulated outcome, never a fact).
+        from nexloop_eios.stand_in_tools import present,stand_in_intent_id
+        from nexloop_eios.worlds import world_kind
+        if world_kind(self.world) not in ('simulation','shadow') or type(command) is not dict or command.get('world_id')!=self.world:
+            raise ValueError('stand-in: simulation world required')
+        if intent_id!=stand_in_intent_id(str(command.get('run_id')),'nexloop.service.request'):raise PermissionError('effect_intent_unavailable')
+        current=self.service()
+        current.authorize_runtime_activation(activation_ref=activation_ref,command=command,operation='tool')
+        with current._backend._pool.connection() as db,db.transaction():
+            row=db.execute('select authz.nexloop_sim_effect_query(%s,%s,%s)',(current._session.token_digest,self.world,intent_id)).fetchone()[0]
+        if row is None:raise PermissionError('effect_intent_unavailable')
+        return {'run_id':command['run_id'],'receipt':present(row)}
+
     def record_tool_timing(self,*,run_id,elapsed_ms):
         # NX-031 D6: one tool request's time added to its Run (the Run must belong to this guard's tenant; numbers only).
         # Reuses the session this same request just authenticated (no second credential read and authentication, ~1 ms);
