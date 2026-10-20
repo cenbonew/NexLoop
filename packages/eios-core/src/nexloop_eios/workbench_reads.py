@@ -405,7 +405,7 @@ class WorkbenchQueries:
 
     def _object_values(self, type_name, object_id):
         """D-G1 (owner 2026-10-20): (fields, values) of one object for this member, or None when the object is absent, or False when
-        the member may not read it. `object_fields` (0242) lists the schema properties with presence, the member derivation and the
+        the member may not read it. `object_fields` (0246) lists the schema properties with presence, the member derivation and the
         owner's group restriction, and returns no value; the values come through the one audited object read (ADR-025,
         purpose 'world_model'), which checks the object and every requested property again. Restricted and underived properties
         are named only (withheld); a Consumer being erased is refused by that read (NX-029) and shows nothing."""

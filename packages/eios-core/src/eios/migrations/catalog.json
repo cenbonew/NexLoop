@@ -1207,8 +1207,8 @@
       "sha256": "8e81c62d4d8d944a8ca765332c47a994a528332e800564d02ca4b240379783c7"
     },
     {
-      "version": "0242",
-      "name": "0242_workbench_object_fields.sql",
+      "version": "0246",
+      "name": "0246_workbench_object_fields.sql",
       "sha256": "cc143689e1f32703fa5519b62f48bb055e5269d051a5461b89c0f97dd1d82262"
     }
   ]
