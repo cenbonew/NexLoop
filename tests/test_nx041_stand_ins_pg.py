@@ -249,7 +249,7 @@ def test_at046_end_to_end_a_sim_credential_reaches_dispatch_only_through_the_sta
     readers = {r[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname in ('authz','control','runtime','ontology') and (p.prosrc like '%nexloop_sim_effect_%' or p.prosrc like '%nexloop_stand_in%')""").fetchall()}
     assert {r.split('(')[0] for r in readers} <= {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
-                                                  'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure',
+                                                  'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure', 'runtime.nexloop_stand_in_configure_copy',
                                                   'runtime.nexloop_sim_ledger_guard'}, readers
 
 
@@ -416,7 +416,7 @@ def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_l
     own = {r[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_effect_|nexloop_stand_in)'""").fetchall()}
     assert {r.split('(')[0] for r in own} <= {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
-                                              'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure',
+                                              'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure', 'runtime.nexloop_stand_in_configure_copy',
                                               'runtime.nexloop_sim_ledger_guard'}, own
     enumerators = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_world_tables|nexloop_sim_world_targets)'""").fetchall()}
@@ -524,3 +524,82 @@ def test_an_existing_stand_in_role_is_brought_to_its_shape(admin):
     assert reachable == {'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
                          'runtime.nexloop_erasure_permits'}, reachable
     assert not admin.execute("select has_table_privilege('nexloop_stand_in_worker','runtime.nexloop_sim_effect_intents','select')").fetchone()[0]
+
+
+def receipts_without_world(executor, ids):
+    out = {}
+    for i in ids:
+        r = executor.query(i)
+        out[i] = {k: v for k, v in vars(r).items() if k != 'world'}
+    return out
+
+
+def test_a_replay_with_the_copied_frozen_configuration_gives_the_same_receipts(sim):
+    """S7 decision A: the frozen configuration carries a server outcome seed; copying it to a new simulation world and submitting the
+    same frozen intents there gives byte-identical receipts (the world aside); a fresh configuration (another seed) gives other
+    receipts; a caller can neither pass a seed nor read it; one open intent per business digest still holds in the replay world."""
+    f = sim
+    admin = f['admin']
+    config = Jsonb({'fail_rate': 0.4, 'unknown_rate': 0.2, 'latency_ms': {'min': 10, 'max': 900}, 'failure_codes': ['timeout', 'rejected']})
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='outcome_seed_server_only'), admin.transaction():
+        admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, f['a'], Jsonb({'outcome_seed': 'e' * 64})))
+    digest_a = admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, f['a'], config)).fetchone()[0]
+    bodies = [intent() for _ in range(24)]
+    ids = [b['intent_id'] for b in bodies]
+
+    def run(world, token):
+        for body in bodies:
+            submit(f, world, token, body)
+        executor = S.StandInExecutor(f['worker'], token, world)
+        executor.run_once(limit=100)
+        return receipts_without_world(executor, ids)
+    first = run(f['a'], f['token_a'])
+    assert {r['status'] for r in first.values()} >= {'fulfilled', 'failed'}
+    # The replay world: the same frozen configuration and seed, copied by reference to the source world.
+    replay = create_world(admin)
+    token_r, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=replay, identity_suffix='-stand-in-replay')
+    assert admin.execute("select runtime.nexloop_stand_in_configure_copy(%s,%s,%s,'experiment-replay')", (TENANT_A, f['a'], replay)).fetchone()[0] == digest_a
+    assert run(replay, token_r) == first  # byte for byte, the world aside
+    # N4 still holds in the replay world: a new intent id for an open business intent is refused.
+    open_ids = [i for i, r in first.items() if r['status'] == 'unknown']
+    assert open_ids
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='business_intent_open'):
+        submit(f, replay, token_r, intent(business_digest=next(b for b in bodies if b['intent_id'] == open_ids[0])['business_digest']))
+    # Another seed (a fresh configuration with the same values): other receipts.
+    fresh = create_world(admin)
+    token_f, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'f' * 32, world=fresh, identity_suffix='-stand-in-fresh')
+    admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, fresh, config))
+    other = run(fresh, token_f)
+    assert other != first and any(other[i]['external_ref'] != first[i]['external_ref'] for i in ids)
+    # A copy never overwrites a frozen configuration, never targets a real world, never copies from another tenant's world.
+    with pytest.raises(psycopg.errors.UniqueViolation), admin.transaction():
+        admin.execute("select runtime.nexloop_stand_in_configure_copy(%s,%s,%s,'x')", (TENANT_A, f['a'], fresh))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='real_world_refused'), admin.transaction():
+        admin.execute("select runtime.nexloop_stand_in_configure_copy(%s,%s,'real','x')", (TENANT_A, f['a']))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='world_unavailable'), admin.transaction():
+        admin.execute("select runtime.nexloop_stand_in_configure_copy(%s,%s,%s,'x')", (TENANT_B, f['a'], create_world(admin, tenant=TENANT_B)))
+
+
+def test_no_world_role_reads_the_outcome_seed(sim):
+    """S7 decision A: the models, twins and simulation credentials of a world reach the database as the application roles; none of
+    them can read the seed: no privilege on the configuration table or its column, no executable function returns or names it but
+    the server's own configuration entries (held by no role), and no answer of the stand-in entries carries it."""
+    f = sim
+    admin = f['admin']
+    admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, f['a'], Jsonb({'fail_rate': 0.5})))
+    seed = admin.execute('select outcome_seed from control.nexloop_stand_in_configs where world=%s', (f['a'],)).fetchone()[0]
+    roles = {r[0] for r in admin.execute("select rolname from pg_roles where rolname like 'nexloop%%' and rolname<>'nexloop_owner' and not rolsuper").fetchall()}
+    for role in sorted(roles):
+        assert not admin.execute("select has_column_privilege(%s,'control.nexloop_stand_in_configs','outcome_seed','select')", (role,)).fetchone()[0], role
+        for fn in ('runtime.nexloop_stand_in_configure(text,text,jsonb,text)', 'runtime.nexloop_stand_in_configure_copy(text,text,text,text)'):
+            assert not admin.execute('select has_function_privilege(%s,%s,%s)', (role, fn, 'execute')).fetchone()[0], (role, fn)
+    naming = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ 'outcome_seed\\M'""").fetchall()}
+    assert naming == {'runtime.nexloop_stand_in_configure', 'runtime.nexloop_stand_in_configure_copy', 'authz.nexloop_sim_effect_submit'}, naming
+    body = intent()
+    answers = [str(submit(f, f['a'], f['token_a'], body))]
+    executor = S.StandInExecutor(f['worker'], f['token_a'], f['a'])
+    answers += [repr(r) for r in executor.run_once()] + [repr(executor.query(body['intent_id']))]
+    assert not any(seed in a for a in answers)
+    with f['api']() as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        db.execute('select outcome_seed from control.nexloop_stand_in_configs')

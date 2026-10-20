@@ -65,6 +65,18 @@
 
 剩余边界：结果为 failed 之后，提交方仍可以针对同一笔业务再提交，这属于正当重试，每次尝试都记在账里。实验报告应按 business_digest 统计重试次数，而不是只看最后一次的结果。
 
+## S7 复现（调度员定案 A）
+
+服务端随机盐（审查修复 4.2）与 S7 的要求冲突：同一份冻结输入复跑后，回执必须逐字节一致。按定案 A 处理如下。
+
+- **冻结配置**：`control.nexloop_stand_in_configs` 新增列 `outcome_seed`（64 位十六进制）。它由 `runtime.nexloop_stand_in_configure(p_tenant text, p_world text, p_config jsonb, p_by text) returns text` 在写入时用 `extensions.gen_random_bytes(32)` 生成，和配置一样只写一次、之后不能修改。调用方在 `p_config` 里传 `outcome_seed` 会被拒绝，报 `stand-in: outcome_seed_server_only`。
+- **盐**：配置里有 seed 时，意图的盐为 `sha256(outcome_seed || '|' || intent_id)`，存入意图行，并把 `outcome_seeded` 置为 true。这种意图的结果哈希只取决于（替身版本、intent_id、盐），**world 和模拟时钟不参与计算**，所以换一个 world 复跑能得到同样的结果。
+- **旧路径**：没有配置的 world 保持原来的做法：随机盐，哈希中包含 world 和模拟时钟。
+- **复跑入口**：`runtime.nexloop_stand_in_configure_copy(p_tenant text, p_from_world text, p_to_world text, p_by text) returns text`，返回 config_digest。它把源 world 的冻结配置连同 seed 一起复制到同一租户下一个仍为 active、且还没有配置的 sim world。调用方只需指定两个 world，既看不到也传不进 seed。复制不会覆盖已有配置，目标为 real 时报 `real_world_refused`，目标是其他租户的 world 时报 `world_unavailable`。和 configure 一样，这个入口不授予任何应用角色，只供可信配置和实验输入使用。
+- **复跑时回执一致的范围**：除 `world` 外，所有字段（status、failure_code、external_ref、latency_ms、stand_in_id、stand_in_version、config_digest、data_mode、output_kind、executions、repeated）都逐字节相同。前提是复跑时提交相同的意图，即相同的 intent_id、business_digest 和 request_digest，并按相同顺序执行。
+- **权限**：所有 `nexloop%` 角色对 configs 表和 `outcome_seed` 列都没有权限，也不能执行 configure 和 configure_copy。函数体中引用 `outcome_seed` 的只有 configure、configure_copy 和 submit，而 submit 的返回值里不含 seed。submit、执行和查询三个入口的回答里都不出现 seed。
+- **N4 在复跑 world 中仍然有效**：测试已覆盖。
+
 ## 部署说明（由调度员安排，本次没有改 deploy/）
 
 - 替身执行器使用独立角色 `nexloop_stand_in_worker` 连接数据库，需要单独的 DSN 文件，不能用 action_worker 的口令。
