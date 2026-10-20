@@ -71,13 +71,15 @@ GUARD = ['--listen-fd', '3', '--guard-port', '20001', '--database-url-file', '/n
 @pytest.mark.parametrize('parse,base', [(runtime_worker._arguments, WORKER), (runtime_guard_worker._arguments, GUARD)])
 def test_a_process_serves_one_world_group(parse, base):
     sim, shadow = 'sim:' + U(), 'shadow:' + U()
+    # S6c: the simulation runtime worker also names its guard's own DSN and serves the guard from child processes.
+    extra = lambda group: ['--guard-database-url-file', '/nonexistent/guard', '--guard-workers', '2'] if parse is runtime_worker._arguments and group == 'simulation' else []  # noqa: E731
     for world, group in (('real', None), ('test', None), ('real', 'real'), (sim, 'simulation'), (shadow, 'simulation')):
-        args = parse(base + ['--world', world] + (['--world-group', group] if group else []))
+        args = parse(base + ['--world', world] + (['--world-group', group] if group else []) + extra(group))
         assert (args.world, args.world_group) == (world, group or 'real')
     for world, group in ((sim, None), (shadow, 'real'), ('real', 'simulation'), ('test', 'simulation'), ('simulation', 'simulation'),
                          ('sim:1', 'simulation'), (sim, 'shadow')):
         with pytest.raises(SystemExit) as refused:
-            parse(base + ['--world', world] + (['--world-group', group] if group else []))
+            parse(base + ['--world', world] + (['--world-group', group] if group else []) + extra(group))
         assert refused.value.code == 2, (world, group)
 
 
