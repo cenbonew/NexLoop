@@ -1,7 +1,15 @@
 # NX-041 S6 (design §6, D3, D4, D6): the simulation process group - its own compose project on APP_HOST, off by default.
 # Every service carries the profile `simulation`; nothing starts unless the project is brought up with `--profile simulation`.
-# It shares no network namespace with the real project (nexloop-app): its own bridge network, and the runtime worker, the stand-in
-# executor and the file purger share the simulation Agent Host's namespace (loopback only between them).
+# It shares no network namespace with the real project (nexloop-app): its own bridge network on a fixed subnet
+# (NEXLOOP_SIM_SUBNET), and the runtime worker, the stand-in executor and the file purger share the simulation Agent Host's
+# namespace (loopback only between them).
+# Egress (review 1.3): the group needs exactly two destinations - DATA_HOST's PostgreSQL (workers) and the model provider
+# allowlist on 443 (the simulation Host; D6: a deterministic or cheap model). Compose cannot allow by domain, so the boundary is
+# the host firewall: docs/implementation/NX-041-S6-simulation.nft.example (table inet nexloop_simulation) admits those two from
+# NEXLOOP_SIM_SUBNET and drops every other new connection, including APP_HOST's own ports (the real Host, guard and gateway).
+# It is applied by the owner; the deployment sheet then probes a real Host port from a simulation container and expects a refusal.
+# Database roles (review 1.2): the stand-in executor connects as nexloop_stand_in_worker, the file purger as nexloop_sim_files;
+# each DSN file is that role's own. The runtime worker's role is still the application worker role (see the S6 note).
 # Example only: every path, image, port and world comes from the private env file; nothing here is a real address.
 # What this group never holds: a real or test service credential, a channel or provider secret, a provider/routes configuration,
 # the real Host's model key or runtime root. Its secrets are the simulation world's own (S2 D10: worlds exactly that one world),
@@ -35,8 +43,10 @@ services:
     command: [--node, /usr/local/bin/node, --runtime-root, /private/runtime, --internal-key-file, /run/secrets/sim_host_transport_key,
               --port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}', --tls-certificate-file, /run/secrets/sim_host_cert,
               --tls-key-file, /run/secrets/sim_host_key, --runtime-config-file, /run/secrets/sim_host_runtime_config]
+    # The runtime configuration also names host_id (NEXLOOP_SIM_HOST_ID, registered in authz.nexloop_sim_hosts) and
+    # world_purge_key_file (/run/secrets/sim_host_purge_key: the Host's purge key, held by this service and the database only).
     secrets: [sim_host_cert, sim_host_key, sim_host_transport_key, sim_guard_ca, sim_host_guard_key, sim_host_runtime_config,
-              sim_host_model_configuration]
+              sim_host_model_configuration, sim_host_purge_key]
     labels:
       nexloop.budget-service: none
   sim-runtime-worker:
@@ -82,22 +92,27 @@ services:
     <<: *sim-service
     network_mode: service:sim-agent-host
     entrypoint: [python, -m, nexloop_eios.stand_in_executor]
-    command: [--database-url-file, /run/secrets/sim_stand_in_dsn, --service-credential-file, /run/secrets/sim_world_credential,
+    command: [--database-url-file, /run/secrets/sim_stand_in_worker_dsn, --service-credential-file, /run/secrets/sim_world_credential,
               --world, '${NEXLOOP_SIM_WORLD:?sim:<uuid> or shadow:<uuid> required}']
-    secrets: [sim_stand_in_dsn, sim_world_credential]
+    secrets: [sim_stand_in_worker_dsn, sim_world_credential]
   sim-world-files:
-    # S2/S6: removes a deleted world's directory on the simulation Host (no world credential; the world's own is revoked).
+    # S2/S6: removes a deleted world's directory on the simulation Host with the database's permit and hands back the Host's signed
+    # proof (no world credential, no Host key).
     <<: *sim-service
     network_mode: service:sim-agent-host
     entrypoint: [python, -m, nexloop_eios.sim_world_files]
-    command: [--database-url-file, /run/secrets/sim_world_files_dsn, --host-port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}',
+    command: [--database-url-file, /run/secrets/sim_files_dsn, --host-port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}',
+              --host-id, '${NEXLOOP_SIM_HOST_ID:?simulation Host id}',
               --host-control-key-file, /run/secrets/sim_host_transport_key, --host-ca-file, /run/secrets/sim_host_ca]
-    secrets: [sim_world_files_dsn, sim_host_transport_key, sim_host_ca]
+    secrets: [sim_files_dsn, sim_host_transport_key, sim_host_ca]
 networks:
   simulation:
     name: nexloop-simulation
-    # Egress is limited by the host firewall to the database port (D4); no provider or channel endpoint is reachable.
+    # The fixed subnet the host firewall template matches (NX-041-S6-simulation.nft.example, __SIM_SUBNET__).
     driver: bridge
+    ipam:
+      config:
+        - subnet: '${NEXLOOP_SIM_SUBNET:?simulation subnet required}'
 secrets:
   sim_host_cert: {file: '${NEXLOOP_SIM_SECRET_DIR:?private simulation secret directory required}/sim_host_cert'}
   sim_host_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_key'}
@@ -112,5 +127,6 @@ secrets:
   sim_runtime_worker_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_runtime_worker_dsn'}
   sim_signing_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_signing_key'}
   sim_world_credential: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_world_credential'}
-  sim_stand_in_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_stand_in_dsn'}
-  sim_world_files_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_world_files_dsn'}
+  sim_host_purge_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_purge_key'}
+  sim_stand_in_worker_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_stand_in_worker_dsn'}
+  sim_files_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_files_dsn'}

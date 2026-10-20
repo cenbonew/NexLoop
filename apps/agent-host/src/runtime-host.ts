@@ -1,6 +1,7 @@
 /** Optional internal Run admission. Backend retains all EIOS/PG credentials. */
 import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation,ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
+import {createHmac,timingSafeEqual} from 'node:crypto';
 import {type IncomingMessage} from 'node:http';
 import {refillingResponses} from './deterministic-queue.js';
 import {delayed,latencySampler,parseDeterministicLatency} from './deterministic-latency.js';
@@ -73,14 +74,22 @@ export class RuntimeHost{
   private pending=0;
   private readonly runtimeProfile:string;
   private readonly worldGroup:WorldGroup;
+  private readonly hostId:string|undefined;
+  private readonly purgeKey:Buffer|undefined;
   private readonly admission:RunAdmissionGate;
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','world_group'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','world_group','host_id','world_purge_key_file'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     // NX-041 S6 (D3): one Host process serves one world group; real (the default) never a simulation Run, simulation never real or test.
     if(config.world_group!==undefined&&config.world_group!=='real'&&config.world_group!=='simulation')throw new Error('runtime configuration refused');
     this.worldGroup=config.world_group==='simulation'?'simulation':'real';
+    // Review 2.3/3.2: a simulation Host has its own id and purge key (registered in authz.nexloop_sim_hosts); a real Host has neither.
+    if(this.worldGroup==='simulation'?typeof config.host_id!=='string'||!/^[a-z][a-z0-9-]{2,62}$/.test(config.host_id)||typeof config.world_purge_key_file!=='string'
+      :config.host_id!==undefined||config.world_purge_key_file!==undefined)throw new Error('runtime configuration refused');
+    this.hostId=typeof config.host_id==='string'?config.host_id:undefined;
+    this.purgeKey=typeof config.world_purge_key_file==='string'?(()=>{const key=privateMaterial(config.world_purge_key_file as string,64).toString('utf8');
+      if(!/^[0-9a-f]{64}$/.test(key))throw new Error('runtime configuration refused');return Buffer.from(key,'hex');})():undefined;
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     // D-g option 2 (owner 2026-10-13): the cost currency is USD (Pi catalogue prices) or CNY (a versioned tariff file at the
@@ -392,11 +401,26 @@ export class RuntimeHost{
     this.activations.delete(runId);
     return {run_id:runId,outcome};
   }
-  /** NX-041 S6 (D2): a simulation Host removes a deleted world's directory as a whole; body {world}. A real Host has none. */
+  /** NX-041 S6 (D2) and review 2.3/3.2/3.3: a simulation Host removes a deleted world's directory as a whole; body {world, permit}.
+   * The permit is the database's (HMAC with this Host's purge key, for this Host and world, minutes): without it nothing is removed.
+   * The answer is a signed deletion proof - outcome, whether this Host ever held the world, the listing digest and entry count taken
+   * before removal, the state after (absent) - that the database verifies. A real Host has none of this. */
   async purgeWorld(body:Record<string,unknown>){
-    if(this.worldGroup!=='simulation'||Object.keys(body).join(',')!=='world'||!worldGroupAccepts('simulation',body.world))throw new RuntimeError('invalid_runtime_request');
-    for(const [runId,activation] of [...this.activations.entries()])if(activation.command?.world_id===body.world)this.activations.delete(runId);
-    return {world:body.world,outcome:await this.adapter.purgeWorld(body.world as string)};
+    if(this.worldGroup!=='simulation'||!this.purgeKey||!this.hostId||Object.keys(body).sort().join(',')!=='permit,world'||!worldGroupAccepts('simulation',body.world))
+      throw new RuntimeError('invalid_runtime_request');
+    const world=body.world as string,permit=body.permit as Record<string,unknown>;
+    if(!permit||typeof permit!=='object'||Array.isArray(permit)||Object.keys(permit).sort().join(',')!=='expires_at,host_id,mac,world'
+      ||permit.host_id!==this.hostId||permit.world!==world||typeof permit.expires_at!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(permit.expires_at)
+      ||typeof permit.mac!=='string'||!/^[0-9a-f]{64}$/.test(permit.mac))throw new RuntimeError('invalid_runtime_request');
+    const expires=Date.parse(permit.expires_at);
+    const expected=createHmac('sha256',this.purgeKey).update(`nexloop-sim-world-purge-v1:${this.hostId}:${world}:${permit.expires_at}`).digest();
+    if(!(expires>Date.now())||expires>Date.now()+15*60_000||!timingSafeEqual(expected,Buffer.from(permit.mac,'hex')))throw new RuntimeError('invalid_world_purge_permit');
+    for(const [runId,activation] of [...this.activations.entries()])if(activation.command?.world_id===world)this.activations.delete(runId);
+    const done=await this.adapter.purgeWorld(world);
+    const issuedAt=new Date(Math.floor(Date.now()/1000)*1000).toISOString().replace('.000Z','Z');
+    const proof={world,host_id:this.hostId,outcome:done.outcome,seen:done.seen,entries:done.entries,listing_digest:done.listing_digest,after:'absent' as const,issued_at:issuedAt};
+    const mac=createHmac('sha256',this.purgeKey).update(`nexloop-sim-world-purge-proof-v1:${this.hostId}:${world}:${done.outcome}:${done.seen}:${done.entries}:${done.listing_digest}:${issuedAt}`).digest('hex');
+    return {world,outcome:done.outcome,proof:{...proof,mac}};
   }
   async close(){await this.adapter.close();}
 }

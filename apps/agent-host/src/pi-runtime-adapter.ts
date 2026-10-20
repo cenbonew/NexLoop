@@ -1,7 +1,7 @@
 import { providerToolNames } from './provider-tool-names.js';
 /** Frozen Pi harness adapter. No DB/admin/channel credentials or CodingTools. */
 import {createHash} from 'node:crypto';
-import {constants,closeSync,fsyncSync,lstatSync,mkdirSync,openSync} from 'node:fs';
+import {constants,closeSync,fsyncSync,lstatSync,mkdirSync,openSync,readFileSync,writeSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {BACKGROUND_CONTEXT} from '@earendil-works/chord/context';
 import {lazyStream,type Model,type Api,type Models,type AssistantMessageEventStream,type AssistantMessage} from '@earendil-works/pi-ai';
@@ -436,12 +436,25 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     try{privateDirectory(directory);}catch(error){
       if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
       if(!create)throw new RuntimeError('runtime_state_missing');
+      // Review 3.3: the Host remembers every world it ever held (before its directory exists), so a later absent is told apart.
+      this.rememberWorld(world);
       mkdirSync(directory,{mode:0o700});syncDirectory(this.root);privateDirectory(directory);
     }
     return directory;
   }
+  private seenPath(){return join(this.root,'.worlds-seen');}
+  private seenWorlds():Set<string>{
+    try{return new Set(readFileSync(this.seenPath(),'utf8').split('\n').filter(Boolean));}
+    catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return new Set();throw new RuntimeError('runtime_storage_refused');}
+  }
+  private rememberWorld(world:string){
+    if(this.seenWorlds().has(world))return;
+    const fd=openSync(this.seenPath(),constants.O_CREAT|constants.O_APPEND|constants.O_WRONLY|constants.O_NOFOLLOW,0o600);
+    try{writeSync(fd,world+'\n');fsyncSync(fd);}finally{closeSync(fd);}
+    syncDirectory(this.root);
+  }
   /** NX-041 S6 (D2): a deleted simulation world's directory as a whole; refused while a Run of that world is open here. */
-  purgeWorld(world:string):Promise<'purged'|'absent'>{return this.serial(async()=>{
+  purgeWorld(world:string):Promise<{outcome:'purged'|'absent';seen:boolean;entries:number;listing_digest:string}>{return this.serial(async()=>{
     if(!this.options.worldDirectories||worldDirectory(world)===null)throw new RuntimeError('invalid_runtime_request');
     for(const run of this.runs.values())if(run.command.world_id===world){
       const settled=await Promise.race([(run.settled??Promise.resolve()).then(()=>true),new Promise<boolean>(resolve=>setTimeout(()=>resolve(false),50))]);
@@ -451,7 +464,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       if(run.timer)clearTimeout(run.timer);
       await run.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(run.path);this.runs.delete(runId);
     }
-    return purgeWorldDirectory(this.root,world);
+    return {...purgeWorldDirectory(this.root,world),seen:this.seenWorlds().has(world)};
   });}
   /** NX-029 D8: closes a settled Run (if this process opened it) and removes its private directory (a simulation Host: under its world). */
   purge(runId:string,world?:string):Promise<'purged'|'absent'>{return this.serial(async()=>{

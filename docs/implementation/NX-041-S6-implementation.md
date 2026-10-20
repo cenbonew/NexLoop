@@ -42,3 +42,23 @@
 - Host 的效应工具在 sim 世界里不可用：real 效应入口和表拒绝 sim（S4），而 Host 还没有调用替身提交的工具。这一步等接入孪生时（NX-042）一起做。
 - 模拟组的签名密钥用单独的 key id（`NEXLOOP_SIM_SIGNING_KEY_ID`），需要在部署时登记为单独的 authority signing key；登记脚本这次没有做。
 - 模拟 Host 网络的出口限制（只允许访问数据库）依靠主机防火墙，compose 文件里只写了说明，没有改防火墙规则。
+
+## L6 审查修复（`nx041-s6-review.md`；迁移 `0265_nx041_sim_files_review.sql`）
+
+| 条目 | 处理 |
+| --- | --- |
+| 1.2 / 3.1 数据库角色 | 删目录的进程改用新建的最小角色 `nexloop_sim_files`：它能执行的 security definer 函数只有 pending 和 confirm 两个入口（另有对 public 开放、只对 owner 生效的 `erasure_permits`），`nexloop_scheduler` 不再能调用。替身执行器的 DSN 改为 `nexloop_stand_in_worker` 专用（角色和授权在 L3 的 8ca4c820）。**未完成**：sim 的 runtime worker、guard 和 api 仍然使用应用 worker 角色。原因是 `nexloop_domain_worker` 能执行的 security definer 函数有 115 个，其中 39 个在函数体里按角色名检查 `session_user`；要建专用角色，就得重定义这批已发布的函数并逐一补授权，范围太大，建议单独立任务 |
+| 1.3 出口 | 注释改成准确的描述。sim 网络使用固定子网 `NEXLOOP_SIM_SUBNET`。compose 层做不到按域名放行，所以边界放在主机防火墙，模板见 `NX-041-S6-simulation.nft.example`（table `inet nexloop_simulation`）：只允许访问 DATA_HOST 的 PostgreSQL 和模型 provider 白名单的 443 端口，其他新建连接一律丢弃，包括访问 APP_HOST 自身的端口（real Host、guard、gateway）。规则由负责人手工应用，部署脚本不会自动改主机。部署单的检查：从 sim 容器连接 real Host 端口，应当被拒绝 |
+| 2.3 purge 鉴权 | 只有数据库对删除中或已删除的 world 签发 permit。permit 是用该 Host 的 purge key 算的 HMAC，限定 Host 和 world，有效 10 分钟，Host 最多接受 15 分钟。没有有效 permit，Host 什么都不删。持有 internal key 的 runtime worker 拿不到 permit，所以删不了 active world 的目录 |
+| 3.2 确认可伪造 | Host 返回签名的删除证明，内容包括：outcome、是否持有过该 world、删除前目录清单的摘要和条目数、删除后状态（absent）、签发时间。数据库用 `authz.nexloop_sim_hosts` 中该 Host 的 key 验证签名，签发时间必须在 1 小时以内；验证不过就拒绝。删目录的进程不持有任何 Host key，既造不出 permit，也造不出证明 |
+| 3.3 多 Host | 确认按 Host 分开记录（`runtime.nexloop_sim_world_file_confirmations`）。所有 active Host 都确认之后，这个 world 的文件才算删完；某个 Host 回 absent 只完成它自己那一份。Host 用 `.worlds-seen` 记录自己持有过的 world，并把是否持有过写进证明。一个 Host 都没有登记时，入队时直接确认 |
+| 3.4 可见 | S2 摘要的 `completed_at` 要等文件确认之后才写入，在此之前摘要也不会被保留策略删除。`runtime.nexloop_sim_world_files_overdue(tenant, hours)` 列出已经 deleted 但文件还没确认的世界 |
+| 4.2 结算与月份 | 补了测试：预留 10、释放 7.5，计入 2.5。月份按 UTC 计算：负责人定的 ¥100 按 UTC 自然月统计，北京时间每月 1 日 0–8 点仍算上个月 |
+| 4.3 指标 | 核对结果：alert-rules v9 里成本和预算相关的规则没有 world 选择器，但 0131 的告警评估只对 real 世界执行（`alerts_real_world_only`），sim 的成本进不了 real 告警。Prometheus 导出的每条时序都带 world 标签。仓库里没有面板定义 |
+| 5.1 / 5.2 时间 | 删掉了把 `submitted_at` 改成世界时间的触发器，`submitted_at` 恢复为墙钟审计时间。`runtime.nexloop_sim_world_time` 去掉了异常捕获：S5 存在时调用 `world_now`，内部出错直接抛出；S5 不存在时才用墙钟。集成时 L3 的 8ca4c820 由服务端取 sim_clock，以它为准 |
+
+### 部署步骤（只写说明，不改 deploy/ 下的 secret）
+
+1. **数据库角色口令**：`nexloop_sim_files` 和 `nexloop_stand_in_worker` 由迁移创建，可以登录，但没有口令。由负责人用 `alter role ... password` 设置口令，口令存入 Keychain，再写进 `NEXLOOP_SIM_SECRET_DIR` 下的 `sim_files_dsn` 和 `sim_stand_in_worker_dsn`（0600）。
+2. **pg_hba**：在 DATA_HOST 的 pg_hba 中，这两个角色只允许从 `NEXLOOP_SIM_SUBNET` 经主机出口地址连接，使用 `hostssl ... scram-sha-256`；real 角色不允许从 sim 子网连接。这一条手工加，也可以等 stage 模板加入 sim 子网参数后再纳入渲染。
+3. **Host 登记**：为每个 sim Host 生成 32 字节的 purge key，写出两份：十六进制的 `sim_host_purge_key` 给 Host，原始字节用于登记。登记方式是 owner 执行 `insert into authz.nexloop_sim_hosts(host_id,key_material) values(<id>,<key>)`。key 不能修改；停用后不能恢复，只能换新 id 重新登记。sim Host 的运行配置写入 `host_id` 和 `world_purge_key_file`；删目录的进程的 `--host-id` 与之相同。
