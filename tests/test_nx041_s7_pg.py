@@ -244,23 +244,21 @@ class PiRunBlocked(Exception):
 
 def pi_run_blockers(f):
     """The prerequisites of a complete sim-group Pi Run, each probed in the system as it is (S7 review 4):
-    - D10: the owner's three-credentials-per-world decision (the S2 rule still allows one active credential per world). When D10 is
-      decided, rewrite this probe in the decided credential form: it copies an existing binding and changes only the principal, which
-      may never flip if the decision is three credentials distinguished by use;
+    - D10 in its decided form (owner, as recommended): the world takes three credentials, one per use (api, worker, agent), each bound
+      to it alone - probed by issuing the worker and agent credentials beside the world's api credential (rolled back);
     - S6c: the simulation process group's own database roles, all three (nexloop_sim_worker, nexloop_sim_guard, nexloop_sim_api);
     - the Host's simulation Context protocol: its module exports the parser of nexloop.context-pack.sim.v1, parseSimContextPack."""
     admin = f['admin']
     blockers = []
-    row = admin.execute('select tenant_id,binding,audience,expires_at from authz.nexloop_service_credentials where worlds=%s', ([f['a']],)).fetchone()
-    binding = {**row[1], 'credential_id': 'd10-probe', 'principal_id': 'd10-probe', 'subject_principal_id': 'd10-probe'}
+    row = admin.execute("select tenant_id,binding,audience,expires_at from authz.nexloop_service_credentials where worlds=%s and status='active'", ([f['a']],)).fetchone()
     try:
         with admin.transaction(force_rollback=True):
-            admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
-                          (uuid.uuid4().hex * 2, row[0], 'd10-probe', Jsonb(binding), [f['a']], row[2], 'active', row[3]))
-    except psycopg.errors.InsufficientPrivilege as error:
-        if 'one active credential' not in str(error):
-            raise
-        blockers.append('D10: three credentials per simulation world not decided')
+            for use in ('worker', 'agent'):
+                binding = {**row[1], 'credential_id': 'd10-probe-' + use, 'principal_id': 'd10-probe-' + use, 'subject_principal_id': 'd10-probe-' + use}
+                admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                              (uuid.uuid4().hex * 2, row[0], 'd10-probe-' + use, Jsonb(binding), [f['a']], row[2], 'active', row[3], use))
+    except (psycopg.errors.InsufficientPrivilege, psycopg.errors.UndefinedColumn, psycopg.errors.UniqueViolation) as error:
+        blockers.append('D10: three credentials per simulation world (one per use) not in place: ' + str(error).splitlines()[0])
     if admin.execute("select count(*) from pg_roles where rolname in ('nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api')").fetchone()[0] < 3:
         blockers.append('S6c: simulation process group roles absent')
     exported = re.compile(r'export\s+(?:async\s+)?function\s+parseSimContextPack\b|export\s+(?:const|let)\s+parseSimContextPack\b|export\s*\{[^}]*\bparseSimContextPack\b[^}]*\}')
@@ -285,22 +283,19 @@ def complete_sim_pi_run(f, tmp_path, blockers=pi_run_blockers):
         raise PiRunBlocked(found)
 
 
-@pytest.mark.xfail(strict=True, raises=PiRunBlocked, reason=(
-    "Blocked until D10, the owner's three-credentials-per-simulation-world decision - when it is decided, rewrite the D10 probe in "
-    "the decided credential form. (S6c's roles and the Host's simulation Context protocol are in.) pi_run_blockers probes all three; "
-    "when nothing blocks the test passes, strict xfail turns that into a failure, and the end-to-end Run replaces it."))
-def test_at046_a_simulation_process_group_runs_a_complete_pi_run(s7, tmp_path):
-    complete_sim_pi_run(s7, tmp_path)
+def test_at046_every_prerequisite_of_a_simulation_pi_run_is_in_place(s7, tmp_path):
+    """The former strict xfail, flipped (D10 decided, 0272): pi_run_blockers finds nothing - three credentials per world, one per use;
+    S6c's roles; the Host's simulation Context protocol - and the simulation group's worker accepts its world. The complete Pi Run of
+    the simulation process group is tests/test_nx041_sim_pi_run_pg.py::test_at046_a_simulation_process_group_runs_a_complete_pi_run."""
+    assert pi_run_blockers(s7) == []
+    assert complete_sim_pi_run(s7, tmp_path) is None
+    assert (ROOT / 'tests/test_nx041_sim_pi_run_pg.py').read_text().count('def test_at046_a_simulation_process_group_runs_a_complete_pi_run(') == 1
 
 
-def test_the_pi_run_xfail_flips_once_its_prerequisites_are_there(s7, tmp_path):
-    """Local proof of S7 review 4: today the probes report the open blockers (S6c's roles are in); with the probes stubbed as satisfied the same body
-    returns, so the strict xfail above would XPASS and fail CI."""
-    found = pi_run_blockers(s7)
-    assert [b.split(':')[0] for b in found] == ['D10'], found  # S6c's roles (0268) and the Host's sim context protocol are in
+def test_the_blocker_probes_still_detect_a_missing_prerequisite(s7, tmp_path):
+    """Positive control of the probes: a stubbed blocker is still raised."""
     with pytest.raises(PiRunBlocked):
-        complete_sim_pi_run(s7, tmp_path)
-    assert complete_sim_pi_run(s7, tmp_path, blockers=lambda f: []) is None
+        complete_sim_pi_run(s7, tmp_path, blockers=lambda f: ['D10: stubbed'])
 
 
 def test_at046_forged_context_resume_guard_and_activation_paths(s7):

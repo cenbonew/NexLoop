@@ -30,11 +30,11 @@ class PrivatePlan(dict):
 # Shared EffectControl budget; Role policy tests raise it to isolate Role effect_units.
 EFFECT_BUDGET_UNITS=1
 
-def seed_multi_uuid(admin,tenant,targets,*,suffix,extra_scopes=()):
+def seed_multi_uuid(admin,tenant,targets,*,suffix,extra_scopes=(),world='real',sim_use=None):
     """Multi-resource genuine stored EIOS service authority for this UUID tenant."""
     scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets)|frozenset(extra_scopes);records={};apps=[]
     for target,kind,op in targets:
-        auth,expiry,rows=authority_records(tenant,target,world='real',resource_type=kind,operation=op,operations=tuple(operation for resource,resource_kind,operation in targets if resource==target and resource_kind==kind),identity_suffix=suffix)
+        auth,expiry,rows=authority_records(tenant,target,world=world,resource_type=kind,operation=op,operations=tuple(operation for resource,resource_kind,operation in targets if resource==target and resource_kind==kind),identity_suffix=suffix)
         for name,key,fact in rows:
             if name=='application':apps.append(fact)
             records[(name,tuple(key))]=(name,key,fact)
@@ -51,8 +51,9 @@ def seed_multi_uuid(admin,tenant,targets,*,suffix,extra_scopes=()):
         body=fact.model_dump(mode='json');body.pop('snapshot_digest',None)
         records[index]=(name,key,type(fact).model_validate_json(json.dumps(body)))
     token=secrets.token_urlsafe(48)
-    admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
-        (hashlib.sha256(token.encode()).hexdigest(),tenant,auth.credential_id,Jsonb(auth.model_dump(mode='json')),['real'],'nexloop-core','active',expiry))
+    # NX-041 D10: a simulation world's credential names its use (api, worker, agent); real ones carry none.
+    admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        (hashlib.sha256(token.encode()).hexdigest(),tenant,auth.credential_id,Jsonb(auth.model_dump(mode='json')),[world],'nexloop-core','active',expiry,sim_use))
     for name,key,fact in records.values():admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s) on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload',
         (tenant,name,key,Jsonb(fact.model_dump(mode='json'))))
     return token

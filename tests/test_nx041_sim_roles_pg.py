@@ -25,14 +25,18 @@ COMMON = {'authz.nexloop_service_identity_snapshot(text,text)', 'authz.nexloop_l
           'authz.nexloop_record_process_sample(text,text,text,timestamp with time zone,integer,jsonb)',
           'runtime.nexloop_erasure_permits(text,text,text,jsonb,jsonb)'}  # granted to public (0129): true only for the owner's own transaction
 WHITELIST = {
-    'nexloop_sim_worker': COMMON | {'authz.nexloop_queue_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)',
+    'nexloop_sim_worker': COMMON | {'authz.nexloop_role_run_hint(text,text)', 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_queue_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)',
                                     'authz.nexloop_runtime_activation_hint(text,text,text)', 'authz.nexloop_run_tool_timing(text,text,uuid)'},
-    'nexloop_sim_guard': COMMON | {'authz.nexloop_runtime_activation_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_hint(text,text,text)',
+    'nexloop_sim_guard': COMMON | {'authz.nexloop_role_run_hint(text,text)', 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_hint(text,text,text)',
                                    'authz.nexloop_record_run_tool_timing(text,text,uuid,numeric)', 'authz.nexloop_sim_effect_submit(text,text,jsonb)',
                                    'authz.nexloop_sim_effect_query(text,text,uuid)'},
     # review 1.3: the shared entries only, plus the Host's simulation context (its migration grants it after S6c).
     # sim context by reference (0270): register only; the assembler is no longer granted directly (least privilege).
-    'nexloop_sim_api': COMMON | {'authz.nexloop_sim_context_register(text,text,uuid,text,integer)'},
+    'nexloop_sim_api': COMMON | {'authz.nexloop_sim_context_register(text,text,uuid,text,integer)',
+                                 # D10 wiring (0272): the simulation intake issues, accepts and registers its world's Runs.
+                                 'authz.nexloop_issue_run_credential(text,text,text,text)', 'authz.nexloop_queue_command(text,text,text,text,text)',
+                                 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_role_run_hint(text,text)',
+                                 'authz.nexloop_runtime_activation_command(text,text,text,text,text)'},
 }
 SIM = 'sim:' + str(uuid.uuid4())
 SAMPLE = ('host', 'agent-host', 'sim-1', {'active_runs': 0})
@@ -58,9 +62,11 @@ def test_the_simulation_roles_hold_no_privilege_membership_or_real_grant_and_exa
             where n.nspname in ('authz','control','runtime','ontology','extensions','eios','public') and p.prosecdef and has_function_privilege(%s,p.oid,'execute')""",
                                                   (role,)).fetchall()}
         assert executable == expected, (role, sorted(executable ^ expected))
-        # No table, sequence or view of the application schemas is directly readable or writable.
+        # No table, sequence or view of the application schemas is directly readable or writable - except the migration revision list
+        # (versions and checksums), which every backend reads when it opens (D10 wiring, 0272; as the real roles, 0002).
         assert admin.execute("""select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('authz','control','runtime','ontology')
-            and c.relkind in ('r','p','v','m','S') and (has_table_privilege(%s,c.oid,'select') or has_table_privilege(%s,c.oid,'insert'))""",
+            and c.relkind in ('r','p','v','m','S') and (has_table_privilege(%s,c.oid,'select') or has_table_privilege(%s,c.oid,'insert'))
+            and c.oid<>'control.schema_migrations'::regclass""",
                              (role, role)).fetchone()[0] == 0
     assert {'nexloop_sim_worker', 'nexloop_sim_guard', 'nexloop_sim_api'} <= APPLICATION_ROLES
     # The real roles' grants are untouched by these roles: nothing the real worker executes is new to it here.

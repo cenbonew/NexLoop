@@ -81,6 +81,15 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
+    Allowed('nx041_d10_credentials', 'authz.nexloop_issue_run_credential', 'D10 wiring: a simulation role issues Run credentials of its own world only (app_role); definer search_path gains pg_temp',
+            ((r"if authz\.nexloop_app_role\(p_world\) is distinct from 'nexloop_api' then raise exception 'Run issuance denied' using errcode='42501';end if;\s*", ''),),
+            PG_TEMP),
+    # D10 (0272): one active credential per world and use; the use immutable like the world.
+    Allowed('nx041_d10_credentials', 'authz.nexloop_sim_world_credential_check', 'D10: one active credential per world and use (api, worker, agent); the use never changes',
+            ((r'\(old\.worlds is distinct from new\.worlds or old\.sim_use is distinct from new\.sim_use\)', '(old.worlds is distinct from new.worlds)'),
+             (r"if new\.sim_use is null then raise exception 'a simulation world credential names its use \(api, worker, agent\)' using errcode='42501';end if;\s*", ''),
+             (r'c\.worlds=new\.worlds and c\.sim_use=new\.sim_use and', 'c.worlds=new.worlds and'),
+             (r"'a simulation world has one active credential per use'", "'a simulation world has one active credential'"))),
 ]
 
 

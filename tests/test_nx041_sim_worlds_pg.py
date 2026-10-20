@@ -114,12 +114,12 @@ def test_a_sim_credential_reaches_only_its_own_world(db):
     assert denied(db, token_real, a)
     row = db.execute('select tenant_id,credential_id,binding,audience,expires_at from authz.nexloop_service_credentials where worlds=%s', ([a],)).fetchone()
 
-    def insert(worlds, suffix, principal=None, tenant=TENANT_A):
+    def insert(worlds, suffix, principal=None, tenant=TENANT_A, use='api'):
         binding = {**row[2], 'credential_id': 'k' + suffix, 'tenant_id': tenant, 'credential_tenant_id': tenant}
         if principal:
             binding.update(principal_id=principal, subject_principal_id=principal)
-        db.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
-                   (uuid.uuid4().hex * 2, tenant, 'k' + suffix, Jsonb(binding), worlds, row[3], 'active', row[4]))
+        db.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                   (uuid.uuid4().hex * 2, tenant, 'k' + suffix, Jsonb(binding), worlds, row[3], 'active', row[4], use))
     unregistered = 'sim:' + str(uuid.uuid4())
     empty = create(db)['world']  # registered, no credential yet: only the principal rule can refuse there
     # Each refusal names its rule (review 5.2): a negative that fails for another reason does not pass.
@@ -129,7 +129,8 @@ def test_a_sim_credential_reaches_only_its_own_world(db):
         ('exactly its one world', lambda: insert(['real', a], '3', 'p3')),
         ('not registered or not active', lambda: insert([unregistered], '4', 'p4')),
         ('not registered or not active', lambda: insert([a], '5', 'p5', tenant=TENANT_B)),
-        ('has one active credential', lambda: insert([a], '6', 'p6')),
+        ('has one active credential per use', lambda: insert([a], '6', 'p6')),  # D10: a second api credential
+        ('names its use', lambda: insert([a], '6b', 'p6b', use=None)),
         ('never carried into a simulation world', lambda: insert([empty], '7', TENANT_A + '-real-principal')),
         ('never holds a real or test credential', lambda: insert(['real'], '8', TENANT_A + '-sim-a-principal')),
         ('never holds a real or test credential', lambda: insert(['test'], '9', TENANT_A + '-sim-a-principal')),
@@ -137,6 +138,18 @@ def test_a_sim_credential_reaches_only_its_own_world(db):
     for rule, attempt in refusals:
         with pytest.raises(psycopg.errors.InsufficientPrivilege, match=rule), db.transaction():
             attempt()
+    # D10 positive control: the world takes its worker and agent credentials beside its api one (three uses, one each), each
+    # under its own principal; a real credential carries no use.
+    with db.transaction(force_rollback=True):
+        insert([a], '11', TENANT_A + '-sim-a-worker', use='worker')
+        insert([a], '12', TENANT_A + '-sim-a-agent', use='agent')
+        assert db.execute("select array_agg(sim_use order by sim_use) from authz.nexloop_service_credentials where worlds=%s and status='active'", ([a],)).fetchone()[0] == ['agent', 'api', 'worker']
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='has one active credential per use'), db.transaction():
+            insert([a], '13', TENANT_A + '-sim-a-worker-2', use='worker')
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='never changed'), db.transaction():
+            db.execute("update authz.nexloop_service_credentials set sim_use='worker' where worlds=%s and sim_use='agent'", ([a],))
+    with pytest.raises(psycopg.errors.CheckViolation, match='nexloop_service_credentials_sim_use'), db.transaction():
+        insert(['real'], '14', TENANT_A + '-real-with-use', use='api')
     # A changed principal binding is checked like a new credential (review 2.2), in both directions.
     with pytest.raises(psycopg.errors.InsufficientPrivilege, match='never carried into a simulation world'), db.transaction():
         db.execute("""update authz.nexloop_service_credentials set binding=binding||jsonb_build_object('principal_id',%s::text,'subject_principal_id',%s::text)
@@ -301,15 +314,16 @@ def test_expired_summaries_leave_beyond_the_batch_of_deleted_worlds(db):
 
 
 def test_two_concurrent_inserts_give_one_active_credential_per_world(db, pg):
-    """Review 2.1: the trigger cannot see an uncommitted credential; the partial unique index makes the second insert wait and fail."""
+    """Review 2.1 (D10: per world and use): the trigger cannot see an uncommitted credential; the partial unique index on (world, use)
+    makes the second insert of the same use wait and fail."""
     a = create(db)['world']
     seed_authority(db, TENANT_A, 'eios:artifact:' + 'd' * 32, world=a, identity_suffix='-sim-c')
     row = db.execute('select tenant_id,binding,worlds,audience,expires_at from authz.nexloop_service_credentials where worlds=%s', ([a],)).fetchone()
     db.execute("update authz.nexloop_service_credentials set status='revoked' where worlds=%s", ([a],))
 
     def insert(conn, suffix):
-        conn.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
-                     (uuid.uuid4().hex * 2, row[0], 'c' + suffix, Jsonb({**row[1], 'credential_id': 'c' + suffix}), row[2], row[3], 'active', row[4]))
+        conn.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                     (uuid.uuid4().hex * 2, row[0], 'c' + suffix, Jsonb({**row[1], 'credential_id': 'c' + suffix}), row[2], row[3], 'active', row[4], 'worker'))
     first, second = psycopg.connect(pg), psycopg.connect(pg)
     try:
         insert(first, '1')  # uncommitted
@@ -502,3 +516,14 @@ def test_row_security_never_hides_a_tenants_rows_from_the_deletion(db):
     assert rows and all(all(perm) for _, _, perm, _ in rows), [r for r in rows if not all(r[2])]
     hidden = [t for t, rls, _, quals in rows if rls and not any(q == 'true' or tenant.search(q or '') for q in quals)]
     assert hidden == []
+
+
+def test_deleting_a_world_revokes_its_three_credentials(db):
+    """D10: the world's api, worker and agent credentials all stop at its deletion; another world's are untouched."""
+    a, b = create(db)['world'], create(db)['world']
+    tokens = {use: seed_authority(db, TENANT_A, 'eios:artifact:' + c * 32, world=a, identity_suffix=f'-d10-{use}', sim_use=use)[0]
+              for use, c in (('api', '1'), ('worker', '2'), ('agent', '3'))}
+    other, _ = seed_authority(db, TENANT_A, 'eios:artifact:' + '4' * 32, world=b, identity_suffix='-d10-b', sim_use='worker')
+    assert all(identity(db, t, a)['binding']['tenant_id'] == TENANT_A for t in tokens.values())  # positive control: all three active
+    assert delete(db, a)['credentials_revoked'] == 3
+    assert all(denied(db, t, a) for t in tokens.values()) and identity(db, other, b)['binding']['tenant_id'] == TENANT_A
