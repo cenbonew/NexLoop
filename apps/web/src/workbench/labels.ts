@@ -589,3 +589,67 @@ export const ACTION_APPROVAL: LabelMap = {
   "human_review": "人工审批",
   "dual": "双人审批",
 };
+
+// ---- NX-039 V6 (L6 draft 2026-10-20; glossary TODO: L5 to confirm the wording) ----
+export const EVO_CANDIDATE_STATUS: LabelMap = {
+  "proposed": "已提出",
+  "evaluating": "评估中",
+  "accepted_for_release": "可发布",
+  "rejected": "未通过",
+  "incomplete": "未完成",
+};
+
+export const EVO_CONCLUSION: LabelMap = {
+  "accept": "通过",
+  "reject": "不通过",
+  "incomplete": "未完成",
+};
+
+export const EVO_CHANGE_CLASS: LabelMap = {
+  "patch": "补丁级",
+  "minor": "次要级",
+  "major": "重大（不可发布）",
+  "refused": "拒绝发布",
+};
+
+export const EVO_GATE: LabelMap = {
+  "references_valid": "G1 引用有效",
+  "structure_valid": "G1 结构有效",
+  "zero_overreach": "G2 零越权",
+  "zero_cross_tenant": "G3 零跨租户",
+  "zero_fact_pollution": "G4 零事实污染",
+  "no_forbidden_regression": "G5 无禁止的行为回退",
+  "semantic_regression": "G6 确定性语义回归",
+  "cost_performance": "G7 成本与性能",
+  "semantic_conflict": "G8 语义不冲突",
+  "index_migration_impact": "G9 索引与迁移影响",
+};
+
+export const EVO_GATE_RESULT: LabelMap = {
+  "pass": "通过",
+  "fail": "未通过",
+};
+
+export const EVO_DIMENSION: LabelMap = {
+  "semantic_content": "语义内容",
+  "semantic_tool": "语义工具",
+  "ontology_schema": "本体 Schema",
+};
+
+export const EVO_END_REASON: LabelMap = {
+  "budget_exhausted": "预算用尽",
+  "missing_data": "数据已删除或缺失",
+  "user_interrupted": "人工停止",
+  "external_block": "外部阻塞",
+  "evaluator_timeout": "评估超时",
+};
+
+export const EVO_REPORT_REASON: LabelMap = {
+  "hard_gate_failed": "有门槛未通过",
+  "not_better": "没有改善",
+  "inferior": "劣于基线",
+  "missing_data": "数据缺失",
+  "budget_exhausted": "预算用尽",
+  "validation_leak": "验证集泄漏",
+  "breaking_change": "破坏性变更",
+};

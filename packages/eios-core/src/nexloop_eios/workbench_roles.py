@@ -71,6 +71,8 @@ def validate_roles(value):
                   'eios:action:nexloop.object_set.publish:1',  # ADR-036: which object ranges the tenant defines is the owner's
                   'eios:action:nexloop.semantic_release.publish:1',  # NX-039 D39-8: what every Run sees as semantics is the owner's
                   'eios:action:nexloop.semantic_release.rollback:1',  # NX-039 D39-8: and so is going back
+                  'eios:action:nexloop.semantic_release.stop:1',  # NX-039 V6: and so is stopping evolution
+                  'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
                   'eios:action:nexloop.context.strategy.publish:1',  # how Context is assembled is the owner's

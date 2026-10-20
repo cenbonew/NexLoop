@@ -71,7 +71,11 @@
               "semantic_regression",
               "cost_performance",
               "semantic_conflict",
-              "index_migration_impact"
+              "index_migration_impact",
+              "migration_bounded",
+              "reflow_budget",
+              "tool_context_compatible",
+              "authority_unchanged"
             ]
           },
           "result": {
