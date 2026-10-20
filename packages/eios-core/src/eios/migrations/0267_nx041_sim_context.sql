@@ -1,0 +1,61 @@
+-- NX-041 S7b: the Context of a Run in a simulation world (contract nexloop.context-pack.sim.v1). The migration number lives only in
+-- the file name and the catalog; nothing below repeats it.
+-- The real assembly entries (context v6, role context v6, fallback, manifest read, relationship context, consumer conversations) are
+-- real-only by their bodies and by contract v6 (bindings.world_id real); they are not changed. A simulation world has its own entry,
+-- authz.nexloop_sim_context_command, which reads simulation sources only:
+--   - the synthetic Consumer's generated profile (runtime.nexloop_sim_objects, S3) and persona (control.nexloop_consumer_personas, in
+--     that world);
+--   - the events the twin produced through the consumer port (runtime.nexloop_sim_consumer_events, S7), newest first up to the limit,
+--     returned oldest first, the newest tagged latest_consumer_turn and a refuse_contact tagged contact_limit.
+-- It never reads a real conversation, message, Claim, object, memory or recall entry (a guard test checks its source). Every item is
+-- source simulated. Callers: nexloop_api and nexloop_domain_worker with the world's one credential (S2, D10); real and test are refused
+-- before any lookup (S4 authz.nexloop_sim_effect_tenant).
+
+create function authz.nexloop_sim_context_command(p_digest text,p_world text,p_consumer text,p_limit integer) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v_tenant text;v_limit integer;v_now text;v_total integer;v_profile jsonb;v_persona record;v_state jsonb:='[]';v_evidence jsonb;
+ v_latest runtime.nexloop_sim_consumer_events;v_insufficient jsonb:='[]';
+begin
+ if session_user not in ('nexloop_api','nexloop_domain_worker') then raise exception 'sim context: unavailable' using errcode='42501';end if;
+ v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ if coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_limit is null or p_limit not between 1 and 256 then
+  raise exception 'sim context: invalid' using errcode='22023';end if;
+ perform set_config('eios.tenant_id',v_tenant,true);
+ if not runtime.nexloop_sim_consumer_known(v_tenant,p_world,p_consumer) then raise exception 'sim context: consumer_unknown' using errcode='22023';end if;
+ v_limit:=p_limit;
+ v_now:=runtime.nexloop_commercial_ts(runtime.nexloop_world_now(v_tenant,p_world));
+ -- Consumer state: the generated profile and the persona marker, both simulated.
+ select o.properties into v_profile from runtime.nexloop_sim_objects o
+  where o.tenant_id=v_tenant and o.world=p_world and o.type_name='Consumer' and o.object_id=p_consumer;
+ v_state:=v_state||jsonb_build_array(jsonb_build_object('subsection','profile','ref','sim:object:'||p_consumer,
+  'revision',substr(encode(sha256(convert_to(v_profile::text,'UTF8')),'hex'),1,16),'content',v_profile,
+  'content_hash',encode(sha256(convert_to(v_profile::text,'UTF8')),'hex'),'evidence_kind','synthetic_profile','source','simulated','at',v_now,'tags','[]'::jsonb));
+ select p.persona,p.revision into v_persona from control.nexloop_consumer_personas p where p.tenant_id=v_tenant and p.world=p_world and p.consumer_id=p_consumer;
+ v_state:=v_state||jsonb_build_array(jsonb_build_object('subsection','persona','ref','sim:persona:'||p_consumer,'revision',v_persona.revision::text,
+  'content',jsonb_build_object('persona',v_persona.persona),'content_hash',encode(sha256(convert_to(jsonb_build_object('persona',v_persona.persona)::text,'UTF8')),'hex'),
+  'evidence_kind','synthetic_persona','source','simulated','at',v_now,'tags','[]'::jsonb));
+ -- Simulated conversation: the newest events up to the limit, oldest first.
+ select count(*) into v_total from runtime.nexloop_sim_consumer_events e where e.tenant_id=v_tenant and e.world=p_world and e.consumer_id=p_consumer;
+ select * into v_latest from runtime.nexloop_sim_consumer_events e where e.tenant_id=v_tenant and e.world=p_world and e.consumer_id=p_consumer
+  order by e.sequence desc limit 1;
+ select coalesce(jsonb_agg(jsonb_build_object('subsection','simulated_conversation','ref','sim:event:'||x.event_id,'revision',x.sequence::text,
+   'content',jsonb_build_object('event_kind',x.event_kind)||x.content,'content_hash',x.content_digest,'evidence_kind','simulated_input',
+   'source','simulated','at',runtime.nexloop_commercial_ts(x.sim_time),
+   'tags',(case when x.sequence=v_latest.sequence then '["latest_consumer_turn"]'::jsonb else '[]'::jsonb end)
+     ||(case when x.event_kind='refuse_contact' then '["contact_limit"]'::jsonb else '[]'::jsonb end)) order by x.sequence),'[]'::jsonb)
+  into v_evidence from (select * from runtime.nexloop_sim_consumer_events e where e.tenant_id=v_tenant and e.world=p_world and e.consumer_id=p_consumer
+   order by e.sequence desc limit v_limit) x;
+ if v_total=0 then v_insufficient:=v_insufficient||jsonb_build_array(jsonb_build_object('code','no_simulated_events','section','current_event'));end if;
+ if v_total>v_limit then v_insufficient:=v_insufficient||jsonb_build_array(jsonb_build_object('code','older_events_omitted','section','evidence'));end if;
+ return jsonb_build_object('schema_version','nexloop.context-pack.sim.v1','world',p_world,'tenant_id',v_tenant,'consumer_id',p_consumer,
+  'data_mode','simulation','world_time',v_now,
+  'current_event',case when v_latest.event_id is null then null else jsonb_build_object('kind','simulated_consumer_event','event_id',v_latest.event_id,
+    'sequence',v_latest.sequence,'event_kind',v_latest.event_kind,'provenance','sim:event:'||v_latest.event_id,'source','simulated') end,
+  'consumer_state',v_state,'evidence',v_evidence,
+  'budget_report',jsonb_build_object('event_limit',v_limit,'events_total',v_total,'events_included',jsonb_array_length(v_evidence),
+    'omitted',greatest(v_total-jsonb_array_length(v_evidence),0)),
+  'insufficient',v_insufficient);
+end $$;
+alter function authz.nexloop_sim_context_command(text,text,text,integer) owner to nexloop_owner;
+revoke all on function authz.nexloop_sim_context_command(text,text,text,integer) from public;
+grant execute on function authz.nexloop_sim_context_command(text,text,text,integer) to nexloop_api,nexloop_domain_worker;
