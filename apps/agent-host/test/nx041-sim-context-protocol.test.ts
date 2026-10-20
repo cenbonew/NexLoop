@@ -12,9 +12,13 @@ import {describe,it,expect} from 'vitest';
 import {parseSimContextPack,declaresSimContextPack,renderSimContextPack} from '../src/context-input.ts';
 import {SIM_PREAMBLE} from '../src/sim-context.ts';
 
-const SIM_PACK=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/context-pack-sim.valid.json',import.meta.url),'utf8'));
+const EXAMPLE=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/context-pack-sim.valid.json',import.meta.url),'utf8'));
+// Integration: the contract example reports events_total 2 / events_included 1 under event_limit 20, which L2's consistency check
+// (review 4.1: included = min(total, limit)) refuses; the protocol is tested with the example made consistent (one event, none omitted).
+const SIM_PACK={...EXAMPLE,budget_report:{event_limit:20,events_total:1,events_included:1,omitted:0},insufficient:[]};
 const V6='nexloop.context-pack.v6',SIM='nexloop.context-pack.sim.v1';
-const COMMAND={world_id:SIM_PACK.world,mode:String(SIM_PACK.world).startsWith('sim:')?'simulation':'shadow',tenant_id:SIM_PACK.tenant_id};
+// L2 review 4.1: the pack is this Run's Consumer's (consumer_ref).
+const COMMAND={world_id:SIM_PACK.world,mode:String(SIM_PACK.world).startsWith('sim:')?'simulation':'shadow',tenant_id:SIM_PACK.tenant_id,consumer_ref:'consumer:'+SIM_PACK.consumer_id};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const parse=(pack:unknown)=>parseSimContextPack(JSON.stringify(pack),COMMAND as any);
 
