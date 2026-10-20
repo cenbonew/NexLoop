@@ -183,53 +183,38 @@ def test_advancing_thirty_days_expires_the_windows_of_the_simulation_world_but_n
     # Commitments: due in ten days in each world.
     sim_due, real_due = sim_start + timedelta(days=10), real_start + timedelta(days=10)
     assert target(db, world, sim_due) == {} and target(db, 'real', real_due) == {}
-    # Outreach: an approval pending (24 h window), an admitted marketing send (frequency and the 7-day windows).
-    sim_pending, real_pending = send(db, world), send(db, 'real')
-    approval(db, world, sim_pending)
+    # Outreach in real: an approval pending (24 h window), an admitted marketing send (frequency and the 7-day windows). A simulation
+    # world holds no outreach send at all (S4: the real effect path refuses a simulation world; only the stand-in executes).
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='real effect path refused'), db.transaction():
+        send(db, world)
+    real_pending = send(db, 'real')
     approval(db, 'real', real_pending)
-    sim_sent, real_sent = send(db, world, state='dispatching', admitted=True, frequency='marketing'), send(db, 'real', state='dispatching', admitted=True,
-                                                                                                          frequency='marketing')
-    assert db.execute('select created_at from runtime.nexloop_outreach_sends where intent_id=%s', (sim_sent,)).fetchone()[0] == sim_start  # stamped
+    send(db, 'real', state='dispatching', admitted=True, frequency='marketing')
     metrics = lambda w: db.execute('select runtime.nexloop_outreach_metrics(%s,%s)', (TENANT_A, w)).fetchone()[0]
     contacts = lambda w, hours: db.execute('select runtime.nexloop_outreach_contacts_since(%s,%s,%s,runtime.nexloop_world_now(%s,%s)-make_interval(hours=>%s))',
                                            (TENANT_A, w, CONSUMER, TENANT_A, w, hours)).fetchone()[0]
-    assert metrics(world)['accepted_7d'] == 2 and metrics('real')['accepted_7d'] == 2
-    assert contacts(world, 24) == 1 and contacts(world, 7 * 24) == 1 and contacts('real', 24) == 1
-    assert db.execute('select runtime.nexloop_outreach_expire_approvals(%s,%s)', (TENANT_A, world)).fetchone()[0] == 0
+    assert metrics('real')['accepted_7d'] == 2 and contacts('real', 24) == 1
 
     clock(db, world, 'advance', seconds=30 * DAY)
     assert now(db, world) == sim_start + timedelta(days=30)
-    # The simulation world: the commitment is breached, the approval expired, the windows emptied.
+    # The simulation world: the commitment is breached; its 7-day windows end at the world time.
     assert target(db, world, sim_due) == {'status': 'breached'}
-    assert db.execute('select runtime.nexloop_outreach_expire_approvals(%s,%s)', (TENANT_A, world)).fetchone()[0] == 1
-    decided = db.execute('select decided_at from runtime.nexloop_outreach_approvals where intent_id=%s', (sim_pending,)).fetchone()[0]
-    assert approval_state(db, world, sim_pending) == ('expired', 'refused', 'approval_expired') and decided >= sim_start + timedelta(days=30)
-    assert metrics(world)['accepted_7d'] == 0 and contacts(world, 24) == 0 and contacts(world, 7 * 24) == 0
+    assert metrics(world)['accepted_7d'] == 0
     # Real at the same moment: nothing moved.
     assert target(db, 'real', real_due) == {}
     assert db.execute('select runtime.nexloop_outreach_expire_approvals(%s,%s)', (TENANT_A, 'real')).fetchone()[0] == 0
     assert approval_state(db, 'real', real_pending) == (None, 'pending_approval', None)
     assert metrics('real')['accepted_7d'] == 2 and contacts('real', 24) == 1
-    # The quiet hours and the frequency gates of the dispatch take the world time (the same gate function real uses).
-    gates = db.execute('select runtime.nexloop_outreach_gates(%s,%s,%s,%s,runtime.nexloop_world_now(%s,%s))',
-                       (TENANT_A, world, CONSUMER, 'service.followup', TENANT_A, world)).fetchone()[0]
-    assert {g['gate'] for g in gates} >= {'contact_restricted', 'budget'}
 
 
 def test_while_the_clock_is_paused_nothing_falls_due_in_the_simulation_world(db):
     world = create(db)
     start = now(db, world)
     soon = start + timedelta(seconds=1)
-    intent = send(db, world)
-    db.execute("""insert into runtime.nexloop_outreach_approvals(tenant_id,world,intent_id,requested_by,expires_at) values(%s,%s,%s,'owner-principal',%s)""",
-               (TENANT_A, world, intent, soon))
-    time.sleep(1.2)  # the wall passes both due times
+    time.sleep(1.2)  # the wall passes the due time
     assert target(db, world, soon) == {}
-    assert db.execute('select runtime.nexloop_outreach_expire_approvals(%s,%s)', (TENANT_A, world)).fetchone()[0] == 0
-    assert approval_state(db, world, intent) == (None, 'pending_approval', None)
     clock(db, world, 'advance', seconds=2)
     assert target(db, world, soon) == {'status': 'breached'}
-    assert db.execute('select runtime.nexloop_outreach_expire_approvals(%s,%s)', (TENANT_A, world)).fetchone()[0] == 1
 
 
 def test_world_due_times_are_scheduled_on_the_wall_and_rescheduled_by_every_clock_change(db):
