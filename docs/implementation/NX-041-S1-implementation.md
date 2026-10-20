@@ -42,3 +42,8 @@ real 和 test 的行为完全不变：两者的数据模式、召回入口、指
 ## 已知的无关失败
 
 `tests/test_outreach_runs_pg.py::test_a_plan_run_asks_inside_its_run_and_the_closed_switch_refuses_at_dispatch` 依赖当前时间：在夜间免打扰时段（测试时是 23:21），它得到的是 `quiet_hours`，而不是预期的 `real_dispatch_closed`。在基点 f05ad22c 上跑，结果相同，与 S1 无关。
+
+## 未接入（审查后记录，另行安排）
+
+- 契约 `packages/contracts/claim.schema.json` 的 `world_id` 只要求非空字符串，`simulation` 这类非法 world 仍能通过契约校验。收紧 pattern 会变更契约，这次不做（测试数据已改用 `SIM_WORLD`）。
+- Agent Host `runtime-adapter.ts` 的 world_id 校验：已派给 L3 单独处理。

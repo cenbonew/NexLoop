@@ -47,12 +47,19 @@ def test_simulation_and_other_invalid_worlds_are_refused_where_worlds_are_stored
     seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=SIM_WORLD, identity_suffix='-good-sim')  # a valid experiment world
     with pytest.raises(psycopg.errors.CheckViolation), admin.transaction():
         admin.execute("update authz.nexloop_service_credentials set worlds=%s where worlds=%s", (['test', 'shadow'], [SIM_WORLD]))
-    # The semantic access record (0234): its world check is the one check now.
-    for world in ('simulation', 'sim:1', 'prod'):
-        with pytest.raises(psycopg.errors.CheckViolation), admin.transaction():
+    # The semantic access record (0234): its world check is the one check now. Positive control first (the same row with a valid
+    # world is written), then each invalid world fails on that constraint and no other.
+    def access(world):
+        with admin.transaction():
             admin.execute('set local session_replication_role=replica')
             admin.execute("""insert into runtime.nexloop_semantic_accesses(tenant_id,world,access_id,kind,operation,query_kind,term_hashes,coverage,ambiguity)
                 values(%s,%s,%s,'access','browse','any',%s,0,false)""", (TENANT_A, world, uuid.uuid4(), ['a' * 64]))
+    for world in ('real', 'test', SIM_WORLD, 'shadow:' + U):
+        access(world)
+    for world in ('simulation', 'sim:1', 'prod'):
+        with pytest.raises(psycopg.errors.CheckViolation) as refused:
+            access(world)
+        assert refused.value.diag.constraint_name == 'nexloop_semantic_accesses_world_check', world
     # The recall entry (0067): a well-formed but invalid world is refused before any credential lookup.
     for world in ('simulation', 'shadow', 'sim:abc'):
         with pytest.raises(psycopg.errors.InvalidParameterValue, match='recall world invalid'), admin.transaction():
@@ -81,3 +88,16 @@ def test_a_run_command_world_must_be_valid_and_of_its_mode():
     assert world_ok('real', 'real') and world_ok('test', 'test') and world_ok(SIM_WORLD, 'simulation') and world_ok('shadow:' + U, 'shadow')
     for world, mode in (('simulation', 'simulation'), ('sim:1', 'simulation'), ('test', 'real'), ('real', 'test'), (SIM_WORLD, 'test'), ('staging', 'test')):
         assert not world_ok(world, mode), (world, mode)
+
+
+def test_the_claim_projection_mode_follows_the_world(admin):
+    """0155 + S1: the Claim wire object's mode is the world's data mode - sim:* and shadow:* project as simulation, real and test
+    unchanged. The projection is applied to a Claim row value with only its world set."""
+    bootstrap(admin)
+    cols = [r[0] for r in admin.execute("""select attname from pg_attribute where attrelid='ontology.nexloop_claims'::regclass and attnum>0
+        and not attisdropped and attname='world'""").fetchall()]
+    assert cols == ['world']
+    def project(world):
+        return admin.execute("""select authz.nexloop_claim_contract(jsonb_populate_record(null::ontology.nexloop_claims,
+            jsonb_build_object('world',%s::text)))->>'mode'""", (world,)).fetchone()[0]
+    assert [project(w) for w in ('real', 'test', SIM_WORLD, 'shadow:' + U)] == ['real', 'test', 'simulation', 'simulation']
