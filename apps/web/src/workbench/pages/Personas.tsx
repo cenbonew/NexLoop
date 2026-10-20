@@ -7,14 +7,14 @@
  */
 import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readOperatorPersonas,type AiDisclosure,type ContactPreference,type PersonaDocument,
+import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readMe,readOperatorPersonas,readOutreachControls,type ConsentMode,type OutreachSettings,type AiDisclosure,type ContactPreference,type PersonaDocument,
   type PersonaOverview,type PersonaRule,type PersonaVersion} from '../api';
 import {DataTable} from '../DataTable';
 import {Empty,StatusBadge,Tabs,Time} from '../ui';
 import {Form,WithMember} from '../actions';
 import {Page} from './Page';
 
-type Tab='personas'|'rules'|'disclosure';
+type Tab='personas'|'rules'|'disclosure'|'outreach';
 const lines=(value:string)=>value.split('\n').map(x=>x.trim()).filter(Boolean);
 /** The highest published version of each persona: what a customer assigned to it gets now. */
 export function usableVersions(personas:PersonaVersion[]):Map<string,PersonaVersion>{
@@ -27,9 +27,12 @@ export function personaRef(p:{persona_id:string;version:number}):string{return `
 export function Personas({actions}:{actions?:ReactNode}){
   const [tab,setTab]=useState<Tab>('personas');
   const query=useQuery({queryKey:['workbench','operator-personas'],queryFn:()=>readOperatorPersonas()});
-  return <Page title="运营人设" query={query} actions={actions} toolbar={<Tabs label="人设设置" value={tab} onChange={setTab}
-    tabs={[{key:'personas',label:'人设与版本'},{key:'rules',label:'分配'},{key:'disclosure',label:'AI 身份披露'}]}/>}>{data=>
-    tab==='personas'?<PersonaVersions data={data}/>:tab==='rules'?<Assignment data={data}/>:<Disclosure setting={data.ai_disclosure}/>}</Page>;
+  // 0232: the outreach controls tab is the owner's only (the read and the Action are owner only).
+  const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
+  const owner=member.data?.role==='owner';
+  const tabs:{key:Tab;label:string}[]=[{key:'personas',label:'人设与版本'},{key:'rules',label:'分配'},{key:'disclosure',label:'AI 身份披露'},...(owner?[{key:'outreach' as Tab,label:'外联控制'}]:[])];
+  return <Page title="运营人设" query={query} actions={actions} toolbar={<Tabs label="人设设置" value={tab} onChange={setTab} tabs={tabs}/>}>{data=>
+    tab==='personas'?<PersonaVersions data={data}/>:tab==='rules'?<Assignment data={data}/>:tab==='outreach'&&owner?<OutreachControlsTab/>:<Disclosure setting={data.ai_disclosure}/>}</Page>;
 }
 
 // ---- versions and the editor ----
@@ -220,4 +223,70 @@ function PersonaLine({data}:{data:PersonaOverview}){
     <div><dt>当前生效</dt><dd>{c.settled?<>{now?.document.display_name??c.settled.persona_id} <code>{now?personaRef(now):c.settled.persona_id+'（已停用）'}</code> · {PERSONA_SOURCE_TEXT[c.settled.source]}</>:'尚未在对话中使用'}</dd></div>
     {changes&&c.desired?.persona_id&&c.desired.source?<div><dt>下次对话起</dt><dd>{next?.document.display_name??c.desired.persona_id} <code>{next?personaRef(next):c.desired.persona_id}</code> · {PERSONA_SOURCE_TEXT[c.desired.source]}</dd></div>:null}
   </dl>;
+}
+
+
+// ---- outreach controls (0232, owner only; outreach design P3/P8, plan O1/O5) ----
+const CONSENT_TEXT:Record<ConsentMode,string>={opt_out:'默认可发，客户表示不同意即停（opt-out）',opt_in:'只发给明确同意的客户（opt-in）'};
+export function OutreachControlsTab(){
+  const query=useQuery({queryKey:['workbench','outreach-controls'],queryFn:readOutreachControls});
+  if(query.isPending)return <p role="status">正在加载…</p>;
+  if(query.isError)return <Empty kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'}/>;
+  const s=query.data.settings;
+  return <>
+    <p className="note">外联控制决定系统何时、多久主动联系客户。目前还没有外发功能，这些设置先用于派发预演；联系限制与客户本人的偏好始终更优先。</p>
+    <dl className="facts">
+      <div><dt>修订号</dt><dd>{s.source==='default'?'未设置（使用默认值）':`r${s.revision}`}</dd></div>
+      <div><dt>时区</dt><dd>{s.time_zone}</dd></div>
+      <div><dt>勿扰时段</dt><dd>{s.quiet_hours??'不设'}</dd></div>
+      <div><dt>频率上限（每位客户）</dt><dd>24 小时 {s.per_24h} 条 · 7 天 {s.per_7d} 条（含带通知的服务消息，不含回复）</dd></div>
+      <div><dt>营销</dt><dd>{s.marketing.enabled?'已开启':'已关闭'} · {CONSENT_TEXT[s.marketing.consent_mode]}</dd></div>
+      <div><dt>营销额度</dt><dd>7 天 {s.marketing.per_7d} 条</dd></div>
+      <div><dt>退订话术</dt><dd>{s.marketing.unsubscribe_notice}</dd></div>
+      <div><dt>发送方标识</dt><dd>{s.marketing.sender_label||'不设'}</dd></div></dl>
+    {query.data.events.length?<DataTable label="外联控制修改记录" rows={query.data.events} rowKey={e=>String(e.revision)} columns={[
+      {label:'修订号',main:true,cell:e=>`r${e.revision}`},{label:'营销',cell:e=>e.marketing_enabled?'开启':'关闭'},
+      {label:'确认的同意模式',cell:e=>e.consent_mode_confirmed?CONSENT_TEXT[e.consent_mode_confirmed]:'—'},{label:'时间',cell:e=><Time value={e.recorded_at}/>}]}/>:null}
+    <p className="note">营销的合规要求（同意、退订、发送时段、发送方标识）因法域而异，由使用方负责；opt-out 在部分法域不被允许。</p>
+    <WithMember>{member=><OutreachControlsForm member={member} current={s}/>}</WithMember>
+  </>;
+}
+/** The settings the Action takes, from the form state (empty quiet hours means none). */
+export function outreachSettingsOf(f:{time_zone:string;quiet:boolean;quiet_from:string;quiet_to:string;per_24h:string;per_7d:string;enabled:boolean;consent:ConsentMode;
+  notice:string;marketing_7d:string;sender:string}):OutreachSettings{
+  return {time_zone:f.time_zone.trim(),quiet_hours:f.quiet?`${f.quiet_from}-${f.quiet_to}`:null,per_24h:Number(f.per_24h),per_7d:Number(f.per_7d),
+    marketing:{enabled:f.enabled,consent_mode:f.consent,unsubscribe_notice:f.notice.trim(),per_7d:Number(f.marketing_7d),sender_label:f.sender.trim()}};
+}
+/** O5: switching marketing on needs the confirmation; the marketing limit within the 7-day limit; a reason. SQL decides again. */
+export function outreachReady(f:{time_zone:string;notice:string;marketing_7d:string;per_7d:string;enabled:boolean},current:OutreachSettings,confirmed:boolean,reason:string):boolean{
+  const switchingOn=f.enabled&&!current.marketing.enabled;
+  return !!f.time_zone.trim()&&!!f.notice.trim()&&Number(f.marketing_7d)<=Number(f.per_7d)&&!!reason.trim()&&(!switchingOn||confirmed);
+}
+function OutreachControlsForm({member,current}:{member:Parameters<typeof Form>[0]['member'];current:OutreachSettings}){
+  const [f,setF]=useState({time_zone:current.time_zone,quiet:current.quiet_hours!==null,quiet_from:current.quiet_hours?.split('-')[0]??'21:00',
+    quiet_to:current.quiet_hours?.split('-')[1]??'09:00',per_24h:String(current.per_24h),per_7d:String(current.per_7d),enabled:current.marketing.enabled,
+    consent:current.marketing.consent_mode,notice:current.marketing.unsubscribe_notice,marketing_7d:String(current.marketing.per_7d),sender:current.marketing.sender_label});
+  const [confirmed,setConfirmed]=useState(false);const [reason,setReason]=useState('');
+  const set=(patch:Partial<typeof f>)=>{setF({...f,...patch});if('enabled' in patch||'consent' in patch)setConfirmed(false);};
+  const switchingOn=f.enabled&&!current.marketing.enabled;
+  const valid=outreachReady(f,current,confirmed,reason);
+  return <Form operation="set_outreach_controls" member={member} title="保存外联控制" disabled={!valid}
+    body={()=>({settings:outreachSettingsOf(f),confirm_consent_mode:switchingOn?f.consent:null,reason:reason.trim()})}>
+    <div className="field"><label htmlFor="oc-tz">时区</label><input id="oc-tz" value={f.time_zone} onChange={e=>set({time_zone:e.target.value})} placeholder="Asia/Shanghai"/></div>
+    <label className="choice"><input type="checkbox" checked={f.quiet} onChange={e=>set({quiet:e.target.checked})}/>设置勿扰时段</label>
+    {f.quiet?<div className="field"><label htmlFor="oc-quiet-from">勿扰时段（可跨午夜）</label>
+      <input id="oc-quiet-from" type="time" value={f.quiet_from} onChange={e=>set({quiet_from:e.target.value})}/>
+      <input aria-label="勿扰结束" type="time" value={f.quiet_to} onChange={e=>set({quiet_to:e.target.value})}/></div>:null}
+    <div className="field"><label htmlFor="oc-24h">每位客户 24 小时最多</label><input id="oc-24h" type="number" min={0} max={100} value={f.per_24h} onChange={e=>set({per_24h:e.target.value})}/></div>
+    <div className="field"><label htmlFor="oc-7d">每位客户 7 天最多</label><input id="oc-7d" type="number" min={0} max={1000} value={f.per_7d} onChange={e=>set({per_7d:e.target.value})}/></div>
+    <label className="choice"><input type="checkbox" checked={f.enabled} onChange={e=>set({enabled:e.target.checked})}/>开启营销</label>
+    <fieldset className="choices"><legend>营销同意模式</legend>
+      {(['opt_out','opt_in'] as ConsentMode[]).map(m=><label key={m} className="choice"><input type="radio" name="oc-consent" checked={f.consent===m} onChange={()=>set({consent:m})}/>{CONSENT_TEXT[m]}</label>)}</fieldset>
+    {switchingOn?<label className="choice oc-confirm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
+      我确认营销同意模式为「{CONSENT_TEXT[f.consent]}」，并知悉合规责任由使用方承担</label>:null}
+    <div className="field"><label htmlFor="oc-mk7d">营销额度：7 天最多（不超过上面的 7 天上限）</label><input id="oc-mk7d" type="number" min={0} value={f.marketing_7d} onChange={e=>set({marketing_7d:e.target.value})}/></div>
+    <div className="field"><label htmlFor="oc-notice">退订话术（追加在每条营销消息末尾）</label><input id="oc-notice" value={f.notice} maxLength={200} onChange={e=>set({notice:e.target.value})}/></div>
+    <div className="field"><label htmlFor="oc-sender">发送方标识（可选）</label><input id="oc-sender" value={f.sender} maxLength={40} onChange={e=>set({sender:e.target.value})}/></div>
+    <div className="field"><label htmlFor="oc-reason">原因</label><input id="oc-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></div>
+  </Form>;
 }

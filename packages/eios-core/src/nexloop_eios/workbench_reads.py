@@ -583,5 +583,9 @@ class WorkbenchQueries:
         # 0231: proactive outreach slice 1, candidates and their dispatch dry run (read only; nothing is sent).
         return self.reader.observe('outreach_candidates')
 
+    def outreach_controls(self):
+        # 0232: the tenant's outreach controls (settings, revision, last changes) for the owner's page; read only.
+        return self.reader.observe('outreach_controls')
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

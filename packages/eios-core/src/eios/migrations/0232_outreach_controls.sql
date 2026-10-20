@@ -11,6 +11,8 @@
 --    consent_mode_unconfirmed'; the confirmation is recorded in the event. Other refusals: 'outreach controls: invalid'.
 -- 4. The slice 1 dry run (0231 bodies, changes marked 0232) and the consumer's quiet-hours preference (0228 body) read the
 --    tenant's settings and time zone instead of the fixed defaults (O1). runtime.nexloop_outreach_defaults stays for 0231.
+-- 5. Workbench observe verb outreach_controls (owner only): the settings with their revision and source, and the last 20 changes
+--    (revision, consent mode confirmed, marketing on or off, time; never the reason).
 
 create table control.nexloop_outreach_controls (
  tenant_id text primary key,settings jsonb not null check(jsonb_typeof(settings)='object'),revision bigint not null check(revision>0),
@@ -191,3 +193,40 @@ begin
 end $owners$;
 insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values
  ('outreach_controls.set','set_outreach_controls','human','control.nexloop_governed_set_outreach_controls(text,text,text,text,text,jsonb)','NX-022');
+
+-- 5. The owner's read of the controls for the workbench page (workbench observe; every other verb unchanged) ---------------
+alter function authz.nexloop_workbench_observe_read(text,text,text,text,text) rename to nexloop_workbench_observe_read_before_outreach_controls_v0232;
+revoke all on function authz.nexloop_workbench_observe_read_before_outreach_controls_v0232(text,text,text,text,text) from public,nexloop_api;
+create function authz.nexloop_workbench_observe_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare a jsonb:=p_text::jsonb;c jsonb:=p_payload::jsonb;k bytea;w jsonb;cfg control.nexloop_workbench_configurations;v_tenant text;
+ v_action text:='eios:action:nexloop.workbench.read:1';v_consumer text;
+begin
+ if c->>'verb' is distinct from 'outreach_controls' then
+  return authz.nexloop_workbench_observe_read_before_outreach_controls_v0232(p_digest,p_world,p_text,p_signature,p_payload);end if;
+ -- The 0133 verification, for this verb (as 0210/0220/0227).
+ if octet_length(p_text)>1048576 or octet_length(p_payload)>4096
+  or a->>'protocol' is distinct from 'nexloop-workbench-observe-v1' or a->>'operation' is distinct from 'execute'
+  or a->>'action_resource' is distinct from v_action or a->>'resource_id' is distinct from v_action
+  or a->>'parameters_digest' is distinct from encode(sha256(convert_to(p_payload,'UTF8')),'hex') then
+  raise exception 'workbench observe unavailable' using errcode='42501';end if;
+ select key_material into k from authz.nexloop_authority_signing_keys where key_id=a->>'key_id' and active;
+ if not found or p_signature is distinct from encode(extensions.hmac(convert_to('nexloop-workbench-observe-v1:'||p_text,'UTF8'),k,'sha256'),'hex')
+  or a->>'expires_at' is null or (a->>'expires_at')::timestamptz<=clock_timestamp() or (a->>'expires_at')::timestamptz>clock_timestamp()+interval '30 seconds' then
+  raise exception 'workbench observe unavailable' using errcode='42501';end if;
+ w:=authz.nexloop_workbench_member(p_digest,p_world);v_tenant:=w->>'tenant_id';cfg:=control.nexloop_workbench_current(v_tenant);
+ if a->>'tenant_id' is distinct from v_tenant or a->>'principal_id' is distinct from w->>'principal_id' or not (cfg.roles->(w->>'role') ? v_action)
+  or w->>'role'<>'owner' then
+  raise exception 'workbench observe forbidden' using errcode='42501';end if;
+ perform authz.nexloop_assert_action_authority(p_digest,p_world,a);
+ if (select count(*) from jsonb_object_keys(c))<>1 then raise exception 'workbench observe invalid' using errcode='22023';end if;
+ perform set_config('eios.tenant_id',v_tenant,true);
+ -- The settings (or the defaults), the revision, and the last changes without their reason text.
+ return jsonb_build_object('settings',runtime.nexloop_outreach_settings(v_tenant),
+  'events',coalesce((select jsonb_agg(jsonb_build_object('revision',e.revision,'consent_mode_confirmed',e.consent_mode_confirmed,'marketing_enabled',
+    (e.settings->'marketing'->>'enabled')::boolean,'recorded_at',e.recorded_at) order by e.revision desc)
+   from (select * from control.nexloop_outreach_control_events where tenant_id=v_tenant order by revision desc limit 20) e),'[]'::jsonb));
+end $$;
+alter function authz.nexloop_workbench_observe_read(text,text,text,text,text) owner to nexloop_owner;
+revoke all on function authz.nexloop_workbench_observe_read(text,text,text,text,text) from public;
+grant execute on function authz.nexloop_workbench_observe_read(text,text,text,text,text) to nexloop_api;

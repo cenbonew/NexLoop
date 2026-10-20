@@ -10,6 +10,7 @@ import pytest
 from commercial_fixture import publish_registry_actions
 from commitment_fixture import TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
+from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_commitments_pg import fresh
@@ -87,3 +88,22 @@ def test_the_dry_run_and_the_preference_follow_the_tenant_settings(restoring, ad
         item = candidates(admin)['candidates'][0]
         assert gate(item, 'consumer_preference')['result'] == 'pass'
         assert gate(item, 'real_dispatch')['result'] == 'refuse' and item['would_dispatch'] is False  # still read only, still closed
+
+
+def test_the_owner_reads_the_controls_for_the_page(restoring, admin):
+    """0232 read: settings with revision and source, the last changes without reasons; owner only."""
+    c = restoring
+    publish_registry_actions(admin, ('nexloop.outreach_controls.set',))
+    with c['app']() as client:
+        workbench_login(client, c['operator_member'])
+        assert client.get('/api/v1/workbench/outreach-controls', headers={'Origin': ORIGIN}).status_code == 403
+    with c['app']() as client:
+        csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
+        first = client.get('/api/v1/workbench/outreach-controls', headers={'Origin': ORIGIN}).json()
+        assert first['settings']['source'] == 'default' and first['settings']['revision'] == 0 and first['events'] == []
+        assert client.get('/api/v1/workbench/outreach-controls?x=1', headers={'Origin': ORIGIN}).status_code == 422
+        assert set_controls(client, csrf, settings(marketing={'enabled': True}), confirm='opt_out', reason='开通营销（王经理批准）').status_code == 200
+        view = client.get('/api/v1/workbench/outreach-controls', headers={'Origin': ORIGIN}).json()
+    assert view['settings']['revision'] == 1 and view['settings']['marketing']['enabled'] is True
+    assert view['events'] == [{'revision': 1, 'consent_mode_confirmed': 'opt_out', 'marketing_enabled': True, 'recorded_at': view['events'][0]['recorded_at']}]
+    assert '王经理' not in str(view)
