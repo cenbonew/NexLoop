@@ -1805,6 +1805,154 @@
           "exceptions"
         ]
       },
+      "ConsumerPortEvent": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:consumer-port-event",
+        "title": "consumer-port-event",
+        "description": "NX-041 S7 consumer port (design §5): the one way a twin (NX-042) produces an inbound event in a simulation world. The twin gives the synthetic Consumer, the event kind, simulated content and its own version, seed and step; it never gives a world time, a mode, an event id or a sequence: the server derives them (world time from the world's clock, S5). The world is a registered active sim:/shadow: world authenticated by its one credential; real and test are refused. Every event is data_mode simulation, output_kind simulated_input, origin twin: never a fact and never a real effect. The port holds no real credential and calls no Action.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "request"
+        ],
+        "properties": {
+          "schema": {
+            "const": "nexloop-consumer-port-event/1"
+          },
+          "request": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "consumer_id",
+              "event_kind",
+              "content",
+              "twin"
+            ],
+            "properties": {
+              "consumer_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "A synthetic Consumer generated in this world (S3)."
+              },
+              "event_kind": {
+                "enum": [
+                  "message",
+                  "refuse_contact",
+                  "payment_intent",
+                  "visit"
+                ]
+              },
+              "content": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Simulated content; a message carries text.",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "attributes": {
+                    "type": "object",
+                    "maxProperties": 16,
+                    "propertyNames": {
+                      "pattern": "^[a-z][a-z0-9_]{0,31}$"
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "twin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "seed",
+                  "step"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_.-]{0,39}/[0-9]+$"
+                  },
+                  "seed": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "step": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  }
+                }
+              }
+            }
+          },
+          "frozen": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Server-derived, never accepted from the twin.",
+            "required": [
+              "world",
+              "event_id",
+              "sequence",
+              "content_digest",
+              "sim_time",
+              "data_mode",
+              "output_kind",
+              "origin"
+            ],
+            "properties": {
+              "world": {
+                "type": "string",
+                "pattern": "^(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "event_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "sequence": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "content_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "sim_time": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+              },
+              "data_mode": {
+                "const": "simulation"
+              },
+              "output_kind": {
+                "const": "simulated_input"
+              },
+              "origin": {
+                "const": "twin"
+              }
+            }
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
       "ContactRestrictionView": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:contact-restriction-view",
@@ -2242,6 +2390,299 @@
             }
           }
         ]
+      },
+      "ContextPackSim": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:context-pack-sim",
+        "title": "context-pack-sim",
+        "description": "NX-041 S7b: the Context of a Run in a simulation world. Context pack v6 is real-only (bindings.world_id is real and its supply, goal and relationship sections are real sources), so a simulation world has its own pack, assembled by its own entry from simulation sources only: the synthetic Consumer's generated profile and persona (S3) and the events the twin produced through the consumer port (S7). Items keep the v6 item shape (ref, revision, content, content_hash, at, tags) and every one says source simulated: nothing here is a fact, and no real conversation, Claim, object or memory is ever read.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "world",
+          "tenant_id",
+          "consumer_id",
+          "data_mode",
+          "world_time",
+          "current_event",
+          "consumer_state",
+          "evidence",
+          "budget_report",
+          "insufficient"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "nexloop.context-pack.sim.v1"
+          },
+          "world": {
+            "type": "string",
+            "pattern": "^(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "consumer_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "data_mode": {
+            "const": "simulation"
+          },
+          "world_time": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+          },
+          "current_event": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "event_id",
+                  "sequence",
+                  "event_kind",
+                  "provenance",
+                  "source"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "simulated_consumer_event"
+                  },
+                  "event_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "event_kind": {
+                    "enum": [
+                      "message",
+                      "refuse_contact",
+                      "payment_intent",
+                      "visit"
+                    ]
+                  },
+                  "provenance": {
+                    "type": "string",
+                    "pattern": "^sim:event:[0-9a-f]{64}$"
+                  },
+                  "source": {
+                    "const": "simulated"
+                  }
+                }
+              }
+            ]
+          },
+          "consumer_state": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "subsection",
+                "ref",
+                "revision",
+                "content",
+                "content_hash",
+                "evidence_kind",
+                "source",
+                "at",
+                "tags"
+              ],
+              "properties": {
+                "subsection": {
+                  "enum": [
+                    "profile",
+                    "persona"
+                  ]
+                },
+                "ref": {
+                  "type": "string",
+                  "pattern": "^sim:(object|persona):[0-9a-f]{64}$"
+                },
+                "revision": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "content": {
+                  "type": "object"
+                },
+                "content_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "sha256 (hex) of this item's content as PostgreSQL jsonb text."
+                },
+                "evidence_kind": {
+                  "enum": [
+                    "synthetic_profile",
+                    "synthetic_persona"
+                  ]
+                },
+                "source": {
+                  "const": "simulated"
+                },
+                "at": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "tags": {
+                  "type": "array",
+                  "maxItems": 0
+                }
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "subsection",
+                "ref",
+                "revision",
+                "content",
+                "content_hash",
+                "evidence_kind",
+                "source",
+                "at",
+                "tags"
+              ],
+              "properties": {
+                "subsection": {
+                  "const": "simulated_conversation"
+                },
+                "ref": {
+                  "type": "string",
+                  "pattern": "^sim:event:[0-9a-f]{64}$"
+                },
+                "revision": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,9}$"
+                },
+                "content": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "event_kind"
+                  ],
+                  "properties": {
+                    "event_kind": {
+                      "enum": [
+                        "message",
+                        "refuse_contact",
+                        "payment_intent",
+                        "visit"
+                      ]
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    "attributes": {
+                      "type": "object",
+                      "maxProperties": 16
+                    }
+                  }
+                },
+                "content_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "sha256 (hex) of this item's content as PostgreSQL jsonb text (the canonical text of the content object given here)."
+                },
+                "evidence_kind": {
+                  "const": "simulated_input"
+                },
+                "source": {
+                  "const": "simulated"
+                },
+                "at": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "tags": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "maxItems": 2,
+                  "items": {
+                    "enum": [
+                      "latest_consumer_turn",
+                      "contact_limit"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "budget_report": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "event_limit",
+              "events_total",
+              "events_included",
+              "omitted"
+            ],
+            "properties": {
+              "event_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 256
+              },
+              "events_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "events_included": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 256
+              },
+              "omitted": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "insufficient": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "section"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "no_simulated_events",
+                    "older_events_omitted"
+                  ]
+                },
+                "section": {
+                  "enum": [
+                    "current_event",
+                    "evidence"
+                  ]
+                }
+              }
+            }
+          }
+        }
       },
       "ContextPackV6": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7931,8 +8372,10 @@
     "candidate-definition.schema.json": "7900c8937715c5a2ec892b978c907b059467efe1a1f437848dfc819097c5863f",
     "claim.schema.json": "80bd9df31049ea74bab2187156b3c6e0297e00025153446edc91ab6cdbc85d48",
     "commitment-view.schema.json": "e0f9f5acc84268282e036e265d70393a95bebc8edf45982e13dab048a4ec9e82",
+    "consumer-port-event.schema.json": "b74c8b1b7e5b3386934405b201af8d1c5068f1b1e22f745b2990486dbea973c3",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
+    "context-pack-sim.schema.json": "a5089711dc4c6e6e63288450e3e8ba8b090514faae7dc90e65b949ec20271ea8",
     "context-pack-v6.schema.json": "9f50b585d8d5eb7d6e3a7fee9d7b273cd990aac5dc6e86080680f0cf2b354e0a",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",

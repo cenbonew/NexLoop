@@ -1576,6 +1576,98 @@
       },
       "schema_hash": "d0897154bc37c00ce784833e93342c85a8de107b9243086351362be221efed23",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "sim_world.create",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "create_sim_world",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "69d03bd48b651d5b9657186123f6ef4c3c05aa520f38d9ac00d18492e6787bc9",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "sim_world.delete",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "delete_sim_world",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "032df29185e35ba037130a5a77af3776eae08c5f36491774a2e4432afca0911c",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "sim_world.generate",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "generate_sim_world_data",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "77fff17af6210638f657e840a2b5af62cb059ef4d2ed488b543e2df894440f7a",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "sim_clock.control",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "control_sim_clock",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "e735e18d35d18f277095f35f210dd07271eaf8f5b4748db7ce15168ed12171eb",
+      "side_effects_reason": null
     }
   ]
 }

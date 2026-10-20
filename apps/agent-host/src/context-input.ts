@@ -1,6 +1,9 @@
 /** Typed context interpretation. Authenticity additionally requires fresh PG guard. */
 import {createHash} from 'node:crypto';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
+import {CONTEXT_PROTOCOL_SIM} from './sim-context.js';
+// NX-041: the simulation context protocol lives in sim-context.ts; re-exported here with the other protocols.
+export {CONTEXT_PROTOCOL_SIM,parseSimContextPack,renderSimContextPack,declaresSimContextPack,type SimContextPack} from './sim-context.js';
 export const CONTEXT_PROTOCOL='nexloop.context-pack.v1';
 export const CONTEXT_PROTOCOL_V2='nexloop.context-pack.v2';
 export const CONTEXT_PROTOCOL_V3='nexloop.context-pack.v3';
@@ -120,6 +123,8 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   let parsed:unknown;try{parsed=JSON.parse(input);}catch{return fail();}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return fail();
   const protocol=(parsed as Record<string,unknown>).schema_version;
+  // NX-041: the simulation pack is never a v1-v6 Context (a real Host refuses it; a simulation Host reads it with parseSimContextPack).
+  if(protocol===CONTEXT_PROTOCOL_SIM)return fail();
   if(protocol===CONTEXT_PROTOCOL_V4){
     if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V4)return fail();
     const pack=exact(parsed,['schema_version','bindings','user_statement','formal_facts','current_constraints','supply','relationship_context']);

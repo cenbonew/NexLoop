@@ -1,0 +1,140 @@
+# NX-041 S6 (design §6, D3, D4, D6): the simulation process group - its own compose project on APP_HOST, off by default.
+# Every service carries the profile `simulation`; nothing starts unless the project is brought up with `--profile simulation`.
+# It shares no network namespace with the real project (nexloop-app): its own bridge network on a fixed subnet
+# (NEXLOOP_SIM_SUBNET), and the runtime worker, the stand-in executor and the file purger share the simulation Agent Host's
+# namespace (loopback only between them).
+# Egress (review 1.3): the group needs exactly two destinations - DATA_HOST's PostgreSQL (workers) and the model provider
+# allowlist on 443 (the simulation Host; D6: a deterministic or cheap model). Compose cannot allow by domain, so the boundary is
+# the host firewall: docs/implementation/NX-041-S6-simulation.nft.example (table inet nexloop_simulation) admits those two from
+# NEXLOOP_SIM_SUBNET and drops every other new connection, including APP_HOST's own ports (the real Host, guard and gateway).
+# It is applied by the owner; the deployment sheet then probes a real Host port from a simulation container and expects a refusal.
+# Database roles (review 1.2, S6c): every process connects as a simulation role of its own, none a member of a real role - the
+# runtime worker's dispatcher as nexloop_sim_worker, its guard children as nexloop_sim_guard, the stand-in executor as
+# nexloop_stand_in_worker, the file purger as nexloop_sim_files (nexloop_sim_api is for the simulation world's event intake, not
+# part of this project yet). Each DSN file is that role's own; the secret directory holds no real role's password.
+# Example only: every path, image, port and world comes from the private env file; nothing here is a real address.
+# What this group never holds: a real or test service credential, a channel or provider secret, a provider/routes configuration,
+# the real Host's model key or runtime root. Its secrets are the simulation world's own (S2 D10: worlds exactly that one world),
+# the simulation model account (D6: monthly cap 100 CNY, also enforced in the database) and its own Host transport material.
+name: nexloop-simulation
+x-sim-service: &sim-service
+  image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: on-failure
+  profiles: [simulation]
+  user: '${NEXLOOP_SIM_UID:?simulation service uid required}:${NEXLOOP_SIM_GID:?simulation service gid required}'
+  labels:
+    nexloop.budget-service: none
+services:
+  sim-agent-host:
+    image: ${AGENT_HOST_IMAGE:?Agent Host image by digest}
+    profiles: [simulation]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [simulation]
+    user: '${NEXLOOP_SIM_UID:?simulation service uid required}:${NEXLOOP_SIM_GID:?simulation service gid required}'
+    # Its own runtime root: one directory per simulation world (removed as a whole when the world is deleted).
+    volumes: ['${NEXLOOP_SIM_RUNTIME_DIR:?private simulation runtime directory required}:/private/runtime']
+    # The runtime configuration sets "world_group": "simulation": this Host refuses every real and test Run command.
+    command: [--node, /usr/local/bin/node, --runtime-root, /private/runtime, --internal-key-file, /run/secrets/sim_host_transport_key,
+              --port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}', --tls-certificate-file, /run/secrets/sim_host_cert,
+              --tls-key-file, /run/secrets/sim_host_key, --runtime-config-file, /run/secrets/sim_host_runtime_config]
+    # The runtime configuration also names host_id (NEXLOOP_SIM_HOST_ID, registered in authz.nexloop_sim_hosts) and
+    # world_purge_key_file (/run/secrets/sim_host_purge_key: the Host's purge key, held by this service and the database only).
+    secrets: [sim_host_cert, sim_host_key, sim_host_transport_key, sim_guard_ca, sim_host_guard_key, sim_host_runtime_config,
+              sim_host_model_configuration, sim_host_purge_key]
+    labels:
+      nexloop.budget-service: none
+  sim-runtime-worker:
+    <<: *sim-service
+    network_mode: service:sim-agent-host
+    entrypoint: [nexloop-runtime-worker]
+    command:
+      - --database-url-file
+      - /run/secrets/sim_worker_dsn
+      - --signing-key-file
+      - /run/secrets/sim_signing_key
+      - --signing-key-id
+      - ${NEXLOOP_SIM_SIGNING_KEY_ID:?simulation signing key id required}
+      - --service-credential-file
+      - /run/secrets/sim_world_credential
+      - --artifact-root
+      - /var/lib/nexloop/artifacts
+      - --world
+      - ${NEXLOOP_SIM_WORLD:?sim:<uuid> or shadow:<uuid> required}
+      - --world-group
+      - simulation
+      - --queue
+      - operations
+      - --host-origin
+      - https://127.0.0.1:${NEXLOOP_SIM_HOST_PORT:?simulation Host port}
+      - --host-control-key-file
+      - /run/secrets/sim_host_transport_key
+      - --host-ca-file
+      - /run/secrets/sim_host_ca
+      - --guard-port
+      - ${NEXLOOP_SIM_GUARD_PORT:?simulation guard port}
+      - --guard-key-file
+      - /run/secrets/sim_host_guard_key
+      - --guard-certificate-file
+      - /run/secrets/sim_guard_certificate
+      - --guard-tls-key-file
+      - /run/secrets/sim_guard_tls_key
+      # S6c: the guard serves from child processes connected as nexloop_sim_guard (its own DSN), never as the dispatcher's role.
+      - --guard-database-url-file
+      - /run/secrets/sim_guard_dsn
+      - --guard-workers
+      - '2'
+    secrets: [sim_worker_dsn, sim_guard_dsn, sim_signing_key, sim_world_credential, sim_host_transport_key, sim_host_ca, sim_host_guard_key,
+              sim_guard_certificate, sim_guard_tls_key]
+    volumes: ['${NEXLOOP_SIM_ARTIFACT_DIR:?private simulation artifact directory required}:/var/lib/nexloop/artifacts']
+  sim-stand-in-executor:
+    # D4: database URL, the world's credential and the world - no provider, routes, channel or network client.
+    <<: *sim-service
+    network_mode: service:sim-agent-host
+    entrypoint: [python, -m, nexloop_eios.stand_in_executor]
+    command: [--database-url-file, /run/secrets/sim_stand_in_worker_dsn, --service-credential-file, /run/secrets/sim_world_credential,
+              --world, '${NEXLOOP_SIM_WORLD:?sim:<uuid> or shadow:<uuid> required}']
+    secrets: [sim_stand_in_worker_dsn, sim_world_credential]
+  sim-world-files:
+    # S2/S6: removes a deleted world's directory on the simulation Host with the database's permit and hands back the Host's signed
+    # proof (no world credential, no Host key).
+    <<: *sim-service
+    network_mode: service:sim-agent-host
+    entrypoint: [python, -m, nexloop_eios.sim_world_files]
+    command: [--database-url-file, /run/secrets/sim_files_dsn, --host-port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}',
+              --host-id, '${NEXLOOP_SIM_HOST_ID:?simulation Host id}',
+              --host-control-key-file, /run/secrets/sim_host_transport_key, --host-ca-file, /run/secrets/sim_host_ca]
+    secrets: [sim_files_dsn, sim_host_transport_key, sim_host_ca]
+networks:
+  simulation:
+    name: nexloop-simulation
+    # The fixed subnet the host firewall template matches (NX-041-S6-simulation.nft.example, __SIM_SUBNET__).
+    driver: bridge
+    ipam:
+      config:
+        - subnet: '${NEXLOOP_SIM_SUBNET:?simulation subnet required}'
+secrets:
+  sim_host_cert: {file: '${NEXLOOP_SIM_SECRET_DIR:?private simulation secret directory required}/sim_host_cert'}
+  sim_host_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_key'}
+  sim_host_ca: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_ca'}
+  sim_host_transport_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_transport_key'}
+  sim_guard_ca: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_ca'}
+  sim_host_guard_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_guard_key'}
+  sim_guard_certificate: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_certificate'}
+  sim_guard_tls_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_tls_key'}
+  sim_host_runtime_config: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_runtime_config'}
+  sim_host_model_configuration: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_model_configuration'}
+  sim_worker_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_worker_dsn'}
+  sim_guard_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_dsn'}
+  sim_signing_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_signing_key'}
+  sim_world_credential: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_world_credential'}
+  sim_host_purge_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_purge_key'}
+  sim_stand_in_worker_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_stand_in_worker_dsn'}
+  sim_files_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_files_dsn'}
