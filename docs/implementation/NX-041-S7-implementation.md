@@ -67,3 +67,14 @@ sim world 里不会出现事实性的 Commitment 或 Claim，因为来源都被�
 - **端口事件上限**：按提议定为每个 world 100,000 条（`runtime.nexloop_sim_port_event_limit()`）。
 - **sim world 的 Commitment 不可兑现**：保留 CHECK `nx041_no_simulation_evidence`。这是保守做法，以后可以用新迁移放开。
 - **后续（NX-042/043）**：如果实验需要「模拟兑现率」，届时新增一种证据，明确标为 simulated，只在 sim world 里有效，永远不会流到 real。现有的四类真实证据仍然不接受 sim 行。
+
+## 复核余项（L6 `nx041-s7-fix-verify.md`）
+
+| 项 | 处理 |
+| --- | --- |
+| S6c 探测 | 改为检查三个角色 `nexloop_sim_worker`、`nexloop_sim_guard`、`nexloop_sim_api` 是否都存在。名字与 L2 的 S6c（126e4d1b）一致。 |
+| Host 探测 | 不再扫描源码里有没有 schema 字符串，改为检查 Host 的 `src/*.ts` 是否导出了 `parseSimContextPack`，即 L2 在 f13190f5 里实现的 sim 包解析函数，支持 `export function`、`export const` 和 `export {…}` 三种写法。 |
+| D10 探测 | reason 和函数注释里都写明：D10 定案时，要按定案的凭据形式同步改写这个探测。现在的探测是复制已有 binding、只改主体；如果最终定的是「三个凭据按用途区分」，这个写法可能永远翻不过来。 |
+| 2.2 SQL 激活 | 新增 `tests/test_nx041_s7_activation_pg.py`，用现有的 `runtime_effect_fixture` 拿到真实的 worker 会话、已认领的任务和签名密钥。worker 签两类激活命令，签名都正确：原样的 real 命令作为阳性对照，能通过 SQL 的 world 检查；另一类把 command_text 里的 world 换成 sim、shadow 或 test，mode 也一并改成对应值，所以 Python 侧的命令检查会放行，最后由 SQL 拒绝（0037 的 `activation command denied`：命令里的 world 与凭据的 world 不一致）。**Context 入口**：在测试里登记一把签名密钥，签一条格式正确的 v6 请求。sim world 的请求在第一道检查（只允许 real）就被拒绝；同一条请求换成 real，能通过 world 和签名两道检查，一直走到 `nexloop_assert_context_assemble`。这就是阳性对照，说明 sim 的拒绝确实是因为 world，而不是请求本身有问题。 |
+| 5 | 改为按约束名取 Commitment 证据的 kind CHECK（`nexloop_commitment_evidence_kind_check`），不再用 `like` 匹配加 `fetchone()`。 |
+| N1 | 事件上限改用计数表 `runtime.nexloop_sim_port_counters(tenant, world, events)`。在 world 的串行锁里先加一再检查，计数是 O(1) 的，而且精确；超限时整个事务回滚，加上去的那一次也一起撤销。重放已有的 step 不计数。计数表有 world 列，会随 world 一起被整体删除（S2）。 |

@@ -78,6 +78,20 @@ do $$declare r pg_roles;m text;s text;begin
 end $$;
 grant usage on schema authz to nexloop_twin_port;
 
+-- The port's event count per world (fix verify N1): incremented under the world's lock, so the ceiling check is O(1) and exact.
+create table runtime.nexloop_sim_port_counters (
+ tenant_id text not null references control.nexloop_tenants(tenant_id),
+ world text not null check(coalesce(runtime.nexloop_world_kind(world),'') in ('simulation','shadow')),
+ events integer not null check(events>=0),
+ primary key(tenant_id,world));
+alter table runtime.nexloop_sim_port_counters owner to nexloop_owner;
+alter table runtime.nexloop_sim_port_counters enable row level security;
+alter table runtime.nexloop_sim_port_counters force row level security;
+create policy tenant_boundary on runtime.nexloop_sim_port_counters to nexloop_owner using(tenant_id=current_setting('eios.tenant_id',true))
+ with check(tenant_id=current_setting('eios.tenant_id',true));
+revoke all on runtime.nexloop_sim_port_counters from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,
+ nexloop_identity,nexloop_configurator,nexloop_metrics,nexloop_stand_in_worker;
+
 -- The per-world event ceiling of the port (one place; tests read it).
 create function runtime.nexloop_sim_port_event_limit() returns integer language sql immutable set search_path=pg_catalog,pg_temp as $$ select 100000 $$;
 alter function runtime.nexloop_sim_port_event_limit() owner to nexloop_owner;
@@ -98,7 +112,7 @@ revoke all on function runtime.nexloop_sim_consumer_known(text,text,text) from p
 create function authz.nexloop_sim_consumer_act(p_digest text,p_world text,p_event jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text;v_principal text;v_consumer text:=p_event->>'consumer_id';v_content jsonb:=p_event->'content';v_twin jsonb:=p_event->'twin';
- v_id text;v_digest text;x runtime.nexloop_sim_consumer_events;
+ v_id text;v_digest text;x runtime.nexloop_sim_consumer_events;v_count integer;
 begin
  if session_user is distinct from 'nexloop_twin_port' then raise exception 'consumer port: unavailable' using errcode='42501';end if;
  v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
@@ -128,8 +142,11 @@ begin
  else
   -- At most 100 000 events per world (S7 review 1.5; proposed, the dispatcher decides): the S3 generator's own ceiling (2 000
   -- Consumers x 50 events) for the whole run of an experiment. A replay is never refused.
-  if (select count(*) from runtime.nexloop_sim_consumer_events where tenant_id=v_tenant and world=p_world)>=runtime.nexloop_sim_port_event_limit() then
-   raise exception 'consumer port: quota_exceeded' using errcode='22023';end if;
+  -- One more event in this world, counted first under the world's lock; a count beyond the ceiling refuses (the transaction, and
+  -- so the increment, is rolled back).
+  insert into runtime.nexloop_sim_port_counters(tenant_id,world,events) values(v_tenant,p_world,1)
+   on conflict(tenant_id,world) do update set events=runtime.nexloop_sim_port_counters.events+1 returning events into v_count;
+  if v_count>runtime.nexloop_sim_port_event_limit() then raise exception 'consumer port: quota_exceeded' using errcode='22023';end if;
   insert into runtime.nexloop_sim_consumer_events(tenant_id,world,event_id,consumer_id,sequence,event_kind,content,content_digest,twin_version,twin_seed,twin_step,
     sim_time,recorded_by)
    values(v_tenant,p_world,v_id,v_consumer,coalesce((select max(sequence) from runtime.nexloop_sim_consumer_events where tenant_id=v_tenant and world=p_world

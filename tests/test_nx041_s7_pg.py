@@ -7,6 +7,8 @@ nexloop_stand_in_worker (S4). The Host group check of AT-046 runs in apps/agent-
 """
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
+import os
 import re
 import socket
 import uuid
@@ -213,8 +215,9 @@ def test_at046_simulated_outputs_never_become_facts_or_fulfilled_commitments(s7)
     so a Commitment there is never fulfilled; the same rows are accepted in real (positive control). A fulfilled Commitment written
     straight into a simulation world is refused, and its status target stays unfulfilled without evidence."""
     admin = s7['admin']
-    definition = admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='runtime.nexloop_commitment_evidence'::regclass
-        and contype='c' and pg_get_constraintdef(oid) like '%kind%=%ANY%'""").fetchone()[0]
+    # By its name (fix verify 5): the kind CHECK of the evidence ledger (0111, inline column check).
+    [definition] = admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='runtime.nexloop_commitment_evidence'::regclass
+        and conname='nexloop_commitment_evidence_kind_check'""").fetchall()[0]
     kinds = re.findall(r"'([a-z_]+)'::text", definition)
     assert {'effect_fulfilled', 'commercial_event', 'operator_attestation', 'delivered_message'} <= set(kinds)
     commitment = uuid.uuid4().hex * 2
@@ -241,9 +244,11 @@ class PiRunBlocked(Exception):
 
 def pi_run_blockers(f):
     """The prerequisites of a complete sim-group Pi Run, each probed in the system as it is (S7 review 4):
-    - D10: the owner's three-credentials-per-world decision (the S2 rule still allows one active credential per world);
-    - S6c: the simulation process group's own database roles (nexloop_sim_api, nexloop_sim_worker);
-    - the Host's simulation Context input protocol (the Host reads nexloop.context-pack.sim.v1)."""
+    - D10: the owner's three-credentials-per-world decision (the S2 rule still allows one active credential per world). When D10 is
+      decided, rewrite this probe in the decided credential form: it copies an existing binding and changes only the principal, which
+      may never flip if the decision is three credentials distinguished by use;
+    - S6c: the simulation process group's own database roles, all three (nexloop_sim_worker, nexloop_sim_guard, nexloop_sim_api);
+    - the Host's simulation Context protocol: its module exports the parser of nexloop.context-pack.sim.v1, parseSimContextPack."""
     admin = f['admin']
     blockers = []
     row = admin.execute('select tenant_id,binding,audience,expires_at from authz.nexloop_service_credentials where worlds=%s', ([f['a']],)).fetchone()
@@ -256,10 +261,11 @@ def pi_run_blockers(f):
         if 'one active credential' not in str(error):
             raise
         blockers.append('D10: three credentials per simulation world not decided')
-    if admin.execute("select count(*) from pg_roles where rolname in ('nexloop_sim_api','nexloop_sim_worker')").fetchone()[0] < 2:
+    if admin.execute("select count(*) from pg_roles where rolname in ('nexloop_sim_worker','nexloop_sim_guard','nexloop_sim_api')").fetchone()[0] < 3:
         blockers.append('S6c: simulation process group roles absent')
-    if not any('nexloop.context-pack.sim.v1' in p.read_text() for p in (ROOT / 'apps/agent-host/src').glob('*.ts')):
-        blockers.append('Host: simulation Context input protocol absent')
+    exported = re.compile(r'export\s+(?:async\s+)?function\s+parseSimContextPack\b|export\s+(?:const|let)\s+parseSimContextPack\b|export\s*\{[^}]*\bparseSimContextPack\b[^}]*\}')
+    if not any(exported.search(p.read_text()) for p in (ROOT / 'apps/agent-host/src').glob('*.ts')):
+        blockers.append('Host: simulation Context protocol absent (no exported parseSimContextPack)')
     return blockers
 
 
@@ -278,8 +284,9 @@ def complete_sim_pi_run(f, tmp_path, blockers=pi_run_blockers):
 
 
 @pytest.mark.xfail(strict=True, raises=PiRunBlocked, reason=(
-    "Blocked until: (1) D10, the owner's three-credentials-per-simulation-world decision; (2) S6c, the simulation process group's own "
-    "database roles and grants; (3) the Host's simulation Context input protocol (nexloop.context-pack.sim.v1). Each is probed by "
+    "Blocked until: (1) D10, the owner's three-credentials-per-simulation-world decision - when it is decided, rewrite the D10 probe in "
+    "the decided credential form; (2) S6c, the simulation process group's roles nexloop_sim_worker, nexloop_sim_guard, nexloop_sim_api; "
+    "(3) the Host's simulation Context protocol (exported parseSimContextPack for nexloop.context-pack.sim.v1). Each is probed by "
     "pi_run_blockers; when all are there the test passes, strict xfail turns that into a failure, and the end-to-end Run replaces it."))
 def test_at046_a_simulation_process_group_runs_a_complete_pi_run(s7, tmp_path):
     complete_sim_pi_run(s7, tmp_path)
@@ -303,8 +310,25 @@ def test_at046_forged_context_resume_guard_and_activation_paths(s7):
     - SQL activation: an unsigned command is refused at its signature gate, alike for every credential and world (see the comment)."""
     from nexloop_eios import runtime_guard_worker as G
     admin = s7['admin']
-    with pytest.raises(psycopg.errors.InsufficientPrivilege), admin.transaction():
-        admin.execute('select authz.nexloop_context_v6_command(%s,%s,%s,%s,%s)', (digest(s7['token_a']), s7['a'], '{}', '', '{}'))
+    # A well-formed, correctly signed context request (a signing key registered for the test): the sim world is refused at the
+    # entry's first gate (real only); the same request in real passes the signature and fails only later, at the assemble authority
+    # (positive control, fix verify 4) - so the sim refusal is the world's.
+    import hmac
+    material = os.urandom(32)
+    admin.execute("insert into authz.nexloop_authority_signing_keys values('s7-context-probe',%s,true)", (material,))
+    payload = '{}'
+    claims = json.dumps({'protocol': 'nexloop-context-v6-v1', 'resource_id': 'eios:action:nexloop.context.assemble:1', 'key_id': 's7-context-probe',
+                         'parameters_digest': hashlib.sha256(payload.encode()).hexdigest(),
+                         'expires_at': (datetime.now(UTC) + timedelta(seconds=20)).isoformat()}, separators=(',', ':'), sort_keys=True)
+    signature = hmac.new(material, ('nexloop-context-v6-v1:' + claims).encode(), 'sha256').hexdigest()
+    context = 'select authz.nexloop_context_v6_command(%s,%s,%s,%s,%s)'
+    with s7['api']() as db, pytest.raises(psycopg.errors.InsufficientPrivilege, match='context v6 unavailable') as sim_refused:
+        db.execute(context, (digest(s7['token_a']), s7['a'], claims, signature, payload))
+    with s7['api']() as db, pytest.raises(psycopg.Error) as real_refused:
+        db.execute(context, (digest(s7['token_real']), 'real', claims, signature, payload))
+    assert 'context v6 unavailable' not in str(real_refused.value), real_refused.value  # it got past the world and the signature
+    assert 'nexloop_assert_context_assemble' in str(real_refused.value.diag.context)  # the assemble authority, after the signature
+    assert 'nexloop_assert_context_assemble' not in str(sim_refused.value.diag.context)  # the sim request never got that far
     v6 = Draft202012Validator(json.loads((ROOT / 'packages/contracts/context-pack-v6.schema.json').read_text()), format_checker=FormatChecker())
     example = json.loads((ROOT / 'packages/contracts/examples/context-pack-v6.valid.json').read_text())
     v6.validate(example)
@@ -363,6 +387,8 @@ def test_the_port_takes_at_most_its_event_limit_per_world(s7):
             twin_version,twin_seed,twin_step,sim_time,recorded_by)
             select %s,%s,encode(sha256(convert_to('bulk'||i,'UTF8')),'hex'),%s,i+1,'visit','{}',repeat('0',64),'twin-stub/1','bulk',i,now(),'seed'
             from generate_series(1,%s) i""", (TENANT_A, f['a'], c, limit - 2))
+        # The port counts its events per world (fix verify N1): the seed sets the count as the port would have.
+        admin.execute('update runtime.nexloop_sim_port_counters set events=%s where tenant_id=%s and world=%s', (limit - 1, TENANT_A, f['a']))
     assert port(f).act(twin.act(c, 2))['frozen']['sequence'] == limit  # the last one fits (positive control)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='quota_exceeded'):
         port(f).act(twin.act(c, 3))
