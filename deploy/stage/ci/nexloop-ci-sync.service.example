@@ -13,5 +13,8 @@ WorkingDirectory=/tmp
 ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py sync --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --remote github --timeout 60 --tag-signers <GIT_ROOT>/private/allowed_signers
 NoNewPrivileges=yes
 ProtectSystem=strict
+# git verify-tag writes a temporary file; with ProtectSystem=strict /tmp is read-only, so give the unit its own writable tmp
+# (2026-10-20 the sync service judged signed tags tag_unverified for this reason).
+PrivateTmp=yes
 ReadWritePaths=<GIT_ROOT>/nexloop.git <GIT_ROOT>/queue <NEXLOOP_GIT_HOME>
 InaccessiblePaths=<NEXLOOP_ROOT>/secrets <NEXLOOP_ROOT>/data <NEXLOOP_ROOT>/backups <NEXLOOP_ROOT>/releases <NEXLOOP_ROOT>/release-signing <NEXLOOP_ROOT>/config <NEXLOOP_ROOT>/ops <NEXLOOP_ROOT>/ci
