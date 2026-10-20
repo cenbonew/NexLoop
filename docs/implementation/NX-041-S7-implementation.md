@@ -1,15 +1,15 @@
 # NX-041 S7：消费者端口与 AT-046 完整验收
 
-本次实现依据设计稿 §5、§6、§8 和 §11 S7。新增迁移 `0264_nx041_consumer_port.sql`，编号是临时的，集成时由调度员重排。0260–0263 都没有改动。
+本次实现依据设计稿 §5、§6、§8 和 §11 S7。新增迁移 `0266_nx041_consumer_port.sql`，编号是临时的，集成时由调度员重排。0260–0263 都没有改动。
 
 ## 实现
 
 | 内容 | 位置 |
 | --- | --- |
 | **契约** `nexloop-consumer-port-event/1`。孪生只能提供四样东西：合成 Consumer、事件种类（message、refuse_contact、payment_intent、visit）、模拟内容（text 和 attributes），以及孪生自己的 version、seed、step。world、事件 ID、序号、内容 digest、世界时间都由服务端给出（`frozen`）。客户端传来的 sim_time、mode、world 或 event_id 一律拒绝。 | `packages/contracts/consumer-port-event.schema.json`、示例、README，以及生成的 TS、OpenAPI、Pydantic 代码 |
-| **入站事件表** `runtime.nexloop_sim_consumer_events`。只接受 sim 或 shadow world。每行标记为 data_mode simulation、output_kind simulated_input、origin twin，记录孪生的版本、种子和步数，以及事件到达时服务端从 `runtime.nexloop_world_now` 读到的世界时间（S5）。表是 append-only 的，只能随 world 的整体删除一起删掉（S2）。 | 0264 §1 |
-| **观察表** `runtime.nexloop_sim_consumer_observations`，记录 Consumer 被展示了什么：Agent 回复、替身回执或外联。由模拟驱动通过 owner 专用的 `runtime.nexloop_sim_consumer_offer` 写入；孪生通过端口的 `observe` 读取。 | 0264 §2–3 |
-| **端口入口** `authz.nexloop_sim_consumer_act` 和 `_observe`。只有 `nexloop_twin_port` 这个新角色能调用，用 sim world 唯一的凭据认证（S2，D10），并沿用 S4 的 `nexloop_sim_effect_tenant`：real 和 test 在任何查询之前就被拒绝。Consumer 必须是本 world 由 S3 生成的合成 Consumer，persona 为 synthetic。事件 ID 由（world、consumer、孪生版本、seed、step）派生：同一 step 重试时重放原结果；同一 step 换了内容报 `step_reused`。 | 0264 §2–3 |
+| **入站事件表** `runtime.nexloop_sim_consumer_events`。只接受 sim 或 shadow world。每行标记为 data_mode simulation、output_kind simulated_input、origin twin，记录孪生的版本、种子和步数，以及事件到达时服务端从 `runtime.nexloop_world_now` 读到的世界时间（S5）。表是 append-only 的，只能随 world 的整体删除一起删掉（S2）。 | 0266 §1 |
+| **观察表** `runtime.nexloop_sim_consumer_observations`，记录 Consumer 被展示了什么：Agent 回复、替身回执或外联。由模拟驱动通过 owner 专用的 `runtime.nexloop_sim_consumer_offer` 写入；孪生通过端口的 `observe` 读取。 | 0266 §2–3 |
+| **端口入口** `authz.nexloop_sim_consumer_act` 和 `_observe`。只有 `nexloop_twin_port` 这个新角色能调用，用 sim world 唯一的凭据认证（S2，D10），并沿用 S4 的 `nexloop_sim_effect_tenant`：real 和 test 在任何查询之前就被拒绝。Consumer 必须是本 world 由 S3 生成的合成 Consumer，persona 为 synthetic。事件 ID 由（world、consumer、孪生版本、seed、step）派生：同一 step 重试时重放原结果；同一 step 换了内容报 `step_reused`。 | 0266 §2–3 |
 | **Python 端口与孪生桩**。`ConsumerPort` 只接受 sim 或 shadow world，不导入任何网络库或 Action 模块。`TwinStub` 是固定版本、固定种子的确定性孪生，事件只由（seed、consumer、step）决定。真正的孪生在 NX-042。 | `nexloop_eios/consumer_port.py` |
 | **Host 进程组**（设计 §6，D3）。新增配置项 `world_group`，默认 `real`，只运行 real 和 test 的 Run；设为 `simulation` 时只运行 sim 和 shadow 的 Run。另一组的 Run 在 dispatch 时、发出任何 guard 请求之前就被拒绝（`runtime_world_group_refused`）。 | `apps/agent-host/src/worlds.ts`、`runtime-host.ts` |
 
