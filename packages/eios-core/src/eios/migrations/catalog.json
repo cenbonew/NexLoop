@@ -1280,6 +1280,16 @@
       "version": "0256",
       "name": "0256_object_views.sql",
       "sha256": "3a38ab3a4c3e403b769a87524d034fb5e94df49a5487f39028c5a3e13734bc28"
+    },
+    {
+      "version": "0257",
+      "name": "0257_nx040_gates_permits_watch.sql",
+      "sha256": "cef78b74bbace4e12146ddba8c876e786cc3c4fcfdddb2171d88c10bb3d5e335"
+    },
+    {
+      "version": "0258",
+      "name": "0258_nx040_open_ontology_schema.sql",
+      "sha256": "3dd821c2b80e6b2e4d048df390ce83df257efc9034289d9293dc1536c1bab8c7"
     }
   ]
 }

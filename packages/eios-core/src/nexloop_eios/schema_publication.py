@@ -59,8 +59,8 @@ def successors(basis, new_schema: dict) -> list[dict]:
     return out
 
 
-def build(basis: dict, kind: str, property_name: str | None = None) -> tuple[dict, dict]:
-    """(publication {schema, actions}, compatibility report) for publish or hide."""
+def build(basis: dict, kind: str, property_name: str | None = None, *, batch: bool = False) -> tuple[dict, dict]:
+    """(publication {schema, actions}, compatibility report) for publish or hide. batch (D25): more than 10 000 objects move in batches."""
     op, change, name, old = basis['operation'], basis['change'], basis['type_name'], basis['schema']
     parent = {'types': {name: old} if old else {}, 'object_counts': {name: basis.get('object_count') or 0},
               'actions': _f1_actions(basis['actions']), 'restricted_names': basis.get('restricted_names') or []}
@@ -103,7 +103,12 @@ def build(basis: dict, kind: str, property_name: str | None = None) -> tuple[dic
     else:
         verdict = probe
     report = {k: verdict[k] for k in ('op', 'allowed', 'change_class', 'reason', 'codes')}
-    return {'schema': new, 'actions': actions}, report
+    if batch and report['codes'] == ['migration_over_limit']:  # D25: a batched publication is allowed above the limit
+        report = {**report, 'allowed': True, 'reason': None, 'codes': []}
+        if op != 'add_object_type':
+            actions = successors(basis, new)
+    publication = {'schema': new, 'actions': actions, **({'batch': True} if batch else {})}
+    return publication, report
 
 
 class SchemaPublicationPort(ReviewQueueReader):
@@ -115,7 +120,7 @@ class SchemaPublicationPort(ReviewQueueReader):
     def basis(self, proposal_id: str) -> dict | None:
         return self._call('nexloop_read_schema_publication_basis', {'proposal_id': proposal_id})
 
-    def _publish(self, proposal_id, kind, rationale, idempotency_key, property_name=None):
+    def _publish(self, proposal_id, kind, rationale, idempotency_key, property_name=None, batch=False):
         if type(rationale) is not str or not 1 <= len(rationale.strip()) <= 2000:
             raise ValueError('rationale')
         if type(idempotency_key) is not str or not _KEY.fullmatch(idempotency_key):
@@ -123,15 +128,20 @@ class SchemaPublicationPort(ReviewQueueReader):
         basis = self.basis(proposal_id)
         if basis is None:
             raise LookupError('schema proposal unknown')
-        publication, report = build(basis, kind, property_name)
+        publication, report = build(basis, kind, property_name, batch=batch)
         auth = self.session.authentication
         payload = {'publication_id': str(uuid.uuid5(NAMESPACE, f'{auth.tenant_id}:{auth.subject_principal_id}:{idempotency_key}')),
                    'proposal_id': proposal_id, 'kind': kind, 'rationale': rationale.strip(), 'publication': publication, 'compatibility_report': report,
                    **({'property_name': property_name} if property_name else {})}
         return self._call('nexloop_schema_proposal_publish', payload, PROTOCOL)
 
-    def publish(self, proposal_id: str, *, rationale: str, idempotency_key: str) -> dict:
-        return self._publish(proposal_id, 'publish', rationale, idempotency_key)
+    def publish(self, proposal_id: str, *, rationale: str, idempotency_key: str, batch: bool = False) -> dict:
+        """Uses the candidate's release permit once (NX-040 F4). batch: above 10 000 objects, the first 10 000 move now (D25)."""
+        return self._publish(proposal_id, 'publish', rationale, idempotency_key, batch=batch)
+
+    def migrate_batch(self, publication_id: str) -> dict:
+        """The next 10 000 objects of a batched publication (D25)."""
+        return self._call('nexloop_schema_migrate_batch', {'publication_id': publication_id}, PROTOCOL)
 
     def hide(self, proposal_id: str, *, rationale: str, idempotency_key: str) -> dict:
         """The rollback of a published optional property: the next Schema version with it hidden (no SQL migration)."""

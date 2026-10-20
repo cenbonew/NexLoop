@@ -48,7 +48,24 @@ def proposal(f, operation, type_name, change, *, parent_version=None):
             parent_schema_version,parent_schema_digest,input_snapshot_digest,compatibility_report_digest,permission_proof_digest,frozen_by)
             values(%s,'real',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'synthetic')""",
             (tenant, pid, str(uuid.uuid4()), operation, type_name, target, Jsonb(change), 'a' * 64, parent_version, 'b' * 64, 'c' * 64, 'd' * 64, 'e' * 64))
+    seed_permit(f, pid)
     return pid
+
+
+def seed_permit(f, pid, *, used=False, expired=False, mismatch=False):
+    """NX-040 F4: the release permit of the proposal's candidate and the accepted report it names (seeded past their writers; the
+    evaluator path is tests/test_nx040_f4_pg.py)."""
+    admin, tenant = f['admin'], f['tenant']
+    candidate = admin.execute('select candidate_id from ontology.nexloop_schema_proposals where proposal_id=%s', (pid,)).fetchone()[0]
+    digest = hashlib.sha256(str(candidate).encode()).hexdigest()
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into runtime.nexloop_evo_reports(tenant_id,world,report_id,candidate_id,bundle_digest,level,conclusion,report,report_digest)
+            values(%s,'real',%s,%s,%s,'L0','accept',%s,%s) on conflict do nothing""", (tenant, str(uuid.uuid4()), candidate, 'f' * 64, Jsonb({'change_class': 'minor'}), digest))
+        admin.execute("""insert into runtime.nexloop_evo_release_permits(tenant_id,world,permit_id,candidate_id,report_digest,change_class,gates_version,issued_by,
+            issued_at,expires_at,used_at,used_by) values(%s,'real',%s,%s,%s,'minor','nx040-gates-1','synthetic',now()-%s::interval,now()-%s::interval+interval '7 days',%s,%s)""",
+            (tenant, str(uuid.uuid4()), candidate, 'e' * 64 if mismatch else digest, '8 days' if expired else '0 seconds', '8 days' if expired else '0 seconds',
+             'now' if used else None, 'publication:' + str(uuid.uuid4()) if used else None))
 
 
 def counts(f):
@@ -274,6 +291,7 @@ def test_end_to_end_f2_freezes_f1_judges_and_f3_publishes(review, evo):  # noqa:
             frozen = db.execute('select authz.nexloop_schema_proposal_freeze(%s,%s)', (e['digest'], json.dumps(body))).fetchone()[0]
         assert frozen['frozen'] is True and frozen['proposal']['status'] == 'frozen'
         pid = body['proposal_id']
+        seed_permit(f, pid)  # NX-040 F4: a publication needs the release permit (the evaluator path: tests/test_nx040_f4_pg.py)
         out = port(f).publish(pid, rationale='端到端：F2 冻结、F1 判定、F3 发布', idempotency_key='synthetic-e2e-' + operation.replace('_', '-'))
         assert out['published'] is True, out
         assert f['admin'].execute('select status from ontology.nexloop_schema_proposals where proposal_id=%s', (pid,)).fetchone()[0] == 'published'

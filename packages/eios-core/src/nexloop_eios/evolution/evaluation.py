@@ -189,7 +189,11 @@ GATE_VERSIONS = {
     'nx038-hard-gates-1': ('references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution',
                            'no_forbidden_regression', 'index_migration_impact'),
     'nx039-gates-1': ('references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution',
-                      'no_forbidden_regression', 'semantic_regression', 'cost_performance', 'semantic_conflict', 'index_migration_impact')}
+                      'no_forbidden_regression', 'semantic_regression', 'cost_performance', 'semantic_conflict', 'index_migration_impact'),
+    # NX-040 F4: ontology_schema bundles; answered by nexloop_eios.schema_gates.evaluate_schema (G9 enabled, G10-G13 added).
+    'nx040-gates-1': ('references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution',
+                      'no_forbidden_regression', 'semantic_regression', 'cost_performance', 'semantic_conflict', 'index_migration_impact',
+                      'migration_bounded', 'reflow_budget', 'tool_context_compatible', 'authority_unchanged')}
 
 
 def answer_gates(bundle: dict, c: _Context) -> list[dict]:
