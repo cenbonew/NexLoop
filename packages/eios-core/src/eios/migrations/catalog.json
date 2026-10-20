@@ -1237,8 +1237,8 @@
       "sha256": "2cfab276c0594f169e12a71bfad8e2a61ca2a2ff9e89ad49ac53548c5d821bfd"
     },
     {
-      "version": "0248",
-      "name": "0248_object_views.sql",
+      "version": "0256",
+      "name": "0256_object_views.sql",
       "sha256": "3a38ab3a4c3e403b769a87524d034fb5e94df49a5487f39028c5a3e13734bc28"
     }
   ]
