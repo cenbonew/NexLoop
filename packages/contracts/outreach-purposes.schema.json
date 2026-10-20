@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:outreach-purposes",
+  "title": "outreach-purposes",
+  "description": "Proactive outreach purpose list (docs/design/proactive-outreach.md §2, owner decisions P2/P5/P8; outreach slice 3): trusted, versioned configuration. A purpose not in the current list cannot be used; plan-defined purposes must be registered here first. The owner enables or disables a listed purpose per tenant; nobody adds one at run time.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "decision",
+    "purposes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "nexloop-outreach-purposes/1"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999
+    },
+    "decision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "purposes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "purpose_id",
+          "kind",
+          "trigger",
+          "topic",
+          "frequency_class",
+          "requires_consent",
+          "requires_approval",
+          "default_enabled",
+          "content_rules"
+        ],
+        "properties": {
+          "purpose_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+          },
+          "kind": {
+            "enum": [
+              "commitment_followup",
+              "service_followup",
+              "plan_defined",
+              "marketing"
+            ]
+          },
+          "trigger": {
+            "enum": [
+              "commitment_due",
+              "service_receipt",
+              "plan_reassess",
+              "owner_request"
+            ]
+          },
+          "topic": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+          },
+          "frequency_class": {
+            "enum": [
+              "service",
+              "marketing"
+            ]
+          },
+          "requires_consent": {
+            "type": "boolean",
+            "description": "Marketing only: true makes this purpose opt-in even when the tenant is opt-out."
+          },
+          "requires_approval": {
+            "type": "boolean",
+            "description": "Owner approval before dispatch (outreach slice 6); default false (P5)."
+          },
+          "default_enabled": {
+            "type": "boolean",
+            "description": "Enabled for a tenant until the owner changes it."
+          },
+          "content_rules": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "max_chars",
+              "unsubscribe_notice_required"
+            ],
+            "properties": {
+              "max_chars": {
+                "type": "integer",
+                "minimum": 20,
+                "maximum": 2000
+              },
+              "unsubscribe_notice_required": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "marketing"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "topic": {
+                  "pattern": "^marketing(\\.[a-z0-9_]+)*$"
+                },
+                "frequency_class": {
+                  "const": "marketing"
+                },
+                "content_rules": {
+                  "properties": {
+                    "unsubscribe_notice_required": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "topic": {
+                  "not": {
+                    "pattern": "^marketing"
+                  }
+                },
+                "frequency_class": {
+                  "const": "service"
+                },
+                "requires_consent": {
+                  "const": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "commitment_followup"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "trigger": {
+                  "const": "commitment_due"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "service_followup"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "trigger": {
+                  "const": "service_receipt"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -684,6 +684,11 @@
    "stable_name": "nexloop.outreach_controls.set",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.outreach_purposes.set",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [

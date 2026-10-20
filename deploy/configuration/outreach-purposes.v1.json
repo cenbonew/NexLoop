@@ -1,0 +1,63 @@
+{
+  "schema": "nexloop-outreach-purposes/1",
+  "version": 1,
+  "decision": "Outreach design §2 and owner decisions P2/P5/P8 (2026-10-19), outreach slice 3: the purposes proactive outreach may use. Trusted configuration: a new purpose (including a plan-defined one) is a new version of this file; versions are only extended, never edited. The owner enables or disables a listed purpose for the tenant (nexloop.outreach_purposes.set:1); default_enabled applies until then. No purpose needs approval by default (P5; approval is slice 6). Marketing purposes follow the tenant consent mode unless requires_consent (opt-in for that purpose); they carry the server-appended unsubscribe notice and count against the marketing allowance.",
+  "purposes": [
+    {
+      "purpose_id": "commitment_followup",
+      "kind": "commitment_followup",
+      "trigger": "commitment_due",
+      "topic": "commitment_followup",
+      "frequency_class": "service",
+      "requires_consent": false,
+      "requires_approval": false,
+      "default_enabled": true,
+      "content_rules": {
+        "max_chars": 300,
+        "unsubscribe_notice_required": false
+      }
+    },
+    {
+      "purpose_id": "service_followup",
+      "kind": "service_followup",
+      "trigger": "service_receipt",
+      "topic": "service_followup",
+      "frequency_class": "service",
+      "requires_consent": false,
+      "requires_approval": false,
+      "default_enabled": true,
+      "content_rules": {
+        "max_chars": 300,
+        "unsubscribe_notice_required": false
+      }
+    },
+    {
+      "purpose_id": "renewal_reminder",
+      "kind": "plan_defined",
+      "trigger": "plan_reassess",
+      "topic": "renewal_reminder",
+      "frequency_class": "service",
+      "requires_consent": false,
+      "requires_approval": false,
+      "default_enabled": false,
+      "content_rules": {
+        "max_chars": 300,
+        "unsubscribe_notice_required": false
+      }
+    },
+    {
+      "purpose_id": "marketing_general",
+      "kind": "marketing",
+      "trigger": "owner_request",
+      "topic": "marketing",
+      "frequency_class": "marketing",
+      "requires_consent": false,
+      "requires_approval": false,
+      "default_enabled": false,
+      "content_rules": {
+        "max_chars": 300,
+        "unsubscribe_notice_required": true
+      }
+    }
+  ]
+}

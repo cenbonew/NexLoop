@@ -4943,6 +4943,192 @@
           }
         ]
       },
+      "OutreachPurposes": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:outreach-purposes",
+        "title": "outreach-purposes",
+        "description": "Proactive outreach purpose list (docs/design/proactive-outreach.md §2, owner decisions P2/P5/P8; outreach slice 3): trusted, versioned configuration. A purpose not in the current list cannot be used; plan-defined purposes must be registered here first. The owner enables or disables a listed purpose per tenant; nobody adds one at run time.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "version",
+          "decision",
+          "purposes"
+        ],
+        "properties": {
+          "schema": {
+            "const": "nexloop-outreach-purposes/1"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 999999
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "purposes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "purpose_id",
+                "kind",
+                "trigger",
+                "topic",
+                "frequency_class",
+                "requires_consent",
+                "requires_approval",
+                "default_enabled",
+                "content_rules"
+              ],
+              "properties": {
+                "purpose_id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                },
+                "kind": {
+                  "enum": [
+                    "commitment_followup",
+                    "service_followup",
+                    "plan_defined",
+                    "marketing"
+                  ]
+                },
+                "trigger": {
+                  "enum": [
+                    "commitment_due",
+                    "service_receipt",
+                    "plan_reassess",
+                    "owner_request"
+                  ]
+                },
+                "topic": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                },
+                "frequency_class": {
+                  "enum": [
+                    "service",
+                    "marketing"
+                  ]
+                },
+                "requires_consent": {
+                  "type": "boolean",
+                  "description": "Marketing only: true makes this purpose opt-in even when the tenant is opt-out."
+                },
+                "requires_approval": {
+                  "type": "boolean",
+                  "description": "Owner approval before dispatch (outreach slice 6); default false (P5)."
+                },
+                "default_enabled": {
+                  "type": "boolean",
+                  "description": "Enabled for a tenant until the owner changes it."
+                },
+                "content_rules": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "max_chars",
+                    "unsubscribe_notice_required"
+                  ],
+                  "properties": {
+                    "max_chars": {
+                      "type": "integer",
+                      "minimum": 20,
+                      "maximum": 2000
+                    },
+                    "unsubscribe_notice_required": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "marketing"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "topic": {
+                        "pattern": "^marketing(\\.[a-z0-9_]+)*$"
+                      },
+                      "frequency_class": {
+                        "const": "marketing"
+                      },
+                      "content_rules": {
+                        "properties": {
+                          "unsubscribe_notice_required": {
+                            "const": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "topic": {
+                        "not": {
+                          "pattern": "^marketing"
+                        }
+                      },
+                      "frequency_class": {
+                        "const": "service"
+                      },
+                      "requires_consent": {
+                        "const": false
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "commitment_followup"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "trigger": {
+                        "const": "commitment_due"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "service_followup"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "trigger": {
+                        "const": "service_receipt"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
       "ReviewDecision": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:review-decision",
@@ -6747,6 +6933,7 @@
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
+    "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
     "review-decision.schema.json": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57",
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",
     "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",

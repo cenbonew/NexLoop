@@ -1175,6 +1175,11 @@
       "version": "0235",
       "name": "0235_nx038_attribution_candidates.sql",
       "sha256": "d85213ae9098d1b4a9b078c47742ee9db9315b9b26302b3368bba2f97748b332"
+    },
+    {
+      "version": "0236",
+      "name": "0236_outreach_purposes.sql",
+      "sha256": "155aca0677cdd0a665993e296a13f22cfb1e934c273ab282575428f76585416e"
     }
   ]
 }

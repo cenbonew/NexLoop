@@ -352,6 +352,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'outreach_controls')
 
+    @routes.get('/outreach-purposes')
+    async def outreach_purposes(request: Request):
+        # Outreach slice 3: the owner's view of the purpose list and the tenant's enabled purposes.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'outreach_purposes')
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.

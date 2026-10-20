@@ -65,7 +65,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # 0228: the owner declines or reinstates a consumer's communication preference (a Claim of the consumer).
     'dismiss_contact_preference':'contact_preference.dismiss',
     # 0232: the owner's tenant outreach controls; switching marketing on confirms the consent mode (O5, checked in SQL).
-    'set_outreach_controls':'outreach_controls.set'}
+    'set_outreach_controls':'outreach_controls.set',
+    # Outreach slice 3: enable or disable a purpose of the current purpose list (checked in SQL).
+    'set_outreach_purpose':'outreach_purposes.set'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -341,6 +343,12 @@ class GoalGovernedActions:
             raise ValueError('settings, reason and an optional consent mode confirmation required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_outreach_controls','settings':settings,'reason':reason,
             **({'confirm_consent_mode':confirm_consent_mode} if confirm_consent_mode else {})})
+
+    # Outreach slice 3: owner only; only a purpose of the current list (SQL refuses an unknown one).
+    def set_outreach_purpose(self,*,action_name,action_version,request_id,purpose_id,enabled,reason):
+        if not re.fullmatch(r'[a-z][a-z0-9_.]{0,63}',str(purpose_id)) or type(enabled) is not bool or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('purpose, enabled and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_outreach_purpose','purpose_id':purpose_id,'enabled':enabled,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

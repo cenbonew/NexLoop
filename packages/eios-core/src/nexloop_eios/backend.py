@@ -508,6 +508,7 @@ class Backend:
             'contact_preferences',  # 0228: a consumer's communication preferences (owner)
             'outreach_candidates',  # 0231: proactive outreach candidates and their dispatch dry run (owner, read only)
             'outreach_controls',  # 0232: the tenant's outreach controls for the owner's page (read only)
+            'outreach_purposes',  # outreach slice 3: the purpose list with the tenant's states (owner, read only)
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'world_model',  # enterprise world model W1 (0230): published model metadata, read only
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)

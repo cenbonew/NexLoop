@@ -56,7 +56,8 @@ def test_candidates_come_from_the_triggers_and_every_gate_is_evaluated_without_w
     assert by['service_followup']['origin_ref'] == 'intent:' + str(delivered) and by['service_followup']['dedupe_key'] == f'{delivered}:fulfilled'
     for item in view['candidates']:
         assert [g['gate'] for g in item['gates']] == GATES and item['consumer_id'] == c['consumer']
-        assert gate(item, 'purpose')['result'] == gate(item, 'budget')['result'] == 'not_wired'
+        assert gate(item, 'purpose') == {'gate': 'purpose', 'result': 'pass', 'detail': 'list v1'}  # outreach slice 3: the purpose list
+        assert gate(item, 'budget')['result'] == 'not_wired'
         assert gate(item, 'real_dispatch')['result'] == 'refuse' and item['would_dispatch'] is False and 'real_dispatch' in item['blocked_by']
         assert gate(item, 'contact_restricted')['result'] == gate(item, 'persona_excluded')['result'] == gate(item, 'control_paused')['result'] == 'pass'
         local = datetime.now(timezone(timedelta(hours=8))).time()
