@@ -50,6 +50,33 @@
 | 5.2 | 评估结论：不需要新约束，已经用守护测试固定下来。理由如下：Claim 必须挂在会话上（`conversation_id` 不能为空，并有外键），而会话表的 CHECK 是 `world='real'`，所以 sim 或 shadow world 里根本不会有 Claim；Claim 的 epistemic_kind 里没有 fact 类，`verified_fact` 是刻意不提供的；Commitment 的「已兑现」只能由效应意图推进，而效应意图表已加 guard。S1 对 Claim 投影出的 mode 为 simulation，只在以后放开 sim 会话时才会用到；放开会话属于 S7 的模拟端口，届时需要重新评估。 |
 | 6 | 回执外键没有设成 cascade，所以 S2 的 purge 要多跑一轮才能删完。这次没有改，结果是正确的；S2 修复里，单表失败只记为 blocked、删除继续往下走，下一轮就能删完。 |
 
+## 审查修复二（复核 `nx041-s4-fix-verify.md` 的余项）
+
+0262 仍未发布，以下改动直接在 0262 中修改；catalog 中 0262 的校验和随之更新。
+
+| 编号 | 修复 |
+| --- | --- |
+| 1.3 余项：按结构识别外发表 | 守护测试不再只按表名匹配。凡是带 world 列、并被“派发、relay、执行器类”函数写入的表，都必须在 `control.nexloop_real_effect_tables` 中登记，或者加上 guard，或者写明不加的理由。<br>“派发、relay、执行器类”函数按函数名识别，名字中含以下片段之一即算：dispatch、relay、execut、deliver、effect、outreach、outbound、incentive、export、send、lease、webhook、notif、mail；测试解析这些函数体中带 schema 前缀的 insert/update/delete 目标表。<br>表名兜底匹配增加了 webhook、notif、mail、push、callback、channel。<br>这次扫描新找出 23 张表：<br>• 加了 guard 的 11 张：effect_control_ledger、effect_plan_bindings、effect_catalog_bindings、effect_events、effect_provider_bindings、effect_requery_orders、effect_determinations、message_routes、outreach_approvals、reply_escalations、restore_channels；<br>• 不加 guard、写明理由的 12 张：run_credentials、work_feed、budget_consumption、budget_settlements、两张效应类别配置表、claims、definition_aliases、conversations、conversation_messages、commitment_evidence、human_requests；<br>• 另外 sim_effect_receipts 是模拟台账本身，一并登记，不加 guard。<br>阳性对照：结构扫描必须能找到 effect_outbox、outbound_messages、outreach_sends 这几张表。 |
+| 1.3 余项：job outbox | 新增守护测试，确认 `runtime.nexloop_outbox` 只有一个写入方 `authz.nexloop_queue_command`（包括它重命名后保留的旧版本 `_before_*`）。该写入方不写任何已加 guard 的外发表。outbox 的列与登记的完全一致，没有目的地、地址或请求体之类的列。<br>Python 侧：既从 durable queue 取任务、又持有网络客户端的模块，必须与登记清单完全一致（目前只有 `runtime_dispatch.py`，它访问的是 Agent Host 的内部 API）。 |
+| 2.2 余项：角色清单 | 台账权限检查不再用写死的角色清单，改为遍历 `pg_roles` 中所有 `nexloop%` 角色，只排除 owner 和超级用户；同时检查 PUBLIC 对台账表没有 ACL 项。检查的权限扩展为 select、insert、update、delete、truncate、references、trigger。 |
+| 2.2 余项：动态 SQL 的边界 | 测试只能检查“函数源码里写出了台账表名”的读取。对于自己枚举系统目录（pg_class、pg_attribute、pg_tables、information_schema 的 tables/columns）、再用 format 拼出表名读取的函数，测试看不出它读不读台账。<br>因此新增一条规则：所有这类函数必须在测试的 `CATALOG_ENUMERATORS` 中登记，并写明读取什么。目前登记的有：read_memo_table_ok、sim_world_has_tenant、sim_world_tables，以及 S2 的 targets、snapshot、purge。新增这类函数而不登记，测试就会失败。 |
+| N2 | 迁移在创建 `nexloop_stand_in_worker` 之后，会把已存在的同名角色校正成规定的形态：<br>• 属性设为 login、noinherit、nocreatedb、nocreaterole、nosuperuser、noreplication、nobypassrls；<br>• 撤销它的所有角色成员关系；<br>• 撤销它在 authz、control、ontology、runtime、extensions、public 中原有的表、序列、函数和 schema 权限，然后再重新授予三个入口函数。<br>口令不改。<br>测试：先手工建一个同名角色（nologin、inherit、createdb、bypassrls，并加入 pg_read_all_data），执行 bootstrap 后断言属性正确、没有成员关系、只能执行这三个入口。 |
+| N4 | 同一个 sim world 中，同一个 `business_digest` 只能有一个未终结的意图。“未终结”指：还没有回执，或者回执是 unknown（unknown 不算终结，应先查询）。<br>在此期间换一个 intent_id 再提交会报 `stand-in: business_intent_open`；同一个 intent_id 重试仍可接受。<br>判断按 `(tenant, world, business_digest)` 取 advisory lock，串行执行。<br>一旦回执为 fulfilled 或 failed，再提交会生成一条新意图，与原来的意图并列保存，所以每一次尝试都留在账里。<br>测试：重试、换 intent_id 被拒、另一笔业务和另一个 world 不受影响、unknown 仍被拒、终结后可再提交、两个连接并发提交。 |
+
+剩余边界：结果为 failed 之后，提交方仍可以针对同一笔业务再提交，这属于正当重试，每次尝试都记在账里。实验报告应按 business_digest 统计重试次数，而不是只看最后一次的结果。
+
+## S7 复现（调度员定案 A）
+
+服务端随机盐（审查修复 4.2）与 S7 的要求冲突：同一份冻结输入复跑后，回执必须逐字节一致。按定案 A 处理如下。
+
+- **冻结配置**：`control.nexloop_stand_in_configs` 新增列 `outcome_seed`（64 位十六进制）。它由 `runtime.nexloop_stand_in_configure(p_tenant text, p_world text, p_config jsonb, p_by text) returns text` 在写入时用 `extensions.gen_random_bytes(32)` 生成，和配置一样只写一次、之后不能修改。调用方在 `p_config` 里传 `outcome_seed` 会被拒绝，报 `stand-in: outcome_seed_server_only`。
+- **盐**：配置里有 seed 时，意图的盐为 `sha256(outcome_seed || '|' || intent_id)`，存入意图行，并把 `outcome_seeded` 置为 true。这种意图的结果哈希只取决于（替身版本、intent_id、盐），**world 和模拟时钟不参与计算**，所以换一个 world 复跑能得到同样的结果。
+- **旧路径**：没有配置的 world 保持原来的做法：随机盐，哈希中包含 world 和模拟时钟。
+- **复跑入口**：`runtime.nexloop_stand_in_configure_copy(p_tenant text, p_from_world text, p_to_world text, p_by text) returns text`，返回 config_digest。它把源 world 的冻结配置连同 seed 一起复制到同一租户下一个仍为 active、且还没有配置的 sim world。调用方只需指定两个 world，既看不到也传不进 seed。复制不会覆盖已有配置，目标为 real 时报 `real_world_refused`，目标是其他租户的 world 时报 `world_unavailable`。和 configure 一样，这个入口不授予任何应用角色，只供可信配置和实验输入使用。
+- **复跑时回执一致的范围**：除 `world` 外，所有字段（status、failure_code、external_ref、latency_ms、stand_in_id、stand_in_version、config_digest、data_mode、output_kind、executions、repeated）都逐字节相同。前提是复跑时提交相同的意图，即相同的 intent_id、business_digest 和 request_digest，并按相同顺序执行。
+- **权限**：所有 `nexloop%` 角色对 configs 表和 `outcome_seed` 列都没有权限，也不能执行 configure 和 configure_copy。函数体中引用 `outcome_seed` 的只有 configure、configure_copy 和 submit，而 submit 的返回值里不含 seed。submit、执行和查询三个入口的回答里都不出现 seed。
+- **N4 在复跑 world 中仍然有效**：测试已覆盖。
+
 ## 部署说明（由调度员安排，本次没有改 deploy/）
 
 - 替身执行器使用独立角色 `nexloop_stand_in_worker` 连接数据库，需要单独的 DSN 文件，不能用 action_worker 的口令。
