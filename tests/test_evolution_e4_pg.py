@@ -230,7 +230,9 @@ def test_structure_permissions_and_leaks_are_refused(evo):
     fresh = lambda: {'candidate_id': str(uuid.uuid4())}  # noqa: E731
     with pytest.raises(psycopg.Error, match='dimension semantic_tool not open'):
         propose_raw(f, body_of(f, candidate={**fresh(), 'dimension': 'semantic_tool'}))
-    with pytest.raises(psycopg.Error, match='dimension ontology_schema not open'):
+    # NX-040 D21: ontology_schema is open for proposal input only and narrowly (Object Type / Property scope, whitelist change
+    # kinds; tests/test_nx040_schema_proposals_pg.py): this semantic draft's vocabulary scope is refused.
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='change scope not allowed'):
         propose_raw(f, body_of(f, candidate={**fresh(), 'dimension': 'ontology_schema'}))
     for scope in ('eios:action:Grant.issue:1', 'eios:service_grant:x', 'authz:fact:role', 'nexloop:tool:send_message'):
         draft = f['drafts'][0]
