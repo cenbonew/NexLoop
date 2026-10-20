@@ -35,26 +35,26 @@ test('the parser: the blocks are optional (an older backend gives null), malform
 
 test('every section with counts; the embedding budget and the Artifact list said as not available, never 0; no message text',()=>{
   const html=render({...base,data_assets:assets,candidates:{staged:2,merge_configuration_active:false,staged_without_configuration:2}});
-  expect(html).toContain('<strong>3</strong> 条 Claim');expect(html).toContain('偏好（preference）：2');expect(html).toContain('完成（succeeded）：4');
-  expect(html).toContain('synthetic-model@3');expect(html).toContain('定义（definition）：1');
-  expect(html).toContain('data-code="not_recorded"');expect(html).toContain('不表示花费为 0');
-  expect(html).toContain('data-code="merge_configuration_missing"');expect(html).toContain('其中 2 个因没有合并配置而等待');
+  expect(html).toContain('<strong>3</strong> 条 Claim');expect(html).toContain('<span title="preference">偏好</span>：<span class="num">2</span>');expect(html).toContain('<span title="succeeded">完成</span>：<span class="num">4</span>');expect(html).not.toContain('（preference）');
+  expect(html).toContain('synthetic-model@3');expect(html).toContain('<span title="definition">定义</span>：<span class="num">1</span>');
+  expect(html).toContain('Embedding 预算暂不可用');expect(html).toContain('不表示花费为 0');
+  expect(html).toContain('data-code="missing"');expect(html).toContain('>未生效</span>');expect(html).toContain('其中 2 个因没有合并配置而等待');
   expect(html).toContain('没有任何已记录的数据库备份');expect(html).not.toMatch(/<form|<textarea/);
 });
 
 test('missing blocks are "不可用", not zero',()=>{
   const html=render(base);
-  expect(html).toContain('Claim 与提取的统计不可用');expect(html).toContain('召回索引的统计不可用');expect(html).toContain('合并配置状态不可用');
-  expect(html).toContain('Embedding 预算不可用');expect(html).not.toContain('<strong>0</strong> 条 Claim');
+  expect(html).toContain('Claim 与提取的统计暂不可用');expect(html).toContain('召回索引的统计暂不可用');expect(html).toContain('合并配置状态暂不可用');
+  expect(html).toContain('Embedding 预算暂不可用');expect(html.match(/data-state="unavailable"/g)?.length).toBeGreaterThanOrEqual(4);expect(html).not.toContain('<strong>0</strong> 条 Claim');
 });
 
 test('the Artifact list (L6 0226): metadata only, hidden ones counted, a cursor to the next page; bad rows refused',()=>{
   const html=render(base);
   expect(html).toContain('共 <strong>3</strong> 个 Artifact · 本页 1 个');expect(html).toContain('隐藏 1 个（所属客户正在删除）');
-  expect(html).toContain('aaaaaaaa…');expect(html).toContain('消息上下文');expect(html).toContain('1.2 KB');expect(html).toContain('bbbbbbbbbbbb');
+  expect(html).toContain('aaaaaaaa…aaaa');expect(html).toContain('aria-label="复制ID"');expect(html).toContain('消息上下文');expect(html).toContain('1.2 KB');expect(html).toContain('bbbbbbbbbbbb');
   expect(html).toContain('href="/workbench/consumers/'+'c'.repeat(64)+'"');expect(html).toContain('>下一页</button>');expect(html).not.toContain('>上一页</button>');
-  expect(html).not.toContain('Artifact 列表不可用');
-  expect(render(base,{items:[],total:0,hidden:0,next_before:null})).toContain('还没有 Artifact');
+  expect(html).not.toContain('Artifact 列表暂不可用');
+  expect(render(base,{items:[],total:0,hidden:0,next_before:null})).toContain('暂无 Artifact');
   const bad=structuredClone(artifacts);bad.items[0].purpose='raw_upload';expect(()=>artifactPage(bad)).toThrow(WorkbenchError);
   const content=structuredClone(artifacts);content.items[0].sha256_prefix='b'.repeat(64);expect(()=>artifactPage(content)).toThrow(WorkbenchError);
   expect([bytes(512),bytes(2048),bytes(3*1024*1024)]).toEqual(['512 B','2.0 KB','3.0 MB']);

@@ -64,7 +64,7 @@ try{
   // W4 data assets: the owner's metrics read; every section present, nothing to fill in, no sideways scroll on a phone.
   await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/data_assets');
   await page.locator('.workbench-page h1',{hasText:'数据资产'}).waitFor({timeout:20000});await page.locator('article[aria-label="召回索引"]').waitFor({timeout:20000});
-  result.assets_sections=await page.locator('.workbench-grid > article').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')));
+  result.assets_sections=await page.locator('.card-grid > article').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')));
   result.assets_text=await page.locator('.workbench-page').innerText();result.assets_forms=await page.locator('.workbench-page form, .workbench-page textarea').count();
   await page.screenshot({path:`${shots}/data-assets-1440.png`,fullPage:true});
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(400);result.assets_hscroll_390=await hscroll(page);

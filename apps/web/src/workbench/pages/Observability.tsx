@@ -6,7 +6,9 @@ import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Backup,type Process} from '../api';
 import {Page} from './Page';
-import {Time} from '../ui';
+import {StatusBadge,Time} from '../ui';
+import {Card,CardGrid,EmptyState,KeyValue} from '../kit';
+import {statusLabel,type Domain} from '../status-labels';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {IdRef,NoWrap,Operations as OpsSection} from './PageOps';
@@ -38,55 +40,60 @@ export function Alerts({actions}:{actions?:ReactNode}){
 }
 
 function ProcessBlock({title,section,fields}:{title:string;section:Process;fields:[string,string][]}){
-  return <article className={'workbench-block workbench-block-'+(section.status==='ok'?'ok':'unavailable')} aria-label={title}><h3>{title}</h3>
-    {section.status==='unavailable'?<p className="note" role="status">{PROCESS_UNAVAILABLE_TEXT}</p>:
-      <table><thead><tr><th>进程</th>{fields.map(([,label])=><th key={label}>{label}</th>)}</tr></thead><tbody>
-        {Object.entries(section.by_service).map(([service,v])=><tr key={service}><td>{service}</td>{fields.map(([key])=><td key={key}>{v.max[key]??v.sum[key]??'—'}</td>)}</tr>)}</tbody></table>}
-  </article>;
+  if(section.status==='unavailable')return <Card title={title}><EmptyState kind="unavailable" subject="样本" reason="最近 5 分钟没有样本" compact/></Card>;
+  const rows=Object.entries(section.by_service);
+  return <Card title={title}><DataTable label={title} empty={{subject:'进程样本'}} rows={rows} rowKey={([service])=>service} columns={[
+    {label:'进程',main:true,cell:([service])=><code className="id-code">{service}</code>},
+    ...fields.map(([key,label])=>({label,num:true,cell:([,v]:[string,{max:Record<string,number>;sum:Record<string,number>}])=>v.max[key]??v.sum[key]??'—'}))]}/></Card>;
 }
 
 /** NX-035 M12 backup block, read only: ages and counts as recorded; a metric without an observation reads “无” (AT-045). */
 export function BackupBlock({backup}:{backup:Backup}){
-  if(backup.status==='unavailable')return <article className="workbench-block workbench-block-unavailable" aria-label="备份"><h3>备份</h3><p className="note" role="status">{BACKUP_UNAVAILABLE_TEXT}</p></article>;
+  if(backup.status==='unavailable')return <Card title="备份"><EmptyState kind="unavailable" subject="备份记录" reason="还没有任何已记录的数据库备份" next="这不代表没有备份。" compact/></Card>;
   const value=(n:number|null)=>n===null?'无':age(n);
-  const flag=(n:number|null,bad:string,good:string)=>n===null?'无':n>0?bad:good;
+  const flag=(n:number|null,bad:string,good:string)=>n===null?'无':<StatusBadge text={n>0?bad:good} tone={n>0?'fail':'ok'}/>;
   const repos=Object.entries(backup.repo_backup_age_seconds);
-  return <article className={'workbench-block workbench-block-'+(backup.verify_failed||backup.wal_archive_failing?'unavailable':'ok')} aria-label="备份"><h3>备份</h3>
-    <table><tbody>{BACKUP_FIELDS.map(f=><tr key={f}><th>{BACKUP_LABELS[f]}</th><td>{value(backup[f])}</td></tr>)}
-      <tr><th>最近一次备份校验</th><td>{flag(backup.verify_failed,'失败','通过')}</td></tr>
-      <tr><th>WAL 归档</th><td>{flag(backup.wal_archive_failing,'出现失败','正常')}</td></tr>
-      <tr><th>各仓库最近备份</th><td>{repos.length?repos.map(([r,n])=>`${r} ${age(n)}`).join('；'):'无'}</td></tr></tbody></table>
-  </article>;
+  const failing=!!(backup.verify_failed||backup.wal_archive_failing);
+  return <Card title="备份" badge={failing?<StatusBadge text="需要处理" tone="fail"/>:null}><KeyValue label="备份" items={[
+    ...BACKUP_FIELDS.map(f=>({key:BACKUP_LABELS[f],value:value(backup[f])})),
+    {key:'最近一次备份校验',value:flag(backup.verify_failed,'失败','通过')},{key:'WAL 归档',value:flag(backup.wal_archive_failing,'出现失败','正常')},
+    {key:'各仓库最近备份',value:repos.length?repos.map(([r,n])=>`${statusLabel('backup_repo',r)} ${age(n)}`).join('；'):'无'}]}/></Card>;
 }
 
-export function Counts({values,labels}:{values:Record<string,number>;labels?:Record<string,string>}){
+/** Counts by code. With `domain` (UI spec §7) each code shows its Chinese label (未知状态 for an unlisted one; the code only in the
+ * title) and an empty map is the compact empty state; `labels` is the earlier form, kept until batches 2/3 move to domains. */
+export function Counts({values,labels,domain,subject='记录'}:{values:Record<string,number>;labels?:Record<string,string>;domain?:Domain;subject?:string}){
   const entries=Object.entries(values);
+  if(domain)return entries.length?<ul className="count-list">{entries.map(([k,n])=><li key={k}><span title={k}>{statusLabel(domain,k)}</span>：<span className="num">{n}</span></li>)}</ul>
+    :<EmptyState kind="empty" subject={subject} compact/>;
   return entries.length?<ul>{entries.map(([k,n])=><li key={k}>{labels?.[k]?`${labels[k]}（${k}）`:k}：{n}</li>)}</ul>:<p className="note">无。</p>;
 }
 
 export function Operations({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','metrics'],queryFn:readMetrics});
-  return <Page title="运行状态" query={query} actions={actions}>{m=><>
-    <p className="note">快照时间 <Time value={m.computed_at}/>；只含代码、计数、年龄和比率，不含原文。</p>
-    <div className="workbench-grid">
-      <article className="workbench-block"><h3>派发拒绝（最近 1 小时）</h3><Counts values={m.refusals.last_hour} labels={REFUSAL_TEXT}/></article>
-      <article className="workbench-block"><h3>外部动作</h3>{m.effects.unknown.count?<p><a href={routePath({page:'actions'})}>去 Action 页查询执行结果</a></p>:null}<p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>
-        <Counts values={m.effects.by_state}/></article>
-      <article className="workbench-block"><h3>来信必回</h3><p>待回复 {m.replies.pending.count} 条，最久 {age(m.replies.pending.oldest_age_seconds)}；兜底升级累计 {m.replies.escalations_total} 条</p>
-        <Counts values={m.replies.escalations_last_hour}/></article>
-      <article className="workbench-block"><h3>承诺异常</h3>{Object.keys(m.commitments.exceptions).length?<p><a href={routePath({page:'commitments'})}>查看承诺</a></p>:null}<Counts values={m.commitments.exceptions}/></article>
-      <article className="workbench-block"><h3>队列</h3>{Object.keys(m.queues).length?<ul>{Object.entries(m.queues).map(([q,v])=><li key={q}>{q}：待处理 {v.pending??0} 个，重试 {v.retry_wait??0} 个，
-        <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}</li>)}</ul>:<p className="note">无队列任务。</p>}</article>
-      <article className="workbench-block"><h3>后台 feed 与提取</h3>{Object.keys(m.feeds).length?<ul>{Object.entries(m.feeds).map(([f,v])=><li key={f}>{f}：待处理 {v.pending??0} 个，
-        <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}{(v.oldest_pending_seconds??0)>600?<span className="warning">（超过告警阈值 10 分钟）</span>:null}</li>)}</ul>:<p className="note">无 feed 积压。</p>}
-        <p>待提取消息 {m.extraction.pending_messages} 条，最久 {age(m.extraction.oldest_pending_seconds)}</p></article>
+  return <Page title="运行状态" query={query} actions={actions} lead="系统此刻是否健康：派发拒绝、外部动作、来信必回、承诺异常、队列与后台任务、进程样本、数据库连接与备份。只含计数、时长和比率，不含原文。">{m=><>
+    <p className="note">快照时间 <Time value={m.computed_at}/>。</p>
+    <CardGrid label="运行状态">
+      <Card title="派发拒绝（最近 1 小时）"><Counts values={m.refusals.last_hour} domain="refusal_code" subject="派发拒绝"/></Card>
+      <Card title="外部动作" footer={m.effects.unknown.count?<a href={routePath({page:'actions'})}>去 Action 页查询执行结果</a>:null}>
+        <p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>
+        <Counts values={m.effects.by_state} domain="intent_state" subject="外部动作"/></Card>
+      <Card title="来信必回"><p>待回复 {m.replies.pending.count} 条，最久 {age(m.replies.pending.oldest_age_seconds)}；兜底升级累计 {m.replies.escalations_total} 条</p>
+        <Counts values={m.replies.escalations_last_hour} domain="escalation_reason" subject="最近 1 小时的升级"/></Card>
+      <Card title="承诺异常" footer={Object.keys(m.commitments.exceptions).length?<a href={routePath({page:'commitments'})}>查看承诺</a>:null}>
+        <Counts values={m.commitments.exceptions} domain="commitment_exception" subject="承诺异常"/></Card>
+      <Card title="队列">{Object.keys(m.queues).length?<ul>{Object.entries(m.queues).map(([q,v])=><li key={q}>{statusLabel('queue',q)}：待处理 {v.pending??0} 个，重试 {v.retry_wait??0} 个，
+        <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}</li>)}</ul>:<EmptyState kind="empty" subject="队列任务" compact/>}</Card>
+      <Card title="后台任务与提取">{Object.keys(m.feeds).length?<ul>{Object.entries(m.feeds).map(([f,v])=><li key={f}>{statusLabel('feed',f)}：待处理 {v.pending??0} 个，
+        <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}{(v.oldest_pending_seconds??0)>600?<span className="warning">（超过告警阈值 10 分钟）</span>:null}</li>)}</ul>:<EmptyState kind="empty" subject="后台任务积压" compact/>}
+        <p>待提取消息 {m.extraction.pending_messages} 条，最久 {age(m.extraction.oldest_pending_seconds)}</p></Card>
       <ProcessBlock title={`守卫时延（2 秒截止）${m.guard.status==='ok'&&m.guard.timeout_rate!==undefined?` · 超时率 ${(m.guard.timeout_rate*100).toFixed(2)}%`:''}`} section={m.guard}
-        fields={[['calls','调用'],['timeouts','超时'],['p95_ms','p95 毫秒'],['max_ms','最大毫秒']]}/>
+        fields={[['calls','调用'],['timeouts','超时'],['p95_ms','95 分位（毫秒）'],['max_ms','最大（毫秒）']]}/>
       <ProcessBlock title="Agent Host 并发" section={m.host} fields={[['active_runs','运行中'],['waiting','排队'],['max_active_runs','上限'],['admission_timeouts','等待超时']]}/>
       <ProcessBlock title="连接池" section={m.pool} fields={[['pool_size','连接'],['requests_waiting','等待'],['requests_errors','错误'],['max_size','上限']]}/>
-      <article className="workbench-block"><h3>数据库连接</h3><p>{m.connections.total} 个（部署上限 60；不按角色细分）</p></article>
+      <Card title="数据库连接"><p>{m.connections.total} 个（部署上限 60；不按角色细分）</p></Card>
       <BackupBlock backup={m.backup}/>
-    </div>
+    </CardGrid>
   </>}</Page>;
 }
 
