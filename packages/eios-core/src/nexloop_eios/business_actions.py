@@ -62,7 +62,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # Outreach slice 6: approve or reject a send waiting for approval (never the requester's own).
     'outreach.approve':'human_owner',
     # Outreach slice 7: the owner records marketing consent or resumes marketing after an unsubscribe, with evidence.
-    'marketing_consent.record':'human_owner'}
+    'marketing_consent.record':'human_owner',
+    # ADR-036: the owner publishes the next version of a read-only Object Set.
+    'object_set.publish':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

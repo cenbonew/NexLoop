@@ -30,7 +30,7 @@ test('deep links: type, cursor and open object round-trip on the Object page; th
   const r=parseRoute('/workbench/ontology/objects',`?type=Consumer&after=${A}&object=${A}`);
   expect(r.section).toBe('objects');
   expect(routePath(r)).toBe(`/workbench/ontology/objects?type=Consumer&after=${A}&object=${A}`);
-  expect(worldQuery(r.section,r.query)).toEqual({graph:false,focus:null,type:'Consumer',after:A,object:A});
+  expect(worldQuery(r.section,r.query)).toEqual({graph:false,focus:null,type:'Consumer',after:A,object:A,set:null,offset:0});
   expect(worldQuery('actions',{type:'Consumer',object:A})).toMatchObject({type:null,object:null});
   // A link of the earlier single page opens the same content in its section.
   const legacy=parseRoute('/workbench/ontology',`?tab=instances&type=Consumer&object=${A}`);

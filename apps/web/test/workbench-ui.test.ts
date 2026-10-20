@@ -48,9 +48,9 @@ test('a polite live region; tabs carry one when asked to announce', ()=>{
 });
 
 test('企业世界模型 is an expandable sidebar entry: one page per EIOS concept with its own path; the breadcrumb leads back to the summary',()=>{
-  expect(NAV_CHILDREN.ontology!.map(c=>c.label)).toEqual(['Object Type','Object','Property','Link','Function','Action']);
+  expect(NAV_CHILDREN.ontology!.map(c=>c.label)).toEqual(['Object Type','Object','Property','Link','Function','Action','Object Set']);
   expect(NAV_CHILDREN.ontology!.map(c=>routePath(c.route))).toEqual(['/workbench/ontology/object-types','/workbench/ontology/objects','/workbench/ontology/properties',
-    '/workbench/ontology/links','/workbench/ontology/functions','/workbench/ontology/actions']);
+    '/workbench/ontology/links','/workbench/ontology/functions','/workbench/ontology/actions','/workbench/ontology/object-sets']);
   expect(Object.keys(NAV_CHILDREN)).toEqual(['ontology']);
   expect(crumbs({page:'ontology',section:'links'})).toEqual([{label:'企业世界模型',to:{page:'ontology'}},{label:'Link'}]);
   expect(crumbs({page:'ontology'})).toEqual([]);

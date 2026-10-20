@@ -68,6 +68,7 @@ def validate_roles(value):
                   'eios:action:nexloop.contact_preference.dismiss:1',  # 0228: declining a consumer's own preference is the owner's
                   'eios:action:nexloop.outreach_controls.set:1',  # 0232: when and how often the tenant reaches out is the owner's
                   'eios:action:nexloop.outreach_purposes.set:1',  # outreach slice 3: which purposes the tenant may use is the owner's
+                  'eios:action:nexloop.object_set.publish:1',  # ADR-036: which object ranges the tenant defines is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
                   'eios:action:nexloop.context.strategy.publish:1',  # how Context is assembled is the owner's

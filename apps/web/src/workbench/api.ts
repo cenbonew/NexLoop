@@ -653,6 +653,36 @@ export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/obj
 export const readObjectValues=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,objectValues);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
 
+// ---- Object Set (ADR-036): definitions and a preview page evaluated at read time; each object READ-checked, restricted properties withheld ----
+export const OBJECT_SET_OPERATORS=['eq','ne','gt','gte','lt','lte','in','not_in'] as const;
+export type ObjectSetValue=string|number|boolean;
+export type ObjectSetFilter={property:string;operator:typeof OBJECT_SET_OPERATORS[number];value:ObjectSetValue|ObjectSetValue[]};
+export type ObjectSetSummary={stable_name:string;version:number;versions:number;object_type:string;object_type_version:number;filters:ObjectSetFilter[];
+  sort:{property:string;direction:'asc'|'desc'}[];projection:string[];published_at:string;reason:string};
+export type ObjectSetMember={object_id:string;values:Record<string,unknown>;withheld:string[]};
+export type ObjectSetPage={stable_name:string;version:number;object_type:string;status:'ok'|'withheld';items:ObjectSetMember[];total:number|null;
+  invisible:number;projection:string[];next_offset:number|null};
+function scalar(value:unknown):ObjectSetValue{if(typeof value==='string'||typeof value==='boolean'||(typeof value==='number'&&Number.isFinite(value)))return value;throw new WorkbenchError('invalid');}
+export function objectSets(value:unknown):ObjectSetSummary[]{
+  return list(object(value).object_sets).map(x=>{const o=object(x);
+    return {stable_name:text(o.stable_name),version:count(o.version),versions:count(o.versions),object_type:text(o.object_type),object_type_version:count(o.object_type_version),
+      filters:list(o.filters).map(f=>{const v=object(f);const operator=text(v.operator);
+        if(!(OBJECT_SET_OPERATORS as readonly string[]).includes(operator))throw new WorkbenchError('invalid');
+        return {property:text(v.property),operator:operator as ObjectSetFilter['operator'],value:Array.isArray(v.value)?v.value.map(scalar):scalar(v.value)};}),
+      sort:list(o.sort).map(s=>{const v=object(s);const direction=text(v.direction);if(direction!=='asc'&&direction!=='desc')throw new WorkbenchError('invalid');
+        return {property:text(v.property),direction};}),
+      projection:list(o.projection).map(text),published_at:text(o.published_at),reason:text(o.reason)};});
+}
+export function objectSetPage(value:unknown):ObjectSetPage{
+  const o=object(value);const status=text(o.status);if(status!=='ok'&&status!=='withheld')throw new WorkbenchError('invalid');
+  return {stable_name:text(o.stable_name),version:count(o.version),object_type:text(o.object_type),status,
+    items:status==='ok'?list(o.items).map(x=>{const v=object(x);return {object_id:text(v.object_id),values:object(v.values),withheld:list(v.withheld).map(text)};}):[],
+    total:o.total===null?null:count(o.total),invisible:status==='ok'?count(o.invisible):0,projection:status==='ok'?list(o.projection).map(text):[],
+    next_offset:o.next_offset===null||o.next_offset===undefined?null:count(o.next_offset)};
+}
+export const readObjectSets=()=>get('/api/v1/workbench/object-sets',objectSets);
+export const readObjectSetMembers=(name:string,offset=0)=>get(`/api/v1/workbench/object-sets/${encodeURIComponent(name)}/members?offset=${offset}&limit=25`,objectSetPage);
+
 // ---- W4 Artifact list (L6 0226; packages/contracts/workbench-artifacts.schema.json): metadata only, newest first, audited ----
 export type ArtifactRow={artifact_id:string;purpose:'message_context'|'fallback_context'|'role_context'|'other';media_type:string;size_bytes:number;sha256_prefix:string;
   created_at:string;retention_until:string;run_id:string|null;consumer_id:string|null};
