@@ -574,3 +574,18 @@ export const MEMBER_ROLE: LabelMap = {
   "operator": "运营",
   "reviewer": "审核人",
 };
+
+// UI batch 3 (模型与目录): Action governance in the world model (docs/design/workbench-glossary.md; existing page wording).
+export const ACTION_RISK: LabelMap = {
+  "low": "低",
+  "medium": "中",
+  "high": "高",
+  "critical": "极高",
+};
+
+export const ACTION_APPROVAL: LabelMap = {
+  "none": "无需审批",
+  "human": "人工审批",
+  "human_review": "人工审批",
+  "dual": "双人审批",
+};

@@ -48,7 +48,7 @@ test('the page lists the sets and previews the selected one: restricted Properti
   expect(preview.replace(/title="[^"]*"/g,'')).not.toContain(A);  // the whole id only in the hover title, never in the text
   const held=render({set:'tennis.players'},[[['workbench','object-sets'],objectSets(SETS)],
     [['workbench','object-set-members','tennis.players',2,0],objectSetPage({stable_name:'tennis.players',version:2,object_type:'Consumer',status:'withheld',items:[],total:null})]]);
-  expect(held).toContain('这个 Object Set 暂不可预览');expect(held).not.toContain('符合条件');
+  expect(held).toContain('无权查看这个 Object Set 的预览');expect(held).not.toContain('符合条件');
   expect(render({},[[['workbench','object-sets'],[]]])).toContain('暂无 Object Set');
 });
 

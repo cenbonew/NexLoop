@@ -38,7 +38,7 @@ test('deep links: type, cursor and open object round-trip on the Object page; th
 });
 
 test('instances: a chosen type lists ids with versions and times, counts the invisible ones, pages by cursor; no property shown',()=>{
-  expect(render({})).toContain('选择一个 Object Type 查看 Object');
+  expect(render({})).toContain('暂无选中的 Object Type');
   const html=render({type:'Consumer'},[[['workbench','objects','Consumer',''],objectPage(page)]]);
   expect(html).toContain('Consumer 共 7 个 Object · 本页显示 1 个');expect(html).toContain('本页不可见 1 个');expect(html).toContain('data-code="invisible"');
   expect(html).toContain('aaaaaaaa…aaaa');expect(html).toContain('>下一页</button>');expect(html).not.toContain('>上一页</button>');

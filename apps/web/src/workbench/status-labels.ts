@@ -20,6 +20,8 @@ export const DOMAINS={
   plan_status:L.PLAN_STATUS,plan_outcome:L.PLAN_OUTCOME,goal_kind:L.GOAL_KIND,budget_kind:L.BUDGET_KIND,cost_kind:L.COST_KIND,
   alert_severity:L.ALERT_SEVERITY,backup_repo:L.BACKUP_REPO,review_decision:L.REVIEW_DECISION,review_outcome:L.REVIEW_OUTCOME,
   audit_target:L.AUDIT_TARGET,member_role:L.MEMBER_ROLE,
+  // UI batch 3: Action governance, alert events and audit categories.
+  action_risk:L.ACTION_RISK,action_approval:L.ACTION_APPROVAL,alert_event:L.ALERT_EVENT,audit_category:L.AUDIT_CATEGORY,
   // Dispatch refusal codes: the existing api labels and the glossary's three additions (NXC07, NXR01, NXE01).
   refusal_code:{...REFUSAL_TEXT,...L.REFUSAL_CODE_ADDITIONS} as L.LabelMap,
 } as const satisfies Record<string,L.LabelMap>;
@@ -38,6 +40,7 @@ const TONES:Partial<Record<Domain,Record<string,Tone>>>={
   control_event:{pause:'limited',contact_restricted:'limited',takeover:'limited',resume:'ok',contact_released:'ok',handback:'ok'},
   escalation_reason:Object.fromEntries(Object.keys(L.ESCALATION_REASON).map(k=>[k,'limited'])),
   candidate_status:{},alert_severity:{critical:'fail',warning:'limited'},
+  action_risk:{low:'ok',medium:'limited',high:'limited',critical:'fail'},alert_event:{firing:'fail',resolved:'ok'},
   refusal_code:Object.fromEntries(Object.keys({...REFUSAL_TEXT,...L.REFUSAL_CODE_ADDITIONS}).map(k=>[k,'limited'])),
 };
 

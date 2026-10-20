@@ -443,3 +443,16 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 .workbench .evidence-message blockquote{margin:0;padding-left:var(--space-3);border-left:3px solid var(--border-strong);white-space:pre-wrap;overflow-wrap:anywhere}
 .workbench .evidence-message blockquote.clamped{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
 .workbench .evidence-claims{margin:0;padding-left:1.2em}
+/* UI batch 3 (模型与目录): names in code, the Object Type graph with its side panel, secondary technical names */
+.workbench .code-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small);white-space:nowrap}
+.workbench .world-graph{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4)}
+.workbench .world-graph-panel{grid-template-columns:minmax(0,1fr) minmax(260px,320px)}
+@media (max-width:899px){.workbench .world-graph-panel{grid-template-columns:minmax(0,1fr)}}
+.workbench .tech-name{display:block;color:var(--muted);font-size:var(--fs-small);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.workbench .object-view{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4)}
+.workbench .object-view-detail{grid-template-columns:minmax(0,1fr) minmax(280px,360px)}
+@media (max-width:899px){.workbench .object-view-detail{grid-template-columns:minmax(0,1fr)}}
+.workbench .field-narrow{max-width:420px}
+.workbench .value-short{white-space:nowrap}
+.workbench .value-full{white-space:pre-wrap;overflow-wrap:anywhere;max-width:40rem}
+.workbench .name-main{display:block;font-weight:600}

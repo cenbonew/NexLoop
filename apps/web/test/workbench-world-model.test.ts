@@ -61,10 +61,10 @@ function render(query?:Record<string,string>,section?:string){
 test('the summary: one card per concept in EIOS order with its count, the Event Types, EIOS terms, no edit control',()=>{
   const html=render();
   expect(html).toContain('企业世界模型');expect(html).toContain('只读');
-  const cards=[...html.matchAll(/aria-label="([A-Za-z ]+) (\d+) 个，查看"/g)].map(m=>m[1]);
+  const cards=[...html.matchAll(/aria-label="([A-Za-z ]+)(?:（real）)? (\d+)，查看"/g)].map(m=>m[1]);
   expect(cards).toEqual(['Object Type','Object','Property','Link','Function','Action']);
-  expect(html).toContain('aria-label="Object Type 2 个，查看"');expect(html).toContain('<strong style="display:block;font-size:22px">42</strong>');
-  expect(html).toContain('>Event Type</h2>');expect(html).toContain('aria-label="Event Type 0 个"');expect(html).toContain('还没有已发布的 Event Type');expect(html).not.toContain('<svg');
+  expect(html).toContain('aria-label="Object Type 2，查看"');expect(html).toContain('<strong class="metric-value">42</strong>');
+  expect(html).toContain('>Event Type</h2>');expect(html).toContain('<span class="metric-label">Event Type</span><strong class="metric-value">0</strong>');expect(html).toContain('暂无已发布的 Event Type');expect(html).not.toContain('<svg');
   expect(html).not.toMatch(/新建|编辑|删除/);
   // Entities are EIOS English everywhere; the view switch is not on this page.
   for(const page of [html,render(undefined,'object_types'),render(undefined,'properties'),render(undefined,'links'),render(undefined,'actions'),render(undefined,'functions')]){
