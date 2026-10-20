@@ -1,0 +1,23 @@
+{
+  "type_name": "Consumer",
+  "object_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_version": 2,
+  "revision": 3,
+  "properties": [
+    {
+      "name": "display_name",
+      "status": "ok",
+      "value": "示例客户",
+      "value_type": "text"
+    },
+    {
+      "name": "monthly_income",
+      "status": "withheld",
+      "reason": "restricted"
+    },
+    {
+      "name": "nickname",
+      "status": "missing"
+    }
+  ]
+}

@@ -12,37 +12,40 @@ import {readWorldModel,type WorldModel as Model,type WorldObjectType,type WorldP
 import {WORLD_SECTIONS,type Query,type WorldSection} from '../route';
 import {Page} from './Page';
 import {DataTable} from '../DataTable';
-import {Empty,StatusBadge} from '../ui';
-import {when} from './Consumers';
+import {StatusBadge,Time} from '../ui';
+import {Card,CardGrid,EmptyState,KeyValue,MetricCard} from '../kit';
+import {statusLabel} from '../status-labels';
 import {CARDINALITY_TEXT,SchemaGraph} from '../graph/SchemaGraph';
 import {Instances,type InstanceState} from './WorldInstances';
+import {ObjectSets,type ObjectSetState} from './WorldObjectSets';
 
-const RISK_TEXT:Record<string,string>={low:'低',medium:'中',high:'高',critical:'极高'};
-const APPROVAL_TEXT:Record<string,string>={none:'无需审批',human:'人工审批',human_review:'人工审批',dual:'双人审批'};
 /** What each concept is (EIOS concept list; NexLoop wording). */
 export const SECTION_LEAD:Record<WorldSection,string>={
   object_types:'稳定命名、不可变版本与 Property 契约，是企业世界的类型定义。',
-  objects:'具体的企业对象，只列出标识、版本与更新时间；你没有读取权限的 Object 只计数。',
+  objects:'具体的企业对象：标识、版本、更新时间和你能读取的属性值；受限属性只显示名称，你没有读取权限的 Object 只计数。',
   properties:'归属于 Object Type 的字段定义，含数据类型与约束。',
   links:'Object Type 之间的关系及基数约束。',
   functions:'版本化的只读计算契约。',
-  actions:'版本化的写入契约，携带治理与副作用声明；对外的业务变更只经由受治理的 Action。'};
+  actions:'版本化的写入契约，携带治理与副作用声明；对外的业务变更只经由受治理的 Action。',
+  object_sets:'保存的只读查询：一个 Object Type 加条件；按当前数据求值，只显示你有读取权限的 Object。'};
 export const sectionLabel=(s:WorldSection)=>WORLD_SECTIONS.find(x=>x.key===s)!.label;
 
-export type WorldModelQuery={graph:boolean;focus:string|null}&InstanceState;
+export type WorldModelQuery={graph:boolean;focus:string|null}&InstanceState&ObjectSetState;
 export function worldQuery(section:WorldSection|undefined,query:Query|undefined):WorldModelQuery{
   const objects=section==='objects',types=section==='object_types';
   return {graph:types&&query?.view==='graph',focus:types?query?.focus??null:null,
-    type:objects?query?.type??null:null,after:objects&&query?.type?query?.after??null:null,object:objects&&query?.type?query?.object??null:null};
+    type:objects?query?.type??null:null,after:objects&&query?.type?query?.after??null:null,object:objects&&query?.type?query?.object??null:null,
+    set:section==='object_sets'?query?.set??null:null,offset:section==='object_sets'&&query?.set?Number(query?.offset??0):0};
 }
 function toQuery(section:WorldSection,q:WorldModelQuery):Query{
   if(section==='object_types')return {...(q.graph?{view:'graph'}:{}),...(q.focus?{focus:q.focus}:{})};
   if(section==='objects'&&q.type)return {type:q.type,...(q.after?{after:q.after}:{}),...(q.object?{object:q.object}:{})};
+  if(section==='object_sets'&&q.set)return {set:q.set,...(q.offset?{offset:String(q.offset)}:{})};
   return {};
 }
 
 type PropertyRow={type:string;property:WorldProperty};
-const Mono=({children}:{children:string})=><code style={{whiteSpace:'nowrap'}}>{children}</code>;
+const Mono=({children}:{children:string})=><code className="code-name">{children}</code>;
 /** Where another page of the group is reached from here (a section and its query). */
 export type WorldGo=(section:WorldSection|null,query?:Query,options?:{replace?:boolean})=>void;
 
@@ -59,25 +62,22 @@ function properties(m:Model):PropertyRow[]{return m.object_types.flatMap(t=>t.pr
 
 function Summary({model:m,go}:{model:Model;go:WorldGo}){
   const props=useMemo(()=>properties(m),[m]);
-  const counts:Record<WorldSection,number>={object_types:m.object_types.length,objects:m.object_types.reduce((n,t)=>n+t.objects,0),properties:props.length,
-    links:m.relation_types.length,functions:m.functions.length,actions:m.actions.length};
+  // Object Sets are read on their own page (ADR-036): the summary links there without a count.
+  const counts:Record<WorldSection,number|null>={object_types:m.object_types.length,objects:m.object_types.reduce((n,t)=>n+t.objects,0),properties:props.length,
+    links:m.relation_types.length,functions:m.functions.length,actions:m.actions.length,object_sets:null};
   const withheld=props.filter(p=>p.property.withheld).length;
   return <>
-    <ul className="world-summary" aria-label="模型计数" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:8,margin:'8px 0 16px',padding:0,listStyle:'none'}}>
-      {WORLD_SECTIONS.map(s=><li key={s.key}><button type="button" className="workbench-block world-count" aria-label={`${s.label} ${counts[s.key]} 个，查看`}
-        onClick={()=>go(s.key)} style={{textAlign:'left',width:'100%',height:'100%'}}>
-        <span className="note">{s.label}{s.key==='objects'?'（real）':''}</span><strong style={{display:'block',fontSize:22}}>{counts[s.key]}</strong>
-        <span className="note" style={{display:'block'}}>{SECTION_LEAD[s.key]}</span></button></li>)}
-      <li><div className="workbench-block world-count" aria-label={`Event Type ${m.event_types.length} 个`} style={{height:'100%'}}>
-        <span className="note">Event Type</span><strong style={{display:'block',fontSize:22}}>{m.event_types.length}</strong>
-        <span className="note" style={{display:'block'}}>Object 上发生的业务事件，定义列在本页下方。</span></div></li>
-    </ul>
-    <p className="note">计算时间 {when(m.computed_at)}{withheld?` · ${withheld} 个 Property 属于负责人限制的属性组，只显示名称`:''}。</p>
+    <CardGrid label="模型计数" min="14rem">
+      {WORLD_SECTIONS.map(s=><MetricCard key={s.key} label={s.label+(s.key==='objects'?'（real）':'')} value={counts[s.key]??'查看'} hint={SECTION_LEAD[s.key]}
+        onOpen={()=>go(s.key)}/>)}
+      <MetricCard label="Event Type" value={m.event_types.length} hint="Object 上发生的业务事件，定义列在本页下方。"/>
+    </CardGrid>
+    <p className="note">计算时间 <Time value={m.computed_at}/>{withheld?` · ${withheld} 个 Property 属于负责人限制的属性组，只显示名称`:''}。</p>
     <h2 id="world-event-types">Event Type</h2>
     {m.event_types.length?<DataTable label="Event Type" rows={m.event_types} rowKey={e=>e.name} columns={[
       {label:'Event Type',main:true,cell:e=><Mono>{e.name}</Mono>},{label:'Object Type',cell:e=><TypeLink name={e.object_type} go={go}/>},{label:'版本',num:true,cell:e=>`v${e.version}`},
       {label:'Payload Property',num:true,cell:e=>e.payload_property_count},{label:'说明',wide:true,cell:e=>e.description||'—'}]}/>
-      :<Empty kind="none" title="还没有已发布的 Event Type"/>}
+      :<EmptyState kind="empty" subject="已发布的 Event Type"/>}
   </>;
 }
 
@@ -107,30 +107,31 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
           {label:'主键',cell:t=>t.primary_key.join('、')||'—'},{label:'标题 Property',cell:t=>t.title_property||'—'},
           {label:'Object',num:true,cell:t=>t.objects?<button type="button" className="link" aria-label={`查看 ${t.name} 的 ${t.objects} 个 Object`}
             onClick={()=>go('objects',{type:t.name})}>{t.objects}</button>:0},
-          {label:'说明',wide:true,cell:t=>t.description||'—'}]}/>:<Empty kind="none" title="还没有已发布的 Object Type"/>}
+          {label:'说明',wide:true,cell:t=>t.description||'—'}]}/>:<EmptyState kind="empty" subject="已发布的 Object Type"/>}
     </>;
     case 'objects':return <Instances types={m.object_types} state={q} onState={change=>set(change)}/>;
+    case 'object_sets':return <ObjectSets state={q} onState={change=>set(change)}/>;
     case 'properties':return props.length?<DataTable label="Property" rows={props} rowKey={r=>r.type+'/'+r.property.name} columns={[
       {label:'Property',main:true,cell:r=><Mono>{r.property.name}</Mono>},{label:'Object Type',cell:r=>typeLink(r.type)},
       {label:'数据类型',cell:r=>r.property.withheld?<StatusBadge text="受限" tone="limited" code="withheld"/>:r.property.value_type},
       {label:'约束',cell:r=>r.property.withheld?'—':[r.property.required?'必填':'可选',r.property.nullable?'可空':''].filter(Boolean).join(' · ')},
       {label:'属性组',cell:r=>r.property.withheld?'—':r.property.group??'—'},{label:'说明',wide:true,cell:r=>r.property.withheld?'负责人限制的属性组：只显示名称':r.property.description||'—'}]}/>
-      :<Empty kind="none" title="还没有 Property"/>;
+      :<EmptyState kind="empty" subject="Property"/>;
     case 'links':return m.relation_types.length?<DataTable label="Link" rows={m.relation_types} rowKey={r=>r.name} columns={[
       {label:'Link',main:true,cell:r=><Mono>{r.name}</Mono>},{label:'方向',cell:r=><>{typeLink(r.source_type)} → {typeLink(r.target_type)}</>},
       {label:'基数',cell:r=>CARDINALITY_TEXT[r.cardinality]},{label:'版本',num:true,cell:r=>`v${r.version}`},{label:'反向名',cell:r=>r.inverse_name||'—'},
-      {label:'说明',wide:true,cell:r=>r.description||'—'}]}/>:<Empty kind="none" title="暂无已发布的 Link"/>;
+      {label:'说明',wide:true,cell:r=>r.description||'—'}]}/>:<EmptyState kind="empty" subject="已发布的 Link"/>;
     case 'actions':return m.actions.length?<DataTable label="Action" rows={m.actions} rowKey={a=>a.resource_id} columns={[
       {label:'Action',main:true,cell:a=><Mono>{a.name}</Mono>},{label:'版本',num:true,cell:a=>`v${a.version}`},
-      {label:'风险',cell:a=>a.risk_level?<StatusBadge text={RISK_TEXT[a.risk_level]??a.risk_level} tone={a.risk_level==='low'?'ok':'limited'} code={a.risk_level}/>:'—'},
-      {label:'审批',cell:a=>a.approval_mode?APPROVAL_TEXT[a.approval_mode]??a.approval_mode:'—'},
+      {label:'风险',cell:a=>a.risk_level?<StatusBadge domain="action_risk" code={a.risk_level}/>:'—'},
+      {label:'审批',cell:a=>a.approval_mode?<span title={a.approval_mode}>{statusLabel('action_approval',a.approval_mode)}</span>:'—'},
       {label:'副作用',cell:a=><StatusBadge text={a.has_side_effects?'有':'无'} tone={a.has_side_effects?'limited':'neutral'} code={a.change_scope}/>},
       {label:'Object Type',wide:true,cell:a=>a.object_types.join('、')||'—'},{label:'Scope',cell:a=>a.required_scopes.join('、')||'—'}]}/>
-      :<Empty kind="none" title="还没有生效的 Action"/>;
+      :<EmptyState kind="empty" subject="生效的 Action"/>;
     case 'functions':return m.functions.length?<DataTable label="Function" rows={m.functions} rowKey={f=>f.resource_id} columns={[
       {label:'Function',main:true,cell:f=><Mono>{f.name}</Mono>},{label:'版本',num:true,cell:f=>`v${f.version}`},
       {label:'Object Type',wide:true,cell:f=>f.applies_to.filter(Boolean).join('、')||'—'},{label:'Scope',cell:f=>f.required_scopes.join('、')||'—'}]}/>
-      :<Empty kind="none" title="还没有生效的 Function"/>;
+      :<EmptyState kind="empty" subject="生效的 Function"/>;
   }
 }
 
@@ -139,9 +140,9 @@ function TypeGraph({model:m,focus,onFocus}:{model:Model;focus:string|null;onFocu
   const edges=useMemo(()=>m.relation_types.filter(r=>m.object_types.some(t=>t.name===r.source_type)&&m.object_types.some(t=>t.name===r.target_type))
     .map(r=>({id:r.name,from:r.source_type,to:r.target_type,label:`${r.name} ${CARDINALITY_TEXT[r.cardinality]}`})),[m]);
   const focused=focus?m.object_types.find(t=>t.name===focus)??null:null;
-  return <div className="world-graph" style={{display:'grid',gridTemplateColumns:focused?'minmax(0,1fr) minmax(260px,320px)':'minmax(0,1fr)',gap:16}}>
+  return <div className={'world-graph'+(focused?' world-graph-panel':'')}>
     {nodes.length?<SchemaGraph nodes={nodes} edges={edges} focus={focused?.name??null} onFocus={onFocus} emptyEdgesText="暂无已发布的 Link"
-      label={`Object Type 关系图：${nodes.length} 个 Object Type，${edges.length} 条 Link`}/>:<Empty kind="none" title="还没有已发布的 Object Type"/>}
+      label={`Object Type 关系图：${nodes.length} 个 Object Type，${edges.length} 条 Link`}/>:<EmptyState kind="empty" subject="已发布的 Object Type"/>}
     {focused?<TypePanel type={focused} model={m} onClose={()=>onFocus(null)}/>:null}
   </div>;
 }
@@ -149,16 +150,17 @@ function TypeGraph({model:m,focus,onFocus}:{model:Model;focus:string|null;onFocu
 function TypePanel({type,model,onClose}:{type:WorldObjectType;model:Model;onClose:()=>void}){
   const out=model.relation_types.filter(r=>r.source_type===type.name),into=model.relation_types.filter(r=>r.target_type===type.name&&r.source_type!==type.name);
   const list=(items:ReactNode[])=><ul>{items}</ul>;
-  return <aside className="workbench-block world-panel" aria-label={`${type.name} 详情`}>
-    <h2 style={{marginTop:0}}>{type.name} <small className="note">v{type.version}</small></h2>
-    {type.description?<p>{type.description}</p>:null}
-    <p className="note">{type.objects} 个 Object（real）{type.title_property?` · 标题 Property ${type.title_property}`:''}</p>
-    <h3>Property（{type.properties.length}）</h3>
-    {type.properties.length?list(type.properties.map(p=><li key={p.name}><Mono>{p.name}</Mono> {p.withheld?<StatusBadge text="受限" tone="limited" code="withheld"/>
-      :<span className="note">{p.value_type}{p.required?' · 必填':''}</span>}</li>)):<p className="note">没有 Property。</p>}
-    <h3>Link</h3>
-    {out.length||into.length?list([...out.map(r=><li key={'o'+r.name}>→ {r.target_type}：{r.name}（{CARDINALITY_TEXT[r.cardinality]}）</li>),
-      ...into.map(r=><li key={'i'+r.name}>← {r.source_type}：{r.name}（{CARDINALITY_TEXT[r.cardinality]}）</li>)]):<p className="note">没有 Link。</p>}
-    <button type="button" onClick={onClose}>关闭</button>
+  return <aside className="world-panel" aria-label={`${type.name} 详情`}>
+    <Card title={type.name} badge={<span className="note">v{type.version}</span>} footer={<button type="button" onClick={onClose}>关闭</button>}>
+      {type.description?<p>{type.description}</p>:null}
+      <KeyValue label={`${type.name} 概况`} items={[{key:'Object（real）',value:type.objects},{key:'标题 Property',value:type.title_property||'—'},
+        {key:'主键',value:type.primary_key.join('、')||'—'}]}/>
+      <h3>Property（{type.properties.length}）</h3>
+      {type.properties.length?list(type.properties.map(p=><li key={p.name}><Mono>{p.name}</Mono> {p.withheld?<StatusBadge text="受限" tone="limited" code="withheld"/>
+        :<span className="note">{p.value_type}{p.required?' · 必填':''}</span>}</li>)):<EmptyState kind="empty" subject="Property" compact/>}
+      <h3>Link</h3>
+      {out.length||into.length?list([...out.map(r=><li key={'o'+r.name}>→ {r.target_type}：{r.name}（{CARDINALITY_TEXT[r.cardinality]}）</li>),
+        ...into.map(r=><li key={'i'+r.name}>← {r.source_type}：{r.name}（{CARDINALITY_TEXT[r.cardinality]}）</li>)]):<EmptyState kind="empty" subject="Link" compact/>}
+    </Card>
   </aside>;
 }

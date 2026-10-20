@@ -14,6 +14,7 @@ from eios.authz.resources import ResourceType
 import runtime_effect_fixture as fixture
 from runtime_effect_fixture import runtime_effect_plan  # noqa: F401
 from test_incentive_runs_pg import restrict, run_with
+from test_outreach_send_pg import midday_zone
 from test_plan_reevaluation_pg import planning, services, spec  # noqa: F401
 from nexloop_eios.outreach import LocalOutreachOutbox, OutreachSender, RunOutreachPort
 
@@ -28,12 +29,13 @@ def source_may_name_the_send(monkeypatch):
 
 def quiet_hours_off(admin, tenant):
     """The tenant's outreach controls with no quiet hours (as the governed handler leaves them), so what these tests decide never depends
-    on the time of day they run (the default 21:00-09:00 would refuse first: quiet hours come before the real dispatch switch)."""
+    on the time of day they run (the default 21:00-09:00 would refuse first: quiet hours come before the real dispatch switch); the time
+    zone puts now around local noon, so a replay in the same test is always the same day of the business intent id."""
     settings = admin.execute('select runtime.nexloop_outreach_default_settings()').fetchone()[0]
     with admin.transaction():
         admin.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
         admin.execute('''insert into control.nexloop_outreach_controls(tenant_id,settings,revision,updated_by,request_intent) values(%s,%s,1,'synthetic-owner','synthetic')
-            on conflict(tenant_id) do update set settings=excluded.settings''', (tenant, Jsonb({**settings, 'quiet_hours': None})))
+            on conflict(tenant_id) do update set settings=excluded.settings''', (tenant, Jsonb({**settings, 'quiet_hours': None, 'time_zone': midday_zone()})))
 
 
 @pytest.fixture

@@ -107,3 +107,23 @@ class EvaluatorStore:
 
     def open(self, candidate_id: str, bundle_digest: str) -> dict:
         return self._call('select authz.nexloop_evo_evaluation_open(%s,%s,%s)', (candidate_id, bundle_digest))
+
+    def conclude(self, report: dict) -> dict:
+        """NX-039 V2: records the evaluator's report and concludes evaluating -> accepted_for_release | rejected | incomplete."""
+        return self._call('select authz.nexloop_evo_evaluation_conclude(%s,%s)', (Jsonb(report),))
+
+    # NX-039 V3: the L1 test-world session (registered test-only evaluation credential, D18), its definition snapshot, budget and clock.
+    def l1_open(self, candidate_id: str, credential_digest: str) -> dict:
+        return self._call('select authz.nexloop_evo_l1_open(%s,%s,%s)', (candidate_id, credential_digest))
+
+    def l1_definitions(self, session_id: str) -> list | None:
+        return self._call('select authz.nexloop_evo_l1_definitions(%s,%s)', (session_id,))
+
+    def l1_reserve(self, session_id: str, consumption_id: str, amount: str, unit: str) -> dict:
+        return self._call('select authz.nexloop_evo_l1_reserve(%s,%s,%s,%s,%s)', (session_id, consumption_id, amount, unit))
+
+    def l1_close(self, session_id: str, reason: str = 'done') -> dict:
+        return self._call('select authz.nexloop_evo_l1_close(%s,%s,%s)', (session_id, reason))
+
+    def l1_sweep(self) -> dict:
+        return self._call('select authz.nexloop_evo_l1_sweep(%s)', ())

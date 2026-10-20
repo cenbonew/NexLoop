@@ -68,6 +68,9 @@
               "zero_cross_tenant",
               "zero_fact_pollution",
               "no_forbidden_regression",
+              "semantic_regression",
+              "cost_performance",
+              "semantic_conflict",
               "index_migration_impact"
             ]
           },
@@ -268,12 +271,43 @@
         "inferior",
         "missing_data",
         "budget_exhausted",
-        "validation_leak"
+        "validation_leak",
+        "not_reproducible",
+        "breaking_change",
+        "evaluator_timeout"
       ]
     },
     "created_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "hard_gates_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:@+-]{1,128}$",
+      "description": "NX-039 V2: the frozen gate version the report answers (optional, additive)."
+    },
+    "failed_gates": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z_]{1,64}$"
+      },
+      "description": "NX-039 V2: the failed gates in registry order; each gate id is its own rejection code (optional, additive)."
+    },
+    "change_class": {
+      "enum": [
+        "patch",
+        "minor",
+        "major",
+        "refused"
+      ],
+      "description": "NX-039 V2 (D39-7): decided by classify_change, never set by a person or an Agent; major and refused are always rejected (optional, additive)."
+    },
+    "reproduced": {
+      "type": "boolean",
+      "description": "NX-039 V2 (D39-2): the second L0 pass gave the same report (optional, additive)."
     }
   }
 }

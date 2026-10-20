@@ -33,7 +33,9 @@ def _json(path):
 
 def load_refusal_rules(path):
     value=_json(path)
-    if type(value) is not dict or set(value)!={'schema','version','decision','refuse','uncertain','exclusions'}:raise ValueError('refusal rules shape')
+    keys={'schema','version','decision','refuse','uncertain','exclusions'}
+    # v2 (ADR-023 §4): an optional marketing_only exception naming refuse entries and the marketing window.
+    if type(value) is not dict or set(value) not in (keys,keys|{'marketing_only'}):raise ValueError('refusal rules shape')
     if value['schema']!='nexloop-contact-refusal-rules/1' or type(value['version']) is not int or value['version']<1:raise ValueError('refusal rules version')
     for kind in ('refuse','uncertain','exclusions'):
         rows=value[kind]
@@ -41,6 +43,11 @@ def load_refusal_rules(path):
         for row in rows:
             if type(row) is not dict or set(row)!={'id','pattern'} or re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}',str(row['id'])) is None:raise ValueError('rule')
             if type(row['pattern']) is not str or not 1<=len(row['pattern'])<=1000:raise ValueError('rule pattern')
+    if 'marketing_only' in value:
+        only=value['marketing_only']
+        if (type(only) is not dict or set(only)!={'rule_ids','window_days'} or type(only['rule_ids']) is not list or not only['rule_ids']
+            or not set(only['rule_ids'])<={r['id'] for r in value['refuse']} or type(only['window_days']) is not int or not 1<=only['window_days']<=90):
+            raise ValueError('refusal rules marketing_only')
     return value
 
 

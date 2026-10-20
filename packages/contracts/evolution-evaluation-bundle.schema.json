@@ -98,6 +98,9 @@
           "zero_cross_tenant",
           "zero_fact_pollution",
           "no_forbidden_regression",
+          "semantic_regression",
+          "cost_performance",
+          "semantic_conflict",
           "index_migration_impact"
         ]
       }

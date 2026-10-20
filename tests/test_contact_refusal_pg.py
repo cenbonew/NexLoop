@@ -29,6 +29,8 @@ COUNTER=['你好，我想问一下续费价格','好的，谢谢','明天下午�
 MISJUDGMENT=['别发错货了','不要发顺丰，发中通','别发漏了配件','不要寄到公司','能不能别打折了，直接原价也行','不用找零了','别打包太紧']
 # Accepted over-blocking (ADR-023 §3, when in doubt restrict): documented, owner releases them.
 OVERBLOCK=['不用找了','别找借口']
+# ADR-023 §4: the current rule set is v2 (v1 stays published); without a marketing send every hit still restricts (tests/test_contact_refusal_v2_pg.py).
+CURRENT=2
 
 
 def match(admin,body):
@@ -49,11 +51,11 @@ def test_rule_sets_positive_counter_misjudgment_and_overblocking(admin):
     from nexloop_eios.bootstrap import bootstrap
     bootstrap(admin)
     for body in REFUSE:
-        hit=match(admin,body);assert hit['matched'] and hit['certainty']=='refuse' and hit['rule_version']==1 and hit['matched_text'],(body,hit)
+        hit=match(admin,body);assert hit['matched'] and hit['certainty']=='refuse' and hit['rule_version']==CURRENT and hit['matched_text'],(body,hit)
     for body in UNCERTAIN:
         hit=match(admin,body);assert hit['matched'] and hit['certainty']=='uncertain',(body,hit)
     for body in COUNTER+MISJUDGMENT:
-        assert match(admin,body)=={'matched':False,'rule_version':1},body
+        assert match(admin,body)=={'matched':False,'rule_version':CURRENT},body
     for body in OVERBLOCK:
         assert match(admin,body)['matched'],body
     # A refusal next to an excluded phrase is still a refusal.
@@ -82,7 +84,7 @@ def test_inbound_refusal_restricts_in_the_same_transaction_and_keeps_the_message
     head=admin.execute('select revision from control.nexloop_control_heads').fetchone()
     conversation,ids2=make_window(f,['以后别再给我发消息了'],'refusal')
     active,version,rule,certainty,text,revision=restriction(admin,consumer)
-    assert (active,version,rule,certainty)==(True,1,'stop-contact','refuse') and '别再给我发' in text
+    assert (active,version,rule,certainty)==(True,CURRENT,'stop-contact','refuse') and '别再给我发' in text
     event=admin.execute("select event_kind,scope_kind,scope_ref,detail->>'message_id',principal_id from control.nexloop_control_events where revision=%s",(revision,)).fetchone()
     assert event==('contact_restricted','consumer',consumer,ids2[0],'system:contact-refusal-rules')
     assert revision>((head or (0,))[0] or 0)

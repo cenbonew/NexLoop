@@ -43,9 +43,10 @@ test('URL state: one path per concept, the Graph view and focus round-trip on Ob
     expect(parseRoute('/workbench/ontology/'+path).section).toBe(section);
   expect(parseRoute('/workbench/ontology')).toEqual({page:'ontology'});
   expect(parseRoute('/workbench/ontology/links','?view=graph').query).toBeUndefined();  // the view belongs to Object Type
-  expect(parseRoute('/workbench/ontology/object-sets')).toEqual({page:'ontology'});  // no page without NexLoop data
-  expect(worldQuery('actions',{view:'graph'})).toEqual({graph:false,focus:null,type:null,after:null,object:null});
-  expect(worldQuery('object_types',undefined)).toEqual({graph:false,focus:null,type:null,after:null,object:null});
+  expect(parseRoute('/workbench/ontology/object-sets')).toEqual({page:'ontology',section:'object_sets'});  // ADR-036
+  expect(parseRoute('/workbench/ontology/object-views')).toEqual({page:'ontology'});  // no page without NexLoop data
+  expect(worldQuery('actions',{view:'graph'})).toEqual({graph:false,focus:null,type:null,after:null,object:null,set:null,offset:0});
+  expect(worldQuery('object_types',undefined)).toEqual({graph:false,focus:null,type:null,after:null,object:null,set:null,offset:0});
   // Links of the earlier single page land on the concept they showed.
   expect(routePath(parseRoute('/workbench/ontology','?tab=relations&view=graph&focus=Consumer'))).toBe('/workbench/ontology/links');
   expect(routePath(parseRoute('/workbench/ontology','?view=graph&focus=Consumer'))).toBe('/workbench/ontology/object-types?view=graph&focus=Consumer');
@@ -60,10 +61,10 @@ function render(query?:Record<string,string>,section?:string){
 test('the summary: one card per concept in EIOS order with its count, the Event Types, EIOS terms, no edit control',()=>{
   const html=render();
   expect(html).toContain('企业世界模型');expect(html).toContain('只读');
-  const cards=[...html.matchAll(/aria-label="([A-Za-z ]+) (\d+) 个，查看"/g)].map(m=>m[1]);
+  const cards=[...html.matchAll(/aria-label="([A-Za-z ]+)(?:（real）)? (\d+)，查看"/g)].map(m=>m[1]);
   expect(cards).toEqual(['Object Type','Object','Property','Link','Function','Action']);
-  expect(html).toContain('aria-label="Object Type 2 个，查看"');expect(html).toContain('<strong style="display:block;font-size:22px">42</strong>');
-  expect(html).toContain('>Event Type</h2>');expect(html).toContain('aria-label="Event Type 0 个"');expect(html).toContain('还没有已发布的 Event Type');expect(html).not.toContain('<svg');
+  expect(html).toContain('aria-label="Object Type 2，查看"');expect(html).toContain('<strong class="metric-value">42</strong>');
+  expect(html).toContain('>Event Type</h2>');expect(html).toContain('<span class="metric-label">Event Type</span><strong class="metric-value">0</strong>');expect(html).toContain('暂无已发布的 Event Type');expect(html).not.toContain('<svg');
   expect(html).not.toMatch(/新建|编辑|删除/);
   // Entities are EIOS English everywhere; the view switch is not on this page.
   for(const page of [html,render(undefined,'object_types'),render(undefined,'properties'),render(undefined,'links'),render(undefined,'actions'),render(undefined,'functions')]){
@@ -74,7 +75,7 @@ test('the summary: one card per concept in EIOS order with its count, the Event 
 test('each concept page: its EIOS title, its own table; Table / Graph only under the Object Type title',()=>{
   const types=render(undefined,'object_types');
   expect(types).toContain('<h1 id="workbench-page-title">Object Type</h1>');
-  expect(types).toMatch(/<\/h1><p class="workbench-lead">[^<]+<\/p><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式"><button type="button" aria-pressed="true">Table<\/button><button type="button" aria-pressed="false">Graph<\/button><\/div>/);
+  expect(types).toMatch(/<\/h1><p class="workbench-lead">[^<]+<\/p><\/div><\/header><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式"><button type="button" aria-pressed="true">Table<\/button><button type="button" aria-pressed="false">Graph<\/button><\/div>/);
   expect(types).toContain('aria-label="Object Type"');expect(types).not.toContain('<svg');
   const props=render(undefined,'properties');
   expect(props).toContain('<h1 id="workbench-page-title">Property</h1>');expect(props).not.toContain('查看方式');

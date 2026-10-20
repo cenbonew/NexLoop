@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import type {UseQueryResult} from '@tanstack/react-query';
 import {STATE_TEXT,SECTION_TEXT,kindOf,type Section} from '../api';
 import {Announce,Empty} from '../ui';
+import {PageHeader} from '../kit';
 
 /** Every page: one title, an `actions` slot for slice 2/3 governed Actions (empty by default), and exact states (AT-045).
  * `forbidden`: what this page says on a 403 instead of the generic text, when the refusal is the role's by design (whose page it
@@ -11,10 +12,7 @@ import {Announce,Empty} from '../ui';
 export function Page<T>({title,lead,query,actions,toolbar,empty,emptyKind='none',forbidden,announce,children}:{title:string;lead?:ReactNode;query:UseQueryResult<T>;actions?:ReactNode;announce?:(data:T)=>string;
   toolbar?:ReactNode;empty?:(data:T)=>boolean;emptyKind?:'none'|'filtered';forbidden?:ReactNode;children:(data:T)=>ReactNode}){
   return <section className="workbench-page" aria-labelledby="workbench-page-title">
-    <h1 id="workbench-page-title">{title}</h1>
-    {lead?<p className="workbench-lead">{lead}</p>:null}
-    {actions?<div className="workbench-actions" role="group" aria-label="可执行的操作">{actions}</div>:null}
-    {toolbar?<div className="workbench-toolbar">{toolbar}</div>:null}
+    <PageHeader title={title} lead={lead} actions={actions} toolbar={toolbar}/>
     {announce?<Announce text={query.data!==undefined&&!query.isFetching?announce(query.data):''}/>:null}
     <div className="workbench-data" aria-busy={query.isFetching||undefined}>
     {query.isPending?<p role="status" className="workbench-loading">{STATE_TEXT.loading}</p>

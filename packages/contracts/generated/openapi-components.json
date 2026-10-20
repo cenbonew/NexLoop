@@ -4810,6 +4810,9 @@
                 "zero_cross_tenant",
                 "zero_fact_pollution",
                 "no_forbidden_regression",
+                "semantic_regression",
+                "cost_performance",
+                "semantic_conflict",
                 "index_migration_impact"
               ]
             }
@@ -5004,6 +5007,9 @@
                     "zero_cross_tenant",
                     "zero_fact_pollution",
                     "no_forbidden_regression",
+                    "semantic_regression",
+                    "cost_performance",
+                    "semantic_conflict",
                     "index_migration_impact"
                   ]
                 },
@@ -5204,12 +5210,43 @@
               "inferior",
               "missing_data",
               "budget_exhausted",
-              "validation_leak"
+              "validation_leak",
+              "not_reproducible",
+              "breaking_change",
+              "evaluator_timeout"
             ]
           },
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "hard_gates_version": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$",
+            "description": "NX-039 V2: the frozen gate version the report answers (optional, additive)."
+          },
+          "failed_gates": {
+            "type": "array",
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z_]{1,64}$"
+            },
+            "description": "NX-039 V2: the failed gates in registry order; each gate id is its own rejection code (optional, additive)."
+          },
+          "change_class": {
+            "enum": [
+              "patch",
+              "minor",
+              "major",
+              "refused"
+            ],
+            "description": "NX-039 V2 (D39-7): decided by classify_change, never set by a person or an Agent; major and refused are always rejected (optional, additive)."
+          },
+          "reproduced": {
+            "type": "boolean",
+            "description": "NX-039 V2 (D39-2): the second L0 pass gave the same report (optional, additive)."
           }
         }
       },
@@ -7207,7 +7244,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:workbench-object-page",
         "title": "workbench-object-page",
-        "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times only, never a property. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times; since D-G1 (owner 2026-10-20) each listed object also carries `properties`: per schema property its value when the member's per-property READ holds (read through the same audited object read), or its name only (withheld: an owner-restricted group, or a property the member's role does not derive), or missing. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7250,6 +7287,51 @@
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "properties": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "status"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                      },
+                      "status": {
+                        "enum": [
+                          "ok",
+                          "withheld",
+                          "missing"
+                        ]
+                      },
+                      "reason": {
+                        "enum": [
+                          "restricted",
+                          "not_permitted",
+                          "erasing"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "value_type": {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      "truncated": {
+                        "const": true
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -7273,6 +7355,84 @@
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
               }
             ]
+          }
+        }
+      },
+      "WorkbenchObjectValues": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:workbench-object-values",
+        "title": "workbench-object-values",
+        "description": "Workbench Object property values (L4 capability gap D-G1, owner 2026-10-20; ADR-025, ADR-035): GET /api/v1/workbench/objects/{type}/{id} (workbench verbs `object_fields` and the audited object read). Per schema property: its value (text, or canonical JSON text, at most 2000 characters, `truncated` when cut) when the member's per-property READ holds; withheld with its name only when the owner restricted its group (`restricted`) or the member's role does not derive it (`not_permitted`), or its value names a Consumer being erased (`erasing`); or missing. An object the member may not read, including one whose Consumer is being erased, is 403; every read is audited. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type_name",
+          "object_id",
+          "schema_version",
+          "revision",
+          "properties"
+        ],
+        "properties": {
+          "type_name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+          },
+          "object_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "properties": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "status"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                },
+                "status": {
+                  "enum": [
+                    "ok",
+                    "withheld",
+                    "missing"
+                  ]
+                },
+                "reason": {
+                  "enum": [
+                    "restricted",
+                    "not_permitted",
+                    "erasing"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "value_type": {
+                  "enum": [
+                    "text",
+                    "json"
+                  ]
+                },
+                "truncated": {
+                  "const": true
+                }
+              }
+            }
           }
         }
       },
@@ -7638,8 +7798,8 @@
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
-    "evolution-evaluation-bundle.schema.json": "3ee5d8ea88702289320c9c04196095ac9ea181e635e0d0154f20e0ad9652cf9e",
-    "evolution-evaluation-report.schema.json": "105b889c94d0dd875d172915ea0aa5a9cd498828ba31b4e3ebbb46e0536e1a11",
+    "evolution-evaluation-bundle.schema.json": "d5c5ee062108703be164919baeffb6c06eb61682e20e1b7fe12499102d82e342",
+    "evolution-evaluation-report.schema.json": "29e9305b8fdf200df4ef4a4d63f8f70176448dec596c0ffa2324705d9f60698b",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
     "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",
@@ -7650,7 +7810,8 @@
     "workbench-artifacts.schema.json": "ee3e94da47800e7fea52d7dd58a7353382f8e46c4e5f6b5797fc4074e9d3d760",
     "workbench-capabilities.schema.json": "2e7777e030fa0ee2c1a1ddff13b1705522d099e73db2c8309dd99444b3ebfe60",
     "workbench-object-neighbors.schema.json": "658414b148404f7d62a16564eee47bdf32559b83b04a96a6d29a02e7c9959fc0",
-    "workbench-object-page.schema.json": "01d6742b66928dc27696d5c8509c1d78b3321ae419481125249112b1538a2592",
+    "workbench-object-page.schema.json": "a5c73602e52fc972aef296eb7f907af4ee58344f5601f8d7f5544b5491a301f4",
+    "workbench-object-values.schema.json": "3ebb1b48ce3e6b21315aaa9a7a79ee195f2ecbfddfa9086f06630f6b1f169efe",
     "workbench-world-model.schema.json": "8d95753382700b3653874220642e3f427b430d305e3d83832b190dc497752f12"
   }
 }

@@ -118,7 +118,7 @@ def test_instance_pages_list_readable_ids_only_and_count_the_rest(workbench):
         page = consumers.json()
         jsonschema.validate(page, contract('workbench-object-page'))
         assert len(page['items']) == 2 and page['invisible'] == 0 and page['total'] == 5 and page['next_after'] == page['items'][-1]['object_id']
-        assert set(page['items'][0]) == {'object_id', 'schema_version', 'revision', 'updated_at'}  # no property
+        assert set(page['items'][0]) == {'object_id', 'schema_version', 'revision', 'updated_at', 'properties'}  # D-G1: values through the same audited read
         rest = client.get('/api/v1/workbench/objects/Consumer?after=' + page['next_after']).json()
         assert len(rest['items']) == 3 and rest['next_after'] is None
         assert {x['object_id'] for x in page['items'] + rest['items']} == {centre, related, *referrers}  # never the other tenant's

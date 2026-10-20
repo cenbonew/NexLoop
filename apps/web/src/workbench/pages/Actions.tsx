@@ -1,9 +1,9 @@
 import {useState,type ReactNode} from 'react';
 import {keepPreviousData,useQuery} from '@tanstack/react-query';
 import {INTENT_STATE_TEXT,readActions,type Dispatch} from '../api';
-import {Page,Short} from './Page';
-import {StatusBadge,intentTone,Time} from '../ui';
-import {when} from './Consumers';
+import {Page} from './Page';
+import {StatusBadge,Time} from '../ui';
+import {EmptyState,IdText} from '../kit';
 import {DataTable} from '../DataTable';
 import {Operations} from './PageOps';
 
@@ -22,16 +22,17 @@ export function dispatchText(dispatch:Dispatch,state?:string):string{
 export function Actions({actions}:{actions?:ReactNode}){
   const [state,setState]=useState('');
   const query=useQuery({queryKey:['workbench','actions',state],queryFn:()=>readActions(state||undefined),placeholderData:keepPreviousData});
-  return <Page title="Action / 异常" query={query} announce={d=>`${state?INTENT_STATE_TEXT[state]??state:'全部'}：${d.intents.length} 条`}>{data=><>
+  const filter=<div className="list-tools" role="group" aria-label="筛选"><label htmlFor="intent-state">状态<select id="intent-state" value={state} onChange={e=>setState(e.target.value)}>
+    <option value="">全部</option>{Object.entries(INTENT_STATE_TEXT).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label></div>;
+  return <Page title="Action / 异常" query={query} toolbar={filter} lead="对外部系统发起的 Action 意图与它们的执行结果；结果未知时先查询，不重发。"
+    announce={d=>`${state?INTENT_STATE_TEXT[state]??state:'全部'}：${d.intents.length} 条`}>{data=><>
     <p className="workbench-summary" role="status">{data.unknown.count?`待核对 ${data.unknown.count} 个${data.unknown.oldest_age_seconds!==null?`，最久 ${Math.round(data.unknown.oldest_age_seconds/60)} 分钟`:''}：先查询执行结果，不是重发。`:'当前没有待核对的 Action，无需处理。'}</p>
-    <label htmlFor="intent-state">状态</label>
-    <select id="intent-state" value={state} onChange={e=>setState(e.target.value)}><option value="">全部</option>
-      {Object.entries(INTENT_STATE_TEXT).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select>
     {data.intents.length?<DataTable label="Action 意图" rows={data.intents} rowKey={i=>i.intent_id} columns={[
-      {label:'Action',main:true,cell:i=>`${i.action_name}@${i.action_version}`},{label:'意图',cell:i=><Short value={i.intent_id}/>},
-      {label:'状态',cell:i=><StatusBadge text={INTENT_STATE_TEXT[i.state]??'未知状态'} tone={intentTone(i.state)} code={i.state}/>},{label:'尝试',num:true,cell:i=>i.attempts},
-      {label:'最近观察',cell:i=>i.observation?<>{i.observation.provider_state} · <Time value={i.observation.observed_at}/></>:'—'},{label:'派发预判',cell:i=>dispatchText(i.dispatch,i.state)}]}/>:<p className="note" role="status">{state?`当前没有“${INTENT_STATE_TEXT[state]??state}”的 Action。`:'暂无记录。'}
-      {state?<button type="button" className="link" onClick={()=>setState('')}>查看全部</button>:null}</p>}
+      {label:'Action',main:true,cell:i=><><code className="id-code">{i.action_name}</code> <span className="kv-hint">v{i.action_version}</span></>},{label:'意图',cell:i=><IdText kind="意图" value={i.intent_id}/>},
+      {label:'状态',cell:i=><StatusBadge domain="intent_state" code={i.state}/>},{label:'尝试',num:true,cell:i=>i.attempts},
+      {label:'最近观察',cell:i=>i.observation?<><StatusBadge domain="provider_state" code={i.observation.provider_state}/> <Time value={i.observation.observed_at}/></>:'—'},{label:'派发预判',cell:i=>dispatchText(i.dispatch,i.state)}]}/>
+      :state?<EmptyState kind="filtered" subject={`“${INTENT_STATE_TEXT[state]??state}”的 Action`} next={<button type="button" className="link" onClick={()=>setState('')}>查看全部</button>}/>
+      :<EmptyState kind="empty" subject="Action 意图"/>}
     {data.unknown.count?<Operations actions={actions}/>:null}
   </>}</Page>;
 }
