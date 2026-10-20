@@ -34,6 +34,11 @@ def summary(admin, tenant=TENANT_A):
     return admin.execute("select runtime.nexloop_evo_review_summary(%s,'real')", (tenant,)).fetchone()[0]
 
 
+def stop_of(stops, dimension):
+    """The stop row of one dimension (NX-040 F4 opened ontology_schema beside semantic_content: the rows are per open dimension)."""
+    return next(x for x in stops if x['dimension'] == dimension)
+
+
 def stop(admin, dimension, stopped, reason='负责人停止'):
     return call(admin, 'nexloop_governed_set_evolution_stop', {'operation': 'set_evolution_stop', 'request_id': 'r', 'dimension': dimension,
                                                               'stopped': stopped, 'reason': reason})
@@ -59,7 +64,8 @@ def test_the_review_read_shows_gates_scores_class_and_digests_but_no_person(acce
     assert consumers and not any(x in text for x in consumers) and ALIAS not in text
     assert c['published_version'] is None
     # Stops: every open dimension, not stopped by default; the release watch is part of the same read.
-    assert s['stops'] == [{'dimension': 'semantic_content', 'open': True, 'stopped': False, 'revision': 0, 'changed_at': None}]
+    assert stop_of(s['stops'], 'semantic_content') == {'dimension': 'semantic_content', 'open': True, 'stopped': False, 'revision': 0, 'changed_at': None}
+    assert {x['dimension'] for x in s['stops']} == {'semantic_content', 'ontology_schema'}  # NX-040 F4 (D21) opened ontology_schema
     assert s['watch'] == {'active': 0, 'regressing': 0, 'releases': []}
     # After publication the candidate names its version and the watch starts (7 days, never an automatic rollback).
     out = publish(admin, f['candidate'], [{'kind': 'alias', 'ref': REF['ref'], 'text': ALIAS}])
@@ -77,7 +83,7 @@ def test_the_stop_switch_is_versioned_audited_and_refuses_publication(accepted):
     admin = f['admin']
     assert stop(admin, 'semantic_content', True) == {'dimension': 'semantic_content', 'stopped': True, 'revision': 1, 'changed': True}
     assert stop(admin, 'semantic_content', True)['changed'] is False  # the same state: no new revision
-    assert summary(admin)['stops'][0]['stopped'] is True
+    assert stop_of(summary(admin)['stops'], 'semantic_content')['stopped'] is True
     with pytest.raises(psycopg.Error, match='semantic release: dimension_stopped'), admin.transaction():
         publish(admin, f['candidate'], [{'kind': 'alias', 'ref': REF['ref'], 'text': ALIAS}])
     assert stop(admin, 'semantic_content', False, '负责人恢复')['revision'] == 2
@@ -108,6 +114,6 @@ def test_only_the_owner_reads_the_review_and_stops(restoring, admin):
         assert done.status_code == 200 and done.json()['stopped'] is True, done.text
         assert act(client, csrf, 'set_evolution_stop', {'dimension': 'semantic_content', 'stopped': True, 'reason': ''}).status_code == 422  # reason required
         assert act(client, csrf, 'set_evolution_stop', {'dimension': 'semantic_content', 'stopped': True}).status_code == 422
-        assert client.get('/api/v1/workbench/semantic-review', headers={'Origin': ORIGIN}).json()['stops'][0]['stopped'] is True
+        assert stop_of(client.get('/api/v1/workbench/semantic-review', headers={'Origin': ORIGIN}).json()['stops'], 'semantic_content')['stopped'] is True
     audited = admin.execute("select count(*) from runtime.nexloop_action_claims where action_name='nexloop.semantic_release.stop'").fetchone()[0]
     assert audited >= 1
