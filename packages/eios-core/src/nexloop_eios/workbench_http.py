@@ -366,6 +366,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'outreach_approvals')
 
+    @routes.get('/data-health')
+    async def data_health(request: Request):
+        # D-G5: the health of NexLoop's own data flows (counts, ratios, ages, codes; owner only).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'data_health')
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.

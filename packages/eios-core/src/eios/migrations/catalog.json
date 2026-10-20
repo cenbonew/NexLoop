@@ -1220,6 +1220,11 @@
       "version": "0244",
       "name": "0244_contact_refusal_rules_v2.sql",
       "sha256": "038753e8153287ac31434c259922694d0fa2a62956204bccdc4ec18d6e5b0733"
+    },
+    {
+      "version": "0245",
+      "name": "0245_data_health.sql",
+      "sha256": "669e359338f4f80621a87b3e1995e41b36a9b393fa41fac3dd6d94870da705d8"
     }
   ]
 }
