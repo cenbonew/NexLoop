@@ -204,6 +204,28 @@ class ConsumerPortEventFrozen(BaseModel):
     output_kind: Literal['simulated_input']
     origin: Literal['twin']
 
+class ConsumerTwinHypothesesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    key: str
+    statement: str
+    kind: Literal['hypothesis']
+
+class ConsumerTwinParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    behaviors: dict[str, Any]
+
+class ConsumerTwinFrozenCalibration(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    report_ref: None | str
+    status: Literal['uncalibrated', 'calibrated']
+
+class ConsumerTwinFrozen(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    version: int
+    definition_digest: str
+    calibration: ConsumerTwinFrozenCalibration
+    status: Literal['published', 'retired']
+
 class ContactRestrictionViewRestrictionsItemHitsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     message_id: str
@@ -1144,6 +1166,16 @@ class ConsumerPortEvent(_Contract):
     request: ConsumerPortEventRequest
     frozen: ConsumerPortEventFrozen | None = None
     replayed: bool | None = None
+
+class ConsumerTwin(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:consumer-twin","title":"consumer-twin","description":"NX-042 T1 (design §2, D1, D4, D5, D7): one version of a consumer twin - the explicit hypotheses, the decision-layer parameters and the generator version. Hypotheses are statements, never facts. Every behaviour parameter is an interval (D4: no single probability). A twin holds no real content (D5): parameters and hypotheses only; it is kept for good and is not deleted with a simulation world (its events in a world are, NX-041 D2). The owner publishes a version through a governed Action (D7); the server assigns the version, freezes it, records its calibration (a report reference and status) and keeps its status as appended events (published, retired). A version without a passed calibration report is \'uncalibrated\' and NX-043 cannot select it.","type":"object","additionalProperties":false,"required":["schema","twin_id","hypotheses","parameters","generator_version"],"properties":{"schema":{"const":"nexloop-consumer-twin/1"},"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"description":{"type":"string","maxLength":500},"hypotheses":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["key","statement","kind"],"properties":{"key":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"statement":{"type":"string","minLength":1,"maxLength":500},"kind":{"const":"hypothesis"}}}},"parameters":{"type":"object","additionalProperties":false,"required":["behaviors"],"properties":{"behaviors":{"type":"object","minProperties":1,"maxProperties":32,"propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,63}$"},"additionalProperties":{"type":"object","additionalProperties":false,"required":["low","high","coverage","hypotheses"],"description":"A behaviour\'s probability as an interval at its nominal coverage, and the hypotheses it rests on.","properties":{"low":{"type":"number","minimum":0,"maximum":1},"high":{"type":"number","minimum":0,"maximum":1},"coverage":{"type":"number","exclusiveMinimum":0.5,"exclusiveMaximum":1},"hypotheses":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}}}}}},"generator_version":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,39}/[0-9]+$"},"frozen":{"type":"object","additionalProperties":false,"description":"Server-derived at publication, never accepted from the publisher.","required":["version","definition_digest","calibration","status"],"properties":{"version":{"type":"integer","minimum":1},"definition_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"calibration":{"type":"object","additionalProperties":false,"required":["report_ref","status"],"properties":{"report_ref":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^twin-calibration:[0-9a-f]{64}$"}]},"status":{"enum":["uncalibrated","calibrated"]}}},"status":{"enum":["published","retired"]}}}}}')
+    schema: Literal['nexloop-consumer-twin/1']
+    twin_id: str
+    description: str | None = None
+    hypotheses: list[ConsumerTwinHypothesesItem]
+    parameters: ConsumerTwinParameters
+    generator_version: str
+    frozen: ConsumerTwinFrozen | None = None
 
 class ContactRestrictionView(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:contact-restriction-view","title":"contact-restriction-view","description":"NX-028 (D8). The owner workbench\'s read projection of contact restrictions and reply escalations (ADR-023, 0109). A refusal hit\'s `matched_text` is the customer\'s own words: it is present only when the reader also holds that Message\'s READ (`matched_text_status` ok), otherwise null with status restricted (shown as \\"rule <rule_id> matched; text needs authorization\\"). Only the owner can release a restriction (ADR-023 §2.4); a release never replays refused intents. Server-derived; grants nothing.","type":"object","additionalProperties":false,"properties":{"restrictions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["consumer_id","active","control_revision","message_id","conversation_id","rule_version","rule_id","certainty","matched_text","matched_text_status","restricted_at","released_at","released_by","release_reason","hits"],"properties":{"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"active":{"type":"boolean"},"control_revision":{"type":"integer","minimum":1},"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"restricted_at":{"type":"string","minLength":1,"maxLength":64},"released_at":{"type":["string","null"]},"released_by":{"type":["string","null"]},"release_reason":{"type":["string","null"]},"hits":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","rule_version","rule_id","certainty","matched_text","matched_text_status","recorded_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"recorded_at":{"type":"string","minLength":1,"maxLength":64}}}}}}},"escalations":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","conversation_id","consumer_id","reason","detail","escalated_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"reason":{"type":"string","pattern":"^[a-z_]{1,64}$"},"detail":{"type":"object"},"escalated_at":{"type":"string","minLength":1,"maxLength":64}}}}},"required":["restrictions","escalations"]}')
