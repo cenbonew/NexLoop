@@ -190,7 +190,7 @@ revoke all on function runtime.nexloop_evo_candidate_wire(runtime.nexloop_evo_ca
 create function authz.nexloop_evo_diagnosis_open(p_digest text,p_body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text:=runtime.nexloop_evo_writer_tenant(p_digest);b jsonb:=p_body;d runtime.nexloop_evo_diagnoses;v_runs uuid[];v_consumers text[];
- v_unit text;v_limit numeric;v_known integer;
+ v_unit text;v_limit numeric;v_known integer;v_now timestamptz;
 begin
  if jsonb_typeof(b) is distinct from 'object' or (select array_agg(k order by k) from jsonb_object_keys(b) k)
    is distinct from array['attribution','consumer_ids','diagnosis_id','evaluator_version','input_snapshot_digest','model_profile','parent_revision','run_ids']
@@ -215,10 +215,11 @@ begin
   raise exception 'evolution diagnosis names an erased Consumer' using errcode='22023';end if;
  select unit,limit_amount into v_unit,v_limit from control.nexloop_budget_limits where tenant_id=v_tenant and world='real' and budget_kind='evolution';
  if not found then raise exception 'budget evolution not configured' using errcode='NXB03';end if;
+ v_now:=clock_timestamp();  -- one reading for both ends of the 30-minute window (the check compares them)
  insert into runtime.nexloop_evo_diagnoses(tenant_id,world,diagnosis_id,input_snapshot_digest,parent_revision,evaluator_version,model_profile,run_ids,consumer_ids,
-   attribution,cost_limit,unit,deadline,status)
+   attribution,cost_limit,unit,opened_at,deadline,status)
   values(v_tenant,'real',(b->>'diagnosis_id')::uuid,b->>'input_snapshot_digest',b->>'parent_revision',b->>'evaluator_version',b->>'model_profile',v_runs,v_consumers,
-   b->'attribution',20,v_unit,clock_timestamp()+interval '30 minutes','open') returning * into d;
+   b->'attribution',20,v_unit,v_now,v_now+interval '30 minutes','open') returning * into d;
  perform runtime.nexloop_evo_event(v_tenant,d.diagnosis_id,null,'diagnosis_opened',null,'open',null,
   jsonb_build_object('runs',cardinality(v_runs),'consumers',cardinality(v_consumers),'attribution',d.attribution),'service:evolution');
  return jsonb_build_object('diagnosis_id',d.diagnosis_id,'status',d.status,'deadline',d.deadline,'replayed',false);
