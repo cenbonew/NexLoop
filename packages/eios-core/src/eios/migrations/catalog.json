@@ -1315,6 +1315,11 @@
       "version": "0263",
       "name": "0263_nx041_sim_clock.sql",
       "sha256": "d6f0ad35c1ada40725cc8b56aacc3fab4f4e9cbe9ea9b03c5a0c2947a9727670"
+    },
+    {
+      "version": "0264",
+      "name": "0264_nx041_sim_process_group.sql",
+      "sha256": "64d4cc968e216e406b8f1a1b0da34866dc9aab637a4ad159810ead1ae4d4b2ae"
     }
   ]
 }

@@ -22,6 +22,8 @@ import sys
 import threading
 import time
 
+from nexloop_eios.worlds import WORLD_GROUPS, group_accepts
+
 READY = 'Runtime guard worker ready'
 
 
@@ -39,9 +41,11 @@ def _arguments(argv):
         parser.add_argument('--' + option, type=Path, required=True)
     parser.add_argument('--signing-key-id', default='active')
     parser.add_argument('--pool-max', type=int, default=4)
-    parser.add_argument('--world', required=True, choices=['real', 'test'])  # AT-046: never simulation or shadow
+    # AT-046 / NX-041 S6 (D3): real and test in the real group; one sim:/shadow: world only with --world-group simulation.
+    parser.add_argument('--world', required=True)
+    parser.add_argument('--world-group', default='real', choices=list(WORLD_GROUPS))
     args = parser.parse_args(argv)
-    if (args.listen_fd < 3 or not 1024 <= args.guard_port <= 65535 or not args.world or len(args.world) > 255
+    if (not group_accepts(args.world_group, args.world) or args.listen_fd < 3 or not 1024 <= args.guard_port <= 65535 or not args.world or len(args.world) > 255
             or not 2 <= args.pool_max <= 32):
         parser.error('configuration')
     return args
@@ -130,6 +134,7 @@ class GuardFiles:
     guard_key_file: Path
     guard_certificate_file: Path
     guard_tls_key_file: Path
+    world_group: str = 'real'
 
 
 class GuardWorkerPool:
@@ -184,7 +189,7 @@ class GuardWorkerPool:
             '--listen-fd', str(fd), '--guard-port', str(self.port), '--pool-max', str(self.pool_max),
             '--database-url-file', str(f.database_url_file), '--signing-key-file', str(f.signing_key_file),
             '--signing-key-id', f.signing_key_id, '--service-credential-file', str(f.service_credential_file),
-            '--artifact-root', str(f.artifact_root), '--world', f.world, '--guard-key-file', str(f.guard_key_file),
+            '--artifact-root', str(f.artifact_root), '--world', f.world, '--world-group', f.world_group, '--guard-key-file', str(f.guard_key_file),
             '--guard-certificate-file', str(f.guard_certificate_file), '--guard-tls-key-file', str(f.guard_tls_key_file)],
             pass_fds=(fd,), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, close_fds=True, start_new_session=True)

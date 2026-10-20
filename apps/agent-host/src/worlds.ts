@@ -17,3 +17,16 @@ export function worldKind(world:unknown):WorldKind|null{
   if(world==='real'||world==='test')return world;
   return world.startsWith('sim:')?'simulation':'shadow';
 }
+
+/** NX-041 S6 (D3, D6): the world group a Host process serves. real: real and test Runs; simulation: sim:* and shadow:* Runs only. */
+export type WorldGroup='real'|'simulation';
+export function worldGroupAccepts(group:WorldGroup,world:unknown):boolean{
+  const kind=worldKind(world);
+  if(kind===null)return false;
+  return group==='simulation'?kind==='simulation'||kind==='shadow':kind==='real'||kind==='test';
+}
+/** The directory of one simulation world under a simulation Host's runtime root ('sim:<uuid>' -> 'sim-<uuid>'); null otherwise. */
+export function worldDirectory(world:unknown):string|null{
+  const kind=worldKind(world);
+  return kind==='simulation'||kind==='shadow'?(world as string).replace(':','-'):null;
+}
