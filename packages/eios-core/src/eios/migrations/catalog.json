@@ -1170,6 +1170,11 @@
       "version": "0234",
       "name": "0234_nx038_semantic_access.sql",
       "sha256": "f1a5f5ae9e1590faf633844d0999e0a80ac359331c2cf37b709c9764e0e20315"
+    },
+    {
+      "version": "0235",
+      "name": "0235_nx038_attribution_candidates.sql",
+      "sha256": "d85213ae9098d1b4a9b078c47742ee9db9315b9b26302b3368bba2f97748b332"
     }
   ]
 }

@@ -305,6 +305,18 @@ def test_at043_tenant_budget_blocks_new_consumption_and_keeps_existing(env,admin
     with pytest.raises(psycopg.Error,match='append-only'):admin.execute("delete from control.nexloop_budget_consumption")
 
 
+def test_nx038_d15_owner_sets_the_evolution_budget_through_budget_set(env,admin):
+    """D15: budget kind evolution is set by the owner through the governed Budget.set; it is its own kind, never `model`."""
+    period=(NOW-timedelta(hours=1),NOW+timedelta(days=30))
+    env.owner.set_budget(action_name='Budget.set',action_version=1,request_id='budget-evolution-1',budget_kind='evolution',unit='CNY',limit_amount='100',period_start=period[0],period_end=period[1])
+    assert admin.execute("select budget_kind,unit,limit_amount::text from control.nexloop_budget_limits").fetchall()==[('evolution','CNY','100')]
+    assert env.control.budget_status('model')['configured'] is False
+    # The generic reservation cannot spend it on a non-evolution source (the consumption check, migration nx038_attribution_candidates).
+    with pytest.raises(psycopg.errors.CheckViolation):
+        env.control.reserve_budget(budget_kind='evolution',consumption_id='call-e',amount='1',unit='CNY',source_ref='model-call:1')
+    with pytest.raises(ValueError):
+        env.owner.set_budget(action_name='Budget.set',action_version=1,request_id='budget-x',budget_kind='other',unit='CNY',limit_amount='1',period_start=period[0],period_end=period[1])
+
 def test_tenant_isolation_of_goal_reads(env,admin):
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
     other,_=seed_multi_authority(admin,env.reader.pool,[('eios:action:Goal.publish:1',ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-other-tenant',tenant=TENANT_B)

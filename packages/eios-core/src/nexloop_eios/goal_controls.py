@@ -190,7 +190,7 @@ class GoalGovernedActions:
             'scope_ref':scope_ref,'paused':paused,'reason':reason})
 
     def set_budget(self,*,action_name,action_version,request_id,budget_kind,unit,limit_amount,period_start,period_end):
-        if budget_kind not in ('model','incentive'):raise ValueError('budget kind required')
+        if budget_kind not in ('model','incentive','evolution'):raise ValueError('budget kind required')  # evolution: NX-038 D15
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_budget','budget_kind':budget_kind,
             'unit':unit,'limit_amount':_decimal(limit_amount),'period_start':_utc(period_start),'period_end':_utc(period_end)})
 
