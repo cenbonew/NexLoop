@@ -45,7 +45,8 @@ def test_simulation_and_other_invalid_worlds_are_refused_where_worlds_are_stored
         with pytest.raises(psycopg.errors.CheckViolation), admin.transaction():
             seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=world, identity_suffix='-bad-' + uuid.uuid4().hex[:6])
     seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=SIM_WORLD, identity_suffix='-good-sim')  # a valid experiment world
-    with pytest.raises(psycopg.errors.CheckViolation), admin.transaction():
+    # S2: a simulation world credential's worlds never change (refused before the world check).
+    with pytest.raises((psycopg.errors.CheckViolation, psycopg.errors.InsufficientPrivilege)), admin.transaction():
         admin.execute("update authz.nexloop_service_credentials set worlds=%s where worlds=%s", (['test', 'shadow'], [SIM_WORLD]))
     # The semantic access record (0234): its world check is the one check now. Positive control first (the same row with a valid
     # world is written), then each invalid world fails on that constraint and no other.

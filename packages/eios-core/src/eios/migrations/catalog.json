@@ -1295,6 +1295,11 @@
       "version": "0259",
       "name": "0259_nx041_world_check.sql",
       "sha256": "0ffcd3598e35a3f5ce13fbc6e52eabf6b1a5b9f994da5debd62ad4d65b1d4b6e"
+    },
+    {
+      "version": "0260",
+      "name": "0260_nx041_sim_worlds.sql",
+      "sha256": "fd11078ac4077287fb65da14e3ab351ef7a732ab8b253fb67bb2bd8c29a4ba29"
     }
   ]
 }

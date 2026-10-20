@@ -136,6 +136,10 @@ OPERATIONS={
         'items':lambda v:v if type(v) is list and 1<=len(v)<=20 and all(type(x) is dict for x in v) else (_ for _ in ()).throw(ValueError('items')),'reason':_reason},
     'rollback_semantic_release':{'target_version':_id(re.compile(r'[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}')),'reason':_reason},
     # NX-039 V6 (owner only): stop or resume evolution for one dimension.
+    # NX-041 S2 (owner only): create a simulation or shadow world, or delete one as a whole.
+    'create_sim_world':{'kind':lambda v:v if v in ('simulation','shadow') else (_ for _ in ()).throw(ValueError('kind')),'purpose':_reason,
+        'expires_in_days':lambda v:v if type(v) is int and 1<=v<=365 else (_ for _ in ()).throw(ValueError('expires_in_days'))},
+    'delete_sim_world':{'world':_id(re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'reason':_reason},
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
@@ -243,7 +247,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

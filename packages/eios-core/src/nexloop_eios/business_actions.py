@@ -70,7 +70,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-039 V6: the release scope's stop switch for one evolution dimension.
     'semantic_release.stop':'human_owner',
     # Capability gap P2: the owner publishes the next version of a read-only Object View (layout only).
-    'object_view.publish':'human_owner'}
+    'object_view.publish':'human_owner',
+    # NX-041 S2 (D2, D10): the owner creates or deletes a simulation or shadow world.
+    'sim_world.create':'human_owner','sim_world.delete':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
