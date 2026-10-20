@@ -79,7 +79,10 @@ def test_a_clean_tenant_is_healthy_and_the_snapshot_carries_the_block(observed):
     h = health(admin)
     assert [h[s]['status'] for s in SECTIONS] == ['ok'] * 6 and h['attention'] == 0
     snapshot = owner_sql(admin, "select runtime.nexloop_metrics_snapshot(%s,'real')", (TENANT,))
-    assert set(snapshot['data_health']) == set(h) and [snapshot['data_health'][s] for s in SECTIONS if s != 'ingestion'] == [h[s] for s in SECTIONS if s != 'ingestion']
+    # The two reads are moments apart: ages (seconds since the oldest waiting row) may tick between them; everything else is equal.
+    timeless = lambda block: {k: v for k, v in block.items() if not k.startswith('oldest_')}
+    assert set(snapshot['data_health']) == set(h)
+    assert [timeless(snapshot['data_health'][s]) for s in SECTIONS if s != 'ingestion'] == [timeless(h[s]) for s in SECTIONS if s != 'ingestion']
 
 
 def test_every_flow_shows_its_positive_control(observed):
