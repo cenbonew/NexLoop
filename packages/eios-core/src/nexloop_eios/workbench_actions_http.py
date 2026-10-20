@@ -122,6 +122,12 @@ OPERATIONS={
         'origin_ref':_id(re.compile(r'(?:commitment|intent|plan|owner):[A-Za-z0-9._:-]{1,190}')),
         'body':lambda v:v if type(v) is str and 1<=len(v)<=2000 else (_ for _ in ()).throw(ValueError('body')),
         'channel':lambda v:v if v=='native.webchat' else (_ for _ in ()).throw(ValueError('channel'))},
+    # Outreach slice 7 (owner only): marketing consent granted / withdrawn, or marketing resumed after an unsubscribe, with evidence.
+    'record_marketing_consent':{'consumer_id':_id(_HEX),'kind':lambda v:v if v in ('consent_granted','consent_withdrawn','marketing_resumed') else (_ for _ in ()).throw(ValueError('kind')),
+        'source':lambda v:v if v in ('consumer_message','offline') else (_ for _ in ()).throw(ValueError('source')),
+        'message_id':lambda v:v if v is None or (type(v) is str and _HEX.fullmatch(v)) else (_ for _ in ()).throw(ValueError('message')),
+        'evidence_ref':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}',v)) else (_ for _ in ()).throw(ValueError('evidence')),
+        'reason':_reason},
     # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
     'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,
         'provider_retention_checked':_bool,'reply_followup':lambda v:v if v in ('owner_follow_up','fallback_reply') else (_ for _ in ()).throw(ValueError('follow-up'))},
@@ -215,7 +221,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|marketing consent): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

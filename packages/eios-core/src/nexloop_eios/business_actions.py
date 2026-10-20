@@ -58,7 +58,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # Outreach slice 3: the owner enables or disables a listed outreach purpose for the tenant.
     'outreach_purposes.set':'human_owner',
     # Outreach slice 4: the owner asks for one proactive message; every gate is rechecked at dispatch.
-    'outreach.send':'human_owner'}
+    'outreach.send':'human_owner',
+    # Outreach slice 7: the owner records marketing consent or resumes marketing after an unsubscribe, with evidence.
+    'marketing_consent.record':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

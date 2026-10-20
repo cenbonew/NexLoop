@@ -77,7 +77,7 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.operator_persona.rules_publish':('Consumer','operator_persona.rules_publish'),'nexloop.ai_disclosure.set':('Consumer','ai_disclosure.set'),  # 0227
     'nexloop.contact_preference.dismiss':('Consumer','contact_preference.dismiss'),
     'nexloop.outreach_controls.set':('Consumer','outreach_controls.set'),'nexloop.outreach_purposes.set':('Consumer','outreach_purposes.set'),
-    'nexloop.outreach.send':('Consumer','outreach.send')}  # 0228
+    'nexloop.outreach.send':('Consumer','outreach.send'),'nexloop.marketing_consent.record':('Consumer','marketing_consent.record')}  # 0228
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

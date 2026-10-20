@@ -69,7 +69,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Outreach slice 3: enable or disable a purpose of the current purpose list (checked in SQL).
     'set_outreach_purpose':'outreach_purposes.set',
     # Outreach slice 4: one proactive message for a listed purpose (accepted here, admitted at dispatch).
-    'send_outreach':'outreach.send'}
+    'send_outreach':'outreach.send',
+    # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
+    'record_marketing_consent':'marketing_consent.record'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -360,6 +362,15 @@ class GoalGovernedActions:
             raise ValueError('consumer, purpose, origin, body and the native WebChat channel required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'send_outreach','consumer_id':consumer_id,'purpose':purpose,
             'origin_ref':origin_ref,'body':body,'channel':channel,**({'conversation_id':conversation_id} if conversation_id else {})})
+
+    # Outreach slice 7: owner only; evidence is the consumer's own inbound message or an offline reference (checked in SQL).
+    def record_marketing_consent(self,*,action_name,action_version,request_id,consumer_id,kind,source,reason,message_id=None,evidence_ref=None):
+        if (not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or kind not in ('consent_granted','consent_withdrawn','marketing_resumed')
+            or source not in ('consumer_message','offline') or (source=='consumer_message')!=(message_id is not None) or (source=='offline')!=(evidence_ref is not None)
+            or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('consumer, kind, source with its evidence and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'record_marketing_consent','consumer_id':consumer_id,'kind':kind,
+            'source':source,'reason':reason,**({'message_id':message_id} if message_id is not None else {}),**({'evidence_ref':evidence_ref} if evidence_ref is not None else {})})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
