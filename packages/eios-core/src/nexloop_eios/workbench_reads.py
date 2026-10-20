@@ -587,5 +587,13 @@ class WorkbenchQueries:
         # 0232: the tenant's outreach controls (settings, revision, last changes) for the owner's page; read only.
         return self.reader.observe('outreach_controls')
 
+    def outreach_purposes(self):
+        # Outreach slice 3: the current purpose list with each purpose's state for the tenant (owner, read only).
+        return self.reader.observe('outreach_purposes')
+
+    def outreach_approvals(self):
+        # Outreach slice 6: pending approvals (intent id, purpose, times, requester; never the body) for the owner.
+        return self.reader.observe('outreach_approvals')
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

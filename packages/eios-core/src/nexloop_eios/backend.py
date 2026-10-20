@@ -192,6 +192,10 @@ class AuthenticatedServices:
         # AT-043: the Agent's incentive tool through the guard; the live activation is re-authorized first.
         return self._backend._invoke(self._session, 'issue_run_incentive', activation_ref=activation_ref, command=command, parameters=parameters)
 
+    def send_run_outreach(self, *, activation_ref, command, parameters):
+        # Outreach slice 5: the reevaluation Run's proactive message through the guard; the live activation is re-authorized first.
+        return self._backend._invoke(self._session, 'send_run_outreach', activation_ref=activation_ref, command=command, parameters=parameters)
+
     def assert_task_lease(self, *, queue, task_id, fence):
         return self._backend._invoke(self._session, 'assert_task_lease', queue=queue, task_id=task_id, fence=fence)
 
@@ -508,6 +512,8 @@ class Backend:
             'contact_preferences',  # 0228: a consumer's communication preferences (owner)
             'outreach_candidates',  # 0231: proactive outreach candidates and their dispatch dry run (owner, read only)
             'outreach_controls',  # 0232: the tenant's outreach controls for the owner's page (read only)
+            'outreach_purposes',  # outreach slice 3: the purpose list with the tenant's states (owner, read only)
+            'outreach_approvals',  # outreach slice 6: pending approvals, ids and times only (owner, read only)
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'world_model',  # enterprise world model W1 (0230): published model metadata, read only
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)
@@ -617,6 +623,16 @@ class Backend:
                         or granted.get('ever_execution_authorized') is not True):
                     raise AuthorizationUnavailable('runtime activation unavailable')
                 return RunIncentivePort(self._pool, session, self._signer).submit(**arguments)
+            if operation == 'send_run_outreach':
+                from nexloop_eios.runtime_activation import RuntimeActivationPort
+                from nexloop_eios.outreach import RunOutreachPort
+                from eios.authz.errors import AuthorizationUnavailable
+                granted = RuntimeActivationPort(self._pool, session, self._signer).authorize(
+                    activation_ref=arguments['activation_ref'], command=arguments['command'], operation='tool')
+                if (granted.get('authorized') is not True or granted.get('run_id') != arguments['command'].get('run_id')
+                        or granted.get('ever_execution_authorized') is not True):
+                    raise AuthorizationUnavailable('runtime activation unavailable')
+                return RunOutreachPort(self._pool, session, self._signer).submit(**arguments)
             queue_operations = {
                 'assert_task_lease': 'assert_lease', 'inspect_task': 'inspect', 'accept_event': 'accept', 'claim_task': 'claim',
                 'finish_task': 'finish', 'renew_task': 'renew',

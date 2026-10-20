@@ -55,7 +55,8 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'operator_persona.publish':'publish_operator_persona','operator_persona.assign':'assign_operator_persona',
         'operator_persona.rules_publish':'publish_persona_rules','ai_disclosure.set':'set_ai_disclosure',  # 0227
         'contact_preference.dismiss':'dismiss_contact_preference',
-        'outreach_controls.set':'set_outreach_controls'}  # 0228
+        'outreach_controls.set':'set_outreach_controls','outreach_purposes.set':'set_outreach_purpose',
+        'outreach.send':'send_outreach','outreach.approve':'decide_outreach_approval'}  # 0228
     # Append-only; a handler must be an owner function in control/runtime with the one signature.
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute("update control.nexloop_governed_capabilities set subject_rule='agent_or_human'")
     for handler in ('pg_catalog.lower(text)','control.nexloop_nx022_owner_change(text,text,text,text,jsonb)'):

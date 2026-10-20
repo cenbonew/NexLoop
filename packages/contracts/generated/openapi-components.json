@@ -4133,6 +4133,107 @@
                 }
               }
             }
+          },
+          "outreach": {
+            "description": "Outreach slice 5 (docs/design/proactive-outreach.md §3.3): only in a plan reevaluation Run whose Role execution ceiling holds nexloop.outreach.send:1; the purposes this tenant has enabled in the current purpose list and the tenant's marketing state, re-derived and checked by SQL at bind. Whether to contact the customer at all is the Run's judgement (no_action is normal); every gate is rechecked at dispatch.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schema",
+              "list_version",
+              "purposes",
+              "marketing"
+            ],
+            "properties": {
+              "schema": {
+                "const": "nexloop-outreach-context/1"
+              },
+              "list_version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 999999
+              },
+              "purposes": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "purpose_id",
+                    "kind",
+                    "topic",
+                    "frequency_class",
+                    "requires_approval",
+                    "content_rules"
+                  ],
+                  "properties": {
+                    "purpose_id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                    },
+                    "kind": {
+                      "enum": [
+                        "commitment_followup",
+                        "service_followup",
+                        "plan_defined",
+                        "marketing"
+                      ]
+                    },
+                    "topic": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                    },
+                    "frequency_class": {
+                      "enum": [
+                        "service",
+                        "marketing"
+                      ]
+                    },
+                    "requires_approval": {
+                      "type": "boolean"
+                    },
+                    "content_rules": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "max_chars",
+                        "unsubscribe_notice_required"
+                      ],
+                      "properties": {
+                        "max_chars": {
+                          "type": "integer",
+                          "minimum": 20,
+                          "maximum": 2000
+                        },
+                        "unsubscribe_notice_required": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "marketing": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "enabled",
+                  "consent_mode"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "consent_mode": {
+                    "enum": [
+                      "opt_out",
+                      "opt_in"
+                    ]
+                  }
+                }
+              }
+            }
           }
         },
         "required": [
@@ -4609,6 +4710,509 @@
           "created_at"
         ]
       },
+      "EvolutionEvaluationBundle": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:evolution-evaluation-bundle",
+        "title": "evolution-evaluation-bundle",
+        "description": "NX-038 E5 (design §12.4, §7; D7, D18, D19): the frozen evaluation bundle NX-038 hands to NX-039 with a proposed evolution candidate. Built in SQL from the stored candidate (authz.nexloop_evo_bundle_freeze); ids, digests, versions and numbers only, never a message body, Claim value, prompt or patch text. NX-039 may not change any condition in it; a changed condition is a new candidate. `case_groups` maps every case to its Consumer or session cluster so NX-039 can re-check that no cluster is on both sides (AT-048). The bundle_digest is the sha256 the database computes over the stored value. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "candidate_id",
+          "parent_revision",
+          "candidate_revision",
+          "patch_digest",
+          "input_snapshot_digest",
+          "design_case_ids",
+          "validation_case_ids",
+          "case_groups",
+          "hard_gates_version",
+          "hard_gates",
+          "metrics",
+          "non_inferiority",
+          "levels",
+          "budget_remaining",
+          "evaluator_version",
+          "model_profile",
+          "anonymize_seed",
+          "frozen_at"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          },
+          "candidate_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "parent_revision": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+          },
+          "candidate_revision": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+          },
+          "patch_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "input_snapshot_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "design_case_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          "validation_case_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          "case_groups": {
+            "type": "object",
+            "minProperties": 2,
+            "maxProperties": 512,
+            "propertyNames": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9:._-]{1,190}$"
+            }
+          },
+          "hard_gates_version": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+          },
+          "hard_gates": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "references_valid",
+                "structure_valid",
+                "zero_overreach",
+                "zero_cross_tenant",
+                "zero_fact_pollution",
+                "no_forbidden_regression",
+                "index_migration_impact"
+              ]
+            }
+          },
+          "metrics": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "coverage",
+                "ambiguity_rate",
+                "regressions"
+              ]
+            }
+          },
+          "non_inferiority": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "primary_metric",
+              "margin",
+              "ties_accept"
+            ],
+            "properties": {
+              "primary_metric": {
+                "enum": [
+                  "coverage"
+                ]
+              },
+              "margin": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "ties_accept": {
+                "const": false
+              }
+            }
+          },
+          "levels": {
+            "enum": [
+              [
+                "L0"
+              ],
+              [
+                "L0",
+                "L1"
+              ]
+            ]
+          },
+          "budget_remaining": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "unit",
+              "rounds",
+              "diagnosis",
+              "candidate",
+              "tenant_month"
+            ],
+            "properties": {
+              "unit": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "rounds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "diagnosis": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]{1,12}(\\.[0-9]{1,6})?$"
+                  }
+                ]
+              },
+              "candidate": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]{1,12}(\\.[0-9]{1,6})?$"
+                  }
+                ]
+              },
+              "tenant_month": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]{1,12}(\\.[0-9]{1,6})?$"
+                  }
+                ]
+              }
+            }
+          },
+          "evaluator_version": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+          },
+          "model_profile": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+          },
+          "anonymize_seed": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "frozen_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EvolutionEvaluationReport": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:evolution-evaluation-report",
+        "title": "evolution-evaluation-report",
+        "description": "NX-038 E5 (design §12.4, §7; D7): the evaluation report of one frozen evolution-evaluation-bundle at one level (L0 deterministic replay in NX-038; L1 belongs to NX-039). Every frozen hard gate is answered pass or fail with evidence ids, separately from the scores; `accept` requires every gate passed, and an equal score is never an acceptance (D7). Missing inputs end `incomplete`, never a pass. Ids, codes, scores and numbers only; never a message body, Claim value, prompt or patch text. The report digest goes to the candidate event log and review links (D4). A report changes no candidate status. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "report_id",
+          "candidate_id",
+          "bundle_digest",
+          "level",
+          "evaluator_version",
+          "hard_gates",
+          "scores",
+          "swaps",
+          "cost",
+          "elapsed_ms",
+          "conclusion",
+          "reason",
+          "created_at"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          },
+          "report_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "candidate_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "bundle_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "level": {
+            "enum": [
+              "L0",
+              "L1"
+            ]
+          },
+          "evaluator_version": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+          },
+          "hard_gates": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "gate",
+                "result",
+                "evidence_ids"
+              ],
+              "properties": {
+                "gate": {
+                  "enum": [
+                    "references_valid",
+                    "structure_valid",
+                    "zero_overreach",
+                    "zero_cross_tenant",
+                    "zero_fact_pollution",
+                    "no_forbidden_regression",
+                    "index_migration_impact"
+                  ]
+                },
+                "result": {
+                  "enum": [
+                    "pass",
+                    "fail"
+                  ]
+                },
+                "evidence_ids": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+                  }
+                }
+              }
+            }
+          },
+          "scores": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "design",
+              "validation",
+              "metrics"
+            ],
+            "properties": {
+              "design": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "cases",
+                  "parent",
+                  "candidate"
+                ],
+                "properties": {
+                  "cases": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 256
+                  },
+                  "parent": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    ]
+                  },
+                  "candidate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              "validation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "cases",
+                  "parent",
+                  "candidate"
+                ],
+                "properties": {
+                  "cases": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 256
+                  },
+                  "parent": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    ]
+                  },
+                  "candidate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              "metrics": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "ambiguity_rate",
+                  "regressions",
+                  "missing_cases"
+                ],
+                "properties": {
+                  "ambiguity_rate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    ]
+                  },
+                  "regressions": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "missing_cases": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "swaps": {
+            "type": "array",
+            "maxItems": 512,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "case_id",
+                "swapped"
+              ],
+              "properties": {
+                "case_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "swapped": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "cost": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "amount",
+              "unit"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string",
+                "pattern": "^[0-9]{1,12}(\\.[0-9]{1,6})?$"
+              },
+              "unit": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              }
+            }
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conclusion": {
+            "enum": [
+              "accept",
+              "reject",
+              "incomplete"
+            ]
+          },
+          "reason": {
+            "enum": [
+              null,
+              "hard_gate_failed",
+              "not_better",
+              "inferior",
+              "missing_data",
+              "budget_exhausted",
+              "validation_leak"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "OntologyMutation": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:ontology-mutation",
@@ -4942,6 +5546,294 @@
             }
           }
         ]
+      },
+      "OutreachPurposes": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:outreach-purposes",
+        "title": "outreach-purposes",
+        "description": "Proactive outreach purpose list (docs/design/proactive-outreach.md §2, owner decisions P2/P5/P8; outreach slice 3): trusted, versioned configuration. A purpose not in the current list cannot be used; plan-defined purposes must be registered here first. The owner enables or disables a listed purpose per tenant; nobody adds one at run time.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "version",
+          "decision",
+          "purposes"
+        ],
+        "properties": {
+          "schema": {
+            "const": "nexloop-outreach-purposes/1"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 999999
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "purposes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "purpose_id",
+                "kind",
+                "trigger",
+                "topic",
+                "frequency_class",
+                "requires_consent",
+                "requires_approval",
+                "default_enabled",
+                "content_rules"
+              ],
+              "properties": {
+                "purpose_id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                },
+                "kind": {
+                  "enum": [
+                    "commitment_followup",
+                    "service_followup",
+                    "plan_defined",
+                    "marketing"
+                  ]
+                },
+                "trigger": {
+                  "enum": [
+                    "commitment_due",
+                    "service_receipt",
+                    "plan_reassess",
+                    "owner_request"
+                  ]
+                },
+                "topic": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                },
+                "frequency_class": {
+                  "enum": [
+                    "service",
+                    "marketing"
+                  ]
+                },
+                "requires_consent": {
+                  "type": "boolean",
+                  "description": "Marketing only: true makes this purpose opt-in even when the tenant is opt-out."
+                },
+                "requires_approval": {
+                  "type": "boolean",
+                  "description": "Owner approval before dispatch (outreach slice 6); default false (P5)."
+                },
+                "default_enabled": {
+                  "type": "boolean",
+                  "description": "Enabled for a tenant until the owner changes it."
+                },
+                "content_rules": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "max_chars",
+                    "unsubscribe_notice_required"
+                  ],
+                  "properties": {
+                    "max_chars": {
+                      "type": "integer",
+                      "minimum": 20,
+                      "maximum": 2000
+                    },
+                    "unsubscribe_notice_required": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "marketing"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "topic": {
+                        "pattern": "^marketing(\\.[a-z0-9_]+)*$"
+                      },
+                      "frequency_class": {
+                        "const": "marketing"
+                      },
+                      "content_rules": {
+                        "properties": {
+                          "unsubscribe_notice_required": {
+                            "const": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "topic": {
+                        "not": {
+                          "pattern": "^marketing"
+                        }
+                      },
+                      "frequency_class": {
+                        "const": "service"
+                      },
+                      "requires_consent": {
+                        "const": false
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "commitment_followup"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "trigger": {
+                        "const": "commitment_due"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "service_followup"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "trigger": {
+                        "const": "service_receipt"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "OutreachSend": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:outreach-send",
+        "title": "outreach-send",
+        "description": "Proactive outreach send request (docs/design/proactive-outreach.md §3.1, owner decision P1; outreach slice 4): the parameters of the governed Action nexloop.outreach.send:1 and the request the server freezes from them. The caller never chooses the topic, the purpose version, the origin kind or the business intent id: the server derives them (topic and version from the current purpose list; intent id = sha256 of tenant, consumer, purpose, origin_ref and the day in the tenant time zone). Every dispatch gate is rechecked at dispatch; the Action is external and its real dispatch switch is closed by default.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "parameters"
+        ],
+        "properties": {
+          "schema": {
+            "const": "nexloop-outreach-send/1"
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "consumer_id",
+              "purpose",
+              "origin_ref",
+              "body",
+              "channel"
+            ],
+            "properties": {
+              "consumer_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "purpose": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.]{0,63}$",
+                "description": "A purpose of the current outreach purpose list, enabled for the tenant."
+              },
+              "origin_ref": {
+                "type": "string",
+                "pattern": "^(commitment|intent|plan|owner):[A-Za-z0-9._:-]{1,190}$",
+                "description": "What the send follows from: a commitment, a receipt intent, a plan or the owner's own request."
+              },
+              "body": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "description": "The message text; the purpose's content_rules.max_chars also applies."
+              },
+              "channel": {
+                "const": "native.webchat",
+                "description": "v1: the native WebChat channel only."
+              },
+              "conversation_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[a-f0-9]{64}$",
+                "description": "Optional (P4): continue this conversation of the consumer; otherwise the server chooses."
+              }
+            }
+          },
+          "frozen": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "intent_id",
+              "origin_kind",
+              "topic",
+              "purpose_version",
+              "frequency_class",
+              "body_digest"
+            ],
+            "description": "Server-derived, never accepted from the caller.",
+            "properties": {
+              "intent_id": {
+                "type": "string",
+                "pattern": "^outreach:[0-9a-f]{64}$"
+              },
+              "origin_kind": {
+                "const": "proactive"
+              },
+              "topic": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+              },
+              "purpose_version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "frequency_class": {
+                "enum": [
+                  "service",
+                  "marketing"
+                ]
+              },
+              "body_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
       },
       "ReviewDecision": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6742,11 +7634,15 @@
     "commitment-view.schema.json": "e0f9f5acc84268282e036e265d70393a95bebc8edf45982e13dab048a4ec9e82",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-v6.schema.json": "5ee59f3d9ed075dc879fbbf4ef734430d7cb6697edb9adbdbbea9cca29bef4d4",
+    "context-pack-v6.schema.json": "9f50b585d8d5eb7d6e3a7fee9d7b273cd990aac5dc6e86080680f0cf2b354e0a",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
+    "evolution-evaluation-bundle.schema.json": "3ee5d8ea88702289320c9c04196095ac9ea181e635e0d0154f20e0ad9652cf9e",
+    "evolution-evaluation-report.schema.json": "105b889c94d0dd875d172915ea0aa5a9cd498828ba31b4e3ebbb46e0536e1a11",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
+    "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
+    "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",
     "review-decision.schema.json": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57",
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",
     "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",

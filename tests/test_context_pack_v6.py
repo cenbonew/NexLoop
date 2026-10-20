@@ -195,3 +195,20 @@ def test_operator_persona_may_carry_the_consumers_preferences():
     ContextPackV6.model_validate({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':good}})
     for bad in ([],[{**good[0],'quote':'原话'}],[{**good[0],'dimension':'price'}],[{**good[0],'claim_id':'x'}],[{**good[0],'value':'x'*65}]):
         assert not VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':bad}}),bad
+
+
+OUTREACH={'schema':'nexloop-outreach-context/1','list_version':1,'marketing':{'enabled':False,'consent_mode':'opt_out'},
+    'purposes':[{'purpose_id':'commitment_followup','kind':'commitment_followup','topic':'commitment_followup','frequency_class':'service',
+        'requires_approval':False,'content_rules':{'max_chars':300,'unsubscribe_notice_required':False}}]}
+
+
+def test_outreach_is_an_optional_exact_section():
+    """Outreach slice 5: optional (packs without it stay valid); purposes and the marketing state only, no gate result, price or body."""
+    assert 'outreach' not in V6['required']
+    assert VALID.is_valid({**EXAMPLE,'outreach':OUTREACH}) and VALID.is_valid({**EXAMPLE,'outreach':{**OUTREACH,'purposes':[]}})
+    ContextPackV6.model_validate({**EXAMPLE,'outreach':OUTREACH})
+    purpose=OUTREACH['purposes'][0]
+    for bad in ({'would_dispatch':True},{'schema':'nexloop-outreach-context/2'},{'marketing':{'enabled':True}},
+                {'purposes':[{**purpose,'body':'您好'}]},{'purposes':[{**purpose,'kind':'reminder'}]},
+                {'purposes':[{**purpose,'content_rules':{'max_chars':5,'unsubscribe_notice_required':False}}]}):
+        assert not VALID.is_valid({**EXAMPLE,'outreach':{**OUTREACH,**bad}}),bad
