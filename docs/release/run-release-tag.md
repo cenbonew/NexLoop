@@ -6,7 +6,7 @@
 
 ## 0. 机制（NX-033 切换后的 ref 规则）
 
-- **谁能建 tag**：LAN 仓库的 pre-receive 只允许 **maintainer**（负责人）或 **release**（CI 主机的发布工具）新建 `refs/tags/vMAJOR.MINOR.PATCH`（可带 `-rc.N`）。tag **不可移动、不可删除**（`tag_immutable`）。developer、integrator 推 tag 一律拒绝。
+- **谁能建 tag**：LAN 仓库的 pre-receive 只允许 **maintainer**（负责人）或 **release**（CI 主机的发布工具）新建 `refs/tags/vMAJOR.MINOR.PATCH`。名称也接受 `-rc.N` 后缀，留作以后的可选项；v0.1.0 不打 rc（D-tag-1）。tag **不可移动、不可删除**（`tag_immutable`）。developer、integrator 推 tag 一律拒绝。
 - **负责人的 tag 在入库时验证**（`nexloop_ci.version_tag_problem`），任一不满足就拒绝，并给出原因码：
   - 名称是版本号（`tag_name_invalid`）；
   - 是 annotated tag，轻量 tag 不行（`tag_not_annotated`）；
@@ -81,11 +81,11 @@ git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=<负责人公开的 allowed 
 
 ## 5. 待负责人决定（D）
 
-- **D-tag-1：是否保留 rc tag。** 选项：
+- **D-tag-1：是否保留 rc tag。已决定：(a) 直接打 `v0.1.0`，不打 rc（负责人 2026-10-20）。** 当时的选项：
   - (a) 直接打 `v0.1.0`；
   - (b) 先打 `v0.1.0-rc.<n>`，再打 `v0.1.0`。
 
-  两种 tag 名都已支持。**推荐 (a)**，理由：
+  两种 tag 名都已支持，rc 语法保留，留给以后需要候选版本时选用。选 (a) 的理由：
   - 验收已在发布 22 的 stage 部署上完成，再加一轮 rc 不会带来新的证据；
   - 推到 GitHub 的 tag 不可删除，rc tag 会永久留在公开仓库里；
   - 如果 `v0.1.0` 之后需要修复，按语义版本发 `v0.1.1` 即可。

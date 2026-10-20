@@ -16,7 +16,7 @@
 
 ## 0. 结论先看
 
-*2026-10-20 06:30 更新（main `7537c5b8`）。执行人与判定人分开写。planning 由调度员统一登记，本清单不改 planning。*
+*2026-10-20 07:xx 更新（集成分支 `d65db462`）。执行人与判定人分开写。planning 由调度员统一登记，本清单不改 planning。*
 
 | 项 | 现状 |
 |---|---|
@@ -24,11 +24,11 @@
 | 任务 | NX-032 到 NX-037 六个任务全部 `in_progress`，**没有一个能马上标 done** |
 | S5 验收 | **九项全部有通过证据**：AT-050、053、054、055、056、057、058、071、072。AT-053 于 2026-10-20 06:03–06:05 演练通过（执行：调度员；负责人确认演练） |
 | 待登记 | 无（AT-053 已于 2026-10-20 登记为 passed） |
-| 还要在 stage 上做 | 无验收项。剩余是清点、public-preflight、证据包和 tag，见“关键路径” |
+| 还要在 stage 上做 | 无。清点与效应对账已完成；剩正式 public-preflight、证据包与 tag，见“关键路径” |
 | NX-033 | **切换、首次合并、断连演练、受信安装升级均已完成**：2026-10-19 晚切换（方案 L），首次经控制器合并为 PR #16；2026-10-20 06:03–06:05 断连演练（AT-053）；06:2x 受信安装升级到 main `7537c5b8`（负责人确认）。执行：负责人与调度员按[执行单](../release/run-nx033-switch-20261020.md)操作 |
 | AT-072 | **passed**（负责人判定，main `0c25428f`）：第四次演练完整走通发布与恢复，四次演练的偏差已分批修订进公开手册 |
-| NX-037 证据包 | 已有 3 项（ci_result、release_manifest、interactions）；**缺 6 类**：清点（before/after 两项）、效应对账、恢复演练报告、负载报告、public-preflight、第三方声明。另外 known_risks 已定稿，只差放进证据包 |
-| 关键路径 | 清点 before/after（调度员）→ NX-036 public-preflight（调度员运行，负责人确认摘要）→ NX-037 证据包 → planning 一次性登记 → tag。**tag 发布路径有缺口，L2 在补**：pre-receive 只允许 release 身份建 tag，同步任务也不推 tag |
+| NX-037 证据包 | 除 `public_preflight` 外的各项都已具备：清点（before/after）、效应对账、恢复演练报告、负载报告、第三方声明、known_risks，以及 ci_result、release_manifest、interactions。**打包要等正式 public-preflight 之后**，用同一个最终 SHA 一次性生成 |
+| 关键路径 | 正式 public-preflight（调度员运行，负责人确认摘要）→ NX-037 证据包 → planning 一次性登记 → 负责人签 `v0.1.0`（D-tag-1：直接打正式版，不打 rc）→ GitHub Release。tag 发布路径已由 L2 补上（[发布 tag 执行单](../release/run-release-tag.md)） |
 
 > ROADMAP §1–§3 已于 2026-10-20 按现状改写；§6 的回填建议已全部处理。
 
@@ -52,7 +52,7 @@ S1–S4 中与 S5 任务相关的 AT 都已 passed：AT-047、049、060 等。AT
 
 ### 2.1 NX-032 双机 TLS 与隔离部署
 
-- **现状（2026-10-20）**：AT-058 已 passed（发布 22 上重跑六份探测）。剩部署后清点，即证据包的 `inventory_after`。
+- **现状（2026-10-20）**：AT-058 已 passed（发布 22 上重跑六份探测）。部署后清点已完成：DATA_HOST 由负责人在 07:0x 以 root 清点，与 10/16 基线一致——防火墙规范化哈希、监听端口、compose 项目、容器、数据目录、NexLoop 网络都相同，只多出一个按需激活、与 NexLoop 无关的系统服务；APP_HOST 的 before/after 取自发布 22 的部署门禁。
 
 - **done 还差的验收**：无（AT-058 已重测通过，AT-072 已 passed）。
 - **已有的真实证据**：多次部署、部署门禁 19/19 和 20/20、重启演练、metrics DSN 上线，见 planning 证据 2026-10-15/16/17。
@@ -134,8 +134,8 @@ S1–S4 中与 S5 任务相关的 AT 都已 passed：AT-047、049、060 等。AT
 
 | 证据项 | 内容 | 产生方式 | 谁做 | 前置 | 工作量 |
 |---|---|---|---|---|---|
-| `inventory_before`、`inventory_after`（清点，算 1 类） | 部署前后两台主机的只读清点 | `scripts/deploy/inventory.py`。before 用部署前基线清点（10/16 负责人已接受新基线）；after 在最终验收发布上取 | 调度员（A） | 选定最终验收发布 | 1 小时 |
-| `effect_reconciliation` | 试运行 `4f5d795c` 中每条效应意图的对账结论 | NX-037 效应对账生成器 `scripts/nx037/effect_reconciliation.py`，已合入 | 调度员（A） | 无 | 30 分钟 |
+| `inventory_before`、`inventory_after`（清点，算 1 类） | 部署前后两台主机的只读清点 | `scripts/deploy/inventory.py`。before 用部署前基线清点（10/16 负责人已接受新基线）；after 在最终验收发布上取 | 调度员（A） | 选定最终验收发布 | 1 小时 | **（已完成，2026-10-20）**
+| `effect_reconciliation` | 试运行 `4f5d795c` 中每条效应意图的对账结论 | NX-037 效应对账生成器 `scripts/nx037/effect_reconciliation.py`，已合入 | 调度员（A） | 无 | 30 分钟 | **（已完成：88 个效应意图全部 settled，均为 fulfilled，unresolved 0，missing 0；按类型 ordinary_reply 40、real_delivery 14、restricted_after_refusal 14、human_takeover 12、unknown_reconciliation 8）**
 | `restore_drill` | 恢复演练报告，只含数字 | §2.4 的第二次 stage 演练报告；`d20261015a` 的报告可作为备选 | 负责人（B）+ 调度员 | §2.4 | 随演练 |
 | `load_report` | AT-060 报告 | 已有：AT-060 于 10/13 passed 的正式整轮报告，只需放进证据包 | 调度员（A） | 无 | 15 分钟 |
 | `public_preflight` | `release.py public-preflight` 的输出 | §2.5 | 调度员运行，负责人确认 | AT-072 文档修订之后 | 1 小时 |
