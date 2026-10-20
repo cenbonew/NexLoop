@@ -1,5 +1,6 @@
 """Service object read projection: each requested property needs real EIOS READ."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 import re
 from eios.authz import facts as F
@@ -63,7 +64,7 @@ class AuthorizedObjectReader:
         return {'tenant_id':self.session.authentication.tenant_id,'principal_id':self.session.authentication.subject_principal_id,
           'credential_id':self.session.authentication.credential_id,'directory_hash':self.session.directory_hash,
           'world':self.session.world,'resource_id':target,'target_resource':target,'operation':operation.value,
-          'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
 
     def authorities(self,targets,operation=Operation.READ):

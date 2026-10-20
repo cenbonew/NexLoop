@@ -1,5 +1,6 @@
 """Durable frozen ActionClaimPort; no ontology or external-effect write grant."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import psycopg
@@ -54,7 +55,7 @@ class PostgresActionClaimPort:
           'tenant_id':command.key.tenant_id,'principal_id':self.session.authentication.subject_principal_id,
           'credential_id':self.session.authentication.credential_id,'world':self.session.world,
           'directory_hash':self.session.directory_hash,'resource_id':resource,'action_resource':resource,'operation':'execute',
-          'verb':verb,'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'verb':verb,'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'parameters_digest':hashlib.sha256(payload.encode()).hexdigest(),
           'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
         text=canonical_payload(claims)

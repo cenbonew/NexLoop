@@ -4,6 +4,7 @@ No channel/provider I/O or formal ontology writes occur here. Task leases do not
 confer Action authority. Callers never supply tenant/actor/world/worker identity.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib,hmac,re
 from eios.authz import facts as F
 from eios.authz.operations import Operation
@@ -33,7 +34,7 @@ class PostgresDurableQueue:
         s=self.session;c={'protocol':'nexloop-queue-command-v1','key_id':self.signer.key_id,'tenant_id':s.authentication.tenant_id,
           'credential_id':s.authentication.credential_id,'principal_id':s.authentication.subject_principal_id,
           'directory_hash':s.directory_hash,'world':s.world,'resource_id':target,'action_resource':target,'operation':'execute',
-          'expires_at':min(d.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'expires_at':min(d.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'parameters_digest':hashlib.sha256(payload.encode()).hexdigest(),'facts':sorted(entries,key=lambda r:(r['kind'],r['key']))}
         text=canonical_payload(c);sig=hmac.new(self.signer.material,('nexloop-queue-command-v1:'+text).encode(),'sha256').hexdigest()
         import psycopg

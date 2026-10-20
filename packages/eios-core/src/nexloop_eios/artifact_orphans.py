@@ -1,5 +1,6 @@
 """Durable final-orphan maintenance; never infer DB liveness from file age."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import re
@@ -32,7 +33,7 @@ class FinalOrphanCollector:
             'tenant_id':self.session.authentication.tenant_id,'principal_id':self.session.authentication.subject_principal_id,
             'credential_id':self.session.authentication.credential_id,'directory_hash':self.session.directory_hash,
             'world':self.session.world,'resource_id':target,'target_resource':target,'operation':'delete',
-            'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,('nexloop-orphan-sweep-v1:'+text).encode(),'sha256').hexdigest()

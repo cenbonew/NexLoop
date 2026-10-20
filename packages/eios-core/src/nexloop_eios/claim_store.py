@@ -6,6 +6,7 @@ service's current EXECUTE and every source READ and re-checks every evidence
 span against the stored Message body. Claims never become formal objects here.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 import json
 import re
@@ -66,7 +67,7 @@ class ConversationClaimExtractor:
         auth=self.session.authentication
         return {'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
             'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,
-            'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
 
     def _with_provider_evidence(self,messages):

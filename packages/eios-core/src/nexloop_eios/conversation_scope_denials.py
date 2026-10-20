@@ -4,6 +4,7 @@ Invoking a Function uses FUNCTION EXECUTE permission, independently of the
 Conversation read Action gate. It never executes/finalizes service.request.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import re
@@ -65,7 +66,7 @@ class ConversationScopeDenialPort:
             'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
             'directory_hash':self.session.directory_hash,'world':self.session.world,
             'resource_id':target,'action_resource':target,'operation':'execute',
-            'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'parameters_digest':hashlib.sha256(payload.encode()).hexdigest(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
 

@@ -21,6 +21,7 @@ behaviour feedback) are reserved and not implemented.
 """
 from dataclasses import dataclass
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 import itertools
@@ -400,7 +401,7 @@ class ReviewQueueReader:
         auth=self.session.authentication
         claims={'protocol':protocol,'key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
             'credential_id':auth.credential_id,'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,
-            'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),'parameters_digest':hashlib.sha256(body.encode()).hexdigest()}
         text=canonical_payload(claims)
         return text,hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()

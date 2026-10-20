@@ -1,5 +1,6 @@
 """Signed current-authority proofs for Context reads (public EIOS decision APIs only)."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 
@@ -31,7 +32,7 @@ def _base(session,target,decision,entries,operation):
     auth=session.authentication
     return {'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
         'directory_hash':session.directory_hash,'world':session.world,'resource_id':target,'operation':operation,
-        'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+        'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
         'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
 
 
@@ -49,7 +50,7 @@ def run_assemble_claims(session,run):
     auth=session.authentication
     return {'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
         'directory_hash':session.directory_hash,'world':session.world,'resource_id':ASSEMBLE_RESOURCE,'action_resource':ASSEMBLE_RESOURCE,
-        'operation':'execute','expires_at':min(run.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),'facts':[],
+        'operation':'execute','expires_at':min(run.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),'facts':[],
         'run_assemble':{'run_id':str(run.run_context.run_id),'run_digest':run.token_digest}}
 
 

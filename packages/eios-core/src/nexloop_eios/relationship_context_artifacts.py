@@ -1,5 +1,6 @@
 """Server-only real governed ContextArtifact producer. No credential reaches pack."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib,hmac
 from eios.actions import models as M
 from eios.authz import facts as F
@@ -33,7 +34,7 @@ def artifact_authority_proof(pool,session,operation):
     if not decision.allowed or not decision.authoritative or decision.obligations:raise ContextArtifactUnavailable()
     return {'tenant_id':session.authentication.tenant_id,'principal_id':session.authentication.subject_principal_id,
      'credential_id':session.authentication.credential_id,'directory_hash':session.directory_hash,'world':'real',
-     'resource_id':'eios:artifact:local_real','operation':operation.value,'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+     'resource_id':'eios:artifact:local_real','operation':operation.value,'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
      'facts':sorted(entries,key=lambda x:(x['kind'],x['key']))}
 
 

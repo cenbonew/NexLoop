@@ -7,6 +7,7 @@ authenticated session, never from a caller payload. KR values come from an
 approved MetricDefinition's fixed aggregation; no caller SQL is executed.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 from decimal import Decimal,InvalidOperation
 import hmac
 import re
@@ -457,7 +458,7 @@ class GoalGovernedActions:
         claims={'protocol':PROTOCOL,'key_id':self.signer.key_id,'tenant_id':self.session.authentication.tenant_id,
           'principal_id':self.session.authentication.subject_principal_id,'credential_id':self.session.authentication.credential_id,
           'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':target,'action_resource':target,'operation':'execute',
-          'expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+          'expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
           'facts':sorted(entries,key=lambda row:(row['kind'],row['key'])),
           'permit':permit.model_dump(mode='json'),'definition':definition.model_dump(mode='json')}
         text=canonical_payload(claims);signature=hmac.new(self.signer.material,(PROTOCOL+':'+text).encode(),'sha256').hexdigest()

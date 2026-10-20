@@ -10,6 +10,7 @@ review decision that published it. Configured grants of the same principal alway
 win. This module only builds the typed proof; it grants nothing itself.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import re
 from typing import Literal
 
@@ -83,7 +84,7 @@ def derived_claims(session,resource_id,operation,basis,type_read):
     """Typed derived proof with the same outer shape as a configured authority proof."""
     authentication=session.authentication
     expires=min(datetime.fromisoformat(basis['rule_valid_until']),datetime.fromisoformat(type_read['expires_at']),
-        datetime.now(UTC)+timedelta(seconds=25)).isoformat()
+        datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat()
     return {'tenant_id':authentication.tenant_id,'principal_id':authentication.subject_principal_id,
         'credential_id':authentication.credential_id,'directory_hash':session.directory_hash,'world':session.world,
         'resource_id':resource_id,'target_resource':resource_id,'operation':operation,'expires_at':expires,'facts':[],
@@ -111,7 +112,7 @@ class RelaySourceReadRule(BaseModel):
 def relay_source_claims(session,resource_id,basis):
     """Typed relay-source proof (READ only; no nested type READ): SQL re-derives it at every use."""
     authentication=session.authentication
-    expires=min(datetime.fromisoformat(basis['rule_valid_until']),datetime.now(UTC)+timedelta(seconds=25)).isoformat()
+    expires=min(datetime.fromisoformat(basis['rule_valid_until']),datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat()
     return {'tenant_id':authentication.tenant_id,'principal_id':authentication.subject_principal_id,
         'credential_id':authentication.credential_id,'directory_hash':session.directory_hash,'world':session.world,
         'resource_id':resource_id,'target_resource':resource_id,'operation':'read','expires_at':expires,'facts':[],
@@ -138,7 +139,7 @@ class RoleSourceReadRule(BaseModel):
 def role_source_claims(session,resource_id,basis):
     """Typed role-source proof (READ only; no nested type READ): SQL re-derives it at every use."""
     authentication=session.authentication
-    expires=min(datetime.fromisoformat(basis['rule_valid_until']),datetime.now(UTC)+timedelta(seconds=25)).isoformat()
+    expires=min(datetime.fromisoformat(basis['rule_valid_until']),datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat()
     return {'tenant_id':authentication.tenant_id,'principal_id':authentication.subject_principal_id,
         'credential_id':authentication.credential_id,'directory_hash':session.directory_hash,'world':session.world,
         'resource_id':resource_id,'target_resource':resource_id,'operation':'read','expires_at':expires,'facts':[],

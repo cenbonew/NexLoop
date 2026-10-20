@@ -9,6 +9,7 @@ technical Action (``eios:action:NexLoop.feed.<feed>:1``) authorizes the service;
 work itself (indexing, matching, governed writes) is authorized separately.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 
@@ -49,7 +50,7 @@ class WorkFeed:
         body=canonical_payload({'feed':self.feed,'verb':verb,**parameters});auth=self.session.authentication
         claims={'protocol':PROTOCOL,'key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,
             'credential_id':auth.credential_id,'directory_hash':self.session.directory_hash,'world':self.session.world,'resource_id':self.resource,
-            'action_resource':self.resource,'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+timedelta(seconds=25)).isoformat(),
+            'action_resource':self.resource,'operation':'execute','expires_at':min(decision.expires_at,datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),
             'parameters_digest':hashlib.sha256(body.encode()).hexdigest(),'facts':sorted(entries,key=lambda row:(row['kind'],row['key']))}
         text=canonical_payload(claims)
         signature=hmac.new(self.signer.material,(PROTOCOL+':'+text).encode(),'sha256').hexdigest()

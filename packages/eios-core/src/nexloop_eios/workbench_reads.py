@@ -10,6 +10,7 @@ pending review items only) and appends an audit row with the read's purpose. Any
 (AT-003), never blanked silently.
 """
 from datetime import UTC, datetime, timedelta
+from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
 
@@ -78,7 +79,7 @@ class WorkbenchReader:
         target = f'eios:{kind}:{name}'
         return {'tenant_id': auth.tenant_id, 'principal_id': auth.subject_principal_id, 'credential_id': auth.credential_id,
                 'directory_hash': self.session.directory_hash, 'world': self.session.world, 'resource_id': target, 'target_resource': target,
-                'operation': 'read', 'expires_at': (datetime.now(UTC) + timedelta(seconds=25)).isoformat(), 'facts': [],
+                'operation': 'read', 'expires_at': (datetime.now(UTC) + SIGNED_COMMAND_TTL).isoformat(), 'facts': [],
                 'derivation': 'workbench-member-v1', 'read_purpose': purpose}
 
     def read_object(self, type_name, object_id, fields, purpose):
