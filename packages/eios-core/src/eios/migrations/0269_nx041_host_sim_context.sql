@@ -1,15 +1,16 @@
 -- NX-041 Host simulation context protocol (L6 nx041-s7b-review 3.4): the database side. The migration number lives only in the
 -- file name and the catalog; nothing below repeats it.
 -- The simulation group's event intake (nexloop_sim_api, S6c) builds a simulation Run's input from S7b's entry
--- authz.nexloop_sim_context_command with that world's own credential. S6c introduces the simulation roles and
--- authz.nexloop_app_role(p_world); this branch's base does not have them yet, so the change below runs only when S6c is present
--- (at integration S6c comes first): the entry's role check then reads authz.nexloop_app_role(p_world) - a simulation role counts as
--- its real counterpart for a sim:/shadow: world only, real roles exactly as before - and nexloop_sim_api may execute it. The body
--- is 0267_nx041_sim_context.sql's (as of S7b's review fixes; re-copied at integration), otherwise unchanged. Without S6c nothing changes.
-do $outer$
-begin
- if to_regprocedure('authz.nexloop_app_role(text)') is null then return;end if;
- execute $q$
+-- authz.nexloop_sim_context_command with that world's own credential: the entry's role check reads authz.nexloop_app_role(p_world)
+-- (S6c) - a simulation role counts as its real counterpart for a sim:/shadow: world only, real roles exactly as before - and
+-- nexloop_sim_api may execute it. The body is 0267_nx041_sim_context.sql's latest (S7b's review fixes included), otherwise unchanged.
+-- Unconditional (L6 at integration): S6c (authz.nexloop_app_role, nexloop_sim_api) comes first; without it this migration fails
+-- instead of leaving the same revision with a different schema.
+do $$begin
+ if to_regprocedure('authz.nexloop_app_role(text)') is null or not exists(select 1 from pg_roles where rolname='nexloop_sim_api') then
+  raise exception 'NX-041 Host simulation context requires S6c (authz.nexloop_app_role, nexloop_sim_api)' using errcode='55000';end if;
+end $$;
+
 create or replace function authz.nexloop_sim_context_command(p_digest text,p_world text,p_consumer text,p_limit integer) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text;v_limit integer;v_now text;v_total integer;v_profile jsonb;v_persona record;v_state jsonb:='[]';v_evidence jsonb;
@@ -57,7 +58,5 @@ begin
   'budget_report',jsonb_build_object('event_limit',v_limit,'events_total',v_total,'events_included',jsonb_array_length(v_evidence),
     'omitted',greatest(v_total-jsonb_array_length(v_evidence),0)),
   'insufficient',v_insufficient);
-end $$
-$q$;
- execute 'grant execute on function authz.nexloop_sim_context_command(text,text,text,integer) to nexloop_sim_api';
-end $outer$;
+end $$;
+grant execute on function authz.nexloop_sim_context_command(text,text,text,integer) to nexloop_sim_api;

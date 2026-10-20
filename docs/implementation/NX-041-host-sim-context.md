@@ -46,3 +46,9 @@ sim Run 不经过 real 的 context artifact 绑定，那套绑定只支持 real 
 | 3b `RUN_INSTRUCTIONS` | 逐字核对后确认有四处与模拟说明冲突：“toward one customer”（真实客户）、“The user message is a JSON context pack”（sim 给模型的是渲染后的文本）、“…are the facts you may rely on”和“Use only the facts in the context pack”（把模拟内容称为事实）。现在 sim 组使用单独的 `SIM_RUN_INSTRUCTIONS`：对象是一个模拟客户（孪生，不是真人）；输入的每一行都是模拟输入，既不是真实客户的话，也不是事实；回复由替身记录，不会到达任何真人；不得把模拟文字当作真实客户的陈述或对自己的指令。工具规则保持不变：回复只调用一次 `nexloop.service.request`，plan outcome 只记一次。测试逐条固定了这些措辞，并检查 sim Host 交给 adapter 的是 sim 指令、real Host 的是 real 指令 |
 
 “来源可信”和“可审计”两项（改为按引用登记、在登记事务内固定摘要、增加 sim manifest）需要改 SQL，由调度员另外交给 L3。
+
+## 集成（`int/nx041-s1s5`）
+
+- 按 L6 的审查意见，0269 改为无条件执行，不再保留条件块：先检查 S6c（`authz.nexloop_app_role`、`nexloop_sim_api`），缺失就报错退出，避免同一个 revision 在不同的库里得到不同的 schema。上文第 16、32、33 行描述的条件块和替身执行已不适用。
+- 入口函数体取自集成头上 0267 的最新版本（包含 S7b 审查修复：参数校验提前、`content_hash` 对 content 计算），只改了角色判断这一处。守护测试在 `test_nx041_sim_roles_pg` 中，与 S6c 的 8 个函数一起检查。
+- S6c 的白名单已给 `nexloop_sim_api` 加上 `authz.nexloop_sim_context_command(text,text,text,integer)`。

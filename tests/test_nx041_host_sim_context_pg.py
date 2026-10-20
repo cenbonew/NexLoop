@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from nexloop_eios.sim_context import SIM_CONTEXT_PROTOCOL, assemble_sim_context
@@ -84,37 +85,18 @@ def test_the_assembler_refuses_real_and_test_before_any_call(s7):
         assemble_sim_context(Refuse(), digest(f['token_a']), f['a'], '0' * 64, limit=0)
 
 
-def test_the_event_intake_role_change_waits_for_s6c(s7):
-    """Without S6c (no authz.nexloop_app_role) the entry is exactly S7b's; with it, its role check reads app_role and nexloop_sim_api
-    may execute it (asserted when present, so the same test holds before and after integration)."""
+def test_the_event_intake_entry_reads_app_role_and_the_migration_needs_s6c(s7):
+    """Integration (L6): the migration is unconditional - the entry's role check reads app_role and nexloop_sim_api may execute it;
+    without S6c's interface the migration fails instead of leaving the same revision with another schema."""
     admin = s7['admin']
-    has_s6c = admin.execute("select to_regprocedure('authz.nexloop_app_role(text)') is not null").fetchone()[0]
-    src = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_sim_context_command(text,text,text,integer)'::regprocedure").fetchone()[0]
-    if has_s6c:
-        assert 'authz.nexloop_app_role(p_world)' in src and 'session_user' not in src
-        assert admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]
-    else:
-        assert "session_user not in ('nexloop_api','nexloop_domain_worker')" in src
     migration = next((ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx041_host_sim_context.sql')).read_text()
-    assert "if to_regprocedure('authz.nexloop_app_role(text)') is null then return;end if;" in migration
-
-
-def test_the_conditional_block_applies_cleanly_once_s6c_is_there(s7):
-    """Executes this migration's block against a stand-in of S6c's interface (the role and authz.nexloop_app_role with S6c's
-    signature): the entry is replaced as described and nexloop_sim_api may execute it; real roles keep answering as before."""
-    admin = s7['admin']
-    if admin.execute("select to_regprocedure('authz.nexloop_app_role(text)') is not null").fetchone()[0]:
-        pytest.skip('S6c integrated: covered by test_the_event_intake_role_change_waits_for_s6c')
-    admin.execute("do $$begin if not exists(select 1 from pg_roles where rolname='nexloop_sim_api') then create role nexloop_sim_api login noinherit; end if; end $$")
-    admin.execute("grant usage on schema authz to nexloop_sim_api")
-    admin.execute("""create function authz.nexloop_app_role(p_world text) returns text language sql stable set search_path=pg_catalog,pg_temp as $$
-        select case when session_user::text<>'nexloop_sim_api' then session_user::text
-         when coalesce(runtime.nexloop_world_kind(p_world),'') not in ('simulation','shadow') then 'nexloop_sim_outside_its_world' else 'nexloop_api' end $$""")
-    admin.execute('alter function authz.nexloop_app_role(text) owner to nexloop_owner')
-    migration = next((ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx041_host_sim_context.sql')).read_text()
-    admin.execute(migration)
+    assert 'to_regprocedure' in migration and 'is null then return' not in migration and 'requires S6c' in migration
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match='requires S6c'), admin.transaction(force_rollback=True):
+        admin.execute('alter function authz.nexloop_app_role(text) rename to nexloop_app_role_hidden')
+        admin.execute(migration)
     src = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_sim_context_command(text,text,text,integer)'::regprocedure").fetchone()[0]
     assert 'authz.nexloop_app_role(p_world)' in src and 'session_user' not in src
+    assert admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]
     c = consumers(admin, s7['a'])[0]
     with s7['role']('nexloop_sim_api')() as db:
         assert db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c)).fetchone()[0]['world'] == s7['a']
