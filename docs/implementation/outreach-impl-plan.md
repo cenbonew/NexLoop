@@ -146,6 +146,24 @@ SQL 依次复核：
 - 复评 Role 的文案规则配置（`plan-reevaluation` 设置）；
 - 部署 Host 时打开 `outreach_tool`。
 
+## 6. 切片 6 的落地方式
+
+**受理**：目的清单中 `requires_approval=true` 的目的，外发请求受理后进入 `pending_approval` 状态，同时写入一条审批记录（`runtime.nexloop_outreach_approvals`）。审批时限为 24 小时，只在 `runtime.nexloop_outreach_approval_window()` 一处定义。待审批期间执行端口不会准入。
+
+**审批 Action**：`nexloop.outreach.approve:1` / `decide_outreach_approval`，只限人类。
+- 参数：intent_id、decision（approve 或 reject）、reason。
+- 授权：审批人当前的工作台角色必须持有该 Action。v20 只授予 owner 角色；本计划没有写明审核员授权，给其他角色授权需负责人另行决定。
+- 审批人不能是请求人（四眼原则）；时限已过的不能审批。
+- 结论只记录一次：同一审批人重复提交同一结论视为重放，返回原结果，其他情况一律拒绝。
+
+**结果**：
+- 批准：转为 `accepted`。执行端口仍按切片 4 的顺序检查全部闸门，联系限制最先；目的闸门只对已批准的意图放行。
+- 拒绝：终态 `refused/approval_rejected`。
+- 超时：终态 `refused/approval_expired`，在审批提交时或执行端口列出待办（due）时判定。
+- 以上任何一种情况，provider 收到的请求都为零。真实派发开关保持关闭。
+
+**读取**：工作台 observe 动词 `outreach_approvals`，只对 owner 开放，路由为 `GET /api/v1/workbench/outreach-approvals`，只返回 ID、目的、发起与截止时间和请求人，不返回正文。“外联控制”页新增“待审批外联”一节，提供批准和拒绝。
+
 ## 附录 A：退订词表 v1（已审定，负责人 2026-10-20）
 
 用途：外联稿 §4.4。只在**最近一条主动消息是营销目的**、且时间在窗口内（默认 30 天）时使用。命中后写入营销主题拒绝（`marketing`）；如果最近一条主动消息不是营销，按联系限制兜底。一般性的“别联系我”由现有拒绝规则（`contact-refusal-rules`）处理，这里不重复收录。

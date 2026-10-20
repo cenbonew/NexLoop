@@ -69,7 +69,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Outreach slice 3: enable or disable a purpose of the current purpose list (checked in SQL).
     'set_outreach_purpose':'outreach_purposes.set',
     # Outreach slice 4: one proactive message for a listed purpose (accepted here, admitted at dispatch).
-    'send_outreach':'outreach.send'}
+    'send_outreach':'outreach.send',
+    # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
+    'decide_outreach_approval':'outreach.approve'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -360,6 +362,12 @@ class GoalGovernedActions:
             raise ValueError('consumer, purpose, origin, body and the native WebChat channel required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'send_outreach','consumer_id':consumer_id,'purpose':purpose,
             'origin_ref':origin_ref,'body':body,'channel':channel,**({'conversation_id':conversation_id} if conversation_id else {})})
+
+    # Outreach slice 6: approve or reject one send waiting for approval; approved is only accepted (every gate rechecked at dispatch).
+    def decide_outreach_approval(self,*,action_name,action_version,request_id,intent_id,decision,reason):
+        if not re.fullmatch(r'outreach:[0-9a-f]{64}',str(intent_id)) or decision not in ('approve','reject') or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('intent, decision and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_outreach_approval','intent_id':intent_id,'decision':decision,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:
