@@ -49,4 +49,7 @@ HEAVY_TESTS=(
   'tests/test_relay_multi_consumer_pg.py::test_enrollment_throughput_in_process'
   'tests/test_nx037_endpoint_conformance.py::test_conforming_endpoint_passes_every_check'
   'tests/upstream/test_eios_application_restrictions.py::test_large_restriction_sets_have_bounded_lookup_cost_without_truncation'
+  # Owner 2026-10-20 CI-1: real Pi, two effect tool calls each bounded by the 2 s guard deadline (ADR-022, ADR-028); under the full
+  # parallel load the guard answer can exceed it (CI seq 19: runtime_effect_unavailable). Still counted (python-heavy).
+  'tests/test_scope_denials.py::test_real_pi_distinct_tool_calls_persist_denial_and_human_http'
 )
