@@ -212,7 +212,7 @@ def test_missing_current_permission_never_acknowledges(context_message,admin,sco
 def test_runtime_pack_and_reference_tampering_rejected(context_message,admin,tmp_path):
     f=context_message;assert f['relay'].run_once()=='queued'
     with active_worker(f,tmp_path) as (worker,activation,command,text):
-        for changed in ({**command,'context_manifest_ref':'artifact:'+'0'*32},{**command,'tenant_id':str(uuid.uuid4())},{**command,'world_id':'simulation'}):
+        for changed in ({**command,'context_manifest_ref':'artifact:'+'0'*32},{**command,'tenant_id':str(uuid.uuid4())},{**command,'world_id':'test'}):
             with pytest.raises(AuthorizationUnavailable):worker.authorize_runtime_activation(activation_ref=activation['activation_ref'],command=changed,operation='model')
         with pytest.raises(AuthorizationUnavailable):worker.authorize_runtime_activation(activation_ref=activation['activation_ref'],command=command,operation='resume',input=text+' ')
         assert admin.execute('select count(*) from authz.nexloop_runtime_execution_markers').fetchone()==(0,)

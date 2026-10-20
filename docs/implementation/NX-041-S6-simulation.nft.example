@@ -1,0 +1,22 @@
+# NX-041 S6 review 1.3 (template, not rendered by the stage pipeline; placeholders are filled by hand): APP_HOST rules for the simulation process group (compose project nexloop-simulation), in their own table
+# (undo: nft delete table inet nexloop_simulation). Applied by the owner only; never by a deployment script.
+# The group's containers live on __SIM_SUBNET__ (NEXLOOP_SIM_SUBNET). They may open exactly two kinds of connection:
+#   - DATA_HOST's PostgreSQL (runtime worker, stand-in executor, file purger);
+#   - the model provider allowlist on 443 (the simulation Host; D6 deterministic or cheap model; omit the line with a
+#     deterministic-only Host).
+# Every other new connection from the subnet is dropped, in particular APP_HOST itself (the real Agent Host, guard, gateway and
+# every published port), the rest of the LAN and the internet. Replies of admitted connections pass.
+table inet nexloop_simulation {
+  chain forward {
+    type filter hook forward priority filter - 2; policy accept;
+    ct direction reply accept
+    ip saddr __SIM_SUBNET__ ip daddr __DATA_HOST_ADDR__ tcp dport __PG_PORT__ accept
+    ip saddr __SIM_SUBNET__ ip daddr { __MODEL_PROVIDER_ALLOWLIST_ALL__ } tcp dport 443 accept
+    ip saddr __SIM_SUBNET__ ct state new drop
+  }
+  chain input {
+    type filter hook input priority filter - 2; policy accept;
+    # Containers reaching the host's own addresses (published ports, the real Host's loopback relays) arrive here.
+    ip saddr __SIM_SUBNET__ ct state new drop
+  }
+}

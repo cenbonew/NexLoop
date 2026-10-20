@@ -476,13 +476,15 @@ def _accepted_roles():
     def literal(module, role):
         assert f"'{role}'" in (src / module).read_text().replace(' ', ''), (module, role)
         return {role}
-    def role_set(module):
-        found = re.findall(r"verify_application_role\([a-z]+\)\s*not in\s*\{([^}]*)\}", (src / module).read_text())
-        assert len(found) == 1, module
-        return set(re.findall(r"'([a-z_]+)'", found[0]))
+    def runtime_roles():
+        # NX-041 S6c: both entry points check their role against the per-group sets in assembly; the stage runs the real group.
+        from nexloop_eios.assembly import RUNTIME_GUARD_ROLES, RUNTIME_WORKER_ROLES
+        assert 'verify_application_role(connection) not in RUNTIME_WORKER_ROLES[arguments.world_group]' in (src / 'runtime_worker.py').read_text()
+        assert 'verify_application_role(connection) not in RUNTIME_GUARD_ROLES[arguments.world_group]' in (src / 'runtime_guard_worker.py').read_text()
+        return set(RUNTIME_WORKER_ROLES['real']) & set(RUNTIME_GUARD_ROLES['real'])
     accepted = {name: {role} for name, (_, role) in SERVICES.items()}
     accepted.update({
-        'runtime-worker': role_set('runtime_worker.py') & role_set('runtime_guard_worker.py'),
+        'runtime-worker': runtime_roles(),
         'action-worker': literal('effect_worker.py', 'nexloop_action_worker'),
         'webchat-delivery': literal('local_json_delivery.py', 'nexloop_action_worker'),
         'message-relay': literal('message_relay_cli.py', 'nexloop_api'),

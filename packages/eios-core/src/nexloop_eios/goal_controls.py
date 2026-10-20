@@ -25,6 +25,7 @@ from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.authorization import PostgresAuthorityProvider
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from nexloop_eios.postgres_artifacts import canonical_payload
+from nexloop_eios.worlds import valid_world,world_kind
 
 PROTOCOL='nexloop-goal-governed-v1'
 CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.version.publish',
@@ -81,7 +82,13 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-039 V6 (§8.5, D39-8): stop or resume evolution for one dimension, with a reason.
     'set_evolution_stop':'semantic_release.stop',
     # Capability gap P2: the next version of a read-only Object View (sections of the type's properties, Links touching it; checked in SQL).
-    'publish_object_view':'object_view.publish'}
+    'publish_object_view':'object_view.publish',
+    # NX-041 S2 (D2, D10): create a simulation or shadow world, or delete one as a whole (checked in SQL).
+    'create_sim_world':'sim_world.create','delete_sim_world':'sim_world.delete',
+    # NX-041 S3 (D8): synthetic or structural data in a simulation world (checked in SQL).
+    'generate_sim_world_data':'sim_world.generate',
+    # NX-041 S5 (D5): advance, pause, resume or set the rate of a simulation world's clock (forward only, checked in SQL).
+    'control_sim_clock':'sim_clock.control'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -421,6 +428,41 @@ class GoalGovernedActions:
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'rollback_semantic_release','target_version':target_version,'reason':reason})
 
     # NX-039 V6 (§8.5, D39-8): owner only; opening an evaluation and publishing refuse a stopped dimension.
+    # NX-041 S2 (D2, D10): owner only; the world id is derived from the request, so a retry gives the same world.
+    def create_sim_world(self,*,action_name,action_version,request_id,kind,purpose,expires_in_days):
+        if kind not in ('simulation','shadow') or type(purpose) is not str or not 1<=len(purpose.strip())<=500 or type(expires_in_days) is not int or not 1<=expires_in_days<=365:
+            raise ValueError('kind, purpose and expiry required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'create_sim_world','kind':kind,'purpose':purpose,'expires_in_days':expires_in_days})
+
+    # NX-041 S2 (D2): a 30-day summary stays; credentials are revoked; repeating continues an interrupted deletion.
+    def delete_sim_world(self,*,action_name,action_version,request_id,world,reason):
+        if not valid_world(world) or world_kind(world) not in ('simulation','shadow') or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('simulation world and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'delete_sim_world','world':world,'reason':reason})
+
+    # NX-041 S3 (D8): owner only; a simulation world receives synthetic or structural data, reproducible from seed and parameters.
+    def generate_sim_world_data(self,*,action_name,action_version,request_id,world,kind,seed,consumers,events_per_consumer,segments=None,max_objects=None):
+        if not valid_world(world) or world_kind(world)!='simulation' or kind not in ('synthetic','structural') or type(seed) is not str or not seed:
+            raise ValueError('simulation world, kind and seed required')
+        body={'request_id':request_id,'operation':'generate_sim_world_data','world':world,'kind':kind,'seed':seed,'consumers':consumers,
+              'events_per_consumer':events_per_consumer}
+        if kind=='synthetic': body['segments']=segments
+        else: body['max_objects']=max_objects
+        return self._submit(action_name,action_version,body)
+
+    # NX-041 S5 (D5): seconds only with advance, rate only with set_rate; real and test have no clock.
+    def control_sim_clock(self,*,action_name,action_version,request_id,world,action,seconds,rate,reason):
+        if (not valid_world(world) or world_kind(world) not in ('simulation','shadow') or action not in ('advance','pause','resume','set_rate')
+                or (action=='advance')!=(seconds is not None) or (action=='set_rate')!=(rate is not None)
+                or (seconds is not None and (type(seconds) is not int or not 1<=seconds<=315360000))
+                or (rate is not None and (type(rate) not in (int,float) or not 0<rate<=100000))
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('simulation world, clock action and reason required')
+        payload={'request_id':request_id,'operation':'control_sim_clock','world':world,'action':action,'reason':reason}
+        if seconds is not None:payload['seconds']=seconds
+        if rate is not None:payload['rate']=rate
+        return self._submit(action_name,action_version,payload)
+
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
             raise ValueError('dimension, stopped and reason required')

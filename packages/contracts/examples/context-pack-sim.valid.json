@@ -1,0 +1,75 @@
+{
+  "schema_version": "nexloop.context-pack.sim.v1",
+  "world": "sim:3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
+  "consumer_id": "4f2c9a1e7b3d5f60812a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d",
+  "data_mode": "simulation",
+  "world_time": "2026-10-21T08:00:00.000000Z",
+  "current_event": {
+    "kind": "simulated_consumer_event",
+    "event_id": "9b1d6e0c4a2f8e7d5c3b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7c6b",
+    "sequence": 2,
+    "event_kind": "message",
+    "provenance": "sim:event:9b1d6e0c4a2f8e7d5c3b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7c6b",
+    "source": "simulated"
+  },
+  "consumer_state": [
+    {
+      "subsection": "profile",
+      "ref": "sim:object:4f2c9a1e7b3d5f60812a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d",
+      "revision": "60a84eff485e4450",
+      "content": {
+        "segment": "loyal",
+        "joined_days_ago": 120
+      },
+      "content_hash": "60a84eff485e44508a912a7f83627f9d4aca7e460423b45fd413d34c3aa904b5",
+      "evidence_kind": "synthetic_profile",
+      "source": "simulated",
+      "at": "2026-10-21T08:00:00.000000Z",
+      "tags": []
+    },
+    {
+      "subsection": "persona",
+      "ref": "sim:persona:4f2c9a1e7b3d5f60812a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d",
+      "revision": "1",
+      "content": {
+        "persona": "synthetic"
+      },
+      "content_hash": "24b4dae0add8698a36c7b776f80be0929b2626dc57469b69f020f4ddf8b767fc",
+      "evidence_kind": "synthetic_persona",
+      "source": "simulated",
+      "at": "2026-10-21T08:00:00.000000Z",
+      "tags": []
+    }
+  ],
+  "evidence": [
+    {
+      "subsection": "simulated_conversation",
+      "ref": "sim:event:9b1d6e0c4a2f8e7d5c3b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7c6b",
+      "revision": "2",
+      "content": {
+        "event_kind": "message",
+        "text": "合成消息：请问明天上午还能预约吗？"
+      },
+      "content_hash": "0d91788779a7d50e81d03534edde33efce849a3d1fd15aba20f9fd6df45240b7",
+      "evidence_kind": "simulated_input",
+      "source": "simulated",
+      "at": "2026-10-21T08:00:00.000000Z",
+      "tags": [
+        "latest_consumer_turn"
+      ]
+    }
+  ],
+  "budget_report": {
+    "event_limit": 1,
+    "events_total": 2,
+    "events_included": 1,
+    "omitted": 1
+  },
+  "insufficient": [
+    {
+      "code": "older_events_omitted",
+      "section": "evidence"
+    }
+  ]
+}
