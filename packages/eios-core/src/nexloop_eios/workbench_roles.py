@@ -69,6 +69,7 @@ def validate_roles(value):
                   'eios:action:nexloop.outreach_controls.set:1',  # 0232: when and how often the tenant reaches out is the owner's
                   'eios:action:nexloop.outreach_purposes.set:1',  # outreach slice 3: which purposes the tenant may use is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
+                  'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
                   'eios:action:nexloop.context.strategy.publish:1',  # how Context is assembled is the owner's
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):

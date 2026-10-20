@@ -1210,6 +1210,16 @@
       "version": "0242",
       "name": "0242_nx039_gates_conclude.sql",
       "sha256": "d7e986c7589fb4f944c01c61a3b1baae693481105585d350054d5d1ed37cd776"
+    },
+    {
+      "version": "0243",
+      "name": "0243_outreach_unsubscribe_consent.sql",
+      "sha256": "0e08781cde426354477cdaa6779dbfc4a273317a981c06652b9d64f7040f38c7"
+    },
+    {
+      "version": "0244",
+      "name": "0244_contact_refusal_rules_v2.sql",
+      "sha256": "038753e8153287ac31434c259922694d0fa2a62956204bccdc4ec18d6e5b0733"
     }
   ]
 }

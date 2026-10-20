@@ -1438,6 +1438,29 @@
       },
       "schema_hash": "f67d638a3c83f19b28c992f9d2df0a3aa16b24c14ce46a0779adfb701b14f806",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "marketing_consent.record",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "record_marketing_consent",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "56ccf6b2852e8a48387ea7f6cca7cddc34027501c03d2c7fbf8abeee4a1cf2ab",
+      "side_effects_reason": null
     }
   ]
 }
