@@ -81,7 +81,7 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
-    # D10 trusted configuration (0273): a manifest names a simulation credential's use; real and test name none.
+    # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
              (r",item->>'sim_use'\)\s*on conflict\(token_digest\) do nothing;", ') on conflict(token_digest) do nothing;'),
@@ -91,7 +91,7 @@ REGISTRY = [
     Allowed('nx041_d10_credentials', 'authz.nexloop_issue_run_credential', 'D10 wiring: a simulation role issues Run credentials of its own world only (app_role); definer search_path gains pg_temp',
             ((r"if authz\.nexloop_app_role\(p_world\) is distinct from 'nexloop_api' then raise exception 'Run issuance denied' using errcode='42501';end if;\s*", ''),),
             PG_TEMP),
-    # D10 (0272): one active credential per world and use; the use immutable like the world.
+    # D10 (0273): one active credential per world and use; the use immutable like the world.
     Allowed('nx041_d10_credentials', 'authz.nexloop_sim_world_credential_check', 'D10: one active credential per world and use (api, worker, agent); the use never changes',
             ((r'\(old\.worlds is distinct from new\.worlds or old\.sim_use is distinct from new\.sim_use\)', '(old.worlds is distinct from new.worlds)'),
              (r"if new\.sim_use is null then raise exception 'a simulation world credential names its use \(api, worker, agent\)' using errcode='42501';end if;\s*", ''),
