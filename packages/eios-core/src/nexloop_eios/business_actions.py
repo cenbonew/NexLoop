@@ -72,7 +72,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # Capability gap P2: the owner publishes the next version of a read-only Object View (layout only).
     'object_view.publish':'human_owner',
     # NX-041 S2 (D2, D10): the owner creates or deletes a simulation or shadow world.
-    'sim_world.create':'human_owner','sim_world.delete':'human_owner'}
+    'sim_world.create':'human_owner','sim_world.delete':'human_owner',
+    # NX-041 S3 (D8): the owner fills a simulation world with synthetic or structural data.
+    'sim_world.generate':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
