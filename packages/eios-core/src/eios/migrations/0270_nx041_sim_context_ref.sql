@@ -11,6 +11,14 @@
 -- 3. Manifest: runtime.nexloop_sim_context_sources - for every bound Run, each simulated source read (section, ref, revision,
 --    content_hash) and, on the binding, the pack digest, the world time, the event count and limit: what the model was given and from
 --    which events. Append-only; both tables have a world column and leave with the world (S2 whole deletion).
+-- 4. Follow-ups (L6 review, L2, L4): the register entry also requires session_user nexloop_sim_api; the input trigger watches
+--    tenant_id too; each binding records the Host render version (runtime.nexloop_sim_render_version(), the same value as the Host's
+--    SIM_RENDER_VERSION, apps/agent-host/src/sim-context.ts; a golden render ties the two); nexloop_sim_api no longer executes the
+--    assembler directly (register only: the preview grant of 0269 is revoked).
+
+-- The version of the Host's rendering of a sim pack (apps/agent-host/src/sim-context.ts SIM_RENDER_VERSION; bumped together).
+create function runtime.nexloop_sim_render_version() returns text language sql immutable set search_path=pg_catalog,pg_temp as $$ select 'nexloop-sim-render/1' $$;
+alter function runtime.nexloop_sim_render_version() owner to nexloop_owner;
 
 create table runtime.nexloop_sim_context_bindings (
  tenant_id text not null references control.nexloop_tenants(tenant_id),
@@ -22,6 +30,7 @@ create table runtime.nexloop_sim_context_bindings (
  pack_digest text not null check(pack_digest~'^[0-9a-f]{64}$'),
  world_time text not null,
  events_included integer not null check(events_included>=0),
+ render_version text not null check(render_version~'^[a-z][a-z0-9-]*/[0-9]+$'),
  registered_by text not null check(char_length(registered_by) between 1 and 200),
  registered_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,world,run_id),
@@ -53,7 +62,9 @@ create function authz.nexloop_sim_context_register(p_digest text,p_world text,p_
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text;r authz.nexloop_run_credentials;b runtime.nexloop_sim_context_bindings;v_pack jsonb;v_text text;v_principal text;
 begin
- if authz.nexloop_app_role(p_world) is distinct from 'nexloop_api' then raise exception 'sim context: unavailable' using errcode='42501';end if;
+ -- The simulation intake itself (L2): its role, and its role's meaning for this world.
+ if session_user is distinct from 'nexloop_sim_api' or authz.nexloop_app_role(p_world) is distinct from 'nexloop_api' then
+  raise exception 'sim context: unavailable' using errcode='42501';end if;
  if p_run is null or coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_limit is null or p_limit not between 1 and 256 then
   raise exception 'sim context: invalid' using errcode='22023';end if;
  v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
@@ -66,16 +77,17 @@ begin
  select * into b from runtime.nexloop_sim_context_bindings where tenant_id=v_tenant and world=p_world and run_id=p_run;
  if found then
   if b.consumer_id<>p_consumer or b.event_limit<>p_limit then raise exception 'sim context: run_bound' using errcode='22023';end if;
-  return jsonb_build_object('run_id',p_run,'pack_text',b.pack_text,'pack_digest',b.pack_digest,'registered',false);
+  return jsonb_build_object('run_id',p_run,'pack_text',b.pack_text,'pack_digest',b.pack_digest,'render_version',b.render_version,'registered',false);
  end if;
  -- The only assembler (S7b): the caller never gives the pack.
  v_pack:=authz.nexloop_sim_context_command(p_digest,p_world,p_consumer,p_limit);
  perform set_config('eios.tenant_id',v_tenant,true);
  v_text:=v_pack::text;
  v_principal:=authz.nexloop_service_identity(p_digest,p_world)->'binding'->>'principal_id';
- insert into runtime.nexloop_sim_context_bindings(tenant_id,world,run_id,consumer_id,event_limit,pack_text,pack_digest,world_time,events_included,registered_by)
+ insert into runtime.nexloop_sim_context_bindings(tenant_id,world,run_id,consumer_id,event_limit,pack_text,pack_digest,world_time,events_included,render_version,
+   registered_by)
   values(v_tenant,p_world,p_run,p_consumer,p_limit,v_text,encode(sha256(convert_to(v_text,'UTF8')),'hex'),v_pack->>'world_time',
-   (v_pack->'budget_report'->>'events_included')::integer,coalesce(v_principal,'service'))
+   (v_pack->'budget_report'->>'events_included')::integer,runtime.nexloop_sim_render_version(),coalesce(v_principal,'service'))
   returning * into b;
  -- Manifest: every simulated source the pack carries, in pack order.
  insert into runtime.nexloop_sim_context_sources(tenant_id,world,run_id,ordinal,section,ref,revision,content_hash)
@@ -87,11 +99,14 @@ begin
    union all
    select 3,1,'current_event',v_pack->'current_event'->>'provenance',v_pack->'current_event'->>'sequence',null
     where jsonb_typeof(v_pack->'current_event')='object') x;
- return jsonb_build_object('run_id',p_run,'pack_text',b.pack_text,'pack_digest',b.pack_digest,'registered',true);
+ return jsonb_build_object('run_id',p_run,'pack_text',b.pack_text,'pack_digest',b.pack_digest,'render_version',b.render_version,'registered',true);
 end $$;
 alter function authz.nexloop_sim_context_register(text,text,uuid,text,integer) owner to nexloop_owner;
 revoke all on function authz.nexloop_sim_context_register(text,text,uuid,text,integer) from public;
 grant execute on function authz.nexloop_sim_context_register(text,text,uuid,text,integer) to nexloop_sim_api;
+-- Least privilege (L6): the simulation intake registers; it does not assemble previews itself (register calls the assembler as
+-- its owner).
+revoke execute on function authz.nexloop_sim_context_command(text,text,text,integer) from nexloop_sim_api;
 
 -- 2. A simulation Run registers only its fixed pack ------------------------------------------------------------------------------
 create function authz.nexloop_sim_run_input_fixed() returns trigger
@@ -108,6 +123,6 @@ begin
 end $$;
 alter function authz.nexloop_sim_run_input_fixed() owner to nexloop_owner;
 revoke all on function authz.nexloop_sim_run_input_fixed() from public;
-create trigger nx041_sim_run_input_fixed before insert or update of input_digest,world,run_id on authz.nexloop_runtime_run_bindings
+create trigger nx041_sim_run_input_fixed before insert or update of input_digest,world,run_id,tenant_id on authz.nexloop_runtime_run_bindings
  for each row execute function authz.nexloop_sim_run_input_fixed();
 alter table authz.nexloop_runtime_run_bindings enable always trigger nx041_sim_run_input_fixed;

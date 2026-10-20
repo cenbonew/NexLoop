@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 
 from nexloop_eios import consumer_port as P
 from nexloop_eios.sim_context import register_sim_context
-from support.tenants import TENANT_A
+from support.tenants import TENANT_A, TENANT_B
 from test_nx041_host_sim_context_pg import command, node_render
 from test_nx041_s7_pg import consumers, digest, port, s7  # noqa: F401
 
@@ -152,3 +152,90 @@ def test_the_whole_deletion_leaves_no_binding_and_no_manifest(ctx):
     for table in ('runtime.nexloop_sim_context_bindings', 'runtime.nexloop_sim_context_sources'):
         assert admin.execute(f'select count(*) from {table} where world=%s', (f['a'],)).fetchone()[0] == 0, table
         assert admin.execute(f'select count(*) from {table} where world=%s', (f['b'],)).fetchone()[0] > 0, table  # the other world kept
+
+
+# Follow-ups (L6 sim-context-ref review, L2, L4) ------------------------------------------------------------------------------------
+
+ROOT = __import__('pathlib').Path(__file__).resolve().parents[1]
+RENDER_GOLDEN = ROOT / 'tests/support/golden/nx041-sim-render.json'
+
+
+def test_register_requires_the_simulation_intake_itself_even_if_granted_elsewhere(ctx):
+    """L2: besides app_role, the entry requires session_user nexloop_sim_api - a grant given to another role by mistake does not open it."""
+    f = ctx
+    admin = f['admin']
+    run = run_credential(admin, f['a'], f['token_a'])
+    admin.execute('grant execute on function authz.nexloop_sim_context_register(text,text,uuid,text,integer) to nexloop_api')
+    try:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='sim context: unavailable'):
+            register(f, run, f['c'], role='nexloop_api')
+    finally:
+        admin.execute('revoke execute on function authz.nexloop_sim_context_register(text,text,uuid,text,integer) from nexloop_api')
+    assert register(f, run, f['c'])  # positive control
+
+
+def test_the_input_trigger_watches_the_tenant_too(ctx):
+    """L6: moving a simulation Run's registration to another tenant is checked like a new one (refused: no pack fixed there)."""
+    f = ctx
+    admin = f['admin']
+    run = run_credential(admin, f['a'], f['token_a'])
+    text = register(f, run, f['c'])
+    bind_run(admin, f['a'], run, hashlib.sha256(text.encode()).hexdigest())
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='input_not_registered'), admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("update authz.nexloop_runtime_run_bindings set tenant_id=%s where run_id=%s", (TENANT_B, run))
+    trigger = admin.execute("""select pg_get_triggerdef(oid) from pg_trigger where tgname='nx041_sim_run_input_fixed'""").fetchone()[0]
+    assert 'tenant_id' in trigger and admin.execute("select tgenabled from pg_trigger where tgname='nx041_sim_run_input_fixed'").fetchone()[0] == 'A'
+
+
+def host_render_version():
+    import shutil
+    import subprocess
+    node = shutil.which('node')
+    script = "import {SIM_RENDER_VERSION} from %s;process.stdout.write(SIM_RENDER_VERSION);" % json.dumps((ROOT / 'apps/agent-host/dist/sim-context.js').as_uri())
+    return subprocess.run([node, '--input-type=module', '-e', script], capture_output=True, text=True, timeout=30, check=True).stdout
+
+
+def test_the_render_version_is_recorded_and_tied_to_the_host_rendering(ctx):
+    """L6: every binding records the Host render version; SQL's version is the Host's SIM_RENDER_VERSION, and a golden render of the
+    contract example under that version ties output and version: a rendering change without a version bump fails here."""
+    f = ctx
+    run = run_credential(f['admin'], f['a'], f['token_a'])
+    register(f, run, f['c'])
+    sql_version = f['admin'].execute('select runtime.nexloop_sim_render_version()').fetchone()[0]
+    assert f['admin'].execute('select render_version from runtime.nexloop_sim_context_bindings where run_id=%s', (run,)).fetchone()[0] == sql_version
+    assert host_render_version() == sql_version
+    example = (ROOT / 'packages/contracts/examples/context-pack-sim.valid.json').read_text()
+    pack = json.loads(example)
+    rendered = node_render(json.dumps(pack, ensure_ascii=False), {**command(pack['world'], pack['tenant_id'], consumer=pack['consumer_id'])})['ok']
+    actual = {'render_version': sql_version, 'sha256': hashlib.sha256(rendered.encode()).hexdigest()}
+    if __import__('os').environ.get('NEXLOOP_WRITE_GOLDEN') == '1':
+        RENDER_GOLDEN.write_text(json.dumps(actual, indent=1) + '\n')
+    golden = json.loads(RENDER_GOLDEN.read_text())
+    assert actual == golden, 'the Host rendering changed: bump SIM_RENDER_VERSION and runtime.nexloop_sim_render_version(), then rewrite the golden'
+
+
+def test_no_application_role_and_not_public_holds_a_privilege_on_the_manifest(ctx):
+    admin = ctx['admin']
+    roles = {r[0] for r in admin.execute("select rolname from pg_roles where rolname like 'nexloop%%' and rolname<>'nexloop_owner' and not rolsuper").fetchall()}
+    assert {'nexloop_api', 'nexloop_sim_api', 'nexloop_twin_port', 'nexloop_stand_in_worker'} <= roles
+    for table in ('runtime.nexloop_sim_context_bindings', 'runtime.nexloop_sim_context_sources'):
+        for role in sorted(roles):
+            assert not admin.execute("select has_table_privilege(%s,%s,'select,insert,update,delete,truncate,references,trigger')", (role, table)).fetchone()[0], (role, table)
+        assert admin.execute("""select count(*) from pg_class c,aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) x
+            where c.oid=%s::regclass and x.grantee=0""", (table,)).fetchone()[0] == 0, ('PUBLIC', table)
+    # The manifest's foreign key to its binding (the whole deletion removes both, in dependency order).
+    assert admin.execute("""select count(*) from pg_constraint where conrelid='runtime.nexloop_sim_context_sources'::regclass and contype='f'
+        and confrelid='runtime.nexloop_sim_context_bindings'::regclass""").fetchone()[0] == 1
+
+
+def test_the_contract_example_is_self_consistent(ctx):
+    """L4: the example's counts agree (included = evidence items <= limit, omitted = total - included, the omission reported) and
+    every content_hash is the sha256 of its content as PostgreSQL jsonb text."""
+    admin = ctx['admin']
+    pack = json.loads((ROOT / 'packages/contracts/examples/context-pack-sim.valid.json').read_text())
+    b = pack['budget_report']
+    assert b['events_included'] == len(pack['evidence']) <= b['event_limit'] and b['omitted'] == b['events_total'] - b['events_included']
+    assert (b['omitted'] > 0) == ({'code': 'older_events_omitted', 'section': 'evidence'} in pack['insufficient'])
+    for item in pack['consumer_state'] + pack['evidence']:
+        assert admin.execute("select encode(sha256(convert_to(%s::jsonb::text,'UTF8')),'hex')", (json.dumps(item['content'], ensure_ascii=False),)).fetchone()[0] == item['content_hash']
