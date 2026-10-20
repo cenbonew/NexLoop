@@ -27,6 +27,9 @@ export const DOMAINS={
   action_risk:L.ACTION_RISK,action_approval:L.ACTION_APPROVAL,alert_event:L.ALERT_EVENT,audit_category:L.AUDIT_CATEGORY,
   // Dispatch refusal codes: the existing api labels and the glossary's three additions (NXC07, NXR01, NXE01).
   refusal_code:{...REFUSAL_TEXT,...L.REFUSAL_CODE_ADDITIONS} as L.LabelMap,
+  // NX-039 V6: evolution review and release (labels.ts draft block, glossary TODO).
+  evo_candidate_status:L.EVO_CANDIDATE_STATUS,evo_conclusion:L.EVO_CONCLUSION,evo_change_class:L.EVO_CHANGE_CLASS,evo_gate:L.EVO_GATE,evo_gate_result:L.EVO_GATE_RESULT,
+  evo_dimension:L.EVO_DIMENSION,evo_end_reason:L.EVO_END_REASON,evo_report_reason:L.EVO_REPORT_REASON,
 } as const satisfies Record<string,L.LabelMap>;
 export type Domain=keyof typeof DOMAINS;
 
@@ -42,6 +45,9 @@ const TONES:Partial<Record<Domain,Record<string,Tone>>>={
   plan_status:{active:'pending',stale:'limited',invalidated:'fail',superseded:'neutral',closed:'neutral'},
   control_event:{pause:'limited',contact_restricted:'limited',takeover:'limited',resume:'ok',contact_released:'ok',handback:'ok'},
   escalation_reason:Object.fromEntries(Object.keys(L.ESCALATION_REASON).map(k=>[k,'limited'])),
+  evo_candidate_status:{accepted_for_release:'ok',evaluating:'pending',proposed:'pending',rejected:'fail',incomplete:'limited'},
+  evo_conclusion:{accept:'ok',reject:'fail',incomplete:'limited'},evo_change_class:{patch:'ok',minor:'ok',major:'fail',refused:'fail'},
+  evo_gate_result:{pass:'ok',fail:'fail'},
   candidate_status:{},persona_status:{published:'ok',retired:'neutral'},alert_severity:{critical:'fail',warning:'limited'},
   action_risk:{low:'ok',medium:'limited',high:'limited',critical:'fail'},alert_event:{firing:'fail',resolved:'ok'},
   refusal_code:Object.fromEntries(Object.keys({...REFUSAL_TEXT,...L.REFUSAL_CODE_ADDITIONS}).map(k=>[k,'limited'])),

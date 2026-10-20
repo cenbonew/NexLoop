@@ -181,7 +181,9 @@ def test_the_evolution_package_is_pure_logic_without_storage_network_or_effects(
                # NX-039 V2 evaluation (pure gates and metrics over the E5 replay's bundle check)
                'nexloop_eios.evolution.replay',
                # NX-039 V3 L1 (pure orchestration; runner, clock and budget injected)
-               'statistics', 'decimal', 'nexloop_eios.evolution.evaluation'}
+               'statistics', 'decimal', 'nexloop_eios.evolution.evaluation',
+               # NX-040 F1 schema compatibility (pure models and checks of the vendored core)
+               'eios.ontology.models', 'eios.ontology.semantics', 'nexloop_eios.evolution.schema_compat'}
     for path in PACKAGE.glob('*.py'):
         tree = ast.parse(path.read_text())
         imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}

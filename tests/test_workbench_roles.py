@@ -71,3 +71,26 @@ def test_the_owner_role_publishes_context_strategies_and_no_other_role_does():
     leaked['roles']['operator'] = [*leaked['roles']['operator'], action]
     with pytest.raises(WorkbenchRolesRejected, match='owner-only'):
         validate_roles(leaked)
+
+
+def test_nx039_release_scope_is_owner_only_and_its_three_actions_are_declared_everywhere():
+    """D39-8: publish, rollback and the V6 stop switch are the release scope's Actions - owner only, refused in any other role - and
+    each one is declared in business-actions, capabilities and the system catalog names."""
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    scope = [f'eios:action:nexloop.semantic_release.{a}:1' for a in ('publish', 'rollback', 'stop')]
+    assert all(r in ROLES['roles']['owner'] for r in scope)
+    assert not set(scope) & set(ROLES['roles']['operator'] + ROLES['roles']['reviewer'])
+    for role in ('operator', 'reviewer'):
+        forged = copy.deepcopy(ROLES)
+        forged['roles'][role].append(scope[2])
+        with pytest.raises(WorkbenchRolesRejected):
+            validate_roles(forged)
+    actions = {a['stable_name']: a for a in json.loads((root / 'deploy/configuration/business-actions.v1.json').read_text())['actions']}
+    capabilities = {c['capability_name'] for c in next(v for v in json.loads((root / 'deploy/configuration/capabilities.v1.json').read_text()).values() if isinstance(v, list))}
+    names = {n['stable_name'] for n in json.loads((root / 'deploy/configuration/system-catalog-names.v1.json').read_text())['business_actions']}
+    for a in ('publish', 'rollback', 'stop'):
+        stable = f'nexloop.semantic_release.{a}'
+        assert actions[stable]['authority'] == 'human_owner' and actions[stable]['capability_name'] == f'semantic_release.{a}'
+        assert f'semantic_release.{a}' in capabilities and stable in names
