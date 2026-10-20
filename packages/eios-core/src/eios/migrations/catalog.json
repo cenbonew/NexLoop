@@ -1174,7 +1174,7 @@
     {
       "version": "0235",
       "name": "0235_nx038_attribution_candidates.sql",
-      "sha256": "7f85c58821836207761af77c9791584890a0817a5b638475c6cc392f7796bc78"
+      "sha256": "016697f7fd76f59e521ca17e01714121cdec75675db4e4a868cd32b7636c8649"
     },
     {
       "version": "0236",
@@ -1184,7 +1184,7 @@
     {
       "version": "0237",
       "name": "0237_nx038_isolation_handoff.sql",
-      "sha256": "86ba69dd36b32c1a9a8a2948d2470c7bc7a4fa1e86df059add36b783fd7cf980"
+      "sha256": "c3aa618b58d3bd065db9a7542bff5d9bfd787aaf4bca28420f575390396fa218"
     },
     {
       "version": "0238",
