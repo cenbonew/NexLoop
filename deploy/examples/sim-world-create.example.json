@@ -1,0 +1,6 @@
+{
+  "schema": "nexloop-sim-world/1",
+  "kind": "simulation",
+  "purpose": "<DATE> 价格敏感度实验（合成顾客）",
+  "expires_in_days": 30
+}

@@ -17,12 +17,13 @@ import ssl
 import sys
 import threading
 
-from nexloop_eios.assembly import verify_application_role
+from nexloop_eios.assembly import RUNTIME_WORKER_ROLES,verify_application_role
 from nexloop_eios.backend import open_backend
 from nexloop_eios.host_control import HostControlConfiguration
 from nexloop_eios.private_configuration import read_private_text
 from nexloop_eios.runtime_control import create_runtime_guard_server
 from nexloop_eios.runtime_dispatch import RuntimeDispatcher
+from nexloop_eios.worlds import WORLD_GROUPS,group_accepts
 
 
 class _Parser(argparse.ArgumentParser):
@@ -58,6 +59,32 @@ class _FreshGuard:
         # Outreach slice 5: the reevaluation Run's proactive message, under a fresh current service session.
         return self.service().send_run_outreach(**arguments)
 
+    def submit_run_stand_in(self,*,activation_ref,command,action,parameters):
+        # NX-041 S6b: a simulation Run's effect tool records a stand-in intent (S4), never a real effect. The live activation is
+        # re-authorized first; the guard's own credential is the simulation world's (S2 D10); the server takes the world's time.
+        from psycopg.types.json import Jsonb
+        from nexloop_eios.stand_in_tools import present,stand_in_payload
+        payload=stand_in_payload(command,self.world,action,parameters)
+        current=self.service()
+        current.authorize_runtime_activation(activation_ref=activation_ref,command=command,operation='tool')
+        with current._backend._pool.connection() as db,db.transaction():
+            row=db.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)',(current._session.token_digest,self.world,Jsonb(payload))).fetchone()[0]
+        return {'run_id':command['run_id'],'receipt':present({**row,'status':row.get('state')})}
+
+    def find_run_stand_in(self,*,activation_ref,command,intent_id):
+        # NX-041 S6b: only the stand-in intent this Run's reply tool derived is readable here (a simulated outcome, never a fact).
+        from nexloop_eios.stand_in_tools import present,stand_in_intent_id
+        from nexloop_eios.worlds import world_kind
+        if world_kind(self.world) not in ('simulation','shadow') or type(command) is not dict or command.get('world_id')!=self.world:
+            raise ValueError('stand-in: simulation world required')
+        if intent_id!=stand_in_intent_id(str(command.get('run_id')),'nexloop.service.request'):raise PermissionError('effect_intent_unavailable')
+        current=self.service()
+        current.authorize_runtime_activation(activation_ref=activation_ref,command=command,operation='tool')
+        with current._backend._pool.connection() as db,db.transaction():
+            row=db.execute('select authz.nexloop_sim_effect_query(%s,%s,%s)',(current._session.token_digest,self.world,intent_id)).fetchone()[0]
+        if row is None:raise PermissionError('effect_intent_unavailable')
+        return {'run_id':command['run_id'],'receipt':present(row)}
+
     def record_tool_timing(self,*,run_id,elapsed_ms):
         # NX-031 D6: one tool request's time added to its Run (the Run must belong to this guard's tenant; numbers only).
         # Reuses the session this same request just authenticated (no second credential read and authentication, ~1 ms);
@@ -81,8 +108,11 @@ def _arguments(argv):
         parser.add_argument('--'+option,type=Path,required=True)
     parser.add_argument('--cache-configuration-file',type=Path)
     parser.add_argument('--signing-key-id',default='active')
-    # AT-046: no simulation or shadow Run is dispatched with this worker's real credentials (ROADMAP §10).
-    parser.add_argument('--world',required=True,choices=['real','test']);parser.add_argument('--queue',required=True)
+    # AT-046 / NX-041 S6 (D3): real and test in the real group; one sim:/shadow: world only with --world-group simulation.
+    parser.add_argument('--world',required=True);parser.add_argument('--world-group',default='real',choices=list(WORLD_GROUPS))
+    parser.add_argument('--queue',required=True)
+    # NX-041 S6c: the simulation group's guard connects as its own role (nexloop_sim_guard) in child processes; the real group has none.
+    parser.add_argument('--guard-database-url-file',type=Path)
     parser.add_argument('--host-origin',required=True);parser.add_argument('--guard-port',type=int,required=True)
     parser.add_argument('--lease-seconds',type=int,default=30)
     parser.add_argument('--total-timeout',type=float,default=30)
@@ -95,6 +125,9 @@ def _arguments(argv):
     parser.add_argument('--dispatch-loops',type=int,default=DEFAULT_DISPATCH_LOOPS,
         help='concurrent dispatch loops sharing the queue (NX-031; default 4 = the Agent Host default maximum_active_runs, ADR-022 §4)')
     args=parser.parse_args(argv)
+    if not group_accepts(args.world_group,args.world):parser.error('world')
+    if (args.world_group=='simulation')!=(args.guard_database_url_file is not None) or (args.world_group=='simulation' and args.guard_workers<2):
+        parser.error('guard')
     if (not 1024<=args.guard_port<=65535 or re.fullmatch('[A-Za-z][A-Za-z0-9_-]{0,63}',args.queue) is None
         or not args.world or len(args.world)>255 or not args.signing_key_id or len(args.signing_key_id)>255
         or not math.isfinite(args.tick_seconds) or not 0<args.tick_seconds<=30 or not 1<=args.guard_workers<=16
@@ -139,7 +172,7 @@ def run(arguments,stop):
     with open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
         signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=backend_pool_max(arguments)) as backend:
         with backend._pool.connection() as connection:
-            if verify_application_role(connection) not in {'nexloop_domain_worker','nexloop_scheduler'}:
+            if verify_application_role(connection) not in RUNTIME_WORKER_ROLES[arguments.world_group]:
                 raise ValueError('restricted Worker role required')
         guard=_FreshGuard(backend,arguments.service_credential_file,arguments.world)
         # Preflight current authentication and dispatch config before binding.
@@ -154,9 +187,9 @@ def run(arguments,stop):
                 thread.start();thread_started=True
             else:
                 from nexloop_eios.runtime_guard_worker import GuardFiles,GuardWorkerPool
-                pool=GuardWorkerPool(GuardFiles(arguments.database_url_file,arguments.signing_key_file,arguments.signing_key_id,
+                pool=GuardWorkerPool(GuardFiles(arguments.guard_database_url_file or arguments.database_url_file,arguments.signing_key_file,arguments.signing_key_id,
                     arguments.service_credential_file,arguments.artifact_root,arguments.world,arguments.guard_key_file,
-                    arguments.guard_certificate_file,arguments.guard_tls_key_file),port=arguments.guard_port,workers=arguments.guard_workers,
+                    arguments.guard_certificate_file,arguments.guard_tls_key_file,arguments.world_group),port=arguments.guard_port,workers=arguments.guard_workers,
                     pool_max=arguments.guard_pool_max,on_failure=stop.set)
                 pool.start()
             # NX-030 M08–M10: once a minute, the Agent Host's concurrency counters (pulled over the same loopback + key), this

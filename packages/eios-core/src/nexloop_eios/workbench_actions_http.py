@@ -136,6 +136,23 @@ OPERATIONS={
         'items':lambda v:v if type(v) is list and 1<=len(v)<=20 and all(type(x) is dict for x in v) else (_ for _ in ()).throw(ValueError('items')),'reason':_reason},
     'rollback_semantic_release':{'target_version':_id(re.compile(r'[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}')),'reason':_reason},
     # NX-039 V6 (owner only): stop or resume evolution for one dimension.
+    # NX-041 S2 (owner only): create a simulation or shadow world, or delete one as a whole.
+    'create_sim_world':{'kind':lambda v:v if v in ('simulation','shadow') else (_ for _ in ()).throw(ValueError('kind')),'purpose':_reason,
+        'expires_in_days':lambda v:v if type(v) is int and 1<=v<=30 else (_ for _ in ()).throw(ValueError('expires_in_days'))},
+    'delete_sim_world':{'world':_id(re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'reason':_reason},
+    # NX-041 S3 (owner only): synthetic (segments) or structural (max_objects) data in a simulation world; the other field is null.
+    'generate_sim_world_data':{'world':_id(re.compile(r'sim:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),
+        'kind':lambda v:v if v in ('synthetic','structural') else (_ for _ in ()).throw(ValueError('kind')),
+        'seed':_id(re.compile(r'[A-Za-z0-9_.-]{1,64}')),
+        'consumers':lambda v:v if type(v) is int and 1<=v<=2000 else (_ for _ in ()).throw(ValueError('consumers')),
+        'events_per_consumer':lambda v:v if type(v) is dict and set(v)=={'min','max'} and all(type(x) is int and 0<=x<=50 for x in v.values()) else (_ for _ in ()).throw(ValueError('events')),
+        'segments':lambda v:v if v is None or (type(v) is dict and 1<=len(v)<=10) else (_ for _ in ()).throw(ValueError('segments')),
+        'max_objects':lambda v:v if v is None or (type(v) is int and 0<=v<=10000) else (_ for _ in ()).throw(ValueError('max_objects'))},
+    # NX-041 S5 (owner only): move a simulation world's clock forward; seconds and rate are null unless their action uses them.
+    'control_sim_clock':{'world':_id(re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),
+        'action':lambda v:v if v in ('advance','pause','resume','set_rate') else (_ for _ in ()).throw(ValueError('action')),
+        'seconds':lambda v:v if v is None or (type(v) is int and 1<=v<=315360000) else (_ for _ in ()).throw(ValueError('seconds')),
+        'rate':lambda v:v if v is None or (type(v) in (int,float) and 0<v<=100000) else (_ for _ in ()).throw(ValueError('rate')),'reason':_reason},
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
@@ -243,7 +260,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

@@ -1,0 +1,9 @@
+{
+  "schema": "nexloop-sim-world/1",
+  "world": "sim:00000000-0000-4000-8000-000000000000",
+  "kind": "synthetic",
+  "seed": "trial-1",
+  "consumers": 200,
+  "events_per_consumer": {"min": 0, "max": 6},
+  "segments": {"loyal": 3, "new": 1}
+}
