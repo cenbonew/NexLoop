@@ -19,7 +19,6 @@ from nexloop_eios import stand_in_executor as S
 from nexloop_eios.bootstrap import bootstrap
 from support.tenants import TENANT_A, TENANT_B
 
-CLOCK = '2026-10-21T08:00:00+00:00'
 REAL_TABLES = ('runtime.nexloop_effect_intents', 'runtime.nexloop_effect_outbox', 'runtime.nexloop_effect_attempts', 'runtime.nexloop_effect_observations',
                'runtime.nexloop_incentive_issues', 'runtime.nexloop_outreach_sends', 'runtime.nexloop_outbound_messages',
                'control.nexloop_real_dispatch_switches', 'control.nexloop_effect_contexts')
@@ -43,7 +42,7 @@ def sim(admin, pg):
     token_test, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'd' * 32, world='test', identity_suffix='-stand-in-test')
     role = lambda name: (lambda: psycopg.connect(make_conninfo(pg, user=name), autocommit=True))  # noqa: E731
     return {'admin': admin, 'pg': pg, 'a': a, 'b': b, 'token_a': token_a, 'token_b': token_b, 'token_real': token_real, 'token_test': token_test,
-            'api': role('nexloop_api'), 'worker': role('nexloop_action_worker')}
+            'api': role('nexloop_api'), 'worker': role('nexloop_stand_in_worker'), 'action_worker': role('nexloop_action_worker')}
 
 
 def digest(token):
@@ -52,7 +51,7 @@ def digest(token):
 
 def intent(action='nexloop.service.request', provider='http', **over):
     body = {'intent_id': str(uuid.uuid4()), 'action_name': action, 'action_version': 1, 'provider_kind': provider, 'business_digest': 'b' * 64,
-            'request_digest': 'c' * 64, 'origin': 'twin', 'sim_clock': CLOCK}
+            'request_digest': 'c' * 64, 'origin': 'twin'}
     body.update(over)
     return body
 
@@ -110,8 +109,8 @@ def test_a_stand_in_receipt_is_deterministic_simulated_and_repeat_counted(sim):
     for world in ('real', 'test'):
         with pytest.raises(psycopg.errors.CheckViolation), f['admin'].transaction():
             f['admin'].execute('set local session_replication_role=replica')
-            f['admin'].execute("""insert into runtime.nexloop_sim_effect_intents(tenant_id,world,intent_id,stand_in_id,business_digest,request_digest,origin,sim_clock,submitted_by)
-                values(%s,%s,%s,'outreach.send',%s,%s,'twin',now(),'x')""", (TENANT_A, world, uuid.uuid4(), 'b' * 64, 'c' * 64))
+            f['admin'].execute("""insert into runtime.nexloop_sim_effect_intents(tenant_id,world,intent_id,stand_in_id,business_digest,request_digest,origin,sim_clock,
+                outcome_salt,submitted_by) values(%s,%s,%s,'outreach.send',%s,%s,'twin',now(),%s,'x')""", (TENANT_A, world, uuid.uuid4(), 'b' * 64, 'c' * 64, 'd' * 64))
 
 
 def test_behaviour_is_explicit_frozen_configuration_d12(sim):
@@ -168,13 +167,38 @@ def test_real_and_test_refuse_the_stand_in_and_worlds_do_not_cross(sim):
     assert f['admin'].execute('select count(*) from runtime.nexloop_sim_effect_intents where world=%s', (f['a'],)).fetchone()[0] == 0  # S2 deletion
 
 
+SWITCH = """insert into control.nexloop_real_dispatch_switches(tenant_id,world,scope_kind,scope_ref,enabled,data_mode,revision,reason,changed_by,intent_id)
+    values(%s,%s,'tenant','*',false,'real',1,'synthetic','synthetic-owner',%s)"""
+
+
 def test_the_real_effect_path_never_holds_a_simulation_world_row(sim):
+    """Review 1.1 / 1.3: every declared outbound table carries the validated CHECK; a later BEFORE trigger rewriting the world, or
+    triggers switched off, cannot get a simulation row past it."""
     f = sim
     admin = f['admin']
-    for table in REAL_TABLES:
-        for world in (f['a'], f['b']):
-            with pytest.raises(psycopg.errors.InsufficientPrivilege, match='only the stand-in executes'), admin.transaction():
-                admin.execute(f'insert into {table}(world) values(%s)', (world,))
+    guarded = {r[0] for r in admin.execute('select table_name::text from control.nexloop_real_effect_tables where guarded').fetchall()}
+    assert set(REAL_TABLES) <= guarded and {'runtime.nexloop_message_outbox', 'runtime.nexloop_relay_handoffs', 'runtime.nexloop_relay_claims',
+                                            'runtime.nexloop_relay_attempts', 'control.nexloop_data_exports'} <= guarded
+    checked = {r[0] for r in admin.execute("""select conrelid::regclass::text from pg_constraint where conname='nx041_real_effect_world' and contype='c'
+        and convalidated and pg_get_constraintdef(oid) like '%nexloop_world_kind(world)%simulation%shadow%'""").fetchall()}
+    assert checked == guarded
+    # Positive control: a real row passes (triggers off as trusted configuration); the same row in a sim world does not.
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute(SWITCH, (TENANT_A, 'real', 'i-real'))
+    for world in (f['a'], f['b']):
+        with pytest.raises(psycopg.errors.CheckViolation, match='nx041_real_effect_world'), admin.transaction():
+            admin.execute('set local session_replication_role=replica')  # even with triggers off
+            admin.execute(SWITCH, (TENANT_B, world, 'i-sim'))
+    # A later BEFORE trigger that rewrites the world (enabled always, so it fires even in replica) is still caught.
+    admin.execute(f"""create function public.zz_nx041_rewrite() returns trigger language plpgsql as $$begin new.world:='{f['a']}';return new;end$$""")
+    admin.execute('create trigger zz_rewrite_world before insert on control.nexloop_real_dispatch_switches for each row execute function public.zz_nx041_rewrite()')
+    admin.execute('alter table control.nexloop_real_dispatch_switches enable always trigger zz_rewrite_world')
+    with pytest.raises(psycopg.errors.CheckViolation, match='nx041_real_effect_world'), admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute(SWITCH, (TENANT_B, 'real', 'i-rewritten'))
+    admin.execute('drop trigger zz_rewrite_world on control.nexloop_real_dispatch_switches')
+    admin.execute('drop function public.zz_nx041_rewrite()')
     # The owner's governed switch never opens a simulation world either, and the dispatch decision closes it at the world layer.
     with pytest.raises(psycopg.Error), admin.transaction():
         admin.execute("""select control.nexloop_governed_set_real_dispatch(%s,%s,'owner','owner','i',%s)""",
@@ -240,3 +264,105 @@ def test_the_executor_has_no_provider_no_channel_and_no_network():
     assert S._arguments(['--database-url-file', '/x', '--service-credential-file', '/y', '--world', 'shadow:' + str(uuid.uuid4())]).once is False
     with pytest.raises(ValueError):
         S.StandInReceipt.from_row({'simulated': False, 'output_kind': 'simulated_output', 'data_mode': 'simulation'})
+
+
+def test_every_outbound_table_is_declared(sim):
+    """Review 1.3 guard: a table with a world column whose name says it sends, delivers, relays, exports or dispatches must be
+    declared (guarded, or not with a reason). A new one that is not declared fails here."""
+    admin = sim['admin']
+    named = {r[0] for r in admin.execute("""select c.oid::regclass::text from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        join pg_attribute a on a.attrelid=c.oid and a.attname='world' and not a.attisdropped
+        where c.relkind in ('r','p') and not c.relispartition and n.nspname in ('authz','control','ontology','runtime')
+        and c.relname ~ '(outbox|relay|deliver|export|send|dispatch|effect_(intents|attempts|observations|contexts)|outbound|incentive_issues)'""").fetchall()}
+    declared = dict(admin.execute('select table_name::text,reason from control.nexloop_real_effect_tables').fetchall())
+    assert named - set(declared) == set(), sorted(named - set(declared))
+
+
+def test_the_client_cannot_choose_the_outcome(sim):
+    """Review 4.1 / 4.2: the simulated clock is the world's and the salt the server's. A client clock is refused; the client cannot
+    compute the outcome from what it chooses (intent id, version, world, clock); a repeat gives the same receipt."""
+    f = sim
+    admin = f['admin']
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='stand-in: invalid'):
+        submit(f, f['a'], f['token_a'], {**intent(), 'sim_clock': '2026-10-21T08:00:00+00:00'})
+    admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, f['a'], Jsonb({'fail_rate': 0.5})))
+    executor = S.StandInExecutor(f['worker'], f['token_a'], f['a'])
+    bodies = [intent() for _ in range(24)]
+    for body in bodies:
+        submit(f, f['a'], f['token_a'], body)
+    rows = {str(i): (c, salt) for i, c, salt in admin.execute(
+        'select intent_id,sim_clock,outcome_salt from runtime.nexloop_sim_effect_intents where world=%s', (f['a'],)).fetchall()}
+    world_now = admin.execute('select runtime.nexloop_world_now(%s,%s)', (TENANT_A, f['a'])).fetchone()[0]
+    assert all(c <= world_now for c, _ in rows.values()) and len({salt for _, salt in rows.values()}) == len(bodies)
+    receipts = {r.intent_id: r for r in executor.run_once()}
+    # What a client could have predicted without the salt (the S4 v1 hash) does not decide the outcome.
+    predicted = {}
+    for i, (c, _) in rows.items():
+        stamp = admin.execute("select to_char(%s::timestamptz at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US')", (c,)).fetchone()[0]
+        h = hashlib.sha256(f"1.0.0|{f['a']}|{i}|{stamp}".encode()).hexdigest()
+        predicted[i] = 'failed' if int(h[:8], 16) / 4294967296 < 0.5 else 'fulfilled'
+    assert any(predicted[i] != receipts[i].status for i in rows)
+    assert {r.status for r in receipts.values()} == {'failed', 'fulfilled'}
+    again = executor.execute(bodies[0]['intent_id'])
+    assert (again.status, again.external_ref, again.repeated) == (receipts[bodies[0]['intent_id']].status, receipts[bodies[0]['intent_id']].external_ref, True)
+
+
+APP_ROLES = ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler', 'nexloop_runtime', 'nexloop_identity',
+             'nexloop_metrics', 'nexloop_stand_in_worker')
+LEDGER = ('runtime.nexloop_sim_effect_intents', 'runtime.nexloop_sim_effect_receipts', 'control.nexloop_stand_in_configs', 'control.nexloop_stand_ins')
+
+
+def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_ledger(sim):
+    """Review 2.2: no application role holds a privilege on the ledger; no view, policy or rule names it (other than its own tenant
+    policies); functions naming it are S4's own; functions enumerating world tables dynamically are S2's snapshot and purge only."""
+    admin = sim['admin']
+    for table in LEDGER:
+        for role in APP_ROLES:
+            assert not admin.execute("select has_table_privilege(%s,%s,'select,insert,update,delete')", (role, table)).fetchone()[0], (role, table)
+    assert admin.execute("select count(*) from pg_views where definition ~ '(nexloop_sim_effect_|nexloop_stand_in)'").fetchone()[0] == 0
+    assert admin.execute("select count(*) from pg_rules where definition ~ '(nexloop_sim_effect_|nexloop_stand_in)'").fetchone()[0] == 0
+    policies = admin.execute("""select schemaname||'.'||tablename,policyname from pg_policies
+        where coalesce(qual,'')||coalesce(with_check,'') ~ '(nexloop_sim_effect_|nexloop_stand_in)'""").fetchall()
+    assert policies == []
+    own = {r[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_effect_|nexloop_stand_in)'""").fetchall()}
+    assert {r.split('(')[0] for r in own} <= {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
+                                              'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure',
+                                              'runtime.nexloop_sim_ledger_guard'}, own
+    enumerators = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_world_tables|nexloop_sim_world_targets)'""").fetchall()}
+    assert enumerators <= {'runtime.nexloop_sim_world_snapshot', 'runtime.nexloop_sim_world_purge', 'runtime.nexloop_sim_world_targets'}, enumerators
+
+
+def test_the_stand_in_role_executes_the_stand_in_entries_only(sim):
+    """Review 3.1: nexloop_stand_in_worker executes pending, execute and query, and no other security definer function (no real
+    dispatch summary, no readiness, no real entry); the real executor role no longer reaches the stand-in."""
+    admin = sim['admin']
+    reachable = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname in ('authz','control','runtime','ontology','public') and p.prosecdef
+        and has_function_privilege('nexloop_stand_in_worker',p.oid,'execute')""").fetchall()}
+    # runtime.nexloop_erasure_permits is executable by public (0129): the append-only triggers of every role ask it; it answers false
+    # for anyone but nexloop_owner inside a transaction that opened the scope.
+    assert reachable == {'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
+                         'runtime.nexloop_erasure_permits'}, reachable
+    with sim['action_worker']() as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        db.execute('select authz.nexloop_sim_effect_pending(%s,%s,10)', (digest(sim['token_a']), sim['a']))
+    with sim['worker']() as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        db.execute('select authz.nexloop_real_dispatch_summary()')
+
+
+def test_simulated_outputs_cannot_become_facts(sim):
+    """Review 5.2 (evaluation fixed as a guard): a Claim needs a conversation, and conversations are real only, so no Claim exists
+    in a simulation world; no Claim kind is a fact (verified_fact is absent by design); a Commitment is fulfilled only from effect
+    intents, which never hold a simulation row."""
+    admin = sim['admin']
+    conv = admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='runtime.nexloop_conversations'::regclass and contype='c'
+        and pg_get_constraintdef(oid) like '%world%'""").fetchall()
+    assert any("world = 'real'" in c for (c,) in conv), conv
+    fk = admin.execute("""select count(*) from pg_constraint where conrelid='ontology.nexloop_claims'::regclass and contype='f'
+        and confrelid='runtime.nexloop_conversations'::regclass""").fetchone()[0]
+    assert fk == 1 and admin.execute("""select a.attnotnull from pg_attribute a where a.attrelid='ontology.nexloop_claims'::regclass and a.attname='conversation_id'""").fetchone()[0]
+    kinds = admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='ontology.nexloop_claims'::regclass and contype='c'
+        and pg_get_constraintdef(oid) like '%epistemic_kind = ANY%'""").fetchone()[0]
+    assert 'fact' not in kinds.replace('verified_fact', '')  and 'verified_fact' not in kinds
+    assert admin.execute("select guarded from control.nexloop_real_effect_tables where table_name='runtime.nexloop_effect_intents'::regclass").fetchone()[0]
