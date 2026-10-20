@@ -1270,6 +1270,11 @@
       "version": "0254",
       "name": "0254_nx040_schema_publication.sql",
       "sha256": "94a9bb3843dd3edb8af07a3d27bd1f023f6207f9acee6dfc8c441cab34362fed"
+    },
+    {
+      "version": "0255",
+      "name": "0255_nx039_workbench.sql",
+      "sha256": "6fe4fa136824918c5f53e4f72424d6dbebbb3398f74f2b3c49c9c79b72517eed"
     }
   ]
 }

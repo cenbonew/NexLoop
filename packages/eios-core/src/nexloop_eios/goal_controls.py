@@ -77,7 +77,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
     'publish_object_set':'object_set.publish',
     # NX-039 V4: publish the next semantic release from one evaluated candidate, or roll back to an earlier version (checked in SQL).
-    'publish_semantic_release':'semantic_release.publish','rollback_semantic_release':'semantic_release.rollback'}
+    'publish_semantic_release':'semantic_release.publish','rollback_semantic_release':'semantic_release.rollback',
+    # NX-039 V6 (§8.5, D39-8): stop or resume evolution for one dimension, with a reason.
+    'set_evolution_stop':'semantic_release.stop'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -406,6 +408,12 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}',str(target_version)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('target version and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'rollback_semantic_release','target_version':target_version,'reason':reason})
+
+    # NX-039 V6 (§8.5, D39-8): owner only; opening an evaluation and publishing refuse a stopped dimension.
+    def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
+        if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('dimension, stopped and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_evolution_stop','dimension':dimension,'stopped':stopped,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

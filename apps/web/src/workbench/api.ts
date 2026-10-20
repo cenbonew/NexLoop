@@ -401,6 +401,8 @@ export const OPERATION_ACTION={
   decide_outreach_approval:'eios:action:nexloop.outreach.approve:1',
   // NX-039 V4 (D39-8): publish a semantic release from an evaluated candidate, or roll back to an earlier version (owner only).
   publish_semantic_release:'eios:action:nexloop.semantic_release.publish:1',rollback_semantic_release:'eios:action:nexloop.semantic_release.rollback:1',
+  // NX-039 V6: the release scope's stop switch for one evolution dimension (owner only).
+  set_evolution_stop:'eios:action:nexloop.semantic_release.stop:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -678,6 +680,41 @@ export function semanticReleases(value:unknown):SemanticReleases{
       change_kind:oneOfText(c.change_kind,['alias','description'] as const),target_refs:list(c.target_refs).map(text),term_hashes:count(c.term_hashes),parent_ok:flag(c.parent_ok)};})};
 }
 export const readSemanticReleases=()=>get('/api/v1/workbench/semantic-releases',semanticReleases);
+
+// ---- NX-039 V6 review read (owner only): the latest report per candidate (codes, numbers, digests), the stops, the release watch ----
+const SHA=/^[0-9a-f]{64}$/;
+const rate=(v:unknown):number|null=>{if(v===null||v===undefined)return null;if(typeof v!=='number'||!Number.isFinite(v))throw new WorkbenchError('invalid');return v;};
+const digestOf=(v:unknown)=>{const t=text(v);if(!SHA.test(t))throw new WorkbenchError('invalid');return t;};
+export type ReviewSide={cases:number|null;parent:number|null;candidate:number|null};
+export type ReviewCandidate={candidate_id:string;status:string;end_reason:string|null;dimension:string;change_kind:string|null;report_digest:string;level:'L0'|'L1';
+  conclusion:string;reason:string|null;change_class:string|null;hard_gates_version:string|null;gates:{gate:string;result:'pass'|'fail'}[];
+  scores:{design:ReviewSide;validation:ReviewSide;ambiguity_rate:number|null;regressions:number|null;missing_cases:number|null};
+  non_inferiority:{primary_metric:string;margin:number;ties_accept:boolean}|null;cases:number;cases_digest:string;published_version:string|null;recorded_at:string};
+export type ReleaseWatch={release_ref:string;published_at:string;watch_until:string;accesses_before:number;accesses_after:number;miss_rate_before:number;miss_rate_after:number;
+  ambiguity_rate_before:number;ambiguity_rate_after:number;judged:boolean;regressing:boolean;suggestion:'rollback'|null};
+export type SemanticReview={candidates:ReviewCandidate[];stops:{dimension:string;open:boolean;stopped:boolean;revision:number;changed_at:string|null}[];
+  watch:{active:number;regressing:number;releases:ReleaseWatch[]}};
+const side=(v:unknown):ReviewSide=>{const o=v&&typeof v==='object'?v as Record<string,unknown>:{};const n=(x:unknown)=>x===null||x===undefined?null:count(x);
+  return {cases:n(o.cases),parent:rate(o.parent),candidate:rate(o.candidate)};};
+export function semanticReview(value:unknown):SemanticReview{
+  const o=object(value);
+  return {candidates:list(o.candidates).map(x=>{const c=object(x);const s=object(c.scores);const ni=c.non_inferiority==null?null:object(c.non_inferiority);
+      const n=(v:unknown)=>v===null||v===undefined?null:count(v);
+      return {candidate_id:text(c.candidate_id),status:text(c.status),end_reason:maybeText(c.end_reason),dimension:text(c.dimension),change_kind:maybeText(c.change_kind),
+        report_digest:digestOf(c.report_digest),level:oneOfText(c.level,['L0','L1'] as const),conclusion:text(c.conclusion),reason:maybeText(c.reason),change_class:maybeText(c.change_class),
+        hard_gates_version:maybeText(c.hard_gates_version),
+        gates:list(c.gates).map(g=>{const v=object(g);if(Object.keys(v).sort().join()!=='gate,result')throw new WorkbenchError('invalid');
+          return {gate:text(v.gate),result:oneOfText(v.result,['pass','fail'] as const)};}),
+        scores:{design:side(s.design),validation:side(s.validation),ambiguity_rate:rate(s.ambiguity_rate),regressions:n(s.regressions),missing_cases:n(s.missing_cases)},
+        non_inferiority:ni?{primary_metric:text(ni.primary_metric),margin:rate(ni.margin)??0,ties_accept:flag(ni.ties_accept)}:null,
+        cases:count(c.cases),cases_digest:digestOf(c.cases_digest),published_version:c.published_version==null?null:releaseVersion(c.published_version),recorded_at:text(c.recorded_at)};}),
+    stops:list(o.stops).map(x=>{const v=object(x);return {dimension:text(v.dimension),open:flag(v.open),stopped:flag(v.stopped),revision:count(v.revision),changed_at:maybeText(v.changed_at)};}),
+    watch:(()=>{const w=object(o.watch);return {active:count(w.active),regressing:count(w.regressing),releases:list(w.releases).map(x=>{const r=object(x);
+      return {release_ref:text(r.release_ref),published_at:text(r.published_at),watch_until:text(r.watch_until),accesses_before:count(r.accesses_before),accesses_after:count(r.accesses_after),
+        miss_rate_before:rate(r.miss_rate_before)??0,miss_rate_after:rate(r.miss_rate_after)??0,ambiguity_rate_before:rate(r.ambiguity_rate_before)??0,
+        ambiguity_rate_after:rate(r.ambiguity_rate_after)??0,judged:flag(r.judged),regressing:flag(r.regressing),suggestion:r.suggestion==null?null:oneOfText(r.suggestion,['rollback'] as const)};})};})()};
+}
+export const readSemanticReview=()=>get('/api/v1/workbench/semantic-review',semanticReview);
 
 // ---- Object Set (ADR-036): definitions and a preview page evaluated at read time; each object READ-checked, restricted properties withheld ----
 export const OBJECT_SET_OPERATORS=['eq','ne','gt','gte','lt','lte','in','not_in'] as const;

@@ -462,6 +462,11 @@ class WorkbenchQueries:
         return {'type_name': type_name, 'object_id': object_id, 'schema_version': fields['schema_version'], 'revision': fields['revision'],
                 'properties': props}
 
+    def semantic_review(self):
+        """NX-039 V6: per candidate the latest report (gates pass/fail, L0/L1 scores, non-inferiority rule, change class, digests and
+        case counts only - D39-11), the dimension stops and the 7-day release watch (D39-10). Owner only."""
+        return self.reader.observe('semantic_review')
+
     def semantic_releases(self):
         """NX-039 V4: the current semantic release version, the last 20 releases (with rollback reports) and the candidates the owner
         may publish (ids, class, report digest, refs and term-hash counts; never a message). Owner only (SQL)."""

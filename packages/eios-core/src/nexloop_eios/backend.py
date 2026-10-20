@@ -518,6 +518,7 @@ class Backend:
             'outreach_metrics', 'outreach_evidence',  # outreach slice 8: metrics and the evidence chain (owner, read only; never the body)
             'object_sets', 'object_set_members',  # ADR-036: Object Set definitions and their preview, per-object READ (every member)
             'semantic_releases',  # NX-039 V4: current semantic release, history with rollback reports, publishable candidates (owner)
+            'semantic_review',  # NX-039 V6: the review queue's reports, gates, class, stops and the release watch (owner, read only)
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'world_model',  # enterprise world model W1 (0230): published model metadata, read only
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)
