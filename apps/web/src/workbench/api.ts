@@ -614,17 +614,33 @@ export function capabilities(value:unknown):Capabilities{
 export const readCapabilities=()=>get('/api/v1/workbench/capabilities',capabilities);
 
 // ---- World model W2 (L6 0223/0224, ADR-035): instances and the depth-1 neighbourhood; identifiers only, each READ checked ----
-export type ObjectRow={object_id:string;schema_version:number;revision:number;updated_at:string};
+/** D-G1 (owner 2026-10-20): one schema property of an object as the member may see it. `withheld`: named only (an owner-restricted
+ * group, a property the role does not derive, or a value naming a Consumer being erased); the value never reaches the client. */
+export type PropertyValue={name:string;status:'ok'|'withheld'|'missing';reason?:'restricted'|'not_permitted'|'erasing';value?:string;valueType?:'text'|'json';truncated?:boolean};
+export type ObjectRow={object_id:string;schema_version:number;revision:number;updated_at:string;properties:PropertyValue[]};
+export type ObjectValues={type_name:string;object_id:string;schema_version:number;revision:number;properties:PropertyValue[]};
 export type ObjectPage={type_name:string;items:ObjectRow[];invisible:number;total:number;next_after:string|null};
 export type NeighborGroup={direction:'outgoing'|'incoming';via:string;type_name:string;items:{type_name:string;object_id:string}[];invisible:number;collapsed:number};
 export type ObjectNeighbors={type_name:string;object_id:string;depth:1;group_limit:number;groups:NeighborGroup[]};
 const TYPE_NAME=/^[A-Z][A-Za-z0-9_]{0,63}$/,OBJECT_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const typeName=(v:unknown)=>{const t=text(v);if(!TYPE_NAME.test(t))throw new WorkbenchError('invalid');return t;};
 const objectId=(v:unknown)=>{const t=text(v);if(!OBJECT_ID.test(t))throw new WorkbenchError('invalid');return t;};
+const PROPERTY_NAME=/^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+export function propertyValues(value:unknown):PropertyValue[]{
+  return (value===undefined?[]:list(value)).map(x=>{const o=object(x);const name=text(o.name);if(!PROPERTY_NAME.test(name))throw new WorkbenchError('invalid');
+    const status=oneOfText(o.status,['ok','withheld','missing'] as const);
+    if(status==='withheld')return {name,status,reason:oneOfText(o.reason,['restricted','not_permitted','erasing'] as const)};
+    if(status==='missing')return {name,status};
+    return {name,status,value:text(o.value),valueType:oneOfText(o.value_type,['text','json'] as const),...(o.truncated===true?{truncated:true}:{})};});
+}
 export function objectPage(value:unknown):ObjectPage{
   const v=object(value);
   return {type_name:typeName(v.type_name),items:list(v.items).map(x=>{const o=object(x);return {object_id:objectId(o.object_id),schema_version:count(o.schema_version),
-    revision:count(o.revision),updated_at:text(o.updated_at)};}),invisible:count(v.invisible),total:count(v.total),next_after:v.next_after===null?null:objectId(v.next_after)};
+    revision:count(o.revision),updated_at:text(o.updated_at),properties:propertyValues(o.properties)};}),invisible:count(v.invisible),total:count(v.total),next_after:v.next_after===null?null:objectId(v.next_after)};
+}
+export function objectValues(value:unknown):ObjectValues{
+  const v=object(value);
+  return {type_name:typeName(v.type_name),object_id:objectId(v.object_id),schema_version:count(v.schema_version),revision:count(v.revision),properties:propertyValues(v.properties)};
 }
 export function objectNeighbors(value:unknown):ObjectNeighbors{
   const v=object(value);if(v.depth!==1)throw new WorkbenchError('invalid');
@@ -634,6 +650,7 @@ export function objectNeighbors(value:unknown):ObjectNeighbors{
         invisible:count(o.invisible),collapsed:count(o.collapsed)};})};
 }
 export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}${after?'?after='+encodeURIComponent(after):''}`,objectPage);
+export const readObjectValues=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,objectValues);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
 
 // ---- W4 Artifact list (L6 0226; packages/contracts/workbench-artifacts.schema.json): metadata only, newest first, audited ----

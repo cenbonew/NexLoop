@@ -7207,7 +7207,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:workbench-object-page",
         "title": "workbench-object-page",
-        "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times only, never a property. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times; since D-G1 (owner 2026-10-20) each listed object also carries `properties`: per schema property its value when the member's per-property READ holds (read through the same audited object read), or its name only (withheld: an owner-restricted group, or a property the member's role does not derive), or missing. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7250,6 +7250,51 @@
                 "updated_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "properties": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "status"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                      },
+                      "status": {
+                        "enum": [
+                          "ok",
+                          "withheld",
+                          "missing"
+                        ]
+                      },
+                      "reason": {
+                        "enum": [
+                          "restricted",
+                          "not_permitted",
+                          "erasing"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "value_type": {
+                        "enum": [
+                          "text",
+                          "json"
+                        ]
+                      },
+                      "truncated": {
+                        "const": true
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -7273,6 +7318,84 @@
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
               }
             ]
+          }
+        }
+      },
+      "WorkbenchObjectValues": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:workbench-object-values",
+        "title": "workbench-object-values",
+        "description": "Workbench Object property values (L4 capability gap D-G1, owner 2026-10-20; ADR-025, ADR-035): GET /api/v1/workbench/objects/{type}/{id} (workbench verbs `object_fields` and the audited object read). Per schema property: its value (text, or canonical JSON text, at most 2000 characters, `truncated` when cut) when the member's per-property READ holds; withheld with its name only when the owner restricted its group (`restricted`) or the member's role does not derive it (`not_permitted`), or its value names a Consumer being erased (`erasing`); or missing. An object the member may not read, including one whose Consumer is being erased, is 403; every read is audited. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type_name",
+          "object_id",
+          "schema_version",
+          "revision",
+          "properties"
+        ],
+        "properties": {
+          "type_name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+          },
+          "object_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "properties": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "status"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                },
+                "status": {
+                  "enum": [
+                    "ok",
+                    "withheld",
+                    "missing"
+                  ]
+                },
+                "reason": {
+                  "enum": [
+                    "restricted",
+                    "not_permitted",
+                    "erasing"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "value_type": {
+                  "enum": [
+                    "text",
+                    "json"
+                  ]
+                },
+                "truncated": {
+                  "const": true
+                }
+              }
+            }
           }
         }
       },
@@ -7650,7 +7773,8 @@
     "workbench-artifacts.schema.json": "ee3e94da47800e7fea52d7dd58a7353382f8e46c4e5f6b5797fc4074e9d3d760",
     "workbench-capabilities.schema.json": "2e7777e030fa0ee2c1a1ddff13b1705522d099e73db2c8309dd99444b3ebfe60",
     "workbench-object-neighbors.schema.json": "658414b148404f7d62a16564eee47bdf32559b83b04a96a6d29a02e7c9959fc0",
-    "workbench-object-page.schema.json": "01d6742b66928dc27696d5c8509c1d78b3321ae419481125249112b1538a2592",
+    "workbench-object-page.schema.json": "a5c73602e52fc972aef296eb7f907af4ee58344f5601f8d7f5544b5491a301f4",
+    "workbench-object-values.schema.json": "3ebb1b48ce3e6b21315aaa9a7a79ee195f2ecbfddfa9086f06630f6b1f169efe",
     "workbench-world-model.schema.json": "8d95753382700b3653874220642e3f427b430d305e3d83832b190dc497752f12"
   }
 }

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:workbench-object-values",
+  "title": "workbench-object-values",
+  "description": "Workbench Object property values (L4 capability gap D-G1, owner 2026-10-20; ADR-025, ADR-035): GET /api/v1/workbench/objects/{type}/{id} (workbench verbs `object_fields` and the audited object read). Per schema property: its value (text, or canonical JSON text, at most 2000 characters, `truncated` when cut) when the member's per-property READ holds; withheld with its name only when the owner restricted its group (`restricted`) or the member's role does not derive it (`not_permitted`), or its value names a Consumer being erased (`erasing`); or missing. An object the member may not read, including one whose Consumer is being erased, is 403; every read is audited. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type_name",
+    "object_id",
+    "schema_version",
+    "revision",
+    "properties"
+  ],
+  "properties": {
+    "type_name": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+    },
+    "object_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "properties": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "withheld",
+              "missing"
+            ]
+          },
+          "reason": {
+            "enum": [
+              "restricted",
+              "not_permitted",
+              "erasing"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "value_type": {
+            "enum": [
+              "text",
+              "json"
+            ]
+          },
+          "truncated": {
+            "const": true
+          }
+        }
+      }
+    }
+  }
+}
