@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "report_id": "2f3a4b5c-6d7e-4f8a-9b0c-1d2e3f4a5b6c",
+  "candidate_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+  "bundle_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "level": "L0",
+  "evaluator_version": "l0-1",
+  "hard_gates": [
+    {
+      "gate": "references_valid",
+      "result": "pass",
+      "evidence_ids": [
+        "l0:read_only"
+      ]
+    },
+    {
+      "gate": "structure_valid",
+      "result": "pass",
+      "evidence_ids": [
+        "l0:read_only"
+      ]
+    },
+    {
+      "gate": "zero_overreach",
+      "result": "pass",
+      "evidence_ids": [
+        "l0:read_only"
+      ]
+    },
+    {
+      "gate": "zero_cross_tenant",
+      "result": "pass",
+      "evidence_ids": [
+        "l0:read_only"
+      ]
+    },
+    {
+      "gate": "zero_fact_pollution",
+      "result": "pass",
+      "evidence_ids": [
+        "l0:read_only"
+      ]
+    },
+    {
+      "gate": "no_forbidden_regression",
+      "result": "pass",
+      "evidence_ids": [
+        "l0:read_only"
+      ]
+    },
+    {
+      "gate": "index_migration_impact",
+      "result": "pass",
+      "evidence_ids": [
+        "l0:read_only"
+      ]
+    }
+  ],
+  "scores": {
+    "design": {
+      "cases": 1,
+      "parent": 0.5,
+      "candidate": 1.0
+    },
+    "validation": {
+      "cases": 1,
+      "parent": 0.5,
+      "candidate": 1.0
+    },
+    "metrics": {
+      "ambiguity_rate": 0.0,
+      "regressions": 0,
+      "missing_cases": 0
+    }
+  },
+  "swaps": [],
+  "cost": {
+    "amount": "0",
+    "unit": "CNY"
+  },
+  "elapsed_ms": 3,
+  "conclusion": "accept",
+  "reason": null,
+  "created_at": "2026-10-20T04:00:01Z"
+}

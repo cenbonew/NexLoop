@@ -96,10 +96,48 @@ class SemanticConfig:
     min_score:float=0.0
 
 
+class OverlayRefused(PermissionError):
+    """An evaluation overlay outside an evaluation session (AT-023): a real-world session never reads a candidate."""
+
+
+@dataclass(frozen=True)
+class EvaluationOverlay:
+    """NX-038 E5 (design §12.3): one evolution candidate's patch, read as an overlay on the active definitions. Refs and term
+    hashes only; the active definitions and aliases are never written."""
+    candidate_id:str
+    patch_digest:str
+    change_kind:str
+    target_refs:tuple
+    term_hashes:frozenset
+
+    def refs_for(self,terms,kind='any'):
+        if self.change_kind!='alias' or not any(term_hash(t) in self.term_hashes for t in terms):return []
+        return [r for r in self.target_refs if kind=='any' or ref_kind(r)==kind]
+
+
+def load_overlay(pool,session,candidate_id,patch_digest):
+    """Loads a candidate overlay through authz.nexloop_evo_overlay: world test with a registered evaluation credential (D18) and an
+    `evaluating` candidate of the same tenant. A real-world session is refused here and again at the SQL entry."""
+    if session.world=='real':raise OverlayRefused('evaluation overlay refused in world real')
+    from nexloop_eios.assembly import verify_application_role
+    with pool.connection() as db:
+        verify_application_role(db)
+        v=db.execute('select authz.nexloop_evo_overlay(%s,%s,%s,%s)',(session.token_digest,session.world,str(candidate_id),patch_digest)).fetchone()[0]
+    return EvaluationOverlay(candidate_id=v['candidate_id'],patch_digest=v['patch_digest'],change_kind=v['change_kind'],
+        target_refs=tuple(v['target_refs']),term_hashes=frozenset(v['term_hashes']))
+
+
 class SemanticAdapter:
-    def __init__(self,pool,session,signer,recall,*,config=SemanticConfig(),recorder=None):
+    def __init__(self,pool,session,signer,recall,*,config=SemanticConfig(),recorder=None,overlay=None):
+        if overlay is not None and (session.world=='real' or not isinstance(overlay,EvaluationOverlay)):
+            raise OverlayRefused('evaluation overlay refused in world real')  # AT-023 first line; the SQL entry is the second
         self.pool,self.session,self.signer,self.recall,self.config=pool,session,signer,recall,config
-        self.recorder=recorder
+        self.recorder=recorder;self.overlay=overlay
+
+    def _with_overlay(self,terms,kind,hits):
+        """Overlay refs first (exact alias match, score 1.0), then the recall hits not already named; still gated by READ below."""
+        extra=[] if self.overlay is None else self.overlay.refs_for(terms,kind)
+        return [(r,1.0,'evaluation_overlay') for r in extra]+[(h.ref,h.score,h.method) for h in hits if h.ref not in extra]
 
     def _definitions(self,refs):
         refs=list(dict.fromkeys(refs))
@@ -127,12 +165,13 @@ class SemanticAdapter:
     def browse(self,query,*,kind='any',limit=10):
         if kind not in KINDS or type(limit) is not int or not 1<=limit<=20:raise ValueError('browse parameters')
         result=self.recall.recall(query,instances=False)
-        hits=[h for h in result.definitions if h.score>=self.config.min_score and (kind=='any' or ref_kind(h.ref)==kind)][:limit]
-        details,proofs=self._definitions([h.ref for h in hits])
-        items=[{**details[h.ref],'score':round(h.score,6),'method':h.method,'source_refs':[h.ref]} for h in hits if h.ref in details]
+        hits=self._with_overlay([query],kind,[h for h in result.definitions if h.score>=self.config.min_score and (kind=='any' or ref_kind(h.ref)==kind)])[:limit]
+        details,proofs=self._definitions([ref for ref,_,_ in hits])
+        items=[{**details[ref],'score':round(score,6),'method':method,'source_refs':[ref]} for ref,score,method in hits if ref in details]
         out={'version':self._version(items,result),'coverage':1.0 if items else 0.0,
             'ambiguity':self._ambiguous([i['score'] for i in items]),'items':items,
             'access_decision_refs':sorted(decision_ref(p) for p in proofs)}
+        if self.overlay is not None:out['overlay']=self.overlay.candidate_id
         if self.recorder is not None:
             out['access_id']=self.recorder.access('browse',kind,[query],coverage=out['coverage'],ambiguity=out['ambiguity'],refs=_refs(items),
                 unresolved=0 if items else 1)
@@ -144,9 +183,10 @@ class SemanticAdapter:
         out=[];all_items=[];proofs=[];result=None
         for mention in mentions:
             result=self.recall.recall(mention,instances=False,type_names=None if type_hint is None else [type_hint])
-            hits=[h for h in result.definitions if h.score>=self.config.min_score][:self.config.top_k]
-            details,mention_proofs=self._definitions([h.ref for h in hits]);proofs+=mention_proofs
-            candidates=[{**details[h.ref],'score':round(h.score,6),'source_refs':[h.ref]} for h in hits if h.ref in details]
+            hits=self._with_overlay([mention],'any' if type_hint is None else 'object_type',
+                [h for h in result.definitions if h.score>=self.config.min_score])[:self.config.top_k]
+            details,mention_proofs=self._definitions([ref for ref,_,_ in hits]);proofs+=mention_proofs
+            candidates=[{**details[ref],'score':round(score,6),'source_refs':[ref]} for ref,score,_ in hits if ref in details]
             all_items+=candidates
             scores=[c['score'] for c in candidates]
             status='unresolved' if not candidates else 'ambiguous' if self._ambiguous(scores) else 'resolved'
@@ -155,6 +195,7 @@ class SemanticAdapter:
         resolved=sum(1 for r in out if r['status']=='resolved')
         value={'version':self._version(all_items,result),'coverage':resolved/len(out),'ambiguity':any(r['status']=='ambiguous' for r in out),
             'resolutions':out,'access_decision_refs':sorted({decision_ref(p) for p in proofs})}
+        if self.overlay is not None:value['overlay']=self.overlay.candidate_id
         if self.recorder is not None:
             value['access_id']=self.recorder.access('resolve','any' if type_hint is None else 'object_type',list(mentions),coverage=value['coverage'],
                 ambiguity=value['ambiguity'],refs=_refs(all_items),unresolved=sum(1 for r in out if r['status']=='unresolved'))
