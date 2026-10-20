@@ -1,0 +1,7 @@
+{
+  "schema": "nexloop-sim-world/1",
+  "world": "sim:00000000-0000-4000-8000-000000000000",
+  "action": "advance",
+  "seconds": 86400,
+  "reason": "<DATE> 推进一天，观察跟进节奏"
+}
