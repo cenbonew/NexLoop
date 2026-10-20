@@ -75,7 +75,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
     'record_marketing_consent':'marketing_consent.record',
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
-    'publish_object_set':'object_set.publish'}
+    'publish_object_set':'object_set.publish',
+    # Capability gap P2: the next version of a read-only Object View (sections of the type's properties, Links touching it; checked in SQL).
+    'publish_object_view':'object_view.publish'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -383,6 +385,15 @@ class GoalGovernedActions:
             'source':source,'reason':reason,**({'message_id':message_id} if message_id is not None else {}),**({'evidence_ref':evidence_ref} if evidence_ref is not None else {})})
 
     # ADR-036: owner only; SQL checks the type, the properties, the operators and that filter and sort properties are not restricted.
+    # Capability gap P2: owner only; SQL checks the type, every property (each in one section), the title property and each Link.
+    def publish_object_view(self,*,action_name,action_version,request_id,stable_name,object_type,sections,reason,relations=(),title_property=None):
+        if (not re.fullmatch(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}',str(stable_name)) or not re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}',str(object_type))
+                or type(sections) not in (list,tuple) or type(relations) not in (list,tuple) or type(reason) is not str or not 1<=len(reason)<=500
+                or not (title_property is None or type(title_property) is str)):
+            raise ValueError('name, object type, sections and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_object_view','stable_name':stable_name,'object_type':object_type,
+            'sections':[dict(s) for s in sections],'relations':list(relations),**({'title_property':title_property} if title_property else {}),'reason':reason})
+
     def publish_object_set(self,*,action_name,action_version,request_id,stable_name,object_type,filters,projection,reason,sort=()):
         if (not re.fullmatch(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}',str(stable_name)) or not re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}',str(object_type))
                 or type(filters) not in (list,tuple) or type(projection) not in (list,tuple) or type(sort) not in (list,tuple)

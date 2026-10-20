@@ -254,6 +254,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'object_values', type_name=type_name, object_id=object_id)
 
+    @routes.get('/object-views/{type_name}')
+    async def object_view(type_name: str, request: Request):
+        # Capability gap P2: the layout an object detail of this type uses (every member; null when the type has no View).
+        if request.query_params or not re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}', type_name):
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_view', type_name=type_name)
+
     @routes.get('/object-sets')
     async def object_sets(request: Request):
         # ADR-036: the tenant's Object Sets (latest version of each, conditions and projection); every member, read only.

@@ -516,6 +516,7 @@ class Backend:
             'outreach_approvals',  # outreach slice 6: pending approvals, ids and times only (owner, read only)
             'data_health',  # D-G5: NexLoop's own data flows, counts, ratios, ages and codes only (owner, read only)
             'object_sets', 'object_set_members',  # ADR-036: Object Set definitions and their preview, per-object READ (every member)
+            'object_view',  # capability gap P2: the Object View (layout only) an object detail of one type uses (every member)
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'world_model',  # enterprise world model W1 (0230): published model metadata, read only
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)

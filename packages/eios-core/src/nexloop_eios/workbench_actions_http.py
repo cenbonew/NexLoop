@@ -132,6 +132,12 @@ OPERATIONS={
         'evidence_ref':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}',v)) else (_ for _ in ()).throw(ValueError('evidence')),
         'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
+    # Capability gap P2 (owner only): the next version of a read-only Object View; sections, properties and Links are checked in SQL.
+    'publish_object_view':{'stable_name':_id(re.compile(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}')),'object_type':_id(re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')),
+        'sections':lambda v:v if type(v) is list and 1<=len(v)<=8 and all(type(x) is dict for x in v) else (_ for _ in ()).throw(ValueError('sections')),
+        'relations':lambda v:v if type(v) is list and len(v)<=8 and all(type(x) is str for x in v) else (_ for _ in ()).throw(ValueError('relations')),
+        'title_property':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',v)) else (_ for _ in ()).throw(ValueError('title')),
+        'reason':_reason},
     'publish_object_set':{'stable_name':_id(re.compile(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}')),'object_type':_id(re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')),
         'filters':lambda v:v if type(v) is list and len(v)<=8 and all(type(x) is dict for x in v) else (_ for _ in ()).throw(ValueError('filters')),
         'sort':lambda v:v if type(v) is list and len(v)<=3 and all(type(x) is dict for x in v) else (_ for _ in ()).throw(ValueError('sort')),
@@ -230,7 +236,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|object views): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

@@ -64,7 +64,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # Outreach slice 7: the owner records marketing consent or resumes marketing after an unsubscribe, with evidence.
     'marketing_consent.record':'human_owner',
     # ADR-036: the owner publishes the next version of a read-only Object Set.
-    'object_set.publish':'human_owner'}
+    'object_set.publish':'human_owner',
+    # Capability gap P2: the owner publishes the next version of a read-only Object View (layout only).
+    'object_view.publish':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

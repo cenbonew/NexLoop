@@ -8,7 +8,7 @@
  * "折叠 N 个" (beyond the 25 checked a group). Type, page cursor and the open object live in the URL (deep links; Back walks pages).
  */
 import {useQuery} from '@tanstack/react-query';
-import {readObjectNeighbors,readObjectValues,readObjects,type NeighborGroup,type ObjectNeighbors,type PropertyValue,type WorldObjectType} from '../api';
+import {readObjectNeighbors,readObjectValues,readObjectView,readObjects,type NeighborGroup,type ObjectNeighbors,type ObjectView,type PropertyValue,type WorldObjectType} from '../api';
 import {routePath,type Route} from '../route';
 import {DataTable} from '../DataTable';
 import {Empty,StatusBadge} from '../ui';
@@ -82,15 +82,19 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
   onOpen:(type:string,id:string)=>void;onClose:()=>void}){
   const neighbors=useQuery({queryKey:['workbench','object-neighbors',type,id],queryFn:()=>readObjectNeighbors(type,id)});
   const values=useQuery({queryKey:['workbench','object-values',type,id],queryFn:()=>readObjectValues(type,id)});
+  // Capability gap P2: the type's Object View lays the detail out; without one (or while it loads or fails) the default layout stays.
+  const view=useQuery({queryKey:['workbench','object-view',type],queryFn:()=>readObjectView(type),retry:false});
+  const layout=view.data??null;
   const page=objectPage(type,id);
   return <aside className="workbench-block world-panel world-object" aria-label={`${type} ${shortId(id)} 详情`}>
     <h2 style={{marginTop:0}}>{type} <code title={id}>{shortId(id)}</code></h2>
     <dl><div><dt>完整标识</dt><dd><code style={{wordBreak:'break-all'}}>{id}</code></dd></div>
       {row?<><div><dt>Schema 版本</dt><dd>v{row.schema_version}</dd></div><div><dt>修订</dt><dd>{row.revision}</dd></div><div><dt>更新时间</dt><dd>{when(row.updated_at)}</dd></div></>:null}</dl>
-    <h3>属性</h3>
+    {layout?null:<h3>属性</h3>}
     {values.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :values.isError?(kindOf(values.error)==='forbidden'?<Empty kind="forbidden"/>:kindOf(values.error)==='not_found'?<Empty kind="none" title="Object 已不存在"/>
         :<Failure kind={kindOf(values.error)} onRetry={()=>void values.refetch()}/>)
+      :layout?<ViewLayout view={layout} properties={values.data.properties}/>
       :values.data.properties.length?<dl className="object-properties">{values.data.properties.map(v=><div key={v.name}><dt>{v.name}</dt><dd><PropertyCell p={v} expanded/></dd></div>)}</dl>
       :<Empty kind="none" title="这个 Object 没有 Property"/>}
     {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:null}
@@ -98,9 +102,34 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
     {neighbors.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<Empty kind="forbidden"/>:kindOf(neighbors.error)==='not_found'?<Empty kind="none" title="Object 已不存在"/>
         :<Failure kind={kindOf(neighbors.error)} onRetry={()=>void neighbors.refetch()}/>)
-      :<Neighborhood value={neighbors.data} onOpen={onOpen}/>}
+      :<Neighborhood value={layout?orderedByView(neighbors.data,layout):neighbors.data} onOpen={onOpen}/>}
     <button type="button" onClick={onClose}>关闭</button>
   </aside>;
+}
+
+/** The Object View's sections in order, each property as the object read gave it (a restricted or unreadable one stays withheld:
+ * the View only places it); the title property's value above them; readable properties the View does not list under 其他 Property. */
+export function ViewLayout({view,properties}:{view:ObjectView;properties:PropertyValue[]}){
+  const by=new Map(properties.map(p=>[p.name,p]));
+  const listed=new Set(view.sections.flatMap(s=>s.fields));
+  const rest=properties.filter(p=>!listed.has(p.name));
+  const title=view.title_property?by.get(view.title_property):undefined;
+  return <div className="object-view" data-view={`${view.stable_name}@${view.version}`}>
+    {title?<p className="object-view-title" data-title-property={title.name}><PropertyCell p={title}/></p>:null}
+    {view.sections.map(s=><section key={s.name} className="object-view-section" aria-labelledby={`view-${s.name}`}>
+      <h3 id={`view-${s.name}`}>{s.title}</h3>
+      <dl className="object-properties">{s.fields.map(f=>{const p=by.get(f);return <div key={f}><dt>{f}</dt><dd>{p?<PropertyCell p={p} expanded/>
+        :<StatusBadge text="不在当前 Schema" tone="neutral" code="not_in_schema"/>}</dd></div>;})}</dl></section>)}
+    {rest.length?<details className="object-view-rest"><summary>其他 Property（{rest.length}）</summary>
+      <dl className="object-properties">{rest.map(v=><div key={v.name}><dt>{v.name}</dt><dd><PropertyCell p={v} expanded/></dd></div>)}</dl></details>:null}
+    <p className="note">按 Object View <code>{view.stable_name}</code> v{view.version} 排列；只决定位置和顺序，不改变谁能看到哪个 Property。</p>
+  </div>;
+}
+
+/** The View's Links first, in its order; the other neighbour groups after them (nothing is hidden by a View). */
+export function orderedByView(value:ObjectNeighbors,view:ObjectView):ObjectNeighbors{
+  const rank=(g:NeighborGroup)=>{const i=view.relations.indexOf(g.via);return i<0?view.relations.length:i;};
+  return {...value,groups:[...value.groups].sort((a,b)=>rank(a)-rank(b))};
 }
 
 /** Nodes of the neighbourhood graph: the centre, every listed neighbour, and one counted node per group for invisible/collapsed. */
