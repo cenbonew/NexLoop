@@ -168,6 +168,15 @@ begin
   and provider_kind=p_payload->>'provider_kind';
  if not found then raise exception 'stand-in: unavailable' using errcode='42501';end if;
  v_principal:=authz.nexloop_service_identity(p_digest,p_world)->'binding'->>'principal_id';
+ -- One open intent per business intent in a world (review N4): an intent is open until its receipt is fulfilled or failed (unknown
+ -- is not terminal: query first). A second intent id for the same business digest while one is open is refused, so a submitter
+ -- cannot resubmit under new intent ids and keep only the fulfilled receipt. Serialized per business digest.
+ perform pg_advisory_xact_lock(hashtextextended('nx041-stand-in:'||v_tenant||':'||p_world||':'||(p_payload->>'business_digest'),0));
+ if exists(select 1 from runtime.nexloop_sim_effect_intents i where i.tenant_id=v_tenant and i.world=p_world and i.business_digest=p_payload->>'business_digest'
+     and i.intent_id<>(p_payload->>'intent_id')::uuid
+     and not exists(select 1 from runtime.nexloop_sim_effect_receipts r where r.tenant_id=i.tenant_id and r.world=i.world and r.intent_id=i.intent_id
+       and r.status in ('fulfilled','failed'))) then
+  raise exception 'stand-in: business_intent_open' using errcode='22023';end if;
  insert into runtime.nexloop_sim_effect_intents(tenant_id,world,intent_id,stand_in_id,business_digest,request_digest,origin,sim_clock,outcome_salt,submitted_by)
   -- The simulated clock is the world's (S5), the salt the server's: the submitter can predict neither, so it cannot pick an outcome
   -- by choosing its intent id or a clock (review 4.1/4.2). Both stay with the intent, so a repeat gives the same receipt.
@@ -252,6 +261,25 @@ do $$begin
   create role nexloop_stand_in_worker login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
  end if;
 end $$;
+-- A role of that name that already exists (made by hand, another lineage) is brought to exactly this shape (review N2): its
+-- attributes, no role membership, and no privilege granted to it before; the grants below are then its only ones. The password
+-- (or pg_hba line) is left to the deployment.
+do $$declare r pg_roles;m text;s text;begin
+ select * into r from pg_roles where rolname='nexloop_stand_in_worker';
+ if not r.rolcanlogin or r.rolinherit or r.rolcreatedb or r.rolcreaterole then
+  execute 'alter role nexloop_stand_in_worker login noinherit nocreatedb nocreaterole';end if;
+ if r.rolsuper or r.rolreplication or r.rolbypassrls then
+  execute 'alter role nexloop_stand_in_worker nosuperuser noreplication nobypassrls';end if;
+ for m in select g.rolname from pg_auth_members a join pg_roles g on g.oid=a.roleid where a.member=r.oid loop
+  execute format('revoke %I from nexloop_stand_in_worker',m);
+ end loop;
+ for s in select nspname from pg_namespace where nspname in ('authz','control','ontology','runtime','extensions','public') loop
+  execute format('revoke all on all tables in schema %I from nexloop_stand_in_worker',s);
+  execute format('revoke all on all sequences in schema %I from nexloop_stand_in_worker',s);
+  execute format('revoke all on all functions in schema %I from nexloop_stand_in_worker',s);
+  execute format('revoke all on schema %I from nexloop_stand_in_worker',s);
+ end loop;
+end $$;
 grant usage on schema authz to nexloop_stand_in_worker;
 grant execute on function authz.nexloop_sim_effect_submit(text,text,jsonb) to nexloop_api,nexloop_domain_worker;
 grant execute on function authz.nexloop_sim_effect_execute(text,text,uuid) to nexloop_stand_in_worker;
@@ -291,7 +319,33 @@ insert into control.nexloop_real_effect_tables(table_name,guarded,reason) values
  ('runtime.nexloop_dispatch_refusals',false,'a record that a dispatch was refused; nothing leaves the system through it'),
  ('runtime.nexloop_task_dispatch_controls',false,'internal job dispatch lease control (0035 queue), no external request'),
  ('runtime.nexloop_outbox',false,'the durable job queue outbox (0035): internal job hand-off to workers, no external request; a job reaches outside only through a governed effect intent, which is guarded'),
- ('runtime.nexloop_sim_effect_intents',false,'the simulated ledger itself (simulation worlds only)');
+ ('runtime.nexloop_sim_effect_intents',false,'the simulated ledger itself (simulation worlds only)'),
+ -- Review fixes 2 (1.3 by structure): every table with a world column that a dispatch, relay, executor, delivery, effect, outreach,
+ -- outbound, incentive, export, send, lease, webhook, notification or mail function writes (guard test test_every_outbound_table_is_declared).
+ ('control.nexloop_effect_control_ledger',true,'effect control reservations of a real effect intent'),
+ ('control.nexloop_effect_plan_bindings',true,'plan binding of a real effect context'),
+ ('runtime.nexloop_effect_catalog_bindings',true,'catalog binding of a real effect intent'),
+ ('runtime.nexloop_effect_events',true,'event history of a real effect intent'),
+ ('runtime.nexloop_effect_provider_bindings',true,'provider binding of a real effect execution'),
+ ('runtime.nexloop_effect_requery_orders',true,'a provider requery of a real effect'),
+ ('runtime.nexloop_effect_determinations',true,'owner determination of a real effect outcome'),
+ ('runtime.nexloop_message_routes',true,'relay routing of an outbound message'),
+ ('runtime.nexloop_outreach_approvals',true,'approval of a proactive message (its send is guarded)'),
+ ('control.nexloop_reply_escalations',true,'escalation of an undelivered real message to a human'),
+ ('control.nexloop_restore_channels',true,'owner notification channel of a restore (name net: channel)'),
+ ('authz.nexloop_run_credentials',false,'Run credentials exist in simulation worlds (S2 D10); the relay revokes them, nothing leaves'),
+ ('runtime.nexloop_work_feed',false,'internal work feed of every world (S5 re-evaluates simulation items on it); no external request'),
+ ('control.nexloop_budget_consumption',false,'budget accounting of every world (S6 counts simulation model spend through it); no external request'),
+ ('runtime.nexloop_budget_settlements',false,'budget settlement accounting of every world; no external request'),
+ ('control.nexloop_action_effect_categories',false,'trusted configuration of effect categories; nothing leaves'),
+ ('control.nexloop_action_effect_externality',false,'trusted configuration of effect externality; nothing leaves'),
+ ('ontology.nexloop_claims',false,'Claims written when a candidate is merged or published; internal, and real only through conversations (S4 5.2 guard)'),
+ ('ontology.nexloop_definition_aliases',false,'definition aliases written by a candidate merge; internal ontology'),
+ ('runtime.nexloop_conversations',false,'conversation of an outbound message; real only by its own CHECK (world = real)'),
+ ('runtime.nexloop_conversation_messages',false,'the message record of an outbound message; real only through its conversation'),
+ ('runtime.nexloop_commitment_evidence',false,'commitment evidence from an outbound message (guarded); simulation commitments are allowed (S5)'),
+ ('runtime.nexloop_human_requests',false,'a human request record (the owner asks for an effect query); no external request'),
+ ('runtime.nexloop_sim_effect_receipts',false,'the simulated ledger itself (simulation worlds only)');
 do $$declare t regclass;begin
  for t in select table_name from control.nexloop_real_effect_tables where guarded loop
   execute format('alter table %s add constraint nx041_real_effect_world check(coalesce(runtime.nexloop_world_kind(world),'''') not in (''simulation'',''shadow'')) not valid',t);

@@ -7,6 +7,8 @@ path is probed at its tables and entries with a registered sim world and its own
 import ast
 import hashlib
 import inspect
+from pathlib import Path
+import re
 import uuid
 
 import psycopg
@@ -50,7 +52,8 @@ def digest(token):
 
 
 def intent(action='nexloop.service.request', provider='http', **over):
-    body = {'intent_id': str(uuid.uuid4()), 'action_name': action, 'action_version': 1, 'provider_kind': provider, 'business_digest': 'b' * 64,
+    # Each intent its own business intent by default (review fixes 2 N4 refuses a second open intent for one business digest).
+    body = {'intent_id': str(uuid.uuid4()), 'action_name': action, 'action_version': 1, 'provider_kind': provider, 'business_digest': uuid.uuid4().hex * 2,
             'request_digest': 'c' * 64, 'origin': 'twin'}
     body.update(over)
     return body
@@ -266,16 +269,85 @@ def test_the_executor_has_no_provider_no_channel_and_no_network():
         S.StandInReceipt.from_row({'simulated': False, 'output_kind': 'simulated_output', 'data_mode': 'simulation'})
 
 
+# Functions that write external effect paths, recognised by their name (review fixes 2): a table with a world column that one of them
+# inserts into, updates or deletes from is on an outbound path and must be declared.
+WRITER_NAMES = r'(^|_)(dispatch|relay|execut|deliver|effect|outreach|outbound|incentive|export|send|lease|webhook|notif|mail)'
+# The name net on the tables themselves (the original list plus webhook, notification, mail, push, callback and channel).
+TABLE_NAMES = r'(outbox|relay|deliver|export|send|dispatch|effect_(intents|attempts|observations|contexts)|outbound|incentive_issues|webhook|notif|mail|push|callback|channel)'
+
+
+def world_tables(admin):
+    return {r[0] for r in admin.execute("""select c.oid::regclass::text from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        join pg_attribute a on a.attrelid=c.oid and a.attname='world' and not a.attisdropped
+        where c.relkind in ('r','p') and not c.relispartition and n.nspname in ('authz','control','ontology','runtime')""").fetchall()}
+
+
+def written_by_effect_functions(admin, tables):
+    """{table: writer functions} for the tables a dispatch/relay/executor-like function writes (schema-qualified targets in its body)."""
+    out = {}
+    for name, src in admin.execute("""select p.oid::regprocedure::text,p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+            where n.nspname in ('authz','control','ontology','runtime') and p.proname ~ %s""", (WRITER_NAMES,)).fetchall():
+        for m in re.finditer(r'(?i)\b(insert\s+into|update|delete\s+from)\s+([a-z_]+\.[a-z_0-9]+)', src or ''):
+            if m.group(2).lower() in tables:
+                out.setdefault(m.group(2).lower(), set()).add(name)
+    return out
+
+
 def test_every_outbound_table_is_declared(sim):
-    """Review 1.3 guard: a table with a world column whose name says it sends, delivers, relays, exports or dispatches must be
-    declared (guarded, or not with a reason). A new one that is not declared fails here."""
+    """Review 1.3 guard (by structure, review fixes 2): every table with a world column that a dispatch, relay, executor, delivery,
+    effect, outreach, outbound, incentive, export, send, lease, webhook, notification or mail function writes must be declared in
+    control.nexloop_real_effect_tables (guarded, or not with a reason); so must every table whose own name says it sends. A new one
+    that is not declared fails here."""
     admin = sim['admin']
+    tables = world_tables(admin)
+    declared = dict(admin.execute('select table_name::text,reason from control.nexloop_real_effect_tables').fetchall())
     named = {r[0] for r in admin.execute("""select c.oid::regclass::text from pg_class c join pg_namespace n on n.oid=c.relnamespace
         join pg_attribute a on a.attrelid=c.oid and a.attname='world' and not a.attisdropped
-        where c.relkind in ('r','p') and not c.relispartition and n.nspname in ('authz','control','ontology','runtime')
-        and c.relname ~ '(outbox|relay|deliver|export|send|dispatch|effect_(intents|attempts|observations|contexts)|outbound|incentive_issues)'""").fetchall()}
-    declared = dict(admin.execute('select table_name::text,reason from control.nexloop_real_effect_tables').fetchall())
+        where c.relkind in ('r','p') and not c.relispartition and n.nspname in ('authz','control','ontology','runtime') and c.relname ~ %s""",
+                                            (TABLE_NAMES,)).fetchall()}
     assert named - set(declared) == set(), sorted(named - set(declared))
+    written = written_by_effect_functions(admin, tables)
+    undeclared = {t: sorted(f)[:3] for t, f in written.items() if t not in declared}
+    assert undeclared == {}, undeclared
+    # Positive control: the structural scan does find the outbound tables (it is not vacuous).
+    assert {'runtime.nexloop_effect_outbox', 'runtime.nexloop_outbound_messages', 'runtime.nexloop_outreach_sends'} <= set(written)
+    assert all(len(r.strip()) > 10 for r in declared.values())
+
+
+# The durable job queue outbox (0035) is not guarded: simulation Runs use the job queue (S6). Its rows reach outside only through a
+# worker that takes a governed effect intent; this guard fixes that: the outbox is written by the queue entry alone, and no function
+# that writes it also writes a declared outbound table or reaches a provider.
+OUTBOX_WRITERS = ('authz.nexloop_queue_command',)  # and its renamed predecessors (rename and wrap: <name>_before_*)
+
+
+def test_the_job_outbox_reaches_outside_only_through_an_effect_intent(sim):
+    admin = sim['admin']
+    writers = {}
+    for name, src in admin.execute(r"""select p.oid::regprocedure::text,p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+            where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~* '(insert\s+into|update)\s+runtime\.nexloop_outbox\M'""").fetchall():
+        writers[name.split('(')[0]] = src
+    assert writers and all(w in OUTBOX_WRITERS or w.startswith(tuple(x + '_before_' for x in OUTBOX_WRITERS)) for w in writers), sorted(writers)
+    guarded = {r[0] for r in admin.execute('select table_name::text from control.nexloop_real_effect_tables where guarded').fetchall()}
+    for name, src in writers.items():
+        targets = {m.group(2).lower() for m in re.finditer(r'(?i)\b(insert\s+into|update|delete\s+from)\s+([a-z_]+\.[a-z_0-9]+)', src)}
+        assert not targets & guarded, (name, sorted(targets & guarded))
+    # A job's kind names an internal hand-off; the outbox has no column for a destination, an address or a request body.
+    columns = {r[0] for r in admin.execute("""select attname from pg_attribute where attrelid='runtime.nexloop_outbox'::regclass and attnum>0 and not attisdropped""").fetchall()}
+    assert columns == {'tenant_id', 'world', 'queue', 'outbox_id', 'job_id', 'kind', 'status', 'fence', 'lease_until', 'lease_credential', 'created_at'}, columns
+    # Python: the modules that take work from the durable queue and also hold a network client are declared, each with what it calls.
+    import nexloop_eios
+    root = Path(nexloop_eios.__file__).parent
+    network = re.compile(r'^\s*(import|from)\s+(http\.client|urllib|requests|httpx|socket|ssl|smtplib|aiohttp)\b', re.M)
+    queue = re.compile(r'durable_queue|PostgresDurableQueue|nexloop_queue_command')
+    both = {p.relative_to(root).as_posix() for p in root.rglob('*.py') if queue.search(p.read_text()) and network.search(p.read_text())}
+    assert both == QUEUE_WORKERS_WITH_NETWORK.keys(), sorted(both ^ QUEUE_WORKERS_WITH_NETWORK.keys())  # a new one, or a stale entry, fails
+
+
+# What each queue worker with a network client reaches (none is an external provider reached from a job without an effect intent).
+QUEUE_WORKERS_WITH_NETWORK = {
+    'runtime_dispatch.py': 'the Agent Host internal API (its configured host origin, loopback in both process groups, TLS); no provider - '
+                           'effects of a Run go through governed effect intents',
+}
 
 
 def test_the_client_cannot_choose_the_outcome(sim):
@@ -312,13 +384,30 @@ APP_ROLES = ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'n
 LEDGER = ('runtime.nexloop_sim_effect_intents', 'runtime.nexloop_sim_effect_receipts', 'control.nexloop_stand_in_configs', 'control.nexloop_stand_ins')
 
 
+# Functions that enumerate tables through the catalog, and what they read (review fixes 2, 2.2 boundary).
+CATALOG_ENUMERATORS = {
+    'authz.nexloop_read_memo_table_ok': 'checks that one named memo table exists; reads no row',
+    'runtime.nexloop_sim_world_has_tenant': 'whether a table has a tenant column; reads no row',
+    'runtime.nexloop_sim_world_tables': 'the world tables for the S2 whole deletion (the ledger of the world being deleted)',
+    'runtime.nexloop_sim_world_targets': 'S2 fixes: the deletion targets (as nexloop_sim_world_tables)',
+    'runtime.nexloop_sim_world_snapshot': 'S2: counts and digests of the world being deleted',
+    'runtime.nexloop_sim_world_purge': 'S2: deletes the world being deleted',
+}
+
+
 def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_ledger(sim):
     """Review 2.2: no application role holds a privilege on the ledger; no view, policy or rule names it (other than its own tenant
     policies); functions naming it are S4's own; functions enumerating world tables dynamically are S2's snapshot and purge only."""
     admin = sim['admin']
+    # Every nexloop_% role and PUBLIC (review fixes 2: enumerated, not a fixed list); only the owner (and superusers, which bypass
+    # privileges) are left out. APP_ROLES stays as the minimum that must exist.
+    roles = {r[0] for r in admin.execute("select rolname from pg_roles where rolname like 'nexloop%%' and rolname<>'nexloop_owner' and not rolsuper").fetchall()}
+    assert set(APP_ROLES) <= roles
     for table in LEDGER:
-        for role in APP_ROLES:
-            assert not admin.execute("select has_table_privilege(%s,%s,'select,insert,update,delete')", (role, table)).fetchone()[0], (role, table)
+        for role in sorted(roles):
+            assert not admin.execute("select has_table_privilege(%s,%s,'select,insert,update,delete,truncate,references,trigger')", (role, table)).fetchone()[0], (role, table)
+        assert admin.execute("""select count(*) from pg_class c,aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) x
+            where c.oid=%s::regclass and x.grantee=0""", (table,)).fetchone()[0] == 0, ('PUBLIC', table)
     assert admin.execute("select count(*) from pg_views where definition ~ '(nexloop_sim_effect_|nexloop_stand_in)'").fetchone()[0] == 0
     assert admin.execute("select count(*) from pg_rules where definition ~ '(nexloop_sim_effect_|nexloop_stand_in)'").fetchone()[0] == 0
     policies = admin.execute("""select schemaname||'.'||tablename,policyname from pg_policies
@@ -332,6 +421,11 @@ def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_l
     enumerators = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(nexloop_sim_world_tables|nexloop_sim_world_targets)'""").fetchall()}
     assert enumerators <= {'runtime.nexloop_sim_world_snapshot', 'runtime.nexloop_sim_world_purge', 'runtime.nexloop_sim_world_targets'}, enumerators
+    # Boundary (review fixes 2): a function that enumerates tables itself (pg_class, pg_attribute, pg_tables, information_schema) can
+    # reach the ledger without naming it; every such function is registered in CATALOG_ENUMERATORS with what it reads.
+    found = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(pg_class|pg_attribute|pg_tables|information_schema[.](tables|columns))'""").fetchall()}
+    assert found <= CATALOG_ENUMERATORS.keys(), sorted(found - CATALOG_ENUMERATORS.keys())
 
 
 def test_the_stand_in_role_executes_the_stand_in_entries_only(sim):
@@ -366,3 +460,67 @@ def test_simulated_outputs_cannot_become_facts(sim):
         and pg_get_constraintdef(oid) like '%epistemic_kind = ANY%'""").fetchone()[0]
     assert 'fact' not in kinds.replace('verified_fact', '')  and 'verified_fact' not in kinds
     assert admin.execute("select guarded from control.nexloop_real_effect_tables where table_name='runtime.nexloop_effect_intents'::regclass").fetchone()[0]
+
+
+def test_one_open_intent_per_business_intent(sim):
+    """Review fixes 2 (N4): a submitter cannot resubmit one business intent under new intent ids and keep only the fulfilled
+    receipt. A second intent id for the same business digest is refused while the first is open (no receipt, or unknown); a
+    retry of the same intent id is still accepted; after a terminal receipt (fulfilled or failed) a new intent is possible and is
+    recorded beside the first, so every attempt stays in the ledger."""
+    f = sim
+    admin = f['admin']
+    first = intent()
+    submit(f, f['a'], f['token_a'], first)
+    assert submit(f, f['a'], f['token_a'], first)['intent_id'] == first['intent_id']  # the same intent again: a retry
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='stand-in: business_intent_open'):
+        submit(f, f['a'], f['token_a'], intent(business_digest=first['business_digest']))
+    # Positive control: another business intent, and the same business digest in another world, are accepted.
+    submit(f, f['a'], f['token_a'], intent())
+    submit(f, f['b'], f['token_b'], intent(business_digest=first['business_digest']))
+    # unknown is not terminal: still refused.
+    admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, f['a'], Jsonb({'unknown_rate': 1})))
+    receipts = {r.intent_id: r for r in S.StandInExecutor(f['worker'], f['token_a'], f['a']).run_once()}
+    assert receipts[first['intent_id']].status == 'unknown'
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='stand-in: business_intent_open'):
+        submit(f, f['a'], f['token_a'], intent(business_digest=first['business_digest']))
+    # A terminal receipt closes it: the next attempt is a new intent beside the first one.
+    other = intent()
+    submit(f, f['b'], f['token_b'], other)
+    assert S.StandInExecutor(f['worker'], f['token_b'], f['b']).execute(other['intent_id']).status == 'fulfilled'
+    submit(f, f['b'], f['token_b'], intent(business_digest=other['business_digest']))
+    assert admin.execute('select count(*) from runtime.nexloop_sim_effect_intents where world=%s and business_digest=%s',
+                         (f['b'], other['business_digest'])).fetchone()[0] == 2
+
+
+def test_concurrent_submissions_of_one_business_intent_keep_one(sim, pg):
+    """N4 under concurrency: two connections submit different intent ids for one business digest; the second waits for the first
+    (advisory lock per business digest) and is then refused."""
+    f = sim
+    body = intent()
+    with psycopg.connect(make_conninfo(pg, user='nexloop_api')) as one, psycopg.connect(make_conninfo(pg, user='nexloop_api')) as two:
+        one.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)', (digest(f['token_a']), f['a'], Jsonb(body)))
+        two.execute('set statement_timeout=500')
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            two.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)', (digest(f['token_a']), f['a'], Jsonb(intent(business_digest=body['business_digest']))))
+        two.rollback()
+        one.commit()
+        with pytest.raises(psycopg.errors.InvalidParameterValue, match='business_intent_open'):
+            two.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)', (digest(f['token_a']), f['a'], Jsonb(intent(business_digest=body['business_digest']))))
+
+
+def test_an_existing_stand_in_role_is_brought_to_its_shape(admin):
+    """Review fixes 2 (N2): a role named nexloop_stand_in_worker that exists before the migration with other attributes, a role
+    membership and a table privilege leaves it with exactly the declared shape and the three stand-in entries."""
+    admin.execute('drop role if exists nexloop_stand_in_worker')
+    admin.execute('create role nexloop_stand_in_worker nologin inherit createdb bypassrls')
+    admin.execute('grant pg_read_all_data to nexloop_stand_in_worker')
+    bootstrap(admin)
+    r = admin.execute("""select rolcanlogin,rolinherit,rolcreatedb,rolcreaterole,rolsuper,rolreplication,rolbypassrls from pg_roles
+        where rolname='nexloop_stand_in_worker'""").fetchone()
+    assert r == (True, False, False, False, False, False, False), r
+    assert admin.execute("""select count(*) from pg_auth_members a join pg_roles m on m.oid=a.member where m.rolname='nexloop_stand_in_worker'""").fetchone()[0] == 0
+    reachable = {x[0].split('(')[0] for x in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname in ('authz','control','runtime','ontology') and p.prosecdef and has_function_privilege('nexloop_stand_in_worker',p.oid,'execute')""").fetchall()}
+    assert reachable == {'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
+                         'runtime.nexloop_erasure_permits'}, reachable
+    assert not admin.execute("select has_table_privilege('nexloop_stand_in_worker','runtime.nexloop_sim_effect_intents','select')").fetchone()[0]
