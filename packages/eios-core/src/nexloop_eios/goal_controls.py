@@ -429,8 +429,9 @@ class GoalGovernedActions:
 
     # NX-039 V6 (§8.5, D39-8): owner only; opening an evaluation and publishing refuse a stopped dimension.
     # NX-041 S2 (D2, D10): owner only; the world id is derived from the request, so a retry gives the same world.
-    def create_sim_world(self,*,action_name,action_version,request_id,kind,purpose,expires_in_days):
-        if kind not in ('simulation','shadow') or type(purpose) is not str or not 1<=len(purpose.strip())<=500 or type(expires_in_days) is not int or not 1<=expires_in_days<=365:
+    # Limits (owner 2026-10-21): expiry at most 30 days (default 30); the database refuses a 21st active world of the tenant.
+    def create_sim_world(self,*,action_name,action_version,request_id,kind,purpose,expires_in_days=30):
+        if kind not in ('simulation','shadow') or type(purpose) is not str or not 1<=len(purpose.strip())<=500 or type(expires_in_days) is not int or not 1<=expires_in_days<=30:
             raise ValueError('kind, purpose and expiry required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'create_sim_world','kind':kind,'purpose':purpose,'expires_in_days':expires_in_days})
 
