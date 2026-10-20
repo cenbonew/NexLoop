@@ -46,3 +46,18 @@ sim world 里不会出现事实性的 Commitment 或 Claim，因为来源都被�
 - 孪生进程用新角色 `nexloop_twin_port` 连接数据库，需要单独的 DSN，可以用 Keychain 里的口令，或者 pg_hba 的 peer 或证书认证。
 - 孪生只拿它所在 sim world 的那一个凭据，不拿任何 real 或 test 凭据。
 - 模拟进程组的 Host 配置 `"world_group":"simulation"`；real Host 不需要改，默认就是 real。
+
+## 审查修复（L6 审查 `nx041-s7-review.md`）
+
+0266 是 S7 的集成编号，还没有发布，以下改动直接在 0266 里修改。
+
+| 编号 | 修复 |
+| --- | --- |
+| 4.1 | 完整 Pi Run 那条 strict xfail 改成按实际阻塞项判断，不再停在旧的 worker 参数上。worker 现在带 `--world-group simulation`，按 S6 能通过参数检查；如果这里抛出 SystemExit，说明是回归，不是阻塞。之后由 `pi_run_blockers` 逐项探测三个前提：一是 D10，每个 sim world 三个凭据，探测方法是插入第二个 active 凭据，看是否被 S2 的规则拒绝；二是 S6c，看 sim 进程组自己的角色 `nexloop_sim_api` 和 `nexloop_sim_worker` 是否存在；三是 Host 的 sim 上下文输入协议，看 Host 源码是否读取 `nexloop.context-pack.sim.v1`。任何一项缺失就抛 `PiRunBlocked`，xfail 只接受这个异常。**局部验证**：`test_the_pi_run_xfail_flips_once_its_prerequisites_are_there` 先确认现在三个前提都缺；再把探测函数打桩为「都满足」，同一个测试体正常返回。这说明三项齐备时，这条 strict xfail 会变成 XPASS，CI 会因此失败，提示改成真正的端到端测试。 |
+| 4.2 / 3 | 逐字节复现的测试改用正式接口 `runtime.nexloop_stand_in_configure_copy`，每个意图使用不同的 business_digest，比较除 world 以外的**整个回执**，包括 `external_ref`。冻结输入复现测试的第二轮，也改为由服务端复制第一轮的冻结配置（含 outcome_seed），同样比较除 world 外的整个回执。 |
+| 2.1 | 集成时 L4 已按 S6 处理：Host 的 world group 以 S6 的实现为准，错误码统一为 `invalid_run_world`。本次没有改动。 |
+| 2.2 | 补了四条伪造路径的负例，每条都有阳性对照：(1) **Context**：real 的 v6 装配入口拒绝 sim world；v6 契约拒绝 world_id 为 sim 的 binding，real binding 能通过。(2) **resume**：在 sim 组的 Host 上，用另一个 sim 或 shadow world resume 同一个 Run，报 `runtime_state_missing`；在 real 组的 Host 上，把 real 改成 test 再 resume，报 `runtime_request_conflict`；用原命令 resume 正常。(3) **guard**：sim 组的 guard 拒绝 real 和 test，real 组的 guard 拒绝 sim，各自接受本组的 world。(4) **SQL 激活**：激活入口在读到凭据的 world 之前，先校验角色、队列和命令签名，所以未签名的请求对任何凭据、任何 world 都同样报 `activation denied`，测试断言了这一点。world 绑定由两处保证：服务身份（sim 凭据不能认证 real 或 test）和 Run 命令的 world/mode 校验，这两处的负例都已有。**局限**：没有构造一条完整签名、但 world 被篡改的激活命令。原因是这需要真实的签名夹具，而签名本身已经覆盖命令的全文。 |
+| 1.4 | `nexloop_twin_port` 角色已存在时，校正它的形态，做法与 S4 N2 相同：校正属性、撤销成员关系、撤销原有权限，再重新授权。测试先建一个属性不对、带成员关系的同名角色，迁移后它只剩规定的属性和两个端口入口。 |
+| 1.5 | **每个 world 的事件上限，提议 100,000 条，请调度员定。** 理由：这与 S3 生成器的单次上限（2,000 个 Consumer × 50 条事件）同级，足够一次实验使用。上限只在 `runtime.nexloop_sim_port_event_limit()` 一处定义。端口的串行锁从按 consumer 改为按 world，这样计数是精确的。重放已有的 step 不受上限影响。测试覆盖了：恰好写满时最后一条能写入、再多一条报 `quota_exceeded`、重放仍然返回原结果、另一个 world 不受影响。 |
+| 5 | 原来匹配源码字面量的断言改成了行为测试。0266 给 `runtime.nexloop_commitment_evidence` 加了 CHECK `nx041_no_simulation_evidence`：这张证据表不接受 sim 或 shadow world 的行。所以无论哪个写入方（效应意图、data_mode 为 test 的商业记录、owner 的证明、已送达的消息），都不能在 sim world 里产生证据，sim world 的 Commitment 只会违约或取消，永远不会被兑现。测试从 CHECK 定义中枚举出全部证据种类，逐一验证：写 real 能通过（阳性对照，随后回滚），写 sim 和 shadow 都被拒绝；直接写入一个已兑现的 Commitment 也会被守卫拒绝；没有证据时，状态目标不会是 fulfilled。 |
+| 6 | 与 S4 修复二在测试文件上的冲突，已由 L4 在集成时合并。本次没有改 S4 的测试。 |
