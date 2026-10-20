@@ -174,7 +174,9 @@ def test_incomplete_needs_a_legitimate_external_reason():
 # ---- isolation (ADR-007, D18) ------------------------------------------------------------------------------------------
 def test_the_evolution_package_is_pure_logic_without_storage_network_or_effects():
     allowed = {'__future__', 'dataclasses', 'typing', 'math', 'random', 'nexloop_eios.contracts', 'nexloop_eios.evolution.candidate',
-               'nexloop_eios.evolution.gate'}
+               'nexloop_eios.evolution.gate',
+               # E4 attribution (pure rules over E2/E3 values; the store port is nexloop_eios.evolution_store, outside the package)
+               'hashlib', 'json', 'uuid', 'collections', 'nexloop_eios.evolution_traces'}
     for path in PACKAGE.glob('*.py'):
         tree = ast.parse(path.read_text())
         imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
