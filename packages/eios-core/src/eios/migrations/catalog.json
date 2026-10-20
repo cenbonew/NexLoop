@@ -1150,6 +1150,11 @@
       "version": "0230",
       "name": "0230_world_model_read.sql",
       "sha256": "8b2fe94368334d51d209850f98b1af11ad3f9e40bfc870e84b7b3b906b579f6a"
+    },
+    {
+      "version": "0231",
+      "name": "0231_nx038_trace_reader.sql",
+      "sha256": "8715a5606be43491976603a8219ebafbcfe5b51dbdfee63a0bea16c70e543524"
     }
   ]
 }
