@@ -1112,6 +1112,16 @@
       "sha256": "15d506048040c3292a130f7dae5162f47c8aacde070031f3d77a495e9dec2e1f"
     },
     {
+      "version": "0241",
+      "name": "0241_workbench_objects.sql",
+      "sha256": "dd6787baf06b2890fde9b88ec6d7aa6f7f15d1ac989c8bba52717768b3b245d4"
+    },
+    {
+      "version": "0242",
+      "name": "0242_workbench_member_read_operations.sql",
+      "sha256": "d1883eb203ef38feb2551e63e462e9054bf9522c7561b240a82029fb4795480e"
+    },
+    {
       "version": "0260",
       "name": "0260_world_model_read.sql",
       "sha256": "35fd729e554af6691ecc279a2d879c95ab746a51d021e18ad9be1891eb39a306"

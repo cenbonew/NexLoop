@@ -662,6 +662,27 @@ class WorkbenchCapabilitiesRealDispatch(BaseModel):
     tenant: None | WorkbenchCapabilitiesRealDispatchTenant1
     actions: list[WorkbenchCapabilitiesRealDispatchActionsItem]
 
+class WorkbenchObjectNeighborsGroupsItemItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type_name: str
+    object_id: str
+
+class WorkbenchObjectNeighborsGroupsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    direction: Literal['outgoing', 'incoming']
+    via: str
+    type_name: str
+    items: list[WorkbenchObjectNeighborsGroupsItemItemsItem]
+    invisible: int
+    collapsed: int
+
+class WorkbenchObjectPageItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    object_id: str
+    schema_version: int
+    revision: int
+    updated_at: str
+
 class WorkbenchWorldModelObjectTypesItemPropertiesItem0(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     name: str
@@ -997,6 +1018,22 @@ class WorkbenchCapabilities(_Contract):
     routes: list[WorkbenchCapabilitiesRoutesItem]
     provider_routes: Literal['deployment_configuration']
     real_dispatch: WorkbenchCapabilitiesRealDispatch
+
+class WorkbenchObjectNeighbors(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-object-neighbors","title":"workbench-object-neighbors","description":"Enterprise world model W2 (owner 2026-10-19, D3): the depth-1 neighbourhood of one object, GET /api/v1/workbench/objects/{type}/{id}/neighbors (workbench read verb `object_neighbors`). Groups by direction, edge (a governed relation name, or `property:<name>` for a reference property) and neighbour type. At most 25 candidates a group are checked: a neighbour is listed only when its ADR-025 READ holds and, for a property edge, the READ of the referencing property; the other checked candidates are `invisible`, those beyond 25 are `collapsed` (not checked, not shown). Identifiers only. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["type_name","object_id","depth","group_limit","groups"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"depth":{"const":1},"group_limit":{"const":25},"groups":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["direction","via","type_name","items","invisible","collapsed"],"properties":{"direction":{"enum":["outgoing","incoming"]},"via":{"type":"string","pattern":"^(property:[A-Za-z][A-Za-z0-9_]{0,63}|[A-Za-z][A-Za-z0-9_.:-]{0,127})$"},"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["type_name","object_id"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}}}},"invisible":{"type":"integer","minimum":0,"maximum":25},"collapsed":{"type":"integer","minimum":0}}}}}}')
+    type_name: str
+    object_id: str
+    depth: Literal[1]
+    group_limit: Literal[25]
+    groups: list[WorkbenchObjectNeighborsGroupsItem]
+
+class WorkbenchObjectPage(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-object-page","title":"workbench-object-page","description":"Enterprise world model W2 (owner 2026-10-19): one page of a type\'s instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times only, never a property. Each object is listed only when the member\'s ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type\'s instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["type_name","items","invisible","total","next_after"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"items":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["object_id","schema_version","revision","updated_at"],"properties":{"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"schema_version":{"type":"integer","minimum":1},"revision":{"type":"integer","minimum":1},"updated_at":{"type":"string","format":"date-time"}}}},"invisible":{"type":"integer","minimum":0,"maximum":100},"total":{"type":"integer","minimum":0},"next_after":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}]}}}')
+    type_name: str
+    items: list[WorkbenchObjectPageItemsItem]
+    invisible: int
+    total: int
+    next_after: None | str
 
 class WorkbenchWorldModel(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-world-model","title":"workbench-world-model","description":"Enterprise world model W1 (docs/design/workbench-world-model-design.md; owner 2026-10-19 D1-D7). GET /api/v1/workbench/world-model: a read-only snapshot of the tenant\'s published model metadata for a workbench member holding nexloop.workbench.read (SQL authz.nexloop_workbench_read verb world_model). The current version of each object type (with its properties), relation type and event type; the active Actions and Functions of the read world; instance counts per type. Metadata only: no instance content. A property in an owner-restricted group is listed by name with withheld=true and nothing else (AT-003). Server-derived from the authenticated session; grants nothing; there is no write counterpart (schema changes stay candidate review and trusted configuration).","type":"object","additionalProperties":false,"required":["world","computed_at","object_types","relation_types","event_types","actions","functions"],"properties":{"world":{"const":"real"},"computed_at":{"type":"string"},"object_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","display_name","description","title_property","primary_key","objects","properties"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"display_name":{"type":"string"},"description":{"type":"string"},"title_property":{"type":"string"},"primary_key":{"type":"array","items":{"type":"string"}},"objects":{"type":"integer","minimum":0},"properties":{"type":"array","items":{"anyOf":[{"type":"object","additionalProperties":false,"required":["name","withheld","value_type","required","nullable","group","visibility","description"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"withheld":{"const":false},"value_type":{"type":"string"},"required":{"type":"boolean"},"nullable":{"type":"boolean"},"group":{"type":["string","null"]},"visibility":{"type":"string"},"description":{"type":"string"}}},{"type":"object","additionalProperties":false,"required":["name","withheld"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"withheld":{"const":true}}}]}}}}},"relation_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","source_type","target_type","cardinality","inverse_name","description","property_count"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"source_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"target_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"cardinality":{"enum":["one_to_one","one_to_many","many_to_one","many_to_many"]},"inverse_name":{"type":"string"},"description":{"type":"string"},"property_count":{"type":"integer","minimum":0}}}},"event_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","object_type","description","payload_property_count"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"object_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"description":{"type":"string"},"payload_property_count":{"type":"integer","minimum":0}}}},"actions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["resource_id","name","version","risk_level","approval_mode","change_scope","has_side_effects","object_types","required_scopes","contract_digest"],"properties":{"resource_id":{"type":"string","pattern":"^eios:action:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"},"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"risk_level":{"type":["string","null"]},"approval_mode":{"type":["string","null"]},"change_scope":{"type":["string","null"]},"has_side_effects":{"type":"boolean"},"object_types":{"type":"array","items":{"type":"string"}},"required_scopes":{"type":"array","items":{"type":"string"}},"contract_digest":{"type":["string","null"]}}}},"functions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["resource_id","name","version","applies_to","required_scopes","contract_digest"],"properties":{"resource_id":{"type":"string","pattern":"^eios:function:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"},"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"applies_to":{"type":"array","items":{"type":["string","null"]}},"required_scopes":{"type":"array","items":{"type":"string"}},"contract_digest":{"type":["string","null"]}}}}}}')

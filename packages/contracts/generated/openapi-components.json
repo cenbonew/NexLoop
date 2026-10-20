@@ -5613,6 +5613,172 @@
           }
         }
       },
+      "WorkbenchObjectNeighbors": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:workbench-object-neighbors",
+        "title": "workbench-object-neighbors",
+        "description": "Enterprise world model W2 (owner 2026-10-19, D3): the depth-1 neighbourhood of one object, GET /api/v1/workbench/objects/{type}/{id}/neighbors (workbench read verb `object_neighbors`). Groups by direction, edge (a governed relation name, or `property:<name>` for a reference property) and neighbour type. At most 25 candidates a group are checked: a neighbour is listed only when its ADR-025 READ holds and, for a property edge, the READ of the referencing property; the other checked candidates are `invisible`, those beyond 25 are `collapsed` (not checked, not shown). Identifiers only. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type_name",
+          "object_id",
+          "depth",
+          "group_limit",
+          "groups"
+        ],
+        "properties": {
+          "type_name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+          },
+          "object_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+          },
+          "depth": {
+            "const": 1
+          },
+          "group_limit": {
+            "const": 25
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "direction",
+                "via",
+                "type_name",
+                "items",
+                "invisible",
+                "collapsed"
+              ],
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "outgoing",
+                    "incoming"
+                  ]
+                },
+                "via": {
+                  "type": "string",
+                  "pattern": "^(property:[A-Za-z][A-Za-z0-9_]{0,63}|[A-Za-z][A-Za-z0-9_.:-]{0,127})$"
+                },
+                "type_name": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+                },
+                "items": {
+                  "type": "array",
+                  "maxItems": 25,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type_name",
+                      "object_id"
+                    ],
+                    "properties": {
+                      "type_name": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+                      },
+                      "object_id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+                      }
+                    }
+                  }
+                },
+                "invisible": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 25
+                },
+                "collapsed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "WorkbenchObjectPage": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:workbench-object-page",
+        "title": "workbench-object-page",
+        "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times only, never a property. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type_name",
+          "items",
+          "invisible",
+          "total",
+          "next_after"
+        ],
+        "properties": {
+          "type_name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "object_id",
+                "schema_version",
+                "revision",
+                "updated_at"
+              ],
+              "properties": {
+                "object_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+                },
+                "schema_version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "invisible": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+              }
+            ]
+          }
+        }
+      },
       "WorkbenchWorldModel": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:workbench-world-model",
@@ -5980,6 +6146,8 @@
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",
     "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",
     "workbench-capabilities.schema.json": "2e7777e030fa0ee2c1a1ddff13b1705522d099e73db2c8309dd99444b3ebfe60",
+    "workbench-object-neighbors.schema.json": "658414b148404f7d62a16564eee47bdf32559b83b04a96a6d29a02e7c9959fc0",
+    "workbench-object-page.schema.json": "01d6742b66928dc27696d5c8509c1d78b3321ae419481125249112b1538a2592",
     "workbench-world-model.schema.json": "8d95753382700b3653874220642e3f427b430d305e3d83832b190dc497752f12"
   }
 }

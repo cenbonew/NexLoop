@@ -1,0 +1,14 @@
+{
+  "type_name": "Consumer",
+  "items": [
+    {
+      "object_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema_version": 1,
+      "revision": 3,
+      "updated_at": "2026-10-19T00:00:00Z"
+    }
+  ],
+  "invisible": 1,
+  "total": 7,
+  "next_after": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
