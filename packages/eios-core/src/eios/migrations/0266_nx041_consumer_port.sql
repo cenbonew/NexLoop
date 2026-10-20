@@ -91,6 +91,25 @@ create policy tenant_boundary on runtime.nexloop_sim_port_counters to nexloop_ow
  with check(tenant_id=current_setting('eios.tenant_id',true));
 revoke all on runtime.nexloop_sim_port_counters from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,
  nexloop_identity,nexloop_configurator,nexloop_metrics,nexloop_stand_in_worker;
+-- Backfill (fix verify F2): each world's count is set to the events the port already holds, so a world that had events before the
+-- counter existed (a split rollout) starts at its true count. Idempotent; per tenant (the tables are tenant-bounded).
+create function runtime.nexloop_sim_port_counters_backfill() returns integer
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare t text;n integer;v_total integer:=0;
+begin
+ for t in select tenant_id from control.nexloop_tenants order by tenant_id loop
+  perform set_config('eios.tenant_id',t,true);
+  insert into runtime.nexloop_sim_port_counters(tenant_id,world,events)
+   select e.tenant_id,e.world,count(*) from runtime.nexloop_sim_consumer_events e where e.tenant_id=t group by e.tenant_id,e.world
+   on conflict(tenant_id,world) do update set events=excluded.events;
+  get diagnostics n=row_count;v_total:=v_total+n;
+ end loop;
+ perform set_config('eios.tenant_id','',true);
+ return v_total;
+end $$;
+alter function runtime.nexloop_sim_port_counters_backfill() owner to nexloop_owner;
+revoke all on function runtime.nexloop_sim_port_counters_backfill() from public;
+select runtime.nexloop_sim_port_counters_backfill();
 
 -- The per-world event ceiling of the port (one place; tests read it).
 create function runtime.nexloop_sim_port_event_limit() returns integer language sql immutable set search_path=pg_catalog,pg_temp as $$ select 100000 $$;

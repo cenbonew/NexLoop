@@ -78,3 +78,11 @@ sim world 里不会出现事实性的 Commitment 或 Claim，因为来源都被�
 | 2.2 SQL 激活 | 新增 `tests/test_nx041_s7_activation_pg.py`，用现有的 `runtime_effect_fixture` 拿到真实的 worker 会话、已认领的任务和签名密钥。worker 签两类激活命令，签名都正确：原样的 real 命令作为阳性对照，能通过 SQL 的 world 检查；另一类把 command_text 里的 world 换成 sim、shadow 或 test，mode 也一并改成对应值，所以 Python 侧的命令检查会放行，最后由 SQL 拒绝（0037 的 `activation command denied`：命令里的 world 与凭据的 world 不一致）。**Context 入口**：在测试里登记一把签名密钥，签一条格式正确的 v6 请求。sim world 的请求在第一道检查（只允许 real）就被拒绝；同一条请求换成 real，能通过 world 和签名两道检查，一直走到 `nexloop_assert_context_assemble`。这就是阳性对照，说明 sim 的拒绝确实是因为 world，而不是请求本身有问题。 |
 | 5 | 改为按约束名取 Commitment 证据的 kind CHECK（`nexloop_commitment_evidence_kind_check`），不再用 `like` 匹配加 `fetchone()`。 |
 | N1 | 事件上限改用计数表 `runtime.nexloop_sim_port_counters(tenant, world, events)`。在 world 的串行锁里先加一再检查，计数是 O(1) 的，而且精确；超限时整个事务回滚，加上去的那一次也一起撤销。重放已有的 step 不计数。计数表有 world 列，会随 world 一起被整体删除（S2）。 |
+
+## 复核余项二（L6 `nx041-s6c-s7-fix-verify.md`）
+
+| 项 | 处理 |
+| --- | --- |
+| F2 | 计数表加了回填函数 `runtime.nexloop_sim_port_counters_backfill()`，0266 建表后马上调用一次。它按 tenant 逐个执行，把每个 world 的计数设为端口里已有的事件数；可以重复执行，结果不变。这样即使端口和计数表拆成两次上线，计数也从真实值开始。新增测试：先写入 7 条事件、删掉计数行，执行回填后计数为 7；再执行一次仍是 7；之后经端口写一条，计数变成 8。 |
+| F3 | Context 阳性对照用的测试签名密钥 `s7-context-probe`，测试结束时删除，并断言已经删掉。 |
+| 签名激活 | **阳性对照**改为一次全新的创建：按夹具的流程，新签发一个 Run 凭据，绑定、accept、认领，然后用原样的 real 命令新建激活；新的 activation_ref 不在夹具已有的激活里。**负例定位**：0037 里报 `activation command denied` 的有两处，一处是命令的 tenant、digest、world、not_after 检查（文件第 75 行，函数体第 28 行），另一处是 owner epoch 检查（函数体第 30 行）。所以测试不再看错误文字，而是从错误链中取出 psycopg 错误，断言它的 PL/pgSQL 调用栈正好是 `authz.nexloop_runtime_activation_command_v0037(...) line 28 at RAISE`。负例和对照只差 world，于是拒绝原因就锁定在 world 条件上。 |
