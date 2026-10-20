@@ -20,7 +20,7 @@ from nexloop_eios.plan_reevaluation import _SignedPort
 ACTION='eios:action:nexloop.retention.execute:1'
 ERASURE_ACTION='eios:action:nexloop.erasure.execute:1'
 CLASSES=('message_text','claim_quote','prompt_text','job_input','commercial_receipt','metric_observation','run_files','commitment_closed','claim_superseded',
-    'plan_closed','effect_text','job_records','model_request_manifest','read_audit','governance_audit','semantic_access')
+    'plan_closed','effect_text','job_records','model_request_manifest','read_audit','governance_audit','semantic_access','evolution_records')
 SETTINGS_KEYS={'schema','version','decision','classes','sweep','records'}
 RECORDS=('deletion_ledger_days','tombstone_days','backup_max_retention_days')
 _SWEEP={'batch':(1,1000),'max_passes':(1,100),'interval_seconds':(60,86400)}
