@@ -1177,13 +1177,13 @@
       "sha256": "d85213ae9098d1b4a9b078c47742ee9db9315b9b26302b3368bba2f97748b332"
     },
     {
-      "version": "0236",
-      "name": "0236_nx038_isolation_handoff.sql",
+      "version": "0237",
+      "name": "0237_nx038_isolation_handoff.sql",
       "sha256": "86ba69dd36b32c1a9a8a2948d2470c7bc7a4fa1e86df059add36b783fd7cf980"
     },
     {
-      "version": "0237",
-      "name": "0237_nx039_evaluation_open.sql",
+      "version": "0241",
+      "name": "0241_nx039_evaluation_open.sql",
       "sha256": "8e81c62d4d8d944a8ca765332c47a994a528332e800564d02ca4b240379783c7"
     }
   ]

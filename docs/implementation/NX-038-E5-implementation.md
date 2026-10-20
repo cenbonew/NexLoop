@@ -52,7 +52,7 @@
 - 写入函数 `authz.nexloop_evo_review_link`，执行权限只给 `nexloop_evo_writer`。
 - `review-decision` 契约不改。
 
-## 迁移 0236（临时编号）
+## 迁移 0237（临时编号）
 
 - **内容**：放宽事件表的 `event_kind` check（新增 bundle_frozen、report_recorded、review_linked），新建上述四张表和五个函数。
 - **search_path**：所有函数都固定为 `pg_catalog,pg_temp`；definer 检查结果为 0。
