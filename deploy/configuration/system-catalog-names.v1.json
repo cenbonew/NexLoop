@@ -654,6 +654,36 @@
    "stable_name": "nexloop.consumer.erase_synthetic",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.operator_persona.publish",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.operator_persona.assign",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.operator_persona.rules_publish",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.ai_disclosure.set",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.contact_preference.dismiss",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.outreach_controls.set",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [

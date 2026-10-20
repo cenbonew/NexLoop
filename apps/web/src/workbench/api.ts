@@ -389,6 +389,12 @@ export const OPERATION_ACTION={
   silence_alert:'eios:action:nexloop.alert.silence:1',
   // 0220: owner only; the real dispatch switches (tenant and Action layers).
   set_real_dispatch:'eios:action:nexloop.real_dispatch.set:1',
+  // 0227/0228: operator persona and communication preferences (owner only).
+  publish_operator_persona:'eios:action:nexloop.operator_persona.publish:1',assign_operator_persona:'eios:action:nexloop.operator_persona.assign:1',
+  publish_persona_rules:'eios:action:nexloop.operator_persona.rules_publish:1',set_ai_disclosure:'eios:action:nexloop.ai_disclosure.set:1',
+  dismiss_contact_preference:'eios:action:nexloop.contact_preference.dismiss:1',
+  // 0232: the tenant's outreach controls (owner only).
+  set_outreach_controls:'eios:action:nexloop.outreach_controls.set:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -472,7 +478,9 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
   replies:{pending:{count:number;oldest_age_seconds:number|null};escalations_last_hour:Record<string,number>;escalations_total:number};
   commitments:{exceptions:Record<string,number>;exceptions_last_hour:Record<string,number>};
   queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
-  guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string};
+  guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string;
+  /** 0216 (absent from an older backend: null, shown as 不可用) */ candidates:Candidates|null;
+  /** W4 0224 (absent: null) */ data_assets:DataAssets|null};
 /** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
  * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
 export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
@@ -501,6 +509,25 @@ function processSection(value:unknown):Process{
       return [k,{sum:nums(s.sum),max:nums(s.max)}];})),
     ...(typeof o.timeout_rate==='number'?{timeout_rate:o.timeout_rate}:{}),...(typeof o.p95_ms_max==='number'?{p95_ms_max:o.p95_ms_max}:{})};
 }
+// ---- W4 data assets (L6 0225) and the merge configuration state (0216): counts, profile ids and times only ----
+export type Candidates={staged:number;merge_configuration_active:boolean;staged_without_configuration:number};
+export type DataAssets={claims:{total:number;by_epistemic_kind:Record<string,number>;by_resolution_state:Record<string,number>};
+  extraction_runs:{total:number;last_at:string|null};extraction_jobs:Record<string,number>;
+  recall:{entries:Record<string,number>;profiles:{profile_id:string;dimension:number;created_at:string;vectors:number}[];
+    backfills:{profile_id:string;runs:number;first_at:string|null;last_at:string|null;last_queued:number|null;last_definition_types:number|null}[]};
+  embedding_budget:{status:'unavailable';reason:string}|{status:'ok';[key:string]:unknown}};
+function candidates(value:unknown):Candidates{const o=object(value);
+  return {staged:count(o.staged),merge_configuration_active:flag(o.merge_configuration_active),staged_without_configuration:count(o.staged_without_configuration)};}
+function dataAssets(value:unknown):DataAssets{
+  const o=object(value);const c=object(o.claims);const r=object(o.extraction_runs);const rc=object(o.recall);const b=object(o.embedding_budget);
+  if(b.status!=='unavailable'&&b.status!=='ok')throw new WorkbenchError('invalid');
+  return {claims:{total:count(c.total),by_epistemic_kind:counts(c.by_epistemic_kind),by_resolution_state:counts(c.by_resolution_state)},
+    extraction_runs:{total:count(r.total),last_at:maybeText(r.last_at)},extraction_jobs:counts(o.extraction_jobs),
+    recall:{entries:counts(rc.entries),profiles:list(rc.profiles).map(x=>{const p=object(x);return {profile_id:text(p.profile_id),dimension:count(p.dimension),created_at:text(p.created_at),vectors:count(p.vectors)};}),
+      backfills:list(rc.backfills).map(x=>{const p=object(x);return {profile_id:text(p.profile_id),runs:count(p.runs),first_at:maybeText(p.first_at),last_at:maybeText(p.last_at),
+        last_queued:maybeCount(p.last_queued),last_definition_types:maybeCount(p.last_definition_types)};})},
+    embedding_budget:b.status==='unavailable'?{status:'unavailable',reason:text(b.reason)}:{...b,status:'ok'}};
+}
 export function metrics(value:unknown):Metrics{
   const v=object(value);const r=object(v.refusals);const ef=object(v.effects);const u=object(ef.unknown);const rp=object(v.replies);const pend=object(rp.pending);
   const cm=object(v.commitments);const ex=object(v.extraction);const cn=object(v.connections);
@@ -509,7 +536,8 @@ export function metrics(value:unknown):Metrics{
     replies:{pending:{count:count(pend.count),oldest_age_seconds:maybeCount(pend.oldest_age_seconds)},escalations_last_hour:counts(rp.escalations_last_hour),escalations_total:count(rp.escalations_total)},
     commitments:{exceptions:counts(cm.exceptions),exceptions_last_hour:counts(cm.exceptions_last_hour)},
     queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
-    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at)};
+    guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at),
+    candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets)};
 }
 export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
 /** The real dispatch switches from the same metrics read (states and revisions only, 0153). */
@@ -526,3 +554,177 @@ export function humanActions(value:unknown):AuditItem[]{
       target_ref:maybeText(o.target_ref),intent_id:maybeText(o.intent_id),occurred_at:text(o.occurred_at)};});
 }
 export const readHumanActions=()=>get('/api/v1/workbench/human-actions',humanActions);
+
+// ---- Enterprise world model W1 (0230; packages/contracts/workbench-world-model.schema.json): published model metadata, read only ----
+export type WorldProperty={name:string;withheld:true}|{name:string;withheld:false;value_type:string;required:boolean;nullable:boolean;group:string|null;visibility:string;description:string};
+export type WorldObjectType={name:string;version:number;display_name:string;description:string;title_property:string;primary_key:string[];objects:number;properties:WorldProperty[]};
+export type WorldRelation={name:string;version:number;source_type:string;target_type:string;cardinality:'one_to_one'|'one_to_many'|'many_to_one'|'many_to_many';inverse_name:string;description:string;property_count:number};
+export type WorldEvent={name:string;version:number;object_type:string;description:string;payload_property_count:number};
+export type WorldAction={resource_id:string;name:string;version:number;risk_level:string|null;approval_mode:string|null;change_scope:string|null;has_side_effects:boolean;
+  object_types:string[];required_scopes:string[];contract_digest:string|null};
+export type WorldFunction={resource_id:string;name:string;version:number;applies_to:(string|null)[];required_scopes:string[];contract_digest:string|null};
+export type WorldModel={world:string;computed_at:string;object_types:WorldObjectType[];relation_types:WorldRelation[];event_types:WorldEvent[];actions:WorldAction[];functions:WorldFunction[]};
+const CARDINALITIES=['one_to_one','one_to_many','many_to_one','many_to_many'] as const;
+const texts=(v:unknown)=>list(v).map(text);
+function version(v:unknown):number{const n=count(v);if(n<1)throw new WorkbenchError('invalid');return n;}
+export function worldModel(value:unknown):WorldModel{
+  const v=object(value);
+  const property=(x:unknown):WorldProperty=>{const o=object(x);if(flag(o.withheld)){if(Object.keys(o).length!==2)throw new WorkbenchError('invalid');return {name:text(o.name),withheld:true};}
+    return {name:text(o.name),withheld:false,value_type:text(o.value_type),required:flag(o.required),nullable:flag(o.nullable),group:maybeText(o.group),visibility:text(o.visibility),description:text(o.description)};};
+  return {world:text(v.world),computed_at:text(v.computed_at),
+    object_types:list(v.object_types).map(x=>{const o=object(x);return {name:text(o.name),version:version(o.version),display_name:text(o.display_name),description:text(o.description),
+      title_property:text(o.title_property),primary_key:texts(o.primary_key),objects:count(o.objects),properties:list(o.properties).map(property)};}),
+    relation_types:list(v.relation_types).map(x=>{const o=object(x);const c=text(o.cardinality);if(!(CARDINALITIES as readonly string[]).includes(c))throw new WorkbenchError('invalid');
+      return {name:text(o.name),version:version(o.version),source_type:text(o.source_type),target_type:text(o.target_type),cardinality:c as WorldRelation['cardinality'],
+        inverse_name:text(o.inverse_name),description:text(o.description),property_count:count(o.property_count)};}),
+    event_types:list(v.event_types).map(x=>{const o=object(x);return {name:text(o.name),version:version(o.version),object_type:text(o.object_type),description:text(o.description),
+      payload_property_count:count(o.payload_property_count)};}),
+    actions:list(v.actions).map(x=>{const o=object(x);return {resource_id:text(o.resource_id),name:text(o.name),version:version(o.version),risk_level:maybeText(o.risk_level),
+      approval_mode:maybeText(o.approval_mode),change_scope:maybeText(o.change_scope),has_side_effects:flag(o.has_side_effects),object_types:texts(o.object_types),
+      required_scopes:texts(o.required_scopes),contract_digest:maybeText(o.contract_digest)};}),
+    functions:list(v.functions).map(x=>{const o=object(x);return {resource_id:text(o.resource_id),name:text(o.name),version:version(o.version),
+      applies_to:list(o.applies_to).map(maybeText),required_scopes:texts(o.required_scopes),contract_digest:maybeText(o.contract_digest)};})};
+}
+export const readWorldModel=()=>get('/api/v1/workbench/world-model',worldModel);
+
+// ---- World model W3: the capability catalog (L6 0222; packages/contracts/workbench-capabilities.schema.json), metadata only ----
+export type CatalogCapability={capability:string;operation:string;subject_rule:'human'|'agent_or_human';source_task:string;registered_at:string};
+export type CatalogAction={resource_id:string;stable_name:string;version:number;capability:string|null;capability_version:string|null;has_side_effects:boolean;active:boolean;
+  effect_category:'customer_contact'|'non_contact_service'|null;effect_category_declared:boolean;effect_manifest_version:number|null};
+export type CatalogChannel={namespace:string;trust:'server'|'signed'|'client';skew_seconds:number};
+export type Capabilities={capabilities:CatalogCapability[];actions:CatalogAction[];channels:CatalogChannel[];routes:{delivery_action:string;active_offerings:number}[];
+  provider_routes:string;real_dispatch:unknown};
+function oneOfText<T extends string>(value:unknown,allowed:readonly T[]):T{const v=text(value);if(!(allowed as readonly string[]).includes(v))throw new WorkbenchError('invalid');return v as T;}
+export function capabilities(value:unknown):Capabilities{
+  const v=object(value);
+  return {capabilities:list(v.capabilities).map(x=>{const o=object(x);return {capability:text(o.capability),operation:text(o.operation),
+      subject_rule:oneOfText(o.subject_rule,['human','agent_or_human'] as const),source_task:text(o.source_task),registered_at:text(o.registered_at)};}),
+    actions:list(v.actions).map(x=>{const o=object(x);return {resource_id:text(o.resource_id),stable_name:text(o.stable_name),version:count(o.version),
+      capability:maybeText(o.capability),capability_version:maybeText(o.capability_version),has_side_effects:flag(o.has_side_effects),active:flag(o.active),
+      effect_category:o.effect_category===null?null:oneOfText(o.effect_category,['customer_contact','non_contact_service'] as const),
+      effect_category_declared:flag(o.effect_category_declared),effect_manifest_version:o.effect_manifest_version===null?null:count(o.effect_manifest_version)};}),
+    channels:list(v.channels).map(x=>{const o=object(x);return {namespace:text(o.namespace),trust:oneOfText(o.trust,['server','signed','client'] as const),skew_seconds:count(o.skew_seconds)};}),
+    routes:list(v.routes).map(x=>{const o=object(x);return {delivery_action:text(o.delivery_action),active_offerings:count(o.active_offerings)};}),
+    provider_routes:text(v.provider_routes),real_dispatch:object(v.real_dispatch)};
+}
+export const readCapabilities=()=>get('/api/v1/workbench/capabilities',capabilities);
+
+// ---- World model W2 (L6 0223/0224, ADR-035): instances and the depth-1 neighbourhood; identifiers only, each READ checked ----
+export type ObjectRow={object_id:string;schema_version:number;revision:number;updated_at:string};
+export type ObjectPage={type_name:string;items:ObjectRow[];invisible:number;total:number;next_after:string|null};
+export type NeighborGroup={direction:'outgoing'|'incoming';via:string;type_name:string;items:{type_name:string;object_id:string}[];invisible:number;collapsed:number};
+export type ObjectNeighbors={type_name:string;object_id:string;depth:1;group_limit:number;groups:NeighborGroup[]};
+const TYPE_NAME=/^[A-Z][A-Za-z0-9_]{0,63}$/,OBJECT_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
+const typeName=(v:unknown)=>{const t=text(v);if(!TYPE_NAME.test(t))throw new WorkbenchError('invalid');return t;};
+const objectId=(v:unknown)=>{const t=text(v);if(!OBJECT_ID.test(t))throw new WorkbenchError('invalid');return t;};
+export function objectPage(value:unknown):ObjectPage{
+  const v=object(value);
+  return {type_name:typeName(v.type_name),items:list(v.items).map(x=>{const o=object(x);return {object_id:objectId(o.object_id),schema_version:count(o.schema_version),
+    revision:count(o.revision),updated_at:text(o.updated_at)};}),invisible:count(v.invisible),total:count(v.total),next_after:v.next_after===null?null:objectId(v.next_after)};
+}
+export function objectNeighbors(value:unknown):ObjectNeighbors{
+  const v=object(value);if(v.depth!==1)throw new WorkbenchError('invalid');
+  return {type_name:typeName(v.type_name),object_id:objectId(v.object_id),depth:1,group_limit:count(v.group_limit),
+    groups:list(v.groups).map(x=>{const o=object(x);const d=text(o.direction);if(d!=='outgoing'&&d!=='incoming')throw new WorkbenchError('invalid');
+      return {direction:d,via:text(o.via),type_name:typeName(o.type_name),items:list(o.items).map(i=>{const p=object(i);return {type_name:typeName(p.type_name),object_id:objectId(p.object_id)};}),
+        invisible:count(o.invisible),collapsed:count(o.collapsed)};})};
+}
+export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}${after?'?after='+encodeURIComponent(after):''}`,objectPage);
+export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
+
+// ---- W4 Artifact list (L6 0226; packages/contracts/workbench-artifacts.schema.json): metadata only, newest first, audited ----
+export type ArtifactRow={artifact_id:string;purpose:'message_context'|'fallback_context'|'role_context'|'other';media_type:string;size_bytes:number;sha256_prefix:string;
+  created_at:string;retention_until:string;run_id:string|null;consumer_id:string|null};
+export type ArtifactPage={items:ArtifactRow[];total:number;hidden:number;next_before:string|null};
+const PURPOSES=['message_context','fallback_context','role_context','other'] as const;
+export function artifactPage(value:unknown):ArtifactPage{
+  const v=object(value);
+  const match=(re:RegExp,x:unknown)=>{const t=text(x);if(!re.test(t))throw new WorkbenchError('invalid');return t;};
+  return {items:list(v.items).map(x=>{const o=object(x);const p=text(o.purpose);if(!(PURPOSES as readonly string[]).includes(p))throw new WorkbenchError('invalid');
+      return {artifact_id:match(/^[a-f0-9]{32}$/,o.artifact_id),purpose:p as ArtifactRow['purpose'],media_type:text(o.media_type),size_bytes:count(o.size_bytes),
+        sha256_prefix:match(/^[a-f0-9]{12}$/,o.sha256_prefix),created_at:text(o.created_at),retention_until:text(o.retention_until),
+        run_id:o.run_id===null?null:match(/^[0-9a-f-]{36}$/,o.run_id),consumer_id:o.consumer_id===null?null:match(/^[a-f0-9]{64}$/,o.consumer_id)};}),
+    total:count(v.total),hidden:count(v.hidden),next_before:v.next_before===null?null:match(/^[0-9][0-9T:. +-]{9,39}\|[a-f0-9]{32}$/,v.next_before)};
+}
+export const readArtifacts=(before?:string)=>get('/api/v1/workbench/artifacts'+(before?'?before='+encodeURIComponent(before):''),artifactPage);
+
+// ---- operator persona (0227/0229: every member reads; writes are owner Actions) and preferences (0228: owner only) ----
+export type PersonaDocument={display_name:string;signature?:string;self_intro?:string;tone:string;values?:string[];
+  expression:{max_chars:number;emoji:'none'|'few'|'allowed';vocabulary?:string;forbidden_phrases?:string[];language?:string};
+  scenarios?:string[];not_for?:string[];ai_disclosure?:{statement?:string;deflect_statement?:string}};
+export type PersonaVersion={persona_id:string;version:number;status:'published'|'retired';display_name:string;created_at:string;document:PersonaDocument};
+export type PersonaRule={when:{role_id:string}|{property:string;equals:string};persona_id:string};
+export type PersonaRules={version:number;default_persona_id:string|null;rules:PersonaRule[];published_at:string};
+export type AiDisclosure={mode:'none'|'first_contact'|'always';when_asked:'deflect'|'handoff';block_human_claims:boolean;content_label:boolean;revision:number};
+export type PersonaSource='owner_assign'|'rule'|'default';
+export type ConsumerPersona={desired:{persona_id:string|null;source:PersonaSource|null;rules_version:number|null}|null;
+  settled:{persona_id:string;source:PersonaSource;updated_at:string}|null};
+export type PersonaOverview={personas:PersonaVersion[];rules:PersonaRules|null;ai_disclosure:AiDisclosure;consumer:ConsumerPersona|null};
+export const PERSONA_SOURCE_TEXT:Record<PersonaSource,string>={owner_assign:'负责人指定',rule:'分群规则',default:'租户默认'};
+const PERSONA_ID=/^[a-z][a-z0-9_-]{0,63}$/;
+function personaId(value:unknown):string{const v=text(value);if(!PERSONA_ID.test(v))throw new WorkbenchError('invalid');return v;}
+function oneOf<T extends string>(value:unknown,options:readonly T[]):T{if(!options.includes(value as T))throw new WorkbenchError('invalid');return value as T;}
+function strings(value:unknown):string[]{return list(value).map(text);}
+export function personaDocument(value:unknown):PersonaDocument{
+  const v=object(value),e=object(v.expression);
+  const doc:PersonaDocument={display_name:text(v.display_name),tone:text(v.tone),expression:{max_chars:count(e.max_chars),emoji:oneOf(e.emoji,['none','few','allowed'] as const)}};
+  if(v.signature!==undefined)doc.signature=text(v.signature);if(v.self_intro!==undefined)doc.self_intro=text(v.self_intro);
+  if(v.values!==undefined)doc.values=strings(v.values);if(v.scenarios!==undefined)doc.scenarios=strings(v.scenarios);if(v.not_for!==undefined)doc.not_for=strings(v.not_for);
+  if(e.vocabulary!==undefined)doc.expression.vocabulary=text(e.vocabulary);if(e.language!==undefined)doc.expression.language=text(e.language);
+  if(e.forbidden_phrases!==undefined)doc.expression.forbidden_phrases=strings(e.forbidden_phrases);
+  if(v.ai_disclosure!==undefined){const a=object(v.ai_disclosure);doc.ai_disclosure={};
+    if(a.statement!==undefined)doc.ai_disclosure.statement=text(a.statement);if(a.deflect_statement!==undefined)doc.ai_disclosure.deflect_statement=text(a.deflect_statement);}
+  return doc;
+}
+function personaRule(value:unknown):PersonaRule{
+  const v=object(value),w=object(v.when);
+  return {when:'role_id' in w?{role_id:id(w.role_id)}:{property:text(w.property),equals:text(w.equals)},persona_id:personaId(v.persona_id)};
+}
+export function personaOverview(value:unknown):PersonaOverview{
+  const v=object(value),a=object(v.ai_disclosure);
+  const personas=list(v.personas).map(x=>{const p=object(x);return {persona_id:personaId(p.persona_id),version:count(p.version),status:oneOf(p.status,['published','retired'] as const),
+    display_name:text(p.display_name),created_at:text(p.created_at),document:personaDocument(p.document)};});
+  const rules=v.rules===null?null:(()=>{const r=object(v.rules);return {version:count(r.version),default_persona_id:r.default_persona_id===null?null:personaId(r.default_persona_id),
+    rules:list(r.rules).map(personaRule),published_at:text(r.published_at)};})();
+  const sources=['owner_assign','rule','default'] as const;
+  const consumer=v.consumer===null||v.consumer===undefined?null:(()=>{const c=object(v.consumer);
+    const d=c.desired===null?null:object(c.desired),st=c.settled===null?null:object(c.settled);
+    return {desired:d&&{persona_id:d.persona_id===null?null:personaId(d.persona_id),source:d.source===null?null:oneOf(d.source,sources),rules_version:d.rules_version===null?null:count(d.rules_version)},
+      settled:st&&{persona_id:personaId(st.persona_id),source:oneOf(st.source,sources),updated_at:text(st.updated_at)}};})();
+  return {personas,rules,consumer,ai_disclosure:{mode:oneOf(a.mode,['none','first_contact','always'] as const),when_asked:oneOf(a.when_asked,['deflect','handoff'] as const),
+    block_human_claims:flag(a.block_human_claims),content_label:flag(a.content_label),revision:count(a.revision)}};
+}
+export function readOperatorPersonas(consumerId?:string):Promise<PersonaOverview>{
+  return get('/api/v1/workbench/operator-personas'+(consumerId?'?consumer_id='+encodeURIComponent(consumerId):''),personaOverview);
+}
+export type ContactPreference={claim_id:string;dimension:'quiet_hours'|'frequency'|'channel'|'topic'|'tone';polarity:'affirmed'|'negated';value:string|number;dismissed:boolean};
+export const PREFERENCE_TEXT:Record<ContactPreference['dimension'],string>={quiet_hours:'勿扰时段',frequency:'每 7 天最多联系次数',channel:'联系渠道',topic:'联系主题',tone:'沟通语气'};
+export function contactPreferences(value:unknown):ContactPreference[]{
+  return list(object(value).preferences).map(x=>{const p=object(x);const v=p.value;
+    if(typeof v!=='string'&&!Number.isSafeInteger(v))throw new WorkbenchError('invalid');
+    return {claim_id:text(p.claim_id),dimension:oneOf(p.dimension,['quiet_hours','frequency','channel','topic','tone'] as const),polarity:oneOf(p.polarity,['affirmed','negated'] as const),
+      value:v as string|number,dismissed:flag(p.dismissed)};});
+}
+export function readContactPreferences(consumerId:string):Promise<ContactPreference[]>{
+  return get('/api/v1/workbench/consumers/'+encodeURIComponent(consumerId)+'/contact-preferences',contactPreferences);
+}
+
+
+// ---- outreach controls (0232: owner only) ----
+export type ConsentMode='opt_out'|'opt_in';
+export type OutreachSettings={time_zone:string;quiet_hours:string|null;per_24h:number;per_7d:number;
+  marketing:{enabled:boolean;consent_mode:ConsentMode;unsubscribe_notice:string;per_7d:number;sender_label:string}};
+export type OutreachControls={settings:OutreachSettings&{revision:number;source:'tenant'|'default'};
+  events:{revision:number;consent_mode_confirmed:ConsentMode|null;marketing_enabled:boolean;recorded_at:string}[]};
+const QUIET=/^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$/;
+export function outreachControls(value:unknown):OutreachControls{
+  const v=object(value),s=object(v.settings),m=object(s.marketing);
+  const consent=(x:unknown):ConsentMode=>{if(x!=='opt_out'&&x!=='opt_in')throw new WorkbenchError('invalid');return x;};
+  const quiet=s.quiet_hours===null?null:text(s.quiet_hours);if(quiet!==null&&!QUIET.test(quiet))throw new WorkbenchError('invalid');
+  const source=s.source==='tenant'||s.source==='default'?s.source:(()=>{throw new WorkbenchError('invalid');})();
+  return {settings:{time_zone:text(s.time_zone),quiet_hours:quiet,per_24h:count(s.per_24h),per_7d:count(s.per_7d),revision:count(s.revision),source,
+    marketing:{enabled:flag(m.enabled),consent_mode:consent(m.consent_mode),unsubscribe_notice:text(m.unsubscribe_notice),per_7d:count(m.per_7d),sender_label:text(m.sender_label)}},
+    events:list(v.events).map(x=>{const e=object(x);return {revision:count(e.revision),consent_mode_confirmed:e.consent_mode_confirmed===null?null:consent(e.consent_mode_confirmed),
+      marketing_enabled:flag(e.marketing_enabled),recorded_at:text(e.recorded_at)};})};
+}
+export function readOutreachControls():Promise<OutreachControls>{return get('/api/v1/workbench/outreach-controls',outreachControls);}

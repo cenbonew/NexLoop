@@ -1,0 +1,36 @@
+{
+  "commit": "f64413dae88d88645b1f2c069cf4e17308ad0f89",
+  "repository": "https://github.com/ruc-datalab/EvoOntology",
+  "license": "MIT",
+  "license_file": "licenses/EvoOntology-MIT.txt",
+  "adaptations": "NX-038 E1 (design §4.2 steps 3, 5, 6; D3 selective port): the evaluation gate and the adapter result contract are ported; the session lifecycle is rewritten as rules only. Nothing of the workspace storage, runtime, MCP, workflow, plugins, benchmarks, visualization or assets is copied (evo-ontology-source-audit §4.2). Each file keeps the MIT copyright line in its header.",
+  "files": [
+    {
+      "upstream_path": "evoontology/evaluation/evaluation.py",
+      "sha256": "028d6f23d498a40a9a0c822579e36991b293f3c91cede8af915ecf8b00d3abaa",
+      "destination": "packages/eios-core/src/nexloop_eios/evolution/gate.py",
+      "kind": "ported",
+      "change": "EvaluationGate kept; anonymize reproducible (explicit swap or seeded random.Random, swap recorded); decide_gt takes the frozen non-inferiority margin (D7, an equal score never accepts) and checks paired finite scores with unique case ids",
+      "tests": "tests/test_evolution_e1.py",
+      "nexloop_sha256": "173ef0adda3d8e46318bdf64ae47c788a1e616c26aa8a0a44f5130359c727dbb"
+    },
+    {
+      "upstream_path": "evoontology/evolution/adapter.py",
+      "sha256": "2f2b5a1163176115a4eafa241ffbf0deeaef7558543595901c1ba79618b231be",
+      "destination": "packages/eios-core/src/nexloop_eios/evolution/adapter.py",
+      "kind": "ported",
+      "change": "subject is a candidate id or the Parent revision, cases are frozen case ids, no output path hint; artifact_refs instead of artifact_paths",
+      "tests": "tests/test_evolution_e1.py",
+      "nexloop_sha256": "c125dcd630d795e4ca7113821bee9bd722f1d2ac66f6c99e9465f57a1ff093c4"
+    },
+    {
+      "upstream_path": "evoontology/evolution/session.py",
+      "sha256": "849d847f4e75541f3a71268523e9760f7f757fc841f596cb406dd3f3cf0e551c",
+      "destination": "packages/eios-core/src/nexloop_eios/evolution/lifecycle.py",
+      "kind": "rules_rewritten",
+      "change": "only the lifecycle rules (frozen round budget, reject keeps running, legitimate incomplete reasons with the minimum rejects, budget extension only upward, the publication gate input checks); no workspace, SemanticStore, validate() or publication: acceptance ends in accepted_for_release, never a published or active version; one upstream run maps to a chain of NexLoop candidates",
+      "tests": "tests/test_evolution_e1.py",
+      "nexloop_sha256": "85fb12a84336b63ee643f43ed2ef104902899d70a3e1ed3aae2888c363ddbf71"
+    }
+  ]
+}

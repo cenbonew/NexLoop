@@ -106,6 +106,11 @@ def create_pool(
             max_size=pool_max_size,
             name="nex-eios",
             open=False,
+            # NexLoop 2026-10-20 (known-risks v0.1 §4; run-data-pg-upgrade-20261019 §4.2): after a PostgreSQL restart the pool
+            # kept the broken connections and each one cost a request a 503 (a worker its next tick). Every connection is
+            # checked when it is taken out (one `SELECT 1` round trip; a broken one is discarded and replaced). All NexLoop
+            # pools (API, identity, workers) are built here.
+            check=ConnectionPool.check_connection,
         )
         if open_pool:
             pool.open(wait=True, timeout=connect_timeout_seconds)

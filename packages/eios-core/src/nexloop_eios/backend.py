@@ -504,7 +504,14 @@ class Backend:
             'commitments', 'commitment', 'contact', 'audit', 'review_queue', 'review_evidence', 'me', 'metrics', 'alerts', 'human_actions',
             'effect_determination',  # 0210: the owner's precheck before confirming an unknown effect did not happen
             'erasure_precheck',  # 0220: the owner's precheck before and after erasing a synthetic Consumer
-            'consumer_history'}  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
+            'operator_personas',  # 0227: the owner's operator persona overview
+            'contact_preferences',  # 0228: a consumer's communication preferences (owner)
+            'outreach_candidates',  # 0231: proactive outreach candidates and their dispatch dry run (owner, read only)
+            'outreach_controls',  # 0232: the tenant's outreach controls for the owner's page (read only)
+            'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
+            'world_model',  # enterprise world model W1 (0230): published model metadata, read only
+            'capabilities',  # world model W3: the tenant's capability catalog (metadata only)
+            'objects', 'object_neighbors', 'artifacts'}  # world model W2: instances and depth-1 neighbourhood, per-object READ (ADR-025)
         with self._lock, authority_request_scope(), request_connection_scope(self._pool):
             self._assert_open()
             if operation not in allowed:

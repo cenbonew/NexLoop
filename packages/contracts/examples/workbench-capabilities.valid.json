@@ -1,0 +1,17 @@
+{
+  "capabilities": [
+    {"capability": "goals.version.publish", "operation": "publish_goal", "subject_rule": "human", "source_task": "NX-028", "registered_at": "2026-10-10T08:00:00Z"},
+    {"capability": "real_dispatch.set", "operation": "set_real_dispatch", "subject_rule": "human", "source_task": "NX-037", "registered_at": "2026-10-11T08:00:00Z"}
+  ],
+  "actions": [
+    {"resource_id": "eios:action:nexloop.service.request:1", "stable_name": "nexloop.service.request", "version": 1, "capability": "nexloop.service.request",
+     "capability_version": "1.0.0", "has_side_effects": true, "active": true, "effect_category": "customer_contact", "effect_category_declared": true, "effect_manifest_version": 3},
+    {"resource_id": "eios:action:Goal.publish:1", "stable_name": "Goal.publish", "version": 1, "capability": "goals.version.publish",
+     "capability_version": "1.0.0", "has_side_effects": true, "active": true, "effect_category": null, "effect_category_declared": false, "effect_manifest_version": null}
+  ],
+  "channels": [{"namespace": "nexloop.api", "trust": "server", "skew_seconds": 0}],
+  "routes": [{"delivery_action": "nexloop.service.request:1", "active_offerings": 1}],
+  "provider_routes": "deployment_configuration",
+  "real_dispatch": {"world": "real", "tenant": {"enabled": false, "data_mode": null, "revision": 4},
+    "actions": [{"action_type": "eios:action:nexloop.service.request:1", "enabled": false, "revision": 5}]}
+}

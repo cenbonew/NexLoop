@@ -131,6 +131,7 @@ def test_current_record_permission_is_not_inferred_from_catalog_read(denial_plan
 
 def test_real_pi_distinct_tool_calls_persist_denial_and_human_http(denial_plan,admin,tmp_path):
     import secrets,sqlite3
+    from psycopg.conninfo import make_conninfo
     from fastapi.testclient import TestClient
     from nexloop_eios.http_api import ApiConfiguration,create_app
     from nexloop_eios.browser_http import BrowserConfiguration
@@ -141,7 +142,14 @@ def test_real_pi_distinct_tool_calls_persist_denial_and_human_http(denial_plan,a
     runtime,key=files(tmp_path);guard_key=private(tmp_path,'scope-guard-key',secrets.token_hex(32))
     scope={'offering_id':f['f']['recipe']['offering_id'],'offering_revision':1,
         'requested_guarantees':['profit-guarantee'],'requested_discounts':[]}
-    with active_worker(f,tmp_path) as (worker,activation,command,text),guard_server(worker,tmp_path,guard_key) as port:
+    # CI seq 19 (2026-10-20): the second tool call's result was `<harness>[error] runtime_effect_unavailable</harness>`: the
+    # in-process guard shares the worker Backend's request capacity (pool 4 -> 2 concurrent requests) with this test's own
+    # inspect polling (every 0.2 s, each one a guard authorization), and under CI load the effect submit waited past its 2 s
+    # limit twice (ADR-022 §4, ADR-028). The guard runs in the deployed shape instead: four processes, each with its own
+    # pool and capacity (ADR-024), as run_fallback_on_host does.
+    spawn=dict(database_url=make_conninfo(o['pg'],user='nexloop_domain_worker'),signing_key_file=o['paths']['backend_signing'],
+        signing_key_id='explicit-configuration',artifact_root=tmp_path/'worker-artifacts',token=f['f']['tokens']['assembly-runtime-worker'],world='real')
+    with active_worker(f,tmp_path) as (worker,activation,command,text),guard_server(worker,tmp_path,guard_key,spawn=spawn,workers=4) as port:
         config=configuration(tmp_path,port,guard_key);body=json.loads(config.read_text())
         body.update(effect_tools=True,deterministic_message_from_input=True,
             context_input_protocol='nexloop.context-pack.v2',deterministic_effect_request_scope=scope)
@@ -179,7 +187,11 @@ def test_real_pi_distinct_tool_calls_persist_denial_and_human_http(denial_plan,a
             if message.get('role')=='assistant':calls.extend(item for item in message.get('content',[]) if item.get('type')=='toolCall')
             if message.get('role')=='toolResult' and message.get('toolName')=='nexloop.service.request':
                 assert message.get('isError') is True
-                denials.extend(json.loads(content['text']) for content in message['content'] if content.get('type')=='text')
+                for content in message['content']:
+                    if content.get('type')!='text':continue
+                    # A tool error the harness wrapped (not the tool's JSON refusal) is not a denial: say which one it was.
+                    assert content['text'].lstrip().startswith('{'),'tool result is not a scope denial: '+content['text'][:200]
+                    denials.append(json.loads(content['text']))
     assert [call['id'] for call in calls]==['message-service-first','message-service-rebuilt']
     assert len(denials)==2 and denials[0]==denials[1] and denials[0]['code']=='outside_catalog_terms'
     assert admin.execute('select count(*) from runtime.nexloop_scope_denials').fetchone()==(1,)

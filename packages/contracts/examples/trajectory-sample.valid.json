@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "source": "database",
+  "run_id": "5d2a4d0e-6a3b-4b0f-9b8e-2a4c9b1d7e10",
+  "interaction_id": null,
+  "run_kind": "message",
+  "scenario": null,
+  "issued_at": "2026-10-20T04:00:00Z",
+  "consumer_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "persona": "simulated_agent",
+  "test_stack": false,
+  "outcome": null,
+  "error_code": null,
+  "model": {
+    "calls": 2,
+    "failed": 0,
+    "unknown": 0
+  },
+  "tool_calls": 3,
+  "intents": {
+    "fulfilled": 1
+  },
+  "intent_ids": [
+    "8f1d2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b"
+  ],
+  "refusals": {},
+  "failures": [],
+  "recovered_tool_errors": [
+    {
+      "tool": "nexloop.service.request",
+      "code": "invalid_effect_request"
+    }
+  ],
+  "receipts": [],
+  "reconciliation": null
+}

@@ -8,12 +8,69 @@ an instance still needs its own authorized object read.
 """
 from dataclasses import dataclass
 import hashlib
+import hmac
+import logging
+import uuid
 
 from eios.authz.resources import ResourceType
 from nexloop_eios.context_engine.authority import ContextDenied,decision_ref,read_proof,signed_read
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 KINDS=('object_type','property','vocabulary_value','any')
+RECORD_PROTOCOL='nexloop-semantic-access-v1'
+_log=logging.getLogger(__name__)
+
+
+def term_hash(term):
+    """sha256 of one query term (D2: the record keeps the hash, never the text)."""
+    return hashlib.sha256(term.strip().encode('utf-8')).hexdigest()
+
+
+class SemanticAccessRecorder:
+    """NX-038 E3 (D2): appends one record per semantic access, and one per reported use, through the signed SQL port
+    authz.nexloop_semantic_access_record (tenant and world from the authenticated service identity; the Run must be bound to
+    them). Refs, revisions, hashes and counts only. A failed write never fails the caller's Run: it is counted in
+    ``failures`` and logged without content, and the access returns its result as before."""
+    def __init__(self,pool,session,signer,*,run_id=None,context_id=None):
+        self.pool,self.session,self.signer=pool,session,signer
+        self.run_id=None if run_id is None else str(run_id);self.context_id=context_id
+        self.written=0;self.failures=0
+
+    def _send(self,payload):
+        from nexloop_eios.assembly import verify_application_role
+        body=canonical_payload(payload)
+        auth=self.session.authentication
+        text=canonical_payload({'protocol':RECORD_PROTOCOL,'key_id':self.signer.key_id,'tenant_id':auth.tenant_id,'world':self.session.world,
+            'parameters_digest':hashlib.sha256(body.encode()).hexdigest()})
+        signature=hmac.new(self.signer.material,(RECORD_PROTOCOL+':'+text).encode(),'sha256').hexdigest()
+        with self.pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            db.execute('select authz.nexloop_semantic_access_record(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature,body))
+
+    def _write(self,payload):
+        try:self._send(payload)
+        except Exception as error:  # the record is best effort: the Run goes on (design D2, NX-038 E3)
+            self.failures+=1
+            _log.warning('semantic access record not written: %s',type(error).__name__)
+            return None
+        self.written+=1
+        return payload['access_id']
+
+    def access(self,operation,query_kind,terms,*,coverage,ambiguity,refs,unresolved=0):
+        return self._write({'kind':'access','access_id':str(uuid.uuid4()),'run_id':self.run_id,'context_id':self.context_id,'operation':operation,
+            'query_kind':query_kind,'term_hashes':[term_hash(t) for t in terms],'coverage':coverage,'ambiguity':bool(ambiguity),
+            'refs':refs,'unresolved_count':unresolved})
+
+    def used(self,access_id,refs):
+        """The caller used these refs of an earlier access (a second append-only row; the access row never changes)."""
+        if access_id is None:return None
+        return self._write({'kind':'use','access_id':str(uuid.uuid4()),'accessed_id':access_id,'run_id':self.run_id,'refs':refs})
+
+
+def _refs(items):
+    seen={}
+    for item in items:seen.setdefault(item['ref'],{'ref':item['ref'],'revision':str(item['schema_version'])})
+    return list(seen.values())
 
 
 def ref_kind(ref):
@@ -40,8 +97,9 @@ class SemanticConfig:
 
 
 class SemanticAdapter:
-    def __init__(self,pool,session,signer,recall,*,config=SemanticConfig()):
+    def __init__(self,pool,session,signer,recall,*,config=SemanticConfig(),recorder=None):
         self.pool,self.session,self.signer,self.recall,self.config=pool,session,signer,recall,config
+        self.recorder=recorder
 
     def _definitions(self,refs):
         refs=list(dict.fromkeys(refs))
@@ -72,9 +130,13 @@ class SemanticAdapter:
         hits=[h for h in result.definitions if h.score>=self.config.min_score and (kind=='any' or ref_kind(h.ref)==kind)][:limit]
         details,proofs=self._definitions([h.ref for h in hits])
         items=[{**details[h.ref],'score':round(h.score,6),'method':h.method,'source_refs':[h.ref]} for h in hits if h.ref in details]
-        return {'version':self._version(items,result),'coverage':1.0 if items else 0.0,
+        out={'version':self._version(items,result),'coverage':1.0 if items else 0.0,
             'ambiguity':self._ambiguous([i['score'] for i in items]),'items':items,
             'access_decision_refs':sorted(decision_ref(p) for p in proofs)}
+        if self.recorder is not None:
+            out['access_id']=self.recorder.access('browse',kind,[query],coverage=out['coverage'],ambiguity=out['ambiguity'],refs=_refs(items),
+                unresolved=0 if items else 1)
+        return out
 
     def resolve(self,mentions,*,type_hint=None):
         if type(mentions) not in (list,tuple) or not 1<=len(mentions)<=16 or any(type(m) is not str or not m.strip() for m in mentions):
@@ -91,8 +153,12 @@ class SemanticAdapter:
             # Ambiguity is reported, never resolved by picking the first candidate.
             out.append({'mention':mention,'status':status,'candidates':candidates})
         resolved=sum(1 for r in out if r['status']=='resolved')
-        return {'version':self._version(all_items,result),'coverage':resolved/len(out),'ambiguity':any(r['status']=='ambiguous' for r in out),
+        value={'version':self._version(all_items,result),'coverage':resolved/len(out),'ambiguity':any(r['status']=='ambiguous' for r in out),
             'resolutions':out,'access_decision_refs':sorted({decision_ref(p) for p in proofs})}
+        if self.recorder is not None:
+            value['access_id']=self.recorder.access('resolve','any' if type_hint is None else 'object_type',list(mentions),coverage=value['coverage'],
+                ambiguity=value['ambiguity'],refs=_refs(all_items),unresolved=sum(1 for r in out if r['status']=='unresolved'))
+        return value
 
 
 class OpenWorkReader:

@@ -4,6 +4,7 @@ import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
 import {PAGES,parseRoute,routePath,type PageKey,type Route} from './route';
 import {Overview} from './pages/Overview';
+import {Personas} from './pages/Personas';
 import {Goals,Plans} from './pages/Goals';
 import {ConsumerDetail,Consumers,Conversation} from './pages/Consumers';
 import {Actions} from './pages/Actions';
@@ -12,6 +13,9 @@ import {Contact} from './pages/Contact';
 import {NotEnabled,Settings} from './pages/Settings';
 import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
 import {Alerts,Audit,Operations} from './pages/Observability';
+import {WorldModel} from './pages/WorldModel';
+import {Capabilities} from './pages/Capabilities';
+import {DataAssets} from './pages/DataAssets';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -48,22 +52,26 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'commitments':return route.id?<CommitmentDetail commitmentId={route.id} actions={a} onContext={onContext} onConsumer={id=>go({page:'consumers',id})}/>
       :<Commitments actions={a} query={route.query??{}} onQuery={setQuery} onOpen={id=>go({page:'commitments',id})} onConsumer={id=>go({page:'consumers',id})}/>;
     case 'contact':return <Contact actions={a}/>;
+    case 'personas':return <Personas actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
     case 'alerts':return <Alerts actions={a}/>;
     case 'operations':return <Operations actions={a}/>;
     case 'audit':return <Audit actions={a}/>;
-    case 'ontology':return <NotEnabled title={PAGES.ontology}/>;
+    case 'ontology':return <WorldModel query={route.query} onQuery={query=>go({page:'ontology',query})}/>;  // pushed: Back walks tab, view and focus
+    case 'data_assets':return <DataAssets/>;
+    case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
     case 'experiments':return <NotEnabled title={PAGES.experiments}/>;
   }
 }
 
-/** Navigation in three groups (walkthrough F08); the pages of the next stage last, marked "未启用". */
+/** Navigation in four groups (walkthrough F08; world model design §5: 模型与资产 next to 运营); the next-stage page last, marked "未启用". */
 export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','plans','goals','contact']},
+  {title:'模型与资产',pages:['ontology','data_assets','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['knowledge','settings','ontology','experiments']}];
-const NOT_ENABLED:PageKey[]=['ontology','experiments'];
+  {title:'管理',pages:['settings','personas','capabilities','experiments']}];
+const NOT_ENABLED:PageKey[]=['experiments'];
 
 /** Detail pages: where this page sits (F08); every step but the last goes back. With the customer known (F10) a conversation reads
  * 消费者 › <客户> › 会话 and a commitment 承诺 / 交付 › <客户的承诺> › 承诺详情. */

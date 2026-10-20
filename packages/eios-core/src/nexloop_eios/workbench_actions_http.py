@@ -98,6 +98,23 @@ OPERATIONS={
     # 0220 (ADR-034 first step): owner-only persona marking, and the erasure of a Consumer whose persona is not real.
     'set_consumer_persona':{'consumer_id':_id(_HEX),'persona':lambda v:v if v in ('real','simulated_agent','synthetic') else (_ for _ in ()).throw(ValueError('persona')),'reason':_reason},
     'erase_synthetic_consumer':{'consumer_id':_id(_HEX),'reason':_reason},
+    # 0227 operator persona slice 1 (owner only): versions, assignment (persona_id null clears it), rules, AI disclosure.
+    'publish_operator_persona':{'persona_id':_id(re.compile(r'[a-z][a-z0-9_-]{0,63}')),'version':lambda v:v if type(v) is int and 1<=v<=999999 else (_ for _ in ()).throw(ValueError('version')),
+        'status':lambda v:v if v in ('published','retired') else (_ for _ in ()).throw(ValueError('status')),
+        'document':lambda v:v if v is None or type(v) is dict else (_ for _ in ()).throw(ValueError('document')),'reason':_reason},
+    'assign_operator_persona':{'consumer_id':_id(_HEX),'persona_id':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[a-z][a-z0-9_-]{0,63}',v)) else (_ for _ in ()).throw(ValueError('persona')),
+        'reason':_reason},
+    'publish_persona_rules':{'version':lambda v:v if type(v) is int and 1<=v<=999999 else (_ for _ in ()).throw(ValueError('version')),
+        'default_persona_id':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'[a-z][a-z0-9_-]{0,63}',v)) else (_ for _ in ()).throw(ValueError('persona')),
+        'rules':lambda v:v if type(v) is list and len(v)<=50 else (_ for _ in ()).throw(ValueError('rules')),'reason':_reason},
+    'set_ai_disclosure':{'mode':lambda v:v if v in ('none','first_contact','always') else (_ for _ in ()).throw(ValueError('mode')),
+        'when_asked':lambda v:v if v in ('deflect','handoff') else (_ for _ in ()).throw(ValueError('when_asked')),
+        'block_human_claims':_bool,'content_label':_bool,'reason':_reason},
+    # 0228 (owner only): decline or reinstate one of a consumer's communication preferences.
+    'dismiss_contact_preference':{'claim_id':_id(re.compile(r'[0-9a-f]{64}')),'dismissed':_bool,'reason':_reason},
+    # 0232 (owner only): tenant outreach controls; confirm_consent_mode is null unless marketing is being switched on (O5).
+    'set_outreach_controls':{'settings':lambda v:v if type(v) is dict else (_ for _ in ()).throw(ValueError('settings')),
+        'confirm_consent_mode':lambda v:v if v in (None,'opt_out','opt_in') else (_ for _ in ()).throw(ValueError('consent')),'reason':_reason},
     # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
     'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,
         'provider_retention_checked':_bool,'reply_followup':lambda v:v if v in ('owner_follow_up','fallback_reply') else (_ for _ in ()).throw(ValueError('follow-up'))},
@@ -191,7 +208,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)
