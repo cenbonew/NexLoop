@@ -5212,7 +5212,8 @@
               "budget_exhausted",
               "validation_leak",
               "not_reproducible",
-              "breaking_change"
+              "breaking_change",
+              "evaluator_timeout"
             ]
           },
           "created_at": {
@@ -7798,7 +7799,7 @@
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "evolution-evaluation-bundle.schema.json": "d5c5ee062108703be164919baeffb6c06eb61682e20e1b7fe12499102d82e342",
-    "evolution-evaluation-report.schema.json": "58cf3b1f878279f1e03d05dde1892895d0e7929a7f604083779c114fc01e7aac",
+    "evolution-evaluation-report.schema.json": "29e9305b8fdf200df4ef4a4d63f8f70176448dec596c0ffa2324705d9f60698b",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
     "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",
