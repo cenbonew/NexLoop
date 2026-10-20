@@ -31,7 +31,9 @@ REPORT = json.loads((ROOT / 'packages/contracts/evolution-evaluation-report.sche
 SEED = '0' * 32
 CREATED = '2026-10-20T04:00:00Z'
 GATES = ['references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution', 'no_forbidden_regression',
-         'index_migration_impact']
+         'index_migration_impact']  # nx038-hard-gates-1, answered by replay_l0
+V2_GATES = ['references_valid', 'structure_valid', 'zero_overreach', 'zero_cross_tenant', 'zero_fact_pollution', 'no_forbidden_regression',
+            'semantic_regression', 'cost_performance', 'semantic_conflict', 'index_migration_impact']  # NX-039 V2: what a bundle freezes now
 
 
 def accesses_for(cases, *, cover_other=True):
@@ -148,7 +150,7 @@ def test_bundle_report_and_review_link_hand_over_without_touching_active_state(p
     frozen = store.freeze_bundle(f['candidate'], seed=SEED)
     bundle, digest = frozen['bundle'], frozen['bundle_digest']
     jsonschema.validate(bundle, BUNDLE)
-    assert frozen['replayed'] is False and bundle['levels'] == ['L0'] and bundle['hard_gates'] == GATES
+    assert frozen['replayed'] is False and bundle['levels'] == ['L0'] and bundle['hard_gates'] == V2_GATES and bundle['hard_gates_version'] == 'nx039-gates-1'
     assert bundle['budget_remaining'] == {'unit': 'CNY', 'rounds': 3, 'diagnosis': '20', 'candidate': '10', 'tenant_month': '100'}
     stored = admin.execute('select body_digest from runtime.nexloop_evo_patches').fetchone()[0]
     assert bundle['patch_digest'] == stored and bundle['design_case_ids'] == f['drafts'][0].candidate['design_case_ids']
@@ -158,33 +160,16 @@ def test_bundle_report_and_review_link_hand_over_without_touching_active_state(p
             store.freeze_bundle(f['candidate'], levels=levels, seed=seed)
     with pytest.raises(psycopg.Error, match='invalid'):
         store.freeze_bundle(f['candidate'], levels=('L1',), seed=SEED)
-    # L0 on synthetic records of the bundle's cases, then the report against the frozen digest.
+    # NX-039 V2 (D39-1): the writer no longer records reports; the evaluator does (tests/test_evolution_v2_pg.py, also for the D4 review
+    # link that needs a recorded report).
     cases = bundle['design_case_ids'] + bundle['validation_case_ids']
     report = replay_l0(bundle, digest, f['patch'], accesses_for(cases), created_at=CREATED)
-    jsonschema.validate(report, REPORT)
-    assert report['conclusion'] == 'accept'
-    for broken, match in (({**report, 'bundle_digest': 'e' * 64}, 'no frozen bundle'), ({**report, 'level': 'L1'}, 'differs'),
-                          ({**report, 'hard_gates': report['hard_gates'][1:]}, 'every frozen hard gate'),
-                          ({**report, 'hard_gates': [{**report['hard_gates'][0], 'result': 'fail'}] + report['hard_gates'][1:]}, 'failed hard gate')):
-        with pytest.raises(psycopg.Error, match=match):
-            store.record_report({**broken, 'report_id': str(uuid.uuid4())})
-    recorded = store.record_report(report)
-    assert recorded['replayed'] is False and store.record_report(report)['replayed'] is True
-    with pytest.raises(psycopg.Error, match='reused'):
-        store.record_report({**report, 'elapsed_ms': 9})
-    # A report changes no status: the candidate is still proposed (NX-039 owns evaluating and after).
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        store.record_report(report)
     assert store.read(f['candidate'])['candidate']['status'] == 'proposed'
-    # D4: the review decision is linked to the candidate and the report digest it relied on.
-    decision = review_decision(admin)
-    assert store.link_review(decision, f['candidate'], recorded['report_digest']) == {'linked': True, 'replayed': False, 'gate_result': 'pass'}
-    assert store.link_review(decision, f['candidate'], recorded['report_digest'])['replayed'] is True
-    with pytest.raises(psycopg.Error, match='review link unavailable'):
-        store.link_review(str(uuid.uuid4()), f['candidate'], recorded['report_digest'])
-    with pytest.raises(psycopg.Error, match='review link unavailable'):
-        f['other'].link_review(decision, f['candidate'], recorded['report_digest'])  # another tenant's writer sees nothing
     events = [r[0] for r in admin.execute('select event_kind from runtime.nexloop_evo_candidate_events order by event_id')]
-    assert events[-3:] == ['bundle_frozen', 'report_recorded', 'review_linked']
-    for table in ('runtime.nexloop_evo_bundles', 'runtime.nexloop_evo_reports', 'runtime.nexloop_evo_review_links'):
+    assert events[-1] == 'bundle_frozen'
+    for table in ('runtime.nexloop_evo_bundles',):  # reports and review links: tests/test_evolution_v2_pg.py
         with pytest.raises(psycopg.errors.InsufficientPrivilege, match='frozen'), admin.transaction():
             admin.execute('set local role nexloop_owner')
             admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
