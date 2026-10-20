@@ -1200,6 +1200,11 @@
       "version": "0240",
       "name": "0240_outreach_approval.sql",
       "sha256": "0c5774fb2c83ad1c9e4b7bc4776004299a21f8a21893a0c3d13523b322f19d92"
+    },
+    {
+      "version": "0241",
+      "name": "0241_nx039_evaluation_open.sql",
+      "sha256": "8e81c62d4d8d944a8ca765332c47a994a528332e800564d02ca4b240379783c7"
     }
   ]
 }
