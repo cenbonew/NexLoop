@@ -46,7 +46,7 @@ function ProcessBlock({title,section,fields}:{title:string;section:Process;field
 }
 
 /** NX-035 M12 backup block, read only: ages and counts as recorded; a metric without an observation reads “无” (AT-045). */
-function BackupBlock({backup}:{backup:Backup}){
+export function BackupBlock({backup}:{backup:Backup}){
   if(backup.status==='unavailable')return <article className="workbench-block workbench-block-unavailable" aria-label="备份"><h3>备份</h3><p className="note" role="status">{BACKUP_UNAVAILABLE_TEXT}</p></article>;
   const value=(n:number|null)=>n===null?'无':age(n);
   const flag=(n:number|null,bad:string,good:string)=>n===null?'无':n>0?bad:good;
@@ -59,7 +59,7 @@ function BackupBlock({backup}:{backup:Backup}){
   </article>;
 }
 
-function Counts({values,labels}:{values:Record<string,number>;labels?:Record<string,string>}){
+export function Counts({values,labels}:{values:Record<string,number>;labels?:Record<string,string>}){
   const entries=Object.entries(values);
   return entries.length?<ul>{entries.map(([k,n])=><li key={k}>{labels?.[k]?`${labels[k]}（${k}）`:k}：{n}</li>)}</ul>:<p className="note">无。</p>;
 }

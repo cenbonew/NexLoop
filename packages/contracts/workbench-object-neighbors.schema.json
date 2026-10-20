@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:workbench-object-neighbors",
+  "title": "workbench-object-neighbors",
+  "description": "Enterprise world model W2 (owner 2026-10-19, D3): the depth-1 neighbourhood of one object, GET /api/v1/workbench/objects/{type}/{id}/neighbors (workbench read verb `object_neighbors`). Groups by direction, edge (a governed relation name, or `property:<name>` for a reference property) and neighbour type. At most 25 candidates a group are checked: a neighbour is listed only when its ADR-025 READ holds and, for a property edge, the READ of the referencing property; the other checked candidates are `invisible`, those beyond 25 are `collapsed` (not checked, not shown). Identifiers only. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type_name",
+    "object_id",
+    "depth",
+    "group_limit",
+    "groups"
+  ],
+  "properties": {
+    "type_name": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+    },
+    "object_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "depth": {
+      "const": 1
+    },
+    "group_limit": {
+      "const": 25
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "direction",
+          "via",
+          "type_name",
+          "items",
+          "invisible",
+          "collapsed"
+        ],
+        "properties": {
+          "direction": {
+            "enum": [
+              "outgoing",
+              "incoming"
+            ]
+          },
+          "via": {
+            "type": "string",
+            "pattern": "^(property:[A-Za-z][A-Za-z0-9_]{0,63}|[A-Za-z][A-Za-z0-9_.:-]{0,127})$"
+          },
+          "type_name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type_name",
+                "object_id"
+              ],
+              "properties": {
+                "type_name": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+                },
+                "object_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+                }
+              }
+            }
+          },
+          "invisible": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 25
+          },
+          "collapsed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

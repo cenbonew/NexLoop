@@ -1,0 +1,29 @@
+{
+  "type_name": "Consumer",
+  "object_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "depth": 1,
+  "group_limit": 25,
+  "groups": [
+    {
+      "direction": "incoming",
+      "via": "property:consumer_id",
+      "type_name": "Goal",
+      "items": [],
+      "invisible": 25,
+      "collapsed": 5
+    },
+    {
+      "direction": "outgoing",
+      "via": "knows",
+      "type_name": "Consumer",
+      "items": [
+        {
+          "type_name": "Consumer",
+          "object_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "invisible": 0,
+      "collapsed": 0
+    }
+  ]
+}

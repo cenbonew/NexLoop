@@ -33,9 +33,9 @@ test('tabs: one tab in the tab order, the selected one', ()=>{
   const html=renderToStaticMarkup(h(Tabs,{label:'范围',value:'b',onChange:()=>{},tabs:[{key:'a',label:'甲'},{key:'b',label:'乙'}]}));
   expect(html).toContain('aria-selected="false" tabindex="-1"');expect(html).toContain('aria-selected="true" tabindex="0"');
 });
-test('navigation: three groups, every page once, the next-stage pages last; detail pages have breadcrumbs', ()=>{
-  expect(NAV_GROUPS.map(g=>g.title)).toEqual(['运营','监控','管理']);
-  const all=NAV_GROUPS.flatMap(g=>g.pages);expect([...all].sort()).toEqual(Object.keys(PAGES).sort());expect(all.slice(-2)).toEqual(['ontology','experiments']);
+test('navigation: four groups, every page once, the next-stage page last; detail pages have breadcrumbs', ()=>{
+  expect(NAV_GROUPS.map(g=>g.title)).toEqual(['运营','模型与资产','监控','管理']);
+  const all=NAV_GROUPS.flatMap(g=>g.pages);expect([...all].sort()).toEqual(Object.keys(PAGES).sort());expect(all.slice(-1)).toEqual(['experiments']);expect(NAV_GROUPS[1].pages).toEqual(['ontology','data_assets','knowledge']);expect(NAV_GROUPS[3].pages).toEqual(['settings','capabilities','experiments']);
   expect(crumbs({page:'consumers'})).toEqual([]);
   expect(crumbs({page:'consumers',id:'x',sub:'conversation'}).map(c=>c.label)).toEqual(['消费者','会话']);
   expect(crumbs({page:'commitments',id:'x'}).map(c=>c.label)).toEqual([PAGES.commitments,'承诺详情']);
