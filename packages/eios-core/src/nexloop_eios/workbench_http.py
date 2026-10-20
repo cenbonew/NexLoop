@@ -404,6 +404,38 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'data_health')
 
+    @routes.get('/outreach-metrics')
+    async def outreach_metrics(request: Request):
+        # Outreach slice 8: the owner's outreach metrics.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'outreach_metrics')
+
+    @routes.get('/outreach-evidence')
+    async def outreach_evidence(request: Request):
+        # Outreach slice 8: one send's evidence chain (?intent_id=) or a list (?consumer_id=&synthetic_only=true&limit=).
+        params = request.query_params
+        query = {}
+        if set(params) - {'intent_id', 'consumer_id', 'synthetic_only', 'limit'} or any(len(params.getlist(k)) != 1 for k in params):
+            return error('invalid_request', 422)
+        if 'intent_id' in params:
+            if set(params) != {'intent_id'} or not re.fullmatch(r'outreach:[0-9a-f]{64}', params['intent_id']):
+                return error('invalid_request', 422)
+            query['intent_id'] = params['intent_id']
+        if 'consumer_id' in params:
+            if not re.fullmatch(r'[a-f0-9]{64}', params['consumer_id']):
+                return error('invalid_request', 422)
+            query['consumer_id'] = params['consumer_id']
+        if 'synthetic_only' in params:
+            if params['synthetic_only'] not in ('true', 'false'):
+                return error('invalid_request', 422)
+            query['synthetic_only'] = params['synthetic_only'] == 'true'
+        if 'limit' in params:
+            if not re.fullmatch(r'[1-9][0-9]{0,2}', params['limit']) or int(params['limit']) > 200:
+                return error('invalid_request', 422)
+            query['limit'] = int(params['limit'])
+        return await invoke(request, 'outreach_evidence', **query)
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.
