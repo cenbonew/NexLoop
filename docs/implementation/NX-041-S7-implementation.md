@@ -61,3 +61,9 @@ sim world 里不会出现事实性的 Commitment 或 Claim，因为来源都被�
 | 1.5 | **每个 world 的事件上限，提议 100,000 条，请调度员定。** 理由：这与 S3 生成器的单次上限（2,000 个 Consumer × 50 条事件）同级，足够一次实验使用。上限只在 `runtime.nexloop_sim_port_event_limit()` 一处定义。端口的串行锁从按 consumer 改为按 world，这样计数是精确的。重放已有的 step 不受上限影响。测试覆盖了：恰好写满时最后一条能写入、再多一条报 `quota_exceeded`、重放仍然返回原结果、另一个 world 不受影响。 |
 | 5 | 原来匹配源码字面量的断言改成了行为测试。0266 给 `runtime.nexloop_commitment_evidence` 加了 CHECK `nx041_no_simulation_evidence`：这张证据表不接受 sim 或 shadow world 的行。所以无论哪个写入方（效应意图、data_mode 为 test 的商业记录、owner 的证明、已送达的消息），都不能在 sim world 里产生证据，sim world 的 Commitment 只会违约或取消，永远不会被兑现。测试从 CHECK 定义中枚举出全部证据种类，逐一验证：写 real 能通过（阳性对照，随后回滚），写 sim 和 shadow 都被拒绝；直接写入一个已兑现的 Commitment 也会被守卫拒绝；没有证据时，状态目标不会是 fulfilled。 |
 | 6 | 与 S4 修复二在测试文件上的冲突，已由 L4 在集成时合并。本次没有改 S4 的测试。 |
+
+## 定案与后续（调度员 2026-10-21）
+
+- **端口事件上限**：按提议定为每个 world 100,000 条（`runtime.nexloop_sim_port_event_limit()`）。
+- **sim world 的 Commitment 不可兑现**：保留 CHECK `nx041_no_simulation_evidence`。这是保守做法，以后可以用新迁移放开。
+- **后续（NX-042/043）**：如果实验需要「模拟兑现率」，届时新增一种证据，明确标为 simulated，只在 sim world 里有效，永远不会流到 real。现有的四类真实证据仍然不接受 sim 行。
