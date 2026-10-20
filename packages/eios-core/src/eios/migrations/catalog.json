@@ -1244,7 +1244,12 @@
     {
       "version": "0249",
       "name": "0249_semantic_release.sql",
-      "sha256": "935f930ddd0f88827d606caa2a476ad924d3636ff9862dce7dce279731ab5938"
+      "sha256": "c4a61d9a122b508e8acf0c7dedf6dde022821b7d9fc23e9aafe62f759c764ba0"
+    },
+    {
+      "version": "0250",
+      "name": "0250_nx039_erasure_watch.sql",
+      "sha256": "f86b38a2b3af2c38e4eea1dd58d744feefd6bbdbad8794067fb2916f001d8159"
     }
   ]
 }

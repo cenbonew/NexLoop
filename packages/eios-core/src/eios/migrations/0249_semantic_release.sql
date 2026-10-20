@@ -80,7 +80,7 @@ create trigger semantic_release_items_no_truncate before truncate on ontology.ne
 alter table runtime.nexloop_evo_candidate_events drop constraint nexloop_evo_candidate_events_event_kind_check;
 alter table runtime.nexloop_evo_candidate_events add constraint nexloop_evo_candidate_events_event_kind_check check(event_kind in
  ('diagnosis_opened','diagnosis_closed','proposed','status_changed','budget_reserved','invalidated','bundle_frozen','report_recorded','review_linked',
-  'evaluation_opened','evaluation_concluded','published'));
+  'evaluation_opened','evaluation_concluded','l1_opened','l1_closed','published'));  -- V3's kinds kept (integration)
 
 -- 2. Helpers --------------------------------------------------------------------------------------------------------------------------
 -- The current release's items for one ref (aliases sorted; the latest note), empty when nothing is released.
