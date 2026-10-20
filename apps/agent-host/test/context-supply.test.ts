@@ -1,7 +1,7 @@
 /** Compiled parser/transport input declarations only; never grants EIOS authority. */
 import {createHash,randomUUID} from 'node:crypto';
 import {describe,it,expect} from 'vitest';
-import {canonicalContextJSON,contextCommandDigest,validateContextInput,validateContextProviderInput,CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V6} from '../dist/context-input.js';
+import {canonicalContextJSON,contextCommandDigest,validateContextInput,validateContextProviderInput,validateOutreach,CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V6} from '../dist/context-input.js';
 import {command} from './pi-runtime-support.ts';
 const sha=(value:string)=>createHash('sha256').update(value).digest('hex');
 function declaration(v2=true){
@@ -115,6 +115,11 @@ describe('0227 operator persona: optional section on a v6 Message Run pack',()=>
    expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
   }
  });
+ it('outreach slice 5: a message Run pack never carries the outreach section',()=>{
+  const f=declaration();
+  const {input,proof}=v6(f,p=>{p.outreach={schema:'nexloop-outreach-context/1',list_version:1,purposes:[],marketing:{enabled:false,consent_mode:'opt_out'}};});
+  expect(()=>validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toThrow('runtime_context_invalid');
+ });
  it('accepts the section and leaves the result unchanged',()=>{
   const f=declaration();const {input,proof}=v6(f,p=>{p.operator_persona=persona();});
   expect(validateContextInput(input,f.cmd,proof,CONTEXT_PROTOCOL_V6)).toEqual({body:f.pack.user_statement.body,run_id:f.cmd.run_id,plans:[]});
@@ -135,3 +140,16 @@ describe('0227 operator persona: optional section on a v6 Message Run pack',()=>
  });
 });
 
+describe('outreach slice 5: the outreach section of a plan reevaluation Run',()=>{
+ const good=()=>({schema:'nexloop-outreach-context/1',list_version:1,marketing:{enabled:false,consent_mode:'opt_out'},
+  purposes:[{purpose_id:'commitment_followup',kind:'commitment_followup',topic:'commitment_followup',frequency_class:'service',requires_approval:false,
+   content_rules:{max_chars:300,unsubscribe_notice_required:false}}]});
+ it('accepts the exact shape',()=>{expect(()=>validateOutreach(good())).not.toThrow();expect(()=>validateOutreach({...good(),purposes:[]})).not.toThrow();});
+ it.each(['schema','extra','gate','body','kind','max_chars','consent'])('rejects %s',kind=>{
+  const one:any=good();
+  if(kind==='schema')one.schema='nexloop-outreach-context/2';if(kind==='extra')one.would_dispatch=true;if(kind==='gate')one.purposes[0].blocked_by=['quiet_hours'];
+  if(kind==='body')one.purposes[0].body='您好';if(kind==='kind')one.purposes[0].kind='reminder';if(kind==='max_chars')one.purposes[0].content_rules.max_chars=5;
+  if(kind==='consent')one.marketing.consent_mode='implied';
+  expect(()=>validateOutreach(one)).toThrow('runtime_context_invalid');
+ });
+});

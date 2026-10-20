@@ -118,6 +118,34 @@
 - 拒绝写入统一的派发拒绝表（该表以效应意图为键；本片的拒绝留在台账和审计事件里）；
 - 复评 Run 入口（切片 5）、审批（切片 6）、退订与同意记录（切片 7）。
 
+## 5. 切片 5 的落地方式
+
+**Run 入口**：`nexloop.outreach.run_submit:1`，只授予 runtime worker（`service-grants` v18）。Host 工具 `nexloop.outreach.send` 默认不提供，只有部署配置同时打开 `outreach_tool` 和 `plan_outcome_tool` 时，才提供给计划复评 Run。
+
+SQL 依次复核：
+1. 活动激活、任务租约和命令原文；
+2. 必须是计划复评 Run，兜底回复 Run 一律拒绝（ADR-023 §2.7）；
+3. Run 凭据含 `nexloop.outreach.send:1`，Role 执行上限也含它；
+4. 消费者取 Run 自己的。
+
+模型只给 `purpose` 和 `body`。来源固定为 `plan:<plan_id>`，业务意图 ID 与切片 4 同一公式，受理统一走 `runtime.nexloop_outreach_accept`。受理后照样经切片 4 的执行端口，在派发时检查全部闸门。Agent 发起的请求，派发时还要求 Role 执行上限仍含该 Action。
+
+**上下文（v6 增量）**：可选节 `outreach` 只出现在 Role 执行上限含发送权限的计划复评 Run 里。内容是当前目的清单版本、租户已启用的目的、营销状态，不含闸门结论、正文或价格。
+
+计划复评 Run 也开始带人设节（`operator_persona`，含 AI 身份披露配置），与消息 Run 相同。Role 绑定时，SQL 重新推导这两节，与 pack 不一致即拒绝，并把它们记为 role 来源。
+
+**AI 身份披露**：
+- 工具说明要求不自称人类，并遵循人设的披露设置；
+- 披露配置本身来自租户开关（人设节里的 `ai_disclosure`），Run 不能改；
+- 营销退订话术仍由服务端在派发时追加。
+
+**不在本片**：
+- `opening_outreach`：要等主动消息真实投递并物化为 Message 之后才有内容可钉住；
+- 触发源写入目的、计划自定义目的的复评预检（`purpose_unregistered`）；
+- 出站前的人设机器检查（人设稿 §3.5）；
+- 复评 Role 的文案规则配置（`plan-reevaluation` 设置）；
+- 部署 Host 时打开 `outreach_tool`。
+
 ## 附录 A：退订词表 v1（已审定，负责人 2026-10-20）
 
 用途：外联稿 §4.4。只在**最近一条主动消息是营销目的**、且时间在窗口内（默认 30 天）时使用。命中后写入营销主题拒绝（`marketing`）；如果最近一条主动消息不是营销，按联系限制兜底。一般性的“别联系我”由现有拒绝规则（`contact-refusal-rules`）处理，这里不重复收录。
