@@ -506,6 +506,7 @@ class Backend:
             'erasure_precheck',  # 0220: the owner's precheck before and after erasing a synthetic Consumer
             'operator_personas',  # 0227: the owner's operator persona overview
             'contact_preferences',  # 0228: a consumer's communication preferences (owner)
+            'outreach_candidates',  # 0231: proactive outreach candidates and their dispatch dry run (owner, read only)
             'consumer_history',  # the customer's recent exchanges across conversations (existing reads composed, 2026-10-18)
             'world_model',  # enterprise world model W1 (0230): published model metadata, read only
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)

@@ -579,5 +579,9 @@ class WorkbenchQueries:
         # 0228: the owner's view of a consumer's communication preferences (from their Claims; no quote) and dismissals.
         return self.reader.observe('contact_preferences', consumer_id=consumer_id)
 
+    def outreach_candidates(self):
+        # 0231: proactive outreach slice 1, candidates and their dispatch dry run (read only; nothing is sent).
+        return self.reader.observe('outreach_candidates')
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

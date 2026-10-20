@@ -338,6 +338,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'contact_preferences', consumer_id=consumer_id)
 
+    @routes.get('/outreach-candidates')
+    async def outreach_candidates(request: Request):
+        # 0231: the owner's view of proactive outreach candidates and their dispatch dry run (ids, purposes, gate results).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'outreach_candidates')
+
     @routes.get('/review')
     async def review_queue(request: Request):
         # The reviewer's evidence page: pending review items (ontology.schema.review), newest first.
