@@ -1242,8 +1242,8 @@
       "sha256": "74adfb5f43c669ebc1ec22313772e184dcc49887738e88df0c61207d30a740db"
     },
     {
-      "version": "0249",
-      "name": "0249_nx039_erasure_watch.sql",
+      "version": "0250",
+      "name": "0250_nx039_erasure_watch.sql",
       "sha256": "ca9ec5705c8602093246699733f8dc5e7a9924804047667a68c071859e883fac"
     }
   ]
