@@ -46,7 +46,7 @@ def test_the_fields_and_ranges_are_those_of_the_workbench_entry():
     for command, (operation, spec) in T.OPERATIONS.items():
         assert set(spec) == set(OPERATIONS[operation]), command
     # Values both sides accept or refuse alike (the entry's checks raise ValueError, the tool's Refused).
-    probes = {('create', 'expires_in_days'): ([1, 30], [0, 366, '7', 7.0]), ('generate', 'consumers'): ([1, 2000], [0, 2001]),
+    probes = {('create', 'expires_in_days'): (list(range(1, 31)), [0, 31, 366, '7', 7.0]), ('generate', 'consumers'): ([1, 2000], [0, 2001]),
               ('clock', 'seconds'): ([1, 315360000], [0, 315360001]), ('clock', 'rate'): ([0.5, 100000], [0, 100001]),
               ('delete', 'world'): ([WORLD, 'shadow:' + str(uuid.uuid4())], ['real', 'test', 'sim:1']),
               ('generate', 'world'): ([WORLD], ['shadow:' + str(uuid.uuid4())]), ('generate', 'seed'): (['s.1-x'], ['', 'a b'])}
