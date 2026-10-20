@@ -179,7 +179,7 @@ def test_read_only_metrics_role_and_loopback_export(observed, tmp_path):
                 db.execute(statement)
             db.rollback()
         exported = db.execute('select authz.nexloop_metrics_export()').fetchone()[0]
-    assert {(s['tenant_id'], s['world']) for s in exported} >= {(TENANT, 'real'), (TENANT, 'test'), (TENANT, 'simulation')}
+    assert {(s['tenant_id'], s['world']) for s in exported} >= {(TENANT, 'real'), (TENANT, 'test')}  # NX-041 S1: 'simulation' is not a world
     with psycopg.connect(make_conninfo(pg, user='nexloop_api')) as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
         db.execute('select authz.nexloop_metrics_export()')
     text = render_prometheus(exported)

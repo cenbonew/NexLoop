@@ -6,6 +6,7 @@ checks: SQL batch == single snapshots, per-target failure isolation, rejected ke
 falling back to the single read, and the object READ projection end to end.
 """
 from datetime import UTC,datetime,timedelta
+from support.tenants import SIM_WORLD
 import json,threading,time
 import psycopg
 import pytest
@@ -124,7 +125,7 @@ def test_identity_expiry_judged_per_target_in_batch(published_action,admin):
 def test_batches_never_shared_across_principal_world_tenant(published_action,admin,variant):
     reader,_,_=published_action
     _,token_a=seed_multi_authority(admin,reader.pool,[(t,ResourceType.ACTION,Operation.EXECUTE) for t in ALLOWED],identity_suffix='-batch-a')
-    options={'principal':dict(identity_suffix='-batch-b'),'world':dict(identity_suffix='-batch-sim',world='simulation'),
+    options={'principal':dict(identity_suffix='-batch-b'),'world':dict(identity_suffix='-batch-sim',world=SIM_WORLD),
         'tenant':dict(identity_suffix='-batch-t',tenant=TENANT_B)}[variant]
     if variant=='tenant':admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
     _,token_b=seed_multi_authority(admin,reader.pool,[(ALLOWED[0],ResourceType.ACTION,Operation.EXECUTE)],**options)

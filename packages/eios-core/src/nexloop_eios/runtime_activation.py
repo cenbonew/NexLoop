@@ -14,6 +14,7 @@ from eios.authz.service import AuthorizationDecisionService
 from nexloop_eios.service_offerings import CatalogScopeDenied
 from nexloop_eios.authorization import PostgresAuthorityProvider,_identity,authenticate_service,resolve_authority
 from nexloop_eios.assembly import verify_application_role
+from nexloop_eios.worlds import world_kind
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.run_credentials import AUDIENCE
 
@@ -31,7 +32,8 @@ def _command(value):
     for key in ('run_id','tenant_id','trigger_event_id'):
         if not isinstance(value[key],str) or re.fullmatch(r'[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}',value[key]) is None:raise ValueError('Run ID unavailable')
         uuid.UUID(value[key])
-    if value['mode'] not in ('real','simulation','shadow','test') or not isinstance(value['world_id'],str) or not value['world_id'] or (value['mode']=='real')!=(value['world_id']=='real'):raise ValueError('world unavailable')
+    # NX-041 S1 (D9): a valid world (nexloop_eios.worlds) whose kind is the Run's mode.
+    if value['mode'] not in ('real','simulation','shadow','test') or world_kind(value['world_id']) != value['mode']:raise ValueError('world unavailable')
     if not isinstance(value['request_id'],str) or not 16<=len(value['request_id'])<=200:raise ValueError('request unavailable')
     for key in ('role_ref','consumer_ref','goal_version_ref','context_manifest_ref','credential_ref'):
         if not isinstance(value[key],str) or not 1<=len(value[key])<=512 or re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*:\S+',value[key]) is None:raise ValueError('reference unavailable')

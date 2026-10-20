@@ -1290,6 +1290,11 @@
       "version": "0258",
       "name": "0258_nx040_open_ontology_schema.sql",
       "sha256": "3dd821c2b80e6b2e4d048df390ce83df257efc9034289d9293dc1536c1bab8c7"
+    },
+    {
+      "version": "0259",
+      "name": "0259_nx041_world_check.sql",
+      "sha256": "0ffcd3598e35a3f5ce13fbc6e52eabf6b1a5b9f994da5debd62ad4d65b1d4b6e"
     }
   ]
 }
