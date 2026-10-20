@@ -30,3 +30,12 @@ export function worldDirectory(world:unknown):string|null{
   const kind=worldKind(world);
   return kind==='simulation'||kind==='shadow'?(world as string).replace(':','-'):null;
 }
+/** NX-041 S7 (design §6, D3): S7's names for the same rule; the S6 implementation above decides (one world group per Host). */
+export function parseWorldGroup(value:unknown):WorldGroup{
+  if(value===undefined)return 'real';
+  if(value==='real'||value==='simulation')return value;
+  throw new Error('runtime configuration refused');
+}
+export function groupAccepts(group:WorldGroup,world:unknown):boolean{
+  return worldGroupAccepts(group,world);
+}

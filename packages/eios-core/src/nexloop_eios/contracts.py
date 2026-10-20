@@ -175,6 +175,35 @@ class CommitmentViewConsumerDisplay(BaseModel):
     reason: Literal['forbidden', 'withheld'] | None = None
     name: str | None = None
 
+class ConsumerPortEventRequestContent(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    text: str | None = None
+    attributes: dict[str, Any] | None = None
+
+class ConsumerPortEventRequestTwin(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    version: str
+    seed: str
+    step: int
+
+class ConsumerPortEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    consumer_id: str
+    event_kind: Literal['message', 'refuse_contact', 'payment_intent', 'visit']
+    content: ConsumerPortEventRequestContent
+    twin: ConsumerPortEventRequestTwin
+
+class ConsumerPortEventFrozen(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    world: str
+    event_id: str
+    sequence: int
+    content_digest: str
+    sim_time: str
+    data_mode: Literal['simulation']
+    output_kind: Literal['simulated_input']
+    origin: Literal['twin']
+
 class ContactRestrictionViewRestrictionsItemHitsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     message_id: str
@@ -1057,6 +1086,13 @@ class CommitmentView(_Contract):
     events: list[CommitmentViewEventsItem]
     exceptions: list[CommitmentViewExceptionsItem]
     consumer_display: CommitmentViewConsumerDisplay | None = None
+
+class ConsumerPortEvent(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:consumer-port-event","title":"consumer-port-event","description":"NX-041 S7 consumer port (design §5): the one way a twin (NX-042) produces an inbound event in a simulation world. The twin gives the synthetic Consumer, the event kind, simulated content and its own version, seed and step; it never gives a world time, a mode, an event id or a sequence: the server derives them (world time from the world\'s clock, S5). The world is a registered active sim:/shadow: world authenticated by its one credential; real and test are refused. Every event is data_mode simulation, output_kind simulated_input, origin twin: never a fact and never a real effect. The port holds no real credential and calls no Action.","type":"object","additionalProperties":false,"required":["schema","request"],"properties":{"schema":{"const":"nexloop-consumer-port-event/1"},"request":{"type":"object","additionalProperties":false,"required":["consumer_id","event_kind","content","twin"],"properties":{"consumer_id":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"A synthetic Consumer generated in this world (S3)."},"event_kind":{"enum":["message","refuse_contact","payment_intent","visit"]},"content":{"type":"object","additionalProperties":false,"description":"Simulated content; a message carries text.","properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"attributes":{"type":"object","maxProperties":16,"propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,31}$"},"additionalProperties":{"anyOf":[{"type":"string","maxLength":200},{"type":"number"},{"type":"boolean"}]}}}},"twin":{"type":"object","additionalProperties":false,"required":["version","seed","step"],"properties":{"version":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,39}/[0-9]+$"},"seed":{"type":"string","pattern":"^[A-Za-z0-9_.-]{1,64}$"},"step":{"type":"integer","minimum":1,"maximum":1000000}}}}},"frozen":{"type":"object","additionalProperties":false,"description":"Server-derived, never accepted from the twin.","required":["world","event_id","sequence","content_digest","sim_time","data_mode","output_kind","origin"],"properties":{"world":{"type":"string","pattern":"^(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"event_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"sequence":{"type":"integer","minimum":1},"content_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"sim_time":{"type":"string","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,6})?Z$"},"data_mode":{"const":"simulation"},"output_kind":{"const":"simulated_input"},"origin":{"const":"twin"}}},"replayed":{"type":"boolean"}}}')
+    schema: Literal['nexloop-consumer-port-event/1']
+    request: ConsumerPortEventRequest
+    frozen: ConsumerPortEventFrozen | None = None
+    replayed: bool | None = None
 
 class ContactRestrictionView(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:contact-restriction-view","title":"contact-restriction-view","description":"NX-028 (D8). The owner workbench\'s read projection of contact restrictions and reply escalations (ADR-023, 0109). A refusal hit\'s `matched_text` is the customer\'s own words: it is present only when the reader also holds that Message\'s READ (`matched_text_status` ok), otherwise null with status restricted (shown as \\"rule <rule_id> matched; text needs authorization\\"). Only the owner can release a restriction (ADR-023 §2.4); a release never replays refused intents. Server-derived; grants nothing.","type":"object","additionalProperties":false,"properties":{"restrictions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["consumer_id","active","control_revision","message_id","conversation_id","rule_version","rule_id","certainty","matched_text","matched_text_status","restricted_at","released_at","released_by","release_reason","hits"],"properties":{"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"active":{"type":"boolean"},"control_revision":{"type":"integer","minimum":1},"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"restricted_at":{"type":"string","minLength":1,"maxLength":64},"released_at":{"type":["string","null"]},"released_by":{"type":["string","null"]},"release_reason":{"type":["string","null"]},"hits":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","rule_version","rule_id","certainty","matched_text","matched_text_status","recorded_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"recorded_at":{"type":"string","minLength":1,"maxLength":64}}}}}}},"escalations":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","conversation_id","consumer_id","reason","detail","escalated_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"reason":{"type":"string","pattern":"^[a-z_]{1,64}$"},"detail":{"type":"object"},"escalated_at":{"type":"string","minLength":1,"maxLength":64}}}}},"required":["restrictions","escalations"]}')
