@@ -26,6 +26,16 @@ def source_may_name_the_send(monkeypatch):
     monkeypatch.setattr(fixture, 'SOURCE_EXTRA_TARGETS', ((SEND, ResourceType.ACTION, Operation.EXECUTE),))
 
 
+def quiet_hours_off(admin, tenant):
+    """The tenant's outreach controls with no quiet hours (as the governed handler leaves them), so what these tests decide never depends
+    on the time of day they run (the default 21:00-09:00 would refuse first: quiet hours come before the real dispatch switch)."""
+    settings = admin.execute('select runtime.nexloop_outreach_default_settings()').fetchone()[0]
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
+        admin.execute('''insert into control.nexloop_outreach_controls(tenant_id,settings,revision,updated_by,request_intent) values(%s,%s,1,'synthetic-owner','synthetic')
+            on conflict(tenant_id) do update set settings=excluded.settings''', (tenant, Jsonb({**settings, 'quiet_hours': None})))
+
+
 @pytest.fixture
 def agent(planning):
     f = planning; plan = f['plan']; admin = f['admin']
@@ -36,6 +46,7 @@ def agent(planning):
     sender_token = fixture.seed_multi_uuid(admin, plan['tenant'], [('eios:action:nexloop.outreach.execute:1', ResourceType.ACTION, Operation.EXECUTE)],
                                            suffix='-outreach-sender')
     s = spec(plan); f['port']().establish(s)
+    quiet_hours_off(admin, plan['tenant'])
     yield dict(f, worker=plan['backend_worker'].authenticate(token, world='real'),
                sender=lambda: plan['backend_worker'].authenticate(sender_token, world='real'), spec=s)
 

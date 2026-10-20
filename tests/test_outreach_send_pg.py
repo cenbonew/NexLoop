@@ -56,6 +56,14 @@ def row(admin, intent_id):
     return admin.execute('select state,refusal_code,fence from runtime.nexloop_outreach_sends where intent_id=%s', (intent_id,)).fetchone()
 
 
+def quiet_now(zone='Asia/Shanghai', minutes=90):
+    """A quiet-hours window around the current minute in the tenant's zone: refuses whenever the test runs (an all-day 00:00-23:59
+    window misses the minute 23:59)."""
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo(zone))
+    return (now - timedelta(minutes=minutes)).strftime('%H:%M') + '-' + (now + timedelta(minutes=minutes)).strftime('%H:%M')
+
+
 def controls(admin, **change):
     settings = {**OPEN, **change}
     with admin.transaction():
@@ -155,7 +163,7 @@ GATES = {
     'control_paused': _pause,
     'purpose_disabled': lambda c, a: purpose_state(a, 'commitment_followup', False),
     'persona_excluded': _persona,
-    'quiet_hours': lambda c, a: controls(a, quiet_hours='00:00-23:59'),
+    'quiet_hours': lambda c, a: controls(a, quiet_hours=quiet_now()),
     'frequency_capped': lambda c, a: controls(a, per_24h=0),
     'preference_topic': lambda c, a: statement(c, 'contact_topic', 'commitment_followup', polarity='negated'),
     'real_dispatch_closed': lambda c, a: set_switch(a, TENANT, 'action_type', SEND_ACTION, False),
@@ -185,7 +193,7 @@ def test_the_contact_restriction_is_checked_first(outreach, admin, monkeypatch):
     intent = send(c).json()['intent_id']
     _pause(c, admin)
     _persona(c, admin)
-    controls(admin, per_24h=0, quiet_hours='00:00-23:59')
+    controls(admin, per_24h=0, quiet_hours=quiet_now())
     _restrict(c, admin)
     tick(c)
     assert row(admin, intent)[:2] == ('refused', 'contact_restricted') and c['outbox'].requests == []
