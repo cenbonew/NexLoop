@@ -1107,6 +1107,11 @@
       "sha256": "c5a4f776440a83dbc131dd83eb8c48c2fa316e189956f9c128d11d96c84dce7f"
     },
     {
+      "version": "0240",
+      "name": "0240_workbench_capabilities.sql",
+      "sha256": "15d506048040c3292a130f7dae5162f47c8aacde070031f3d77a495e9dec2e1f"
+    },
+    {
       "version": "0260",
       "name": "0260_world_model_read.sql",
       "sha256": "35fd729e554af6691ecc279a2d879c95ab746a51d021e18ad9be1891eb39a306"

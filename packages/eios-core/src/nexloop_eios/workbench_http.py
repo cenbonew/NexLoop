@@ -221,6 +221,14 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'me')
 
+    @routes.get('/capabilities')
+    async def capabilities(request: Request):
+        # World model W3: read-only capability catalog (governed capabilities, business Actions, effect categories, channels,
+        # delivery routes, real dispatch switches); no parameters.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'capabilities')
+
     @routes.get('/settings')
     async def settings(request: Request):
         if request.query_params:

@@ -26,6 +26,7 @@ OPEN_STATUSES = ('conditional', 'open', 'in_progress', 'breached')
 VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKBENCH_READ, 'conversation': WORKBENCH_READ,
          'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
          'world_model': WORKBENCH_READ,
+         'capabilities': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -375,6 +376,10 @@ class WorkbenchQueries:
     def world_model(self):
         # Enterprise world model W1 (0260): published model metadata (types, relations, events, Actions, Functions, counts); read only.
         return self.reader.call('world_model')
+
+    def capabilities(self):
+        # World model W3: the tenant's capability catalog (metadata only; dispatch switches from the metrics source, 0153).
+        return self.reader.call('capabilities')
 
     def _commitment(self, view):
         # The promised words are Message content: shown only with that Message's READ (design §6, AT-003).
