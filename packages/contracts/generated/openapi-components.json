@@ -4709,6 +4709,9 @@
                 "zero_cross_tenant",
                 "zero_fact_pollution",
                 "no_forbidden_regression",
+                "semantic_regression",
+                "cost_performance",
+                "semantic_conflict",
                 "index_migration_impact"
               ]
             }
@@ -4903,6 +4906,9 @@
                     "zero_cross_tenant",
                     "zero_fact_pollution",
                     "no_forbidden_regression",
+                    "semantic_regression",
+                    "cost_performance",
+                    "semantic_conflict",
                     "index_migration_impact"
                   ]
                 },
@@ -5103,12 +5109,42 @@
               "inferior",
               "missing_data",
               "budget_exhausted",
-              "validation_leak"
+              "validation_leak",
+              "not_reproducible",
+              "breaking_change"
             ]
           },
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "hard_gates_version": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:@+-]{1,128}$",
+            "description": "NX-039 V2: the frozen gate version the report answers (optional, additive)."
+          },
+          "failed_gates": {
+            "type": "array",
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z_]{1,64}$"
+            },
+            "description": "NX-039 V2: the failed gates in registry order; each gate id is its own rejection code (optional, additive)."
+          },
+          "change_class": {
+            "enum": [
+              "patch",
+              "minor",
+              "major",
+              "refused"
+            ],
+            "description": "NX-039 V2 (D39-7): decided by classify_change, never set by a person or an Agent; major and refused are always rejected (optional, additive)."
+          },
+          "reproduced": {
+            "type": "boolean",
+            "description": "NX-039 V2 (D39-2): the second L0 pass gave the same report (optional, additive)."
           }
         }
       },
@@ -7249,8 +7285,8 @@
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
-    "evolution-evaluation-bundle.schema.json": "3ee5d8ea88702289320c9c04196095ac9ea181e635e0d0154f20e0ad9652cf9e",
-    "evolution-evaluation-report.schema.json": "105b889c94d0dd875d172915ea0aa5a9cd498828ba31b4e3ebbb46e0536e1a11",
+    "evolution-evaluation-bundle.schema.json": "d5c5ee062108703be164919baeffb6c06eb61682e20e1b7fe12499102d82e342",
+    "evolution-evaluation-report.schema.json": "58cf3b1f878279f1e03d05dde1892895d0e7929a7f604083779c114fc01e7aac",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "review-decision.schema.json": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57",
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",

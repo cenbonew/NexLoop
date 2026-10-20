@@ -107,3 +107,7 @@ class EvaluatorStore:
 
     def open(self, candidate_id: str, bundle_digest: str) -> dict:
         return self._call('select authz.nexloop_evo_evaluation_open(%s,%s,%s)', (candidate_id, bundle_digest))
+
+    def conclude(self, report: dict) -> dict:
+        """NX-039 V2: records the evaluator's report and concludes evaluating -> accepted_for_release | rejected | incomplete."""
+        return self._call('select authz.nexloop_evo_evaluation_conclude(%s,%s)', (Jsonb(report),))

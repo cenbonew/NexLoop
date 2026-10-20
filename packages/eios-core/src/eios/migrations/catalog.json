@@ -1185,6 +1185,11 @@
       "version": "0237",
       "name": "0237_nx039_evaluation_open.sql",
       "sha256": "8e81c62d4d8d944a8ca765332c47a994a528332e800564d02ca4b240379783c7"
+    },
+    {
+      "version": "0238",
+      "name": "0238_nx039_gates_conclude.sql",
+      "sha256": "d7e986c7589fb4f944c01c61a3b1baae693481105585d350054d5d1ed37cd776"
     }
   ]
 }
