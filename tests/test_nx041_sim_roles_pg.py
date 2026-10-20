@@ -31,7 +31,8 @@ WHITELIST = {
                                    'authz.nexloop_record_run_tool_timing(text,text,uuid,numeric)', 'authz.nexloop_sim_effect_submit(text,text,jsonb)',
                                    'authz.nexloop_sim_effect_query(text,text,uuid)'},
     # review 1.3: the shared entries only, plus the Host's simulation context (its migration grants it after S6c).
-    'nexloop_sim_api': COMMON | {'authz.nexloop_sim_context_command(text,text,text,integer)'},
+    'nexloop_sim_api': COMMON | {'authz.nexloop_sim_context_command(text,text,text,integer)',
+                                 'authz.nexloop_sim_context_register(text,text,uuid,text,integer)'},  # sim context by reference (0270)
 }
 SIM = 'sim:' + str(uuid.uuid4())
 SAMPLE = ('host', 'agent-host', 'sim-1', {'active_runs': 0})
